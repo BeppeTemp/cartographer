@@ -71,12 +71,20 @@ func registerHookSettings(baseDir, settingsRel, hookName, fullDestDir string) (s
 	if settingsRel != "" {
 		settingsPath = filepath.Join(baseDir, filepath.FromSlash(settingsRel))
 	}
+	_, statErr := os.Lstat(settingsPath)
+	createdFile := errors.Is(statErr, os.ErrNotExist)
 	settings, layout, err := loadOrderedJSONObject(settingsPath)
 	if err != nil {
 		return "", false, err
 	}
 	upsertHookEntry(settings, hookOwnershipMarker(hookName), spec.Event, spec.Matcher, command)
 	err = saveOrderedJSONObject(baseDir, settingsPath, settings, layout)
+	if err == nil && createdFile {
+		rel, relErr := filepath.Rel(baseDir, settingsPath)
+		if relErr == nil {
+			err = configurator.RecordCreated(baseDir, rel)
+		}
+	}
 	return warning, err == nil, err
 }
 
@@ -117,12 +125,15 @@ func removeHookEntries(baseDir, hookName string, rels ...string) error {
 		if !stripHookEntries(settings, hookOwnershipMarker(hookName)) {
 			continue
 		}
-		// A file left as `{}` is no configuration at all: it goes, as hooks.json
-		// does for codex, rather than staying behind after a disconnect (#1269).
-		// Any other key keeps it.
-		if len(settings) == 0 {
+		// A file Cartographer created and left as `{}` goes rather than staying
+		// behind after a disconnect (#1269); any other key, or a file that existed
+		// before us (it is not in the created ledger), keeps it.
+		if len(settings) == 0 && configurator.WasCreated(baseDir, rel) {
 			if err := safewrite.Remove(baseDir, settingsPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("provisioning: remove %s: %w", settingsPath, err)
+			}
+			if err := configurator.ForgetCreated(baseDir, rel); err != nil {
+				return err
 			}
 			continue
 		}

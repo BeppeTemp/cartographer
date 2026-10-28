@@ -57,8 +57,8 @@ func TestRegistryHasOneDescriptorPerProvider(t *testing.T) {
 	}
 }
 
-// .claude.json is Claude Code's own shared state file and is never deleted
-// (D63): the invariant lives in the descriptor now, so assert it there.
+// .claude.json is Claude Code's own shared state file: deleted only when we
+// created it (DeleteOnlyIfCreated, #1269), the invariant lives in the descriptor.
 func TestEveryConfigIsDeletableWhenEmpty(t *testing.T) {
 	// Claude's .claude.json is shared state, but a removal that leaves `{}` has
 	// nothing of Claude's to keep either (#1269); one holding another key is

@@ -834,3 +834,54 @@ func TestRemove_ClaudeJSONKeepsOtherKeys(t *testing.T) {
 		t.Errorf("an emptied .claude.json must be removed: %v", err)
 	}
 }
+
+// #1269: a .claude.json the user already had, even `{}`, is reduced and kept;
+// only one Cartographer created goes (TestRemove_ClaudeJSONKeepsOtherKeys).
+func TestRemove_ClaudeJSONUserOwnEmptyObjectStays(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, dir, false); err != nil || !ok {
+		t.Fatalf("Remove = %v, %v", ok, err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the user's own .claude.json must stay: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, configurator.CreatedLedgerName)); !os.IsNotExist(err) {
+		t.Errorf("no ledger expected for a file we did not create: %v", err)
+	}
+}
+
+// The created file goes and takes its ledger with it; a dry run reports the same.
+func TestRemove_ClaudeJSONCreatedByUsLeavesNoLedger(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	dry, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, dir, true)
+	if err != nil || !dry {
+		t.Fatalf("dry Remove = %v, %v", dry, err)
+	}
+	if ok, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, dir, false); err != nil || !ok {
+		t.Fatalf("Remove = %v, %v", ok, err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 0 {
+		t.Errorf("residue after round trip: %v", entries)
+	}
+}

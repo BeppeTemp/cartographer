@@ -406,7 +406,7 @@ The inverse of `connect`: for each target provider — default `all` = every pro
 in the client state — it surgically removes every managed MCP server entry (the bare name and
 any persisted per-KB suffixed names) from that provider's
 config file (`internal/configurator.Remove`, the inverse non-destructive merge: the rest of the
-file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file itself is deleted only when it is left an empty shell and the provider's registry entry sets `DeletableWhenEmpty`: `.claude.json` and `.claude/settings.json` go only when removing our entries leaves `{}`, never while they hold another key), prunes the
+file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file itself is deleted only when it is left an empty shell and the provider's registry entry sets `DeletableWhenEmpty`: `.claude.json` and the Claude Code hook settings files go only when Cartographer created them (recorded in `.cartographer-created.json` in the base dir, itself deleted with its last entry) and removing our entries leaves `{}`; a file that existed before, even as `{}`, or that holds another key, is kept), prunes the
 managed artifacts registered for that provider in the lockfile (`provisioning.PruneManaged` — only
 managed files, never untracked ones), then removes the provider from the lockfile and from
 the client state. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
@@ -414,7 +414,7 @@ on the other hand, is **never deleted** (D64): with zero agents it stays on disk
 preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
 The client state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`,
-`.cartographer-client.lock` (in the config directory) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). To remove every trace, delete them by hand once the last provider is disconnected.
+`.cartographer-client.lock` (in the config directory), `.cartographer-created.json` (in the home or workspace, only while a Claude Code file it created is kept because it holds other keys) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). To remove every trace, delete them by hand once the last provider is disconnected.
 
 ```bash
 cartographer disconnect                # every connected provider

@@ -57,6 +57,9 @@ type Descriptor struct {
 	// shared state file (model, permissions, agent state), so one that still
 	// holds any key is only reduced, never deleted (#1269).
 	DeletableWhenEmpty bool
+	// DeleteOnlyIfCreated narrows DeletableWhenEmpty to a file Cartographer
+	// created (CreatedLedgerName): a user's own `{}` .claude.json stays.
+	DeleteOnlyIfCreated bool
 
 	// SupportsMCPHeaders says whether the provider can carry per-server HTTP
 	// headers (auth) in its MCP config. False for kiro, whose emitter has
@@ -138,16 +141,17 @@ type EnvAnchoredDir struct {
 // subcommands iterate providers. That order is user-visible; keep it stable.
 var descriptors = []Descriptor{
 	{
-		Provider:           ProviderClaudeCode,
-		DisplayName:        "Claude Code",
-		MCPConfigPath:      ".claude.json",
-		MCPFormat:          FormatJSON,
-		MCPServerKey:       "mcpServers",
-		DeletableWhenEmpty: true,
-		SupportsMCPHeaders: true,
-		Binaries:           []string{"claude"},
-		ConfigDirs:         [][]string{{".claude"}},
-		emit:               emitClaudeCodeServer,
+		Provider:            ProviderClaudeCode,
+		DisplayName:         "Claude Code",
+		MCPConfigPath:       ".claude.json",
+		MCPFormat:           FormatJSON,
+		MCPServerKey:        "mcpServers",
+		DeletableWhenEmpty:  true,
+		DeleteOnlyIfCreated: true,
+		SupportsMCPHeaders:  true,
+		Binaries:            []string{"claude"},
+		ConfigDirs:          [][]string{{".claude"}},
+		emit:                emitClaudeCodeServer,
 	},
 	{
 		Provider:           ProviderCodex,

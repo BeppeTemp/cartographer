@@ -15,6 +15,7 @@ package provisioning
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,6 +72,8 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	}
 
 	settingsPath := filepath.Join(baseDir, r.FilePath)
+	_, statErr := os.Lstat(settingsPath)
+	createdFile := errors.Is(statErr, os.ErrNotExist)
 	settings, err := loadJSONObject(settingsPath)
 	if err != nil {
 		return "", nil, err
@@ -99,6 +102,11 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 
 	if err := saveJSONObject(baseDir, settingsPath, settings); err != nil {
 		return "", nil, err
+	}
+	if d, ok := configurator.Lookup(provider); ok && createdFile && d.DeleteOnlyIfCreated {
+		if err := configurator.RecordCreated(baseDir, r.FilePath); err != nil {
+			return "", nil, err
+		}
 	}
 	return r.FilePath, r.Warnings, nil
 }
@@ -154,9 +162,12 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 		settings[key] = servers
 	}
 
-	if d, ok := configurator.Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyMCPProviderShell(settings) {
+	if d, ok := configurator.Lookup(provider); ok && configurator.MayDeleteEmpty(d, baseDir, filePath) && isEmptyMCPProviderShell(settings) {
 		if err := safewrite.Remove(baseDir, fullPath); err != nil {
 			return fmt.Errorf("provisioning: remove %s: %w", fullPath, err)
+		}
+		if err := configurator.ForgetCreated(baseDir, filePath); err != nil {
+			return err
 		}
 		pruneEmptyDirs(baseDir, filePath)
 		return nil

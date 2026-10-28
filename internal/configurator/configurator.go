@@ -263,6 +263,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		}
 
 		content := r.Content
+		created := false
 		// Non-destructive merge for JSON files: merge our entry into existing content.
 		// Non-JSON files (e.g. SKILL.md) are always overwritten.
 		if filepath.Ext(fullPath) == ".json" {
@@ -272,11 +273,18 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 					return written, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, mergeErr)
 				}
 				content = merged
+			} else if os.IsNotExist(err) {
+				created = true
 			}
 		}
 
 		if err := safewrite.WriteFileNoFollow(fullPath, content, 0o644); err != nil {
 			return written, fmt.Errorf("write %s: %w", fullPath, err)
+		}
+		if d, ok := Lookup(r.Provider); ok && created && d.DeleteOnlyIfCreated {
+			if err := RecordCreated(absoluteBaseDir, r.FilePath); err != nil {
+				return written, fmt.Errorf("record %s: %w", fullPath, err)
+			}
 		}
 		written = append(written, r.AbsolutePath)
 		migrateLegacyOpenCode(r, absoluteBaseDir, false)
@@ -491,9 +499,12 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 	// leaves nothing behind but that (now-deleted) key and, for opencode, the
 	// "$schema" hint, there is nothing worth keeping — delete the file outright
 	// instead of leaving an empty shell nobody reads.
-	if d, ok := Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyProviderShell(root) {
+	if d, ok := Lookup(provider); ok && MayDeleteEmpty(d, baseDir, r.FilePath) && isEmptyProviderShell(root) {
 		if err := safewrite.Remove(baseDir, fullPath); err != nil {
 			return false, fmt.Errorf("remove %s: %w", fullPath, err)
+		}
+		if err := ForgetCreated(baseDir, r.FilePath); err != nil {
+			return false, err
 		}
 		// Best-effort (D63): also drop the file's own parent directory if that
 		// leaves it empty too — kiro's mcp.json lives in ".kiro/settings/", a
