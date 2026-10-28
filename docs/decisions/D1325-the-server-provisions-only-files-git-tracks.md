@@ -1,5 +1,5 @@
 ---
-topic: sync
+topic: client
 ---
 
 # D1325 — The server builds KB artifacts only from files git tracks
