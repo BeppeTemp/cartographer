@@ -491,6 +491,9 @@ func TestLockHoldsNothing_UnreadableLockKeepsTheMigration(t *testing.T) {
 	}
 	if lockHoldsNothing(dir) {
 		t.Fatal("an unparseable lockfile must not count as empty")
+	}
+}
+
 // #1299: connect classifies why the sync_pull after the config write failed.
 // A transport failure defers the skill sync; a refused credential or a pin
 // that does not verify is an error, and .cartographer.yaml is not saved.
