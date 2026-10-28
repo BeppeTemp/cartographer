@@ -72,12 +72,22 @@ func TestConceptWriteLargeBodyIsFast(t *testing.T) {
 	}
 }
 
+func TestConceptWriteRefusesAnOversizeFrontmatter(t *testing.T) {
+	k := kbtest.New(t)
+	tool := toolConceptWrite(k, nil, nil)
+	raw, _ := json.Marshal(map[string]interface{}{"id": "notes/huge-fm", "frontmatter": map[string]interface{}{"type": "Note", "title": "Huge", "blob": strings.Repeat("x", kb.MaxConceptBytes)}, "body": "small"})
+	res, err := tool.Handler(authLocalContext(), raw)
+	if err != nil || !res.IsError || !strings.Contains(res.Content[0].Text, "concept_too_large") || !strings.Contains(res.Content[0].Text, "1 MiB") {
+		t.Fatalf("res = %+v, %v", res, err)
+	}
+}
+
 func TestConceptWriteRefusesAnOversizeBody(t *testing.T) {
 	k := kbtest.New(t)
 	tool := toolConceptWrite(k, nil, nil)
-	raw, _ := json.Marshal(map[string]interface{}{"id": "notes/huge", "frontmatter": map[string]interface{}{"type": "Note", "title": "Huge"}, "body": strings.Repeat("x", kb.MaxConceptBodyBytes+1)})
+	raw, _ := json.Marshal(map[string]interface{}{"id": "notes/huge", "frontmatter": map[string]interface{}{"type": "Note", "title": "Huge"}, "body": strings.Repeat("x", kb.MaxConceptBytes+1)})
 	res, err := tool.Handler(authLocalContext(), raw)
-	if err != nil || !res.IsError || !strings.Contains(res.Content[0].Text, "body_too_large") || !strings.Contains(res.Content[0].Text, "1 MiB") {
+	if err != nil || !res.IsError || !strings.Contains(res.Content[0].Text, "concept_too_large") || !strings.Contains(res.Content[0].Text, "1 MiB") {
 		t.Fatalf("res = %+v, %v", res, err)
 	}
 }
@@ -90,7 +100,7 @@ func TestConceptPatchRefusesAnExistingOversizePage(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	raw := "---\ntype: Note\ntitle: Huge\n---\nUNIQUE-MARK\n" + strings.Repeat("x", kb.MaxConceptBodyBytes+10) + "\n"
+	raw := "---\ntype: Note\ntitle: Huge\n---\nUNIQUE-MARK\n" + strings.Repeat("x", kb.MaxConceptBytes+10) + "\n"
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +116,7 @@ func TestConceptPatchRefusesAnExistingOversizePage(t *testing.T) {
 		args["id"], args["if_match"] = "notes/huge", cd.ContentHash
 		in, _ := json.Marshal(args)
 		res, err := tool.Handler(authLocalContext(), in)
-		if err != nil || !res.IsError || !strings.Contains(res.Content[0].Text, "body_too_large") {
+		if err != nil || !res.IsError || !strings.Contains(res.Content[0].Text, "concept_too_large") {
 			t.Fatalf("%s: res = %+v, %v", name, res, err)
 		}
 	}

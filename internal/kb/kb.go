@@ -1368,11 +1368,12 @@ func stubExpandedIndex(dirAbs, child string) error {
 	return writeFileAtomic(filepath.Join(dirAbs, "index.md"), []byte(content))
 }
 
-// MaxConceptBodyBytes caps the body of a concept write (#1276). It is far above
-// a real page and bounds the work every write-time check does on one body.
-// RepairConcept is exempt: it rewrites a page that already exists, and a repair
-// must not wait on its size.
-const MaxConceptBodyBytes = 1 << 20
+// MaxConceptBytes caps the whole file of a concept write, serialized
+// frontmatter and body together (#1276, #1301). It is far above a real page and
+// bounds the work every write-time check does on one concept. RepairConcept is
+// exempt: it rewrites a page that already exists, and a repair must not wait on
+// its size.
+const MaxConceptBytes = 1 << 20
 
 // WriteConcept writes a concept to the KB with OKF semantic validation and optimistic concurrency.
 // If ifMatch is non-empty and the file exists, the current ContentHash must match ifMatch.
@@ -1462,11 +1463,6 @@ func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body st
 // RepairConcept (D356): the concept must exist, and the type and depth rules
 // reject only what the write would add to the errors the page already has.
 func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded, repair, keepName bool) (*writeConceptPlan, error) {
-	// The cap binds every write but a kb_repair rewrite (D1276), the
-	// keep-name path of a move or transfer included.
-	if !repair && len(body) > MaxConceptBodyBytes {
-		return nil, fmt.Errorf("%w: body_too_large: the body of %s is %d bytes, over the %d-byte (1 MiB) limit of a concept write; split the page into linked concepts", okf.ErrInvalidConcept, id, len(body), MaxConceptBodyBytes)
-	}
 	if id == "" {
 		return nil, fmt.Errorf("%w: empty ConceptID", okf.ErrInvalidConcept)
 	}
@@ -1561,11 +1557,20 @@ func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, bod
 	if body != "" && !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
+	if err := fm.Validate(); err != nil {
+		return nil, err
+	}
 	serialized := fm.Serialize()
+	content := "---\n" + serialized + "\n---\n" + body
+	// The cap binds every write but a kb_repair rewrite (D1276), the keep-name
+	// path of a move or transfer included, and counts the whole file: a huge
+	// frontmatter value is as much a concept as a huge body (#1301).
+	if !repair && len(content) > MaxConceptBytes {
+		return nil, fmt.Errorf("%w: concept_too_large: %s is %d bytes (frontmatter %d + body %d), over the %d-byte (1 MiB) limit of a concept file; split the page into linked concepts", okf.ErrInvalidConcept, id, len(content), len(serialized), len(body), MaxConceptBytes)
+	}
 	if err := okf.VerifyRoundTrip(serialized); err != nil {
 		return nil, fmt.Errorf("%w: %v", okf.ErrInvalidConcept, err)
 	}
-	content := "---\n" + serialized + "\n---\n" + body
 
 	// Detect implicit expansion (map/concept, level 2) *before* MkdirAll:
 	// only stub index.md when the expanded directory itself is new.

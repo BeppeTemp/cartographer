@@ -495,7 +495,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 
 		// --- orphan ---
-		if f, ok := orphanFinding(id, relPath, isRetired(id), incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }, func() bool { return census.only(id, archiveSet) }); ok {
+		if f, ok := orphanFinding(id, relPath, isRetired(id), ledgerEntryOf(lg, id), incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }, func() bool { return census.only(id, archiveSet) }); ok {
 			emit(f)
 		}
 
@@ -913,6 +913,12 @@ func (c *liveCensus) only(id okf.ConceptID, archiveSet map[string]bool) bool {
 	return hasRest && rest != "" && archiveSet[first] && c.byFirst[first] == 1
 }
 
+// ledgerEntryOf says whether id is a Source concept (D278), by the graph's facet.
+func ledgerEntryOf(lg *kb.LinkGraph, id okf.ConceptID) bool {
+	i, ok := lg.Index[id]
+	return ok && kb.IsSourceType(lg.Facets[i].Type)
+}
+
 // orphanFinding is the orphan check for one concept (shared with ScopedCheck,
 // D312). in and out are the link graph's edges; present says whether a link
 // target is an existing concept; isRetired is the concept's status, already
@@ -920,7 +926,7 @@ func (c *liveCensus) only(id okf.ConceptID, archiveSet map[string]bool) bool {
 // one of its archive or of the KB: the write that creates a first page cannot
 // link it to anything yet, and the map's index reaches it, so it is not an
 // orphan (D1099); the next page of the archive links as usual.
-func orphanFinding(id okf.ConceptID, relPath string, isRetired bool, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool, cited func(okf.ConceptID) bool, loneLive func() bool) (Finding, bool) {
+func orphanFinding(id okf.ConceptID, relPath string, isRetired, ledgerEntry bool, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool, cited func(okf.ConceptID) bool, loneLive func() bool) (Finding, bool) {
 	// A retired concept is not asked to be linked: link_to_retired and
 	// index_lists_retired push links away from it, so an orphan finding would
 	// contradict them (D826).
@@ -953,6 +959,11 @@ func orphanFinding(id okf.ConceptID, relPath string, isRetired bool, in, out map
 			Path:    relPath,
 			Message: "no incoming links",
 		}), true
+	case outgoing == 0 && ledgerEntry:
+		// A Source registered in its journal is a leaf by nature: it records a
+		// source before any page cites it (D278), and the curated index entry
+		// source_register adds is what reaches it (#1297).
+		return Finding{}, false
 	case outgoing == 0:
 		return newFinding("orphan", Finding{
 			Path:    relPath,

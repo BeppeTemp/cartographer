@@ -705,3 +705,252 @@ func TestDoDisconnect_KeepsClientConfigsWithOtherKeys(t *testing.T) {
 		t.Errorf(".claude.json = %s, want only the user's key", data)
 	}
 }
+
+// disconnect removes what the provider's workspace projections wrote (#1324):
+// the repository keeps what was there before, the binding goes, and the
+// summary names the repository it cleaned.
+func TestDoDisconnect_CleansTheWorkspaceProjections(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "codex")
+	ws := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		full := filepath.Join(ws, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("README.md", "mine\n")
+	write(".claude/settings.local.json", "{}\n") // there before, not recorded
+	write(".claude/skills/runbooks/SKILL.md", "---\ntype: skill\n---\nrunbooks\n")
+	write(".claude/agents/ops.md", "agent\n")
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", ws, []string{"kb-a"}); err != nil {
+		t.Fatalf("BindWorkspace: %v", err)
+	}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canon, _ := clientconfig.CanonicalWorkspacePath(ws)
+	sh, err := provisioning.ContentHashDirOSForKind(filepath.Join(ws, ".claude/skills/runbooks"), "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ah := provisioning.ContentHashFiles([]provisioning.ArtifactFile{{Path: "ops.md", Content: []byte("agent\n")}})
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
+		{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md", ContentHash: sh, MaterializedHash: sh},
+		{Kind: "agent", Name: "ops", Path: ".claude/agents/ops.md", ContentHash: ah, MaterializedHash: ah},
+	}}, "")
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	// A dry run reports the repository and touches nothing.
+	dry, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dry.Providers[0].Workspaces) != 1 {
+		t.Fatalf("dry run workspaces = %+v", dry.Providers[0].Workspaces)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".claude/agents/ops.md")); err != nil {
+		t.Fatalf("a dry run removed a file: %v", err)
+	}
+
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	if got := res.Providers[0].Workspaces; len(got) != 1 || len(got[0].Pruned) != 2 {
+		t.Fatalf("workspaces cleaned = %+v, want one with 2 files", got)
+	}
+	for _, rel := range []string{".claude/skills/runbooks/SKILL.md", ".claude/agents/ops.md"} {
+		if _, err := os.Stat(filepath.Join(ws, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s survived the disconnect (err=%v)", rel, err)
+		}
+	}
+	for _, rel := range []string{"README.md", ".claude/settings.local.json"} {
+		if _, err := os.Stat(filepath.Join(ws, rel)); err != nil {
+			t.Errorf("%s was there before and must stay: %v", rel, err)
+		}
+	}
+	after, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Workspaces["claude"]) != 0 || after.WorkspaceScope("claude") == clientconfig.ScopeWorkspace {
+		t.Errorf("the binding of the disconnected provider survived: %+v", after.Workspaces)
+	}
+	lf2, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lf2.Workspaces) != 0 {
+		t.Errorf("the workspace projection stayed in the lockfile: %+v", lf2.Workspaces)
+	}
+	if _, ok := lf2.Providers["codex"]; !ok {
+		t.Error("the other provider lost its lock section")
+	}
+	out := withStdout(t, func() { printDisconnectSummary(res, false) })
+	if !strings.Contains(out, "cleaned the projection in "+canon) && !strings.Contains(out, "cleaned the projection in "+ws) {
+		t.Errorf("the summary does not name the repository:\n%s", out)
+	}
+}
+
+// The repository is the user's working copy: a file edited since the sync stays,
+// an untouched one goes, and a lockfile path that leaves the repository is never
+// followed (#1324 review).
+func TestDoDisconnect_WorkspacePruneKeepsEditedFilesAndStaysInside(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude")
+	ws := t.TempDir()
+	canon, _ := clientconfig.CanonicalWorkspacePath(ws)
+	outside := filepath.Join(filepath.Dir(canon), "outside-"+filepath.Base(canon)+".txt")
+	if err := os.WriteFile(outside, []byte("not ours\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(outside) })
+
+	// Materialize two real skills so the recorded hashes are the real ones.
+	var managed []provisioning.ManagedFile
+	for _, name := range []string{"edited", "pristine"} {
+		skillDir := filepath.Join(canon, ".claude", "skills", name)
+		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: "+name+"\n---\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		h, err := provisioning.ContentHashDirOSForKind(skillDir, "skill")
+		if err != nil {
+			t.Fatal(err)
+		}
+		managed = append(managed, provisioning.ManagedFile{Kind: "skill", Name: name,
+			Path: filepath.Join(".claude", "skills", name, "SKILL.md"), ContentHash: h, MaterializedHash: h})
+	}
+	managed = append(managed, provisioning.ManagedFile{Kind: "agent", Name: "evil", Path: "../" + filepath.Base(outside), ContentHash: "h"})
+	if err := os.WriteFile(filepath.Join(canon, ".claude", "skills", "edited", "SKILL.md"), []byte("mine now\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: managed}, "")
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(canon, ".claude/skills/edited/SKILL.md")); err != nil {
+		t.Errorf("the edited skill was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(canon, ".claude/skills/pristine/SKILL.md")); !os.IsNotExist(err) {
+		t.Errorf("the untouched skill survived: %v", err)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("a path outside the repository was removed: %v", err)
+	}
+	out := withStdout(t, func() { printDisconnectSummary(res, false) })
+	for _, want := range []string{"kept .claude/skills/edited: changed since sync", "not a path inside the repository"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// A dry run of two providers sharing a repository file reports it once, as the
+// real run would (the first provider's projection is gone when the second is
+// looked at).
+func TestDoDisconnect_DryRunSimulatesTheFirstProvidersRemoval(t *testing.T) {
+	dir := setupDisconnectFixture(t, "codex", "antigravity")
+	ws := t.TempDir()
+	canon, _ := clientconfig.CanonicalWorkspacePath(ws)
+	shared := filepath.Join(canon, ".agents", "skills", "s", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(shared), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shared, []byte("---\nname: s\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(dir))
+	for _, p := range []string{"codex", "antigravity"} {
+		lf.SetProjection(provisioning.Projection{Provider: p, Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
+			{Kind: "skill", Name: "s", Path: ".agents/skills/s/SKILL.md", ContentHash: "x"},
+		}}, "")
+	}
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+	dry, err := doDisconnect(disconnectOptions{Providers: []string{"codex", "antigravity"}, Dir: dir, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, pr := range dry.Providers {
+		for _, w := range pr.Workspaces {
+			total += len(w.Pruned)
+		}
+	}
+	real, err := doDisconnect(disconnectOptions{Providers: []string{"codex", "antigravity"}, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	realTotal := 0
+	for _, pr := range real.Providers {
+		for _, w := range pr.Workspaces {
+			realTotal += len(w.Pruned)
+		}
+	}
+	if total != realTotal {
+		t.Errorf("dry run reports %d workspace files, the real run %d", total, realTotal)
+	}
+}
+
+// A skill whose recorded hash is empty (a lockfile older than D138) cannot be
+// compared, so the workspace prune keeps it rather than guess.
+func TestDoDisconnect_WorkspacePruneKeepsWhatItCannotVerify(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude")
+	canon, _ := clientconfig.CanonicalWorkspacePath(t.TempDir())
+	skill := filepath.Join(canon, ".claude", "skills", "old", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("---\nname: old\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(dir))
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
+		{Kind: "skill", Name: "old", Path: ".claude/skills/old/SKILL.md"},
+	}}, "")
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(skill); err != nil {
+		t.Errorf("an unverifiable skill was removed: %v", err)
+	}
+	out := withStdout(t, func() { printDisconnectSummary(res, false) })
+	if !strings.Contains(out, "could not be verified") {
+		t.Errorf("summary does not say why it was kept:\n%s", out)
+	}
+}

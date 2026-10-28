@@ -2776,8 +2776,11 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		body += "\n\n" + sentence
 	}
 
+	unchanged := false
 	if !opts.DryRun {
-		if err := writeInstructionsBlock(opts.BaseDir, fullPath, body); err != nil {
+		changed, err := writeInstructionsBlockChanged(opts.BaseDir, fullPath, body)
+		unchanged = err == nil && !changed
+		if err != nil {
 			if !errors.Is(err, ErrSymlinkDestination) {
 				return fmt.Errorf("provisioning: write instructions block %s: %w", destRel, err)
 			}
@@ -2805,6 +2808,9 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		}
 	}
 
+	if unchanged {
+		return nil
+	}
 	for _, a := range signed {
 		result.Written = append(result.Written, ManagedFile{
 			Kind: a.Kind, Name: a.Name, Path: destRel, ContentHash: contentHashes[a.Name], Source: a.Source,
@@ -3305,30 +3311,42 @@ func PreflightStdioMCP(m Manifest, opts ApplyOptions) error {
 // baseDir is the client directory path lives under: a file, or a directory
 // component below baseDir, that is a symlink is refused (D148).
 func writeInstructionsBlock(baseDir, path, body string) error {
+	_, err := writeInstructionsBlockChanged(baseDir, path, body)
+	return err
+}
+
+// writeInstructionsBlockChanged is writeInstructionsBlock that also says
+// whether the file changed. A file whose bytes would come out the same is not
+// written: its mtime stays and the caller reports no write (#1326).
+func writeInstructionsBlockChanged(baseDir, path, body string) (bool, error) {
 	block := instructionsBlockBegin + "\n" + body + "\n" + instructionsBlockEnd + "\n"
 
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
-			return err
+			return false, err
 		}
-		return writeFileNoFollow(path, []byte(block), 0o644)
+		return true, writeFileNoFollow(path, []byte(block), 0o644)
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// An existing file is written through its directory chain too: the walk
-	// refuses a symlinked directory the read above went through.
+	// refuses a symlinked directory the read above went through. It runs
+	// before the comparison, so an unchanged file behind a link is still refused.
 	if err := safewrite.CheckPath(baseDir, path); err != nil {
-		return err
+		return false, err
 	}
 	content := string(data)
-	if replaced, ok := replaceBetweenMarkers(content, block); ok {
-		return writeFileNoFollow(path, []byte(replaced), 0o644)
+	next, ok := replaceBetweenMarkers(content, block)
+	if !ok {
+		next = appendBlock(content, block)
 	}
-
-	return writeFileNoFollow(path, []byte(appendBlock(content, block)), 0o644)
+	if next == content {
+		return false, nil
+	}
+	return true, writeFileNoFollow(path, []byte(next), 0o644)
 }
 
 // removeInstructionsBlock removes the managed block (markers included) from

@@ -247,8 +247,15 @@ func Create(kbRoot, relativePath, pointer, value, keyFile string, env ...string)
 		return err
 	}
 	defer cleanup()
-	cmd := exec.Command("sops", "--config", filepath.Join(kbRoot, ".sops.yaml"), "encrypt", "--filename-override", filepath.ToSlash(relativePath), "--input-type", "yaml", "--output-type", "yaml")
-	cmd.Dir = kbRoot
+	// sops matches path_regex on the file name relative to the config, and finds
+	// its cwd through the OS, which reports the symlink-free path: a config named
+	// through a symlink (macOS /var -> /private/var) matches no rule (#1337).
+	realRoot, err := filepath.EvalSymlinks(kbRoot)
+	if err != nil {
+		return newError(nil, err, "cannot resolve the KB root")
+	}
+	cmd := exec.Command("sops", "--config", filepath.Join(realRoot, ".sops.yaml"), "encrypt", "--filename-override", filepath.ToSlash(relativePath), "--input-type", "yaml", "--output-type", "yaml")
+	cmd.Dir = realRoot
 	cmd.Stdin = bytes.NewReader(plain)
 	cmd.Env = childEnv
 	var stdout bytes.Buffer

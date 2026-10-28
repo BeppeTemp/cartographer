@@ -171,7 +171,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		for _, f := range forbiddenTermFindings(relPath, data.Body, glossary) {
 			emit(f)
 		}
-		if f, ok := orphanFinding(id, relPath, retired(lg.Facets[node].Status), links.In, links.Out, archiveSet, present, provCited, func() bool {
+		if f, ok := orphanFinding(id, relPath, retired(lg.Facets[node].Status), kb.IsSourceType(lg.Facets[node].Type), links.In, links.Out, archiveSet, present, provCited, func() bool {
 			if census == nil {
 				census = newLiveCensus(lg)
 			}

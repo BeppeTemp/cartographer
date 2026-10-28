@@ -248,7 +248,7 @@ provider from one machine-wide catalogue to one projection per bound repository:
 that repository's own project-local directories and nothing KB-sourced is written under `$HOME`. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
 it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
 them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
-prunes what was projected there; a path never bound for that provider is an error (exit 1). `workspace bind` dedupes `--kb` and,
+prunes what was projected there; a path never bound for that provider is an error (exit 1). `workspace bind` refuses a provider that is not connected (`<provider> is not connected`, exit 2, as `client bind` does), dedupes `--kb` and,
 like `client bind`, refuses a KB the server does not mount when the server answers with its list (exit 2); with the server unreachable it warns and binds. For Codex, `workspace bind codex <path> --kb <name>… --trust` also records the
 folder as trusted in `~/.codex/config.toml`, so the projection is not born `inactive` (one explicit, narrow
 write; without the flag `bind` prints the line to add; `unbind` and a derived binding never touch it; refusal
@@ -411,13 +411,17 @@ any persisted per-KB suffixed names) from that provider's
 config file (`internal/configurator.Remove`, the inverse non-destructive merge: the rest of the
 file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file itself is deleted only when it is left an empty shell and the provider's registry entry sets `DeletableWhenEmpty`: `.claude.json` and the Claude Code hook settings files go only when Cartographer created them (recorded in `.cartographer-created.json` in the base dir, itself deleted with its last entry) and removing our entries leaves `{}`; a file that existed before, even as `{}`, or that holds another key, is kept), prunes the
 managed artifacts registered for that provider in the lockfile (`provisioning.PruneManaged` — only
-managed files, never untracked ones), then removes the provider from the lockfile and from
-the client state. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
+managed files, never untracked ones) and what its **workspace projections** wrote in each bound
+repository (the files the lockfile records for them, exactly as `workspace unbind` + `sync` would; what
+was there before stays, a skill, agent or hook that no longer hashes to what the sync wrote stays and is reported
+as `kept <path>: changed since sync`, a lockfile path that is not inside the repository is never followed, and a file
+another provider's projection of the same repository still records stays too), prints which repositories it cleaned, then removes the provider from the
+lockfile and from the client state, its workspace bindings and projection scope included (#1324). If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
 preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
 The client state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`,
-`.cartographer-client.lock` (in the config directory), `.cartographer-created.json` (in the home or workspace, only while a Claude Code file it created is kept because it holds other keys) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). To remove every trace, delete them by hand once the last provider is disconnected.
+`.cartographer-client.lock` (in the config directory), `.cartographer-created.json` (in the home or workspace, only while a Claude Code file it created is kept because it holds other keys) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). `.cartographer-client.lock` is an empty lock file, not state: the first sync or connect creates it and a dry run does not announce it. To remove every trace, delete them by hand once the last provider is disconnected.
 
 ```bash
 cartographer disconnect                # every connected provider
@@ -454,7 +458,7 @@ prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verif
 `approved`, `approval_stale` or `needs_approval` — see [D115](decisions/D115-mcp-allow-list-and-hash-bound-local-approval.md)
 for the MCP-specific approval states; an unsigned KB artifact that is not an MCP descriptor, a hook or an executable file is `trusted`: it is installed,
 D906). Artifacts in `needs_approval`/`approval_stale` get their own
-`cartographer approve <kind> <name> --kb <kb>` hint. Before the artifact report it prints the
+`cartographer approve <kind> <name> --kb <kb>` hint. A pending hook also names the file the sync registers it in, resolved by the function the sync prints with (a derived workspace binding: `.claude/settings.local.json`, #1300). Before the artifact report it prints the
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
 code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
 (D121: it replaces the running service **and** re-syncs the providers in place, where the former
@@ -1249,7 +1253,7 @@ from its lock entry, or that is not in the lockfile, stays `needs_approval`. The
 marker, `approvals_migrated`, is a key of `.cartographer.yaml` beside `mcp_approvals` (so losing the state file cannot re-arm it), is never cleared, and is not set by a dry run or
 by a sync that could not pull every KB, so a later `approve revoke` is never undone. A `sync -dry-run` before it
 previews it: `would approve <kind>/<name> [kb:<kb>]: installed before approvals existed, unchanged` for what the real
-sync would approve, `needs_approval` only for the rest, and the marker stays untouched (#1176).
+sync would approve, `needs_approval` only for the rest, and the marker stays untouched (#1176). A first `connect` of a client with no agent and no install yet writes the marker itself, so its first sync does not rewrite `.cartographer.yaml` (#1302); a client that is already connected keeps it unset until its own first sync.
 
 Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml`, machine-wide —
 `clientconfig.TargetDir`, D52): it records which server the machine is connected to (the connected providers are in the client state file, below). One file per machine, not per project: this avoids drift with a provider

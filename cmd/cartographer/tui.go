@@ -674,6 +674,9 @@ func summarizeDisconnect(res disconnectResult) string {
 	if n := len(pr.Pruned); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d skill file(s) pruned", n))
 	}
+	if n := len(pr.Workspaces); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d workspace(s) cleaned", n))
+	}
 	if len(pr.Refused) > 0 {
 		parts = append(parts, "kept connected: "+strings.Join(pr.Refused, "; "))
 	}

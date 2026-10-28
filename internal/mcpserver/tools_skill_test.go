@@ -168,6 +168,78 @@ func TestServiceGet_RevealWithoutResolveSecrets_IsNoop(t *testing.T) {
 	}
 }
 
+// fakeSopsPerFile installs a fake "sops" whose output depends on the file it
+// is asked to decrypt (the last argument), so a two-file secrets_source can be
+// told apart.
+func fakeSopsPerFile(t *testing.T, outputs map[string]string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake sops script requires a POSIX shell, skipping on windows")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\nfor last; do :; done\ncase \"$last\" in\n"
+	for file, out := range outputs {
+		script += file + ") printf '%s\\n' '" + out + "';;\n"
+	}
+	script += "*) exit 1;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(dir, "sops"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func writeSourceService(t *testing.T, k *kb.KB, sourceField string, files ...string) {
+	t.Helper()
+	svc := "---\ntype: Service\ntitle: Test Service\nsecrets_source: " + sourceField + "\n---\nBody.\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "svc-test.md"), []byte(svc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(k.Root, f), []byte("placeholder"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// secrets_source is a list (the shape lint enforces); a one-element list
+// resolves as a plain string does (#1323).
+func TestServiceGet_SecretsSource_OneElementList(t *testing.T) {
+	fakeSopsInPathMCP(t)
+	k := setupServiceTestKB(t, "/tmp/age-key.txt")
+	writeSourceService(t, k, "[secrets/test.sops.yaml]")
+
+	res := callServiceGetArgs(t, k, map[string]any{"service_id": "svc-test", "resolve_secrets": true, "reveal": true})
+	if res.IsError || !strings.Contains(res.Content[0].Text, "db_password=super-secret") {
+		t.Fatalf("one-element list: %v", res.Content)
+	}
+}
+
+// Every listed file is resolved, in order; a key in two files is an error
+// naming both, with no server path.
+func TestServiceGet_SecretsSource_TwoFiles(t *testing.T) {
+	k := setupServiceTestKB(t, "/tmp/age-key.txt")
+	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "b.sops.yaml"), []byte("placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fakeSopsPerFile(t, map[string]string{"secrets/test.sops.yaml": "alpha: one", "secrets/b.sops.yaml": "beta: two"})
+	writeSourceService(t, k, "[secrets/test.sops.yaml, secrets/b.sops.yaml]")
+
+	res := callServiceGetArgs(t, k, map[string]any{"service_id": "svc-test", "resolve_secrets": true, "reveal": true})
+	if res.IsError || !containsAll(res.Content[0].Text, []string{"alpha=one", "beta=two"}) {
+		t.Fatalf("two files: %v", res.Content)
+	}
+
+	fakeSopsPerFile(t, map[string]string{"secrets/test.sops.yaml": "alpha: one", "secrets/b.sops.yaml": "alpha: two"})
+	res = callServiceGetArgs(t, k, map[string]any{"service_id": "svc-test", "resolve_secrets": true, "reveal": true})
+	text := res.Content[0].Text
+	if !res.IsError || !containsAll(text, []string{`"alpha"`, "secrets/test.sops.yaml", "secrets/b.sops.yaml"}) || strings.Contains(text, k.Root) {
+		t.Fatalf("duplicate key: %v", res.Content)
+	}
+	if strings.Contains(text, "one") || strings.Contains(text, "two") {
+		t.Errorf("a value leaked: %q", text)
+	}
+}
+
 func containsAll(s string, subs []string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(s, sub) {
