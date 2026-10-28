@@ -19,6 +19,7 @@ races its own response. A script driving the stdio server must hold stdin open
 until it has read the reply. Requests on one stdio session are served
 concurrently; a client that needs ordering waits for each response, as the
 JSON-RPC id is there to allow.
+A line that is not a valid message never ends the session: stdio answers it with the same errors as HTTP (`-32700` for a line that is not JSON, `-32600` for an empty batch, a `jsonrpc` other than `2.0` or an `id` that is not a string or a number; `id` is `null` unless the request carried a valid one) and reads the next line. Only an I/O error on stdin or stdout ends it, and a line over 16 MiB (far above the HTTP body limit), the one frame that is refused by ending the session. One message per line: a message spread over several lines is no longer accepted.
 
 The HTTP listener sets its own connection timeouts: a 15s header deadline, a
 60s request-read deadline and a 120s keep-alive idle deadline. There is
