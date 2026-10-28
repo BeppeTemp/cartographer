@@ -489,3 +489,12 @@ func TestUpdateChecksAskForTheBinarysChannel(t *testing.T) {
 		}
 	}
 }
+
+// D1351: a release not installable yet prints a clean line, not the error.
+func TestUpdateCheckNotInstallableLine(t *testing.T) {
+	stubUpdate(t, updatecheck.Result{Current: "v0.16.1", Pending: "v0.17.0"}, updatecheck.ChannelHomebrew, true)
+	out := withStdout(t, func() { cmdUpdate([]string{"check"}) })
+	if !strings.Contains(out, "latest    v0.17.0 (not yet installable through homebrew)") {
+		t.Fatalf("output = %q", out)
+	}
+}

@@ -8,8 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // A release that exists is not a release the user's channel can install
@@ -40,6 +43,67 @@ const (
 // install it yet, or that could not be verified. Check returns it with no
 // cache written, so the next run asks again.
 var ErrNotInstallable = errors.New("newest release not installable through this channel yet")
+
+// notInstallableError carries the tag that was found but could not be
+// confirmed installable; it is ErrNotInstallable for errors.Is.
+type notInstallableError struct {
+	Tag   string
+	Cause error // nil: the channel answered "not yet"
+}
+
+func (e *notInstallableError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%v: %s: %v", ErrNotInstallable, e.Tag, e.Cause)
+	}
+	return fmt.Sprintf("%v: %s", ErrNotInstallable, e.Tag)
+}
+
+func (e *notInstallableError) Is(target error) bool { return target == ErrNotInstallable }
+
+// pendingEntry is the short negative cache, beside the cache file: the tag
+// found not installable, for which channel, and when.
+type pendingEntry struct {
+	Tag     string    `json:"tag"`
+	Channel Channel   `json:"channel"`
+	At      time.Time `json:"at"`
+}
+
+func readPending(path string, ch Channel) (pendingEntry, bool) {
+	if path == "" {
+		return pendingEntry{}, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return pendingEntry{}, false
+	}
+	var p pendingEntry
+	if json.Unmarshal(data, &p) != nil || !stableTag(p.Tag) || p.Channel != ch || p.At.IsZero() {
+		return pendingEntry{}, false
+	}
+	return p, true
+}
+
+// writePending is best effort, like writeCache: a failure only means the
+// next run asks again.
+func writePending(path string, p pendingEntry) {
+	if path == "" {
+		return
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if os.WriteFile(tmp, data, 0o644) != nil {
+		return
+	}
+	if os.Rename(tmp, path) != nil {
+		os.Remove(tmp)
+	}
+}
 
 var caskVersion = regexp.MustCompile(`(?m)^\s*version\s+"([^"]+)"`)
 

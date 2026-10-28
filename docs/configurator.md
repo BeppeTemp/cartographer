@@ -75,7 +75,7 @@ A newer release is announced only once the channel the binary came from can inst
 ([D1351](decisions/D1351-update-check-waits-for-the-channel.md)): `homebrew` when the tap's cask
 names that version, `install.sh` / `install.ps1` when the release carries this platform's binary and
 `sha256sums.txt`; `go-install` and unknown ask for nothing more. Until then nothing is printed and
-nothing is cached, so the next run asks again; a current binary makes no extra request.
+no release is cached; the not-yet-installable tag is remembered for an hour (`update-check.json.pending`), so session starts do not re-ask, while `update check` always asks and prints `latest vX (not yet installable through <channel>)`. A current binary makes no extra request.
 `CARTOGRAPHER_NO_UPDATE_CHECK=1` or `update_check: false` (below) turns it off;
 `CARTOGRAPHER_UPDATE_API_URL` and `CARTOGRAPHER_UPDATE_CASK_URL` exist for tests only.
 

@@ -227,8 +227,48 @@ func TestNotInstallableIsReaskedNextRun(t *testing.T) {
 		t.Fatalf("announced early: %+v", res)
 	}
 	w.cask = "version \"0.28.0\"\n"
+	now = now.Add(PendingTTL) // the negative cache has run out
 	res, err := Check(context.Background(), "v0.27.0", o)
 	if err != nil || !res.Available || res.Latest != "v0.28.0" {
 		t.Fatalf("second run: %+v err=%v", res, err)
+	}
+}
+
+// A release found not installable is not asked about again for PendingTTL
+// (the notice runs at every session start), but Force and the end of the
+// window ask again, and a success clears the entry.
+func TestNotInstallableNegativeCache(t *testing.T) {
+	w := newChannelWorld(t, bareRelease)
+	w.cask = "version \"0.27.0\"\n"
+	cache := filepath.Join(t.TempDir(), CacheFileName)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	o := Options{
+		CacheFile: cache, APIURL: w.srv.URL + "/api", CaskURL: w.srv.URL + "/cask.rb", Channel: ChannelHomebrew,
+		Now: func() time.Time { return now }, Getenv: func(string) string { return "" },
+	}
+	run := func() (Result, error) { return Check(context.Background(), "v0.27.0", o) }
+	hits := func() int32 { return w.hits["releases"].Load() + w.hits["cask"].Load() }
+
+	res, err := run()
+	if res.Available || res.Pending != "v0.28.0" || !errors.Is(err, ErrNotInstallable) || hits() != 2 {
+		t.Fatalf("first: %+v err=%v hits=%d", res, err, hits())
+	}
+	now = now.Add(PendingTTL - time.Second)
+	w.cask = "version \"0.28.0\"\n" // the tap catches up, but the window has not ended
+	res, err = run()
+	if res.Available || res.Pending != "v0.28.0" || !errors.Is(err, ErrNotInstallable) || hits() != 2 {
+		t.Fatalf("inside the window: %+v err=%v hits=%d", res, err, hits())
+	}
+	o.Force = true
+	if res, err = run(); err != nil || !res.Available || hits() != 4 {
+		t.Fatalf("force: %+v err=%v hits=%d", res, err, hits())
+	}
+	if _, ok := readPending(cache+".pending", ChannelHomebrew); ok {
+		t.Fatal("a success left the pending entry")
+	}
+	// Another channel never reads this one's entry.
+	writePending(cache+".pending", pendingEntry{Tag: "v0.28.0", Channel: ChannelContainer, At: now})
+	if _, ok := readPending(cache+".pending", ChannelHomebrew); ok {
+		t.Fatal("pending entry crossed channels")
 	}
 }

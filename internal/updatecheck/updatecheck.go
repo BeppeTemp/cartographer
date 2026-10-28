@@ -41,8 +41,15 @@ const (
 
 	// TTL is how long a cached answer is trusted without asking GitHub.
 	TTL = 24 * time.Hour
-	// Timeout bounds the one request a check may make.
+	// Timeout bounds each request a check makes: the release list, and
+	// when a newer release exists the channel check (D1351), one request
+	// for the cask, two for the container image. The worst case is
+	// therefore 3 x Timeout.
 	Timeout = 3 * time.Second
+	// PendingTTL is how long a release found not installable yet is not
+	// asked about again (D1351): the notice runs at every session start and
+	// unauthenticated GitHub allows 60 requests an hour.
+	PendingTTL = time.Hour
 
 	// EnvDisable turns every check off when set to 1 (or true).
 	EnvDisable = "CARTOGRAPHER_NO_UPDATE_CHECK"
@@ -66,10 +73,13 @@ const (
 // tag known, empty when none is; Available is true only when it is newer than
 // Current.
 type Result struct {
-	Current   string    `json:"current"`
-	Latest    string    `json:"latest,omitempty"`
-	Available bool      `json:"available"`
-	Kind      string    `json:"kind,omitempty"`
+	Current   string `json:"current"`
+	Latest    string `json:"latest,omitempty"`
+	Available bool   `json:"available"`
+	Kind      string `json:"kind,omitempty"`
+	// Pending is the newest release when the channel cannot install it yet
+	// (D1351); Available is false then.
+	Pending   string    `json:"pending,omitempty"`
 	CheckedAt time.Time `json:"checked_at,omitempty"`
 }
 
@@ -213,12 +223,39 @@ func Check(ctx context.Context, current string, opts Options) (Result, error) {
 		return fill(res, cached), nil
 	}
 
+	// D1351: a release found not installable yet is not asked about again
+	// for PendingTTL. Force (`update check`) still goes out.
+	pendPath := ""
+	if cachePath != "" {
+		pendPath = cachePath + ".pending"
+	}
+	if !opts.Force {
+		if p, ok := readPending(pendPath, opts.Channel); ok && now().Sub(p.At) >= 0 && now().Sub(p.At) < PendingTTL {
+			out := res
+			if haveCache {
+				out = fill(res, cached)
+			}
+			out.Pending = p.Tag
+			return out, fmt.Errorf("%w: %s", ErrNotInstallable, p.Tag)
+		}
+	}
+
 	entry, err := fetch(ctx, current, cached, haveCache, opts, getenv, now)
 	if err != nil {
+		var ni *notInstallableError
+		if errors.As(err, &ni) {
+			writePending(pendPath, pendingEntry{Tag: ni.Tag, Channel: opts.Channel, At: now().UTC()})
+			res.Pending = ni.Tag
+		}
 		if haveCache {
-			return fill(res, cached), err
+			out := fill(res, cached)
+			out.Pending = res.Pending
+			return out, err
 		}
 		return res, err
+	}
+	if pendPath != "" {
+		os.Remove(pendPath)
 	}
 	writeCache(cachePath, entry)
 	return fill(res, entry), nil
@@ -300,10 +337,10 @@ func fetch(ctx context.Context, current string, cached cacheEntry, haveCache boo
 				ok, err := installable(rctx, tag, r.Assets, opts, getenv, hc, "cartographer/"+current)
 				rcancel()
 				if err != nil {
-					return cacheEntry{}, fmt.Errorf("%w: %s: %v", ErrNotInstallable, tag, err)
+					return cacheEntry{}, &notInstallableError{Tag: tag, Cause: err}
 				}
 				if !ok {
-					return cacheEntry{}, fmt.Errorf("%w: %s", ErrNotInstallable, tag)
+					return cacheEntry{}, &notInstallableError{Tag: tag}
 				}
 			}
 			return cacheEntry{CheckedAt: now().UTC(), Latest: tag, ETag: resp.Header.Get("ETag")}, nil
