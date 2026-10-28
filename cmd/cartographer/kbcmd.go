@@ -815,7 +815,10 @@ func mountedKBNames(baseURL string) (map[string]bool, error) {
 // is the normal "no server" state, so it reads as that and names the command
 // that starts one; any other failure keeps its own text.
 func mountErrorLine(err error) string {
-	if errors.Is(err, syscall.ECONNREFUSED) {
+	// Windows reports a refusal as WSAECONNREFUSED (10061), which is not
+	// syscall.ECONNREFUSED there; the number is harmless on the other systems.
+	const wsaConnRefused = syscall.Errno(10061)
+	if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, wsaConnRefused) {
 		return "the server is not running, so MOUNTED is not shown: start it with `cartographer service start`"
 	}
 	return fmt.Sprintf("the server could not be asked which of these are mounted: %v", err)
