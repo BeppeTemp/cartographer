@@ -537,6 +537,22 @@ func DefinitionPath() (string, error) {
 	return path, nil
 }
 
+// hasGoBuildDir reports whether a path component is `go-build` or a
+// `go-build<digits>` directory (what `go run` and `go test` create), so a
+// directory that merely contains the word does not match.
+func hasGoBuildDir(p string) bool {
+	for _, part := range strings.FieldsFunc(filepath.ToSlash(p), func(r rune) bool { return r == '/' }) {
+		rest, ok := strings.CutPrefix(part, "go-build")
+		if !ok {
+			continue
+		}
+		if strings.Trim(rest, "0123456789") == "" {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckStableBinary refuses a running executable the service must not be
 // pointed at: one under the temp directory or a go-build cache (a `go run`
 // binary, a test build: gone on the next cleanup, and nothing vouches for it),
@@ -563,7 +579,7 @@ func CheckStableBinary() error {
 		if rel, err := filepath.Rel(tmp, c); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
 			return fmt.Errorf("service: %s is under the temp directory %s", bin, tmp)
 		}
-		if strings.Contains(c, "go-build") {
+		if hasGoBuildDir(c) {
 			return fmt.Errorf("service: %s is a go-build artifact", bin)
 		}
 	}
@@ -674,7 +690,7 @@ func extractPlistConfigPath(data []byte) (string, error) {
 // splitSystemdWords splits an ExecStart value the way systemd.syntax does for
 // what Cartographer renders: whitespace separates words, a single- or
 // double-quoted run is one word, inside quotes a backslash escapes the next
-// character, and %% is a literal %. An unquoted unit written before #1336
+// character, and %% and $$ are a literal % and $. An unquoted unit written before #1336
 // splits as before.
 func splitSystemdWords(s string) []string {
 	var words []string
@@ -692,9 +708,9 @@ func splitSystemdWords(s string) []string {
 			cur.WriteRune(rs[i])
 		case quote == 0 && (r == '"' || r == '\''):
 			quote, started = r, true
-		case r == '%' && i+1 < len(rs) && rs[i+1] == '%':
+		case (r == '%' || r == '$') && i+1 < len(rs) && rs[i+1] == r:
 			i++
-			cur.WriteRune('%')
+			cur.WriteRune(r)
 			started = true
 		case quote == 0 && (r == ' ' || r == '\t'):
 			if started {

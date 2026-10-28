@@ -1855,6 +1855,8 @@ func TestCheckStableBinary(t *testing.T) {
 	}{
 		"temp dir":      {filepath.Join(os.TempDir(), "x", "cartographer"), true},
 		"go build":      {"/home/user/.cache/go-build/ab/cartographer", true},
+		"go-build123":   {"/home/user/x/go-build123/b001/cartographer", true},
+		"go-builder":    {"/home/user/go-builder/bin/cartographer", false},
 		"caskroom":      {"/opt/homebrew/Caskroom/cartographer/1.0/cartographer", true},
 		"install.sh":    {"/home/user/.local/bin/cartographer", false},
 		"homebrew link": {"/opt/homebrew/bin/cartographer", false},
@@ -1870,7 +1872,7 @@ func TestCheckStableBinary(t *testing.T) {
 // A binary or config path with a space must survive the unit round trip
 // (#1336): quoted by the renderer, one word for both extractors.
 func TestSystemdUnit_PathsWithSpacesRoundTrip(t *testing.T) {
-	bin, cfg := "/home/user/My Apps/cartographer", `/home/user/my "conf"/100%/server.yaml`
+	bin, cfg := "/home/user/My Apps/cartographer", `/home/user/my "conf"/100%/$HOME dir/server.yaml`
 	unit := RenderSystemdUnit(bin, cfg)
 	if !strings.Contains(unit, `ExecStart="/home/user/My Apps/cartographer" serve --config "`) {
 		t.Errorf("ExecStart paths must be quoted, got:\n%s", unit)
