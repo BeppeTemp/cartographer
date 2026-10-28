@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -1020,6 +1022,68 @@ func TestApply_DryRunUpdatedSkillDoesNotPruneSourceEnv(t *testing.T) {
 	}
 	for _, mf := range plan.Pruned {
 		t.Errorf("dry run reports a prune the real run does not perform: %s", mf.Path)
+	}
+}
+
+// dryRunPlan updates the skill of a sourceEnvApply KB and returns the manifest
+// for it, so a test can plan the update and then run it for real.
+func dryRunPlan(t *testing.T, kbRoot string, kbRoots map[string]string) provisioning.Manifest {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(kbRoot, "skills", "my-skill", "SKILL.md"), []byte("---\nname: my-skill\ndescription: d\n---\nChanged.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return provisioning.FilterForProvider(m, configurator.ProviderClaudeCode)
+}
+
+func prunedPaths(res provisioning.AppliedResult) []string {
+	var out []string
+	for _, mf := range res.Pruned {
+		out = append(out, mf.Path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// A KB skill that ships its own SOURCE.env is refused by the real run, which
+// then prunes what the lock owned; the plan must report the same prunes.
+func TestApply_DryRunSourceEnvCollisionPlansTheRealPrunes(t *testing.T) {
+	kbRoot, baseDir, res := sourceEnvApply(t, provisioning.Lock{})
+	if err := os.WriteFile(filepath.Join(kbRoot, "skills", "my-skill", "SOURCE.env"), []byte("X=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kbRoots := map[string]string{"kb-a": kbRoot}
+	m := dryRunPlan(t, kbRoot, kbRoots)
+	opts := provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, KBRoots: kbRoots, Lock: res.NewLock, SkipLockWrite: true}
+	opts.DryRun = true
+	plan, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	opts.DryRun = false
+	applied, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got, want := prunedPaths(plan), prunedPaths(applied); len(want) == 0 || !slices.Equal(got, want) {
+		t.Errorf("dry run prunes %v, the real run %v", got, want)
+	}
+}
+
+// A skill whose files cannot be read is never pruned by the real run; the
+// plan must not report its files as removed.
+func TestApply_DryRunUnreadableSkillPrunesNothing(t *testing.T) {
+	kbRoot, baseDir, res := sourceEnvApply(t, provisioning.Lock{})
+	m := dryRunPlan(t, kbRoot, map[string]string{"kb-a": kbRoot})
+	plan, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: res.NewLock, DryRun: true})
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if got := prunedPaths(plan); len(got) != 0 {
+		t.Errorf("dry run prunes %v for a skill it cannot read", got)
 	}
 }
 

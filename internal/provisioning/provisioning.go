@@ -2426,15 +2426,26 @@ hookLoop:
 // used to compute a dry run's removals without writing anything. It lists what
 // copyArtifactFiles writes: the files of a local KB, read as the real run
 // reads them, and the generated ones (SOURCE.env).
+//
+// Two outcomes mirror the real run: a collision with a generated file delivers
+// nothing, so every file the lock owns is dropped; an unreadable artifact fails
+// or is refused before anything is pruned, so the plan keeps every file the
+// lock owns.
 func declaredRelPaths(a Artifact, opts ApplyOptions, destDirRel string) []string {
-	files := a.Files
-	if len(files) == 0 {
-		// An unreadable KB fails the real run; the plan keeps what it knows.
-		if read, err := ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots); err == nil {
-			files = read
+	files, err := ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
+	if err != nil {
+		var kept []string
+		for _, mf := range opts.Lock.Managed {
+			if mf.Kind == a.Kind && mf.Name == a.Name {
+				kept = append(kept, mf.Path)
+			}
 		}
+		return kept
 	}
-	generated, _, _ := generatedArtifactFiles(a, opts, files)
+	generated, _, ok := generatedArtifactFiles(a, opts, files)
+	if !ok {
+		return nil
+	}
 	files = append(append([]ArtifactFile{}, files...), generated...)
 	out := make([]string, 0, len(files))
 	for _, f := range files {
