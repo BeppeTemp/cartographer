@@ -84,13 +84,13 @@ func Open(dbPath string) (*Index, error) {
 }
 
 // dsn is the SQLite URI of dbPath with the per-connection pragmas every
-// connection of the pool needs: a cache large enough for a cold rebuild
+// connection of the pool needs: a cache (per pooled connection: the pool is small, one writer and a few readers) large enough for a cold rebuild
 // (the default 2 MB re-reads pages while FTS5 merges segments) and a wait for
 // the write lock, since a Batch holds it for up to batchSize concepts. The
 // path is escaped for the URI form: "%", "?" and "#" would end or alter it.
 func dsn(dbPath string) string {
 	p := filepath.ToSlash(dbPath)
-	if len(p) >= 2 && p[1] == ':' { // Windows drive: file:///C:/...
+	if filepath.VolumeName(dbPath) != "" { // Windows drive: file:///C:/...
 		p = "/" + p
 	}
 	p = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(p)
@@ -195,23 +195,13 @@ func (ix *Index) Close() error {
 // a concept that has none; contentHash should cover it (see the reconciler).
 // Many concepts in a row go through a Batch, which is several times faster.
 func (ix *Index) Upsert(id, contentHash, body, assetsText string) error {
-	b := ix.Batch()
-	if err := b.Upsert(id, contentHash, body, assetsText); err != nil {
-		b.Rollback()
-		return err
-	}
-	return b.Commit()
+	return ix.applyOne(op{id: id, contentHash: contentHash, body: body, assetsTxt: assetsText})
 }
 
 // Delete removes a concept's content from both the concepts table and the
 // FTS5 index (used by concept_delete).
 func (ix *Index) Delete(id string) error {
-	b := ix.Batch()
-	if err := b.Delete(id); err != nil {
-		b.Rollback()
-		return err
-	}
-	return b.Commit()
+	return ix.applyOne(op{del: true, id: id})
 }
 
 // batchSize is how many concepts a Batch writes per transaction. FTS5 builds
@@ -220,84 +210,140 @@ func (ix *Index) Delete(id string) error {
 // bounded group keeps the write lock and the in-memory hash short.
 const batchSize = 100
 
-// Batch groups the writes of a reconciliation into transactions of batchSize
-// concepts. It is not safe for concurrent use, and while one is open another
-// writer waits (busy_timeout): callers are already serialised by the
-// reconciler. Always end it with Commit or Rollback.
-type Batch struct {
-	ix *Index
-	tx *sql.Tx
-	n  int
+// op is one write of a Batch, kept until its group commits so a failed group
+// can be replayed one by one.
+type op struct {
+	del                              bool
+	id, contentHash, body, assetsTxt string
 }
 
-// Batch starts a Batch; the first transaction opens on the first write.
-func (ix *Index) Batch() *Batch { return &Batch{ix: ix} }
-
-func (b *Batch) txn() (*sql.Tx, error) {
-	if b.tx != nil && b.n >= batchSize {
-		if err := b.Commit(); err != nil {
-			return nil, err
-		}
+func (ix *Index) applyOne(o op) error {
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return fmt.Errorf("sqlindex: begin: %w", err)
 	}
-	if b.tx == nil {
-		tx, err := b.ix.db.Begin()
-		if err != nil {
-			return nil, fmt.Errorf("sqlindex: begin: %w", err)
-		}
-		b.tx, b.n = tx, 0
+	if o.del {
+		err = deleteTx(tx, o.id)
+	} else {
+		err = upsertTx(tx, o.id, o.contentHash, o.body, o.assetsTxt)
 	}
-	b.n++
-	return b.tx, nil
-}
-
-// Commit commits the open transaction, if any. The Batch stays usable.
-func (b *Batch) Commit() error {
-	if b.tx == nil {
-		return nil
+	if err != nil {
+		_ = tx.Rollback()
+		return err
 	}
-	tx := b.tx
-	b.tx = nil
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("sqlindex: commit: %w", err)
 	}
 	return nil
 }
 
-// Rollback discards the open transaction, if any (the concepts of earlier
-// commits stay). A failed write already needs it: the concept it was writing
-// must not be half indexed.
-func (b *Batch) Rollback() {
-	if b.tx != nil {
-		_ = b.tx.Rollback()
-		b.tx = nil
+// Batch groups the writes of a reconciliation into transactions of batchSize
+// concepts. It is not safe for concurrent use, and while one is open another
+// writer waits (busy_timeout): callers are already serialised by the
+// reconciler. Always end it with Commit or Rollback. A group that fails is
+// replayed concept by concept outside the batch, so only the concept that
+// fails is lost, never the ones written before it in the same group.
+type Batch struct {
+	ix      *Index
+	tx      *sql.Tx
+	pending []op // writes of the open transaction
+	written int  // upserts that reached the database
+}
+
+// Batch starts a Batch; the first transaction opens on the first write.
+func (ix *Index) Batch() *Batch { return &Batch{ix: ix} }
+
+// Written is the number of upserts that were committed, replays included.
+func (b *Batch) Written() int { return b.written }
+
+func (b *Batch) add(o op) error {
+	if len(b.pending) >= batchSize {
+		if err := b.Commit(); err != nil {
+			return err
+		}
+	}
+	if b.tx == nil {
+		tx, err := b.ix.db.Begin()
+		if err != nil {
+			return fmt.Errorf("sqlindex: begin: %w", err)
+		}
+		b.tx = tx
+	}
+	var err error
+	if o.del {
+		err = deleteTx(b.tx, o.id)
+	} else {
+		err = upsertTx(b.tx, o.id, o.contentHash, o.body, o.assetsTxt)
+	}
+	if err != nil {
+		// The group is unusable: keep the writes before this one by
+		// replaying them alone, and report only this one as failed.
+		prior := b.pending
+		b.Rollback()
+		b.replay(prior)
+		return err
+	}
+	b.pending = append(b.pending, o)
+	return nil
+}
+
+// replay applies ops one transaction each; one that fails again is lost.
+func (b *Batch) replay(ops []op) {
+	for _, o := range ops {
+		if err := b.ix.applyOne(o); err == nil && !o.del {
+			b.written++
+		}
 	}
 }
 
-// Upsert is Index.Upsert inside the batch's transaction. On error the whole
-// open transaction is rolled back, so the concept is never half indexed.
-func (b *Batch) Upsert(id, contentHash, body, assetsText string) error {
-	tx, err := b.txn()
-	if err != nil {
-		return err
+// Commit commits the open transaction, if any. The Batch stays usable. When
+// the commit fails its group is replayed concept by concept and the error is
+// returned only if that lost something.
+func (b *Batch) Commit() error {
+	if b.tx == nil {
+		return nil
 	}
-	if err := upsertTx(tx, id, contentHash, body, assetsText); err != nil {
-		b.Rollback()
-		return err
+	tx, ops := b.tx, b.pending
+	b.tx, b.pending = nil, nil
+	if err := tx.Commit(); err != nil {
+		before := b.written
+		b.replay(ops)
+		lost := 0
+		for _, o := range ops {
+			if !o.del {
+				lost++
+			}
+		}
+		if lost > b.written-before {
+			return fmt.Errorf("sqlindex: commit: %w", err)
+		}
+		return nil
+	}
+	for _, o := range ops {
+		if !o.del {
+			b.written++
+		}
 	}
 	return nil
+}
+
+// Rollback discards the open transaction, if any (the concepts of earlier
+// commits stay).
+func (b *Batch) Rollback() {
+	if b.tx != nil {
+		_ = b.tx.Rollback()
+		b.tx, b.pending = nil, nil
+	}
+}
+
+// Upsert is Index.Upsert inside the batch's transaction.
+func (b *Batch) Upsert(id, contentHash, body, assetsText string) error {
+	return b.add(op{id: id, contentHash: contentHash, body: body, assetsTxt: assetsText})
 }
 
 // Delete is Index.Delete inside the batch's transaction.
 func (b *Batch) Delete(id string) error {
-	tx, err := b.txn()
-	if err != nil {
-		return err
-	}
-	if err := deleteTx(tx, id); err != nil {
-		b.Rollback()
-		return err
-	}
-	return nil
+	return b.add(op{del: true, id: id})
 }
 
 func upsertTx(tx *sql.Tx, id, contentHash, body, assetsText string) error {

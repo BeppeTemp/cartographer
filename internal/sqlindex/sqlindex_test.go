@@ -643,3 +643,42 @@ func TestBatchCommitsInGroupsAndReplacesSections(t *testing.T) {
 		t.Fatal("deleted concept still indexed")
 	}
 }
+
+func TestBatchFailureLosesOnlyTheFailingConcept(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if _, err := ix.db.Exec(`CREATE TRIGGER refuse BEFORE INSERT ON concepts WHEN NEW.id = 'bad'
+		BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	b := ix.Batch()
+	var failed int
+	for _, id := range []string{"a", "b", "bad", "c", "d"} {
+		if err := b.Upsert(id, "h", "# T\n\n## S\n\nbody text "+id+"\n", ""); err != nil {
+			failed++
+			if id != "bad" {
+				t.Fatalf("upsert %s: %v", id, err)
+			}
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if failed != 1 {
+		t.Fatalf("failed = %d, want 1", failed)
+	}
+	hs, _ := ix.AllHashes()
+	if len(hs) != 4 || hs["bad"] != "" || hs["a"] == "" || hs["b"] == "" || hs["c"] == "" || hs["d"] == "" {
+		t.Fatalf("indexed %v, want a b c d", hs)
+	}
+	if b.Written() != 4 {
+		t.Fatalf("Written = %d, want 4", b.Written())
+	}
+	if hits, err := ix.SearchFTS("body text a", "", 5); err != nil || len(hits) == 0 {
+		t.Fatalf("replayed concept not searchable: %v %v", hits, err)
+	}
+}
