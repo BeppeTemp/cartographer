@@ -97,7 +97,8 @@ func updateCheckEnabled() (bool, error) {
 }
 
 func updateOptions(enabled bool) (updatecheck.Options, string) {
-	opts := updatecheck.Options{Disabled: !enabled}
+	// D1350: the notice waits until this binary's channel can install.
+	opts := updatecheck.Options{Disabled: !enabled, Channel: updateChannelFn()}
 	dir, err := updateCacheDirFn()
 	if err != nil {
 		return opts, ""

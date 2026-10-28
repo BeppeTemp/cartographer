@@ -41,6 +41,20 @@ func (w *serverUpdateWatch) Latest() string {
 	return v
 }
 
+// serverUpdateChannel is the channel the server's own binary came from. Only
+// the container is gated (the image tag must exist, D1350); a server run any
+// other way keeps the plain check, which release publish-last (D1350) covers.
+func serverUpdateChannel() updatecheck.Channel {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if ch := updatecheck.DetectChannel(exe); ch == updatecheck.ChannelContainer {
+		return ch
+	}
+	return ""
+}
+
 // serverUpdateEnabled is the one switch for everything this server asks
 // GitHub: the daily check and the release history (D862). Off by
 // configuration, by CARTOGRAPHER_NO_UPDATE_CHECK, or on a dev build, which is
@@ -73,7 +87,7 @@ func startServerUpdateCheck(cfg *config.Config, current string) func() string {
 	}
 	w := &serverUpdateWatch{}
 	// D320: same-version cache is re-checked, as in `update notice`.
-	opts := updatecheck.Options{CacheFile: serverUpdateCacheFile(cfg), ForceRefreshOnVersion: current}
+	opts := updatecheck.Options{CacheFile: serverUpdateCacheFile(cfg), ForceRefreshOnVersion: current, Channel: serverUpdateChannel()}
 	check, delay, interval, retry := serverUpdateCheckFn, serverUpdateDelay, serverUpdateInterval, serverUpdateRetry
 	go func() {
 		time.Sleep(delay)
