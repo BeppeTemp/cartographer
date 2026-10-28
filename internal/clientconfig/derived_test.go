@@ -153,7 +153,9 @@ func TestResolveWorkspace_DerivedKeepsTheRemoteGuard(t *testing.T) {
 }
 
 func TestDerivedState_RoundTripIsPerConfigDir(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	dir := t.TempDir()
 	s := DerivedState{Bindings: map[string][]DerivedBinding{"claude": {{Path: "/r", KBs: []string{"kb-a"}}}}}
 	if err := SaveDerived(dir, s); err != nil {
@@ -214,7 +216,9 @@ func TestRenameDerivedKB(t *testing.T) {
 
 // #1268: a dry run asks whether the file would change, and writes nothing.
 func TestDerivedWouldChange_NamesCreateAndUpdateOnly(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	dir := t.TempDir()
 	s := DerivedState{Bindings: map[string][]DerivedBinding{"claude": {{Path: "/r", KBs: []string{"kb-a"}}}}}
 

@@ -397,7 +397,7 @@ func TestApplyConnectAccess(t *testing.T) {
 // #1282: --unpin-key removes a KB's pins, replaces with --pin-key, and refuses
 // a KB with no pin.
 func TestDoConnect_UnpinKey(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	dir := t.TempDir()
 	pub, _, err := ed25519.GenerateKey(nil)
 	if err != nil {

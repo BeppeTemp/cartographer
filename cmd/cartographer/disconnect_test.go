@@ -664,7 +664,7 @@ func TestDoReconnect_AProviderKeptConnectedIsNotRebuilt(t *testing.T) {
 // #1269: connect then disconnect in an empty home leaves only the documented
 // client state files; the client configs Cartographer created are gone.
 func TestDoDisconnect_EmptyHomeLeavesOnlyDocumentedState(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	dir := t.TempDir()
 	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://127.0.0.1:1/mcp", Name: "cartographer"}); err != nil {
 		t.Fatalf("doConnect: %v", err)
@@ -686,7 +686,7 @@ func TestDoDisconnect_EmptyHomeLeavesOnlyDocumentedState(t *testing.T) {
 
 // #1269: a file that still holds another key is kept, reduced to it.
 func TestDoDisconnect_KeepsClientConfigsWithOtherKeys(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(`{"theme":"dark"}`), 0o644); err != nil {
 		t.Fatal(err)

@@ -29,12 +29,13 @@ func TestParseFlagsAnywhere_Shapes(t *testing.T) {
 		bindOne string
 		code    int
 	}{
-		"leading":  {args: []string{"claude", "--kb", "all", "--dry-run"}, pos: []string{"claude"}, kb: "all", dry: true, bindOne: "claude"},
-		"trailing": {args: []string{"--kb", "all", "--dry-run", "claude"}, pos: []string{"claude"}, kb: "all", dry: true, bindOne: "claude"},
-		"between":  {args: []string{"--kb", "all", "claude", "--dry-run"}, pos: []string{"claude"}, kb: "all", dry: true, bindOne: "claude"},
-		"none":     {args: []string{"--kb", "x"}, kb: "x"},
-		"two":      {args: []string{"claude", "--kb", "all", "codex"}, pos: []string{"claude", "codex"}, kb: "all", bindOne: "claude", code: 2},
-		"after --": {args: []string{"--kb", "all", "--", "claude"}, pos: []string{"claude"}, kb: "all", bindOne: "claude"},
+		"leading":       {args: []string{"claude", "--kb", "all", "--dry-run"}, pos: []string{"claude"}, kb: "all", dry: true, bindOne: "claude"},
+		"trailing":      {args: []string{"--kb", "all", "--dry-run", "claude"}, pos: []string{"claude"}, kb: "all", dry: true, bindOne: "claude"},
+		"between":       {args: []string{"--kb", "all", "claude", "--dry-run"}, pos: []string{"claude"}, kb: "all", dry: true, bindOne: "claude"},
+		"none":          {args: []string{"--kb", "x"}, kb: "x"},
+		"two":           {args: []string{"claude", "--kb", "all", "codex"}, pos: []string{"claude", "codex"}, kb: "all", bindOne: "claude", code: 2},
+		"word after --": {args: []string{"--", "claude", "--kb", "x"}, pos: []string{"claude", "--kb", "x"}, bindOne: "claude", code: 2},
+		"after --":      {args: []string{"--kb", "all", "--", "claude"}, pos: []string{"claude"}, kb: "all", bindOne: "claude"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fs, kb, dry := newPositionalFlagSet()
@@ -56,7 +57,7 @@ func TestParseFlagsAnywhere_Shapes(t *testing.T) {
 
 // #1266: two positionals are a usage error for the subcommands that took one.
 func TestSubcommands_ExtraPositionalIsUsageError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	for name, run := range map[string]func() int{
 		"connect":    func() int { return cmdConnect([]string{"claude", "--no-input", "--dry-run", "codex"}) },
 		"disconnect": func() int { return cmdDisconnect([]string{"--dry-run", "claude", "codex"}) },
@@ -110,7 +111,7 @@ func TestRemoveMCPEntries_CodexListsOnlyEntriesPresent(t *testing.T) {
 // of an entry that is not there nor a rewrite that would change nothing; the
 // first dry run after a fresh connect lists the files the real run writes.
 func TestSyncDryRun_IsTheCompletePlanAndNamesNoPhantomRemoval(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	srv := prefixAwareMCPServer(t, map[string]string{"one": "", "two": ""}, "sync_pull", func(kb string) string {
 		return syncPullPayload(t, kb, "skill-"+kb)
 	})
@@ -161,7 +162,7 @@ func TestSyncDryRun_IsTheCompletePlanAndNamesNoPhantomRemoval(t *testing.T) {
 
 // #1268: the .cartographer.yaml rewrite is named when its bytes would change.
 func TestSyncDryRun_NamesTheConfigRewrite(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
 		return syncPullPayload(t, kb, "skill-"+kb)
 	})
