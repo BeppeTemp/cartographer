@@ -8,7 +8,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/search"
 )
 
 // Fix kinds of the invalid-page checks (D356).
@@ -25,18 +24,7 @@ const (
 	FixMove = "move"
 )
 
-// slugPattern is the concept file-name pattern, the same as an artifact slug.
-var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-{1,2}[a-z0-9]+)*$`)
-
-// slugExpansions spells out letters that have no single-letter ASCII fold.
-// Search.Fold stays rune-preserving for search offsets; file slugs can expand.
-var slugExpansions = strings.NewReplacer(
-	"ß", "ss", "ẞ", "ss",
-	"æ", "ae", "Æ", "ae",
-	"œ", "oe", "Œ", "oe",
-	"þ", "th", "Þ", "th",
-	"ĳ", "ij", "Ĳ", "ij",
-)
+var slugPattern = kb.SlugPattern
 
 // mapTypes is the type a map's pages agree on, per map (D356 decision 3), or ""
 // when they do not. Computed once per run from the walk.
@@ -165,24 +153,8 @@ func validityFindings(id okf.ConceptID, content string, types mapTypes, slugTarg
 	return out
 }
 
-// Slugify lowercases a file stem, expands slug-specific letters, folds accents,
-// and turns every run of other characters into one hyphen.
-func Slugify(s string) string {
-	var sb strings.Builder
-	pendingHyphen := false
-	for _, r := range search.Fold(slugExpansions.Replace(s)) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			if pendingHyphen && sb.Len() > 0 {
-				sb.WriteByte('-')
-			}
-			pendingHyphen = false
-			sb.WriteRune(r)
-			continue
-		}
-		pendingHyphen = true
-	}
-	return sb.String()
-}
+// Slugify is kb.Slugify: the rule the write path and the repair share.
+func Slugify(s string) string { return kb.Slugify(s) }
 
 // DeriveTitle is the title add_frontmatter gives a page: its first H1, else its
 // file stem with '-' and '_' turned into spaces. Derived, never invented.

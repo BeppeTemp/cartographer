@@ -1513,6 +1513,15 @@ func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, bod
 		return nil, fmt.Errorf("%w: %s", okf.ErrNotFound, id)
 	}
 
+	if strings.ContainsRune(body, 0) {
+		return nil, fmt.Errorf("%w: the body contains a NUL byte", okf.ErrInvalidConcept)
+	}
+	if !repair && !fileExists {
+		if err := checkNewConceptID(id, absPath, expanded); err != nil {
+			return nil, err
+		}
+	}
+
 	if fileExists && ifMatch != "" {
 		data, err := os.ReadFile(absPath)
 		if err != nil {

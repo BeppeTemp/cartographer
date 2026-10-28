@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
 
 type historyEntry struct {
@@ -102,7 +104,9 @@ func TestConceptReadAtRevAcrossRename(t *testing.T) {
 	c.write("ops/before", "original text\n")
 	c.commit(true)
 	c.rename("ops/before", "ops/after")
-	c.commit(true)
+	if err := gitx.Commit(c.k.Root, "concept_move: ops/after", "Tester", "tester@example.test"); err != nil {
+		t.Fatal(err)
+	}
 	c.write("ops/after", "edited text\n")
 	c.commit(true)
 

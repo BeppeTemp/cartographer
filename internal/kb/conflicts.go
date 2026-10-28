@@ -163,6 +163,11 @@ func (k *KB) MarkDegraded(conceptID string) error {
 // file content (frontmatter + body). Returns an error if no conflict is registered for
 // conceptID. The git transaction is deferred to FinalizeConflicts.
 func (k *KB) RecordResolution(conceptID, strategy, body string) error {
+	if strategy == "edit" {
+		if err := ValidateResolutionBody(body); err != nil {
+			return err
+		}
+	}
 	conflicts, err := k.loadConflicts()
 	if err != nil {
 		return err
@@ -368,4 +373,36 @@ func GitPathToConceptID(path string) (string, bool) {
 		return "", false
 	}
 	return id, true
+}
+
+// ValidateResolutionBody is the gate of the "edit" strategy (#1277): the file
+// the agent supplies is checked the way concept_write checks a page before
+// anything is committed. It needs a parseable frontmatter block with a type,
+// a body that round-trips, no NUL byte, and none of the three git conflict
+// markers (lines starting "<<<<<<< " or ">>>>>>> ", or the line "=======").
+func ValidateResolutionBody(content string) error {
+	if strings.ContainsRune(content, 0) {
+		return fmt.Errorf("%w: the body contains a NUL byte", okf.ErrInvalidConcept)
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(line, "<<<<<<< ") || line == "=======" || strings.HasPrefix(line, ">>>>>>> ") {
+			return fmt.Errorf("%w: the body still contains git conflict markers (%q): resolve them and send the reconciled file",
+				okf.ErrInvalidConcept, strings.TrimSpace(line))
+		}
+	}
+	raw, _, ok := okf.SplitFrontmatter(content)
+	if !ok {
+		return fmt.Errorf("%w: the body has no frontmatter block: send the full file (frontmatter and body)", okf.ErrInvalidConcept)
+	}
+	fm, err := okf.ParseFrontmatter(raw)
+	if err != nil {
+		return fmt.Errorf("%w: unparseable frontmatter: %v", okf.ErrInvalidConcept, err)
+	}
+	if fm.Type() == "" {
+		return fmt.Errorf("%w: type field is required", okf.ErrInvalidConcept)
+	}
+	if err := okf.VerifyRoundTrip(fm.Serialize()); err != nil {
+		return fmt.Errorf("%w: %v", okf.ErrInvalidConcept, err)
+	}
+	return nil
 }
