@@ -71,8 +71,13 @@ the newest one that is not a draft and has a version tag without a pre-release s
 release candidate `v<next>-rc.<YYYYMMDD>` is never offered, whatever its GitHub flag, D1192),
 cached for 24 h in `<user cache dir>/cartographer/update-check.json`. A lookup times out after 3 s
 and any failure means "unknown": nothing is printed. A `dev` build never checks.
+A newer release is announced only once the channel the binary came from can install it
+([D1351](decisions/D1351-update-check-waits-for-the-channel.md)): `homebrew` when the tap's cask
+names that version, `install.sh` / `install.ps1` when the release carries this platform's binary and
+`sha256sums.txt`; `go-install` and unknown ask for nothing more. Until then nothing is printed and
+nothing is cached, so the next run asks again; a current binary makes no extra request.
 `CARTOGRAPHER_NO_UPDATE_CHECK=1` or `update_check: false` (below) turns it off;
-`CARTOGRAPHER_UPDATE_API_URL` exists for tests only.
+`CARTOGRAPHER_UPDATE_API_URL` and `CARTOGRAPHER_UPDATE_CASK_URL` exist for tests only.
 
 | Command | Effect |
 |---|---|

@@ -1054,7 +1054,7 @@ new process answers rather than the old one before it exits
 ([D266](decisions/D266-a-windows-restart-waits-for-the-old-process-and-proves-the-new-one.md)), and
 `latest_version` **only when** the server's own update check knows of a newer release
 (`update_check`, D254): absent means unknown or up to date, so the shape a probe depends on is
-unchanged.
+unchanged. A server running as the container image reports it only once the image tag exists on ghcr.io (anonymous token, manifest `HEAD`; `CARTOGRAPHER_UPDATE_REGISTRY_URL` for tests), and a failed or negative check is retried after an hour ([D1351](decisions/D1351-update-check-waits-for-the-channel.md)); any other server relies on the release being published last (D1350).
 
 A KB's `capabilities` on `/health` are computed when the server starts, so a `secrets` entry's `hint` (D1191) can be stale there; `kb_status` computes it on each call.
 
