@@ -238,9 +238,6 @@ func ExtractAssetLinks(body string, basePath string, assetResolver ...func(relPa
 			continue
 		}
 		for _, href := range assetHrefForms(raw) {
-			if idx := strings.IndexAny(href, "?#"); idx >= 0 {
-				href = href[:idx]
-			}
 			if href == "" || strings.EqualFold(path.Ext(href), ".md") {
 				continue
 			}
@@ -261,17 +258,21 @@ func ExtractAssetLinks(body string, basePath string, assetResolver ...func(relPa
 	return links
 }
 
-// assetHrefForms returns the paths a Markdown destination may name: the
-// destination itself, unwrapped from the CommonMark angle-bracket form
-// (<dir/a file.xlsx>) that allows spaces, and its percent-decoded form
-// (a%20file.xlsx). A file really named with a literal "%20" is still matched
-// by the undecoded form, so both are offered.
+// assetHrefForms returns the file paths a Markdown destination may name. The
+// destination is unwrapped from the CommonMark angle-bracket form
+// (<dir/a file.xlsx>, which allows spaces) and cut at its query or fragment
+// first; only then is it percent-decoded, once, so an encoded "#" or "?"
+// (a%23b.xlsx) stays part of the name. The undecoded form is offered too, for
+// a file really named with a literal "%20".
 func assetHrefForms(href string) []string {
 	href = strings.TrimSpace(href)
 	if strings.HasPrefix(href, "<") {
 		if end := strings.Index(href, ">"); end > 0 {
 			href = href[1:end]
 		}
+	}
+	if idx := strings.IndexAny(href, "?#"); idx >= 0 {
+		href = href[:idx]
 	}
 	forms := []string{href}
 	if decoded, err := url.PathUnescape(href); err == nil && decoded != href {
