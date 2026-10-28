@@ -416,3 +416,63 @@ func TestWorkspaceBindRefusesAProviderWithAnAccessProfile(t *testing.T) {
 		t.Errorf("a binding was saved: %+v", got.Workspaces)
 	}
 }
+
+// A bridge entry names the `cartographer` found on PATH when it was written. Once
+// that binary moves, the entry is stale: status reports it and sync rewrites it,
+// while an entry the user wrote under the same name is neither.
+func TestStaleBridgeEntriesAreReportedAndRewritten(t *testing.T) {
+	stubBridgeCommand(t)
+	moved := filepath.Join(t.TempDir(), "gone", "cartographer")
+	bridge := map[string][]mcpEntry{}
+	for _, provider := range []string{"claude", "codex", "opencode"} {
+		bridge[provider] = []mcpEntry{{Name: "cartographer", Bridge: true}}
+	}
+	for provider, entries := range bridge {
+		t.Run(provider, func(t *testing.T) {
+			dir := t.TempDir()
+			old := bridgeCommand
+			bridgeCommand = func() (string, error) { return moved, nil }
+			if _, _, err := applyMCPEntries(map[string][]mcpEntry{provider: entries}, []string{provider}, dir, nil, true, "CARTOGRAPHER_TOKEN", false); err != nil {
+				t.Fatal(err)
+			}
+			bridgeCommand = old
+
+			if stale := staleBridgeEntries(provider, entries, dir, nil); len(stale) != 1 || stale[0].Have != moved || stale[0].Want != "/usr/local/bin/cartographer" || !stale[0].Missing {
+				t.Fatalf("stale = %+v, want the moved binary reported as missing", stale)
+			}
+
+			before := snapshotMCPConfigFiles([]string{provider}, dir, nil)
+			if _, _, err := applyMCPEntries(map[string][]mcpEntry{provider: entries}, []string{provider}, dir, nil, true, "CARTOGRAPHER_TOKEN", false); err != nil {
+				t.Fatal(err)
+			}
+			if changed := changedMCPEntries([]string{provider}, map[string][]mcpEntry{provider: entries}, before, dir, nil, true, "CARTOGRAPHER_TOKEN"); len(changed) != 1 {
+				t.Fatalf("sync reports %v, want the entry rewritten", changed)
+			}
+			if stale := staleBridgeEntries(provider, entries, dir, nil); len(stale) != 0 {
+				t.Fatalf("after sync stale = %+v", stale)
+			}
+		})
+	}
+}
+
+func TestStaleBridgeEntriesLeaveUserOwnedEntriesAlone(t *testing.T) {
+	stubBridgeCommand(t)
+	entries := []mcpEntry{{Name: "cartographer", Bridge: true}}
+	dir := t.TempDir()
+	claude := `{"mcpServers":{"cartographer":{"type":"stdio","command":"/opt/mine/server","args":["--stdio"]}}}`
+	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(claude), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codex := "[mcp_servers.cartographer]\nurl = \"https://example.com/mcp\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte(codex), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"claude", "codex"} {
+		if stale := staleBridgeEntries(provider, entries, dir, nil); len(stale) != 0 {
+			t.Errorf("%s: a user-owned entry was reported as stale: %+v", provider, stale)
+		}
+	}
+}

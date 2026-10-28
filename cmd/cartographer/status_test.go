@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -671,5 +672,64 @@ func TestStatus_BootstrappingServerIsStartingNotUnreachable(t *testing.T) {
 	})
 	if !strings.Contains(out, "starting") || strings.Contains(out, "could not reach") {
 		t.Errorf("table output = %q", out)
+	}
+}
+
+// A bridge entry whose binary is gone is drift, though the manifest and the
+// lockfile agree: the next client session would start without the MCP server.
+func TestStatus_StaleBridgeEntryIsDrift(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	cfg := &clientconfig.Config{ServerName: "cartographer", ServerURL: "https://cartographer.example/mcp", ServerRoutedPath: "/mcp/routed", ServerMountMode: "routed", Agents: []string{"claude"}}
+	if err := cfg.BindWorkspace("claude", t.TempDir(), []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	served := provisioning.Manifest{Revision: "rev1"}
+	lock := provisioning.Lock{Provider: "claude", AppliedRevision: provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision}
+	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": lock}}); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+	stubBridgeCommand(t)
+	gone := filepath.Join(home, ".local", "bin", "cartographer")
+	entry := `{"mcpServers":{"cartographer":{"type":"stdio","command":` + strconv.Quote(gone) + `,"args":["mcp","--provider","claude"]}}}`
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
+		return &client.Health{Version: "v1.0.0", MountMode: "routed", RoutedPath: "/mcp/routed"}, nil
+	}
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 1 {
+			t.Errorf("cmdStatus with a stale bridge entry = %d, want 1", code)
+		}
+	})
+	for _, want := range []string{"diverged on disk (modified): mcp/cartographer", "does not exist", "/usr/local/bin/cartographer"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output = %q, want %q", out, want)
+		}
+	}
+
+	current := strings.ReplaceAll(entry, strconv.Quote(gone), strconv.Quote("/usr/local/bin/cartographer"))
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(current), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code := -1
+	out = withStdout(t, func() { code = cmdStatus(nil) })
+	if code != 0 {
+		t.Errorf("cmdStatus with the current bridge command = %d, want 0: %s", code, out)
 	}
 }
