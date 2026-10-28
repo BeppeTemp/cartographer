@@ -262,8 +262,8 @@ func TestRoutedView_NoGrantIsTheDeniedView(t *testing.T) {
 			}
 		}
 		if res := f.call(t, tokNone, path, "concept_read", map[string]any{"kb": "kb-a", "id": "x"}); !res.IsError ||
-			!strings.Contains(strings.ToLower(res.Content[0].Text), "not found") {
-			t.Errorf("%s: tools/call = %+v, want tool not found", path, res)
+			!strings.Contains(strings.ToLower(res.Content[0].Text), "unknown tool") {
+			t.Errorf("%s: tools/call = %+v, want unknown tool", path, res)
 		}
 	}
 	// Fail-closed for the zero principal too (a handler used without the middleware).

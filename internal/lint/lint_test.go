@@ -1196,8 +1196,8 @@ func TestLint_SecretsOnNonServiceConcept(t *testing.T) {
 				}
 			}
 			for _, f := range findings {
-				if f.Check == "secrets_on_non_service" && (!strings.Contains(f.Message, "secret_resolve")) {
-					t.Errorf("secrets_on_non_service must be info and name secret_resolve: %+v", f)
+				if f.Check == "secrets_on_non_service" && (!strings.Contains(f.Message, "Service concept")) {
+					t.Errorf("secrets_on_non_service must say to move the refs to a Service concept: %+v", f)
 				}
 			}
 			if got != tc.wantCheck {

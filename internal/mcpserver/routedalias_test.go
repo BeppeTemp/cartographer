@@ -35,6 +35,17 @@ func aliasCall(t *testing.T, handler http.Handler, path, tool string, args map[s
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v; %s", err, rr.Body.String())
 	}
+	return resultOrUnknownTool(t, resp)
+}
+
+// resultOrUnknownTool decodes a tools/call answer; an unknown tool is a JSON-RPC
+// -32602 (#1303), shown here as an error result carrying its message so the
+// tests that assert on the refusal's wording read it the same way.
+func resultOrUnknownTool(t *testing.T, resp Response) ToolResult {
+	t.Helper()
+	if resp.Error != nil && resp.Error.Code == -32602 && strings.HasPrefix(resp.Error.Message, "unknown tool ") {
+		return ToolResult{IsError: true, Content: []ContentBlock{{Type: "text", Text: resp.Error.Message}}}
+	}
 	return decodeToolResult(t, resp)
 }
 
