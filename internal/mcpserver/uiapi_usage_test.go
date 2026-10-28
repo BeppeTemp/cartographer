@@ -36,6 +36,7 @@ func usageHandlerWeb(t *testing.T, web bool) (http.Handler, *kb.KB) {
 			t.Fatal(err)
 		}
 	}
+	commitFixtures(t, k.Root)
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true}}}},
 		{Token: "reader", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},

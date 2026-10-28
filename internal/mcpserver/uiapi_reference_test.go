@@ -52,6 +52,7 @@ func referenceUIHandler(t *testing.T) http.Handler {
 	other := uiFixtureKB(t, "work-kb")
 	put(other.Root, "paths.yaml", "repos:\n  app:\n    description: Same key\n    default: $HOME/other/app\n")
 
+	commitFixtures(t, k.Root)
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}, {KB: "work-kb"}}}},
 		{Principal: "boss", Token: "admin", Policy: auth.Policy{Admin: true}},

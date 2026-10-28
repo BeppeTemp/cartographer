@@ -26,6 +26,7 @@ func homeUIHandler(t *testing.T) http.Handler {
 	if err := os.WriteFile(full, []byte(skill), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	commitFixtures(t, k.Root)
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
 		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},

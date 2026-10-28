@@ -3588,6 +3588,7 @@ func TestServer_SyncApply_HookNeedsApproval(t *testing.T) {
 			}
 			os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"SessionStart","command":"./run.sh"}`+"\n"), 0o644)
 			os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
+			commitFixtures(t, k.Root)
 			baseDir := t.TempDir()
 
 			s := New("1.0.0")
@@ -3634,6 +3635,7 @@ func TestServer_SyncPull(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "asset.bin"), []byte{0, 0xff, 1}, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	commitFixtures(t, k.Root)
 
 	bundleFS := fstest.MapFS{
 		"bundled/kb-create/SKILL.md": &fstest.MapFile{

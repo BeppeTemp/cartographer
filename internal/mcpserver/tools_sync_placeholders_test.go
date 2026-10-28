@@ -34,6 +34,7 @@ func placeholderKB(t *testing.T) (*Server, *kb.KB, string) {
 	write(filepath.Join(k.DataRoot(), "ops", "tools.md"), "---\ntype: Note\ntitle: Tools\n---\nKubeconfig at {{path:kubeconfig}}; syntax {{\\repo:x}} and {{repo:<name>}}.\n")
 	write(filepath.Join(k.DataRoot(), "hidden", "secret.md"), "---\ntype: Note\ntitle: Secret\n---\nClone {{repo:private-infra}}.\n")
 	write(filepath.Join(k.Root, "skills", "deploy", "SKILL.md"), "---\nname: deploy\ndescription: deploy\n---\nRun from {{repo:deployer}}.\n")
+	commitFixtures(t, k.Root)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}})
 	return s, k, filepath.Join(k.DataRoot(), "ops", "tools.md")
