@@ -41,6 +41,7 @@ func artifactUIHandler(t *testing.T) http.Handler {
 	write("instructions.md", []byte("# House rules\n"), 0o644)
 	write("templates/runbook.md", []byte("---\ntype: Runbook\ntitle: Runbook template\n---\n# {{title}}\n"), 0o644)
 
+	commitFixtures(t, k.Root)
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
 		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
@@ -147,6 +148,7 @@ func TestUIAPI_ArtifactsListsEveryKindEvenWhenTheKBHasNone(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			commitFixtures(t, k.Root)
 			ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 				{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
 			})

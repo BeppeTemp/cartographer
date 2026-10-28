@@ -442,10 +442,10 @@ const LockFileName = ".cartographer-sync.lock.json"
 //
 // Use this for Artifact.ContentHash: a skill is a folder, not just SKILL.md.
 func ContentHashDir(fsys fs.FS, dir string) (string, error) {
-	return contentHashDir(fsys, dir, nil)
+	return contentHashDir(fsys, dir, nil, nil)
 }
 
-func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool) (string, error) {
+func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, include func(rel string) bool) (string, error) {
 	var files []ArtifactFile
 	var paths []string
 
@@ -473,6 +473,9 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool) 
 			rel = p[len(prefix):]
 		}
 		// Case dir == ".": WalkDir returns paths without "./" prefix, rel = path.
+		if include != nil && !include(rel) {
+			continue
+		}
 
 		data, readErr := fs.ReadFile(fsys, p)
 		if readErr != nil {
@@ -654,9 +657,16 @@ func ContentHashDirOSForKind(dirPath, kind string) (string, error) {
 }
 
 func contentHashDirOS(dirPath, kind string) (string, error) {
+	return contentHashDirTracked(dirPath, kind, nil)
+}
+
+// contentHashDirTracked is contentHashDirOS restricted to the files include
+// accepts (paths relative to dirPath); nil accepts all. The server uses it to
+// hash only what git tracks in a KB (#1325).
+func contentHashDirTracked(dirPath, kind string, include func(rel string) bool) (string, error) {
 	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return effectiveExecutable(kind, path, executable)
-	})
+	}, include)
 }
 
 // contentHashDirManaged is contentHashDirOS for a directory that a lockfile
@@ -665,7 +675,7 @@ func contentHashDirOS(dirPath, kind string) (string, error) {
 func contentHashDirManaged(mf ManagedFile, dirPath string) (string, error) {
 	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return mf.executableOnDisk(path, executable)
-	})
+	}, nil)
 }
 
 // --- Manifest ---
@@ -725,6 +735,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 
 	for _, kbName := range kbNames {
 		kbRoot := kbRoots[kbName]
+		tracked, err := kbTrackedFilter(kbRoot)
+		if err != nil {
+			return Manifest{}, err
+		}
 
 		// 2. Skill (skills/<name>/SKILL.md, several files per artifact). A KB with
 		// no skills/ folder or an unreadable directory: kbSkills is empty,
@@ -757,7 +771,11 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 			}
 			skillNames = append(skillNames, s.Name)
 			skillDir := filepath.Join(kbRoot, s.DirPath)
-			hash, err := contentHashDirOS(skillDir, "skill")
+			skillInclude := tracked.under(s.DirPath)
+			if !tracked.hasAny(s.DirPath + "/") {
+				continue // nothing of it is tracked: not an artifact (#1325)
+			}
+			hash, err := contentHashDirTracked(skillDir, "skill", skillInclude)
 			if err != nil {
 				return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/%s: %w", kbName, s.Name, err)
 			}
@@ -781,6 +799,9 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					continue
 				}
 				name := strings.TrimSuffix(e.Name(), ".md")
+				if !tracked.has("agents/" + e.Name()) {
+					continue
+				}
 				hash, err := contentHashFile(filepath.Join(agentsDir, e.Name()))
 				if err != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/agents/%s: %w", kbName, name, err)
@@ -813,7 +834,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					continue
 				}
 				name := e.Name()
-				hash, err := contentHashDirOS(filepath.Join(hooksDir, name), "hook")
+				if !tracked.hasAny("hooks/" + name + "/") {
+					continue
+				}
+				hash, err := contentHashDirTracked(filepath.Join(hooksDir, name), "hook", tracked.under("hooks/"+name))
 				if err != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/hooks/%s: %w", kbName, name, err)
 				}
@@ -841,6 +865,9 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					continue
 				}
 				name := strings.TrimSuffix(e.Name(), ".json")
+				if !tracked.has("mcp/" + e.Name()) {
+					continue
+				}
 				mcpPath := filepath.Join(mcpDir, e.Name())
 				data, readErr := os.ReadFile(mcpPath)
 				if readErr != nil {
@@ -4608,6 +4635,11 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 		return nil, fmt.Errorf("KB %q not found in KBRoots", kbName)
 	}
 
+	tracked, err := kbTrackedFilter(kbRoot)
+	if err != nil {
+		return nil, err
+	}
+
 	switch a.Kind {
 	case "agent":
 		agentPath := filepath.Join(kbRoot, "agents", a.Name+".md")
@@ -4624,7 +4656,7 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 		}
 		return []ArtifactFile{{Path: a.Name + ".json", Content: data}}, nil
 	case "hook":
-		files, err := readDirFiles(filepath.Join(kbRoot, "hooks", a.Name))
+		files, err := readDirFiles(filepath.Join(kbRoot, "hooks", a.Name), tracked.under("hooks/"+a.Name))
 		if err != nil {
 			return nil, err
 		}
@@ -4633,7 +4665,7 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 		}
 		return files, nil
 	default: // "skill"
-		return readDirFiles(filepath.Join(kbRoot, "skills", a.Name))
+		return readDirFiles(filepath.Join(kbRoot, "skills", a.Name), tracked.under("skills/"+a.Name))
 	}
 }
 
@@ -4641,7 +4673,7 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 // ArtifactFile, with Path relative to srcDir (slash-separated). Factored out of
 // ReadArtifactFiles because skill and hook share the same
 // "directory with one or more files" schema.
-func readDirFiles(srcDir string) ([]ArtifactFile, error) {
+func readDirFiles(srcDir string, include func(rel string) bool) ([]ArtifactFile, error) {
 	var files []ArtifactFile
 	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -4653,6 +4685,9 @@ func readDirFiles(srcDir string) ([]ArtifactFile, error) {
 		rel, relErr := filepath.Rel(srcDir, path)
 		if relErr != nil {
 			return relErr
+		}
+		if include != nil && !include(filepath.ToSlash(rel)) {
+			return nil
 		}
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {

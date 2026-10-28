@@ -194,6 +194,7 @@ func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "run.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	commitFixtures(t, k.Root)
 
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
