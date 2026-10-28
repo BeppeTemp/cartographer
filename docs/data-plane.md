@@ -934,7 +934,7 @@ validate a nested per-type grammar.
   holds `Source` concepts only and each already follows the template, declares
   `templates: [source]` and `default_template: source` on it (D1072); an existing
   template, or a map that already declares templates, is never touched, and the
-  response says so in `notes`. Frontmatter: `title`, `source_kind` (free
+  response says so in `notes`. A registration goes through the write gate and, when the journal's index is curated, adds the entry in the same commit (#1297); lint does not ask a `Source` for outgoing links (`orphan`). Frontmatter: `title`, `source_kind` (free
   string), optional `locator` (a URL or a `{{path:<key>}}` placeholder, never a
   machine path), optional `sha256` (lowercase hex of the original bytes, computed
   by the agent), `timestamp` (the source's own date), `ingest_status`
