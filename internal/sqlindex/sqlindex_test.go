@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -579,7 +580,11 @@ func TestSearchFTSIDsMatchesSearchWithoutSnippets(t *testing.T) {
 }
 
 func TestOpenPathWithURICharacters(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "kb #1 100%? x")
+	name := "kb #1 100%? x"
+	if runtime.GOOS == "windows" {
+		name = "kb #1 100% x" // ? is not a valid file name character on Windows
+	}
+	dir := filepath.Join(t.TempDir(), name)
 	ix, err := Open(filepath.Join(dir, "index.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
