@@ -420,3 +420,18 @@ func TestDerivedWorkspace_ClaudeLocalFilesSurviveAnotherProvider(t *testing.T) {
 		}
 	}
 }
+
+// An explicit binding whose repository tracks settings.local.json syncs without
+// refusal, and the file is not excluded: it is the user's (#1275 review).
+func TestExplicitWorkspace_TrackedSettingsLocalIsNotRefusedNorExcluded(t *testing.T) {
+	ws := trackedRepo(t, map[string]string{".claude/settings.local.json": "{}\n"})
+	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
+	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{bundleHook("guard")}}
+	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	excl, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))
+	if strings.Contains(string(excl), "settings.local.json") {
+		t.Errorf("the user's file is excluded:\n%s", excl)
+	}
+}

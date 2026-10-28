@@ -220,12 +220,6 @@ func ProjectScopeUnsupportedReason(provider configurator.Provider) string {
 var projectRegistrationFiles = map[configurator.Provider][]string{
 	// The hook entries (D364); the same schema as the global hooks.json.
 	configurator.ProviderAntigravity: {antigravityProjectHooksRel},
-	// Where a derived binding registers Claude Code hooks (D1198): the untracked
-	// local settings, never the settings.json a repository tracks. Owned here so
-	// every pass over the exclude block lists it, whichever projection writes
-	// the block (#1275). An explicit binding registers in settings.json and
-	// never touches this file; a local file is no one's to commit anyway.
-	configurator.ProviderClaudeCode: {ClaudeLocalSettings},
 }
 
 // projectSharedHookFiles are the hook registrations that a projection patches

@@ -156,7 +156,7 @@ func TestSupportsProjectScope_FailsClosed(t *testing.T) {
 // it must name everything a projection can create, and nothing it cannot.
 func TestProjectOwnedPaths(t *testing.T) {
 	got := ProjectOwnedPaths(configurator.ProviderClaudeCode)
-	want := map[string]bool{".mcp.json": false, "CLAUDE.md": false, ".claude/agents": false, ".claude/hooks": false, ".claude/skills": false, ".claude/settings.local.json": false}
+	want := map[string]bool{".mcp.json": false, "CLAUDE.md": false, ".claude/agents": false, ".claude/hooks": false, ".claude/skills": false}
 	for _, p := range got {
 		if _, ok := want[p]; !ok {
 			t.Errorf("unexpected owned path %q", p)
