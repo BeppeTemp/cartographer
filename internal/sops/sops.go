@@ -162,12 +162,16 @@ func ResolveNamed(kbRoot string, refs []SecretRef, only []string, env ...string)
 			declared[ref.Name] = ref
 		}
 		picked := make([]SecretRef, 0, len(only))
+		asked := map[string]bool{}
 		for _, n := range only {
 			ref, ok := declared[n]
 			if !ok {
 				return nil, fmt.Errorf("unknown name %q", n)
 			}
-			delete(declared, n)
+			if asked[n] { // a name asked twice is resolved once
+				continue
+			}
+			asked[n] = true
 			picked = append(picked, ref)
 		}
 		refs = picked
@@ -321,9 +325,15 @@ func RefProblem(kbRoot, file, pointer string) string {
 	if err != nil || !hasSOPSMetadata(root) {
 		return ""
 	}
-	if _, err := nodeAtPointer(root, pointer); err != nil {
-		// Flat legacy files: a top-level key is also addressed unprefixed.
+	// Key names stay in clear in a sops file, so the pointer is walked as
+	// written (a top-level key needs no legacy unprefixed form here).
+	n, err := nodeAtPointer(root, pointer)
+	if err != nil {
 		return fmt.Sprintf("key %s not found in %s", pointer, file)
+	}
+	if n.Kind != yaml.ScalarNode {
+		// ResolveNamed only knows scalar leaves: a mapping or a list is not a value.
+		return fmt.Sprintf("key %s in %s is not a single value", pointer, file)
 	}
 	return ""
 }

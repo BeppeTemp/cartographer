@@ -134,3 +134,14 @@ func TestDecryptFailureCarriesNoServerPath(t *testing.T) {
 		t.Errorf("the log detail lost the sops output: %q", Detail(err))
 	}
 }
+
+// A name asked twice is resolved once, not reported as unknown.
+func TestResolveNamedRepeatedNameIsResolvedOnce(t *testing.T) {
+	fakeSOPS(t, "echo 'pw: hunter2'\n")
+	root := kbWithSecret(t, "x")
+	refs := []SecretRef{{Name: "PW", SOPSFile: "secrets/app.sops.yaml", SOPSKey: "/pw"}}
+	got, err := ResolveNamed(root, refs, []string{"PW", "PW"})
+	if err != nil || got["PW"] != "hunter2" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+}
