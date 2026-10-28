@@ -472,3 +472,114 @@ func TestEndpointCarriesTheProvisionedMarker(t *testing.T) {
 		}
 	}
 }
+
+const listenMsg = `{"jsonrpc":"2.0","id":"listen:0","method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true}}}`
+
+// lockedBuffer is a stdout the test can read while the bridge still writes.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// waitFor polls until cond holds or the deadline passes.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// A fresh read-only session whose first message opens an event stream must not
+// hold the next request: the stream keeps running on its own while tools/list
+// is answered.
+func TestBridgeReadOnlyListenStreamDoesNotBlockTheNextRequest(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a")
+	finish := make(chan struct{})
+	var finishOnce sync.Once
+	endStream := func() { finishOnce.Do(func() { close(finish) }) }
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Mcp-Method") != "subscriptions/listen" {
+			rs.Config.Handler.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set(accessHeader, accessRead)
+		w.WriteHeader(http.StatusOK)
+		fl := w.(http.Flusher)
+		_, _ = io.WriteString(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/subscriptions/acknowledged\"}\n\n")
+		fl.Flush()
+		select {
+		case <-finish:
+		case <-r.Context().Done():
+			return
+		}
+		_, _ = io.WriteString(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n")
+		fl.Flush()
+	}))
+	defer func() { // a failed run must not leave the stream open for Close
+		endStream()
+		front.Close()
+	}()
+	cfg := bridgeConfig(rs)
+	cfg.ServerURL = front.URL + "/mcp"
+
+	pr, pw := io.Pipe()
+	out := &lockedBuffer{}
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir(), Token: testToken, In: pr, Out: out}
+	done := make(chan error, 1)
+	go func() { done <- b.Run(context.Background()) }()
+
+	_, _ = io.WriteString(pw, listenMsg+"\n"+listMsg+"\n")
+	waitFor(t, "the tools/list answer", func() bool { return strings.Contains(out.String(), `"id":2`) })
+	if s := out.String(); !strings.Contains(s, "acknowledged") || !strings.Contains(s, "concept_read") {
+		t.Fatalf("stdout = %s", s)
+	}
+	endStream()
+	waitFor(t, "the stream notification", func() bool { return strings.Contains(out.String(), "list_changed") })
+	_ = pw.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The stream's headers decide too: a server that opens a stream without
+// confirming the mode is not relayed and serves no tools, and the request
+// behind it never reaches it.
+func TestBridgeReadOnlyListenWithoutConfirmationServesNoTools(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/subscriptions/acknowledged\"}\n\n")
+	}))
+	defer srv.Close()
+	cfg := &clientconfig.Config{
+		ServerName: "cartographer", ServerURL: srv.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
+		KnownKBs: []string{"kb-a"},
+	}
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir()}
+	got := exchange(t, b, listenMsg, listMsg)
+
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("the bridge kept proxying to an unconfirmed server (%d requests)", n)
+	}
+	if tools, _ := got["2"]["result"].(map[string]any)["tools"].([]any); len(tools) != 0 {
+		t.Fatalf("tools = %v, want none", tools)
+	}
+}

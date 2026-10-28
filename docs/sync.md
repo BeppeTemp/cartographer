@@ -499,7 +499,7 @@ Rules: a folder under no binding, `$HOME` included, gets the provider's default 
 (D1018): the bridge sends `access=read` and the server lists no write tool and refuses a call to one,
 naming `cartographer workspace bind` and a KB's `paths.yaml` as the ways to write; the folder also
 receives no KB artifact. A bridge whose server does not confirm the mode (`Cartographer-Access:
-read`, older servers) serves no tools. A binding that wins is never read-only. An empty
+read`, older servers) serves no tools. Until that confirmation the bridge forwards one message at a time, and a response that opens an event stream (`subscriptions/listen`) releases the next one as soon as its headers confirm the mode, so the stream never holds back `tools/list`. A binding that wins is never read-only. An empty
 binding (`--no-kb`), or one whose KBs are all unmounted, gets a session with no Cartographer tools,
 never every KB (the bridge answers the handshake itself and sends nothing to the server); a binding
 whose directory is gone or whose git remote changed serves no KB and says why. A client that declares

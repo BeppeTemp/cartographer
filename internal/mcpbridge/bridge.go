@@ -312,16 +312,29 @@ func (b *Bridge) dispatch(ctx context.Context, wg *sync.WaitGroup, raw []byte, m
 		return
 	}
 	if b.awaitingAccess(scope) {
-		// TRAP: until the server has confirmed read-only mode, forward in
-		// order and wait. Concurrent forwards would put the next requests on an
-		// old server that ignores ?access=read before the first answer says so.
-		b.forward(ctx, scope, raw, m)
+		// TRAP: until the server has confirmed read-only mode, forward one
+		// message at a time and wait for its confirmation. Concurrent forwards
+		// would put the next requests on an old server that ignores
+		// ?access=read before the first answer says so. The wait ends when
+		// forward has checked the response headers, not when the body is done:
+		// a long-lived event stream (subscriptions/listen) must not hold the
+		// read loop, and a stream's headers already carry the verdict.
+		released := make(chan struct{})
+		var once sync.Once
+		release := func() { once.Do(func() { close(released) }) }
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer release()
+			b.forward(ctx, scope, raw, m, release)
+		}()
+		<-released
 		return
 	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		b.forward(ctx, scope, raw, m)
+		b.forward(ctx, scope, raw, m, func() {})
 	}()
 }
 
@@ -459,7 +472,9 @@ func (b *Bridge) endpoint(scope Scope) (string, error) {
 }
 
 // forward POSTs one message to the routed endpoint and writes what comes back.
-func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message) {
+// release is called once the access check of a response that opens an event
+// stream has passed, before the stream is relayed.
+func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message, release func()) {
 	reqURL, err := b.endpoint(scope)
 	if err != nil {
 		b.writeError(m.ID, -32000, err.Error())
@@ -522,6 +537,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 	case resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent:
 		// A notification or a client response: nothing to relay.
 	case strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"):
+		release()
 		b.relayEvents(resp.Body)
 	default:
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024))
