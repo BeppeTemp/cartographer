@@ -477,6 +477,7 @@ func (s *Server) sdkHTTPHandler() http.Handler {
 // the SDK transport wants; closing them is the caller's business, so the
 // adapters' Close is a no-op.
 func (s *Server) sdkStdioRun(ctx context.Context, reader io.Reader, writer io.Writer) error {
+	reader, writer = guardStdio(reader, writer)
 	return s.SDKServer().Run(ctx, &sdk.IOTransport{
 		Reader: nopReadCloser{reader},
 		Writer: nopWriteCloser{writer},
