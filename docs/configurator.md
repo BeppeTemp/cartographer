@@ -195,7 +195,7 @@ kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations wi
 destination go to `unsupported` and are filtered upstream), and writes/updates `.cartographer.yaml`. If the
 server is unreachable, the MCP configs and `.cartographer.yaml` are still written; materialization
 is **deferred** (warning, exit 0) — it must be completed with `cartographer sync` once the
-server is up. Materialized hooks are also **automatically registered** in the
+server is up. A transport failure (dial, DNS, timeout) defers as "server unreachable"; any other answer that is not a rejection (a 404 or 5xx from `/health`) also defers, worded "the server did not serve the skills", and probe messages say "the server answered but the probe failed" for it; a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job an earlier release installed, printing one line when there was one:
@@ -398,7 +398,7 @@ and the native service isn't running, before the `y/N` override the CLI flow off
 install and start the local service (`cartographer service install` with defaults, polling
 `/health` for up to 10s, then an automatic re-probe). In the non-interactive path, a deferred
 materialization to a loopback URL only adds a hint on stderr suggesting
-`cartographer service install` when unreachable; a reachable 0-KB server instead prints
+`cartographer service install` when the server does not answer at all (never when `/health` replied, e.g. a 404 on a `/mcp/<segment>` URL); a reachable 0-KB server instead prints
 `cartographer kb create <name> --remote <url>` followed by `cartographer service restart`. A successful connect
 prints the absolute paths of generated MCP configs and reminds the user to restart the selected
 agent sessions to load the MCP tools.
@@ -472,6 +472,10 @@ For an unavailable endpoint, the table names the configured endpoint once and
 suggests checking that URL (or `cartographer service status` for loopback);
 connected providers are reported as `unknown`, rather than repeating a network
 failure for each provider.
+A server that answers `/health` but is still bootstrapping its KBs is not unreachable: the
+snapshot says `reachable: true`, `ready: false` and `error: {code: "starting", message: "the
+server is starting and loading its KBs; retry shortly"}` (state `unavailable`, exit `2`), and the
+table prints that message instead of the endpoint advice (#1305).
 A managed artifact that diverged on disk is listed as `diverged on disk (<reason>)`; for an
 `unrunnable` hook — a Claude Code hook whose registered command cannot run, such as a backslash
 path on Windows or a file that is not there — the next line says which command and why (JSON

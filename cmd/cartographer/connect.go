@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"slices"
@@ -147,6 +148,9 @@ func probeErrorMessage(state probeState, err error) string {
 	}
 	if errors.Is(err, client.ErrUnauthorized) {
 		return fmt.Sprintf("server reached but the token was rejected (check Token env var / Auth): %v", err)
+	}
+	if re := (*client.RemoteError)(nil); errors.As(err, &re) && !isTransportErr(err) {
+		return fmt.Sprintf("the server answered but the probe failed: %v", err)
 	}
 	return fmt.Sprintf("server unreachable: %v", err)
 }
@@ -429,7 +433,7 @@ func cmdConnect(args []string) int {
 				fmt.Fprintln(os.Stderr, "Warning:", msg)
 
 				recovered := false
-				if state == probeUnreachable && !errors.Is(perr, client.ErrUnauthorized) && isLoopbackURL(formOpts.ServerURL) {
+				if state == probeUnreachable && isTransportErr(perr) && isLoopbackURL(formOpts.ServerURL) {
 					mgr := service.NewManager()
 					st, statusErr := mgr.Status("")
 					if statusErr == nil && shouldOfferServiceInstall(true, st.Installed) {
@@ -504,13 +508,52 @@ func cmdConnect(args []string) int {
 		case probeNoKB:
 			fmt.Fprintln(os.Stderr, "hint:", probeErrorMessage(state, nil))
 		case probeUnreachable:
-			if !errors.Is(probeErr, client.ErrUnauthorized) {
+			// Only a server that did not answer: a health endpoint that
+			// replied (a 404 on a /mcp/<segment> URL, a 5xx) is running (#1299).
+			if isTransportErr(probeErr) {
 				fmt.Fprintln(os.Stderr, "hint: the local server isn't responding — run `cartographer setup` (server, first KB and agents), or `cartographer service install` for the server alone")
 			}
 		}
 	}
 	printConnectResult(dir, providers, opts, res)
 	return 0
+}
+
+// isTransportErr reports whether err is a failure to reach the server at all
+// (dial, DNS, timeout before any answer), as opposed to a server that
+// answered with something unusable (#1299). A body read failure after the
+// answer started (CodeHTTPFailed, no status) is deliberately not transport: the
+// server was reached.
+func isTransportErr(err error) bool {
+	var re *client.RemoteError
+	return errors.As(err, &re) && (re.Code == client.CodeUnreachable || re.Code == client.CodeDNSFailed)
+}
+
+// isRejectedCredential reports whether the server answered 401 or 403.
+func isRejectedCredential(err error) bool {
+	var re *client.RemoteError
+	return errors.Is(err, client.ErrUnauthorized) || (errors.As(err, &re) && re.HTTPStatus == http.StatusForbidden)
+}
+
+// tokenSourceName says where the token that was sent came from.
+func tokenSourceName(cfg *clientconfig.Config) string {
+	switch {
+	case !cfg.Auth:
+		return "no token was sent: auth is off"
+	case tokenEnvName(cfg) != "":
+		return "from $" + tokenEnvName(cfg)
+	default:
+		return "the literal token given to connect"
+	}
+}
+
+// deferralReason words why a skill sync was deferred: "server unreachable" is
+// only true of a transport failure.
+func deferralReason(err error) string {
+	if isTransportErr(err) {
+		return "server unreachable"
+	}
+	return "the server did not serve the skills"
 }
 
 // printConnectResult prints the standard `connect` output (configs written,
@@ -531,7 +574,7 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	}
 
 	if res.Deferred {
-		fmt.Fprintf(os.Stderr, "Warning: skill sync deferred, server unreachable: %v\n", res.DeferredErr)
+		fmt.Fprintf(os.Stderr, "Warning: skill sync deferred, %s: %v\n", deferralReason(res.DeferredErr), res.DeferredErr)
 	} else {
 		printApplySummary(dir, res.Applied, opts.DryRun)
 	}
@@ -547,7 +590,7 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 		fmt.Printf("restart the %s sessions to load the MCP tools\n", strings.Join(providers, ", "))
 	}
 	if res.Deferred {
-		fmt.Println("warning: skill sync deferred (server unreachable); run `cartographer sync` once the server is up")
+		fmt.Printf("warning: skill sync deferred (%s); run `cartographer sync` once the server is up\n", deferralReason(res.DeferredErr))
 	}
 	if !opts.DryRun {
 		ensureSyncTimer(dir, providers)
@@ -967,6 +1010,10 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		// The server answered; what failed is a pin. The file is not saved, so the
 		// wrong key is not kept in .cartographer.yaml (#1282).
 		return connectResult{}, fmt.Errorf("skill signatures do not verify against the pinned keys (fix or remove the pin with --pin-key / --unpin-key <kb>; signing_keys in %s): %w; the server is reachable; %s was not updated", clientconfig.FileName, err, clientconfig.FileName)
+	} else if isRejectedCredential(err) {
+		// The server answered and refused the credential: not "unreachable", and
+		// saving a config that cannot sync would hide it (#1299).
+		return connectResult{}, fmt.Errorf("the server rejected the token (%s); fix it (--token, or the variable it names) and run connect again: %w; the server is reachable; %s was not updated", tokenSourceName(pullCfg), err, clientconfig.FileName)
 	} else if err != nil {
 		res.Deferred = true
 		res.DeferredErr = err

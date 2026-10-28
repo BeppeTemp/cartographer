@@ -59,6 +59,9 @@ const (
 	CodeUnauthorized = "unauthorized"
 	CodeHTTPFailed   = "http_failed"
 	CodeMCPFailed    = "mcp_failed"
+	// CodeStarting is a reachable server whose /health says it is still
+	// bootstrapping its KBs: not a network failure, retry shortly.
+	CodeStarting = "starting"
 )
 
 // RemoteError is returned by MCPClient's do/Call/Health/Ping for every
@@ -72,6 +75,10 @@ type RemoteError struct {
 	Code    string
 	Message string
 	Cause   error
+	// HTTPStatus is the response status of a RemoteError that carries one
+	// (CodeHTTPFailed from an answering server), zero otherwise. It lets a
+	// caller tell a refused credential (403) from a transport failure (#1299).
+	HTTPStatus int
 }
 
 func (e *RemoteError) Error() string {
@@ -435,7 +442,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", reqURL, resp.StatusCode),
-			Cause:   fmt.Errorf("%s", respBody)}
+			Cause:   fmt.Errorf("%s", respBody), HTTPStatus: resp.StatusCode}
 	}
 
 	var rpcResp rpcResponse
@@ -540,7 +547,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 			msg += mcpSubpathHint(c.ServerURL)
 		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
-			Message: msg, Cause: fmt.Errorf("%s", body)}
+			Message: msg, Cause: fmt.Errorf("%s", body), HTTPStatus: resp.StatusCode}
 	}
 
 	var health Health
@@ -549,7 +556,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 			Message: fmt.Sprintf("invalid health response from %s", u), Cause: err}
 	}
 	if health.Bootstrapping {
-		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeStarting,
 			Message: "server is bootstrapping its KBs, retry shortly"}
 	}
 	return &health, nil
@@ -644,7 +651,7 @@ func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time
 			Message: fmt.Sprintf("%s rejected the request", u.Redacted()), Cause: c.unauthorizedCauseFor()}
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
-			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode)}
+			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode}
 	}
 	return nil
 }

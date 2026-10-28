@@ -578,7 +578,7 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 			// under a pin is a stripped signature, not a legacy artifact: fail
 			// closed (D906).
 			if strings.HasPrefix(a.Source, "kb:") && len(pins[strings.TrimPrefix(a.Source, "kb:")]) > 0 {
-				return Manifest{}, fmt.Errorf("provisioning: KB %q has a pinned signing key but %s/%s carries no signature", strings.TrimPrefix(a.Source, "kb:"), a.Kind, a.Name)
+				return Manifest{}, fmt.Errorf("provisioning: KB %q has a pinned signing key but %s/%s carries no signature: %w", strings.TrimPrefix(a.Source, "kb:"), a.Kind, a.Name, ErrSignature)
 			}
 			continue
 		}

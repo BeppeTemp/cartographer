@@ -18,6 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -428,5 +429,96 @@ func TestDoConnect_UnpinKey(t *testing.T) {
 	}
 	if cfg, _ := clientconfig.Load(dir); len(cfg.SigningKeys) != 0 {
 		t.Errorf("pin still there after --unpin-key: %v", cfg.SigningKeys)
+	}
+}
+
+// #1299: connect classifies why the sync_pull after the config write failed.
+// A transport failure defers the skill sync; a refused credential or a pin
+// that does not verify is an error, and .cartographer.yaml is not saved.
+func TestDoConnect_ClassifiesSyncPullFailure(t *testing.T) {
+	status := func(code int) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "nope", code)
+		}))
+	}
+	opts := func(url string) connectOptions {
+		return connectOptions{Providers: []string{"claude"}, Dir: t.TempDir(), ServerURL: url + "/mcp", Name: "cartographer", Auth: true, Token: "${KB_A_TOKEN}"}
+	}
+	t.Setenv("KB_A_TOKEN", "wrong")
+
+	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(fmt.Sprint("http ", code), func(t *testing.T) {
+			setHome(t, t.TempDir())
+			srv := status(code)
+			defer srv.Close()
+			o := opts(srv.URL)
+			_, err := doConnect(o)
+			if err == nil || !strings.Contains(err.Error(), "rejected the token") || !strings.Contains(err.Error(), "$KB_A_TOKEN") || strings.Contains(err.Error(), "unreachable") {
+				t.Fatalf("err = %v, want the rejected token and its source named, not unreachable", err)
+			}
+			if _, statErr := os.Stat(clientconfig.Path(o.Dir)); statErr == nil {
+				t.Errorf("%s was saved after a rejected token", clientconfig.FileName)
+			}
+		})
+	}
+
+	t.Run("signature", func(t *testing.T) {
+		setHome(t, t.TempDir())
+		pub, _, err := ed25519.GenerateKey(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := syncPullServer(t, func(kb string) (string, bool) { return syncPullPayload(t, kb, "skill-"+kb), false })
+		defer srv.Close()
+		o := opts(srv.URL)
+		o.Auth, o.Token, o.KBs = false, "", []string{"one"}
+		o.PinKeys = []string{"one=" + hex.EncodeToString(pub)}
+		_, err = doConnect(o)
+		if !errors.Is(err, provisioning.ErrSignature) || !strings.Contains(err.Error(), "one") || strings.Contains(err.Error(), "unreachable") {
+			t.Fatalf("err = %v, want a signature error naming the KB", err)
+		}
+		if _, statErr := os.Stat(clientconfig.Path(o.Dir)); statErr == nil {
+			t.Errorf("%s was saved with the wrong pin", clientconfig.FileName)
+		}
+	})
+
+	t.Run("transport failure still defers", func(t *testing.T) {
+		setHome(t, t.TempDir())
+		res, err := doConnect(opts("http://127.0.0.1:1"))
+		if err != nil || !res.Deferred || !isTransportErr(res.DeferredErr) || deferralReason(res.DeferredErr) != "server unreachable" {
+			t.Fatalf("res = %+v, err = %v, want a deferral for a transport error", res, err)
+		}
+	})
+
+	t.Run("an answering server is not unreachable", func(t *testing.T) {
+		setHome(t, t.TempDir())
+		srv := status(http.StatusNotFound)
+		defer srv.Close()
+		o := opts(srv.URL + "/routed")
+		o.ServerURL = srv.URL + "/mcp/routed"
+		res, err := doConnect(o)
+		if err != nil || !res.Deferred {
+			t.Fatalf("res = %+v, err = %v, want a deferral", res, err)
+		}
+		if isTransportErr(res.DeferredErr) || strings.Contains(deferralReason(res.DeferredErr), "unreachable") {
+			t.Errorf("a 404 from the health route is a transport failure: %v", res.DeferredErr)
+		}
+		if _, probeErr := probeServer(o); isTransportErr(probeErr) {
+			t.Errorf("the not-responding hint would print for an answering server: %v", probeErr)
+		}
+	})
+}
+
+// #1299 review: an answering server is never worded "unreachable" by the probe.
+func TestProbeErrorMessage_AnsweringServerIsNotUnreachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", http.StatusNotFound) }))
+	defer srv.Close()
+	state, err := probeServer(connectOptions{ServerURL: srv.URL + "/mcp/routed"})
+	msg := probeErrorMessage(state, err)
+	if state != probeUnreachable || isTransportErr(err) || strings.Contains(msg, "unreachable") || !strings.Contains(msg, "answered") {
+		t.Errorf("state=%v err=%v msg=%q", state, err, msg)
+	}
+	if _, derr := probeServer(connectOptions{ServerURL: "http://127.0.0.1:1/mcp"}); !isTransportErr(derr) {
+		t.Errorf("refused connection is a transport error: %v", derr)
 	}
 }

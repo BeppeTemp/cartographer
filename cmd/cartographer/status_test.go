@@ -602,3 +602,41 @@ func TestWorkspaceProviderDiff_DerivedTrackedInstructionsAreNotPending(t *testin
 		t.Errorf("an instructions block that will be written is pending: %+v", d)
 	}
 }
+
+// #1305: a server that answers /health but is still bootstrapping is
+// reachable and not ready, with its own code: never "could not reach … check the URL".
+func TestStatus_BootstrappingServerIsStartingNotUnreachable(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	oldVersion, oldHealth, oldService := version, statusHealthFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
+		return nil, &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeStarting,
+			Message: "server is bootstrapping its KBs, retry shortly"}
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() { version, statusHealthFn, statusServiceFn = oldVersion, oldHealth, oldService })
+
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := snapshotForConfig(home, cfg, false)
+	if !s.Reachable || s.Ready == nil || *s.Ready {
+		t.Fatalf("reachable=%v ready=%v, want true/false", s.Reachable, s.Ready)
+	}
+	if s.Error == nil || s.Error.Code != "starting" || strings.Contains(s.Error.Message, "could not reach") {
+		t.Fatalf("error = %+v", s.Error)
+	}
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 2 {
+			t.Errorf("cmdStatus = %d, want 2", code)
+		}
+	})
+	if !strings.Contains(out, "starting") || strings.Contains(out, "could not reach") {
+		t.Errorf("table output = %q", out)
+	}
+}
