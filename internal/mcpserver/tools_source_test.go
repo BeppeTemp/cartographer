@@ -259,7 +259,7 @@ func TestSourceRegisterRefusesATitleOverTheLimit(t *testing.T) {
 	if len(tr.Content) > 0 {
 		got = tr.Content[0].Text
 	}
-	if !tr.IsError || !strings.Contains(got, "title_quality") || !strings.Contains(got, "limit 100") {
+	if !tr.IsError || !strings.Contains(got, "title_quality") || !strings.Contains(got, "limit 100") || strings.Contains(got, "index_entry: true") {
 		t.Fatalf("got %q", got)
 	}
 	if out := registerSource(t, s, `{"title":"Short","source_kind":"document"}`); out["warnings"] != nil {
@@ -630,5 +630,53 @@ func TestSourceRegisterIndexesTheNewSource(t *testing.T) {
 		if strings.Contains(res.Content[0].Text, bad) {
 			t.Errorf("lint reports %s after registrations:\n%s", bad, res.Content[0].Text)
 		}
+	}
+}
+
+// A registration that worked before the gate still works (#1297): a journal
+// whose templates settle no shape for a Source registers anyway, and so does one
+// whose curated index is missing.
+func TestSourceRegisterIsNotRefusedForTemplateMissing(t *testing.T) {
+	t.Parallel()
+	for name, tpls := range map[string]map[string]string{
+		"no Source template":   {"memo": "Note"},
+		"two Source templates": {"one": "Source", "two": "Source"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			k, s := sourceFixture(t, true)
+			if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			var slugs []string
+			for slug, typ := range tpls {
+				raw := "---\ntype: " + typ + "\ntitle: \"{{title}}\"\nx-template.open_sections: true\n---\n# {{title}}\n"
+				if err := os.WriteFile(filepath.Join(k.Root, "templates", slug+".md"), []byte(raw), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				slugs = append(slugs, slug)
+			}
+			if _, err := k.UpdateMapContract("sources", kb.MapContractUpdate{Templates: &slugs}); err != nil {
+				t.Fatal(err)
+			}
+			if out := registerSource(t, s, `{"title":"A","source_kind":"note"}`); out["duplicate"] != false {
+				t.Fatalf("got %v", out)
+			}
+		})
+	}
+}
+
+func TestSourceRegisterWithoutCuratedIndexStillRegisters(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	if err := os.Remove(filepath.Join(k.DataRoot(), "sources", "index.md")); err != nil {
+		t.Fatal(err)
+	}
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if out["duplicate"] != false {
+		t.Fatalf("got %v", out)
+	}
+	if _, err := k.ReadConcept(okf.ConceptID(out["id"].(string))); err != nil {
+		t.Fatal(err)
 	}
 }

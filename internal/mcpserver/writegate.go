@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -127,6 +128,15 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 	}
 	pairUnmatchedMoves(changes, renamedFrom, func(o, n string) bool { return samePage(k, o, n) })
 	post := avoidableFindings(writeLintFindings(k, written, gone))
+	if toolName == "source_register" {
+		// A registration that worked before the gate must still work: the
+		// shape of a Source is bound when one template says so, and a journal
+		// whose templates do not settle it, or whose curated index is missing, is left
+		// to lint and the doctor.
+		post = slices.DeleteFunc(post, func(f lint.Finding) bool {
+			return f.Check == "template_missing" || (f.Check == "index_incomplete" && strings.Contains(f.Message, "missing or unreadable"))
+		})
+	}
 	if len(post) == 0 {
 		return nil
 	}
@@ -192,9 +202,12 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 		introduced[i] = view.redact(f)
 	}
 	body, _ := json.Marshal(findingsOut(introduced))
-	res := errorResult(fmt.Sprintf("write_gate: refused, nothing was written. This call introduced %d finding(s) a write can avoid (D907):\n%s\n"+
-		"Fix each one as its message and fix say, then retry; concept_batch is atomic, so a page and the link, index entry or target it needs can land in one call. A new page in a map with a curated index needs index_entry: true on its concept_write, concept_new or creating concept_batch write.",
-		len(introduced), body))
+	advice := "Fix each one as its message and fix say, then retry; concept_batch is atomic, so a page and the link, index entry or target it needs can land in one call. A new page in a map with a curated index needs index_entry: true on its concept_write, concept_new or creating concept_batch write."
+	if toolName == "source_register" {
+		advice = "Fix each one as its message says (shorten the title) and retry; the index entry is added by source_register itself."
+	}
+	res := errorResult(fmt.Sprintf("write_gate: refused, nothing was written. This call introduced %d finding(s) a write can avoid (D907):\n%s\n%s",
+		len(introduced), body, advice))
 	return &res
 }
 

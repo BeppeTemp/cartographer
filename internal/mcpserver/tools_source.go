@@ -233,9 +233,11 @@ func toolSourceRegister(k *kb.KB) Tool {
 			// The registration is a concept write like concept_write's (#1297):
 			// a curated index of the ledger gets its entry, which is also the
 			// inbound link, in the same commit; a generated one lists it already.
+			// A curated index that cannot be planned for (unreadable, or an id
+			// outside a map) does not refuse the registration, as before.
 			indexPlan, planErr := planIndexEntry(k, id)
 			if planErr != nil {
-				return errorResult(fmt.Sprintf("source_register %q: %v", id, planErr)), nil
+				indexPlan = pendingIndexEntry{id: id, mapName: p.Map, note: fmt.Sprintf("no index entry added: %v", planErr)}
 			}
 			if _, err := k.WriteConcept(okf.ConceptID(id), fm, body, ""); err != nil {
 				return errorResult(fmt.Sprintf("source_register %q: %v", id, err)), nil
