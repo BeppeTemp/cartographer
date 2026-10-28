@@ -1691,8 +1691,8 @@ func TestInstallDarwin_JobNeverUnloads_ClearError(t *testing.T) {
 		}
 	}
 	for _, c := range b.calls {
-		if c == "bootstrap" && b.badBoot {
-			t.Error("bootstrap was attempted on a loaded job")
+		if c == "bootstrap" {
+			t.Error("bootstrap was attempted on a job that never unloaded")
 		}
 	}
 }
@@ -1775,5 +1775,123 @@ func TestSwitchBinary_RewritesDefinitionToRunningExecutable(t *testing.T) {
 	}
 	if b.badBoot || !b.loaded {
 		t.Errorf("job must be reloaded after the wait, badBoot=%v loaded=%v", b.badBoot, b.loaded)
+	}
+}
+
+func TestUninstallDarwin_WaitsForJobToUnloadBeforeRemovingPlist(t *testing.T) {
+	withTestHome(t, "darwin")
+	launchdUnloadTimeout = time.Second
+	plist, _ := LaunchdPlistPath()
+	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plist, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := &bootstrapStub{drain: 3, loaded: true}
+	m := &Manager{run: b.run}
+	if err := m.Uninstall(); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if b.loaded || b.polls < 4 {
+		t.Errorf("uninstall must wait through the drain, loaded=%v polls=%d", b.loaded, b.polls)
+	}
+	// A job that never unloads keeps its plist: removing it would orphan the job.
+	if err := os.WriteFile(plist, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stuck := &Manager{run: (&bootstrapStub{loaded: true, neverGone: true}).run}
+	launchdUnloadTimeout = 20 * time.Millisecond
+	if err := stuck.Uninstall(); err == nil {
+		t.Fatal("want an error for a job that never unloads")
+	}
+	if _, err := os.Stat(plist); err != nil {
+		t.Errorf("plist must stay: %v", err)
+	}
+}
+
+func TestSwitchBinary_Linux_RestartsTheUnit(t *testing.T) {
+	withTestHome(t, "linux")
+	oldExec := osExecutable
+	osExecutable = func() (string, error) { return "/home/user/.local/bin/cartographer", nil }
+	t.Cleanup(func() { osExecutable = oldExec })
+	cfg := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(cfg, []byte("data: "+t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, stub := newTestManager()
+	if err := m.SwitchBinary(cfg); err != nil {
+		t.Fatalf("SwitchBinary: %v", err)
+	}
+	restarted := false
+	for _, c := range stub.calls {
+		if strings.Join(c, " ") == "systemctl --user restart "+systemdUnit {
+			restarted = true
+		}
+	}
+	if !restarted {
+		t.Errorf("the running unit must be restarted, calls = %v", stub.calls)
+	}
+	got, err := m.DefinitionBinary()
+	if err != nil || got != "/home/user/.local/bin/cartographer" {
+		t.Fatalf("definition binary = %q, %v", got, err)
+	}
+
+	m2, stub2 := newTestManager()
+	stub2.fail = map[string]bool{"restart": true}
+	err = m2.SwitchBinary(cfg)
+	if err == nil || !strings.Contains(err.Error(), "systemctl restart") {
+		t.Fatalf("restart failure must surface, got %v", err)
+	}
+}
+
+func TestCheckStableBinary(t *testing.T) {
+	withTestHome(t, "linux")
+	oldExec := osExecutable
+	t.Cleanup(func() { osExecutable = oldExec })
+	for name, tc := range map[string]struct {
+		path string
+		bad  bool
+	}{
+		"temp dir":      {filepath.Join(os.TempDir(), "x", "cartographer"), true},
+		"go build":      {"/home/user/.cache/go-build/ab/cartographer", true},
+		"caskroom":      {"/opt/homebrew/Caskroom/cartographer/1.0/cartographer", true},
+		"install.sh":    {"/home/user/.local/bin/cartographer", false},
+		"homebrew link": {"/opt/homebrew/bin/cartographer", false},
+	} {
+		osExecutable = func() (string, error) { return tc.path, nil }
+		err := CheckStableBinary()
+		if (err != nil) != tc.bad {
+			t.Errorf("%s: err = %v, want error=%v", name, err, tc.bad)
+		}
+	}
+}
+
+// A binary or config path with a space must survive the unit round trip
+// (#1336): quoted by the renderer, one word for both extractors.
+func TestSystemdUnit_PathsWithSpacesRoundTrip(t *testing.T) {
+	bin, cfg := "/home/user/My Apps/cartographer", `/home/user/my "conf"/100%/server.yaml`
+	unit := RenderSystemdUnit(bin, cfg)
+	if !strings.Contains(unit, `ExecStart="/home/user/My Apps/cartographer" serve --config "`) {
+		t.Errorf("ExecStart paths must be quoted, got:\n%s", unit)
+	}
+	gotBin, err := extractUnitBinary([]byte(unit))
+	if err != nil || gotBin != bin {
+		t.Errorf("binary = %q, %v, want %q", gotBin, err, bin)
+	}
+	gotCfg, err := extractUnitConfigPath([]byte(unit))
+	if err != nil || gotCfg != cfg {
+		t.Errorf("config = %q, %v, want %q", gotCfg, err, cfg)
+	}
+	if !strings.Contains(RenderSyncSystemdService(bin), `ExecStart="/home/user/My Apps/cartographer" sync`) {
+		t.Error("the sync unit must quote its binary too")
+	}
+	// A unit written before the quoting still parses.
+	old := "[Service]\nExecStart=/usr/local/bin/cartographer serve --config /etc/c.yaml\n"
+	if b, _ := extractUnitBinary([]byte(old)); b != "/usr/local/bin/cartographer" {
+		t.Errorf("legacy binary = %q", b)
+	}
+	if c, _ := extractUnitConfigPath([]byte(old)); c != "/etc/c.yaml" {
+		t.Errorf("legacy config = %q", c)
 	}
 }

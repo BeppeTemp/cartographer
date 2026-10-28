@@ -44,6 +44,8 @@ var (
 	repairLoadClientConfigFn = clientconfig.Load
 	repairRunSyncFn          = runSync
 	repairSameBinaryFn       = sameExecutable
+	repairCheckBinaryFn      = service.CheckStableBinary
+	repairDefinitionPathFn   = service.DefinitionPath
 	repairSwitchBinaryFn     = func(configPath string) error { return service.NewManager().SwitchBinary(configPath) }
 )
 
@@ -85,12 +87,30 @@ func cmdUpgradeRepair(args []string) int {
 	// supervisor restart the program its definition already names, so another
 	// binary (an install.sh copy next to a Cask) would come back as the old
 	// version and the wait for /health would time out (#1321).
+	if st.ServiceBinPath == "" && st.ServiceBinWarning != "" {
+		fmt.Fprintf(os.Stderr, "Warning: could not tell which binary the service runs (%s) — not checking it\n", st.ServiceBinWarning)
+	}
+	switched := false
 	if st.ServiceBinPath != "" && !repairSameBinaryFn(st.ServiceBinPath) {
+		if err := repairCheckBinaryFn(); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			fmt.Fprintf(os.Stderr, "native service runs %s; refusing to point it at this binary. Run `cartographer service install` from the installed binary you want it to run, then retry `cartographer upgrade-repair`\n", st.ServiceBinPath)
+			return exitRepairServiceFailure
+		}
 		fmt.Printf("native service runs %s, this binary is %s — switching the service definition to it\n", st.ServiceBinPath, st.BinPath)
 		if err := repairSwitchBinaryFn(configPath); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return exitRepairServiceFailure
 		}
+		def, _ := repairDefinitionPathFn()
+		fmt.Printf("rewrote %s for %s; hand edits to it are replaced\n", def, st.BinPath)
+		switched = true
+	}
+	if switched {
+		// The reloaded job starts the new binary by itself: give it time to
+		// serve before ensureServiceCurrent decides, so a slow start does not
+		// cost a second graceful replacement.
+		waitForVersion(st.HTTPAddr)
 	}
 
 	if err := ensureServiceCurrent(configPath, st.HTTPAddr); err != nil {
@@ -99,6 +119,24 @@ func cmdUpgradeRepair(args []string) int {
 	}
 
 	return repairProviderSync(st.HTTPAddr)
+}
+
+// repairSwitchWait/repairSwitchPoll bound waitForVersion; tests shorten them.
+var (
+	repairSwitchWait = 30 * time.Second
+	repairSwitchPoll = 500 * time.Millisecond
+)
+
+// waitForVersion polls /health until it reports the installed version or the
+// bound passes; the caller's single probe then decides what is left to do.
+func waitForVersion(httpAddr string) {
+	deadline := time.Now().Add(repairSwitchWait)
+	for time.Now().Before(deadline) {
+		if hs, err := repairProbeHealthFn(httpAddr, repairHealthProbeTimeout); err == nil && hs.Status == "ok" && versionAlreadyCurrent(hs.Version) {
+			return
+		}
+		time.Sleep(repairSwitchPoll)
+	}
 }
 
 // ensureServiceCurrent probes /health once and skips the graceful

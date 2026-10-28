@@ -251,8 +251,12 @@ func (m *Manager) Uninstall() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve plist path: %w", err)
 		}
-		uid := os.Getuid()
-		m.run("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, launchdLabel))
+		// Wait for the unload as install does: a job still draining after
+		// bootout would be orphaned by the removal below (and blocks the next
+		// bootstrap, #1322).
+		if err := m.bootoutAndWait(launchdLabel, plistPath); err != nil {
+			return err
+		}
 		if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove plist: %w", err)
 		}
@@ -513,28 +517,78 @@ func (m *Manager) EffectiveConfigPath(explicit string) (string, error) {
 	}
 }
 
-// DefinitionBinary returns the program the installed service definition runs:
-// the first ProgramArguments entry of the plist, the ExecStart program of the
-// unit, the Command of the task. A missing definition is os.ErrNotExist.
-func (m *Manager) DefinitionBinary() (string, error) {
+// DefinitionPath is where the service definition (plist, unit, task XML) lives.
+func DefinitionPath() (string, error) {
 	var path string
 	var err error
-	var extract func([]byte) (string, error)
 	switch goos {
 	case "darwin":
 		path, err = LaunchdPlistPath()
-		extract = extractPlistBinary
 	case "linux":
 		path, err = SystemdUnitPath()
-		extract = extractUnitBinary
 	case "windows":
 		path, err = WindowsTaskPath()
-		extract = extractTaskBinary
 	default:
 		return "", fmt.Errorf("service: unsupported platform %q", goos)
 	}
 	if err != nil {
 		return "", fmt.Errorf("service: resolve definition path: %w", err)
+	}
+	return path, nil
+}
+
+// CheckStableBinary refuses a running executable the service must not be
+// pointed at: one under the temp directory or a go-build cache (a `go run`
+// binary, a test build: gone on the next cleanup, and nothing vouches for it),
+// or a version-pinned Homebrew Caskroom path that resolveStableBinPath could
+// not map to its stable symlink (it breaks on the next `brew upgrade`). The
+// error names the path; any other location, such as an install.sh copy in
+// $HOME/.local/bin, is accepted.
+func CheckStableBinary() error {
+	exe, err := osExecutable()
+	if err != nil {
+		return fmt.Errorf("service: resolve binary path: %w", err)
+	}
+	bin := resolveStableBinPath(exe)
+	check := []string{bin}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		check = append(check, resolved)
+	}
+	tmp := filepath.Clean(os.TempDir())
+	if r, err := filepath.EvalSymlinks(tmp); err == nil {
+		tmp = r
+	}
+	for _, c := range check {
+		c = filepath.Clean(c)
+		if rel, err := filepath.Rel(tmp, c); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("service: %s is under the temp directory %s", bin, tmp)
+		}
+		if strings.Contains(c, "go-build") {
+			return fmt.Errorf("service: %s is a go-build artifact", bin)
+		}
+	}
+	if goos != "windows" && strings.Contains(filepath.ToSlash(bin), "/Caskroom/") {
+		return fmt.Errorf("service: %s is a version-pinned Caskroom path, not Homebrew's stable symlink", bin)
+	}
+	return nil
+}
+
+// DefinitionBinary returns the program the installed service definition runs:
+// the first ProgramArguments entry of the plist, the ExecStart program of the
+// unit, the Command of the task. A missing definition is os.ErrNotExist.
+func (m *Manager) DefinitionBinary() (string, error) {
+	path, err := DefinitionPath()
+	if err != nil {
+		return "", err
+	}
+	var extract func([]byte) (string, error)
+	switch goos {
+	case "darwin":
+		extract = extractPlistBinary
+	case "linux":
+		extract = extractUnitBinary
+	default:
+		extract = extractTaskBinary
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -561,7 +615,7 @@ func extractUnitBinary(data []byte) (string, error) {
 		if !strings.HasPrefix(line, "ExecStart=") {
 			continue
 		}
-		fields := strings.Fields(strings.TrimPrefix(line, "ExecStart="))
+		fields := splitSystemdWords(strings.TrimPrefix(line, "ExecStart="))
 		if len(fields) == 0 {
 			break
 		}
@@ -580,7 +634,8 @@ func extractTaskBinary(data []byte) (string, error) {
 
 // SwitchBinary rewrites the installed service definition to run this
 // executable and reloads the job, keeping the config the definition names. It
-// is Install on that config; on Linux, where `enable --now` leaves a running
+// is Install on that config, so the whole definition is re-rendered (hand edits
+// to it are replaced, directories and PATH are recreated as install does); on Linux, where `enable --now` leaves a running
 // unit alone, it also restarts it so the new program is the one serving.
 func (m *Manager) SwitchBinary(configPath string) error {
 	if _, err := m.Install(InstallOptions{ConfigPath: configPath}); err != nil {
@@ -616,6 +671,48 @@ func extractPlistConfigPath(data []byte) (string, error) {
 	return configArgAfter(args)
 }
 
+// splitSystemdWords splits an ExecStart value the way systemd.syntax does for
+// what Cartographer renders: whitespace separates words, a single- or
+// double-quoted run is one word, inside quotes a backslash escapes the next
+// character, and %% is a literal %. An unquoted unit written before #1336
+// splits as before.
+func splitSystemdWords(s string) []string {
+	var words []string
+	var cur strings.Builder
+	var quote rune
+	started := false
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		switch {
+		case quote != 0 && r == quote:
+			quote = 0
+		case quote != 0 && r == '\\' && i+1 < len(rs):
+			i++
+			cur.WriteRune(rs[i])
+		case quote == 0 && (r == '"' || r == '\''):
+			quote, started = r, true
+		case r == '%' && i+1 < len(rs) && rs[i+1] == '%':
+			i++
+			cur.WriteRune('%')
+			started = true
+		case quote == 0 && (r == ' ' || r == '\t'):
+			if started {
+				words = append(words, cur.String())
+				cur.Reset()
+				started = false
+			}
+		default:
+			cur.WriteRune(r)
+			started = true
+		}
+	}
+	if started {
+		words = append(words, cur.String())
+	}
+	return words
+}
+
 // extractUnitConfigPath reads the argument following "serve --config" out of
 // a generated systemd unit's ExecStart line (see RenderSystemdUnit).
 func extractUnitConfigPath(data []byte) (string, error) {
@@ -624,7 +721,7 @@ func extractUnitConfigPath(data []byte) (string, error) {
 		if !strings.HasPrefix(line, "ExecStart=") {
 			continue
 		}
-		return configArgAfter(strings.Fields(strings.TrimPrefix(line, "ExecStart=")))
+		return configArgAfter(splitSystemdWords(strings.TrimPrefix(line, "ExecStart=")))
 	}
 	return "", fmt.Errorf("no ExecStart line found")
 }
@@ -890,15 +987,18 @@ type Status struct {
 	// ServiceBinPath is the program the installed service definition runs
 	// (plist ProgramArguments[0], unit ExecStart, task Command); "" when
 	// nothing is installed or the definition cannot be read.
-	ServiceBinPath   string
-	ConfigPath       string
-	HTTPAddr         string
-	Installed        bool
-	Running          bool
-	Healthy          bool
-	HealthChecked    bool
-	HealthSkipReason string
-	Lifecycle        Lifecycle
+	ServiceBinPath string
+	// ServiceBinWarning is why ServiceBinPath is empty for an installed
+	// service (definition unreadable or malformed); "" otherwise.
+	ServiceBinWarning string
+	ConfigPath        string
+	HTTPAddr          string
+	Installed         bool
+	Running           bool
+	Healthy           bool
+	HealthChecked     bool
+	HealthSkipReason  string
+	Lifecycle         Lifecycle
 	// UIURL is where the embedded Atlas UI answers (D227): set only for an
 	// installed service whose config is in HTTP mode with web.enabled on, so
 	// an empty value never reads as "the UI is down" -- it means there is none.
@@ -977,7 +1077,10 @@ func (m *Manager) Status(configPath string) (Status, error) {
 	}
 
 	if st.Installed {
-		st.ServiceBinPath, _ = m.DefinitionBinary()
+		var binErr error
+		if st.ServiceBinPath, binErr = m.DefinitionBinary(); binErr != nil {
+			st.ServiceBinWarning = binErr.Error()
+		}
 	}
 
 	switch st.Installed {

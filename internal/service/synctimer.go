@@ -263,7 +263,7 @@ Description=Cartographer client sync
 [Service]
 Type=oneshot
 ExecStart=%s sync
-`, binPath)
+`, systemdQuote(binPath))
 }
 
 // RenderSyncSystemdTimer renders the timer that activates the unit above.

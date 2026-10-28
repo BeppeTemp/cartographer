@@ -113,7 +113,7 @@ Restart=on-failure
 
 [Install]
 WantedBy=default.target
-`, servicePATH(binPath), binPath, configPath)
+`, servicePATH(binPath), systemdQuote(binPath), systemdQuote(configPath))
 }
 
 // xmlEscape escapes the three characters that are not legal in XML element
@@ -149,6 +149,17 @@ func xmlEscape(s string) string {
 // a single command line, and a quoted path is correct whether or not it needs to
 // be — while a conditionally quoted one makes the reader (EffectiveConfigPath)
 // carry two cases instead of one.
+// systemdQuote renders one ExecStart word per systemd.syntax: a path with
+// nothing special stays bare, any other is double-quoted, with backslash and quote escaped and % doubled (a specifier
+// otherwise), so a path with a space stays one word (#1336).
+func systemdQuote(p string) string {
+	if !strings.ContainsAny(p, " \t\"'\\%") {
+		return p
+	}
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "%", "%%")
+	return `"` + r.Replace(p) + `"`
+}
+
 func quotePath(p string) string { return `"` + p + `"` }
 
 // RenderWindowsTaskXML renders the Task Scheduler definition of the server
