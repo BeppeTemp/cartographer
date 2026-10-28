@@ -201,7 +201,7 @@ request so the notification is served as 202 Accepted. Regular requests with
 
 ### Protocol errors on `POST /mcp`
 
-A body the server cannot take as a JSON-RPC request is HTTP 400 with a JSON-RPC error body, never plain text: `-32700` for a body that is not JSON (or empty), `-32600` for JSON that is not a valid request (empty batch, a `jsonrpc` other than `2.0`, an `id` that is not a string or a number, a body that is not an object), `-32601` for an unknown method (carrying the request's `id`). An unknown tool *argument* is still ignored (a v0.28 contract question).
+A body the server cannot take as a JSON-RPC request is HTTP 400 with a JSON-RPC error body, never plain text: `-32700` for a body that is not JSON (or empty), `-32600` for JSON that is not a valid request (empty batch, a `jsonrpc` other than `2.0`, an `id` that is not a string or a number, a body that is not an object), `-32601` for an unknown method (carrying the request's `id`). An unknown tool *argument* is refused as `-32602` (D1279), and so are `arguments` that is not an object and an unknown tool name (D1303).
 
 ### What a `2026-07-28` request must carry over HTTP
 

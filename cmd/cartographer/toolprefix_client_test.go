@@ -110,7 +110,7 @@ func TestResolveKBTargets(t *testing.T) {
 // given KBs (name -> tool_prefix, "" for unprefixed) and whose /mcp?kb=<name>
 // endpoint only succeeds a tools/call whose "name" is exactly
 // qualifyTool(prefix, wantBase) for that KB — any other name is answered with
-// isError:true, "tool not found: <name>", mirroring the real server
+// JSON-RPC -32602 "unknown tool <name>" (D1303), mirroring the real server
 // (Server.handleToolsCall) closely enough to prove the qualifier is what
 // reached the wire.
 func prefixAwareMCPServer(t *testing.T, prefixByKB map[string]string, wantBase string, resultFor func(kb string) string) *httptest.Server {
@@ -138,9 +138,8 @@ func prefixAwareMCPServer(t *testing.T, prefixByKB map[string]string, wantBase s
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		want := qualifyTool(prefixByKB[kbName], wantBase)
 		if req.Params.Name != want {
-			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
-				"content": []map[string]string{{"type": "text", "text": "tool not found: " + req.Params.Name}},
-				"isError": true,
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{
+				"code": -32602, "message": "unknown tool " + req.Params.Name,
 			}})
 			return
 		}

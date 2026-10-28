@@ -57,7 +57,7 @@ LIST="$(curl -s -X POST "$MCP" -H 'content-type: application/json' -d "$PING")"
 if printf '%s' "$LIST" | grep -q '"reindex"'; then _assert_fail "an advanced tool is listed"; else _assert_pass "an advanced tool is not listed"; fi
 CALL="$(curl -s -X POST "$MCP" -H 'content-type: application/json' \
     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reindex","arguments":{}}}')"
-if printf '%s' "$CALL" | grep -q 'tool not found'; then _assert_fail "an unlisted advanced tool is refused: ${CALL}"; else _assert_pass "an unlisted advanced tool is callable by name"; fi
+if printf '%s' "$CALL" | grep -qE '"error"|unknown tool|tool not found'; then _assert_fail "an unlisted advanced tool is refused: ${CALL}"; else _assert_pass "an unlisted advanced tool is callable by name"; fi
 
 # --- Off-loopback with auth off ---
 PORT_X="$((E2E_HTTP_PORT + 1))"
