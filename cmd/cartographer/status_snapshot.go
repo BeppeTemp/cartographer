@@ -276,8 +276,16 @@ func snapshotUpdate() *updateSnapshot {
 	return &updateSnapshot{Latest: res.Latest, Kind: res.Kind, Channel: string(ch), Command: ch.UpgradeCommand(res.Latest)}
 }
 
+// startingStatusCode is the status.error.code of a server that answers but is
+// still loading its KBs: reachable, not ready, never "could not reach".
+const startingStatusCode = "starting"
+
 func classifyNetworkError(endpoint string, err error) statusError {
 	code := "request_failed"
+	var remote *client.RemoteError
+	if errors.As(err, &remote) && remote.Code == client.CodeStarting {
+		return statusError{Code: startingStatusCode, Message: "the server is starting and loading its KBs; retry shortly", Cause: err.Error()}
+	}
 	if errors.Is(err, client.ErrUnauthorized) {
 		code = "unauthorized"
 	} else {
@@ -329,6 +337,10 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		s.State = "unavailable"
 		e := classifyNetworkError(cfg.ServerURL, err)
 		s.Error = &e
+		if e.Code == startingStatusCode {
+			notReady := false
+			s.Reachable, s.Ready = true, &notReady
+		}
 		for i := range s.Providers {
 			if s.Providers[i].Connected {
 				s.Providers[i].State = "unknown"
