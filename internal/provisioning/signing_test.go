@@ -2,6 +2,7 @@ package provisioning_test
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,5 +94,29 @@ func TestVerifiedManifest_PinnedKBRejectsStrippedSignature(t *testing.T) {
 	// No pin: an unsigned artifact is still installed (D906).
 	if _, err := provisioning.VerifiedManifest(m, nil); err != nil {
 		t.Fatalf("unpinned KB: %v", err)
+	}
+}
+
+// #1282: a pin that does not match is a signature error, distinguishable from
+// an unreachable server by errors.Is.
+func TestVerifiedManifest_SignatureFailuresWrapErrSignature(t *testing.T) {
+	hash := strings.Repeat("ab", 32)
+	pubA, privA, _ := ed25519.GenerateKey(nil)
+	pubB, _, _ := ed25519.GenerateKey(nil)
+	sig, err := artifactsig.Sign(privA, artifactsig.Identity{Source: "kb:kb-a", Kind: "skill", Name: "s", ContentHash: hash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: hash, Signature: sig}}}
+	if _, err := provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{"kb-a": {pubA}}); err != nil {
+		t.Fatalf("matching pin: %v", err)
+	}
+	_, err = provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{"kb-a": {pubB}})
+	if !errors.Is(err, provisioning.ErrSignature) || !strings.Contains(err.Error(), `KB "kb-a"`) {
+		t.Errorf("wrong pin error = %v, want ErrSignature naming the KB", err)
+	}
+	sig.Value = sig.Value[:len(sig.Value)-2] + "AA"
+	if _, err := provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{"kb-a": {pubA}}); !errors.Is(err, provisioning.ErrSignature) {
+		t.Errorf("tampered signature error = %v, want ErrSignature", err)
 	}
 }

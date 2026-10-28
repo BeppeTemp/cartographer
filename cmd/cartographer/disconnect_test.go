@@ -134,17 +134,9 @@ func TestDoDisconnect_RemovesConfigPrunesSkillsAndCleansUp(t *testing.T) {
 		t.Fatalf("len(pr.Pruned) = %d, want 1", len(pr.Pruned))
 	}
 
-	// .claude.json is never deleted (D63): the "wiki" entry must be gone, but the
-	// file survives — with the "mcpServers" key itself dropped once it's left
-	// empty (see configurator.Remove/isEmptyProviderShell), so we can't assume
-	// the key is still present the way mcpServersOf does for other assertions.
-	if _, err := os.Stat(filepath.Join(dir, ".claude.json")); err != nil {
-		t.Errorf(".claude.json should still exist (never deleted): %v", err)
-	}
-	if servers, ok := claudeJSONServers(t, filepath.Join(dir, ".claude.json")); ok {
-		if _, ok := servers["wiki"]; ok {
-			t.Error("wiki entry should have been removed from .claude.json")
-		}
+	// .claude.json held nothing but our entry, so it goes with it (#1269).
+	if _, err := os.Stat(filepath.Join(dir, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf(".claude.json was left as an empty shell: %v", err)
 	}
 
 	skillPath := filepath.Join(dir, ".claude", "skills", "demo-skill", "SKILL.md")
@@ -666,5 +658,50 @@ func TestDoReconnect_AProviderKeptConnectedIsNotRebuilt(t *testing.T) {
 	}
 	if code := cmdReconnect(nil); code != 1 {
 		t.Errorf("cmdReconnect = %d, want 1", code)
+	}
+}
+
+// #1269: connect then disconnect in an empty home leaves only the documented
+// client state files; the client configs Cartographer created are gone.
+func TestDoDisconnect_EmptyHomeLeavesOnlyDocumentedState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://127.0.0.1:1/mcp", Name: "cartographer"}); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	if _, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir}); err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	allowed := map[string]bool{".cartographer.yaml": true, ".cartographer-state.json": true, ".cartographer-client.lock": true}
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if rel, _ := filepath.Rel(dir, path); !allowed[rel] {
+			t.Errorf("disconnect left %s behind", rel)
+		}
+		return nil
+	})
+}
+
+// #1269: a file that still holds another key is kept, reduced to it.
+func TestDoDisconnect_KeepsClientConfigsWithOtherKeys(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(`{"theme":"dark"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://127.0.0.1:1/mcp", Name: "cartographer"}); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	if _, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir}); err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	if err != nil {
+		t.Fatalf(".claude.json holding another key was deleted: %v", err)
+	}
+	if !strings.Contains(string(data), "theme") || strings.Contains(string(data), "mcpServers") {
+		t.Errorf(".claude.json = %s, want only the user's key", data)
 	}
 }

@@ -314,7 +314,7 @@ func resolveConnectSettings(passed map[string]bool, flagURL string, flagAuth boo
 // instead of using the flag defaults — pass --no-input to force the
 // non-interactive behavior regardless of TTY.
 func cmdConnect(args []string) int {
-	target, rest := splitPositional(args, "")
+	var target string
 
 	fs := flag.NewFlagSet("connect", flag.ExitOnError)
 	serverURL := fs.String("server-url", defaults.DefaultMCPURL, "Cartographer server URL")
@@ -324,6 +324,8 @@ func cmdConnect(args []string) int {
 	autoTrust := fs.Bool("auto-trust", false, "Removed (D906): accepted and ignored")
 	var pinKeys repeatedString
 	fs.Var(&pinKeys, "pin-key", "Pin a KB Ed25519 public key as KB=PUBLIC_KEY (repeatable)")
+	var unpinKeys repeatedString
+	fs.Var(&unpinKeys, "unpin-key", "Remove the pinned public keys of a KB (repeatable); applied before --pin-key, an unknown KB is an error")
 	noInput := fs.Bool("no-input", false, "Never open the interactive form, even in a TTY")
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
 	var kbSel repeatedString
@@ -331,7 +333,9 @@ func cmdConnect(args []string) int {
 	allowInsecure := fs.Bool("allow-insecure-http", false, "Accept a plain http:// server URL that is not loopback (the bearer token then travels in clear)")
 	accessFlag := fs.String("access", "", "Connection profile: read-min (read-only, minimal tool list; routed server only). Empty keeps the persisted value; clear it by removing clients.<provider>.access")
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
-	fs.Parse(rest)
+	if code := bindPositionals("connect", parseFlagsAnywhere(fs, args), &target); code != 0 {
+		return code
+	}
 	warnRemovedAutoTrust(*autoTrust)
 
 	interactive := wantsConnectForm(fs, *noInput)
@@ -375,6 +379,7 @@ func cmdConnect(args []string) int {
 		// The key survives a re-run without the flag; the flag only adds it.
 		AllowInsecureHTTP: *allowInsecure || (existing != nil && existing.AllowInsecureHTTP),
 		PinKeys:           pinKeys,
+		UnpinKeys:         unpinKeys,
 		KBs:               splitCommaList(kbSel),
 		Workspace:         *workspaceFlag,
 		Access:            *accessFlag,
@@ -714,6 +719,8 @@ type connectOptions struct {
 	Token   string
 	DryRun  bool
 	PinKeys []string
+	// UnpinKeys are the KBs whose pins are removed before PinKeys apply (#1282).
+	UnpinKeys []string
 	// AllowInsecureHTTP is the persisted opt-in to a non-loopback http://
 	// server URL (D1023); the env var also allows a run (insecureHTTPAllowed).
 	AllowInsecureHTTP bool
@@ -796,6 +803,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		// connect saves the config itself, which drops the name; the lockfile
 		// section goes with the next sync (connect holds no client lock here).
 		handleUnsupportedProviders(opts.Dir, existing, false)
+	}
+	for _, kbName := range opts.UnpinKeys {
+		if !existing.RemoveSigningKeys(kbName) {
+			return connectResult{}, fmt.Errorf("invalid --unpin-key %q: no key is pinned for that KB", kbName)
+		}
 	}
 	for _, pin := range opts.PinKeys {
 		kbName, key, found := strings.Cut(pin, "=")
@@ -946,7 +958,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if projErr != nil {
 		return connectResult{}, projErr
 	}
-	if manifests, err := manifestsForProjections(pullCfg, projections); err != nil {
+	if manifests, err := manifestsForProjections(pullCfg, projections); errors.Is(err, provisioning.ErrSignature) {
+		// The server answered; what failed is a pin. The file is not saved, so the
+		// wrong key is not kept in .cartographer.yaml (#1282).
+		return connectResult{}, fmt.Errorf("skill signatures do not verify against the pinned keys (fix or remove the pin with --pin-key / --unpin-key <kb>; signing_keys in %s): %w; the server is reachable; %s was not updated", clientconfig.FileName, err, clientconfig.FileName)
+	} else if err != nil {
 		res.Deferred = true
 		res.DeferredErr = err
 	} else {

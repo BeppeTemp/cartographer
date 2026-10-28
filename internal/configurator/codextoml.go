@@ -18,6 +18,7 @@ package configurator
 // other byte (comments, ordering, unrelated tables) survives.
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -661,4 +662,43 @@ func evictGroupsFromSpan(content string, target span, foreign []codexTableGroup)
 
 	before := joinSeam(joinSeam(content[:target.start], relocated), strippedSpan)
 	return before + content[target.end:]
+}
+
+// CodexHasEntry reports whether Codex's config under baseDir holds an MCP entry
+// called name that a removal would take out: a [mcp_servers.<name>] table inside
+// the managed block, or the pre-D58 .codex/config.json entry. Remove reports the
+// block as removed whenever it exists, whatever it holds, so a caller listing
+// what a sync removes asks this first and names only entries that are there
+// (#1267).
+func CodexHasEntry(name, baseDir string) bool {
+	if data, err := os.ReadFile(filepath.Join(baseDir, ".codex", "config.toml")); err == nil {
+		content := string(data)
+		if i := strings.Index(content, codexBlockMarkerPrefix(codexMCPBlockBegin)); i >= 0 {
+			if j := strings.Index(content[i:], codexMCPBlockEnd); j >= 0 {
+				for _, line := range strings.Split(content[i:i+j], "\n") {
+					if key, ok := codexTableHeaderKey(line); ok && len(key) >= 2 && key[0] == "mcp_servers" && key[1] == name {
+						return true
+					}
+				}
+			}
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(baseDir, ".codex", "config.json")); err == nil {
+		var root struct {
+			Servers map[string]json.RawMessage `json:"mcpServers"`
+		}
+		if json.Unmarshal(data, &root) == nil {
+			_, ok := root.Servers[name]
+			return ok
+		}
+	}
+	return false
+}
+
+// codexBlockMarkerPrefix is the stable part of a begin marker, up to the first
+// " — ": the tail is display text that older versions wrote differently
+// (blocktext.ReplaceBetween).
+func codexBlockMarkerPrefix(begin string) string {
+	prefix, _, _ := strings.Cut(begin, " — ")
+	return prefix
 }

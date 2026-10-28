@@ -112,8 +112,9 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 // kiro/opencode's config files exist purely to hold MCP server entries, so if
 // stripping name's entry leaves nothing behind but an (already emptied)
 // server-map key (and, for opencode, the "$schema" hint), the file itself is
-// removed instead of left as an empty shell; claude.json is never deleted
-// (Claude Code's own shared state file, D63's absolute rule), only reduced.
+// removed instead of left as an empty shell; claude.json goes only when it is
+// left as `{}` (it is Claude Code's own shared state file: any other key keeps
+// it, #1269).
 func removeMCPServer(baseDir, name string, provider configurator.Provider, filePath string) error {
 	if filePath == "" {
 		return nil

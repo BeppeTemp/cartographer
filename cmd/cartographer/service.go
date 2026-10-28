@@ -98,7 +98,9 @@ func cmdServiceSyncTimer(args []string) int {
 	case "install":
 		fs := flag.NewFlagSet("service sync-timer install", flag.ExitOnError)
 		interval := fs.Duration("interval", service.DefaultSyncInterval, "How often to run `cartographer sync`")
-		fs.Parse(rest)
+		if code := noExtraArgs(fs, rest); code != 0 {
+			return code
+		}
 		if *interval <= 0 {
 			fmt.Fprintln(os.Stderr, "Error: --interval must be positive")
 			return exitStatusError
@@ -183,7 +185,9 @@ func cmdServiceInstall(args []string) int {
 	configFlag := fs.String("config", defaultConfig, "Path to the generated server config YAML")
 	dataFlag := fs.String("data", defaultDataDir(), "KB data directory (only used when generating a new config)")
 	httpFlag := fs.String("http", defaults.DefaultListenAddress, "HTTP listen address (only used when generating a new config)")
-	fs.Parse(args)
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
 
 	passed := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { passed[f.Name] = true })
@@ -216,7 +220,9 @@ func cmdServiceInstall(args []string) int {
 
 func cmdServiceUninstall(args []string) int {
 	fs := flag.NewFlagSet("service uninstall", flag.ExitOnError)
-	fs.Parse(args)
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
 
 	if err := service.NewManager().Uninstall(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -228,7 +234,9 @@ func cmdServiceUninstall(args []string) int {
 
 func cmdServiceStart(args []string) int {
 	fs := flag.NewFlagSet("service start", flag.ExitOnError)
-	fs.Parse(args)
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
 
 	if err := service.NewManager().Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -240,7 +248,9 @@ func cmdServiceStart(args []string) int {
 
 func cmdServiceStop(args []string) int {
 	fs := flag.NewFlagSet("service stop", flag.ExitOnError)
-	fs.Parse(args)
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
 
 	if err := service.NewManager().Stop(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -254,7 +264,9 @@ func cmdServiceRestart(args []string) int {
 	fs := flag.NewFlagSet("service restart", flag.ExitOnError)
 	wait := fs.Bool("wait", false, "Gracefully replace the running service (SIGTERM) and block until /health proves the installed version is serving")
 	configFlag := fs.String("config", "", "Server config YAML used to verify the replacement (default: discovered from the installed service definition, else the standard path)")
-	fs.Parse(args)
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
 
 	if !*wait {
 		if err := serviceRestartFn(); err != nil {
@@ -281,7 +293,9 @@ func cmdServiceStatus(args []string) int {
 	}
 	fs := flag.NewFlagSet("service status", flag.ExitOnError)
 	configFlag := fs.String("config", "", "Server config YAML to read the http address from (default: the standard path)")
-	fs.Parse(remaining)
+	if code := noExtraArgs(fs, remaining); code != 0 {
+		return code
+	}
 
 	st, err := service.NewManager().Status(*configFlag)
 	if err != nil {

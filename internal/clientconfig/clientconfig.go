@@ -6,6 +6,7 @@ package clientconfig
 import (
 	"errors"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -543,6 +544,37 @@ func Save(dir string, cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("clientconfig: mkdir %s: %w", dir, err)
 	}
+	doc, err := yamlDocument(dir, cfg)
+	if err != nil {
+		return err
+	}
+	// The state file first: agents and sync_timer_opt_out leave the YAML in this
+	// same save (D906), so a failure here must not cost the values.
+	if err := writeState(dir, cfg); err != nil {
+		return err
+	}
+	return writeYAML(dir, doc, cfg.LiteralToken() != "")
+}
+
+// SaveWouldRewrite reports whether Save would change the bytes of the YAML file
+// in dir, without writing anything: a dry run lists the rewrite only when there
+// is one (#1268).
+func SaveWouldRewrite(dir string, cfg *Config) (bool, error) {
+	doc, err := yamlDocument(dir, cfg)
+	if err != nil {
+		return false, err
+	}
+	Schema.Render(doc)
+	data, err := settingschema.Encode(doc)
+	if err != nil {
+		return false, fmt.Errorf("clientconfig: marshal: %w", err)
+	}
+	old, err := os.ReadFile(Path(dir))
+	return err != nil || string(old) != string(data), nil
+}
+
+// yamlDocument is the document Save writes for cfg over what dir holds now.
+func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	y := yamlConfig{
 		ServerURL:    cfg.ServerURL,
 		ServerName:   cfg.ServerName,
@@ -576,18 +608,9 @@ func Save(dir string, cfg *Config) error {
 	}
 	existing, err := os.ReadFile(Path(dir))
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("clientconfig: read %s: %w", Path(dir), err)
+		return nil, fmt.Errorf("clientconfig: read %s: %w", Path(dir), err)
 	}
-	doc, err := buildDocument(existing, &y, cfg.Extra)
-	if err != nil {
-		return err
-	}
-	// The state file first: agents and sync_timer_opt_out leave the YAML in this
-	// same save (D906), so a failure here must not cost the values.
-	if err := writeState(dir, cfg); err != nil {
-		return err
-	}
-	return writeYAML(dir, doc, cfg.LiteralToken() != "")
+	return buildDocument(existing, &y, cfg.Extra)
 }
 
 // ApproveMCP records the exact descriptor hash for one source/name pair.
@@ -625,6 +648,16 @@ func (c *Config) ApprovedMCPHashes() map[string]string {
 		}
 	}
 	return out
+}
+
+// RemoveSigningKeys drops every key pinned for kbName and reports whether there
+// was one (#1282).
+func (c *Config) RemoveSigningKeys(kbName string) bool {
+	if _, ok := c.SigningKeys[kbName]; !ok {
+		return false
+	}
+	delete(c.SigningKeys, kbName)
+	return true
 }
 
 // AddSigningKey pins key for kbName unless it is already present.

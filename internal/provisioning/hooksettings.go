@@ -117,6 +117,15 @@ func removeHookEntries(baseDir, hookName string, rels ...string) error {
 		if !stripHookEntries(settings, hookOwnershipMarker(hookName)) {
 			continue
 		}
+		// A file left as `{}` is no configuration at all: it goes, as hooks.json
+		// does for codex, rather than staying behind after a disconnect (#1269).
+		// Any other key keeps it.
+		if len(settings) == 0 {
+			if err := safewrite.Remove(baseDir, settingsPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("provisioning: remove %s: %w", settingsPath, err)
+			}
+			continue
+		}
 		if err := saveOrderedJSONObject(baseDir, settingsPath, settings, layout); err != nil {
 			return err
 		}

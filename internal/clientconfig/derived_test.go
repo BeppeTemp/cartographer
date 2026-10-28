@@ -211,3 +211,59 @@ func TestRenameDerivedKB(t *testing.T) {
 		t.Errorf("unresolved kept: %+v", cfg.derived.Unresolved)
 	}
 }
+
+// #1268: a dry run asks whether the file would change, and writes nothing.
+func TestDerivedWouldChange_NamesCreateAndUpdateOnly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	s := DerivedState{Bindings: map[string][]DerivedBinding{"claude": {{Path: "/r", KBs: []string{"kb-a"}}}}}
+
+	path, changed, err := DerivedWouldChange(dir, s)
+	if err != nil || !changed {
+		t.Fatalf("fresh: changed=%v err=%v, want a creation", changed, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("the preview wrote the file")
+	}
+	if err := SaveDerived(dir, s); err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, _ := DerivedWouldChange(dir, s); changed {
+		t.Error("identical state reported as a change")
+	}
+	s.Bindings["claude"][0].KBs = []string{"kb-b"}
+	if _, changed, _ := DerivedWouldChange(dir, s); !changed {
+		t.Error("a different state was not reported")
+	}
+}
+
+func TestSaveWouldRewrite_OnlyWhenBytesChange(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{ServerURL: "http://localhost:8080/mcp", ServerName: "wiki"}
+	if changed, err := SaveWouldRewrite(dir, cfg); err != nil || !changed {
+		t.Fatalf("no file yet: changed=%v err=%v", changed, err)
+	}
+	if _, err := os.Stat(Path(dir)); !os.IsNotExist(err) {
+		t.Fatal("the preview wrote the file")
+	}
+	if err := Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := SaveWouldRewrite(dir, cfg); err != nil || changed {
+		t.Errorf("after Save: changed=%v err=%v, want none", changed, err)
+	}
+	cfg.ServerName = "other"
+	if changed, _ := SaveWouldRewrite(dir, cfg); !changed {
+		t.Error("a changed setting was not reported")
+	}
+}
+
+func TestRemoveSigningKeys(t *testing.T) {
+	c := &Config{SigningKeys: map[string][]string{"kb-a": {"k"}}}
+	if c.RemoveSigningKeys("kb-b") {
+		t.Error("an unpinned KB reported as removed")
+	}
+	if !c.RemoveSigningKeys("kb-a") || len(c.SigningKeys) != 0 {
+		t.Errorf("kb-a not removed: %v", c.SigningKeys)
+	}
+}

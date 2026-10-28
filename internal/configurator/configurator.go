@@ -483,9 +483,10 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 	}
 
 	// File-level cleanup (D63): .claude.json is Claude Code's own shared state
-	// file (MCP servers, but also model/permissions/other agent state) and must
-	// NEVER be deleted — only the (now possibly absent) mcpServers key was
-	// touched above, everything else in the file is left alone. kiro/opencode's
+	// file (MCP servers, but also model/permissions/other agent state), so a
+	// file that still holds any other key is only reduced — everything else in
+	// it is left alone — and it goes only once removing our entry left `{}`
+	// (#1269). kiro/opencode's
 	// config files exist purely to hold MCP server entries: if removing ours
 	// leaves nothing behind but that (now-deleted) key and, for opencode, the
 	// "$schema" hint, there is nothing worth keeping — delete the file outright

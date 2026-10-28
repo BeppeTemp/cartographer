@@ -798,3 +798,39 @@ func readServers(t *testing.T, path string) map[string]any {
 	servers, _ := root["mcp"].(map[string]any)
 	return servers
 }
+
+// #1269: removing our entry from a .claude.json that holds other state keeps it.
+func TestRemove_ClaudeJSONKeepsOtherKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude.json")
+	if err := os.WriteFile(path, []byte(`{"theme":"dark"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, dir, false); err != nil || !ok {
+		t.Fatalf("Remove = %v, %v", ok, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "theme") {
+		t.Fatalf("file with another key must stay: %v %s", err, data)
+	}
+
+	// Only our entry in it: the file goes.
+	only := t.TempDir()
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, only, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, only, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(only, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf("an emptied .claude.json must be removed: %v", err)
+	}
+}

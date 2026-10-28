@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1179,6 +1180,48 @@ func splitPositional(args []string, def string) (string, []string) {
 		return args[0], args[1:]
 	}
 	return def, args
+}
+
+// parseFlagsAnywhere parses args with fs and returns the positional arguments in
+// the order written, wherever they appear among the flags (`connect claude --kb x`,
+// `connect --kb x claude`, `connect --kb x claude --no-input`): flag.Parse stops at
+// the first non-flag token, so the loop takes it out and parses on. After a literal
+// "--" everything left is positional. Binding them to names, and rejecting the
+// extras, is bindPositionals (#1266).
+func parseFlagsAnywhere(fs *flag.FlagSet, args []string) []string {
+	var pos []string
+	for {
+		fs.Parse(args)
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return pos
+		}
+		if strings.HasPrefix(rest[0], "-") && rest[0] != "-" {
+			// Only reachable after "--": the remainder is positional.
+			return append(pos, rest...)
+		}
+		pos = append(pos, rest[0])
+		args = rest[1:]
+	}
+}
+
+// bindPositionals assigns pos to dst in order; a positional with no destination is
+// a usage error naming it (exit 2), never silently ignored (#1266).
+func bindPositionals(cmd string, pos []string, dst ...*string) int {
+	for i, v := range pos {
+		if i >= len(dst) {
+			fmt.Fprintf(os.Stderr, "Error: %s: unexpected argument %q\n", cmd, v)
+			return 2
+		}
+		*dst[i] = v
+	}
+	return 0
+}
+
+// noExtraArgs parses a command that takes flags only: a positional is a usage
+// error naming it (exit 2), not something to drop in silence (#1266).
+func noExtraArgs(fs *flag.FlagSet, args []string) int {
+	return bindPositionals(fs.Name(), parseFlagsAnywhere(fs, args))
 }
 
 // versionIsComparable rejects the two cases where a version difference means

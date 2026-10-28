@@ -318,6 +318,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
 				approvals = previewPreApprovalInstalls(os.Stdout, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
 			}
+			if changed, serr := clientconfig.SaveWouldRewrite(dir, cfg); serr == nil && changed {
+				fmt.Printf("[dry-run] would rewrite %s\n", clientconfig.Path(dir))
+			}
 		} else {
 			mounted := cfg.KnownKBs
 			cfg.KnownKBs = withRetainedKBs(mounted, retainedKBs)

@@ -687,3 +687,18 @@ func TestEncodeAuthorKeepsTheWireASCII(t *testing.T) {
 		t.Error("invalid base64 decoded")
 	}
 }
+
+// #1282: a routed path given as the server URL is named in the 404 it causes.
+func TestHealth_404HintsTheServerURLWhenGivenAnMCPSubpath(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	_, err := client.New(srv.URL+"/mcp/routed", "").Health(time.Second)
+	if err == nil || !strings.Contains(err.Error(), "the server URL is "+srv.URL+"/mcp") {
+		t.Errorf("subpath error = %v, want a hint naming %s/mcp", err, srv.URL)
+	}
+	_, err = client.New(srv.URL+"/mcp", "").Health(time.Second)
+	if err == nil || strings.Contains(err.Error(), "the server URL is") {
+		t.Errorf("plain /mcp 404 must carry no hint, got %v", err)
+	}
+}

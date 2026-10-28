@@ -300,19 +300,10 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 		t.Errorf("config.toml: user content altered: got %q, want (trimmed) %q", gotCodex, userCodexConfig)
 	}
 
-	// .claude.json: never deleted, but reduced to "{}" (cartographer entry
-	// removed, mcpServers emptied and removed).
+	// .claude.json held only our entry: it is gone, not left as "{}" (#1269).
 	claudeJSONPath := filepath.Join(targetDir, ".claude.json")
-	gotClaudeJSON, err := os.ReadFile(claudeJSONPath)
-	if err != nil {
-		t.Fatalf(".claude.json: expected present (never deleted), error: %v", err)
-	}
-	var claudeJSONMap map[string]any
-	if err := json.Unmarshal(gotClaudeJSON, &claudeJSONMap); err != nil {
-		t.Fatalf(".claude.json is not valid JSON: %v", err)
-	}
-	if len(claudeJSONMap) != 0 {
-		t.Errorf(".claude.json: expected reduced to {}, got %v", claudeJSONMap)
+	if _, err := os.Stat(claudeJSONPath); !os.IsNotExist(err) {
+		t.Errorf(".claude.json: expected removed once empty, stat err: %v", err)
 	}
 }
 

@@ -71,14 +71,16 @@ type kbRepairReport struct {
 // a doctor session (D290), and writing it would silence the doctor proposal
 // for a whole interval while the judgement work is still undone.
 func cmdKBRepair(args []string) int {
-	name, rest := splitPositional(args, "")
+	var name string
 	fs := flag.NewFlagSet("kb repair", flag.ExitOnError)
 	applyFlag := fs.Bool("apply", false, "Apply the checks that are safe to run unattended (default: plan only)")
 	jsonFlag := fs.Bool("json", false, "Print the report as JSON")
 	revertFlag := fs.String("revert", "", "Revert one auto-repair or kb_repair commit by SHA (as a new commit) instead of repairing")
 	reasonFlag := fs.String("reason", "", "With --revert: why (recorded in the commit)")
-	fs.Parse(rest)
-	if name == "" || fs.NArg() != 0 || (*revertFlag != "" && *applyFlag) {
+	if code := bindPositionals("kb repair", parseFlagsAnywhere(fs, args), &name); code != 0 {
+		return code
+	}
+	if name == "" || (*revertFlag != "" && *applyFlag) {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb repair <kb> --revert <sha> [--reason <text>]")
 		return kbRepairExitError
 	}

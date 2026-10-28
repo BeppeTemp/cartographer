@@ -60,17 +60,18 @@ type renamePlan struct {
 // that can honestly be implemented, with a preflight that reports every other
 // reference it can find (D177).
 func cmdKBRename(args []string) int {
-	old, rest := splitPositional(args, "")
-	newName, rest := splitPositional(rest, "")
+	var old, newName string
 
 	fs := flag.NewFlagSet("kb rename", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
 	configFlag := fs.String("config", "", "Server config YAML to rewrite (default: the standard path)")
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after the rename")
-	fs.Parse(rest)
+	if code := bindPositionals("kb rename", parseFlagsAnywhere(fs, args), &old, &newName); code != 0 {
+		return code
+	}
 
-	if old == "" || newName == "" || fs.NArg() != 0 {
+	if old == "" || newName == "" {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}

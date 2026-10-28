@@ -56,7 +56,7 @@ type unmountPlan struct {
 // Like kb rename it is offline and local (D177): this machine's server config,
 // data dir and client bindings. The remote stays the source of truth.
 func cmdKBUnmount(args []string) int {
-	name, rest := splitPositional(args, "")
+	var name string
 
 	fs := flag.NewFlagSet("kb unmount", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
@@ -66,9 +66,11 @@ func cmdKBUnmount(args []string) int {
 	forceFlag := fs.Bool("force", false, "Unmount even when the clone has uncommitted or unpushed work")
 	dryRunFlag := fs.Bool("dry-run", false, "Print the plan and change nothing")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy afterwards")
-	fs.Parse(rest)
+	if code := bindPositionals("kb unmount", parseFlagsAnywhere(fs, args), &name); code != 0 {
+		return code
+	}
 
-	if name == "" || fs.NArg() != 0 {
+	if name == "" {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}

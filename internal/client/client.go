@@ -473,6 +473,24 @@ func (c *MCPClient) Ping(timeout time.Duration) error {
 	return err
 }
 
+// mcpSubpathHint names the server URL when serverURL has a path segment after
+// /mcp (a routed KB path such as /mcp/routed): the health route is derived from
+// the URL by stripping a terminal /mcp, so a longer path asks for a route that
+// does not exist and the 404 says nothing of why (#1282). Empty otherwise.
+func mcpSubpathHint(serverURL string) string {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimRight(u.Path, "/")
+	i := strings.LastIndex(p, "/mcp/")
+	if i < 0 {
+		return ""
+	}
+	u.Path, u.RawQuery, u.Fragment = p[:i]+"/mcp", "", ""
+	return fmt.Sprintf(" (the server URL is %s, without the trailing %q)", u, p[i+len("/mcp"):])
+}
+
 // Health fetches GET /health for the configured MCP endpoint. serverURL
 // normally ends in /mcp; only that terminal path segment is stripped, leaving
 // deployments whose endpoint is rooted elsewhere intact. Like Ping, timeout
@@ -517,8 +535,12 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 				Message: fmt.Sprintf("could not read response from %s", u), Cause: readErr}
 		}
+		msg := fmt.Sprintf("%s returned HTTP %d", u, resp.StatusCode)
+		if resp.StatusCode == http.StatusNotFound {
+			msg += mcpSubpathHint(c.ServerURL)
+		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
-			Message: fmt.Sprintf("%s returned HTTP %d", u, resp.StatusCode), Cause: fmt.Errorf("%s", body)}
+			Message: msg, Cause: fmt.Errorf("%s", body)}
 	}
 
 	var health Health
