@@ -105,8 +105,10 @@ fi
 echo "Role: $role"
 
 # Plain bash 3.2 (the macOS default): no associative arrays.
+# `if`, not `&&`: a PR with no changed file reads one empty line, and a false
+# test as the loop's last command would fail the subshell under `set -e`.
 classified=$(while IFS=$'\t' read -r a d path; do
-  [ -n "$path" ] && printf '%s\t%s\t%s\t%s\n' "$(kind "$path")" "$a" "$d" "$path"
+  if [ -n "$path" ]; then printf '%s\t%s\t%s\t%s\n' "$(kind "$path")" "$a" "$d" "$path"; fi
 done <<<"$files")
 sum() { awk -F'\t' -v k="$1" -v c="$2" '$1 == k { s += $c } END { print s + 0 }' <<<"$classified"; }
 paths_of() { awk -F'\t' -v k="$1" '$1 == k { print $4 }' <<<"$classified"; }
