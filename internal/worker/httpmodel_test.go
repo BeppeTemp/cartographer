@@ -114,3 +114,42 @@ func TestTransport_URLGateAndRedirect(t *testing.T) {
 		t.Errorf("credential followed the redirect: %q", leaked)
 	}
 }
+
+// The key echoed across the 512-byte cut must not leave a prefix of itself.
+func TestTransport_KeyStraddlingTheErrorCutIsScrubbed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(strings.Repeat("x", maxErrorBody-8) + canary))
+	}))
+	defer srv.Close()
+	_, err := newTestTransport(t, srv.URL).post(context.Background(), "/x", nil, nil)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if strings.Contains(err.Error(), canary[:6]) {
+		t.Errorf("a prefix of the key survived the cut: %v", err)
+	}
+}
+
+func TestTransport_InsecureRefusalNamesTheWorkerOverride(t *testing.T) {
+	_, err := newTransport("http://example.com/v1", "k", "m", nil)
+	if err == nil || !strings.Contains(err.Error(), "WithAllowInsecureHTTP") ||
+		strings.Contains(err.Error(), "connect") || strings.Contains(err.Error(), "bearer") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestTransport_CallerClientWithoutTimeoutGetsTheDefault(t *testing.T) {
+	caller := &http.Client{}
+	tr, err := newTransport("http://127.0.0.1:1", "k", "m", []Option{WithHTTPClient(caller)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.hc.Timeout != defaultTimeout || caller.Timeout != 0 {
+		t.Errorf("timeout = %v (caller's %v)", tr.hc.Timeout, caller.Timeout)
+	}
+	short, _ := newTransport("http://127.0.0.1:1", "k", "m", []Option{WithHTTPClient(&http.Client{Timeout: time.Second})})
+	if short.hc.Timeout != time.Second {
+		t.Errorf("a caller's own timeout was replaced: %v", short.hc.Timeout)
+	}
+}

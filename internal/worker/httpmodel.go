@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -62,12 +63,22 @@ func newTransport(baseURL, key, model string, opts []Option) (*transport, error)
 		return nil, errors.New("worker: model base URL is required")
 	}
 	if err := client.CheckServerURL(t.baseURL, t.allowInsecure); err != nil {
+		// CheckServerURL words the refusal for the bearer token and the
+		// connect command; a model endpoint has neither.
+		if u, perr := url.Parse(t.baseURL); perr == nil && strings.EqualFold(u.Scheme, "http") && !client.IsLoopbackHost(u.Hostname()) {
+			return nil, fmt.Errorf("worker: refusing plain http:// model endpoint %s: the API key and the prompts would travel in clear; "+
+				"use https://, or allow it explicitly (WithAllowInsecureHTTP, for a private-network model server)", u.Redacted())
+		}
 		return nil, err
 	}
 	if t.base == nil {
 		t.base = &http.Client{Timeout: defaultTimeout}
 	}
 	hc := client.HTTPClient(t.base, t.allowInsecure)
+	if hc.Timeout == 0 {
+		// A caller's client without a timeout would leave an attempt unbounded.
+		hc.Timeout = defaultTimeout
+	}
 	policy := hc.CheckRedirect
 	hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		// Go drops Authorization on a cross-host redirect but keeps custom
@@ -174,11 +185,13 @@ func (t *transport) once(ctx context.Context, path string, headers map[string]st
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		return data, "", false, nil
 	}
-	snippet := data
+	// Scrub the whole body before cutting it: a key echoed across the cut
+	// would otherwise leave a prefix of itself.
+	snippet := t.scrub(string(data))
 	if len(snippet) > maxErrorBody {
 		snippet = snippet[:maxErrorBody]
 	}
-	msg := t.scrub(fmt.Sprintf("model API returned HTTP %d: %s", resp.StatusCode, snippet))
+	msg := fmt.Sprintf("model API returned HTTP %d: %s", resp.StatusCode, snippet)
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return nil, "", false, fmt.Errorf("%w: %s", ErrModelAuth, msg)
 	}
