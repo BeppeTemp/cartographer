@@ -462,6 +462,72 @@ This topology serves **multiple clients** (one or more agents connected via `car
 `cartographer sync`, all over HTTP): git remains the sync/backup layer between the server and the
 remote KBs, not a requirement for the client.
 
+### The worker (a third role)
+
+`cartographer worker --config <file>` is a background process for one **perimeter**: a set of KBs, the
+token that reads and writes them, the model endpoints and their budgets. It is a process of its own (its
+own container, sidecar or a unit you write), never started by `serve`: the server stays model-less and
+fetches nothing. It has no volume, no inbound port and no probe endpoint; the server and the model
+endpoints are the only things it talks to. One config per perimeter; replicas are more processes with
+the same config.
+
+| Flag | Meaning |
+|---|---|
+| `--config <file>` | The worker YAML (required; there is no environment alias). Without it the command prints usage and exits 2 |
+| `--once` | Evaluate the triggers once, run if due, exit 0 (for an external scheduler) |
+| `--log-file <file>` | Append the log to a file instead of stderr, as `serve` does |
+
+Exit codes: 0 graceful shutdown (SIGINT/SIGTERM), 1 runtime failure (including a server that is still
+unreachable after the start-up retries), 2 start error (nothing was started).
+
+The file is strict: an unknown key fails with its path and line. Secrets are never in it: `token_env` and
+`api_key_env` name environment variables.
+
+```yaml
+name: docs-night                  # the perimeter; [a-z0-9-]{1,40}
+server_url: https://wiki.example.com/mcp
+token_env: WORKER_TOKEN
+kbs: [wiki-kb]
+models:                           # named profiles; tasks pick one
+  - name: cloud
+    provider: anthropic           # anthropic | openai
+    model: claude-sonnet-4-5      # the provider's model id
+    api_key_env: CLOUD_API_KEY
+    tier: large                   # small | large
+    budget: {daily_tokens: 2000000, run_tokens: 500000}
+  - name: local
+    provider: openai              # llama.cpp / LiteLLM: base_url is required
+    base_url: http://llm.internal:8080/v1
+    allow_insecure_http: true     # plain http to a non-loopback host needs this opt-in
+    model: small-model
+    budget: {daily_tokens: 9000000}
+schedule:
+  window: {start: "23:00", end: "06:00", timezone: Europe/Rome}
+tasks:                            # in priority order
+  - kind: ingest
+    model: cloud
+```
+
+The key table is `internal/workerconfig`. A task `kind` must be registered in the binary; a config can
+name none until the first task kind lands.
+
+The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
+for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB
+closes with a `log_append` (path `worker/<name>`) whose line carries `day=`, `tokens.<profile>=` and
+`stopped=`, and the next run sums today's lines. A task's grant is
+`min(remaining today, run_tokens)` minus what the run already spent on its profile; an exhausted profile
+skips its tasks while the others go on. The day is the calendar day of `schedule.window.timezone` (UTC
+without a window). If the ledger cannot be read, or a day outgrows the capped read, the run is skipped
+and retried at the next poll.
+
+**Start-up checks**, in order; each failure exits 2 and starts nothing: the config loads (and every
+`*_env` variable is set); `/health` answers (a server that is starting or unreachable is retried for up
+to 5 minutes, then exit 1); `server/discover` accepts the token (`/health` is public and serves a wrong
+token as an anonymous caller, so only this call proves it); `/health` names KBs for the token; every
+name in `kbs` is among them. The roster is a read view: the perimeter token needs `kb:<name>:rw` on
+each KB (§Fine-grained roles), and a read-only token meets its first refusal at the first write. Give
+it an `id` so the audit log names the worker.
+
 ### HTTP routing (D84)
 
 `MultiKBServer.Handler` (`internal/mcpserver/httpserver.go`) selects a KB three ways:
