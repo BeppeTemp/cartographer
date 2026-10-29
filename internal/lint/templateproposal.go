@@ -694,7 +694,7 @@ func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract, for
 			counts[v] = f.values[v]
 		}
 		switch {
-		case len(vals) == 0, allDateShaped(counts):
+		case len(vals) == 0, allDateShaped(counts), allSHAShaped(counts):
 		case !constrained && identifierValued(f.values, f.count):
 		case constrained:
 			// The map's own vocabulary, not the part of it the pages happen to use.
