@@ -958,7 +958,7 @@ validate a nested per-type grammar.
   worker's configuration, never a path or a command. For a collection, feed or
   system the `locator` is the URL or `{{path:<key>}}` placeholder of the space,
   repository, feed or system. A `locator`, `connector` or `recipe` that is a URL
-  with userinfo (a token as username included) or a secret-named query parameter
+  with a password, or with a username under http(s) (a token as username; `ssh://git@host/...` is fine), or a secret-named query parameter
   (`token`, `password`, `api_key`...) is refused: credentials live in the connector's configuration or in sops, never in
   the ledger. Dedup is unchanged: such a source normally has no `sha256`, so it
   dedups by exact `locator`. An existing `templates/source.md` is not rewritten;

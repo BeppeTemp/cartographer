@@ -731,7 +731,7 @@ func TestSourceRegisterShapeAndCredentialsRefused(t *testing.T) {
 		t.Fatalf("password: %+v", res)
 	}
 	for _, loc := range []string{
-		"https://tok3n@example.com/a", "ssh://git@example.com/a",
+		"https://tok3n@example.com/a", "ssh://git:pw@example.com/a",
 		"https://example.com/a?token=abc", "https://example.com/a?access_key=abc",
 		"https://example.com/a?api-key=abc", "https://example.com/a?x=1&Password=abc",
 		"https://example.com/a?client_secret=abc",
@@ -747,6 +747,7 @@ func TestSourceRegisterShapeAndCredentialsRefused(t *testing.T) {
 			t.Errorf("%s: %+v", f, res)
 		}
 	}
+	registerSource(t, s, `{"title":"S","source_kind":"x","locator":"ssh://git@example.com/org/repo.git"}`)
 	registerSource(t, s, `{"title":"B","source_kind":"x","locator":"https://example.com/a?page=2&sort=asc","connector":"wiki-reader"}`)
 }
 

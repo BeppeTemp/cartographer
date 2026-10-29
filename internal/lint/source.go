@@ -41,7 +41,7 @@ var secretQueryNames = map[string]bool{
 }
 
 // URLCredential reports why s, read as a URL, carries a credential, or "" when
-// it does not (D1201): any userinfo (a token is often the username), or a query
+// it does not (D1201): a password, or a username outside an ssh-family scheme (a token is often the username), or a query
 // parameter named like a secret. Only an absolute URL (scheme and host) is
 // judged; anything else is not a URL. The value is never echoed.
 func URLCredential(s string) string {
@@ -50,7 +50,16 @@ func URLCredential(s string) string {
 		return ""
 	}
 	if u.User != nil {
-		return "userinfo"
+		// A password is never acceptable; a username alone is a token only
+		// where it can be one (http), not the account of a git-over-SSH URL.
+		if _, hasPw := u.User.Password(); hasPw {
+			return "password"
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "ssh", "git+ssh", "ssh+git", "sftp":
+		default:
+			return "userinfo"
+		}
 	}
 	for name := range u.Query() {
 		n := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(name))
