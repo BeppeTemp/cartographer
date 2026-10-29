@@ -2,6 +2,8 @@ package lint
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -27,4 +29,43 @@ func uncitedSourceFinding(relPath string, id okf.ConceptID, content string, cite
 		Path:    relPath,
 		Message: fmt.Sprintf("source %s is marked ingested but no concept lists it in provenance — cite it from the pages built on it, or set ingest_status back to pending", id),
 	}), true
+}
+
+// secretQueryNames are the normalized (lowercase, no `-`/`_`) names of a query
+// parameter that carries a credential. A name ending in token or secret matches
+// too.
+var secretQueryNames = map[string]bool{
+	"password": true, "passwd": true, "pwd": true, "apikey": true, "accesskey": true,
+	"secretkey": true, "privatekey": true, "credential": true, "credentials": true,
+	"auth": true, "authorization": true, "sig": true, "signature": true,
+}
+
+// URLCredential reports why s, read as a URL, carries a credential, or "" when
+// it does not (D1201): a password, or a username outside an ssh-family scheme (a token is often the username), or a query
+// parameter named like a secret. Only an absolute URL (scheme and host) is
+// judged; anything else is not a URL. The value is never echoed.
+func URLCredential(s string) string {
+	u, err := url.Parse(strings.TrimSpace(s))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	if u.User != nil {
+		// A password is never acceptable; a username alone is a token only
+		// where it can be one (http), not the account of a git-over-SSH URL.
+		if _, hasPw := u.User.Password(); hasPw {
+			return "password"
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "ssh", "git+ssh", "ssh+git", "sftp":
+		default:
+			return "userinfo"
+		}
+	}
+	for name := range u.Query() {
+		n := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(name))
+		if secretQueryNames[n] || strings.HasSuffix(n, "token") || strings.HasSuffix(n, "secret") {
+			return "query parameter " + name
+		}
+	}
+	return ""
 }
