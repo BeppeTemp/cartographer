@@ -149,17 +149,27 @@ func TestArtifactMove_ReferencesSkipAFileAboveTheScanCap(t *testing.T) {
 	xferClean(t, f.b)
 }
 
-// The lint run under the locks reports what it did before: a junk file inside a
-// moved unit is still a finding of the target.
-func TestArtifactMove_LintStillReportsJunkInAMovedUnit(t *testing.T) {
+// A junk file in a unit is not content (#1377): .git/info/exclude ignores it in
+// both KBs, so the move neither refuses the unit nor carries the file, and the
+// source loses it with the unit.
+func TestArtifactMove_LeavesJunkOutOfAMovedUnit(t *testing.T) {
 	t.Parallel()
 	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
-	amWriteBytes(t, f.a, "skills/s/.DS_Store", []byte("x"), 0o644)
 	xferCommit(t, f.a)
+	amWriteBytes(t, f.a, "skills/s/.DS_Store", []byte("x"), 0o644)
 	res := f.move(t, `{"target_kb":"kb-b","paths":["skills/s"]}`)
 	if res.IsError {
 		t.Fatalf("artifact_move: %s", xferText(res))
+	}
+	if _, err := os.Stat(filepath.Join(f.b.Root, "skills", "s", "SKILL.md")); err != nil {
+		t.Fatalf("the skill did not move: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.b.Root, "skills", "s", ".DS_Store")); !os.IsNotExist(err) {
+		t.Errorf("the junk file was carried to the target: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.a.Root, "skills", "s")); !os.IsNotExist(err) {
+		t.Errorf("the unit is still in the source: %v", err)
 	}
 	var out struct {
 		Findings map[string][]findingOut `json:"findings_by_kb"`
@@ -167,12 +177,10 @@ func TestArtifactMove_LintStillReportsJunkInAMovedUnit(t *testing.T) {
 	if err := json.Unmarshal([]byte(xferText(res)), &out); err != nil {
 		t.Fatal(err)
 	}
-	var junk bool
 	for _, fd := range out.Findings["kb-b"] {
-		junk = junk || (fd.Check == "junk_file" && fd.Path == "skills/s/.DS_Store")
-	}
-	if !junk {
-		t.Errorf("findings_by_kb lacks junk_file on the moved .DS_Store: %+v", out.Findings)
+		if fd.Check == "junk_file" {
+			t.Errorf("junk_file in the target: %+v", fd)
+		}
 	}
 	xferClean(t, f.a)
 	xferClean(t, f.b)

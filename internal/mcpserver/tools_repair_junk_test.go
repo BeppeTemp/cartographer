@@ -49,9 +49,12 @@ func TestWrite_DoesNotTrackJunk(t *testing.T) {
 	for _, rel := range junk {
 		writeJunk(t, k, rel)
 	}
-	args, _ := json.Marshal(map[string]any{"id": "ops/a", "frontmatter": map[string]any{"type": "Note", "title": "A"}, "body": "# A\n"})
+	args, _ := json.Marshal(map[string]any{"id": "ops/a", "frontmatter": map[string]any{"type": "Note", "title": "A"}, "body": "# A\n", "index_entry": true})
 	if res := callTool(t, s, "concept_write", string(args)); res.IsError {
 		t.Fatalf("concept_write: %s", res.Content[0].Text)
+	}
+	if !tracked(t, k, "data/ops/a.md") {
+		t.Fatal("the write was not committed")
 	}
 	for _, rel := range junk {
 		if tracked(t, k, rel) {

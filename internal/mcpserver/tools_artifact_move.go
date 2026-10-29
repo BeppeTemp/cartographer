@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -363,6 +364,7 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 			if err != nil {
 				return refuse("%s: %v", u.rel, err)
 			}
+			u.files = dropJunkFiles(u.rel, u.files)
 			if len(u.files) == 0 {
 				return refuse("%s has no files: git cannot carry an empty directory", u.rel)
 			}
@@ -385,6 +387,7 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 		if err != nil {
 			return refuse("%s: cannot tell which files git ignores: %v", u.rel, err)
 		}
+		ignored = slices.DeleteFunc(ignored, kb.IsJunkPath)
 		if len(ignored) > 0 {
 			return refuse("%s holds files git ignores (%s): they would not be committed and would be lost; remove or un-ignore them first", u.rel, strings.Join(ignored, ", "))
 		}
@@ -429,6 +432,15 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 		return refuse("%v", err)
 	}
 	return plan, nil
+}
+
+// dropJunkFiles leaves a unit's junk files out of the move (#1377): both KBs
+// ignore them through .git/info/exclude, so they are not content to carry or
+// to lose, and the source's removal of the unit takes them with it.
+func dropJunkFiles(unit string, files []transferFile) []transferFile {
+	return slices.DeleteFunc(files, func(f transferFile) bool {
+		return kb.IsJunkPath(unit + "/" + f.rel)
+	})
 }
 
 // scan fills the reports that never refuse: placeholders the target does not
