@@ -49,6 +49,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		k.AuthName = s.PolicyKB()
 	}
 	s.kbRef = k
+	s.guideBundle = deps.BundleFS
 	s.kbArtifacts = artifactSource{signer: deps.ArtifactSigner}
 	installPolicy(s, k)
 	register := func(t Tool) {
