@@ -421,6 +421,8 @@ type MultiKBServer struct {
 	// clientReports are the client settings each principal's machines sent
 	// (D818), shown back to that principal only.
 	clientReports clientReports
+	// workers are the declarations of the workers' heartbeats (uiapi_workers.go).
+	workers workerStore
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON
@@ -481,6 +483,7 @@ func NewMultiKBServer(version string) *MultiKBServer {
 // server for it.
 func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 	srv := New(m.version)
+	srv.liveWorker = m.workers.hasLive
 	srv.SetPolicyKB(name)
 	setupFn(srv)
 	m.servers[name] = srv
@@ -747,6 +750,12 @@ func (m *MultiKBServer) Handler() http.Handler {
 		// being enabled — and inside the same auth chain as /mcp.
 		case r.URL.Path == UsagePath:
 			m.handleUsage(w, r)
+			return
+
+		// A worker's heartbeat: client-to-server metadata like usage, always
+		// routed and inside the same auth chain as /mcp.
+		case r.URL.Path == WorkersPath:
+			m.handleWorkers(w, r)
 			return
 
 		// A client's own settings (D818): like usage, always routed.

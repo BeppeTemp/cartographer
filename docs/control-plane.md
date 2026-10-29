@@ -389,7 +389,7 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 | `GET /api/ui/v1/kbs/{kb}/services` | `{services}` (D818): the concepts of type `Service` (`id`, `title`, `status`), each filtered with the caller's principal. Not a relay of `service_list`, which lists every Service of the KB. |
 | `GET /api/ui/v1/kbs/{kb}/conflicts` | `conflicts_list`'s own array (`concept_id`, `path`, `files`, `kind`, `detected_at`, `resolution_strategy`), `[]` when there are none. The registry names files KB-wide: `404` for a caller that cannot see the whole KB. |
 | `GET /api/ui/v1/kbs/{kb}/audit?limit=` | `{enabled, state, entries}`: the newest audit entries for this KB, newest first (`at`, `phase`, `principal`, `tool`, `outcome`, `commit_sha`, …), `limit` defaults to 100, at most 500; `enabled: false` when the server runs without one (a `best_effort` log that could not be opened, D905). The log names other principals: admin only, `404` for anyone else. |
-| `GET /api/ui/v1/whoami` | `{id, admin, permissions}`: the principal behind the request and its own policy rules (`kb`, `write`, `maps`, `journals`, `types`), narrowed to the KBs this server mounts. Nothing in it is anyone else's, so no extra scope; a KB-less route like `/kbs` and `/settings`. |
+| `GET /api/ui/v1/whoami` | `{id, admin, permissions}`: the principal behind the request and its own policy rules (`kb`, `write`, `maps`, `journals`, `types`, and `artifacts: "r"` on a rule that withholds the artifact write tools, D1259), narrowed to the KBs this server mounts. Nothing in it is anyone else's, so no extra scope; a KB-less route like `/kbs` and `/settings`. |
 | `GET /api/ui/v1/kbs/{kb}/assets?id=` | `{id, assets}`: `asset_list` for an expanded concept (`path`, `size`, `sha256`, `executable`, `oversized?`). `id` is required; `404` for a missing or invisible concept, `400` for one that is not expanded. |
 | `GET /api/ui/v1/settings` | The Settings page's data (D743): `version`, `latest_version` and `update_channel` when known, `server` (every server-level schema key from `internal/config/schema.go`) and `kbs` (one section per KB the caller can see, with the `kbs[]` keys and, for a caller that sees the whole KB, `git`: remote, sync and push state). plus `server_yaml` (the server's configuration as the YAML file it amounts to, commented by the schema, its `kbs[]` entries limited to the KBs the caller sees), a `yaml` per KB section (the same for that KB's own keys) and `clients` (D818): the caller's own client settings reports (§Client settings reports), `[]` when none, never another principal's, each `yaml` rendered by this server's client schema when the report arrived (the keys it sets documented, the others listed commented out; §Client settings reports), and `client_template` (D948): `{entries, yaml}`, every client key at its default and the file they amount to, which the Client tab shows before any client of the caller has reported. Each entry is `{key, value, origin, description, default, type?, values?, env?, flag?, restart?, secret?}` (`type` is the kind of value, `values` the accepted ones in free text, both from the schema); `origin` is `default`, `file`, `env` or `flag`, recorded by the loaders. A secret's `value` is `"(set)"` or `"(unset)"`, never the value. A remote URL is shown without its userinfo (the redaction `kb_status` applies), in the entries and in both YAML views, for every caller. Server-wide values are an admin's: a caller that is not an admin gets in `server` only `update_check`, `web.enabled`, `kbs` and `git.identities` (limited to the KBs it sees), and no `server_yaml`; the paths (`data`, `credentials_dir`, `audit.*`), `auth.*`, `http` and `git.identity` are absent. Same auth as the other routes, no new role. |
 | `GET /api/ui/v1/releases` | The release history behind the version in the Atlas (D862): `{current, latest?, channel?, upgrade_command?, releases, stale?, unavailable?, releases_url}`. `releases` is newest first, each `{version, name?, url, published_at, body, truncated, prerelease, current}` (`version` without the leading `v`, `url` the release page on GitHub, `""` unless it is an `https` URL, `body` the release's Markdown changelog, cut at 64 KiB with `truncated`, `current` for the release this server runs). A release whose tag is not a version (`updatecheck.ValidTag`: `MAJOR.MINOR.PATCH` with an optional pre-release) is left out of the list, and so is a release candidate (a tag with a pre-release suffix, `v0.28.0-rc.20261111`, D1192); `latest` is never such a tag. `latest` is the `latest_version` `/health` reports; `upgrade_command` is the install channel's command (`updatecheck.Channel.UpgradeCommand`), present only when `latest` is and the channel names one. The server reads the GitHub release list on demand (up to 3 pages of 100), keeps it in memory for an hour with the ETag, and answers `stale: true` with the last good list when a refresh fails. `unavailable` is `"disabled"` when the update check is off (`update_check`, `CARTOGRAPHER_NO_UPDATE_CHECK`, a `dev` build: no call is made) and `"unreachable"` when GitHub could not be reached and there is no earlier list; `releases` is `[]` then, and `releases_url` (the GitHub release page) is always present. The same for every caller who can open the Atlas: nothing in it is KB data. A KB-less route like `/settings`. |
@@ -419,6 +419,36 @@ artifact, a row with no `last_used`, an unknown kind are dropped; a `last_used` 
 day ahead is clamped to now. It needs the whole KB in write scope; any other caller gets the
 `404` of an unknown KB (no existence oracle), a missing token `401`, a non-POST `405`. The
 store is `.cartographer/usage.json` (`docs/data-plane.md`), which the `artifact_unused` lint check reads (D1043).
+
+### Worker heartbeat (`POST /api/workers`, D1259)
+
+A `cartographer worker` process declares itself once a minute. Like the usage report and the client settings
+report it is client-to-server metadata: an HTTP route inside the auth chain of `/mcp`, always routed (with or
+without the web UI), never an MCP tool (a tool would spend `tools/list` budget on every client for something no
+agent calls, D285). The declaration is a hint, never trusted beyond display: validated, bounded in time and
+ignored when stale (D369); the server never acts on it, the budget is enforced by the worker.
+
+Body (one JSON object, `application/json`, 64 KiB cap): `worker` (this process, 1-64 of `[a-z0-9._-]`),
+`perimeter` (1-40 of `[a-z0-9-]`, shared by replicas), `version`, `kbs` (1-32 names), `state` (`idle`,
+`running`, `waiting`, `budget_exhausted`, `stopped`), `interval_seconds` (clamped to 15-3600, default 60),
+`last_run` (`{at, units_done, tokens_spent, commits}`), `budgets` (at most 8 `{profile, tier, spent, limit}`, one
+per model profile, never summed) and `next_window_at` (omitted when past or more than 8 days ahead). A
+`last_run.at` more than a day ahead is clamped to now; counters are clamped to `0..2^40`; text is truncated
+and stripped of control characters. `received_at` is the server's clock.
+
+State is in memory (a restart forgets it until the next beat), at most 16 workers per principal and 256 in
+total, the oldest evicted. A declaration is live while less than three intervals old; `state: stopped` removes
+it at once. The declared KBs are filtered to those the principal can write; none left answers the `404` of an
+unknown KB (no existence oracle). Errors: `405` (+ `Allow`), `401`, `415`, `413`, `400`.
+
+The answer is `{accepted, kbs: {<kb>: {last_activity_at, idle_seconds}}, activity_known, server_started_at,
+now}`. **`last_activity_at`** is the last authorized MCP tool call on that KB by a principal that has no live
+worker declaration, other than `sync_pull` (the 30-minute sync timer would otherwise keep every connected KB
+active), counted in `callToolChecked` after authorization: a denied call is not activity, nor is the Atlas UI
+API. It is `null` (and `idle_seconds` absent) until a call happens after the process started; the worker then
+reads "idle since `server_started_at`". `now` is the server's clock, so the worker never compares its own.
+`activity_known` is `false` when authentication is off: every caller is the local admin and the server cannot
+tell the worker from a person.
 
 ### Client settings reports (`POST /api/client-settings`, D818)
 
