@@ -1022,6 +1022,51 @@ func TestDeleteConcept_Rimuove(t *testing.T) {
 	}
 }
 
+func TestDeleteConcept_ExpandedRimuoveDirectoryVuota(t *testing.T) {
+	t.Parallel()
+	kb := newTestKB(t)
+
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Foo")
+	if _, err := kb.WriteConcept(okf.ConceptID("entities/foo"), fm, "# Foo\n", ""); err != nil {
+		t.Fatalf("WriteConcept: %v", err)
+	}
+	if err := kb.ExpandConcept(okf.ConceptID("entities/foo")); err != nil {
+		t.Fatalf("ExpandConcept: %v", err)
+	}
+	dir := filepath.Join(kb.DataRoot(), "entities", "foo")
+
+	if err := kb.DeleteConcept(okf.ConceptID("entities/foo")); err != nil {
+		t.Fatalf("DeleteConcept: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the emptied expanded directory should be removed, stat err: %v", err)
+	}
+}
+
+func TestDeleteConcept_ExpandedConservaSatellite(t *testing.T) {
+	t.Parallel()
+	kb := newTestKB(t)
+
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Foo")
+	for _, id := range []string{"entities/foo", "entities/foo/sat"} {
+		if id == "entities/foo/sat" {
+			if err := kb.ExpandConcept(okf.ConceptID("entities/foo")); err != nil {
+				t.Fatalf("ExpandConcept: %v", err)
+			}
+		}
+		if _, err := kb.WriteConcept(okf.ConceptID(id), fm, "# Body\n", ""); err != nil {
+			t.Fatalf("WriteConcept %s: %v", id, err)
+		}
+	}
+
+	if err := kb.DeleteConcept(okf.ConceptID("entities/foo")); err != nil {
+		t.Fatalf("DeleteConcept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(kb.DataRoot(), "entities", "foo", "sat.md")); err != nil {
+		t.Errorf("the satellite must survive the delete: %v", err)
+	}
+}
+
 func TestDeleteConcept_RifiutaFileRiservato(t *testing.T) {
 	t.Parallel()
 	kb := newTestKB(t)
