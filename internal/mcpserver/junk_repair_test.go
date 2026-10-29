@@ -4,6 +4,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -80,6 +81,9 @@ func TestRepair_JunkFileUntracks(t *testing.T) {
 // as literal paths, never as pathspecs.
 func TestRepair_JunkFileUntrackIsLiteral(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("a file name with * cannot exist on Windows")
+	}
 	k, _ := repairKB(t, 1)
 	_ = os.MkdirAll(filepath.Join(k.Root, "x"), 0o755)
 	for _, p := range []string{"x/*.pyc", "x/keep.pyc"} {
