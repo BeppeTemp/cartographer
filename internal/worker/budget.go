@@ -40,10 +40,23 @@ const (
 	summarySep = " — "
 )
 
+// maxFigure is the largest tokens figure the reader believes, per entry and per
+// sum. A forged or corrupted figure above it counts as exactly this much, so a
+// poisoned ledger can only read as spent, never wrap negative and read as free;
+// it is far below MaxInt64 so that the sums of a few thousand entries cannot
+// overflow either.
+const maxFigure = 1 << 50
+
+func satAdd(a, b int) int { return min(a+b, maxFigure) }
+
 // ErrLedgerTooLong means a day's entries outgrew the capped read: the run is
 // skipped, because spending on an undercounted ledger is the one thing the
 // budget must not do.
-var ErrLedgerTooLong = errors.New("worker: more run entries today than the capped ledger read can see")
+//
+// Trade-off: about ledgerCap unreadable entries under the worker's path (written
+// by anyone with a write grant) make every run hit this error. Failing closed is
+// the accepted price; Begin's error and a warning name the cause.
+var ErrLedgerTooLong = errors.New("worker: the capped ledger read is full of entries from today or entries it cannot read (a poisoned ledger fails closed)")
 
 // KBCaller returns the MCP caller scoped to one KB; *client.MCPClient.WithKB
 // satisfies it through a one-line adapter.
@@ -119,7 +132,7 @@ func (b *Budget) Begin(kbs []string, now time.Time) error {
 		}
 		bad += n
 		for p, t := range got {
-			today[p] += t
+			today[p] = satAdd(today[p], t)
 		}
 	}
 	if bad > 0 {
@@ -295,28 +308,34 @@ func (b *Budget) readKB(kb, day string) (map[string]int, int, error) {
 			case r.day == day:
 				for p, t := range r.tokens {
 					if _, known := b.profiles[p]; known {
-						got[p] += t
+						got[p] = satAdd(got[p], t)
 					}
 				}
 			}
 		}
-		if len(entries) < n || !oldestMayBeToday(entries, day, b.parseRun) {
+		if len(entries) < n || !mayHaveMore(entries, day, b.parseRun) {
 			return got, bad, nil
 		}
 		if n >= ledgerCap {
+			b.logf("worker: the ledger of %s still shows today at %d entries (%d unreadable): skipping the run", kb, n, bad)
 			return nil, 0, ErrLedgerTooLong
 		}
 	}
 }
 
-// oldestMayBeToday reports whether the oldest entry read (the last: newest
-// first) is today's or cannot be told, in which case the read goes on.
-func oldestMayBeToday(entries []string, day string, parse func(string) (runEntry, bool)) bool {
-	if len(entries) == 0 {
-		return false
+// mayHaveMore reports whether a full read may have cut today's entries off: it
+// has not, once any entry of the answer is dated before today (the readable
+// entries come newest first). The judgement is by date over the whole answer,
+// not by position: kb.LogTail puts a legacy <path>/log.md before the root-log
+// entries, so the last entry returned is not necessarily the oldest. Entries
+// that cannot be read tell nothing and keep the read going.
+func mayHaveMore(entries []string, day string, parse func(string) (runEntry, bool)) bool {
+	for _, e := range entries {
+		if r, ok := parse(e); ok && r.day < day {
+			return false
+		}
 	}
-	r, ok := parse(entries[len(entries)-1])
-	return !ok || r.day == day
+	return true
 }
 
 // splitEntries returns the first non-empty body line of each "## " entry of a
@@ -364,10 +383,14 @@ func (b *Budget) parseRun(line string) (runEntry, bool) {
 			r.day = v
 		case strings.HasPrefix(k, "tokens."):
 			n, err := strconv.Atoi(v)
+			if errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(v, "-") {
+				n, err = maxFigure, nil // forged: counted as spent
+			}
 			if err != nil || n < 0 {
 				return runEntry{}, false
 			}
-			r.tokens[strings.TrimPrefix(k, "tokens.")] += n
+			p := strings.TrimPrefix(k, "tokens.")
+			r.tokens[p] = satAdd(r.tokens[p], min(n, maxFigure))
 		}
 	}
 	if r.day == "" {

@@ -201,7 +201,8 @@ func healthWithRetry(ctx context.Context, c *client.MCPClient, r retryPolicy) (*
 			return h, nil
 		}
 		var re *client.RemoteError
-		retriable := errors.As(err, &re) && (re.Code == client.CodeStarting || re.Code == client.CodeUnreachable || re.Code == client.CodeDNSFailed)
+		retriable := errors.As(err, &re) && (re.Code == client.CodeStarting || re.Code == client.CodeUnreachable || re.Code == client.CodeDNSFailed || re.HTTPStatus >= 500)
+		// A 5xx is a proxy or a rollout in front of the server: Health reports it as CodeHTTPFailed.
 		if !retriable {
 			return nil, startFail(workerExitStart, "health check of %s: %v", c.ServerURL, err)
 		}

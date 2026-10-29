@@ -179,3 +179,23 @@ func TestWorkerDispatch(t *testing.T) {
 		t.Fatalf("code=%d args=%v", code, got)
 	}
 }
+
+func TestWorkerStartupRetriesA5xx(t *testing.T) {
+	var n atomic.Int32
+	kbs := []string{"kb-a", "work-kb"}
+	inner := fakeServer(t, kbs, nil)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" && n.Add(1) <= 2 {
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		inner.Config.Handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(proxy.Close)
+	if _, err, _ := startup(t, proxy, workerCanary+"-token", fastRetry(time.Second)); err != nil {
+		t.Fatalf("a 502 during a rollout must be retried: %v", err)
+	}
+	if n.Load() < 3 {
+		t.Fatalf("health called %d times", n.Load())
+	}
+}

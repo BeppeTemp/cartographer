@@ -236,3 +236,46 @@ func TestBudgetEntryHasNoSecret(t *testing.T) {
 		t.Fatal("entry leaks a secret")
 	}
 }
+
+func TestBudgetForgedFiguresFailClosed(t *testing.T) {
+	huge := "tokens.cloud=9223372036854775807"
+	kbs := map[string]*ledgerCaller{
+		"kb-a": {entries: []string{
+			"[worker/docs-night] run r1 day=2026-10-29 " + huge + " " + huge + " stopped=done",
+			"[worker/docs-night] run r2 day=2026-10-29 " + huge + " stopped=done",
+			"[worker/docs-night] run r3 day=2026-10-29 tokens.cloud=99999999999999999999 stopped=done",
+		}},
+		"work-kb": {entries: []string{"[worker/docs-night] run r4 day=2026-10-29 " + huge + " stopped=done"}},
+	}
+	b := newTestBudget(kbs)
+	if err := b.Begin([]string{"kb-a", "work-kb"}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if r, g := b.Remaining("cloud"), b.Grant("cloud"); r != 0 || g > 0 {
+		t.Fatalf("poisoned ledger read as free: remaining=%d grant=%d", r, g)
+	}
+	if b.Grant("local") <= 0 {
+		t.Fatal("another profile must be unaffected")
+	}
+}
+
+func TestBudgetOldestJudgedByDateNotPosition(t *testing.T) {
+	// The last entry of a full answer is not necessarily the oldest (a legacy
+	// directory log is returned before the root entries): a yesterday entry
+	// anywhere in it ends the read.
+	today := "[worker/docs-night] run t day=2026-10-29 tokens.cloud=1 stopped=done"
+	old := "[worker/docs-night] run o day=2026-10-28 tokens.cloud=1 stopped=done"
+	var entries []string
+	for i := 0; i < ledgerStart; i++ {
+		entries = append(entries, today)
+	}
+	entries[10] = old
+	kb := &ledgerCaller{entries: entries}
+	b := newTestBudget(map[string]*ledgerCaller{"kb-a": kb})
+	if err := b.Begin([]string{"kb-a"}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(kb.tails) != "[100]" {
+		t.Fatalf("tails = %v: a dated-before-today entry should stop the read", kb.tails)
+	}
+}
