@@ -73,7 +73,9 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
 `*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
-`.gitignore` stays absent (D62), and this one is content that travels with the KB (D316).
+`.gitignore` stays absent (D62), and this one is content that travels with the KB (D316). For the
+rest of the tree, the KB root included, `kb.Init` and `kb.Open` add the same patterns to the local
+`.git/info/exclude`, so no commit of the server versions a junk file (#1377).
 
 `kb create` also writes a short generic `instructions.md` at the KB root (status convention and write
 discipline, English, no KB-specific names), only when it creates the KB and before the initial commit,

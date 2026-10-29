@@ -3,6 +3,7 @@ package lint
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -219,6 +220,7 @@ func TestLint_JunkFile(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, ".DS_Store", "x")
+	trackFile(t, k.Root, ".DS_Store")
 	writeFile(t, k.Root, "data/ops/dossier/index.md", "---\ntype: Note\ntitle: D\n---\n# D\n")
 	writeFile(t, k.Root, "data/ops/dossier/__pycache__/mod.pyc", "x")
 	findings, err := Run(k, "", false)
@@ -237,6 +239,15 @@ func TestLint_JunkFile(t *testing.T) {
 	}
 	if len(findingsOf(findings, "junk_file")) != 1 {
 		t.Errorf("the junk asset must not be reported twice: %v", findingsOf(findings, "junk_file"))
+	}
+}
+
+// trackFile forces rel into the index: .git/info/exclude keeps junk out of
+// git (#1377), so only a KB that tracked it before carries one.
+func trackFile(t *testing.T, root, rel string) {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", root, "add", "-f", "--", rel).CombinedOutput(); err != nil {
+		t.Fatalf("git add -f %s: %v: %s", rel, err, out)
 	}
 }
 

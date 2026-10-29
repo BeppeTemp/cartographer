@@ -395,6 +395,7 @@ func Open(root string) (*KB, error) {
 	// excluded the same way rather than through a tracked .gitignore.
 	_ = ensureInfoExclude(abs, LockFileName)
 	excludeAgentStateDirs(abs)
+	excludeJunk(abs)
 	return &KB{Root: abs}, nil
 }
 
@@ -568,6 +569,7 @@ func Init(root string) (*KB, error) {
 	// tree — which would be committed by the next write.
 	_ = ensureInfoExclude(abs, LockFileName)
 	excludeAgentStateDirs(abs)
+	excludeJunk(abs)
 
 	return &KB{Root: abs}, nil
 }
@@ -587,6 +589,17 @@ var agentStateDirs = []string{
 func excludeAgentStateDirs(kbDir string) {
 	for _, d := range agentStateDirs {
 		_ = ensureInfoExclude(kbDir, d)
+	}
+}
+
+// excludeJunk adds JunkPatterns to .git/info/exclude, best-effort like the
+// other entries (#1377). data/.gitignore covers the concept root only, and the
+// external-changes commit (D357) stages the whole tree with git add -A, so a
+// .DS_Store Finder left at the KB root was versioned and pushed. Excluding
+// never untracks a path already committed: kb_repair junk_file does.
+func excludeJunk(kbDir string) {
+	for _, p := range JunkPatterns {
+		_ = ensureInfoExclude(kbDir, p)
 	}
 }
 

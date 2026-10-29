@@ -7,8 +7,9 @@ import (
 
 // JunkPatterns are the files an editor, an OS or an interpreter leaves next to
 // the ones a person meant to write (D316). They are one list on purpose: Init
-// writes them into data/.gitignore, and lint reports a tracked match
-// (junk_file, junk_asset) and keeps it out of orphan_asset — a subagent once
+// writes them into data/.gitignore, Init and Open into .git/info/exclude for
+// the whole tree, the KB root included (#1377), and lint reports a tracked
+// match (junk_file, junk_asset) and keeps it out of orphan_asset — a subagent once
 // followed orphan_asset's "cite it" advice literally and cited a .pyc. A
 // pattern ending in "/" names a directory anywhere in the path; every other one
 // is a glob on the file's base name.

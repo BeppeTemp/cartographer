@@ -227,6 +227,40 @@ func TestInit_ExcludesAgentStateDirs(t *testing.T) {
 	}
 }
 
+// Finder writes .DS_Store at the KB root too, where data/.gitignore does not
+// reach, and the external-changes commit stages with git add -A: every junk
+// pattern is excluded for the whole tree, and Open adds them to a KB created
+// before (#1377).
+func TestOpen_ExcludesJunkAtEveryDepth(t *testing.T) {
+	t.Parallel()
+	dir := tempKB(t)
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "info", "exclude"), []byte(".cartographer/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	for _, p := range []string{".DS_Store", "templates/.DS_Store", "skills/s/.x.swp", "notes~", "hooks/__pycache__/m.pyc", "data/m/Thumbs.db"} {
+		abs := filepath.Join(dir, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changes, err := gitx.StagedChanges(dir)
+	if err != nil {
+		t.Fatalf("StagedChanges: %v", err)
+	}
+	if len(changes) != 0 {
+		t.Fatalf("junk staged: %+v", changes)
+	}
+}
+
 func TestInit_Idempotente(t *testing.T) {
 	t.Parallel()
 	dir := tempKB(t)
