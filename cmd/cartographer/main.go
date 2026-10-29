@@ -42,6 +42,7 @@ var subcommands = []subcommand{
 	{"Client", "workspace", "Bind a repository to the KBs a client receives there"},
 	{"Client", "mcp", "Run the stdio bridge a client starts for a workspace-bound provider"},
 	{"Server", "serve", "Run the MCP server"},
+	{"Server", "worker", "Run a background worker for one perimeter"},
 	{"Server", "service", "Manage the native server service"},
 	{"Server", "upgrade-repair", "Repair the native service and provider sync after an upgrade"},
 	{"Knowledge base", "kb", "Create or mount local knowledge bases"},
@@ -59,6 +60,7 @@ var subcommands = []subcommand{
 // hitting the network.
 var (
 	serveFn         = cmdServe
+	workerFn        = cmdWorker
 	versionFn       = cmdVersion
 	agentsFn        = cmdAgents
 	connectFn       = cmdConnect
@@ -109,6 +111,8 @@ func run(args []string) int {
 	switch cmd {
 	case "serve":
 		return serveFn(rest)
+	case "worker":
+		return workerFn(rest)
 	case "setup":
 		return setupFn(rest)
 	case "kb":
