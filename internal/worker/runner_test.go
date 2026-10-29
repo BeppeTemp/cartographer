@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 )
@@ -83,13 +84,20 @@ type noopKind struct {
 	cost   int
 	runErr error
 	nextFn func() (*WorkItem, error) // overrides items when set
+	perKB  map[string][]string       // items by KB, when set
 	ran    []string
 	onRun  func(ctx context.Context, rt Runtime) error
 }
 
-func (k *noopKind) Next(_ context.Context, _ string, _ ToolCaller) (*WorkItem, error) {
+func (k *noopKind) Next(_ context.Context, kb string, _ ToolCaller) (*WorkItem, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if k.perKB != nil {
+		if len(k.perKB[kb]) == 0 {
+			return nil, nil
+		}
+		return &WorkItem{Key: k.perKB[kb][0]}, nil
+	}
 	if k.nextFn != nil {
 		return k.nextFn()
 	}
@@ -102,6 +110,9 @@ func (k *noopKind) Next(_ context.Context, _ string, _ ToolCaller) (*WorkItem, e
 func (k *noopKind) Run(ctx context.Context, it *WorkItem, rt Runtime) (Result, error) {
 	k.mu.Lock()
 	k.ran = append(k.ran, it.Key+"@"+rt.Profile.Name)
+	if k.perKB != nil && len(k.perKB[rt.KB]) > 0 {
+		k.perKB[rt.KB] = k.perKB[rt.KB][1:]
+	}
 	if len(k.items) > 0 && k.items[0] == it.Key {
 		k.items = k.items[1:]
 	}
@@ -492,3 +503,51 @@ func TestRunnerOutputCarriesNoSecretMarker(t *testing.T) {
 		t.Errorf("secret marker in output: %s", all)
 	}
 }
+
+func TestRunnerSummariesStayInTheirOwnKB(t *testing.T) {
+	logs := map[string]*sharedLog{"kb-a": {}, "kb-b": {}}
+	k := &noopKind{perKB: map[string][]string{"kb-a": {"alpha"}, "kb-b": {"beta"}}, cost: 5}
+	f := newFixture(t, []string{"local"}, []*noopKind{k}, func(c *Config, o *RunnerOptions) {
+		c.KBs = []string{"kb-a", "kb-b"}
+		o.Callers = func(kb string) ToolCaller { return logs[kb] }
+	})
+	f.r.Run(context.Background(), true)
+	a, b := logs["kb-a"].last(), logs["kb-b"].last()
+	if !strings.Contains(a, "did alpha") || strings.Contains(a, "beta") {
+		t.Errorf("kb-a entry %q", a)
+	}
+	if !strings.Contains(b, "did beta") || strings.Contains(b, "alpha") {
+		t.Errorf("kb-b entry %q", b)
+	}
+}
+
+func TestClosingEntryCutsOnARuneBoundary(t *testing.T) {
+	k := &noopKind{items: []string{strings.Repeat("é", 400)}, cost: 1}
+	f := newFixture(t, []string{"local"}, []*noopKind{k}, nil)
+	f.r.Run(context.Background(), true)
+	e := f.log.last()
+	if !utf8.ValidString(e) {
+		t.Fatalf("invalid UTF-8 in %q", e)
+	}
+	if _, s, _ := strings.Cut(e, summarySep); utf8.RuneCountInString(s) != maxSummary {
+		t.Errorf("summary has %d runes, want %d", utf8.RuneCountInString(s), maxSummary)
+	}
+}
+
+func TestBeatCountsTheRunsOwnSpending(t *testing.T) {
+	k := &noopKind{items: []string{"a"}, cost: 123}
+	var last State
+	f := newFixture(t, []string{"local"}, []*noopKind{k}, func(_ *Config, o *RunnerOptions) {
+		o.Heartbeat = beatFunc(func(s State) { last = s })
+	})
+	f.r.Run(context.Background(), true)
+	for _, b := range last.Budgets {
+		if b.Profile == "local" && b.SpentToday != 123 {
+			t.Errorf("final beat: spent today %d, want 123", b.SpentToday)
+		}
+	}
+}
+
+type beatFunc func(State)
+
+func (f beatFunc) Beat(_ context.Context, s State) { f(s) }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -201,7 +200,7 @@ func (r *Runner) beat(state string) {
 		s.NextWindowStart = nextWindowStart(*w, now)
 	}
 	for _, p := range r.cfg.Models {
-		s.Budgets = append(s.Budgets, ProfileBudget{Profile: p.Name, SpentToday: p.DailyTokens - r.budget.Remaining(p.Name), Daily: p.DailyTokens})
+		s.Budgets = append(s.Budgets, ProfileBudget{Profile: p.Name, SpentToday: r.budget.SpentToday(p.Name), Daily: p.DailyTokens})
 	}
 	// The beat is not part of the run: a context that ended must not skip the last one.
 	r.opt.Heartbeat.Beat(context.WithoutCancel(context.Background()), s)
@@ -246,6 +245,11 @@ func (r *Runner) tick(ctx context.Context) int {
 		r.beat(StateWaiting)
 		return ExitOK
 	}
+	// Begin reads the ledger of every KB, and every poll where a trigger holds
+	// pays that read even when the run then finds no grant or nothing to do: the
+	// grants are only known from the ledger, so reading first is the cost of
+	// failing closed (about one log_tail per KB per poll_seconds, only while a
+	// window or idle trigger holds).
 	if err := r.budget.Begin(r.cfg.KBs, now); err != nil {
 		r.opt.Logf("worker: run skipped: %v", err)
 		r.beat(StateWaiting)
@@ -273,7 +277,6 @@ func (r *Runner) work(ctx context.Context, due []string) int {
 		budget   bool   // a task was skipped for want of grant
 		errored  bool
 		fatal    error
-		summary  []string
 		disabled = map[string]bool{}                         // profiles whose credential the model API refused
 		tried    = make([]map[string]bool, len(r.instances)) // per entry: kb + "\x00" + key
 	)
@@ -344,9 +347,7 @@ kbs:
 			})
 			r.budget.Charge(kb, t.Profile, res.Tokens)
 			r.budget.Note(kb, res.Units, res.Commits)
-			if s := oneLine(res.Summary); s != "" {
-				summary = append(summary, s)
-			}
+			r.budget.Summarize(kb, res.Summary)
 			switch {
 			case err == nil:
 				consecutive = 0
@@ -378,14 +379,12 @@ kbs:
 	case errored:
 		stopped = StoppedError
 	}
+	// The fatal line names no KB's content, so every KB's entry may carry it.
+	tail := ""
 	if fatal != nil {
-		summary = append(summary, "stopped: "+oneLine(fatal.Error()))
+		tail = "stopped: " + oneLine(fatal.Error())
 	}
-	line := strings.Join(summary, "; ")
-	if len(line) > 300 {
-		line = line[:300]
-	}
-	r.budget.Close(stopped, line)
+	r.budget.Close(stopped, tail)
 	r.last = LastRun{At: r.opt.Now(), Units: r.budget.totalUnits(), Commits: r.budget.totalCommits()}
 	if fatal != nil {
 		r.opt.Logf("worker: ending the run: %v", fatal)
