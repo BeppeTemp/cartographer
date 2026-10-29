@@ -4,6 +4,8 @@ topic: control-plane
 
 # D358 — The kb-doctor session runs unattended by default
 
+> **Amended by D1258**: a configured `cartographer worker` is exempt from D704; the client-side timer and the `unattended` default stay removed.
+
 > **Superseded by D704** for who starts a session: it is always the operator, and the `unattended` default is gone; a session the operator hands over runs as described here, called *delegated*.
 
 **Decision.** Per KB, `doctor_mode: unattended | assisted` (default `unattended`) says who runs the

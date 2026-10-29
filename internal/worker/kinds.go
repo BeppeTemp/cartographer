@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,9 +21,8 @@ type KindOption struct {
 // name is the last segment of the option's path.
 func (o KindOption) name() string { return strings.TrimPrefix(o.Key.Path, "tasks[].") }
 
-// Kind is the declaration half of a task kind: its name, its options and a hook
-// for the rules that span several options. The execution half (what a task is
-// and how it runs) is the runner's, in a later change.
+// Kind is a task kind: the declaration half (its name, its options and a hook
+// for the rules that span several options) and the execution half (Build).
 type Kind struct {
 	Name    string
 	Options []KindOption
@@ -30,6 +30,11 @@ type Kind struct {
 	// applied) and returns an error naming the option at fault; the loader adds
 	// the key path and the line.
 	Validate func(opts map[string]any) error
+	// Build is the execution half: it makes one Instance from the decoded
+	// options of one tasks[] entry (so two entries of a repeatable kind are two
+	// independent instances). A kind without Build can be loaded and described
+	// but not run; NewRunner refuses it.
+	Build func(opts map[string]any) (Instance, error)
 }
 
 // repeatable reports whether the kind may appear more than once in tasks (D23):
@@ -170,4 +175,45 @@ func durationOf(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("%q is not a duration such as 30m or 24h", s)
 	}
 	return d, nil
+}
+
+// WorkItem is one unit of work a kind found on a KB. Key identifies it among the
+// units of that kind on that KB, so the runner never offers the same one twice
+// in a run; Data is the kind's own payload, opaque to the runner.
+type WorkItem struct {
+	Key  string
+	Data any
+}
+
+// Runtime is what the runner hands to Instance.Run: the profile of the entry
+// with its Model, the grant (a ceiling in tokens the loop must not exceed, to be
+// passed as Limits.MaxTotalTokens), the identity of this replica and the MCP
+// caller scoped to the KB.
+type Runtime struct {
+	KB        string
+	Perimeter string // the config's name
+	Replica   string // random per process, never persisted: a restarted replica is a new claimant
+	Profile   Profile
+	Model     Model
+	Grant     int
+	Tools     ToolCaller
+}
+
+// Result is what a finished (or failed) task reports. Tokens are charged to the
+// task's profile even when Run also returns an error.
+type Result struct {
+	Tokens  int
+	Units   int
+	Commits int
+	Summary string // one line
+}
+
+// Instance is a kind built for one tasks[] entry. The runner owns the registry,
+// the order and the loop; the kind owns what a task is.
+type Instance interface {
+	// Next finds one unit of work on the KB; (nil, nil) means nothing to do.
+	Next(ctx context.Context, kb string, tools ToolCaller) (*WorkItem, error)
+	// Run drives the agent loop (NewAgent) for the item with rt.Model and a
+	// token ceiling of rt.Grant.
+	Run(ctx context.Context, item *WorkItem, rt Runtime) (Result, error)
 }
