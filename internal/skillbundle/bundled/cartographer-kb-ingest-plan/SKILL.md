@@ -67,8 +67,9 @@ the operator the design as text before writing it.
 ### 5. Operator checkpoint
 Show: the Map layout, the ownership table, the unit count by `executor`, the sources covered and what
 is left out, the first three units in full, and the script (if any, below). Wait for approval. On
-approval flip the units to `open`: one `concept_batch` per 50, `if_match` from `work_list` with
-`fields: ["content_hash"]`. The page-count thresholds of `cartographer-kb-ingest` do not apply to
+approval flip the units to `open`: one `concept_batch` per 50, with the `if_match` hashes read when you
+built the checkpoint (never a fresh read after the approval); a unit whose hash changed since is re-read
+and re-shown to the operator, not flipped. The page-count thresholds of `cartographer-kb-ingest` do not apply to
 units: this checkpoint covers the whole campaign.
 
 ### 6. Coordinate the pool

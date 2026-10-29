@@ -322,7 +322,7 @@ func TestIngestUnitModeIsShortAndSelfContained(t *testing.T) {
 	if n := strings.Count(strings.TrimRight(section, "\n"), "\n") + 1; n > 30 {
 		t.Errorf("the Unit mode section is %d lines, the budget is 30 (D1256)", n)
 	}
-	for _, want := range []string{"if_match", "stale_write", "gate_check", "targets", "Skip the checkpoint"} {
+	for _, want := range []string{"if_match", "stale_write", "gate_check", "targets", "Skip the checkpoint", "untrusted", "strictly before today", "claimed_by"} {
 		if !strings.Contains(section, want) {
 			t.Errorf("the Unit mode section lost %q (D1256)", want)
 		}
