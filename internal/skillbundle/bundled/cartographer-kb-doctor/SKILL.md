@@ -250,9 +250,9 @@ An alternative never weakens a rule: a delegated session never deletes a concept
    - `concept_patch` the entry to `status: archived` and add at the top of its body
      `> Archived YYYY-MM-DD: lessons in [page](id), [page](id).` (or `> Archived YYYY-MM-DD: no
      durable lessons.`);
-   - create or update the quarterly digest `<journal>/archive-<year>-q<quarter>` (type `digest` when
-     the map allows it - `map_update` `concept_types` adds it to a strict one - otherwise the
-     journal's first allowed type, status `reference`) with one line per archived entry:
+   - create or update the quarterly digest `<journal>/archive-<year>-q<quarter>` (type `digest`, which
+     `digest_missing` requires - `map_update` `concept_types` adds it to a strict map - status
+     `reference`) with one line per archived entry:
      `| entry title | outcome | lessons in |`;
    - `gate_check` the changed concepts.
    A `lint` finding `digest_missing` is the signal that this digest is missing for a journal quarter

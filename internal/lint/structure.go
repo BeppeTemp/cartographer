@@ -428,7 +428,7 @@ func (s *structure) digestMissing(k *kb.KB, inScope func(okf.ConceptID) bool) []
 			digest = g.journal + "/archive-<year>-q<n>"
 		}
 		out = append(out, newFinding("digest_missing", Finding{Path: okf.IDToPath(g.first),
-			Message: fmt.Sprintf("%d archived entries of journal %q (%s) are linked by no digest: create or update a digest page %q that links each entry with its outcome", g.count, g.journal, g.quarter, digest)}))
+			Message: fmt.Sprintf("%d archived entries of journal %q (%s) are linked by no digest: create or update a page of `type: Digest` that links each entry with its outcome (conventional id %q, only a suggestion: the type is what counts)", g.count, g.journal, g.quarter, digest)}))
 	}
 	return out
 }
