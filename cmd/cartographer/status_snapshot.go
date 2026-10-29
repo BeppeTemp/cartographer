@@ -361,6 +361,10 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			s.KBs = append(s.KBs, kb.Name)
 		}
 	}
+	routedPath := ""
+	if health.Routed() {
+		routedPath = health.RoutedPath
+	}
 	connectedProviders := make([]string, 0, len(s.Providers))
 	for i := range s.Providers {
 		if s.Providers[i].Connected {
@@ -468,6 +472,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		p.KBCounts = countBySource(lock)
 		p.Diverged = snapshotDiverged(append(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)), wsDiverged...))
+		p.Diverged = append(p.Diverged, snapshotStaleBridge(cfg, p.Name, dir, routedPath)...)
 		held := heldArtifacts(pm, d, cfg, configurator.Provider(p.Name))
 		if d.InSync && len(p.Diverged) == 0 && len(held) == 0 {
 			p.State = "in_sync"
@@ -546,6 +551,25 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 		diverged = append(diverged, provisioning.VerifyManaged(lock, provider, provisioning.LockBaseDir(lock, dir))...)
 	}
 	return global, merged, diverged
+}
+
+// snapshotStaleBridge reports the provider's bridge entry when its command is
+// not the one sync would write now (a moved or removed binary): the MCP entry
+// is not in the lockfile, so VerifyManaged cannot see it. Sync rewrites it.
+func snapshotStaleBridge(cfg *clientconfig.Config, provider, dir, routedPath string) []statusArtifact {
+	if !cfg.UsesBridge(provider, routedPath) {
+		return nil
+	}
+	claudeDirs, _ := claudeConfigDirs(dir, cfg)
+	var out []statusArtifact
+	for _, st := range staleBridgeEntries(provider, []mcpEntry{{Name: cfg.ServerName, Bridge: true}}, dir, claudeDirs) {
+		detail := fmt.Sprintf("the bridge command is %s, sync would write %s", st.Have, st.Want)
+		if st.Missing {
+			detail = fmt.Sprintf("the bridge command %s does not exist, sync would write %s", st.Have, st.Want)
+		}
+		out = append(out, statusArtifact{Kind: "mcp", Name: st.Name, Path: st.Path, Trust: provisioning.DriftModified, Detail: detail})
+	}
+	return out
 }
 
 // snapshotDiverged renders the healable on-disk findings (D139). "unknown"
