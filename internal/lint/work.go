@@ -108,6 +108,9 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 		}
 		e.OpenPhase = workPhase(e.Frontmatter, contract)
 		e.Reason = workReason(e.Frontmatter, contract)
+		// So a lease that passes on an in-progress IngestUnit (review_after,
+		// D1201) is never a "review" entry: its claimability is the caller's
+		// rule (docs/data-plane.md); TestIngestQueueAndLeaseExpiry pins it.
 		if e.Reason == WorkReasonReview && e.OpenPhase {
 			e.Reason = "" // open by its status already: stale_open covers its age
 		}
