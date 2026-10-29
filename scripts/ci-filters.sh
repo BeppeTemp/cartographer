@@ -45,7 +45,8 @@ any() { # any <ere> [<ere to drop>]
 }
 
 # Go packages the binary cannot import (kept equal to `go list` by the test).
-not_in_binary='^internal/(changelog|gitx/gitxtest|kbtest|repodocs|testkbs|testtree|webui/gen)/'
+# worker is library-only until the worker command imports it (#1258): then drop it here.
+not_in_binary='^internal/(changelog|gitx/gitxtest|kbtest|repodocs|testkbs|testtree|webui/gen|worker)/'
 
 web_other=$(any '^(web/|test/lib/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')
 web_go=$(any '^(cmd|internal)/' '_test\.go$|'"$not_in_binary")
