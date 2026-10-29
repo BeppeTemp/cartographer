@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2365,5 +2366,43 @@ func TestConceptIDMustBeCanonical(t *testing.T) {
 	got, err := os.ReadFile(victim)
 	if err != nil || string(got) != original {
 		t.Fatalf("file changed: %v %q", err, got)
+	}
+}
+
+// A junk file at the KB root (a Finder .DS_Store) or anywhere below it is
+// never staged by git add -A: data/.gitignore covers data/ only (#1377).
+func TestInit_ExcludesJunkAtEveryLevel(t *testing.T) {
+	t.Parallel()
+	dir := tempKB(t)
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	// Open self-migrates a KB created before the entries existed, once.
+	if _, err := Open(dir); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
+	for _, p := range JunkPatterns {
+		if n := strings.Count("\n"+string(data), "\n"+p+"\n"); n != 1 {
+			t.Errorf("%q appears %d times in info/exclude, want 1", p, n)
+		}
+	}
+	for _, p := range []string{".DS_Store", "skills/x/.DS_Store", "data/a/__pycache__/m.pyc", "notes.swp"} {
+		abs := filepath.Join(dir, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := exec.Command("git", "-C", dir, "add", "-A").CombinedOutput(); err != nil {
+		t.Fatalf("git add -A: %v: %s", err, out)
+	}
+	out, _ := exec.Command("git", "-C", dir, "ls-files").Output()
+	for _, p := range []string{".DS_Store", "skills/x/.DS_Store", "__pycache__", "notes.swp"} {
+		if strings.Contains(string(out), p) {
+			t.Errorf("%s was staged: %s", p, out)
+		}
 	}
 }

@@ -250,6 +250,13 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 	seedDriftFixes(t, k)                             // D357
 	driftWrite(t, k, "legacy/_map.md", legacyMap)    // D907: a pre-D907 descriptor
 	writeKBSkill(t, k, "kb-create", legacySkillText) // D958: a pre-rename bundled skill
+	// #1377: a junk file git tracks (junk is excluded locally, so -f).
+	if err := os.WriteFile(filepath.Join(k.Root, ".DS_Store"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", k.Root, "add", "-f", ".DS_Store").CombinedOutput(); err != nil {
+		t.Fatalf("git add -f: %v: %s", err, out)
+	}
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)

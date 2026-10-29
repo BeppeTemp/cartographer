@@ -1215,6 +1215,39 @@ func ListFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
+// TrackedPaths returns which of paths (slash-separated, relative to dir) git
+// tracks in the index.
+func TrackedPaths(dir string, paths ...string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(paths) == 0 {
+		return out, nil
+	}
+	cmd := exec.Command("git", append([]string{"-C", dir, "ls-files", "-z", "--"}, paths...)...)
+	cmd.Env = gitEnv(nil)
+	b, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files: %w", err)
+	}
+	for _, f := range strings.Split(string(b), "\x00") {
+		if f != "" {
+			out[f] = true
+		}
+	}
+	return out, nil
+}
+
+// Untrack removes paths from the index and leaves the working tree alone
+// ("git rm --cached"). The next commit records the removal.
+func Untrack(dir string, paths ...string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	if out, err := runGit(dir, append([]string{"rm", "--cached", "-q", "--"}, paths...)...); err != nil {
+		return fmt.Errorf("git rm --cached: %w: %s", err, out)
+	}
+	return nil
+}
+
 // AddPath stages a single path ("git add -- <path>").
 func AddPath(dir, path string) error {
 	out, err := runGit(dir, "add", "--", path)

@@ -3,6 +3,7 @@ package lint
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -221,6 +222,10 @@ func TestLint_JunkFile(t *testing.T) {
 	writeFile(t, k.Root, ".DS_Store", "x")
 	writeFile(t, k.Root, "data/ops/dossier/index.md", "---\ntype: Note\ntitle: D\n---\n# D\n")
 	writeFile(t, k.Root, "data/ops/dossier/__pycache__/mod.pyc", "x")
+	// Init excludes junk locally (#1377): a file git tracks is the case left.
+	if out, err := exec.Command("git", "-C", k.Root, "add", "-f", ".DS_Store", "data/ops/dossier/__pycache__/mod.pyc").CombinedOutput(); err != nil {
+		t.Fatalf("git add -f: %v: %s", err, out)
+	}
 	findings, err := Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)

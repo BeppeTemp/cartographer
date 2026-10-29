@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -149,31 +150,21 @@ func TestArtifactMove_ReferencesSkipAFileAboveTheScanCap(t *testing.T) {
 	xferClean(t, f.b)
 }
 
-// The lint run under the locks reports what it did before: a junk file inside a
-// moved unit is still a finding of the target.
-func TestArtifactMove_LintStillReportsJunkInAMovedUnit(t *testing.T) {
+// A junk file inside a moved unit never reaches the target as a finding: the
+// target excludes junk locally (#1377), so the move is refused up front, before
+// a file git would not commit is lost.
+func TestArtifactMove_RefusesJunkInAMovedUnit(t *testing.T) {
 	t.Parallel()
 	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
 	amWriteBytes(t, f.a, "skills/s/.DS_Store", []byte("x"), 0o644)
+	// Junk is excluded locally, so a tracked one needs -f.
+	if out, err := exec.Command("git", "-C", f.a.Root, "add", "-f", "skills/s/.DS_Store").CombinedOutput(); err != nil {
+		t.Fatalf("git add -f: %v: %s", err, out)
+	}
 	xferCommit(t, f.a)
 	res := f.move(t, `{"target_kb":"kb-b","paths":["skills/s"]}`)
-	if res.IsError {
-		t.Fatalf("artifact_move: %s", xferText(res))
+	if !res.IsError || !strings.Contains(xferText(res), "ignore rules exclude skills/s/.DS_Store") {
+		t.Errorf("want the move refused for the ignored junk file, got error=%v %s", res.IsError, xferText(res))
 	}
-	var out struct {
-		Findings map[string][]findingOut `json:"findings_by_kb"`
-	}
-	if err := json.Unmarshal([]byte(xferText(res)), &out); err != nil {
-		t.Fatal(err)
-	}
-	var junk bool
-	for _, fd := range out.Findings["kb-b"] {
-		junk = junk || (fd.Check == "junk_file" && fd.Path == "skills/s/.DS_Store")
-	}
-	if !junk {
-		t.Errorf("findings_by_kb lacks junk_file on the moved .DS_Store: %+v", out.Findings)
-	}
-	xferClean(t, f.a)
-	xferClean(t, f.b)
 }
