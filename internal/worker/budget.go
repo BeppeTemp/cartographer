@@ -68,6 +68,9 @@ type Budget struct {
 	profiles map[string]Profile
 	loc      *time.Location
 	callers  KBCaller
+	// CloseCallers, when set, writes the closing entries (a client with a short
+	// HTTP timeout, so that shutdown fits the grace period); callers otherwise.
+	CloseCallers KBCaller
 
 	// Logf receives the warnings and the failures that never fail a run; the
 	// standard logger when nil.
@@ -256,24 +259,56 @@ func (b *Budget) Close(stopped, summary string) (failed []string) {
 		entries[kb] = b.entry(kb, stopped, summary)
 	}
 	b.mu.Unlock()
-	for _, kb := range kbs {
-		args := map[string]any{"entry": entries[kb], "path": b.path()}
-		var err error
-		for try := 0; try < 2; try++ {
-			if err = b.append(kb, args); err == nil {
-				break
+	// In parallel: the total stays inside one short timeout, whatever the KB count.
+	errs := make([]error, len(kbs))
+	var wg sync.WaitGroup
+	for i, kb := range kbs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			args := map[string]any{"entry": entries[kb], "path": b.path()}
+			for try := 0; try < 2; try++ {
+				if errs[i] = b.append(kb, args); errs[i] == nil {
+					return
+				}
 			}
-		}
-		if err != nil {
-			b.logf("worker: closing entry for %s not written: %v", kb, err)
+		}()
+	}
+	wg.Wait()
+	for i, kb := range kbs {
+		if errs[i] != nil {
+			b.logf("worker: closing entry for %s not written: %v", kb, errs[i])
 			failed = append(failed, kb)
 		}
 	}
 	return failed
 }
 
+// totalUnits and totalCommits are what the run did, over all KBs.
+func (b *Budget) totalUnits() (n int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, u := range b.units {
+		n += u
+	}
+	return n
+}
+
+func (b *Budget) totalCommits() (n int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, c := range b.commits {
+		n += c
+	}
+	return n
+}
+
 func (b *Budget) append(kb string, args map[string]any) error {
-	out, err := b.callers(kb).CallTool("log_append", args)
+	callers := b.callers
+	if b.CloseCallers != nil {
+		callers = b.CloseCallers
+	}
+	out, err := callers(kb).CallTool("log_append", args)
 	if err != nil {
 		return err
 	}

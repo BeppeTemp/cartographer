@@ -235,6 +235,17 @@ func (c *MCPClient) WithKB(name string) *MCPClient {
 	return &cp
 }
 
+// WithHTTPTimeout returns a copy of the client whose HTTP calls time out after d
+// (the default is 30 s, and calls take no context). The worker writes its closing
+// entries with a short one so that a shutdown fits the orchestrator's grace period.
+func (c *MCPClient) WithHTTPTimeout(d time.Duration) *MCPClient {
+	cp := *c
+	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
+	hc.Timeout = d
+	cp.HTTP = &hc
+	return &cp
+}
+
 // WithInsecureHTTP returns a copy of the client that does (or does not) accept
 // a non-loopback http:// server URL. The default refuses it (CheckServerURL).
 func (c *MCPClient) WithInsecureHTTP(allow bool) *MCPClient {
