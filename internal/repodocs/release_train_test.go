@@ -379,8 +379,10 @@ func TestReleaseWorkflowIgnoresAndCleansUpCandidates(t *testing.T) {
 	if !ok {
 		t.Fatal("release.yml: no candidate-cleanup job")
 	}
-	if toString(job.Needs) != "goreleaser" {
-		t.Errorf("release.yml: candidate-cleanup needs %v, want goreleaser (the job that attaches the binaries)", job.Needs)
+	// After publish, which un-drafts the release last: deleting the candidates closes
+	// the freeze (D1384), and it must last until the release is installable.
+	if toString(job.Needs) != "publish" {
+		t.Errorf("release.yml: candidate-cleanup needs %v, want publish (the job that un-drafts the release)", job.Needs)
 	}
 	run := ""
 	for _, st := range job.Steps {
