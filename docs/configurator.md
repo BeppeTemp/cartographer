@@ -489,6 +489,11 @@ A managed artifact that diverged on disk is listed as `diverged on disk (<reason
 `unrunnable` hook — a Claude Code hook whose registered command cannot run, such as a backslash
 path on Windows or a file that is not there — the next line says which command and why (JSON
 `detail`), and `sync` re-registers it (D267).
+A provider's stdio bridge entry (D737) is listed the same way, as `mcp/<server>`, when its `command` is
+not the `cartographer` that `sync` would find on `PATH` now (the binary was moved or removed since
+`connect`, as after trying a release candidate from `$HOME/.local/bin`): `status` exits `1` and `sync`
+or `upgrade-repair` rewrites it. An entry that is not the bridge (an HTTP entry, or one written by hand
+under the same name with other arguments) is not judged.
 
 ### Dashboard
 

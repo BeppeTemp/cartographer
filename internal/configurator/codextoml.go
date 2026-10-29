@@ -118,6 +118,27 @@ func CodexMCPTableOwner(blockBody string) func(key []string, body string) bool {
 	}
 }
 
+// CodexMCPTable returns the text of the [mcp_servers.<name>] table in a Codex
+// config.toml, header included and its sub-tables left out, wherever it sits in
+// the file. Read-only: it is how a caller learns what an entry says without
+// parsing the user's TOML.
+func CodexMCPTable(content, name string) (string, bool) {
+	for _, g := range codexTableGroups(content) {
+		if len(g.key) != 2 || g.key[0] != "mcp_servers" || g.key[1] != name {
+			continue
+		}
+		var out []string
+		for i, line := range strings.Split(content[g.start:g.end], "\n") {
+			if _, isHeader := codexTableHeaderKey(line); isHeader && i > 0 {
+				break
+			}
+			out = append(out, line)
+		}
+		return strings.Join(out, "\n"), true
+	}
+	return "", false
+}
+
 // codexTableGroup is the byte range [start, end) of a top-level table header
 // plus its body and its sub-tables, keyed by the header's segments.
 type codexTableGroup struct {
