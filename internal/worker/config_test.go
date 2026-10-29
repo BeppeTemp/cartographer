@@ -435,3 +435,45 @@ func TestSchemaMatchesStructs(t *testing.T) {
 		}
 	}
 }
+
+// A URL key never echoes its value: it may carry credentials, with a host or
+// without one, and no load error nor printed Config may contain them.
+func TestConfigURLsNeverLeakCredentials(t *testing.T) {
+	for _, u := range []string{"https://u:pw@", "https://u:pw@wiki.example.com/mcp", "https://u:pw@/x", "http://u:pw@[::1", "https://u:pw@ho st"} {
+		for name, body := range map[string]string{
+			"server_url": cfgWith(t, "https://wiki.example.com/mcp", u),
+			"base_url":   cfgWith(t, "http://llm.internal:8080/v1", u),
+		} {
+			_, err := cfgLoad(t, body)
+			if err == nil {
+				t.Errorf("%s %s loads", name, u)
+			} else if strings.Contains(err.Error(), "pw") {
+				t.Errorf("%s %s leaks credentials: %v", name, u, err)
+			}
+		}
+	}
+	if _, err := cfgLoad(t, cfgWith(t, "https://wiki.example.com/mcp", "https://u:pw@wiki.example.com/mcp")); err == nil || !strings.Contains(err.Error(), "server_url (line 2)") || !strings.Contains(err.Error(), "credentials in the URL") {
+		t.Errorf("server_url credentials: %v", err)
+	}
+}
+
+func TestLoadConfigWrongShapeNamesKeyAndLine(t *testing.T) {
+	tail := cfgGolden[strings.Index(cfgGolden, "schedule:"):]
+	head := cfgGolden[:strings.Index(cfgGolden, "models:")]
+	sched := cfgGolden[strings.Index(cfgGolden, "schedule:"):]
+	for name, tc := range map[string]struct{ body, want string }{
+		"models scalar":   {head + "models: foo\n" + tail, "models (line 5): must be a list of mappings"},
+		"models entry":    {head + "models: [bar]\n" + tail, "models[0] (line 5): must be a mapping of keys"},
+		"schedule scalar": {strings.Replace(cfgGolden, sched[:strings.Index(sched, "tasks:")], "schedule: 5\n", 1), "schedule (line 21): must be a mapping of keys"},
+		"window list":     {cfgWith(t, "  window:\n    start: \"23:00\"\n    end: \"06:00\"\n    timezone: Europe/Rome\n", "  window: [a]\n"), "schedule.window (line 22): must be a mapping of keys"},
+		"budget scalar":   {cfgWith(t, "    budget:\n      daily_tokens: 2000000\n      run_tokens: 500000\n", "    budget: lots\n"), "models[0].budget (line 11): must be a mapping of keys"},
+		"tasks scalar":    {cfgGolden[:strings.Index(cfgGolden, "tasks:")] + "tasks: ingest\n", "tasks (line 26): must be a list of mappings"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := cfgLoad(t, tc.body)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}

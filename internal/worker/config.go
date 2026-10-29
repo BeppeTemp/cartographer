@@ -274,26 +274,42 @@ func (w *walker) walk(n *yaml.Node, path, at string) error {
 		if child.list {
 			childPath += "[]"
 		}
+		// A key that holds other keys must hold the right shape, so a wrong one
+		// is reported with its key path and line rather than as a decoder error.
+		// A null value is left to the "required" checks.
+		if len(child.children) == 0 || v.Tag == "!!null" {
+			continue
+		}
+		here := join(at, k.Value)
 		switch {
-		case child.list && len(child.children) > 0 && v.Kind == yaml.SequenceNode && k.Value == "tasks":
+		case child.list:
+			if v.Kind != yaml.SequenceNode {
+				return fmt.Errorf("%s (line %d): must be a list of mappings", here, v.Line)
+			}
 			for j, e := range v.Content {
-				// Task entries are checked against their kind's options by the validator.
-				if e.Kind == yaml.MappingNode {
-					if err := dupKeys(e, fmt.Sprintf("tasks[%d]", j)); err != nil {
-						return err
+				entry := fmt.Sprintf("%s[%d]", here, j)
+				if k.Value == "tasks" {
+					// Checked against their kind's options by the validator, which
+					// also words the error for a non-mapping entry.
+					if e.Kind == yaml.MappingNode {
+						if err := dupKeys(e, entry); err != nil {
+							return err
+						}
 					}
+					continue
+				}
+				if e.Kind != yaml.MappingNode {
+					return fmt.Errorf("%s (line %d): must be a mapping of keys", entry, e.Line)
+				}
+				if err := w.walk(e, childPath, entry); err != nil {
+					return err
 				}
 			}
-		case child.list && len(child.children) > 0 && v.Kind == yaml.SequenceNode:
-			for j, e := range v.Content {
-				if e.Kind == yaml.MappingNode {
-					if err := w.walk(e, childPath, fmt.Sprintf("%s[%d]", join(at, k.Value), j)); err != nil {
-						return err
-					}
-				}
+		default:
+			if v.Kind != yaml.MappingNode {
+				return fmt.Errorf("%s (line %d): must be a mapping of keys", here, v.Line)
 			}
-		case len(child.children) > 0 && v.Kind == yaml.MappingNode:
-			if err := w.walk(v, childPath, join(at, k.Value)); err != nil {
+			if err := w.walk(v, childPath, here); err != nil {
 				return err
 			}
 		}
@@ -393,7 +409,7 @@ func (v *validator) run() error {
 	if r.ServerURL == "" {
 		return v.errf("server_url", 0, "required: the MCP server URL")
 	}
-	if err := client.CheckServerURL(r.ServerURL, r.AllowInsecureHTTP); err != nil {
+	if err := checkURL(r.ServerURL, r.AllowInsecureHTTP); err != nil {
 		return v.errf("server_url", v.line("server_url"), "%v", err)
 	}
 	if r.TokenEnv == "" {
@@ -460,12 +476,7 @@ func (v *validator) models() error {
 		case m.BaseURL == "" && m.Provider == ProviderOpenAI:
 			return v.errf(at+".base_url", ln(), "required for provider openai: the endpoint, for example a local llama.cpp or LiteLLM")
 		case m.BaseURL != "":
-			if u, err := parseURL(m.BaseURL); err != nil {
-				return v.errf(at+".base_url", ln("base_url"), "%v", err)
-			} else if u.User != nil {
-				return v.errf(at+".base_url", ln("base_url"), "credentials in the URL are refused: put the key in api_key_env")
-			}
-			if err := client.CheckServerURL(m.BaseURL, m.AllowInsecureHTTP); err != nil {
+			if err := checkURL(m.BaseURL, m.AllowInsecureHTTP); err != nil {
 				return v.errf(at+".base_url", ln("base_url"), "%v", err)
 			}
 		}
@@ -748,10 +759,18 @@ func decodeNode(typ string, n *yaml.Node) (any, error) {
 	return nil, fmt.Errorf("unknown option type %q", typ)
 }
 
-func parseURL(s string) (*url.URL, error) {
+// checkURL gates a URL key: it names the key's problem without ever echoing the
+// value, which may carry credentials. Userinfo is refused before
+// client.CheckServerURL sees the value, so no error can contain it.
+func checkURL(s string, allowInsecure bool) error {
 	u, err := url.Parse(s)
-	if err != nil || u.Host == "" {
-		return nil, fmt.Errorf("invalid URL %q", s)
+	switch {
+	case err != nil:
+		return errors.New("not a valid URL")
+	case u.Host == "":
+		return errors.New("has no host")
+	case u.User != nil:
+		return errors.New("credentials in the URL are refused: put the secret in an environment variable named by a *_env key")
 	}
-	return u, nil
+	return client.CheckServerURL(s, allowInsecure)
 }
