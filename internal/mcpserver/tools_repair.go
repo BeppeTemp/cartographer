@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -417,6 +418,19 @@ func planArtifactRepair(k *kb.KB, check, scope string) ([]artifactRepairTarget, 
 			continue
 		}
 		t := byPath[f.Path]
+		if t == nil && f.Fix.Kind == lint.FixUntrack {
+			// A tracked junk file is untracked, not rewritten: no content hash
+			// to guard, and the file may already be gone from the working tree.
+			// The path still goes through the checks every artifact fix has.
+			if _, rerr := k.ResolveRootPath(f.Path); rerr != nil {
+				continue
+			}
+			if rerr := rejectArtifactSymlinks(k.Root, f.Path); rerr != nil {
+				continue
+			}
+			t = &artifactRepairTarget{Path: f.Path}
+			byPath[f.Path] = t
+		}
 		if t == nil {
 			abs, rerr := k.ResolveRootPath(f.Path)
 			if rerr != nil {
@@ -446,7 +460,12 @@ func planArtifactRepair(k *kb.KB, check, scope string) ([]artifactRepairTarget, 
 // at planning time as if_match, the per-kind validation, the file mode kept.
 // The caller holds the KB lock (gitWrap).
 func applyArtifactRepair(k *kb.KB, targets []artifactRepairTarget) (applied []artifactRepairTarget, skipped []repairSkip) {
+	var untrack []artifactRepairTarget
 	for _, t := range targets {
+		if hasFixKind(t.Fixes, lint.FixUntrack) {
+			untrack = append(untrack, t)
+			continue
+		}
 		info, err := classifyArtifactPath(t.Path)
 		if err != nil {
 			skipped = append(skipped, repairSkip{t.Path, err.Error()})
@@ -497,7 +516,56 @@ func applyArtifactRepair(k *kb.KB, targets []artifactRepairTarget) (applied []ar
 		}
 		applied = append(applied, t)
 	}
-	return applied, skipped
+	a, sk := applyUntrack(k, untrack)
+	return append(applied, a...), append(skipped, sk...)
+}
+
+// applyUntrack removes the tracked junk files (junk_file, #1377) from the index
+// with git rm --cached, one call, the working-tree files left alone. The path
+// must still match kb.IsJunkPath and be tracked now: a finding that went stale
+// (the file was deleted and committed, or was never tracked) is skipped. The
+// commit that records the removal is the caller's (gitWrap); the file stays
+// out of it because Init and Open exclude kb.JunkPatterns locally.
+func applyUntrack(k *kb.KB, targets []artifactRepairTarget) (applied []artifactRepairTarget, skipped []repairSkip) {
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	paths := make([]string, 0, len(targets))
+	for _, t := range targets {
+		paths = append(paths, t.Path)
+	}
+	tracked, err := gitx.TrackedPaths(k.Root, paths...)
+	if err != nil {
+		for _, t := range targets {
+			skipped = append(skipped, repairSkip{t.Path, err.Error()})
+		}
+		return nil, skipped
+	}
+	var todo []artifactRepairTarget
+	var rm []string
+	for _, t := range targets {
+		switch {
+		case rejectArtifactSymlinks(k.Root, t.Path) != nil:
+			skipped = append(skipped, repairSkip{t.Path, "path not allowed: symlink"})
+		case !kb.IsJunkPath(t.Path):
+			skipped = append(skipped, repairSkip{t.Path, "not a junk path"})
+		case !tracked[t.Path]:
+			skipped = append(skipped, repairSkip{t.Path, "not tracked by git"})
+		default:
+			todo = append(todo, t)
+			rm = append(rm, t.Path)
+		}
+	}
+	if len(rm) == 0 {
+		return nil, skipped
+	}
+	if err := gitx.Untrack(k.Root, rm...); err != nil {
+		for _, t := range todo {
+			skipped = append(skipped, repairSkip{t.Path, err.Error()})
+		}
+		return nil, skipped
+	}
+	return todo, skipped
 }
 
 // mapRepairTarget is one data/ folder with the title its descriptor gets.

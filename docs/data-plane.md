@@ -73,7 +73,10 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
 `*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
-`.gitignore` stays absent (D62), and this one is content that travels with the KB (D316).
+`.gitignore` stays absent (D62), and this one is content that travels with the KB (D316). `Init` and
+`Open` also write the same patterns into `.git/info/exclude`, local and never versioned, so they cover the
+whole tree (the KB root included) and no server commit, the external-changes one (D357) or a tool's,
+stages a junk file; a path already tracked stays tracked until `kb_repair` `junk_file` untracks it.
 
 `kb create` also writes a short generic `instructions.md` at the KB root (status convention and write
 discipline, English, no KB-specific names), only when it creates the KB and before the initial commit,
@@ -478,7 +481,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `skill_git_command` | artifact | yes | - | - | - |
 | `skill_missing_perimeter` | artifact | yes | - | - | - |
 | `cross_kb_path` | artifact | yes | - | - | - |
-| `junk_file` | artifact | yes | - | - | - |
+| `junk_file` | artifact | yes | `untrack` | - | - |
 | `symlinked_path` | artifact | - | - | - | - |
 | `junk_asset` | artifact | yes | - | - | - |
 | `missing_instructions` | artifact | - | - | - | - |
@@ -745,8 +748,9 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   finding closes, since nothing accepts it (D907).
 - `missing_instructions` (KB-level, no path): more than 10 concepts and no `instructions.md`.
 - `junk_file`: a junk file git tracks, or would add at the next commit (`git ls-files
-  --cached --others --exclude-standard`), outside an expanded concept's assets; remove it with `git
-  rm`. `junk_asset` covers the assets (§Assets).
+  --cached --others --exclude-standard`), outside an expanded concept's assets. Fix `untrack`
+  (`kb_repair`): `git rm --cached` of the tracked match in one commit, the working-tree file left alone;
+  not an unattended repair. `junk_asset` covers the assets (§Assets).
 - `symlinked_path` (D1025, unscoped runs only): a symlink anywhere under `data/` or `services/`, found by walking the disk. Concept paths never follow a link: `concept_read`, `concept_write`, `concept_delete` and the locate step of move/expand refuse a symlink on the path (a map directory, the file, an expanded `index.md`, a dangling link included) with `invalid_path`, and the graph walk does not list a symlinked `.md`, so the concept is simply absent. Remove the link with `git rm`. No write can create one, so the check is not avoidable at write.
 - `secret_ref_broken` (per concept, avoidable at write, no fix): a `secret_refs` entry whose `secrets/…` file is not in the KB or, when the file is a sops document (key names stay in clear), whose pointer names no key of it. Nothing is decrypted. The message names the reference, the KB-relative file and the pointer, never a server path; the fix is to correct the reference or create the value with `secret_set`.
 - `sops_format_mismatch` (also per concept): a `sops decrypt` (or `-d`)

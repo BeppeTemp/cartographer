@@ -74,6 +74,9 @@ const (
 	// before D958, To = the directory it moves to (legacy_skill_name). The
 	// repair also sets the SKILL.md name; the body stays as written.
 	FixMoveSkill = "move_skill"
+	// FixUntrack: Field = a junk file git tracks (junk_file, #1377). The repair
+	// untracks it (git rm --cached) and leaves the working-tree file alone.
+	FixUntrack = "untrack"
 	// FixRenameHeading and FixReorderSections (D352) are declared with the
 	// template checks, in template.go.
 )

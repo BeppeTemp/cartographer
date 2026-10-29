@@ -748,6 +748,7 @@ func junkFindings(files []string, junkAssets map[string]bool) []Finding {
 			Path:     rel,
 			Message:  "junk file tracked in git; remove it with git rm",
 			Artifact: true,
+			Fix:      &Fix{Kind: FixUntrack, Field: rel},
 		}))
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Path < findings[j].Path })
