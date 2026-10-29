@@ -700,3 +700,85 @@ func TestSourceRegisterWithoutCuratedIndexStillRegisters(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// D1201: the ledger knows collections, feeds and systems.
+func TestSourceRegisterShapes(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	for _, c := range []struct{ shape, loc string }{
+		{"collection", "https://docs.example.com/space"},
+		{"feed", "https://example.com/feed.xml"},
+		{"system", "https://metrics.example.com"},
+	} {
+		out := registerSource(t, s, `{"title":"T `+c.shape+`","source_kind":"space","source_shape":"`+c.shape+`","connector":"wiki-reader","recipe":"snap","locator":"`+c.loc+`"}`)
+		data, err := k.ReadConcept(okfID(out["id"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fm, _ := okf.ParseFrontmatter(data.FrontmatterRaw)
+		if fmString(fm, "source_shape") != c.shape || fmString(fm, "connector") != "wiki-reader" || fmString(fm, "recipe") != "snap" {
+			t.Fatalf("%s: frontmatter = %q", c.shape, data.FrontmatterRaw)
+		}
+	}
+	var listed []map[string]interface{}
+	if err := json.Unmarshal([]byte(callOK(t, s, "source_list", `{}`)), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 3 || listed[0]["connector"] != "wiki-reader" || listed[0]["source_shape"] == nil || listed[0]["recipe"] != "snap" {
+		t.Fatalf("listed = %v", listed)
+	}
+	dup := registerSource(t, s, `{"title":"Again","source_kind":"space","source_shape":"collection","locator":"https://docs.example.com/space2"}`)
+	if dup["duplicate"] != false {
+		t.Fatal(dup)
+	}
+	dup = registerSource(t, s, `{"title":"Again","source_kind":"space","source_shape":"collection","locator":"https://docs.example.com/space"}`)
+	if dup["duplicate"] != true {
+		t.Fatalf("collection must dedup by locator: %v", dup)
+	}
+}
+
+func okfID(v interface{}) okf.ConceptID { s, _ := v.(string); return okf.ConceptID(s) }
+
+func TestSourceRegisterShapeAndCredentialsRefused(t *testing.T) {
+	t.Parallel()
+	_, s := sourceFixture(t, true)
+	res := callTool(t, s, "source_register", `{"title":"A","source_kind":"x","source_shape":"stream"}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "document, collection, feed, system") {
+		t.Fatalf("shape: %+v", res)
+	}
+	res = callTool(t, s, "source_register", `{"title":"A","source_kind":"x","locator":"https://user:secret@example.com/a"}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "credentials") {
+		t.Fatalf("password: %+v", res)
+	}
+	for _, loc := range []string{
+		"https://tok3n@example.com/a", "ssh://git:pw@example.com/a",
+		"https://example.com/a?token=abc", "https://example.com/a?access_key=abc",
+		"https://example.com/a?api-key=abc", "https://example.com/a?x=1&Password=abc",
+		"https://example.com/a?client_secret=abc",
+	} {
+		res = callTool(t, s, "source_register", `{"title":"A","source_kind":"x","locator":"`+loc+`"}`)
+		if !res.IsError || !strings.Contains(res.Content[0].Text, "credential") || strings.Contains(res.Content[0].Text, "abc") {
+			t.Errorf("locator %s: %+v", loc, res)
+		}
+	}
+	for _, f := range []string{"connector", "recipe"} {
+		res = callTool(t, s, "source_register", `{"title":"A","source_kind":"x","`+f+`":"https://u:p@example.com/x"}`)
+		if !res.IsError || !strings.Contains(res.Content[0].Text, f) {
+			t.Errorf("%s: %+v", f, res)
+		}
+	}
+	registerSource(t, s, `{"title":"S","source_kind":"x","locator":"ssh://git@example.com/org/repo.git"}`)
+	registerSource(t, s, `{"title":"B","source_kind":"x","locator":"https://example.com/a?page=2&sort=asc","connector":"wiki-reader"}`)
+}
+
+func TestSourceRegisterWithoutShapeFieldsWritesNone(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	out := registerSource(t, s, `{"title":"Plain","source_kind":"document","timestamp":"2026-03-04"}`)
+	data, _ := k.ReadConcept(okfID(out["id"]))
+	for _, f := range []string{"source_shape", "connector", "recipe"} {
+		if strings.Contains(data.FrontmatterRaw, f) {
+			t.Fatalf("%s written: %q", f, data.FrontmatterRaw)
+		}
+	}
+}

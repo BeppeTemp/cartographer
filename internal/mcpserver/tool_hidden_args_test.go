@@ -212,7 +212,11 @@ func TestHandlerArgumentsAreDeclaredOrHidden(t *testing.T) {
 		if err := json.Unmarshal(schema, &decl); err != nil {
 			t.Fatalf("%s: schema: %v", name, err)
 		}
-		if len(decl.Properties) > 0 && len(keys[name]) == 0 {
+		declared := len(decl.Properties)
+		if _, ok := decl.Properties["reason"]; ok && tool.GitWrapped {
+			declared-- // gitWrap adds it to every wrapped tool, a tool with no parameter of its own included
+		}
+		if declared > 0 && len(keys[name]) == 0 {
 			// A handler the scanner cannot read would pass vacuously.
 			bad = append(bad, name+": no decoded keys found (scanner cannot read its handler)")
 		}

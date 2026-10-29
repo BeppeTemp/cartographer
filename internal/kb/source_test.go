@@ -22,3 +22,20 @@ func TestSourceTemplateShape(t *testing.T) {
 		t.Errorf("ingest_status = %v", info.FieldValues["ingest_status"])
 	}
 }
+
+func TestSourceTemplateShapeFields(t *testing.T) {
+	t.Parallel()
+	info, _ := ParseTemplate("source", SourceTemplate())
+	if !reflect.DeepEqual(info.FieldValues["source_shape"], SourceShapes) {
+		t.Errorf("source_shape = %v", info.FieldValues["source_shape"])
+	}
+	for _, f := range []string{"source_shape", "connector", "recipe"} {
+		found := false
+		for _, o := range info.OptionalFields {
+			found = found || o == f
+		}
+		if !found {
+			t.Errorf("%s not optional", f)
+		}
+	}
+}
