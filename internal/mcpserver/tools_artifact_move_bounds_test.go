@@ -149,31 +149,26 @@ func TestArtifactMove_ReferencesSkipAFileAboveTheScanCap(t *testing.T) {
 	xferClean(t, f.b)
 }
 
-// The lint run under the locks reports what it did before: a junk file inside a
-// moved unit is still a finding of the target.
-func TestArtifactMove_LintStillReportsJunkInAMovedUnit(t *testing.T) {
+// Junk inside a moved unit is no part of the artifact (#1377): an untracked
+// .DS_Store, which the local exclude makes an ignored file, neither refuses the
+// move nor reaches the target.
+func TestArtifactMove_LeavesJunkOfAMovedUnitBehind(t *testing.T) {
 	t.Parallel()
 	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
-	amWriteBytes(t, f.a, "skills/s/.DS_Store", []byte("x"), 0o644)
 	xferCommit(t, f.a)
+	amWriteBytes(t, f.a, "skills/s/.DS_Store", []byte("x"), 0o644)
+	amWriteBytes(t, f.a, "skills/s/__pycache__/m.pyc", []byte("x"), 0o644)
 	res := f.move(t, `{"target_kb":"kb-b","paths":["skills/s"]}`)
 	if res.IsError {
 		t.Fatalf("artifact_move: %s", xferText(res))
 	}
-	var out struct {
-		Findings map[string][]findingOut `json:"findings_by_kb"`
+	if _, err := os.Stat(filepath.Join(f.b.Root, "skills", "s", "SKILL.md")); err != nil {
+		t.Errorf("the skill did not arrive: %v", err)
 	}
-	if err := json.Unmarshal([]byte(xferText(res)), &out); err != nil {
-		t.Fatal(err)
+	for _, p := range []string{"skills/s/.DS_Store", "skills/s/__pycache__/m.pyc"} {
+		if _, err := os.Stat(filepath.Join(f.b.Root, filepath.FromSlash(p))); err == nil {
+			t.Errorf("%s was carried to the target", p)
+		}
 	}
-	var junk bool
-	for _, fd := range out.Findings["kb-b"] {
-		junk = junk || (fd.Check == "junk_file" && fd.Path == "skills/s/.DS_Store")
-	}
-	if !junk {
-		t.Errorf("findings_by_kb lacks junk_file on the moved .DS_Store: %+v", out.Findings)
-	}
-	xferClean(t, f.a)
-	xferClean(t, f.b)
 }
