@@ -1142,6 +1142,16 @@ func repairArtifactsCheck(k *kb.KB, check, scope string, dryRun bool, limit, pla
 	return run, nil
 }
 
+// repairAfterPlan and repairContractRewrite are test seams, nil/real in
+// production: the first runs between a concept check's plan and its apply (the
+// window in which a concept can change under the plan, which if_match turns
+// into a skip), the second is the contract rewrite whose failure is the one
+// hard error of a check.
+var (
+	repairAfterPlan       func(check string)
+	repairContractRewrite = renameInContracts
+)
+
 // repairConceptsCheck is the concept-check path of kb_repair. An error is a
 // plan failure or, after concepts were written, a failed contract rewrite
 // (the caller words the "uncommitted" part).
@@ -1149,6 +1159,9 @@ func repairConceptsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plan
 	targets, items, err := planRepair(k, check, scope)
 	if err != nil {
 		return nil, err
+	}
+	if repairAfterPlan != nil {
+		repairAfterPlan(check)
 	}
 	// The whole job, before limit: a dry run with a limit must still
 	// say how much work there is, not only the page it shows.
@@ -1187,7 +1200,7 @@ func repairConceptsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plan
 		var rewritten []string
 		if len(applied) > 0 {
 			var cerr error
-			rewritten, cerr = renameInContracts(k, applied)
+			rewritten, cerr = repairContractRewrite(k, applied)
 			if cerr != nil {
 				return nil, &repairWrittenError{Applied: len(applied), Err: cerr}
 			}
@@ -1237,7 +1250,10 @@ const repairMultiPlannedCap = 5
 func parseRepairChecks(raw json.RawMessage) (checks []string, multi bool, err error) {
 	var list []string
 	var one string
-	if json.Unmarshal(raw, &one) == nil {
+	if len(raw) == 0 || string(raw) == "null" {
+		// A missing check keeps the old refusal, which lists the fixable ones.
+		list = []string{""}
+	} else if json.Unmarshal(raw, &one) == nil {
 		list = []string{one}
 	} else if json.Unmarshal(raw, &list) != nil {
 		return nil, false, errors.New("kb_repair: 'check' must be a string or an array of strings")

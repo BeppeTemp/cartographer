@@ -121,9 +121,11 @@ An alternative never weakens a rule: a delegated session never deletes a concept
    the whole job). An apply of `"*"` also includes removals and the checks that drop links
    (`invalid_field_value` removals, `reciprocal_link_item`, `broken_link`), so apply by list: first the
    checks whose fix is safe to run unattended (`nonstandard_field`, `tool_param_field`,
-   `invalid_field_value`, `duplicate_link`, `prose_value` and the like), as one `kb_repair` with
+   `duplicate_link`, `prose_value` and the like), as one `kb_repair` with
    `check: [...]` and `dry_run: false` (the server orders them), deterministic and never
-   dropping a link (D323); report the counts. The server applies them
+   dropping a link (D323); report the counts. `invalid_field_value` joins that list only when its
+   dry-run entry has no `removals` (D1197: a removal drops a value a person wrote); otherwise it is
+   confirm-first. The server applies them
    by itself every day and on each write (D907), so they are usually already done: run them again
    only when findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
    undo a repair commit, `repair_revert` with its `sha` (not in `tools/list`: see the section above; only `kb_repair` and auto-repair commits are

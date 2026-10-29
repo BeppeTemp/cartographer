@@ -246,3 +246,95 @@ func TestSummarizeConformanceNamesTheRepairCall(t *testing.T) {
 		t.Error("a clean KB must not carry repair")
 	}
 }
+
+// A concept changed after the plan was made is skipped, never overwritten
+// (if_match with the hash read at planning time). The seam edits the page
+// between plan and apply. Not parallel: it sets a package-level seam.
+func TestKBRepairMultiSkipsAConceptChangedSinceThePlan(t *testing.T) {
+	k, s := repairKB(t, 2)
+	repairAfterPlan = func(check string) {
+		if check != "nonstandard_field" {
+			return
+		}
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", "N0")
+		fm.Set("updated", "2026-01-02")
+		if _, err := k.WriteConcept("ops/n0", fm, "# N0\n\nedited meanwhile\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { repairAfterPlan = nil })
+	out := repairCall(t, s, `{"check":["nonstandard_field","tool_param_field"],"dry_run":false}`)
+	e := multiChecks(out)["nonstandard_field"]
+	if e["applied"].(float64) != 1 || len(e["skipped"].([]any)) != 1 {
+		t.Fatalf("want one applied and one skipped: %v", e)
+	}
+	if cd, _ := k.ReadConcept("ops/n0"); !strings.Contains(cd.Body, "edited meanwhile") || !strings.Contains(cd.FrontmatterRaw, "updated") {
+		t.Errorf("the changed concept was overwritten:\n%s\n%s", cd.FrontmatterRaw, cd.Body)
+	}
+}
+
+// A hard failure inside a later check stops the loop and names what the
+// earlier checks already wrote (uncommitted). Not parallel: package seam.
+func TestKBRepairMultiHardFailureNamesWhatWasWritten(t *testing.T) {
+	_, s := repairKB(t, 2)
+	repairContractRewrite = func(*kb.KB, []repairTarget) ([]string, error) { return nil, fmt.Errorf("disk full") }
+	t.Cleanup(func() { repairContractRewrite = renameInContracts })
+	// Single check: the old wording.
+	res := callTool(t, s, "kb_repair", `{"check":"nonstandard_field","dry_run":false}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "contract rewrite failed after 2 concept(s) were written (uncommitted") {
+		t.Fatalf("single: %+v", res)
+	}
+}
+
+// A failing check after an earlier one wrote: the error lists the written one.
+// Not parallel: package seam.
+func TestKBRepairMultiErrorListsEarlierWrites(t *testing.T) {
+	k, s := repairKB(t, 2)
+	fm := newFM()
+	fm.Set("type", "Note")
+	fm.Set("title", "T")
+	fm.Set("op", "x") // a write-tool parameter stored as a field
+	if _, err := k.WriteConcept("ops/d0", fm, "# T\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.CommitOp("test: seed"); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	repairContractRewrite = func(k *kb.KB, a []repairTarget) ([]string, error) {
+		if calls++; calls == 2 {
+			return nil, fmt.Errorf("disk full")
+		}
+		return renameInContracts(k, a)
+	}
+	t.Cleanup(func() { repairContractRewrite = renameInContracts })
+	res := callTool(t, s, "kb_repair", `{"check":["tool_param_field","nonstandard_field"],"dry_run":false}`)
+	msg := res.Content[0].Text
+	if !res.IsError || !strings.Contains(msg, "already written and uncommitted: nonstandard_field: 2") || !strings.Contains(msg, "disk full") {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// A read-only session is refused a multi-check call, whatever the form.
+func TestKBRepairMultiRefusedToAReadOnlySession(t *testing.T) {
+	t.Parallel()
+	handler := newRoutedTestHandler(t, "kb-a")
+	for _, check := range []any{"*", []string{"nonstandard_field", "duplicate_link"}} {
+		res := routedCallAt(t, handler, readOnlyPath, "kb_repair", map[string]any{"kb": "kb-a", "check": check, "dry_run": false})
+		if !res.IsError || !strings.Contains(res.Content[0].Text, "forbidden") {
+			t.Errorf("check %v on a read-only session: %+v", check, res)
+		}
+	}
+}
+
+// A missing check keeps the old refusal that lists the fixable checks.
+func TestKBRepairMissingCheckListsTheFixableOnes(t *testing.T) {
+	t.Parallel()
+	_, s := repairKB(t, 0)
+	res := callTool(t, s, "kb_repair", `{}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "checks that emit fixes") {
+		t.Fatalf("%+v", res)
+	}
+}
