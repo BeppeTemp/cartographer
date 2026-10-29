@@ -8,12 +8,17 @@ import (
 )
 
 // denyTools are the tools the model never sees and never calls, whatever
-// allowlist the caller passes (D9). Beyond the four D9 names the deny set
-// carries the tools that would let an injected prompt widen its own reach or
-// leak secrets. Matching is by exact name, plus the artifact_ prefix.
+// allowlist the caller passes (D9): the destructive and secret-touching tools no
+// planned task kind needs. Beyond the D9 names it carries the ones that would
+// let an injected prompt widen its own reach, leak secrets, delete assets or
+// maps, apply syncs, snapshot or re-run ingest setup. It does NOT cover every
+// risky tool: kb_repair (doctor, #1261) and conflict_resolve (synthesis, #1263)
+// stay allowable, and a per-task allowlist narrows the rest. Matching is by
+// exact name, plus the artifact_ prefix.
 var denyTools = []string{
 	"concept_delete", "repair_revert", "concept_transfer",
 	"secret_resolve", "secret_set", "skill_install", "git_conflict_resolve",
+	"asset_delete", "map_delete", "sync_apply", "snapshot", "ingest_setup",
 }
 
 const denyPrefix = "artifact_"

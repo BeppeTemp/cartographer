@@ -117,6 +117,16 @@ func TestRun_TransportErrorAborts(t *testing.T) {
 	if !errors.Is(err, boom) || out.Reason != worker.ReasonAborted || len(f.Requests) != 1 {
 		t.Fatalf("%+v %v", out, err)
 	}
+	if out.ToolCalls != 1 || len(out.Calls) != 1 || !out.Calls[0].Uncertain {
+		t.Errorf("the attempted call is not recorded: %+v", out)
+	}
+	// A write that failed in transport still counts as a write.
+	tools = standardTools()
+	tools.Errors = map[string]error{"concept_write": boom}
+	f = &workertest.Fake{Turns: []worker.Response{use(tc("a", "concept_write", `{}`))}}
+	if out, _ = run(t, f, tools, worker.Limits{}); out.Writes != 1 {
+		t.Errorf("writes = %d, want 1", out.Writes)
+	}
 }
 
 // Pinned: a typo in an argument (-32602) must not cost the run.
@@ -192,9 +202,9 @@ func TestRun_TruncatedAndOther(t *testing.T) {
 
 func TestRun_EmptyOfferedSetErrorsBeforeTheModel(t *testing.T) {
 	f := &workertest.Fake{Turns: []worker.Response{end("x")}}
-	_, err := run(t, f, &workertest.FakeTools{Tools: workertest.Listing("concept_delete", "unknown")}, worker.Limits{})
-	if err == nil || len(f.Requests) != 0 {
-		t.Fatalf("err=%v requests=%d", err, len(f.Requests))
+	out, err := run(t, f, &workertest.FakeTools{Tools: workertest.Listing("concept_delete", "unknown")}, worker.Limits{})
+	if err == nil || len(f.Requests) != 0 || out.Reason != worker.ReasonAborted {
+		t.Fatalf("err=%v requests=%d reason=%q", err, len(f.Requests), out.Reason)
 	}
 }
 
@@ -206,6 +216,28 @@ func TestRun_ContextCanceled(t *testing.T) {
 	if err != nil || out.Reason != worker.ReasonCanceled || len(f.Requests) != 0 {
 		t.Fatalf("%+v %v", out, err)
 	}
+}
+
+// A cancelled worker stops before the next call of the same turn.
+func TestRun_CancelBetweenCallsOfOneTurn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	tools := &cancelTools{FakeTools: *standardTools(), cancel: cancel}
+	f := &workertest.Fake{Turns: []worker.Response{use(tc("a", "search", `{}`), tc("b", "concept_write", `{}`))}}
+	out, err := worker.NewAgent(f, tools, nil, worker.Limits{}).Run(ctx, worker.Task{})
+	if err != nil || out.Reason != worker.ReasonCanceled || tools.Calls["concept_write"] != 0 || out.ToolCalls != 1 {
+		t.Fatalf("%+v %v %v", out, err, tools.Calls)
+	}
+}
+
+// cancelTools cancels the context once its first call is made.
+type cancelTools struct {
+	workertest.FakeTools
+	cancel context.CancelFunc
+}
+
+func (c *cancelTools) CallTool(name string, args any) (client.ToolOutput, error) {
+	defer c.cancel()
+	return c.FakeTools.CallTool(name, args)
 }
 
 func TestRun_OversizedResultTruncatedOnRuneBoundary(t *testing.T) {

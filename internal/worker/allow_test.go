@@ -12,6 +12,11 @@ import (
 )
 
 func TestAllowlist_DenyWinsOverAllowlist(t *testing.T) {
+	for _, n := range []string{"asset_delete", "map_delete", "sync_apply", "snapshot", "ingest_setup"} {
+		if worker.NewAllowlist(n).Permits(n) {
+			t.Errorf("%s permitted by a custom list", n)
+		}
+	}
 	a := worker.NewAllowlist("concept_read", "concept_delete", "artifact_write", "artifact_zzz", "secret_set")
 	for _, n := range []string{"concept_delete", "artifact_write", "artifact_zzz", "secret_set"} {
 		if a.Permits(n) {

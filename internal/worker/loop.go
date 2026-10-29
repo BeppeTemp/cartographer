@@ -72,6 +72,8 @@ const (
 type CallRecord struct {
 	Tool    string
 	IsError bool
+	// Uncertain marks a call whose transport failed: it may have reached the server.
+	Uncertain bool
 }
 
 // Outcome is what a run did.
@@ -133,6 +135,7 @@ func (a *Agent) Run(ctx context.Context, task Task) (Outcome, error) {
 	}
 	specs := a.Allow.Filter(listed)
 	if len(specs) == 0 {
+		out.Reason = ReasonAborted
 		return out, errors.New("worker: no tool is both allowed and offered by the server; check the token and the allowlist")
 	}
 	offered := make(map[string]bool, len(specs))
@@ -182,6 +185,10 @@ func (a *Agent) Run(ctx context.Context, task Task) (Outcome, error) {
 			}
 			results := make([]ToolResult, 0, len(resp.ToolCalls))
 			for _, c := range resp.ToolCalls {
+				if ctx.Err() != nil { // a cancelled worker makes no further write
+					out.Reason = ReasonCanceled
+					return out, nil
+				}
 				res, err := a.execute(c, offered, lim, &out)
 				if err != nil {
 					out.Reason = ReasonAborted
@@ -223,6 +230,13 @@ func (a *Agent) execute(c ToolCall, offered map[string]bool, lim Limits, out *Ou
 	if err != nil {
 		var re *client.RemoteError
 		if !errors.As(err, &re) || re.RPCCode != invalidParams {
+			// The request may have reached the server before the transport
+			// failed: count it, as uncertain, so a write is never under-reported.
+			out.ToolCalls++
+			if !isRead(c.Name) {
+				out.Writes++
+			}
+			out.Calls = append(out.Calls, CallRecord{Tool: c.Name, IsError: true, Uncertain: true})
 			return ToolResult{}, err
 		}
 		res = client.ToolOutput{IsError: true, Text: re.Message}

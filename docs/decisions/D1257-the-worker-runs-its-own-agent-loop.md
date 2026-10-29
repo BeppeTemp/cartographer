@@ -11,9 +11,11 @@ Anthropic Messages API and OpenAI-compatible chat completions, both over
 (`allow.go`): an explicit default list of read tools and content writes, minus a
 hard deny set that no caller-supplied list overrides. The deny set is every
 `artifact_*` tool (by prefix, so a future one is denied unchanged),
-`concept_delete`, `repair_revert`, `concept_transfer` (D9) and four names added
+`concept_delete`, `repair_revert`, `concept_transfer` (D9) and names added
 here for the same intent: `secret_resolve`, `secret_set`, `skill_install`,
-`git_conflict_resolve`. A tool outside the set that was offered for the token is
+`git_conflict_resolve`, `asset_delete`, `map_delete`, `sync_apply`, `snapshot`,
+`ingest_setup`. It is not exhaustive: `kb_repair` (doctor) and `conflict_resolve`
+(synthesis) stay allowable and a per-task allowlist narrows the rest. A tool outside the set that was offered for the token is
 never sent to the model, and a call naming one is refused locally with no
 request to the server. The loop is bounded by mandatory step and token caps (a
 zero value takes a default, never "unlimited"); tool-level errors and
