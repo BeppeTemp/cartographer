@@ -133,6 +133,27 @@ func (c *Config) WorkspaceScope(provider string) string {
 	return ScopeProvider
 }
 
+// UnboundDefault is the unbound_access key that applies to every provider.
+const UnboundDefault = "default"
+
+// UnboundAccess reports the access mode of a folder under no workspace
+// binding for provider (#1356): mode is "read" or "write", origin is "default"
+// when nothing sets it and "unbound_access" otherwise (an explicit read
+// included). A <provider> entry beats "default", which beats the built-in
+// read; any value other than "write" is read, so an invalid one never opens
+// write access.
+func (c *Config) UnboundAccess(provider string) (mode, origin string) {
+	for _, k := range []string{provider, UnboundDefault} {
+		if v, ok := c.UnboundModes[k]; ok {
+			if v == "write" {
+				return "write", "unbound_access"
+			}
+			return "read", "unbound_access"
+		}
+	}
+	return "read", "default"
+}
+
 // SetWorkspaceScope records provider's projection scope. Setting it to
 // ScopeProvider removes the entry, so the file does not accumulate keys that
 // restate the default.
