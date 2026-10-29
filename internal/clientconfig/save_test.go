@@ -238,3 +238,46 @@ func TestDroppedKeyTakesItsGeneratedCommentInAnyWording(t *testing.T) {
 		})
 	}
 }
+
+// #1356: unbound_access round-trips, drops unknown providers (keeping default),
+// and a file without the key stays without it.
+func TestSaveUnboundAccessRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://127.0.0.1:39273/mcp\nserver_name: cartographer\nauth: false\ntoken_env: CARTOGRAPHER_TOKENS\nagents:\n  - claude\nunbound_access:\n  default: write\n  claude: read\n  nobody-client: write\n")
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, o := cfg.UnboundAccess("claude"); m != "read" || o != "unbound_access" {
+		t.Errorf("claude = %s/%s", m, o)
+	}
+	if m, _ := cfg.UnboundAccess("codex"); m != "write" {
+		t.Errorf("codex = %s, want write", m)
+	}
+	if _, ok := cfg.UnboundModes["nobody-client"]; ok {
+		t.Error("an unknown provider entry was kept")
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	again, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(again.UnboundModes, map[string]string{"default": "write", "claude": "read"}) {
+		t.Errorf("round trip = %v", again.UnboundModes)
+	}
+
+	dir2 := t.TempDir()
+	writeConfigFile(t, dir2, "server_url: http://127.0.0.1:39273/mcp\nserver_name: cartographer\nauth: false\ntoken_env: CARTOGRAPHER_TOKENS\nagents:\n  - claude\n")
+	c2, err := clientconfig.Load(dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir2, c2); err != nil {
+		t.Fatal(err)
+	}
+	if raw := readFile(t, clientconfig.Path(dir2)); strings.Contains(raw, "unbound_access:\n  ") {
+		t.Errorf("a file without the key gained one:\n%s", raw)
+	}
+}
