@@ -588,6 +588,36 @@ func TestRun_AssetsOnlyProduceOrphanAsset(t *testing.T) {
 	}
 }
 
+// An asset whose filename has spaces is cited by the percent-encoded, the
+// angle-bracket and the raw Markdown forms alike (#1346).
+func TestRun_OrphanAssetRecognisesSpacedFilenames(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
+	writeFile(t, k.DataRoot(), "arch/owner/index.md", "---\ntype: Note\ntitle: Owner\n---\n"+
+		"[a](originale/Encoded%20file%20v1.xlsx)\n"+
+		"[b](<originale/Angle file v1.xlsx>)\n"+
+		"[c](originale/Raw file v1.xlsx)\n")
+	for _, name := range []string{"Encoded file v1.xlsx", "Angle file v1.xlsx", "Raw file v1.xlsx", "Uncited file.xlsx"} {
+		if _, err := k.WriteAsset("arch/owner", "originale/"+name, []byte{0, 1}, "", nil); err != nil {
+			t.Fatalf("WriteAsset %s: %v", name, err)
+		}
+	}
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var orphans []string
+	for _, f := range findings {
+		if f.Check == "orphan_asset" {
+			orphans = append(orphans, f.Path)
+		}
+	}
+	if len(orphans) != 1 || orphans[0] != "arch/owner/originale/Uncited file.xlsx" {
+		t.Fatalf("orphan assets: %v", orphans)
+	}
+}
+
 // --- declarative lint contracts (D107) ---
 
 func TestRun_MissingRequiredFieldContract(t *testing.T) {
