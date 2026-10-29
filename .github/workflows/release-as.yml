@@ -40,12 +40,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           # Same selection as release-please.yml: this repository's release-please-- branch.
-          read -r number title < <(gh pr list --state open --search "head:release-please--" --json number,title,isCrossRepository \
-            -q '[.[] | select(.isCrossRepository | not)][0] | select(. != null) | "\(.number) \(.title)"' || true)
-          if [ -z "${number:-}" ]; then
+          # Captured first: a failing gh fails the step; only an empty result means "none".
+          found=$(gh pr list --state open --search "head:release-please--" --json number,title,isCrossRepository \
+            -q '[.[] | select(.isCrossRepository | not)][0] | select(. != null) | "\(.number) \(.title)"')
+          if [ -z "$found" ]; then
             echo "no release PR open" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          number=${found%% *}
+          title=${found#* }
           milestone=$(gh api "repos/$GH_REPO/milestones?state=open&sort=due_on&direction=asc&per_page=100" \
             --jq '[.[] | select(.due_on)][0].title // empty')
           if [ -z "$milestone" ]; then

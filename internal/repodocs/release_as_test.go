@@ -113,6 +113,16 @@ func TestReleaseAsWorkflowPinsTokenAndTriggers(t *testing.T) {
 			}
 		}
 	}
+	// The guard PR lives on one fixed branch, and an open one for the same version
+	// ends the run: never a second open guard PR.
+	for _, want := range []string{"branch=release-as/next-train", `--head "$branch"`, "already open for", "gh pr close"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("release-as.yml: missing %q, which keeps a single guard PR open", want)
+		}
+	}
+	if strings.Contains(raw, "|| true") || strings.Contains(raw, "< <(") {
+		t.Error("release-as.yml: `|| true` or `read < <(...)` hides a failing gh call or fails -e on an empty result")
+	}
 	if !ran {
 		t.Error("release-as.yml: no step runs scripts/release-as.sh, which is what decides")
 	}
