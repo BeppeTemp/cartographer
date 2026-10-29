@@ -81,6 +81,31 @@ func TestRun_UnusedPlaceholder(t *testing.T) {
 	}
 }
 
+// A placeholder cited only in the frontmatter (a Source's locator) is used,
+// and an undeclared one there is unknown, as in the body.
+func TestRun_PlaceholderCitedInFrontmatter(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.Root, "paths.yaml", "paths:\n  example-dir: {description: shared folder, default: ~/Documents/example}\n")
+	writeFile(t, k.DataRoot(), "sources/2026-01-01-s.md", "---\ntype: Source\ntitle: S\nlocator: \"{{path:example-dir}}/file.docx\"\n---\nA source.\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "unused_placeholder"); len(got) != 0 {
+		t.Errorf("unused_placeholder = %+v", got)
+	}
+
+	writeFile(t, k.DataRoot(), "sources/2026-01-01-s.md", "---\ntype: Source\ntitle: S\nlocator: \"{{path:other-dir}}/file.docx\"\n---\nA source.\n")
+	findings, err = Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "unknown_placeholder"); len(got) != 1 || !strings.Contains(got[0].Message, "{{path:other-dir}}") {
+		t.Errorf("unknown_placeholder = %+v", got)
+	}
+}
+
 func TestRun_MalformedRegistryEntry(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
