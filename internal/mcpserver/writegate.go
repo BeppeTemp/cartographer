@@ -204,11 +204,39 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 	body, _ := json.Marshal(findingsOut(introduced))
 	advice := "Fix each one as its message and fix say, then retry; concept_batch is atomic, so a page and the link, index entry or target it needs can land in one call. A new page in a map with a curated index needs index_entry: true on its concept_write, concept_new or creating concept_batch write."
 	if toolName == "source_register" {
-		advice = "Fix each one as its message says (shorten the title) and retry; the index entry is added by source_register itself."
+		advice = sourceRegisterAdvice(introduced)
 	}
 	res := errorResult(fmt.Sprintf("write_gate: refused, nothing was written. This call introduced %d finding(s) a write can avoid (D907):\n%s\n%s",
 		len(introduced), body, advice))
 	return &res
+}
+
+// sourceRegisterAdvice is the trailing advice of a refused source_register,
+// built from the checks the refusal carries (#1376): title_quality asks for a
+// shorter title, title_h1_mismatch for the body's first heading to match the
+// title (or go), any other check for the generic reading of message and fix.
+func sourceRegisterAdvice(introduced []lint.Finding) string {
+	var parts []string
+	var other bool
+	seen := map[string]bool{}
+	for _, f := range introduced {
+		if seen[f.Check] {
+			continue
+		}
+		seen[f.Check] = true
+		switch f.Check {
+		case "title_quality":
+			parts = append(parts, "title_quality: shorten the title")
+		case "title_h1_mismatch":
+			parts = append(parts, "title_h1_mismatch: align the body's first heading with the title, or drop it")
+		default:
+			other = true
+		}
+	}
+	if other {
+		parts = append(parts, "any other check: as its message and fix say")
+	}
+	return "Fix each one (" + strings.Join(parts, "; ") + ") and retry; the index entry is added by source_register itself."
 }
 
 // pairUnmatchedMoves completes renamedFrom for the pages git's similarity

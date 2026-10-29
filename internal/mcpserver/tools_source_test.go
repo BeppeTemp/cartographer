@@ -267,6 +267,26 @@ func TestSourceRegisterRefusesATitleOverTheLimit(t *testing.T) {
 	}
 }
 
+// #1376: the advice follows the findings present: a heading that differs from
+// the title is not answered with "shorten the title".
+func TestSourceRegisterGateAdviceFollowsTheFinding(t *testing.T) {
+	t.Parallel()
+	_, s := sourceFixture(t, true)
+	tr := s.callTool(authLocalContext(), "source_register", json.RawMessage(`{"title":"Repo example","source_kind":"document","body":"# Another heading\n\ntext\n"}`))
+	got := ""
+	if len(tr.Content) > 0 {
+		got = tr.Content[0].Text
+	}
+	if !tr.IsError || !strings.Contains(got, "title_h1_mismatch") || strings.Contains(got, "shorten the title") || !strings.Contains(got, "first heading") || !strings.Contains(got, "index entry is added by source_register itself") {
+		t.Fatalf("got %q", got)
+	}
+	long := strings.TrimSpace(strings.Repeat("word ", 21))
+	tr = s.callTool(authLocalContext(), "source_register", json.RawMessage(`{"title":"`+long+`","source_kind":"document"}`))
+	if !tr.IsError || !strings.Contains(tr.Content[0].Text, "shorten the title") {
+		t.Fatalf("title_quality lost its advice: %+v", tr)
+	}
+}
+
 func TestMapCreateUpdateWarnOnPoorTitle(t *testing.T) {
 	t.Parallel()
 	_, s := sourceFixture(t, false)
