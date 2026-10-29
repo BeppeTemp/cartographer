@@ -250,6 +250,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 	seedDriftFixes(t, k)                             // D357
 	driftWrite(t, k, "legacy/_map.md", legacyMap)    // D907: a pre-D907 descriptor
 	writeKBSkill(t, k, "kb-create", legacySkillText) // D958: a pre-rename bundled skill
+	trackJunk(t, k, ".DS_Store")                     // #1377: junk a KB tracked before the exclude
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
