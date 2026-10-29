@@ -534,7 +534,7 @@ Nothing else changes: the server runs no model, `serve` never starts or links th
 install no scheduler, and every write is a revertible commit with a `Reason` trailer.
 
 **The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
-idle for `idle_minutes` (the idle signal needs a server that reports activity; until then the worker is
+idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the worker's heartbeat, `POST /api/workers`: [control-plane](control-plane.md) §Worker heartbeat; until the worker beats, it is
 window-only). A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:
 the first `tasks` entry whose profile still has a grant and whose kind finds a unit of work, then the walk
 restarts from the first entry. A failing task is not retried in the same run; repeated errors on a KB (the limit is `maxConsecutiveErrors` in `internal/worker/runner.go`)
