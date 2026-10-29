@@ -957,8 +957,9 @@ validate a nested per-type grammar.
   `connector` and `recipe` are the **names** of a connector and a recipe in the
   worker's configuration, never a path or a command. For a collection, feed or
   system the `locator` is the URL or `{{path:<key>}}` placeholder of the space,
-  repository, feed or system. A `locator` that is a URL with a password is
-  refused: credentials live in the connector's configuration or in sops, never in
+  repository, feed or system. A `locator`, `connector` or `recipe` that is a URL
+  with userinfo (a token as username included) or a secret-named query parameter
+  (`token`, `password`, `api_key`...) is refused: credentials live in the connector's configuration or in sops, never in
   the ledger. Dedup is unchanged: such a source normally has no `sha256`, so it
   dedups by exact `locator`. An existing `templates/source.md` is not rewritten;
   the new fields are optional and a KB with the old template keeps working.

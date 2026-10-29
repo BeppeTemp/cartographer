@@ -730,8 +730,24 @@ func TestSourceRegisterShapeAndCredentialsRefused(t *testing.T) {
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "credentials") {
 		t.Fatalf("password: %+v", res)
 	}
-	// A user without a password is not a credential.
-	registerSource(t, s, `{"title":"B","source_kind":"x","locator":"ssh://git@example.com/a"}`)
+	for _, loc := range []string{
+		"https://tok3n@example.com/a", "ssh://git@example.com/a",
+		"https://example.com/a?token=abc", "https://example.com/a?access_key=abc",
+		"https://example.com/a?api-key=abc", "https://example.com/a?x=1&Password=abc",
+		"https://example.com/a?client_secret=abc",
+	} {
+		res = callTool(t, s, "source_register", `{"title":"A","source_kind":"x","locator":"`+loc+`"}`)
+		if !res.IsError || !strings.Contains(res.Content[0].Text, "credential") || strings.Contains(res.Content[0].Text, "abc") {
+			t.Errorf("locator %s: %+v", loc, res)
+		}
+	}
+	for _, f := range []string{"connector", "recipe"} {
+		res = callTool(t, s, "source_register", `{"title":"A","source_kind":"x","`+f+`":"https://u:p@example.com/x"}`)
+		if !res.IsError || !strings.Contains(res.Content[0].Text, f) {
+			t.Errorf("%s: %+v", f, res)
+		}
+	}
+	registerSource(t, s, `{"title":"B","source_kind":"x","locator":"https://example.com/a?page=2&sort=asc","connector":"wiki-reader"}`)
 }
 
 func TestSourceRegisterWithoutShapeFieldsWritesNone(t *testing.T) {

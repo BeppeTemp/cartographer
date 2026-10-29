@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -137,9 +136,9 @@ func toolSourceRegister(k *kb.KB) Tool {
 			if bad := lint.FirstMachinePath(p.Locator); bad != "" {
 				return errorResult(fmt.Sprintf("source_register: locator %q is a client-local path — use a URL or a {{path:<key>}} placeholder (D75)", bad)), nil
 			}
-			if u, uerr := url.Parse(p.Locator); uerr == nil && u.User != nil {
-				if _, hasPw := u.User.Password(); hasPw {
-					return errorResult("source_register: locator carries a password: credentials never go in the ledger — name a connector and keep the secret in the worker's configuration or in sops"), nil
+			for _, f := range [][2]string{{"locator", p.Locator}, {"connector", p.Connector}, {"recipe", p.Recipe}} {
+				if why := lint.URLCredential(f[1]); why != "" {
+					return errorResult(fmt.Sprintf("source_register: %s carries a credential (%s): credentials never go in the ledger — name a connector and keep the secret in the worker's configuration or in sops", f[0], why)), nil
 				}
 			}
 			when := time.Now().UTC()
