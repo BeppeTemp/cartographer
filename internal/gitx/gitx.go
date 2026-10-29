@@ -1215,6 +1215,21 @@ func ListFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
+// RemoveCached untracks paths ("git rm --cached"), leaving the working tree
+// alone. The paths are literal (GIT_LITERAL_PATHSPECS), so a file named
+// "a[1].pyc" is never read as a glob, and one git does not track is not an
+// error.
+func RemoveCached(dir string, paths ...string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	args := append([]string{"rm", "--cached", "-q", "--ignore-unmatch", "--"}, paths...)
+	if out, err := runGitEnv(dir, []string{"GIT_LITERAL_PATHSPECS=1"}, args...); err != nil {
+		return fmt.Errorf("git rm --cached: %w: %s", err, out)
+	}
+	return nil
+}
+
 // AddPath stages a single path ("git add -- <path>").
 func AddPath(dir, path string) error {
 	out, err := runGit(dir, "add", "--", path)

@@ -230,6 +230,11 @@ func TestLint_JunkFile(t *testing.T) {
 	if !hasCheck(findings, ".DS_Store", "junk_file") {
 		t.Errorf("want junk_file on .DS_Store, got %v", findingsOf(findings, "junk_file"))
 	}
+	for _, f := range findingsOf(findings, "junk_file") {
+		if f.Fix == nil || f.Fix.Kind != FixUntrackJunk || f.Fix.Field != f.Path {
+			t.Errorf("junk_file on %s carries fix %+v, want untrack_junk of the path", f.Path, f.Fix)
+		}
+	}
 	asset := "ops/dossier/__pycache__/mod.pyc"
 	if !hasCheck(findings, asset, "junk_asset") {
 		t.Errorf("want junk_asset on %s, got %v", asset, findingsOf(findings, "junk_asset"))

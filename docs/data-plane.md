@@ -480,7 +480,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `skill_git_command` | artifact | yes | - | - | - |
 | `skill_missing_perimeter` | artifact | yes | - | - | - |
 | `cross_kb_path` | artifact | yes | - | - | - |
-| `junk_file` | artifact | yes | - | - | - |
+| `junk_file` | artifact | yes | `untrack_junk` | yes | - |
 | `symlinked_path` | artifact | - | - | - | - |
 | `junk_asset` | artifact | yes | - | - | - |
 | `missing_instructions` | artifact | - | - | - | - |
@@ -746,9 +746,11 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   targets another repository names it, `git -C <repo> pull`, which is not matched: that is how the
   finding closes, since nothing accepts it (D907).
 - `missing_instructions` (KB-level, no path): more than 10 concepts and no `instructions.md`.
-- `junk_file`: a junk file git tracks, or would add at the next commit (`git ls-files
-  --cached --others --exclude-standard`), outside an expanded concept's assets; remove it with `git
-  rm`. `junk_asset` covers the assets (§Assets).
+- `junk_file` (fix `untrack_junk`, auto-repaired, #1377): a junk file git tracks, or would add at
+  the next commit (`git ls-files --cached --others --exclude-standard`), outside an expanded
+  concept's assets. The repair untracks it (`git rm --cached`) and leaves the file on disk, where
+  `.git/info/exclude` keeps it out of the next commit; a file no ignore rule covers is skipped,
+  since the commit would track it again. `junk_asset` covers the assets (§Assets).
 - `symlinked_path` (D1025, unscoped runs only): a symlink anywhere under `data/` or `services/`, found by walking the disk. Concept paths never follow a link: `concept_read`, `concept_write`, `concept_delete` and the locate step of move/expand refuse a symlink on the path (a map directory, the file, an expanded `index.md`, a dangling link included) with `invalid_path`, and the graph walk does not list a symlinked `.md`, so the concept is simply absent. Remove the link with `git rm`. No write can create one, so the check is not avoidable at write.
 - `secret_ref_broken` (per concept, avoidable at write, no fix): a `secret_refs` entry whose `secrets/…` file is not in the KB or, when the file is a sops document (key names stay in clear), whose pointer names no key of it. Nothing is decrypted. The message names the reference, the KB-relative file and the pointer, never a server path; the fix is to correct the reference or create the value with `secret_set`.
 - `sops_format_mismatch` (also per concept): a `sops decrypt` (or `-d`)

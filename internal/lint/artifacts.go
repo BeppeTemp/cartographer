@@ -746,7 +746,8 @@ func junkFindings(files []string, junkAssets map[string]bool) []Finding {
 		}
 		findings = append(findings, newFinding("junk_file", Finding{
 			Path:     rel,
-			Message:  "junk file tracked in git; remove it with git rm",
+			Message:  "junk file tracked in git; kb_repair junk_file untracks it and leaves the file on disk",
+			Fix:      &Fix{Kind: FixUntrackJunk, Field: rel},
 			Artifact: true,
 		}))
 	}

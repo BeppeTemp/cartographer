@@ -74,6 +74,10 @@ const (
 	// before D958, To = the directory it moves to (legacy_skill_name). The
 	// repair also sets the SKILL.md name; the body stays as written.
 	FixMoveSkill = "move_skill"
+	// FixUntrackJunk: Field = a junk file git tracks (junk_file, #1377). The
+	// repair untracks it (git rm --cached) and leaves the file on disk, which
+	// .git/info/exclude keeps out of the next commit.
+	FixUntrackJunk = "untrack_junk"
 	// FixRenameHeading and FixReorderSections (D352) are declared with the
 	// template checks, in template.go.
 )
@@ -1026,6 +1030,8 @@ var AutoRepairOrder = []string{
 	"index_lists_retired", "link_to_retired", "title_quality",
 	// D907: a removed contract key is realigned by one unattended commit.
 	"contract_legacy_key",
+	// #1377: a tracked junk file is never content, so it is untracked unattended.
+	"junk_file",
 	// D352, in the order a page needs them: bind it, set its type, its values,
 	// reorder its sections, then rename the aliases (a reorder lists headings
 	// as written, so it runs before the rename changes them).

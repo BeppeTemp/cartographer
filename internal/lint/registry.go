@@ -193,8 +193,9 @@ var registry = []CheckSpec{
 	{Name: "skill_git_command", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "skill_missing_perimeter", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "cross_kb_path", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	// A junk file is deleted; missing_instructions has no file to key on.
-	{Name: "junk_file", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	// A tracked junk file is untracked, never content, so the fix needs no
+	// person (#1377); missing_instructions has no file to key on.
+	{Name: "junk_file", Level: LevelArtifact, Panel: true, FixKinds: []string{FixUntrackJunk}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	// No write can create a symlink, so the check is not avoidable at write.
 	{Name: "symlinked_path", Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
 	{Name: "junk_asset", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
@@ -286,14 +287,15 @@ func ArtifactPanelCheck(check string) bool {
 // MapRepairCheck reports whether a fixable check's findings name a data/ folder
 // or a map's index rather than a concept (unmapped_folder, D357: its repair
 // writes the folder's descriptor; index_lists_retired, D366: it drops an entry
-// from the index; contract_legacy_key, D907: it rewrites the descriptor).
+// from the index; contract_legacy_key, D907: it rewrites the descriptor;
+// legacy_skill_name and junk_file, #1377: it moves or untracks a KB-root path).
 func MapRepairCheck(check string) bool {
 	s, ok := Spec(check)
 	if !ok {
 		return false
 	}
 	for _, k := range s.FixKinds {
-		if k == FixScaffoldMap || k == FixDropIndexEntry || k == FixRewriteContract || k == FixMoveSkill {
+		if k == FixScaffoldMap || k == FixDropIndexEntry || k == FixRewriteContract || k == FixMoveSkill || k == FixUntrackJunk {
 			return true
 		}
 	}

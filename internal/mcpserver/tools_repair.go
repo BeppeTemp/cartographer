@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -516,11 +517,16 @@ type mapRepairTarget struct {
 	// MoveFrom and MoveTo, when set, make the target a skill directory that
 	// moves to its post-D958 name (legacy_skill_name).
 	MoveFrom, MoveTo string
+	// Untrack, when set, makes the target a junk file git tracks, which leaves
+	// the index (junk_file, #1377).
+	Untrack string
 }
 
 // key is what the target's finding path is, for the limit filter.
 func (t mapRepairTarget) key() string {
 	switch {
+	case t.Untrack != "":
+		return t.Untrack
 	case t.MoveFrom != "":
 		return t.MoveFrom
 	case t.Artifact != "":
@@ -561,6 +567,8 @@ func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairIt
 			}
 		case lint.FixMoveSkill:
 			targets = append(targets, mapRepairTarget{MoveFrom: f.Fix.Field, MoveTo: f.Fix.To})
+		case lint.FixUntrackJunk:
+			targets = append(targets, mapRepairTarget{Untrack: f.Fix.Field})
 		default:
 			continue
 		}
@@ -583,6 +591,14 @@ func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairIt
 // target the plan no longer applies to. The caller holds the KB lock (gitWrap).
 func applyMapRepair(k *kb.KB, targets []mapRepairTarget) (applied []mapRepairTarget, skipped []repairSkip) {
 	for _, t := range targets {
+		if t.Untrack != "" {
+			if err := untrackJunk(k, t.Untrack); err != nil {
+				skipped = append(skipped, repairSkip{t.key(), err.Error()})
+				continue
+			}
+			applied = append(applied, t)
+			continue
+		}
 		if t.MoveFrom != "" {
 			if err := moveLegacySkill(k, t.MoveFrom, t.MoveTo); err != nil {
 				skipped = append(skipped, repairSkip{t.key(), err.Error()})
@@ -630,6 +646,28 @@ func applyMapRepair(k *kb.KB, targets []mapRepairTarget) (applied []mapRepairTar
 		applied = append(applied, t)
 	}
 	return applied, skipped
+}
+
+// untrackJunk takes a junk file out of the index (junk_file, #1377) and leaves
+// it on disk. The commit that follows stages with git add -A, so a file no
+// ignore rule covers would be tracked again: that is refused, not reported as
+// applied. kb.Open puts every junk pattern in .git/info/exclude, so the refusal
+// means that file could not be written (a .git that is not a directory).
+func untrackJunk(k *kb.KB, rel string) error {
+	if !kb.IsJunkPath(rel) {
+		return fmt.Errorf("%s is not a junk file", rel)
+	}
+	if !gitx.IsRepo(k.Root) {
+		return fmt.Errorf("the KB is not a git repository: delete %s", rel)
+	}
+	ignored, err := gitx.IgnoredPaths(k.Root, []string{rel})
+	if err != nil {
+		return err
+	}
+	if len(ignored) == 0 {
+		return fmt.Errorf("no ignore rule covers %s, so the next commit would track it again; add its pattern to .git/info/exclude", rel)
+	}
+	return gitx.RemoveCached(k.Root, rel)
 }
 
 // dropArtifactFrontmatterKey removes one frontmatter key of a KB-root artifact
