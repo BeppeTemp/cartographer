@@ -79,3 +79,17 @@ func TestStrictTypeRule_NeverRefusesAPageThatKeepsItsType(t *testing.T) {
 	// Moving the page to a declared type is the way out.
 	callOK(t, s, "concept_patch", fmt.Sprintf(`{"id":"jr/bad","if_match":%q,"frontmatter":{"type":"Note"}}`, hashOf(t, k, "jr/bad")))
 }
+
+// The refusal an improvising agent sees names every type the map admits, one
+// or several (D1318), so it can pick one without another call.
+func TestStrictTypeRule_RefusalNamesEveryDeclaredType(t *testing.T) {
+	t.Parallel()
+	s, k := conceptNewTemplateKB(t, map[string]string{"topic": timestampTemplate})
+	if err := k.CreateMapWithContract("two", "Two", "journal", []string{"Note", "Source"}, kb.MapContract{}); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, s, "concept_write", `{"id":"two/c","frontmatter":{"type":"Contradiction","title":"C"},"body":"# C\n"}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "declared types: Note, Source") {
+		t.Fatalf("refusal must list both declared types: %+v", res.Content)
+	}
+}
