@@ -47,7 +47,7 @@ and patch the body per section.
 
 ### 4. Place
 For each fact find the page that owns its subject: `search`, `graph_context`, and `link_suggest`
-for placement. Read it (`concept_read`, with the hit's `section` when it names one, the whole page when it says `read: "whole"`); when its current content is surprising, `concept_history`
+for placement. Read it (`concept_read`); when its current content is surprising, `concept_history`
 shows how it got there. Decide one of: **patch** the owning page, **create** a page (only when no
 page owns the subject), open a **contradiction**, or **skip** (already known).
 

@@ -34,12 +34,6 @@ func relatedSearch(t *testing.T, s *Server, args string) (map[string]interface{}
 	return decodeJSON(t, text), text
 }
 
-func relatedSearchOK(t *testing.T, s *Server, args string) map[string]interface{} {
-	t.Helper()
-	out, _ := relatedSearch(t, s, args)
-	return out
-}
-
 func relatedIDs(out map[string]interface{}) []string {
 	v, ok := out["related"]
 	if !ok {
@@ -84,7 +78,7 @@ func TestSearchRelated_AFailedGraphReadOmitsTheBlock(t *testing.T) {
 func TestSearchRelated_AddsLinkedPagesWithoutTouchingTheHits(t *testing.T) {
 	t.Parallel()
 	s := graphToolKB(t, relatedKB())
-	with, _ := relatedSearch(t, s, `{"query":"zeppelin","related":5}`)
+	with, _ := relatedSearch(t, s, `{"query":"zeppelin"}`)
 	without, _ := relatedSearch(t, s, `{"query":"zeppelin","related":0}`)
 
 	a, _ := json.Marshal(with["results"])
@@ -96,9 +90,12 @@ func TestSearchRelated_AddsLinkedPagesWithoutTouchingTheHits(t *testing.T) {
 		t.Fatalf("related: 0 still returned a block: %v", without["related"])
 	}
 
+	// The block is on by default, with 5 entries (D781; D1354 restored it). The
+	// literal is deliberate: asserting searchRelatedDefault would pass for any
+	// value, including the 0 of D1185.
 	ids := relatedIDs(with)
 	if len(ids) != 5 {
-		t.Fatalf("related:5 block has %d entries, want 5: %v", len(ids), ids)
+		t.Fatalf("default block has %d entries, want 5: %v", len(ids), ids)
 	}
 	if contains(ids, "ops/alpha") {
 		t.Fatalf("the hit is repeated in related: %v", ids)
@@ -163,7 +160,7 @@ func TestSearchRelated_SizeAndKnob(t *testing.T) {
 		args string
 		want int
 	}{
-		{`{"query":"zeppelin"}`, 0}, // off unless asked (D1185)
+		{`{"query":"zeppelin"}`, 5}, // on by default (D781, restored by D1354)
 		{`{"query":"zeppelin","related":3}`, 3},
 		{`{"query":"zeppelin","related":2}`, 2},
 		{`{"query":"zeppelin","related":0}`, 0},
@@ -175,15 +172,12 @@ func TestSearchRelated_SizeAndKnob(t *testing.T) {
 		}
 	}
 
-	out, text := relatedSearch(t, s, `{"query":"zeppelin","related":5}`)
+	out, text := relatedSearch(t, s, `{"query":"zeppelin"}`)
 	block, _ := json.Marshal(out["related"])
 	if len(block) > 1024 {
-		t.Errorf("a 5-entry block is %d bytes, over 1 KiB:\n%s", len(block), block)
+		t.Errorf("the default block is %d bytes, over 1 KiB:\n%s", len(block), block)
 	}
-	if _, ok := relatedSearchOK(t, s, `{"query":"zeppelin"}`)["related"]; ok {
-		t.Error("search without related carries a block")
-	}
-	if again, _ := callJSON(t, s, adminCtx, "search", `{"query":"zeppelin","related":5}`); again != text {
+	if again, _ := callJSON(t, s, adminCtx, "search", `{"query":"zeppelin"}`); again != text {
 		t.Error("search with a related block is not deterministic")
 	}
 }

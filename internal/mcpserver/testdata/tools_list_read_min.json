@@ -7,7 +7,7 @@
         "idempotentHint": false,
         "readOnlyHint": true
       },
-      "description": "Keyword search over concepts; returns IDs, best first (all terms preferred, then OR fallback). Default 8 hits; related: N adds the neighbourhood of the hits. A hit's section (named only on pages over 2048 bytes) goes to concept_read section; read: \"whole\" means read it whole. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name.",
+      "description": "Keyword search over concepts; returns IDs, best first (all terms preferred, then OR fallback). A hit with read: \"whole\" is read whole. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name.",
       "inputSchema": {
         "properties": {
           "include_archived": {

@@ -323,7 +323,7 @@ Read-whole key (D1207), read by `search`, not by lint:
 
 | Key | Meaning | Default |
 |---|---|---|
-| `read_whole: [...]` | concept types whose pages are read whole: a `search` hit on one carries `read: "whole"` and names no section | none |
+| `read_whole: [...]` | concept types whose pages are read whole: a `search` hit on one carries `read: "whole"` | none |
 
 A page of a journal (`kind: journal`: incidents and every dated log) is read whole whatever this lists; the type vocabulary is the KB's, the server ships none. `read_whole` is a non-empty list of types, matched exactly and case-sensitively like `required_fields.<Type>`; anything else is `contract_malformed`. It checks nothing, so it is not a rule and dropping an entry is no loosening. `map_create` and `map_update` set it.
 

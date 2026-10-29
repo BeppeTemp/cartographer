@@ -246,8 +246,8 @@ func ListHeadings(body string) []Heading {
 	return headings
 }
 
-// Section is one level-2 section of a body: what a search hit names so that
-// concept_read can return just it.
+// Section is one level-2 section of a body: search excerpts a large page's
+// snippet from the best-matching one, and a hit does not name it (D1354).
 type Section struct {
 	// Heading is the heading line exactly as ExtractSection accepts it
 	// ("## Title", level marks included).

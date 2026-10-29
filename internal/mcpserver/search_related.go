@@ -12,10 +12,10 @@ import (
 // reach, offered with the hits so an agent sees the pages beside its answer
 // without having to know graph_context exists. It never touches the hits.
 const (
-	// searchRelatedDefault is the block's size when the caller does not say:
-	// 0, the block is off unless asked with `related: N` (D1185, which flipped
-	// the 5 of D781; the parameter is unchanged).
-	searchRelatedDefault = 0
+	// searchRelatedDefault is the block's size when the caller does not say
+	// (D781; D1185 had turned it off, D1354 restored it). Flipping it to 0
+	// turns the block off by default and keeps the parameter.
+	searchRelatedDefault = 5
 	// searchRelatedMax bounds what a caller can ask for: ~150 bytes an entry.
 	searchRelatedMax = 10
 )
@@ -31,7 +31,7 @@ type relatedHit struct {
 }
 
 // relatedLimit is the block size a `related` argument asks for: absent is the
-// default (off), 0 turns the block off, anything above the maximum is the maximum.
+// default, 0 turns the block off, anything above the maximum is the maximum.
 func relatedLimit(arg *int) int {
 	if arg == nil {
 		return searchRelatedDefault
