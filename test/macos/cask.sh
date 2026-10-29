@@ -36,10 +36,22 @@ trap cleanup EXIT
 
 if brew list --cask cartographer >/dev/null 2>&1; then mac_fail "a cartographer cask is already installed here"; fi
 
+# Every brew call here fails through mac_fail with its own output (#1386): a bare
+# failure under set -e ended the script with no message. One bounded retry,
+# because the runner's Homebrew can fail transiently.
+brew_out() {
+  local out
+  out=$("$@" 2>&1) && { printf '%s' "$out"; return 0; }
+  echo "retrying once after: $out" >&2
+  sleep 5
+  out=$("$@" 2>&1) || mac_fail "$* failed: $out"
+  printf '%s' "$out"
+}
+
 echo "→ the local tap"
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_FROM_API=1 HOMEBREW_NO_ANALYTICS=1
-brew tap-new "$tap" --no-git >/dev/null
-tap_dir=$(brew --repository "$tap")
+brew_out brew tap-new "$tap" --no-git >/dev/null
+tap_dir=$(brew_out brew --repository "$tap")
 mkdir -p "$tap_dir/Casks"
 
 # The Cask's binary stanza names the downloaded file after the release asset
@@ -62,7 +74,7 @@ other=$(diff "$cask_src" "$tap_dir/Casks/cartographer.rb" | grep '^[<>]' | grep 
 grep -q "file://$asset" "$tap_dir/Casks/cartographer.rb" || mac_fail "the url was not rewritten"
 
 echo "→ install"
-caveats=$(brew info --cask "$tap/cartographer" 2>&1)
+caveats=$(brew_out brew info --cask "$tap/cartographer")
 case $caveats in *"cartographer setup"*) ;; *) mac_fail "caveats do not name 'cartographer setup'" ;; esac
 mac_ok "caveats name cartographer setup"
 if ! xattr -p com.apple.quarantine "$asset" >/dev/null 2>&1; then mac_fail "the control attribute was not set on $asset"; fi

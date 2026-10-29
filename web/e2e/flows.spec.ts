@@ -115,9 +115,25 @@ test("a wider reading panel keeps its close button right and reframes the select
     const b = (await label.boundingBox())!;
     return b.x + b.width / 2;
   };
-  // The focus lands at once under reduced motion; let the layout settle.
-  await page.waitForTimeout(500);
-  const before = await centre();
+  // Settle on the label itself, not on a clock: the reframe after the
+  // narrowing is over once the centre has held still for several samples (#1386).
+  const settled = async () => {
+    let last = NaN;
+    let still = 0;
+    await expect
+      .poll(
+        async () => {
+          const c = await centre();
+          still = Math.abs(c - last) < 0.5 ? still + 1 : 0;
+          last = c;
+          return still;
+        },
+        { intervals: [100], timeout: 10_000 },
+      )
+      .toBeGreaterThanOrEqual(5);
+    return last;
+  };
+  const before = await settled();
 
   await dragEdge(page, -100);
   await expect(handle).toHaveAttribute("aria-valuenow", String(start + 100));
