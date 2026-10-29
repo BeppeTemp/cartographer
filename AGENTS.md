@@ -17,13 +17,13 @@ make smoke-http      # operator-level HTTP smoke test (creates temp KBs via curl
 make e2e             # deterministic HTTP/CLI end-to-end scenarios
 make test-install    # network-free install.sh/Cask packaging suite + goreleaser guard
 make docker          # build Docker image
-make clean           # removes bin/ and demo-kb/
+make clean           # remove bin/ and demo-kb/
 
 make decisions-new N=<issue> SLUG=my-choice TOPIC=control-plane   # D<n> = plan issue (or PR) number
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
-make worktree-clean [DRY=1]        # remove worktrees and branches of merged PRs, each checked
+make worktree-clean [DRY=1]        # remove worktrees of merged PRs, each checked
 make dev [DATA=<data dir>]         # live instance: Go rebuilt on change, UI hot-reloaded
 ```
 
@@ -38,17 +38,16 @@ Protocol: JSON-RPC 2.0. Stdio = newline-delimited. HTTP = POST /mcp. Logs on std
 
 ## Rules that apply everywhere
 
-Structural questions about the code (where does X live, who calls Y, what does Z depend on) are answered with targeted Grep/Explore, then reading only the indicated `file:line` locations.
+Structural questions about the code (where does X live, who calls Y) are answered with targeted Grep/Explore, then reading only the indicated `file:line` locations.
 
 - the **why** lives in `docs/decisions/`, one file per decision (`ls docs/decisions/D47-*`), current behavior in `docs/` (map in `docs/index.md`);
-- in mandates to a coding subagent include the `file:line` pointers already derived: the subagent should not re-explore from scratch.
+- mandates to a coding subagent include the `file:line` pointers already derived.
 
 ## Areas
 
-Two areas carry invariants you cannot derive from the code, so they have their own
-`AGENTS.md`, with a one-line `CLAUDE.md` import beside it (D213). Read it before
-editing there: Claude Code loads it on its first read of a file in that directory,
-the other clients are sure to have it only if launched at or below that directory:
+Two areas carry invariants you cannot derive from the code, each with its own `AGENTS.md`
+and a one-line `CLAUDE.md` import (D213). Read it before editing there: Claude Code loads it
+on its first read of a file in that directory, other clients only if launched at or below it:
 
 - `internal/mcpserver/AGENTS.md` — how to add a tool, and the three things about
   scopes, locking and commits that a handler must not do itself.
@@ -102,6 +101,7 @@ internal/testtree       snapshots a directory tree in memory and restores it els
 internal/updatecheck    answers whether a newer Cartographer release exists and how this binary is upgraded (D254)
 internal/webui          serves the embedded read-only Atlas UI (D227)
 internal/webui/gen      Command webui-provenance writes internal/webui/dist/provenance.json with the hash of the web/ source…
+internal/worker         is the model client and the allowlisted agent loop a worker runs against a KB's MCP server (D9)
 ```
 <!-- codemap:end -->
 
@@ -111,28 +111,28 @@ Not duplicated here:
 
 | Need | Source of truth |
 |---|---|
-| Full doc map + reading paths | `docs/index.md` (read that first, then only the relevant pages) |
+| Doc map + reading paths | `docs/index.md` (read first, then only the relevant pages) |
 | Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
 | Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`. The generated list is `docs/decisions.md` |
-| Working with an agent client (this repo is developed with Claude Code, D992) | `CONTRIBUTING.md` §Working with an agent client |
+| Working with an agent client (D992) | `CONTRIBUTING.md` §Working with an agent client |
 | List of MCP tools | `docs/control-plane.md` §MCP API |
-| `CARTOGRAPHER_*` env vars, YAML config, deploy | `docs/deployment.md` |
+| Env vars, YAML config, deploy | `docs/deployment.md` |
 | Client subcommands / TUI | `docs/configurator.md` |
-| Test strategy and pre-release checklist | `docs/testing.md` |
+| Test strategy, pre-release checklist | `docs/testing.md` |
 | Go conventions | `docs/conventions.md` |
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web`, `pr-title` and `plan-gate` checks, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
+- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web`, `pr-title`, `plan-gate`; squash-merge only). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
 - Isolable code may be delegated to a coding subagent; the coordinator verifies `make gate`.
-- **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts and remotes → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter: a hit already left a public revision (D259).
-- **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code if it is about that code, otherwise one line in the area `AGENTS.md` or in the skill of the procedure (D214); one decision file per architectural or contract choice (D672).
-- Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (a `bug` issue is promoted to one in place; ideas go to Discussions) (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). A plan is a proposal until a maintainer adds `approved`: no agent implements one without it, and none adds it unasked. The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
-- **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor; the skills check it, a contributor's agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
-- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** on a running instance with the user, landing one PR (`cartographer-develop-live` skill).
-- A PR is reviewed with the `cartographer-review-pr` skill: scripted triage first, code read by the `cartographer-contract-reviewer` subagent, the coordinator verifies only the lines its findings cite. Size cap and approved-plan rule: `CONTRIBUTING.md` §Pull requests.
-- Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here; the weekly calendar is in `CONTRIBUTING.md` §Releases.
-- **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Documentation maintenance rules: use it for every change.
+- **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter (D259).
+- **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code, otherwise one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).
+- Design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained issue from the `Plan` template, label `plan` (a `bug` issue is promoted in place; ideas go to Discussions; procedure in `CONTRIBUTING.md` §Plan issues). A plan is a proposal until a maintainer adds `approved`: no agent implements one without it, and none adds it unasked. The implementing PR closes it (`Closes #<n>`).
+- **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor whose agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
+- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user, landing one PR (`cartographer-develop-live` skill).
+- A PR is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap and approved-plan rule: `CONTRIBUTING.md` §Pull requests.
+- Releases (release-please PR merge, pipeline, rollout) → maintainer-local tooling, not versioned here; the weekly calendar is in `CONTRIBUTING.md` §Releases.
+- **Documentation is updated in the same session as the code — never afterward.** The "what changes → which file" table is in `docs/index.md` §Documentation maintenance rules.
 - Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its plan issue or PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).
-- Project status and backlog live in GitHub issues, pull requests and releases; user-visible completed work lives in `CHANGELOG.md`.
-- **This file is stable imprinting**: no mutable state, versions, counts or changelog here. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 lines of hand-written text (generated blocks excluded) or 12.000 characters in total, because past that a client starts dropping instructions without saying so.
+- Status and backlog live in GitHub issues, PRs and releases; user-visible completed work in `CHANGELOG.md`.
+- **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks excluded) or 12.000 characters in total: past that a client drops instructions silently.
