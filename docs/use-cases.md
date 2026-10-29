@@ -46,6 +46,16 @@ a claim the source disputes, records unknowns as gaps, and closes with `gate_che
 `log_append`. A plan touching more than 5 pages or creating more than 2 is shown to the operator
 before any write. The agent reads the source; the server never does.
 
+## Ingest a large corpus as a campaign
+
+Hundreds of sources (a documentation site, a ticket archive, a set of feeds) are not ingested
+one at a time by hand. The bundled `cartographer-kb-ingest-plan` skill (D1256) is run by a large model with the
+operator: it collects the sources, designs the Maps and the subject-ownership table, writes an `IngestPlan`
+and one self-contained `IngestUnit` per source, and waits for approval. Small or local models then execute
+the units one each with `cartographer-kb-ingest` in unit mode, claiming them from `work_list` with an
+`if_match` patch, while the planner reviews a sample of the done units. When the corpus is already a wiki to
+be mapped wholesale, use `cartographer-kb-import` instead.
+
 ## Keep an old KB aligned with the current standard
 
 A KB whose pages predate the conventions, or were written by agents that never saw them, drifts: synonym

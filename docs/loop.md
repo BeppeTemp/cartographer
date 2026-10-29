@@ -92,7 +92,7 @@ else same `locator`) was already ingested, and `source_list` shows what is still
 ingested`, `ingested_at`). `lint` flags an ingested source nobody cites
 (`source_uncited`). The ledger is bookkeeping: the server never fetches or copies
 the source (D278). The bundled `cartographer-kb-ingest` skill runs this whole step as one procedure — register,
-distil, patch the owning pages, cite, record gaps, verify, close — for any new primary source (D279).
+distil, patch the owning pages, cite, record gaps, verify, close — for any new primary source (D279); a campaign of many sources is planned first with `cartographer-kb-ingest-plan` (D1256).
 
 ## The maintenance loop
 
