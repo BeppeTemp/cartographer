@@ -1,7 +1,7 @@
 ---
 name: cartographer-kb-ingest
 description: Ingest ONE primary source of any kind (document, meeting transcript or notes, chat thread, ticket or issue, incident timeline, email, web page, dataset) into an existing Cartographer KB - register it, merge its content into the pages that own the subject, record unknowns and contradictions, and leave a trace of which pages came from which source.
-version: "1.3"
+version: "1.4"
 ---
 # KB Ingest — Skill
 
@@ -22,7 +22,29 @@ pages came from which source.
 
 A new document, transcript, thread, ticket, incident timeline, email, web page or dataset must
 become KB knowledge. Not for importing a whole wiki (`cartographer-kb-import`), creating a KB (`cartographer-kb-create`)
-or server operations (`cartographer-ops`).
+or server operations (`cartographer-ops`). A campaign of many sources is planned with `cartographer-kb-ingest-plan`, whose units are executed here in unit mode.
+
+## Unit mode
+
+The prompt names an `IngestUnit` concept ID: this section is the whole job; skip the Procedure.
+1. `concept_read` the unit. Not `open`, or `in-progress` with `review_after` today or later and
+   `claimed_by` not you: stop and report.
+2. Claim (unless `claimed_by` is already you): `concept_patch` with `if_match` = the hash just read,
+   `status: in-progress`, `claimed_by`, `claimed_at` (RFC3339), `review_after` = today plus the lease
+   in days (default 1). `stale_write`: someone else has it; stop and report, never retry.
+3. Read the Source (`source`) and the `targets`. Do **exactly** what `extract` says for each target:
+   patch an existing one, create one only if the unit lists it as new. **Touch no page outside
+   `targets`.** If the unit looks wrong (a target missing, the source unreadable, `extract` against
+   the page), `concept_patch` it `status: blocked` with `waiting_on` and `review_after`, and stop.
+4. Each write has a `reason` naming the Source ID, and the Source ID in the page's `provenance`. Link,
+   don't copy. A write-gate refusal (D907) is fixed and retried, never worked around. A fact that
+   contradicts a page is an open `Contradiction` (`contradiction_kind` a real contradiction kind), the
+   page left as is; an unknown is `open_question` or `missing_context`. Credentials never go in a page.
+5. Skip the checkpoint of step 5: the plan was approved upstream (it does not cover pages outside `targets`).
+6. `gate_check` with `changed_ids` = the pages written; fix what is yours; do the unit's `verify`.
+7. `concept_patch` the unit (`if_match`): `status: done`, `unset: [review_after]`, the digest as `reason`.
+   Report the digest in under 10 lines: pages touched, gaps, contradictions. Do not mark the Source
+   ingested and do not `log_append`: the planner does.
 
 ## Procedure
 
@@ -92,7 +114,7 @@ left for the operator: they block the gate on purpose.
 ## Rules
 
 - **Never ingest the same source twice**: registration decides, not memory.
-- **One source per run.**
+- **One source per run.** In unit mode the unit is the whole mandate.
 - **Patch over create**: a fact goes into the page that owns its subject.
 - **Never delete or rewrite an existing claim because a source disagrees.** Open a
   `Contradiction` whose `contradiction_kind` is a real contradiction kind (not a gap kind), with
