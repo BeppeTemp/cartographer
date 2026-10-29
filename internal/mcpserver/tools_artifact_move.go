@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -363,6 +364,10 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 			if err != nil {
 				return refuse("%s: %v", u.rel, err)
 			}
+			// Junk (a Finder .DS_Store, a .pyc) is no part of an artifact: it is
+			// never carried and never a reason to refuse (#1377). The source
+			// directory is removed whole, so it goes with it.
+			u.files = slices.DeleteFunc(u.files, func(f transferFile) bool { return kb.IsJunkPath(f.rel) })
 			if len(u.files) == 0 {
 				return refuse("%s has no files: git cannot carry an empty directory", u.rel)
 			}
@@ -385,6 +390,7 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 		if err != nil {
 			return refuse("%s: cannot tell which files git ignores: %v", u.rel, err)
 		}
+		ignored = slices.DeleteFunc(ignored, kb.IsJunkPath)
 		if len(ignored) > 0 {
 			return refuse("%s holds files git ignores (%s): they would not be committed and would be lost; remove or un-ignore them first", u.rel, strings.Join(ignored, ", "))
 		}

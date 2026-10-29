@@ -421,6 +421,13 @@ func planArtifactRepair(k *kb.KB, check, scope string) ([]artifactRepairTarget, 
 		if t == nil && f.Fix.Kind == lint.FixUntrack {
 			// A tracked junk file is untracked, not rewritten: no content hash
 			// to guard, and the file may already be gone from the working tree.
+			// The path still goes through the checks every artifact fix has.
+			if _, rerr := k.ResolveRootPath(f.Path); rerr != nil {
+				continue
+			}
+			if rerr := rejectArtifactSymlinks(k.Root, f.Path); rerr != nil {
+				continue
+			}
 			t = &artifactRepairTarget{Path: f.Path}
 			byPath[f.Path] = t
 		}
@@ -538,6 +545,8 @@ func applyUntrack(k *kb.KB, targets []artifactRepairTarget) (applied []artifactR
 	var rm []string
 	for _, t := range targets {
 		switch {
+		case rejectArtifactSymlinks(k.Root, t.Path) != nil:
+			skipped = append(skipped, repairSkip{t.Path, "path not allowed: symlink"})
 		case !kb.IsJunkPath(t.Path):
 			skipped = append(skipped, repairSkip{t.Path, "not a junk path"})
 		case !tracked[t.Path]:

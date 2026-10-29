@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,5 +73,29 @@ func TestRepair_JunkFileUntracks(t *testing.T) {
 	again := repairCall(t, s, `{"check":"junk_file"}`)
 	if again["found_total"].(float64) != 0 {
 		t.Errorf("finding remains: %v", again)
+	}
+}
+
+// A tracked file whose name is a glob is untracked alone: the names go to git
+// as literal paths, never as pathspecs.
+func TestRepair_JunkFileUntrackIsLiteral(t *testing.T) {
+	t.Parallel()
+	k, _ := repairKB(t, 1)
+	_ = os.MkdirAll(filepath.Join(k.Root, "x"), 0o755)
+	for _, p := range []string{"x/*.pyc", "x/keep.pyc"} {
+		if err := os.WriteFile(filepath.Join(k.Root, filepath.FromSlash(p)), []byte("j"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitOut(t, k, "add", "-f", p)
+	}
+	tracked, err := gitx.TrackedPaths(k.Root, "x/*.pyc")
+	if err != nil || len(tracked) != 1 || !tracked["x/*.pyc"] {
+		t.Fatalf("TrackedPaths = %v, %v: want only the glob-named file", tracked, err)
+	}
+	if err := gitx.Untrack(k.Root, "x/*.pyc"); err != nil {
+		t.Fatal(err)
+	}
+	if tr := gitOut(t, k, "ls-files", "x"); !strings.Contains(tr, "keep.pyc") || strings.Contains(tr, "*.pyc") {
+		t.Errorf("tracked after untrack: %q", tr)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -150,21 +149,26 @@ func TestArtifactMove_ReferencesSkipAFileAboveTheScanCap(t *testing.T) {
 	xferClean(t, f.b)
 }
 
-// A junk file inside a moved unit never reaches the target as a finding: the
-// target excludes junk locally (#1377), so the move is refused up front, before
-// a file git would not commit is lost.
-func TestArtifactMove_RefusesJunkInAMovedUnit(t *testing.T) {
+// Junk inside a moved unit is no part of the artifact (#1377): an untracked
+// .DS_Store, which the local exclude makes an ignored file, neither refuses the
+// move nor reaches the target.
+func TestArtifactMove_LeavesJunkOfAMovedUnitBehind(t *testing.T) {
 	t.Parallel()
 	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
-	amWriteBytes(t, f.a, "skills/s/.DS_Store", []byte("x"), 0o644)
-	// Junk is excluded locally, so a tracked one needs -f.
-	if out, err := exec.Command("git", "-C", f.a.Root, "add", "-f", "skills/s/.DS_Store").CombinedOutput(); err != nil {
-		t.Fatalf("git add -f: %v: %s", err, out)
-	}
 	xferCommit(t, f.a)
+	amWriteBytes(t, f.a, "skills/s/.DS_Store", []byte("x"), 0o644)
+	amWriteBytes(t, f.a, "skills/s/__pycache__/m.pyc", []byte("x"), 0o644)
 	res := f.move(t, `{"target_kb":"kb-b","paths":["skills/s"]}`)
-	if !res.IsError || !strings.Contains(xferText(res), "ignore rules exclude skills/s/.DS_Store") {
-		t.Errorf("want the move refused for the ignored junk file, got error=%v %s", res.IsError, xferText(res))
+	if res.IsError {
+		t.Fatalf("artifact_move: %s", xferText(res))
+	}
+	if _, err := os.Stat(filepath.Join(f.b.Root, "skills", "s", "SKILL.md")); err != nil {
+		t.Errorf("the skill did not arrive: %v", err)
+	}
+	for _, p := range []string{"skills/s/.DS_Store", "skills/s/__pycache__/m.pyc"} {
+		if _, err := os.Stat(filepath.Join(f.b.Root, filepath.FromSlash(p))); err == nil {
+			t.Errorf("%s was carried to the target", p)
+		}
 	}
 }

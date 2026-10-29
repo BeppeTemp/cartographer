@@ -1215,14 +1215,14 @@ func ListFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-// TrackedPaths returns which of paths (slash-separated, relative to dir) git
+// TrackedPaths returns which of paths (taken literally, never as pathspecs) (slash-separated, relative to dir) git
 // tracks in the index.
 func TrackedPaths(dir string, paths ...string) (map[string]bool, error) {
 	out := map[string]bool{}
 	if len(paths) == 0 {
 		return out, nil
 	}
-	cmd := exec.Command("git", append([]string{"-C", dir, "ls-files", "-z", "--"}, paths...)...)
+	cmd := exec.Command("git", append([]string{"--literal-pathspecs", "-C", dir, "ls-files", "-z", "--"}, paths...)...)
 	cmd.Env = gitEnv(nil)
 	b, err := cmd.Output()
 	if err != nil {
@@ -1242,7 +1242,7 @@ func Untrack(dir string, paths ...string) error {
 	if len(paths) == 0 {
 		return nil
 	}
-	if out, err := runGit(dir, append([]string{"rm", "--cached", "-q", "--"}, paths...)...); err != nil {
+	if out, err := runGit(dir, append([]string{"--literal-pathspecs", "rm", "--cached", "-q", "--"}, paths...)...); err != nil {
 		return fmt.Errorf("git rm --cached: %w: %s", err, out)
 	}
 	return nil
