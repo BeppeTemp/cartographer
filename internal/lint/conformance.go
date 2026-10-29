@@ -487,6 +487,11 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 		if field != "status" && allDateShaped(counts) {
 			continue
 		}
+		// #1378: a commit SHA (source_revision) repeats across a batch of pages
+		// but changes at the next pass: it is a stamp, not a vocabulary.
+		if field != "status" && allSHAShaped(counts) {
+			continue
+		}
 		// #686: an identifier (every value its own, or a URL) is not a vocabulary.
 		if field != "status" && identifierValued(counts, len(carriers)) {
 			continue
@@ -651,6 +656,24 @@ func identifierValued(counts map[string]int, carriers int) bool {
 		}
 	}
 	return urls || (carriers >= identifierMinCarriers && len(counts) == carriers)
+}
+
+// allSHAShaped reports whether every value is a commit SHA: hex of 7 to 40
+// characters or 64 (SHA-256), either case (#1378). The test is on the shape,
+// never on the field name; digests with a prefix and semver are not matched.
+func allSHAShaped(counts map[string]int) bool {
+	for v := range counts {
+		n := len(v)
+		if n < 7 || (n > 40 && n != 64) {
+			return false
+		}
+		for _, r := range v {
+			if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+				return false
+			}
+		}
+	}
+	return len(counts) > 0
 }
 
 func allDateShaped(counts map[string]int) bool {

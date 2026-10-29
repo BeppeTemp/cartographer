@@ -323,3 +323,18 @@ func TestMissingValueContract_IdentifierFieldSkipped(t *testing.T) {
 		t.Error("a repeated-value field must still fire")
 	}
 }
+
+// #1378: a field of commit SHAs (the same one on a batch of pages) is a stamp,
+// no vocabulary; one non-hex value makes it a candidate again.
+func TestMissingValueContract_SHAFieldSkipped(t *testing.T) {
+	t.Parallel()
+	a, b := strings.Repeat("a", 40), strings.Repeat("B", 40)
+	shas := []string{a, a, b, b, b, b}
+	if msg := valueContractKBField(t, "", shas, "source_revision"); msg != "" {
+		t.Errorf("SHA field proposed a vocabulary: %q", msg)
+	}
+	mixed := append(append([]string{}, shas...), "main", "main")
+	if msg := valueContractKBField(t, "", mixed, "source_revision"); msg == "" {
+		t.Error("a field with a non-SHA value must still fire")
+	}
+}
