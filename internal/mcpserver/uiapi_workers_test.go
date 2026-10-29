@@ -379,3 +379,23 @@ func TestActivity_WhichCallsCount(t *testing.T) {
 		t.Fatal("kb-b moved")
 	}
 }
+
+// A stopped beat removes the declaration even when none of its KBs is still
+// writable for the principal (access revoked, KB unmounted).
+func TestWorkers_StoppedRemovesAfterAccessLost(t *testing.T) {
+	t.Parallel()
+	f := newWorkerFixture(t)
+	if rr := f.post(t, "worker-a", beat(nil)); rr.Code != http.StatusOK {
+		t.Fatalf("declare: %d", rr.Code)
+	}
+	if !f.multi.workers.hasLive("worker-a") {
+		t.Fatal("declaration missing")
+	}
+	delete(f.multi.servers, "kb-a")
+	if rr := f.post(t, "worker-a", beat(map[string]any{"state": "stopped"})); rr.Code != http.StatusNotFound {
+		t.Fatalf("stopped on an unmounted KB: %d, want 404", rr.Code)
+	}
+	if f.multi.workers.hasLive("worker-a") {
+		t.Fatal("stopped left the declaration live")
+	}
+}

@@ -309,6 +309,13 @@ func (m *MultiKBServer) handleWorkers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := auth.PrincipalFromContext(r.Context())
+	// A clean shutdown removes the caller's own declaration before the KB
+	// filter: with access revoked or the KB unmounted the beat would 404 and
+	// leave it live, excluding this principal from the idle signal. It touches
+	// only the caller's own entry, so it leaks nothing.
+	if beat.State == "stopped" {
+		m.workers.remove(p.ID, beat.Worker)
+	}
 	seen := map[string]bool{}
 	var accepted []string
 	for _, name := range beat.KBs {
@@ -327,9 +334,7 @@ func (m *MultiKBServer) handleWorkers(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(accepted)
 
 	now := m.workers.clock()
-	if beat.State == "stopped" {
-		m.workers.remove(p.ID, beat.Worker)
-	} else {
+	if beat.State != "stopped" {
 		interval := beat.IntervalSeconds
 		switch {
 		case interval == 0:
