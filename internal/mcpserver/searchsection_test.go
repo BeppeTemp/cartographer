@@ -17,6 +17,20 @@ func sectionPage(typ, title, term string) string {
 		typ, title, title, pad, term, pad, pad, pad)
 }
 
+// contrastPage is a page where the page's own excerpt and the best section's
+// differ on both backends: "Install" holds two close mentions of term (the
+// first one, and the densest window, so what the page excerpts itself), while
+// "Rollback" holds three, far apart (the section search ranks first, at one
+// mention per excerpt window), and both sections are as long, so the ranking
+// goes by the mentions. The marker words say which one an excerpt came from.
+func contrastPage(term string) string {
+	pad := strings.Repeat("filler words about nothing in particular. ", 10)
+	return fmt.Sprintf("---\ntype: Note\ntitle: Contrast\n---\n# Contrast\n\nIntro.\n\n"+
+		"## Install\ninstallmark %s %s\n%s\n%s\n%s\n%s\n\n"+
+		"## Rollback\nrollmark %s\n%s\n%s again\n%s\n%s again\n\n"+
+		"## Contacts\n%s\n", term, term, pad, pad, pad, pad, term, pad, term, pad, term, pad)
+}
+
 type sectionHit struct {
 	ID      string `json:"id"`
 	Snippet string `json:"snippet"`
@@ -63,6 +77,7 @@ func TestSearchExcerptsTheMatchedSectionWithoutNamingIt(t *testing.T) {
 		bigSection := "## Only\n" + strings.Repeat("zxqnearly filler text here. ", 100)
 		files := map[string]string{
 			"ops/guide.md":     sectionPage("Note", "Gateway Guide", "zxqterm"),
+			"ops/contrast.md":  contrastPage("zxqcontrast"),
 			"ops/runbook.md":   sectionPage("Runbook", "Gateway Runbook", "zxqrun"),
 			"incidents/e1.md":  sectionPage("Incident", "Outage", "zxqjournal"),
 			"ops/short.md":     "---\ntype: Note\ntitle: Short\n---\n## Rollback\nzxqshort is small\n",
@@ -82,6 +97,16 @@ func TestSearchExcerptsTheMatchedSectionWithoutNamingIt(t *testing.T) {
 		}
 		if !strings.Contains(h.Snippet, "zxqterm") {
 			t.Errorf("snippet %q must excerpt the matched part", h.Snippet)
+		}
+
+		// The snippet is the excerpt of the section that matched best, not of
+		// the page: here the page's own excerpt would come from another one.
+		h, ok = searchSectionHits(t, s, "zxqcontrast")["ops/contrast"]
+		if !ok || h.Read != "" {
+			t.Fatalf("ops/contrast hit = %+v ok=%v, want a plain hit", h, ok)
+		}
+		if !strings.Contains(h.Snippet, "rollmark") || strings.Contains(h.Snippet, "installmark") {
+			t.Errorf("snippet %q must excerpt the best section (Rollback), not the page's first match (Install)", h.Snippet)
 		}
 
 		// Read-whole: a journal entry, and a type listed in the map's read_whole.
