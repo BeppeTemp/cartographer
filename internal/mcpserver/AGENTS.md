@@ -64,3 +64,6 @@ test or a decision record: none of them is a preference.
   exactly when it has one, and no setting turns it off). Use a bare repository in
   `t.TempDir()`, or an address that refuses at once such as `127.0.0.1:1`; never a real
   host, which a read or a write would then contact.
+- **`kb_guide {}` stays the whole guide**, whatever `initialize` carries (D1100, D1316): it
+  is the only route for a host that drops `initialize.instructions`. Tell the agent it
+  already holds the text; never empty the fallback.

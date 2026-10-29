@@ -33,19 +33,83 @@ func fiveArchives() provisioning.GuideKB {
 // the tool descriptions: pin the neutral part, curated bodies are outside it.
 func TestRenderGuide_Budget(t *testing.T) {
 	const (
-		sectionBudget = 1782 // bytes: measured 1620 (D1100 added the kb_guide line), plus at most 10 %
+		sectionBudget = 2332 // bytes: measured 2120 with the three procedures listed (#1316, D285; was 1782 for 1620), plus at most 10 %
 		routingBudget = 338  // bytes: measured 308 (five archives), plus at most 10 %
 	)
-	section := provisioning.GuideOperational(false)
+	section := provisioning.GuideOperational(false, guideProcs())
 	t.Logf("operational section: %d bytes", len(section))
-	if len(section) > sectionBudget || len(section) > 2048 {
+	if len(section) > sectionBudget || len(section) > 2400 {
 		t.Errorf("the guide's operational section is %d bytes, over its budget of %d: it is paid by every handshake of every connection, trim it or raise the budget deliberately", len(section), sectionBudget)
 	}
-	full := provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{Routed: true})
+	full := provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{Routed: true, Procedures: guideProcs()})
 	routing := strings.TrimSuffix(strings.TrimSuffix(full, section), "\n\n")
 	t.Logf("routing paragraph: %d bytes", len(routing))
 	if len(routing) > routingBudget || len(routing) > 512 {
 		t.Errorf("a KB's routing paragraph is %d bytes, over its budget of %d: it is paid by every handshake of every connection, trim it or raise the budget deliberately", len(routing), routingBudget)
+	}
+}
+
+func guideProcs() []provisioning.ProcedureLine {
+	var out []provisioning.ProcedureLine
+	for _, p := range skillbundle.Procedures() {
+		out = append(out, provisioning.ProcedureLine{Short: p.Short, UseWhen: p.UseWhen})
+	}
+	return out
+}
+
+// #1316: the cold-start section, only for a writer on an empty KB whose maps
+// are none and none hidden, and that did not opt out; D285 budget for it.
+func TestRenderGuide_ColdStart(t *testing.T) {
+	const marker = "This KB is empty."
+	const coldBudget = 302 // bytes: measured 274, plus at most 10 % (D285)
+	empty := provisioning.GuideKB{Name: "kb-a"}
+	cases := []struct {
+		name string
+		kb   provisioning.GuideKB
+		opts provisioning.GuideOptions
+		want bool
+	}{
+		{"empty routed", empty, provisioning.GuideOptions{Routed: true}, true},
+		{"empty per-KB", empty, provisioning.GuideOptions{}, true},
+		{"read-only", empty, provisioning.GuideOptions{ReadOnly: true}, false},
+		{"hidden maps", provisioning.GuideKB{Name: "kb-a", ArchivesHidden: true}, provisioning.GuideOptions{}, false},
+		{"with maps", provisioning.GuideKB{Name: "kb-a", Archives: []string{"notes"}}, provisioning.GuideOptions{}, false},
+		{"preamble none", provisioning.GuideKB{Name: "kb-a", SkipPreamble: true, Curated: "x"}, provisioning.GuideOptions{}, false},
+	}
+	for _, c := range cases {
+		g := provisioning.RenderGuide([]provisioning.GuideKB{c.kb}, c.opts)
+		if got := strings.Contains(g, marker); got != c.want {
+			t.Errorf("%s: cold start present = %v, want %v:\n%s", c.name, got, c.want, g)
+		}
+	}
+	g := provisioning.RenderGuide([]provisioning.GuideKB{empty}, provisioning.GuideOptions{})
+	i := strings.Index(g, marker)
+	section := g[i:strings.Index(g, "Operational instructions:")]
+	t.Logf("cold-start section: %d bytes", len(section))
+	if len(section) > coldBudget || len(section) > 450 {
+		t.Errorf("the cold-start section is %d bytes, over its budget of %d (D285)", len(section), coldBudget)
+	}
+	for _, frag := range []string{"`map_create`", "kebab-case", "journal", "services", "`services/<id>`", "`concept_write`"} {
+		if !strings.Contains(section, frag) {
+			t.Errorf("the cold-start section lacks %q:\n%s", frag, section)
+		}
+	}
+}
+
+func TestRenderGuide_ProceduresList(t *testing.T) {
+	g := provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{Procedures: guideProcs()})
+	for _, frag := range []string{"`ingest`", "`conflict-resolve`", "`import`", "`procedure: <name>`", "the whole guide"} {
+		if !strings.Contains(g, frag) {
+			t.Errorf("guide lacks %q:\n%s", frag, g)
+		}
+	}
+	none := provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{})
+	if strings.Contains(none, "procedure: <name>") || !strings.Contains(none, "the whole guide") {
+		t.Errorf("no procedures: no list, but still the whole-guide line:\n%s", none)
+	}
+	ro := provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{ReadOnly: true, Procedures: guideProcs()})
+	if !strings.Contains(ro, "`ingest`") {
+		t.Errorf("a read-only guide keeps the list:\n%s", ro)
 	}
 }
 
@@ -77,7 +141,7 @@ func TestRenderGuide_TwoKBsInGivenOrder(t *testing.T) {
 	if !(ops > b && strings.Index(g, "Rules of A.") > ops && strings.Index(g, "Rules of B.") > strings.Index(g, "Rules of A.")) {
 		t.Errorf("order must be routing, bullets, curated A, curated B:\n%s", g)
 	}
-	if !strings.Contains(g, "No archives detected yet.") {
+	if !strings.Contains(g, "No maps yet.") {
 		t.Errorf("a KB with no archive says so:\n%s", g)
 	}
 }
@@ -91,7 +155,7 @@ func TestRenderGuide_NotRoutedHasNoKBSentence(t *testing.T) {
 
 func TestRenderGuide_HiddenArchives(t *testing.T) {
 	g := provisioning.RenderGuide([]provisioning.GuideKB{{Name: "kb-a", ArchivesHidden: true}}, provisioning.GuideOptions{})
-	if !strings.Contains(g, "No archives are visible to this connection.") {
+	if !strings.Contains(g, "No maps are visible to this connection.") {
 		t.Errorf("hidden archives:\n%s", g)
 	}
 }
@@ -230,7 +294,7 @@ func TestRenderGuide_ReadOnlyNamesKBGuide(t *testing.T) {
 	if !strings.Contains(g, "`kb_guide`") {
 		t.Errorf("the read-only guide does not name kb_guide:\n%s", g)
 	}
-	t.Logf("read-only operational section: %d bytes", len(provisioning.GuideOperational(true)))
+	t.Logf("read-only operational section: %d bytes", len(provisioning.GuideOperational(true, nil)))
 }
 
 // What the server generates for an agent never tells it to read by sections as
@@ -242,7 +306,7 @@ func TestGuidanceDoesNotPushSectionReads(t *testing.T) {
 	texts := map[string]string{
 		"guide(routed)":      provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{Routed: true}),
 		"guide(read-only)":   provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{ReadOnly: true}),
-		"operational":        provisioning.GuideOperational(false),
+		"operational":        provisioning.GuideOperational(false, nil),
 		"shared operational": provisioning.SharedOperationalSection(),
 	}
 	err := fs.WalkDir(skillbundle.FS, "bundled", func(path string, d fs.DirEntry, err error) error {

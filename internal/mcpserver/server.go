@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"sync"
 	"time"
@@ -104,6 +105,9 @@ type Server struct {
 	// connKB resolves a name of connKBs to its KB, for the guide (D1097).
 	// Installed by buildRouted; nil on a per-KB server, which uses kbRef.
 	connKB func(name string) *kb.KB
+	// guideBundle is the bundled skills FS the guide lists procedures from
+	// (#1316); nil means no list. Set by RegisterKBTools, copied to a routed view.
+	guideBundle fs.FS
 	// readOnlySession marks a routed connection that asked for ?access=read:
 	// tools/list carries no write tool and a call to one is refused with
 	// denyUnboundFolder. Set once by buildRouted, before the server is served.

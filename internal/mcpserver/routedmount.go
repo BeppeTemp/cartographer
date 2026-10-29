@@ -135,6 +135,12 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 		}
 		return nil
 	}
+	for _, n := range set {
+		if srv := m.servers[n]; srv != nil && srv.guideBundle != nil {
+			routed.guideBundle = srv.guideBundle
+			break
+		}
+	}
 	if m.routedSetup != nil {
 		m.routedSetup(routed)
 	}
