@@ -607,9 +607,8 @@ spec:
 ```
 
 The token is a dedicated one, scoped `kb:<name>:rw` to the perimeter's KBs only (`auth.tokens`, §Fine-grained
-roles), with an `id` so the audit log names the worker. A worker must not change a skill, an agent or a hook
-that every client of the KB syncs and executes, yet it needs whole-KB `rw` (`log_append`, `source_register`):
-give it a role with `artifacts: r` (§Fine-grained roles). To drive the worker from an external scheduler instead of its own window,
+roles), with an `id` so the audit log names the worker. Until the server denies artifact writes to a worker's
+token, its scopes are the only fence. To drive the worker from an external scheduler instead of its own window,
 run it with `--once`. As a native service, write the unit yourself: `cartographer service` manages only the server.
 
 ### HTTP routing (D84)
@@ -1104,11 +1103,6 @@ auth:
           types: [Runbook]      # empty = every type
         - kb: reference
           access: r
-    - name: worker-team-a       # a worker token: one role per perimeter
-      rules:
-        - kb: kb-a
-          access: rw
-          artifacts: r          # rw (default) | r: everything above except changing skills, agents, hooks
   tokens:
     - token: ${CARTOGRAPHER_TOKEN}
       id: ci                    # stable principal id for logs; derived from a
@@ -1120,13 +1114,6 @@ auth:
 the environment at startup; an unset or empty variable refuses startup, naming
 the field (#680). Any other value is taken literally.
 
-`artifacts: r` (D1259) is a narrower allow, not a deny: the rule grants what its `access` grants except
-`artifact_write`, `artifact_delete`, `artifact_move`, `skill_install` and the `/api/usage` report, which change what
-every client of the KB syncs and executes. `log_append`, `source_register`, `concept_*` and the reads stay allowed.
-A second rule of the same token without the key restores the write (rules are unioned); `artifacts: rw` with
-`access: r` is refused at startup. The worker token recipe is the `worker-team-a` role above: one role per
-perimeter, `rw` on the perimeter's KBs, `artifacts: r`, no other KB.
-
 Rollout notes:
 
 - **Nothing changes until you opt in.** Tokens without `roles` behave exactly as
@@ -1134,7 +1121,7 @@ Rollout notes:
 - **Migrate one token at a time.** `roles` and `scopes` on the same token are
   unioned, so a token can gain a narrow role while keeping an existing scope.
 - **Validation is fatal at startup.** A duplicate role or principal ID, an
-  unknown role reference, an empty `kb`, an `access` other than `r`/`rw`, an `artifacts` other than `r`/`rw` (or `rw` on an `r` rule), an
+  unknown role reference, an empty `kb`, an `access` other than `r`/`rw`, an
   empty or traversal selector, or a selector declared as both map and journal
   aborts the boot. Diagnostics name the role and rule index, never a token.
 - **Selectors are not validated against KB content**: a role may reference a map
