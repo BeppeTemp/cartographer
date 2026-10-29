@@ -10,7 +10,7 @@ import (
 )
 
 // scripts/release-as.sh is the one place that compares the release PR version
-// with the next train's milestone (D1371).
+// with the next release's milestone (D1371, D1384).
 func TestReleaseAsVerdict(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the script runs on ubuntu only; bash on Windows may be WSL")
@@ -119,6 +119,11 @@ func TestReleaseAsWorkflowPinsTokenAndTriggers(t *testing.T) {
 		if !strings.Contains(raw, want) {
 			t.Errorf("release-as.yml: missing %q, which keeps a single guard PR open", want)
 		}
+	}
+	// The next release is the open milestone with the lowest version, numerically;
+	// the due date is no longer read (D1384).
+	if !strings.Contains(raw, "sort_by(split(\".\")|map(ltrimstr(\"v\")|tonumber))[0]") || strings.Contains(raw, "due_on") {
+		t.Error("release-as.yml: the milestone must be selected by version (numeric sort_by), not by due_on")
 	}
 	if strings.Contains(raw, "|| true") || strings.Contains(raw, "< <(") {
 		t.Error("release-as.yml: `|| true` or `read < <(...)` hides a failing gh call or fails -e on an empty result")

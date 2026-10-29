@@ -1,23 +1,20 @@
 name: dependabot-arm
 
-# The freeze (D1192) and Dependabot's auto-merge (D1180):
-#   - disarm: Wednesday 00:05 Europe/Rome, auto-merge is cancelled on the open
-#     Dependabot PRs armed before the freeze, so none merges in it;
-#   - arm: when a scheduled release-train run completes and the freeze is closed
-#     (scripts/freeze-open.sh waits for both of Thursday's runs), auto-merge is armed
-#     on the open Dependabot PRs by the same rule as dependabot-automerge.yml
-#     (scripts/dependabot-eligible.sh). The Wednesday run finds the freeze open.
+# The freeze (D1384) and Dependabot's auto-merge (D1180), one reconciling job that
+# follows scripts/freeze-open.sh:
+#   - freeze open (a release candidate newer than the latest stable release exists):
+#     auto-merge is cancelled on the open Dependabot PRs, so none merges in it;
+#   - freeze closed: auto-merge is armed on the open Dependabot PRs by the same rule
+#     as dependabot-automerge.yml (scripts/dependabot-eligible.sh).
+# It runs when a candidate is cut (preview completes), when the stable release ends
+# (release completes) and after a discard (release-train completes). A run that
+# failed is still `completed`: the freeze state, not the conclusion, decides.
 # A failure is reported in the job summary and fails the job; nothing is swallowed.
-#
-# GitHub cron is UTC: two entries per slot, the run continues only on the entry that
-# matches today's Europe/Rome offset (as release-train.yml, D956).
 on:
-  schedule:
-    - cron: "5 22 * * 2" # Tue 22:05 UTC = Wed 00:05 CEST
-    - cron: "5 23 * * 2" # Tue 23:05 UTC = Wed 00:05 CET
   workflow_run:
-    workflows: [release-train]
+    workflows: [release, preview, release-train]
     types: [completed]
+  workflow_dispatch:
 
 permissions: {}
 
@@ -26,11 +23,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  disarm:
-    if: github.event_name == 'schedule'
+  reconcile:
     permissions:
-      actions: read # freeze-open.sh lists the runs of release-train
-      contents: write # gh pr merge --auto / --disable-auto
+      contents: write # gh pr merge --auto / --disable-auto, and the releases listing of freeze-open.sh
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
@@ -41,46 +36,20 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          CRON: ${{ github.event.schedule }}
         run: |
-          case "$(TZ=Europe/Rome date +%z) $CRON" in
-            "+0200 5 22 * * 2" | "+0100 5 23 * * 2") ;;
-            *) echo "not today's offset: nothing to do"; exit 0 ;;
-          esac
-          scripts/freeze-open.sh || { echo "the freeze is not open: nothing to disarm"; exit 0; }
           failed=0
-          for n in $(gh pr list --state open --author 'app/dependabot' --json number,isCrossRepository,autoMergeRequest \
-            --jq '.[] | select((.isCrossRepository | not) and .autoMergeRequest != null) | .number'); do
-            if gh pr merge --disable-auto "$n"; then
-              echo "- #$n: auto-merge disarmed" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "- #$n: FAILED to disarm" >> "$GITHUB_STEP_SUMMARY"
-              failed=1
-            fi
-          done
-          exit "$failed"
-
-  arm:
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule'
-    permissions:
-      actions: read # freeze-open.sh lists the runs of release-train
-      contents: write # gh pr merge --auto / --disable-auto
-      pull-requests: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: main
-          persist-credentials: false
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
           if scripts/freeze-open.sh; then
-            echo "the freeze is still open: nothing to arm"
-            exit 0
+            for n in $(gh pr list --state open --author 'app/dependabot' --json number,isCrossRepository,autoMergeRequest \
+              --jq '.[] | select((.isCrossRepository | not) and .autoMergeRequest != null) | .number'); do
+              if gh pr merge --disable-auto "$n"; then
+                echo "- #$n: auto-merge disarmed" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "- #$n: FAILED to disarm" >> "$GITHUB_STEP_SUMMARY"
+                failed=1
+              fi
+            done
+            exit "$failed"
           fi
-          failed=0
           while read -r n branch; do
             # dependabot/<ecosystem>/<path>: the ecosystem is docker, go_modules, github_actions...
             eco=$(cut -d/ -f2 <<<"$branch")

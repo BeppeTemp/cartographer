@@ -1,10 +1,9 @@
 name: plan-gate
 
 # The approved-plan rule of CONTRIBUTING.md §Pull requests, enforced where a
-# contributor's agent cannot skip it (D955), and the next-train rule of §Releases:
-# a PR that closes work of a later milestone waits. The rule itself lives in
-# scripts/pr-triage.sh, the single source: this file only
-# runs it, so no threshold is duplicated here.
+# contributor's agent cannot skip it (D955). The rule itself lives in
+# scripts/pr-triage.sh, the single source: this file only runs it, so no threshold
+# is duplicated here. Milestones only group versions (D1384): no check reads them.
 #
 # INVARIANTS (pinned by internal/repodocs/plan_gate_test.go):
 #   - The trigger is `pull_request_target`: the workflow file and pr-triage.sh come
@@ -31,9 +30,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled, assigned, unassigned] # edited: `Closes #n` is often added later; labeled: the `size-exception` label; assigned: the PR given to its author in place of the plan
   issues:
-    types: [labeled, assigned, milestoned, demilestoned] # approved, assigned, or moved to another train: the gate reads all three
-  milestone:
-    types: [created, opened, closed, edited, deleted] # any of them can change which train is next
+    types: [labeled, assigned, milestoned, demilestoned] # approved or assigned: the gate reads both; milestoned/demilestoned feed pr-milestone only
 
 permissions:
   contents: read
@@ -63,21 +60,20 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: scripts/pr-triage.sh --gate "$PR"
 
-  # A plan labelled `approved` or assigned after its PR was opened, an issue moved to
-  # another train, or a train closed: the check that failed runs again, without a push.
+  # A plan labelled `approved` or assigned after its PR was opened: the check that
+  # failed runs again, without a push.
   rerun:
     name: rerun-on-approval-or-assignment
     if: >-
-      github.event_name == 'milestone' || (github.event_name == 'issues' &&
-      (github.event.action == 'assigned' || github.event.action == 'milestoned' ||
-      github.event.action == 'demilestoned' || github.event.label.name == 'approved'))
+      github.event_name == 'issues' &&
+      (github.event.action == 'assigned' || github.event.label.name == 'approved')
     runs-on: ubuntu-latest
     permissions:
       actions: write
       pull-requests: read
       contents: read
     steps:
-      - name: Re-run plan-gate on the PRs that close this issue (every open PR when a train closed)
+      - name: Re-run plan-gate on the PRs that close this issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -95,12 +91,12 @@ jobs:
             gh run rerun "$run" || echo "PR #$pr: run $run could not be re-run"
           done
 
-  # A PR sits in the milestone of the issues it closes, so a train's milestone lists its
-  # PRs too (CONTRIBUTING.md §Pull requests). A contributor cannot set a milestone, so
-  # the workflow does: on a PR whose `Closes #n` changed, and on an issue moved to
-  # another train. Of several closed issues the latest train wins, since the PR merges
-  # only when that one is next (an undated milestone is no train and loses). A PR that
-  # closes no milestoned issue is left as it is.
+  # A PR sits in the milestone of the issues it closes, so a version's milestone lists
+  # its PRs too (CONTRIBUTING.md §Pull requests). A contributor cannot set a milestone,
+  # so the workflow does: on a PR whose `Closes #n` changed, and on an issue moved to
+  # another version. Of several closed issues the highest version wins (milestone
+  # titles vX.Y.Z by sort -V; a title that is not v<x.y.z> loses). A PR that closes no
+  # milestoned issue is left as it is.
   milestone:
     name: pr-milestone
     if: >-
@@ -130,11 +126,12 @@ jobs:
           fi
           for pr in $prs; do
             # Only this repository's issues: `Closes other/repo#n` must not read local #n.
+            # shellcheck disable=SC2016 # the jq program is single-quoted on purpose
             want=$(gh pr view "$pr" --json closingIssuesReferences \
               --jq '.closingIssuesReferences[] | select(.url | startswith("https://github.com/" + env.GH_REPO + "/issues/")) | .number' \
               | while read -r n; do
-                  gh api "repos/$GH_REPO/issues/$n" --jq 'select(.milestone != null) | "\(.milestone.due_on // "0000")|\(.milestone.number)|\(.milestone.title)"'
-                done | sort | tail -n1)
+                  gh api "repos/$GH_REPO/issues/$n" --jq 'select(.milestone != null) | "\(.milestone.title | if test("^v[0-9]+\\.[0-9]+\\.[0-9]+$") then ltrimstr("v") else "0.0.0" end)|\(.milestone.number)|\(.milestone.title)"'
+                done | sort -t'|' -k1,1V | tail -n1)
             [ -n "$want" ] || { echo "PR #$pr: closes no milestoned issue"; continue; }
             IFS='|' read -r _ number title <<<"$want"
             have=$(gh api "repos/$GH_REPO/issues/$pr" --jq '.milestone.number // empty')

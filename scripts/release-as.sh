@@ -3,9 +3,9 @@
 #
 # Usage: release-as.sh <release-pr-title> <milestone-title>
 #
-# The next train is named by its milestone (v<x.y.z>), but release-please
+# The next release is named by its milestone (v<x.y.z>), but release-please
 # computes the version from the commits (bump-minor-pre-major): after a run of
-# fix: commits it proposes x.y.(z+1) for a train named x.(y+1).0. This script is
+# fix: commits it proposes x.y.(z+1) for a release named x.(y+1).0. This script is
 # the one place that compares the two; .github/workflows/release-as.yml only
 # does the API calls.
 #
@@ -21,7 +21,7 @@ set -euo pipefail
 title=$1
 milestone=$2
 
-# Same expression as release-train.yml (the Wednesday step).
+# The release PR version expression of release-train.yml (the `rc` step).
 pr=$(printf '%s' "$title" | sed -n 's/^chore([a-z]*): release \([0-9][0-9.]*[0-9]\).*/\1/p')
 if ! printf '%s' "$pr" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "release-as.sh: cannot read a version X.Y.Z from the release PR title '$title'" >&2

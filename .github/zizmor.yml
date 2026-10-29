@@ -8,9 +8,9 @@ rules:
       - plan-gate.yml
       # Runs a guard scoped to actors with write access; no PR code is involved.
       - privacy.yml
-      # workflow_run of release-train only (schedule/dispatch, never a PR); it
-      # checks out main without credentials and interpolates no event field into
-      # a run step (D1180).
+      # workflow_run of release, preview and release-train (tags, dispatch and
+      # main, never a PR) and workflow_dispatch; it checks out main without
+      # credentials and interpolates no event field into a run step (D1180, D1384).
       - dependabot-arm.yml
       # workflow_run of release-please on main only (a push, never a PR); it checks
       # out main without credentials and interpolates no event field into a run

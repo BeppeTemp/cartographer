@@ -8,21 +8,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The release train (D956) fails silently in three ways, and nothing else reads
-// them: a cron in UTC without its second daylight-saving entry (the train runs
-// an hour off for half the year), a guard on the clock (a delayed schedule is
-// dropped or runs twice), and a merge with the default token (the merge succeeds, but no `push`
-// workflow runs, so release-please never cuts the tag).
-func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
+// The release on demand (D1384) fails silently in three ways, and nothing else
+// reads them: a schedule that brings the calendar back, a freeze check measured
+// from the wrong place, and a merge with the default token (the merge succeeds,
+// but no `push` workflow runs, so release-please never cuts the tag).
+func TestReleaseTrainWorkflowIsOnDemandAndPinsMergeToken(t *testing.T) {
 	root := repoRoot(t)
 	raw := readFile(t, root, ".github/workflows/release-train.yml")
 
 	var wf struct {
-		On struct {
-			Schedule []struct {
-				Cron string `yaml:"cron"`
-			} `yaml:"schedule"`
-		} `yaml:"on"`
+		On   map[string]interface{} `yaml:"on"`
 		Jobs map[string]struct {
 			Steps []struct {
 				Name string            `yaml:"name"`
@@ -38,43 +33,30 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 		t.Fatalf("release-train.yml: %v", err)
 	}
 
-	// Wednesday 00:30 (the candidate) and Thursday 18:00 (the train) in Europe/Rome,
-	// once per UTC offset (D1192). The Wednesday slot is still Tuesday in UTC.
-	want := map[string]bool{"30 22 * * 2": true, "30 23 * * 2": true, "0 16 * * 4": true, "0 17 * * 4": true}
-	if len(wf.On.Schedule) != len(want) {
-		t.Errorf("release-train.yml: %d schedule entries, want the %d of D1192", len(wf.On.Schedule), len(want))
+	if _, ok := wf.On["schedule"]; ok {
+		t.Error("release-train.yml: a `schedule:` trigger brings the weekly train back; a release is dispatched by hand (D1384)")
 	}
-	for _, s := range wf.On.Schedule {
-		if f := strings.Fields(s.Cron); len(f) != 5 || (f[4] != "2" && f[4] != "4") {
-			t.Errorf("release-train.yml: cron %q falls on a day other than Tuesday (UTC) or Thursday", s.Cron)
-		}
-		if !want[s.Cron] {
-			t.Errorf("release-train.yml: unexpected cron %q, want one of the four daylight-saving pairs of D1192", s.Cron)
-		}
-		delete(want, s.Cron)
+	var dispatch struct {
+		Inputs struct {
+			Action struct {
+				Options []string `yaml:"options"`
+			} `yaml:"action"`
+		} `yaml:"inputs"`
 	}
-	for c := range want {
-		t.Errorf("release-train.yml: missing cron %q", c)
+	d, _ := yaml.Marshal(wf.On["workflow_dispatch"])
+	if err := yaml.Unmarshal(d, &dispatch); err != nil {
+		t.Fatal(err)
 	}
-
-	// The guard matches the entry that fired against today's Europe/Rome offset,
-	// each cron paired with its offset, and never reads the clock: a late run is
-	// dropped by a minute or hour guard, or passes it twice in one slot.
-	if !strings.Contains(raw, "${{ github.event.schedule }}") || !strings.Contains(raw, "TZ=Europe/Rome date +%z") {
-		t.Error("release-train.yml: the guard must compare github.event.schedule with `TZ=Europe/Rome date +%z`")
+	if got := strings.Join(dispatch.Inputs.Action.Options, ","); got != "rc,release,discard" {
+		t.Errorf("release-train.yml: action options %q, want rc,release,discard", got)
 	}
-	for _, pair := range []string{`"+0200 30 22 * * 2"`, `"+0100 30 23 * * 2"`, `"+0200 0 16 * * 4"`, `"+0100 0 17 * * 4"`} {
-		if !strings.Contains(raw, pair) {
-			t.Errorf("release-train.yml: the guard lacks the offset/cron pair %s", pair)
-		}
+	// The freeze check is measured from the commit of the oldest candidate, never a
+	// weekday: the newest candidate is always the head of main (the gate requires it).
+	if !strings.Contains(raw, "compare/$cand_sha...main") || !strings.Contains(raw, "freeze-open.sh --candidate") {
+		t.Error("release-train.yml: the freeze check must list `compare/<oldest candidate commit>...main` (freeze-open.sh --candidate)")
 	}
-	if regexp.MustCompile(`TZ=Europe/Rome date \+[^\n]*%[HM]`).MatchString(raw) {
-		t.Error("release-train.yml: a guard on the hour or minute mishandles a delayed scheduled run; match the cron entry instead")
-	}
-	// The freeze the train checks starts on Wednesday 00:00: a calendar edit that
-	// moves the crons and forgets the look-back lets a feat of the freeze ship.
-	if !strings.Contains(raw, "date -d 'last wednesday 00:00'") {
-		t.Error("release-train.yml: the freeze check must look back to `last wednesday 00:00` (D1192)")
+	if strings.Contains(raw, "last wednesday") || strings.Contains(raw, "Europe/Rome") {
+		t.Error("release-train.yml: the calendar is gone (D1384): no `last wednesday`, no Europe/Rome")
 	}
 
 	merges, gates := 0, 0
@@ -85,6 +67,9 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 				if st.Env["SEC_TOKEN"] != "${{ secrets.SECURITY_GATE_TOKEN }}" {
 					t.Errorf("release-train.yml: the security gate reads with %q: github.token cannot read Dependabot alerts or draft advisories", st.Env["SEC_TOKEN"])
 				}
+			}
+			if name == "train" && st.Uses != "" {
+				t.Errorf("release-train.yml: `uses: %s` in the job that holds the PAT: no third-party code runs with it", st.Uses)
 			}
 			if st.Uses != "" && !regexp.MustCompile(`^[^@\s]+@[0-9a-f]{40}$`).MatchString(st.Uses) {
 				t.Errorf("release-train.yml: `uses: %s` is not pinned to a 40-hex commit SHA", st.Uses)

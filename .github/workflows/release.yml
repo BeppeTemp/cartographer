@@ -263,7 +263,9 @@ jobs:
   # The candidates of this version leave with its release (D1192): every
   # pre-release vX.Y.Z-rc.<YYYYMMDD> of the version shipped is deleted, with its
   # tag; candidates of other versions stay. Never fails the release: a candidate
-  # left behind is a warning, and the update channel skips it anyway.
+  # left behind is a warning, and the update channel skips it anyway. Deleting the
+  # candidates is also what closes the freeze (scripts/freeze-open.sh, D1384): it is
+  # open while a candidate newer than the latest stable release exists.
   candidate-cleanup:
     runs-on: ubuntu-latest
     needs: goreleaser
