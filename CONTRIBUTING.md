@@ -317,6 +317,10 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   when the issue moves to another milestone or the milestones change (the maintainer
   closes the train's milestone after the release, moving what did not make it). A large change
   that spans trains lands as PRs that change nothing a user sees on their own.
+  When the release PR proposes a version below the next train's milestone,
+  `release-as.yml` opens a `Release-As:` PR that merges by itself (a higher version is
+  only reported). During the freeze it moves `main`, so a release candidate already
+  built is no longer its head: rebuild it and add `rc-ok` again.
 - **No release with a known hole.** The train merges only when the security gate is
   clear: no open Dependabot alert, no open code scanning alert (a false positive is
   dismissed with its reason, not left open) and no draft security advisory whose fix
