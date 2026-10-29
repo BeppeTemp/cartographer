@@ -1359,9 +1359,9 @@ func toolKBRepair(k *kb.KB) Tool {
 		Name: "kb_repair",
 		// The fixable checks are not listed here: a finding carries its fix,
 		// and an unknown check is refused naming them (D301 budget).
-		Description: "Applies the mechanical fix a lint finding carries (fix) for one check, a list of checks or * (all), " +
-			"KB-wide in one commit. dry_run defaults to true (plan only). " +
-			"Concepts changed since listing are skipped. Judgement fixes: kb_review lists them.",
+		Description: "Applies the mechanical fix a lint finding carries for one check, a list or * (all), " +
+			"in one commit. dry_run defaults to true. " +
+			"Changed concepts are skipped. Judgement fixes: kb_review.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["check"],
@@ -1373,7 +1373,7 @@ func toolKBRepair(k *kb.KB) Tool {
 					]
 				},
 				"scope": {"type": "string"},
-				"dry_run": {"type": "boolean", "description": "Default true"},
+				"dry_run": {"type": "boolean"},
 				"limit": {"type": "integer"}
 			}
 		}`),
