@@ -51,7 +51,12 @@ func TestRuleRecipientsRefusesNonAgeKeys(t *testing.T) {
 // Create names the root .sops.yaml to sops, so a secrets/.sops.yaml with other
 // recipients cannot redirect the data key.
 func TestCreatePassesRootConfigAndIgnoresNestedOne(t *testing.T) {
-	root := t.TempDir()
+	// Create resolves the root (create.go): on macOS t.TempDir() is under the
+	// /var -> /private/var symlink, so the expected path is the resolved one.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	bin := t.TempDir()
 	argv := filepath.Join(t.TempDir(), "argv")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argv + "\ncat >/dev/null\nprintf 'k: ENC[x]\\nsops: {}\\n'\n"
