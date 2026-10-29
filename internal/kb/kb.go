@@ -1629,8 +1629,10 @@ func (kb *KB) commitWriteConceptPlan(plan *writeConceptPlan) (string, error) {
 // files (index.md, log.md, _map.md, _archive.md, AGENTS.md). Returns
 // ErrNotFound if the file does not exist. Does not update inbound links or
 // any index — callers are responsible for that (see concept_delete in
-// mcpserver). Deleting an expanded concept removes only its index.md,
-// leaving any satellite concepts under "<id>/" in place.
+// mcpserver). Deleting an expanded concept removes its index.md and, only if
+// that leaves "<id>/" empty, the directory itself (an empty one would make
+// lint report expanded_missing_index); satellite concepts and assets under
+// "<id>/" are never removed and keep the directory in place.
 func (kb *KB) DeleteConcept(id okf.ConceptID) error {
 	if id == "" {
 		return fmt.Errorf("%w: empty ConceptID", okf.ErrInvalidConcept)
@@ -1656,6 +1658,16 @@ func (kb *KB) DeleteConcept(id okf.ConceptID) error {
 
 	if err := os.Remove(absPath); err != nil {
 		return fmt.Errorf("DeleteConcept: %w", err)
+	}
+
+	if expanded {
+		// os.Remove refuses a non-empty directory: that failure is the
+		// "satellites or assets remain" case, not an error.
+		if err := os.Remove(filepath.Dir(absPath)); err != nil && !os.IsNotExist(err) {
+			if entries, readErr := os.ReadDir(filepath.Dir(absPath)); readErr != nil || len(entries) == 0 {
+				return fmt.Errorf("DeleteConcept: remove empty directory: %w", err)
+			}
+		}
 	}
 
 	return nil
