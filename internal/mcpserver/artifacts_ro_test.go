@@ -3,9 +3,13 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -61,9 +65,11 @@ func TestArtifactsReadOnlyRule(t *testing.T) {
 }
 
 // The rule is only as strong as the separation between artifact paths (KB
-// root) and concepts/assets (under data/): concept_write must not be a way to
-// land a file under skills/, templates/ or paths.yaml.
-func TestArtifactsReadOnlyRule_ConceptWriteCannotReachArtifactPaths(t *testing.T) {
+// root) and concepts/assets (under data/): concept_write and asset_write must
+// not be a way to land a file under skills/, agents/, hooks/, templates/ or at
+// paths.yaml. The KB root outside data/ must be byte-for-byte what it was,
+// whatever each call answers.
+func TestArtifactsReadOnlyRule_ConceptAndAssetWriteCannotReachArtifactPaths(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
@@ -71,13 +77,100 @@ func TestArtifactsReadOnlyRule_ConceptWriteCannotReachArtifactPaths(t *testing.T
 	srv.SetPolicyKB("docs")
 	RegisterKBTools(srv, k, Deps{})
 	admin := auth.ContextWithPrincipal(context.Background(), auth.LocalAdminPrincipal())
-	for _, id := range []string{"skills/evil/SKILL", "skills/evil", "templates/evil", "paths", "agents/evil", "hooks/evil"} {
-		srv.callTool(admin, "concept_write", json.RawMessage(`{"id":"`+id+`","body":"x"}`))
+
+	outside := func() map[string]string {
+		snap := map[string]string{}
+		_ = filepath.WalkDir(k.Root, func(p string, d fs.DirEntry, err error) error {
+			rel, _ := filepath.Rel(k.Root, p)
+			if err != nil || rel == "." {
+				return nil
+			}
+			if first := strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]; first == "data" || first == ".git" || first == ".cartographer" {
+				return filepath.SkipDir
+			}
+			// The git lock file is bookkeeping, created by the first write.
+			if !d.IsDir() && rel != ".cartographer.lock" {
+				b, _ := os.ReadFile(p)
+				snap[rel] = string(b)
+			}
+			return nil
+		})
+		return snap
 	}
-	for _, rel := range []string{"skills/evil", "skills/evil.md", "agents/evil.md", "hooks/evil.md", "paths.yaml", "templates/evil.md"} {
-		if _, err := os.Stat(filepath.Join(k.Root, rel)); err == nil {
-			t.Errorf("concept_write created %s outside data/", rel)
+	before := outside()
+
+	call := func(tool, args string) ToolResult { return srv.callTool(admin, tool, json.RawMessage(args)) }
+	// concept_write with a valid body: each id either lands under data/ or is
+	// refused, never at the KB-root artifact path.
+	landed := 0
+	for _, id := range []string{"skills/evil/SKILL", "skills/evil", "templates/evil", "paths", "agents/evil", "hooks/evil", "../skills/evil", "x/../../paths"} {
+		res := call("concept_write", `{"id":"`+id+`","frontmatter":{"type":"Note","title":"x"},"body":"x"}`)
+		if !res.IsError {
+			landed++
+			if _, err := os.Stat(filepath.Join(k.Root, "data", filepath.FromSlash(id)+".md")); err != nil && !strings.Contains(id, "..") {
+				t.Errorf("concept_write %q succeeded but nothing is under data/: %v", id, err)
+			}
 		}
+	}
+	if landed == 0 {
+		t.Fatal("no concept_write succeeded: the pin would be vacuous")
+	}
+	// asset_write: an expanded concept and a path walking out of it.
+	call("concept_write", `{"id":"runbooks/owner","frontmatter":{"type":"Note","title":"o"},"body":"o"}`)
+	call("concept_expand", `{"id":"runbooks/owner"}`)
+	for _, path := range []string{"ok.txt", "../../../skills/evil/SKILL.md", "../../../paths.yaml", "/skills/evil.md"} {
+		call("asset_write", `{"concept_id":"runbooks/owner","path":"`+path+`","content":"x"}`)
+	}
+	for _, cid := range []string{"skills/evil", "templates/evil"} {
+		call("asset_write", `{"concept_id":"`+cid+`","path":"a.txt","content":"x"}`)
+	}
+	if after := outside(); !reflect.DeepEqual(before, after) {
+		t.Fatalf("the KB root outside data/ changed:\nbefore %v\nafter  %v", keysOf(before), keysOf(after))
+	}
+}
+
+func keysOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Through the real HTTP handler: a token whose rule carries artifacts: r is
+// refused artifact_write with the new code, and keeps its other writes.
+func TestArtifactsReadOnlyRule_OverHTTP(t *testing.T) {
+	t.Parallel()
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "ro-tok", Principal: "ro", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kbx", Write: true, ReadOnlyArtifacts: true}}}},
+		{Token: "rw-tok", Principal: "rw", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kbx", Write: true}}}},
+	})
+	h := newScopedTestHandler(t, ts)
+	text := func(rr *httptest.ResponseRecorder) string {
+		var resp Response
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		tr := decodeToolResult(t, resp)
+		if len(tr.Content) == 0 {
+			return ""
+		}
+		return tr.Content[0].Text
+	}
+	// skill_install needs Deps this fixture does not wire; authorizeTool covers it.
+	for _, tool := range []string{"artifact_write", "artifact_delete"} {
+		rr := doMCP(h, "kbx", "ro-tok", writeToolCallBody(tool))
+		assertMCPForbidden(t, rr)
+		if got := text(rr); !strings.Contains(got, "artifacts_read_only") {
+			t.Errorf("%s: %q lacks artifacts_read_only", tool, got)
+		}
+		if got := text(doMCP(h, "kbx", "rw-tok", writeToolCallBody(tool))); strings.Contains(got, "forbidden") {
+			t.Errorf("%s without the flag: %q", tool, got)
+		}
+	}
+	if got := text(doMCP(h, "kbx", "ro-tok", writeToolCallBody("log_append"))); strings.Contains(got, "forbidden") {
+		t.Errorf("log_append with artifacts: r: %q", got)
 	}
 }
 
