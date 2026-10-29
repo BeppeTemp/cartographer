@@ -29,6 +29,11 @@ echo "  $version"
 if [ -n "$want_version" ]; then
   case $version in *"$want_version"*) ;; *) fail "version '$version' does not carry the VERSION build-arg '$want_version'" ;; esac
 fi
+# The worker is the same image: the subcommand is there and needs no volume
+# (no --config prints usage and exits 2).
+rc=0
+docker run --rm "$image" worker >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "'worker' without --config exited $rc, want 2"
 uid=$(docker run --rm --entrypoint id "$image" -u)
 [ "$uid" != 0 ] || fail "the image runs as root"
 

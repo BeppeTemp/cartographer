@@ -4,6 +4,8 @@ topic: client-configurator
 
 # D369 — A scheduled headless doctor is a client-side opt-in, declared to the server
 
+> **Amended by D1258**: a configured `cartographer worker` is exempt from D704; the client-side timer and the `unattended` default stay removed.
+
 > **Superseded by D704**: the scheduled headless doctor is removed; `connect` and `upgrade-repair` delete the job it installed.
 
 **Decision.** `cartographer doctor schedule` installs a daily native per-user job (launchd agent,

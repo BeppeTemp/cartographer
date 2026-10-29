@@ -96,7 +96,7 @@ distil, patch the owning pages, cite, record gaps, verify, close — for any new
 
 ## The maintenance loop
 
-The server finds the problems; an agent works on them only when the operator asks (D704). Discovery
+The server finds the problems; an agent works on them only when the operator asks (D704), except a worker the operator has configured (D1258, [the worker](deployment.md#the-worker-a-third-role)). Discovery
 is deterministic (`lint`, `kb_review`) and never runs a model on the server (D14). The layers,
 cheapest first:
 

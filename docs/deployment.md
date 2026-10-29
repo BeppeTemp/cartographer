@@ -509,7 +509,7 @@ tasks:                            # in priority order
 ```
 
 The key table is `internal/workerconfig`. A task `kind` must be registered in the binary; a config can
-name none until the first task kind lands.
+name none until the first task kind lands (the example above names `ingest`, which a test registers as a stand-in).
 
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
 for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB
@@ -527,6 +527,89 @@ token as an anonymous caller, so only this call proves it); `/health` names KBs 
 name in `kbs` is among them. The roster is a read view: the perimeter token needs `kb:<name>:rw` on
 each KB (§Fine-grained roles), and a read-only token meets its first refusal at the first write. Give
 it an `id` so the audit log names the worker.
+
+**Why the worker may run unasked (D1258).** D704 says an agent works on a KB only when the operator asks;
+deploying a worker for a perimeter, with its budgets, window, KBs, profiles and tasks, is that asking.
+Nothing else changes: the server runs no model, `serve` never starts or links the worker, `connect`/`sync`
+install no scheduler, and every write is a revertible commit with a `Reason` trailer.
+
+**The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
+idle for `idle_minutes` (the idle signal needs a server that reports activity; until then the worker is
+window-only). A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:
+the first `tasks` entry whose profile still has a grant and whose kind finds a unit of work, then the walk
+restarts from the first entry. A failing task is not retried in the same run; repeated errors on a KB (the limit is `maxConsecutiveErrors` in `internal/worker/runner.go`)
+skip it until the next poll (this is also how a token with read but no write grant shows up). A revoked token
+(401) or a refused host (403) ends the process with exit 1. A profile whose model API rejects the credential
+is off for the rest of the run and tried again at the next one. A run closes with one `log_append` per KB it
+touched, ending `stopped=done|window|budget|idle|shutdown|error`; a run that found nothing writes nothing.
+
+**Shutdown.** SIGINT/SIGTERM cancel the in-flight model call, abandon the task in progress (its claim lapses by
+lease; what was committed stays), write the closing entries in parallel with a 5 s HTTP timeout and exit 0. A
+second signal exits at once with 1. Keep `terminationGracePeriodSeconds` at 30 or more.
+
+**What survives a restart.** Nothing is written to local disk, so a replica needs no volume.
+
+| State | Where | After a restart |
+|---|---|---|
+| Spend of finished runs, per profile | the closing entries in the KBs' logs | rebuilt before each run |
+| Spend of the run in progress | in-process counters | lost on a crash: the day can exceed a profile's `daily_tokens` by at most its `run_tokens` per crash |
+| A closing entry that could not be appended | nowhere | counts like a crash for that run and KB |
+| Work half-done | the KB (a claim with a lease, commits already made) | an expired lease is re-claimed by any replica |
+| Window, idle state, poll timers | clock and server | recomputed |
+| Replica identity | memory | a new random id; old claims lapse by lease |
+| Replicas' counters | not shared | overshoot bounded by `replicas x run_tokens` per profile |
+
+The budget is a cost-control guard, not a quota the provider enforces; set `run_tokens` to the overshoot you accept.
+
+**Packaging.** The worker is the server image with another command: no new image, no volume, no inbound port.
+The image has no `tzdata`; the binary embeds the zone database, so `schedule.window.timezone` resolves there.
+
+```yaml
+# compose.yaml
+services:
+  worker:
+    image: ghcr.io/beppetemp/cartographer:latest
+    command: ["worker", "--config=/etc/cartographer/worker.yaml"]
+    restart: unless-stopped
+    environment:
+      WORKER_TOKEN: ${WORKER_TOKEN}
+      CLOUD_API_KEY: ${CLOUD_API_KEY}
+    volumes:
+      - ./worker.yaml:/etc/cartographer/worker.yaml:ro
+```
+
+```yaml
+# Kubernetes: worker.yaml in a ConfigMap, the two variables in a Secret
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cartographer-worker
+spec:
+  replicas: 1                      # more replicas are more processes with the same config
+  selector:
+    matchLabels: {app: cartographer-worker}
+  template:
+    metadata:
+      labels: {app: cartographer-worker}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: worker
+          image: ghcr.io/beppetemp/cartographer:latest
+          args: ["worker", "--config=/etc/cartographer/worker.yaml"]
+          envFrom:
+            - secretRef: {name: cartographer-worker-env}   # WORKER_TOKEN, CLOUD_API_KEY
+          volumeMounts:
+            - {name: config, mountPath: /etc/cartographer, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: cartographer-worker}
+```
+
+The token is a dedicated one, scoped `kb:<name>:rw` to the perimeter's KBs only (`auth.tokens`, §Fine-grained
+roles), with an `id` so the audit log names the worker. Until the server denies artifact writes to a worker's
+token, its scopes are the only fence. To drive the worker from an external scheduler instead of its own window,
+run it with `--once`. As a native service, write the unit yourself: `cartographer service` manages only the server.
 
 ### HTTP routing (D84)
 
