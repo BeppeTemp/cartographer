@@ -1,5 +1,5 @@
 # Tries the README film's render on a pull request that touches it (D1068): the encode chain (ffmpeg, img2webp)
-# otherwise ran for the first time in the release candidate, where a failure blocks the train. It renders the
+# otherwise ran for the first time in the release candidate, where a failure blocks it. It renders the
 # first 30 frames only (--frames 30) with the same pinned actions and OS packages as film.yml's render job, and
 # publishes nothing. No cache: the ref is untrusted. Not a required check.
 # Every action is pinned to a full commit SHA (supply chain).

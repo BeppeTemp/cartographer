@@ -1,8 +1,8 @@
 name: release-as
 
-# The train is named by its milestone (v<x.y.z>) but release-please computes the
-# version from the commits: after a run of fix: commits it proposes x.y.(z+1)
-# for a train named x.(y+1).0 (D1371). When the release PR is below the
+# The next release is named by its milestone (v<x.y.z>, the open one with the lowest
+# version, D1384) but release-please computes the version from the commits: after a
+# run of fix: commits it proposes x.y.(z+1) for a release named x.(y+1).0 (D1371). When the release PR is below the
 # milestone, this opens one PR with an empty commit whose squash body is
 # `Release-As: <version>` and arms auto-merge; a higher version is only
 # reported, a version is never lowered. The decision is scripts/release-as.sh.
@@ -49,10 +49,11 @@ jobs:
           fi
           number=${found%% *}
           title=${found#* }
-          milestone=$(gh api "repos/$GH_REPO/milestones?state=open&sort=due_on&direction=asc&per_page=100" \
-            --jq '[.[] | select(.due_on)][0].title // empty')
+          # The lowest version, numerically (not lexically); no due date is read.
+          milestone=$(gh api "repos/$GH_REPO/milestones?state=open&per_page=100" \
+            --jq '[.[] | select(.title | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | .title] | sort_by(split(".")|map(ltrimstr("v")|tonumber))[0] // empty')
           if [ -z "$milestone" ]; then
-            echo "release PR #$number: no open milestone with a due date" >> "$GITHUB_STEP_SUMMARY"
+            echo "release PR #$number: no open milestone named v<x.y.z>" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           {
@@ -85,7 +86,7 @@ jobs:
           marker="<!-- release-as: $VERDICT -->"
           if gh pr view "$PR" --json comments -q '.comments[].body' | grep -qF "$marker"; then exit 0; fi
           gh pr comment "$PR" --body "$marker
-          The release PR proposes a higher version than the next train's milestone ($VERDICT: PR version, then milestone). Nothing is changed; align the milestone if this is intended."
+          The release PR proposes a higher version than the next release's milestone ($VERDICT: PR version, then milestone). Nothing is changed; align the milestone if this is intended."
       - if: startsWith(steps.verdict.outputs.verdict, 'act ')
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
@@ -104,7 +105,7 @@ jobs:
               echo "release PR guard #$n already open for v$version" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            gh pr close "$n" --comment "The next train's milestone changed: superseded by a guard for v$version."
+            gh pr close "$n" --comment "The next release's milestone changed: superseded by a guard for v$version."
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -115,6 +116,6 @@ jobs:
           git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force origin "$branch"
           url=$(gh pr create --base main --head "$branch" --title "$subject" \
-            --body "Empty commit that makes release-please propose v$version, the next train's milestone.")
+            --body "Empty commit that makes release-please propose v$version, the next release's milestone.")
           gh pr merge "$url" --auto --squash --subject "$subject" --body "Release-As: $version"
           echo "opened $url for v$version" >> "$GITHUB_STEP_SUMMARY"

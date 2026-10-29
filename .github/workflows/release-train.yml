@@ -1,20 +1,16 @@
 name: release-train
 
-# The weekly release train (D956, D1192): Wednesday 00:30 Europe/Rome builds the release
-# candidate (image and pre-release binaries), Thursday 18:00 Europe/Rome merges the
-# release PR if a maintainer ran the candidate and added the `rc-ok` label. Freeze:
-# Wednesday 00:00 to Thursday 18:00, nothing that adds or breaks behaviour lands
-# (CONTRIBUTING.md §Releases).
+# The release on demand (D1384, superseding the weekly calendar of D956 and D1192).
+# Run by hand with one action:
+#   rc       builds the release candidate (image and pre-release binaries, preview.yml);
+#            from then on the freeze is open (scripts/freeze-open.sh);
+#   release  merges the release PR if a maintainer ran the candidate and added the
+#            `rc-ok` label, with every check below;
+#   discard  deletes the candidate(s) of the pending version, which closes the freeze.
+# Freeze: while a candidate newer than the latest stable release exists, nothing that
+# adds or breaks behaviour lands (CONTRIBUTING.md §Releases).
 #
 # TRAPS (pinned by internal/repodocs/release_train_test.go):
-#   - GitHub cron runs in UTC and knows no time zone, so each slot has two entries,
-#     one per offset of Europe/Rome, and the run continues only when the entry
-#     that fired (github.event.schedule) is the one for today's offset
-#     (TZ=Europe/Rome date +%z). Never a guard on the clock: a scheduled run can
-#     start an hour or more late, which drops it under a minute or hour guard, and
-#     lets both entries of a slot pass an hour guard, running the slot twice.
-#     Neither slot falls on a daylight-saving change (always a Sunday).
-#   - Schedules run only from the default branch.
 #   - A merge made with the default GITHUB_TOKEN does not trigger the `push`
 #     workflows, so release-please would never cut the tag: the merge step uses the
 #     RELEASE_PLEASE_TOKEN PAT, as release-please.yml does.
@@ -24,57 +20,104 @@ name: release-train
 #     on all of the owner's repositories (Dependabot alerts, Code scanning alerts,
 #     Repository security advisories, Pull requests). The merge waits for its
 #     `clear` output, so a gate that never ran never merges.
-#   - No `uses:` here on purpose: the workflow checks out nothing and runs only `gh`,
-#     so no third-party code runs with the PAT. Keep it that way, or pin to a SHA.
+#   - The `train` job, which holds the PAT, has no `uses:` on purpose: it checks out
+#     nothing and runs only `gh`, so no third-party code runs with the PAT. The
+#     checkout that scripts/freeze-open.sh needs lives in the `freeze` and `discard`
+#     jobs, which never see the PAT (a SHA-pinned actions/checkout, no credentials
+#     kept). Keep it that way.
 on:
-  schedule:
-    - cron: "30 22 * * 2" # Tue 22:30 UTC = Wed 00:30 CEST (summer)
-    - cron: "30 23 * * 2" # Tue 23:30 UTC = Wed 00:30 CET (winter)
-    - cron: "0 16 * * 4" # Thu 16:00 UTC = Thu 18:00 CEST
-    - cron: "0 17 * * 4" # Thu 17:00 UTC = Thu 18:00 CET
   workflow_dispatch:
     inputs:
       action:
-        description: "Run one step by hand: rc (dispatch the candidate build) or release (the Thursday merge, with all its checks)"
+        description: "rc builds the release candidate, release merges the release PR with all its checks, discard deletes the candidate(s) of the pending version"
         type: choice
-        options: [rc, release]
+        options: [rc, release, discard]
         required: true
 
-permissions:
-  contents: read
-  pull-requests: write # comments on the release PR
-  actions: write # dispatching preview.yml
-  checks: read # gh pr checks reads the check runs
-  statuses: read # and the commit statuses
+permissions: {}
 
 concurrency:
   group: release-train
   cancel-in-progress: false
 
 jobs:
+  # The oldest candidate of the pending version, for the freeze check of the release
+  # gate. A job of its own because it needs a checkout (see TRAPS).
+  freeze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      candidate: ${{ steps.candidate.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Closed (exit 1) prints nothing: no candidate. An unreadable listing counts as open
+          # and prints nothing either, and the release gate then skips.
+          tag=$(scripts/freeze-open.sh --candidate || true)
+          echo "candidate: ${tag:-none}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  # Split from the `train` job because it needs a checkout and `contents: write`,
+  # and the PAT job must run no `uses:` (see TRAPS). Uses github.token only.
+  discard:
+    if: inputs.action == 'discard'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release delete --cleanup-tag
+      pull-requests: write # the rc-ok label and the comment on the release PR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Delete the candidates of the pending version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tags=$(scripts/freeze-open.sh --candidates || true)
+          if [ -z "$tags" ]; then
+            echo "no release candidate newer than the latest release: nothing to discard"
+            exit 0
+          fi
+          for tag in $tags; do
+            gh release delete "$tag" --cleanup-tag --yes
+            echo "discarded $tag"
+          done
+          n=$(gh pr list --state open --label "autorelease: pending" \
+            --head release-please--branches--main --json number,isCrossRepository \
+            --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
+          if [ -n "$n" ]; then
+            gh pr edit "$n" --remove-label rc-ok || true
+            gh pr comment "$n" --body "Release candidate discarded: $(printf '%s' "$tags" | paste -sd, -). The freeze is closed; \`rc-ok\` is removed. Run \`release-train\` with \`action: rc\` for a new candidate."
+          fi
+
   train:
+    if: inputs.action != 'discard'
+    needs: freeze
+    permissions:
+      contents: read
+      pull-requests: write # comments on the release PR
+      actions: write # dispatching preview.yml
+      checks: read # gh pr checks reads the check runs
+      statuses: read # and the commit statuses
     runs-on: ubuntu-latest
     steps:
-      # The daylight-saving guard (see TRAPS). A manual dispatch skips it and names the action.
       - name: What does this run do
         id: mode
         env:
-          EVENT: ${{ github.event_name }}
           INPUT_ACTION: ${{ inputs.action }}
-          CRON: ${{ github.event.schedule }}
         run: |
-          mode=none
-          if [ "$EVENT" = workflow_dispatch ]; then
-            mode="$INPUT_ACTION"
-          else
-            offset=$(TZ=Europe/Rome date +%z) # +0200 summer, +0100 winter
-            case "$offset $CRON" in
-              "+0200 0 16 * * 4" | "+0100 0 17 * * 4") mode=release ;;
-              "+0200 30 22 * * 2" | "+0100 30 23 * * 2") mode=rc ;;
-            esac
-          fi
-          echo "cron: ${CRON:-manual}, Europe/Rome offset: ${offset:-n/a}, mode: $mode"
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "mode: $INPUT_ACTION"
+          echo "mode=$INPUT_ACTION" >> "$GITHUB_OUTPUT"
 
       - name: Find the release PR
         id: pr
@@ -95,14 +138,13 @@ jobs:
             echo "number=$n" >> "$GITHUB_OUTPUT"
           fi
 
-      # Wednesday: the candidate is the main of the start of the freeze.
+
       - name: Dispatch the release candidate build
         if: steps.mode.outputs.mode == 'rc' && steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.number }}
-          EVENT: ${{ github.event_name }}
         run: |
           title=$(gh pr view "$PR" --json title --jq .title)
           version=$(printf '%s' "$title" | sed -n 's/^chore([a-z]*): release \([0-9][0-9.]*[0-9]\).*/\1/p')
@@ -111,47 +153,33 @@ jobs:
             exit 1
           fi
           # Must match the pre-release rule of preview.yml (vX.Y.Z-<suffix>).
-          tag="v${version}-rc.$(TZ=Europe/Rome date +%Y%m%d)"
-          # A candidate dispatched by hand before the freeze already carries this main: building it again would
-          # make an rc-ok added after the first build predate "the current candidate". Only the scheduled run
-          # skips; a manual action=rc always builds.
-          if [ "$EVENT" != workflow_dispatch ]; then
-            head_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
-            read -r rc_sha rc_title < <(gh run list --workflow preview.yml --branch main --status success --limit 20 \
-              --json headSha,displayTitle \
-              --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | "\(.headSha) \(.displayTitle)"') || true
-            if [ -n "${rc_sha:-}" ] && [ "$rc_sha" = "$head_sha" ]; then
-              existing="${rc_title##* }"
-              echo "the candidate $existing already carries main (${head_sha:0:8}): not building again"
-              gh pr comment "$PR" --body "Release candidate \`$existing\` already carries this \`main\` (${head_sha:0:8}), so it is not built again: an \`rc-ok\` added after it stays valid."
-              exit 0
-            fi
-          fi
+          tag="v${version}-rc.$(date -u +%Y%m%d)"
           gh workflow run preview.yml -f tag="$tag"
-          gh pr comment "$PR" --body "Release candidate \`$tag\` is building (preview.yml): image \`ghcr.io/beppetemp/cartographer:$tag\` for the server on a deployment, pre-release binaries https://github.com/$GH_REPO/releases/tag/$tag for a native service and client (\`CARTOGRAPHER_INSTALL_TAG=$tag\`). Try it, then add the \`rc-ok\` label: the Thursday train (18:00) merges this PR only with it; \`rc-ok\` is expected by Thursday afternoon."
+          gh pr comment "$PR" --body "Release candidate \`$tag\` is building (preview.yml): image \`ghcr.io/beppetemp/cartographer:$tag\` for the server on a deployment, pre-release binaries https://github.com/$GH_REPO/releases/tag/$tag for a native service and client (\`CARTOGRAPHER_INSTALL_TAG=$tag\`). The freeze is open until the release or a \`discard\`. Try it, then add the \`rc-ok\` label and run \`release-train\` with \`action: release\`: it merges this PR only with the label."
 
-      # Thursday: every condition below is a reason to skip the train, never to fail it.
-      - name: Check the train may leave
+      # Every condition below is a reason to skip the release, never to fail it.
+      - name: Check the release may leave
         id: gate
         if: steps.mode.outputs.mode == 'release' && steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.number }}
+          CANDIDATE: ${{ needs.freeze.outputs.candidate }}
         run: |
           skip() { # skip <comment body>: say why on the PR and leave without merging
-            echo "train skipped: $1"
-            gh pr comment "$PR" --body "Release train skipped: $1"
+            echo "release skipped: $1"
+            gh pr comment "$PR" --body "Release skipped: $1"
             exit 0
           }
 
           labelled=$(gh pr view "$PR" --json labels --jq '[.labels[].name] | index("rc-ok") != null')
-          [ "$labelled" = true ] || skip "no \`rc-ok\` label. Run the release candidate, add the label, and the next train (a week later) merges this PR."
+          [ "$labelled" = true ] || skip "no \`rc-ok\` label. Run the release candidate, add the label, then run \`release-train\` with \`action: release\`."
 
-          # The train must not ship a commit the candidate did not contain: the newest
+          # The release must not ship a commit the candidate did not contain: the newest
           # successful candidate build must be of the head of main, and the label must
           # come after that build. A label newer than the last commit is not enough: a
-          # fix merged after the Wednesday build and before the label was never run.
+          # fix merged after the candidate build and before the label was never run.
           retry="Run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
           head_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
           # Only a release candidate counts, not any preview of main: run-name carries the tag.
@@ -177,15 +205,16 @@ jobs:
           perm=$(gh api "repos/$GH_REPO/collaborators/$ok_by/permission" --jq .permission || true)
           case "$perm" in admin | maintain | write) ;; *) skip "\`rc-ok\` was added by $ok_by, who is not a maintainer. $retry" ;; esac
 
-          # Freeze: any feat, perf, refactor or breaking commit since last Wednesday 00:00 in Rome.
-          # On the train day that is the day before; a manual action=release on another day
-          # looks back to the most recent Wednesday 00:00 before today, the start of the
-          # freeze it closes (on a Wednesday itself, a week back: stricter, never laxer).
-          wednesday=$(TZ=Europe/Rome date -d 'last wednesday 00:00' +%s)
-          since=$(date -u -d "@$wednesday" +%Y-%m-%dT%H:%M:%SZ)
-          blocked=$(gh api --paginate "repos/$GH_REPO/commits?sha=main&since=$since&per_page=100" \
-            --jq '.[] | select(.commit.message | test("\\A(feat|perf|refactor)(\\([^)]*\\))?!?:|\\A[a-z]+(\\([^)]*\\))?!:|\\nBREAKING[ -]CHANGE")) | "- \(.sha[0:8]) \(.commit.message | split("\n")[0])"')
-          [ -z "$blocked" ] || skip "commits blocked by the freeze landed on \`main\` since $since:"$'\n'"$blocked"
+          # Freeze: any feat, perf, refactor or breaking commit on main since the oldest
+          # candidate of the pending version, the one that opened the freeze. Not the
+          # newest: the check above already makes the newest successful candidate the
+          # head of main, so "since the newest" would always be empty and a feat that
+          # slipped in and was re-cut into a new candidate would not block.
+          [ -n "$CANDIDATE" ] || skip "no release candidate newer than the latest release. Run \`release-train\` by hand with \`action: rc\`."
+          cand_sha=$(gh api "repos/$GH_REPO/commits/$CANDIDATE" --jq .sha) || skip "cannot read the commit of the candidate \`$CANDIDATE\`."
+          blocked=$(gh api --paginate "repos/$GH_REPO/compare/$cand_sha...main?per_page=100" \
+            --jq '.commits[] | select(.commit.message | test("\\A(feat|perf|refactor)(\\([^)]*\\))?!?:|\\A[a-z]+(\\([^)]*\\))?!:|\\nBREAKING[ -]CHANGE")) | "- \(.sha[0:8]) \(.commit.message | split("\n")[0])"')
+          [ -z "$blocked" ] || skip "commits blocked by the freeze landed on \`main\` since the candidate \`$CANDIDATE\`:"$'\n'"$blocked"
 
           # A skipped required check reports as passed (docs/deployment.md), so skipping counts.
           checks=$(gh pr checks "$PR" --required --json bucket --jq '[.[].bucket]' || true)
@@ -213,8 +242,8 @@ jobs:
           PR: ${{ steps.gate.outputs.number }}
         run: |
           skip() {
-            echo "train skipped: a maintainer check is not clear"
-            gh pr comment "$PR" --body "Release train skipped: a maintainer check is not clear. Clear it, then run \`release-train\` by hand with \`action: release\`."
+            echo "release skipped: a maintainer check is not clear"
+            gh pr comment "$PR" --body "Release skipped: a maintainer check is not clear. Clear it, then run \`release-train\` by hand with \`action: release\`."
             exit 0
           }
           sec() { GH_TOKEN="$SEC_TOKEN" gh api --paginate "$@" 2>/dev/null; }
@@ -241,4 +270,4 @@ jobs:
           SHA: ${{ steps.gate.outputs.sha }}
         run: |
           gh pr merge "$PR" --squash --match-head-commit "$SHA"
-          gh pr comment "$PR" --body "Release train: merged. release-please cuts the tag next."
+          gh pr comment "$PR" --body "Release: merged. release-please cuts the tag next."

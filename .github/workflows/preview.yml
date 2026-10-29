@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   # Renders the README film from the sources being released (D1068). Parallel to the image, no `needs` either
-  # way: a red film makes the run fail, release-train.yml then finds no successful candidate and the train skips.
+  # way: a red film makes the run fail, release-train.yml then finds no successful candidate and the release gate skips.
   # The caller grants the most the called workflow's `publish` job holds (contents: write); its `render` job,
   # which runs the checked-out code, is read-only and publish only acts on main.
   film:
@@ -87,7 +87,7 @@ jobs:
 
   # The candidate's binaries as a GitHub pre-release (D1192), after the image: a
   # failed smoke or push publishes nothing, and a failure here makes the run red,
-  # so release-train.yml finds no successful candidate and the train skips.
+  # so release-train.yml finds no successful candidate and the release gate skips.
   binaries:
     needs: docker
     runs-on: ubuntu-latest

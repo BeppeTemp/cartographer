@@ -133,7 +133,7 @@ Not duplicated here:
 - **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor whose agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
 - A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user, landing one PR (`cartographer-develop-live` skill).
 - A PR is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap and approved-plan rule: `CONTRIBUTING.md` §Pull requests.
-- Releases (release-please PR merge, pipeline, rollout) → maintainer-local tooling, not versioned here; the weekly calendar is in `CONTRIBUTING.md` §Releases.
+- Releases (release-please PR merge, pipeline, rollout) → maintainer-local tooling, not versioned here; the on-demand flow is in `CONTRIBUTING.md` §Releases.
 - **Documentation is updated in the same session as the code — never afterward.** The "what changes → which file" table is in `docs/index.md` §Documentation maintenance rules.
 - Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its plan issue or PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).
 - Status and backlog live in GitHub issues, PRs and releases; user-visible completed work in `CHANGELOG.md`.

@@ -35,15 +35,15 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	if _, ok := wf.On["pull_request"]; ok {
 		t.Error("plan-gate.yml: a `pull_request` trigger would run the PR's own copy of the workflow and of pr-triage.sh")
 	}
-	// The next-train rule (D987) is only as current as its re-runs: an issue moved to
-	// another train, or any milestone change that alters which train is next.
+	// Milestones only group versions (D1384): no check reads them, so there is no
+	// `milestone` trigger. `milestoned`/`demilestoned` stay for the pr-milestone job.
 	types := func(event string) string {
 		m, _ := wf.On[event].(map[string]any)
 		return fmt.Sprint(m["types"])
 	}
 	for _, want := range []string{"milestoned", "demilestoned"} {
 		if !strings.Contains(types("issues"), want) {
-			t.Errorf("plan-gate.yml: the `issues` trigger lacks %q: moving an issue to another train must re-run the gate", want)
+			t.Errorf("plan-gate.yml: the `issues` trigger lacks %q: pr-milestone follows an issue moved to another version", want)
 		}
 	}
 	// A maintainer may assign the PR to its author in place of the plan (D955): GitHub
@@ -51,10 +51,8 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	if !strings.Contains(types("pull_request_target"), "assigned") {
 		t.Error("plan-gate.yml: the `pull_request_target` trigger lacks \"assigned\": a PR assigned to its author must re-run the gate")
 	}
-	for _, want := range []string{"created", "opened", "closed", "edited", "deleted"} {
-		if !strings.Contains(types("milestone"), want) {
-			t.Errorf("plan-gate.yml: the `milestone` trigger lacks %q: it can change which train is next", want)
-		}
+	if _, ok := wf.On["milestone"]; ok {
+		t.Error("plan-gate.yml: a `milestone` trigger brings back the next-train rule (D987, retired by D1384)")
 	}
 	// Comments carry the explanations (and name the forbidden strings): judge code only.
 	var code []string

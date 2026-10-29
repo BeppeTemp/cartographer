@@ -187,9 +187,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
 - **Review costs more than writing**, so a PR is shaped to be cheap to review
   (D856). Three rules, checked by `scripts/pr-triage.sh`
   — run it on your branch before opening; the first two are also enforced by
-  the required `plan-gate` check, which runs the same script on the PR, together
-  with the next-train rule of §Releases (a PR that closes an issue of a later
-  milestone waits):
+  the required `plan-gate` check, which runs the same script on the PR:
   - a contributor's change over **150 production lines** (tests, docs and
     generated files excluded) — or one that changes a public contract (MCP tool
     schema, CLI flag, config key, on-disk format), which a reviewer applies, the
@@ -259,24 +257,29 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
 
 ## Releases
 
-A release is a weekly **train**, not whatever has accumulated (D956). Times are Europe/Rome.
+A release happens when the maintainer decides (D1384, superseding the weekly calendar
+of D956, D989 and D1192). There is no schedule: the `release-train` workflow is
+dispatched by hand with one of three actions.
 
-- **The train leaves on Thursday at 18:00.** The `release-train` workflow merges the open
-  release PR, and release-please then cuts the tag and creates the release as a
-  draft: `release.yml` publishes it only after the binaries, the Homebrew cask and the
-  image exist, so no client is told of a version it cannot install (D1350).
-- **Freeze, Wednesday 00:00 to Thursday 18:00.** Nothing that adds or breaks behaviour
-  lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the title or
-  a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore` may
-  land, so Dependabot keeps working, but its auto-merge is not armed while the freeze is
-  open (D1180): `dependabot-arm` disarms what was armed on Wednesday at 00:05 and arms
-  the open bumps once both of Thursday's train runs are completed (a Thursday after 18:00
-  stays frozen until then, as the train may start late). In short: a PR merged by Tuesday
-  ships that Thursday; development is open again from Thursday after the train; a blocked
-  PR waits until after the release. A blocked commit on `main` during the freeze skips
-  the train. The weekdays are on purpose (D1192): the candidate is tried on Wednesday and
-  Thursday, during working hours, where the heaviest deployments run.
-- **The release candidate.** On Wednesday at 00:30 the workflow builds the candidate
+- **The release.** `action: rc` builds the candidate, `action: release` merges the open
+  release PR with every check below, `action: discard` deletes the candidate(s) of the
+  pending version. After the merge release-please cuts the tag and creates the release
+  as a draft: `release.yml` publishes it only after the binaries, the Homebrew cask and
+  the image exist, so no client is told of a version it cannot install (D1350).
+- **Freeze, opened by the candidate.** It is open from the moment a candidate tag
+  `vX.Y.Z-rc.<YYYYMMDD>` with `X.Y.Z` greater than the latest stable release exists, until
+  that version is released (`release.yml` deletes its candidates) or the candidate is
+  discarded. `scripts/freeze-open.sh` answers it from the releases listing (never
+  `releases/latest`, which hides a 0.x pre-release; a draft is not released yet; an
+  unreadable listing counts as open). While it is open nothing that adds or breaks
+  behaviour lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the
+  title or a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore`
+  may land, so Dependabot keeps working, but its auto-merge is not armed while the freeze
+  is open (D1180): `dependabot-arm` follows `freeze-open.sh`, disarming what was armed
+  when a candidate is cut and arming the open bumps after the release or a `discard`. A
+  blocked commit on `main` since the oldest candidate of the pending version skips the
+  release. A PR the freeze blocks waits until the release.
+- **The release candidate.** `action: rc` builds the candidate
   `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. It is a
   server image **and** a GitHub pre-release with the binaries (the same archives and
   `sha256sums.txt` as a stable release). The image is started and smoked before anything
@@ -284,16 +287,14 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   so a candidate that exists starts; the binaries are published only after the image,
   and only once the built binary prints the candidate's tag. The same run renders the
   README film when its sources changed (`film.yml`, D1068): a red film job fails the
-  candidate, so there is no `rc-ok` train that week. A maintainer runs the image on a
-  real deployment and the binaries as native service and client (below), and adds the
-  `rc-ok` label, expected by Thursday afternoon. Without the label, or if the candidate
-  is not the current head of `main` (a fix landed after the build), the train is
+  candidate, so there is nothing to release until it is fixed. A maintainer runs the image on a
+  real deployment and the binaries as native service and client (below), adds the
+  `rc-ok` label and runs `action: release`. Without the label, or if the candidate
+  is not the current head of `main` (a fix landed after the build), the release is
   skipped with a comment (it says when the candidate build itself failed): run the
-  candidate again by hand (`release-train`, `action: rc`), try it and add the label
-  again, or wait a week. A candidate built by hand before the freeze is kept by the
-  Wednesday run when `main` has not moved since (it comments that the candidate already
-  carries this `main`), so an `rc-ok` added after it stays valid; a manual `action: rc`
-  always builds (the same day, it replaces that day's pre-release). A pull request
+  candidate again by hand (`action: rc`), try it and add the label again. An
+  `action: rc` always builds (the same day, it replaces that day's pre-release, and so
+  moves the commit the freeze check starts from). A pull request
   touching `film/` runs `film-check` (30 frames, the runner's tools), so the encode chain
   fails there and not in the candidate.
 - **Trying the candidate as native service and client.** On macOS or Linux,
@@ -304,29 +305,24 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   its schema migrations run as a stable upgrade's would. Back to stable: `install.sh`
   with `update` and without the variable installs the newest **stable** release (a
   downgrade while `v<next>` is not out), or `brew reinstall --cask cartographer` for a
-  Homebrew install; after the train, the same `update`. Schema migrations are not
+  Homebrew install; after the release, the same `update`. Schema migrations are not
   reverted: going back past one is not supported. A candidate never appears in
   `cartographer update check`, in `kb_status` `latest_version`, in the Atlas history,
   in the installers' default choice or as the Homebrew cask (every tag with a semver
   pre-release suffix is skipped, whatever GitHub's pre-release flag says), and the
   stable release deletes its version's candidates (`release.yml`, `candidate-cleanup`).
-- **Only the next train's work merges.** The next train is the open milestone due
-  first. Work of a later milestone can be planned, implemented and reviewed at any
-  time, but its PR waits, open, until the train before it has left: `plan-gate`
-  fails a PR that closes an issue of a later milestone, and runs again by itself
-  when the issue moves to another milestone or the milestones change (the maintainer
-  closes the train's milestone after the release, moving what did not make it). A large change
-  that spans trains lands as PRs that change nothing a user sees on their own.
-  When the release PR proposes a version below the next train's milestone,
-  `release-as.yml` opens a `Release-As:` PR that merges by itself (a higher version is
-  only reported). During the freeze it moves `main`, so a release candidate already
-  built is no longer its head: rebuild it and add `rc-ok` again.
-- **No release with a known hole.** The train merges only when the security gate is
+- **Milestones group a version.** A milestone `vX.Y.Z` lists the work planned for that
+  version; it gates no merge. A large change still lands as PRs that change nothing a user
+  sees on their own. When the release PR proposes a version below the lowest open
+  milestone, `release-as.yml` opens a `Release-As:` PR that merges by itself (a higher
+  version is only reported). While the freeze is open it moves `main`, so a release
+  candidate already built is no longer its head: rebuild it and add `rc-ok` again.
+- **No release with a known hole.** The release merges only when the security gate is
   clear: no open Dependabot alert, no open code scanning alert (a false positive is
   dismissed with its reason, not left open) and no draft security advisory whose fix
   PR is still open in its private fork. A report still without a fix does not block.
   The skip comment says only that the gate is not clear.
-- **Out of train**, only for a regression of the latest release or a security fix: the
+- **Out of band**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand, with the same gate cleared.
 
 ## Issues: bug, plan (ideas go to Discussions)
@@ -351,20 +347,20 @@ change who acts:
 | `bug`, `plan` | The two kinds of issue (ideas and questions are Discussions). An accepted issue without a plan yet sits in a milestone and is promoted to `plan` when it is not trivial |
 | `approved` | A maintainer accepted the plan (only triage rights can set it); for a contributor's PR the plan is also assigned to them |
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
-| `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest issues of the next milestones, and dropped when nobody claims one by the Wednesday of its train week (the maintainer takes it or moves it to the next train) |
+| `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest issues of the next milestones, and dropped when nobody claims one for a while (the maintainer takes it or moves it to the next version) |
 | `ci-red` | Opened by CI when `main` is red |
-| `rc-ok` | Set by a maintainer after trying the release candidate: the Thursday train merges the release PR only with it (§Releases) |
+| `rc-ok` | Set by a maintainer after trying the release candidate: `release-train` with `action: release` merges the release PR only with it (§Releases) |
 | `vuln-scan` | Created by `security.yml` when a vulnerability scan fails; never set by hand |
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
 
-Milestones are the roadmap: one per weekly release, `vX.Y.0`; an issue in a
+Milestones are the roadmap: one per planned version, `vX.Y.0`; an issue in a
 milestone is accepted work, and a PR sits in the milestone of the issues it closes
 (the `pr-milestone` job of `plan-gate` sets it, and moves it with the issue), so a
-train's milestone lists its PRs too. **Every accepted issue has a milestone**, approved plans
+version's milestone lists its PRs too. **Every accepted issue has a milestone**, approved plans
 included: an open issue without one is not triaged yet, and the weekly triage puts
-it in a train, moves it to Discussions or closes it. Keep two or three milestones
+it in a version, moves it to Discussions or closes it. Keep two or three milestones
 open: the non-trivial work of the next two is written as approved plans, ready to
-be claimed; further out an issue stays a plain issue until its train comes closer,
+be claimed; further out an issue stays a plain issue until its version comes closer,
 because a plan's `file:line` pointers age.
 
 When a bug is picked up for implementation, it is **promoted in place** (by a
@@ -458,7 +454,7 @@ as for a plan.
 
 A defect found on the way — a reviewer's `pre-existing` finding, a flaky or broken
 test, a doc that contradicts the code — does not wait in a backlog: it becomes a `bug`
-issue in the open milestone, the next train, and when it is bounded the session that
+issue in the open milestone, the next version, and when it is bounded the session that
 found it fixes it the same day through this path. A rerun that turns a flaky test
 green is not a fix. A security one goes to a draft advisory instead, and the next
 paragraph applies.
@@ -466,10 +462,10 @@ paragraph applies.
 A vulnerability in released code is fixed in the temporary private fork of its draft
 advisory (`SECURITY.md`), by `cartographer-advisory-fixer`, and reviewed there with
 `cartographer-security-reviewer`. Nothing about it is public until the release: the
-commits state the new behaviour, not the hole. By Tuesday, before the freeze, the
-maintainer lands the fix on the public repository on green CI and closes its PR in the
-fork, so the Wednesday candidate carries it and is tried with it; after the train has
-released, the maintainer publishes the advisory.
+commits state the new behaviour, not the hole. Before the maintainer cuts the
+candidate, the maintainer lands the fix on the public repository on green CI and closes
+its PR in the fork, so the candidate carries it and is tried with it; after the release,
+the maintainer publishes the advisory.
 
 ## Reporting bugs
 

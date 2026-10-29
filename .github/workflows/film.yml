@@ -1,8 +1,8 @@
 # Renders the README's launch film (D807) and replaces it on the `readme-film` branch (D1068): called by
 # preview.yml, so the release candidate carries the film of the code being released, or run by hand (a manual
 # run always renders). It renders only when the film's inputs differ from the ones the film on the branch shows
-# (film/film-needed.sh). A render failure is deliberately BLOCKING: preview.yml goes red and the release train
-# skips that week, unlike the hero (D790), which never blocks a release. Two jobs (D1068): `render` runs
+# (film/film-needed.sh). A render failure is deliberately BLOCKING: preview.yml goes red and the release candidate
+# does not pass, unlike the hero (D790), which never blocks a release. Two jobs (D1068): `render` runs
 # the checked-out code with a read-only token that is not even left in .git/config, and hands the film over as an
 # artifact; `publish` holds contents: write, runs only film/publish.sh from main and never executes the render's
 # code. Nothing is pushed to main: the `main-protection` ruleset covers the default branch only.
