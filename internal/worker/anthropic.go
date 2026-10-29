@@ -119,6 +119,9 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 		for _, c := range m.ToolCalls {
 			am.Content = append(am.Content, anthBlock{Type: "tool_use", ID: c.ID, Name: c.Name, Input: objectOr(c.Arguments)})
 		}
+		if len(am.Content) == 0 {
+			continue // content: null is a final 400
+		}
 		wire.Messages = append(wire.Messages, am)
 	}
 	for _, ts := range req.Tools {
@@ -160,9 +163,17 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 	default:
 		out.Stop = StopOther
 	}
+	// Calls win over a stop reason that says the answer ended.
+	if out.Stop == StopEnd && len(out.ToolCalls) > 0 {
+		out.Stop = StopToolUse
+	}
 	out.Usage = Usage{
 		InputTokens:  resp.Usage.Input + resp.Usage.CacheCreation + resp.Usage.CacheRead,
 		OutputTokens: resp.Usage.Output,
+	}
+	if out.Usage.Total() == 0 {
+		// A gateway that omits usage must not make the budget unlimited.
+		out.Usage = Usage{InputTokens: estimateTokens(len(body)), OutputTokens: estimateTokens(len(data)), Estimated: true}
 	}
 	return out, nil
 }

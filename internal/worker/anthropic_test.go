@@ -77,3 +77,43 @@ func TestAnthropic_DefaultBase(t *testing.T) {
 		t.Fatalf("%v %v", m, err)
 	}
 }
+
+func TestAnthropic_EmptyMessageSkipped(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = decode(t, r)
+		_, _ = w.Write([]byte(`{"content":[],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+	m, _ := NewAnthropic(srv.URL, "", "m")
+	_, err := m.Complete(context.Background(), Request{Messages: []Message{{Role: RoleUser, Text: "a"}, {Role: RoleAssistant}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(got["messages"].([]any)); n != 1 {
+		t.Errorf("messages sent = %d, want the empty one skipped", n)
+	}
+}
+
+func TestAnthropic_ToolUseWithEndTurnIsToolUse(t *testing.T) {
+	for _, raw := range []string{"end_turn", "stop_sequence"} {
+		srv := serve(t, 200, `{"content":[{"type":"tool_use","id":"a","name":"search","input":{}}],"stop_reason":"`+raw+`","usage":{"input_tokens":1,"output_tokens":1}}`)
+		m, _ := NewAnthropic(srv.URL, "", "m")
+		resp, err := m.Complete(context.Background(), Request{})
+		srv.Close()
+		if err != nil || resp.Stop != StopToolUse || len(resp.ToolCalls) != 1 {
+			t.Errorf("%s: %+v %v", raw, resp, err)
+		}
+	}
+}
+
+func TestAnthropic_MissingUsageIsEstimated(t *testing.T) {
+	body := `{"content":[{"type":"text","text":"hello world!"}],"stop_reason":"end_turn"}`
+	srv := serve(t, 200, body)
+	defer srv.Close()
+	m, _ := NewAnthropic(srv.URL, "", "m")
+	resp, err := m.Complete(context.Background(), Request{Messages: []Message{{Role: RoleUser, Text: "hi"}}})
+	if err != nil || !resp.Usage.Estimated || resp.Usage.InputTokens == 0 || resp.Usage.OutputTokens != estimateTokens(len(body)) {
+		t.Errorf("%+v %v", resp.Usage, err)
+	}
+}
