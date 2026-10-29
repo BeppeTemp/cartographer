@@ -736,116 +736,6 @@ func moveLegacySkill(k *kb.KB, from, to string) error {
 	return nil
 }
 
-// kbRepairMaps is kb_repair for a map check: the same response shape, counted
-// in folders.
-func kbRepairMaps(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolResult, error) {
-	targets, items, err := planMapRepair(k, check, scope)
-	if err != nil {
-		return errorResult(fmt.Sprintf("kb_repair: %v", err)), nil
-	}
-	foundTotal := len(items)
-	if limit > 0 && len(targets) > limit {
-		targets = targets[:limit]
-		keep := map[string]bool{}
-		for _, t := range targets {
-			keep[t.key()] = true
-		}
-		kept := items[:0]
-		for _, it := range items {
-			if keep[it.Path] {
-				kept = append(kept, it)
-			}
-		}
-		items = kept
-	}
-	planned := items
-	if len(planned) > repairPlannedCap {
-		planned = planned[:repairPlannedCap]
-	}
-	result := map[string]interface{}{
-		"check":         check,
-		"dry_run":       dryRun,
-		"planned":       planned,
-		"planned_total": len(items),
-		"found_total":   foundTotal,
-		"found_folders": foundTotal,
-		"applied":       0,
-		"skipped":       []repairSkip{},
-	}
-	res := ToolResult{}
-	if !dryRun && len(targets) > 0 {
-		applied, skipped := applyMapRepair(k, targets)
-		if len(applied) > 0 {
-			entry := fmt.Sprintf("kb_repair: %s (%d folders)\n\n%d applied, %d skipped", check, len(applied), len(applied), len(skipped))
-			_ = k.AppendLog(entry, time.Now())
-			res.CommitSubject = fmt.Sprintf("kb_repair: %s (%d folders)", check, len(applied))
-		}
-		result["applied"] = len(applied)
-		delete(result, "planned")
-		if skipped != nil {
-			result["skipped"] = skipped
-		}
-	}
-	out, _ := json.Marshal(result)
-	res.Content = textResult(string(out)).Content
-	return res, nil
-}
-
-// kbRepairArtifacts is kb_repair for an artifact check: the same response
-// shape, counted in files instead of concepts.
-func kbRepairArtifacts(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolResult, error) {
-	targets, items, err := planArtifactRepair(k, check, scope)
-	if err != nil {
-		return errorResult(fmt.Sprintf("kb_repair: %v", err)), nil
-	}
-	foundTotal, foundFiles := len(items), len(targets)
-	if limit > 0 && len(targets) > limit {
-		targets = targets[:limit]
-		keep := map[string]bool{}
-		for _, t := range targets {
-			keep[t.Path] = true
-		}
-		kept := items[:0]
-		for _, it := range items {
-			if keep[it.Path] {
-				kept = append(kept, it)
-			}
-		}
-		items = kept
-	}
-	planned := items
-	if len(planned) > repairPlannedCap {
-		planned = planned[:repairPlannedCap]
-	}
-	result := map[string]interface{}{
-		"check":         check,
-		"dry_run":       dryRun,
-		"planned":       planned,
-		"planned_total": len(items),
-		"found_total":   foundTotal,
-		"found_files":   foundFiles,
-		"applied":       0,
-		"skipped":       []repairSkip{},
-	}
-	res := ToolResult{}
-	if !dryRun && len(targets) > 0 {
-		applied, skipped := applyArtifactRepair(k, targets)
-		if len(applied) > 0 {
-			entry := fmt.Sprintf("kb_repair: %s (%d files)\n\n%d applied, %d skipped", check, len(applied), len(applied), len(skipped))
-			_ = k.AppendLog(entry, time.Now())
-			res.CommitSubject = fmt.Sprintf("kb_repair: %s (%d files)", check, len(applied))
-		}
-		result["applied"] = len(applied)
-		delete(result, "planned") // applied/skipped say what happened; the plan is a dry run's product (D318)
-		if skipped != nil {
-			result["skipped"] = skipped
-		}
-	}
-	out, _ := json.Marshal(result)
-	res.Content = textResult(string(out)).Content
-	return res, nil
-}
-
 // applyRenameGroups applies the rename_field fixes grouped by their target:
 // several synonyms of one standard field (date and updated both meaning
 // timestamp) are one decision, not a rename followed by a collision with
@@ -1117,19 +1007,355 @@ func contractRenameUpdate(c kb.MapContract, ren map[string]string) (kb.MapContra
 	return upd, changed
 }
 
+// repairRun is what one check's plan-and-apply produced. The functions that
+// build it neither log nor set the commit subject: the caller does, once per
+// call, so a single-check call and a multi-check call share the same code and
+// differ only in how many entries they write (WP1 of D1317).
+type repairRun struct {
+	// Result is the per-check response map, in the single-check shape.
+	Result map[string]interface{}
+	// Found is found_total (in scope, before limit).
+	Found int
+	// Applied counts what was written; Skipped what was left alone.
+	Applied int
+	Skipped []repairSkip
+	// Removals counts the planned fixes that delete data (Fix.Removes).
+	Removals int
+	// LogEntry and Subject are what a single-check call writes when Applied > 0.
+	LogEntry string
+	Subject  string
+}
+
+// countRemovals counts the items whose fix deletes data.
+func countRemovals(items []repairItem) int {
+	n := 0
+	for _, it := range items {
+		if it.Fix.Removes() {
+			n++
+		}
+	}
+	return n
+}
+
+// finishRun fills the apply half of a run's Result: applied, skipped, and no
+// planned list once something was applied (D318).
+func finishRun(run *repairRun, applied int, skipped []repairSkip) {
+	run.Applied, run.Skipped = applied, skipped
+	run.Result["applied"] = applied
+	delete(run.Result, "planned") // applied/skipped say what happened; the plan is a dry run's product (D318)
+	if skipped != nil {
+		run.Result["skipped"] = skipped
+	}
+}
+
+// repairMapsCheck is the map-check path of kb_repair: the same response
+// shape, counted in folders.
+func repairMapsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int) (*repairRun, error) {
+	targets, items, err := planMapRepair(k, check, scope)
+	if err != nil {
+		return nil, err
+	}
+	foundTotal := len(items)
+	if limit > 0 && len(targets) > limit {
+		targets = targets[:limit]
+		keep := map[string]bool{}
+		for _, t := range targets {
+			keep[t.key()] = true
+		}
+		kept := items[:0]
+		for _, it := range items {
+			if keep[it.Path] {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
+	planned := items
+	if len(planned) > plannedCap {
+		planned = planned[:plannedCap]
+	}
+	run := &repairRun{Found: foundTotal, Removals: countRemovals(items), Result: map[string]interface{}{
+		"check":         check,
+		"dry_run":       dryRun,
+		"planned":       planned,
+		"planned_total": len(items),
+		"found_total":   foundTotal,
+		"found_folders": foundTotal,
+		"applied":       0,
+		"skipped":       []repairSkip{},
+	}}
+	if !dryRun && len(targets) > 0 {
+		applied, skipped := applyMapRepair(k, targets)
+		if len(applied) > 0 {
+			run.LogEntry = fmt.Sprintf("kb_repair: %s (%d folders)\n\n%d applied, %d skipped", check, len(applied), len(applied), len(skipped))
+			run.Subject = fmt.Sprintf("kb_repair: %s (%d folders)", check, len(applied))
+		}
+		finishRun(run, len(applied), skipped)
+	}
+	return run, nil
+}
+
+// repairArtifactsCheck is the artifact-check path of kb_repair: the same
+// response shape, counted in files instead of concepts.
+func repairArtifactsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int) (*repairRun, error) {
+	targets, items, err := planArtifactRepair(k, check, scope)
+	if err != nil {
+		return nil, err
+	}
+	foundTotal, foundFiles := len(items), len(targets)
+	if limit > 0 && len(targets) > limit {
+		targets = targets[:limit]
+		keep := map[string]bool{}
+		for _, t := range targets {
+			keep[t.Path] = true
+		}
+		kept := items[:0]
+		for _, it := range items {
+			if keep[it.Path] {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
+	planned := items
+	if len(planned) > plannedCap {
+		planned = planned[:plannedCap]
+	}
+	run := &repairRun{Found: foundTotal, Removals: countRemovals(items), Result: map[string]interface{}{
+		"check":         check,
+		"dry_run":       dryRun,
+		"planned":       planned,
+		"planned_total": len(items),
+		"found_total":   foundTotal,
+		"found_files":   foundFiles,
+		"applied":       0,
+		"skipped":       []repairSkip{},
+	}}
+	if !dryRun && len(targets) > 0 {
+		applied, skipped := applyArtifactRepair(k, targets)
+		if len(applied) > 0 {
+			run.LogEntry = fmt.Sprintf("kb_repair: %s (%d files)\n\n%d applied, %d skipped", check, len(applied), len(applied), len(skipped))
+			run.Subject = fmt.Sprintf("kb_repair: %s (%d files)", check, len(applied))
+		}
+		finishRun(run, len(applied), skipped)
+	}
+	return run, nil
+}
+
+// repairConceptsCheck is the concept-check path of kb_repair. An error is a
+// plan failure or, after concepts were written, a failed contract rewrite
+// (the caller words the "uncommitted" part).
+func repairConceptsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int) (*repairRun, error) {
+	targets, items, err := planRepair(k, check, scope)
+	if err != nil {
+		return nil, err
+	}
+	// The whole job, before limit: a dry run with a limit must still
+	// say how much work there is, not only the page it shows.
+	foundTotal, foundConcepts := len(items), len(targets)
+	if limit > 0 && len(targets) > limit {
+		targets = targets[:limit]
+		keep := map[string]bool{}
+		for _, t := range targets {
+			keep[t.Path] = true
+		}
+		kept := items[:0]
+		for _, it := range items {
+			if keep[it.Path] {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
+	planned := items
+	if len(planned) > plannedCap {
+		planned = planned[:plannedCap]
+	}
+	run := &repairRun{Found: foundTotal, Removals: countRemovals(items), Result: map[string]interface{}{
+		"check":         check,
+		"dry_run":       dryRun,
+		"planned":       planned,
+		"planned_total": len(items),
+		// found_*: in scope before limit; equal to planned_* without one.
+		"found_total":    foundTotal,
+		"found_concepts": foundConcepts,
+		"applied":        0,
+		"skipped":        []repairSkip{},
+	}}
+	if !dryRun && len(targets) > 0 {
+		applied, skipped := applyRepair(k, targets, check == "reciprocal_link_item")
+		var rewritten []string
+		if len(applied) > 0 {
+			var cerr error
+			rewritten, cerr = renameInContracts(k, applied)
+			if cerr != nil {
+				return nil, &repairWrittenError{Applied: len(applied), Err: cerr}
+			}
+			run.LogEntry = fmt.Sprintf("kb_repair: %s (%d concepts)\n\n%d applied, %d skipped, %d map contract(s) rewritten",
+				check, len(applied), len(applied), len(skipped), len(rewritten))
+			run.Subject = fmt.Sprintf("kb_repair: %s (%d concepts)", check, len(applied))
+		}
+		finishRun(run, len(applied), skipped)
+		if len(rewritten) > 0 {
+			run.Result["contracts_rewritten"] = rewritten
+		}
+	}
+	return run, nil
+}
+
+// repairWrittenError is a failure after concepts were already written.
+type repairWrittenError struct {
+	Applied int
+	Err     error
+}
+
+func (e *repairWrittenError) Error() string {
+	return fmt.Sprintf("contract rewrite failed after %d concept(s) were written (uncommitted, revert or re-run): %v", e.Applied, e.Err)
+}
+
+// repairOneCheck routes a check to its path.
+func repairOneCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int) (*repairRun, error) {
+	switch {
+	case lint.ArtifactRepairCheck(check):
+		return repairArtifactsCheck(k, check, scope, dryRun, limit, plannedCap)
+	case lint.MapRepairCheck(check):
+		return repairMapsCheck(k, check, scope, dryRun, limit, plannedCap)
+	}
+	return repairConceptsCheck(k, check, scope, dryRun, limit, plannedCap)
+}
+
+// repairMultiPlannedCap bounds the planned list of each check in a multi-check
+// dry run, so a "*" plan stays small.
+const repairMultiPlannedCap = 5
+
+// parseRepairChecks turns the check argument (a string or an array of
+// strings; "*" is every fixable check) into the checks to run, in the server's
+// order: lint.AutoRepairOrder first (D352: fixes depend on each other, so a
+// caller's order must not change the result), then the other fixable checks in
+// lint.FixableChecks order. multi is false for one plain check name. Every
+// unknown name is refused before anything is planned.
+func parseRepairChecks(raw json.RawMessage) (checks []string, multi bool, err error) {
+	var list []string
+	var one string
+	if json.Unmarshal(raw, &one) == nil {
+		list = []string{one}
+	} else if json.Unmarshal(raw, &list) != nil {
+		return nil, false, errors.New("kb_repair: 'check' must be a string or an array of strings")
+	} else {
+		multi = true
+	}
+	if len(list) == 0 {
+		return nil, false, errors.New("kb_repair: 'check' is empty; pass a check name, a list of them or \"*\"")
+	}
+	fixable := map[string]bool{}
+	for _, c := range lint.FixableChecks {
+		fixable[c] = true
+	}
+	want := map[string]bool{}
+	var unknown []string
+	for _, c := range list {
+		switch {
+		case c == "*":
+			multi = true
+			for _, f := range lint.FixableChecks {
+				want[f] = true
+			}
+		case fixable[c]:
+			want[c] = true
+		default:
+			unknown = append(unknown, fmt.Sprintf("%q", c))
+		}
+	}
+	if len(unknown) > 0 {
+		return nil, false, fmt.Errorf("kb_repair: check %s emits no mechanical fix (unknown, or judgement-only: see its findings with the lint tool); checks that emit fixes: %s",
+			strings.Join(unknown, ", "), strings.Join(lint.FixableChecks, ", "))
+	}
+	for _, c := range lint.AutoRepairOrder {
+		if want[c] {
+			checks = append(checks, c)
+			delete(want, c)
+		}
+	}
+	for _, c := range lint.FixableChecks {
+		if want[c] {
+			checks = append(checks, c)
+		}
+	}
+	return checks, multi, nil
+}
+
+// repairMany runs several checks in the server's order, planning each against
+// the tree the previous ones left (the caller holds the KB lock, gitWrap), and
+// answers with one response, one log entry and one commit subject.
+func repairMany(k *kb.KB, checks []string, scope string, dryRun bool, limit int) (ToolResult, error) {
+	var entries []map[string]interface{}
+	var lines, logLines []string
+	appliedTotal, plannedAll, changed := 0, 0, 0
+	for _, c := range checks {
+		run, err := repairOneCheck(k, c, scope, dryRun, limit, repairMultiPlannedCap)
+		if err != nil {
+			msg := fmt.Sprintf("kb_repair: %s: %v", c, err)
+			if len(lines) > 0 {
+				msg += fmt.Sprintf("; already written and uncommitted: %s (revert or re-run)", strings.Join(lines, ", "))
+			}
+			return errorResult(msg), nil
+		}
+		if run.Found == 0 {
+			continue
+		}
+		if run.Removals > 0 {
+			run.Result["removals"] = run.Removals
+		}
+		if n, ok := run.Result["planned_total"].(int); ok {
+			plannedAll += n
+		}
+		entries = append(entries, run.Result)
+		if run.Applied > 0 {
+			appliedTotal += run.Applied
+			changed++
+			lines = append(lines, fmt.Sprintf("%s: %d", c, run.Applied))
+		}
+		if !dryRun && (run.Applied > 0 || len(run.Skipped) > 0) {
+			logLines = append(logLines, fmt.Sprintf("%s: %d applied, %d skipped", c, run.Applied, len(run.Skipped)))
+		}
+	}
+	if entries == nil {
+		entries = []map[string]interface{}{}
+	}
+	out, _ := json.Marshal(map[string]interface{}{
+		"dry_run":           dryRun,
+		"checks":            entries,
+		"applied_total":     appliedTotal,
+		"planned_total_all": plannedAll,
+		"checks_run":        len(checks),
+	})
+	res := ToolResult{Content: textResult(string(out)).Content}
+	if appliedTotal > 0 {
+		head := fmt.Sprintf("kb_repair: %d checks (%d applied)", changed, appliedTotal)
+		_ = k.AppendLog(fmt.Sprintf("kb_repair: %d checks (%d changes)\n\n%s", changed, appliedTotal, strings.Join(logLines, "\n")), time.Now())
+		res.CommitSubject = head + "\n\n" + strings.Join(lines, "\n")
+	}
+	return res, nil
+}
+
 func toolKBRepair(k *kb.KB) Tool {
 	return Tool{
 		Name: "kb_repair",
 		// The fixable checks are not listed here: a finding carries its fix,
 		// and an unknown check is refused naming them (D301 budget).
-		Description: "Applies the mechanical fix a lint finding carries (fix) for one check, " +
+		Description: "Applies the mechanical fix a lint finding carries (fix) for one check, a list of checks or * (all), " +
 			"KB-wide in one commit. dry_run defaults to true (plan only). " +
 			"Concepts changed since listing are skipped. Judgement fixes: kb_review lists them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["check"],
 			"properties": {
-				"check": {"type": "string"},
+				"check": {
+					"oneOf": [
+						{"type": "string"},
+						{"type": "array", "items": {"type": "string"}}
+					]
+				},
 				"scope": {"type": "string"},
 				"dry_run": {"type": "boolean", "description": "Default true"},
 				"limit": {"type": "integer"}
@@ -1137,92 +1363,32 @@ func toolKBRepair(k *kb.KB) Tool {
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Check  string `json:"check"`
-				Scope  string `json:"scope"`
-				DryRun *bool  `json:"dry_run"`
-				Limit  int    `json:"limit"`
+				Check  json.RawMessage `json:"check"`
+				Scope  string          `json:"scope"`
+				DryRun *bool           `json:"dry_run"`
+				Limit  int             `json:"limit"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
-			fixable := false
-			for _, c := range lint.FixableChecks {
-				fixable = fixable || c == params.Check
-			}
-			if !fixable {
-				return errorResult(fmt.Sprintf("kb_repair: check %q emits no mechanical fix (unknown, or judgement-only: see its findings with the lint tool); checks that emit fixes: %s",
-					params.Check, strings.Join(lint.FixableChecks, ", "))), nil
+			checks, multi, err := parseRepairChecks(params.Check)
+			if err != nil {
+				return errorResult(err.Error()), nil
 			}
 			dryRun := params.DryRun == nil || *params.DryRun
-			if lint.ArtifactRepairCheck(params.Check) {
-				return kbRepairArtifacts(k, params.Check, params.Scope, dryRun, params.Limit)
+			if multi {
+				return repairMany(k, checks, params.Scope, dryRun, params.Limit)
 			}
-			if lint.MapRepairCheck(params.Check) {
-				return kbRepairMaps(k, params.Check, params.Scope, dryRun, params.Limit)
-			}
-
-			targets, items, err := planRepair(k, params.Check, params.Scope)
+			run, err := repairOneCheck(k, checks[0], params.Scope, dryRun, params.Limit, repairPlannedCap)
 			if err != nil {
 				return errorResult(fmt.Sprintf("kb_repair: %v", err)), nil
 			}
-			// The whole job, before limit: a dry run with a limit must still
-			// say how much work there is, not only the page it shows.
-			foundTotal, foundConcepts := len(items), len(targets)
-			if params.Limit > 0 && len(targets) > params.Limit {
-				targets = targets[:params.Limit]
-				keep := map[string]bool{}
-				for _, t := range targets {
-					keep[t.Path] = true
-				}
-				kept := items[:0]
-				for _, it := range items {
-					if keep[it.Path] {
-						kept = append(kept, it)
-					}
-				}
-				items = kept
-			}
-
-			planned := items
-			if len(planned) > repairPlannedCap {
-				planned = planned[:repairPlannedCap]
-			}
-			result := map[string]interface{}{
-				"check":         params.Check,
-				"dry_run":       dryRun,
-				"planned":       planned,
-				"planned_total": len(items),
-				// found_*: in scope before limit; equal to planned_* without one.
-				"found_total":    foundTotal,
-				"found_concepts": foundConcepts,
-				"applied":        0,
-				"skipped":        []repairSkip{},
-			}
 			res := ToolResult{}
-			if !dryRun && len(targets) > 0 {
-				applied, skipped := applyRepair(k, targets, params.Check == "reciprocal_link_item")
-				var rewritten []string
-				if len(applied) > 0 {
-					var cerr error
-					rewritten, cerr = renameInContracts(k, applied)
-					if cerr != nil {
-						return errorResult(fmt.Sprintf("kb_repair: contract rewrite failed after %d concept(s) were written (uncommitted, revert or re-run): %v", len(applied), cerr)), nil
-					}
-					entry := fmt.Sprintf("kb_repair: %s (%d concepts)\n\n%d applied, %d skipped, %d map contract(s) rewritten",
-						params.Check, len(applied), len(applied), len(skipped), len(rewritten))
-					_ = k.AppendLog(entry, time.Now())
-					res.CommitSubject = fmt.Sprintf("kb_repair: %s (%d concepts)", params.Check, len(applied))
-				}
-				result["applied"] = len(applied)
-				delete(result, "planned") // applied/skipped say what happened; the plan is a dry run's product (D318)
-				if skipped != nil {
-					result["skipped"] = skipped
-				}
-				if len(rewritten) > 0 {
-					result["contracts_rewritten"] = rewritten
-				}
+			if run.LogEntry != "" {
+				_ = k.AppendLog(run.LogEntry, time.Now())
+				res.CommitSubject = run.Subject
 			}
-			out, _ := json.Marshal(result)
+			out, _ := json.Marshal(run.Result)
 			res.Content = textResult(string(out)).Content
 			return res, nil
 		},
