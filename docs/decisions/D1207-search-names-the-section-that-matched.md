@@ -4,6 +4,8 @@ topic: control-plane
 
 # D1207 — Search names the section that matched
 
+> **Amended by [D1354](D1354-search-restores-the-v026-read-path.md)**: a hit no longer carries `section` (the snippet may still be excerpted from the best section); `read: "whole"` and `read_whole` stay.
+
 **Decision.** A `search` hit may carry `section`, the `##` heading line exactly as `concept_read`'s `section` accepts it, and then its `snippet` is that section's excerpt; a hit on a page that must be read whole carries `read: "whole"` and never a `section`. A page is read whole when it lives in a journal, or when its type is listed in the new optional `_map.md` key `read_whole`. Each `##` section is indexed as a unit in a second FTS table (`sections_fts`, schema version 4); the page ranking is unchanged.
 
 **Why.** `search` returned whole pages while `concept_read` could already return one section, so an agent could not tell which section answered its query and read the page: in a measurement over 35 real tasks the page body is 88% of a `concept_read` payload. The same measurement showed quality dropping from 12/12 to 6/12 when procedures, runbooks and incidents are read by section, so the server must also say which pages are not to be cut. It ships no domain vocabulary, so "read whole" comes from the journal kind (already in the contract) or from a list of types the KB itself declares.

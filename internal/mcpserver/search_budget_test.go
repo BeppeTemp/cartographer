@@ -6,12 +6,15 @@ import (
 	"testing"
 )
 
-// searchBudgetBytes is the average size a default `search` answer may reach
-// (D1185). Measured on real agent sessions, limit 8 without a related block
-// averaged 2.2 KB against 4.2 KB before; the budget leaves a little headroom.
-// If this test fails because the number is too tight, do not raise it: the
-// default has grown, and that is what the test is there to say.
-const searchBudgetBytes = 2500
+// searchBudgetBytes is the average size a default `search` answer may reach.
+// D1354 restored the v0.26 default (limit 20, a related block of 5) after the
+// lighter one of D1185 (limit 8, no block) cost answer quality: this fixture
+// measures 4588 bytes on average with it, and the budget is that plus about
+// 10%. The rule of D1185, "do not raise the number", is superseded: the number
+// is the measured average plus a margin, and moves only when the default does,
+// in a decision that says why. What the test still catches is the answer
+// growing by itself (a longer snippet, a new field on every hit).
+const searchBudgetBytes = 5000
 
 // searchBudgetKB generates about 40 concepts with realistic titles, ~200-char
 // snippets and links, so that a default query matches more pages than the
@@ -54,7 +57,7 @@ func TestSearchDefaultAnswerBudget(t *testing.T) {
 		`{"query":"neighbouring service"}`,
 		`{"query":"zzzzabsent","record_miss":false}`,
 	}
-	total := 0
+	total, withRelated := 0, 0
 	for _, q := range queries {
 		res := callTool(t, s, "search", q)
 		if res.IsError {
@@ -65,9 +68,14 @@ func TestSearchDefaultAnswerBudget(t *testing.T) {
 			t.Errorf("%s: %d hits, over the default limit %d", q, len(rs), searchDefaultLimit)
 		}
 		if _, ok := out["related"]; ok {
-			t.Errorf("%s: a related block without being asked", q)
+			withRelated++
 		}
 		total += len(res.Content[0].Text)
+	}
+	// The budget measures the default as it is restored (D1354): a fixture whose
+	// answers carry no related block would measure a lighter answer than agents get.
+	if withRelated == 0 {
+		t.Error("no default search answer carries a related block: the budget is not measuring the default")
 	}
 	if avg := total / len(queries); avg > searchBudgetBytes {
 		t.Errorf("a default search answer averages %d bytes over %d queries, budget %d", avg, len(queries), searchBudgetBytes)
@@ -76,8 +84,8 @@ func TestSearchDefaultAnswerBudget(t *testing.T) {
 	}
 }
 
-// The limit is a default, not a clamp: absent gives 8 hits of a larger
-// answer set, an explicit limit gives what it says.
+// The limit is a default, not a clamp: absent gives 20 hits of a larger
+// answer set, an explicit limit gives what it says, above or below the default.
 func TestSearchDefaultLimit(t *testing.T) {
 	t.Parallel()
 	s, _ := graphToolKBWithKB(t, searchBudgetKB())
@@ -85,10 +93,11 @@ func TestSearchDefaultLimit(t *testing.T) {
 		args string
 		want int
 	}{
-		{`{"query":"runbook"}`, 8},
-		{`{"query":"runbook","limit":20}`, 11},
-		{`{"query":"service","limit":20}`, 20},
+		{`{"query":"runbook"}`, 11},
+		{`{"query":"service"}`, 20},
+		{`{"query":"service","limit":8}`, 8},
 		{`{"query":"service","limit":3}`, 3},
+		{`{"query":"service","limit":30}`, 30},
 	} {
 		out := decodeJSON(t, mustText(t, s, "search", tc.args))
 		if got := len(resultIDs(out["results"])); got != tc.want {

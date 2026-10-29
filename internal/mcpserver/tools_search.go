@@ -33,12 +33,14 @@ var searchInputSchema = json.RawMessage(`{
 
 // snippetMaxChars bounds the excerpt size returned alongside each search hit
 // (D70): with the default limit and this budget, a search response stays well
-// under the 2.5 KB average TestSearchDefaultAnswerBudget enforces.
+// under the average TestSearchDefaultAnswerBudget enforces.
 const snippetMaxChars = 200
 
 // searchDefaultLimit is the number of hits when the caller passes no limit
-// (D1185, was 20 in D70). An explicit limit is honoured as it is.
-const searchDefaultLimit = 8
+// (D70; D1185 had lowered it to 8, D1354 restored it: an agent that sees 8 hits
+// instead of 20 misses the page that holds the answer). An explicit limit is
+// honoured as it is.
+const searchDefaultLimit = 20
 
 // searchCentralityBeta caps the centrality prior at +20% (D251): enough to
 // reorder near-ties, too little to lift a weak match over a strong one.
@@ -59,12 +61,10 @@ type searchHit struct {
 	// Partial marks a hit that matched only some query terms (D343): it comes
 	// from the OR pass and ranks after every full match.
 	Partial bool `json:"partial,omitempty"`
-	// Section is the "##" heading that matched best, exactly as concept_read's
-	// section argument accepts it; the snippet is then that section's excerpt
-	// (D1207). Omitted when naming a section saves nothing (sectionFor).
-	Section string `json:"section,omitempty"`
 	// Read is "whole" for a page that must be read whole: a journal entry, or a
-	// type its map lists in read_whole (D1207). Such a hit never has a Section.
+	// type its map lists in read_whole (D1207). A hit names no section (D1354):
+	// the snippet may be the best section's excerpt, but the hit does not steer
+	// the agent to read that section alone.
 	Read string `json:"read,omitempty"`
 	// Bytes is the concept file's size (D301, D779): what reading it whole
 	// costs, so an agent can choose outline or section before paying it.
@@ -94,7 +94,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 	if deps.SQLIndex != nil {
 		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs, best first."
 	}
-	description += " Default 8 hits; related: N adds the neighbourhood of the hits. A hit's section (named only on pages over 2048 bytes) goes to concept_read section; read: \"whole\" means read it whole. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
+	description += " A hit with read: \"whole\" is read whole. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
 
 	return Tool{
 		Name:        "search",
@@ -123,7 +123,8 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		// IncludeArchived (D322): absent hides archived concepts unless
 		// nothing live matches, true returns both, false never falls back.
 		IncludeArchived *bool `json:"include_archived"`
-		// Related sizes the related block (D781): absent or 0 is off (D1185).
+		// Related sizes the related block (D781): absent is the default, 0
+		// turns it off.
 		Related *int `json:"related"`
 		// Mode and UseSemantic are declared only to reject them: semantic and
 		// hybrid search are gone (D135), and a stale caller must fail loudly
@@ -232,18 +233,22 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	return jsonResult(result), nil
 }
 
-// Thresholds under which naming a section saves nothing (D1207): a body this
-// small is cheaper read whole, and so is one the best section nearly fills.
+// Thresholds under which the best section's excerpt is not used (D1207): a body
+// this small is as well excerpted from the page, and so is one the best section
+// nearly fills.
 const (
 	sectionMinBodyBytes = 2048
 	sectionMaxBodyPct   = 80
 )
 
-// sectionResolver names, for the hits of one search response, the section that
-// matched and whether the page must be read whole. It runs after the ranking
-// and only for the ids handleSearch returns, so graph_context's seeding and the
-// write-time lookups (which call keywordHits) never pay for it, and a hidden
-// concept, already filtered out of the hits, is never looked up (D1207).
+// sectionResolver flags, for the hits of one search response, the pages that
+// must be read whole, and excerpts the snippet of a large page from the
+// section that matched best. It never names that section (D1354): the hit
+// steers the agent to the page, not to a piece of it. It runs after the
+// ranking and only for the ids handleSearch returns, so graph_context's
+// seeding and the write-time lookups (which call keywordHits) never pay for
+// it, and a hidden concept, already filtered out of the hits, is never looked
+// up (D1207).
 type sectionResolver struct {
 	k     *kb.KB
 	rec   *searchReconciler
@@ -291,7 +296,7 @@ func (r *sectionResolver) readsWhole(id, typ string) bool {
 	return spec.journal || (typ != "" && spec.types[typ])
 }
 
-// annotate sets h.Read, or h.Section and the section's excerpt as h.Snippet.
+// annotate sets h.Read, or replaces h.Snippet with the best section's excerpt.
 func (r *sectionResolver) annotate(h *searchHit, typ string) {
 	if r.readsWhole(h.ID, typ) {
 		h.Read = "whole"
@@ -320,7 +325,8 @@ func (r *sectionResolver) annotate(h *searchHit, typ string) {
 		}
 		heading, snippet, found = sec.Heading, "", true
 	}
-	// The heading is the contract with concept_read: it must resolve there.
+	// The excerpt is cut from the section's own text, so the heading must
+	// resolve in the body.
 	text, ok := okf.ExtractSection(body, heading)
 	if !ok || len(text)*100 >= sectionMaxBodyPct*len(body) {
 		return
@@ -328,7 +334,7 @@ func (r *sectionResolver) annotate(h *searchHit, typ string) {
 	if snippet == "" {
 		snippet = extractSnippet(text, r.query, snippetMaxChars)
 	}
-	h.Section, h.Snippet = heading, snippet
+	h.Snippet = snippet
 }
 
 // scopePrefixesShown caps the maps and journals an unmatched-scope error

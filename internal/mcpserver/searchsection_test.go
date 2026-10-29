@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // sectionPage is a page of several "##" sections, each padded to ~700 bytes,
@@ -21,17 +20,23 @@ func sectionPage(typ, title, term string) string {
 type sectionHit struct {
 	ID      string `json:"id"`
 	Snippet string `json:"snippet"`
-	Section string `json:"section"`
 	Read    string `json:"read"`
 	Bytes   int64  `json:"bytes"`
 }
 
+// searchSectionHits searches and decodes the hits by id. A hit never names a
+// section (D1354): the answer is refused if any key of it is called section,
+// whichever the page.
 func searchSectionHits(t *testing.T, s *Server, query string) map[string]sectionHit {
 	t.Helper()
+	text := searchText(t, s, query)
+	if strings.Contains(text, `"section"`) {
+		t.Fatalf("search %q names a section, which steers the agent to a partial read (D1354): %s", query, text)
+	}
 	var out struct {
 		Results []sectionHit `json:"results"`
 	}
-	if err := json.Unmarshal([]byte(searchText(t, s, query)), &out); err != nil {
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
 		t.Fatal(err)
 	}
 	byID := map[string]sectionHit{}
@@ -41,10 +46,10 @@ func searchSectionHits(t *testing.T, s *Server, query string) map[string]section
 	return byID
 }
 
-// A hit names the "##" section that matched, as concept_read accepts it, and
-// excerpts it; a page that must be read whole says so and names no section; a
-// page where a section saves nothing is today's hit (D1207).
-func TestSearchNamesTheSectionThatMatched(t *testing.T) {
+// A hit on a multi-section page excerpts the section that matched but names
+// none, so nothing steers the agent to read that piece alone; a page that must
+// be read whole says so (D1207, D1354).
+func TestSearchExcerptsTheMatchedSectionWithoutNamingIt(t *testing.T) {
 	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		if err := k.CreateMap("ops", "Ops", "map", nil); err != nil {
@@ -68,53 +73,37 @@ func TestSearchNamesTheSectionThatMatched(t *testing.T) {
 			writeKBFile(t, k, rel, c)
 		}
 
-		// Multi-section page: the section reads back and is cheaper than the page.
+		// Multi-section page: no section is named (searchSectionHits fails on
+		// one), the snippet still excerpts what matched, and the hit is not
+		// flagged read-whole.
 		h, ok := searchSectionHits(t, s, "zxqterm")["ops/guide"]
-		if !ok || h.Section != "## Rollback" || h.Read != "" {
-			t.Fatalf("ops/guide hit = %+v, want section ## Rollback", h)
+		if !ok || h.Read != "" {
+			t.Fatalf("ops/guide hit = %+v ok=%v, want a plain hit", h, ok)
 		}
 		if !strings.Contains(h.Snippet, "zxqterm") {
-			t.Errorf("snippet %q must excerpt the section", h.Snippet)
-		}
-		read := callOK(t, s, "concept_read", fmt.Sprintf(`{"id":"ops/guide","section":%q}`, h.Section))
-		if !strings.Contains(read, "zxqterm") {
-			t.Fatalf("concept_read section %q lacks the matched term: %s", h.Section, read)
-		}
-		if int64(len(read)) >= h.Bytes {
-			t.Errorf("section read costs %d bytes, the page %d: naming it saves nothing", len(read), h.Bytes)
-		}
-		// The heading is the contract with concept_read: it must resolve.
-		body := sectionBodyOf(files["ops/guide.md"])
-		if _, ok := okf.ExtractSection(body, h.Section); !ok {
-			t.Errorf("section %q does not resolve through okf.ExtractSection", h.Section)
+			t.Errorf("snippet %q must excerpt the matched part", h.Snippet)
 		}
 
 		// Read-whole: a journal entry, and a type listed in the map's read_whole.
 		for _, c := range []struct{ id, term string }{{"incidents/e1", "zxqjournal"}, {"ops/runbook", "zxqrun"}} {
-			h := searchSectionHits(t, s, c.term)[c.id]
-			if h.Read != "whole" || h.Section != "" {
-				t.Errorf("%s hit = %+v, want read whole and no section", c.id, h)
+			if h := searchSectionHits(t, s, c.term)[c.id]; h.Read != "whole" {
+				t.Errorf("%s hit = %+v, want read whole", c.id, h)
 			}
 		}
 
-		// Nothing saved: a short page, a dominant section, a title-only match.
+		// Plain pages: a short one, a dominant section, a title-only match.
 		for _, c := range []struct{ id, q string }{
 			{"ops/short", "zxqshort"}, {"ops/dominant", "zxqnearly"}, {"ops/titleonly", "Qwertyuniq"},
 		} {
-			h, ok := searchSectionHits(t, s, c.q)[c.id]
-			if !ok || h.Section != "" || h.Read != "" {
-				t.Errorf("%s hit = %+v ok=%v, want no section and no read", c.id, h, ok)
+			if h, ok := searchSectionHits(t, s, c.q)[c.id]; !ok || h.Read != "" {
+				t.Errorf("%s hit = %+v ok=%v, want a plain hit", c.id, h, ok)
 			}
 		}
 	})
 }
 
-func sectionBodyOf(content string) string {
-	_, body, _ := okf.SplitFrontmatter(content)
-	return body
-}
-
-// A concept the caller cannot see leaks neither a section nor a snippet.
+// A concept the caller cannot see leaks nothing through the section-excerpted
+// snippet, and the visible hit names no section (D1354).
 func TestSearchSectionNeverLeaksAHiddenConcept(t *testing.T) {
 	s := graphToolKB(t, map[string]string{
 		"ops/open.md":      sectionPage("Note", "Open", "zxqshared"),
@@ -127,8 +116,8 @@ func TestSearchSectionNeverLeaksAHiddenConcept(t *testing.T) {
 	if strings.Contains(text, "hidden/") || strings.Contains(text, "zxqsecretonly") {
 		t.Fatalf("narrowed search leaked a hidden concept: %s", text)
 	}
-	if !strings.Contains(text, `"section":"## Rollback"`) {
-		t.Fatalf("the visible hit should name its section: %s", text)
+	if !strings.Contains(text, `"id":"ops/open"`) || strings.Contains(text, `"section"`) {
+		t.Fatalf("the visible hit should be there and name no section: %s", text)
 	}
 	text, _ = callJSON(t, s, adminCtx, "graph_context", `{"ids":["ops/open"]}`)
 	if strings.Contains(text, `"section"`) || strings.Contains(text, `"read":"whole"`) {
