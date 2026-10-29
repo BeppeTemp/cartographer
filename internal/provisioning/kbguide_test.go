@@ -233,13 +233,12 @@ func TestRenderGuide_ReadOnlyNamesKBGuide(t *testing.T) {
 	t.Logf("read-only operational section: %d bytes", len(provisioning.GuideOperational(true)))
 }
 
-// What the server generates for an agent never tells it to pass what is now
-// the default, or to read by sections as a habit (D1185): `search` answers are
-// small by default and `related: N` is asked for only by whoever wants the
-// neighbourhood; a page is read whole unless it is genuinely large, and a
-// runbook, a procedure or an incident always is, because ten small reads cost
-// more than two whole ones.
-func TestGuidanceDoesNotRepeatSearchDefaultsOrPushSectionReads(t *testing.T) {
+// What the server generates for an agent never tells it to read by sections as
+// a habit, nor to follow a search hit to a section (D1185, D1354): a page is
+// read whole unless it is genuinely large, and a runbook, a procedure or an
+// incident always is, because ten small reads cost more than two whole ones.
+// A hit names no section, so a text that says "the hit's section" is stale.
+func TestGuidanceDoesNotPushSectionReads(t *testing.T) {
 	texts := map[string]string{
 		"guide(routed)":      provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{Routed: true}),
 		"guide(read-only)":   provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{ReadOnly: true}),
@@ -257,13 +256,13 @@ func TestGuidanceDoesNotRepeatSearchDefaultsOrPushSectionReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	searchWithKnob := regexp.MustCompile("(?i)`search`[^\\n]{0,100}\\b(limit|related)\\b|\\bsearch\\b[^\\n.;]{0,40}`(limit|related)\\b")
 	sectionRead := regexp.MustCompile("(?i)(`outline|`section|outline: true|section:)")
 	wholeKinds := regexp.MustCompile("(?i)\\b(runbook|procedure|incident)s?\\b")
+	hitSection := regexp.MustCompile("(?i)\\bhit('s)?\\b[^\\n]{0,40}\\bsection\\b")
 	for name, text := range texts {
 		for i, line := range strings.Split(text, "\n") {
-			if searchWithKnob.MatchString(line) {
-				t.Errorf("%s:%d tells an agent to pass limit or related to search: %q", name, i+1, line)
+			if hitSection.MatchString(line) {
+				t.Errorf("%s:%d sends an agent from a search hit to a section, which a hit no longer names (D1354): %q", name, i+1, line)
 			}
 			if sectionRead.MatchString(line) && wholeKinds.MatchString(line) && !strings.Contains(strings.ToLower(line), "whole") && !strings.Contains(strings.ToLower(line), "never") {
 				t.Errorf("%s:%d recommends reading by section where runbooks, procedures and incidents are read whole: %q", name, i+1, line)

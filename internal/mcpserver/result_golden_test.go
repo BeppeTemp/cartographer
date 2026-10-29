@@ -58,7 +58,7 @@ type goldenCase struct {
 
 func goldenCases() []goldenCase {
 	return []goldenCase{
-		{"search-hit", "search", `{"query":"zeppelin","limit":20,"related":5}`},
+		{"search-hit", "search", `{"query":"zeppelin"}`}, // the default answer: limit 20, related 5 (D1354)
 		{"search-hit-related", "search", `{"query":"zeppelin","related":3,"limit":20}`},
 		{"search-miss", "search", `{"query":"nonexistentterm","record_miss":false,"limit":20,"related":5}`},
 		{"search-partial", "search", `{"query":"zeppelin nonexistentterm","record_miss":false,"limit":20,"related":5}`},

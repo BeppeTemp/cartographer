@@ -4,6 +4,8 @@ topic: control-plane
 
 # D1185 — Tool results are lighter by default: compact JSON, `search` limit 8 and no `related`, no `frontmatter_raw`
 
+> **Amended by [D1354](D1354-search-restores-the-v026-read-path.md)**: the defaults of `search` go back to 20 hits and a `related` block of 5, and the budget rule is replaced by a measured average plus a margin; compact JSON and the conditional `frontmatter_raw` stay.
+
 **Decision.** Every JSON tool result is built by `jsonResult`, compact (no indentation), and a test forbids `MarshalIndent` in `internal/mcpserver`. `search` returns 8 hits by default and a `related` block only for `related: N`. `concept_read` sends `frontmatter_raw` only when the frontmatter does not parse; the exact bytes are `content` under `with_content`.
 
 **Why.** Measured on 20 real agent sessions, a `search` answer weighed 4.2 KB on average: the `related` block was 19% of it and the indentation 18%. The same questions asked with `limit: 8` and `related: 0` averaged 2.2 KB, 20 of 20 on a blind-judged answer set, with no loss of quality. In `concept_read` the frontmatter travelled twice (3.5%). The saving a client sees comes from fewer calls, not from less text per call, so the plan trims only what no answer needs and adds no nudge to read by section. The price is a breaking change for a client that relied on the old defaults or on `frontmatter_raw` in a default read.

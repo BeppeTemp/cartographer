@@ -74,7 +74,7 @@ func skillsSentence(names []string) string {
 const (
 	// D780: graph_context is named here because agents choose the tools this
 	// line names; nothing else in the session says when to use it.
-	orientationBullet = "- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read (a hit's `section` only when it names one, the whole page when it says `read: \"whole\"`); when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n"
+	orientationBullet = "- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n"
 	writeBullet       = "- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n"
 	// D907: the write gate is always on and nothing accepts a finding.
 	refusedWriteBullet = "- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n"

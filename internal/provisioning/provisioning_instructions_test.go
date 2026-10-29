@@ -879,7 +879,7 @@ func TestBuildManifest_Instructions_ToolNames(t *testing.T) {
 	_ = plain
 	plainContent := provisioning.SharedOperationalSection()
 	for _, want := range []string{
-		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read (a hit's `section` only when it names one, the whole page when it says `read: \"whole\"`); when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n",
+		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n",
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n",
 		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.\n",
 		"- when `kb_status` reports a `latest_version`",
