@@ -23,6 +23,7 @@
     "findings": 0,
     "fixable": 0,
     "lint_findings": 12,
+    "repair": "kb_repair(check: \"*\") plans every mechanical fix; add dry_run: false to apply them in one commit",
     "repairable": {
       "title_h1_mismatch": 1,
       "unmapped_folder": 1
