@@ -2251,7 +2251,7 @@ hookLoop:
 		// not report every other file of the artifact as removed.
 		written := relPaths
 		if opts.DryRun {
-			written = declaredRelPaths(a, destRel)
+			written = declaredRelPaths(a, opts, destRel)
 		}
 		orphaned = append(orphaned, droppedArtifactFiles(opts.Lock.Managed, a, destRel, written)...)
 		if a.Kind == "hook" {
@@ -2423,10 +2423,32 @@ hookLoop:
 }
 
 // declaredRelPaths is where the artifact's files would land under destDirRel,
-// used to compute a dry run's removals without writing anything.
-func declaredRelPaths(a Artifact, destDirRel string) []string {
-	out := make([]string, 0, len(a.Files))
-	for _, f := range a.Files {
+// used to compute a dry run's removals without writing anything. It lists what
+// copyArtifactFiles writes: the files of a local KB, read as the real run
+// reads them, and the generated ones (SOURCE.env).
+//
+// Two outcomes mirror the real run: a collision with a generated file delivers
+// nothing, so every file the lock owns is dropped; an unreadable artifact fails
+// or is refused before anything is pruned, so the plan keeps every file the
+// lock owns.
+func declaredRelPaths(a Artifact, opts ApplyOptions, destDirRel string) []string {
+	files, err := ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
+	if err != nil {
+		var kept []string
+		for _, mf := range opts.Lock.Managed {
+			if mf.Kind == a.Kind && mf.Name == a.Name {
+				kept = append(kept, mf.Path)
+			}
+		}
+		return kept
+	}
+	generated, _, ok := generatedArtifactFiles(a, opts, files)
+	if !ok {
+		return nil
+	}
+	files = append(append([]ArtifactFile{}, files...), generated...)
+	out := make([]string, 0, len(files))
+	for _, f := range files {
 		out = append(out, filepath.Join(destDirRel, f.Path))
 	}
 	return out
