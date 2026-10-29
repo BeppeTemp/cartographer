@@ -2,8 +2,10 @@ package kb
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,8 +27,9 @@ type BatchWriteOp struct {
 	Body    string
 	IfMatch string
 	// Delete removes the concept instead of writing it (FM, Body and IfMatch
-	// are then ignored: the caller checked if_match). Only a plain concept
-	// file: an expanded concept is refused (D1327).
+	// are then ignored: the caller checked if_match). An expanded concept is
+	// deleted only when the same batch deletes every satellite under it and it
+	// owns no asset (D1327).
 	Delete bool
 }
 
@@ -139,13 +142,23 @@ func (kb *KB) WriteConceptBatch(ops []BatchWriteOp, logMessage string, afterFile
 
 	plans := make([]*writeConceptPlan, len(ops))
 	deleteAbs := make([]string, len(ops)) // absolute path of each delete op, "" for a write
+	var expandedDirs []string             // directories of the expanded concepts the batch deletes
+	deleting := make(map[okf.ConceptID]bool, len(ops))
+	for _, op := range ops {
+		if op.Delete {
+			deleting[op.ID] = true
+		}
+	}
 	for i, op := range ops {
 		if op.Delete {
-			abs, err := kb.prepareDeleteConcept(op.ID)
+			abs, expandedDir, err := kb.prepareDeleteConcept(op.ID, ops, deleting)
 			if err != nil {
 				return nil, fmt.Errorf("batch op %d (%s): %w", i, op.ID, err)
 			}
 			deleteAbs[i] = abs
+			if expandedDir != "" {
+				expandedDirs = append(expandedDirs, expandedDir)
+			}
 			continue
 		}
 		plan, err := kb.prepareWriteConcept(op.ID, op.FM, op.Body, op.IfMatch, false)
@@ -253,33 +266,122 @@ func (kb *KB) WriteConceptBatch(ops []BatchWriteOp, logMessage string, afterFile
 		}
 	}
 
+	// Pruned last: a rollback above rewrites the deleted index.md into its
+	// directory, which must still exist then. Deepest first, best effort: an
+	// empty directory left behind is not tracked by git.
+	sort.Slice(expandedDirs, func(i, j int) bool { return len(expandedDirs[i]) > len(expandedDirs[j]) })
+	for _, dir := range expandedDirs {
+		_ = pruneEmptyDirs(dir, root)
+	}
+
 	return results, nil
 }
 
 // prepareDeleteConcept validates a batch delete and returns the absolute path
-// of the file to remove. A missing concept is okf.ErrNotFound; a reserved file
-// or an expanded concept (which may own assets, deleted only by concept_delete
-// with force) is refused (D1327).
-func (kb *KB) prepareDeleteConcept(id okf.ConceptID) (string, error) {
+// of the file to remove and, for an expanded concept, its directory. A missing
+// concept is okf.ErrNotFound; a reserved file is refused. An expanded concept
+// is deleted only if it owns no asset and every concept below it is deleted by
+// the same batch (deleting is the set of ids the batch deletes), so nothing the
+// caller did not list goes with it (D1327); a write or patch of a concept below
+// it is refused too, since it would be left without its parent.
+func (kb *KB) prepareDeleteConcept(id okf.ConceptID, ops []BatchWriteOp, deleting map[okf.ConceptID]bool) (abs, expandedDir string, err error) {
 	relPath, expanded, err := kb.resolveConceptRelPath(id, true)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	if expanded {
-		return "", fmt.Errorf("%w: %s is an expanded concept: delete it with concept_delete", okf.ErrInvalidConcept, id)
+	if !expanded && okf.IsReserved(filepath.Base(relPath)) {
+		return "", "", fmt.Errorf("%w: %s is a reserved file", okf.ErrInvalidConcept, filepath.Base(relPath))
 	}
-	if okf.IsReserved(filepath.Base(relPath)) {
-		return "", fmt.Errorf("%w: %s is a reserved file", okf.ErrInvalidConcept, filepath.Base(relPath))
-	}
-	abs, err := kb.ResolvePath(relPath, true)
+	abs, err = kb.ResolvePath(relPath, true)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if _, err := os.Stat(abs); err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("%w: %s", okf.ErrNotFound, id)
+			return "", "", fmt.Errorf("%w: %s", okf.ErrNotFound, id)
 		}
-		return "", err
+		return "", "", err
 	}
-	return abs, nil
+	if !expanded {
+		return abs, "", nil
+	}
+	expandedDir = filepath.Dir(abs)
+	for _, op := range ops {
+		if !op.Delete && strings.HasPrefix(string(op.ID), string(id)+"/") {
+			return "", "", fmt.Errorf("%w: %s is an expanded concept deleted by this batch: %s below it cannot be written", okf.ErrInvalidConcept, id, op.ID)
+		}
+	}
+	satellites, assets, err := expandedContents(expandedDir, string(id))
+	if err != nil {
+		return "", "", err
+	}
+	if len(assets) > 0 {
+		return "", "", fmt.Errorf("%w: expanded concept %s owns %d asset(s): %s: delete it with concept_delete and force=true",
+			okf.ErrInvalidConcept, id, len(assets), listCapped(assets))
+	}
+	var missing []string
+	for _, s := range satellites {
+		if !deleting[okf.ConceptID(s)] {
+			missing = append(missing, s)
+		}
+	}
+	if len(missing) > 0 {
+		return "", "", fmt.Errorf("%w: %s is an expanded concept with %d concept(s) below it the batch does not delete: %s: delete them in the same batch",
+			okf.ErrInvalidConcept, id, len(missing), listCapped(missing))
+	}
+	return abs, expandedDir, nil
+}
+
+// expandedContents lists what lies below an expanded concept's directory: the
+// ids of its satellite concepts (the top-level index.md is the concept itself)
+// and the paths of every other file, which are assets or reserved files. Hidden
+// entries are not content, as for ListAssets.
+func expandedContents(dirAbs, id string) (satellites, assets []string, err error) {
+	err = filepath.WalkDir(dirAbs, func(abs string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if abs == dirAbs {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%w: %s is not a regular file", okf.ErrInvalidPath, abs)
+		}
+		rel, err := filepath.Rel(dirAbs, abs)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		switch {
+		case rel == "index.md":
+		case strings.HasSuffix(rel, "/index.md"):
+			satellites = append(satellites, id+"/"+strings.TrimSuffix(rel, "/index.md"))
+		case strings.EqualFold(filepath.Ext(rel), ".md") && !okf.IsReserved(filepath.Base(rel)):
+			satellites = append(satellites, id+"/"+strings.TrimSuffix(rel, filepath.Ext(rel)))
+		default:
+			assets = append(assets, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("list %s: %w", id, err)
+	}
+	return satellites, assets, nil
+}
+
+// listCapped joins at most ten names, noting the rest.
+func listCapped(names []string) string {
+	if len(names) <= 10 {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names[:10], ", ") + fmt.Sprintf(", and %d more", len(names)-10)
 }
