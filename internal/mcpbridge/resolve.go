@@ -41,10 +41,18 @@ type Scope struct {
 	// the repositories whose git identity authors its writes (D904). Nil for
 	// any other scope, where the session's own folder stands for every KB.
 	Dirs map[string][]string
-	// ReadOnly is true for a folder no workspace binding covers: the session
-	// keeps the provider's set but asks the server for read tools only
-	// (?access=read, #1018). A workspace binding that wins is never read-only.
+	// ReadOnly is true for a folder no workspace binding covers, unless the
+	// unbound_access setting says write (#1356): the session keeps the
+	// provider's set but asks the server for read tools only (?access=read,
+	// #1018). A workspace binding that wins is never read-only.
 	ReadOnly bool
+	// Unbound is true for the two provider scopes: the folder is under no
+	// binding, whatever the access mode. False for a binding, an error and the
+	// roots scope.
+	Unbound bool
+	// AccessOrigin says where an unbound scope's mode comes from: "default" or
+	// "unbound_access". Empty for a scope that is not unbound.
+	AccessOrigin string
 	// Err is a binding that could not be honoured (bound directory gone, git
 	// remote changed). The scope is then empty: failing open here would hand a
 	// customer's folder another perimeter's KBs.
@@ -92,15 +100,17 @@ func Resolve(cfg *clientconfig.Config, provider, dir string) Scope {
 }
 
 // providerScope is the unbound answer: the provider's own binding (D169),
-// read-only, because a folder under no binding receives no KB artifact and a
-// session with write tools and none of the skills that explain them is the
-// failure this prevents.
+// read-only unless unbound_access says write (#1356), because a folder under no
+// binding receives no KB artifact and a session with write tools and none of
+// the skills that explain them is the failure the default prevents.
 func providerScope(cfg *clientconfig.Config, provider string) Scope {
+	mode, origin := cfg.UnboundAccess(provider)
+	ro := mode != "write"
 	bound, explicit := cfg.BoundKBs(provider)
 	if !explicit {
-		return Scope{All: true, ReadOnly: true, Source: "provider default"}
+		return Scope{All: true, ReadOnly: ro, Unbound: true, AccessOrigin: origin, Source: "provider default"}
 	}
-	return Scope{KBs: clientconfig.RoutedBinding(cfg.KnownKBs, bound), ReadOnly: true, Source: "provider binding"}
+	return Scope{KBs: clientconfig.RoutedBinding(cfg.KnownKBs, bound), ReadOnly: ro, Unbound: true, AccessOrigin: origin, Source: "provider binding"}
 }
 
 // ResolveRoots is the fallback for a client that declares MCP roots while the
@@ -173,12 +183,16 @@ func (s Scope) Describe() string {
 		return fmt.Sprintf("no KB (%s)", s.Err)
 	case s.All && s.ReadOnly:
 		return "every KB of the provider, read-only (" + s.Source + ")"
+	case s.All && s.Unbound:
+		return "every KB of the provider (" + s.Source + ", unbound)"
 	case s.All:
 		return "every KB of the provider (" + s.Source + ")"
 	case len(s.KBs) == 0:
 		return "no KB (" + s.Source + ")"
 	case s.ReadOnly:
 		return strings.Join(s.KBs, ", ") + " read-only (" + s.Source + ")"
+	case s.Unbound:
+		return strings.Join(s.KBs, ", ") + " (" + s.Source + ", unbound)"
 	default:
 		return strings.Join(s.KBs, ", ") + " (" + s.Source + ")"
 	}
