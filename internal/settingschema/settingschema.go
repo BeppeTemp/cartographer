@@ -27,6 +27,8 @@ const (
 	ScopeServer Scope = "server"
 	ScopeKB     Scope = "kb"
 	ScopeClient Scope = "client"
+	// ScopeWorker marks the keys of a worker config file (internal/workerconfig).
+	ScopeWorker Scope = "worker"
 )
 
 // Marker opens the block of commented-out, unset keys at the end of a mapping.
