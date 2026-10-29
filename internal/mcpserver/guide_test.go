@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -35,7 +37,7 @@ func TestGuide_TwoKBsInNameOrder(t *testing.T) {
 	writeInstructions(t, f, "kb-b", "Rules of kb-b.\n")
 	got := f.instructions(t, tokAdmin, RoutedMountPath)
 	idx := func(s string) int { return strings.Index(got, s) }
-	for _, want := range []string{"pass `kb: \"kb-a\"`", "pass `kb: \"kb-b\"`", "Archives: manutenzione/", "Operational instructions:", "Rules of kb-a.", "Rules of kb-b."} {
+	for _, want := range []string{"pass `kb: \"kb-a\"`", "pass `kb: \"kb-b\"`", "Maps: manutenzione/", "Operational instructions:", "Rules of kb-a.", "Rules of kb-b."} {
 		if idx(want) < 0 {
 			t.Fatalf("guide lacks %q:\n%s", want, got)
 		}
@@ -81,7 +83,7 @@ func TestGuide_MapScopedTokenSeesItsMapsButTheCuratedText(t *testing.T) {
 	}
 	writeInstructions(t, f, "kb-a", "Curated rules.\n")
 	got := f.instructions(t, tokMapRule, RoutedMountPath)
-	if !strings.Contains(got, "Archives: manutenzione/.") || strings.Contains(got, "hidden-map") {
+	if !strings.Contains(got, "Maps: manutenzione/.") || strings.Contains(got, "hidden-map") {
 		t.Errorf("archives must be the visible ones only:\n%s", got)
 	}
 	if !strings.Contains(got, "Curated rules.") {
@@ -293,5 +295,47 @@ func TestGuide_OversizeInstructionsAreCut(t *testing.T) {
 	}
 	if len(got) > 70*1024 {
 		t.Errorf("guide is %d bytes, not bounded", len(got))
+	}
+}
+
+// #1316: a bare agent on an empty KB gets the cold-start section and the
+// procedures list in `initialize`, with the whole-guide line; a KB with maps
+// gets the list and no cold start.
+func TestGuide_ColdStartAndProceduresInInitialize(t *testing.T) {
+	t.Parallel()
+	f := newViewFixtureWithBundle(t, skillbundle.FS, nil, "kb-a")
+	withMaps := f.instructions(t, tokAdmin, RoutedMountPath)
+	for _, want := range []string{"`ingest`", "`conflict-resolve`", "`import`", "the whole guide", "Maps: manutenzione/"} {
+		if !strings.Contains(withMaps, want) {
+			t.Errorf("guide lacks %q:\n%s", want, withMaps)
+		}
+	}
+	if strings.Contains(withMaps, "This KB is empty") {
+		t.Errorf("a KB with maps gets no cold-start section:\n%s", withMaps)
+	}
+	if err := os.RemoveAll(filepath.Join(f.kbs["kb-a"].Root, "data", "manutenzione")); err != nil {
+		t.Fatal(err)
+	}
+	empty := f.instructions(t, tokAdmin, RoutedMountPath)
+	for _, want := range []string{"No maps yet.", "This KB is empty", "`map_create`", "Reserved map name: services", "`ingest`"} {
+		if !strings.Contains(empty, want) {
+			t.Errorf("empty-KB guide lacks %q:\n%s", want, empty)
+		}
+	}
+	// The same host with no bundle lists no procedure and names none.
+	bare := newViewFixtureWithBundle(t, nil, nil, "kb-a")
+	if got := bare.instructions(t, tokAdmin, RoutedMountPath); strings.Contains(got, "procedure: <name>") {
+		t.Errorf("no bundle, no procedures list:\n%s", got)
+	}
+}
+
+// The map_create description names the reserved set (the constant it reads).
+func TestMapCreateDescriptionNamesReservedNames(t *testing.T) {
+	t.Parallel()
+	d := toolMapCreate(setupTestKB(t)).Description
+	for _, r := range kb.ReservedMapNames {
+		if !strings.Contains(d, r) {
+			t.Errorf("map_create description does not name reserved %q: %s", r, d)
+		}
 	}
 }

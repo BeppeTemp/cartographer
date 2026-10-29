@@ -158,7 +158,7 @@ func TestMapCreate_ServicesReservedThroughMCP(t *testing.T) {
 				if !res.IsError {
 					t.Fatalf("map_create services succeeded: %+v", res.Content)
 				}
-				if msg := res.Content[0].Text; !strings.Contains(msg, "reserved for service descriptors") || !strings.Contains(msg, "invalid path") {
+				if msg := res.Content[0].Text; !strings.Contains(msg, "reserved for service descriptors") || !strings.Contains(msg, "invalid path") || !strings.Contains(msg, "reserved names: services") || !strings.Contains(msg, "service-notes") {
 					t.Fatalf("map_create services: unexpected message %q", msg)
 				}
 				sameTree(t, "rejected map_create", before, treeSnapshot(t, k.Root))
