@@ -70,6 +70,46 @@ func TestExtractLinks_AssetTargetsAreNotConcepts(t *testing.T) {
 	}
 }
 
+// Query and fragment are cut from the destination before it is percent-decoded,
+// so an encoded "#" or "?" stays part of the file name (#1346).
+func TestExtractAssetLinks_DecodesAfterStrippingFragment(t *testing.T) {
+	t.Parallel()
+	isAsset := func(rel string) bool { return rel == "map/owner/report" }
+	cases := []struct {
+		name, body string
+		want       []string
+		notWant    []string
+	}{
+		{"encoded hash", "[a](a%23b.xlsx)", []string{"map/owner/a#b.xlsx"}, []string{"map/owner/a"}},
+		{"encoded question mark", "[a](a%3Fb.xlsx)", []string{"map/owner/a?b.xlsx"}, []string{"map/owner/a"}},
+		{"encoded hash is not a cut to an extensionless asset", "[a](report%23x.xlsx)", []string{"map/owner/report#x.xlsx"}, []string{"map/owner/report"}},
+		{"real fragment still cut", "[a](a%20b.xlsx#page)", []string{"map/owner/a b.xlsx"}, []string{"map/owner/a b.xlsx#page"}},
+		{"angle brackets with title", `[a](<a b.xlsx> "title")`, []string{"map/owner/a b.xlsx"}, nil},
+		{"encoded parent escape", "[a](..%2Fx.xlsx)", nil, []string{"../x.xlsx", "x.xlsx"}},
+	}
+	for _, tc := range cases {
+		got := ExtractAssetLinks(tc.body, "map/owner/index.md", isAsset)
+		has := func(want string) bool {
+			for _, g := range got {
+				if g == want {
+					return true
+				}
+			}
+			return false
+		}
+		for _, w := range tc.want {
+			if !has(w) {
+				t.Errorf("%s: %q missing from %v", tc.name, w, got)
+			}
+		}
+		for _, w := range tc.notWant {
+			if has(w) {
+				t.Errorf("%s: %q must not be cited, got %v", tc.name, w, got)
+			}
+		}
+	}
+}
+
 func TestExtractLinks_SkipAbsolute(t *testing.T) {
 	t.Parallel()
 	body := `[abs](https://example.com) and [mail](mailto:a@b.com)`

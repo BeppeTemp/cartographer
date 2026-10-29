@@ -2,6 +2,7 @@ package kb
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -232,30 +233,52 @@ func ExtractAssetLinks(body string, basePath string, assetResolver ...func(relPa
 	seen := map[string]bool{}
 	var links []string
 	for _, m := range mdLinkRe.FindAllStringSubmatch(body, -1) {
-		href := m[2]
-		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "/") {
+		raw := m[2]
+		if strings.Contains(raw, "://") || strings.HasPrefix(raw, "#") || strings.HasPrefix(raw, "mailto:") || strings.HasPrefix(raw, "/") {
 			continue
 		}
-		if idx := strings.IndexAny(href, "?#"); idx >= 0 {
-			href = href[:idx]
+		for _, href := range assetHrefForms(raw) {
+			if href == "" || strings.EqualFold(path.Ext(href), ".md") {
+				continue
+			}
+			resolved := path.Clean(path.Join(baseDir, href))
+			// An extensionless href counts as an asset citation only when it really
+			// resolves to one — a Dockerfile, a Makefile, a LICENSE (D150).
+			// Otherwise it is a ConceptID shorthand and not this function's business.
+			if path.Ext(href) == "" && (isAsset == nil || !isAsset(resolved)) {
+				continue
+			}
+			if strings.HasPrefix(resolved, "..") || seen[resolved] {
+				continue
+			}
+			seen[resolved] = true
+			links = append(links, resolved)
 		}
-		if href == "" || strings.EqualFold(path.Ext(href), ".md") {
-			continue
-		}
-		resolved := path.Clean(path.Join(baseDir, href))
-		// An extensionless href counts as an asset citation only when it really
-		// resolves to one — a Dockerfile, a Makefile, a LICENSE (D150).
-		// Otherwise it is a ConceptID shorthand and not this function's business.
-		if path.Ext(href) == "" && (isAsset == nil || !isAsset(resolved)) {
-			continue
-		}
-		if strings.HasPrefix(resolved, "..") || seen[resolved] {
-			continue
-		}
-		seen[resolved] = true
-		links = append(links, resolved)
 	}
 	return links
+}
+
+// assetHrefForms returns the file paths a Markdown destination may name. The
+// destination is unwrapped from the CommonMark angle-bracket form
+// (<dir/a file.xlsx>, which allows spaces) and cut at its query or fragment
+// first; only then is it percent-decoded, once, so an encoded "#" or "?"
+// (a%23b.xlsx) stays part of the name. The undecoded form is offered too, for
+// a file really named with a literal "%20".
+func assetHrefForms(href string) []string {
+	href = strings.TrimSpace(href)
+	if strings.HasPrefix(href, "<") {
+		if end := strings.Index(href, ">"); end > 0 {
+			href = href[1:end]
+		}
+	}
+	if idx := strings.IndexAny(href, "?#"); idx >= 0 {
+		href = href[:idx]
+	}
+	forms := []string{href}
+	if decoded, err := url.PathUnescape(href); err == nil && decoded != href {
+		forms = append(forms, decoded)
+	}
+	return forms
 }
 
 // RewriteLinks rewrites, in body, every markdown link and wiki-link whose
