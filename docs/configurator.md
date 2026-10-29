@@ -261,9 +261,9 @@ cases and the exact rules in `sync.md` §Workspace scope, [D1074](decisions/D107
 written into the workspace: `sync` writes the provider's global MCP entry as a local stdio bridge,
 `cartographer mcp --provider <p> [--dir <folder>]` (the folder defaults to the working directory), which serves only the KBs of the folder the session runs in
 (deepest binding wins; an unbound folder, `$HOME` included, gets the provider's default set
-**read-only** and no KB artifact (D1018); `--no-kb` means no KB, never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
+**read-only** and no KB artifact (D1018), or read-write when `unbound_access` says `write` (#1356, still no artifact); `--no-kb` means no KB, never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
 token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>] [--provider <p>]` shows which
-binding wins for a folder (for one provider, or each), says when it is derived from a KB's `paths.yaml` (D1019), and prints `read-only` for one that no binding covers. `workspace list` shows the bindings, with `[gone]` next to a
+binding wins for a folder (for one provider, or each), says when it is derived from a KB's `paths.yaml` (D1019), and, for one that no binding covers, prints `access: read-only (default)`, `access: read-only (unbound_access)` or `access: read-write (unbound_access)`. `workspace list` shows the bindings, with `[gone]` next to a
 directory that is not there any more and `[derived: paths.yaml of kb-a]` next to one a KB's declared repository implies, then the declared repositories with no local clone (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
 server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
 entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
