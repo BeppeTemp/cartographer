@@ -7,6 +7,7 @@ import type {
   SettingOrigin,
   SettingsClient,
   SettingsKB,
+  SettingsWorker,
   SettingsView,
   Whoami,
   WhoamiRule,
@@ -247,20 +248,48 @@ export function Settings({
   const client = tab.startsWith("client")
     ? (clients.find((c) => `client:${c.machine}` === tab) ?? clients[0] ?? null)
     : undefined;
-  const current = client !== undefined ? (client ? `client:${client.machine}` : "client") : kb ? "kb" : "server";
+  const workers = view.workers ?? [];
+  // A worker tab opens on its perimeter; with none reported, on the template.
+  const worker = tab.startsWith("worker")
+    ? (workers.find((w) => `worker:${w.perimeter}` === tab) ?? workers[0] ?? null)
+    : undefined;
+  const current =
+    worker !== undefined
+      ? worker
+        ? `worker:${worker.perimeter}`
+        : "worker"
+      : client !== undefined
+        ? client
+          ? `client:${client.machine}`
+          : "client"
+        : kb
+          ? "kb"
+          : "server";
 
   return (
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
-        title={client !== undefined ? (client?.machine ?? "Client") : kb ? kb.name : "Server"}
+        title={
+          worker !== undefined
+            ? (worker?.perimeter ?? "Worker")
+            : client !== undefined
+              ? (client?.machine ?? "Client")
+              : kb
+                ? kb.name
+                : "Server"
+        }
         subtitle={
           <>
-            {client
-              ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
-              : kb
-                ? "This Knowledge Base's configuration, read-only"
-                : "The configuration this server runs with, read-only"}
+            {worker !== undefined
+              ? worker
+                ? `Worker ${worker.version ?? ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
+                : "No worker has reported: every key at its default, read-only"
+              : client
+                ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+                : kb
+                  ? "This Knowledge Base's configuration, read-only"
+                  : "The configuration this server runs with, read-only"}
             {who && (
               <>
                 {" · "}
@@ -298,11 +327,29 @@ export function Settings({
               Knowledge Base
             </Tab>
           )}
+          {workers.length === 0 ? (
+            <Tab id="worker" current={current === "worker"} onSelect={setTab}>
+              Worker
+            </Tab>
+          ) : (
+            workers.map((w) => (
+              <Tab
+                key={w.perimeter}
+                id={`worker:${w.perimeter}`}
+                current={current === `worker:${w.perimeter}`}
+                onSelect={setTab}
+              >
+                {workers.length === 1 ? "Worker" : `Worker · ${w.perimeter}`}
+              </Tab>
+            ))
+          )}
         </div>
       </div>
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
-        {client !== undefined ? (
+        {worker !== undefined ? (
+          <WorkerPanel worker={worker} template={view.worker_template} mode={mode} query={query} />
+        ) : client !== undefined ? (
           <ClientValues.Provider value={true}>
             <ClientPanel
               client={client}
@@ -477,6 +524,42 @@ function ClientPanel({
           {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
         </>
       )}
+    </>
+  );
+}
+
+/**
+ * The settings of a worker perimeter, as its process reported them (D22): the
+ * server shows what arrived (scrubbed on receipt), the keys grouped by their
+ * first path segment so a key a task kind adds needs no entry here.
+ */
+function WorkerPanel({
+  worker,
+  template,
+  mode,
+  query,
+}: {
+  worker: SettingsWorker | null;
+  template?: { entries: SettingEntry[]; yaml?: string };
+  mode: Mode;
+  query: string;
+}) {
+  const source = worker ?? template;
+  if (!source) return null;
+  const groups = new Map<string, SettingEntry[]>();
+  for (const e of source.entries.filter((e) => matches(e, query))) {
+    const g = e.key.split(/[.[]/)[0]!;
+    groups.set(g, [...(groups.get(g) ?? []), e]);
+  }
+  return mode === "yaml" ? (
+    <Yaml name="worker.yaml" text={source.yaml} />
+  ) : groups.size === 0 ? (
+    <NoMatch query={query} />
+  ) : (
+    <>
+      {[...groups].map(([g, rows]) => (
+        <Rows key={g} group={{ title: g, intro: "" }} entries={rows} label={`Worker ${g} settings`} />
+      ))}
     </>
   );
 }
@@ -829,7 +912,8 @@ function MapTable({ entries, label }: { entries: [string, unknown][]; label: str
   const folded = !all && entries.length > MAP_FOLD;
   const cell = (v: unknown) => {
     const map = asMap(v);
-    const kbs = map && map.length === 1 && map[0]![0] === "kbs" && Array.isArray(map[0]![1]) ? (map[0]![1] as unknown[]) : null;
+    const kbs =
+      map && map.length === 1 && map[0]![0] === "kbs" && Array.isArray(map[0]![1]) ? (map[0]![1] as unknown[]) : null;
     const list = kbs ?? (Array.isArray(v) ? v : null);
     if (list)
       return list.length === 0 ? (
@@ -921,7 +1005,12 @@ function Value({ entry: e }: { entry: SettingEntry }) {
   const bytes = /_bytes$/.test(e.key) && /^\d+$/.test(String(e.value)) ? Number(e.value) : null;
   const text = bytes !== null ? humanBytes(bytes) : formatValue(e.value);
   return (
-    <span className="settings__value" data-empty={text.startsWith("(") || undefined} aria-label={label} title={bytes !== null ? `${bytes} bytes` : undefined}>
+    <span
+      className="settings__value"
+      data-empty={text.startsWith("(") || undefined}
+      aria-label={label}
+      title={bytes !== null ? `${bytes} bytes` : undefined}
+    >
       {home(text)}
     </span>
   );
@@ -1080,7 +1169,8 @@ function describeRule(rule: WhoamiRule): string {
   ]
     .filter(Boolean)
     .join("; ");
-  return `${rule.write ? "can read and write" : "can read"} ${scope}`;
+  const artifacts = rule.artifacts === "r" ? ", not skills, agents or hooks" : "";
+  return `${rule.write ? "can read and write" : "can read"} ${scope}${artifacts}`;
 }
 
 /** Who is looking, in a few words: the principal and what it reaches. */
