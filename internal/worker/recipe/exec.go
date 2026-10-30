@@ -45,6 +45,7 @@ type ExecConfig struct {
 	Timeout      time.Duration
 	MaxOutput    int
 	MaxContent   int
+	Shape        string // "" or feed, or system (D1372)
 	Connector    string // how the unit executor reads an entry's locator; "" = the Source's own
 	Instructions string
 }
@@ -55,19 +56,27 @@ var execSlot = make(chan struct{}, 1)
 
 type execRecipe struct{ c ExecConfig }
 
+var _ SystemRecipe = (*execRecipe)(nil)
+
 // NewExec returns the recipe that runs an operator-declared executable.
 func NewExec(c ExecConfig) Recipe { return &execRecipe{c} }
 
-func (e *execRecipe) Name() string         { return e.c.Name }
-func (e *execRecipe) Shape() string        { return ShapeFeed }
+func (e *execRecipe) Name() string { return e.c.Name }
+func (e *execRecipe) Shape() string {
+	if e.c.Shape == ShapeSystem {
+		return ShapeSystem
+	}
+	return ShapeFeed
+}
 func (e *execRecipe) Instructions() string { return e.c.Instructions }
 
 // Connector is the connector the unit executor uses to read an entry's locator,
 // "" when the recipe names none (the poll then falls back to the Source's own).
 func (e *execRecipe) Connector() string { return e.c.Connector }
 
-// request is the stdin of the script: protocol v1, mode "list" only. The
-// reserved mode "preflight" and shape "system" belong to #1372 and are never sent.
+// request is the stdin of the script: protocol v1. A feed recipe is only ever
+// sent mode "list"; a system recipe is sent "preflight", then "list" after a
+// clean answer.
 type request struct {
 	Protocol        int     `json:"protocol"`
 	Mode            string  `json:"mode"`
@@ -86,24 +95,19 @@ type source struct {
 	Include     []string `json:"include"`
 }
 
-// List runs the script once. argv with no shell, a per-call working directory,
-// the environment of connector.ChildEnv (exactly the variables listed plus
-// PATH/HOME, so the model key never reaches operator code), the whole process
-// group killed on timeout, cancel or an output past the cap. Every detail that
-// leaves this function is redacted of the listed variables' values.
+// List runs the script once, for a feed. argv with no shell, a per-call
+// working directory, the environment of connector.ChildEnv (exactly the
+// variables listed plus PATH/HOME, so the model key never reaches operator
+// code), the whole process group killed on timeout, cancel or an output past
+// the cap. Every detail that leaves this function is redacted of the listed
+// variables' values. A system recipe is never listed from here (ListSystem).
 func (e *execRecipe) List(ctx context.Context, req Request) (Listing, error) {
-	select {
-	case execSlot <- struct{}{}:
-		defer func() { <-execSlot }()
-	case <-ctx.Done():
-		return Listing{}, ctx.Err()
+	if e.c.Shape == ShapeSystem {
+		return Listing{}, ErrNeedsPreflight
 	}
-	maxEntries, maxContent := req.MaxEntries, e.c.MaxContent
+	maxEntries, maxContent := req.MaxEntries, e.contentCap(req)
 	if maxEntries <= 0 {
 		maxEntries = DefaultMaxEntries
-	}
-	if req.MaxContentBytes > 0 && req.MaxContentBytes < maxContent {
-		maxContent = req.MaxContentBytes
 	}
 	body, err := json.Marshal(request{Protocol: ProtocolVersion, Mode: "list",
 		Source: source{req.ID, req.Title, req.Locator, req.SourceKind, ShapeFeed, nonNil(req.Include)},
@@ -111,13 +115,42 @@ func (e *execRecipe) List(ctx context.Context, req Request) (Listing, error) {
 	if err != nil {
 		return Listing{}, fail(CodeListFailed, "cannot encode the request")
 	}
+	var l Listing
+	err = e.runScript(ctx, body, func(r io.Reader) (bool, error) {
+		var atEOF bool
+		var perr error
+		l, atEOF, perr = e.parse(r, maxEntries, maxContent, e.entry)
+		return atEOF, perr
+	})
+	return l, err
+}
+
+// contentCap is the per-entry cap: the recipe's, lowered by the request's.
+func (e *execRecipe) contentCap(req Request) int {
+	if req.MaxContentBytes > 0 && req.MaxContentBytes < e.c.MaxContent {
+		return req.MaxContentBytes
+	}
+	return e.c.MaxContent
+}
+
+// runScript is the process half of every mode, one script at a time per
+// replica: it feeds body to the script and hands its stdout to read, which
+// returns atEOF true when the stream ended cleanly but unusable (the exit status
+// then says why). Mode-agnostic: preflight and both lists share it.
+func (e *execRecipe) runScript(ctx context.Context, body []byte, read func(io.Reader) (bool, error)) error {
+	select {
+	case execSlot <- struct{}{}:
+		defer func() { <-execSlot }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	env, err := connector.ChildEnv(e.c.Env)
 	if err != nil {
-		return Listing{}, fail(CodeListFailed, "%v", err) // names the variable, never a value
+		return fail(CodeListFailed, "%v", err) // names the variable, never a value
 	}
 	dir, err := os.MkdirTemp("", "cartographer-recipe-")
 	if err != nil {
-		return Listing{}, fail(CodeListFailed, "no temp dir: %v", err)
+		return fail(CodeListFailed, "no temp dir: %v", err)
 	}
 	defer os.RemoveAll(dir)
 
@@ -131,10 +164,10 @@ func (e *execRecipe) List(ctx context.Context, req Request) (Listing, error) {
 	cmd.Stderr = stderr
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return Listing{}, fail(CodeListFailed, "cannot start: %v", err)
+		return fail(CodeListFailed, "cannot start: %v", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return Listing{}, fail(CodeListFailed, "cannot start %s: %s", baseName(e.c.Command), e.redact(err.Error()))
+		return fail(CodeListFailed, "cannot start %s: %s", baseName(e.c.Command), e.redact(err.Error()))
 	}
 	// The script may leave grandchildren that outlive it (and hold the pipes).
 	defer connector.KillGroup(cmd)
@@ -143,14 +176,13 @@ func (e *execRecipe) List(ctx context.Context, req Request) (Listing, error) {
 	// a descendant that left the process group (setsid) and keeps stdout open
 	// would otherwise block this read forever and hold execSlot.
 	type parsed struct {
-		l     Listing
 		atEOF bool
 		err   error
 	}
 	done := make(chan parsed, 1)
 	go func() {
 		var p parsed
-		p.l, p.atEOF, p.err = e.parse(out, maxEntries, maxContent)
+		p.atEOF, p.err = read(out)
 		done <- p
 	}()
 	var p parsed
@@ -164,53 +196,63 @@ func (e *execRecipe) List(ctx context.Context, req Request) (Listing, error) {
 		}
 		p.atEOF = false
 	}
-	l, atEOF, perr := p.l, p.atEOF, p.err
+	atEOF, perr := p.atEOF, p.err
 	if perr != nil && !atEOF {
 		timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded) // before cancel() below sets Err itself
 		cancel()                                                      // kills the group; the exit status no longer matters
 		_ = cmd.Wait()
 		switch {
 		case ctx.Err() != nil:
-			return Listing{}, ctx.Err()
+			return ctx.Err()
 		case timedOut:
-			return Listing{}, fail(CodeListFailed, "timeout after %s", e.c.Timeout)
+			return fail(CodeListFailed, "timeout after %s", e.c.Timeout)
 		}
-		return Listing{}, perr
+		return perr
 	}
 	werr := cmd.Wait()
 	if perr != nil { // the stream ended without a next_cursor: the exit status says why
 		var ee *exec.ExitError
 		if errors.As(werr, &ee) && runCtx.Err() == nil {
-			return Listing{}, fail(CodeListFailed, "exit %d%s", ee.ExitCode(), e.excerpt(stderr.String()))
+			return fail(CodeListFailed, "exit %d%s", ee.ExitCode(), e.excerpt(stderr.String()))
 		}
 		if runCtx.Err() == nil {
-			return Listing{}, perr
+			return perr
 		}
 	}
 	switch {
 	case ctx.Err() != nil:
-		return Listing{}, ctx.Err()
+		return ctx.Err()
 	case runCtx.Err() != nil:
-		return Listing{}, fail(CodeListFailed, "timeout after %s", e.c.Timeout)
+		return fail(CodeListFailed, "timeout after %s", e.c.Timeout)
 	case werr != nil:
 		var ee *exec.ExitError
 		if errors.As(werr, &ee) {
-			return Listing{}, fail(CodeListFailed, "exit %d%s", ee.ExitCode(), e.excerpt(stderr.String()))
+			return fail(CodeListFailed, "exit %d%s", ee.ExitCode(), e.excerpt(stderr.String()))
 		}
-		return Listing{}, fail(CodeListFailed, "%s", e.redact(werr.Error()))
+		return fail(CodeListFailed, "%s", e.redact(werr.Error()))
 	}
-	return l, nil
+	return nil
 }
 
 // parse reads the JSON lines as a stream and stops at the first violation, so a
 // script cannot make the worker hold more than max_output_bytes.
 // atEOF is true when the stream ended cleanly but without a next_cursor.
-func (e *execRecipe) parse(r io.Reader, maxEntries, maxContent int) (l Listing, atEOF bool, err error) {
-	l, atEOF, err = e.parseLines(r, maxEntries, maxContent)
+func (e *execRecipe) parse(r io.Reader, maxEntries, maxContent int, entry entryFunc) (l Listing, atEOF bool, err error) {
+	l, atEOF, err = e.parseLines(r, maxEntries, maxContent, entry)
 	return
 }
 
-func (e *execRecipe) parseLines(r io.Reader, maxEntries, maxContent int) (Listing, bool, error) {
+// entryFunc decodes one entry line; the shape picks it (entryOf, systemEntryOf).
+type entryFunc func(raw json.RawMessage, maxContent int) (Entry, error)
+
+func (e *execRecipe) entry(raw json.RawMessage, maxContent int) (Entry, error) {
+	if e.c.Shape == ShapeSystem {
+		return systemEntryOf(raw, maxContent)
+	}
+	return entryOf(raw, maxContent)
+}
+
+func (e *execRecipe) parseLines(r io.Reader, maxEntries, maxContent int, entryOf entryFunc) (Listing, bool, error) {
 	br := bufio.NewReaderSize(r, 64<<10)
 	var l Listing
 	seen := map[string]bool{}
@@ -388,3 +430,130 @@ func (c *capped) Write(p []byte) (int, error) {
 }
 
 func (c *capped) String() string { return c.b.String() }
+
+// systemEntryOf is the entry rule of a system listing: the content is the whole
+// entry. revision and change are ignored (the worker hashes the content itself,
+// design D20) and the title defaults to the key.
+func systemEntryOf(raw json.RawMessage, maxContent int) (Entry, error) {
+	var w wireEntry
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return Entry{}, errors.New("entry has a field of the wrong type")
+	}
+	for _, f := range []struct {
+		name, v string
+		max     int
+	}{{"key", w.Key, maxKey}, {"title", w.Title, maxTitle}, {"locator", w.Locator, maxLocator}} {
+		if len(f.v) > f.max || !utf8.ValidString(f.v) {
+			return Entry{}, errors.New(f.name + " is over its limit or not UTF-8")
+		}
+	}
+	switch {
+	case w.Key == "":
+		return Entry{}, errors.New("key is required")
+	case w.Content == nil || *w.Content == "":
+		return Entry{}, errors.New("content is required")
+	case len(*w.Content) > maxContent || !utf8.ValidString(*w.Content) || strings.ContainsRune(*w.Content, 0):
+		return Entry{}, errors.New("content is over max_content_bytes, not UTF-8 or holds a NUL")
+	}
+	if w.Title == "" {
+		w.Title = w.Key
+	}
+	return Entry{Key: w.Key, Title: w.Title, Locator: w.Locator, Content: *w.Content}, nil
+}
+
+// Limits of the preflight answer, in runes.
+const (
+	maxIdentity = 120
+	maxDetail   = 300
+)
+
+// Preflight asks the script to prove that its identity is read-only, in a
+// process of its own and before every listing. Anything but one JSON object
+// with read_only: true, exit 0, is a refusal with the code
+// identity_not_read_only. It guards against a misconfigured identity and is not
+// a security boundary: the script is operator code (docs/worker-recipes.md).
+func (e *execRecipe) Preflight(ctx context.Context, req Request) (Verified, error) {
+	if e.c.Shape != ShapeSystem {
+		return Verified{}, fail(CodeIdentityNotReadOnly, "recipe %s is not a system recipe", e.c.Name)
+	}
+	body, err := json.Marshal(request{Protocol: ProtocolVersion, Mode: "preflight",
+		Source:          source{req.ID, req.Title, req.Locator, req.SourceKind, ShapeSystem, nonNil(req.Include)},
+		MaxContentBytes: e.contentCap(req)})
+	if err != nil {
+		return Verified{}, fail(CodeIdentityNotReadOnly, "cannot encode the request")
+	}
+	var ans struct {
+		ReadOnly *bool  `json:"read_only"`
+		Identity string `json:"identity"`
+		Detail   string `json:"detail"`
+	}
+	err = e.runScript(ctx, body, func(r io.Reader) (bool, error) {
+		b, rerr := io.ReadAll(io.LimitReader(r, int64(maxStderrKept)+1))
+		if rerr != nil || len(b) > maxStderrKept {
+			return false, fail(CodeProtocolError, "the preflight answer is unreadable or over %d bytes", maxStderrKept)
+		}
+		dec := json.NewDecoder(bytes.NewReader(b))
+		if dec.Decode(&ans) != nil || dec.More() || ans.ReadOnly == nil {
+			return true, fail(CodeProtocolError, "the preflight answer is not exactly one JSON object with a boolean read_only")
+		}
+		return true, nil
+	})
+	label := func(s string, max int) string {
+		s = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return ' '
+			}
+			return r
+		}, e.redact(s))), " ")
+		if rs := []rune(s); len(rs) > max {
+			s = string(rs[:max])
+		}
+		return s
+	}
+	var re *Error
+	switch {
+	case ctx.Err() != nil:
+		return Verified{}, ctx.Err()
+	case errors.As(err, &re):
+		return Verified{}, fail(CodeIdentityNotReadOnly, "%s", re.Detail)
+	case err != nil:
+		return Verified{}, err
+	case !*ans.ReadOnly:
+		return Verified{}, fail(CodeIdentityNotReadOnly, "%s — %s", label(ans.Identity, maxIdentity), label(ans.Detail, maxDetail))
+	}
+	return Verified{recipe: e.c.Name, ok: true, identity: label(ans.Identity, maxIdentity), detail: label(ans.Detail, maxDetail)}, nil
+}
+
+// SystemMaxGroups is the most groups one listing may hold (design D20).
+const SystemMaxGroups = 1000
+
+// ListSystem lists the current state of the system. It cannot be reached
+// without a Verified from this recipe's Preflight: the value has no exported
+// constructor, so no code path lists a live system without a clean preflight
+// first. There is no cache: the poll runs Preflight again before each listing.
+func (e *execRecipe) ListSystem(ctx context.Context, v Verified, req Request) (Listing, error) {
+	if e.c.Shape != ShapeSystem || !v.ok || v.recipe != e.c.Name {
+		return Listing{}, ErrNeedsPreflight
+	}
+	maxContent := e.contentCap(req)
+	body, err := json.Marshal(request{Protocol: ProtocolVersion, Mode: "list",
+		Source: source{req.ID, req.Title, req.Locator, req.SourceKind, ShapeSystem, nonNil(req.Include)},
+		Cursor: nil, MaxEntries: SystemMaxGroups, MaxContentBytes: maxContent})
+	if err != nil {
+		return Listing{}, fail(CodeListFailed, "cannot encode the request")
+	}
+	var l Listing
+	err = e.runScript(ctx, body, func(r io.Reader) (bool, error) {
+		var atEOF bool
+		var perr error
+		l, atEOF, perr = e.parse(r, SystemMaxGroups, maxContent, e.entry)
+		return atEOF, perr
+	})
+	if err == nil && l.NextCursor != "" {
+		// A system listing is complete or it is nothing: every group it leaves out
+		// becomes a removal, so a lister that stopped early (a cursor to resume
+		// from) must not be read as having listed the whole system.
+		return Listing{}, fail(CodeProtocolError, "a system listing ends with an empty next_cursor: it is always complete, there is no cursor to resume from")
+	}
+	return l, err
+}
