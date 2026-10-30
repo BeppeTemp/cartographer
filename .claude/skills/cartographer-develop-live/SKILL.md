@@ -102,7 +102,7 @@ file; cite no `D<n>` in code or docs before the PR has its number.
 
 ## 3 — Close
 
-1. Agree the scope with the user: what is in this PR, what becomes a Discussion (idea) or a bug issue.
+1. Agree the scope with the user: what is in this PR, what becomes an `idea` or a `bug` issue.
    Only then open the PR, as a draft: `git push -u origin feat/<slug>` + `gh pr create --draft`.
    Its number is the decision number (D672): `make decisions-new N=<pr> SLUG=<slug> TOPIC=<topic>`,
    never guessed from the issue and PR lists (another session can take it first, D703).
@@ -149,7 +149,7 @@ release-please reads both.
   `feat:`/`fix:` by accident.
 - **Body**: what changed and why, step by step as it was accepted; what the user
   verified on the instance; what was tried and dropped, when a reader would
-  re-propose it; the decision file; the follow-ups opened as Discussions or bug issues.
+  re-propose it; the decision file; the follow-ups opened as `idea` or `bug` issues.
   The `wip:` commits are squashed away: the body is what remains.
 
 ## Traps
