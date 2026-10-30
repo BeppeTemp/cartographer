@@ -45,3 +45,20 @@ may contain `__` (a test pins it), or routing a connector call by prefix could s
 server tool. A connector that cannot start is skipped for the run, not fatal. The unit
 executor that offers these tools to the model is a different plan (the unit-execution task);
 until it lands the package is complete and tested but not yet wired.
+
+## Recipes and the git reader (second step)
+
+A recipe is Go code shipped in the worker (`internal/worker/recipe`); the only thing the operator
+can change on a built-in is its instructions text, through `recipes.<name>.instructions_file`
+(config directory, 16 KiB, read at load). The built-in git reader is deny-by-default
+(`git.allow_hosts`), https only and without credentials, because a Source `locator` is KB text
+written by anyone with write access and must not aim the worker at the internal network; a
+private repository is an exec recipe or a connector. The `git-docs` cursor is a bare commit or
+`<from>..<to>@<path>` (a listing in progress keeps its end commit); a cursor that is not an
+ancestor of HEAD is `cursor_invalid` and is never moved backwards. `gitx.TreeBlobs` and
+`gitx.DiffTree` read with `-z` because `DiffNameStatus` mangles spaces and non-ASCII paths. The
+unit executor reads a git entry from a clone scoped to that unit's run (one per unit, deleted when it
+ends, not shared across units). Every clone of a KB-supplied locator is anonymous
+(`gitx.CloneAnonymous`: no git config, credential helper, askpass or extra header of the operator, no
+redirect, a timeout, `--filter=blob:none`), because "https, no credential" would otherwise be undone by
+the worker's own git setup; KB sync keeps the gitx defaults.

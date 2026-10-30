@@ -516,7 +516,7 @@ the first unit that is claimable (`open`, or `in-progress` whose `review_after` 
 worker may take, claimed with `concept_patch` and `if_match` (`claimed_by` = the replica identity, `review_after` = today
 + 2 days: a day-granular crash net, since a worker that fails or stops releases the unit at once). The profile's `tier`
 decides the units: a `small` profile takes `executor: any`, a `large` one also `large`; `human` is never taken. A unit
-whose Source names a `connector`, or whose `locator` is not `http(s)`, is skipped, not failed. The instructions are the
+whose Source names a `connector` other than the built-in `git`, or whose `locator` is not `http(s)` (for `git`: not an `https://<repo>#<path>` on `git.allow_hosts`), is skipped, not failed. The instructions are the
 unit-mode section of the bundled `cartographer-kb-ingest`, embedded in the binary (a binary without it does not start). The
 model gets the allowlist plus `source_fetch`, a worker-side tool with no argument that fetches only the claimed unit's
 Source locator (GET without credentials; same-host redirects only; 1 MiB, 30 s; text, HTML as plain text; a page is data, never
@@ -579,6 +579,26 @@ connectors:
     command: ./bin/files-mcp     # a path with a separator is resolved against this file's directory
     env: {API_TOKEN: FILES_TOKEN}
     tools: [read_file]
+```
+
+**Recipes and the git reader (D1262).** A recipe lists what changed in a feed Source since its cursor, with no
+model; `git-docs` is the first built-in (Source `locator` = https repository URL, `feed_include` default
+`docs/**/*.md`, entries are files, `connector: git`). `git.allow_hosts` names the hosts the built-in git reader may
+clone (an exact host, or `*.example.com`; an IP only verbatim); it is empty by default, so no feed and no git
+entry is read. The reader takes https remotes only, with no credential: `file://`, `git://`, ssh, scp-like, local
+paths and any remote with userinfo are refused before a clone; a private repository is an exec recipe or an MCP
+connector. For a unit whose Source has `connector: git` the `source_fetch` tool reads
+`<repo URL>#<path>` from a clone made for that unit's run only (one clone per unit, deleted when the unit finishes, not shared across units), after checking the host, that the path is
+inside the repository (`.git` included) and that no component is a symlink; 1 MiB. Every clone is anonymous whatever the worker's own git setup: no global or system git config, credential helper, askpass or extra header, no redirect followed, 5 minutes at most, history blobs not fetched. Symlinks, submodules and type changes are never listed. `recipes.<name>.instructions_file` (a built-in's
+name only, a path inside the config directory, at most 16 KiB UTF-8, read at load) replaces the recipe's embedded
+instructions text.
+
+```yaml
+git:
+  allow_hosts: [git.example.com, "*.corp.example.com"]
+recipes:
+  git-docs:
+    instructions_file: recipes/git-docs.md
 ```
 
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
