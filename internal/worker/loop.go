@@ -24,6 +24,8 @@ type Limits struct {
 	MaxTotalTokens     int
 	MaxOutputTokens    int
 	MaxToolResultBytes int
+	// MaxContextTokens is the model's window; 0 leaves the context unchecked.
+	MaxContextTokens int
 }
 
 // Default limits.
@@ -33,6 +35,15 @@ const (
 	DefaultMaxOutputTokens    = 4096
 	DefaultMaxToolResultBytes = 32 << 10
 )
+
+// truncatedNotice answers a turn the output limit cut.
+const truncatedNotice = "Your last answer was cut by the output limit and was dropped. Take a smaller step."
+
+// closingNotice closes a run the limits are about to end, once: the same text
+// for every provider, in the user turn that carries the tool results, so the
+// conversation before it stays append-only.
+const closingNotice = "You are close to the limit of this session. Do not start anything new: " +
+	"make only the writes you still need, then give your final answer."
 
 func (l Limits) withDefaults() Limits {
 	if l.MaxSteps <= 0 {
@@ -46,6 +57,9 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.MaxToolResultBytes <= 0 {
 		l.MaxToolResultBytes = DefaultMaxToolResultBytes
+	}
+	if half := l.MaxContextTokens / 2; half > 0 && half < l.MaxToolResultBytes {
+		l.MaxToolResultBytes = half
 	}
 	return l
 }
@@ -78,15 +92,18 @@ type CallRecord struct {
 
 // Outcome is what a run did.
 type Outcome struct {
-	Reason    Reason
-	RawStop   string // the provider's stop value when Reason is ModelStopped
-	Final     string
-	Steps     int
-	Usage     Usage
-	ToolCalls int
-	Refused   int // calls the allowlist refused locally (injection attempts)
-	Writes    int // made calls to a tool outside the read set
-	Calls     []CallRecord
+	Reason  Reason
+	RawStop string // the provider's stop value when Reason is ModelStopped
+	Final   string
+	Steps   int
+	Usage   Usage
+	// MaxPromptTokens is the largest prompt of the run, the number to compare
+	// with the model's window.
+	MaxPromptTokens int
+	ToolCalls       int
+	Refused         int // calls the allowlist refused locally (injection attempts)
+	Writes          int // made calls to a tool outside the read set
+	Calls           []CallRecord
 }
 
 // Event is what the optional callback receives: names and counts, never a
@@ -143,6 +160,7 @@ func (a *Agent) Run(ctx context.Context, task Task) (Outcome, error) {
 		offered[s.Name] = true
 	}
 	msgs := []Message{{Role: RoleUser, Text: task.User}}
+	warned, truncated := false, false
 
 	for {
 		switch {
@@ -166,6 +184,7 @@ func (a *Agent) Run(ctx context.Context, task Task) (Outcome, error) {
 		out.Usage.OutputTokens += resp.Usage.OutputTokens
 		out.Usage.CacheReadTokens += resp.Usage.CacheReadTokens
 		out.Usage.Estimated = out.Usage.Estimated || resp.Usage.Estimated
+		out.MaxPromptTokens = max(out.MaxPromptTokens, resp.Usage.InputTokens)
 		a.emit(Event{Kind: "model", Step: out.Steps, Tokens: resp.Usage.Total()})
 
 		stop := resp.Stop
@@ -177,9 +196,16 @@ func (a *Agent) Run(ctx context.Context, task Task) (Outcome, error) {
 			out.Reason, out.Final = ReasonDone, resp.Text
 			return out, nil
 		case StopMaxTokens:
-			out.Reason = ReasonTruncated
-			return out, nil
+			if truncated {
+				out.Reason = ReasonTruncated
+				return out, nil
+			}
+			// Its tool calls are dropped, their JSON may be cut: one retry in
+			// smaller steps, because a small model gets here often.
+			truncated = true
+			msgs = append(msgs, Message{Role: RoleAssistant, Text: resp.Text}, Message{Role: RoleUser, Text: truncatedNotice})
 		case StopToolUse:
+			truncated = false
 			if out.Usage.Total() >= lim.MaxTotalTokens {
 				out.Reason = ReasonBudget // over budget: no more writes
 				return out, nil
@@ -197,14 +223,38 @@ func (a *Agent) Run(ctx context.Context, task Task) (Outcome, error) {
 				}
 				results = append(results, res)
 			}
-			msgs = append(msgs,
-				Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls},
-				Message{Role: RoleUser, ToolResults: results})
+			if lim.MaxContextTokens > 0 && resp.Usage.Total()+resultTokens(results) >= lim.MaxContextTokens {
+				out.Reason = ReasonBudget // the next prompt would not fit the window
+				return out, nil
+			}
+			turn := Message{Role: RoleUser, ToolResults: results}
+			if !warned && nearLimit(lim, out, resp.Usage) {
+				warned, turn.Text = true, closingNotice
+			}
+			msgs = append(msgs, Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}, turn)
 		default:
 			out.Reason, out.RawStop = ReasonModelStopped, resp.RawStop
 			return out, nil
 		}
 	}
+}
+
+// nearLimit reports whether the run has about one turn left: the last prompt
+// filled the window, the budget would not pay for two more like it, or the
+// steps are ending.
+func nearLimit(lim Limits, out Outcome, last Usage) bool {
+	if lim.MaxContextTokens > 0 && last.InputTokens >= lim.MaxContextTokens*3/4 {
+		return true
+	}
+	return lim.MaxTotalTokens-out.Usage.Total() < 2*last.Total() || lim.MaxSteps-out.Steps <= 2
+}
+
+func resultTokens(results []ToolResult) int {
+	n := 0
+	for _, r := range results {
+		n += estimateTokens(len(r.Text))
+	}
+	return n
 }
 
 // invalidParams is the JSON-RPC code the server answers for an undeclared or

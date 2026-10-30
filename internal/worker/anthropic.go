@@ -140,7 +140,12 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 	// last block lets the next turn read everything before it from the cache.
 	if n := len(wire.Messages); n > 0 {
 		last := wire.Messages[n-1].Content
-		last[len(last)-1].CacheControl = &anthCacheControl{Type: "ephemeral"}
+		for i := len(last) - 1; i >= 0; i-- {
+			if last[i].Type != "tool_result" || last[i].Content != "" { // not on an empty block
+				last[i].CacheControl = &anthCacheControl{Type: "ephemeral"}
+				break
+			}
+		}
 	}
 	body, err := json.Marshal(wire)
 	if err != nil {

@@ -232,12 +232,12 @@ func workerStartup(ctx context.Context, path string, kinds *worker.Kinds, retry 
 }
 
 func buildModel(p worker.Profile) (worker.Model, error) {
-	opt := worker.WithAllowInsecureHTTP(p.AllowInsecureHTTP)
+	opts := []worker.Option{worker.WithAllowInsecureHTTP(p.AllowInsecureHTTP), worker.WithTimeout(time.Duration(p.TimeoutSeconds) * time.Second)}
 	switch p.Provider {
 	case worker.ProviderAnthropic:
-		return worker.NewAnthropic(p.BaseURL, p.APIKey(), p.Model, opt)
+		return worker.NewAnthropic(p.BaseURL, p.APIKey(), p.Model, opts...)
 	case worker.ProviderOpenAI:
-		return worker.NewOpenAI(p.BaseURL, p.APIKey(), p.Model, opt)
+		return worker.NewOpenAI(p.BaseURL, p.APIKey(), p.Model, opts...)
 	}
 	return nil, fmt.Errorf("unknown provider %q", p.Provider)
 }

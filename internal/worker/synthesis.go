@@ -150,7 +150,7 @@ func (in *synthesisInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (
 		}
 		examined = append(examined, c.Key())
 		g := &synthesis.Guard{Inner: rt.Tools, Target: c.ID, Reason: "synthesis: " + c.Key()}
-		agent := NewAgent(rt.Model, g, NewAllowlist(synthesis.Tools()...), Limits{MaxSteps: synthesisMaxSteps, MaxTotalTokens: min(remaining, synthesisCeiling*per)})
+		agent := NewAgent(rt.Model, g, NewAllowlist(synthesis.Tools()...), rt.Limits(synthesisMaxSteps, min(remaining, synthesisCeiling*per)))
 		out, runErr := agent.Run(ctx, Task{System: in.system, User: in.prompt(rt.Tools, c, cfg, now)})
 		res.Tokens += out.Usage.Total()
 		if runErr != nil {

@@ -289,7 +289,7 @@ func (p *promptTask) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Result, 
 		p.perimeter, p.name, rt.KB, start.Format("2006-01-02"), p.name) + promptDelimiter + p.instructions
 	user := fmt.Sprintf("Run the task now on the knowledge base %q.", rt.KB)
 	model := &countingModel{Model: rt.Model}
-	agent := NewAgent(model, guard, NewAllowlist(p.tools...), Limits{MaxTotalTokens: rt.Grant})
+	agent := NewAgent(model, guard, NewAllowlist(p.tools...), rt.Limits(0, rt.Grant))
 	out, err := agent.Run(ctx, Task{System: system, User: user})
 
 	writes := 0

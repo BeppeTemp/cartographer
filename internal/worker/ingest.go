@@ -425,7 +425,7 @@ func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Re
 		names = slices.DeleteFunc(names, func(n string) bool { return n == sourceFetchTool })
 	}
 	allow := NewAllowlist(names...)
-	agent := NewAgent(rt.Model, tools, allow, Limits{MaxSteps: ingestMaxSteps, MaxTotalTokens: rt.Grant})
+	agent := NewAgent(rt.Model, tools, allow, rt.Limits(ingestMaxSteps, rt.Grant))
 	// Every data block carries a per-run token the data cannot know, so a line
 	// "END DATA" inside a page cannot close the block.
 	tok := dataToken()

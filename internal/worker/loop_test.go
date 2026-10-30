@@ -185,7 +185,8 @@ func TestRun_TokenCapBeforeCallAndAfterToolUse(t *testing.T) {
 }
 
 func TestRun_TruncatedAndOther(t *testing.T) {
-	f := &workertest.Fake{Turns: []worker.Response{{Text: "half", Stop: worker.StopMaxTokens}}}
+	half := worker.Response{Text: "half", Stop: worker.StopMaxTokens}
+	f := &workertest.Fake{Turns: []worker.Response{half, half}}
 	if out, _ := run(t, f, standardTools(), worker.Limits{}); out.Reason != worker.ReasonTruncated {
 		t.Errorf("%+v", out)
 	}
