@@ -57,6 +57,8 @@ modifies files a user did not ask about.
   no `Added`/`Updated`; it is folded into the hash recorded as `PathsSectionHash`
   (`pathsSectionHash`). New client-written text in the block does the same, with a
   convergence test (`TestShared_Convergence`).
+- **An artifact rewritten client-side is rewritten after `VerifiedManifest` and rehashed**: a signature covers
+  `ContentHash` and `Apply` trusts the `Signed` flag without re-verifying (`WithoutSkillsLine`, D1408).
 - The lockfile is the client-side record of applied state. Changing its shape is a
   migration, and an empty new field must keep meaning what the files written
   before it meant (see `base_dir`, empty for a global projection, D193).
