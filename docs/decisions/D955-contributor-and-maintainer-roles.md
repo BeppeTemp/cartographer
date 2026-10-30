@@ -31,7 +31,7 @@ skip is not a rule; GitHub is the one place it cannot be.
   the skills call it.
 - Plan-gating maintainer PRs: live sessions land without a plan by design.
 - Keeping the `idea` issue template: ideas belong in Discussions, where a
-  contributor's agent has no plan to act on.
+  contributor's agent has no plan to act on. *(Superseded by D1425: the template is back.)*
 
 **Consequences.** `plan-gate` is advisory until the maintainer adds it to the
 required checks of the `main-protection` ruleset. A `pull_request_target`

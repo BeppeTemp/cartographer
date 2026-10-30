@@ -344,7 +344,7 @@ change who acts:
 
 | Label | Meaning |
 |---|---|
-| `bug`, `idea`, `plan` | The three kinds of issue. An accepted issue without a plan yet sits in a milestone and is promoted to `plan` when it is not trivial |
+| `bug`, `idea`, `plan` | The kinds of issue. An accepted issue without a plan yet sits in a milestone and is promoted to `plan` when it is not trivial |
 | `approved` | A maintainer accepted the plan (only triage rights can set it); for a contributor's PR the plan is also assigned to them |
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
 | `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest issues of the next milestones, and dropped when nobody claims one for a while (the maintainer takes it or moves it to the next version) |
