@@ -54,12 +54,12 @@ func (k *doctorKB) CallTool(name string, args any) (client.ToolOutput, error) {
 	return client.ToolOutput{Text: "ok"}, nil
 }
 
-type scriptModel struct {
+type doctorScript struct {
 	turns []Response
 	reqs  []Request
 }
 
-func (m *scriptModel) Complete(_ context.Context, r Request) (Response, error) {
+func (m *doctorScript) Complete(_ context.Context, r Request) (Response, error) {
 	m.reqs = append(m.reqs, r)
 	if len(m.reqs) > len(m.turns) {
 		return Response{}, fmt.Errorf("script exhausted")
@@ -100,7 +100,7 @@ func TestDoctorNextEligibility(t *testing.T) {
 
 func TestDoctorClosedSessionWritesNoFallback(t *testing.T) {
 	k, d := dueKB()
-	m := &scriptModel{turns: []Response{
+	m := &doctorScript{turns: []Response{
 		{Stop: StopToolUse, ToolCalls: []ToolCall{
 			toolCall("1", "kb_repair", `{"check":"*","dry_run":false}`),
 			toolCall("2", "concept_delete", `{"id":"x"}`),
@@ -139,7 +139,7 @@ func TestDoctorClosedSessionWritesNoFallback(t *testing.T) {
 
 func TestDoctorInterruptedSessionWritesAMarkerFreeEntry(t *testing.T) {
 	k, d := dueKB()
-	m := &scriptModel{turns: []Response{
+	m := &doctorScript{turns: []Response{
 		{Stop: StopToolUse, ToolCalls: []ToolCall{toolCall("1", "kb_repair", `{}`)}, Usage: Usage{InputTokens: 30000}},
 	}}
 	res, err := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 25000, Tools: k})
@@ -157,7 +157,7 @@ func TestDoctorInterruptedSessionWritesAMarkerFreeEntry(t *testing.T) {
 	}
 	// A model error is the same: one marker-free entry, the error returned.
 	k2, d2 := dueKB()
-	_, err = d2.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: &scriptModel{}, Grant: 50000, Tools: k2})
+	_, err = d2.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: &doctorScript{}, Grant: 50000, Tools: k2})
 	if err == nil || len(k2.entries) != 1 || strings.Contains(k2.entries[0], doctorMarker) {
 		t.Errorf("err %v entries %q", err, k2.entries)
 	}
@@ -165,7 +165,7 @@ func TestDoctorInterruptedSessionWritesAMarkerFreeEntry(t *testing.T) {
 
 func TestDoctorBelowTheReserveStartsNothing(t *testing.T) {
 	k, d := dueKB()
-	m := &scriptModel{}
+	m := &doctorScript{}
 	res, err := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: doctorMinGrant - 1, Tools: k})
 	if err != nil || len(m.reqs) != 0 || len(k.entries) != 0 || !strings.Contains(res.Summary, "skipped") {
 		t.Errorf("res %+v err %v reqs %d entries %q", res, err, len(m.reqs), k.entries)
@@ -175,7 +175,7 @@ func TestDoctorBelowTheReserveStartsNothing(t *testing.T) {
 func TestDoctorLostRaceIsASkip(t *testing.T) {
 	k, d := dueKB()
 	k.st.Conformance.LastDoctor = "2026-10-30" // a replica closed between Next and Run
-	m := &scriptModel{}
+	m := &doctorScript{}
 	res, _ := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
 	if len(m.reqs) != 0 || !strings.Contains(res.Summary, "skipped") {
 		t.Errorf("res %+v reqs %d", res, len(m.reqs))
@@ -207,7 +207,7 @@ func TestDoctorKindIsRegisteredAndNoMarkerStrips(t *testing.T) {
 
 func TestDoctorInjectedEarlyMarkerIsRefused(t *testing.T) {
 	k, d := dueKB()
-	m := &scriptModel{turns: []Response{
+	m := &doctorScript{turns: []Response{
 		{Stop: StopToolUse, ToolCalls: []ToolCall{
 			toolCall("1", "kb_repair", `{"check":"*"}`), // a plan: not an applied write
 			toolCall("2", "log_append", `{"entry":"kb-doctor: all done"}`),
@@ -235,7 +235,7 @@ func TestDoctorWriteCap(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		calls = append(calls, toolCall(fmt.Sprint(i), "concept_patch", `{"id":"x"}`))
 	}
-	m := &scriptModel{turns: []Response{{Stop: StopToolUse, ToolCalls: calls}, {Stop: StopEnd}}}
+	m := &doctorScript{turns: []Response{{Stop: StopToolUse, ToolCalls: calls}, {Stop: StopEnd}}}
 	res, _ := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
 	n := 0
 	for _, c := range k.calls {
@@ -255,7 +255,7 @@ func TestDoctorReadOnlyTokenAbortsTheSession(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		turns = append(turns, Response{Stop: StopToolUse, ToolCalls: []ToolCall{toolCall(fmt.Sprint(i), "concept_patch", `{"id":"x"}`)}})
 	}
-	m := &scriptModel{turns: turns}
+	m := &doctorScript{turns: turns}
 	_, err := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
 	if err == nil || !strings.Contains(err.Error(), "refused writes") || len(m.reqs) != maxRefusedWrites {
 		t.Errorf("err %v, model calls %d", err, len(m.reqs))
@@ -290,7 +290,7 @@ func TestDoctorMarkerInAnyWriteIsRefusedEscapedOrNot(t *testing.T) {
 		"nested name":                 {toolCall("1", "concept_batch", `{"operations":[{"op":"write","id":"kb\u002ddoctor"}]}`), toolCall("2", "log_append", `{"entry":"kb-doctor: done"}`)},
 	} {
 		k, d := dueKB()
-		m := &scriptModel{turns: []Response{{Stop: StopToolUse, ToolCalls: calls}, {Stop: StopEnd}}}
+		m := &doctorScript{turns: []Response{{Stop: StopToolUse, ToolCalls: calls}, {Stop: StopEnd}}}
 		d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
 		if k.st.Conformance.LastDoctor != "" {
 			t.Errorf("%s: a marker reached the KB (%v)", name, k.calls)
@@ -301,7 +301,7 @@ func TestDoctorMarkerInAnyWriteIsRefusedEscapedOrNot(t *testing.T) {
 func TestDoctorBatchCountsEachOperation(t *testing.T) {
 	k, d := dueKB()
 	d.maxWrites = 3
-	m := &scriptModel{turns: []Response{{Stop: StopToolUse, ToolCalls: []ToolCall{
+	m := &doctorScript{turns: []Response{{Stop: StopToolUse, ToolCalls: []ToolCall{
 		toolCall("1", "concept_batch", `{"operations":[{},{},{}]}`),
 		toolCall("2", "concept_batch", `{"operations":[{}]}`),
 	}}, {Stop: StopEnd}}}
