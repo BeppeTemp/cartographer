@@ -190,6 +190,8 @@ than one exists.
 
 ## The generated instructions block
 
+A KB with `kb_options.<kb>.artifacts: false` (D1408) keeps its region but loses the `Skills:` line, and no subagent sentence is written for it.
+
 The client steering file carries **one** managed block, shared by every mounted KB, delimited by
 `<!-- cartographer:instructions:begin … -->` / `<!-- cartographer:instructions:end -->`. The block is
 **brief by default** ([D1182](decisions/D1182-the-managed-block-is-brief-by-default.md)): it is paid on every
@@ -322,6 +324,8 @@ every run: `kb-create` and the other old names reach the client next to the bund
 - Sync never carries secrets, only references (`skills-services-secrets.md`).
 
 ## Pruning
+
+- **A KB with `kb_options.<kb>.artifacts: false`** (D1408) is pruned like a KB that stops being bound, for its skills, subagents, hooks and MCP descriptors: they leave the manifest before the strict merge, `ComputeDiff` lists them Removed and `PruneManaged` removes them through the lockfile. Its instructions artifact stays, rewritten without the `Skills:` line (client-side, after verification, rehashed), and the subagent sentence disappears with its agents; `bundle` skills and the synthetic hooks are not KB artifacts and stay.
 
 - `Apply`/`PruneManaged` remove **only** the paths in `managed[]` that are no longer in the manifest — never files not created by Cartographer. Healing (D139) obeys the same boundary: it reads and rewrites managed paths only.
 - **Empty directories** (`pruneEmptyDirs`): after every removal, it walks up the parent directories deleting the ones left empty, always stopping at known roots (`.claude`, `.codex`, `.kiro`, `.opencode`, `.config`, `.config/opencode`, `.config/crush`, `.gemini`, `.copilot`, in a workspace also `.agents` and `.crush`, or `BaseDir`; a test checks the list against both destination matrices), which are never removed (disconnecting a workspace can leave an empty `.agents/` or `.crush/` behind, as it can `.claude/`). `os.Remove` (never `RemoveAll`) is the natural guard against non-empty directories.
@@ -460,6 +464,8 @@ D316 gets it the next time it changes. A KB skill that ships its own `SOURCE.env
 that skill is not materialized, with a warning naming it, and the rest of the sync completes.
 
 ## Workspace scope (D193)
+
+`kb_options.<kb>.artifacts: false` (D1408) applies inside every projection too: a KB bound to a folder (explicitly or by derivation, D1019) still reaches it with its MCP tools and its routing sentence, with no artifact files.
 
 By default a provider has **one** catalogue, under the user's home, shared by every session of
 that provider on the machine. A provider that works in two perimeters therefore sees both

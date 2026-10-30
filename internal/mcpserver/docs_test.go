@@ -46,6 +46,7 @@ var docsNonTools = map[string]bool{
 	// kbs[] / settings.yaml keys (D746), not tools
 	"git_base_branch": true, "git_forge": true, "git_working_branch": true, "git_branch": true,
 	"kb_aliases":         true, // server config key (D772), not a tool
+	"kb_options":         true, // client config key (D1408), not a tool
 	"search_misses":      true, // kb_status field (D247), not a tool
 	"changes_by_day":     true, // changes_since field (D1057), not a tool
 	"template_unusable":  true, // policy denial code (D343), not a tool
