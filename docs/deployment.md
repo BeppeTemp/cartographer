@@ -494,6 +494,7 @@ models:                           # named profiles; tasks pick one
     model: claude-sonnet-4-5      # the provider's model id
     api_key_env: CLOUD_API_KEY
     tier: large                   # small | large
+    context_tokens: 200000        # the model's window (default 32000)
     budget: {daily_tokens: 2000000, run_tokens: 500000}
   - name: local
     provider: openai              # llama.cpp / LiteLLM: base_url is required
@@ -692,6 +693,17 @@ closes with a `log_append` (path `worker/<name>`) whose line carries `day=`, `to
 skips its tasks while the others go on. The day is the calendar day of `schedule.window.timezone` (UTC
 without a window). If the ledger cannot be read, or a day outgrows the capped read, the run is skipped
 and retried at the next poll.
+
+Tokens are counted as the API reports them, whatever the provider: tokens read from a prompt cache count in
+full, so a test on a cloud model spends the same budget as the run on a local one. Cache reads appear only in
+the `worker_task` metric. `context_tokens` (default 32 000) is a separate limit: a run is told once to close when a
+prompt reaches 75% of it, when the budget would not pay for two more turns or when two steps are left, and it
+stops before a prompt that would not fit. A tool result is capped at half of it, read as bytes: 16 000 at the default, down from 32 KiB. `max_output_tokens`
+(default 4096) bounds one answer: a turn it cuts is dropped and retried once, the second in a row stops the
+task. `timeout_seconds` (default 120) bounds one attempt of a model call, which is not streamed: a slow local
+model needs more. Each finished task logs one JSON line `{"metric":"worker_task",...}` with tokens, cache reads,
+steps, the largest prompt, tool calls and tool errors, and never a page's content. An unattended doctor does not
+get `map_create` or `map_update`: the shape of a map is the operator's.
 
 **Start-up checks**, in order; each failure exits 2 and starts nothing: the config loads (and every
 `*_env` variable is set); `/health` answers (a server that is starting or unreachable is retried for up
