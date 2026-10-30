@@ -21,3 +21,4 @@ money and writes to KBs when nobody is looking.
 - **A prompt task's log lines and trailers come from the guard (`prompt_guard.go`), never from the model**: nothing
   under `worker/` in the log is written by a model, and its marker path stays apart from the budget's by the bracketed prefix.
 - **Nothing but the model's closing step may write `kb-doctor`** (`doctor.go`): a worker's own entries pass `noMarker`, or an interrupted session would silence `doctor_suggested`.
+- `synthesis/` defines its own `ToolCaller` and never imports this package: the kind (`synthesis.go`) imports it, so the other direction would be a cycle.

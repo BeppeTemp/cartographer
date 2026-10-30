@@ -43,7 +43,7 @@ func TestGuard_RefusesEverythingOutsideTheAllowlist(t *testing.T) {
 	h := hyp()
 	active := map[string]any{"frontmatter": map[string]any{"type": "Note", "status": "active"}, "body": "Claim.", "content_hash": "h1"}
 	synthOpen := map[string]any{"frontmatter": map[string]any{"type": "Contradiction", "origin": "synthesis", "resolution_status": "open"}, "body": "T\n\n## Evidence\n\n- [[arch/a]]: a calls b\n\n## How to confirm or reject\n\nx\n", "content_hash": "h2"}
-	pages := map[string]map[string]any{"arch/a": active, "gaps/mine": synthOpen}
+	pages := map[string]map[string]any{"arch/a": active, "arch/b": active, "gaps/mine": synthOpen}
 	before, _ := json.Marshal(pages)
 	f := store(pages)
 	g := &synthesis.Guard{Inner: f, Target: h.ID()}
@@ -96,12 +96,20 @@ func TestGuard_RefusesEverythingOutsideTheAllowlist(t *testing.T) {
 func TestGuard_AllowsTheTwoWrites(t *testing.T) {
 	h := hyp()
 	synthOpen := map[string]any{"frontmatter": map[string]any{"type": "Contradiction", "origin": "synthesis", "resolution_status": "open"}, "body": "T\n\n## Evidence\n\n- [[arch/a]]: a calls b\n\n## How to confirm or reject\n\nx\n", "content_hash": "h2"}
-	pages := map[string]map[string]any{"gaps/mine": synthOpen}
+	pages := map[string]map[string]any{"arch/a": synthOpen, "arch/b": synthOpen, "gaps/mine": synthOpen}
 	f := store(pages)
 	g := &synthesis.Guard{Inner: f, Target: h.ID()}
 
-	if out, _ := g.CallTool("concept_write", good(h)); out.IsError || g.Written != h.ID() {
+	w := good(h)
+	w["reason"] = "the model's own reason"
+	if out, _ := g.CallTool("concept_write", w); out.IsError || g.Written != h.ID() {
 		t.Fatalf("create refused: %+v", out)
+	}
+	// Every write carries the guard's reason, never the model's.
+	for _, c := range f.calls {
+		if c.Tool == "concept_write" && c.Args["reason"] != "synthesis: "+h.ID() {
+			t.Errorf("write reason = %v", c.Args["reason"])
+		}
 	}
 	// The same id again (a lost race) is an existing concept now.
 	if out, _ := g.CallTool("concept_write", good(h)); !out.IsError {
@@ -204,7 +212,10 @@ func TestGuard_ReadErrorFailsClosed(t *testing.T) {
 	if out, _ := g.CallTool("concept_write", good(h)); !out.IsError || f.count("concept_write") != 0 {
 		t.Fatalf("written after an unreadable read: %+v", out)
 	}
-	f.handler["concept_read"] = func(map[string]any) client.ToolOutput {
+	f.handler["concept_read"] = func(a map[string]any) client.ToolOutput {
+		if strings.HasPrefix(a["id"].(string), "arch/") { // the cited pages exist, the target does not
+			return js(map[string]any{"frontmatter": map[string]any{"type": "Note"}, "body": "x"})
+		}
 		return client.ToolOutput{IsError: true, Text: `concept_read "x": concept not found: x.md`}
 	}
 	if out, _ := g.CallTool("concept_write", good(h)); out.IsError {
@@ -244,5 +255,34 @@ func TestGuard_EditsAreReplayedInOrder(t *testing.T) {
 	}}
 	if out, _ := g.CallTool("concept_patch", ok); out.IsError {
 		t.Errorf("legitimate edits refused: %+v", out)
+	}
+}
+
+// The provenance is checked against the KB at write time, and every Evidence
+// line must link a provenance entry (WP1, "checked with concept_read").
+func TestGuard_ProvenanceExistsAndEvidenceLinksIt(t *testing.T) {
+	h := hyp()
+	page := map[string]any{"frontmatter": map[string]any{"type": "Note"}, "body": "x", "content_hash": "h"}
+	pages := map[string]map[string]any{"arch/a": page} // arch/b vanished
+	f := store(pages)
+	g := &synthesis.Guard{Inner: f, Target: h.ID()}
+	if out, _ := g.CallTool("concept_write", good(h)); !out.IsError || !strings.Contains(out.Text, "arch/b") {
+		t.Fatalf("a missing provenance entry was accepted: %+v", out)
+	}
+	pages["arch/b"] = page
+	w := good(h)
+	w["body"] = strings.Replace(h.Body(), "[[arch/b]]", "arch/b", 1)
+	if out, _ := g.CallTool("concept_write", w); !out.IsError || !strings.Contains(out.Text, "links no provenance") {
+		t.Fatalf("an evidence line without a link was accepted: %+v", out)
+	}
+	w["body"] = "T\n"
+	if out, _ := g.CallTool("concept_write", w); !out.IsError {
+		t.Fatalf("a body without Evidence was accepted: %+v", out)
+	}
+	if f.count("concept_write") != 0 {
+		t.Error("a refused write reached the server")
+	}
+	if out, _ := g.CallTool("concept_write", good(h)); out.IsError {
+		t.Fatalf("a valid hypothesis refused: %+v", out)
 	}
 }
