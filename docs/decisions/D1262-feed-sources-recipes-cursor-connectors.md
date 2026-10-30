@@ -82,4 +82,19 @@ holds for built-ins only.
 injection); reading the script or its path from a KB (a KB writer would run code on the worker); letting the script
 see the worker's whole environment (the model-provider key would reach operator code); an unbounded stdout read
 (memory is the script's to exhaust); an ordered or comparable cursor (it is the script's, the worker only stores it).
+## The poll task and http-pages (third step)
+
+The poll is stateless: the cursor and the lease are Source fields written with `if_match`, and the
+unit ID `<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>` is the idempotency token, so a
+crash anywhere re-lists and converges and a model call is never repeated for an entry that has its
+unit. The model call returns data (`targets`, `extract`, `verify`, `executor`, `body`) that the worker
+validates and writes; entry text reaches only the user message, as data. A Source whose registration
+already exists is treated as a changed document whatever the entry's `change` says, so `http-pages`
+(which emits every revision as `added`) reuses the previous unit's fields. `http-pages` reads through
+the unit executor's own fetch, behind `fetch.allow_hosts` and https. Every git command run in an
+anonymous clone also redirects `HOME` and `XDG_CONFIG_HOME` (`gitx.AnonymousReadEnv`). The unit
+executor now starts a declared connector before claiming a unit and offers its allowlisted tools to that
+unit's loop alone. A failure detail reaches `feed_error` only after `RedactEnv` of every connector
+variable. Alternative rejected: a per-run "attempted feeds" set in the instance, which has no run
+boundary to reset on; `feed_checked_at` already makes a feed not due.
 

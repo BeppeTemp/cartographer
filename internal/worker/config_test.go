@@ -587,17 +587,22 @@ func TestLoadConfigRecipesAndGitHosts(t *testing.T) {
 	if c.RecipeInstructions["git-docs"] != "my text" || len(c.GitAllowHosts) != 2 {
 		t.Fatalf("config = %+v %v", c.RecipeInstructions, c.GitAllowHosts)
 	}
+	if c, err = load("fetch:\n  allow_hosts: [docs.example.com]\n  allow_insecure_http: true\nrecipes:\n  http-pages:\n    instructions_file: mine.md\n"); err != nil ||
+		len(c.FetchAllowHosts) != 1 || !c.FetchAllowInsecureHTTP || c.RecipeInstructions["http-pages"] != "my text" {
+		t.Fatalf("fetch keys: %v %+v", err, c)
+	}
 	if c, err = load(""); err != nil || len(c.GitAllowHosts) != 0 || len(c.RecipeInstructions) != 0 {
 		t.Fatalf("defaults: %v %+v", err, c)
 	}
 	for name, tc := range map[string]struct{ yaml, want string }{
-		"other name":    {"recipes:\n  http-pages:\n    instructions_file: mine.md\n", "recipes.http-pages (line "},
-		"other key":     {"recipes:\n  git-docs:\n    nope: x\n", "unknown key"},
-		"missing file":  {"recipes:\n  git-docs:\n    instructions_file: nope.md\n", "recipes.git-docs.instructions_file (line "},
-		"escapes dir":   {"recipes:\n  git-docs:\n    instructions_file: ../mine.md\n", "inside the config file's directory"},
-		"too big":       {"recipes:\n  git-docs:\n    instructions_file: big.md\n", "16 KiB"},
-		"not utf8":      {"recipes:\n  git-docs:\n    instructions_file: bad.md\n", "UTF-8"},
-		"host with url": {"git:\n  allow_hosts: [\"https://git.example.com\"]\n", "git.allow_hosts (line "},
+		"other name":     {"recipes:\n  wiki-pages:\n    instructions_file: mine.md\n", "recipes.wiki-pages (line "},
+		"other key":      {"recipes:\n  git-docs:\n    nope: x\n", "unknown key"},
+		"missing file":   {"recipes:\n  git-docs:\n    instructions_file: nope.md\n", "recipes.git-docs.instructions_file (line "},
+		"escapes dir":    {"recipes:\n  git-docs:\n    instructions_file: ../mine.md\n", "inside the config file's directory"},
+		"too big":        {"recipes:\n  git-docs:\n    instructions_file: big.md\n", "16 KiB"},
+		"not utf8":       {"recipes:\n  git-docs:\n    instructions_file: bad.md\n", "UTF-8"},
+		"fetch host url": {"fetch:\n  allow_hosts: [\"https://docs.example.com/x\"]\n", "fetch.allow_hosts (line "},
+		"host with url":  {"git:\n  allow_hosts: [\"https://git.example.com\"]\n", "git.allow_hosts (line "},
 	} {
 		if _, err := load(tc.yaml); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want %q", name, err, tc.want)
