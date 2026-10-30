@@ -105,7 +105,7 @@ func NewRecipeRegistry(cfg *Config, clone recipe.CloneFunc) (*recipe.Registry, e
 // Bind builds the recipe registry from the config.
 func (in *pollInstance) Bind(cfg *Config, _ Profile) {
 	in.reg, in.regErr = NewRecipeRegistry(cfg, in.clone)
-	in.hosts = map[string][]string{"git-docs": cfg.GitAllowHosts, "http-pages": cfg.FetchAllowHosts}
+	in.hosts = builtinHosts(cfg)
 	in.secret = map[string]string{}
 	in.connector = map[string]string{}
 	for k, v := range builtinConnector {
@@ -127,6 +127,11 @@ func (in *pollInstance) Bind(cfg *Config, _ Profile) {
 			in.secret[c.Name+"/token"] = c.TokenEnv
 		}
 	}
+}
+
+// builtinHosts maps each built-in recipe to the host list its locator must match.
+func builtinHosts(cfg *Config) map[string][]string {
+	return map[string][]string{"git-docs": cfg.GitAllowHosts, "http-pages": cfg.FetchAllowHosts}
 }
 
 type pollItem struct {
@@ -323,30 +328,11 @@ func sortedKeys(m map[string]string) []string {
 func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 	in, f, tools := r.in, r.f, r.rt.Tools
 	reason := "poll " + f.ID
-	// 1. Preconditions, before any lease.
-	if pi.perr != nil {
-		var fe *feed.Error
-		code, detail := feed.CodeBadField, pi.perr.Error()
-		if errors.As(pi.perr, &fe) {
-			code, detail = fe.Code, fe.Detail
-		}
-		return r.fail(code, detail)
-	}
-	rec, ok := in.reg.Get(f.Recipe)
-	switch {
-	case !ok:
-		return r.fail(codeRecipeUnknown, fmt.Sprintf("recipe %q is not known to this worker", f.Recipe))
-	case pi.system && rec.Shape() != recipe.ShapeSystem:
-		// The recipe's shape, not the Source's label, decides whether the preflight
-		// applies: a mismatch either way is refused, so a KB writer cannot dodge it.
-		return r.fail(codeRecipeShape, fmt.Sprintf("recipe %q does not list a system", f.Recipe))
-	case !pi.system && rec.Shape() != recipe.ShapeFeed:
-		return r.fail(codeRecipeShape, fmt.Sprintf("recipe %q does not list a feed", f.Recipe))
-	}
-	if hosts, builtin := in.hosts[f.Recipe]; builtin {
-		if u, err := url.Parse(f.Locator); err != nil || !recipe.HostAllowed(u.Hostname(), hosts) {
-			return r.fail(recipe.CodeHostNotAllowed, "the locator's host is not on the allowed list of this recipe")
-		}
+	// 1. Preconditions, before any lease (feedPreconditions: the dry run of a
+	// recipe calls the same function).
+	rec, pf := feedPreconditions(in.reg, in.hosts, f, pi.perr, pi.system)
+	if pf != nil {
+		return r.fail(pf.Code, pf.Detail)
 	}
 	// 2. Lease: the loser of the compare-and-swap skips the feed silently.
 	args, err := f.Lease(r.now)
@@ -396,31 +382,13 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 	if pi.system {
 		return r.runSystem(ctx, rec, planID, maps, unitMap)
 	}
-	// 4. List (no model).
-	lctx, cancel := context.WithTimeout(ctx, pollListTimeout)
-	listing, lerr := rec.List(lctx, recipe.Request{ID: f.ID, Locator: f.Locator, SourceKind: f.SourceKind, Include: f.Include, Cursor: f.Cursor, MaxEntries: in.maxEntries})
-	cancel()
+	// 4. List (no model; listFeed is shared with the dry run of a recipe).
+	listing, pf, lerr := listFeed(ctx, rec, f, in.maxEntries)
 	if lerr != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		code, detail := codeListFailed, lerr.Error()
-		var re *recipe.Error
-		if errors.As(lerr, &re) {
-			detail = re.Detail
-			if re.Code == recipe.CodeCursorInvalid || re.Code == recipe.CodeHostNotAllowed {
-				code = re.Code
-			}
-		}
-		return r.fail(code, detail)
+		return lerr
 	}
-	if len(listing.NextCursor) > feed.MaxCursorBytes {
-		return r.fail(codeProtocol, "the listing's cursor is too long")
-	}
-	for _, e := range listing.Entries {
-		if e.Key == "" || !slices.Contains([]string{recipe.Added, recipe.Modified, recipe.Removed}, e.Change) {
-			return r.fail(codeProtocol, "the listing has an entry with no key or an unknown change")
-		}
+	if pf != nil {
+		return r.fail(pf.Code, pf.Detail)
 	}
 	// 5. Entries, in listing order. The unit is the idempotency token: the order
 	// per entry (unit exists -> skip; register the Source; reset it to pending;
@@ -471,6 +439,80 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 		return err
 	}
 	return nil
+}
+
+// pollFailure is a reason the poll does not handle a feed: the feed_error it
+// writes.
+type pollFailure struct{ Code, Detail string }
+
+// feedPreconditions is step 1 of the poll, before any lease: the Source parsed,
+// its recipe known and listing a feed, a built-in's locator on its host list. The
+// dry run of a recipe (SourceTest) calls this same function, never a copy: a copy
+// would pass scripts that the worker then refuses. Shape "system" (#1372) is
+// checked here too, when it lands.
+func feedPreconditions(reg *recipe.Registry, hosts map[string][]string, f feed.Feed, perr error, system bool) (recipe.Recipe, *pollFailure) {
+	if perr != nil {
+		var fe *feed.Error
+		code, detail := feed.CodeBadField, perr.Error()
+		if errors.As(perr, &fe) {
+			code, detail = fe.Code, fe.Detail
+		}
+		return nil, &pollFailure{code, detail}
+	}
+	rec, ok := reg.Get(f.Recipe)
+	switch {
+	case !ok:
+		return nil, &pollFailure{codeRecipeUnknown, fmt.Sprintf("recipe %q is not known to this worker", f.Recipe)}
+	case system && rec.Shape() != recipe.ShapeSystem:
+		// The recipe's shape, not the Source's label, decides whether the preflight
+		// applies: a mismatch either way is refused, so a KB writer cannot dodge it.
+		return nil, &pollFailure{codeRecipeShape, fmt.Sprintf("recipe %q does not list a system", f.Recipe)}
+	case !system && rec.Shape() != recipe.ShapeFeed:
+		return nil, &pollFailure{codeRecipeShape, fmt.Sprintf("recipe %q does not list a feed", f.Recipe)}
+	}
+	if hs, builtin := hosts[f.Recipe]; builtin {
+		if u, err := url.Parse(f.Locator); err != nil || !recipe.HostAllowed(u.Hostname(), hs) {
+			return nil, &pollFailure{recipe.CodeHostNotAllowed, "the locator's host is not on the allowed list of this recipe"}
+		}
+	}
+	return rec, nil
+}
+
+// feedRequest is the Request the poll (and the dry run) send to a feed recipe.
+func feedRequest(f feed.Feed, maxEntries int) recipe.Request {
+	return recipe.Request{ID: f.ID, Locator: f.Locator, SourceKind: f.SourceKind, Include: f.Include, Cursor: f.Cursor, MaxEntries: maxEntries}
+}
+
+// listFeed is step 4 of the poll: one recipe listing and the checks on it. A
+// non-nil error is the context ending; a *pollFailure is what the poll writes to
+// feed_error.
+func listFeed(ctx context.Context, rec recipe.Recipe, f feed.Feed, maxEntries int) (recipe.Listing, *pollFailure, error) {
+	lctx, cancel := context.WithTimeout(ctx, pollListTimeout)
+	listing, lerr := rec.List(lctx, feedRequest(f, maxEntries))
+	cancel()
+	if lerr != nil {
+		if ctx.Err() != nil {
+			return listing, nil, ctx.Err()
+		}
+		code, detail := codeListFailed, lerr.Error()
+		var re *recipe.Error
+		if errors.As(lerr, &re) {
+			detail = re.Detail
+			if re.Code == recipe.CodeCursorInvalid || re.Code == recipe.CodeHostNotAllowed {
+				code = re.Code
+			}
+		}
+		return listing, &pollFailure{code, detail}, nil
+	}
+	if len(listing.NextCursor) > feed.MaxCursorBytes {
+		return listing, &pollFailure{codeProtocol, "the listing's cursor is too long"}, nil
+	}
+	for _, e := range listing.Entries {
+		if e.Key == "" || !slices.Contains([]string{recipe.Added, recipe.Modified, recipe.Removed}, e.Change) {
+			return listing, &pollFailure{codeProtocol, "the listing has an entry with no key or an unknown change"}, nil
+		}
+	}
+	return listing, nil, nil
 }
 
 func oneLineClip(s string, n int) string {

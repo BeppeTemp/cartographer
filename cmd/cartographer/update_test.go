@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -29,6 +30,15 @@ import (
 // the opt-out is set as a second line of defence for anything that reaches
 // the real updatecheck.Check.
 func TestMain(m *testing.M) {
+	if len(os.Args) > 2 && os.Args[1] == "--exec-helper" { // the test binary as an operator's lister
+		if os.Args[2] == "fail" {
+			fmt.Fprintln(os.Stderr, "lister broke")
+			os.Exit(3)
+		}
+		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"` + os.Getenv("LISTER_VALUE") + `"}}`)
+		fmt.Println(`{"next_cursor":"c1"}`)
+		os.Exit(0)
+	}
 	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
 	os.Setenv(updatecheck.EnvDisable, "1")
 	cache, err := os.MkdirTemp("", "cartographer-update-cache-")
