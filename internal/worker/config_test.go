@@ -404,6 +404,9 @@ func yamlPaths(t reflect.Type, prefix string, out *[]string) {
 			ft = ft.Elem()
 		}
 		switch {
+		case ft.Kind() == reflect.Map && ft.Elem().Kind() == reflect.Struct:
+			*out = append(*out, path)
+			yamlPaths(ft.Elem(), path+".{name}.", out)
 		case ft.Kind() == reflect.Struct:
 			yamlPaths(ft, path+".", out)
 		case ft.Kind() == reflect.Slice && ft.Elem().Kind() == reflect.Struct && ft.Elem() != reflect.TypeOf(yaml.Node{}):
@@ -491,5 +494,69 @@ func TestLoadConfigNameWithTheDoctorMarkerIsRefused(t *testing.T) {
 	_, err := cfgLoad(t, strings.Replace(cfgGolden, "name: docs-night", "name: a-kb-doctor-b", 1))
 	if err == nil || !strings.Contains(err.Error(), "must not contain") {
 		t.Errorf("err = %v", err)
+const cfgConnectors = `connectors:
+  docs-wiki:
+    transport: http
+    url: https://wiki-mcp.example.com/mcp
+    token_env: WIKI_TOKEN
+    headers: {X-Api-Key: WIKI_KEY}
+    tools: [get_page, search]
+    call_timeout: 30s
+  local-files:
+    transport: stdio
+    command: ./bin/files-mcp
+    args: ["--root", "/data"]
+    env: {API_TOKEN: FILES_TOKEN}
+    tools: [read_file]
+`
+
+func TestLoadConfigConnectors(t *testing.T) {
+	c, err := cfgLoad(t, cfgGolden+cfgConnectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Connectors) != 2 || c.Connectors[0].Name != "docs-wiki" || c.Connectors[1].Name != "local-files" {
+		t.Fatalf("connectors = %+v", c.Connectors)
+	}
+	h, s := c.Connectors[0], c.Connectors[1]
+	if h.CallTimeout != 30*time.Second || h.MaxResultBytes != 256<<10 || h.Headers["X-Api-Key"] != "WIKI_KEY" {
+		t.Errorf("http connector = %+v", h)
+	}
+	if !filepath.IsAbs(s.Command) || !strings.HasSuffix(filepath.ToSlash(s.Command), "/bin/files-mcp") || s.CallTimeout != time.Minute {
+		t.Errorf("stdio connector = %+v", s)
+	}
+	// WIKI_TOKEN and the others are unset here: not a load error, the connector
+	// reports them when it starts.
+}
+
+func TestLoadConfigConnectorErrors(t *testing.T) {
+	for name, tc := range map[string]struct{ yaml, want string }{
+		"bad name":          {"connectors:\n  Bad_Name:\n    transport: http\n", "connectors.Bad_Name (line "},
+		"reserved git":      {"connectors:\n  git:\n    transport: http\n", "reserved"},
+		"reserved artifact": {"connectors:\n  artifact:\n    transport: http\n", "reserved"},
+		"no transport":      {"connectors:\n  a:\n    tools: [x]\n", "connectors.a.transport (line "},
+		"unknown transport": {"connectors:\n  a:\n    transport: ssh\n    tools: [x]\n", "connectors.a.transport"},
+		"no command":        {"connectors:\n  a:\n    transport: stdio\n    tools: [x]\n", "connectors.a.command"},
+		"no url":            {"connectors:\n  a:\n    transport: http\n    tools: [x]\n", "connectors.a.url"},
+		"empty tools":       {"connectors:\n  a:\n    transport: http\n    url: https://x.example.com/\n", "connectors.a.tools"},
+		"literal secret":    {"connectors:\n  a:\n    transport: stdio\n    command: x\n    tools: [t]\n    env: {K: hunter2-literal}\n", "connectors.a.env (line "},
+		"literal token":     {"connectors:\n  a:\n    transport: http\n    url: https://x.example.com/\n    token_env: hunter2-literal\n    tools: [t]\n", "connectors.a.token_env"},
+		"url userinfo":      {"connectors:\n  a:\n    transport: http\n    url: https://u:pw@x.example.com/\n    tools: [t]\n", "credentials in the URL"},
+		"plain http":        {"connectors:\n  a:\n    transport: http\n    url: http://x.example.com/\n    tools: [t]\n", "connectors.a.url"},
+		"mixed keys":        {"connectors:\n  a:\n    transport: stdio\n    command: x\n    url: https://x.example.com/\n    tools: [t]\n", "belong to transport http"},
+		"unknown key":       {"connectors:\n  a:\n    transport: http\n    colour: red\n", `unknown key "colour"`},
+		"bad timeout":       {"connectors:\n  a:\n    transport: stdio\n    command: x\n    tools: [t]\n    call_timeout: soon\n", "connectors.a.call_timeout"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := cfgLoad(t, cfgGolden+tc.yaml)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+			for _, secret := range []string{"hunter2", "pw@"} {
+				if strings.Contains(err.Error(), secret) {
+					t.Errorf("error echoes a value: %v", err)
+				}
+			}
+		})
 	}
 }

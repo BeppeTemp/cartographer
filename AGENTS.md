@@ -101,7 +101,9 @@ internal/testtree           snapshots a directory tree in memory and restores it
 internal/updatecheck        answers whether a newer Cartographer release exists and how this binary is upgraded (D254)
 internal/webui              serves the embedded read-only Atlas UI (D227)
 internal/webui/gen          Command webui-provenance writes internal/webui/dist/provenance.json with the hash of the web/ source…
-internal/worker             is the model client and the allowlisted agent loop a worker runs against a KB's MCP server (D9)
+internal/worker             is the model client and agent loop of the worker (D9)
+internal/worker/connector   mounts allowlisted MCP servers
+internal/worker/feed        reads and patches a feed Source cursor
 internal/worker/synthesis   is the third task kind of the worker (D11)
 internal/worker/workertest  is the deterministic test double of package worker
 internal/workerconfig       holds the key table of the worker config file (D21)

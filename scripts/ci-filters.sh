@@ -46,6 +46,8 @@ any() { # any <ere> [<ere to drop>]
 
 # Go packages the binary cannot import (kept equal to `go list` by the test).
 not_in_binary='^internal/(changelog|gitx/gitxtest|kbtest|repodocs|testkbs|testtree|webui/gen|worker/workertest)/'
+# worker/feed waits for the poll task (D1262) that imports it: drop it from here then.
+not_in_binary='^internal/(changelog|gitx/gitxtest|kbtest|repodocs|testkbs|testtree|webui/gen|worker/feed|worker/synthesis|worker/workertest)/'
 
 web_other=$(any '^(web/|test/lib/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')
 web_go=$(any '^(cmd|internal)/' '_test\.go$|'"$not_in_binary")
