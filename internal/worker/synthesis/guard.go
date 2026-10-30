@@ -214,16 +214,12 @@ func (g *Guard) patch(raw json.RawMessage) (client.ToolOutput, error) {
 			return g.refuse("argument " + k + " is not allowed")
 		}
 	}
-	type edit struct {
-		Old string `json:"old_string"`
-		New string `json:"new_string"`
-	}
 	var p struct {
 		ID          string         `json:"id"`
 		IfMatch     string         `json:"if_match"`
 		Frontmatter map[string]any `json:"frontmatter"`
 		Append      map[string]any `json:"frontmatter_append"`
-		edit
+		patchEdit
 		Edits []json.RawMessage `json:"edits"`
 	}
 	if json.Unmarshal(raw, &p) != nil || p.ID == "" || p.IfMatch == "" {
@@ -260,10 +256,10 @@ func (g *Guard) patch(raw json.RawMessage) (client.ToolOutput, error) {
 			return g.refuse(fmt.Sprintf("involves is capped at %d", maxInvolves))
 		}
 	}
-	var edits []edit
+	var edits []patchEdit
 	for _, r := range p.Edits {
 		var keys map[string]json.RawMessage
-		var e edit
+		var e patchEdit
 		if json.Unmarshal(r, &keys) != nil || json.Unmarshal(r, &e) != nil {
 			return g.refuse("an edit must be an object of old_string and new_string")
 		}
@@ -275,30 +271,64 @@ func (g *Guard) patch(raw json.RawMessage) (client.ToolOutput, error) {
 		edits = append(edits, e)
 	}
 	if p.Old != "" || p.New != "" {
-		edits = append(edits, p.edit)
+		edits = append(edits, p.patchEdit)
 	}
 	if len(edits) > 0 {
 		body, _ := doc["body"].(string)
-		sec := evidenceSection(body)
-		for _, e := range edits {
-			if e.Old == "" || !strings.Contains(sec, e.Old) || strings.HasPrefix(e.New, "#") || strings.Contains(e.New, "\n#") || strings.Contains(e.New, "\r#") {
-				return g.refuse("only the ## Evidence section may be edited")
-			}
+		if !editsStayInEvidence(body, edits) {
+			return g.refuse("only the ## Evidence section may be edited")
 		}
 	}
 	return g.Inner.CallTool("concept_patch", json.RawMessage(raw))
 }
 
-// evidenceSection is the text of the body's "## Evidence" section.
-func evidenceSection(body string) string {
-	_, rest, ok := strings.Cut(body, "## Evidence")
-	if !ok {
-		return ""
+// evidenceBounds locates the content of the body's "## Evidence" section: the
+// last H2 line of exactly that title (the shape writes it after the statement),
+// up to the next heading line. ok is false when there is none.
+func evidenceBounds(body string) (start, end int, ok bool) {
+	const h = "\n## Evidence\n"
+	i := strings.LastIndex("\n"+body, h)
+	if i < 0 {
+		return 0, 0, false
 	}
-	if i := strings.Index(rest, "\n## "); i >= 0 {
-		rest = rest[:i]
+	start = i + len(h) - 1 // offsets in body: the sentinel "\n" shifts by one
+	end = len(body)
+	if j := strings.Index(body[start:], "\n#"); j >= 0 {
+		end = start + j
 	}
-	return rest
+	return start, end, true
+}
+
+// patchEdit is one old_string/new_string pair of a patch.
+type patchEdit struct {
+	Old string `json:"old_string"`
+	New string `json:"new_string"`
+}
+
+// editsStayInEvidence replays the edits in order on the evolving body, as the
+// server applies them (each old_string must match exactly once), and requires
+// every change to lie entirely inside the Evidence section as it is at that
+// step: checking against the original section would let edit 1 make a text
+// unique elsewhere for edit 2.
+func editsStayInEvidence(body string, edits []patchEdit) bool {
+	for _, e := range edits {
+		if e.Old == "" || strings.HasPrefix(e.New, "#") || strings.Contains(e.New, "\n#") || strings.Contains(e.New, "\r#") {
+			return false
+		}
+		if strings.Count(body, e.Old) != 1 {
+			return false
+		}
+		start, end, ok := evidenceBounds(body)
+		at := strings.Index(body, e.Old)
+		if !ok || at < start || at+len(e.Old) > end {
+			return false
+		}
+		body = body[:at] + e.New + body[at+len(e.Old):]
+		if ns, _, ok := evidenceBounds(body); !ok || ns != start {
+			return false // the section's own heading must survive
+		}
+	}
+	return true
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$`)

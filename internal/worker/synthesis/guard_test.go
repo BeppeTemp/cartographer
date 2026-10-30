@@ -211,3 +211,38 @@ func TestGuard_ReadErrorFailsClosed(t *testing.T) {
 		t.Fatalf("a real not-found must allow the create: %+v", out)
 	}
 }
+
+// The server applies edits in order: edit 1 may make a text unique elsewhere
+// for edit 2. The guard replays them on the evolving body.
+func TestGuard_EditsAreReplayedInOrder(t *testing.T) {
+	bodies := map[string]string{
+		"proof":   "T\n\n## Statement\n\nfoo bar\n\n## Evidence\n\n- foo bar\n",
+		"inline":  "T\n\n## Statement\n\nsee ## Evidence below: foo bar\n\n## Evidence\n\n- foo bar\n",
+		"fake H2": "T\n\n## Statement\n\nfoo bar\n\n## Evidence\n\n- foo bar\n\n## Evidence\n\n- other\n",
+	}
+	for name, body := range bodies {
+		page := openHyp()
+		page["body"] = body
+		f := store(map[string]map[string]any{"gaps/mine": page})
+		g := &synthesis.Guard{Inner: f}
+		args := map[string]any{"id": "gaps/mine", "if_match": "h2", "edits": []any{
+			map[string]any{"old_string": "- foo bar", "new_string": "x"},
+			map[string]any{"old_string": "foo bar", "new_string": "EVIL"},
+		}}
+		if out, _ := g.CallTool("concept_patch", args); !out.IsError || f.count("concept_patch") != 0 {
+			t.Errorf("%s: refused expected: %+v", name, out)
+		}
+	}
+	// One edit inside Evidence, and two in sequence inside it, pass.
+	page := openHyp()
+	page["body"] = "T\n\n## Statement\n\nfoo\n\n## Evidence\n\n- a\n- b\n\n## How to confirm or reject\n\nx\n"
+	f := store(map[string]map[string]any{"gaps/mine": page})
+	g := &synthesis.Guard{Inner: f}
+	ok := map[string]any{"id": "gaps/mine", "if_match": "h2", "edits": []any{
+		map[string]any{"old_string": "- a", "new_string": "- a2"},
+		map[string]any{"old_string": "- b", "new_string": "- b2"},
+	}}
+	if out, _ := g.CallTool("concept_patch", ok); out.IsError {
+		t.Errorf("legitimate edits refused: %+v", out)
+	}
+}
