@@ -255,7 +255,45 @@ func (cs candidateSet) forProvider(cfg *clientconfig.Config, provider string) []
 		}
 		return cs.Bare
 	}
-	return provisioning.SelectForSources(cs.forKBs(bound), bound)
+	return dropKBArtifacts(cfg, provisioning.SelectForSources(cs.forKBs(bound), bound))
+}
+
+// dropKBArtifacts removes the artifacts of every KB that has
+// `kb_options.<kb>.artifacts: false` (#1408), except its instructions artifact:
+// the KB stays connected and its routing sentence must reach the block. It runs
+// BEFORE the strict merge, so a name collision with an opted-out KB's skill no
+// longer stops the sync; bundle artifacts belong to no KB and stay. The pruning
+// of what was already installed is not done here: the artifacts leave the
+// manifest, ComputeDiff lists them Removed and the lockfile-driven prune does
+// the rest.
+func dropKBArtifacts(cfg *clientconfig.Config, arts []provisioning.Artifact) []provisioning.Artifact {
+	if len(cfg.KBOptions) == 0 {
+		return arts
+	}
+	out := make([]provisioning.Artifact, 0, len(arts))
+	for _, a := range arts {
+		if kb, ok := strings.CutPrefix(a.Source, "kb:"); ok && a.Kind != "instructions" && !cfg.KBArtifacts(kb) {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// withoutOptedOutSkillsLines rewrites the instructions artifact of every KB
+// with `artifacts: false` so its block no longer lists skills (#1408). It must
+// run on the manifest VerifiedManifest returned: the rewrite changes the hash
+// the signature covers, and Apply trusts the Signed flag and never re-verifies.
+func withoutOptedOutSkillsLines(cfg *clientconfig.Config, m provisioning.Manifest) provisioning.Manifest {
+	if len(cfg.KBOptions) == 0 {
+		return m
+	}
+	for i, a := range m.Artifacts {
+		if kb, ok := strings.CutPrefix(a.Source, "kb:"); ok && a.Kind == "instructions" && !cfg.KBArtifacts(kb) {
+			m.Artifacts[i] = provisioning.WithoutSkillsLine(a)
+		}
+	}
+	return m
 }
 
 // boundKBUnion is the set of KBs that must actually be pulled: the union of
@@ -351,7 +389,7 @@ func manifestsForProviders(cfg *clientconfig.Config, providers []string) (map[st
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
-		out[p] = verified
+		out[p] = withoutOptedOutSkillsLines(cfg, verified)
 	}
 	return out, nil
 }
