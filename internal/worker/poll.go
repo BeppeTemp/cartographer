@@ -628,8 +628,9 @@ func (r *pollRun) previous(unitMap, source string) *prevUnit {
 func (r *pollRun) model(ctx context.Context, rec recipe.Recipe, e recipe.Entry, planBody string, maps []string, problem string) (ans poll.Answer, cut bool, bad string, err error) {
 	feedData, _ := json.Marshal(map[string]string{"id": r.f.ID, "locator": oneLineClip(r.f.Locator, 300), "source_kind": r.f.SourceKind, "recipe": r.f.Recipe})
 	entry, _ := json.Marshal(map[string]string{"key": oneLineClip(e.Key, 300), "title": oneLineClip(e.Title, 300), "revision": oneLineClip(e.Revision, 100), "change": e.Change, "locator": oneLineClip(e.Locator, 300)})
-	user := fmt.Sprintf("Shape the IngestUnit for this entry. The plan's maps: %s.\n\nBEGIN DATA plan\n%s\nEND DATA\n\nBEGIN DATA feed\n%s\nEND DATA\n\nBEGIN DATA entry\n%s\nEND DATA",
-		strings.Join(maps, ", "), clip(planBody), feedData, entry)
+	tok := dataToken() // per-run delimiter token: data cannot close its own block
+	user := fmt.Sprintf("Shape the IngestUnit for this entry. The plan's maps: %s.\n\n%s\n\n%s\n\n%s",
+		strings.Join(maps, ", "), dataBlock("plan", tok, clip(planBody)), dataBlock("feed", tok, string(feedData)), dataBlock("entry", tok, string(entry)))
 	if problem != "" {
 		user += "\n\nYour previous answer was refused: " + problem + "\nAnswer again with the corrected JSON object."
 	}
