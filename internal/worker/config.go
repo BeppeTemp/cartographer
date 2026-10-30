@@ -418,6 +418,9 @@ func (v *validator) run() error {
 	if !nameRE.MatchString(r.Name) {
 		return v.errf("name", v.line("name"), "required, 1 to 40 characters of a-z, 0-9 and -")
 	}
+	if strings.Contains(r.Name, doctorMarker) {
+		return v.errf("name", v.line("name"), "must not contain %q: the server reads it in a log entry as a closed doctor session", doctorMarker)
+	}
 	if r.ServerURL == "" {
 		return v.errf("server_url", 0, "required: the MCP server URL")
 	}

@@ -484,3 +484,10 @@ func TestLoadConfigWrongShapeNamesKeyAndLine(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfigNameWithTheDoctorMarkerIsRefused(t *testing.T) {
+	_, err := cfgLoad(t, strings.Replace(cfgGolden, "name: docs-night", "name: a-kb-doctor-b", 1))
+	if err == nil || !strings.Contains(err.Error(), "must not contain") {
+		t.Errorf("err = %v", err)
+	}
+}
