@@ -636,6 +636,8 @@ group; the executor runs those units with KB tools only (no tool on the system).
 block and its README are in `examples/system-recipes/kubernetes/`; it needs Python 3 and `kubectl` in the image
 (a derived image or a mounted volume, as above), and `KUBECTL`, `KUBE_CONTEXT` and `KUBECONFIG` set in the worker's
 environment.
+A metrics source reports verdicts, not values ([worker-recipes.md](worker-recipes.md) §Verdicts, not metrics): its
+reference lister and weekly review task are in `examples/system-recipes/prometheus-verdicts/`.
 
 *Cost.* One measured development cluster had 583 objects in 27 namespaces: 4.3 MB of raw JSON (about 1.1M tokens),
 209 KB normalized (about 52k tokens), about 8 KB per namespace. The first poll creates one unit per namespace (the

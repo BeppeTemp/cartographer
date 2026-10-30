@@ -202,6 +202,38 @@ A reference lister for Kubernetes ships in the repository, not in the binary:
 A script that receives a mode it does not know must exit non-zero. A change to this contract needs a new `protocol`
 number.
 
+## Verdicts, not metrics
+
+A system Source keeps the KB's description of a system true; it is not a time series. The revision is a hash of the
+content, so a line that holds a value changes at every poll and costs a unit, while a line that holds a conclusion
+changes only when the system does. A lister over metrics therefore prints **what the source concludes**, in words:
+
+- **No value leaves the lister**: no sample, timestamp, counter or age. An age or a count is a band too (`under a day`,
+  `several`). A value that moves inside its band changes no byte, and a healthy system costs no token.
+- **The source does the computing.** The state of an alert rule, a window against its own baseline (an hour against 28
+  days), a trend (`deriv`, `predict_linear`) are queries run there; the lister only puts the answer in a band.
+- **One scale for every line**: few words, ordered, the same for a disk and for a latency, so a small model tells which
+  way a line moved without knowing the threshold.
+- **A group is one responsibility a page owns**: a service, a class of hosts. Never a person: presence, location and
+  health stay out of a listing.
+- **Wide bands, long windows, a `feed_interval` of an hour or more.** A lister keeps no state (`cursor` is `null`), so a
+  band can look only at what the source keeps, and a band that flaps is one unit per flap.
+- **A failed query fails the listing.** A line left out would read as a change.
+
+The work then falls on three levels, each spending only when the one below it has something to say:
+
+| Level | Runs | Does |
+|---|---|---|
+| The lister | Every poll, no model | Prints the verdicts; nothing changed means no unit and no token |
+| The unit | When a verdict changed | Rewrites the page; a line that got worse adds a dated line to a gap (the recipe's `instructions_file` says so) |
+| A `prompt` task | Every week or so | Reads the gaps, closes those back at the best word, raises what no single line shows ([deployment.md](deployment.md) §Prompt tasks) |
+
+Paging stays in the alerting system and the series in the metrics store: this path is hours late by design.
+
+A reference lister for a Prometheus HTTP API, with its review task, ships in the repository:
+[`examples/system-recipes/prometheus-verdicts/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/prometheus-verdicts/README.md)
+(Python 3, standard library only). The worker enforces none of this: it is a convention for the lister's author.
+
 ## Example
 
 A script that lists the pages of a wiki changed since the cursor (a timestamp). It prints entries, then the cursor:
