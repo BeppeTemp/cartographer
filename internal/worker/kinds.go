@@ -35,6 +35,10 @@ type Kind struct {
 	// derived values to opts, under keys no declared option uses; Build then
 	// finds them there.
 	Load func(env LoadEnv, opts map[string]any) error
+	// Last means the kind may only be the last entry of tasks: it lives on what
+	// the entries before it left (synthesis), and an entry listed first would
+	// shadow them. The loader refuses any other position.
+	Last bool
 	// Build is the execution half: it makes one Instance from the decoded
 	// options of one tasks[] entry (so two entries of a repeatable kind are two
 	// independent instances). A kind without Build can be loaded and described
@@ -117,7 +121,9 @@ func NewKinds(kinds ...Kind) *Kinds {
 
 // DefaultKinds is the production registry: each plan that adds a task kind
 // registers it here, one line apiece.
-func DefaultKinds() *Kinds { return NewKinds(IngestKind(), DoctorKind(), promptKind()) }
+func DefaultKinds() *Kinds {
+	return NewKinds(IngestKind(), DoctorKind(), promptKind(), SynthesisKind())
+}
 
 // Lookup returns the kind with the given name.
 func (r *Kinds) Lookup(name string) (Kind, bool) {
@@ -211,6 +217,10 @@ type Runtime struct {
 	Profile   Profile
 	Model     Model
 	Grant     int
+	// DailyLeft is what the profile may still spend today, the run's own
+	// spending already taken off: unlike Grant it is not capped by run_tokens,
+	// so a task that keeps a reserve of the daily budget compares with this.
+	DailyLeft int
 	Tools     ToolCaller
 }
 

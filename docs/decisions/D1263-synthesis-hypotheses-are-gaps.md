@@ -32,3 +32,13 @@ state file for rejected hypotheses (D13: a rejected one stays a resolved concept
 server and may trip `missing_value_contract` once enough exist; that is documented, not
 suppressed. A synthesis write never targets an existing concept and never uses a blocking
 kind: the constant check and its test live in the package.
+
+**The task kind.** `synthesis` is a registered kind (`internal/worker/synthesis.go`) with
+five `tasks[]` options (`synthesis_*`, in the key table). It sits last in `tasks`, so the
+runner's priority order is the plan's priority order (D12); one run is `Candidates`, then
+one model call per candidate behind the guard, with a ceiling of three times the estimated
+cost. The guard checks that every `provenance` entry exists and that every Evidence line
+links one, and sets the commit reason `synthesis: <id>` over the model's. The run record is
+the summary line of the closing entry, ending with the keys examined. The instructions are
+embedded in the binary (D15), and the package defines its own `ToolCaller` so the kind in
+`internal/worker` can import it.

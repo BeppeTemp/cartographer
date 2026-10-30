@@ -509,7 +509,7 @@ tasks:                            # in priority order
 ```
 
 The key table is `internal/workerconfig`. A task `kind` must be registered in the binary; a config can
-name only the kinds the binary registers: `ingest` (D1260) and `prompt` (§Prompt tasks).
+name only the kinds the binary registers: `ingest` (D1260), `prompt` (§Prompt tasks) and `synthesis` (D1263).
 
 **The `ingest` task (D1260).** It executes the `IngestUnit`s of a campaign: per KB, one `work_list` of `type=IngestUnit`,
 the first unit that is claimable (`open`, or `in-progress` whose `review_after` is before today UTC) and that this
@@ -525,6 +525,27 @@ unit `done` and, once no unit of the Source is open, the Source `ingested`; a fa
 cancellation releases the unit (`open`, a note naming the pages already written). A Contradiction the loop itself wrote is the
 unit's output, not a failure. No unit is claimed when the remaining grant is under the dearest completed unit (20 000
 tokens before any).
+
+**The `synthesis` task (D1263).** The lowest-priority kind: it proposes what the KB already implies, as `Contradiction`
+concepts of a gap kind (`missing_context`, `open_question`) with `origin: synthesis`, `provenance` (the pages the evidence
+comes from, each checked to exist at write time) and `confidence`; it never changes a claim on an existing page (D11). It
+must be the **last** entry of `tasks` (the loader refuses any other position): the runner takes the first entry that has
+work, so it runs only when the entries before it have none. It offers work only when a candidate exists, and it spends
+only the daily budget above `synthesis_reserve` (a fraction of `daily_tokens`, kept whatever `run_tokens` says). Per run it takes the candidates the
+server's own signals give (undefined terms, repeated search misses, repeated facts, unlinked central pages), at most
+`synthesis_max_candidates`, one model call each, and writes at most `synthesis_max_new`. The instructions are embedded in
+the binary. The model sees a narrower allowlist than ingest and a worker-side guard refuses every other call, so a
+write can only create the hypothesis at its computed id; every commit's reason is `synthesis: <id>`. The run record
+(the closing `log_append`) lists the candidates examined and the hypotheses written; the next run skips the ones listed
+in the last 7 days. Closing a hypothesis is a reader's work (`resolution_outcome: confirmed | rejected`).
+
+| Key (under `tasks[]`) | Default | Meaning |
+|---|---|---|
+| `synthesis_map` | `""` | The map hypotheses are written into; empty = the map of the newest Contradiction; none found, the task ends without a write (it never creates a map) |
+| `synthesis_max_candidates` | `5` | Candidates examined per run |
+| `synthesis_max_new` | `3` | Hypotheses written per run |
+| `synthesis_context_tokens` | `6000` | Cap of the page text sent to the model per candidate |
+| `synthesis_reserve` | `"0.2"` | Fraction of the profile's daily budget left untouched; synthesis starts only above it |
 
 ```yaml
 fetch:
