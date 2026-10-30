@@ -322,3 +322,14 @@ func TestRun_EndToEnd(t *testing.T) {
 		t.Errorf("model was offered %v", tools)
 	}
 }
+
+func TestRun_BatchDeleteIsRefusedLocally(t *testing.T) {
+	f := &workertest.Fake{Turns: []worker.Response{
+		use(tc("a", "concept_batch", `{"operations":[{"op":"delete","id":"x"}]}`)), end("ok"),
+	}}
+	tools := &workertest.FakeTools{Tools: workertest.Listing("search", "concept_batch")} // offered and allowed by name
+	out, err := run(t, f, tools, worker.Limits{})
+	if err != nil || out.Refused != 1 || tools.Calls["concept_batch"] != 0 {
+		t.Fatalf("%+v %v calls=%v", out, err, tools.Calls)
+	}
+}
