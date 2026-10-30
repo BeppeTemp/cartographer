@@ -82,4 +82,14 @@ describe("the Health panel", () => {
     await within(again).findByRole("heading", { level: 1 });
     expect(within(again).queryByText(/Maintained by/)).not.toBeInTheDocument();
   });
+
+  it("names every perimeter when two maintain the KB", async () => {
+    stubApi({
+      "/workers": () => json({ workers: [worker({ perimeter: "team-b" }), worker({ worker: "w-2", perimeter: "team-a" })] }),
+    });
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Health" });
+    const line = await within(panel).findByText(/Maintained by/);
+    expect(line).toHaveTextContent("Maintained by team-b (1 replica, idle), team-a (1 replica, idle)");
+  });
 });

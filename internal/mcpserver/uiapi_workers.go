@@ -201,7 +201,18 @@ func (s *workerStore) live(kb string) []workerDecl {
 			}
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Worker < out[j].Worker })
+	// The store keys on principal, so two principals can declare one worker id:
+	// worker, then perimeter, then principal keeps the order stable.
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Worker != b.Worker {
+			return a.Worker < b.Worker
+		}
+		if a.Perimeter != b.Perimeter {
+			return a.Perimeter < b.Perimeter
+		}
+		return a.Principal < b.Principal
+	})
 	return out
 }
 

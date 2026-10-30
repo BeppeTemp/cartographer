@@ -197,3 +197,19 @@ func TestUIFeeds_CutsErrorAndCaps(t *testing.T) {
 		t.Fatalf("error length %d, want %d", n, maxFeedErrLen)
 	}
 }
+
+func TestUIWorkers_SameIDFromTwoPrincipalsIsOrdered(t *testing.T) {
+	t.Parallel()
+	f := newAtlasWorkerFixture(t)
+	f.post(t, "worker-ab", beat(map[string]any{"worker": "w-1", "perimeter": "team-b"}))
+	f.post(t, "worker-a", beat(map[string]any{"worker": "w-1", "perimeter": "team-a"}))
+	for i := 0; i < 20; i++ {
+		var got []string
+		for _, d := range f.multi.workers.live("kb-a") {
+			got = append(got, d.Perimeter)
+		}
+		if strings.Join(got, ",") != "team-a,team-b" {
+			t.Fatalf("order = %v", got)
+		}
+	}
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { fetchFeeds, fetchMaintenanceSummary, fetchWorkers } from "../api/client";
 import type { FeedRow, MaintenanceSummary, WorkerRow } from "../api/types";
 
@@ -95,7 +95,7 @@ export function WorkersStrip({ kb, live, onOpen }: { kb: string; live: number; o
       {workers.length > 0 && (
         <ul className="workers__list" aria-label="Workers">
           {workers.map((w) => (
-            <WorkerItem key={w.worker} w={w} />
+            <WorkerItem key={`${w.perimeter}/${w.worker}`} w={w} />
           ))}
         </ul>
       )}
@@ -134,14 +134,23 @@ export function MaintainedBy({ kb, live }: { kb: string; live: number }) {
       });
     return () => controller.abort();
   }, [kb, live]);
-  const first = workers[0];
-  if (!first) return null;
-  const same = workers.filter((w) => w.perimeter === first.perimeter);
-  const busy = same.some((w) => w.state === "running") ? "running" : first.state.replace("_", " ");
+  if (workers.length === 0) return null;
+  // Every perimeter that has a live worker on the KB is named, in the order
+  // the server sends them (sorted by worker): choosing one would be a guess.
+  const perimeters = new Map<string, WorkerRow[]>();
+  for (const w of workers) perimeters.set(w.perimeter, [...(perimeters.get(w.perimeter) ?? []), w]);
   return (
     <p className="health__lede health__maintainer">
-      Maintained by <strong>{first.perimeter}</strong> ({same.length} {same.length === 1 ? "replica" : "replicas"},{" "}
-      {busy})
+      Maintained by{" "}
+      {[...perimeters].map(([name, ws], i) => {
+        const busy = ws.some((w) => w.state === "running") ? "running" : ws[0]!.state.replace("_", " ");
+        return (
+          <Fragment key={name}>
+            {i > 0 && ", "}
+            <strong>{name}</strong> ({ws.length} {ws.length === 1 ? "replica" : "replicas"}, {busy})
+          </Fragment>
+        );
+      })}
       {summary?.last_doctor ? ` · last doctor ${summary.last_doctor}` : ""}
       {summary?.next_doctor ? ` · next due ${summary.next_doctor}` : ""}
     </p>
