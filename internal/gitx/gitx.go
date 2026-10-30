@@ -887,6 +887,63 @@ func TreePaths(dir, ref string) ([]string, error) {
 	return paths, nil
 }
 
+// TreeBlob is one entry of a tree listing: the file mode ("100644", "120000"
+// for a symlink), the blob id and the path.
+type TreeBlob struct{ Mode, ID, Path string }
+
+// TreeBlobs lists the blobs of ref's tree with their ids ("git ls-tree -r -z").
+// Submodule entries are left out. DiffNameStatus is not used for this family of
+// reads: it splits on whitespace and has no -z, so a path with a space or a
+// quoted non-ASCII name would be mangled (D1262).
+func TreeBlobs(dir, ref string) ([]TreeBlob, error) {
+	cmd := exec.Command("git", "-C", dir, "ls-tree", "-r", "-z", ref)
+	cmd.Env = gitEnv(nil)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-tree %s: %w", ref, err)
+	}
+	var blobs []TreeBlob
+	for _, rec := range strings.Split(string(out), "\x00") {
+		meta, path, ok := strings.Cut(rec, "\t")
+		f := strings.Fields(meta)
+		if !ok || len(f) != 3 || f[1] != "blob" {
+			continue
+		}
+		blobs = append(blobs, TreeBlob{Mode: f[0], ID: f[2], Path: path})
+	}
+	return blobs, nil
+}
+
+// TreeChange is one path that differs between two commits. Status is A, M, D
+// or T; ID is the new blob id ("" for D).
+type TreeChange struct{ Status, ID, Path string }
+
+// DiffTree lists the paths that differ between two commits ("git diff-tree -r
+// -z --no-renames --raw"): a rename is a D plus an A. -z for the reason given at
+// TreeBlobs.
+func DiffTree(dir, from, to string) ([]TreeChange, error) {
+	cmd := exec.Command("git", "-C", dir, "diff-tree", "-r", "-z", "--no-renames", "--raw", from, to)
+	cmd.Env = gitEnv(nil)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff-tree %s %s: %w", from, to, err)
+	}
+	parts := strings.Split(string(out), "\x00")
+	var changes []TreeChange
+	for i := 0; i+1 < len(parts); i += 2 {
+		f := strings.Fields(parts[i]) // :oldmode newmode oldid newid status
+		if len(f) != 5 || parts[i+1] == "" {
+			return nil, fmt.Errorf("git diff-tree %s %s: unexpected output", from, to)
+		}
+		c := TreeChange{Status: f[4][:1], ID: f[3], Path: parts[i+1]}
+		if c.Status == "D" {
+			c.ID = ""
+		}
+		changes = append(changes, c)
+	}
+	return changes, nil
+}
+
 // ForgeInitialized reports whether ref is what a forge writes when it creates
 // a project with "initialize with README": exactly one commit whose tree holds
 // only top-level README/LICENSE/COPYING/.gitignore/.gitattributes files

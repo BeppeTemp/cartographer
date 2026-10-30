@@ -95,6 +95,13 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "fetch.allow_private", Scope: settingschema.ScopeWorker, Type: "bool", Default: "false",
 		Description: "Let the ingest task's built-in fetch reach private, loopback and link-local addresses; off, a worker inside a network cannot be used as a proxy to it."},
 
+	{Path: "git.allow_hosts", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]", Example: "[git.example.com, \"*.corp.example.com\"]",
+		Description: "Hosts a feed may be read from through the built-in git reader (https, no credential); empty, no feed and no git entry is read."},
+	{Path: "recipes", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
+		Description: "Configuration of the built-in recipes that list a feed, by recipe name."},
+	{Path: "recipes.{name}.instructions_file", Scope: settingschema.ScopeWorker, Type: "string", Values: "path inside the config directory, at most 16 KiB", Default: `""`,
+		Description: "Text that replaces the embedded instructions of the built-in recipe, which tell the model what a unit for this kind of feed looks like."},
+
 	{Path: "tasks", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
 		Example:     "- kind: ingest\n  model: cloud",
 		Description: "The tasks the worker runs, in priority order; each has a kind, a model profile and the options of its kind."},
