@@ -43,7 +43,10 @@ func TestSchedulePush_Burst_CoalescesIntoOnePush(t *testing.T) {
 		k.SchedulePush()
 	}
 
-	if err := k.FlushPush(5 * time.Second); err != nil {
+	// Generous: on a loaded Windows runner the five commits alone took 35s
+	// and the push after them overran a 5s budget (#1403). The bound only
+	// guards against a hang; coalescing is checked by the counts below.
+	if err := k.FlushPush(60 * time.Second); err != nil {
 		t.Fatalf("FlushPush: %v", err)
 	}
 
