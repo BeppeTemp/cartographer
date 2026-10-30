@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -134,12 +136,16 @@ func newSynth(t *testing.T) *synthesisInstance {
 
 func runSynth(t *testing.T, in *synthesisInstance, k *skb, m Model, grant int) Result {
 	t.Helper()
+	// Run is driven directly when Next finds nothing, to see that it is quiet too.
 	it, err := in.Next(context.Background(), "kb-a", k)
-	if err != nil || it == nil {
-		t.Fatalf("Next = %v, %v", it, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it == nil {
+		it = &WorkItem{Key: "synthesis"}
 	}
 	res, err := in.Run(context.Background(), it, Runtime{KB: "kb-a", Perimeter: "docs", Replica: "docs-aa", Model: m,
-		Profile: Profile{Name: "cloud", DailyTokens: 1_000_000}, Grant: grant, Tools: k})
+		Profile: Profile{Name: "cloud", DailyTokens: 1_000_000}, Grant: grant, DailyLeft: grant, Tools: k})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -224,7 +230,7 @@ func TestSynthesisBudgetAndSetup(t *testing.T) {
 	k.gloss = []map[string]any{{"term": "a", "concepts": []string{"c/1"}, "weight": 3}, {"term": "b", "concepts": []string{"c/2"}, "weight": 2}, {"term": "c", "concepts": []string{"c/1", "c/2"}, "weight": 1}}
 	in := newSynth(t)
 	it, _ := in.Next(context.Background(), "kb-a", k)
-	_, err := in.Run(context.Background(), it, Runtime{KB: "kb-a", Model: &smodel{}, Profile: Profile{DailyTokens: 1_000_000}, Grant: 500_000, Tools: k})
+	_, err := in.Run(context.Background(), it, Runtime{KB: "kb-a", Model: &smodel{}, Profile: Profile{DailyTokens: 1_000_000}, Grant: 500_000, DailyLeft: 500_000, Tools: k})
 	if err == nil || !strings.Contains(err.Error(), "2 consecutive model errors") {
 		t.Fatalf("err = %v", err)
 	}
@@ -248,5 +254,78 @@ func TestSynthesisKindOptions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(DefaultKinds().Names(), []string{"ingest", "synthesis"}) {
 		t.Errorf("kinds = %v", DefaultKinds().Names())
+	}
+}
+
+// The reserve is a fraction of the DAILY budget: a run_tokens grant under it
+// neither blocks the task nor lets it spend into the reserve.
+func TestSynthesisReserveIsAgainstTheDailyRemainder(t *testing.T) {
+	k := newSKB()
+	rt := func(m Model, grant, left int) Runtime {
+		return Runtime{KB: "kb-a", Model: m, Profile: Profile{Name: "cloud", DailyTokens: 1_000_000}, Grant: grant, DailyLeft: left, Tools: k}
+	}
+	run := func(m Model, grant, left int) Result {
+		in := newSynth(t)
+		it, _ := in.Next(context.Background(), "kb-a", k)
+		res, _ := in.Run(context.Background(), it, rt(m, grant, left))
+		return res
+	}
+	// A run_tokens grant of 50k (under the 200k reserve) with a full day left starts.
+	barren := &smodel{Turns: []Response{endTurn("barren")}}
+	run(barren, 50_000, 900_000)
+	if barren.n != 1 {
+		t.Fatalf("a run grant under the reserve blocked the task: %d model calls", barren.n)
+	}
+	// 205k left of the day, 200k reserved: not even one candidate (7024) fits.
+	none := &smodel{}
+	run(none, 500_000, 205_000)
+	if none.n != 0 {
+		t.Fatalf("the model ran %d times inside the reserve", none.n)
+	}
+	// 240k left: one candidate fits, and a loop that wants more is cut at 40k.
+	m := &smodel{Turns: []Response{
+		{Stop: StopToolUse, ToolCalls: []ToolCall{{ID: "1", Name: "concept_list", Arguments: json.RawMessage(`{}`)}}, Usage: Usage{InputTokens: 60_000}},
+		endTurn("x"),
+	}}
+	if res := run(m, 500_000, 240_000); res.Tokens > 60_000 || m.n != 1 {
+		t.Fatalf("the loop was not cut at the reserve: spent %d, calls %d", res.Tokens, m.n)
+	}
+}
+
+// The loader refuses synthesis anywhere but last.
+func TestSynthesisMustBeTheLastTask(t *testing.T) {
+	t.Setenv("WORKER_TOKEN", "x")
+	t.Setenv("CLOUD_API_KEY", "y")
+	head := cfgGolden[:strings.Index(cfgGolden, "\ntasks:")]
+	load := func(tasks string) error {
+		path := filepath.Join(t.TempDir(), "w.yaml")
+		if err := os.WriteFile(path, []byte(head+"\ntasks:\n"+tasks), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := LoadConfig(path, DefaultKinds())
+		return err
+	}
+	if err := load("  - kind: synthesis\n    model: cloud\n  - kind: ingest\n    model: cloud\n"); err == nil || !strings.Contains(err.Error(), "must be the last entry") {
+		t.Errorf("synthesis first: err = %v", err)
+	}
+	if err := load("  - kind: ingest\n    model: cloud\n  - kind: synthesis\n    model: cloud\n"); err != nil {
+		t.Errorf("synthesis last: err = %v", err)
+	}
+}
+
+// Next offers nothing when there is nothing to propose, and the loader refuses
+// synthesis anywhere but last.
+func TestSynthesisNextIsQuietAndKindMustBeLast(t *testing.T) {
+	k := newSKB()
+	k.gloss = nil
+	if it, err := newSynth(t).Next(context.Background(), "kb-a", k); it != nil || err != nil {
+		t.Fatalf("Next = %v, %v on a KB with nothing to propose", it, err)
+	}
+	k.gloss = []map[string]any{{"term": "light", "concepts": []string{"c/1", "c/2"}, "weight": 3}}
+	if it, _ := newSynth(t).Next(context.Background(), "kb-a", k); it == nil {
+		t.Fatal("Next found nothing with a candidate")
+	}
+	if !SynthesisKind().Last {
+		t.Fatal("synthesis must be declared Last")
 	}
 }

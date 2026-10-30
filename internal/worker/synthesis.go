@@ -47,6 +47,7 @@ func synthesisOption(name string) KindOption {
 func SynthesisKind() Kind {
 	return Kind{
 		Name: synthesisKindName,
+		Last: true,
 		Options: []KindOption{
 			synthesisOption("synthesis_map"), synthesisOption("synthesis_max_candidates"), synthesisOption("synthesis_max_new"),
 			synthesisOption("synthesis_context_tokens"), synthesisOption("synthesis_reserve"),
@@ -101,10 +102,21 @@ type synthesisInstance struct {
 	now    func() time.Time
 }
 
-// Next offers one item per KB per run; the runner's tried set keeps it from
-// being offered twice. Whether there is anything to propose is Run's to find
-// out, with the budget in hand.
-func (in *synthesisInstance) Next(_ context.Context, kb string, _ ToolCaller) (*WorkItem, error) {
+// Next offers an item only when a candidate exists, found by the same read-only
+// selection Run repeats with the budget in hand: a KB with nothing to propose
+// leaves no closing entry (the runner touches a KB only for an item it runs).
+// The tried set of the runner keeps the item from being offered twice in a run.
+// The budget is not known here, so the check ignores it; Run applies it.
+func (in *synthesisInstance) Next(_ context.Context, kb string, tools ToolCaller) (*WorkItem, error) {
+	cands, _, err := synthesis.Candidates(tools, in.cfg, synthesis.Budget{Remaining: 1 << 40}, in.now())
+	switch {
+	case errors.Is(err, synthesis.ErrNoMap), errors.Is(err, synthesis.ErrIncomplete):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case len(cands) == 0:
+		return nil, nil
+	}
 	return &WorkItem{Key: "synthesis", Data: kb}, nil
 }
 
@@ -113,7 +125,7 @@ func (in *synthesisInstance) Next(_ context.Context, kb string, _ ToolCaller) (*
 // puts in the closing log_append (D13).
 func (in *synthesisInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Result, error) {
 	now := in.now()
-	cands, cfg, err := synthesis.Candidates(rt.Tools, in.cfg, synthesis.Budget{Daily: rt.Profile.DailyTokens, Remaining: rt.Grant}, now)
+	cands, cfg, err := synthesis.Candidates(rt.Tools, in.cfg, synthesis.Budget{Daily: rt.Profile.DailyTokens, Remaining: rt.DailyLeft}, now)
 	switch {
 	case errors.Is(err, synthesis.ErrNoMap), errors.Is(err, synthesis.ErrIncomplete):
 		return Result{Summary: err.Error()}, nil
@@ -128,8 +140,11 @@ func (in *synthesisInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (
 		lastErr  error
 	)
 	per := cfg.ContextTokens + synthesis.AnswerCap
+	reserve := int(cfg.Reserve * float64(rt.Profile.DailyTokens))
 	for _, c := range cands {
-		remaining := rt.Grant - res.Tokens
+		// What this candidate may spend: the run's grant, and the daily budget
+		// down to the reserve (D12), never more than the loop's ceiling.
+		remaining := min(rt.Grant-res.Tokens, rt.DailyLeft-res.Tokens-reserve)
 		if ctx.Err() != nil || remaining < per || len(written) >= cfg.MaxNew {
 			break
 		}

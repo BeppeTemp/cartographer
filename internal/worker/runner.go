@@ -347,7 +347,7 @@ kbs:
 			prof, _ := r.cfg.Profile(t.Profile)
 			res, err := r.instances[idx].Run(ctx, item, Runtime{
 				KB: kb, Perimeter: r.cfg.Name, Replica: r.replica, Profile: prof,
-				Model: r.opt.Models[t.Profile], Grant: r.budget.Grant(t.Profile), Tools: r.opt.Callers(kb),
+				Model: r.opt.Models[t.Profile], Grant: r.budget.Grant(t.Profile), DailyLeft: r.budget.DailyLeft(t.Profile), Tools: r.opt.Callers(kb),
 			})
 			r.budget.Charge(kb, t.Profile, res.Tokens)
 			r.budget.Note(kb, res.Units, res.Commits)

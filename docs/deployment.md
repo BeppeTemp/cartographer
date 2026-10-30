@@ -528,9 +528,10 @@ tokens before any).
 
 **The `synthesis` task (D1263).** The lowest-priority kind: it proposes what the KB already implies, as `Contradiction`
 concepts of a gap kind (`missing_context`, `open_question`) with `origin: synthesis`, `provenance` (the pages the evidence
-comes from, each checked to exist at write time) and `confidence`; it never changes a claim on an existing page (D11). List
-it **last** in `tasks`: the runner takes the first entry that has work, so it runs only when the entries before it have
-none, and it needs a profile whose remaining budget is above `synthesis_reserve`. Per run it takes the candidates the
+comes from, each checked to exist at write time) and `confidence`; it never changes a claim on an existing page (D11). It
+must be the **last** entry of `tasks` (the loader refuses any other position): the runner takes the first entry that has
+work, so it runs only when the entries before it have none. It offers work only when a candidate exists, and it spends
+only the daily budget above `synthesis_reserve` (a fraction of `daily_tokens`, kept whatever `run_tokens` says). Per run it takes the candidates the
 server's own signals give (undefined terms, repeated search misses, repeated facts, unlinked central pages), at most
 `synthesis_max_candidates`, one model call each, and writes at most `synthesis_max_new`. The instructions are embedded in
 the binary. The model sees a narrower allowlist than ingest and a worker-side guard refuses every other call, so a
