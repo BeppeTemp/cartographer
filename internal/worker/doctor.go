@@ -325,7 +325,7 @@ func (d *doctorInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Resu
 	agent := NewAgent(rt.Model, guard, NewAllowlist(doctorTools()...),
 		Limits{MaxSteps: doctorMaxSteps, MaxTotalTokens: rt.Grant})
 	out, runErr := agent.Run(ctx, Task{System: system, User: "Run the session on this KB now."})
-	res := Result{Tokens: out.Usage.Total(), Units: 1, Commits: guard.applied}
+	res := Result{Tokens: out.Usage.Total(), CacheReadTokens: out.Usage.CacheReadTokens, Units: 1, Commits: guard.applied}
 	if ctx.Err() != nil {
 		return res, runErr // shutdown: the runner's own closing entry says so
 	}

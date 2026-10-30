@@ -61,6 +61,9 @@ func TestAnthropic_RequestShape(t *testing.T) {
 	if use["cache_control"] != nil {
 		t.Errorf("cache breakpoint before the last block: %v", use)
 	}
+	if resp.Usage.CacheReadTokens == 0 {
+		t.Errorf("usage = %+v (cache read lost)", resp.Usage)
+	}
 	if resp.Usage.InputTokens != 6 || resp.Usage.OutputTokens != 4 {
 		t.Errorf("usage = %+v (cache tokens count)", resp.Usage)
 	}

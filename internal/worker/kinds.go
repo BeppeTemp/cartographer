@@ -231,6 +231,8 @@ type Result struct {
 	Units   int
 	Commits int
 	Summary string // one line
+
+	CacheReadTokens int // the part of Tokens read from the provider's cache
 }
 
 // Binder is implemented by an Instance that needs the loaded config and the

@@ -185,6 +185,8 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 	out.Usage = Usage{
 		InputTokens:  resp.Usage.Input + resp.Usage.CacheCreation + resp.Usage.CacheRead,
 		OutputTokens: resp.Usage.Output,
+
+		CacheReadTokens: resp.Usage.CacheRead,
 	}
 	if out.Usage.Total() == 0 {
 		// A gateway that omits usage must not make the budget unlimited.

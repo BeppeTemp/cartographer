@@ -164,6 +164,7 @@ func (a *Agent) Run(ctx context.Context, task Task) (Outcome, error) {
 		out.Steps++
 		out.Usage.InputTokens += resp.Usage.InputTokens
 		out.Usage.OutputTokens += resp.Usage.OutputTokens
+		out.Usage.CacheReadTokens += resp.Usage.CacheReadTokens
 		out.Usage.Estimated = out.Usage.Estimated || resp.Usage.Estimated
 		a.emit(Event{Kind: "model", Step: out.Steps, Tokens: resp.Usage.Total()})
 

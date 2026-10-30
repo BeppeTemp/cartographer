@@ -12,7 +12,7 @@ func taskMetric(perimeter, replica, kb string, t TaskSpec, model, key string, d 
 		"metric": "worker_task", "perimeter": perimeter, "replica": replica, "kb": kb,
 		"kind": t.Kind, "profile": t.Profile, "model": model, "key": key,
 		"seconds": d.Round(time.Millisecond).Seconds(),
-		"tokens":  res.Tokens, "units": res.Units, "commits": res.Commits, "summary": res.Summary,
+		"tokens":  res.Tokens, "cache_read_tokens": res.CacheReadTokens, "units": res.Units, "commits": res.Commits, "summary": res.Summary,
 	}
 	if err != nil {
 		m["error"] = oneLine(err.Error())
