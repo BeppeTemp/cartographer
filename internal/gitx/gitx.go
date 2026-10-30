@@ -804,6 +804,26 @@ func RemoteBranchExists(dir, remote, branch string) bool {
 	return err == nil
 }
 
+// RemoteTrackingBranches lists the branch names under refs/remotes/<remote>/
+// (HEAD excluded), from the local clone: no network.
+func RemoteTrackingBranches(dir, remote string) ([]string, error) {
+	if remote == "" {
+		remote = "origin"
+	}
+	prefix := "refs/remotes/" + remote + "/"
+	out, err := runGit(dir, "for-each-ref", "--format=%(refname)", prefix)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, l := range strings.Split(out, "\n") {
+		if b := strings.TrimPrefix(strings.TrimSpace(l), prefix); b != "" && b != "HEAD" && strings.HasPrefix(strings.TrimSpace(l), prefix) {
+			names = append(names, b)
+		}
+	}
+	return names, nil
+}
+
 // CheckoutNewBranch checks out branch at start. It never resets an existing
 // branch; callers that see an existing branch must make an explicit, safe
 // decision instead of discarding history.
