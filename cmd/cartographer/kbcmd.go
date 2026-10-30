@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -212,16 +213,7 @@ func cmdKBCreate(args []string) int {
 		}
 		originBranch, adopted, replacedReadme = res.branch, res.adopted, res.replacedReadme
 		orphan, orphanConfig = res.orphan, res.configPath
-		if res.orphan {
-			// X is on the remote already (plain push, nothing else touched);
-			// the server must follow it, or a discovered KB would be switched
-			// to the customer's default branch by its first sync.
-			if err := appendBranchEntry(res.configPath, remote, name, originBranch); err != nil {
-				fmt.Fprintln(os.Stderr, "Error:", err)
-				fmt.Fprintf(os.Stderr, "The KB is pushed on branch %s but the server config was not updated; add this entry under kbs: in %s by hand:\n  - remote: %s\n    branch: %s\n", originBranch, res.configPath, remote, originBranch)
-				return 1
-			}
-		} else if branch != "" && branch != originBranch {
+		if !res.orphan && branch != "" && branch != originBranch {
 			if err := pushKBBranch(path, branch); err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)
 				printUnpushedScaffoldGuidance(path, originBranch, authorName, authorEmail, dataDir)
@@ -232,6 +224,9 @@ func cmdKBCreate(args []string) int {
 	}
 	fmt.Printf("KB %q created at %s\n", name, path)
 	if remote != "" {
+		if orphan && readme != "" {
+			fmt.Printf("note: --readme %s has no effect: an orphan branch adopts nothing from the repository\n", readme)
+		}
 		if len(adopted) > 0 {
 			replaced := ""
 			if replacedReadme {
@@ -381,8 +376,27 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail, want, c
 			return *res
 		}
 	}
+	// The server must follow X before it exists on the remote, or a discovered
+	// KB would be switched to the customer's default branch by its first sync
+	// (D1412). A failed push puts the server file back as it was.
+	restore := func() {}
+	if orphan {
+		orig, mode, rerr := readFileMode(configPath)
+		if rerr == nil {
+			rerr = appendBranchEntry(configPath, remote, kbName, branch)
+		}
+		if rerr != nil {
+			fmt.Fprintln(os.Stderr, "Error:", rerr)
+			return originResult{code: 1, discard: true}
+		}
+		restore = func() { _ = writeFileAtomic(configPath, orig, mode) }
+	}
 	if err := gitx.PushSetUpstream(path, "origin", branch); err != nil {
+		restore()
 		fmt.Fprintln(os.Stderr, "Error:", err)
+		if orphan {
+			fmt.Fprintf(os.Stderr, "Hint: once the push succeeds, add this entry under kbs: in %s:\n  - remote: %s\n    branch: %s\n", configPath, remote, branch)
+		}
 		if strings.Contains(err.Error(), "src refspec") {
 			// Not an authentication problem: the branch has no commit yet.
 			fmt.Fprintf(os.Stderr, "Hint: the KB has no commit to push — git could not make the initial commit (often: committer identity unknown). Commit it, which also shows why it failed: git -C %s commit -m %q\n", path, "init: KB initialized")
@@ -676,6 +690,10 @@ func cmdKBClone(args []string) int {
 	teamBranch := ""
 	if branch != "" {
 		if !gitx.RemoteBranchExists(path, "origin", branch) && !hasKBLayout(path, "HEAD") {
+			if forgeInitClone(path) {
+				fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s --branch %s\n", remote, remote, branch)
+				return 1
+			}
 			fmt.Fprintf(os.Stderr, "Error: branch %s does not exist on the remote and the default branch holds no KB\n", branch)
 			return 1
 		}
@@ -730,6 +748,14 @@ func hasKBLayout(path, ref string) bool {
 // maxBranchHints caps the candidate branches a failed `kb clone` lists.
 const maxBranchHints = 5
 
+var safeHintBranch = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
+// safeBranchHint admits only branch names that are safe to print inside a
+// paste-ready shell command: a remote chooses its branch names.
+func safeBranchHint(b string) bool {
+	return safeHintBranch.MatchString(b) && kb.ValidateBranchName(b) == nil
+}
+
 // printKBBranchHint tells where a KB may live when the default branch holds
 // none: the remote-tracking branches of the fresh clone (all fetched, so the
 // check is local) that carry data/index.md, else the generic --branch hint.
@@ -738,7 +764,7 @@ func printKBBranchHint(path, remote string) {
 	var found []string
 	if branches, err := gitx.RemoteTrackingBranches(path, "origin"); err == nil {
 		for _, b := range branches {
-			if b != current && hasKBLayout(path, "origin/"+b) {
+			if b != current && safeBranchHint(b) && hasKBLayout(path, "origin/"+b) {
 				found = append(found, b)
 			}
 		}

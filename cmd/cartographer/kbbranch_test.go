@@ -335,6 +335,9 @@ func TestCmdKBCreateOrphanBranch(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("cmdKBCreate = %d", code)
 		}
+		if !strings.Contains(out, "--readme keep has no effect") {
+			t.Errorf("stdout lacks the --readme note:\n%s", out)
+		}
 		if !strings.Contains(out, "orphan") {
 			t.Errorf("stdout does not say the branch is an orphan:\n%s", out)
 		}
@@ -570,5 +573,72 @@ func TestOrphanBranchServerSync(t *testing.T) {
 	}
 	if got := gitOut(t, bare, "rev-parse", "main"); got != mainSHA {
 		t.Errorf("main moved")
+	}
+}
+
+// D1412 review: the kbs[] entry is written before the push and put back when
+// the push fails, so a failed create leaves the server file as it was.
+func TestCmdKBCreateOrphanPushFailureRestoresConfig(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	bare := seedForgeRemote(t, tmp, "main", []string{"README.md", "app.txt"}, 2)
+	hook := filepath.Join(bare, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	original := "# mine\ndata: /srv\n"
+	if err := os.WriteFile(cfgPath, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(tmp, "data")
+	var code int
+	withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--config", cfgPath, "--remote", fileURL(bare), "--branch", "kb"})
+		})
+	})
+	if code == 0 {
+		t.Fatal("expected the push to fail")
+	}
+	if got, _ := os.ReadFile(cfgPath); string(got) != original {
+		t.Errorf("config not restored:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "alpha")); err != nil {
+		t.Errorf("the scaffold must be kept after a push failure (D156): %v", err)
+	}
+}
+
+// D1412 review: a branch name the remote chose is never printed into a
+// paste-ready command unless it is shell-safe.
+func TestKBBranchHintSkipsUnsafeNames(t *testing.T) {
+	for b, want := range map[string]bool{"kb": true, "team/kb-1.x": true, "x$(id)": false, "a;b": false, "a b": false, "`x`": false} {
+		if got := safeBranchHint(b); got != want {
+			t.Errorf("safeBranchHint(%q) = %v, want %v", b, got, want)
+		}
+	}
+}
+
+// D1412 review: on a forge-initial-commit-only remote, kb clone keeps the
+// D710 pointer to kb create, with or without --branch.
+func TestCmdKBCloneForgeInitHint(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	for _, extra := range [][]string{nil, {"--branch", "kb"}} {
+		tmp := t.TempDir()
+		bare := seedForgeRemote(t, tmp, "main", []string{"README.md"}, 1)
+		cfgPath := filepath.Join(tmp, "config.yaml")
+		if err := os.WriteFile(cfgPath, []byte("data: /srv\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{fileURL(bare), "kb-x", "--data", filepath.Join(tmp, "data"), "--config", cfgPath}, extra...)
+		var code int
+		errOut := withStderr(t, func() { withNoGuidance(t, func() { code = cmdKBClone(args) }) })
+		if code != 1 || !strings.Contains(errOut, "kb create") {
+			t.Errorf("%v: code %d, stderr:\n%s", extra, code, errOut)
+		}
 	}
 }
