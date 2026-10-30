@@ -57,4 +57,8 @@ private repository is an exec recipe or a connector. The `git-docs` cursor is a 
 `<from>..<to>@<path>` (a listing in progress keeps its end commit); a cursor that is not an
 ancestor of HEAD is `cursor_invalid` and is never moved backwards. `gitx.TreeBlobs` and
 `gitx.DiffTree` read with `-z` because `DiffNameStatus` mangles spaces and non-ASCII paths. The
-unit executor reads a git entry from a clone scoped to the unit's run, not shared across units.
+unit executor reads a git entry from a clone scoped to that unit's run (one per unit, deleted when it
+ends, not shared across units). Every clone of a KB-supplied locator is anonymous
+(`gitx.CloneAnonymous`: no git config, credential helper, askpass or extra header of the operator, no
+redirect, a timeout, `--filter=blob:none`), because "https, no credential" would otherwise be undone by
+the worker's own git setup; KB sync keeps the gitx defaults.

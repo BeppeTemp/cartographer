@@ -588,8 +588,8 @@ clone (an exact host, or `*.example.com`; an IP only verbatim); it is empty by d
 entry is read. The reader takes https remotes only, with no credential: `file://`, `git://`, ssh, scp-like, local
 paths and any remote with userinfo are refused before a clone; a private repository is an exec recipe or an MCP
 connector. For a unit whose Source has `connector: git` the `source_fetch` tool reads
-`<repo URL>#<path>` from a clone made for that run (deleted at its end), after checking the host, that the path is
-inside the repository and that no component is a symlink; 1 MiB. `recipes.<name>.instructions_file` (a built-in's
+`<repo URL>#<path>` from a clone made for that unit's run only (one clone per unit, deleted when the unit finishes, not shared across units), after checking the host, that the path is
+inside the repository (`.git` included) and that no component is a symlink; 1 MiB. Every clone is anonymous whatever the worker's own git setup: no global or system git config, credential helper, askpass or extra header, no redirect followed, 5 minutes at most, history blobs not fetched. Symlinks, submodules and type changes are never listed. `recipes.<name>.instructions_file` (a built-in's
 name only, a path inside the config directory, at most 16 KiB UTF-8, read at load) replaces the recipe's embedded
 instructions text.
 

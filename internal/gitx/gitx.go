@@ -119,6 +119,47 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 	return nil
 }
 
+// AnonymousEnv is the environment of a clone that must carry no identity of the
+// operator: no global or system git config (so no credential helper, extra
+// header, proxy or URL rewrite), no askpass program, no prompt, and no redirect
+// followed (a redirect would leave the host that was checked). Layered after the
+// process environment, it wins over it. For clones of a locator written by a KB
+// writer (D1262), never for KB sync.
+func AnonymousEnv() []string {
+	return []string{
+		"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_SYSTEM=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_PARAMETERS=", "GIT_ASKPASS=", "SSH_ASKPASS=", "GIT_TERMINAL_PROMPT=0",
+		"GIT_ALLOW_PROTOCOL=https",
+		"GIT_CONFIG_COUNT=3",
+		"GIT_CONFIG_KEY_0=credential.helper", "GIT_CONFIG_VALUE_0=",
+		"GIT_CONFIG_KEY_1=http.followRedirects", "GIT_CONFIG_VALUE_1=false",
+		"GIT_CONFIG_KEY_2=http.extraHeader", "GIT_CONFIG_VALUE_2=",
+	}
+}
+
+// CloneAnonymous clones an https remote with AnonymousEnv and without the blobs
+// of history (--filter=blob:none: the trees are what a listing reads, and the
+// checkout fetches the blobs of HEAD). The caller bounds it with ctx.
+func CloneAnonymous(ctx context.Context, remote, dest string) error {
+	return cloneAnonymous(ctx, remote, dest)
+}
+
+// cloneAnonymous: extra is appended last (a test lets plain http through to reach
+// a local server; the exported form cannot).
+func cloneAnonymous(ctx context.Context, remote, dest string, extra ...string) error {
+	if err := ValidateRemote(remote); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "git", "clone", "--no-tags", "--filter=blob:none", "--", remote, dest)
+	cmd.Env = gitEnv(append(AnonymousEnv(), extra...))
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if out, err := cmd.Output(); err != nil {
+		return cloneError(ctx, remote, dest, err, stderr.String()+string(out))
+	}
+	return nil
+}
+
 // cloneEnv layers the non-interactive defaults on top of the process
 // environment and the caller's own variables.
 //
@@ -915,8 +956,8 @@ func TreeBlobs(dir, ref string) ([]TreeBlob, error) {
 }
 
 // TreeChange is one path that differs between two commits. Status is A, M, D
-// or T; ID is the new blob id ("" for D).
-type TreeChange struct{ Status, ID, Path string }
+// or T; Mode and ID are the new ones (ID "" for D).
+type TreeChange struct{ Status, Mode, ID, Path string }
 
 // DiffTree lists the paths that differ between two commits ("git diff-tree -r
 // -z --no-renames --raw"): a rename is a D plus an A. -z for the reason given at
@@ -935,7 +976,7 @@ func DiffTree(dir, from, to string) ([]TreeChange, error) {
 		if len(f) != 5 || parts[i+1] == "" {
 			return nil, fmt.Errorf("git diff-tree %s %s: unexpected output", from, to)
 		}
-		c := TreeChange{Status: f[4][:1], ID: f[3], Path: parts[i+1]}
+		c := TreeChange{Status: f[4][:1], Mode: f[1], ID: f[3], Path: parts[i+1]}
 		if c.Status == "D" {
 			c.ID = ""
 		}

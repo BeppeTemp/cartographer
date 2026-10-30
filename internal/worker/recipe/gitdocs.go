@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
@@ -14,10 +15,16 @@ import (
 // CloneFunc clones url into dest (an existing empty directory).
 type CloneFunc func(ctx context.Context, url, dest string) error
 
-// defaultClone is a full clone over https only: GIT_ALLOW_PROTOCOL stops git
-// itself from following a redirect to another transport.
+// cloneTimeout bounds one clone: a feed's repository is read by an unattended
+// worker, and a slow or endless server must not hold the poll.
+const cloneTimeout = 5 * time.Minute
+
+// defaultClone is an anonymous https clone (gitx.AnonymousEnv: no operator
+// credential, no config, no redirect) without history blobs, bounded in time.
 func defaultClone(ctx context.Context, url, dest string) error {
-	return gitx.Clone(ctx, url, dest, "GIT_ALLOW_PROTOCOL=https")
+	ctx, cancel := context.WithTimeout(ctx, cloneTimeout)
+	defer cancel()
+	return gitx.CloneAnonymous(ctx, url, dest)
 }
 
 const (
@@ -148,7 +155,7 @@ func changes(dir, from, to string) ([]Entry, error) {
 			return nil, err
 		}
 		for _, b := range blobs {
-			if b.Mode != "120000" { // a symlink is not a document
+			if documentMode(b.Mode) {
 				out = append(out, Entry{Key: b.Path, Title: b.Path, Revision: b.ID, Change: Added})
 			}
 		}
@@ -159,6 +166,9 @@ func changes(dir, from, to string) ([]Entry, error) {
 		return nil, err
 	}
 	for _, d := range diff {
+		if d.Status != "D" && !documentMode(d.Mode) {
+			continue // became a symlink or a submodule: not a document
+		}
 		e := Entry{Key: d.Path, Title: d.Path, Revision: d.ID}
 		switch d.Status {
 		case "A":
@@ -172,6 +182,10 @@ func changes(dir, from, to string) ([]Entry, error) {
 	}
 	return out, nil
 }
+
+// documentMode: a regular file. A symlink (120000) or a submodule (160000) is not
+// a document, and the executor would refuse it on every poll.
+func documentMode(m string) bool { return m == "100644" || m == "100755" }
 
 func oneLine(s string) string {
 	s = strings.Join(strings.Fields(s), " ")

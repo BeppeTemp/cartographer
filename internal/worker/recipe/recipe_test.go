@@ -308,7 +308,7 @@ func TestGitReaderReadsAndRefuses(t *testing.T) {
 		t.Fatalf("cloned %d times for one repository", f.calls)
 	}
 	bad := []string{
-		repoURL + "#../x", repoURL + "#/etc/passwd", repoURL + "#guide/../../x", repoURL + "#", repoURL,
+		repoURL + "#../x", repoURL + "#.git/config", repoURL + "#.GIT/HEAD", repoURL + "#/etc/passwd", repoURL + "#guide/../../x", repoURL + "#", repoURL,
 		repoURL + "#docs\\a.md", repoURL + "#nope.md", repoURL + "#docs",
 		"https://other.example.org/org/docs#guide/a b.md", "file://" + f.dir + "#guide/big.md",
 	}
@@ -325,4 +325,34 @@ func TestGitReaderReadsAndRefuses(t *testing.T) {
 func TestMain(m *testing.M) {
 	gitxtest.QuietGit()
 	os.Exit(m.Run())
+}
+
+func TestGitDocsSkipsWhatIsNotARegularFileOnEveryPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	f := newFixture(t)
+	f.write("guide/a.md", "1")
+	f.write("guide/b.md", "1")
+	first := f.commit("1")
+	if err := os.Remove(filepath.Join(f.dir, "guide/b.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a.md", filepath.Join(f.dir, "guide/b.md")); err != nil { // a file became a symlink
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a.md", filepath.Join(f.dir, "guide/c.md")); err != nil { // a new symlink
+		t.Fatal(err)
+	}
+	f.commit("2")
+	req := Request{Locator: repoURL, Include: []string{"guide/*.md"}}
+	l, err := f.recipe().List(context.Background(), req)
+	if err != nil || len(l.Entries) != 1 || l.Entries[0].Key != "guide/a.md" {
+		t.Fatalf("first listing = %+v, %v", l, err)
+	}
+	req.Cursor = first
+	l, err = f.recipe().List(context.Background(), req)
+	if err != nil || len(l.Entries) != 0 {
+		t.Fatalf("incremental listing emitted a symlink: %+v, %v", l, err)
+	}
 }

@@ -45,6 +45,9 @@ func SplitGitLocator(locator string, hosts []string) (repo, path string, err err
 	if path == "" || !filepath.IsLocal(filepath.FromSlash(path)) || strings.Contains(path, "\\") {
 		return "", "", errors.New("the path in the locator is not inside the repository")
 	}
+	if strings.EqualFold(strings.SplitN(path, "/", 2)[0], ".git") {
+		return "", "", errors.New("the path in the locator is not inside the repository")
+	}
 	u, err := httpsRemote(locator[:i], hosts)
 	if err != nil {
 		return "", "", err
