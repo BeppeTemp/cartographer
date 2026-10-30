@@ -14,8 +14,13 @@ import (
 	"strings"
 )
 
-// Shape is the Source shape a recipe serves; #1372 adds "system".
-const ShapeFeed = "feed"
+// The Source shapes a recipe serves: feed lists what changed in a document set
+// (the recipe holds the revisions), system lists the current state of a live
+// system grouped (the worker hashes and diffs it, D1372).
+const (
+	ShapeFeed   = "feed"
+	ShapeSystem = "system"
+)
 
 // Change values of an Entry.
 const (
@@ -72,6 +77,9 @@ const (
 	CodeBadLocator     = "bad_locator"
 	CodeCursorInvalid  = "cursor_invalid"
 	CodeListFailed     = "list_failed"
+	// CodeIdentityNotReadOnly is the feed_error code of a failed preflight: a
+	// contract, the Atlas shows it (D1372).
+	CodeIdentityNotReadOnly = "identity_not_read_only"
 )
 
 func fail(code, format string, a ...any) error {

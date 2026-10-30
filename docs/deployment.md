@@ -625,6 +625,33 @@ The clone itself and the commands run in it afterwards (HEAD, ancestry, tree and
 `HOME` and `XDG_CONFIG_HOME` pointed at an empty directory, so the operator's git config is out of reach
 on any git version (`GIT_CONFIG_GLOBAL` alone needs git 2.32).
 
+**System sources (D1372).** A live read-only system (a Kubernetes cluster, a cloud account, a metrics or dashboard
+instance) is a Source with `source_shape: system` and a `recipe` whose `shape` is `system`
+([worker-recipes.md](worker-recipes.md) §System recipes). Register it once with `source_register` (`source_shape:
+system`, `recipe`, `locator` an opaque label such as `kubernetes://dev-cluster`) and set `feed_interval` and
+`feed_include` with `concept_patch`; an IngestPlan must list it in `sources`. Every poll runs the lister's preflight,
+lists the current state grouped, diffs it against the state kept on the Source and creates one unit per **changed**
+group; the executor runs those units with KB tools only (no tool on the system). The reference lister, its recipe
+block and its README are in `examples/system-recipes/kubernetes/`; it needs Python 3 and `kubectl` in the image
+(a derived image or a mounted volume, as above), and `KUBECTL`, `KUBE_CONTEXT` and `KUBECONFIG` set in the worker's
+environment.
+
+*Cost.* One measured development cluster had 583 objects in 27 namespaces: 4.3 MB of raw JSON (about 1.1M tokens),
+209 KB normalized (about 52k tokens), about 8 KB per namespace. The first poll creates one unit per namespace (the
+baseline); a typical day changes a few namespaces, so a few thousand tokens; an unchanged system costs none.
+*Caps.* A group is at most `exec.max_content_bytes` (default 128 KiB), a diff 400 lines / 64 KiB, a listing 1000
+groups, the state file 8 MiB; over a cap is an error naming the group or the count (group coarser or filter with
+`feed_include`). A large first run is spread over polls by the poll task's `max_entries` and `feed_interval`.
+
+*Give the lister a read-only identity.* The preflight refuses a misconfigured identity but is not a security boundary
+(the script is operator code); the boundary is the identity:
+- **Kubernetes**: a dedicated ServiceAccount bound to the `view` ClusterRole, which does not include Secrets; the
+  example's preflight refuses an identity that can read secrets, write pods, deployments or namespaces, or do anything
+  on `*`.
+- **Cloud account**: a dedicated read-only / view-only policy; check what it can still read, since "read-only" can
+  include secret values.
+- **Metrics or dashboard system**: a viewer role or a query-only token.
+
 **`http-pages`** is the second built-in: the Source `locator` is a sitemap (XML) or an HTML index, `feed_include`
 a list of URL prefixes (a trailing `*` is accepted; none = every link of the index's own host), one level, no
 crawl. It reads only hosts in `fetch.allow_hosts` (deny by default), https unless `fetch.allow_insecure_http`,
