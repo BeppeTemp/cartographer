@@ -370,9 +370,9 @@ func TestIngestWritesFirstAndReportsAfter(t *testing.T) {
 	}
 }
 
-// TestDoctorSkillWorkerPassageKeepsTheInvariants pins #1261: the worker passage
-// exists, the delegated invariants stay verbatim, and the only exception to "the
-// operator asks" is the deployed worker (D704, D18).
+// TestDoctorSkillWorkerPassageKeepsTheInvariants pins the worker passage: a worker
+// does not run this procedure, the delegated invariants stay verbatim, and a
+// session starts only when the operator asks (D704).
 func TestDoctorSkillWorkerPassageKeepsTheInvariants(t *testing.T) {
 	t.Parallel()
 	data, err := fs.ReadFile(FS, "bundled/cartographer-kb-doctor/SKILL.md")
@@ -381,10 +381,10 @@ func TestDoctorSkillWorkerPassageKeepsTheInvariants(t *testing.T) {
 	}
 	s := string(data)
 	for _, want := range []string{
-		"**A worker session.**",
+		"**A worker does not run this procedure.**",
 		"never delete a concept, never rename a map's folder, never invent content",
 		"`log_append` whose text contains `kb-doctor`",
-		"- Never start a session the operator did not ask for or agree to (a worker deployed",
+		"- Never start a session the operator did not ask for or agree to.",
 		"changes nothing",
 	} {
 		if !strings.Contains(s, want) {
