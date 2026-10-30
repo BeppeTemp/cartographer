@@ -33,11 +33,25 @@ var tableSeparatorCell = regexp.MustCompile(`^:?-+:?$`)
 // code (fenced and inline), table header and separator rows, link-only list
 // items and any line found in a template are not facts (D314).
 //
-// The result maps the comparison key (the normalised line with code spans
-// masked) to the same line normalised but unmasked, which is what a reader
-// must be shown: the masked form has spaces where the code was (D314).
+// The result maps the comparison key to the line shown to a reader; both are
+// the normalised line with its code spans intact: two lines whose inline code
+// differs are different facts (#1406). Code spans are masked only to decide
+// what a line is (heading, table row, link-only item, template line), never
+// to compare lines (D314).
 func factLines(body string, boilerplate map[string]bool) map[string]string {
 	out := map[string]string{}
+	for _, e := range factEntries(body, boilerplate) {
+		out[e.key] = e.key
+	}
+	return out
+}
+
+// factEntry is one fact line: key is the normalised unmasked line, masked the
+// same line with code spans blanked (what a template line is matched on).
+type factEntry struct{ key, masked string }
+
+func factEntries(body string, boilerplate map[string]bool) []factEntry {
+	var out []factEntry
 	masked := strings.Split(kb.MaskCodeSpans(body), "\n")
 	orig := strings.Split(body, "\n")
 	for i, line := range masked {
@@ -45,9 +59,9 @@ func factLines(body string, boilerplate map[string]bool) map[string]string {
 		if t == "" || strings.HasPrefix(t, "#") {
 			continue
 		}
-		shown := t
+		key := t
 		if i < len(orig) {
-			shown = strings.Join(strings.Fields(orig[i]), " ")
+			key = strings.Join(strings.Fields(orig[i]), " ")
 		}
 		if strings.HasPrefix(t, "|") {
 			cells, sep := tableCells(t)
@@ -56,8 +70,8 @@ func factLines(body string, boilerplate map[string]bool) map[string]string {
 			}
 			t = "| " + strings.Join(cells, " | ") + " |"
 			if i < len(orig) {
-				o, _ := tableCells(strings.Join(strings.Fields(orig[i]), " "))
-				shown = "| " + strings.Join(o, " | ") + " |"
+				o, _ := tableCells(key)
+				key = "| " + strings.Join(o, " | ") + " |"
 			}
 		} else if listMarkRe.MatchString(line) {
 			rest := listMarkRe.ReplaceAllString(line, "")
@@ -68,10 +82,10 @@ func factLines(body string, boilerplate map[string]bool) map[string]string {
 		if len(t) < repeatedFactMinBytes {
 			continue
 		}
-		if boilerplate[t] {
+		if boilerplate[t] || boilerplate[key] {
 			continue
 		}
-		out[t] = shown
+		out = append(out, factEntry{key: key, masked: t})
 	}
 	return out
 }
@@ -108,8 +122,11 @@ func isSeparatorRow(line string) bool {
 func templateBoilerplate(templates []string) map[string]bool {
 	out := map[string]bool{}
 	for _, body := range templates {
-		for line := range factLines(body, nil) {
-			out[line] = true
+		// Both forms: a page that fills a template's code span with its own
+		// value still carries the template's line.
+		for _, e := range factEntries(body, nil) {
+			out[e.key] = true
+			out[e.masked] = true
 		}
 	}
 	return out
@@ -118,17 +135,22 @@ func templateBoilerplate(templates []string) map[string]bool {
 // archivalBanner is the factLines key of the banner the harvest writes at the
 // top of an archived entry (kb-doctor step 5b: `> Archived YYYY-MM-DD: no
 // durable lessons.`, or the KB's translation of it): the first blockquote line
-// of the body above its first H2, code masked; "" when there is none. On an
+// of the body above its first H2, code spans intact (the factLines key); ""
+// when there is none. On an
 // archived entry it is a status line whose wording the procedure fixes, not a
 // fact the entries repeat, so repeated_fact skips it like template boilerplate
 // (#1194). Callers check the status: the same line on a live page is prose.
 func archivalBanner(body string) string {
-	for _, line := range strings.Split(kb.MaskCodeSpans(body), "\n") {
+	orig := strings.Split(body, "\n")
+	for i, line := range strings.Split(kb.MaskCodeSpans(body), "\n") {
 		t := strings.Join(strings.Fields(line), " ")
 		if strings.HasPrefix(t, "## ") {
 			return ""
 		}
 		if strings.HasPrefix(t, ">") {
+			if i < len(orig) {
+				return strings.Join(strings.Fields(orig[i]), " ")
+			}
 			return t
 		}
 	}

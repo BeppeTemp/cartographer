@@ -306,7 +306,7 @@ to add new pages to the index is the `cartographer-kb-doctor` skill's to update,
 
 | Check | Fires when | Constant |
 |---|---|---|
-| `repeated_fact` (review item, and the write-time finding of the written concept's map, D351) | a normalised line of at least 40 bytes is carried by at least 3 concepts; a line from a template, and the archival banner of an `archived` entry (its first blockquote line above the first H2, `> Archived YYYY-MM-DD: no durable lessons.` or its translation, #1194), are not facts | `repeatedFactMinBytes = 40`, `repeatedFactMinConcepts = 3` (`internal/lint/review_cost.go`) |
+| `repeated_fact` (review item, and the write-time finding of the written concept's map, D351) | a normalised line of at least 40 bytes is carried by at least 3 concepts (whole lines are compared, inline code included: lines that differ only in a code span are different facts, #1406); a line from a template, and the archival banner of an `archived` entry (its first blockquote line above the first H2, `> Archived YYYY-MM-DD: no durable lessons.` or its translation, #1194), are not facts | `repeatedFactMinBytes = 40`, `repeatedFactMinConcepts = 3` (`internal/lint/review_cost.go`) |
 | `read_hotspot` | a concept has at least 50 inbound links and a body of at least 16 KiB | `hotspotMinInDegree = 50`, `hotspotMinBytes = 16 KiB` |
 | `concept_oversize` (observation, D947) | a concept's body is over half the 60 KB read guard (30000 bytes) | `conceptOversizeThreshold` (`internal/lint/lint.go`) |
 | `map_oversize` (observation, D313, D947) | a map has more than 50 top-level concepts | `mapOversizeThreshold = 50` |
