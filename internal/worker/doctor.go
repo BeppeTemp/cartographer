@@ -95,12 +95,13 @@ var doctorInstructions string
 // tasks[].doctor_allow word that turns it on; a rule always on has none and changes
 // frontmatter only, since an item can be shaped by whoever writes a page and a body
 // edit is what that writer would want. extra is the tools it needs beyond the reads;
-// carries lets a body edit reach a page the item links. An item no rule covers
-// stays for a prompt task or an operator.
+// carries lets a body edit reach a page the item links; offers takes only an item
+// with a proposal, the server's to make. An item no rule covers stays for a prompt
+// task or an operator.
 type doctorRule struct {
 	kind, check, allow, how string
 	extra                   []string
-	carries                 bool
+	carries, offers         bool
 }
 
 func (r doctorRule) tools() []string {
@@ -111,7 +112,7 @@ func (r doctorRule) tools() []string {
 	return append(out, r.extra...)
 }
 
-const doctorVocabulary = "The item proposes a closed list of values for a field of the map. If the values read as a vocabulary, call `map_update` with `map` and `field_values: {\"<type>\": {\"<field>\": [<values>]}}`, where `<type>` is the proposal's `type` or `*` and `<field>` its `field`: give only that field, the worker keeps the others. If the values are page ids, names of one-off things or look accidental, leave the item."
+const doctorVocabulary = "The item proposes a closed list of values for a field of the map. If the values read as a vocabulary, call `map_update` with `map` and `field_values: {\"<type>\": {\"<field>\": [<values>]}}`, where `<type>` is the proposal's `type` (`*` if it has none), `<field>` its `field` and `<values>` its whole list: give only that field, the worker keeps the others. If the values are page ids, names of one-off things or look accidental, leave the item."
 
 const doctorHarvest = "The entry is closed and old. Pick the facts a reader of a live page would need: causes, traps, what worked. Add each as one line, with a dated link back to the entry, to the live page the entry links that it belongs to, under an existing section. Then set `status` to `archived` and put at the top of the entry `> Archived <today>: lessons in [page](id).`, or `> Archived <today>: no durable lessons.` if there are none. Never delete the entry."
 
@@ -125,8 +126,8 @@ var doctorRules = []doctorRule{
 	{kind: "lint_judgement", check: "template_extra_section", allow: doctorAllowPages, how: "The page has sections its template does not list. For each, do what the evidence offers: rename the heading to a section of the template, or demote it to `###` under the section its text belongs to. Keep the text."},
 	{kind: "lint_judgement", check: "template_section_missing", allow: doctorAllowPages, how: "The page lacks sections of its template. Where text on the page belongs in a missing section, add the heading and move that text under it. Add no empty section and no placeholder. If no text fits, leave the item."},
 	{kind: "observation", check: "island", allow: doctorAllowPages, how: "These pages link only each other. If one of them says what part of the KB it belongs to, find that page with `search` and add to this page one sentence that links it. Otherwise leave the item."},
-	{kind: "observation", check: "facet_sprawl", allow: doctorAllowStructure, how: doctorVocabulary, extra: []string{"map_update"}},
-	{kind: "observation", check: "missing_value_contract", allow: doctorAllowStructure, how: doctorVocabulary, extra: []string{"map_update"}},
+	{kind: "observation", check: "facet_sprawl", allow: doctorAllowStructure, how: doctorVocabulary, extra: []string{"map_update"}, offers: true},
+	{kind: "observation", check: "missing_value_contract", allow: doctorAllowStructure, how: doctorVocabulary, extra: []string{"map_update"}, offers: true},
 	{kind: "index_unclassified", allow: doctorAllowStructure, how: "The map's index keeps pages under `## New pages`. Read it with `index_get` (`with_hash: true`) and, with `index_patch` (`path` the map, `if_match` the hash), move each entry under the section it belongs to. Remove the heading when it is empty. Leave an entry you cannot place.", extra: []string{"index_get", "index_patch"}},
 	{kind: "harvest_candidate", allow: doctorAllowArchive, how: doctorHarvest, carries: true},
 	{kind: "lesson_unpromoted", allow: doctorAllowArchive, how: doctorHarvest, carries: true},
@@ -191,6 +192,7 @@ type doctorGuard struct {
 	pages   []string
 	key     string
 	offer   json.RawMessage // the item's proposal
+	targets []string        // what a rule that carries facts may reach
 }
 
 // maxRefusedWrites aborts a run whose writes keep being refused.
@@ -276,24 +278,34 @@ func (g *doctorGuard) seal(m map[string]json.RawMessage) (json.RawMessage, strin
 	return call, ""
 }
 
-// linked reports whether a page of the item links id: a carried fact goes where
-// the entry points.
-func (g *doctorGuard) linked(id string) bool {
-	for _, page := range g.pages {
-		out, err := g.inner.CallTool("concept_read", map[string]any{"id": page})
-		var c struct {
-			Body string `json:"body"`
+// linkTargets lists the pages that pages link, read before the model can write:
+// a link it added would otherwise open the page it wants next. The server resolves
+// the links, so a target is a page and not a piece of text.
+func linkTargets(tools ToolCaller, pages []string) []string {
+	var out []string
+	for _, page := range pages {
+		res, err := tools.CallTool("graph_neighbors", map[string]any{"id": page, "direction": "out"})
+		var g struct {
+			Neighbors []struct {
+				ID      string `json:"id"`
+				Missing bool   `json:"missing"`
+			} `json:"neighbors"`
 		}
-		if err == nil && !out.IsError && json.Unmarshal([]byte(out.Text), &c) == nil && strings.Contains(c.Body, id) {
-			return true
+		if err != nil || res.IsError || json.Unmarshal([]byte(res.Text), &g) != nil {
+			continue
+		}
+		for _, n := range g.Neighbors {
+			if !n.Missing {
+				out = append(out, n.ID)
+			}
 		}
 	}
-	return false
+	return out
 }
 
 // fence checks a patch against the current item; why is the refusal, empty when
 // the patch may go. A rule that carries facts may edit the body of a page the item
-// links, never its frontmatter.
+// linked when it started, never its frontmatter.
 func (g *doctorGuard) fence(raw json.RawMessage) (call json.RawMessage, why string) {
 	m, why := doctorArgs(raw, doctorPatchKeys)
 	if why != "" {
@@ -312,7 +324,7 @@ func (g *doctorGuard) fence(raw json.RawMessage) (call json.RawMessage, why stri
 	if g.rule.allow == "" && (old || added || edits) {
 		return nil, "this item may change only " + strings.Join(doctorFields, ", ")
 	}
-	if !slices.Contains(g.pages, p.ID) && (!g.rule.carries || len(p.Frontmatter) > 0 || !g.linked(p.ID)) {
+	if !slices.Contains(g.pages, p.ID) && (len(p.Frontmatter) > 0 || !slices.Contains(g.targets, p.ID)) {
 		return nil, "only the pages the item names may be changed"
 	}
 	for k, v := range p.Frontmatter {
@@ -348,12 +360,11 @@ func (g *doctorGuard) fenceIndex(raw json.RawMessage) (json.RawMessage, string) 
 }
 
 // fenceMap keeps a contract change to the item's map and its proposal: the model
-// decides whether to apply it and may leave values out, never add one, since the
-// list decides what a later repair drops from pages. map_update replaces
-// field_values whole, so the worker adds back what the map already declares.
-// withinOffer reports whether given is one field of the item's proposal, with
-// some of its values and no other.
-func (g *doctorGuard) withinOffer(given map[string]map[string]any) bool {
+// decides whether to apply it, never what it says, since the list decides what a
+// later repair drops from pages. map_update replaces field_values whole, so the
+// worker adds back what the map already declares.
+// isOffer reports whether given is exactly the item's proposal.
+func (g *doctorGuard) isOffer(given map[string]map[string]any) bool {
 	var offer struct {
 		Field  string   `json:"field"`
 		Type   string   `json:"type"`
@@ -369,12 +380,16 @@ func (g *doctorGuard) withinOffer(given map[string]map[string]any) bool {
 	if len(given) != 1 || len(given[offer.Type]) != 1 || len(values) == 0 {
 		return false
 	}
+	got := make([]string, 0, len(values))
 	for _, v := range values {
-		if text, ok := v.(string); !ok || !slices.Contains(offer.Values, text) {
+		text, ok := v.(string)
+		if !ok {
 			return false
 		}
+		got = append(got, text)
 	}
-	return true
+	slices.Sort(got)
+	return slices.Equal(got, slices.Sorted(slices.Values(offer.Values)))
 }
 
 func (g *doctorGuard) fenceMap(raw json.RawMessage) (json.RawMessage, string) {
@@ -389,8 +404,8 @@ func (g *doctorGuard) fenceMap(raw json.RawMessage) (json.RawMessage, string) {
 	if json.Unmarshal(raw, &p) != nil || !g.onMap(p.Map) {
 		return nil, "only field_values of the item's map may be changed"
 	}
-	if !g.withinOffer(p.FieldValues) {
-		return nil, "field_values must be the field the item proposes, with values of its list"
+	if !g.isOffer(p.FieldValues) {
+		return nil, "field_values must be the field the item proposes, with its whole list"
 	}
 	out, err := g.inner.CallTool("concept_read", map[string]any{"id": p.Map + "/_map"})
 	var page struct {
@@ -668,7 +683,7 @@ func (d *doctorInstance) queue(tools ToolCaller) ([]doctorItem, error) {
 			byKind[r.kind] = items
 		}
 		for _, it := range items {
-			if it.Check == r.check && len(it.Concepts) > 0 && !seen[it.key()] {
+			if it.Check == r.check && len(it.Concepts) > 0 && (!r.offers || len(it.Proposal) > 0) && !seen[it.key()] {
 				it.rule = r
 				if out = append(out, it); len(out) == doctorReviewItems {
 					return out, nil
@@ -794,7 +809,10 @@ func (d *doctorInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Resu
 		if ctx.Err() != nil || remaining < doctorMinGrant || guard.applied >= guard.maxW {
 			break
 		}
-		guard.rule, guard.pages, guard.key, guard.offer = it.rule, it.Concepts, it.key(), it.Proposal
+		guard.rule, guard.pages, guard.key, guard.offer, guard.targets = it.rule, it.Concepts, it.key(), it.Proposal, nil
+		if it.rule.carries {
+			guard.targets = linkTargets(rt.Tools, it.Concepts)
+		}
 		lim := rt.Limits(doctorItemSteps, min(remaining, doctorItemTokens))
 		lim.MaxToolResultBytes = doctorItemResultBytes
 		agent := NewAgent(rt.Model, guard, NewAllowlist(it.rule.tools()...), lim)

@@ -28,8 +28,9 @@ beyond the item: a rule always on changes frontmatter only, since a body edit is
 for, and the rules that edit bodies need a word. `kb_repair` runs an allow-list, because a fix the server would not run
 alone is one a person was meant to ask for, and a check added later must not start running on its own. A map takes only
 the item's proposal, because that list decides what a later repair drops from pages. A carried fact lands only on a page
-the entry links. The risk accepted: with `pages`, `archive` or `structure`, whoever can write a page can influence what
-a run writes inside those limits, so those words suit a KB whose writers are trusted.
+the entry linked before the model could write, resolved by the server, and the entry's author still chooses it. The risk accepted: with `pages`, `archive` or `structure`, whoever can write a page can influence what
+a run writes inside those limits, so those words suit a KB whose writers are trusted. The rules always on stay a model
+reading a page, so a page's writer can steer a closure or the text of `waiting_on`.
 
 **Alternatives rejected.** Keeping one session and counting cached tokens at a fraction: it lowers the count on one
 provider only and leaves a prefix no small model can hold. A resume page the model writes: it needs a map and a type on

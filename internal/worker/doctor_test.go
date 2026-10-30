@@ -26,6 +26,7 @@ type doctorKB struct {
 	maps    []map[string]any // map_update and index_patch arguments
 	pages   map[string]string
 	perPage int // kb_review items per page, 0 for one page
+	links   map[string][]string
 }
 
 func (k *doctorKB) ListTools() ([]client.ToolInfo, error) {
@@ -68,6 +69,13 @@ func (k *doctorKB) CallTool(name string, args any) (client.ToolOutput, error) {
 		if text, ok := k.pages[fmt.Sprint(m["id"])]; ok {
 			return client.ToolOutput{Text: text}, nil
 		}
+	case "graph_neighbors":
+		var out []map[string]any
+		for _, id := range k.links[fmt.Sprint(m["id"])] {
+			out = append(out, map[string]any{"id": id})
+		}
+		b, _ := json.Marshal(map[string]any{"neighbors": append(out, map[string]any{"id": "broken/link", "missing": true})})
+		return client.ToolOutput{Text: string(b)}, nil
 	case "kb_repair":
 		k.repairs = append(k.repairs, m)
 		return client.ToolOutput{Text: `{"applied_total":3,"checks":[],"dry_run":false}`}, nil
@@ -340,7 +348,7 @@ func TestDoctorAllowTurnsRulesOn(t *testing.T) {
 	section := func(check string) doctorItem {
 		return doctorItem{Kind: "lint_judgement", Check: check, Concepts: []string{"m/" + check}}
 	}
-	sprawl := doctorItem{Kind: "observation", Check: "facet_sprawl", Concepts: []string{"m/_map"}}
+	sprawl := doctorItem{Kind: "observation", Check: "facet_sprawl", Concepts: []string{"m/_map"}, Proposal: json.RawMessage(`{"field":"tags","values":["a"]}`)}
 	all := []doctorItem{item("status_reclassify", "a"), item("repeated_fact", "b", "c"), section("template_extra_section"), section("template_section_missing"),
 		{Kind: "observation", Check: "island", Concepts: []string{"d"}}, sprawl, item("index_unclassified", "m/e"), item("harvest_candidate", "j/f"), item("lesson_unpromoted", "j/g"),
 		item("template_proposal", "m/_map"), {Kind: "observation", Check: "map_misfit", Concepts: []string{"h"}}, item("glossary_gap", "i")}
@@ -429,12 +437,12 @@ func TestDoctorGuardFencesAMap(t *testing.T) {
 	// One field given: the map keeps the rest.
 	k, d := dueKB(sprawl)
 	d.allow, k.pages = []string{doctorAllowStructure}, map[string]string{"m/_map": page}
-	m := &doctorScript{turns: []Response{turn("map_update", `{"map":"m","field_values":{"*":{"tags":["a"]}}}`), {Stop: StopEnd}}}
+	m := &doctorScript{turns: []Response{turn("map_update", `{"map":"m","field_values":{"*":{"tags":["b","a"]}}}`), {Stop: StopEnd}}}
 	res, err := doctorRun(d, k, m, 100_000)
 	if err != nil || len(k.maps) != 1 || res.Commits != 1 {
 		t.Fatalf("res %+v err %v maps %v", res, err, k.maps)
 	}
-	if got := fmt.Sprint(k.maps[0]["field_values"]); got != "map[*:map[tags:[a]] Entity:map[kind:[x y]]]" {
+	if got := fmt.Sprint(k.maps[0]["field_values"]); got != "map[*:map[tags:[b a]] Entity:map[kind:[x y]]]" {
 		t.Errorf("field_values = %s", got)
 	}
 	if !strings.HasPrefix(fmt.Sprint(k.maps[0]["reason"]), "doctor: facet_sprawl-") {
@@ -442,14 +450,16 @@ func TestDoctorGuardFencesAMap(t *testing.T) {
 	}
 
 	for name, args := range map[string]string{
-		"another map":   `{"map":"other","field_values":{"*":{"tags":["a"]}}}`,
-		"another key":   `{"map":"m","field_values":{"*":{"tags":["a"]}},"concept_types":["Topic"]}`,
+		"another map":   `{"map":"other","field_values":{"*":{"tags":["a","b"]}}}`,
+		"another key":   `{"map":"m","field_values":{"*":{"tags":["a","b"]}},"concept_types":["Topic"]}`,
 		"no vocabulary": `{"map":"m"}`,
 		"a new value":   `{"map":"m","field_values":{"*":{"tags":["a","z"]}}}`,
+		"part of it":    `{"map":"m","field_values":{"*":{"tags":["a"]}}}`,
+		"a value twice": `{"map":"m","field_values":{"*":{"tags":["a","a"]}}}`,
 		"no value":      `{"map":"m","field_values":{"*":{"tags":[]}}}`,
-		"another field": `{"map":"m","field_values":{"*":{"kind":["a"]}}}`,
-		"another type":  `{"map":"m","field_values":{"Entity":{"tags":["a"]}}}`,
-		"two fields":    `{"map":"m","field_values":{"*":{"tags":["a"],"kind":["b"]}}}`,
+		"another field": `{"map":"m","field_values":{"*":{"kind":["a","b"]}}}`,
+		"another type":  `{"map":"m","field_values":{"Entity":{"tags":["a","b"]}}}`,
+		"two fields":    `{"map":"m","field_values":{"*":{"tags":["a","b"],"kind":["b"]}}}`,
 	} {
 		k, d := dueKB(sprawl)
 		d.allow, k.pages = []string{doctorAllowStructure}, map[string]string{"m/_map": page}
@@ -470,13 +480,21 @@ func TestDoctorGuardFencesAMap(t *testing.T) {
 			t.Errorf("%s: err %v, maps %v", name, err, k.maps)
 		}
 	}
+	// An item with no proposal has nothing to apply: it costs no model call.
 	bare := sprawl
 	bare.Proposal = nil
 	k, d = dueKB(bare)
+	d.allow = []string{doctorAllowStructure}
+	if items, err := d.queue(k); err != nil || len(items) != 0 {
+		t.Errorf("an item with no proposal was queued: %v %v", items, err)
+	}
+
+	// A structure rule has no body to edit, not even the map page's.
+	k, d = dueKB(sprawl)
 	d.allow, k.pages = []string{doctorAllowStructure}, map[string]string{"m/_map": page}
-	m = &doctorScript{turns: []Response{turn("map_update", `{"map":"m","field_values":{"*":{"tags":["a"]}}}`), {Stop: StopEnd}}}
-	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.maps) != 0 {
-		t.Errorf("an item with no proposal: err %v, maps %v", err, k.maps)
+	m = &doctorScript{turns: []Response{patchTurn("1", `{"id":"m/_map","if_match":"h","old_string":"x","new_string":"y"}`), {Stop: StopEnd}}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.patches) != 0 {
+		t.Errorf("a structure rule patched a page: err %v, patches %v", err, k.patches)
 	}
 
 	k, d = dueKB(item("index_unclassified", "m/a"))
@@ -498,15 +516,33 @@ func TestDoctorGuardFencesAMap(t *testing.T) {
 // Facts go to the live pages the entry links; only the entry changes status.
 func TestDoctorCarryingRuleEditsBodiesElsewhere(t *testing.T) {
 	k, d := dueKB(item("harvest_candidate", "j/entry"))
-	d.allow, k.pages = []string{doctorAllowArchive}, map[string]string{"j/entry": `{"body":"see [the page](../live/page.md)"}`}
+	d.allow, k.links = []string{doctorAllowArchive}, map[string][]string{"j/entry": {"live/page"}}
 	m := &doctorScript{turns: []Response{
 		patchTurn("1", `{"id":"live/page","if_match":"h","old_string":"x","new_string":"x\n- a fact"}`),
 		patchTurn("2", `{"id":"live/page","if_match":"h","frontmatter":{"status":"done"}}`),
 		patchTurn("3", `{"id":"elsewhere/page","if_match":"h","old_string":"x","new_string":"x\n- a fact"}`),
-		patchTurn("4", `{"id":"j/entry","if_match":"h","frontmatter":{"status":"archived"}}`),
+		patchTurn("4", `{"id":"broken/link","if_match":"h","old_string":"x","new_string":"x\n- a fact"}`),
+		patchTurn("5", `{"id":"j/entry","if_match":"h","frontmatter":{"status":"archived"}}`),
 		{Stop: StopEnd},
 	}}
 	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.patches) != 2 || k.patches[0]["id"] != "live/page" || k.patches[1]["id"] != "j/entry" {
+		t.Errorf("err %v, patches %v", err, k.patches)
+	}
+}
+
+// A link the model writes does not open the page it names: the targets are read
+// before its first write, and they do not carry over to the next item.
+func TestDoctorCarryingRuleTargetsAreReadFirst(t *testing.T) {
+	k, d := dueKB(item("harvest_candidate", "j/entry"), item("lesson_unpromoted", "j/other"))
+	d.allow, k.links = []string{doctorAllowArchive}, map[string][]string{"j/entry": {"live/page"}}
+	m := &doctorScript{turns: []Response{
+		patchTurn("1", `{"id":"j/entry","if_match":"h","old_string":"x","new_string":"x [p](secret/page)"}`),
+		patchTurn("2", `{"id":"secret/page","if_match":"h","old_string":"x","new_string":"y"}`),
+		{Stop: StopEnd},
+		patchTurn("3", `{"id":"live/page","if_match":"h","old_string":"x","new_string":"y"}`),
+		{Stop: StopEnd},
+	}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.patches) != 1 || k.patches[0]["id"] != "j/entry" {
 		t.Errorf("err %v, patches %v", err, k.patches)
 	}
 }
