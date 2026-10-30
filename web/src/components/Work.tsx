@@ -4,6 +4,7 @@ import type { CollectionSummary, KBStatus, ReviewItem, SourceEntry, WorkEntry, W
 import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
+import { WorkersStrip } from "./Workers";
 import { Icon } from "./Icon";
 import {
   Count,
@@ -196,6 +197,8 @@ export function Work({
           </>
         }
       />
+
+      <WorkersStrip kb={kb} live={live ?? 0} onOpen={onOpen} />
 
       {data && !empty && (
         <Hero label="Summary and filters">

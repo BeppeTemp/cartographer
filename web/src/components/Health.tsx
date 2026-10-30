@@ -23,6 +23,7 @@ import { Bone, Count, Page, PageHeader, PageSection, Quiet, Segmented, TitleBone
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { ErrorState } from "./States";
+import { MaintainedBy } from "./Workers";
 
 /**
  * Health (D338, D365, D704, D947): what Cartographer found, and on a second tab
@@ -44,6 +45,8 @@ import { ErrorState } from "./States";
  * shows what it can.
  */
 export function Health({
+  kb = null,
+  live = 0,
   report,
   checks,
   conflicts = null,
@@ -58,6 +61,9 @@ export function Health({
   onReveal,
   onRetry,
 }: {
+  /** The KB shown, for the maintainer line; omitted, the line is not asked for. */
+  kb?: string | null;
+  live?: number;
   report: LintReport | null;
   /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
@@ -184,6 +190,8 @@ export function Health({
                 : "Every page is read against fixed rules, and none of them found anything."}
         </p>
       )}
+
+      {tab === "agenda" && kb && <MaintainedBy kb={kb} live={live} />}
 
       {tab === "checks" && checks && settled ? (
         <Coverage catalog={checks} report={report} />
