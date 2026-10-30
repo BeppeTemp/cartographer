@@ -173,12 +173,16 @@ func conceptFactLines(body, status string, boilerplate map[string]bool) map[stri
 }
 
 // repeatedFactItems emits one repeated_fact per fact line found in at least
-// the threshold number of concepts.
-func repeatedFactItems(concepts []*reviewConcept, templates []string) []ReviewItem {
+// the threshold number of concepts. A page of a map whose contract kind is
+// journal is a per-run record and does not count (#1406).
+func repeatedFactItems(concepts []*reviewConcept, templates []string, contracts map[string]kb.MapContract) []ReviewItem {
 	boilerplate := templateBoilerplate(templates)
 	owners := map[string][]string{}
 	originals := map[string]string{} // first unmasked form seen of each key
 	for _, c := range concepts {
+		if contracts[c.mapName].Kind == "journal" {
+			continue
+		}
 		for line, shown := range conceptFactLines(c.body, c.status, boilerplate) {
 			owners[line] = append(owners[line], string(c.id))
 			if _, ok := originals[line]; !ok {
