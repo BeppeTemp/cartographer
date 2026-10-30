@@ -70,7 +70,7 @@ those match names, not arguments, and are lost by design. Real authorization is
 per-KB scopes (D44/D45), and read auto-approval through `readOnlyHint` (D76) is
 unaffected.
 
-**URL parameters of `/mcp/routed`.** `kbs` (below), `access` (D1018, D1184: `read`, or `read-min` for the read-only connection with the minimal tool listing; empty is absent, any other value is a 400) and `provisioned=1` (D1097: the client has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
+**URL parameters of `/mcp/routed`.** `kbs` (below), `access` (D1018, D1184: `read`, or `read-min` for the read-only connection with the minimal tool listing; empty is absent, any other value is a 400), `readonly=<kb>,<kb>` (D1409: the KBs the client set read-only; names that are not served or not readable are ignored, never a 400, and the response carries `Cartographer-Readonly` with the names applied), and `provisioned=1` (D1097: the client has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
 
 **The binding travels in the URL: `/mcp/routed?kbs=kb-a,kb-b`.** Absent, the
 connection serves every mounted KB. `kbs` only **narrows**, never widens:
@@ -424,7 +424,7 @@ Two properties are load-bearing:
   not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
   `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
   `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
-  `no_principal`, `artifacts_read_only`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184); the reason describes the caller's own token and arguments,
+  `no_principal`, `artifacts_read_only`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB the client set read-only with `readonly=`, D1409); the reason describes the caller's own token and arguments,
   never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS
