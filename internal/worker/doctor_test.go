@@ -27,6 +27,7 @@ type doctorKB struct {
 	pages   map[string]string
 	perPage int // kb_review items per page, 0 for one page
 	links   map[string][]string
+	writes  string // a link each concept_patch adds to the graph, as a server would
 }
 
 func (k *doctorKB) ListTools() ([]client.ToolInfo, error) {
@@ -86,6 +87,10 @@ func (k *doctorKB) CallTool(name string, args any) (client.ToolOutput, error) {
 			return client.ToolOutput{IsError: true, Text: "forbidden"}, nil
 		}
 		k.patches = append(k.patches, m)
+		if k.writes != "" {
+			id := fmt.Sprint(m["id"])
+			k.links[id] = append(k.links[id], k.writes)
+		}
 	case "log_append":
 		k.entries = append(k.entries, m)
 	}
@@ -534,7 +539,7 @@ func TestDoctorCarryingRuleEditsBodiesElsewhere(t *testing.T) {
 // before its first write, and they do not carry over to the next item.
 func TestDoctorCarryingRuleTargetsAreReadFirst(t *testing.T) {
 	k, d := dueKB(item("harvest_candidate", "j/entry"), item("lesson_unpromoted", "j/other"))
-	d.allow, k.links = []string{doctorAllowArchive}, map[string][]string{"j/entry": {"live/page"}}
+	d.allow, k.links, k.writes = []string{doctorAllowArchive}, map[string][]string{"j/entry": {"live/page"}}, "secret/page"
 	m := &doctorScript{turns: []Response{
 		patchTurn("1", `{"id":"j/entry","if_match":"h","old_string":"x","new_string":"x [p](secret/page)"}`),
 		patchTurn("2", `{"id":"secret/page","if_match":"h","old_string":"x","new_string":"y"}`),
