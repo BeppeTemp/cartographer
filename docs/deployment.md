@@ -556,6 +556,8 @@ deploying a worker for a perimeter, with its budgets, window, KBs, profiles and 
 Nothing else changes: the server runs no model, `serve` never starts or links the worker, `connect`/`sync`
 install no scheduler, and every write is a revertible commit with a `Reason` trailer.
 
+**The `doctor` task (D1261).** `kind: doctor` (no options, one entry) runs a delegated `cartographer-kb-doctor` session, with the skill embedded in the binary and a preamble as its only instructions, on each KB whose `kb_status` says `conformance.doctor_suggested` (a degraded KB or one closed today is skipped). Put it after the ingest kinds: it works with what they leave, at most one session per KB per run, within the profile's grant (no session starts under 20,000 tokens of grant). A session cannot write artifacts, delete concepts or revert a repair: those steps become gaps. Only a session that reached its closing step writes `kb-doctor` in the log; an interrupted one leaves one entry saying so, without the marker, and the next window continues. Undo a bad pass per commit: `cartographer kb repair <kb> --revert <sha>`.
+
 **The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
 idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the worker's heartbeat, `POST /api/workers`: [control-plane](control-plane.md) §Worker heartbeat; until the worker beats, it is
 window-only). A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:

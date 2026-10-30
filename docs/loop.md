@@ -119,7 +119,7 @@ cheapest first:
    to the operator. The agent never starts it without their agreement. In the session the
    operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to
    10 review items (or the number the operator names when asking for the session) plus every mechanical repair; the session closes with a
-   `log_append` listing every decision.
+   `log_append` listing every decision. The one exception to "the operator asks" is a deployed `cartographer worker` with a `doctor` task (D1261): it runs the session delegated, and only a session that closed writes `kb-doctor`.
 4. **What the KB does not know**: a fact nobody in the session can supply yet becomes a
    `Contradiction` of kind `missing_context` or `open_question` naming the concept and the
    question; the review item stays listed until the answer is written (nothing dismisses an item,
