@@ -343,7 +343,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, harvestCandidateItems(concepts, contracts)...)
 	items = append(items, lessonUnpromotedItems(concepts, contracts, links)...)
 	items = append(items, statusReclassifyItems(concepts, contracts)...)
-	items = append(items, repeatedFactItems(concepts, k.TemplateTexts())...)
+	items = append(items, repeatedFactItems(concepts, k.TemplateTexts(), contracts)...)
 	items = append(items, readHotspotItems(concepts, links)...)
 	items = append(items, promotionItems(concepts, contracts, links)...)
 	items = append(items, scatteredWorkItems(concepts, contracts, links)...)

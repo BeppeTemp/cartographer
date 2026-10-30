@@ -1337,3 +1337,27 @@ func TestRepeatedFact_ArchivalBannerExempt(t *testing.T) {
 		t.Fatalf("the line on three live pages is still a repeated fact, owned by them only: %+v", got)
 	}
 }
+
+// TestRepeatedFact_JournalPagesDoNotCount (#1406): a line shared by journal and
+// non-journal pages is reported only if enough concepts outside journals carry it.
+func TestRepeatedFact_JournalPagesDoNotCount(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	line := "The nightly job runs at 02:00 and copies the data to the backup host.\n"
+	put := func(id string) {
+		writeFile(t, k.DataRoot(), id+".md", "---\ntype: Note\ntitle: T\n---\n"+line)
+	}
+	for _, id := range []string{"j/a", "j/b", "j/c", "m/a", "m/b"} {
+		put(id)
+	}
+	if got := itemsOf(review(t, k), ReviewRepeatedFact); len(got) != 0 {
+		t.Fatalf("two non-journal owners are under the threshold: %+v", got)
+	}
+	put("m/c")
+	got := itemsOf(review(t, k), ReviewRepeatedFact)
+	if len(got) != 1 || got[0].Weight != 3 || strings.Contains(strings.Join(got[0].Concepts, ","), "j/") {
+		t.Fatalf("want three non-journal owners only: %+v", got)
+	}
+}

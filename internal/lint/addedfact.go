@@ -46,6 +46,16 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 	if lookup == nil || budget <= 0 {
 		return nil, 0
 	}
+	// A page of a journal is a per-run record: it gets no advice and does not
+	// count as an owner (#1406).
+	isJournal := func(c okf.ConceptID) bool {
+		name, _, _ := strings.Cut(string(c), "/")
+		contract, err := k.ReadMapContract(name)
+		return err == nil && contract.Kind == "journal"
+	}
+	if isJournal(id) {
+		return nil, 0
+	}
 	boilerplate := templateBoilerplate(k.TemplateTexts())
 	prev := factLines(prevBody, boilerplate)
 	cur := factLines(newBody, boilerplate)
@@ -94,6 +104,9 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 				continue
 			}
 			dup[cand] = true
+			if isJournal(cand) {
+				continue
+			}
 			lines, ok := bodies[cand]
 			if !ok {
 				if data, err := k.ReadConcept(cand); err == nil {

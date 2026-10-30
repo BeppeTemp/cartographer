@@ -142,3 +142,31 @@ func TestAddedRepeatedFactsArchivalBanner(t *testing.T) {
 		t.Fatalf("archived banners counted as owners: %+v", got)
 	}
 }
+
+// TestAddedRepeatedFactsJournal (#1406): journal pages neither get advice nor
+// count as owners.
+func TestAddedRepeatedFactsJournal(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	putConcept(t, k, "j/a", addedFactLine)
+	putConcept(t, k, "j/b", addedFactLine)
+	putConcept(t, k, "m/a", addedFactLine)
+	putConcept(t, k, "m/b", addedFactLine)
+	putConcept(t, k, "m/c", addedFactLine)
+	lookup := func(string) []okf.ConceptID { return []okf.ConceptID{"j/a", "j/b", "m/a", "m/b"} }
+
+	// The current concept in a journal: no advice.
+	if got, _ := AddedRepeatedFacts(k, "j/a", "", addedFactLine, 20, lookup); len(got) != 0 {
+		t.Fatalf("journal page advised: %+v", got)
+	}
+	got, _ := AddedRepeatedFacts(k, "m/c", "", addedFactLine, 20, lookup)
+	if len(got) != 1 || strings.Contains(got[0].Message, "j/") {
+		t.Fatalf("want one finding naming only m/a, m/b: %+v", got)
+	}
+	// With a single non-journal owner it is under the threshold.
+	only := func(string) []okf.ConceptID { return []okf.ConceptID{"j/a", "j/b", "m/a"} }
+	if got, _ := AddedRepeatedFacts(k, "m/c", "", addedFactLine, 20, only); len(got) != 0 {
+		t.Fatalf("journal owners counted: %+v", got)
+	}
+}
