@@ -314,8 +314,9 @@ func (p *promptTask) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Result, 
 		p.writeMarker(rt, marker)
 	}
 	log.Printf("worker: prompt task %s on %s: %s, %d steps, %d writes, %d log entries refused", p.name, rt.KB, stopped, out.Steps, writes, guard.Refused())
-	res := Result{Tokens: out.Usage.Total(), Commits: writes,
+	res := Result{Commits: writes,
 		Summary: fmt.Sprintf("prompt %s: %s, %d steps, %d writes", p.name, stopped, out.Steps, writes)}
+	res.measure(out)
 	if model.calls > 0 {
 		res.Units = 1
 	}

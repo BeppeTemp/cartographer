@@ -696,7 +696,7 @@ Tokens are counted as the API reports them, whatever the provider: tokens read f
 full, so a test on a cloud model spends the same budget as the run on a local one. Cache reads appear only in
 the `worker_task` metric. `context_tokens` (default 32 000) is a separate limit: a run is told once to close when a
 prompt reaches 75% of it, when the budget would not pay for two more turns or when two steps are left, and it
-stops before a prompt that would not fit. A tool result is capped at half of it, in bytes. `max_output_tokens`
+stops before a prompt that would not fit. A tool result is capped at half of it, read as bytes: 16 000 at the default, down from 32 KiB. `max_output_tokens`
 (default 4096) bounds one answer: a turn it cuts is dropped and retried once, the second in a row stops the
 task. `timeout_seconds` (default 120) bounds one attempt of a model call, which is not streamed: a slow local
 model needs more. Each finished task logs one JSON line `{"metric":"worker_task",...}` with tokens, cache reads,
