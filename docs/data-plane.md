@@ -973,6 +973,16 @@ validate a nested per-type grammar.
   the ledger. Dedup is unchanged: such a source normally has no `sha256`, so it
   dedups by exact `locator`. An existing `templates/source.md` is not rewritten;
   the new fields are optional and a KB with the old template keeps working.
+  **Feed fields (D1262).** A Source with `source_shape: feed` carries the state of
+  its polling in its own frontmatter, written by the worker only with `if_match`
+  (the stale write is the lease between replicas): `feed_cursor` (opaque string
+  owned by the recipe, at most 1024 bytes), `feed_checked_at` (RFC 3339),
+  `feed_interval` (a Go duration; absent means the poll task's default),
+  `feed_include` (a list of globs the recipe interprets) and `feed_error`
+  (`<code>: <detail>`, one line, removed on success). They are optional in the
+  template; `source_register` has no parameter for them on purpose (a feed is
+  registered once, the cursor is the worker's). Clearing `feed_cursor` makes the
+  next poll list everything again.
 - **Ingest plan and units (D1201).** An ingest campaign is concepts, so it can be
   resumed, extended with new sources and executed by several agents at once.
   `IngestPlan` (one per campaign) has required `status`
