@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -95,13 +96,17 @@ func withStdout(t *testing.T, f func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	os.Stdout = w
+	// Drained while f runs: a Windows pipe buffers 4 KiB, so a larger write
+	// would block f forever.
+	out := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		out <- string(b)
+	}()
 	f()
 	w.Close()
 	os.Stdout = old
-
-	buf := make([]byte, 64*1024)
-	n, _ := r.Read(buf)
-	return string(buf[:n])
+	return <-out
 }
 
 // withStderr redirects os.Stderr for the duration of f and returns what was
@@ -115,13 +120,17 @@ func withStderr(t *testing.T, f func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	os.Stderr = w
+	// Drained while f runs: a Windows pipe buffers 4 KiB, so a larger write
+	// would block f forever.
+	out := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		out <- string(b)
+	}()
 	f()
 	w.Close()
 	os.Stderr = old
-
-	buf := make([]byte, 64*1024)
-	n, _ := r.Read(buf)
-	return string(buf[:n])
+	return <-out
 }
 
 func TestRunNoArgsPrintsUsage(t *testing.T) {
