@@ -229,6 +229,7 @@ var writesIDs = map[string]bool{"concept_write": true, "concept_patch": true, "c
 
 type writeArgs struct {
 	ID          string         `json:"id"`
+	Template    string         `json:"template"`
 	Frontmatter map[string]any `json:"frontmatter"`
 	Ops         []struct {
 		ID          string         `json:"id"`
@@ -277,6 +278,25 @@ func (t *ingestTools) protected(id string, fm map[string]any) bool {
 	return ty == "IngestUnit" || ty == "Source"
 }
 
+// protectedTemplate: concept_new carries no frontmatter, its type comes from the
+// template. A template whose type cannot be resolved is refused.
+func (t *ingestTools) protectedTemplate(slug string) bool {
+	out, err := t.inner.CallTool("template_list", map[string]any{})
+	if err != nil || out.IsError {
+		return true
+	}
+	var l []struct{ Slug, Type string }
+	if json.Unmarshal([]byte(out.Text), &l) != nil {
+		return true
+	}
+	for _, e := range l {
+		if e.Slug == slug {
+			return e.Type == "" || e.Type == "IngestUnit" || e.Type == "Source"
+		}
+	}
+	return true
+}
+
 func (t *ingestTools) refuse(name string, args any) string {
 	if !writesIDs[name] {
 		return ""
@@ -287,6 +307,9 @@ func (t *ingestTools) refuse(name string, args any) string {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if name == "concept_new" && t.protectedTemplate(a.Template) {
+		return "template " + a.Template + " makes a Source or an IngestUnit (or its type is unknown): the worker alone writes those"
+	}
 	if t.protected(a.ID, a.Frontmatter) {
 		return a.ID + " is the unit, another unit or a Source: the worker alone writes those"
 	}

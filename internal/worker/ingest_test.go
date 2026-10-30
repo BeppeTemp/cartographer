@@ -135,6 +135,8 @@ func (k *ikb) CallTool(name string, args any) (client.ToolOutput, error) {
 		}
 		k.put(id, map[string]any{"type": "Topic"}, fmt.Sprint(a["body"]))
 		return jtext(map[string]any{"ok": true}), nil
+	case "template_list":
+		return client.ToolOutput{Text: `[{"slug":"source","type":"Source"},{"slug":"unit","type":"IngestUnit"},{"slug":"topic","type":"Topic"}]`}, nil
 	case "gate_check":
 		if k.onGate != nil {
 			k.onGate(k)
@@ -490,5 +492,17 @@ func TestIngestSkipsAUnitWhoseSourceIsNotASource(t *testing.T) {
 	in.closeSource(rtFor(k, nil, "docs-aa"), "pages/notsource")
 	if _, ok := k.pages["pages/notsource"].fm["ingest_status"]; ok {
 		t.Error("ingest_status written into a non-Source")
+	}
+}
+
+func TestIngestConceptNewFromASourceOrUnitTemplateIsRefused(t *testing.T) {
+	tl := &ingestTools{inner: newIKB(), unit: "u/1", ctx: context.Background()}
+	for _, tpl := range []string{"source", "unit", "nonexistent"} {
+		if out, _ := tl.CallTool("concept_new", json.RawMessage(`{"template":"`+tpl+`","id":"pages/x"}`)); !out.IsError || !strings.Contains(out.Text, "refused") {
+			t.Errorf("template %s: %+v", tpl, out)
+		}
+	}
+	if out, _ := tl.CallTool("concept_new", json.RawMessage(`{"template":"topic","id":"pages/x"}`)); out.IsError && strings.Contains(out.Text, "refused") {
+		t.Errorf("an ordinary template must pass: %+v", out)
 	}
 }
