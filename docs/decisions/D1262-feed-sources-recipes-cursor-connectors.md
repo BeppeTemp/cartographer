@@ -62,3 +62,24 @@ ends, not shared across units). Every clone of a KB-supplied locator is anonymou
 (`gitx.CloneAnonymous`: no git config, credential helper, askpass or extra header of the operator, no
 redirect, a timeout, `--filter=blob:none`), because "https, no credential" would otherwise be undone by
 the worker's own git setup; KB sync keeps the gitx defaults.
+
+## Exec recipes and protocol v1 (fourth step)
+
+The second kind of recipe is an executable the operator declares under `recipes.<name>.exec` in the worker
+config (`internal/worker/recipe/exec.go`, reference `docs/worker-recipes.md`). The invariant is that nothing a KB
+contains selects code: the command, its arguments and its environment variables come from the config and a Source
+can only name the recipe. The runner uses an argv list with no shell, a per-call temp directory, the environment of
+`connector.ChildEnv` (exactly the listed variables plus `PATH`/`HOME`) and the process-group kill of the connector
+package, so a timeout, a cancel or an output past `max_output_bytes` takes the script's children with it; stdout is
+read as a stream, so a script cannot make the worker hold more than the cap; stderr is kept to 8 KiB and shown as one
+200-byte line with the listed variables' values replaced by `***`. The protocol is versioned (`protocol: 1`): v1
+sends only `mode: "list"` with `source_shape: "feed"`, and `mode: "preflight"` and `shape: system` are reserved for
+live read-only systems (#1372), where `shape: system` is a load error. A change to what is sent or accepted needs a
+new protocol number. This amends the earlier rule that the operator's only lever over a recipe is its text, which
+holds for built-ins only.
+
+**Alternatives rejected.** A shell for the command (quoting becomes the operator's and a KB-derived argument an
+injection); reading the script or its path from a KB (a KB writer would run code on the worker); letting the script
+see the worker's whole environment (the model-provider key would reach operator code); an unbounded stdout read
+(memory is the script's to exhaust); an ordered or comparable cursor (it is the script's, the worker only stores it).
+

@@ -1,9 +1,9 @@
 // Package recipe lists what changed in a feed Source.
 //
-// A recipe is Go code shipped in the worker; the operator can
-// replace its instructions text and nothing else. A Source can only name a
-// recipe that the registry holds: nothing a KB contains selects code, a command
-// or a path.
+// A recipe is Go code shipped in the worker (the operator can replace its
+// instructions text and nothing else), or an executable the operator declares in
+// the worker config (exec.go, protocol v1). A Source can only name a recipe that
+// the registry holds: nothing a KB contains selects code, a command or a path.
 package recipe
 
 import (
@@ -86,6 +86,7 @@ type Options struct {
 	GitHosts     []string          // git.allow_hosts
 	Instructions map[string]string // recipes.<name>.instructions_file, already read
 	Clone        CloneFunc         // nil = gitx over https; tests inject a fixture
+	Exec         []ExecConfig      // recipes.<name>.exec, already validated (D1262)
 }
 
 // Registry holds the built-ins, always available under their own names.
@@ -107,6 +108,12 @@ func NewRegistry(o Options) (*Registry, error) {
 			text = string(b)
 		}
 		r.byName[name] = newGitDocs(text, o)
+	}
+	for _, c := range o.Exec {
+		if _, dup := r.byName[c.Name]; dup {
+			return nil, fmt.Errorf("recipe %s: the name is taken", c.Name)
+		}
+		r.byName[c.Name] = NewExec(c)
 	}
 	return r, nil
 }
