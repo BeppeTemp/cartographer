@@ -901,6 +901,23 @@ func TestRepeatedFact_EvidencePreservesCodeSpans(t *testing.T) {
 	}
 }
 
+// TestRepeatedFact_CodeSpansDistinguishLines (#1406): lines that differ only in
+// their inline code are different facts; the identical full line still is one.
+func TestRepeatedFact_CodeSpansDistinguishLines(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	for i := 0; i < 3; i++ {
+		differ := fmt.Sprintf("**Release observed:** backend `v%d.0` through `v%d.5`, as seen on the host.\n", i, i)
+		same := "**Rollout noted:** backend `v9.0` through `v9.5`, as seen on the host.\n"
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n---\n%s%s", i, differ, same))
+	}
+	got := itemsOf(review(t, k), ReviewRepeatedFact)
+	if len(got) != 1 || !strings.Contains(got[0].Evidence, "Rollout noted") || got[0].Weight != 3 {
+		t.Fatalf("want only the identical line: %+v", got)
+	}
+}
+
 // TestStatusReclassify (D321): a proposal per active journal entry, from
 // deterministic signals; none where the journal declares active open.
 func TestStatusReclassify(t *testing.T) {

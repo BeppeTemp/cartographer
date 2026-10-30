@@ -126,28 +126,15 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 
 // factLinesInOrder is the keys of factLines in order of first appearance.
 func factLinesInOrder(body string, boilerplate map[string]bool) []string {
-	set := factLines(body, boilerplate)
 	var out []string
 	done := map[string]bool{}
-	for _, raw := range strings.Split(body, "\n") {
-		one := factLines(raw, boilerplate)
-		for key := range one {
-			if _, ok := set[key]; ok && !done[key] {
-				done[key] = true
-				out = append(out, key)
-			}
+	for _, e := range factEntries(body, boilerplate) {
+		if !done[e.key] {
+			done[e.key] = true
+			out = append(out, e.key)
 		}
 	}
-	// Multi-line constructs (a table header decided by the next row) may not
-	// reproduce line by line: append what the per-line pass missed, sorted.
-	var rest []string
-	for key := range set {
-		if !done[key] {
-			rest = append(rest, key)
-		}
-	}
-	sort.Strings(rest)
-	return append(out, rest...)
+	return out
 }
 
 // fmStatus is the status of a concept's raw frontmatter, "" when it has none.
