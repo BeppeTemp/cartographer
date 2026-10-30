@@ -25,6 +25,7 @@ type doctorKB struct {
 	repairs []map[string]any
 	maps    []map[string]any // map_update and index_patch arguments
 	pages   map[string]string
+	perPage int // kb_review items per page, 0 for one page
 }
 
 func (k *doctorKB) ListTools() ([]client.ToolInfo, error) {
@@ -50,7 +51,16 @@ func (k *doctorKB) CallTool(name string, args any) (client.ToolOutput, error) {
 				items = append(items, it)
 			}
 		}
-		b, _ := json.Marshal(map[string]any{"items": items})
+		page := map[string]any{"items": items}
+		if offset, _ := m["offset"].(float64); k.perPage > 0 {
+			from := min(int(offset), len(items))
+			to := min(from+k.perPage, len(items))
+			page["items"] = items[from:to]
+			if to < len(items) {
+				page["next_offset"] = to
+			}
+		}
+		b, _ := json.Marshal(page)
 		return client.ToolOutput{Text: string(b)}, nil
 	case "log_tail":
 		return client.ToolOutput{Text: k.log}, nil
@@ -215,6 +225,14 @@ func TestDoctorStopsAtTheGrantAndAtTheCaps(t *testing.T) {
 		t.Errorf("write cap: %+v", res)
 	}
 
+	// The cap met inside an item: its other writes come with the next run.
+	k, d = dueKB(items[0])
+	d.maxWrites = 1
+	m = &doctorScript{turns: []Response{patchTurn("1", `{"id":"a","if_match":"h"}`), patchTurn("2", `{"id":"a","if_match":"h"}`), {Stop: StopEnd}}}
+	if res, _ = doctorRun(d, k, m, 100_000); res.Commits != 1 || res.Units != 0 {
+		t.Errorf("an item cut by the cap counted as examined: %+v", res)
+	}
+
 	var many []doctorItem
 	for i := range doctorReviewItems + 3 {
 		many = append(many, item("status_reclassify", fmt.Sprint("p", i)))
@@ -223,6 +241,18 @@ func TestDoctorStopsAtTheGrantAndAtTheCaps(t *testing.T) {
 	got, err := d.queue(k)
 	if err != nil || len(got) != doctorReviewItems {
 		t.Errorf("queue %d err %v", len(got), err)
+	}
+
+	// The items a rule can use may sit past the first page of their kind.
+	mixed := make([]doctorItem, 0, 8)
+	for i := range 6 {
+		mixed = append(mixed, doctorItem{Kind: "lint_judgement", Check: "broken_link", Concepts: []string{fmt.Sprint("x", i)}})
+	}
+	mixed = append(mixed, doctorItem{Kind: "lint_judgement", Check: "stale_open", Concepts: []string{"y"}})
+	k, d = dueKB(mixed...)
+	k.perPage = 2
+	if got, err = d.queue(k); err != nil || len(got) != 1 || got[0].Concepts[0] != "y" {
+		t.Errorf("paging: %v err %v", got, err)
 	}
 }
 
@@ -234,6 +264,8 @@ func TestDoctorGuardFencesTheWrite(t *testing.T) {
 		"null field":     `{"id":"a","if_match":"h","frontmatter":{"status":null}}`,
 		"replace all":    `{"id":"a","if_match":"h","old_string":"x","new_string":"y","replace_all":true}`,
 		"the marker":     `{"id":"a","if_match":"h","new_string":"kb\u002ddoctor"}`,
+		"a body edit":    `{"id":"a","if_match":"h","old_string":"x","new_string":"y"}`,
+		"a list of them": `{"id":"a","if_match":"h","edits":[{"old_string":"x","new_string":"y"}]}`,
 	} {
 		k, d := dueKB(item("status_reclassify", "a"))
 		m := &doctorScript{turns: []Response{patchTurn("1", args), {Stop: StopEnd}}}
@@ -241,6 +273,18 @@ func TestDoctorGuardFencesTheWrite(t *testing.T) {
 		if err != nil || len(k.patches) != 0 || res.Commits != 0 {
 			t.Errorf("%s: err %v, patches %v, %+v", name, err, k.patches, res)
 		}
+	}
+
+	// A rule with a word may edit the body, one literal edit at a time.
+	k, d := dueKB(item("repeated_fact", "a", "b"))
+	d.allow = []string{doctorAllowPages}
+	m := &doctorScript{turns: []Response{
+		patchTurn("1", `{"id":"a","if_match":"h","edits":[{"old_string":"x","new_string":"y","replace_all":true}]}`),
+		patchTurn("2", `{"id":"a","if_match":"h","edits":[{"old_string":"x","new_string":"y"}]}`),
+		{Stop: StopEnd},
+	}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.patches) != 1 {
+		t.Errorf("edits: err %v, patches %v", err, k.patches)
 	}
 }
 
@@ -320,13 +364,13 @@ func TestDoctorAllowTurnsRulesOn(t *testing.T) {
 }
 
 func TestDoctorRepairsWithNoModel(t *testing.T) {
-	findings := map[string]int{"broken_link": 2, "stringified_list": 0, "invalid_field_value": 4, "unmapped_folder": 1, "junk_file": 1}
+	findings := map[string]int{"broken_link": 2, "invalid_field_value": 4, "unmapped_folder": 1, "junk_file": 1, "reciprocal_link_item": 300, "a_future_check": 1}
 	for name, tc := range map[string]struct {
 		allow []string
 		want  string
 	}{
 		"default":        {[]string{doctorAllowRepair}, "[broken_link]"},
-		"with structure": {[]string{doctorAllowRepair, doctorAllowStructure}, "[broken_link invalid_field_value unmapped_folder]"},
+		"with structure": {[]string{doctorAllowRepair, doctorAllowStructure}, "[broken_link invalid_field_value]"},
 	} {
 		k, d := dueKB()
 		d.allow, k.st.Conformance.Repairable = tc.allow, findings
@@ -378,7 +422,8 @@ func TestDoctorGuardFencesAMap(t *testing.T) {
 	turn := func(name, args string) Response {
 		return Response{Stop: StopToolUse, ToolCalls: []ToolCall{toolCall("1", name, args)}, Usage: Usage{InputTokens: 100}}
 	}
-	sprawl := doctorItem{Kind: "observation", Check: "facet_sprawl", Concepts: []string{"m/_map"}}
+	sprawl := doctorItem{Kind: "observation", Check: "facet_sprawl", Concepts: []string{"m/_map"},
+		Proposal: json.RawMessage(`{"field":"tags","values":["a","b"],"drop":["c"]}`)}
 	page := `{"frontmatter":{"title":"M","field_values.*.tags":["old"],"field_values.Entity.kind":["x","y"]}}`
 
 	// One field given: the map keeps the rest.
@@ -400,6 +445,11 @@ func TestDoctorGuardFencesAMap(t *testing.T) {
 		"another map":   `{"map":"other","field_values":{"*":{"tags":["a"]}}}`,
 		"another key":   `{"map":"m","field_values":{"*":{"tags":["a"]}},"concept_types":["Topic"]}`,
 		"no vocabulary": `{"map":"m"}`,
+		"a new value":   `{"map":"m","field_values":{"*":{"tags":["a","z"]}}}`,
+		"no value":      `{"map":"m","field_values":{"*":{"tags":[]}}}`,
+		"another field": `{"map":"m","field_values":{"*":{"kind":["a"]}}}`,
+		"another type":  `{"map":"m","field_values":{"Entity":{"tags":["a"]}}}`,
+		"two fields":    `{"map":"m","field_values":{"*":{"tags":["a"],"kind":["b"]}}}`,
 	} {
 		k, d := dueKB(sprawl)
 		d.allow, k.pages = []string{doctorAllowStructure}, map[string]string{"m/_map": page}
@@ -420,6 +470,15 @@ func TestDoctorGuardFencesAMap(t *testing.T) {
 			t.Errorf("%s: err %v, maps %v", name, err, k.maps)
 		}
 	}
+	bare := sprawl
+	bare.Proposal = nil
+	k, d = dueKB(bare)
+	d.allow, k.pages = []string{doctorAllowStructure}, map[string]string{"m/_map": page}
+	m = &doctorScript{turns: []Response{turn("map_update", `{"map":"m","field_values":{"*":{"tags":["a"]}}}`), {Stop: StopEnd}}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.maps) != 0 {
+		t.Errorf("an item with no proposal: err %v, maps %v", err, k.maps)
+	}
+
 	k, d = dueKB(item("index_unclassified", "m/a"))
 	d.allow = []string{doctorAllowStructure}
 	m = &doctorScript{turns: []Response{turn("index_patch", `{"path":"m","if_match":"h","old_string":"x","new_string":"y"}`), {Stop: StopEnd}}}
@@ -436,18 +495,37 @@ func TestDoctorGuardFencesAMap(t *testing.T) {
 	}
 }
 
-// Facts go to live pages the item does not name; only the entry changes status.
+// Facts go to the live pages the entry links; only the entry changes status.
 func TestDoctorCarryingRuleEditsBodiesElsewhere(t *testing.T) {
 	k, d := dueKB(item("harvest_candidate", "j/entry"))
-	d.allow = []string{doctorAllowArchive}
+	d.allow, k.pages = []string{doctorAllowArchive}, map[string]string{"j/entry": `{"body":"see [the page](../live/page.md)"}`}
 	m := &doctorScript{turns: []Response{
 		patchTurn("1", `{"id":"live/page","if_match":"h","old_string":"x","new_string":"x\n- a fact"}`),
 		patchTurn("2", `{"id":"live/page","if_match":"h","frontmatter":{"status":"done"}}`),
-		patchTurn("3", `{"id":"j/entry","if_match":"h","frontmatter":{"status":"archived"}}`),
+		patchTurn("3", `{"id":"elsewhere/page","if_match":"h","old_string":"x","new_string":"x\n- a fact"}`),
+		patchTurn("4", `{"id":"j/entry","if_match":"h","frontmatter":{"status":"archived"}}`),
 		{Stop: StopEnd},
 	}}
 	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.patches) != 2 || k.patches[0]["id"] != "live/page" || k.patches[1]["id"] != "j/entry" {
 		t.Errorf("err %v, patches %v", err, k.patches)
+	}
+}
+
+func TestDoctorKeyNamesOneItem(t *testing.T) {
+	fact := func(line string) doctorItem {
+		return doctorItem{Kind: "repeated_fact", Concepts: []string{"a", "b"}, Evidence: "the same line in 2 concepts: " + line}
+	}
+	if fact("one").key() == fact("two").key() {
+		t.Error("two facts on the same pages share a key: the second would never be examined")
+	}
+	if fact("one").key() != fact("one").key() {
+		t.Error("the key of a fact is not stable")
+	}
+	stale := func(days string) doctorItem {
+		return doctorItem{Kind: "lint_judgement", Check: "stale_open", Concepts: []string{"a"}, Evidence: "open for " + days}
+	}
+	if stale("90 days").key() != stale("91 days").key() {
+		t.Error("an age in the evidence made the same item new")
 	}
 }
 

@@ -47,9 +47,10 @@ const (
 	// doctorLedgerEntries bounds the log read; a record lost past it only means
 	// an item is examined again.
 	doctorLedgerEntries = 100
-	// doctorQueueLimit is the kb_review page per rule: it must reach past the
-	// items already examined, which the server still lists.
+	// doctorQueueLimit and doctorQueuePages bound the kb_review read of one kind: it
+	// must reach past the items already examined, which the server still lists.
 	doctorQueueLimit = 100
+	doctorQueuePages = 5
 	// doctorRest is how long a KB with nothing to do is left alone: the queue is
 	// worth a few kb_review calls per poll only while it moves.
 	doctorRest = time.Hour
@@ -68,13 +69,17 @@ const (
 
 var doctorAllowWords = []string{doctorAllowRepair, doctorAllowPages, doctorAllowStructure, doctorAllowArchive}
 
-// doctorRepairNeeds limits kb_repair: a repair that drops what a page declares
-// (D1197) or adds a map comes only with the word that allows it, and a junk file
-// is never untracked unattended.
-var doctorRepairNeeds = map[string]string{
-	"invalid_field_value": doctorAllowStructure,
-	"unmapped_folder":     doctorAllowStructure,
-	"junk_file":           "",
+// doctorRepairs are the checks a run may repair, and the word each needs. The
+// server's background repair already applies what is safe to run with no person,
+// so these are the fixes it leaves for someone to ask for, and a check not named
+// here never runs: reciprocal_link_item can drop hundreds of edges in one commit
+// (D309), legacy_skill_name moves skills, and junk_file changes what git tracks.
+// invalid_field_value drops values from pages (D1197).
+var doctorRepairs = map[string]string{
+	"broken_link":               doctorAllowRepair,
+	"superseded_target_retired": doctorAllowRepair,
+	"unknown_type":              doctorAllowRepair,
+	"invalid_field_value":       doctorAllowStructure,
 }
 
 // doctorMarker is the substring kb_status reads as "a session closed"
@@ -87,10 +92,11 @@ const doctorMarker = "kb-doctor"
 var doctorInstructions string
 
 // doctorRule is a review item a model can settle, and how. allow is the
-// tasks[].doctor_allow word that turns it on, empty for a rule always on; extra the
-// tools it needs beyond the read and the patch every item gets; carries lets a
-// body edit reach a page the item does not name. An item no rule covers stays for
-// a prompt task or an operator.
+// tasks[].doctor_allow word that turns it on; a rule always on has none and changes
+// frontmatter only, since an item can be shaped by whoever writes a page and a body
+// edit is what that writer would want. extra is the tools it needs beyond the reads;
+// carries lets a body edit reach a page the item links. An item no rule covers
+// stays for a prompt task or an operator.
 type doctorRule struct {
 	kind, check, allow, how string
 	extra                   []string
@@ -98,7 +104,11 @@ type doctorRule struct {
 }
 
 func (r doctorRule) tools() []string {
-	return append([]string{"concept_read", "search", "concept_patch"}, r.extra...)
+	out := []string{"concept_read", "search"}
+	if r.allow != doctorAllowStructure {
+		out = append(out, "concept_patch")
+	}
+	return append(out, r.extra...)
 }
 
 const doctorVocabulary = "The item proposes a closed list of values for a field of the map. If the values read as a vocabulary, call `map_update` with `map` and `field_values: {\"<type>\": {\"<field>\": [<values>]}}`, where `<type>` is the proposal's `type` or `*` and `<field>` its `field`: give only that field, the worker keeps the others. If the values are page ids, names of one-off things or look accidental, leave the item."
@@ -107,10 +117,10 @@ const doctorHarvest = "The entry is closed and old. Pick the facts a reader of a
 
 var doctorRules = []doctorRule{
 	{kind: "status_reclassify", how: "The page is `active` in a journal that does not read `active` as open work. Set `status` to the value the suggested action names. If it proposes `unknown`, set `waiting_on` to \"operator decision\" and `review_after` to 14 days after today."},
-	{kind: "zombie_work", how: "The page is still open but its origin is retired. If the pages show the work ended, set `status` to `done`. If a page replaced the retired one, change the link in the origin section to point at it. Otherwise leave the item."},
-	{kind: "duplicate_candidate", how: "The pages look alike. If they are different subjects, add one sentence to each that links the other and says how they differ. If they are the same subject, leave the item: merging is an operator's decision."},
+	{kind: "zombie_work", how: "The page is still open but its origin is retired. If the pages show the work ended, set `status` to `done`. Otherwise leave the item."},
+	{kind: "duplicate_candidate", allow: doctorAllowPages, how: "The pages look alike. If they are different subjects, add one sentence to each that links the other and says how they differ. If they are the same subject, leave the item: merging is an operator's decision."},
 	{kind: "lint_judgement", check: "stale_open", how: "The page is open and has not moved for a long time. If the pages show the work ended, set `status` to `done`. If it waits for someone, set `waiting_on` and `review_after`. Otherwise leave the item. Never change `timestamp`."},
-	{kind: "lint_judgement", check: "closed_with_open_items", how: "The page is closed but has unchecked items. Check each item the pages show as done. Otherwise leave the item."},
+	{kind: "lint_judgement", check: "closed_with_open_items", allow: doctorAllowPages, how: "The page is closed but has unchecked items. Check each item the pages show as done. Otherwise leave the item."},
 	{kind: "repeated_fact", allow: doctorAllowPages, how: "The same line stands on several pages. Keep it on the page whose subject it is, and on each other page replace it with a link to that page. If the line is boilerplate rather than a fact, leave the item."},
 	{kind: "lint_judgement", check: "template_extra_section", allow: doctorAllowPages, how: "The page has sections its template does not list. For each, do what the evidence offers: rename the heading to a section of the template, or demote it to `###` under the section its text belongs to. Keep the text."},
 	{kind: "lint_judgement", check: "template_section_missing", allow: doctorAllowPages, how: "The page lacks sections of its template. Where text on the page belongs in a missing section, add the heading and move that text under it. Add no empty section and no placeholder. If no text fits, leave the item."},
@@ -136,11 +146,17 @@ type doctorItem struct {
 }
 
 // key names the item in the log and in the commit reason. The evidence stays out
-// of it: it may carry an age, which would make the same item new every day.
+// of it, as it may carry an age that would make the same item new every day. A
+// repeated fact is the exception: the evidence quotes the line, and two facts on
+// the same pages are two items.
 func (it doctorItem) key() string {
 	ids := slices.Clone(it.Concepts)
 	sort.Strings(ids)
-	sum := sha256.Sum256([]byte(it.Kind + "\x00" + it.Check + "\x00" + strings.Join(ids, "\x00")))
+	identity := it.Kind + "\x00" + it.Check + "\x00" + strings.Join(ids, "\x00")
+	if it.Kind == "repeated_fact" {
+		identity += "\x00" + it.Evidence
+	}
+	sum := sha256.Sum256([]byte(identity))
 	name := it.Kind
 	if it.Check != "" {
 		name = it.Check
@@ -169,10 +185,12 @@ type doctorGuard struct {
 	inner   ToolCaller
 	maxW    int
 	applied int
-	refused int // consecutive writes the server refused
+	refused int  // consecutive writes the server refused
+	capped  bool // a write met the cap: the item may be half done
 	rule    doctorRule
 	pages   []string
 	key     string
+	offer   json.RawMessage // the item's proposal
 }
 
 // maxRefusedWrites aborts a run whose writes keep being refused.
@@ -194,6 +212,7 @@ func (g *doctorGuard) CallTool(name string, args any) (client.ToolOutput, error)
 		return refuse("the text \"" + doctorMarker + "\" is reserved for an operator's session")
 	}
 	if g.applied >= g.maxW {
+		g.capped = true
 		return refuse(fmt.Sprintf("this run reached its cap of %d writes; stop now", g.maxW))
 	}
 	var call json.RawMessage
@@ -231,6 +250,19 @@ func doctorArgs(raw json.RawMessage, keys []string) (m map[string]json.RawMessag
 			return nil, "argument " + k + " is not allowed"
 		}
 	}
+	if raw, ok := m["edits"]; ok {
+		var edits []map[string]json.RawMessage
+		if json.Unmarshal(raw, &edits) != nil {
+			return nil, "edits must be a list"
+		}
+		for _, e := range edits {
+			for k := range e {
+				if k != "old_string" && k != "new_string" {
+					return nil, "an edit may carry only old_string and new_string"
+				}
+			}
+		}
+	}
 	return m, ""
 }
 
@@ -244,9 +276,24 @@ func (g *doctorGuard) seal(m map[string]json.RawMessage) (json.RawMessage, strin
 	return call, ""
 }
 
+// linked reports whether a page of the item links id: a carried fact goes where
+// the entry points.
+func (g *doctorGuard) linked(id string) bool {
+	for _, page := range g.pages {
+		out, err := g.inner.CallTool("concept_read", map[string]any{"id": page})
+		var c struct {
+			Body string `json:"body"`
+		}
+		if err == nil && !out.IsError && json.Unmarshal([]byte(out.Text), &c) == nil && strings.Contains(c.Body, id) {
+			return true
+		}
+	}
+	return false
+}
+
 // fence checks a patch against the current item; why is the refusal, empty when
-// the patch may go. A rule that carries facts may edit the body of another page,
-// never its frontmatter.
+// the patch may go. A rule that carries facts may edit the body of a page the item
+// links, never its frontmatter.
 func (g *doctorGuard) fence(raw json.RawMessage) (call json.RawMessage, why string) {
 	m, why := doctorArgs(raw, doctorPatchKeys)
 	if why != "" {
@@ -259,7 +306,13 @@ func (g *doctorGuard) fence(raw json.RawMessage) (call json.RawMessage, why stri
 	if json.Unmarshal(raw, &p) != nil {
 		return nil, "arguments do not match concept_patch"
 	}
-	if !slices.Contains(g.pages, p.ID) && (!g.rule.carries || len(p.Frontmatter) > 0) {
+	_, old := m["old_string"]
+	_, added := m["new_string"]
+	_, edits := m["edits"]
+	if g.rule.allow == "" && (old || added || edits) {
+		return nil, "this item may change only " + strings.Join(doctorFields, ", ")
+	}
+	if !slices.Contains(g.pages, p.ID) && (!g.rule.carries || len(p.Frontmatter) > 0 || !g.linked(p.ID)) {
 		return nil, "only the pages the item names may be changed"
 	}
 	for k, v := range p.Frontmatter {
@@ -294,9 +347,36 @@ func (g *doctorGuard) fenceIndex(raw json.RawMessage) (json.RawMessage, string) 
 	return g.seal(m)
 }
 
-// fenceMap keeps a contract change to the item's map. map_update replaces
-// field_values whole, so the worker adds back what the map already declares: a
-// model that names one field cannot drop the others.
+// fenceMap keeps a contract change to the item's map and its proposal: the model
+// decides whether to apply it and may leave values out, never add one, since the
+// list decides what a later repair drops from pages. map_update replaces
+// field_values whole, so the worker adds back what the map already declares.
+// withinOffer reports whether given is one field of the item's proposal, with
+// some of its values and no other.
+func (g *doctorGuard) withinOffer(given map[string]map[string]any) bool {
+	var offer struct {
+		Field  string   `json:"field"`
+		Type   string   `json:"type"`
+		Values []string `json:"values"`
+	}
+	if json.Unmarshal(g.offer, &offer) != nil || offer.Field == "" {
+		return false
+	}
+	if offer.Type == "" {
+		offer.Type = "*"
+	}
+	values, _ := given[offer.Type][offer.Field].([]any)
+	if len(given) != 1 || len(given[offer.Type]) != 1 || len(values) == 0 {
+		return false
+	}
+	for _, v := range values {
+		if text, ok := v.(string); !ok || !slices.Contains(offer.Values, text) {
+			return false
+		}
+	}
+	return true
+}
+
 func (g *doctorGuard) fenceMap(raw json.RawMessage) (json.RawMessage, string) {
 	m, why := doctorArgs(raw, doctorMapKeys)
 	if why != "" {
@@ -306,8 +386,11 @@ func (g *doctorGuard) fenceMap(raw json.RawMessage) (json.RawMessage, string) {
 		Map         string                    `json:"map"`
 		FieldValues map[string]map[string]any `json:"field_values"`
 	}
-	if json.Unmarshal(raw, &p) != nil || !g.onMap(p.Map) || len(p.FieldValues) == 0 {
+	if json.Unmarshal(raw, &p) != nil || !g.onMap(p.Map) {
 		return nil, "only field_values of the item's map may be changed"
+	}
+	if !g.withinOffer(p.FieldValues) {
+		return nil, "field_values must be the field the item proposes, with values of its list"
 	}
 	out, err := g.inner.CallTool("concept_read", map[string]any{"id": p.Map + "/_map"})
 	var page struct {
@@ -458,8 +541,7 @@ func (d *doctorInstance) repairs(st doctorStatus) []string {
 	}
 	var out []string
 	for check, n := range st.Conformance.Repairable {
-		need, limited := doctorRepairNeeds[check]
-		if n > 0 && (!limited || d.allows(need)) {
+		if need, known := doctorRepairs[check]; known && n > 0 && d.allows(need) {
 			out = append(out, check)
 		}
 	}
@@ -535,6 +617,35 @@ func (d *doctorInstance) examined(tools ToolCaller) (map[string]bool, error) {
 	return seen, nil
 }
 
+// reviewItems reads the items of one kind, past the first page: the items examined
+// are still listed, and a kind mixes the checks of many rules.
+func reviewItems(tools ToolCaller, kind string) ([]doctorItem, error) {
+	var all []doctorItem
+	offset := 0
+	for range doctorQueuePages {
+		res, err := tools.CallTool("kb_review", map[string]any{"kind": kind, "limit": doctorQueueLimit, "offset": offset})
+		if err != nil {
+			return nil, err
+		}
+		if res.IsError {
+			return nil, fmt.Errorf("kb_review refused: %s", oneLine(res.Text))
+		}
+		var page struct {
+			Items      []doctorItem `json:"items"`
+			NextOffset int          `json:"next_offset"`
+		}
+		if err := json.Unmarshal([]byte(res.Text), &page); err != nil {
+			return nil, fmt.Errorf("kb_review: %w", err)
+		}
+		all = append(all, page.Items...)
+		if page.NextOffset == 0 {
+			break
+		}
+		offset = page.NextOffset
+	}
+	return all, nil
+}
+
 // queue is what this run may work on, at no token cost: the items of the rules
 // this task allows, in the rules' order and the server's rank, without those
 // already examined.
@@ -551,20 +662,9 @@ func (d *doctorInstance) queue(tools ToolCaller) ([]doctorItem, error) {
 		}
 		items, read := byKind[r.kind]
 		if !read {
-			res, err := tools.CallTool("kb_review", map[string]any{"kind": r.kind, "limit": doctorQueueLimit})
-			if err != nil {
+			if items, err = reviewItems(tools, r.kind); err != nil {
 				return nil, err
 			}
-			if res.IsError {
-				return nil, fmt.Errorf("kb_review refused: %s", oneLine(res.Text))
-			}
-			var page struct {
-				Items []doctorItem `json:"items"`
-			}
-			if err := json.Unmarshal([]byte(res.Text), &page); err != nil {
-				return nil, fmt.Errorf("kb_review: %w", err)
-			}
-			items = page.Items
 			byKind[r.kind] = items
 		}
 		for _, it := range items {
@@ -694,7 +794,7 @@ func (d *doctorInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Resu
 		if ctx.Err() != nil || remaining < doctorMinGrant || guard.applied >= guard.maxW {
 			break
 		}
-		guard.rule, guard.pages, guard.key = it.rule, it.Concepts, it.key()
+		guard.rule, guard.pages, guard.key, guard.offer = it.rule, it.Concepts, it.key(), it.Proposal
 		lim := rt.Limits(doctorItemSteps, min(remaining, doctorItemTokens))
 		lim.MaxToolResultBytes = doctorItemResultBytes
 		agent := NewAgent(rt.Model, guard, NewAllowlist(it.rule.tools()...), lim)
@@ -711,6 +811,9 @@ func (d *doctorInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Resu
 			continue
 		}
 		modelErrs, runErr = 0, nil
+		if guard.capped {
+			break // left unrecorded: its other writes come with the next run
+		}
 		// A cut loop or a barren answer ends the item too: it returns after the
 		// retry days, rather than spending the rest of the budget now.
 		examined = append(examined, guard.key)

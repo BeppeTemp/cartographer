@@ -1,7 +1,7 @@
 You look for what would make this knowledge base better: what nobody asked for and no repair finds. Follow these
 steps in order: they make a second run in the same period harmless.
 
-1. Call `work_list` with `scope: gaps`. If an id starting with `gaps/scout-` has a date within the last 6 days of
+1. Call `work_list` with `scope: gaps` and `limit: 200`. If an id starting with `gaps/scout-` has a date within the last 6 days of
    today's date (given above), answer in one sentence and stop: this period's scouting exists.
 2. Call `kb_review` with `kind: observation` and `limit: 30`, then with `kind: glossary_gap`, then with
    `kind: read_hotspot`.
