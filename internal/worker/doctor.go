@@ -278,9 +278,10 @@ func (g *doctorGuard) seal(m map[string]json.RawMessage) (json.RawMessage, strin
 	return call, ""
 }
 
-// linkTargets lists the pages that pages link, read before the model can write:
-// a link it added would otherwise open the page it wants next. The server resolves
-// the links, so a target is a page and not a piece of text.
+// linkTargets lists the pages that pages link, read before the item's model can
+// write: a link it added would otherwise open the page it wants next. An earlier
+// item or run can still have added one, which is why `archive` is an operator's
+// word. The server resolves the links, so a target is a page and not a piece of text.
 func linkTargets(tools ToolCaller, pages []string) []string {
 	var out []string
 	for _, page := range pages {
