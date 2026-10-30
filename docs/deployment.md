@@ -581,7 +581,20 @@ install no scheduler, and every write is a revertible commit with a `Reason` tra
 
 **The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
 idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the worker's heartbeat, `POST /api/workers`: [control-plane](control-plane.md) §Worker heartbeat; until the worker beats, it is
-window-only). A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:
+window-only). **Beat, settings, idle (D1259).** The worker declares itself with `POST /api/workers` from its own goroutine: once at
+start (before the triggers are read, so `--once` has the idle signal), every 60 s, and once with `state: stopped`
+on a clean exit; the instance id is the perimeter `name`, `-` and six random hex characters. Right after the first
+beat it posts its settings to `POST /api/worker-settings` (typed scalar entries, never a secret: an `*_env` value
+is a variable name followed by `(set)` or `(unset)`, a URL has no userinfo, models and tasks are not listed), and
+again whenever a beat answers `settings_wanted`. The idle time is the answer's `now` minus `last_activity_at`
+(or `server_started_at` when `null`), plus the local time since the answer; an answer older than three beats, a
+`404` from an older server, a KB the answer omits and `activity_known: false` (authentication off: the server
+cannot tell the worker from a person) all make the idle trigger not hold, so the worker runs on its window only.
+A failed beat or report is a log line and never fails a run; a settings report the server refuses with a 4xx is
+logged once and not sent again. The server bounds a heartbeat, so the config is refused at load past **32 KBs**
+or **8 model profiles**.
+
+A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:
 the first `tasks` entry whose profile still has a grant and whose kind finds a unit of work, then the walk
 restarts from the first entry. A failing task is not retried in the same run; repeated errors on a KB (the limit is `maxConsecutiveErrors` in `internal/worker/runner.go`)
 skip it until the next poll (this is also how a token with read but no write grant shows up). A revoked token
