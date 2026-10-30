@@ -48,6 +48,16 @@ var commentedAssign = regexp.MustCompile(`^(\s*#\s*([a-z][a-z0-9_]*)\s*:\s*)(\S.
 // ErrUnsafe is a report whose YAML the mask cannot vouch for.
 var ErrUnsafe = errors.New("workerconfig: settings must be one YAML document with no merge key and no alias")
 
+// known reports whether path is a schema key or holds some.
+func known(path string) bool {
+	for _, k := range Schema.Keys {
+		if k.Path == path || strings.HasPrefix(k.Path, path+".") || strings.HasPrefix(k.Path, path+"[]") {
+			return true
+		}
+	}
+	return false
+}
+
 // leafNames are the last path segments of the schema keys.
 var leafNames = func() map[string]bool {
 	m := map[string]bool{}
@@ -164,19 +174,37 @@ func Scrub(entries []Entry, text string) ([]Entry, string, []string, error) {
 		}
 		data = out
 	}
-	out := make([]Entry, len(entries))
-	for i, e := range entries {
-		e.Value = scrubValue(e.Key, e.Value)
-		if _, ok := Schema.Lookup(e.Key); !ok || unsafeScalar(e.Key, e.Default) {
-			e.Default = Redacted
+	// An entry is the schema's row plus the sender's value and origin: every
+	// other field is overwritten, and a key or an origin it does not know drops
+	// the entry, since each of them is shown on the page.
+	out := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		k, ok := Schema.Lookup(e.Key)
+		if !ok || (e.Origin != "file" && e.Origin != "default") {
+			continue
 		}
-		out[i] = e
+		out = append(out, Entry{Key: k.Path, Value: scrubValue(k.Path, e.Value), Origin: e.Origin,
+			Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values})
 	}
 	var cfg struct {
 		KBs []string `yaml:"kbs"`
 	}
 	_ = doc.Decode(&cfg)
 	return out, string(data), cfg.KBs, nil
+}
+
+// opaque reports whether n holds an alias or a merge key, which a dropped
+// subtree must not hide.
+func opaque(n *yaml.Node) bool {
+	if n.Kind == yaml.AliasNode || n.Tag == "!!merge" || (n.Kind == yaml.ScalarNode && n.Value == "<<") {
+		return true
+	}
+	for _, c := range n.Content {
+		if opaque(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // scrubComments masks the value of a commented-out assignment in n's comments.
@@ -210,16 +238,29 @@ func scrubNode(n *yaml.Node, path string, changed *bool) bool {
 	}
 	switch n.Kind {
 	case yaml.MappingNode:
+		kept := make([]*yaml.Node, 0, len(n.Content))
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k, v := n.Content[i], n.Content[i+1]
+			if k.Kind != yaml.ScalarNode || k.Tag == "!!merge" || k.Value == "<<" {
+				return false
+			}
+			// A key the table does not know is dropped with its value, whatever
+			// the value is: the key itself may be the secret.
+			p := joinPath(path, k.Value)
+			if !known(p) {
+				if opaque(k) || opaque(v) {
+					return false
+				}
+				*changed = true
+				continue
+			}
 			scrubComments(k, changed)
-			if k.Tag == "!!merge" || k.Value == "<<" {
+			if !mask(v, p) && !scrubNode(v, p, changed) {
 				return false
 			}
-			if p := joinPath(path, k.Value); !mask(v, p) && !scrubNode(v, p, changed) {
-				return false
-			}
+			kept = append(kept, k, v)
 		}
+		n.Content = kept
 	case yaml.SequenceNode:
 		for _, c := range n.Content {
 			if !mask(c, path+"[]") && !scrubNode(c, path+"[]", changed) {

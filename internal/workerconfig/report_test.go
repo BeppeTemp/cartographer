@@ -14,8 +14,8 @@ func TestScrub(t *testing.T) {
 	if strings.Contains(out, "sk-hunter2") || !strings.Contains(out, "WORKER_TOKEN") || len(kbs) != 2 {
 		t.Fatalf("out = %q kbs = %v", out, kbs)
 	}
-	entries, _, _, _ := Scrub([]Entry{{Key: "token_env", Value: "WORKER_TOKEN (set)"}, {Key: "x_env", Value: "a b"}}, "kbs: []\n")
-	if entries[0].Value != "WORKER_TOKEN (set)" || entries[1].Value != Redacted {
+	entries, _, _, _ := Scrub([]Entry{{Key: "token_env", Value: "WORKER_TOKEN (set)", Origin: "file"}, {Key: "models", Value: "a b", Origin: "file"}, {Key: "name", Origin: ""}}, "kbs: []\n")
+	if len(entries) != 2 || entries[0].Value != "WORKER_TOKEN (set)" || entries[1].Value != "a b" {
 		t.Fatalf("entries = %+v", entries)
 	}
 }
@@ -57,26 +57,56 @@ func TestScrubFailsClosed(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
-		if !strings.Contains(out, Redacted) || strings.Contains(out, "s3cret") || strings.Contains(out, "sk-live") || strings.Contains(out, "hunter2") || strings.Contains(out, "pw@") {
+		// A key the table does not know is dropped; a known one is masked.
+		dropped := map[string]bool{"unknown key": true, "password": true, "nested unknown": true, "unknown sequence": true, "upper url": true}
+		if (!dropped[name] && !strings.Contains(out, Redacted)) || strings.Contains(out, "s3cret") || strings.Contains(out, "sk-live") || strings.Contains(out, "hunter2") || strings.Contains(out, "pw@") {
 			t.Errorf("%s: leaked: %q", name, out)
 		}
 	}
-	// Entries: unknown key, nested unknown key, bare token, list of env names.
+	// Entries: the schema's row plus the sender's value and origin.
 	entries, _, _, _ := Scrub([]Entry{
-		{Key: "token", Value: "sk-live-1", Default: "sk-live-1"},
-		{Key: "models", Value: []any{map[string]any{"name": "c", "api_key": "s3cret", "api_key_env": "a b"}}},
-		{Key: "kbs", Value: []any{"kb-a"}},
-		{Key: "server_url", Value: "https://example.com/mcp?x=s3cret"},
+		{Key: "token", Value: "sk-live-1", Origin: "file"},
+		{Key: "sk-live-key", Value: "x", Origin: "file"},
+		{Key: "models", Value: []any{map[string]any{"name": "c", "api_key": "s3cret", "api_key_env": "a b"}}, Origin: "file",
+			Description: "sk-in-description", Default: "sk-in-default", Type: "sk-in-type", Values: "sk-in-values"},
+		{Key: "kbs", Value: []any{"kb-a"}, Origin: "default"},
+		{Key: "server_url", Value: "https://example.com/mcp?x=s3cret", Origin: "file"},
+		{Key: "name", Value: "team-a", Origin: "sk-in-origin"},
 	}, "kbs: []\n")
-	if entries[0].Value != Redacted || entries[0].Default != Redacted {
-		t.Errorf("unknown entry = %+v", entries[0])
+	if len(entries) != 3 {
+		t.Fatalf("entries = %+v", entries)
 	}
-	m := entries[1].Value.([]any)[0].(map[string]any)
-	if m["api_key"] != Redacted || m["api_key_env"] != Redacted || m["name"] != "c" {
-		t.Errorf("nested = %v", m)
+	m := entries[0].Value.([]any)[0].(map[string]any)
+	row, _ := Schema.Lookup("models")
+	if m["api_key"] != Redacted || m["api_key_env"] != Redacted || m["name"] != "c" ||
+		entries[0].Description != row.Description || entries[0].Default != row.Default || entries[0].Type != row.Type || entries[0].Values != row.Values {
+		t.Errorf("models = %+v", entries[0])
 	}
-	if entries[2].Value.([]any)[0] != "kb-a" || entries[3].Value != Redacted {
-		t.Errorf("entries = %+v", entries[2:])
+	if entries[1].Value.([]any)[0] != "kb-a" || entries[2].Value != Redacted {
+		t.Errorf("entries = %+v", entries[1:])
+	}
+}
+
+func TestScrubDropsUnknownAndNonScalarKeys(t *testing.T) {
+	t.Parallel()
+	for name, in := range map[string]string{
+		"empty value":    "kbs: [kb-a]\nsk-SECRET: \"\"\n",
+		"mapping value":  "kbs: [kb-a]\nsk-SECRET:\n  a: b\n",
+		"nested unknown": "kbs: [kb-a]\nmodels:\n  - name: c\n    sk-SECRET: \"\"\n",
+		"block key":      "kbs: [kb-a]\n? |\n  sk-SECRET\n: x\n",
+	} {
+		_, out, _, err := Scrub(nil, in)
+		if err != nil || strings.Contains(out, "SECRET") || !strings.Contains(out, "kb-a") {
+			t.Errorf("%s: err %v out %q", name, err, out)
+		}
+	}
+	for name, in := range map[string]string{
+		"mapping key":  "kbs: [kb-a]\n? {token: sk-X}\n: x\n",
+		"sequence key": "kbs: [kb-a]\n? [sk-X]\n: x\n",
+	} {
+		if _, _, _, err := Scrub(nil, in); err == nil {
+			t.Errorf("%s accepted", name)
+		}
 	}
 }
 
