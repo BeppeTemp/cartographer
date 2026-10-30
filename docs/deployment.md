@@ -954,6 +954,11 @@ auth:
           types: [Runbook]      # empty = every type
         - kb: reference
           access: r
+    - name: automation-a        # an automation token that cannot change artifacts
+      rules:
+        - kb: kb-a
+          access: rw
+          artifacts: r          # rw (default) | r: everything above except changing skills, agents, hooks
   tokens:
     - token: ${CARTOGRAPHER_TOKEN}
       id: ci                    # stable principal id for logs; derived from a
@@ -965,6 +970,12 @@ auth:
 the environment at startup; an unset or empty variable refuses startup, naming
 the field (#680). Any other value is taken literally.
 
+`artifacts: r` (D1259) is a narrower allow, not a deny: the rule grants what its `access` grants except
+`artifact_write`, `artifact_delete`, `artifact_move`, `skill_install` and the `/api/usage` report, which change what
+every client of the KB syncs and executes. `log_append`, `source_register`, `concept_*` and the reads stay allowed.
+A second rule of the same token without the key restores the write (rules are unioned); `artifacts: rw` with
+`access: r` is refused at startup.
+
 Rollout notes:
 
 - **Nothing changes until you opt in.** Tokens without `roles` behave exactly as
@@ -972,7 +983,7 @@ Rollout notes:
 - **Migrate one token at a time.** `roles` and `scopes` on the same token are
   unioned, so a token can gain a narrow role while keeping an existing scope.
 - **Validation is fatal at startup.** A duplicate role or principal ID, an
-  unknown role reference, an empty `kb`, an `access` other than `r`/`rw`, an
+  unknown role reference, an empty `kb`, an `access` other than `r`/`rw`, an `artifacts` other than `r`/`rw` (or `rw` on an `r` rule), an
   empty or traversal selector, or a selector declared as both map and journal
   aborts the boot. Diagnostics name the role and rule index, never a token.
 - **Selectors are not validated against KB content**: a role may reference a map

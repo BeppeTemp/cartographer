@@ -485,13 +485,19 @@ func (m *MultiKBServer) uiWhoami(w http.ResponseWriter, r *http.Request) {
 		Maps     []string `json:"maps,omitempty"`
 		Journals []string `json:"journals,omitempty"`
 		Types    []string `json:"types,omitempty"`
+		// Artifacts is "r" for a rule that withholds the artifact write tools.
+		Artifacts string `json:"artifacts,omitempty"`
 	}
 	rules := []ruleRow{}
 	for _, rule := range p.Policy.Permissions {
 		if _, mounted := m.servers[rule.KB]; !mounted {
 			continue
 		}
-		rules = append(rules, ruleRow{KB: rule.KB, Write: rule.Write, Maps: rule.Maps, Journals: rule.Journals, Types: rule.Types})
+		row := ruleRow{KB: rule.KB, Write: rule.Write, Maps: rule.Maps, Journals: rule.Journals, Types: rule.Types}
+		if rule.ReadOnlyArtifacts {
+			row.Artifacts = "r"
+		}
+		rules = append(rules, row)
 	}
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
 		"id":          p.ID,
