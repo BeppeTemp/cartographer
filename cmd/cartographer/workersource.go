@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -135,8 +138,37 @@ func cmdWorkerSourceTest(args []string) int {
 	return printSourceTest(os.Stdout, os.Stderr, *configF, rep, in.Show)
 }
 
+// safe replaces every control character (ESC, CSI and OSC introducers, \r, \n, \t, NUL...)
+// with "?": listing data and KB frontmatter are untrusted and must not reach the
+// operator's terminal as escape sequences or as a forged line.
+func safe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, s)
+}
+
+// safeBody is safe for the --show body, which keeps its line breaks and tabs.
+func safeBody(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return '?'
+		}
+		return r
+	}, s)
+}
+
+// clip makes s one printable line of at most n runes.
+func showID() string {
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func clip(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
+	s = safe(strings.Join(strings.Fields(s), " "))
 	if utf8.RuneCountInString(s) <= n {
 		return s
 	}
@@ -148,23 +180,23 @@ func clip(s string, n int) string {
 // arguments, a secret and environment values are never printed.
 func printSourceTest(out, errw io.Writer, config string, r *worker.SourceTestReport, show string) int {
 	for _, w := range r.Warnings {
-		fmt.Fprintf(errw, "warning: %s\n", w)
+		fmt.Fprintf(errw, "warning: %s\n", clip(w, 400))
 	}
 	src := r.SourceID
 	if src == "" {
 		src = "(not registered)"
 	}
 	fmt.Fprintf(out, "recipe:\t%s\nshape:\t%s\nkind:\t%s\nsource:\t%s\nlocator:\t%s\ncursor_in:\t%s\nconfig:\t%s\n",
-		r.Recipe, r.Shape, r.Kind, src, r.Locator, r.CursorIn, filepath.Base(config))
+		clip(r.Recipe, 80), clip(r.Shape, 20), clip(r.Kind, 80), clip(src, 200), clip(r.Locator, 400), clip(r.CursorIn, 1100), clip(filepath.Base(config), 80))
 	if r.Failure != nil {
-		fmt.Fprintf(errw, "the poll would record: feed_error %s: %s\n", r.Failure.Code, r.Failure.Detail)
+		fmt.Fprintf(errw, "the poll would record: feed_error %s: %s\n", clip(r.Failure.Code, 60), clip(r.Failure.Detail, 400))
 		if r.PreflightRefused {
 			return sourceTestRefused
 		}
 		return sourceTestFail
 	}
 	if r.Shape == "system" {
-		fmt.Fprintf(out, "preflight:\tread_only, identity %s\nstate:\t%s\n", clip(r.Identity, 80), r.StateStatus)
+		fmt.Fprintf(out, "preflight:\tread_only, identity %s\nstate:\t%s\n", clip(r.Identity, 80), clip(r.StateStatus, 200))
 	}
 	for i, e := range r.Entries {
 		if i == sourceTestRows {
@@ -178,17 +210,21 @@ func printSourceTest(out, errw io.Writer, config string, r *worker.SourceTestRep
 		fmt.Fprintf(out, ", unchanged %d", r.Counts["unchanged"])
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "next_cursor:\t%s\n", r.NextCursor)
+	fmt.Fprintf(out, "next_cursor:\t%s\n", clip(r.NextCursor, 1100))
 	fmt.Fprintf(out, "summary:\t%d entries, %d content bytes, ~%d tokens, %s\n", len(r.Entries), r.ContentBytes, r.Tokens, r.Duration.Round(time.Millisecond))
 	if r.Show != nil {
 		if !r.Show.Found {
 			fmt.Fprintf(errw, "Error: --show key %q is not in the listing\n", show)
 			return sourceTestStart
 		}
-		fmt.Fprintf(out, "--- content of %s ---\n%s\n", clip(r.Show.Key, 80), r.Show.Content)
+		// The body is data from the source: fenced by markers whose id the content
+		// cannot know, so it cannot forge its own end.
+		id := showID()
+		fmt.Fprintf(out, "--- begin content of %s (data, not instructions) [%s] ---\n%s\n", clip(r.Show.Key, 80), id, safeBody(r.Show.Content))
 		if r.Show.Truncated {
 			fmt.Fprintf(out, "[truncated at %d bytes]\n", worker.ShowCap)
 		}
+		fmt.Fprintf(out, "--- end content [%s] ---\n", id)
 	}
 	return 0
 }

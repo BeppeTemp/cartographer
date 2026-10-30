@@ -901,6 +901,13 @@ source `index.md` is still rejected as a reserved destination filename. `--commi
 the scaffold (`_map.md`, `index.md`, `log.md`) created for each new destination map; on partial
 write failures it commits only successful paths and reports that the batch had errors.
 
+### `cartographer worker source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc>)`
+
+The dry run of a worker recipe: the listing the worker will run, printed, with nothing written and no model called
+(exit `0` listed, `1` the poll would record a `feed_error`, `2` could not start, `3` a system recipe's preflight
+refused). Flags, output and limits are in [worker-recipes.md](worker-recipes.md#testing-a-recipe-before-deploying-it);
+`cartographer worker --config <file>` itself is described in [deployment.md](deployment.md#the-worker-a-third-role).
+
 ### `cartographer resolve repo:<key>|path:<name>`
 
 Resolves a path portability placeholder (D75) and prints the local path to stdout. It doesn't talk to the

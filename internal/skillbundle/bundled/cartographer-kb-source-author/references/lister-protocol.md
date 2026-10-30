@@ -63,8 +63,13 @@ recipes:
 import json, os, sys
 
 req = json.load(sys.stdin)
-if req.get("protocol") != 1 or req.get("mode") != "list":
-    sys.exit("unsupported request")
+if req.get("protocol") != 1:
+    sys.exit("unsupported protocol")
+if req.get("mode") == "preflight":  # system recipes only: ask the system what the identity can do
+    print(json.dumps({"read_only": False, "identity": "TODO", "detail": "replace with a real check"}))
+    sys.exit(0)
+if req.get("mode") != "list":
+    sys.exit("unsupported mode")
 since = req["cursor"] or ""
 items = []  # replace: call the source's read-only API with os.environ["WIKI_TOKEN"], items newer than `since`
 for it in items[: req["max_entries"]]:

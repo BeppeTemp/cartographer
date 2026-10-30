@@ -446,10 +446,10 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 type pollFailure struct{ Code, Detail string }
 
 // feedPreconditions is step 1 of the poll, before any lease: the Source parsed,
-// its recipe known and listing a feed, a built-in's locator on its host list. The
-// dry run of a recipe (SourceTest) calls this same function, never a copy: a copy
-// would pass scripts that the worker then refuses. Shape "system" (#1372) is
-// checked here too, when it lands.
+// its recipe known and of the shape the Source declares (feed or system; the
+// recipe's shape decides, a mismatch either way is recipe_shape), a built-in's
+// locator on its host list. The dry run of a recipe (SourceTest) calls this same
+// function, never a copy: a copy would pass scripts that the worker then refuses.
 func feedPreconditions(reg *recipe.Registry, hosts map[string][]string, f feed.Feed, perr error, system bool) (recipe.Recipe, *pollFailure) {
 	if perr != nil {
 		var fe *feed.Error

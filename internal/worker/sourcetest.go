@@ -154,6 +154,9 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 			return nil, startErr("%s has source_shape %q: the poll only lists feeds and systems", in.Source, shape)
 		}
 		isSystem = shape == "system"
+		if isSystem && str(c.Frontmatter, "ingest_status") == "skipped" {
+			rep.Warnings = append(rep.Warnings, "ingest_status is skipped: the poll never runs this system Source (the operator's off switch)")
+		}
 		f, perr = feed.Parse(feed.Entry{ID: in.Source, Fields: plainFields(c.Frontmatter), ContentHash: c.ContentHash}, def, min)
 		rep.SourceID = in.Source
 	} else {

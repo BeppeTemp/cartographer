@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -239,14 +240,46 @@ func TestListerReferenceSkeletonProducesWhatTheRunnerAccepts(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 is not on PATH")
 	}
-	script := filepath.Join(t.TempDir(), "lister.py")
-	if err := os.WriteFile(script, []byte(codeBlock(t, readRef(t), "python")), 0o600); err != nil {
-		t.Fatal(err)
+	src := codeBlock(t, readRef(t), "python")
+	write := func(body string) string {
+		p := filepath.Join(t.TempDir(), "lister.py")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
 	}
-	r := recipe.NewExec(recipe.ExecConfig{Name: "x", Command: py, Args: []string{script}, Timeout: 20 * time.Second, MaxOutput: 1 << 20, MaxContent: 1 << 10})
-	l, err := r.List(context.Background(), recipe.Request{ID: "s", MaxEntries: 5})
+	cfg := func(script string, shape string) recipe.ExecConfig {
+		return recipe.ExecConfig{Name: "x", Shape: shape, Command: py, Args: []string{script}, Timeout: 20 * time.Second, MaxOutput: 1 << 20, MaxContent: 1 << 10}
+	}
+	// list mode (feed)
+	l, err := recipe.NewExec(cfg(write(src), "")).List(context.Background(), recipe.Request{ID: "s", MaxEntries: 5})
 	if err != nil || len(l.Entries) != 0 || l.NextCursor != "" {
 		t.Errorf("listing = %+v, %v", l, err)
+	}
+	// preflight mode (system): the skeleton answers it, refusing until the author replaces the check.
+	sr := recipe.NewExec(cfg(write(src), recipe.ShapeSystem)).(recipe.SystemRecipe)
+	_, err = sr.Preflight(context.Background(), recipe.Request{ID: "s"})
+	var re *recipe.Error
+	if !errors.As(err, &re) || re.Code != recipe.CodeIdentityNotReadOnly || !strings.Contains(re.Detail, "replace with a real check") {
+		t.Errorf("the skeleton must answer a preflight with a clean refusal, got %v", err)
+	}
+	ok := strings.Replace(src, `"read_only": False`, `"read_only": True`, 1)
+	if ok == src {
+		t.Fatal("the skeleton's preflight answer changed shape")
+	}
+	sr = recipe.NewExec(cfg(write(ok), recipe.ShapeSystem)).(recipe.SystemRecipe)
+	if _, err := sr.Preflight(context.Background(), recipe.Request{ID: "s"}); err != nil {
+		t.Errorf("a skeleton whose check says read_only: %v", err)
+	}
+}
+
+func TestSourceTestWarnsOnASkippedSystemSource(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("namespace/team-a", "v1")
+	s.feed()["ingest_status"] = "skipped"
+	rep := sysTest(t, s, SourceTestInput{Source: "sources/feed", Tools: s.k})
+	if rep.Failure != nil || !strings.Contains(strings.Join(rep.Warnings, "|"), "ingest_status is skipped") {
+		t.Errorf("%+v", rep)
 	}
 }
 
