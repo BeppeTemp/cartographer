@@ -36,3 +36,5 @@ money and writes to KBs when nobody is looking.
   A Source can name only a recipe or connector in the binary or the config, never code, a command or a
   path (`recipe/`); the git reader refuses any host outside `git.allow_hosts` before a clone, and
   `recipe_test.go` pins the refusals (file, ssh, userinfo, local path, `..`, symlinks).
+- **An exec recipe is argv, no shell, with a listed environment** (`recipe/exec.go`, D1262): its command, args and env names come from the config
+  only; the redaction and process-group-kill tests in `recipe/exec_test.go` pin it. Protocol v1 sends `mode: "list"` only.
