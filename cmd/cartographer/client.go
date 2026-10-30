@@ -326,7 +326,7 @@ func warnProviderCollisions(cfg *clientconfig.Config, provider string, bound []s
 		fmt.Fprintf(os.Stderr, "note: could not check for cross-KB collisions (%v); `cartographer sync` will check again\n", err)
 		return
 	}
-	for _, c := range collisionsForProvider(candidates.forKBs(bound), bound) {
+	for _, c := range collisionsForProvider(dropKBArtifacts(cfg, candidates.forKBs(bound)), bound) {
 		fmt.Fprintf(os.Stderr, "warning: %s/%s is claimed by %s — `cartographer sync` will refuse until one of them renames it\n",
 			c.Kind, c.Name, strings.Join(c.Sources, ", "))
 	}
