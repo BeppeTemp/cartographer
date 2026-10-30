@@ -853,3 +853,27 @@ func TestPollStagedUnitsOfAnotherRevisionOrOfAPlannerStayInert(t *testing.T) {
 		t.Fatalf("assets written: %v", e.k.assets)
 	}
 }
+
+func TestPollResumeWithChangedContentKeepsTheStagedAssetAndDoesNotStall(t *testing.T) {
+	e := contentEnv(t)
+	boom := errors.New("connection reset")
+	armed := true
+	e.k.fault = func(tool string, n int) error {
+		if armed && tool == "concept_patch" && n == 2 { // before the open patch
+			armed = false
+			return boom
+		}
+		return nil
+	}
+	e.poll()
+	ids := e.k.units()
+	if len(ids) != 1 || e.k.pages[ids[0]].fm["status"] != "draft" {
+		t.Fatalf("setup: %v", ids)
+	}
+	e.k.assets[ids[0]+"/content.txt"] = "Other text staged earlier."
+	e.mustPoll()
+	if e.k.pages[ids[0]].fm["status"] != "open" || e.k.assets[ids[0]+"/content.txt"] != "Other text staged earlier." ||
+		e.feed()["feed_error"] != nil || e.feed()["feed_cursor"] != "c1" {
+		t.Fatalf("unit %v, asset %q, feed %v", e.k.pages[ids[0]].fm, e.k.assets[ids[0]+"/content.txt"], e.feed())
+	}
+}

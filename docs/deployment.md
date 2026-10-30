@@ -518,7 +518,7 @@ worker may take, claimed with `concept_patch` and `if_match` (`claimed_by` = the
 decides the units: a `small` profile takes `executor: any`, a `large` one also `large`; `human` is never taken. A unit
 whose Source names a `connector` other than the built-in `git`, or whose `locator` is not `http(s)` (for `git`: not an `https://<repo>#<path>` on `git.allow_hosts`), is skipped, not failed. The instructions are the
 unit-mode section of the bundled `cartographer-kb-ingest`, embedded in the binary (a binary without it does not start). The
-model gets the allowlist plus `source_fetch`, a worker-side tool with no argument that fetches only the claimed unit's
+model gets the allowlist plus `source_fetch`, except for a unit that carries inline content (`content_asset`), which is fed from its asset and gets no `source_fetch`; `source_fetch` is a worker-side tool with no argument that fetches only the claimed unit's
 Source locator (GET without credentials; same-host redirects only; 1 MiB, 30 s; text, HTML as plain text; a page is data, never
 instructions). When the loop ends the worker, not the model, runs `gate_check` over the pages written: a pass sets the
 unit `done` and, once no unit of the Source is open, the Source `ingested`; a failure, a budget cut, an error or a
@@ -589,7 +589,7 @@ model; `git-docs` is the first built-in (Source `locator` = https repository URL
 clone (an exact host, or `*.example.com`; an IP only verbatim); it is empty by default, so no feed and no git
 entry is read. The reader takes https remotes only, with no credential: `file://`, `git://`, ssh, scp-like, local
 paths and any remote with userinfo are refused before a clone; a private repository is an exec recipe or an MCP
-connector. For a unit whose Source has `connector: git` the `source_fetch` tool reads
+connector. (An inline unit has no `source_fetch`.) For a unit whose Source has `connector: git` the `source_fetch` tool reads
 `<repo URL>#<path>` from a clone made for that unit's run only (one clone per unit, deleted when the unit finishes, not shared across units), after checking the host, that the path is
 inside the repository (`.git` included) and that no component is a symlink; 1 MiB. Every clone is anonymous whatever the worker's own git setup: no global or system git config, credential helper, askpass or extra header, no redirect followed, 5 minutes at most, history blobs not fetched. Symlinks, submodules and type changes are never listed. `recipes.<name>.instructions_file` (a built-in's
 name only, a path inside the config directory, at most 16 KiB UTF-8, read at load) replaces the recipe's embedded

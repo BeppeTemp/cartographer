@@ -2,8 +2,6 @@ package worker
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -430,10 +428,15 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 			continue
 		} else if exists {
 			// Resume a unit a crash left staged: redo the idempotent steps.
-			if err := r.stage(id, e.Content, "poll "+f.ID); err != nil {
+			opened, err := r.stage(id, e.Content, "poll "+f.ID)
+			if err != nil {
 				return r.fail(codeUnitRefused, "entry "+oneLineClip(e.Key, 80)+": "+oneLineClip(err.Error(), 200))
 			}
-			r.created++
+			if opened {
+				r.created++
+			} else {
+				r.skipped++
+			}
 			continue
 		}
 		stop, err := r.entry(ctx, rec, e, locator, id, unitMap, planID, plan.Body, maps)
@@ -653,7 +656,7 @@ func (r *pollRun) finishStage(id, content, reason string, e recipe.Entry) error 
 	if content == "" {
 		return nil
 	}
-	if err := r.stage(id, content, reason); err != nil {
+	if _, err := r.stage(id, content, reason); err != nil {
 		return r.fail(codeUnitRefused, "entry "+oneLineClip(e.Key, 80)+": "+oneLineClip(err.Error(), 200))
 	}
 	return nil
@@ -661,41 +664,38 @@ func (r *pollRun) finishStage(id, content, reason string, e recipe.Entry) error 
 
 // stage makes a draft unit complete (WP7): expand it, write the asset, then
 // open it. Every step is idempotent, so a crash after any of them is resumed by
-// redoing all: already_expanded and an identical asset are success.
-func (r *pollRun) stage(id, content, reason string) error {
+// redoing all: already_expanded and an existing asset are success. The asset
+// already staged is kept even when it differs from content: the revision is the
+// identity of the entry, and failing here would stall the feed on every poll.
+// opened reports that this call patched the unit to open; r.res.Commits counts
+// only the writes that happened.
+func (r *pollRun) stage(id, content, reason string) (opened bool, err error) {
 	tools := r.rt.Tools
-	if _, err := callOK(tools, "concept_expand", map[string]any{"id": id}); err != nil && !strings.Contains(err.Error(), "already_expanded") {
-		return err
-	}
-	_, err := callOK(tools, "asset_write", map[string]any{"concept_id": id, "path": poll.ContentAsset, "content": content, "encoding": "text"})
-	if err != nil {
-		if !strings.Contains(err.Error(), "already_exists") {
-			return err
+	if _, err := callOK(tools, "concept_expand", map[string]any{"id": id}); err != nil {
+		if !strings.Contains(err.Error(), "already_expanded") {
+			return false, err
 		}
-		text, rerr := callOK(tools, "asset_read", map[string]any{"concept_id": id, "path": poll.ContentAsset})
-		if rerr != nil {
-			return rerr
-		}
-		var a struct {
-			SHA256 string `json:"sha256"`
-		}
-		sum := sha256.Sum256([]byte(content))
-		if json.Unmarshal([]byte(text), &a) != nil || a.SHA256 != hex.EncodeToString(sum[:]) {
-			return errors.New("the staged asset differs from the entry's content")
-		}
-	}
-	r.res.Commits += 2
-	u, err := readConcept(tools, id)
-	if err != nil {
-		return err
-	}
-	if str(u.Frontmatter, "status") != "draft" {
-		return nil
-	}
-	_, err = callOK(tools, "concept_patch", map[string]any{"id": id, "if_match": u.ContentHash, "reason": reason,
-		"frontmatter": map[string]any{"status": "open"}})
-	if err == nil {
+	} else {
 		r.res.Commits++
 	}
-	return err
+	if _, err := callOK(tools, "asset_write", map[string]any{"concept_id": id, "path": poll.ContentAsset, "content": content, "encoding": "text"}); err != nil {
+		if !strings.Contains(err.Error(), "already_exists") {
+			return false, err
+		}
+	} else {
+		r.res.Commits++
+	}
+	u, err := readConcept(tools, id)
+	if err != nil {
+		return false, err
+	}
+	if str(u.Frontmatter, "status") != "draft" {
+		return false, nil
+	}
+	if _, err = callOK(tools, "concept_patch", map[string]any{"id": id, "if_match": u.ContentHash, "reason": reason,
+		"frontmatter": map[string]any{"status": "open"}}); err != nil {
+		return false, err
+	}
+	r.res.Commits++
+	return true, nil
 }
