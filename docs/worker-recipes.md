@@ -141,7 +141,7 @@ can lie. The boundary is a dedicated read-only identity (see [deployment.md](dep
 **List for a system**: `source_shape: "system"`, `cursor: null`, `max_entries: 1000`, `max_content_bytes`. The entry
 rules differ from a feed's: `content` is **required** (non-empty UTF-8, no NUL, at most `max_content_bytes`, a
 normalized snapshot: volatile fields dropped, **never a secret**); `revision`, `change` and `title` are ignored or
-defaulted (the title is the key). The final `{"next_cursor": "..."}` line is still required as the end marker. The
+defaulted (the title is the key). The final line is still required as the end marker and must be `{"next_cursor": ""}`: a system listing is always complete, and a non-empty cursor (a lister that stopped early) is a `protocol_error`, because every group a partial listing leaves out would be read as removed. The
 worker computes each group's revision itself, as the first 16 hex of sha256 over the content with CRLF folded to LF; it
 never trusts the lister's. A group key matches `^[A-Za-z][A-Za-z0-9._:/@-]{0,199}$`, is not a YAML word (`true`,
 `false`, `null`, `yes`, `no`, `on`, `off`) and is unique; at most 1000 groups. A violation is `protocol_error` naming

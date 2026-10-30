@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -203,34 +202,36 @@ func TestLineDiffGoldens(t *testing.T) {
 	}
 }
 
-func TestUnitIDStabilityDayAndFlap(t *testing.T) {
-	d1, d2, d3 := time.Date(2031, 2, 3, 23, 59, 0, 0, time.UTC), time.Date(2031, 2, 4, 0, 1, 0, 0, time.UTC), time.Date(2031, 2, 5, 9, 0, 0, 0, time.UTC)
+func TestUnitIDStabilityAndFlap(t *testing.T) {
 	rA, rB := Revision("a"), Revision("b")
-	a1 := UnitID("ingest", "src/s", "namespace/Team-A", rA, d1)
-	if a1 != UnitID("ingest", "src/s", "namespace/Team-A", rA, d1.Add(-time.Hour)) {
-		t.Error("not stable within a day")
+	a1 := UnitID("ingest", "src/s", "namespace/Team-A", rA, 0)
+	if a1 != UnitID("ingest", "src/s", "namespace/Team-A", rA, 0) {
+		t.Error("not stable for the same observation")
 	}
-	b := UnitID("ingest", "src/s", "namespace/Team-A", rB, d2)
-	a2 := UnitID("ingest", "src/s", "namespace/Team-A", rA, d3)
+	b := UnitID("ingest", "src/s", "namespace/Team-A", rB, 1)
+	a2 := UnitID("ingest", "src/s", "namespace/Team-A", rA, 2)
 	if a1 == b || b == a2 || a1 == a2 {
 		t.Errorf("A -> B -> A: %s %s %s", a1, b, a2)
 	}
 	if !strings.HasPrefix(a1, "ingest/namespace-team-a-") || len(a1) != len("ingest/namespace-team-a-")+8 {
 		t.Errorf("shape = %s", a1)
 	}
-	if UnitID("ingest", "src/s", "namespace/Team-A", RemovedRevision(rA), d1) == a1 {
+	if UnitID("ingest", "src/s", "namespace/Team-A", RemovedRevision(rA), 0) == a1 {
 		t.Error("a removal shares the added ID")
 	}
-	if got := UnitID("m", "s", strings.Repeat("ab-", 30), rA, d1); len(strings.TrimPrefix(got, "m/")) != 40+1+8 && !strings.Contains(got, "-") {
+	// A removal revisited has its own count too.
+	if UnitID("ingest", "src/s", "k", RemovedRevision(rA), 1) == UnitID("ingest", "src/s", "k", RemovedRevision(rA), 3) {
+		t.Error("two removals of the same revision share an ID")
+	}
+	if got := UnitID("m", "s", strings.Repeat("ab-", 30), rA, 0); len(strings.TrimPrefix(got, "m/")) > 40+1+8 {
 		t.Errorf("long slug: %s", got)
 	}
 }
 
 // The worker's own slug must be one the server accepts (checkConceptName).
 func TestUnitIDIsAServerSlug(t *testing.T) {
-	day := time.Date(2031, 2, 3, 0, 0, 0, 0, time.UTC)
 	for _, key := range []string{"namespace/team-a", "A", "a.b_c:d/e@f--g", strings.Repeat("x-", 60), "Zeta_9/..x", "a" + strings.Repeat("-", 39) + "b"} {
-		id := UnitID("ingest", "src/s", key, Revision(key), day)
+		id := UnitID("ingest", "src/s", key, Revision(key), 0)
 		stem := id[strings.LastIndex(id, "/")+1:]
 		if kb.Slugify(stem) != stem || !kb.SlugPattern.MatchString(stem) {
 			t.Errorf("%q: stem %q is not a slug (Slugify gives %q)", key, stem, kb.Slugify(stem))

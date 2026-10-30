@@ -22,12 +22,19 @@ import sys
 KINDS = ["Deployment", "StatefulSet", "DaemonSet", "CronJob", "Service", "Ingress", "PersistentVolumeClaim", "ConfigMap"]
 RESOURCES = ("deployments.apps,statefulsets.apps,daemonsets.apps,cronjobs.batch,services,"
              "ingresses.networking.k8s.io,persistentvolumeclaims,configmaps")
-# (verb, resource, wanted answer). The identity is read-only only if every
-# "no" is a no and every "yes" a yes; an identity that can read nothing is a
-# misconfiguration, not a pass.
-QUESTIONS = ([("*", "*", "no"), ("get", "secrets", "no")]
-             + [(v, r, "no") for r in ("pods", "deployments.apps", "namespaces") for v in ("create", "update", "patch", "delete")]
-             + [("list", "namespaces", "yes")])
+# What the lister reads: it lists these resources and the namespaces.
+READS = ["deployments.apps", "statefulsets.apps", "daemonsets.apps", "cronjobs.batch", "services",
+         "ingresses.networking.k8s.io", "persistentvolumeclaims", "configmaps"]
+# What an identity must not be able to do: write to anything the lister reads (and to pods and
+# namespaces), read a Secret in any way, or open a shell, an attach or a port-forward into a pod.
+WRITES = ["pods", "namespaces"] + READS
+# (verb, resource, wanted answer). The identity passes only if every "no" is a no and every "yes" a
+# yes; an identity that can read nothing is a misconfiguration, not a pass.
+QUESTIONS = ([("*", "*", "no")]
+             + [(v, "secrets", "no") for v in ("get", "list", "watch")]
+             + [("create", r, "no") for r in ("pods/exec", "pods/attach", "pods/portforward")]
+             + [(v, r, "no") for r in WRITES for v in ("create", "update", "patch", "delete")]
+             + [("list", r, "yes") for r in ["namespaces"] + READS])
 
 
 class Failure(Exception):
@@ -38,7 +45,7 @@ def kubectl(args):
     """Returns (exit status, stdout). Fixtures replace kubectl in the tests."""
     fixtures = os.environ.get("LISTER_FIXTURES_DIR")
     if fixtures:
-        name = "_".join(a.replace("*", "all") for a in args)
+        name = "_".join(a.replace("*", "all").replace("/", "-") for a in args)
         for ext in (".json", ".txt"):
             path = os.path.join(fixtures, name + ext)
             if os.path.isfile(path):
@@ -84,7 +91,9 @@ def preflight():
         if can_i(verb, resource) != want:
             return {"read_only": False, "identity": identity,
                     "detail": "can-i %s %s answered %s, expected %s" % (verb, resource, "yes" if want == "no" else "no", want)}
-    return {"read_only": True, "identity": identity, "detail": "read-only: no write verbs, no secrets, namespaces listable"}
+    return {"read_only": True, "identity": identity,
+            "detail": "checked: no * on *, no get/list/watch on secrets, no create on pods/exec, pods/attach or pods/portforward, "
+                      "no write verb on %d resources, list allowed on %d resources" % (len(WRITES), len(READS) + 1)}
 
 
 def kv(d):

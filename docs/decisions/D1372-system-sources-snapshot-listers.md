@@ -31,9 +31,10 @@ dedicated read-only identity.
   not expressible; a system's cursor is the digest of a per-group state, where it is. With all-or-nothing, one
   permanently refused group would stop the baseline from ever being saved. The state is the old one with the *handled*
   groups applied.
-- *Unit ID from the revision alone*: a system revisits earlier states (A, B, A) and the second A must create a unit, so
-  the detection day is in the hash; a lookup of the group's existing units, not an ID collision, decides whether the
-  group is handled (a crash re-run or a rebuilt state creates only what is missing).
+- *Unit ID from the revision alone, or from the revision and the day*: a system revisits earlier states (A, B, A),
+  even within one day, and the second A must create a unit, so the ID hashes how many units the group already has;
+  a lookup of the group's existing units, not an ID collision, decides whether the group is handled (a crash re-run or
+  a rebuilt state creates only what is missing), and the create-only batch settles two pollers that see the same count.
 
 **Consequences.**
 - Write order is units, then the state file, then (first time) the body link, then the cursor patch; every crash

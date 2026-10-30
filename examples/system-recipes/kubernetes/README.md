@@ -10,8 +10,12 @@ Files: `lister.py` (the recipe's command), `instructions.md` (its instruction te
 ## What it does
 
 - **Preflight.** It asks `kubectl auth can-i` and answers `read_only: true` only if the identity cannot do `*` on `*`,
-  cannot `get secrets`, cannot `create`, `update`, `patch` or `delete` pods, deployments or namespaces, and **can**
-  `list namespaces`. The `identity` is the context's user name; `detail` names the first failed question.
+  cannot `get`, `list` or `watch` secrets, cannot `create` on `pods/exec`, `pods/attach` or `pods/portforward`, cannot
+  `create`, `update`, `patch` or `delete` pods, namespaces or any resource the lister reads (Deployments, StatefulSets,
+  DaemonSets, CronJobs, Services, Ingresses, PersistentVolumeClaims, ConfigMaps), and **can** `list` namespaces and each
+  of those. The `identity` is the context's user name; `detail` says what was checked (or, on a refusal, the first
+  failed question). It is a check of what RBAC says for those questions, not a proof: a custom role can grant more
+  elsewhere, so bind a dedicated `view`-style role and read what it grants.
 - **List.** One entry per namespace, `key` = `namespace/<name>`. Per namespace one line per object, sorted:
   Deployments, StatefulSets, DaemonSets, CronJobs (replicas or schedule, containers `name:image`, ports, labels),
   Services, Ingresses, PersistentVolumeClaims and ConfigMaps (**names only**). Cluster-scoped objects are left out,
@@ -30,7 +34,7 @@ echo '{"mode":"list","source":{"include":[]},"max_content_bytes":65536}' | LISTE
 ```
 
 With `LISTER_FIXTURES_DIR` set, `kubectl` is not run: the answer to each command is the file named after its
-argument vector (`*` written as `all`), for example `get_namespaces_-o_json.json` or `auth_can-i_get_secrets.txt`. A
+argument vector (`*` written as `all`, `/` as `-`), for example `get_namespaces_-o_json.json` or `auth_can-i_get_secrets.txt`. A
 change of the command line changes the file asked for, so the tests pin the commands. `recipe.yaml` never lists that
 variable.
 

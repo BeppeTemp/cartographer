@@ -68,7 +68,7 @@ func (s *sysEnv) list(kv ...string) {
 		b.Write(line)
 		b.WriteByte('\n')
 	}
-	b.WriteString(`{"next_cursor":"end"}` + "\n")
+	b.WriteString(`{"next_cursor":""}` + "\n")
 	if err := os.WriteFile(filepath.Join(s.dir, "listing.jsonl"), []byte(b.String()), 0o600); err != nil {
 		s.t.Fatal(err)
 	}
@@ -471,5 +471,67 @@ func TestSystemVocabulariesMatchTheServer(t *testing.T) {
 	}
 	if !errors.Is(recipe.ErrNeedsPreflight, recipe.ErrNeedsPreflight) || recipe.CodeIdentityNotReadOnly != "identity_not_read_only" {
 		t.Error("contract")
+	}
+}
+
+// soon is a poll two hours later: the Source's interval is one hour, so a flap
+// within one UTC day is polled (the other tests advance 25 hours).
+func (s *sysEnv) soon() {
+	s.t.Helper()
+	s.clock = s.clock.Add(2 * time.Hour)
+	it, _, err := s.pollNow(s.in)
+	if err != nil || it == nil {
+		s.t.Fatalf("poll: %v %v", it, err)
+	}
+}
+
+func TestSystemPollSameDayFlapAndRepeatedRemovalMakeNewUnits(t *testing.T) {
+	s := newSysEnv(t)
+	s.src().fm["feed_interval"] = "1h"
+	s.clock = time.Date(2031, 2, 3, 1, 0, 0, 0, time.UTC)
+	for _, c := range []string{"state A", "state B", "state A", "state B", "state A"} {
+		s.list("namespace/a", c)
+		s.soon()
+		if fe := s.feed()["feed_error"]; fe != nil {
+			t.Fatalf("after %q: feed_error %v", c, fe)
+		}
+	}
+	ids := s.unitsOf("namespace/a")
+	if len(ids) != 5 {
+		t.Fatalf("a same-day A -> B -> A -> B -> A made %d units: %v", len(ids), ids)
+	}
+	open := 0
+	for _, id := range ids {
+		if s.k.pages[id].fm["status"] == "open" {
+			open++
+		}
+	}
+	if open != 1 {
+		t.Errorf("%d open units, want the newest only", open)
+	}
+	// A group that vanishes, returns and vanishes again within the day.
+	s = newSysEnv(t)
+	s.src().fm["feed_interval"] = "1h"
+	s.clock = time.Date(2031, 2, 3, 1, 0, 0, 0, time.UTC)
+	for _, l := range [][]string{{"namespace/a", "1", "namespace/b", "2"}, {"namespace/a", "1"}, {"namespace/a", "1", "namespace/b", "2"}, {"namespace/a", "1"}} {
+		s.list(l...)
+		s.soon()
+		if fe := s.feed()["feed_error"]; fe != nil {
+			t.Fatalf("feed_error %v", fe)
+		}
+	}
+	if got := len(s.unitsOf("namespace/b")); got != 4 {
+		t.Errorf("namespace/b has %d units, want add, remove, add, remove", got)
+	}
+}
+
+func TestSystemPollRefusalWithoutACheckNameSaysSo(t *testing.T) {
+	s := newSysEnv(t)
+	s.k.refuseUnit = func(string, map[string]any) string { return "found the value hunter2-canary in the unit" }
+	s.list("namespace/a", "x")
+	s.mustPoll()
+	fe, _ := s.feed()["feed_error"].(string)
+	if !strings.Contains(fe, "unit_refused (no check named; answer withheld") || strings.Contains(fe, "hunter2") {
+		t.Errorf("feed_error = %q", fe)
 	}
 }

@@ -92,16 +92,23 @@ func TestExampleKubernetesPreflight(t *testing.T) {
 	fix := fixtures(t)
 	r := lister(t, fix)
 	v, err := r.Preflight(context.Background(), recipe.Request{ID: "s/k"})
-	if err != nil || v.Identity() != "dev-viewer" {
+	if err != nil || v.Identity() != "dev-viewer" || !strings.HasPrefix(v.Detail(), "checked: ") {
 		t.Fatalf("view identity: %+v %v", v, err)
 	}
 	for name, tc := range map[string]struct{ file, to, want string }{
-		"cluster-admin":  {"auth_can-i_all_all.txt", "yes\n", "can-i * * answered yes"},
-		"reads secrets":  {"auth_can-i_get_secrets.txt", "yes\n", "can-i get secrets"},
-		"can patch":      {"auth_can-i_patch_deployments.apps.txt", "yes\n", "can-i patch deployments.apps"},
-		"reads nothing":  {"auth_can-i_list_namespaces.txt", "no\n", "can-i list namespaces answered no"},
-		"not yes or no":  {"auth_can-i_delete_pods.txt", "maybe\n", "exit 2"},
-		"a failing call": {"auth_can-i_create_pods.txt", "", "exit 2"},
+		"cluster-admin":      {"auth_can-i_all_all.txt", "yes\n", "can-i * * answered yes"},
+		"reads secrets":      {"auth_can-i_get_secrets.txt", "yes\n", "can-i get secrets"},
+		"can patch":          {"auth_can-i_patch_deployments.apps.txt", "yes\n", "can-i patch deployments.apps"},
+		"lists secrets":      {"auth_can-i_list_secrets.txt", "yes\n", "can-i list secrets answered yes"},
+		"watches secrets":    {"auth_can-i_watch_secrets.txt", "yes\n", "can-i watch secrets answered yes"},
+		"execs into pods":    {"auth_can-i_create_pods-exec.txt", "yes\n", "can-i create pods/exec answered yes"},
+		"port-forwards":      {"auth_can-i_create_pods-portforward.txt", "yes\n", "can-i create pods/portforward answered yes"},
+		"writes services":    {"auth_can-i_create_services.txt", "yes\n", "can-i create services answered yes"},
+		"writes sets":        {"auth_can-i_delete_statefulsets.apps.txt", "yes\n", "can-i delete statefulsets.apps answered yes"},
+		"cannot list a read": {"auth_can-i_list_services.txt", "no\n", "can-i list services answered no"},
+		"reads nothing":      {"auth_can-i_list_namespaces.txt", "no\n", "can-i list namespaces answered no"},
+		"not yes or no":      {"auth_can-i_delete_pods.txt", "maybe\n", "exit 2"},
+		"a failing call":     {"auth_can-i_create_pods.txt", "", "exit 2"},
 	} {
 		d := fixtures(t)
 		if tc.file == "auth_can-i_create_pods.txt" {

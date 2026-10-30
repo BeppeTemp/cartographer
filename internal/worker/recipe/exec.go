@@ -549,5 +549,11 @@ func (e *execRecipe) ListSystem(ctx context.Context, v Verified, req Request) (L
 		l, atEOF, perr = e.parse(r, SystemMaxGroups, maxContent, e.entry)
 		return atEOF, perr
 	})
+	if err == nil && l.NextCursor != "" {
+		// A system listing is complete or it is nothing: every group it leaves out
+		// becomes a removal, so a lister that stopped early (a cursor to resume
+		// from) must not be read as having listed the whole system.
+		return Listing{}, fail(CodeProtocolError, "a system listing ends with an empty next_cursor: it is always complete, there is no cursor to resume from")
+	}
 	return l, err
 }

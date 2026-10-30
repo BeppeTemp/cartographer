@@ -41,13 +41,15 @@ const (
 
 var checkNameRE = regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`)
 
-// refusalCheck is the name of the check a server refusal cites, never its text:
-// a refusal of the write gate may echo what it found.
+// refusalCheck says why the server refused a unit without quoting its answer: a
+// write-gate message may echo what it found in the snapshot. The check's name
+// (potential_secret, broken_link, ...) is safe and is what an operator needs; an
+// answer that names none is reported as such, with where to look.
 func refusalCheck(text string) string {
 	if m := checkNameRE.FindString(text); m != "" {
 		return m
 	}
-	return "refused"
+	return "no check named; answer withheld, it may quote the snapshot"
 }
 
 var identityRE = regexp.MustCompile(`[^A-Za-z0-9._:@/ -]`)
@@ -337,7 +339,7 @@ func (r *pollRun) systemGroup(ctx context.Context, rec recipe.Recipe, sc *sysCtx
 		if len(body) > systemBodyMax {
 			return h, "unit_too_large", false, nil
 		}
-		id := system.UnitID(sc.unitMap, f.ID, c.Key, idRev, r.now)
+		id := system.UnitID(sc.unitMap, f.ID, c.Key, idRev, len(units))
 		// c. Create the unit and supersede the group's still-open ones, all or nothing.
 		ops := []map[string]any{{"op": "write", "id": id, "frontmatter": fm, "body": body}}
 		for _, u := range units {
