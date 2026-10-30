@@ -1,0 +1,27 @@
+# The recipes and tasks blocks of a worker config for this lister. The Source is registered once:
+#   source_register(source_shape: system, recipe: metrics-verdicts, locator: "metrics://production", ...)
+# The locator is an opaque label; the lister never uses it. The endpoint and the token come from the
+# variables below, set in the worker's environment, never from a KB. Drop METRICS_TOKEN from env for
+# an endpoint without auth: a listed variable that is unset refuses the preflight.
+recipes:
+  metrics-verdicts:
+    shape: system
+    instructions_file: prometheus-verdicts/instructions.md
+    exec:
+      command: python3
+      args:
+        - /etc/cartographer/recipes/prometheus-verdicts/lister.py
+        - /etc/cartographer/recipes/prometheus-verdicts/checks.json
+      env:            # NAME the lister sees: name of the worker's variable
+        METRICS_URL: METRICS_URL
+        METRICS_TOKEN: METRICS_TOKEN
+      timeout: 5m
+      max_content_bytes: 8192
+
+tasks:
+  - kind: prompt
+    name: system-review
+    model: cloud-small
+    instructions_file: prometheus-verdicts/system-review.md
+    tools: [work_list, concept_read, concept_patch, concept_write]
+    every: 168h
