@@ -249,7 +249,7 @@ func TestLoadConfigNoRegisteredKinds(t *testing.T) {
 	if err := os.WriteFile(path, []byte(cfgGolden), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LoadConfig(path, DefaultKinds())
+	_, err := LoadConfig(path, NewKinds()) // an empty registry
 	if err == nil || !strings.Contains(err.Error(), "no task kind is registered") {
 		t.Errorf("err = %v", err)
 	}
