@@ -30,6 +30,7 @@ cleanup() {
   if [ "$rc" -eq 0 ] && [ "${MAC_DONE:-0}" != 1 ]; then echo "FAIL: the script ended before its last line" >&2; rc=1; fi
   brew uninstall --cask --force "$tap/cartographer" >/dev/null 2>&1 || true
   brew untap "$tap" >/dev/null 2>&1 || true
+  if [ "${trusted:-0}" = 1 ]; then brew untrust --tap "$tap" >/dev/null 2>&1 || true; fi
   exit "$rc"
 }
 trap cleanup EXIT
@@ -51,6 +52,12 @@ brew_out() {
 echo "→ the local tap"
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_FROM_API=1 HOMEBREW_NO_ANALYTICS=1
 brew_out brew tap-new "$tap" --no-git >/dev/null
+# Homebrew 7 refuses to load a cask from a tap the user has not trusted (#1403);
+# older versions have no `brew trust`. The entry is removed again in cleanup.
+if brew trust --help >/dev/null 2>&1; then
+  brew_out brew trust --tap "$tap" >/dev/null
+  trusted=1
+fi
 tap_dir=$(brew_out brew --repository "$tap")
 mkdir -p "$tap_dir/Casks"
 
