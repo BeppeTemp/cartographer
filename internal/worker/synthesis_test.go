@@ -252,7 +252,7 @@ func TestSynthesisKindOptions(t *testing.T) {
 			t.Errorf("%s=%v: err = %v", key, bad, err)
 		}
 	}
-	if !reflect.DeepEqual(DefaultKinds().Names(), []string{"ingest", "synthesis"}) {
+	if !reflect.DeepEqual(DefaultKinds().Names(), []string{"ingest", "doctor", "prompt", "synthesis"}) {
 		t.Errorf("kinds = %v", DefaultKinds().Names())
 	}
 }
