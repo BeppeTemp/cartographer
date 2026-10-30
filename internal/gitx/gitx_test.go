@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1151,5 +1152,65 @@ func TestCloneEnv_AllowProtocol(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("caller's GIT_ALLOW_PROTOCOL must be kept alone, got %d entries", n)
+	}
+}
+
+// The commands run in an anonymous clone afterwards must not read the operator's
+// git config either, on a git older than 2.32 too: HOME and XDG_CONFIG_HOME are
+// redirected (D1262).
+func TestAnonymousReadEnvHidesTheOperatorsConfig(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[operator]\n\tsecret = yes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "one")
+
+	empty := t.TempDir()
+	env := AnonymousReadEnv(empty)
+	// The older-git case: the variable that only git 2.32+ honours is not what protects.
+	env = slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, "GIT_CONFIG_GLOBAL=") })
+	if out, err := runGitEnv(dir, nil, "config", "--get", "operator.secret"); err != nil || strings.TrimSpace(out) != "yes" {
+		t.Fatalf("setup: the operator's config is not read without the env: %q %v", out, err)
+	}
+	if out, err := runGitEnv(dir, env, "config", "--get", "operator.secret"); err == nil {
+		t.Fatalf("the operator's config was read under AnonymousReadEnv: %q", out)
+	}
+	// The four reads accept the env and still work.
+	head, err := HeadSHA(dir, env...)
+	if err != nil || len(head) < 40 {
+		t.Fatalf("HeadSHA: %q %v", head, err)
+	}
+	if ok, err := IsAncestor(dir, head, head, env...); err != nil || !ok {
+		t.Fatalf("IsAncestor: %v %v", ok, err)
+	}
+	if b, err := TreeBlobs(dir, head, env...); err != nil || len(b) != 1 || b[0].Path != "a.md" {
+		t.Fatalf("TreeBlobs: %v %v", b, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("commit", "-qam", "two")
+	head2, _ := HeadSHA(dir, env...)
+	if d, err := DiffTree(dir, head, head2, env...); err != nil || len(d) != 1 || d[0].Status != "M" {
+		t.Fatalf("DiffTree: %v %v", d, err)
 	}
 }

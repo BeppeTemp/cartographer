@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/worker/connector"
 	"github.com/BeppeTemp/cartographer/internal/worker/recipe"
+	"log"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -55,7 +58,7 @@ func IngestKind() Kind {
 			if err != nil {
 				return nil, err
 			}
-			return &ingestInstance{system: sys, skipped: map[string]time.Time{}, now: time.Now}, nil
+			return &ingestInstance{system: sys, skipped: map[string]time.Time{}, now: time.Now, logf: log.Printf}, nil
 		},
 	}
 }
@@ -98,7 +101,11 @@ type ingestInstance struct {
 	// gitHosts is git.allow_hosts: the hosts the built-in git reader may clone.
 	gitHosts []string
 	gitClone recipe.CloneFunc // nil = https; tests inject a fixture
-	now      func() time.Time
+	// connectors are the MCP servers of the config; a Source naming one is read
+	// with the tools its allowlist offers, for this unit only (D1262).
+	connectors []connector.Config
+	logf       func(string, ...any)
+	now        func() time.Time
 
 	mu       sync.Mutex
 	skipped  map[string]time.Time // kb + "\x00" + unit ID -> until
@@ -109,6 +116,12 @@ type ingestInstance struct {
 // Bind implements Binder: the tier of the task's profile and the fetch scope.
 func (in *ingestInstance) Bind(cfg *Config, p Profile) {
 	in.tier, in.allowPrivate, in.gitHosts = p.Tier, cfg.FetchAllowPrivate, cfg.GitAllowHosts
+	in.connectors = cfg.Connectors
+}
+
+// declared reports whether the config declares a connector of that name.
+func (in *ingestInstance) declared(name string) bool {
+	return slices.ContainsFunc(in.connectors, func(c connector.Config) bool { return c.Name == name })
 }
 
 type ingestCand struct{ unit, source, locator, connector string }
@@ -245,8 +258,15 @@ func (in *ingestInstance) Next(_ context.Context, kb string, tools ToolCaller) (
 				in.skip(kb, e.ID, "connector")
 				continue
 			}
-		} else if conn != "" || (locator != "" && !httpLocator(locator)) {
-			in.skip(kb, e.ID, "connector") // skip-not-fail: a connector this worker lacks (D1260)
+		} else if conn != "" {
+			// A declared connector is started in Run, before the claim: one that
+			// cannot start skips the unit there (skip-not-fail, D1260).
+			if !in.declared(conn) {
+				in.skip(kb, e.ID, "connector")
+				continue
+			}
+		} else if locator != "" && !httpLocator(locator) {
+			in.skip(kb, e.ID, "connector")
 			continue
 		}
 		return &WorkItem{Key: e.ID, Data: ingestCand{unit: e.ID, source: f["source"], locator: locator, connector: conn}}, nil
@@ -302,6 +322,21 @@ func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Re
 		in.skip(rt.KB, c.unit, "")
 		return Result{Summary: "unit " + c.unit + " taken meanwhile"}, nil
 	}
+	// The connector of the Source is started before the claim: one that cannot
+	// start skips the unit for this run and leaves it open for another worker.
+	var conns *connector.Set
+	var connTools []connector.Tool
+	if c.connector != "" && c.connector != "git" {
+		conns = connector.Open(ctx, in.connectors, in.logf)
+		defer conns.Close()
+		if connTools, err = conns.Tools(ctx, c.connector); err != nil {
+			in.skip(rt.KB, c.unit, "connector")
+			if in.logf != nil {
+				in.logf("worker: unit %s skipped: connector %s unavailable: %v", c.unit, c.connector, err)
+			}
+			return Result{Summary: "unit " + c.unit + " skipped: connector " + c.connector + " unavailable"}, nil
+		}
+	}
 	_, err = callOK(rt.Tools, "concept_patch", map[string]any{
 		"id": c.unit, "if_match": unit.ContentHash, "reason": "claim unit " + c.unit,
 		"frontmatter": map[string]any{
@@ -326,8 +361,8 @@ func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Re
 		defer g.reader.Close() // the clones live for this run only
 		reader = g
 	}
-	tools := &ingestTools{inner: rt.Tools, unit: c.unit, ctx: ctx, fetch: reader}
-	allow := NewAllowlist(ingestAllowed()...)
+	tools := &ingestTools{inner: rt.Tools, unit: c.unit, ctx: ctx, fetch: reader, conns: conns, connTools: connTools}
+	allow := NewAllowlist(append(ingestAllowed(), tools.connectorNames()...)...)
 	agent := NewAgent(rt.Model, tools, allow, Limits{MaxSteps: ingestMaxSteps, MaxTotalTokens: rt.Grant})
 	user := fmt.Sprintf("Execute the IngestUnit %q. claimed_by is %q.\n\nBEGIN DATA unit\n%s\nEND DATA\n\nBEGIN DATA source\n%s\nEND DATA",
 		c.unit, rt.Replica, clip(unit.raw), clip(src.raw))
