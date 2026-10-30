@@ -578,3 +578,16 @@ func TestPromptInstructionsAreNotPrintable(t *testing.T) {
 		t.Error("JSON of the tasks shows the instructions")
 	}
 }
+
+// The guard sits behind the loop's allowlist, so a batch that carries a delete
+// is refused before it reaches the guard or the server.
+func TestPromptBatchDeleteIsRefusedBeforeTheGuard(t *testing.T) {
+	tools := newPromptTools("concept_batch", "log_append")
+	batch := Response{Stop: StopToolUse, Usage: Usage{InputTokens: 1, OutputTokens: 1}, ToolCalls: []ToolCall{
+		{ID: "1", Name: "concept_batch", Arguments: json.RawMessage(`{"operations":[{"op":"delete","id":"a"}]}`)}}}
+	agent := NewAgent(&scriptModel{turns: []Response{batch, doneTurn()}}, newPromptGuard(tools, "t"), NewAllowlist("concept_batch"), Limits{})
+	out, err := agent.Run(context.Background(), Task{System: "s", User: "u"})
+	if err != nil || out.Refused != 1 || tools.count("concept_batch") != 0 {
+		t.Errorf("out=%+v err=%v calls=%v", out, err, tools.calls)
+	}
+}
