@@ -188,10 +188,9 @@ map is [`docs/index.md`](docs/index.md).
 
 ## Contributing
 
-Questions and open-ended ideas go to
-[Discussions](https://github.com/beppetemp/cartographer/discussions); bugs and concrete proposals
-to issues. Issues and PRs are welcome: [`CONTRIBUTING.md`](CONTRIBUTING.md) covers building,
-testing and the PR flow. Cartographer is a personal project maintained on a best-effort basis.
+Bugs and ideas go to [issues](https://github.com/beppetemp/cartographer/issues/new/choose); a
+question starts from the [FAQ](docs/faq.md). PRs are welcome: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+covers building, testing and the PR flow. Cartographer is a personal project maintained on a best-effort basis.
 Security reports: [`SECURITY.md`](SECURITY.md).
 
 ## License

@@ -255,8 +255,8 @@ func TestDoctorSkillTeachesTheTemplateWayOut(t *testing.T) {
 // TestFeedbackSkillCarriesThePlaceholderRuleAndTheURLShapes pins the invariants
 // of cartographer-feedback (#1203): the public-repo placeholder rule, the two
 // prefilled URL shapes, and that the skill files nothing itself. The slug in
-// the URLs is the one in .github/ISSUE_TEMPLATE/config.yml (not checked here:
-// the embed package cannot read the repository).
+// the URLs is the one in the repo_url of mkdocs.yml (not checked here: the
+// embed package cannot read the repository).
 func TestFeedbackSkillCarriesThePlaceholderRuleAndTheURLShapes(t *testing.T) {
 	t.Parallel()
 	data, err := fs.ReadFile(FS, "bundled/cartographer-feedback/SKILL.md")
@@ -267,7 +267,7 @@ func TestFeedbackSkillCarriesThePlaceholderRuleAndTheURLShapes(t *testing.T) {
 	for _, want := range []string{
 		"kb-a", "example.com", "$HOME",
 		"https://github.com/beppetemp/cartographer/issues/new?template=bug.md",
-		"https://github.com/beppetemp/cartographer/discussions/new?category=ideas",
+		"https://github.com/beppetemp/cartographer/issues/new?template=idea.md",
 		"server_version", "cartographer version", "6000", "SECURITY.md",
 	} {
 		if !strings.Contains(text, want) {

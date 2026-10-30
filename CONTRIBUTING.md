@@ -325,16 +325,16 @@ dispatched by hand with one of three actions.
 - **Out of band**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand, with the same gate cleared.
 
-## Issues: bug, plan (ideas go to Discussions)
+## Issues: bug, idea, plan
 
 An issue is the backlog. Open one as soon as something is worth coming back to,
 from the template that fits:
 
-- **Idea**: not an issue. Post it in
-  [Discussions](https://github.com/beppetemp/cartographer/discussions) (category
-  Ideas); blank issues are disabled. A maintainer turns an idea worth building
-  into a plan.
-- **Bug** (label `bug`): version, transport, what happened, a reproduction.
+- **Bug** (label `bug`): version, transport, what happened, a reproduction. A
+  question the [FAQ](docs/faq.md) and the docs do not answer is a documentation bug.
+- **Idea** (label `idea`): what should be possible and why. It is a proposal, not
+  accepted work: at triage a maintainer puts it in a milestone or closes it with the
+  reason. Blank issues are disabled.
 - An agent can draft a bug or idea report with the bundled `cartographer-feedback`
   skill: it files nothing and prints a prefilled URL for you to submit.
 - **Plan** (label `plan`): a self-contained implementation plan, below.
@@ -344,7 +344,7 @@ change who acts:
 
 | Label | Meaning |
 |---|---|
-| `bug`, `plan` | The two kinds of issue (ideas and questions are Discussions). An accepted issue without a plan yet sits in a milestone and is promoted to `plan` when it is not trivial |
+| `bug`, `idea`, `plan` | The kinds of issue. An accepted issue without a plan yet sits in a milestone and is promoted to `plan` when it is not trivial |
 | `approved` | A maintainer accepted the plan (only triage rights can set it); for a contributor's PR the plan is also assigned to them |
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
 | `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest issues of the next milestones, and dropped when nobody claims one for a while (the maintainer takes it or moves it to the next version) |
@@ -358,12 +358,12 @@ milestone is accepted work, and a PR sits in the milestone of the issues it clos
 (the `pr-milestone` job of `plan-gate` sets it, and moves it with the issue), so a
 version's milestone lists its PRs too. **Every accepted issue has a milestone**, approved plans
 included: an open issue without one is not triaged yet, and the weekly triage puts
-it in a version, moves it to Discussions or closes it. Keep two or three milestones
+it in a version or closes it. Keep two or three milestones
 open: the non-trivial work of the next two is written as approved plans, ready to
 be claimed; further out an issue stays a plain issue until its version comes closer,
 because a plan's `file:line` pointers age.
 
-When a bug is picked up for implementation, it is **promoted in place** (by a
+When a bug or an idea is picked up for implementation, it is **promoted in place** (by a
 maintainer: the label edit needs triage rights; a contributor opens a new Plan
 issue that links the original): its body is rewritten from the Plan template and
 it gets the `plan` label, so the discussion and the plan stay in one issue. A

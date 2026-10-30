@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Questions and open-ended ideas
-    url: https://github.com/beppetemp/cartographer/discussions
-    about: Ask how to use Cartographer or talk through an idea that is not yet a concrete proposal.
+  - name: Questions
+    url: https://beppetemp.github.io/cartographer/faq/
+    about: Start from the FAQ and the documentation. A question they do not answer is a documentation bug.

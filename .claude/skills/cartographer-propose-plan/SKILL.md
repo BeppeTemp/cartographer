@@ -61,13 +61,12 @@ maintainer assigns it to them.
    body to reference siblings as `#<issue>` — the numbers exist only after
    creation. A pointer into a sibling's not-yet-implemented artifact cites the
    plan (`#<issue> WP<m>`), never an invented `file:line`.
-8. A plan written from a `bug` issue is **promoted in place**, not filed anew
+8. A plan written from a `bug` or `idea` issue is **promoted in place**, not filed anew
    (maintainer mode): rewrite that issue's body from the template (keep a
    one-line summary of the original request at the top), retitle it
    `Plan: <title>`, and `gh issue edit <m> --add-label plan`. One issue, one
    history, nothing to close by hand. In contributor mode, open a new Plan issue
-   that links the original instead. An idea lives in Discussions: a maintainer
-   asks for a plan there, or writes it. Only an analysis that splits one request
+   that links the original instead. Only an analysis that splits one request
    into several plans files new issues; it then closes the request with
    `-c "Split into #<a>, #<b>"`.
 
