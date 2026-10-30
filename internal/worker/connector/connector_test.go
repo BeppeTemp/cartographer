@@ -198,3 +198,56 @@ func TestPlainHTTPToARemoteHostIsRefused(t *testing.T) {
 		t.Fatal("plain http to a remote host was accepted")
 	}
 }
+
+// A redirect never carries the credentials to another host: the second server
+// sees no token and the redirect itself is refused.
+func TestHTTPRedirectToAnotherHostLeaksNothing(t *testing.T) {
+	var otherAuth, otherKey atomic.Value
+	var otherHits atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		otherHits.Add(1)
+		otherAuth.Store(r.Header.Get("Authorization"))
+		otherKey.Store(r.Header.Get("X-Api-Key"))
+	}))
+	defer other.Close()
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL, http.StatusTemporaryRedirect)
+	}))
+	defer first.Close()
+	t.Setenv("WIKI_TOKEN", "bearer-value")
+	t.Setenv("WIKI_KEY", "key-value")
+	cfg := Config{Name: "wiki", Transport: TransportHTTP, URL: first.URL, AllowInsecureHTTP: true, TokenEnv: "WIKI_TOKEN",
+		Headers: map[string]string{"X-Api-Key": "WIKI_KEY"}, Tools: []string{"read"}, CallTimeout: 5 * time.Second, MaxResultBytes: 100}
+	s := Open(context.Background(), []Config{cfg}, nil)
+	defer s.Close()
+	if _, err := s.Tools(context.Background(), "wiki"); err == nil {
+		t.Fatal("a redirect to another host was followed")
+	}
+	if a, _ := otherAuth.Load().(string); a != "" {
+		t.Errorf("the other host saw Authorization %q", a)
+	}
+	if k, _ := otherKey.Load().(string); k != "" {
+		t.Errorf("the other host saw X-Api-Key %q", k)
+	}
+	if otherHits.Load() != 0 {
+		t.Errorf("the other host was reached %d times", otherHits.Load())
+	}
+}
+
+// The result is cut while it is read, not after: a result far over the cap
+// still comes back at the cap.
+func TestResultCapAppliesWhileAppending(t *testing.T) {
+	t.Setenv("HELPER_FLAG", "1")
+	cfg := stdioCfg(t, "env")
+	cfg.MaxResultBytes = 50
+	ctx := context.Background()
+	s := Open(ctx, []Config{cfg}, nil)
+	defer s.Close()
+	res, err := s.Call(ctx, "wiki__env", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Text) > 50+len("\n[truncated]") || !strings.HasSuffix(res.Text, "[truncated]") {
+		t.Errorf("len %d: %q", len(res.Text), res.Text)
+	}
+}

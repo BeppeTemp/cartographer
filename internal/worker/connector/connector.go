@@ -16,8 +16,10 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"sync"
@@ -89,6 +91,8 @@ type Set struct {
 type conn struct {
 	once    sync.Once
 	session *mcp.ClientSession
+	cancel  context.CancelFunc // ends a stdio child and its process group
+	cmd     *exec.Cmd
 	offered map[string]bool // server tool names offered
 	tools   []Tool
 	err     error
@@ -142,17 +146,28 @@ func (s *Set) Call(ctx context.Context, qualified string, args map[string]any) (
 	if err != nil {
 		return Result{}, fmt.Errorf("connector %s: calling %s: %w", name, tool, err)
 	}
+	// Stop appending once the cap is reached: a huge result is never built whole.
 	var b strings.Builder
+	truncated := false
 	for _, blk := range res.Content {
-		if t, ok := blk.(*mcp.TextContent); ok {
-			if b.Len() > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(t.Text)
+		t, ok := blk.(*mcp.TextContent)
+		if !ok {
+			continue
 		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		if room := cfg.MaxResultBytes - b.Len(); len(t.Text) > room {
+			if room > 0 {
+				b.WriteString(cutUTF8(t.Text, room))
+			}
+			truncated = true
+			break
+		}
+		b.WriteString(t.Text)
 	}
 	text := b.String()
-	if len(text) > cfg.MaxResultBytes {
+	if truncated || len(text) > cfg.MaxResultBytes {
 		text = cutUTF8(text, cfg.MaxResultBytes) + "\n[truncated]"
 	}
 	return Result{Text: text, IsError: res.IsError}, nil
@@ -165,6 +180,13 @@ func (s *Set) Close() {
 	for _, c := range s.live {
 		if c.session != nil {
 			_ = c.session.Close()
+		}
+		if c.cancel != nil {
+			c.cancel()
+		}
+		if c.cmd != nil {
+			// The connector's own exit does not take its grandchildren with it.
+			KillGroup(c.cmd)
 		}
 	}
 	s.live = map[string]*conn{}
@@ -190,20 +212,30 @@ func (s *Set) start(ctx context.Context, name string) (*conn, error) {
 }
 
 func (s *Set) connect(ctx context.Context, cfg Config, c *conn) error {
-	tr, err := s.transport(cfg)
+	tr, cancel, err := s.transport(cfg)
+	if ct, ok := tr.(*mcp.CommandTransport); ok {
+		c.cmd = ct.Command
+	}
 	if err != nil {
 		return fmt.Errorf("connector %s: %w", cfg.Name, err)
 	}
+	c.cancel = cancel
 	sctx, cancel := context.WithTimeout(ctx, cfg.CallTimeout)
 	defer cancel()
 	cl := mcp.NewClient(&mcp.Implementation{Name: "cartographer-worker", Version: "1"}, nil)
 	sess, err := cl.Connect(sctx, tr, nil)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return fmt.Errorf("connector %s: cannot start: %w", cfg.Name, err)
 	}
 	list, err := sess.ListTools(sctx, nil)
 	if err != nil {
 		_ = sess.Close()
+		if cancel != nil {
+			cancel()
+		}
 		return fmt.Errorf("connector %s: listing tools: %w", cfg.Name, err)
 	}
 	allowed := map[string]bool{}
@@ -225,52 +257,72 @@ func (s *Set) connect(ctx context.Context, cfg Config, c *conn) error {
 	return nil
 }
 
-func (s *Set) transport(cfg Config) (mcp.Transport, error) {
+func (s *Set) transport(cfg Config) (mcp.Transport, context.CancelFunc, error) {
 	switch cfg.Transport {
 	case TransportStdio:
 		env, err := ChildEnv(cfg.Env)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		cmd := exec.CommandContext(s.ctx, cfg.Command, cfg.Args...)
+		pctx, cancel := context.WithCancel(s.ctx)
+		cmd := exec.CommandContext(pctx, cfg.Command, cfg.Args...)
 		cmd.Env = env
 		KillGroupOnCancel(cmd)
-		return &mcp.CommandTransport{Command: cmd}, nil
+		return &mcp.CommandTransport{Command: cmd}, cancel, nil
 	case TransportHTTP:
 		if err := client.CheckServerURL(cfg.URL, cfg.AllowInsecureHTTP); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		hdr := http.Header{}
 		if cfg.TokenEnv != "" {
 			v, err := EnvValue(cfg.TokenEnv)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			hdr.Set("Authorization", "Bearer "+v)
 		}
 		for h, src := range cfg.Headers {
 			v, err := EnvValue(src)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			hdr.Set(h, v)
 		}
-		hc := client.HTTPClient(&http.Client{Transport: headerTripper{hdr}}, cfg.AllowInsecureHTTP)
-		return &mcp.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: hc, DisableStandaloneSSE: true}, nil
+		u, err := url.Parse(cfg.URL)
+		if err != nil {
+			return nil, nil, errors.New("not a valid URL")
+		}
+		hc := client.HTTPClient(&http.Client{Transport: headerTripper{h: hdr, host: u.Host}}, cfg.AllowInsecureHTTP)
+		base := hc.CheckRedirect
+		hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			// The credentials belong to the configured endpoint: a redirect to
+			// another host is refused, not followed without them.
+			if !strings.EqualFold(req.URL.Host, u.Host) {
+				return fmt.Errorf("refusing redirect to another host (%s)", req.URL.Hostname())
+			}
+			return base(req, via)
+		}
+		return &mcp.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: hc, DisableStandaloneSSE: true}, nil, nil
 	}
-	return nil, fmt.Errorf("unknown transport %q", cfg.Transport)
+	return nil, nil, fmt.Errorf("unknown transport %q", cfg.Transport)
 }
 
-// headerTripper adds the configured headers to every request. Authorization is
-// dropped on a redirect to another host by net/http itself; custom headers are
-// not, so the client's redirect policy (client.RedirectPolicy) is what keeps the
-// request on the scheme the operator accepted.
-type headerTripper struct{ h http.Header }
+// headerTripper adds the configured credentials and headers to a request, and
+// only when it goes to the configured endpoint's host (port included): net/http
+// keeps custom headers across a redirect and re-runs RoundTrip on the next hop,
+// so the host check here, and the refusal of cross-host redirects in
+// CheckRedirect, keep the token on the endpoint the operator named.
+type headerTripper struct {
+	h    http.Header
+	host string
+}
 
 func (t headerTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	r = r.Clone(r.Context())
-	for k, v := range t.h {
-		r.Header[k] = v
+	if strings.EqualFold(r.URL.Host, t.host) {
+		r = r.Clone(r.Context())
+		for k, v := range t.h {
+			r.Header[k] = v
+		}
 	}
 	return http.DefaultTransport.RoundTrip(r)
 }

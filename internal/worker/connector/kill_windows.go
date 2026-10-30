@@ -20,3 +20,10 @@ func KillGroupOnCancel(cmd *exec.Cmd) {
 		return nil
 	}
 }
+
+// KillGroup ends the process tree of a started command (see the Unix file).
+func KillGroup(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		_ = exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
+	}
+}

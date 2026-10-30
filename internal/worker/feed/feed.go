@@ -102,6 +102,8 @@ func Parse(e Entry, defaultInterval, minInterval time.Duration) (Feed, error) {
 		switch {
 		case !isStr || err != nil:
 			return bad("%s is not a duration such as 6h", KeyInterval)
+		case d <= 0:
+			return bad("%s must be above zero", KeyInterval)
 		case d < minInterval:
 			return bad("%s %s is below the task's min_interval %s", KeyInterval, d, minInterval)
 		}
@@ -156,21 +158,37 @@ func (f Feed) Due(now time.Time) bool {
 // (the first write's comes from the query, each next from the previous answer).
 
 // Lease claims the feed for this poll by setting feed_checked_at to now.
-func (f Feed) Lease(now time.Time) map[string]any { return patch(f.ID, f.ContentHash, now, nil) }
+func (f Feed) Lease(now time.Time) (map[string]any, error) {
+	if f.ContentHash == "" {
+		return nil, errNoIfMatch
+	}
+	return patch(f.ID, f.ContentHash, now, nil), nil
+}
 
 // Advance records that every entry up to cursor is handled: it sets feed_cursor
 // and feed_checked_at and removes feed_error. ifMatch is the hash Lease returned.
-func (f Feed) Advance(ifMatch, cursor string, now time.Time) map[string]any {
+func (f Feed) Advance(ifMatch, cursor string, now time.Time) (map[string]any, error) {
+	if ifMatch == "" {
+		return nil, errNoIfMatch
+	}
+	if len(cursor) > MaxCursorBytes {
+		return nil, fmt.Errorf("feed: cursor is %d bytes, over the %d the Source holds", len(cursor), MaxCursorBytes)
+	}
 	a := patch(f.ID, ifMatch, now, map[string]any{KeyCursor: cursor})
 	a["unset"] = []string{KeyError}
-	return a
+	return a, nil
 }
+
+var errNoIfMatch = errors.New("feed: a write of the cursor or its bookkeeping needs an if_match")
 
 // Fail records why the feed could not be polled, and moves feed_checked_at so a
 // failing feed is retried at its interval and never in a tight loop. The cursor
 // is left alone. The detail is cut to one line of MaxErrorBytes.
-func (f Feed) Fail(ifMatch, code, detail string, now time.Time) map[string]any {
-	return patch(f.ID, ifMatch, now, map[string]any{KeyError: errorLine(code, detail)})
+func (f Feed) Fail(ifMatch, code, detail string, now time.Time) (map[string]any, error) {
+	if ifMatch == "" {
+		return nil, errNoIfMatch
+	}
+	return patch(f.ID, ifMatch, now, map[string]any{KeyError: errorLine(code, detail)}), nil
 }
 
 func patch(id, ifMatch string, now time.Time, set map[string]any) map[string]any {

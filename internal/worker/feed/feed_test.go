@@ -63,9 +63,12 @@ func TestParseErrorsAreBadFieldNotPanics(t *testing.T) {
 
 func TestBuildersAlwaysCarryIfMatch(t *testing.T) {
 	f := Feed{ID: "ledger/docs-feed", ContentHash: "h0"}
-	lease := f.Lease(t0)
-	adv := f.Advance("h1", "cursor-2", t0)
-	fail := f.Fail("h1", "list_failed", "boom\nsecond line", t0)
+	lease, err1 := f.Lease(t0)
+	adv, err2 := f.Advance("h1", "cursor-2", t0)
+	fail, err3 := f.Fail("h1", "list_failed", "boom\nsecond line", t0)
+	if err1 != nil || err2 != nil || err3 != nil {
+		t.Fatal(err1, err2, err3)
+	}
 	for name, a := range map[string]map[string]any{"lease": lease, "advance": adv, "fail": fail} {
 		if a["if_match"] == "" || a["if_match"] == nil || a["id"] != "ledger/docs-feed" {
 			t.Errorf("%s: %v", name, a)
@@ -94,7 +97,8 @@ func TestBuildersAlwaysCarryIfMatch(t *testing.T) {
 
 func TestFailDetailIsCutOnARuneBoundary(t *testing.T) {
 	long := strings.Repeat("é", 400)
-	e := Feed{ID: "x"}.Fail("h", "list_failed", long, t0)["frontmatter"].(map[string]any)[KeyError].(string)
+	a, _ := Feed{ID: "x"}.Fail("h", "list_failed", long, t0)
+	e := a["frontmatter"].(map[string]any)[KeyError].(string)
 	if len(e) > MaxErrorBytes || !strings.HasPrefix(e, "list_failed: é") {
 		t.Errorf("len %d: %q", len(e), e)
 	}
@@ -115,5 +119,32 @@ func TestOutcome(t *testing.T) {
 func TestQueryFieldsFitTheConceptListCap(t *testing.T) {
 	if len(QueryFields) > 8 {
 		t.Errorf("%d fields, concept_list takes 8", len(QueryFields))
+	}
+}
+
+func TestWritesRefuseAnEmptyIfMatchAndAnOverlongCursor(t *testing.T) {
+	f := Feed{ID: "x"} // no ContentHash: a Lease has nothing to compare against
+	if _, err := f.Lease(t0); err == nil {
+		t.Error("Lease without a hash")
+	}
+	if _, err := f.Advance("", "c", t0); err == nil {
+		t.Error("Advance with an empty if_match")
+	}
+	if _, err := f.Fail("", "list_failed", "x", t0); err == nil {
+		t.Error("Fail with an empty if_match")
+	}
+	if _, err := f.Advance("h", strings.Repeat("x", MaxCursorBytes+1), t0); err == nil {
+		t.Error("Advance with an over-long cursor")
+	}
+	if _, err := f.Advance("h", strings.Repeat("x", MaxCursorBytes), t0); err != nil {
+		t.Errorf("a cursor at the limit: %v", err)
+	}
+}
+
+func TestParseIntervalMustBePositiveWhateverTheMinimum(t *testing.T) {
+	for _, v := range []string{"0s", "-1h"} {
+		if _, err := Parse(entry(map[string]any{KeyInterval: v}), time.Hour, 0); err == nil {
+			t.Errorf("feed_interval %s accepted", v)
+		}
 	}
 }
