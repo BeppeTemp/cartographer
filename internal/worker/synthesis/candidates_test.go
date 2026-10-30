@@ -1,6 +1,7 @@
 package synthesis_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ func world(existing ...map[string]any) *fake {
 			{"id": "gaps/old", "fields": map[string]any{"timestamp": "2026-01-01", "resolution_status": "resolved"}},
 		}, existing...)})
 	}
+	f.handler["map_list"] = func(map[string]any) client.ToolOutput { return js([]any{map[string]any{"name": "gaps"}}) }
 	f.handler["log_tail"] = func(map[string]any) client.ToolOutput { return client.ToolOutput{Text: ""} }
 	f.handler["kb_review"] = func(a map[string]any) client.ToolOutput {
 		switch a["kind"] {
@@ -43,7 +45,7 @@ func world(existing ...map[string]any) *fake {
 		return js(map[string]any{"results": []any{map[string]any{"id": "m/1"}, map[string]any{"id": "m/2"}}})
 	}
 	f.handler["atlas_overview"] = func(map[string]any) client.ToolOutput {
-		return client.ToolOutput{Text: "## Structure\n\n### Most central\n\n- Alpha (s/alpha)\n- Beta (s/beta)\n\n### Communities\n\n- Alpha — 4 concepts\n"}
+		return client.ToolOutput{Text: "## Structure\n\n### Most central\n\n- Alpha (s/alpha)\n- s/beta\n\n### Communities\n\n- Alpha — 4 concepts\n"}
 	}
 	f.handler["link_suggest"] = func(a map[string]any) client.ToolOutput {
 		return js(map[string]any{"candidates": []any{map[string]any{"id": "s/other-" + a["id"].(string)[2:]}}})
@@ -162,5 +164,52 @@ func TestCandidates_Budget(t *testing.T) {
 	got, _, _ = synthesis.Candidates(f, synthesis.Config{}, synthesis.Budget{Daily: 1_000_000, Remaining: 200_000}, now)
 	if len(got) != 0 || len(f.calls) != 0 {
 		t.Errorf("the reserve must block the start before any call (%d candidates, %d calls)", len(got), len(f.calls))
+	}
+}
+
+// A Contradiction planted outside a declared map, with a far-future timestamp,
+// must not redirect the writes; nor may the root or a nested path be a map.
+func TestCandidates_TargetMapIsADeclaredOne(t *testing.T) {
+	f := world(
+		map[string]any{"id": "evil/x", "fields": map[string]any{"timestamp": "2999-01-01", "resolution_status": "open"}},
+		map[string]any{"id": "rootpage", "fields": map[string]any{"timestamp": "2999-01-02", "resolution_status": "open"}},
+	)
+	_, cfg, err := synthesis.Candidates(f, synthesis.Config{}, rich, now)
+	must(t, err)
+	if cfg.Map != "gaps" {
+		t.Errorf("map %q", cfg.Map)
+	}
+	for _, m := range []string{".", "/", "a/b", "../x", "x.md"} {
+		if _, _, err := synthesis.Candidates(world(), synthesis.Config{Map: m}, rich, now); err != synthesis.ErrNoMap {
+			t.Errorf("map %q accepted: %v", m, err)
+		}
+	}
+	f = world(map[string]any{"id": "evil/x", "fields": map[string]any{"timestamp": "2999-01-01"}})
+	f.handler["map_list"] = func(map[string]any) client.ToolOutput { return js([]any{map[string]any{"name": "nothing"}}) }
+	if _, _, err := synthesis.Candidates(f, synthesis.Config{}, rich, now); err != synthesis.ErrNoMap {
+		t.Errorf("an undeclared map was guessed: %v", err)
+	}
+}
+
+func TestCandidates_TruncatedInventoryStops(t *testing.T) {
+	f := world()
+	inner := f.handler["concept_list"]
+	f.handler["concept_list"] = func(a map[string]any) client.ToolOutput {
+		var m map[string]any
+		_ = json.Unmarshal([]byte(inner(a).Text), &m)
+		m["truncated"] = true
+		return js(m)
+	}
+	if _, _, err := synthesis.Candidates(f, synthesis.Config{}, rich, now); err != synthesis.ErrIncomplete {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// Both spellings of atlas_overview's central list: titled and untitled.
+func TestCandidates_UntitledCentralConcept(t *testing.T) {
+	got, _, err := synthesis.Candidates(world(), synthesis.Config{MaxCandidates: 10}, rich, now)
+	must(t, err)
+	if !strings.Contains(subjects(got), "Are s/beta and s/other-beta related?") || !strings.Contains(subjects(got), "Are s/alpha and") {
+		t.Errorf("got %s", subjects(got))
 	}
 }

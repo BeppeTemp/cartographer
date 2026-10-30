@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -72,6 +73,17 @@ func (g *Guard) CallTool(name string, args any) (client.ToolOutput, error) {
 	if err != nil {
 		return g.refuse("arguments must be a JSON object")
 	}
+	// The caller is already scoped to the session's KB: a routed `kb` or
+	// `target_kb` argument could send a read or a write to another one.
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) != nil && string(raw) != "null" {
+		return g.refuse("arguments must be a JSON object")
+	}
+	for _, k := range []string{"kb", "target_kb"} {
+		if _, ok := top[k]; ok {
+			return g.refuse("argument " + k + " is not allowed")
+		}
+	}
 	switch {
 	case name == "concept_write":
 		return g.write(raw)
@@ -109,7 +121,10 @@ func (g *Guard) read(id string) (m map[string]any, exists bool, err error) {
 		return nil, false, err
 	}
 	if out.IsError {
-		return nil, false, nil
+		if strings.Contains(out.Text, "concept not found") { // okf.ErrNotFound
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("concept_read %q: %s", id, out.Text) // any other error: unknown, so no write
 	}
 	if json.Unmarshal([]byte(out.Text), &m) != nil {
 		return nil, false, fmt.Errorf("concept_read %q: unreadable answer", id)
@@ -118,6 +133,13 @@ func (g *Guard) read(id string) (m map[string]any, exists bool, err error) {
 }
 
 func (g *Guard) write(raw json.RawMessage) (client.ToolOutput, error) {
+	var keys map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &keys)
+	for k := range keys {
+		if k != "id" && k != "frontmatter" && k != "body" && k != "index_entry" {
+			return g.refuse("argument " + k + " is not allowed")
+		}
+	}
 	var p struct {
 		ID          string         `json:"id"`
 		Frontmatter map[string]any `json:"frontmatter"`
@@ -202,22 +224,15 @@ func (g *Guard) patch(raw json.RawMessage) (client.ToolOutput, error) {
 		Frontmatter map[string]any `json:"frontmatter"`
 		Append      map[string]any `json:"frontmatter_append"`
 		edit
-		Edits []edit `json:"edits"`
+		Edits []json.RawMessage `json:"edits"`
 	}
 	if json.Unmarshal(raw, &p) != nil || p.ID == "" || p.IfMatch == "" {
 		return g.refuse("a patch needs id and if_match")
 	}
-	for k := range p.Frontmatter {
-		if k != "confidence" {
-			return g.refuse("only confidence may be set")
-		}
-	}
-	if c, ok := p.Frontmatter["confidence"].(string); ok && !contains(confidences, c) {
-		return g.refuse("confidence must be one of low, medium, high")
-	}
-	for k := range p.Append {
-		if k != "provenance" && k != "involves" {
-			return g.refuse("only provenance and involves may be appended to")
+	for k, v := range p.Frontmatter {
+		c, isStr := v.(string)
+		if k != "confidence" || !isStr || !contains(confidences, c) { // null deletes a key: refused too
+			return g.refuse("only confidence may be set, to low, medium or high")
 		}
 	}
 	doc, exists, err := g.read(p.ID)
@@ -228,7 +243,37 @@ func (g *Guard) patch(raw json.RawMessage) (client.ToolOutput, error) {
 	if fm["origin"] != Origin || fm["resolution_status"] != "open" || fm["type"] != "Contradiction" {
 		return g.refuse("only an open synthesis hypothesis may be patched")
 	}
-	edits := p.Edits
+	for k, v := range p.Append {
+		add := strs(v)
+		if s, ok := v.(string); ok {
+			add = []string{s}
+		}
+		if (k != "provenance" && k != "involves") || len(add) == 0 {
+			return g.refuse("only provenance and involves may be appended to, with concept ids")
+		}
+		for _, id := range add {
+			if !validID(id) {
+				return g.refuse(fmt.Sprintf("%q is not a concept id", id))
+			}
+		}
+		if k == "involves" && len(sortedSet(append(strs(fm["involves"]), add...))) > maxInvolves {
+			return g.refuse(fmt.Sprintf("involves is capped at %d", maxInvolves))
+		}
+	}
+	var edits []edit
+	for _, r := range p.Edits {
+		var keys map[string]json.RawMessage
+		var e edit
+		if json.Unmarshal(r, &keys) != nil || json.Unmarshal(r, &e) != nil {
+			return g.refuse("an edit must be an object of old_string and new_string")
+		}
+		for k := range keys { // replace_all would rewrite outside the Evidence section
+			if k != "old_string" && k != "new_string" {
+				return g.refuse("an edit takes old_string and new_string only")
+			}
+		}
+		edits = append(edits, e)
+	}
 	if p.Old != "" || p.New != "" {
 		edits = append(edits, p.edit)
 	}
@@ -236,7 +281,7 @@ func (g *Guard) patch(raw json.RawMessage) (client.ToolOutput, error) {
 		body, _ := doc["body"].(string)
 		sec := evidenceSection(body)
 		for _, e := range edits {
-			if e.Old == "" || !strings.Contains(sec, e.Old) || strings.Contains(e.New, "\n#") || strings.HasPrefix(e.New, "#") {
+			if e.Old == "" || !strings.Contains(sec, e.Old) || strings.HasPrefix(e.New, "#") || strings.Contains(e.New, "\n#") || strings.Contains(e.New, "\r#") {
 				return g.refuse("only the ## Evidence section may be edited")
 			}
 		}
@@ -254,4 +299,11 @@ func evidenceSection(body string) string {
 		rest = rest[:i]
 	}
 	return rest
+}
+
+var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$`)
+
+// validID is a root-relative concept id: no leading slash, no dot segments, no extension.
+func validID(id string) bool {
+	return idPattern.MatchString(id) && !strings.Contains(id, "..") && !strings.HasSuffix(id, ".md")
 }

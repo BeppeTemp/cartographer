@@ -17,7 +17,7 @@ func store(pages map[string]map[string]any) *fake {
 	f.handler["concept_read"] = func(a map[string]any) client.ToolOutput {
 		p, ok := pages[a["id"].(string)]
 		if !ok {
-			return client.ToolOutput{IsError: true, Text: "not found"}
+			return client.ToolOutput{IsError: true, Text: "concept_read: concept not found"}
 		}
 		return js(p)
 	}
@@ -138,5 +138,76 @@ func TestGuard_ListsTheAllowlistOnly(t *testing.T) {
 	}
 	if want := []string{"search", "concept_read", "concept_write", "concept_patch", "kb_review"}; !reflect.DeepEqual(names, want) {
 		t.Errorf("got %v", names)
+	}
+}
+
+func openHyp() map[string]any {
+	return map[string]any{"frontmatter": map[string]any{"type": "Contradiction", "origin": "synthesis", "resolution_status": "open", "involves": []any{"a", "b", "c", "d", "e"}}, "body": "T\n\n## Evidence\n\n- [[arch/a]]: a calls b\n\n## How to confirm or reject\n\nx\n", "content_hash": "h2"}
+}
+
+func TestGuard_Hardening(t *testing.T) {
+	h := hyp()
+	pages := map[string]map[string]any{"gaps/mine": openHyp()}
+	f := store(pages)
+	g := &synthesis.Guard{Inner: f, Target: h.ID()}
+	w := good(h)
+	w["kb"] = "other-kb"
+	patch := func(extra map[string]any) map[string]any {
+		m := map[string]any{"id": "gaps/mine", "if_match": "h2"}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	refused := map[string]struct {
+		tool string
+		args any
+	}{
+		"kb on a write":        {"concept_write", w},
+		"target_kb on a read":  {"concept_read", map[string]any{"id": "x", "target_kb": "other"}},
+		"kb on a search":       {"search", map[string]any{"query": "x", "kb": "other"}},
+		"kb on a patch":        {"concept_patch", patch(map[string]any{"kb": "o", "frontmatter": map[string]any{"confidence": "low"}})},
+		"edit replace_all":     {"concept_patch", patch(map[string]any{"edits": []any{map[string]any{"old_string": "a calls b", "new_string": "x", "replace_all": true}}})},
+		"edit heading CR":      {"concept_patch", patch(map[string]any{"edits": []any{map[string]any{"old_string": "a calls b", "new_string": "x\r# H"}}})},
+		"edit heading LF":      {"concept_patch", patch(map[string]any{"old_string": "a calls b", "new_string": "x\n## H"})},
+		"edit outside":         {"concept_patch", patch(map[string]any{"edits": []any{map[string]any{"old_string": "T\n", "new_string": "x"}}})},
+		"confidence null":      {"concept_patch", patch(map[string]any{"frontmatter": map[string]any{"confidence": nil}})},
+		"confidence number":    {"concept_patch", patch(map[string]any{"frontmatter": map[string]any{"confidence": 3}})},
+		"involves over cap":    {"concept_patch", patch(map[string]any{"frontmatter_append": map[string]any{"involves": []string{"f", "g"}}})},
+		"provenance not id":    {"concept_patch", patch(map[string]any{"frontmatter_append": map[string]any{"provenance": []string{"../etc/passwd"}}})},
+		"provenance extension": {"concept_patch", patch(map[string]any{"frontmatter_append": map[string]any{"provenance": []string{"a/b.md"}}})},
+		"append other key":     {"concept_patch", patch(map[string]any{"frontmatter_append": map[string]any{"tags": []string{"x"}}})},
+	}
+	for name, c := range refused {
+		if out, _ := g.CallTool(c.tool, c.args); !out.IsError || !strings.Contains(out.Text, "synthesis creates new gaps only") {
+			t.Errorf("%s: not refused: %+v", name, out)
+		}
+	}
+	if f.count("concept_write")+f.count("concept_patch")+f.count("search") != 0 {
+		t.Error("a refused call reached the server")
+	}
+	// An allowed append within the cap still passes.
+	if out, _ := g.CallTool("concept_patch", patch(map[string]any{"frontmatter_append": map[string]any{"involves": []string{"f"}}})); out.IsError {
+		t.Errorf("append within the cap refused: %+v", out)
+	}
+}
+
+// Only a recognised not-found means the concept is absent: any other read error
+// (a routed connection, a permission) must not turn into a write.
+func TestGuard_ReadErrorFailsClosed(t *testing.T) {
+	h := hyp()
+	f := store(map[string]map[string]any{})
+	f.handler["concept_read"] = func(map[string]any) client.ToolOutput {
+		return client.ToolOutput{IsError: true, Text: "kb is required on a routed connection"}
+	}
+	g := &synthesis.Guard{Inner: f, Target: h.ID()}
+	if out, _ := g.CallTool("concept_write", good(h)); !out.IsError || f.count("concept_write") != 0 {
+		t.Fatalf("written after an unreadable read: %+v", out)
+	}
+	f.handler["concept_read"] = func(map[string]any) client.ToolOutput {
+		return client.ToolOutput{IsError: true, Text: `concept_read "x": concept not found: x.md`}
+	}
+	if out, _ := g.CallTool("concept_write", good(h)); out.IsError {
+		t.Fatalf("a real not-found must allow the create: %+v", out)
 	}
 }

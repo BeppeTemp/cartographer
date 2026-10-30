@@ -63,6 +63,10 @@ type Budget struct{ Daily, Remaining int }
 // skipped". The task never creates a map (map_create is outside the allowlist).
 var ErrNoMap = errors.New("synthesis: no contradiction map, skipped")
 
+// ErrIncomplete ends the task without a proposal: the Contradiction inventory the
+// dedup relies on was truncated, so a hypothesis could duplicate one not seen.
+var ErrIncomplete = errors.New("synthesis: the Contradiction inventory is truncated, skipped")
+
 // Candidate is one thing worth the model's attention.
 type Candidate struct {
 	Source   string // glossary_gap, search_miss, repeated_fact or link_suggest
@@ -87,6 +91,26 @@ type world struct {
 	synthOpen [][]string          // involves of open synthesis items
 	otherOpen map[string][]string // open gaps of the doctor or a person: id -> involves
 	examined  map[string]bool
+	declared  map[string]bool // map names, when the target map is to be guessed
+}
+
+// validMap: a configured map is one top-level directory name, never the root.
+func validMap(m string) bool { return validID(m) && !strings.Contains(m, "/") }
+
+func (w *world) declaredMaps() (map[string]bool, error) {
+	var maps []struct {
+		Name string `json:"name"`
+	}
+	if err := call(w.tools, "map_list", map[string]any{}, &maps); err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, m := range maps {
+		if validMap(m.Name) {
+			out[m.Name] = true
+		}
+	}
+	return out, nil
 }
 
 // Candidates returns the ordered, bounded list for one run. Read-only; every
@@ -149,15 +173,30 @@ func (w *world) load(cfg *Config, now time.Time) error {
 			ID     string         `json:"id"`
 			Fields map[string]any `json:"fields"`
 		} `json:"results"`
+		Truncated bool `json:"truncated"`
 	}
 	if err := call(w.tools, "concept_list", map[string]any{"where": []string{"type=Contradiction"}, "fields": []string{"origin", "resolution_status", "involves", "timestamp"}, "limit": 500}, &list); err != nil {
 		return err
+	}
+	if list.Truncated {
+		return ErrIncomplete
+	}
+	if cfg.Map == "" {
+		declared, err := w.declaredMaps()
+		if err != nil {
+			return err
+		}
+		w.declared = declared
+	} else if !validMap(cfg.Map) {
+		return ErrNoMap
 	}
 	newest, newestID := "", ""
 	for _, e := range list.Results {
 		w.existing[e.ID] = true
 		ts, _ := e.Fields["timestamp"].(string)
-		if ts >= newest {
+		// The target map is guessed only among declared maps: a Contradiction
+		// planted anywhere else must not redirect the writes (nor to the root).
+		if w.declared[path.Dir(e.ID)] && ts >= newest {
 			newest, newestID = ts, e.ID
 		}
 		if e.Fields["resolution_status"] != "open" {
@@ -367,7 +406,8 @@ func (w *world) repeated(*Config) ([]Candidate, error) {
 	return out, err
 }
 
-var centralLine = regexp.MustCompile(`^- .*\(([^()\s]+)\)\s*$`)
+// centralLine matches "- Title (id)"; an untitled concept is a bare "- id".
+var centralLine = regexp.MustCompile(`^- (?:.*\(([^()\s]+)\)|([^()\s]+))\s*$`)
 
 // 4. Pages the server suggests linking among the most central ones. The
 // communities of atlas_overview carry no members in its text, so the "across
@@ -384,6 +424,9 @@ func (w *world) relations(*Config) ([]Candidate, error) {
 		m := centralLine.FindStringSubmatch(strings.TrimSpace(line))
 		if m == nil {
 			continue
+		}
+		if m[1] == "" {
+			m[1] = m[2]
 		}
 		var r struct {
 			Candidates []struct {
