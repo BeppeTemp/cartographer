@@ -679,7 +679,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   and where it went and why, read from the root `log.md` (D1146: the Retired tab is gone, and
   `panel=retired` links land on Activity); an archive map wears an "Archive" badge in the rail; the command palette's "Include archived" toggle adds archived pages to a search;
   pending sources are Work's "to ingest" column. Settings has the tabs Client, Server,
-  Knowledge Base and Worker (no counts on them; the Worker tab shows each reported worker perimeter's configuration, or the template of every key at its default while none has reported, and one tab per perimeter when several are visible), and opens on the Client one: the client's own settings first, as the
+  Knowledge Base and Worker (no counts on them; the Worker tab shows each reported worker perimeter's typed values (no YAML pane), or the template of every key at its default while none has reported, and one tab per perimeter when several are visible), and opens on the Client one: the client's own settings first, as the
   viewer's last `sync` reported them (its agents, the workspaces with their isolation), then the KBs as a row
   of pills (the active one picked) and, for the picked one, the client keys that concern it: which of the machine's agents receive it and where (everywhere, or only the folders
   bound to it, through the bridge or over HTTP) and where its placeholders resolve on that machine. Each key

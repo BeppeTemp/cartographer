@@ -186,9 +186,9 @@ describe("the Settings panel", () => {
         json({
           ...SETTINGS,
           workers: [
-            { perimeter: "team-a", version: "v9", replicas: 2, kbs: ["kb-a"], entries, yaml: "name: team-a\n", received_at: "2026-10-16T10:00:00Z" },
+            { perimeter: "team-a", version: "v9", replicas: 2, kbs: ["kb-a"], entries, received_at: "2026-10-16T10:00:00Z" },
           ],
-          worker_template: { entries, yaml: "# name: \"\"\n" },
+          worker_template: { entries },
         }),
     });
     const user = userEvent.setup();
@@ -196,15 +196,17 @@ describe("the Settings panel", () => {
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     await user.click(within(tabs).getByRole("tab", { name: "Worker" }));
     expect(screen.getByRole("heading", { name: "team-a" })).toBeInTheDocument();
-    expect(screen.getByText(/Worker v9 · 2 replicas · reported/)).toBeInTheDocument();
+    expect(screen.getByText(/Worker v9 · 2 replicas · kb-a · reported/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Worker name settings" })).toHaveTextContent("team-a");
     expect(screen.getByRole("list", { name: "Worker models settings" })).toHaveTextContent("models[].api_key_env");
+    expect(screen.getByText(/Worker v9 · 2 replicas · kb-a · reported/)).toBeInTheDocument();
+    // No raw file reaches the page: the YAML view says so.
     await user.click(screen.getByRole("button", { name: "YAML" }));
-    expect(screen.getByLabelText("worker.yaml")).toHaveTextContent("name: team-a");
+    expect(screen.getByText(/there is no YAML to show/)).toBeInTheDocument();
     first.unmount();
 
     stubApi({
-      "/settings": () => json({ ...SETTINGS, workers: [], worker_template: { entries, yaml: "# name\n" } }),
+      "/settings": () => json({ ...SETTINGS, workers: [], worker_template: { entries } }),
     });
     render(<App />);
     const tabs2 = await screen.findByRole("tablist", { name: "Settings of" });
@@ -214,25 +216,23 @@ describe("the Settings panel", () => {
   });
 
   it("keeps two workers of the same perimeter name apart", async () => {
-    const row = (replicas: number, yaml: string) => ({
+    const row = (replicas: number, value: string) => ({
       perimeter: "team-a",
       replicas,
       kbs: ["kb-a"],
-      entries: [{ key: "name", value: "team-a", origin: "file", description: "Perimeter name.", default: '""' }],
-      yaml,
+      entries: [{ key: "name", value, origin: "file", description: "Perimeter name.", default: '""' }],
       received_at: "2026-10-16T10:00:00Z",
     });
-    stubApi({ "/settings": () => json({ ...SETTINGS, workers: [row(1, "name: one\n"), row(3, "name: two\n")] }) });
+    stubApi({ "/settings": () => json({ ...SETTINGS, workers: [row(1, "one-a"), row(3, "two-b")] }) });
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     const workerTabs = within(tabs).getAllByRole("tab", { name: "Worker · team-a" });
     expect(workerTabs).toHaveLength(2);
     await user.click(workerTabs[1]!);
-    expect(screen.getByText(/^Worker · 3 replicas · reported/)).toBeInTheDocument();
+    expect(screen.getByText(/^Worker · 3 replicas · kb-a · reported/)).toBeInTheDocument();
     expect(within(tabs).getAllByRole("tab", { selected: true }).map((t) => t.id)).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "YAML" }));
-    expect(screen.getByLabelText("worker.yaml")).toHaveTextContent("name: two");
+    expect(screen.getByRole("list", { name: "Worker name settings" })).toHaveTextContent("two-b");
   });
 
   it("shows what a client can set before any client of the viewer has reported", async () => {

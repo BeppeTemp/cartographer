@@ -281,7 +281,7 @@ export function Settings({
           <>
             {worker !== undefined
               ? worker
-                ? `Worker${worker.version ? ` ${worker.version}` : ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
+                ? `Worker${worker.version ? ` ${worker.version}` : ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · ${worker.kbs.join(", ")} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
                 : "No worker has reported: every key at its default, read-only"
               : client
                 ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
@@ -526,7 +526,7 @@ function WorkerPanel({
   query,
 }: {
   worker: SettingsWorker | null;
-  template?: { entries: SettingEntry[]; yaml?: string };
+  template?: { entries: SettingEntry[] };
   mode: Mode;
   query: string;
 }) {
@@ -537,7 +537,7 @@ function WorkerPanel({
     groups.set(g, [...(groups.get(g) ?? []), e]);
   }
   return mode === "yaml" ? (
-    <Yaml name="worker.yaml" text={source?.yaml} />
+    <p className="page-note">A worker reports its typed values, not its file: there is no YAML to show.</p>
   ) : groups.size === 0 ? (
     <NoMatch query={query} />
   ) : (

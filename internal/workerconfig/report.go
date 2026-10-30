@@ -1,8 +1,7 @@
 package workerconfig
 
 import (
-	"bytes"
-	"errors"
+	"math"
 	"net/url"
 	"regexp"
 	"strings"
@@ -26,46 +25,48 @@ type Entry struct {
 	Values      string `json:"values,omitempty"`
 }
 
-// Template is the settings of a worker with no config file: every key at its default, and the file they amount to.
-func Template() ([]Entry, string) {
-	entries := make([]Entry, 0, len(Schema.Keys))
+// Template is the settings of a worker with no config file: every scalar key
+// at its default. The Atlas shows it while no worker has reported.
+func Template() []Entry {
+	var out []Entry
 	for _, k := range Schema.Keys {
+		if k.Type == "list" {
+			continue
+		}
 		e := Entry{Key: k.Path, Origin: "default", Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values}
 		_ = yaml.Unmarshal([]byte(k.Default), &e.Value)
-		entries = append(entries, e)
+		out = append(out, e)
 	}
-	out, _ := Schema.Format(nil)
-	return entries, string(out)
+	return out
 }
 
 // envName is what an `*_env` value may be: a variable name, optionally with (set)/(unset).
 var envName = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*( ?\((set|unset)\))?)?$`)
 
-// commentedAssign matches a commented-out assignment (`# key: value`): group 1
-// stays, group 2 is the key, group 3 the value.
-var commentedAssign = regexp.MustCompile(`^(\s*#\s*([a-z][a-z0-9_]*)\s*:\s*)(\S.*)$`)
+var (
+	nameRe   = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
+	clockRe  = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+	zoneRe   = regexp.MustCompile(`^[A-Za-z0-9_+/-]{1,40}$`)
+	modelRe  = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,100}$`)
+	kindRe   = regexp.MustCompile(`^[a-z0-9_-]{1,40}$`)
+	enumItem = regexp.MustCompile(`^[a-z0-9_-]+$`)
+)
 
-// ErrUnsafe is a report whose YAML the mask cannot vouch for.
-var ErrUnsafe = errors.New("workerconfig: settings must be one YAML document with no merge key and no alias")
-
-// known reports whether path is a schema key or holds some.
-func known(path string) bool {
-	for _, k := range Schema.Keys {
-		if k.Path == path || strings.HasPrefix(k.Path, path+".") || strings.HasPrefix(k.Path, path+"[]") {
-			return true
-		}
-	}
-	return false
+// stringShape is the one place a plain `string` key is allowed on the page: only
+// the keys listed here, each with the shape of what it holds. A string key not
+// listed (an option a task kind adds) is shown as Redacted, because nothing says
+// it is safe to show. models[].model is a model id, shown with a restricted
+// character set; the API key it could be confused with is an `*_env` name.
+var stringShape = map[string]*regexp.Regexp{
+	"name":                     nameRe,
+	"models[].name":            nameRe,
+	"models[].model":           modelRe,
+	"schedule.window.start":    clockRe,
+	"schedule.window.end":      clockRe,
+	"schedule.window.timezone": zoneRe,
+	"tasks[].kind":             kindRe,
+	"tasks[].model":            nameRe,
 }
-
-// leafNames are the last path segments of the schema keys.
-var leafNames = func() map[string]bool {
-	m := map[string]bool{}
-	for _, k := range Schema.Keys {
-		m[k.Path[strings.LastIndexAny(k.Path, ".]")+1:]] = true
-	}
-	return m
-}()
 
 // unsafeURL: a URL that carries credentials, a query or a fragment, or that does
 // not parse, is not shown. The authority is checked by hand as well, since
@@ -85,194 +86,85 @@ func unsafeURL(v string) bool {
 	return strings.Contains(rest, "@")
 }
 
-// unsafeByName applies the rules of a key by its name, case-insensitively.
-func unsafeByName(name, v string) bool {
-	name = strings.ToLower(name)
-	switch {
-	case strings.HasSuffix(name, "_env"):
-		return !envName.MatchString(strings.Trim(v, `"'`))
-	case strings.HasSuffix(name, "url"):
-		return unsafeURL(v)
+// enumOf returns the items of a Values text of the form "a | b", or nil.
+func enumOf(values string) []string {
+	var out []string
+	for _, it := range strings.Split(values, " | ") {
+		if !enumItem.MatchString(it) {
+			return nil
+		}
+		out = append(out, it)
 	}
-	return false
+	if len(out) < 2 {
+		return nil
+	}
+	return out
 }
 
-// unsafeScalar reports whether a scalar at a schema path (a list item is the
-// list's path plus "[]") would put a secret in the page. It fails closed: a
-// value under a key the table does not know is unsafe, whatever the key is
-// called (`token`, `password`, `api_key`).
-func unsafeScalar(path, v string) bool {
-	if v == "" {
-		return false
+// shown returns the value an entry of the given schema key may carry, and
+// whether the entry is kept at all. A value that does not match the key's type
+// drops the entry; a string the table does not vouch for is Redacted.
+func shown(k settingschema.Key, v any) (any, bool) {
+	switch k.Type {
+	case "bool":
+		b, ok := v.(bool)
+		return b, ok
+	case "int":
+		f, ok := v.(float64)
+		return f, ok && f >= 0 && f <= 1<<40 && f == math.Trunc(f)
+	case "env", "url", "string":
+		s, ok := v.(string)
+		switch {
+		case !ok:
+			return nil, false
+		case s == "":
+			return s, true
+		case k.Type == "env":
+			return s, envName.MatchString(s)
+		case k.Type == "url":
+			if unsafeURL(s) {
+				return Redacted, true
+			}
+			return s, true
+		}
+		if items := enumOf(k.Values); items != nil {
+			for _, it := range items {
+				if s == it {
+					return s, true
+				}
+			}
+			return Redacted, true
+		}
+		if re := stringShape[k.Path]; re != nil && re.MatchString(s) {
+			return s, true
+		}
+		return Redacted, true
 	}
-	path = strings.TrimSuffix(path, "[]")
-	k, ok := Schema.Lookup(path)
-	if !ok {
-		return true
-	}
-	if k.Type == "env" && !envName.MatchString(strings.Trim(v, `"'`)) || k.Type == "url" && unsafeURL(v) {
-		return true
-	}
-	return unsafeByName(path[strings.LastIndexAny(path, ".]")+1:], v)
+	return nil, false
 }
 
-func joinPath(path, key string) string {
-	if path == "" {
-		return key
-	}
-	return path + "." + key
-}
-
-// scrubValue masks a decoded value (an entry's value) at a schema path.
-func scrubValue(path string, v any) any {
-	switch x := v.(type) {
-	case string:
-		if unsafeScalar(path, x) {
-			return Redacted
-		}
-	case []any:
-		for i := range x {
-			x[i] = scrubValue(path+"[]", x[i])
-		}
-	case map[string]any:
-		for k, e := range x {
-			x[k] = scrubValue(joinPath(path, k), e)
-		}
-	case nil, bool, int, int64, uint64, float64:
-	default:
-		return Redacted
-	}
-	return v
-}
-
-// Scrub makes a report fit to keep and show, whatever the sender did: the
-// worker masked it, but no secret may be in memory or on the page. It returns
-// entries and YAML in which every value under a key the table does not know,
-// every `*_env` value that is not a variable name and every URL with
-// credentials, a query or a fragment is replaced by Redacted, and the file's KB
-// names. The YAML must be one document with no merge key and no alias (where a
-// value escapes the mask). It does not render again, so nothing grows.
-func Scrub(entries []Entry, text string) ([]Entry, string, []string, error) {
-	data := []byte(text)
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	var doc yaml.Node
-	if err := dec.Decode(&doc); err != nil {
-		return nil, "", nil, err
-	}
-	var second yaml.Node
-	if dec.Decode(&second) == nil {
-		return nil, "", nil, ErrUnsafe
-	}
-	changed := false
-	if !scrubNode(&doc, "", &changed) {
-		return nil, "", nil, ErrUnsafe
-	}
-	if changed {
-		out, err := settingschema.Encode(&doc)
-		if err != nil {
-			return nil, "", nil, err
-		}
-		data = out
-	}
-	// An entry is the schema's row plus the sender's value and origin: every
-	// other field is overwritten, and a key or an origin it does not know drops
-	// the entry, since each of them is shown on the page.
+// Scrub makes a report fit to keep and show, whatever the sender did: nothing
+// the sender wrote is kept but a value that matches its key's type. An entry is
+// the schema's row (key, description, default, type, values) plus the sender's
+// value and origin. An entry is dropped when its key is not a scalar key of
+// the table, its origin is not "file" or "default", its value is a list, a map
+// or of another type than the key's, or the key is repeated. A string the table
+// does not vouch for, and a URL with credentials, a query or a fragment, is
+// Redacted. `env` values must be variable names.
+func Scrub(entries []Entry) []Entry {
 	out := make([]Entry, 0, len(entries))
+	seen := map[string]bool{}
 	for _, e := range entries {
 		k, ok := Schema.Lookup(e.Key)
-		if !ok || (e.Origin != "file" && e.Origin != "default") {
+		if !ok || seen[e.Key] || (e.Origin != "file" && e.Origin != "default") {
 			continue
 		}
-		out = append(out, Entry{Key: k.Path, Value: scrubValue(k.Path, e.Value), Origin: e.Origin,
-			Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values})
-	}
-	var cfg struct {
-		KBs []string `yaml:"kbs"`
-	}
-	_ = doc.Decode(&cfg)
-	return out, string(data), cfg.KBs, nil
-}
-
-// opaque reports whether n holds an alias or a merge key, which a dropped
-// subtree must not hide.
-func opaque(n *yaml.Node) bool {
-	if n.Kind == yaml.AliasNode || n.Tag == "!!merge" || (n.Kind == yaml.ScalarNode && n.Value == "<<") {
-		return true
-	}
-	for _, c := range n.Content {
-		if opaque(c) {
-			return true
+		v, ok := shown(k, e.Value)
+		if !ok {
+			continue
 		}
+		seen[e.Key] = true
+		out = append(out, Entry{Key: k.Path, Value: v, Origin: e.Origin, Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values})
 	}
-	return false
-}
-
-// scrubComments masks the value of a commented-out assignment in n's comments.
-func scrubComments(n *yaml.Node, changed *bool) {
-	for _, c := range []*string{&n.HeadComment, &n.LineComment, &n.FootComment} {
-		lines := strings.Split(*c, "\n")
-		for i, l := range lines {
-			if m := commentedAssign.FindStringSubmatch(l); m != nil && (!leafNames[m[2]] || unsafeByName(m[2], strings.TrimSpace(m[3]))) {
-				lines[i], *changed = m[1]+Redacted, true
-			}
-		}
-		*c = strings.Join(lines, "\n")
-	}
-}
-
-// scrubNode masks the document in place and reports whether it is free of
-// aliases and merge keys. path is the schema path of n.
-func scrubNode(n *yaml.Node, path string, changed *bool) bool {
-	if n.Kind == yaml.AliasNode {
-		return false
-	}
-	scrubComments(n, changed)
-	mask := func(v *yaml.Node, p string) bool {
-		if v.Kind != yaml.ScalarNode || !unsafeScalar(p, v.Value) {
-			return false
-		}
-		// A trailing comment is likely to quote the value.
-		*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: Redacted}
-		*changed = true
-		return true
-	}
-	switch n.Kind {
-	case yaml.MappingNode:
-		kept := make([]*yaml.Node, 0, len(n.Content))
-		for i := 0; i+1 < len(n.Content); i += 2 {
-			k, v := n.Content[i], n.Content[i+1]
-			if k.Kind != yaml.ScalarNode || k.Tag == "!!merge" || k.Value == "<<" {
-				return false
-			}
-			// A key the table does not know is dropped with its value, whatever
-			// the value is: the key itself may be the secret.
-			p := joinPath(path, k.Value)
-			if !known(p) {
-				if opaque(k) || opaque(v) {
-					return false
-				}
-				*changed = true
-				continue
-			}
-			scrubComments(k, changed)
-			if !mask(v, p) && !scrubNode(v, p, changed) {
-				return false
-			}
-			kept = append(kept, k, v)
-		}
-		n.Content = kept
-	case yaml.SequenceNode:
-		for _, c := range n.Content {
-			if !mask(c, path+"[]") && !scrubNode(c, path+"[]", changed) {
-				return false
-			}
-		}
-	default:
-		for _, c := range n.Content {
-			if !mask(c, path) && !scrubNode(c, path, changed) {
-				return false
-			}
-		}
-	}
-	return true
+	return out
 }

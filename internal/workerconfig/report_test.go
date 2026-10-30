@@ -1,135 +1,109 @@
 package workerconfig
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
-func TestScrub(t *testing.T) {
+func e(key string, v any) Entry { return Entry{Key: key, Value: v, Origin: "file"} }
+
+func TestScrubKeepsWhatMatchesItsType(t *testing.T) {
 	t.Parallel()
-	_, out, kbs, err := Scrub([]Entry{{Key: "token_env", Value: "WORKER_TOKEN (set)"}}, "kbs: [kb-a, work-kb]\ntoken_env: WORKER_TOKEN\nmodels:\n  - api_key_env: sk-hunter2\n")
-	if err != nil {
-		t.Fatal(err)
+	got := Scrub([]Entry{
+		e("name", "team-a"),
+		e("token_env", "WORKER_TOKEN (set)"),
+		e("server_url", "https://example.com/mcp"),
+		e("allow_insecure_http", true),
+		e("schedule.poll_seconds", float64(60)),
+		e("schedule.window.start", "22:30"),
+		{Key: "models[].tier", Value: "large", Origin: "default"},
+	})
+	if len(got) != 7 {
+		t.Fatalf("got %+v", got)
 	}
-	if strings.Contains(out, "sk-hunter2") || !strings.Contains(out, "WORKER_TOKEN") || len(kbs) != 2 {
-		t.Fatalf("out = %q kbs = %v", out, kbs)
+	for _, x := range got {
+		if x.Value == Redacted {
+			t.Errorf("%s redacted", x.Key)
+		}
 	}
-	entries, _, _, _ := Scrub([]Entry{{Key: "token_env", Value: "WORKER_TOKEN (set)", Origin: "file"}, {Key: "models", Value: "a b", Origin: "file"}, {Key: "name", Origin: ""}}, "kbs: []\n")
-	if len(entries) != 2 || entries[0].Value != "WORKER_TOKEN (set)" || entries[1].Value != "a b" {
-		t.Fatalf("entries = %+v", entries)
+	row, _ := Schema.Lookup("token_env")
+	if got[1].Description != row.Description || got[1].Default != row.Default || got[1].Type != row.Type {
+		t.Errorf("row not the schema's: %+v", got[1])
 	}
 }
 
-func TestTemplateEqualsSchemaFormat(t *testing.T) {
+// Every probe of the review rounds, as an entry; none may leave a trace of S3CRET.
+func TestScrubLeavesNoTrace(t *testing.T) {
 	t.Parallel()
-	entries, text := Template()
-	want, err := Schema.Format(nil)
-	if err != nil || text != string(want) || len(entries) != len(Schema.Keys) {
-		t.Fatalf("template mismatch: %v", err)
+	probes := []Entry{
+		e("token", "S3CRET"),                                    // unknown key
+		e("password", "S3CRET"),                                 // unknown key
+		e("S3CRET", "x"),                                        // the key is the secret
+		e("models.api_key", "S3CRET"),                           // dotted unknown key
+		e("models[].api_key", "S3CRET"),                         // list sub-key not in the table
+		e("models", map[string]any{"S3CRET": "x"}),              // map value, secret key
+		e("models", []any{map[string]any{"api_key": "S3CRET"}}), // list of maps
+		e("kbs", []any{"S3CRET"}),                               // list key, any value
+		e("kbs[]", "S3CRET"),                                    // scalar under a list key
+		e("kbs", "S3CRET"),                                      // scalar where the table has a list
+		e("schedule.poll_seconds", "S3CRET"),                    // string under an int key
+		e("schedule.poll_seconds", float64(-1)),                 // out of range
+		e("schedule.poll_seconds", 1.5),                         // not whole
+		e("allow_insecure_http", "S3CRET"),                      // string under a bool key
+		e("name", float64(7)),                                   // number under a string key
+		e("name", map[string]any{"a": "S3CRET"}),                // map under a string key
+		e("token_env", "sk-S3CRET"),                             // not a variable name
+		e("token_env", []any{"S3CRET x"}),                       // list under an env key
+		e("models[].api_key_env", "a S3CRET"),
+		e("server_url", "https://u:S3CRET@example.com/mcp"),
+		e("server_url", "u:S3CRET@example.com/x"),
+		e("server_url", "https://example.com/mcp?token=S3CRET"),
+		e("server_url", "https://example.com/mcp#S3CRET"),
+		e("server_url", "http://[::1"),
+		e("models[].base_url", "https://u:S3CRET@example.com"),
+		e("models[].provider", "S3CRET"), // outside the enum
+		e("models[].tier", "S3CRET"),
+		e("schedule.window.start", "S3CRET"), // not a clock
+		e("schedule.window.timezone", "S3CRET sk=1"),
+		e("tasks[].kind", "S3CRET sk=1"),
+		{Key: "name", Value: "team-a", Origin: "S3CRET"}, // unknown origin
+		{Key: "name", Value: "team-a", Origin: "S3CRET", Description: "S3CRET", Default: "S3CRET", Type: "S3CRET", Values: "S3CRET"},
+		{Key: "name", Value: "S3CRET-ok", Origin: "file", Description: "S3CRET", Default: "S3CRET", Type: "S3CRET", Values: "S3CRET"}, // fields the sender controls
 	}
-	for _, e := range entries {
-		if e.Origin != "default" {
-			t.Errorf("%s origin %q", e.Key, e.Origin)
+	out, _ := json.Marshal(Scrub(probes))
+	if strings.Contains(string(out), "S3CRET") {
+		t.Fatalf("trace of the secret: %s", out)
+	}
+}
+
+func TestScrubRedactsUnvouchedStrings(t *testing.T) {
+	t.Parallel()
+	got := Scrub([]Entry{e("models[].provider", "gemini"), e("server_url", "https://u:pw@example.com/"), e("models[].model", "sk live"), e("name", "Team A")})
+	if len(got) != 4 {
+		t.Fatalf("got %+v", got)
+	}
+	for _, x := range got {
+		if x.Value != Redacted {
+			t.Errorf("%s = %v", x.Key, x.Value)
 		}
 	}
 }
 
-func TestScrubFailsClosed(t *testing.T) {
+func TestScrubDropsRepeatedKeys(t *testing.T) {
 	t.Parallel()
-	cases := map[string]string{
-		"unknown key":      "kbs: [kb-a]\ntoken: sk-live-1\n",
-		"password":         "kbs: [kb-a]\npassword: hunter2\n",
-		"nested unknown":   "kbs: [kb-a]\nmodels:\n  - name: c\n    api_key: s3cret\n",
-		"unknown sequence": "kbs: [kb-a]\nextra:\n  - s3cret\n",
-		"env sequence":     "kbs: [kb-a]\nmodels:\n  - api_key_env: [a b]\n",
-		"upper url":        "kbs: [kb-a]\nSERVER_URL: https://u:pw@example.com/x\n",
-		"userinfo":         "kbs: [kb-a]\nserver_url: https://u:pw@example.com/mcp\n",
-		"schemeless":       "kbs: [kb-a]\nserver_url: u:pw@example.com/x\n",
-		"query":            "kbs: [kb-a]\nserver_url: https://example.com/mcp?token=s3cret\n",
-		"fragment":         "kbs: [kb-a]\nserver_url: https://example.com/mcp#s3cret\n",
-		"unparsable":       "kbs: [kb-a]\nserver_url: \"http://[::1\"\n",
-		"url in list":      "kbs: [kb-a]\nmodels:\n  - base_url: https://u:pw@example.com\n",
-		"commented":        "kbs: [kb-a]\n# password: s3cret\n",
-	}
-	for name, in := range cases {
-		_, out, _, err := Scrub(nil, in)
-		if err != nil {
-			t.Errorf("%s: %v", name, err)
-			continue
-		}
-		// A key the table does not know is dropped; a known one is masked.
-		dropped := map[string]bool{"unknown key": true, "password": true, "nested unknown": true, "unknown sequence": true, "upper url": true}
-		if (!dropped[name] && !strings.Contains(out, Redacted)) || strings.Contains(out, "s3cret") || strings.Contains(out, "sk-live") || strings.Contains(out, "hunter2") || strings.Contains(out, "pw@") {
-			t.Errorf("%s: leaked: %q", name, out)
-		}
-	}
-	// Entries: the schema's row plus the sender's value and origin.
-	entries, _, _, _ := Scrub([]Entry{
-		{Key: "token", Value: "sk-live-1", Origin: "file"},
-		{Key: "sk-live-key", Value: "x", Origin: "file"},
-		{Key: "models", Value: []any{map[string]any{"name": "c", "api_key": "s3cret", "api_key_env": "a b"}}, Origin: "file",
-			Description: "sk-in-description", Default: "sk-in-default", Type: "sk-in-type", Values: "sk-in-values"},
-		{Key: "kbs", Value: []any{"kb-a"}, Origin: "default"},
-		{Key: "server_url", Value: "https://example.com/mcp?x=s3cret", Origin: "file"},
-		{Key: "name", Value: "team-a", Origin: "sk-in-origin"},
-	}, "kbs: []\n")
-	if len(entries) != 3 {
-		t.Fatalf("entries = %+v", entries)
-	}
-	m := entries[0].Value.([]any)[0].(map[string]any)
-	row, _ := Schema.Lookup("models")
-	if m["api_key"] != Redacted || m["api_key_env"] != Redacted || m["name"] != "c" ||
-		entries[0].Description != row.Description || entries[0].Default != row.Default || entries[0].Type != row.Type || entries[0].Values != row.Values {
-		t.Errorf("models = %+v", entries[0])
-	}
-	if entries[1].Value.([]any)[0] != "kb-a" || entries[2].Value != Redacted {
-		t.Errorf("entries = %+v", entries[1:])
+	got := Scrub([]Entry{e("name", "team-a"), e("name", "team-b")})
+	if len(got) != 1 || got[0].Value != "team-a" {
+		t.Fatalf("got %+v", got)
 	}
 }
 
-func TestScrubDropsUnknownAndNonScalarKeys(t *testing.T) {
+func TestTemplateIsTheScalarKeysAtTheirDefaults(t *testing.T) {
 	t.Parallel()
-	for name, in := range map[string]string{
-		"empty value":    "kbs: [kb-a]\nsk-SECRET: \"\"\n",
-		"mapping value":  "kbs: [kb-a]\nsk-SECRET:\n  a: b\n",
-		"nested unknown": "kbs: [kb-a]\nmodels:\n  - name: c\n    sk-SECRET: \"\"\n",
-		"block key":      "kbs: [kb-a]\n? |\n  sk-SECRET\n: x\n",
-	} {
-		_, out, _, err := Scrub(nil, in)
-		if err != nil || strings.Contains(out, "SECRET") || !strings.Contains(out, "kb-a") {
-			t.Errorf("%s: err %v out %q", name, err, out)
-		}
-	}
-	for name, in := range map[string]string{
-		"mapping key":  "kbs: [kb-a]\n? {token: sk-X}\n: x\n",
-		"sequence key": "kbs: [kb-a]\n? [sk-X]\n: x\n",
-	} {
-		if _, _, _, err := Scrub(nil, in); err == nil {
-			t.Errorf("%s accepted", name)
-		}
-	}
-}
-
-func TestScrubKeepsWhatIsSafe(t *testing.T) {
-	t.Parallel()
-	in := "kbs:\n  - kb-a\nserver_url: https://example.com/mcp\nschedule:\n  poll_seconds: 60\nmodels:\n  - name: c\n    api_key_env: CLOUD_KEY\n    budget:\n      daily_tokens: 100\n"
-	_, out, _, err := Scrub(nil, in)
-	if err != nil || strings.Contains(out, Redacted) {
-		t.Fatalf("err %v out %q", err, out)
-	}
-}
-
-func TestScrubRefusesMergeKeysAliasesAndDocuments(t *testing.T) {
-	t.Parallel()
-	for name, in := range map[string]string{
-		"merge": "a: &a {k: v}\nb:\n  <<: *a\n",
-		"alias": "a: &a v\nb: *a\n",
-		"two":   "kbs: []\n---\nkbs: []\n",
-		"bad":   "a: [b",
-		"empty": "",
-	} {
-		if _, _, _, err := Scrub(nil, in); err == nil {
-			t.Errorf("%s accepted", name)
+	for _, x := range Template() {
+		k, ok := Schema.Lookup(x.Key)
+		if !ok || k.Type == "list" || x.Origin != "default" || x.Default != k.Default {
+			t.Errorf("%+v", x)
 		}
 	}
 }

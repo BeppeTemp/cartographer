@@ -669,7 +669,7 @@ export interface SettingsView {
   /** The workers whose whole perimeter the viewer sees, as each last reported (D22). */
   workers?: SettingsWorker[];
   /** What a worker can set, every key at its default: shown until a worker reports. */
-  worker_template?: { entries: SettingEntry[]; yaml?: string };
+  worker_template?: { entries: SettingEntry[] };
 }
 
 /** One worker perimeter's settings: a report shared by its replicas, no secret in it. */
@@ -679,7 +679,6 @@ export interface SettingsWorker {
   replicas: number;
   kbs: string[];
   entries: SettingEntry[];
-  yaml: string;
   received_at: string;
 }
 

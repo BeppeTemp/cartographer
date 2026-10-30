@@ -29,7 +29,6 @@ type workerSettings struct {
 	Version    string
 	KBs        []string
 	Entries    []workerconfig.Entry
-	YAML       string
 	ReceivedAt time.Time
 }
 
@@ -112,7 +111,6 @@ type workerSettingsRow struct {
 	Replicas   int                  `json:"replicas"`
 	KBs        []string             `json:"kbs"`
 	Entries    []workerconfig.Entry `json:"entries"`
-	YAML       string               `json:"yaml"`
 	ReceivedAt time.Time            `json:"received_at"`
 }
 
@@ -124,7 +122,7 @@ func (s *workerStore) settingsRows() []workerSettingsRow {
 	rows := []workerSettingsRow{}
 	for p, m := range s.settings {
 		for per, r := range m {
-			row := workerSettingsRow{Perimeter: per, Version: r.Version, Entries: r.Entries, YAML: r.YAML, ReceivedAt: r.ReceivedAt}
+			row := workerSettingsRow{Perimeter: per, Version: r.Version, Entries: r.Entries, ReceivedAt: r.ReceivedAt}
 			seen := map[string]bool{}
 			for _, k := range r.KBs {
 				seen[k] = true
@@ -153,7 +151,7 @@ func (s *workerStore) settingsRows() []workerSettingsRow {
 	return rows
 }
 
-// workerSettingsViews keeps the perimeters whose every KB the caller sees whole: the YAML lists them.
+// workerSettingsViews keeps the perimeters whose every KB the caller sees whole: its row names them.
 func (m *MultiKBServer) workerSettingsViews(r *http.Request) []workerSettingsRow {
 	out := []workerSettingsRow{}
 	for _, row := range m.workers.settingsRows() {
@@ -191,8 +189,8 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 		Perimeter string               `json:"perimeter"`
 		Worker    string               `json:"worker"`
 		Version   string               `json:"version"`
+		KBs       []string             `json:"kbs"`
 		Entries   []workerconfig.Entry `json:"entries"`
-		YAML      string               `json:"yaml"`
 	}
 	bad := func(msg, field string) {
 		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, msg, field)
@@ -209,26 +207,26 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 		bad("worker must be 1-64 characters of [a-z0-9._-]", "worker")
 		return
 	}
+	if len(rep.KBs) == 0 || len(rep.KBs) > maxWorkerKBs {
+		bad("kbs must list 1-32 names", "kbs")
+		return
+	}
 	// A report carrying the caller's own token is refused, not masked.
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 		// The raw body, and the decoded strings too: a JSON escape hides the token from the raw bytes.
 		decoded, _ := json.Marshal(rep.Entries)
-		if tok != "" && (bytes.Contains(data, []byte(tok)) || strings.Contains(rep.YAML, tok) || bytes.Contains(decoded, []byte(tok))) {
+		if tok != "" && (bytes.Contains(data, []byte(tok)) || strings.Contains(rep.Version, tok) || bytes.Contains(decoded, []byte(tok))) {
 			bad("the report contains the bearer token of the request", "")
 			return
 		}
 	}
-	entries, text, kbs, err := workerconfig.Scrub(rep.Entries, rep.YAML)
-	if err != nil {
-		bad("yaml must be one YAML document with no merge key and no alias", "yaml")
-		return
-	}
+	entries := workerconfig.Scrub(rep.Entries)
 	p := auth.PrincipalFromContext(r.Context())
 	// A worker is a writer: no KB it may write is the 404 of an unknown KB.
 	// Only the KBs it may write are kept: the others are not its to name.
 	var named []string
-	for _, k := range kbs {
+	for _, k := range rep.KBs {
 		if _, mounted := m.servers[k]; mounted && p.ID != "" && p.Policy.HasKBAccess(k, true) && len(named) < maxWorkerKBs {
 			named = append(named, k)
 		}
@@ -238,7 +236,7 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	m.workers.putSettings(p.ID, rep.Perimeter, workerSettings{
-		Version: cleanText(rep.Version, 32), KBs: named, Entries: entries, YAML: text,
+		Version: cleanText(rep.Version, 32), KBs: named, Entries: entries,
 		ReceivedAt: m.workers.clock().UTC(),
 	})
 	writeUIJSON(w, http.StatusOK, map[string]bool{"received": true})

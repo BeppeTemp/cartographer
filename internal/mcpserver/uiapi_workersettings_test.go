@@ -12,8 +12,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 )
 
-const settingsYAML = "name: team-a\nkbs:\n  - kb-a\ntoken_env: WORKER_TOKEN\nmodels:\n  - name: cloud\n    api_key_env: CLOUD_API_KEY\n"
-
 func (f *workerFixture) postSettings(token string, body any) *httptest.ResponseRecorder {
 	raw, ok := body.([]byte)
 	if !ok {
@@ -28,7 +26,8 @@ func (f *workerFixture) postSettings(token string, body any) *httptest.ResponseR
 }
 
 func report(over map[string]any) map[string]any {
-	r := map[string]any{"perimeter": "team-a", "worker": "w-1", "version": "1.0", "yaml": settingsYAML,
+	r := map[string]any{"perimeter": "team-a", "worker": "w-1", "version": "1.0", "kbs": []string{"kb-a"},
+		"yaml":    "ignored: on the wire, never stored",
 		"entries": []map[string]any{{"key": "token_env", "value": "WORKER_TOKEN", "origin": "file"}}}
 	for k, v := range over {
 		r[k] = v
@@ -40,7 +39,6 @@ type settingsAnswer struct {
 	Workers []struct {
 		Perimeter string `json:"perimeter"`
 		Replicas  int    `json:"replicas"`
-		YAML      string `json:"yaml"`
 		KBs       []string
 		Entries   []struct {
 			Key   string `json:"key"`
@@ -49,7 +47,6 @@ type settingsAnswer struct {
 	} `json:"workers"`
 	Template struct {
 		Entries []workerconfig.Entry `json:"entries"`
-		YAML    string               `json:"yaml"`
 	} `json:"worker_template"`
 }
 
@@ -96,7 +93,7 @@ func TestWorkerSettings_ShownOnlyWithALiveDeclaration(t *testing.T) {
 		t.Fatal("settings_wanted must be false once the report is held")
 	}
 	a := f.settings(t, "worker-a")
-	if len(a.Workers) != 1 || a.Workers[0].Perimeter != "team-a" || a.Workers[0].Replicas != 1 || a.Workers[0].YAML != settingsYAML {
+	if len(a.Workers) != 1 || a.Workers[0].Perimeter != "team-a" || a.Workers[0].Replicas != 1 {
 		t.Fatalf("rows = %+v", a.Workers)
 	}
 	f.clock.advance(time.Hour)
@@ -124,9 +121,8 @@ func TestWorkerSettings_ReplicasShareARow(t *testing.T) {
 func TestWorkerSettings_PerimeterNeedsEveryKBWhole(t *testing.T) {
 	t.Parallel()
 	f := newAtlasWorkerFixture(t)
-	yaml := "name: team-a\nkbs:\n  - kb-a\n  - kb-b\n"
 	f.post(t, "worker-ab", beat(map[string]any{"kbs": []string{"kb-a", "kb-b"}}))
-	f.postSettings("worker-ab", report(map[string]any{"yaml": yaml}))
+	f.postSettings("worker-ab", report(map[string]any{"kbs": []string{"kb-a", "kb-b"}}))
 	if n := len(f.settings(t, "worker-ab").Workers); n != 1 {
 		t.Fatalf("a caller seeing both KBs got %d rows", n)
 	}
@@ -138,27 +134,34 @@ func TestWorkerSettings_PerimeterNeedsEveryKBWhole(t *testing.T) {
 	}
 }
 
-func TestWorkerSettings_ScrubsSecrets(t *testing.T) {
+func TestWorkerSettings_ReturnsNoTraceOfASecret(t *testing.T) {
 	t.Parallel()
 	f := newAtlasWorkerFixture(t)
 	f.post(t, "worker-a", beat(nil))
-	yaml := "kbs:\n  - kb-a\ntoken_env: sk-secret-value-123 # sk-secret-value-123\nserver_url: https://user:pw@example.com/mcp\nmodels:\n  - name: cloud\n    api_key_env: sk-other-secret\n# api_key_env: sk-commented\n"
-	rr := f.postSettings("worker-a", report(map[string]any{"yaml": yaml, "entries": []map[string]any{
-		{"key": "token_env", "value": "sk-secret-value-123", "default": "sk-def", "origin": "file"},
-		{"key": "models", "value": []any{map[string]any{"api_key_env": "sk-other-secret", "name": "cloud"}}, "origin": "file"},
-		{"key": "server_url", "value": "https://user:pw@example.com/mcp", "origin": "file"},
-	}}))
+	ent := func(k string, v any) map[string]any {
+		return map[string]any{"key": k, "value": v, "origin": "file", "description": "S3CRET", "default": "S3CRET"}
+	}
+	rr := f.postSettings("worker-a", report(map[string]any{
+		"yaml": "token: S3CRET\nYAMLMARK: 1\n", // accepted and ignored: never stored, never returned
+		"entries": []map[string]any{
+			ent("token_env", "sk-S3CRET"), ent("token", "S3CRET"), ent("S3CRET", "x"), ent("name", float64(1)),
+			ent("models", []any{map[string]any{"S3CRET": "x"}}), ent("kbs[]", "S3CRET"), ent("schedule.poll_seconds", "S3CRET"),
+			ent("server_url", "https://user:S3CRET@example.com/mcp"), ent("models[].provider", "S3CRET"),
+			ent("models", map[string]any{"S3CRET": "x"}), ent("models.api_key", "S3CRET"),
+		},
+	}))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
 	body := f.get("worker-a", "/settings").Body.String()
-	for _, leak := range []string{"sk-secret-value-123", "sk-other-secret", "sk-commented", "sk-def", "user:pw"} {
-		if strings.Contains(body, leak) {
-			t.Errorf("settings view leaks %q", leak)
-		}
+	if strings.Contains(body, "S3CRET") || strings.Contains(body, "YAMLMARK") {
+		t.Error("settings view leaks a secret or the ignored yaml")
 	}
 	if !strings.Contains(body, "redacted") {
-		t.Error("nothing was redacted")
+		t.Error("the URL was not redacted")
+	}
+	if a := f.settings(t, "worker-a"); len(a.Workers) != 1 || len(a.Workers[0].Entries) != 2 {
+		t.Errorf("kept entries = %+v", a.Workers)
 	}
 }
 
@@ -170,17 +173,13 @@ func TestWorkerSettings_Rejections(t *testing.T) {
 		body any
 		code int
 	}{
-		{"token escaped in body", []byte(`{"perimeter":"team-a","yaml":"kbs: [kb-a]\\n","version":"\\u0077orker-a"}`), 400},
+		{"token escaped in body", []byte(`{"perimeter":"team-a","kbs":["kb-a"],"version":"\u0077orker-a"}`), 400},
 		{"token in body", report(map[string]any{"version": "worker-a"}), 400},
-		{"bad yaml", report(map[string]any{"yaml": "a: [b"}), 400},
-		{"empty yaml", report(map[string]any{"yaml": ""}), 400},
-		{"merge key", report(map[string]any{"yaml": "x: &a {k: v}\ny:\n  <<: *a\nkbs: [kb-a]\n"}), 400},
-		{"alias", report(map[string]any{"yaml": "x: &a v\nkbs: [kb-a]\ny: *a\n"}), 400},
-		{"two documents", report(map[string]any{"yaml": "kbs: [kb-a]\n---\nkbs: [kb-b]\n"}), 400},
 		{"bad perimeter", report(map[string]any{"perimeter": "Team A"}), 400},
 		{"not an object", []byte(`[1]`), 400},
 		{"oversize", append([]byte(`{"perimeter":"team-a","yaml":"`), bytes.Repeat([]byte("a"), maxWorkerSettingsBody)...), 413},
-		{"kb not writable", report(map[string]any{"yaml": "kbs: [kb-b]\n"}), 404},
+		{"no kbs", report(map[string]any{"kbs": []string{}}), 400},
+		{"kb not writable", report(map[string]any{"kbs": []string{"kb-b"}}), 404},
 	}
 	for _, c := range cases {
 		if rr := f.postSettings("worker-a", c.body); rr.Code != c.code {
@@ -244,9 +243,8 @@ func TestWorkerSettings_TemplateAlwaysPresent(t *testing.T) {
 	t.Parallel()
 	f := newAtlasWorkerFixture(t)
 	a := f.settings(t, "worker-a")
-	want, _ := workerconfig.Schema.Format(nil)
-	if a.Template.YAML != string(want) || len(a.Template.Entries) != len(workerconfig.Schema.Keys) || len(a.Workers) != 0 {
-		t.Fatalf("template = %d entries, %d bytes, workers %d", len(a.Template.Entries), len(a.Template.YAML), len(a.Workers))
+	if len(a.Template.Entries) != len(workerconfig.Template()) || len(a.Workers) != 0 {
+		t.Fatalf("template = %d entries, workers %d", len(a.Template.Entries), len(a.Workers))
 	}
 }
 
@@ -254,7 +252,7 @@ func TestWorkerSettings_KeepsOnlyKBsThePrincipalMayWrite(t *testing.T) {
 	t.Parallel()
 	f := newAtlasWorkerFixture(t)
 	f.post(t, "worker-a", beat(nil))
-	f.postSettings("worker-a", report(map[string]any{"yaml": "kbs: [kb-a, kb-b, nope]\n"}))
+	f.postSettings("worker-a", report(map[string]any{"kbs": []string{"kb-a", "kb-b", "nope"}}))
 	rows := f.multi.workers.settingsRows()
 	if len(rows) != 1 || len(rows[0].KBs) != 1 || rows[0].KBs[0] != "kb-a" {
 		t.Fatalf("rows = %+v", rows)
