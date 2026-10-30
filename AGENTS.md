@@ -105,9 +105,6 @@ internal/worker             is the model client and agent loop of the worker (D9
 internal/worker/connector   mounts allowed MCP tools
 internal/worker/feed        handles a feed cursor
 internal/worker/synthesis   is the third task kind of the worker (D11)
-internal/worker             is the model client and the allowlisted agent loop a worker runs against a KB's MCP server (D9)
-internal/worker/connector   mounts allowlisted MCP servers
-internal/worker/feed        reads and patches a feed Source cursor
 internal/worker/recipe      lists what changed in a feed Source
 internal/worker/workertest  is the deterministic test double of package worker
 internal/workerconfig       holds the key table of the worker config file (D21)
