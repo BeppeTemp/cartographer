@@ -542,3 +542,39 @@ func TestPromptGuard(t *testing.T) {
 		t.Errorf("appends=%d refused=%d", tools.count("log_append")-before, g.Refused())
 	}
 }
+
+type failingModel struct{}
+
+func (failingModel) Complete(context.Context, Request) (Response, error) {
+	return Response{}, errors.New("model API 503")
+}
+
+func TestPromptFirstCallFailureWritesTheErrorMarker(t *testing.T) {
+	p := mustPromptInstance(t, func(p *promptTask) { p.now = func() time.Time { return t0 } })
+	tools := newPromptTools("concept_write", "log_append", "log_tail")
+	_, err := p.Run(context.Background(), &WorkItem{}, Runtime{KB: "kb-a", Grant: 50_000, Model: failingModel{}, Tools: tools})
+	if err == nil {
+		t.Fatal("the model error is not returned")
+	}
+	if got := tools.log.last(); !strings.Contains(got, "stopped=error") || !strings.Contains(got, "writes=0") {
+		t.Errorf("marker = %q", got)
+	}
+}
+
+func TestPromptInstructionsAreNotPrintable(t *testing.T) {
+	cfg, err := loadPromptCfg(t, goodTask, "Do "+promptCanary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"%v", "%+v", "%#v", "%s"} {
+		if out := fmt.Sprintf(f, cfg.Tasks); strings.Contains(out, promptCanary) {
+			t.Errorf("%s of the tasks shows the instructions", f)
+		}
+		if out := fmt.Sprintf(f, cfg); strings.Contains(out, promptCanary) {
+			t.Errorf("%s of the config shows the instructions", f)
+		}
+	}
+	if b, _ := json.Marshal(cfg.Tasks); strings.Contains(string(b), promptCanary) {
+		t.Error("JSON of the tasks shows the instructions")
+	}
+}

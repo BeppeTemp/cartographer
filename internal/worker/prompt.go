@@ -135,8 +135,30 @@ func loadPrompt(env LoadEnv, opts map[string]any) error {
 	if env.Warn != nil && !slices.ContainsFunc(opts["tools"].([]string), func(t string) bool { return !isRead(t) }) {
 		env.Warn("prompt task %q lists no write tool: it can only read and changes nothing", name)
 	}
-	opts[promptKeyInstructions], opts[promptKeyPerimeter], opts[promptKeyKBs] = text, env.Perimeter, slices.Clone(kbs)
+	opts[promptKeyInstructions], opts[promptKeyPerimeter], opts[promptKeyKBs] = hiddenText{text}, env.Perimeter, slices.Clone(kbs)
 	return nil
+}
+
+// hiddenText carries the operator's instructions through TaskSpec.Options
+// without any way to print them: every formatting verb shows a placeholder, so
+// a settings report or a %+v of the config cannot leak the text (D15).
+type hiddenText struct{ s string }
+
+func (hiddenText) String() string               { return "[redacted]" }
+func (hiddenText) GoString() string             { return "[redacted]" }
+func (hiddenText) Format(f fmt.State, _ rune)   { _, _ = f.Write([]byte("[redacted]")) }
+func (hiddenText) MarshalText() ([]byte, error) { return []byte("[redacted]"), nil }
+
+// countingModel counts the calls made to the model, so the marker is keyed on
+// "the model was reached" even when the first call failed.
+type countingModel struct {
+	Model
+	calls int
+}
+
+func (c *countingModel) Complete(ctx context.Context, r Request) (Response, error) {
+	c.calls++
+	return c.Model.Complete(ctx, r)
 }
 
 // promptTask is one tasks[] entry of kind prompt.
@@ -157,7 +179,8 @@ func buildPrompt(opts map[string]any) (Instance, error) {
 	p.name, ok[0] = opts["name"].(string)
 	p.tools, ok[1] = opts["tools"].([]string)
 	p.every, ok[2] = opts["every"].(time.Duration)
-	p.instructions, ok[3] = opts[promptKeyInstructions].(string)
+	h, hok := opts[promptKeyInstructions].(hiddenText)
+	p.instructions, ok[3] = h.s, hok
 	p.perimeter, ok[4] = opts[promptKeyPerimeter].(string)
 	p.kbs, ok[5] = opts[promptKeyKBs].([]string)
 	if slices.Contains(ok[:], false) {
@@ -265,7 +288,8 @@ func (p *promptTask) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Result, 
 		"Only the tools offered to you exist. Your own log lines are filed under the path task/%s.",
 		p.perimeter, p.name, rt.KB, start.Format("2006-01-02"), p.name) + promptDelimiter + p.instructions
 	user := fmt.Sprintf("Run the task now on the knowledge base %q.", rt.KB)
-	agent := NewAgent(rt.Model, guard, NewAllowlist(p.tools...), Limits{MaxTotalTokens: rt.Grant})
+	model := &countingModel{Model: rt.Model}
+	agent := NewAgent(model, guard, NewAllowlist(p.tools...), Limits{MaxTotalTokens: rt.Grant})
 	out, err := agent.Run(ctx, Task{System: system, User: user})
 
 	writes := 0
@@ -285,14 +309,14 @@ func (p *promptTask) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Result, 
 	case ReasonCanceled:
 		stopped = "shutdown"
 	}
-	if out.Steps > 0 { // a run that never reached the model leaves no marker
+	if model.calls > 0 { // a run that never reached the model leaves no marker
 		marker := fmt.Sprintf("task=%s at=%s day=%s stopped=%s writes=%d", p.name, start.Format(time.RFC3339), start.Format("2006-01-02"), stopped, writes)
 		p.writeMarker(rt, marker)
 	}
 	log.Printf("worker: prompt task %s on %s: %s, %d steps, %d writes, %d log entries refused", p.name, rt.KB, stopped, out.Steps, writes, guard.Refused())
 	res := Result{Tokens: out.Usage.Total(), Commits: writes,
 		Summary: fmt.Sprintf("prompt %s: %s, %d steps, %d writes", p.name, stopped, out.Steps, writes)}
-	if out.Steps > 0 {
+	if model.calls > 0 {
 		res.Units = 1
 	}
 	return res, err
