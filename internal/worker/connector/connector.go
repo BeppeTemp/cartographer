@@ -1,4 +1,4 @@
-// Package connector mounts allowlisted MCP servers.
+// Package connector mounts allowed MCP tools.
 //
 // The tool list and the descriptions come from a third-party server: untrusted
 // text the model reads. So a tool is offered only if the config lists it

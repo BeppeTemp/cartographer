@@ -1,4 +1,4 @@
-// Package feed reads and patches a feed Source cursor.
+// Package feed handles a feed cursor.
 //
 // A feed is a Source with source_shape: feed. The worker is stateless: the
 // cursor of what it has listed so far, the time of the last check and the last
