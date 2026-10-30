@@ -15,6 +15,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/worker"
+	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 )
 
 // Exit codes of `cartographer worker`: 0 graceful shutdown, 1 runtime failure,
@@ -63,6 +64,8 @@ type workerEnv struct {
 	cfg    *worker.Config
 	client *client.MCPClient
 	models map[string]worker.Model // by profile name
+	// settings is the report posted to the server (typed entries, no secret).
+	settings *workerconfig.Report
 }
 
 // closeTimeout bounds each closing log_append on shutdown; the entries are
@@ -72,15 +75,28 @@ const closeTimeout = 5 * time.Second
 
 // workerRunFn is the runner behind the start-up checks (stubbed by tests).
 var workerRunFn = func(ctx context.Context, env *workerEnv, once bool) int {
+	tiers := map[string]string{}
+	for _, p := range env.cfg.Models {
+		tiers[p.Name] = p.Tier
+	}
+	beater := &worker.Beater{API: env.client, Perimeter: env.cfg.Name, Version: version, KBs: env.cfg.KBs,
+		Tiers: tiers, Settings: env.settings, Logf: log.Printf}
 	r, err := worker.NewRunner(env.cfg, worker.DefaultKinds(), worker.RunnerOptions{
 		Callers:      func(kb string) worker.ToolCaller { return env.client.WithKB(kb) },
 		CloseCallers: func(kb string) worker.ToolCaller { return env.client.WithKB(kb).WithHTTPTimeout(closeTimeout) },
 		Models:       env.models,
+		Idle:         beater,
+		Heartbeat:    beater,
 	})
 	if err != nil {
 		log.Printf("worker: %v", err)
 		return workerExitStart
 	}
+	beater.Worker = r.Replica()
+	if env.settings != nil {
+		env.settings.Worker = r.Replica()
+	}
+	beater.Start(ctx)
 	log.Printf("worker %q (replica %s): started for %d KB(s)", env.cfg.Name, r.Replica(), len(env.cfg.KBs))
 	return r.Run(ctx, once)
 }
@@ -196,7 +212,15 @@ func workerStartup(ctx context.Context, path string, kinds *worker.Kinds, retry 
 	if len(missing) > 0 {
 		return nil, startFail(workerExitStart, "the token in $%s does not see KB(s) %s", cfg.TokenEnv, strings.Join(missing, ", "))
 	}
-	return &workerEnv{cfg: cfg, client: c, models: models}, nil
+	env := &workerEnv{cfg: cfg, client: c, models: models}
+	// The report is made from the file the worker loaded; it carries no secret
+	// (D1259), and a failure to make it only means the Atlas shows none.
+	if raw, err := os.ReadFile(path); err == nil {
+		if rep, err := workerconfig.Build(raw, cfg.Name, "", version, cfg.KBs, os.Getenv); err == nil {
+			env.settings = rep
+		}
+	}
+	return env, nil
 }
 
 func buildModel(p worker.Profile) (worker.Model, error) {
