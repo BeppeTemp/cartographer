@@ -346,14 +346,20 @@ func quoteAll(names []string) []string {
 //
 // url.URL is used rather than concatenation so an existing query survives.
 func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPath string, explicit bool) ([]mcpEntry, error) {
-	return entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, "")
+	return entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, "", nil)
 }
 
 // entriesForKBsAccess is entriesForKBs for a provider with an access profile
 // (D1184): on a routed server the URL carries access=<access> after kbs= and
 // before provisioned=1. Single-KB entries have no such endpoint and ignore it
 // (connect refuses that case before it gets here).
-func entriesForKBsAccess(baseName, serverURL string, mounted, bound []string, routedPath string, explicit bool, access string) ([]mcpEntry, error) {
+//
+// readOnly are the KBs the client set read-only (kb_options access: read,
+// #1409): the URL carries readonly=<names> after access= and before
+// provisioned=1, restricted to the KBs the entry reaches (a KB the server does
+// not mount is left out, as for kbs). It is omitted when access is set: that
+// profile is already read-only for the whole entry.
+func entriesForKBsAccess(baseName, serverURL string, mounted, bound []string, routedPath string, explicit bool, access string, readOnly []string) ([]mcpEntry, error) {
 	if routedPath != "" {
 		// D187/D288: a routed server exposes one endpoint for every KB, so one
 		// entry named after the server is the whole configuration. An explicit
@@ -387,6 +393,20 @@ func entriesForKBsAccess(baseName, serverURL string, mounted, bound []string, ro
 				u.RawQuery += "&"
 			}
 			u.RawQuery += "access=" + url.QueryEscape(access)
+		}
+		if access == "" {
+			var ro []string
+			for _, n := range readOnly {
+				if slices.Contains(reach, n) {
+					ro = append(ro, url.QueryEscape(n))
+				}
+			}
+			if len(ro) > 0 {
+				if u.RawQuery != "" {
+					u.RawQuery += "&"
+				}
+				u.RawQuery += mcpserver.ReadonlyParam + "=" + strings.Join(ro, ",")
+			}
 		}
 		// D1097: the entry declares itself provisioned (this client writes the
 		// managed instructions block), so the server sends it no operating
@@ -517,7 +537,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 				bound = mounted
 			}
 			if !explicit || len(routedBinding(mounted, bound)) > 0 || len(mounted) == 0 {
-				fallback, err := entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, "") // UsesBridge is false when access is set (D1184)
+				fallback, err := entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, "", cfg.ReadOnlyKBs()) // UsesBridge is false when access is set (D1184)
 				if err != nil {
 					return nil, err
 				}
@@ -529,6 +549,20 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			continue
 		}
 		bound, explicit := cfg.BoundKBs(p)
+		if routedPath == "" {
+			// #1409: a per-KB entry has no readonly parameter, so a KB set read-only
+			// would be served read-write without a word: refuse, naming the fix,
+			// as connect --access does.
+			recv := bound
+			if !explicit {
+				recv = mounted
+			}
+			for _, n := range cfg.ReadOnlyKBs() {
+				if slices.Contains(recv, n) {
+					return nil, fmt.Errorf("kb_options.%s.access is read, but this server has no routed endpoint, which is the only one that can connect a KB read-only (%s would be read-write): use a server with the routed endpoint, or remove the key with `cartographer client kb %s --access write`", n, p, n)
+				}
+			}
+		}
 		if !explicit {
 			// The default is "every KB the server currently mounts", so it
 			// resolves against the live discovery rather than the persisted
@@ -546,7 +580,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			out[p] = nil
 			continue
 		}
-		entries, err := entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, cfg.Clients[p].Access)
+		entries, err := entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, cfg.Clients[p].Access, cfg.ReadOnlyKBs())
 		if err != nil {
 			return nil, err
 		}
