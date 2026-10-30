@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -187,14 +188,17 @@ func LoadConfig(path string, kinds *Kinds) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("worker config: read %q: %w", path, err)
 	}
-	c, err := parseConfig(data, kinds)
+	c, err := parseConfigIn(data, kinds, filepath.Dir(path))
 	if err != nil {
 		return nil, fmt.Errorf("worker config %s: %w", path, err)
 	}
 	return c, nil
 }
 
-func parseConfig(data []byte, kinds *Kinds) (*Config, error) {
+func parseConfig(data []byte, kinds *Kinds) (*Config, error) { return parseConfigIn(data, kinds, "") }
+
+// parseConfigIn is parseConfig with the directory kinds resolve their files in.
+func parseConfigIn(data []byte, kinds *Kinds, dir string) (*Config, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, err
@@ -215,7 +219,7 @@ func parseConfig(data []byte, kinds *Kinds) (*Config, error) {
 		return nil, err
 	}
 	c := &Config{doc: &doc}
-	v := &validator{raw: raw, root: root, c: c, kinds: kinds}
+	v := &validator{raw: raw, root: root, c: c, kinds: kinds, dir: dir}
 	if err := v.run(); err != nil {
 		return nil, err
 	}
@@ -357,6 +361,7 @@ type validator struct {
 	root  *yaml.Node
 	c     *Config
 	kinds *Kinds
+	dir   string
 }
 
 // line is the line of key (a path of keys and list indexes) in the document, or 0.
@@ -703,6 +708,18 @@ func (v *validator) options(at string, n *yaml.Node, kind Kind, t *TaskSpec) err
 	}
 	if kind.Validate != nil {
 		if err := kind.Validate(t.Options); err != nil {
+			return v.errf(at, n.Line, "%v", err)
+		}
+	}
+	if kind.Load != nil {
+		set := map[string]bool{}
+		for k := range given {
+			set[k] = true
+		}
+		env := LoadEnv{Dir: v.dir, Perimeter: v.c.Name, KBs: v.c.KBs, Given: set,
+			Warn: func(f string, a ...any) { v.c.Warnings = append(v.c.Warnings, fmt.Sprintf(f, a...)) }}
+		env.Profile, _ = v.c.Profile(t.Profile)
+		if err := kind.Load(env, t.Options); err != nil {
 			return v.errf(at, n.Line, "%v", err)
 		}
 	}

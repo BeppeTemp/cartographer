@@ -509,7 +509,7 @@ tasks:                            # in priority order
 ```
 
 The key table is `internal/workerconfig`. A task `kind` must be registered in the binary; a config can
-name only the kinds the binary registers: `ingest` (D1260) so far.
+name only the kinds the binary registers: `ingest` (D1260) and `prompt` (§Prompt tasks).
 
 **The `ingest` task (D1260).** It executes the `IngestUnit`s of a campaign: per KB, one `work_list` of `type=IngestUnit`,
 the first unit that is claimable (`open`, or `in-progress` whose `review_after` is before today UTC) and that this
@@ -634,6 +634,90 @@ roles), with an `id` so the audit log names the worker. A worker must not change
 that every client of the KB syncs and executes, yet it needs whole-KB `rw` (`log_append`, `source_register`):
 give it a role with `artifacts: r` (§Fine-grained roles). To drive the worker from an external scheduler instead of its own window,
 run it with `--once`. As a native service, write the unit yourself: `cartographer service` manages only the server.
+
+### Prompt tasks
+
+A task of `kind: prompt` (D23, D1374) is a recurring chore of the operator's own that no shipped kind covers: a
+weekly digest of what changed, a monthly check that every runbook names a live owner. Its instructions are a
+file the operator wrote; the model has only the MCP tools the entry lists, and there is no shell and no code
+execution (code the worker runs is a different mechanism). It runs inside the window, idle trigger, budget and
+priority order of every other task.
+
+| Option | Meaning |
+|---|---|
+| `name` | Required, `[a-z0-9-]{1,40}`, unique among the tasks, never containing `kb-doctor`; written into the task's log entries and commit reasons |
+| `model` | Required, a profile whose `run_tokens` is at least 8 000 (a task needs a grant of 8 000 tokens to start) |
+| `instructions_file` | Required, a relative path inside the directory of the `--config` file; at most 16 KiB of UTF-8 |
+| `tools` | Required, non-empty, a subset of the worker's default allowlist; a denied tool (`artifact_*`, `concept_delete`, ...) is a load error and nothing is implicit: list the read tools the task needs too |
+| `every` | Required, a Go duration of at least `1h` (`168h` is a week; no `d` or `w` units) |
+| `kbs` | Optional, a non-empty subset of the perimeter's `kbs`; omitted means all of them |
+
+**Where the instructions live.** In the config directory, shipped with the config: a ConfigMap with both keys in
+Kubernetes (a relative symlink inside the directory, which is how a ConfigMap volume exposes files, works; one that
+leaves it is refused), a read-only bind mount in compose. The file is read once at start, so a change needs a
+restart. It is never read from a KB, and its text appears in no log line, error or report.
+
+**Cadence.** After a run that reached the model the worker files one marker, `task=<name> at=<RFC 3339>
+day=<date> stopped=done|steps|budget|error|shutdown writes=<n>`, on the log path `worker/<perimeter>/task/<name>`
+(read it with `log_tail`). The task is due on a KB when none exists or `every` has elapsed since the newest, so a
+skipped period is not replayed: the next due time follows the actual last run. A due task whose profile has less than
+8 000 tokens of grant waits and stays due. Renaming the task or the perimeter starts a new marker path, so it runs once
+more at once. Two replicas that find the task due together both run it (there is no lock; the bound is `replicas x
+grant`): write instructions that begin by checking whether this period's work exists.
+
+**What a task writes.** Every commit carries `Reason: prompt task <name>[: <the model's reason>]`, set by the worker,
+so `git log --grep 'prompt task <name>'` finds a pass and each commit reverts alone. The task's own `log_append`
+lines are filed under `task/<name>` whatever path the model passes, and an entry with a line starting `## ` or the text
+`kb-doctor` is refused, so a model can never forge a `worker/` budget or cadence entry. A task that lists
+`concept_write` can overwrite any page its token can write: the fences are the `tools` list, the token's scopes,
+`if_match` in the instructions, and the revertible commits.
+
+Example: a weekly digest of `kb-a`.
+
+```yaml
+name: perimeter-a
+server_url: https://wiki.example.com/mcp
+token_env: WORKER_TOKEN
+kbs: [kb-a, kb-b]
+schedule:
+  window: {start: "02:00", end: "05:00", timezone: Europe/Rome}
+models:
+  - name: cloud-small
+    provider: anthropic
+    model: model-x
+    api_key_env: MODEL_API_KEY
+    tier: small
+    budget: {daily_tokens: 300000, run_tokens: 120000}
+tasks:
+  - kind: prompt
+    name: weekly-digest
+    model: cloud-small
+    instructions_file: prompts/weekly-digest.md
+    tools: [changes_since, concept_list, concept_read, concept_write]
+    every: 168h
+    kbs: [kb-a]
+```
+
+and `prompts/weekly-digest.md`, whose steps are in this order because they make a double run harmless:
+
+```markdown
+You write the weekly digest of this knowledge base. Follow these steps in order.
+
+1. Call `concept_list` with `scope: digests`. If the newest id's date prefix is within the last
+   6 days of today's date (given above), stop and write nothing: this period's digest exists.
+2. Call `changes_since` with `since: 7d`.
+3. Call `concept_read` on the few pages that changed most, so the digest says what changed and
+   not only that it did.
+4. Call `concept_write` once, creating the page `digests/<today>-weekly-digest` (ids are
+   `YYYY-MM-DD-slug`), with the sections "What changed", "New pages" and "Open items". Every line
+   links the concept it talks about. Never edit an existing page.
+5. Answer in one sentence.
+```
+
+The journal `digests` must exist (created once with `map_create`, which the task does not list) and allow the type
+the page uses. The first window after the start runs the task; `git log` shows `Reason: prompt task weekly-digest: ...`,
+`log_tail` on `worker/perimeter-a/task/weekly-digest` shows one `task=weekly-digest at=... stopped=done writes=1` line,
+the next seven days of polls do nothing for `kb-a`, and `kb-b` is never touched.
 
 ### HTTP routing (D84)
 
