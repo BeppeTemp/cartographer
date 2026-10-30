@@ -258,3 +258,16 @@ func TestWorkerSettings_KeepsOnlyKBsThePrincipalMayWrite(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 }
+
+func TestWorkerSettings_VersionIsAShortTokenOrDropped(t *testing.T) {
+	t.Parallel()
+	f := newAtlasWorkerFixture(t)
+	f.post(t, "worker-a", beat(nil))
+	for version, want := range map[string]string{"v1.2.3-rc+4": "v1.2.3-rc+4", "S3CRET sk=1": "", "<b>x</b>": "", strings.Repeat("a", 33): ""} {
+		f.postSettings("worker-a", report(map[string]any{"version": version}))
+		rows := f.multi.workers.settingsRows()
+		if len(rows) != 1 || rows[0].Version != want {
+			t.Errorf("version %q -> %+v, want %q", version, rows, want)
+		}
+	}
+}

@@ -68,12 +68,12 @@ var stringShape = map[string]*regexp.Regexp{
 	"tasks[].model":            nameRe,
 }
 
-// unsafeURL: a URL that carries credentials, a query or a fragment, or that does
+// unsafeURL: a URL that is not http(s) with a host, or that carries credentials, a query or a fragment, or that does
 // not parse, is not shown. The authority is checked by hand as well, since
 // `user:pw@host/x` parses as an opaque URL with no userinfo.
 func unsafeURL(v string) bool {
 	u, err := url.Parse(v)
-	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(v, "?#") {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(v, "?#") {
 		return true
 	}
 	rest := v

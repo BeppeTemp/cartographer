@@ -61,6 +61,9 @@ func TestScrubLeavesNoTrace(t *testing.T) {
 		e("server_url", "https://example.com/mcp?token=S3CRET"),
 		e("server_url", "https://example.com/mcp#S3CRET"),
 		e("server_url", "http://[::1"),
+		e("server_url", "S3CRET"),
+		e("server_url", "ftp://example.com/S3CRET"),
+		e("server_url", "https:///S3CRET"),
 		e("models[].base_url", "https://u:S3CRET@example.com"),
 		e("models[].provider", "S3CRET"), // outside the enum
 		e("models[].tier", "S3CRET"),
@@ -79,8 +82,8 @@ func TestScrubLeavesNoTrace(t *testing.T) {
 
 func TestScrubRedactsUnvouchedStrings(t *testing.T) {
 	t.Parallel()
-	got := Scrub([]Entry{e("models[].provider", "gemini"), e("server_url", "https://u:pw@example.com/"), e("models[].model", "sk live"), e("name", "Team A")})
-	if len(got) != 4 {
+	got := Scrub([]Entry{e("models[].provider", "gemini"), e("server_url", "https://u:pw@example.com/"), e("models[].model", "sk live"), e("name", "Team A"), e("models[].base_url", "sk-bare-key")})
+	if len(got) != 5 {
 		t.Fatalf("got %+v", got)
 	}
 	for _, x := range got {

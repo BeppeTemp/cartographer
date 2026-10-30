@@ -471,7 +471,11 @@ the key's type (`bool`; `int`, whole and at most 2^40; `env`, a variable name op
 enum outside its values, a name or clock that does not match its shape, any key with no shape), is shown as
 `<redacted>`; a list, a map, a wrong type, an unknown key or a repeated key drops the entry. A body containing the
 request's own bearer token (raw, or in the decoded `version` or entries) is refused whole (`400`). Only the KBs the
-caller may write are kept; none left answers the `404` of an unknown KB. Nothing is rendered again.
+caller may write are kept; none left answers the `404` of an unknown KB. `perimeter` is an identifier (`[a-z0-9-]`, at most 40) and `version` must match `[0-9A-Za-z._+-]{1,32}` or is
+dropped. Residual risks, accepted: a credential embedded in a URL path, an `*_env` value that is a well-formed
+name (a pasted `ghp_…` token is one) and a `models[].model` that looks like a key cannot be told from a legitimate
+value by shape; they come from the worker's own config, sent by a holder of a writer token. Nothing is rendered
+again.
 
 State is in memory, one report per (principal, perimeter), every post replacing it, at most 16 per principal and
 64 in total (oldest evicted); replicas share it. A report is kept only while a live heartbeat of the same principal

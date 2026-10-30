@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +18,8 @@ import (
 // again when a beat answers settings_wanted (D22). Not the heartbeat: the config
 // is constant, and a refused report must never fail the liveness beat.
 const WorkerSettingsPath = "/api/worker-settings"
+
+var versionRe = regexp.MustCompile(`^[0-9A-Za-z._+-]{1,32}$`)
 
 const (
 	maxWorkerSettingsBody         = 128 << 10
@@ -222,6 +225,11 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	entries := workerconfig.Scrub(rep.Entries)
+	// A version is a short token or nothing: it is shown as text on the page.
+	version := rep.Version
+	if !versionRe.MatchString(version) {
+		version = ""
+	}
 	p := auth.PrincipalFromContext(r.Context())
 	// A worker is a writer: no KB it may write is the 404 of an unknown KB.
 	// Only the KBs it may write are kept: the others are not its to name.
@@ -236,7 +244,7 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	m.workers.putSettings(p.ID, rep.Perimeter, workerSettings{
-		Version: cleanText(rep.Version, 32), KBs: named, Entries: entries,
+		Version: version, KBs: named, Entries: entries,
 		ReceivedAt: m.workers.clock().UTC(),
 	})
 	writeUIJSON(w, http.StatusOK, map[string]bool{"received": true})
