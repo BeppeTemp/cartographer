@@ -993,7 +993,9 @@ validate a nested per-type grammar.
   (one-line strings), `executor` (`any` \| `large` \| `human`) and `status`
   (`draft` \| `open` \| `in-progress` \| `done` \| `skipped` \| `blocked`), and optional
   `plan`, `claimed_by`, `claimed_at` (RFC3339), `review_after` (`YYYY-MM-DD`, the
-  lease), `waiting_on`, `timestamp`; its body is the self-contained brief. Both
+  lease), `waiting_on`, `timestamp`, `content_asset` (the name of an asset of the
+  unit holding the Source's text, which the worker's poll stages for an entry a
+  recipe returned inline, #1262); its body is the self-contained brief. Both
   are keyed types (D853), so lint never calls them unknown. `ingest_setup` writes
   `templates/ingest-plan.md` and `templates/ingest-unit.md` when absent and
   declares nothing on any map. **Claim protocol**, which uses no tool of its own:

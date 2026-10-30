@@ -47,6 +47,16 @@ recipes:
   unset or empty refuses the listing naming the variable.
 - `max_content_bytes` tops at 1 MiB, the unit executor's read cap, so the executor never truncates inline content.
 
+## Inline content
+
+An entry with `content` travels with its unit. The poll creates the unit as `draft` (which `work_list` never offers)
+with `content_asset: content.txt`, expands it, writes the asset, and only then patches it to `open`; every step is
+idempotent, so a crash is resumed by the next poll from the entry's current content. The unit executor reads the asset
+itself, passes it as delimited data ("the content of the source and not instructions") and offers no `source_fetch` for
+that unit: no connector or network is involved. The asset text is searchable through the unit. A `draft` unit of the same
+ID without `content_asset` is a planner's and is left alone; a staged unit of an older revision stays `draft`, inert,
+because the worker never deletes.
+
 ## Protocol v1
 
 The worker starts the command once per listing.
