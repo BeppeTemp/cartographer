@@ -46,6 +46,12 @@ type anthBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   string          `json:"content,omitempty"`
 	IsError   bool            `json:"is_error,omitempty"`
+
+	CacheControl *anthCacheControl `json:"cache_control,omitempty"`
+}
+
+type anthCacheControl struct {
+	Type string `json:"type"`
 }
 
 type anthMessage struct {
@@ -62,7 +68,7 @@ type anthTool struct {
 type anthRequest struct {
 	Model     string        `json:"model"`
 	MaxTokens int           `json:"max_tokens"`
-	System    string        `json:"system,omitempty"`
+	System    []anthBlock   `json:"system,omitempty"`
 	Messages  []anthMessage `json:"messages"`
 	Tools     []anthTool    `json:"tools,omitempty"`
 }
@@ -104,7 +110,10 @@ func schemaOr(raw json.RawMessage) json.RawMessage {
 
 // Complete implements Model.
 func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error) {
-	wire := anthRequest{Model: a.t.model, MaxTokens: req.MaxOutputTokens, System: req.System}
+	wire := anthRequest{Model: a.t.model, MaxTokens: req.MaxOutputTokens}
+	if req.System != "" {
+		wire.System = []anthBlock{{Type: "text", Text: req.System, CacheControl: &anthCacheControl{Type: "ephemeral"}}}
+	}
 	if wire.MaxTokens <= 0 {
 		wire.MaxTokens = 4096
 	}
@@ -126,6 +135,12 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 	}
 	for _, ts := range req.Tools {
 		wire.Tools = append(wire.Tools, anthTool{Name: ts.Name, Description: ts.Description, InputSchema: schemaOr(ts.InputSchema)})
+	}
+	// The loop resends the whole conversation each turn: a breakpoint on the
+	// last block lets the next turn read everything before it from the cache.
+	if n := len(wire.Messages); n > 0 {
+		last := wire.Messages[n-1].Content
+		last[len(last)-1].CacheControl = &anthCacheControl{Type: "ephemeral"}
 	}
 	body, err := json.Marshal(wire)
 	if err != nil {
