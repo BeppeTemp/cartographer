@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -362,10 +364,12 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 	if err != nil {
 		return err
 	}
+	// have maps an existing unit ID to whether it is a staged unit of ours that
+	// still lacks its content (WP7): draft with a content_asset.
 	have := map[string]bool{}
 	var ids []string
 	for _, u := range units.Results {
-		have[u.ID] = true
+		have[u.ID] = str(u.Fields, "status") == "draft" && str(u.Fields, "content_asset") != ""
 		ids = append(ids, u.ID)
 	}
 	sort.Strings(ids)
@@ -421,8 +425,15 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 			locator = f.Locator + "#" + url.PathEscape(e.Key)
 		}
 		id := poll.UnitID(unitMap, f.ID, locator, e.Revision, e.Key)
-		if have[id] {
-			r.skipped++
+		if staged, exists := have[id]; exists && !(staged && e.Content != "") {
+			r.skipped++ // handled; a staged unit with no content to redo it from stays inert
+			continue
+		} else if exists {
+			// Resume a unit a crash left staged: redo the idempotent steps.
+			if err := r.stage(id, e.Content, "poll "+f.ID); err != nil {
+				return r.fail(codeUnitRefused, "entry "+oneLineClip(e.Key, 80)+": "+oneLineClip(err.Error(), 200))
+			}
+			r.created++
 			continue
 		}
 		stop, err := r.entry(ctx, rec, e, locator, id, unitMap, planID, plan.Body, maps)
@@ -493,6 +504,11 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 	// c. Shape the unit: reuse the previous unit of this Source, else one model call.
 	fm := map[string]any{"type": "IngestUnit", "shape": "ingest-unit", "title": title, "source": reg.ID, "plan": planID,
 		"status": "open", "timestamp": r.in.now().UTC().Format(time.RFC3339)}
+	if e.Content != "" {
+		// Inline content (WP7): staged as draft, which work_list never offers,
+		// until the asset exists.
+		fm["status"], fm["content_asset"] = "draft", poll.ContentAsset
+	}
 	var prev *prevUnit
 	if reg.Duplicate {
 		prev = r.previous(unitMap, reg.ID)
@@ -534,7 +550,7 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 			} else {
 				r.created++
 			}
-			return false, nil
+			return false, r.finishStage(id, e.Content, reason, e)
 		}
 		if _, rerr := readConcept(tools, id); rerr == nil {
 			r.skipped++ // exists: another replica made it first
@@ -629,4 +645,57 @@ func (r *pollRun) model(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 		return poll.Answer{}, false, perr.Error(), nil
 	}
 	return ans, false, "", nil
+}
+
+// finishStage completes a unit written as draft; a failure ends the run like a
+// refused unit (the staged unit is resumed by the next poll).
+func (r *pollRun) finishStage(id, content, reason string, e recipe.Entry) error {
+	if content == "" {
+		return nil
+	}
+	if err := r.stage(id, content, reason); err != nil {
+		return r.fail(codeUnitRefused, "entry "+oneLineClip(e.Key, 80)+": "+oneLineClip(err.Error(), 200))
+	}
+	return nil
+}
+
+// stage makes a draft unit complete (WP7): expand it, write the asset, then
+// open it. Every step is idempotent, so a crash after any of them is resumed by
+// redoing all: already_expanded and an identical asset are success.
+func (r *pollRun) stage(id, content, reason string) error {
+	tools := r.rt.Tools
+	if _, err := callOK(tools, "concept_expand", map[string]any{"id": id}); err != nil && !strings.Contains(err.Error(), "already_expanded") {
+		return err
+	}
+	_, err := callOK(tools, "asset_write", map[string]any{"concept_id": id, "path": poll.ContentAsset, "content": content, "encoding": "text"})
+	if err != nil {
+		if !strings.Contains(err.Error(), "already_exists") {
+			return err
+		}
+		text, rerr := callOK(tools, "asset_read", map[string]any{"concept_id": id, "path": poll.ContentAsset})
+		if rerr != nil {
+			return rerr
+		}
+		var a struct {
+			SHA256 string `json:"sha256"`
+		}
+		sum := sha256.Sum256([]byte(content))
+		if json.Unmarshal([]byte(text), &a) != nil || a.SHA256 != hex.EncodeToString(sum[:]) {
+			return errors.New("the staged asset differs from the entry's content")
+		}
+	}
+	r.res.Commits += 2
+	u, err := readConcept(tools, id)
+	if err != nil {
+		return err
+	}
+	if str(u.Frontmatter, "status") != "draft" {
+		return nil
+	}
+	_, err = callOK(tools, "concept_patch", map[string]any{"id": id, "if_match": u.ContentHash, "reason": reason,
+		"frontmatter": map[string]any{"status": "open"}})
+	if err == nil {
+		r.res.Commits++
+	}
+	return err
 }
