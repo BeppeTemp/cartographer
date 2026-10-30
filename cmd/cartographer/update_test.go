@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,6 +35,16 @@ func TestMain(m *testing.M) {
 		if os.Args[2] == "fail" {
 			fmt.Fprintln(os.Stderr, "lister broke")
 			os.Exit(3)
+		}
+		if os.Args[2] == "system" { // LISTER_VALUE is the preflight's read_only answer
+			b, _ := io.ReadAll(os.Stdin)
+			if strings.Contains(string(b), `"mode":"preflight"`) {
+				fmt.Println(`{"read_only":` + os.Getenv("LISTER_VALUE") + `,"identity":"dev-viewer","detail":"ok"}`)
+			} else {
+				fmt.Println(`{"entry":{"key":"namespace/team-a","title":"Team A","content":"deployment api"}}`)
+				fmt.Println(`{"next_cursor":""}`)
+			}
+			os.Exit(0)
 		}
 		if os.Args[2] == "empty" {
 			fmt.Println(`{"next_cursor":"` + "c9" + `"}`)

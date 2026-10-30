@@ -26,6 +26,10 @@ func sourceCfg(t *testing.T, mode, serverURL string) string {
 	if err := os.WriteFile(filepath.Join(dir, "feed.md"), []byte("An entry is a page."), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	shape := ""
+	if mode == "system" {
+		shape = "    shape: system\n"
+	}
 	body := `name: docs-night
 server_url: ` + serverURL + `/mcp
 token_env: WORKER_TOKEN
@@ -44,7 +48,7 @@ tasks:
 recipes:
   my-feed:
     instructions_file: feed.md
-    exec:
+` + shape + `    exec:
       command: ` + os.Args[0] + `
       args: ["--exec-helper", "` + mode + `"]
       env: {LISTER_VALUE: LISTER_VAR}
@@ -378,5 +382,25 @@ func TestWorkerSourceSourcesThatAreNotFeeds(t *testing.T) {
 	code, _, errs = runSource(t, "test", "--config", cfg, "--source", "sources/wiki", "--kb", "kb-a")
 	if code != 1 || !strings.Contains(errs, "bad_field") {
 		t.Errorf("exit %d: %q", code, errs)
+	}
+}
+
+func TestWorkerSourceSystemRecipeAndExit3(t *testing.T) {
+	cfg := sourceCfg(t, "system", "http://127.0.0.1:1")
+	t.Setenv("LISTER_VAR", "true")
+	code, out, errs := runSource(t, "test", "--config", cfg, "--recipe", "my-feed", "--locator", "kubernetes://dev-cluster")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errs)
+	}
+	for _, want := range []string{"shape:\tsystem", "preflight:\tread_only, identity dev-viewer", "state:\tno stored state",
+		"added\tnamespace/team-a\t", "counts:\tadded 1, modified 0, removed 0, unchanged 0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, out)
+		}
+	}
+	t.Setenv("LISTER_VAR", "false")
+	code, out, errs = runSource(t, "test", "--config", cfg, "--recipe", "my-feed", "--locator", "x")
+	if code != 3 || !strings.Contains(errs, "identity_not_read_only") || strings.Contains(out, "namespace/team-a") {
+		t.Errorf("a refused preflight: exit %d, stdout %q, stderr %q", code, out, errs)
 	}
 }

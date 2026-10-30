@@ -10,6 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/worker/feed"
 	"github.com/BeppeTemp/cartographer/internal/worker/recipe"
+	"github.com/BeppeTemp/cartographer/internal/worker/system"
 )
 
 // The dry run of a recipe (`cartographer worker source test`): what the poll
@@ -18,9 +19,10 @@ import (
 // calls, so a script it passes is a script the poll accepts. It takes no lease,
 // builds no model client, writes no cursor, Source, unit or log entry.
 //
-// The shape "system" (#1372: preflight, state load, diff) has no place here yet:
-// when it lands, the preflight goes between the preconditions and the listing and
-// a refusal is exit class 3 (SourceTestReport.Preflight).
+// A system recipe goes through observeSystem, the poll's own steps 4 to 6: the
+// preflight, the state read through Load only (the store's Save is not in the
+// interface the dry run receives, so no state asset is written), the listing, its
+// validation and the diff. A refused preflight is exit class 3, nothing listed.
 
 // Defaults of the poll task's options when the config has no poll entry.
 const (
@@ -59,6 +61,8 @@ type SourceTestReport struct {
 	Recipe, Shape, Kind, Locator string
 	SourceID                     string // "" when not registered
 	CursorIn, NextCursor         string
+	Identity, StateStatus        string // system recipes: the preflight's label and how the stored state was found
+	PreflightRefused             bool   // Failure came from the preflight: exit class 3
 	MaxEntries                   int
 	PollDefaults                 bool // no poll task in the config: the defaults above were used
 	Entries                      []SourceTestEntry
@@ -131,6 +135,7 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 	var f feed.Feed
 	var perr error
 	var tools ToolCaller
+	isSystem := false // the Source's shape in --source mode, the recipe's in --recipe mode
 	if in.Source != "" {
 		if in.Tools == nil {
 			return nil, startErr("no server to read the Source from")
@@ -143,24 +148,32 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 		if str(c.Frontmatter, "type") != "Source" {
 			return nil, startErr("%s is not a Source", in.Source)
 		}
-		// A shape the poll does not offer (document today) is not a feed it polls.
-		if shape := str(c.Frontmatter, "source_shape"); shape != "feed" {
-			return nil, startErr("%s has source_shape %q: the poll only lists feeds", in.Source, shape)
+		// A shape the poll does not offer (document) is not a Source it polls.
+		shape := str(c.Frontmatter, "source_shape")
+		if shape != "feed" && shape != "system" {
+			return nil, startErr("%s has source_shape %q: the poll only lists feeds and systems", in.Source, shape)
 		}
+		isSystem = shape == "system"
 		f, perr = feed.Parse(feed.Entry{ID: in.Source, Fields: plainFields(c.Frontmatter), ContentHash: c.ContentHash}, def, min)
 		rep.SourceID = in.Source
 	} else {
 		if _, ok := reg.Get(in.Recipe); !ok {
 			return nil, startErr("recipe %q is not in the registry; known: %s", in.Recipe, strings.Join(reg.Names(), ", "))
 		}
+		if r, _ := reg.Get(in.Recipe); r.Shape() == recipe.ShapeSystem {
+			isSystem = true
+		}
 		f = feed.Feed{ID: "dry-run", Recipe: in.Recipe, Locator: in.Locator, SourceKind: in.Kind, Include: in.Include}
 	}
-	if in.CursorSet {
+	switch {
+	case in.CursorSet && isSystem:
+		rep.Warnings = append(rep.Warnings, "a system recipe lists the whole current state: --cursor is ignored")
+	case in.CursorSet:
 		f.Cursor = in.Cursor
 	}
 	rep.Recipe, rep.Locator, rep.Kind, rep.CursorIn = f.Recipe, f.Locator, f.SourceKind, f.Cursor
 
-	rec, pf := feedPreconditions(reg, builtinHosts(cfg), f, perr)
+	rec, pf := feedPreconditions(reg, builtinHosts(cfg), f, perr, isSystem)
 	if pf != nil {
 		rep.Failure = (*SourceTestFailure)(pf)
 		return rep, nil
@@ -175,6 +188,9 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 		}
 	}
 
+	if isSystem {
+		return rep, rep.observeSystem(ctx, rec, f, tools, in.Show)
+	}
 	start := time.Now()
 	listing, pf, lerr := listFeed(ctx, rec, f, maxEntries)
 	rep.Duration = time.Since(start)
@@ -241,4 +257,81 @@ func planWarning(tools ToolCaller, id string) string {
 func IsSourceTestError(err error) bool {
 	var e *SourceTestError
 	return errors.As(err, &e)
+}
+
+// noState is the stored state of a recipe not yet registered: there is none.
+type noState struct{}
+
+func (noState) Load(string) (system.Loaded, error) {
+	return system.Loaded{State: system.State{}, Trusted: true}, nil
+}
+
+// observeSystem fills the report from the poll's own steps 4 to 6.
+func (rep *SourceTestReport) observeSystem(ctx context.Context, rec recipe.Recipe, f feed.Feed, tools ToolCaller, show string) error {
+	sr, ok := rec.(recipe.SystemRecipe)
+	if !ok {
+		rep.Failure = &SourceTestFailure{codeRecipeShape, fmt.Sprintf("recipe %q does not list a system", f.Recipe)}
+		return nil
+	}
+	var st stateLoader = noState{}
+	if tools != nil {
+		st = &system.Store{Call: func(tool string, args map[string]any) (string, error) {
+			text, err := callOK(tools, tool, args)
+			var te *toolError
+			if errors.As(err, &te) {
+				return "", &system.Refusal{Text: te.text}
+			}
+			return text, err
+		}, Source: f.ID}
+	}
+	start := time.Now()
+	obs, pf, preflight, err := observeSystem(ctx, sr, systemRequest(f), st, f.Cursor)
+	rep.Duration = time.Since(start)
+	if err != nil {
+		return err
+	}
+	if pf != nil {
+		rep.Failure, rep.PreflightRefused = (*SourceTestFailure)(pf), preflight
+		return nil
+	}
+	rep.Identity = obs.Identity
+	l := obs.Loaded
+	switch {
+	case l.Trusted && l.Digest == "":
+		rep.StateStatus = "no stored state"
+	case l.Trusted:
+		rep.StateStatus = fmt.Sprintf("trusted, %d groups", len(l.State))
+	default:
+		rep.StateStatus = "untrusted (" + l.Reason + "): the diff is against an empty state, as the poll's baseline rebuild would be"
+	}
+	now := time.Now()
+	var handled []system.Handled
+	for _, c := range obs.Changes.Ordered() {
+		title, rev := c.Group.Title, c.Group.Revision
+		if c.Kind == recipe.Removed {
+			title, rev = c.Previous.Title, c.Previous.Revision
+		}
+		rep.Entries = append(rep.Entries, SourceTestEntry{c.Kind, c.Key, title, rev, len(c.Group.Content)})
+		rep.Counts[c.Kind]++
+		rep.ContentBytes += len(c.Group.Content)
+		handled = append(handled, system.Handled{Key: c.Key, Removed: c.Kind == recipe.Removed, Group: c.Group, At: now.UTC().Format(time.RFC3339)})
+		if show != "" && c.Key == show {
+			body := systemBody("", c, rev, now.UTC().Format("2006-01-02"), nil)
+			sh := &SourceTestShow{Key: c.Key, Content: body, Found: true}
+			if len(body) > ShowCap {
+				sh.Content, sh.Truncated = truncateBytes(body, ShowCap), true
+			}
+			rep.Show = sh
+		}
+	}
+	rep.Counts["unchanged"] = obs.Changes.Unchanged
+	// The cursor the poll would write if it handled every group: the state's digest.
+	if _, digest, err := l.State.Apply(handled).Encode(); err == nil {
+		rep.NextCursor = digest
+	}
+	rep.Tokens = (rep.ContentBytes + 3) / 4
+	if show != "" && rep.Show == nil {
+		rep.Show = &SourceTestShow{Key: show}
+	}
+	return nil
 }

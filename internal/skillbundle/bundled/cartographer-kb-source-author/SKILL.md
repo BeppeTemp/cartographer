@@ -41,7 +41,7 @@ In this order: a git repository of documents (`git-docs`); a site with an index 
 documented API or CLI (exec); an existing MCP server (it becomes the **connector** the unit executor reads entries
 through, with a read-only `tools` allowlist in the config; the lister stays built in or exec); nothing (stop, say
 what an export would need, never script a login page). `references/source-types.md` lists where to look per family.
-Shape: `feed` for documents that change. Show a table (source, access path, built in or exec, shape, connector,
+Shape: `feed` for documents that change, `system` for the current state of something live (a cluster, a cloud account, a metrics endpoint; `references/source-types.md`). Show a table (source, access path, built in or exec, shape, connector,
 identity) and wait for the operator's yes.
 
 ## 3. Identity
@@ -75,12 +75,15 @@ cartographer worker source test --config <file> --recipe <name> --locator <loc> 
 ```
 
 Exit `0` listed; `1` the poll would record a `feed_error` (fix the script or the Source); `2` the test could not
-start (fix the command, the config or the environment). Done when:
+start (fix the command, the config or the environment); `3` the preflight refused the identity (fix the identity,
+not the script; nothing was listed). Done when:
 
 - the first listing is not empty (an empty first listing is a script failure until shown otherwise);
 - a second run gives the same keys and revisions;
 - a run with the printed `--cursor` returns nothing, or only what changed;
-- `--show` on one entry shows no secret value and no volatile field.
+- `--show` on one entry shows no secret value and no volatile field;
+- for a system, the output says `preflight: read_only` with the expected identity label, a run with another
+  `--locator` label gives byte-identical groups, and the token estimate is of the order that fits a unit.
 
 If the variables are not in your environment, give the operator the command to run in their own terminal and read
 the output they paste; never ask for the values. The test covers the lister, not whether the unit executor can read
@@ -114,5 +117,6 @@ commands the operator runs to deploy: written for the operator, run by you never
 - No API and no export: stop.
 - A source too large for one listing: `max_entries` and pagination in the script; the cursor carries the position.
 - A lister that needs a CLI absent from the worker image: say so in the hand-over.
-- A source that is the current state of something live (a cluster, a cloud account): see the end of
-  `references/source-types.md`; use it only when the worker's `docs/worker-recipes.md` documents `shape: system`.
+- A source that is the current state of something live: `shape: system`, with the preflight in the script asking the
+  system what the identity can do (not echoing a label). An exit `3` or an admin identity: stop and ask for a
+  dedicated read-only one, never test with it.

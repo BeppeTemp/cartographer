@@ -20,11 +20,12 @@ import (
 
 // Exit codes of `cartographer worker source test` (D1373): the listing ran and
 // passed (0); the poll would write a feed_error for this Source or recipe (1);
-// the test could not start (2). 3 is reserved for a system recipe's refused
-// preflight (#1372): nothing listed, fix the identity.
+// the test could not start (2); a system recipe's preflight refused (3): nothing
+// was listed, fix the identity and not the script.
 const (
-	sourceTestFail  = 1
-	sourceTestStart = 2
+	sourceTestFail    = 1
+	sourceTestStart   = 2
+	sourceTestRefused = 3
 )
 
 const sourceTestRows = 50
@@ -53,7 +54,7 @@ func printWorkerSourceUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "  test   Run the listing the worker will run, with the real recipe, and print it. Writes nothing:")
 	fmt.Fprintln(w, "         no lease, cursor, Source, unit or log entry; no model is called.")
-	fmt.Fprintln(w, "Exit: 0 listed, 1 the poll would record a feed_error, 2 the test could not start.")
+	fmt.Fprintln(w, "Exit: 0 listed, 1 the poll would record a feed_error, 2 the test could not start, 3 a system recipe's preflight refused.")
 }
 
 type multiFlag []string
@@ -157,7 +158,13 @@ func printSourceTest(out, errw io.Writer, config string, r *worker.SourceTestRep
 		r.Recipe, r.Shape, r.Kind, src, r.Locator, r.CursorIn, filepath.Base(config))
 	if r.Failure != nil {
 		fmt.Fprintf(errw, "the poll would record: feed_error %s: %s\n", r.Failure.Code, r.Failure.Detail)
+		if r.PreflightRefused {
+			return sourceTestRefused
+		}
 		return sourceTestFail
+	}
+	if r.Shape == "system" {
+		fmt.Fprintf(out, "preflight:\tread_only, identity %s\nstate:\t%s\n", clip(r.Identity, 80), r.StateStatus)
 	}
 	for i, e := range r.Entries {
 		if i == sourceTestRows {
@@ -166,7 +173,11 @@ func printSourceTest(out, errw io.Writer, config string, r *worker.SourceTestRep
 		}
 		fmt.Fprintf(out, "%s\t%s\t%s\t%d\t%s\n", e.Change, clip(e.Key, 80), clip(e.Revision, 80), e.ContentBytes, clip(e.Title, 80))
 	}
-	fmt.Fprintf(out, "counts:\tadded %d, modified %d, removed %d\n", r.Counts["added"], r.Counts["modified"], r.Counts["removed"])
+	fmt.Fprintf(out, "counts:\tadded %d, modified %d, removed %d", r.Counts["added"], r.Counts["modified"], r.Counts["removed"])
+	if r.Shape == "system" {
+		fmt.Fprintf(out, ", unchanged %d", r.Counts["unchanged"])
+	}
+	fmt.Fprintln(out)
 	fmt.Fprintf(out, "next_cursor:\t%s\n", r.NextCursor)
 	fmt.Fprintf(out, "summary:\t%d entries, %d content bytes, ~%d tokens, %s\n", len(r.Entries), r.ContentBytes, r.Tokens, r.Duration.Round(time.Millisecond))
 	if r.Show != nil {

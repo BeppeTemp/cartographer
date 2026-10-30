@@ -115,8 +115,9 @@ cartographer worker source test --config <file> --source <id> [--kb <kb>]
 ```
 
 The command runs the listing the worker will run: the same recipe registry, the same preconditions as the poll
-(parse of the Source, recipe known and listing a feed, a built-in's host on its list) and the same listing call,
-then prints what it got. `--recipe` tries a recipe before registering a Source and needs neither the server nor the
+(parse of the Source, recipe known and of the Source's shape, a built-in's host on its list) and the same listing call,
+then prints what it got. For a system recipe it runs the poll's preflight first, then reads the stored state and diffs
+the listing against it (see System recipes). `--recipe` tries a recipe before registering a Source and needs neither the server nor the
 token; `--source` reads a registered Source (one `concept_read`, plus a `concept_list` for the plan warning) with the
 token in `token_env`. `--cursor <string>` lists from that cursor (default: empty, or the Source's `feed_cursor`);
 `--show <key>` prints that entry's inline content as it would travel in its unit, capped at 20 KiB. No model is
@@ -125,15 +126,23 @@ be set, and an unset one is named, never its value.
 
 **Exit codes.** `0` the listing ran and passed the protocol checks; `1` the poll would write a `feed_error` for this
 Source or recipe, printed on stderr with the poll's own code and text; `2` the test could not start (usage, invalid
-config, unknown recipe, an unset variable, the Source or server unreadable).
+config, unknown recipe, an unset variable, the Source or server unreadable); `3` a system recipe's preflight refused
+(`identity_not_read_only`, an error or no answer): nothing was listed, fix the identity and not the script.
 
 **Output** (stdout, plain text, tab-separated): `recipe`, `shape`, `kind`, `source`, `locator`, `cursor_in`, `config`;
 one row per entry (change, key, revision, content bytes, title; at most 50, then `(+N more)`); `counts`;
 `next_cursor` in full, to paste back with `--cursor`; `summary` (entries, content bytes, estimated tokens, duration).
 Warnings go to stderr as `warning:` lines, among them `no_ingest_plan` when no `IngestPlan` lists the Source.
+For a system recipe the header adds `preflight:` (the identity label) and `state:` (`no stored state`, `trusted, N
+groups`, or `untrusted (reason)`, in which case the diff is against an empty state, as the poll's baseline rebuild
+would be); the rows are the changed groups in key order (revision computed by the worker), `counts` adds `unchanged`,
+`--cursor` is ignored (a warning says so), `--show <key>` prints the group's `## Change` and `## Observed` sections as
+they would travel in its unit, and `next_cursor` is the digest of the state the poll would store if it handled every
+group, so it changes with the observation time.
 
-**Writes nothing, and its limit.** No lease, cursor, Source, unit or log entry is written: in `--source` mode the KB is
-reached through a caller that offers only read tools. The script is the operator's code: it runs from the operator's
+**Writes nothing, and its limit.** No lease, cursor, Source, unit, state asset or log entry is written: in `--source` mode the KB is
+reached through a caller that offers only read tools, and the state is read with `Load` only (the store's `Save` is not
+available to the command). With `--recipe` there is no stored state and the server is not contacted. The script is the operator's code: it runs from the operator's
 shell with the environment variables it lists, so test with the same read-only variables the worker has, and test
 `--source` only against a Source you trust, because its locator and includes reach the script. A script referenced by
 `command` needs a shebang; on a machine where one does not run, test from a container.

@@ -7,7 +7,7 @@ topic: skills-services-secrets
 **Decision.** `cartographer worker source test` runs the listing the worker will run, with the real recipe, through
 the poll's own registry, preconditions and listing function, and writes nothing: no lease, cursor, Source, unit or
 log entry, no model call. Its exit codes are `0` listed, `1` the poll would record a `feed_error` (printed with the
-poll's code and text), `2` the test could not start; `3` is reserved for a refused preflight of a system recipe. A
+poll's code and text), `2` the test could not start, `3` a system recipe's preflight refused (nothing listed). A system recipe goes through the poll's preflight, state `Load`, listing validation and diff; the state is never written. A
 bundled skill, `cartographer-kb-source-author`, drives an operator from a source to a tested lister, a registered
 Source (one `source_register` call carrying `recipe`) and a deploy change. The lister lives in the operator's
 repository and is referenced by the recipe's `command`; the skill demands a read-only identity for every shape and
@@ -25,7 +25,7 @@ structural validation and narrows only the environment reads (`EnvScope`). Stori
 writes a KB would run code on its readers' machines (design D6, D19). Serving the skill through `kb_guide`: it needs a
 shell, an editor and a conversation (D1100).
 
-**Consequences.** The poll's preconditions (`feedPreconditions`) and listing step (`listFeed`) are the only
+**Consequences.** The poll's preconditions (`feedPreconditions`), listing step (`listFeed`) and system steps (`observeSystem`) are the only
 implementation; a change to either changes the dry test. The guarantee covers the worker and the KB, not what the
 operator's own script does, which is why the skill requires a read-only identity. The dry test never contacts the
 server in `--recipe` mode. A hand-kept list of bundled skills in several tests is extended together with a new skill.

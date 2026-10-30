@@ -29,16 +29,17 @@ Use the built-in `http-pages` (the host must be in `fetch.allow_hosts`); no scri
 
 ## Live systems (cluster, cloud account, metrics endpoint)
 
-A live system is the **current state** of something, not a stream of changed documents. Check that the installed
-worker documents `shape: system` in `docs/worker-recipes.md` before offering it; without it, export the state to a
-git repository or a file the feed recipes can read.
+A live system is the **current state** of something, not a stream of changed documents: use `shape: system` (protocol
+in `references/lister-protocol.md`). If the installed worker does not accept it, export the state to a git repository
+or a file the feed recipes can read.
 
 - A group is a namespace, a service or an account region. For a metrics endpoint list the **definitions** (alert
   rules, dashboards, targets), never samples.
 - The lister emits a normalized, deterministic snapshot: volatile fields dropped (timestamps, resource versions,
-  counters), no secret value ever. Endpoint and identity come from the recipe's `env`, never from the `locator`,
-  which is a label.
-- Identity: a Kubernetes `view` ClusterRole (it excludes Secrets); a cloud read-only or view-only policy (check
-  what it can still read); for a metrics endpoint a read-only API token. An identity that can write or read secrets
-  is refused.
-- Worked example in the Cartographer repository: `examples/system-recipes/kubernetes/`, when present.
+  counters), no secret value ever. Endpoint and identity come from the recipe's `env`, never from the `locator`.
+- Identity: a Kubernetes `view` ClusterRole (it excludes Secrets); a cloud read-only or view-only policy (check what
+  it can still read); for a metrics endpoint a read-only API token. The preflight answers true only if the
+  write-class and secret-read questions answer no and a read question answers yes: an identity that can read nothing
+  is a misconfiguration.
+- Worked example in the Cartographer repository:
+  [`examples/system-recipes/kubernetes/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/kubernetes/README.md).
