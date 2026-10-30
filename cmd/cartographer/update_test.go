@@ -35,6 +35,17 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, "lister broke")
 			os.Exit(3)
 		}
+		if os.Args[2] == "empty" {
+			fmt.Println(`{"next_cursor":"` + "c9" + `"}`)
+			os.Exit(0)
+		}
+		if os.Args[2] == "many" {
+			for i := 0; i < 60; i++ {
+				fmt.Printf(`{"entry":{"key":"k%02d","title":"T%02d","revision":"r","change":"added"}}`+"\n", i, i)
+			}
+			fmt.Println(`{"next_cursor":"c60"}`)
+			os.Exit(0)
+		}
 		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"` + os.Getenv("LISTER_VALUE") + `"}}`)
 		fmt.Println(`{"next_cursor":"c1"}`)
 		os.Exit(0)
