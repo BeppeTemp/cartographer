@@ -91,6 +91,8 @@ A failure sets the Source's `feed_error` to `<code>: <detail>` and leaves its cu
 On a timeout, an oversized output or a protocol error the worker kills the whole process group, so a child your
 script started dies with it. The stderr excerpt is one line of at most 200 bytes, control characters removed,
 the values of your `env` variables replaced by `***`; the worker keeps at most 8 KiB of stderr.
+The redaction is a literal match: a value under 4 bytes is not redacted (it would mangle unrelated text), and a
+transformed copy of a value (encoded, split, re-cased) is not caught. Do not print credentials, however short.
 
 ## Reserved
 

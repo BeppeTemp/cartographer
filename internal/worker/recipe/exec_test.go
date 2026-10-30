@@ -101,6 +101,7 @@ func TestExecProtocolViolationsAreRefused(t *testing.T) {
 		"no cursor":     {helper(t, "nocursor"), CodeProtocolError, "no final next_cursor"},
 		"cursor first":  {helper(t, "cursornotlast"), CodeProtocolError, "nothing may follow"},
 		"too many":      {helper(t, "many"), CodeProtocolError, "max_entries"},
+		"null cursor":   {helper(t, "nullcursor"), CodeProtocolError, "next_cursor is a string"},
 		"duplicate":     {helper(t, "dup"), CodeProtocolError, "duplicate key"},
 		"malformed":     {helper(t, "malformed"), CodeProtocolError, "not a JSON object"},
 		"unknown line":  {helper(t, "unknownline"), CodeProtocolError, "neither entry nor next_cursor"},

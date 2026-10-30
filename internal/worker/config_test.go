@@ -669,6 +669,7 @@ func TestLoadConfigExecRecipes(t *testing.T) {
 		"unknown connector":  {"recipes:\n  mine:\n    instructions_file: feed.md\n    connector: nope\n    exec: {command: x}\n", "recipes.mine.connector (line "},
 		"unknown exec key":   {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, shell: true}\n", "unknown key"},
 		"literal env value":  {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, env: {T: hunter2-secret}}\n", "recipes.mine.exec.env (line "},
+		"env key has =":      {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, env: {\"A=B\": WIKI_API_TOKEN}}\n", "recipes.mine.exec.env (line "},
 		"timeout too long":   {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, timeout: 2h}\n", "recipes.mine.exec.timeout (line "},
 		"timeout not a time": {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, timeout: soon}\n", "recipes.mine.exec.timeout (line "},
 		"output too big":     {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, max_output_bytes: 67108865}\n", "recipes.mine.exec.max_output_bytes (line "},

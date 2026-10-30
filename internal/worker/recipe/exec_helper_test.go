@@ -15,8 +15,14 @@ import (
 // tests run the same on Linux, macOS and Windows.
 const execHelperFlag = "--exec-helper"
 
+// platformHelpers are helper modes that need an OS facility (setsid).
+var platformHelpers = map[string]func(args []string){}
+
 func runExecHelper(mode string, args []string) {
 	out := os.Stdout
+	if f := platformHelpers[mode]; f != nil {
+		f(args)
+	}
 	switch mode {
 	case "ok":
 		fmt.Fprintln(out, `{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"hello","future_field":1}}`)
@@ -84,6 +90,8 @@ func runExecHelper(mode string, args []string) {
 			_ = os.WriteFile(args[0], []byte(strconv.Itoa(c.Process.Pid)), 0o600)
 		}
 		time.Sleep(time.Minute)
+	case "nullcursor":
+		fmt.Fprintln(out, `{"next_cursor":null}`)
 	case "sleep":
 		time.Sleep(time.Minute)
 	}

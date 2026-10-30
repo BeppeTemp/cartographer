@@ -139,7 +139,32 @@ func (e *execRecipe) List(ctx context.Context, req Request) (Listing, error) {
 	// The script may leave grandchildren that outlive it (and hold the pipes).
 	defer connector.KillGroup(cmd)
 
-	l, atEOF, perr := e.parse(out, maxEntries, maxContent)
+	// Read in a goroutine and close the pipe when the deadline or a cancel hits:
+	// a descendant that left the process group (setsid) and keeps stdout open
+	// would otherwise block this read forever and hold execSlot.
+	type parsed struct {
+		l     Listing
+		atEOF bool
+		err   error
+	}
+	done := make(chan parsed, 1)
+	go func() {
+		var p parsed
+		p.l, p.atEOF, p.err = e.parse(out, maxEntries, maxContent)
+		done <- p
+	}()
+	var p parsed
+	select {
+	case p = <-done:
+	case <-runCtx.Done():
+		_ = out.Close()
+		p = <-done
+		if p.err == nil {
+			p.err = fail(CodeListFailed, "stopped before the listing ended")
+		}
+		p.atEOF = false
+	}
+	l, atEOF, perr := p.l, p.atEOF, p.err
 	if perr != nil && !atEOF {
 		timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded) // before cancel() below sets Err itself
 		cancel()                                                      // kills the group; the exit status no longer matters
@@ -231,7 +256,7 @@ func (e *execRecipe) parseLines(r io.Reader, maxEntries, maxContent int) (Listin
 				l.Entries = append(l.Entries, en)
 			case m["next_cursor"] != nil:
 				var c string
-				if err := json.Unmarshal(m["next_cursor"], &c); err != nil || len(c) > maxNextCursor || !utf8.ValidString(c) {
+				if string(m["next_cursor"]) == "null" || json.Unmarshal(m["next_cursor"], &c) != nil || len(c) > maxNextCursor || !utf8.ValidString(c) {
 					return Listing{}, false, fail(CodeProtocolError, "line %d: next_cursor is a string of at most %d bytes", n, maxNextCursor)
 				}
 				l.NextCursor, done = c, true
