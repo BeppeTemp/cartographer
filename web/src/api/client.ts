@@ -26,6 +26,9 @@ import type {
   WorkResponse,
   CheckCatalog,
   ReleasesView,
+  FeedList,
+  MaintenanceSummary,
+  WorkerRow,
 } from "./types";
 import {
   LIVE_ORIGIN,
@@ -248,6 +251,21 @@ export function fetchChecks(kb: string, signal?: AbortSignal): Promise<CheckCata
 /** What a doctor session decides beyond lint: kb_review's proposals (D704). */
 export function fetchMaintenanceReview(kb: string, signal?: AbortSignal): Promise<MaintenanceReview> {
   return get<MaintenanceReview>(`/kbs/${encodeURIComponent(kb)}/maintenance/review`, signal);
+}
+
+/** The live workers that declared this KB (design D22); 404 for a caller that does not see the whole KB. */
+export function fetchWorkers(kb: string, signal?: AbortSignal): Promise<{ workers: WorkerRow[] }> {
+  return get<{ workers: WorkerRow[] }>(`/kbs/${encodeURIComponent(kb)}/workers`, signal);
+}
+
+/** The Sources whose last poll failed, newest check first. */
+export function fetchFeeds(kb: string, signal?: AbortSignal): Promise<FeedList> {
+  return get<FeedList>(`/kbs/${encodeURIComponent(kb)}/feeds`, signal);
+}
+
+/** Last and next doctor run (the rest of the summary is not read by the Atlas). */
+export function fetchMaintenanceSummary(kb: string, signal?: AbortSignal): Promise<MaintenanceSummary> {
+  return get<MaintenanceSummary>(`/kbs/${encodeURIComponent(kb)}/maintenance/summary`, signal);
 }
 
 /** An opaque token that changes whenever the KB's concepts do (D337). */
