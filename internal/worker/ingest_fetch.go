@@ -46,11 +46,34 @@ type fetcher struct {
 	timeout      time.Duration // fetchTimeout when zero
 }
 
+func allZero(b []byte) bool {
+	for _, x := range b {
+		if x != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // privateIP is a destination a worker inside someone's network must not reach
 // for a model: loopback, private, link-local, unspecified, multicast, CGNAT.
 func privateIP(ip net.IP) bool {
-	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1]&0xC0 == 64 {
-		return true
+	if ip4 := ip.To4(); ip4 != nil {
+		switch {
+		case ip4[0] == 0, // 0.0.0.0/8
+			ip4[0] == 100 && ip4[1]&0xC0 == 64,          // 100.64.0.0/10 CGNAT
+			ip4[0] == 192 && ip4[1] == 0 && ip4[2] == 0, // 192.0.0.0/24
+			ip4[0] == 198 && ip4[1]&0xFE == 18:          // 198.18.0.0/15
+			return true
+		}
+	} else if len(ip) == net.IPv6len {
+		// NAT64 (64:ff9b::/96) and 6to4 (2002::/16) carry an IPv4 address: judge that.
+		if ip[0] == 0 && ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b && allZero(ip[4:12]) {
+			return privateIP(net.IP(ip[12:16]))
+		}
+		if ip[0] == 0x20 && ip[1] == 0x02 {
+			return privateIP(net.IP(ip[2:6]))
+		}
 	}
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsUnspecified() || ip.IsMulticast()
@@ -80,8 +103,12 @@ func (f *fetcher) client() *http.Client {
 			if len(via) >= fetchMaxHops {
 				return errors.New("too many redirects")
 			}
-			if req.URL.Hostname() != via[0].URL.Hostname() || (req.URL.Scheme != "http" && req.URL.Scheme != "https") {
-				return errors.New("redirect to another host refused")
+			first := via[0].URL
+			if req.URL.Hostname() != first.Hostname() || req.URL.Port() != first.Port() || (req.URL.Scheme != "http" && req.URL.Scheme != "https") {
+				return errors.New("redirect to another host or port refused")
+			}
+			if first.Scheme == "https" && req.URL.Scheme != "https" {
+				return errors.New("redirect from https to http refused")
 			}
 			return nil
 		},
@@ -161,6 +188,9 @@ func (f *fetcher) fetch(ctx context.Context) client.ToolOutput {
 type ingestTools struct {
 	inner ToolCaller
 	fetch *fetcher
+	ctx   context.Context // the run's: a cancelled worker stops its fetch
+	unit  string          // the claimed unit: only the worker writes it
+	types map[string]string
 
 	mu   sync.Mutex
 	ids  []string
@@ -183,7 +213,10 @@ func (t *ingestTools) ListTools() ([]client.ToolInfo, error) {
 // CallTool serves source_fetch locally and passes the rest through.
 func (t *ingestTools) CallTool(name string, args any) (client.ToolOutput, error) {
 	if name == sourceFetchTool {
-		return t.fetch.fetch(context.Background()), nil
+		return t.fetch.fetch(t.ctx), nil
+	}
+	if why := t.refuse(name, args); why != "" {
+		return client.ToolOutput{IsError: true, Text: "refused: " + why}, nil
 	}
 	out, err := t.inner.CallTool(name, args)
 	if err == nil && !out.IsError {
@@ -194,22 +227,83 @@ func (t *ingestTools) CallTool(name string, args any) (client.ToolOutput, error)
 
 var writesIDs = map[string]bool{"concept_write": true, "concept_patch": true, "concept_new": true, "concept_batch": true}
 
-func (t *ingestTools) record(name string, args any) {
-	if !writesIDs[name] {
-		return
-	}
+type writeArgs struct {
+	ID          string         `json:"id"`
+	Frontmatter map[string]any `json:"frontmatter"`
+	Ops         []struct {
+		ID          string         `json:"id"`
+		Op          string         `json:"op"`
+		Frontmatter map[string]any `json:"frontmatter"`
+	} `json:"operations"`
+}
+
+func parseWrite(args any) (writeArgs, bool) {
 	raw, ok := args.(json.RawMessage)
 	if !ok {
 		raw, _ = json.Marshal(args)
 	}
-	var a struct {
-		ID  string `json:"id"`
-		Ops []struct {
-			ID string `json:"id"`
-			Op string `json:"op"`
-		} `json:"operations"`
+	var a writeArgs
+	return a, json.Unmarshal(raw, &a) == nil
+}
+
+// protected reports a concept the loop may not write: the unit itself, any
+// other IngestUnit and any Source. The worker alone claims, closes and releases
+// those; a page the loop writes must not be able to rewrite the queue or the
+// ledger it was told to follow.
+func (t *ingestTools) protected(id string, fm map[string]any) bool {
+	if id == "" {
+		return false
 	}
-	if json.Unmarshal(raw, &a) != nil {
+	if id == t.unit {
+		return true
+	}
+	if ty, _ := fm["type"].(string); ty == "IngestUnit" || ty == "Source" {
+		return true
+	}
+	ty, ok := t.types[id]
+	if !ok {
+		ty = ""
+		if out, err := t.inner.CallTool("concept_read", map[string]any{"id": id, "outline": true}); err == nil && !out.IsError {
+			var c conceptOut
+			if json.Unmarshal([]byte(out.Text), &c) == nil {
+				ty = str(c.Frontmatter, "type")
+			}
+		}
+		if t.types == nil {
+			t.types = map[string]string{}
+		}
+		t.types[id] = ty
+	}
+	return ty == "IngestUnit" || ty == "Source"
+}
+
+func (t *ingestTools) refuse(name string, args any) string {
+	if !writesIDs[name] {
+		return ""
+	}
+	a, ok := parseWrite(args)
+	if !ok {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.protected(a.ID, a.Frontmatter) {
+		return a.ID + " is the unit, another unit or a Source: the worker alone writes those"
+	}
+	for _, o := range a.Ops {
+		if t.protected(o.ID, o.Frontmatter) {
+			return o.ID + " is the unit, another unit or a Source: the worker alone writes those"
+		}
+	}
+	return ""
+}
+
+func (t *ingestTools) record(name string, args any) {
+	if !writesIDs[name] {
+		return
+	}
+	a, ok := parseWrite(args)
+	if !ok {
 		return
 	}
 	t.mu.Lock()

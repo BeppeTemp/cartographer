@@ -432,3 +432,63 @@ func TestIngestKindIsInTheRegistryAndTheTable(t *testing.T) {
 		t.Fatal("ingest is not registered")
 	}
 }
+
+func TestIngestAllowlistIsReadsAndContentWritesOnly(t *testing.T) {
+	a := NewAllowlist(ingestAllowed()...)
+	for _, n := range []string{"concept_move", "concept_archive", "concept_merge", "supersede", "index_patch", "map_create",
+		"map_update", "asset_write", "source_register", "log_append", "concept_delete"} {
+		if a.Permits(n) {
+			t.Errorf("%s must not be offered to an ingest session", n)
+		}
+	}
+	for _, n := range []string{"concept_read", "work_list", "gate_check", "concept_write", "concept_patch", "concept_new", "concept_batch", sourceFetchTool} {
+		if !a.Permits(n) {
+			t.Errorf("%s must be offered", n)
+		}
+	}
+}
+
+func TestIngestLoopCannotWriteTheQueueOrTheLedger(t *testing.T) {
+	k := newIKB()
+	k.src("s/a", map[string]any{"locator": "https://example.com/a"})
+	k.unit("u/1", "s/a", "open", "any", nil)
+	k.unit("u/2", "s/a", "open", "any", nil)
+	k.put("pages/plain", map[string]any{"type": "Topic"}, "x")
+	tl := &ingestTools{inner: k, unit: "u/1", ctx: context.Background()}
+	patch := func(id string) client.ToolOutput {
+		out, _ := tl.CallTool("concept_patch", json.RawMessage(`{"id":"`+id+`","if_match":"1","frontmatter":{"status":"done"}}`))
+		return out
+	}
+	for _, id := range []string{"u/1", "u/2", "s/a"} {
+		if out := patch(id); !out.IsError || !strings.Contains(out.Text, "refused") {
+			t.Errorf("write to %s: %+v", id, out)
+		}
+	}
+	if out, _ := tl.CallTool("concept_write", json.RawMessage(`{"id":"pages/new","frontmatter":{"type":"Source"},"body":"x"}`)); !out.IsError {
+		t.Error("creating a Source must be refused")
+	}
+	if out, _ := tl.CallTool("concept_batch", json.RawMessage(`{"operations":[{"op":"write","id":"pages/ok","body":"x"},{"op":"patch","id":"u/2","if_match":"1"}]}`)); !out.IsError {
+		t.Error("a batch touching another unit must be refused whole")
+	}
+	if len(k.patches) != 0 {
+		t.Fatalf("a protected page was patched: %v", k.patches)
+	}
+	if out := patch("pages/plain"); out.IsError {
+		t.Errorf("an ordinary page must be writable: %+v", out)
+	}
+}
+
+func TestIngestSkipsAUnitWhoseSourceIsNotASource(t *testing.T) {
+	k := newIKB()
+	k.put("pages/notsource", map[string]any{"type": "Topic", "locator": "https://example.com/a"}, "x")
+	k.unit("u/1", "pages/notsource", "open", "any", nil)
+	in := newInst(t, TierSmall)
+	if it := next(t, in, k); it != nil {
+		t.Fatalf("took %+v", it)
+	}
+	// closeSource also refuses to patch a page that is not a Source.
+	in.closeSource(rtFor(k, nil, "docs-aa"), "pages/notsource")
+	if _, ok := k.pages["pages/notsource"].fm["ingest_status"]; ok {
+		t.Error("ingest_status written into a non-Source")
+	}
+}

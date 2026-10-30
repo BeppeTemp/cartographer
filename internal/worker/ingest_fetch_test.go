@@ -89,7 +89,8 @@ func TestSourceFetchTruncatesAtOneMiB(t *testing.T) {
 
 func TestPrivateIPClasses(t *testing.T) {
 	for ip, want := range map[string]bool{"127.0.0.1": true, "10.1.2.3": true, "192.168.0.1": true, "169.254.1.1": true,
-		"100.64.0.1": true, "::1": true, "fe80::1": true, "0.0.0.0": true, "93.184.216.34": false, "2606:4700::1": false} {
+		"100.64.0.1": true, "0.1.2.3": true, "192.0.0.8": true, "198.19.0.1": true, "198.20.0.1": false,
+		"64:ff9b::7f00:1": true, "64:ff9b::5db8:d822": false, "2002:0a00:0001::1": true, "2002:5db8:d822::1": false, "::1": true, "fe80::1": true, "0.0.0.0": true, "93.184.216.34": false, "2606:4700::1": false} {
 		if got := privateIP(parseIP(t, ip)); got != want {
 			t.Errorf("privateIP(%s) = %v", ip, got)
 		}
@@ -103,4 +104,37 @@ func parseIP(t *testing.T, s string) net.IP {
 		t.Fatal(s)
 	}
 	return ip
+}
+
+func TestSourceFetchRedirectDowngradeAndPortChange(t *testing.T) {
+	a := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(a.Close)
+	// Same host, other port.
+	if text, isErr := fetchFrom(t, http.RedirectHandler(a.URL+"/x", http.StatusFound), true); !isErr || !strings.Contains(text, "another host or port") {
+		t.Errorf("port change: %q %v", text, isErr)
+	}
+	// https -> http on the same host and port.
+	tls := httptest.NewTLSServer(nil)
+	t.Cleanup(tls.Close)
+	tls.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+"/x", http.StatusFound)
+	})
+	f := &fetcher{locator: tls.URL + "/p", allowPrivate: true, timeout: time.Second}
+	c := f.client()
+	c.Transport.(*http.Transport).TLSClientConfig = tls.Client().Transport.(*http.Transport).TLSClientConfig
+	if _, err := c.Get(f.locator); err == nil || !strings.Contains(err.Error(), "https to http") {
+		t.Errorf("downgrade: %v", err)
+	}
+}
+
+func TestSourceFetchStopsWithTheRunContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+	start := time.Now()
+	out := (&fetcher{locator: srv.URL, allowPrivate: true, timeout: 10 * time.Second}).fetch(ctx)
+	if !out.IsError || time.Since(start) > 3*time.Second {
+		t.Fatalf("not cancelled: %+v after %v", out, time.Since(start))
+	}
 }

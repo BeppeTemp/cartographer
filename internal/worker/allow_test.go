@@ -69,3 +69,17 @@ func TestAllowlistNamesExistInTheServerRegistry(t *testing.T) {
 		t.Error("duplicate in the default list")
 	}
 }
+
+func TestAllowlistRefusesBatchDelete(t *testing.T) {
+	a := worker.NewAllowlist()
+	del := []byte(`{"operations":[{"op":"write","id":"a","body":"x"},{"op":"delete","id":"b"}]}`)
+	if !a.RefusesArgs("concept_batch", del) {
+		t.Error("a concept_batch with a delete reaches concept_delete, which is denied")
+	}
+	if a.RefusesArgs("concept_batch", []byte(`{"operations":[{"op":"write","id":"a"},{"op":"patch","id":"b"}]}`)) {
+		t.Error("a batch of writes and patches is fine")
+	}
+	if a.RefusesArgs("concept_write", del) || a.RefusesArgs("concept_batch", []byte(`{`)) {
+		t.Error("only a parsed concept_batch is judged")
+	}
+}

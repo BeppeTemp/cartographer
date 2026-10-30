@@ -227,6 +227,12 @@ func (in *ingestInstance) Next(_ context.Context, kb string, tools ToolCaller) (
 			}
 			return nil, err
 		}
+		if str(src.Frontmatter, "type") != "Source" {
+			in.skip(kb, e.ID, "source") // the unit's source is free text: only a Source is read or patched
+			continue
+		}
+		// A Source with a recipe is fetched as plain http: a recipe is how the
+		// poll task lists a feed (#1262), not a connector the unit executor needs.
 		locator := strings.TrimSpace(str(src.Frontmatter, "locator"))
 		if str(src.Frontmatter, "connector") != "" || (locator != "" && !httpLocator(locator)) {
 			in.skip(kb, e.ID, "connector") // skip-not-fail: a connector this worker lacks (D1260)
@@ -303,8 +309,8 @@ func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Re
 	in.skip(rt.KB, c.unit, "") // whatever happens next, this run does not take it again
 	src, _ := readConcept(rt.Tools, c.source)
 
-	tools := &ingestTools{inner: rt.Tools, fetch: &fetcher{locator: c.locator, allowPrivate: in.allowPrivate}}
-	allow := NewAllowlist(append(DefaultTools(), sourceFetchTool)...)
+	tools := &ingestTools{inner: rt.Tools, unit: c.unit, ctx: ctx, fetch: &fetcher{locator: c.locator, allowPrivate: in.allowPrivate}}
+	allow := NewAllowlist(ingestAllowed()...)
 	agent := NewAgent(rt.Model, tools, allow, Limits{MaxSteps: ingestMaxSteps, MaxTotalTokens: rt.Grant})
 	user := fmt.Sprintf("Execute the IngestUnit %q. claimed_by is %q.\n\nBEGIN DATA unit\n%s\nEND DATA\n\nBEGIN DATA source\n%s\nEND DATA",
 		c.unit, rt.Replica, clip(unit.raw), clip(src.raw))
@@ -343,6 +349,15 @@ func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Re
 		return res, runErr
 	}
 	return res, nil
+}
+
+// ingestAllowed is the ingest session's allowlist: the read tools, the four
+// content writes and source_fetch. Not the structural writes (move, archive,
+// merge, supersede, index and map edits, assets, source_register, log_append):
+// text fetched from a Source must not be able to drive them, and their writes
+// would be invisible to the written-IDs record the gate and the release use.
+func ingestAllowed() []string {
+	return append(append([]string{}, readTools...), "concept_write", "concept_patch", "concept_new", "concept_batch", sourceFetchTool)
 }
 
 func clip(s string) string {
@@ -470,7 +485,7 @@ func (in *ingestInstance) closeSource(rt Runtime, source string) {
 	}
 	for try := 0; try < 2; try++ {
 		s, err := readConcept(rt.Tools, source)
-		if err != nil || str(s.Frontmatter, "ingest_status") == "ingested" {
+		if err != nil || str(s.Frontmatter, "type") != "Source" || str(s.Frontmatter, "ingest_status") == "ingested" {
 			return
 		}
 		_, err = callOK(rt.Tools, "concept_patch", map[string]any{"id": source, "if_match": s.ContentHash,
