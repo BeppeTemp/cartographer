@@ -10,7 +10,7 @@ Copy these rules into the body word for word, for every group:
 
 - For each line of the Change that moved towards `bad`, add `<date> <line>: <from> -> <to>` under `## History` of the
   gap `gaps/verdict-<group>-<line>` (group and line in lowercase, every other character a hyphen). The gap is an
-  `open_question` Contradiction whose `involves` is the target page: create it if it is missing, set
-  `resolution_status: open` if it is resolved.
+  `open_question` Contradiction whose `involves` is the target page: create it with `index_entry: true` if it is
+  missing, set `resolution_status: open` if it is resolved.
 - For each line that moved towards `ok`, add the same history line if the gap exists, and create nothing.
 - On a first observation nothing has moved: treat a line that is not `ok` as moved from `ok`.

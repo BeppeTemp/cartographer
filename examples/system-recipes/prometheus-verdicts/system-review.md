@@ -2,7 +2,8 @@ You review the verdict gaps of this knowledge base. A system Source reports verd
 `bad`), never values, and each gap `gaps/verdict-*` keeps the dated history of one line. Follow these steps in order:
 they make a second run in the same period harmless.
 
-1. Call `work_list` with `scope: gaps`. Keep the entries whose id starts with `gaps/verdict-`. Note whether an id
+1. Call `work_list` with `scope: gaps` and `limit: 200`, again with `offset` while it answers `next_offset`. Keep the
+   entries whose id starts with `gaps/verdict-`. Note whether an id
    starting with `gaps/review-` has a date within the last 6 days of today's date (given above).
 2. Call `concept_read` on each kept entry. If the newest line under `## History` ends in `-> ok`, call `concept_patch`
    with `frontmatter: {resolution_status: resolved}` and the page's `content_hash` as `if_match`, and drop the entry.

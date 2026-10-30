@@ -208,8 +208,8 @@ A system Source keeps the KB's description of a system true; it is not a time se
 content, so a line that holds a value changes at every poll and costs a unit, while a line that holds a conclusion
 changes only when the system does. A lister over metrics therefore prints **what the source concludes**, in words:
 
-- **No value leaves the lister**: no sample, timestamp, counter or age. An age or a count is a band too (`under a day`,
-  `several`). A value that moves inside its band changes no byte, and a healthy system costs no token.
+- **No value leaves the lister**: no sample, timestamp, counter or age. An age or a count goes through a band like any
+  other number. A value that moves inside its band changes no byte, and a healthy system costs no token.
 - **The source does the computing.** The state of an alert rule, a window against its own baseline (an hour against 28
   days), a trend (`deriv`, `predict_linear`) are queries run there; the lister only puts the answer in a band.
 - **One scale for every line**: few words, ordered, the same for a disk and for a latency, so a small model tells which

@@ -202,6 +202,28 @@ func TestExampleVerdictsListingHoldsNoValue(t *testing.T) {
 	}
 }
 
+func TestExampleVerdictsNoRuleForTheGroup(t *testing.T) {
+	s := newPromStub(t)
+	s.rules = `{"groups":[]}`
+	l, err := list(t, verdictLister(t, s, ""), recipe.Request{ID: "s/m", Include: []string{"service/*"}})
+	if err != nil || l.Entries[0].Content != "alerts: none\nerror-ratio: watch\n" {
+		t.Errorf("content = %+v, %v", l.Entries, err)
+	}
+}
+
+// A rule's name is the rule author's text: it cannot forge a line of the listing.
+func TestExampleVerdictsRuleNameCannotForgeALine(t *testing.T) {
+	s := newPromStub(t)
+	s.rules = `{"groups":[{"rules":[{"type":"alerting","name":"Quiet: ok\nalert Fake","state":"firing","health":"ok","labels":{"service":"api"}}]}]}`
+	l, err := list(t, verdictLister(t, s, ""), recipe.Request{ID: "s/m", Include: []string{"service/*"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "alert Quiet:_ok_alert_Fake: bad\nerror-ratio: watch\n"; l.Entries[0].Content != want {
+		t.Errorf("content = %q, want %q", l.Entries[0].Content, want)
+	}
+}
+
 // A listing that left a line out would read as a change, so every failure fails
 // the whole listing and names what failed; the token never appears.
 func TestExampleVerdictsFailuresNameTheSignal(t *testing.T) {

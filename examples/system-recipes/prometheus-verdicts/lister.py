@@ -20,6 +20,7 @@ import http.client
 import json
 import math
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -129,14 +130,20 @@ def rule_verdict(rule):
     return "bad" if rule.get("state") == "firing" else "ok"  # pending is not a fact yet
 
 
+def alert_name(name):
+    """A rule's author need not be the operator, and Prometheus 3 takes any UTF-8 in a
+    name: without this, a newline in one would forge a verdict line of the listing."""
+    return re.sub(r"[^A-Za-z0-9_:.-]", "_", str(name))[:80]
+
+
 def alerts(rule_groups, labels):
     """The worst verdict per alert name: one name often has a rule per severity."""
     found = {}
     for group in rule_groups:
         for rule in group.get("rules") or []:
             if rule.get("type") == "alerting" and rule.get("name") and all((rule.get("labels") or {}).get(k) == v for k, v in labels.items()):
-                worst = max(found.get(rule["name"], "ok"), rule_verdict(rule), key=SCALE.index)
-                found[rule["name"]] = worst
+                name = alert_name(rule["name"])
+                found[name] = max(found.get(name, "ok"), rule_verdict(rule), key=SCALE.index)
     return found
 
 
