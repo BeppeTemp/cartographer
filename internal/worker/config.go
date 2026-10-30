@@ -19,6 +19,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/worker/connector"
+	"github.com/BeppeTemp/cartographer/internal/worker/recipe"
 	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 	"gopkg.in/yaml.v3"
 )
@@ -110,6 +111,9 @@ type Config struct {
 	// load; GitAllowHosts is git.allow_hosts (empty: no feed uses the git reader).
 	RecipeInstructions map[string]string
 	GitAllowHosts      []string
+	// ExecRecipes are the recipes.<name> of kind exec (protocol v1, D1262), commands
+	// already resolved; they come from this file and from nowhere else.
+	ExecRecipes []recipe.ExecConfig
 	// Warnings are conditions worth one line at start that do not stop it.
 	Warnings []string
 
