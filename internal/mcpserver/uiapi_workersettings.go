@@ -13,11 +13,9 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 )
 
-// WorkerSettingsPath is where a worker reports its effective configuration,
-// once at start and again only when a beat answers settings_wanted (D22). Its
-// own route, not the heartbeat: the config is constant for the life of the
-// process, and a report the server refuses must never fail the liveness beat.
-// Inside the auth chain of /mcp, read-only in the Atlas.
+// WorkerSettingsPath is where a worker reports its configuration, at start and
+// again when a beat answers settings_wanted (D22). Not the heartbeat: the config
+// is constant, and a refused report must never fail the liveness beat.
 const WorkerSettingsPath = "/api/worker-settings"
 
 const (
@@ -26,8 +24,7 @@ const (
 	maxWorkerSettingsTotal        = 64
 )
 
-// workerSettings is one perimeter's report as stored: already scrubbed
-// (workerconfig.Scrub), so nothing in it needs masking again.
+// workerSettings is one perimeter's report as stored, already scrubbed.
 type workerSettings struct {
 	Version    string
 	KBs        []string
@@ -48,41 +45,38 @@ func (s *workerStore) putSettings(principal, perimeter string, r workerSettings)
 	}
 	s.settings[principal][perimeter] = r
 	for len(s.settings[principal]) > maxWorkerSettingsPerPrincipal {
-		evictOldestSettings(s.settings[principal])
+		s.evictSettingsLocked(principal)
 	}
-	for {
-		total := 0
+	for total := 0; ; total = 0 {
 		for _, m := range s.settings {
 			total += len(m)
 		}
 		if total <= maxWorkerSettingsTotal {
 			return
 		}
-		var op, oper string
-		var ot time.Time
-		for p, m := range s.settings {
-			for per, x := range m {
-				if op == "" || x.ReceivedAt.Before(ot) {
-					op, oper, ot = p, per, x.ReceivedAt
-				}
+		s.evictSettingsLocked("")
+	}
+}
+
+// evictSettingsLocked drops the oldest report of one principal, or of anyone
+// when principal is "".
+func (s *workerStore) evictSettingsLocked(principal string) {
+	var op, oper string
+	var ot time.Time
+	for p, m := range s.settings {
+		if principal != "" && p != principal {
+			continue
+		}
+		for per, x := range m {
+			if op == "" || x.ReceivedAt.Before(ot) {
+				op, oper, ot = p, per, x.ReceivedAt
 			}
 		}
-		delete(s.settings[op], oper)
 	}
+	delete(s.settings[op], oper)
 }
 
-func evictOldestSettings(m map[string]workerSettings) {
-	oldest := ""
-	for per, x := range m {
-		if oldest == "" || x.ReceivedAt.Before(m[oldest].ReceivedAt) {
-			oldest = per
-		}
-	}
-	delete(m, oldest)
-}
-
-// pruneSettingsLocked drops the reports that no live declaration of the same
-// principal and perimeter backs.
+// pruneSettingsLocked drops the reports no live declaration of the same principal and perimeter backs.
 func (s *workerStore) pruneSettingsLocked() {
 	for p, m := range s.settings {
 		for per := range m {
@@ -122,8 +116,7 @@ type workerSettingsRow struct {
 	ReceivedAt time.Time            `json:"received_at"`
 }
 
-// settingsRows returns the reports backed by a live declaration, each with its
-// replica count and the KBs its report and its declarations name together.
+// settingsRows returns the reports a live declaration backs, with replica counts and KBs.
 func (s *workerStore) settingsRows() []workerSettingsRow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -160,9 +153,7 @@ func (s *workerStore) settingsRows() []workerSettingsRow {
 	return rows
 }
 
-// workerSettingsViews narrows the rows to the perimeters whose every KB the
-// caller sees whole (decision 5 of #1259): the YAML lists the perimeter's KBs,
-// so a partial view would disclose names the caller may not see.
+// workerSettingsViews keeps the perimeters whose every KB the caller sees whole: the YAML lists them.
 func (m *MultiKBServer) workerSettingsViews(r *http.Request) []workerSettingsRow {
 	out := []workerSettingsRow{}
 	for _, row := range m.workers.settingsRows() {
@@ -181,9 +172,7 @@ func (m *MultiKBServer) workerSettingsViews(r *http.Request) []workerSettingsRow
 	return out
 }
 
-// handleWorkerSettings stores a worker's settings report under its principal
-// and perimeter. The worker rendered the YAML, but the server does not trust
-// the shape: workerconfig.Scrub runs before anything is kept.
+// handleWorkerSettings stores a report; workerconfig.Scrub runs before anything is kept.
 func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -220,7 +209,7 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 		bad("worker must be 1-64 characters of [a-z0-9._-]", "worker")
 		return
 	}
-	// A report that carries the caller's own token is refused whole, not masked.
+	// A report carrying the caller's own token is refused, not masked.
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		if tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")); tok != "" && bytes.Contains(data, []byte(tok)) {
 			bad("the report contains the bearer token of the request", "")
@@ -233,8 +222,7 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	p := auth.PrincipalFromContext(r.Context())
-	// Like the heartbeat: a worker is a writer, and the answer for a report
-	// naming no KB the caller may write is the 404 of an unknown KB.
+	// A worker is a writer: no KB it may write is the 404 of an unknown KB.
 	var named []string
 	writable := false
 	for _, k := range kbs {

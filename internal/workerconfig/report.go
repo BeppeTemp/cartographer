@@ -11,14 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Redacted is what a report shows in place of a value that is not what the
-// schema says it is (the server's own YAML view uses the same word).
+// Redacted is what a report shows in place of a value that must not be shown.
 const Redacted = "<redacted>"
 
-// Entry is one worker key with its effective value and origin ("file" when the
-// config sets it, "default" otherwise), in the JSON shape of the server's own
-// settings entries so the Atlas reads both alike (D22). A key that names an
-// environment variable holds the name, never the value.
+// Entry is one worker key with its effective value and origin ("file" or
+// "default"), in the JSON shape of the server's settings entries (D22).
 type Entry struct {
 	Key         string `json:"key"`
 	Value       any    `json:"value"`
@@ -29,9 +26,7 @@ type Entry struct {
 	Values      string `json:"values,omitempty"`
 }
 
-// Template is the worker settings with no config file: every key at its
-// default, and the file they amount to. The Atlas shows it while no worker has
-// reported, so what a worker can set is readable before one connects.
+// Template is the settings of a worker with no config file: every key at its default, and the file they amount to.
 func Template() ([]Entry, string) {
 	entries := make([]Entry, 0, len(Schema.Keys))
 	for _, k := range Schema.Keys {
@@ -43,12 +38,10 @@ func Template() ([]Entry, string) {
 	return entries, string(out)
 }
 
-// envName is what an `*_env` value may be: a variable name, optionally with the
-// (set)/(unset) a report appends.
+// envName is what an `*_env` value may be: a variable name, optionally with (set)/(unset).
 var envName = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*( ?\((set|unset)\))?)?$`)
 
-// commentedEnv matches a commented-out assignment of an `*_env` key, as the
-// file lists a key it does not set: group 1 stays, group 2 is the value.
+// commentedEnv matches a commented-out `*_env` assignment: group 1 stays, group 2 is the value.
 var commentedEnv = regexp.MustCompile(`^(\s*#\s*[A-Za-z0-9_]*_env\s*:\s*)(\S.*)$`)
 
 // ErrUnsafe is a report whose YAML the mask cannot vouch for.
@@ -86,15 +79,12 @@ func scrubValue(key string, v any) any {
 	return v
 }
 
-// Scrub makes a report fit to keep and show, whatever the sender did. The
-// worker rendered the YAML and masked its entries, but the server does not
-// trust the shape: no secret may be in memory or on the page. It returns the
-// entries and the YAML with every `*_env` value that is not a variable name, and
-// every URL carrying credentials, replaced by Redacted, and the KB names the
-// file lists. The YAML must be one document with no merge key and no alias,
-// where a value escapes the mask: otherwise the error is ErrUnsafe or the
-// parser's. It does not render again, so a stored text is never larger than
-// what was received.
+// Scrub makes a report fit to keep and show, whatever the sender did: the
+// worker masked it, but no secret may be in memory or on the page. It returns
+// entries and YAML with every `*_env` value that is not a variable name and
+// every URL with credentials replaced by Redacted, and the file's KB names. The
+// YAML must be one document with no merge key and no alias (where a value
+// escapes the mask). It does not render again, so nothing grows.
 func Scrub(entries []Entry, text string) ([]Entry, string, []string, error) {
 	data := []byte(text)
 	dec := yaml.NewDecoder(bytes.NewReader(data))
