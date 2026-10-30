@@ -78,11 +78,21 @@ func (g *doctorGuard) CallTool(name string, args any) (client.ToolOutput, error)
 	refuse := func(text string) (client.ToolOutput, error) {
 		return client.ToolOutput{IsError: true, Text: text}, nil
 	}
-	if name == "log_append" && strings.Contains(string(rawJSON(args)), doctorMarker) && g.applied == 0 {
-		return refuse("refused: a closing entry needs the session to have applied at least one write; record a gap or a repair first")
-	}
 	write := isDoctorWrite(name, args)
-	if write && g.applied >= g.maxW {
+	// The server decodes the arguments, so the marker is looked for in the
+	// decoded strings (an escaped "kb\u002ddoctor" is the same text), in every
+	// write: an id, a map name or a path containing it would also be a closing
+	// marker in the log. Only the closing log_append, after a write, may carry it.
+	if write && hasMarker(args) {
+		if name != "log_append" {
+			return refuse("refused: the text \"" + doctorMarker + "\" is reserved for the closing log entry")
+		}
+		if g.applied == 0 {
+			return refuse("refused: a closing entry needs the session to have applied at least one write; record a gap or a repair first")
+		}
+	}
+	weight := writeWeight(name, args)
+	if write && g.applied+weight > g.maxW {
 		return refuse(fmt.Sprintf("refused: this session reached its cap of %d writes; close it now", g.maxW))
 	}
 	out, err := g.inner.CallTool(name, args)
@@ -97,7 +107,7 @@ func (g *doctorGuard) CallTool(name string, args any) (client.ToolOutput, error)
 	}
 	g.refused = 0
 	if name != "log_append" {
-		g.applied++
+		g.applied += weight
 	}
 	return out, nil
 }
@@ -116,6 +126,53 @@ func isDoctorWrite(name string, args any) bool {
 		return a.DryRun != nil && !*a.DryRun
 	}
 	return !isRead(name)
+}
+
+// writeWeight is how many writes a call counts for: a concept_batch is one per
+// operation, anything else one.
+func writeWeight(name string, args any) int {
+	if name != "concept_batch" {
+		return 1
+	}
+	var a struct {
+		Operations []json.RawMessage `json:"operations"`
+	}
+	if json.Unmarshal(rawJSON(args), &a) != nil || len(a.Operations) == 0 {
+		return 1
+	}
+	return len(a.Operations)
+}
+
+// hasMarker reports whether any decoded string (key or value, at any depth) of
+// the arguments contains the closing marker. Arguments that do not decode are
+// checked as raw text.
+func hasMarker(args any) bool {
+	raw := rawJSON(args)
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return strings.Contains(string(raw), doctorMarker)
+	}
+	var walk func(any) bool
+	walk = func(v any) bool {
+		switch x := v.(type) {
+		case string:
+			return strings.Contains(x, doctorMarker)
+		case []any:
+			for _, e := range x {
+				if walk(e) {
+					return true
+				}
+			}
+		case map[string]any:
+			for k, e := range x {
+				if strings.Contains(k, doctorMarker) || walk(e) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(v)
 }
 
 func rawJSON(args any) []byte {

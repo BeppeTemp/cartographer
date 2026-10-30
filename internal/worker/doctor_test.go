@@ -23,7 +23,7 @@ type doctorKB struct {
 
 func (k *doctorKB) ListTools() ([]client.ToolInfo, error) {
 	var out []client.ToolInfo
-	for _, n := range []string{"kb_status", "kb_repair", "kb_review", "log_append", "concept_patch", "concept_merge", "concept_archive", "concept_delete", "artifact_write"} {
+	for _, n := range []string{"kb_status", "kb_repair", "kb_review", "log_append", "concept_patch", "concept_batch", "concept_merge", "concept_archive", "concept_delete", "artifact_write"} {
 		out = append(out, client.ToolInfo{Name: n, InputSchema: json.RawMessage(`{"type":"object"}`)})
 	}
 	return out, nil
@@ -280,5 +280,39 @@ func TestBudgetEntryCarriesNoMarker(t *testing.T) {
 	e := b.entry("kb-a", "error", "stopped: kb-kb-doctor-doctor")
 	if strings.Contains(e, doctorMarker) {
 		t.Errorf("entry %q", e)
+	}
+}
+
+func TestDoctorMarkerInAnyWriteIsRefusedEscapedOrNot(t *testing.T) {
+	for name, calls := range map[string][]ToolCall{
+		"escaped closing entry first": {toolCall("1", "log_append", `{"entry":"kb\u002ddoctor: done"}`)},
+		"concept id":                  {toolCall("1", "concept_patch", `{"id":"notes/kb-doctor-x"}`), toolCall("2", "log_append", `{"entry":"kb\u002ddoctor: done"}`)},
+		"nested name":                 {toolCall("1", "concept_batch", `{"operations":[{"op":"write","id":"kb\u002ddoctor"}]}`), toolCall("2", "log_append", `{"entry":"kb-doctor: done"}`)},
+	} {
+		k, d := dueKB()
+		m := &scriptModel{turns: []Response{{Stop: StopToolUse, ToolCalls: calls}, {Stop: StopEnd}}}
+		d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
+		if k.st.Conformance.LastDoctor != "" {
+			t.Errorf("%s: a marker reached the KB (%v)", name, k.calls)
+		}
+	}
+}
+
+func TestDoctorBatchCountsEachOperation(t *testing.T) {
+	k, d := dueKB()
+	d.maxWrites = 3
+	m := &scriptModel{turns: []Response{{Stop: StopToolUse, ToolCalls: []ToolCall{
+		toolCall("1", "concept_batch", `{"operations":[{},{},{}]}`),
+		toolCall("2", "concept_batch", `{"operations":[{}]}`),
+	}}, {Stop: StopEnd}}}
+	res, _ := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
+	n := 0
+	for _, c := range k.calls {
+		if c == "concept_batch" {
+			n++
+		}
+	}
+	if n != 1 || res.Commits != 3 {
+		t.Errorf("batches that reached the KB: %d, commits %d", n, res.Commits)
 	}
 }
