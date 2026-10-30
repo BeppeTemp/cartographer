@@ -69,6 +69,43 @@ func skillsSentence(names []string) string {
 	return line + ".\n"
 }
 
+// WithoutSkillsLine returns a copy of a KB's generated `instructions` artifact
+// without its skills line (#1408): what a client with `kb_options.<kb>.artifacts:
+// false` writes, so the block no longer names skills it does not install. The
+// routing and maps paragraph stay: the KB is still connected.
+//
+// The line is the one right after the first blank line (the end of the
+// routing/maps paragraph, archivesSentence ends in "\n\n") when it starts with
+// "Skills: ". A "Skills:" line anywhere else is the curated body of a
+// `block: full` KB and is never touched. Anything else (no skills line, another
+// kind, another source, several files) is returned unchanged.
+//
+// It runs AFTER VerifiedManifest and rehashes the content: the signature covers
+// the original hash, Apply trusts the Signed flag and never re-verifies, so the
+// rewrite keeps Signed/Signature as verification left them. Rewriting before
+// verification would make the signature fail. TestWithoutSkillsLineMatchesGenerate
+// pins it byte for byte against generateKBInstructions.
+func WithoutSkillsLine(a Artifact) Artifact {
+	if a.Kind != "instructions" || !strings.HasPrefix(a.Source, "kb:") || len(a.Files) != 1 {
+		return a
+	}
+	text := string(a.Files[0].Content)
+	head, rest, ok := strings.Cut(text, "\n\n")
+	if !ok || !strings.HasPrefix(rest, "Skills: ") {
+		return a
+	}
+	line, tail, ok := strings.Cut(rest, "\n")
+	if !ok || line == "" {
+		return a
+	}
+	f := a.Files[0]
+	f.Content = []byte(head + "\n\n" + tail)
+	files := []ArtifactFile{f}
+	a.Files = files
+	a.ContentHash = hashArtifactFiles(files)
+	return a
+}
+
 // Operational bullets. orientationBullet and placeholderBullet are the ones a
 // read-only connection keeps; the rest instruct a writer.
 const (
