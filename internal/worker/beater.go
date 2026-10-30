@@ -54,6 +54,7 @@ type Beater struct {
 	answer   *client.HeartbeatAnswer
 	answerAt time.Time // local clock when the answer arrived
 	posted   bool
+	refused  bool // the server answered the settings report with a 4xx: not sent again
 }
 
 func (b *Beater) interval() time.Duration {
@@ -172,12 +173,22 @@ func (b *Beater) send() {
 	}
 	b.mu.Lock()
 	b.answer, b.answerAt = a, b.now()
-	post := b.Settings != nil && s.Run != StateStopped && (!b.posted || a.SettingsWanted)
+	post := b.Settings != nil && s.Run != StateStopped && !b.refused && (!b.posted || a.SettingsWanted)
 	b.mu.Unlock()
 	if !post {
 		return
 	}
 	if err := b.API.ReportWorkerSettings(b.Settings, beatCallTimeout); err != nil {
+		var re *client.RemoteError
+		if errors.As(err, &re) && re.HTTPStatus >= 400 && re.HTTPStatus < 500 {
+			// The report is constant for the life of the process: a refusal
+			// would repeat on every beat, so it is logged once and not retried.
+			b.mu.Lock()
+			b.refused = true
+			b.mu.Unlock()
+			b.logf("worker: settings report refused (%v): not sent again", err)
+			return
+		}
 		b.logf("worker: settings report: %v", err)
 		return
 	}

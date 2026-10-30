@@ -171,3 +171,20 @@ func TestBeaterNeverLogsAToken(t *testing.T) {
 		t.Fatalf("beat carries a token field: %s", raw)
 	}
 }
+
+func TestBeaterRefusedSettingsAreNotRetried(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{SettingsWanted: true}, postErr: &client.RemoteError{HTTPStatus: 400, Code: client.CodeHTTPFailed}}
+	var logs int
+	b := newBeater(api, &now)
+	b.Logf = func(string, ...any) { logs++ }
+	b.Beat(context.Background(), State{Run: StateIdle})
+	b.send()
+	b.send()
+	if _, posts := api.counts(); posts != 1 {
+		t.Fatalf("posts = %d, want 1 (a 4xx is not retried)", posts)
+	}
+	if logs != 1 {
+		t.Fatalf("log lines = %d, want one warning", logs)
+	}
+}

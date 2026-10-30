@@ -590,7 +590,9 @@ again whenever a beat answers `settings_wanted`. The idle time is the answer's `
 (or `server_started_at` when `null`), plus the local time since the answer; an answer older than three beats, a
 `404` from an older server, a KB the answer omits and `activity_known: false` (authentication off: the server
 cannot tell the worker from a person) all make the idle trigger not hold, so the worker runs on its window only.
-A failed beat or report is a log line and never fails a run.
+A failed beat or report is a log line and never fails a run; a settings report the server refuses with a 4xx is
+logged once and not sent again. The server bounds a heartbeat, so the config is refused at load past **32 KBs**
+or **8 model profiles**.
 
 A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:
 the first `tasks` entry whose profile still has a grant and whose kind finds a unit of work, then the walk
