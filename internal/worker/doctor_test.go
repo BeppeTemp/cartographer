@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -11,19 +12,24 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 )
 
-// doctorKB is a scripted KB: kb_status answers from st, log_append records its
-// entries, and an entry carrying the marker moves last_doctor, as the server does.
+// doctorKB is a scripted KB: kb_status answers from st, kb_review from items, and
+// log_append and concept_patch record what reached the server.
 type doctorKB struct {
 	st      doctorStatus
-	today   string
-	entries []string
+	items   []doctorItem
+	log     string // the log_tail answer
+	entries []map[string]any
+	patches []map[string]any
 	calls   []string
 	failing bool // every write answers a refusal
+	repairs []map[string]any
+	maps    []map[string]any // map_update and index_patch arguments
+	pages   map[string]string
 }
 
 func (k *doctorKB) ListTools() ([]client.ToolInfo, error) {
 	var out []client.ToolInfo
-	for _, n := range []string{"kb_status", "kb_repair", "kb_review", "log_append", "concept_patch", "concept_batch", "concept_merge", "concept_archive", "concept_delete", "artifact_write"} {
+	for _, n := range []string{"kb_status", "kb_repair", "kb_review", "index_get", "index_patch", "log_tail", "log_append", "search", "concept_read", "concept_patch", "concept_write", "concept_batch", "map_update", "concept_delete", "artifact_write"} {
 		out = append(out, client.ToolInfo{Name: n, InputSchema: json.RawMessage(`{"type":"object"}`)})
 	}
 	return out, nil
@@ -31,25 +37,39 @@ func (k *doctorKB) ListTools() ([]client.ToolInfo, error) {
 
 func (k *doctorKB) CallTool(name string, args any) (client.ToolOutput, error) {
 	k.calls = append(k.calls, name)
+	var m map[string]any
+	_ = json.Unmarshal(rawJSON(args), &m)
 	switch name {
 	case "kb_status":
 		b, _ := json.Marshal(k.st)
 		return client.ToolOutput{Text: string(b)}, nil
-	case "kb_repair", "concept_patch":
+	case "kb_review":
+		var items []doctorItem
+		for _, it := range k.items {
+			if it.Kind == m["kind"] {
+				items = append(items, it)
+			}
+		}
+		b, _ := json.Marshal(map[string]any{"items": items})
+		return client.ToolOutput{Text: string(b)}, nil
+	case "log_tail":
+		return client.ToolOutput{Text: k.log}, nil
+	case "concept_read":
+		if text, ok := k.pages[fmt.Sprint(m["id"])]; ok {
+			return client.ToolOutput{Text: text}, nil
+		}
+	case "kb_repair":
+		k.repairs = append(k.repairs, m)
+		return client.ToolOutput{Text: `{"applied_total":3,"checks":[],"dry_run":false}`}, nil
+	case "map_update", "index_patch":
+		k.maps = append(k.maps, m)
+	case "concept_patch":
 		if k.failing {
 			return client.ToolOutput{IsError: true, Text: "forbidden"}, nil
 		}
+		k.patches = append(k.patches, m)
 	case "log_append":
-		raw, _ := json.Marshal(args)
-		var a struct {
-			Entry string `json:"entry"`
-		}
-		_ = json.Unmarshal(raw, &a)
-		k.entries = append(k.entries, a.Entry)
-		if strings.Contains(a.Entry, doctorMarker) {
-			k.st.Conformance.LastDoctor = k.today
-			k.st.Conformance.DoctorSuggested = false
-		}
+		k.entries = append(k.entries, m)
 	}
 	return client.ToolOutput{Text: "ok"}, nil
 }
@@ -71,11 +91,22 @@ func toolCall(id, name, args string) ToolCall {
 	return ToolCall{ID: id, Name: name, Arguments: json.RawMessage(args)}
 }
 
-func dueKB() (*doctorKB, *doctorInstance) {
-	k := &doctorKB{today: "2026-10-30"}
-	k.st.Conformance.DoctorSuggested = true
+func item(kind string, pages ...string) doctorItem {
+	return doctorItem{Kind: kind, Concepts: pages, Evidence: "evidence of " + pages[0], SuggestedAction: "set status to done"}
+}
+
+func dueKB(items ...doctorItem) (*doctorKB, *doctorInstance) {
+	k := &doctorKB{items: items}
 	now := time.Date(2026, 10, 30, 3, 0, 0, 0, time.UTC)
-	return k, &doctorInstance{now: func() time.Time { return now }}
+	return k, &doctorInstance{now: func() time.Time { return now }, perimeter: "docs-night"}
+}
+
+func doctorRun(d *doctorInstance, k *doctorKB, m Model, grant int) (Result, error) {
+	return d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Perimeter: "docs-night", Model: m, Grant: grant, Tools: k})
+}
+
+func patchTurn(id, args string) Response {
+	return Response{Stop: StopToolUse, ToolCalls: []ToolCall{toolCall(id, "concept_patch", args)}, Usage: Usage{InputTokens: 100}}
 }
 
 func TestDoctorNextEligibility(t *testing.T) {
@@ -83,13 +114,14 @@ func TestDoctorNextEligibility(t *testing.T) {
 		mod  func(*doctorKB)
 		want bool
 	}{
-		"due":             {func(*doctorKB) {}, true},
-		"not due":         {func(k *doctorKB) { k.st.Conformance.DoctorSuggested = false }, false},
-		"degraded":        {func(k *doctorKB) { k.st.PushState = "degraded" }, false},
-		"closed today":    {func(k *doctorKB) { k.st.Conformance.LastDoctor = "2026-10-30" }, false},
-		"closed long ago": {func(k *doctorKB) { k.st.Conformance.LastDoctor = "2026-09-01" }, true},
+		"an item":            {func(*doctorKB) {}, true},
+		"degraded":           {func(k *doctorKB) { k.st.PushState = "degraded" }, false},
+		"nothing to examine": {func(k *doctorKB) { k.items = nil }, false},
+		"only an operator's kind": {func(k *doctorKB) {
+			k.items = []doctorItem{item("template_proposal", "a/_map"), {Kind: "lint_judgement", Check: "stray_file", Concepts: []string{"a"}}}
+		}, false},
 	} {
-		k, d := dueKB()
+		k, d := dueKB(item("status_reclassify", "a"))
 		tc.mod(k)
 		it, err := d.Next(context.Background(), "kb-a", k)
 		if err != nil || (it != nil) != tc.want {
@@ -98,101 +130,357 @@ func TestDoctorNextEligibility(t *testing.T) {
 	}
 }
 
-func TestDoctorClosedSessionWritesNoFallback(t *testing.T) {
-	k, d := dueKB()
+func TestDoctorEachItemIsAFreshSmallLoop(t *testing.T) {
+	k, d := dueKB(item("status_reclassify", "a"), item("zombie_work", "b"))
+	m := &doctorScript{turns: []Response{
+		patchTurn("1", `{"id":"a","if_match":"h","frontmatter":{"status":"done"}}`),
+		{Stop: StopEnd},
+		{Stop: StopEnd, Text: "left as it is"},
+	}}
+	res, err := doctorRun(d, k, m, 100_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Units != 2 || res.Commits != 1 {
+		t.Errorf("result %+v", res)
+	}
+	if strings.Contains(fmt.Sprint(m.reqs[2].Messages), "status_reclassify") {
+		t.Error("the second item's loop carries the first item's context")
+	}
+	for i, r := range m.reqs {
+		if got := len(r.Tools); got != 3 {
+			t.Errorf("request %d offers %d tools", i, got)
+		}
+	}
+	if len(m.reqs[0].System) > 2<<10 {
+		t.Errorf("instructions of one item: %d bytes", len(m.reqs[0].System))
+	}
+	if !strings.Contains(m.reqs[0].System, "journal") || !strings.Contains(m.reqs[2].System, "origin is retired") {
+		t.Error("each item gets the rule of its kind")
+	}
+	if !strings.Contains(m.reqs[0].Messages[0].Text, "BEGIN DATA item") {
+		t.Errorf("the item is not quoted as data: %q", m.reqs[0].Messages[0].Text)
+	}
+	if reason := k.patches[0]["reason"]; reason != "doctor: "+item("status_reclassify", "a").key() {
+		t.Errorf("commit reason %v", reason)
+	}
+}
+
+func TestDoctorRecordSkipsExaminedItemsUntilTheyExpire(t *testing.T) {
+	seen, old, fresh := item("status_reclassify", "a"), item("status_reclassify", "b"), item("status_reclassify", "c")
+	k, d := dueKB(seen, old, fresh)
+	path := doctorLogPath("docs-night")
+	k.log = fmt.Sprintf("## 2026-10-29T03:00:00Z\n\n[%s] day=2026-10-29 examined=%s writes=1\n\n## 2026-09-01T03:00:00Z\n\n[%s] day=2026-09-01 examined=%s writes=0\n", path, seen.key(), path, old.key())
+	m := &doctorScript{turns: []Response{{Stop: StopEnd}, {Stop: StopEnd}}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.reqs) != 2 || strings.Contains(m.reqs[0].Messages[0].Text, "evidence of a") {
+		t.Fatalf("a recent item was examined again: %d requests", len(m.reqs))
+	}
+	if len(k.entries) != 1 {
+		t.Fatalf("entries %v", k.entries)
+	}
+	e := k.entries[0]
+	if e["path"] != path {
+		t.Errorf("path %v", e["path"])
+	}
+	line := e["entry"].(string)
+	if !strings.Contains(line, "day=2026-10-30") || !strings.Contains(line, old.key()) || !strings.Contains(line, fresh.key()) {
+		t.Errorf("entry %q", line)
+	}
+	// What this run recorded is what the next run reads back.
+	k.log = "## 2026-10-30T03:00:00Z\n\n[" + path + "] " + line + "\n"
+	k.items = []doctorItem{old, fresh}
+	it, err := d.Next(context.Background(), "kb-a", k)
+	if err != nil || it != nil {
+		t.Errorf("next run: item %v err %v", it, err)
+	}
+}
+
+func TestDoctorStopsAtTheGrantAndAtTheCaps(t *testing.T) {
+	items := []doctorItem{item("status_reclassify", "a"), item("status_reclassify", "b"), item("status_reclassify", "c")}
+	k, d := dueKB(items...)
+	m := &doctorScript{turns: []Response{{Stop: StopEnd, Usage: Usage{InputTokens: 15_000}}, {Stop: StopEnd}}}
+	res, _ := doctorRun(d, k, m, doctorMinGrant+10_000)
+	if res.Units != 1 || len(m.reqs) != 1 {
+		t.Errorf("grant: units %d, requests %d", res.Units, len(m.reqs))
+	}
+
+	k, d = dueKB(items...)
+	d.maxWrites = 1
+	m = &doctorScript{turns: []Response{patchTurn("1", `{"id":"a","if_match":"h"}`), {Stop: StopEnd}}}
+	res, _ = doctorRun(d, k, m, 100_000)
+	if res.Commits != 1 || res.Units != 1 {
+		t.Errorf("write cap: %+v", res)
+	}
+
+	var many []doctorItem
+	for i := range doctorReviewItems + 3 {
+		many = append(many, item("status_reclassify", fmt.Sprint("p", i)))
+	}
+	k, d = dueKB(many...)
+	got, err := d.queue(k)
+	if err != nil || len(got) != doctorReviewItems {
+		t.Errorf("queue %d err %v", len(got), err)
+	}
+}
+
+func TestDoctorGuardFencesTheWrite(t *testing.T) {
+	for name, args := range map[string]string{
+		"another page":   `{"id":"other","if_match":"h","frontmatter":{"status":"done"}}`,
+		"a denied field": `{"id":"a","if_match":"h","frontmatter":{"type":"Topic"}}`,
+		"the clock":      `{"id":"a","if_match":"h","frontmatter":{"timestamp":"2026-10-30"}}`,
+		"null field":     `{"id":"a","if_match":"h","frontmatter":{"status":null}}`,
+		"replace all":    `{"id":"a","if_match":"h","old_string":"x","new_string":"y","replace_all":true}`,
+		"the marker":     `{"id":"a","if_match":"h","new_string":"kb\u002ddoctor"}`,
+	} {
+		k, d := dueKB(item("status_reclassify", "a"))
+		m := &doctorScript{turns: []Response{patchTurn("1", args), {Stop: StopEnd}}}
+		res, err := doctorRun(d, k, m, 100_000)
+		if err != nil || len(k.patches) != 0 || res.Commits != 0 {
+			t.Errorf("%s: err %v, patches %v, %+v", name, err, k.patches, res)
+		}
+	}
+}
+
+func TestDoctorOffersOnlyTheFencedTools(t *testing.T) {
+	k, d := dueKB(item("status_reclassify", "a"))
 	m := &doctorScript{turns: []Response{
 		{Stop: StopToolUse, ToolCalls: []ToolCall{
 			toolCall("1", "kb_repair", `{"check":"*","dry_run":false}`),
-			toolCall("2", "concept_delete", `{"id":"x"}`),
-			toolCall("3", "artifact_write", `{"path":"instructions.md"}`),
-		}, Usage: Usage{InputTokens: 100}},
-		{Stop: StopToolUse, ToolCalls: []ToolCall{toolCall("4", "log_append", `{"entry":"kb-doctor: findings 3 -> 0 (worker)"}`)}},
+			toolCall("2", "map_update", `{"name":"a"}`),
+			toolCall("3", "concept_write", `{"id":"gaps/x"}`),
+			toolCall("4", "concept_delete", `{"id":"a"}`),
+			toolCall("5", "artifact_write", `{"path":"instructions.md"}`),
+			toolCall("6", "log_append", `{"entry":"kb-doctor: done"}`),
+		}},
 		{Stop: StopEnd},
 	}}
-	res, err := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Perimeter: "docs-night", Model: m, Grant: 50000, Tools: k})
-	if err != nil {
+	if _, err := doctorRun(d, k, m, 100_000); err != nil {
 		t.Fatal(err)
-	}
-	if res.Summary != "doctor closed" {
-		t.Errorf("summary %q", res.Summary)
-	}
-	if len(k.entries) != 1 || !strings.Contains(k.entries[0], doctorMarker) {
-		t.Errorf("entries %q: only the model's closing entry is expected", k.entries)
 	}
 	for _, c := range k.calls {
-		if c == "concept_delete" || c == "artifact_write" {
-			t.Errorf("the allowlist let %s through", c)
+		if c == "kb_repair" || c == "map_update" || c == "concept_write" || c == "concept_delete" || c == "artifact_write" {
+			t.Errorf("%s reached the KB", c)
 		}
 	}
-	if k.st.Conformance.DoctorSuggested || k.st.Conformance.LastDoctor != "2026-10-30" {
-		t.Errorf("status after: %+v", k.st)
-	}
-	// The prompt is the preamble, then the embedded skill without its frontmatter.
-	sys := m.reqs[0].System
-	if !strings.HasPrefix(sys, "This session is run by a worker") || !strings.Contains(sys, "# KB Doctor - Skill") || strings.Contains(sys, "\nversion: ") {
-		t.Errorf("system prompt shape: %.200q", sys)
-	}
-	if res.Units != 1 || res.Commits != 1 {
-		t.Errorf("result %+v", res)
+	for _, e := range k.entries {
+		if strings.Contains(fmt.Sprint(e), doctorMarker) {
+			t.Errorf("marker entry reached the KB: %v", e)
+		}
 	}
 }
 
-func TestDoctorInterruptedSessionWritesAMarkerFreeEntry(t *testing.T) {
-	k, d := dueKB()
-	m := &doctorScript{turns: []Response{
-		{Stop: StopToolUse, ToolCalls: []ToolCall{toolCall("1", "kb_repair", `{}`)}, Usage: Usage{InputTokens: 30000}},
-	}}
-	res, err := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 25000, Tools: k})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(k.entries) != 1 || strings.Contains(k.entries[0], doctorMarker) || !strings.Contains(k.entries[0], "doctor session interrupted") {
-		t.Fatalf("entries %q", k.entries)
-	}
-	if strings.Contains(res.Summary, doctorMarker) || !strings.Contains(res.Summary, "interrupted") {
-		t.Errorf("summary %q", res.Summary)
-	}
-	if !k.st.Conformance.DoctorSuggested || k.st.Conformance.LastDoctor != "" {
-		t.Errorf("an interrupted session moved the signal: %+v", k.st)
-	}
-	// A model error is the same: one marker-free entry, the error returned.
-	k2, d2 := dueKB()
-	_, err = d2.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: &doctorScript{}, Grant: 50000, Tools: k2})
-	if err == nil || len(k2.entries) != 1 || strings.Contains(k2.entries[0], doctorMarker) {
-		t.Errorf("err %v entries %q", err, k2.entries)
-	}
-}
-
-func TestDoctorBelowTheReserveStartsNothing(t *testing.T) {
-	k, d := dueKB()
+func TestDoctorBelowTheReserveStartsNoItem(t *testing.T) {
+	k, d := dueKB(item("status_reclassify", "a"))
 	m := &doctorScript{}
-	res, err := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: doctorMinGrant - 1, Tools: k})
-	if err != nil || len(m.reqs) != 0 || len(k.entries) != 0 || !strings.Contains(res.Summary, "skipped") {
-		t.Errorf("res %+v err %v reqs %d entries %q", res, err, len(m.reqs), k.entries)
+	res, err := doctorRun(d, k, m, doctorMinGrant-1)
+	if err != nil || len(m.reqs) != 0 || len(k.entries) != 0 || !strings.Contains(res.Summary, "below the reserve") {
+		t.Errorf("res %+v err %v reqs %d entries %v", res, err, len(m.reqs), k.entries)
 	}
 }
 
-func TestDoctorLostRaceIsASkip(t *testing.T) {
-	k, d := dueKB()
-	k.st.Conformance.LastDoctor = "2026-10-30" // a replica closed between Next and Run
+func TestDoctorDegradedBetweenNextAndRunIsASkip(t *testing.T) {
+	k, d := dueKB(item("status_reclassify", "a"))
+	k.st.PushState = "degraded"
 	m := &doctorScript{}
-	res, _ := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
+	res, _ := doctorRun(d, k, m, 100_000)
 	if len(m.reqs) != 0 || !strings.Contains(res.Summary, "skipped") {
 		t.Errorf("res %+v reqs %d", res, len(m.reqs))
 	}
 }
 
-func TestDoctorAllowlistKeepsTheDenySet(t *testing.T) {
-	a := NewAllowlist(doctorTools()...)
-	for _, n := range []string{"kb_repair", "kb_review", "log_append", "kb_status"} {
-		if !a.Permits(n) {
-			t.Errorf("%s not permitted", n)
+// The words of doctor_allow turn rules on; a kind no rule names stays out at any level.
+func TestDoctorAllowTurnsRulesOn(t *testing.T) {
+	section := func(check string) doctorItem {
+		return doctorItem{Kind: "lint_judgement", Check: check, Concepts: []string{"m/" + check}}
+	}
+	sprawl := doctorItem{Kind: "observation", Check: "facet_sprawl", Concepts: []string{"m/_map"}}
+	all := []doctorItem{item("status_reclassify", "a"), item("repeated_fact", "b", "c"), section("template_extra_section"), section("template_section_missing"),
+		{Kind: "observation", Check: "island", Concepts: []string{"d"}}, sprawl, item("index_unclassified", "m/e"), item("harvest_candidate", "j/f"), item("lesson_unpromoted", "j/g"),
+		item("template_proposal", "m/_map"), {Kind: "observation", Check: "map_misfit", Concepts: []string{"h"}}, item("glossary_gap", "i")}
+	for name, tc := range map[string]struct {
+		allow []string
+		want  int
+	}{
+		"nothing":   {nil, 1},
+		"pages":     {[]string{doctorAllowPages}, 5},
+		"structure": {[]string{doctorAllowStructure}, 3},
+		"archive":   {[]string{doctorAllowArchive}, 3},
+		"all":       {doctorAllowWords, 9},
+	} {
+		k, d := dueKB(all...)
+		d.allow = tc.allow
+		items, err := d.queue(k)
+		if err != nil || len(items) != tc.want {
+			t.Errorf("%s: %d items, want %d: %v", name, len(items), tc.want, err)
 		}
 	}
-	for _, n := range []string{"concept_delete", "repair_revert", "artifact_write", "concept_transfer", "concept_merge", "concept_archive"} {
-		if a.Permits(n) {
-			t.Errorf("%s permitted", n)
+}
+
+func TestDoctorRepairsWithNoModel(t *testing.T) {
+	findings := map[string]int{"broken_link": 2, "stringified_list": 0, "invalid_field_value": 4, "unmapped_folder": 1, "junk_file": 1}
+	for name, tc := range map[string]struct {
+		allow []string
+		want  string
+	}{
+		"default":        {[]string{doctorAllowRepair}, "[broken_link]"},
+		"with structure": {[]string{doctorAllowRepair, doctorAllowStructure}, "[broken_link invalid_field_value unmapped_folder]"},
+	} {
+		k, d := dueKB()
+		d.allow, k.st.Conformance.Repairable = tc.allow, findings
+		if it, err := d.Next(context.Background(), "kb-a", k); err != nil || it == nil {
+			t.Fatalf("%s: repairable KB not offered: %v %v", name, it, err)
 		}
+		m := &doctorScript{}
+		res, err := doctorRun(d, k, m, 100_000)
+		if err != nil || len(m.reqs) != 0 || len(k.repairs) != 1 || res.Commits != 1 || res.Tokens != 0 {
+			t.Fatalf("%s: res %+v err %v reqs %d repairs %v", name, res, err, len(m.reqs), k.repairs)
+		}
+		if got := fmt.Sprint(k.repairs[0]["check"]); got != tc.want || k.repairs[0]["dry_run"] != false {
+			t.Errorf("%s: repair %v, want %s", name, k.repairs[0], tc.want)
+		}
+	}
+	k, d := dueKB()
+	k.st.Conformance.Repairable = findings
+	if it, _ := d.Next(context.Background(), "kb-a", k); it != nil {
+		t.Error("a task without the word repair was offered a repair")
+	}
+}
+
+// With nothing to do the queue is not read at every poll, and a repair that fixes
+// nothing does not loop.
+func TestDoctorRestsAKBThatDoesNotMove(t *testing.T) {
+	k, d := dueKB()
+	now := time.Date(2026, 10, 30, 3, 0, 0, 0, time.UTC)
+	d.now = func() time.Time { return now }
+	d.Next(context.Background(), "kb-a", k)
+	calls := len(k.calls)
+	if it, _ := d.Next(context.Background(), "kb-a", k); it != nil || len(k.calls) != calls {
+		t.Errorf("a resting KB was read: %v", k.calls[calls:])
+	}
+	now = now.Add(doctorRest + time.Minute)
+	if d.Next(context.Background(), "kb-a", k); len(k.calls) == calls {
+		t.Error("the rest never ended")
+	}
+
+	k, d = dueKB()
+	d.allow, k.st.Conformance.Repairable = []string{doctorAllowRepair}, map[string]int{"broken_link": 1}
+	d.repair(k, []string{"broken_link"})
+	d.rest("kb-a")
+	if it, _ := d.Next(context.Background(), "kb-a", k); it != nil {
+		t.Error("a resting KB was offered")
+	}
+}
+
+func TestDoctorGuardFencesAMap(t *testing.T) {
+	turn := func(name, args string) Response {
+		return Response{Stop: StopToolUse, ToolCalls: []ToolCall{toolCall("1", name, args)}, Usage: Usage{InputTokens: 100}}
+	}
+	sprawl := doctorItem{Kind: "observation", Check: "facet_sprawl", Concepts: []string{"m/_map"}}
+	page := `{"frontmatter":{"title":"M","field_values.*.tags":["old"],"field_values.Entity.kind":["x","y"]}}`
+
+	// One field given: the map keeps the rest.
+	k, d := dueKB(sprawl)
+	d.allow, k.pages = []string{doctorAllowStructure}, map[string]string{"m/_map": page}
+	m := &doctorScript{turns: []Response{turn("map_update", `{"map":"m","field_values":{"*":{"tags":["a"]}}}`), {Stop: StopEnd}}}
+	res, err := doctorRun(d, k, m, 100_000)
+	if err != nil || len(k.maps) != 1 || res.Commits != 1 {
+		t.Fatalf("res %+v err %v maps %v", res, err, k.maps)
+	}
+	if got := fmt.Sprint(k.maps[0]["field_values"]); got != "map[*:map[tags:[a]] Entity:map[kind:[x y]]]" {
+		t.Errorf("field_values = %s", got)
+	}
+	if !strings.HasPrefix(fmt.Sprint(k.maps[0]["reason"]), "doctor: facet_sprawl-") {
+		t.Errorf("reason = %v", k.maps[0]["reason"])
+	}
+
+	for name, args := range map[string]string{
+		"another map":   `{"map":"other","field_values":{"*":{"tags":["a"]}}}`,
+		"another key":   `{"map":"m","field_values":{"*":{"tags":["a"]}},"concept_types":["Topic"]}`,
+		"no vocabulary": `{"map":"m"}`,
+	} {
+		k, d := dueKB(sprawl)
+		d.allow, k.pages = []string{doctorAllowStructure}, map[string]string{"m/_map": page}
+		m := &doctorScript{turns: []Response{turn("map_update", args), {Stop: StopEnd}}}
+		if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.maps) != 0 {
+			t.Errorf("%s: err %v, maps %v", name, err, k.maps)
+		}
+	}
+
+	for name, args := range map[string]string{
+		"another index": `{"path":"other","if_match":"h","old_string":"x","new_string":"y"}`,
+		"the root":      `{"if_match":"h","old_string":"x","new_string":"y"}`,
+	} {
+		k, d := dueKB(item("index_unclassified", "m/a"))
+		d.allow = []string{doctorAllowStructure}
+		m := &doctorScript{turns: []Response{turn("index_patch", args), {Stop: StopEnd}}}
+		if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.maps) != 0 {
+			t.Errorf("%s: err %v, maps %v", name, err, k.maps)
+		}
+	}
+	k, d = dueKB(item("index_unclassified", "m/a"))
+	d.allow = []string{doctorAllowStructure}
+	m = &doctorScript{turns: []Response{turn("index_patch", `{"path":"m","if_match":"h","old_string":"x","new_string":"y"}`), {Stop: StopEnd}}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.maps) != 1 {
+		t.Errorf("the item's index: err %v, maps %v", err, k.maps)
+	}
+
+	// A rule without the tool does not get it, at any level.
+	k, d = dueKB(item("repeated_fact", "a", "b"))
+	d.allow = doctorAllowWords
+	m = &doctorScript{turns: []Response{turn("map_update", `{"map":"a","field_values":{"*":{"tags":["a"]}}}`), {Stop: StopEnd}}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.maps) != 0 {
+		t.Errorf("a page rule reached a map: err %v, maps %v", err, k.maps)
+	}
+}
+
+// Facts go to live pages the item does not name; only the entry changes status.
+func TestDoctorCarryingRuleEditsBodiesElsewhere(t *testing.T) {
+	k, d := dueKB(item("harvest_candidate", "j/entry"))
+	d.allow = []string{doctorAllowArchive}
+	m := &doctorScript{turns: []Response{
+		patchTurn("1", `{"id":"live/page","if_match":"h","old_string":"x","new_string":"x\n- a fact"}`),
+		patchTurn("2", `{"id":"live/page","if_match":"h","frontmatter":{"status":"done"}}`),
+		patchTurn("3", `{"id":"j/entry","if_match":"h","frontmatter":{"status":"archived"}}`),
+		{Stop: StopEnd},
+	}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.patches) != 2 || k.patches[0]["id"] != "live/page" || k.patches[1]["id"] != "j/entry" {
+		t.Errorf("err %v, patches %v", err, k.patches)
+	}
+}
+
+func TestDoctorAllowIsValidated(t *testing.T) {
+	v := DoctorKind().Validate
+	if err := v(map[string]any{"max_writes": 1, "doctor_allow": []string{"repair", "archive"}}); err != nil {
+		t.Error(err)
+	}
+	if err := v(map[string]any{"max_writes": 1, "doctor_allow": []string{"everything"}}); err == nil || !strings.Contains(err.Error(), "everything") {
+		t.Errorf("an unknown word: %v", err)
+	}
+	opts := map[string]any{"doctor_allow": []string{doctorAllowPages}, doctorKeyPerimeter: "p"}
+	inst, err := DoctorKind().Build(opts)
+	if err != nil || !inst.(*doctorInstance).allows(doctorAllowPages) || inst.(*doctorInstance).allows(doctorAllowRepair) {
+		t.Errorf("built %+v, %v", inst, err)
+	}
+}
+
+func TestDoctorKindTakesThePerimeterFromTheLoader(t *testing.T) {
+	k := DoctorKind()
+	if _, err := k.Build(map[string]any{"max_writes": 5}); err == nil {
+		t.Error("a doctor task built without the loader has no log path")
+	}
+	opts := map[string]any{"max_writes": 5}
+	if err := k.Load(LoadEnv{Perimeter: "docs-night"}, opts); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := k.Build(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := inst.(*doctorInstance); d.perimeter != "docs-night" || d.maxWrites != 5 {
+		t.Errorf("instance %+v", d)
 	}
 }
 
@@ -205,60 +493,44 @@ func TestDoctorKindIsRegisteredAndNoMarkerStrips(t *testing.T) {
 	}
 }
 
-func TestDoctorInjectedEarlyMarkerIsRefused(t *testing.T) {
-	k, d := dueKB()
-	m := &doctorScript{turns: []Response{
-		{Stop: StopToolUse, ToolCalls: []ToolCall{
-			toolCall("1", "kb_repair", `{"check":"*"}`), // a plan: not an applied write
-			toolCall("2", "log_append", `{"entry":"kb-doctor: all done"}`),
-		}},
-		{Stop: StopEnd},
-	}}
-	res, _ := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
-	if k.st.Conformance.LastDoctor != "" || !k.st.Conformance.DoctorSuggested {
-		t.Errorf("an empty session moved the signal: %+v", k.st)
-	}
-	for _, e := range k.entries {
-		if strings.Contains(e, doctorMarker) {
-			t.Errorf("marker entry reached the KB: %q", e)
-		}
-	}
-	if res.Commits != 0 || !strings.Contains(res.Summary, "interrupted") {
-		t.Errorf("res %+v", res)
-	}
-}
-
-func TestDoctorWriteCap(t *testing.T) {
-	k, d := dueKB()
-	d.maxWrites = 2
-	var calls []ToolCall
-	for i := 0; i < 4; i++ {
-		calls = append(calls, toolCall(fmt.Sprint(i), "concept_patch", `{"id":"x"}`))
-	}
-	m := &doctorScript{turns: []Response{{Stop: StopToolUse, ToolCalls: calls}, {Stop: StopEnd}}}
-	res, _ := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
-	n := 0
-	for _, c := range k.calls {
-		if c == "concept_patch" {
-			n++
-		}
-	}
-	if n != 2 || res.Commits != 2 {
-		t.Errorf("patches reached the KB: %d, commits %d", n, res.Commits)
-	}
-}
-
-func TestDoctorReadOnlyTokenAbortsTheSession(t *testing.T) {
-	k, d := dueKB()
+func TestDoctorReadOnlyTokenAbortsTheRun(t *testing.T) {
+	k, d := dueKB(item("status_reclassify", "a"), item("status_reclassify", "b"))
 	k.failing = true
 	var turns []Response
 	for i := 0; i < 10; i++ {
-		turns = append(turns, Response{Stop: StopToolUse, ToolCalls: []ToolCall{toolCall(fmt.Sprint(i), "concept_patch", `{"id":"x"}`)}})
+		turns = append(turns, patchTurn(fmt.Sprint(i), `{"id":"a","if_match":"h"}`))
 	}
 	m := &doctorScript{turns: turns}
-	_, err := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
-	if err == nil || !strings.Contains(err.Error(), "refused writes") || len(m.reqs) != maxRefusedWrites {
+	_, err := doctorRun(d, k, m, 100_000)
+	if !errors.Is(err, errDoctorRefused) || len(m.reqs) != maxRefusedWrites {
 		t.Errorf("err %v, model calls %d", err, len(m.reqs))
+	}
+	if len(k.entries) != 0 {
+		t.Errorf("an aborted item was recorded as examined: %v", k.entries)
+	}
+}
+
+func TestDoctorModelErrorsEndTheRunAndAreNotRecorded(t *testing.T) {
+	k, d := dueKB(item("status_reclassify", "a"), item("status_reclassify", "b"), item("status_reclassify", "c"))
+	m := &doctorScript{} // every call fails
+	res, err := doctorRun(d, k, m, 100_000)
+	if err == nil || len(m.reqs) != doctorMaxModelErrors || res.Units != 0 || len(k.entries) != 0 {
+		t.Errorf("err %v reqs %d %+v entries %v", err, len(m.reqs), res, k.entries)
+	}
+}
+
+func TestDoctorRulesMatchTheirInstructions(t *testing.T) {
+	seen := map[string]bool{}
+	for _, r := range doctorRules {
+		if seen[r.kind+r.check] || r.how == "" {
+			t.Errorf("rule %s %s", r.kind, r.check)
+		}
+		seen[r.kind+r.check] = true
+	}
+	for _, f := range doctorFields {
+		if !strings.Contains(doctorInstructions, "`"+f+"`") {
+			t.Errorf("the instructions do not name %s", f)
+		}
 	}
 }
 
@@ -280,39 +552,5 @@ func TestBudgetEntryCarriesNoMarker(t *testing.T) {
 	e := b.entry("kb-a", "error", "stopped: kb-kb-doctor-doctor")
 	if strings.Contains(e, doctorMarker) {
 		t.Errorf("entry %q", e)
-	}
-}
-
-func TestDoctorMarkerInAnyWriteIsRefusedEscapedOrNot(t *testing.T) {
-	for name, calls := range map[string][]ToolCall{
-		"escaped closing entry first": {toolCall("1", "log_append", `{"entry":"kb\u002ddoctor: done"}`)},
-		"concept id":                  {toolCall("1", "concept_patch", `{"id":"notes/kb-doctor-x"}`), toolCall("2", "log_append", `{"entry":"kb\u002ddoctor: done"}`)},
-		"nested name":                 {toolCall("1", "concept_batch", `{"operations":[{"op":"write","id":"kb\u002ddoctor"}]}`), toolCall("2", "log_append", `{"entry":"kb-doctor: done"}`)},
-	} {
-		k, d := dueKB()
-		m := &doctorScript{turns: []Response{{Stop: StopToolUse, ToolCalls: calls}, {Stop: StopEnd}}}
-		d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
-		if k.st.Conformance.LastDoctor != "" {
-			t.Errorf("%s: a marker reached the KB (%v)", name, k.calls)
-		}
-	}
-}
-
-func TestDoctorBatchCountsEachOperation(t *testing.T) {
-	k, d := dueKB()
-	d.maxWrites = 3
-	m := &doctorScript{turns: []Response{{Stop: StopToolUse, ToolCalls: []ToolCall{
-		toolCall("1", "concept_batch", `{"operations":[{},{},{}]}`),
-		toolCall("2", "concept_batch", `{"operations":[{}]}`),
-	}}, {Stop: StopEnd}}}
-	res, _ := d.Run(context.Background(), &WorkItem{Key: "doctor"}, Runtime{KB: "kb-a", Model: m, Grant: 50000, Tools: k})
-	n := 0
-	for _, c := range k.calls {
-		if c == "concept_batch" {
-			n++
-		}
-	}
-	if n != 1 || res.Commits != 3 {
-		t.Errorf("batches that reached the KB: %d, commits %d", n, res.Commits)
 	}
 }

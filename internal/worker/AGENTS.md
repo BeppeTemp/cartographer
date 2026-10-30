@@ -20,7 +20,8 @@ money and writes to KBs when nobody is looking.
   not the server, keeps D11.
 - **A prompt task's log lines and trailers come from the guard (`prompt_guard.go`), never from the model**: nothing
   under `worker/` in the log is written by a model, and its marker path stays apart from the budget's by the bracketed prefix.
-- **Nothing but the model's closing step may write `kb-doctor`** (`doctor.go`): a worker's own entries pass `noMarker`, or an interrupted session would silence `doctor_suggested`.
+- **A worker never writes `kb-doctor`** (`doctor.go`, D1436): every entry it files passes `noMarker` and a model's write carrying the marker is refused, or a run would silence `doctor_suggested` with the debt still there.
+- **A doctor write reaches only what its item names** (`doctor.go`, D1436): the guard fences each tool to the item's pages or map, with the arguments and frontmatter keys it lists, and `doctor_allow` turns rules on; a rule needs a fence before it needs a tool. `map_update` replaces `field_values` whole, so `fenceMap` adds back what the map declares. A tool `tools/list` does not advertise (`concept_merge`, `concept_archive`) never reaches a model: the allowlist intersects the list.
 - `synthesis/` defines its own `ToolCaller` and never imports this package: the kind (`synthesis.go`) imports it, so the other direction would be a cycle.
 - **The beater never blocks the runner** (`beater.go`, D1259): `Beat` only copies a snapshot under a mutex, a
   separate goroutine sends it, and a failed beat or a `404` is a log line that leaves the idle signal unknown.

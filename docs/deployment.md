@@ -716,7 +716,17 @@ deploying a worker for a perimeter, with its budgets, window, KBs, profiles and 
 Nothing else changes: the server runs no model, `serve` never starts or links the worker, `connect`/`sync`
 install no scheduler, and every write is a revertible commit with a `Reason` trailer.
 
-**The `doctor` task (D1261).** `kind: doctor` (no options, one entry) runs a delegated `cartographer-kb-doctor` session, with the skill embedded in the binary and a preamble as its only instructions, on each KB whose `kb_status` says `conformance.doctor_suggested` (a degraded KB or one closed today is skipped). Put it after the ingest kinds: it works with what they leave, at most one session per KB per run, within the profile's grant (no session starts under 20,000 tokens of grant). A session cannot write artifacts, delete, merge or archive concepts, or revert a repair: those steps become gaps. It applies at most `max_writes` writes per KB (default 20; a plan or a dry run is not one), its `kb-doctor` closing entry is refused until it has applied one, and three refused writes in a row (a read-only token) abort it. Only a session that reached its closing step writes `kb-doctor` in the log; an interrupted one leaves one entry saying so, without the marker, and the next window continues. Undo a bad pass per commit: `cartographer kb repair <kb> --revert <sha>`.
+**The `doctor` task (D1261, D1436).** `kind: doctor` (one entry) keeps a KB in order on its own. Put it after the ingest kinds: it works with what they leave. It needs no `doctor_suggested`: the signal is that a repair or a review item is waiting. A degraded KB is skipped, and a KB with nothing to do costs no model call and is read again after an hour. `tasks[].doctor_allow` says how far a run goes:
+
+| Word | What a run may do |
+|---|---|
+| (always on) | Close or suspend work: `status_reclassify`, `zombie_work`, `duplicate_candidate` (a link between two different subjects), the `stale_open` and `closed_with_open_items` lint judgements |
+| `repair` (the default) | Apply `kb_repair`'s mechanical fixes, one commit and no model. `invalid_field_value` and `unmapped_folder` also need `structure`, because one drops values from pages and the other adds a map; `junk_file` never runs unattended |
+| `pages` | Edit the body of the pages an item names: `repeated_fact`, `template_extra_section`, `template_section_missing`, the `island` observation |
+| `structure` | `facet_sprawl` and `missing_value_contract`: declare the proposed vocabulary with `map_update`, on the item's map and only `field_values`, and the worker adds back the fields the map already declares. With `repair`, the next run converges the pages, dropping values outside the list. `index_unclassified`: `index_patch` on the item's map |
+| `archive` | `harvest_candidate` and `lesson_unpromoted`: carry a closed journal entry's facts to live pages, body only, then set it `archived`. Nothing is deleted or moved |
+
+The worker reads `kb_review` itself, at no token cost, and takes the items of the rules allowed, in that order. An item no rule covers stays for a prompt task (§Prompt tasks) or an operator's `cartographer-kb-doctor` session; that includes `concept_merge` and `concept_archive`, which `tools/list` does not advertise, and a new template, which needs `artifact_write`. Each item is a loop of its own, at most 8 steps and 40,000 tokens, with short instructions embedded in the binary and only the tools its rule names, so one item's context never reaches the next and an interruption costs one item. Frontmatter stays `status`, `waiting_on` and `review_after`. A run examines at most 10 items, applies at most `max_writes` writes (default 20), starts an item only with 20,000 tokens of grant left, and ends after three writes in a row the server refuses (a read-only token). The KB is the memory: a settled item leaves `kb_review`, and an examined one is recorded on the log path `worker/<perimeter>/doctor` (`day=<date> examined=<keys> writes=<n>`) and left alone for 14 days, so the next run picks up where this one stopped. A run never writes `kb-doctor`: `last_doctor` moves only with an operator's session. Every commit carries `Reason: doctor: <key>` (`doctor: repair` for the repair), so `git log --grep 'doctor: '` finds a pass and each commit reverts alone.
 
 **The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
 idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the worker's heartbeat, `POST /api/workers`: [control-plane](control-plane.md) §Worker heartbeat; until the worker beats, it is
@@ -823,7 +833,7 @@ priority order of every other task.
 | `name` | Required, `[a-z0-9-]{1,40}`, unique among the tasks, never containing `kb-doctor`; written into the task's log entries and commit reasons |
 | `model` | Required, a profile whose `run_tokens` is at least 8 000 (a task needs a grant of 8 000 tokens to start) |
 | `instructions_file` | Required, a relative path inside the directory of the `--config` file; at most 16 KiB of UTF-8 |
-| `tools` | Required, non-empty, a subset of the worker's default allowlist; a denied tool (`artifact_*`, `concept_delete`, ...) is a load error and nothing is implicit: list the read tools the task needs too |
+| `tools` | Required, non-empty, a subset of the worker's default allowlist plus `kb_review` and `kb_repair`; a denied tool (`artifact_*`, `concept_delete`, ...) is a load error and nothing is implicit: list the read tools the task needs too |
 | `every` | Required, a Go duration of at least `1h` (`168h` is a week; no `d` or `w` units) |
 | `kbs` | Optional, a non-empty subset of the perimeter's `kbs`; omitted means all of them |
 
@@ -893,6 +903,19 @@ The journal `digests` must exist (created once with `map_create`, which the task
 the page uses. The first window after the start runs the task; `git log` shows `Reason: prompt task weekly-digest: ...`,
 `log_tail` on `worker/perimeter-a/task/weekly-digest` shows one `task=weekly-digest at=... stopped=done writes=1` line,
 the next seven days of polls do nothing for `kb-a`, and `kb-b` is never touched.
+
+A prompt task is also how to go past what the `doctor` task covers without new code. `examples/prompt-tasks/kb-scout.md`
+reads the items no doctor rule takes (`concept_oversize`, `map_misfit`, `glossary_gap`, `read_hotspot`) and files the three
+most useful as proposals, in a map `gaps` that must exist:
+
+```yaml
+  - kind: prompt
+    name: kb-scout
+    model: cloud-small
+    instructions_file: prompts/kb-scout.md
+    tools: [work_list, kb_review, concept_read, concept_write]
+    every: 168h
+```
 
 ### HTTP routing (D84)
 
