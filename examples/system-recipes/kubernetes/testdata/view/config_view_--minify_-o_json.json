@@ -1,0 +1,11 @@
+{
+  "kind": "Config",
+  "users": [
+    {
+      "name": "dev-viewer",
+      "user": {
+        "token": "CANARY-KUBECONFIG-TOKEN"
+      }
+    }
+  ]
+}

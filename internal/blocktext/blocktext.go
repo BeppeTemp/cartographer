@@ -1,5 +1,5 @@
-// Package blocktext implements the marker-delimited "managed block" primitive
-// used by every Cartographer feature that must own a slice of a hand-curated
+// Package blocktext implements the marker-delimited "managed block" primitive.
+// It is used by every Cartographer feature that must own a slice of a hand-curated
 // user file (comments, ordering, everything else preserved) without parsing
 // the file's own format: the Codex MCP server entry and per-hook
 // registrations in config.toml (D58, TOML `#` comment markers). Callers pass
