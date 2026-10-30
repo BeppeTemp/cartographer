@@ -25,12 +25,19 @@ const principalKey contextKey = 0
 // wildcards; non-empty selectors are intersected. There are intentionally no
 // deny rules: permissions are unioned, which keeps policy evaluation
 // deterministic and order-independent.
+//
+// ReadOnlyArtifacts is therefore a narrower allow, not a deny: a rule that
+// carries it grants what it grants today except the artifact write tools
+// (skills, agents, hooks every client of the KB syncs and executes). A second
+// rule of the same token without it restores them, as the union of any two
+// rules does.
 type Permission struct {
-	KB       string
-	Write    bool
-	Maps     []string
-	Journals []string
-	Types    []string
+	KB                string
+	Write             bool
+	Maps              []string
+	Journals          []string
+	Types             []string
+	ReadOnlyArtifacts bool
 }
 
 // Policy is the complete, immutable policy assigned to a principal.
@@ -102,6 +109,21 @@ func (p Policy) AllowsWholeKB(kbName string, write bool) bool {
 	}
 	for _, rule := range p.Permissions {
 		if rule.KB == kbName && (!write || rule.Write) && len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowsArtifactWrite reports whether a policy may change a KB's artifacts
+// (artifact_write, artifact_delete, artifact_move, skill_install): an
+// unselected write rule that does not carry ReadOnlyArtifacts.
+func (p Policy) AllowsArtifactWrite(kbName string) bool {
+	if p.Admin {
+		return true
+	}
+	for _, rule := range p.Permissions {
+		if rule.KB == kbName && rule.Write && !rule.ReadOnlyArtifacts && len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
 			return true
 		}
 	}

@@ -37,7 +37,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles and id. A token may be written ${NAME} to read it from the environment."},
 	{Path: "auth.roles", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
 		Example:     "- name: runbook-editor\n  rules:\n    - kb: kb-a\n      access: rw\n      maps: [infra]\n      types: [Runbook]",
-		Description: "Named permission sets that tokens reference by name; each has a name and rules (kb, access r or rw, and optional maps, journals, types)."},
+		Description: "Named permission sets that tokens reference by name; each has a name and rules (kb, access r or rw, and optional maps, journals, types, and artifacts: r to withhold the skill, agent and hook write tools from a rule that otherwise writes)."},
 
 	{Path: "kbs", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Env: "CARTOGRAPHER_KB_REMOTES", Restart: true,
 		Example:     "- remote: https://git.example.com/user/kb-a.git\n  name: kb-a",

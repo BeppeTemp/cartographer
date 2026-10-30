@@ -158,6 +158,9 @@ func authorizeArtifactMoveTarget(ctx context.Context, dstName string) error {
 	if !p.Policy.AllowsWholeKB(dstName, true) {
 		return deny(denyNeedsWholeKB)
 	}
+	if !p.Policy.AllowsArtifactWrite(dstName) {
+		return deny(denyArtifactsRO)
+	}
 	return nil
 }
 
