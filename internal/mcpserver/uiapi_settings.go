@@ -8,6 +8,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 )
 
 // SetSettings gives the settings view (D743) the configuration the process
@@ -110,7 +111,10 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		"server":  view.Server,
 		"kbs":     kbs,
 		"clients": clients,
+		// Worker perimeters the caller sees whole, and the template (D22).
+		"workers": m.workerSettingsViews(r),
 	}
+	payload["worker_template"] = map[string]any{"entries": workerconfig.Template()}
 	// What a client can set, for a viewer none of whose clients has reported:
 	// every key at its default, and the file they amount to.
 	if t := clientconfig.Template(); t != nil {
