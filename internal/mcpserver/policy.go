@@ -37,6 +37,7 @@ const (
 	denyLocalOnly        = "local_only"
 	denyReadOnlyProfile  = "read_only_profile"
 	denyArtifactsRO      = "artifacts_read_only"
+	denyReadOnlyKB       = "read_only_kb"
 )
 
 var denyHints = map[string]string{
@@ -51,6 +52,7 @@ var denyHints = map[string]string{
 	denyNoPrincipal:      "no principal resolved for this connection",
 	denyLocalOnly:        "this tool acts on the host the server runs on and is available only to the local operator (stdio, or HTTP with authentication off); use sync_pull from a client",
 	denyArtifactsRO:      "the token's rule for this KB carries artifacts: r, which withholds the tools that change skills, agents and hooks",
+	denyReadOnlyKB:       "this KB is read-only on this connection (kb_options access: read on the client): the other KBs of the connection stay writable",
 	denyReadOnlyProfile:  "this connection was opened read-only (access=read-min): connect without it to write",
 	denyUnboundFolder: "this session is read-only because the folder it was started in is bound to no KB: " +
 		"bind the folder (cartographer workspace bind <provider> <path> --kb <name>) or declare its repository in a KB's paths.yaml, then start a new agent session",

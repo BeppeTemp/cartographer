@@ -94,6 +94,16 @@ const (
 // ignores it and would serve a read-write session without saying so.
 const AccessHeader = "Cartographer-Access"
 
+// ReadonlyParam and ReadonlyHeader are the routed endpoint's `readonly` query
+// parameter (#1409): the KBs the client set read-only. The response header
+// lists the names actually applied (sorted, present even when empty) so a bridge
+// can tell a server that predates the parameter, which ignores it, from one that
+// honoured it.
+const (
+	ReadonlyParam  = "readonly"
+	ReadonlyHeader = "Cartographer-Readonly"
+)
+
 // routedMode is how a routed view treats writes (D1096). It is part of the
 // view's cache key, so the cached Server never depends on who asks.
 type routedMode int
@@ -113,6 +123,10 @@ const (
 	// readMinTools listed (the other read tools stay callable by name), and a
 	// call to a write tool is refused with read_only_profile at this level.
 	routedReadMin
+	// routedKBsReadOnly is ?readonly= naming every KB of the set (#1409): no
+	// write tool, and a write is refused with read_only_kb at this level. A
+	// strict subset is not a mode: it rides the request context.
+	routedKBsReadOnly
 )
 
 // denyNoReadableKBHint is the hint of the denied view: it names no KB.
@@ -127,6 +141,7 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 	routed.readOnlySession = mode == routedBridgeReadOnly
 	routed.tokenReadOnly = mode == routedTokenReadOnly
 	routed.readMinSession = mode == routedReadMin
+	routed.kbsReadOnly = mode == routedKBsReadOnly
 	routed.SetDisplayName("cartographer")
 	routed.connKBs = append([]string(nil), set...)
 	routed.connKB = func(name string) *kb.KB {
@@ -160,6 +175,18 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 			// token would be accepted there (D1184).
 			if mode == routedReadMin && ToolRequiresWrite(tool) {
 				return deny(denyReadOnlyProfile)
+			}
+			// #1409: the KBs the client set read-only. The all-KBs case is a
+			// mode; a strict subset is read from the request context (TRAP: the
+			// names never live on the cached view). A tokenReadOnly view leaves
+			// the refusal to the target KB (read_only_token).
+			if ToolRequiresWrite(tool) {
+				if mode == routedKBsReadOnly {
+					return deny(denyReadOnlyKB)
+				}
+				if mode == routedNormal && writesReadOnlyKB(ctx, set, args) {
+					return deny(denyReadOnlyKB)
+				}
 			}
 			return nil
 		}
@@ -197,6 +224,58 @@ func withRoutedUnknown(ctx context.Context, unknown []string) context.Context {
 func routedUnknown(ctx context.Context) []string {
 	u, _ := ctx.Value(routedUnknownKey{}).([]string)
 	return u
+}
+
+// routedReadOnlyKey carries the request's read-only KB names (?readonly=, #1409),
+// already intersected with the effective set. Request-scoped for the same
+// reason as routedUnknownKey.
+type routedReadOnlyKey struct{}
+
+func withRoutedReadOnly(ctx context.Context, ro []string) context.Context {
+	if len(ro) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, routedReadOnlyKey{}, ro)
+}
+
+func routedReadOnly(ctx context.Context) []string {
+	r, _ := ctx.Value(routedReadOnlyKey{}).([]string)
+	return r
+}
+
+// writesReadOnlyKB reports whether a write call over set targets a KB the
+// request set read-only: its `kb` (the single KB of the set when absent, as
+// routedHandler infers it, renamed names resolved) or its `target_kb`
+// (concept_transfer, artifact_move). Arguments that do not decode are not this
+// check's business: they fall through to the existing path.
+func writesReadOnlyKB(ctx context.Context, set []string, args json.RawMessage) bool {
+	ro := routedReadOnly(ctx)
+	if len(ro) == 0 {
+		return false
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(args, &raw) != nil {
+		return false
+	}
+	name := func(key string) string {
+		var v string
+		if json.Unmarshal(raw[key], &v) != nil {
+			return ""
+		}
+		v = strings.TrimSpace(v)
+		if to, ok := routedRenamed(ctx)[v]; ok {
+			v = to
+		}
+		return v
+	}
+	if kbName := name(routedKBArgument); kbName != "" {
+		if containsString(ro, kbName) {
+			return true
+		}
+	} else if len(set) == 1 && containsString(ro, set[0]) {
+		return true
+	}
+	return containsString(ro, name("target_kb"))
 }
 
 // provisionedKey marks a request whose client declared itself provisioned
@@ -315,20 +394,59 @@ const routedScopeHint = "If the client has a workspace binding, this connection'
 // token's own read-only view: the client asked for it and checks the response
 // header.
 func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, access string) (*Server, []string, map[string]string, error) {
+	srv, unknown, renamed, _, err := m.routedForReadOnly(ctx, rawKBs, access, nil)
+	return srv, unknown, renamed, err
+}
+
+// splitNames splits comma-joined query values into trimmed, non-empty names.
+func splitNames(raws []string) map[string]bool {
 	seen := map[string]bool{}
-	for _, raw := range rawKBs {
+	for _, raw := range raws {
 		for _, n := range strings.Split(raw, ",") {
 			if n = strings.TrimSpace(n); n != "" {
 				seen[n] = true
 			}
 		}
 	}
+	return seen
+}
+
+// readOnlyIn resolves the ?readonly= names (#1409) against the effective set:
+// a name in the set stays, a renamed one is applied to its target (aliases only
+// for a name that is not mounted, as for kbs), anything else is dropped without
+// a trace: an unreadable and a non-existent name are indistinguishable. It only
+// narrows: the result is a sorted subset of set.
+func (m *MultiKBServer) readOnlyIn(set []string, rawRO []string) []string {
+	var out []string
+	for n := range splitNames(rawRO) {
+		if _, mounted := m.servers[n]; !mounted {
+			if to, ok := m.routedAliases[n]; ok {
+				n = to
+			}
+		}
+		if containsString(set, n) && !containsString(out, n) {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// routedForReadOnly is routedFor plus the ?readonly= names: it also returns the
+// ones applied, the subset of the effective set the client set read-only
+// (#1409). When they are the whole set (and the connection is not already
+// read-only through access=) the view is the routedKBsReadOnly one; a strict
+// subset leaves the view alone and the caller puts the names on the request
+// context (TRAP: only the all-KBs case may enter the cache key).
+func (m *MultiKBServer) routedForReadOnly(ctx context.Context, rawKBs []string, access string, rawRO []string) (*Server, []string, map[string]string, []string, error) {
+	seen := splitNames(rawKBs)
 	readable := readableKBs(ctx, m.routedNames)
 	if len(readable) == 0 {
-		return m.routedView(nil, routedNormal), nil, nil, nil
+		return m.routedView(nil, routedNormal), nil, nil, nil, nil
 	}
 	if len(seen) == 0 {
-		return m.routedView(readable, m.routedModeFor(ctx, readable, access)), nil, nil, nil
+		ro := m.readOnlyIn(readable, rawRO)
+		return m.routedView(readable, m.routedModeFor(ctx, readable, access, len(ro) == len(readable))), nil, nil, ro, nil
 	}
 	isReadable := make(map[string]bool, len(readable))
 	for _, n := range readable {
@@ -361,7 +479,7 @@ func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, access s
 	sort.Strings(set)
 	sort.Strings(unknown)
 	if len(set) == 0 {
-		return nil, unknown, nil, fmt.Errorf("unknown kb in kbs: %s not mounted on this server, which mounts %s",
+		return nil, unknown, nil, nil, fmt.Errorf("unknown kb in kbs: %s not mounted on this server, which mounts %s",
 			quoteJoin(unknown), strings.Join(readable, ", "))
 	}
 	key := strings.Join(set, ",")
@@ -392,11 +510,15 @@ func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, access s
 	if len(renamed) == 0 {
 		renamed = nil
 	}
-	return m.routedView(set, m.routedModeFor(ctx, set, access)), unknown, renamed, nil
+	ro := m.readOnlyIn(set, rawRO)
+	return m.routedView(set, m.routedModeFor(ctx, set, access, len(ro) == len(set))), unknown, renamed, ro, nil
 }
 
 // routedModeFor picks the view mode of a connection over set (see routedFor).
-func (m *MultiKBServer) routedModeFor(ctx context.Context, set []string, access string) routedMode {
+// allReadOnly says the client set every KB of set read-only (#1409). TRAP: the
+// read-only names ride the request context and only this all-KBs case enters the
+// cache key (routedViewKey), because it changes the tool list.
+func (m *MultiKBServer) routedModeFor(ctx context.Context, set []string, access string, allReadOnly bool) routedMode {
 	switch {
 	case access == AccessReadMinValue:
 		return routedReadMin
@@ -404,6 +526,8 @@ func (m *MultiKBServer) routedModeFor(ctx context.Context, set []string, access 
 		return routedBridgeReadOnly
 	case !writesAnyKB(ctx, set):
 		return routedTokenReadOnly
+	case allReadOnly && len(set) > 0:
+		return routedKBsReadOnly
 	}
 	return routedNormal
 }
@@ -437,6 +561,8 @@ func routedViewKey(set []string, mode routedMode) string {
 		key += "|access=read"
 	case routedReadMin:
 		key += "|access=read-min"
+	case routedKBsReadOnly:
+		key += "|readonly=all"
 	}
 	return key
 }
