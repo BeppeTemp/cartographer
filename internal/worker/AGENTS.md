@@ -18,3 +18,5 @@ money and writes to KBs when nobody is looking.
 - **A synthesis write never targets an existing concept and never uses a blocking contradiction kind**
   (`synthesis/guard.go`, D1263): hypotheses are gap Contradictions created at a deterministic id; the guard,
   not the server, keeps D11.
+- **A prompt task's log lines and trailers come from the guard (`prompt_guard.go`), never from the model**: nothing
+  under `worker/` in the log is written by a model, and its marker path stays apart from the budget's by the bracketed prefix.
