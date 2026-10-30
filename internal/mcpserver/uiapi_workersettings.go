@@ -211,7 +211,10 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 	}
 	// A report carrying the caller's own token is refused, not masked.
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		if tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")); tok != "" && bytes.Contains(data, []byte(tok)) {
+		tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+		// The raw body, and the decoded strings too: a JSON escape hides the token from the raw bytes.
+		decoded, _ := json.Marshal(rep.Entries)
+		if tok != "" && (bytes.Contains(data, []byte(tok)) || strings.Contains(rep.YAML, tok) || bytes.Contains(decoded, []byte(tok))) {
 			bad("the report contains the bearer token of the request", "")
 			return
 		}
@@ -223,18 +226,14 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 	}
 	p := auth.PrincipalFromContext(r.Context())
 	// A worker is a writer: no KB it may write is the 404 of an unknown KB.
+	// Only the KBs it may write are kept: the others are not its to name.
 	var named []string
-	writable := false
 	for _, k := range kbs {
-		k = cleanText(k, 64)
-		if len(named) < maxWorkerKBs {
+		if _, mounted := m.servers[k]; mounted && p.ID != "" && p.Policy.HasKBAccess(k, true) && len(named) < maxWorkerKBs {
 			named = append(named, k)
 		}
-		if _, mounted := m.servers[k]; mounted && p.ID != "" && p.Policy.HasKBAccess(k, true) {
-			writable = true
-		}
 	}
-	if !writable {
+	if len(named) == 0 {
 		writeUINotFound(w)
 		return
 	}

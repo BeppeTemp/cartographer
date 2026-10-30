@@ -213,6 +213,28 @@ describe("the Settings panel", () => {
     expect(screen.getByRole("list", { name: "Worker name settings" })).toBeInTheDocument();
   });
 
+  it("keeps two workers of the same perimeter name apart", async () => {
+    const row = (replicas: number, yaml: string) => ({
+      perimeter: "team-a",
+      replicas,
+      kbs: ["kb-a"],
+      entries: [{ key: "name", value: "team-a", origin: "file", description: "Perimeter name.", default: '""' }],
+      yaml,
+      received_at: "2026-10-16T10:00:00Z",
+    });
+    stubApi({ "/settings": () => json({ ...SETTINGS, workers: [row(1, "name: one\n"), row(3, "name: two\n")] }) });
+    const user = userEvent.setup();
+    render(<App />);
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    const workerTabs = within(tabs).getAllByRole("tab", { name: "Worker · team-a" });
+    expect(workerTabs).toHaveLength(2);
+    await user.click(workerTabs[1]!);
+    expect(screen.getByText(/^Worker · 3 replicas · reported/)).toBeInTheDocument();
+    expect(within(tabs).getAllByRole("tab", { selected: true }).map((t) => t.id)).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "YAML" }));
+    expect(screen.getByLabelText("worker.yaml")).toHaveTextContent("name: two");
+  });
+
   it("shows what a client can set before any client of the viewer has reported", async () => {
     const template = {
       entries: [{ key: "workspaces", value: {}, origin: "default", description: "Which KBs a provider receives.", default: "{}" }],

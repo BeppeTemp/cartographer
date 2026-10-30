@@ -250,30 +250,44 @@ export function Settings({
     : undefined;
   // A worker tab opens on its perimeter; with none reported, on the template.
   const workers = view.workers ?? [];
-  const worker = tab.startsWith("worker")
-    ? (workers.find((w) => `worker:${w.perimeter}` === tab) ?? workers[0] ?? null)
-    : undefined;
+  // Tabs are keyed by position: two principals can run the same perimeter name.
+  const worker = tab.startsWith("worker") ? (workers[Number(tab.split(":")[1])] ?? workers[0] ?? null) : undefined;
+  const workerId = worker ? `worker:${workers.indexOf(worker)}` : "worker";
   const current =
     worker !== undefined
-      ? worker ? `worker:${worker.perimeter}` : "worker"
-      : client !== undefined ? (client ? `client:${client.machine}` : "client") : kb ? "kb" : "server";
+      ? workerId
+      : client !== undefined
+        ? client
+          ? `client:${client.machine}`
+          : "client"
+        : kb
+          ? "kb"
+          : "server";
 
   return (
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
-        title={worker !== undefined ? (worker?.perimeter ?? "Worker") : client !== undefined ? (client?.machine ?? "Client") : kb ? kb.name : "Server"}
+        title={
+          worker !== undefined
+            ? (worker?.perimeter ?? "Worker")
+            : client !== undefined
+              ? (client?.machine ?? "Client")
+              : kb
+                ? kb.name
+                : "Server"
+        }
         subtitle={
           <>
             {worker !== undefined
               ? worker
-                ? `Worker ${worker.version ?? ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
+                ? `Worker${worker.version ? ` ${worker.version}` : ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
                 : "No worker has reported: every key at its default, read-only"
               : client
-              ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
-              : kb
-                ? "This Knowledge Base's configuration, read-only"
-                : "The configuration this server runs with, read-only"}
+                ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+                : kb
+                  ? "This Knowledge Base's configuration, read-only"
+                  : "The configuration this server runs with, read-only"}
             {who && (
               <>
                 {" · "}
@@ -311,11 +325,11 @@ export function Settings({
               Knowledge Base
             </Tab>
           )}
-          {(workers.length ? workers : [null]).map((w) => {
-            const id = w ? `worker:${w.perimeter}` : "worker";
+          {(workers.length ? workers : [null]).map((w, i) => {
+            const id = w ? `worker:${i}` : "worker";
             return (
               <Tab key={id} id={id} current={current === id} onSelect={setTab}>
-                {workers.length > 1 ? `Worker · ${w!.perimeter}` : "Worker"}
+                {w && workers.length > 1 ? `Worker · ${w.perimeter}` : "Worker"}
               </Tab>
             );
           })}
@@ -505,7 +519,12 @@ function ClientPanel({
 }
 
 /** A worker perimeter's reported settings (D22), keys grouped by first path segment so a new task kind needs no entry here. */
-function WorkerPanel({ worker, template, mode, query }: {
+function WorkerPanel({
+  worker,
+  template,
+  mode,
+  query,
+}: {
   worker: SettingsWorker | null;
   template?: { entries: SettingEntry[]; yaml?: string };
   mode: Mode;

@@ -170,6 +170,7 @@ func TestWorkerSettings_Rejections(t *testing.T) {
 		body any
 		code int
 	}{
+		{"token escaped in body", []byte(`{"perimeter":"team-a","yaml":"kbs: [kb-a]\\n","version":"\\u0077orker-a"}`), 400},
 		{"token in body", report(map[string]any{"version": "worker-a"}), 400},
 		{"bad yaml", report(map[string]any{"yaml": "a: [b"}), 400},
 		{"empty yaml", report(map[string]any{"yaml": ""}), 400},
@@ -246,5 +247,16 @@ func TestWorkerSettings_TemplateAlwaysPresent(t *testing.T) {
 	want, _ := workerconfig.Schema.Format(nil)
 	if a.Template.YAML != string(want) || len(a.Template.Entries) != len(workerconfig.Schema.Keys) || len(a.Workers) != 0 {
 		t.Fatalf("template = %d entries, %d bytes, workers %d", len(a.Template.Entries), len(a.Template.YAML), len(a.Workers))
+	}
+}
+
+func TestWorkerSettings_KeepsOnlyKBsThePrincipalMayWrite(t *testing.T) {
+	t.Parallel()
+	f := newAtlasWorkerFixture(t)
+	f.post(t, "worker-a", beat(nil))
+	f.postSettings("worker-a", report(map[string]any{"yaml": "kbs: [kb-a, kb-b, nope]\n"}))
+	rows := f.multi.workers.settingsRows()
+	if len(rows) != 1 || len(rows[0].KBs) != 1 || rows[0].KBs[0] != "kb-a" {
+		t.Fatalf("rows = %+v", rows)
 	}
 }
