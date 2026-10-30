@@ -116,6 +116,10 @@ type Server struct {
 	// (D1184): tools/list carries only readMinTools, a write is refused with
 	// denyReadOnlyProfile. Set once by buildRouted.
 	readMinSession bool
+	// kbsReadOnly marks a routed view whose every KB is read-only on the client
+	// (?readonly= naming the whole set, #1409): like readOnlySession, no write
+	// tool is listed, but the refusal is read_only_kb. Set once by buildRouted.
+	kbsReadOnly bool
 	// tokenReadOnly marks a routed view for a principal that can write none of
 	// the connection's KBs (D1096): tools/list carries no write tool, but the
 	// call is not refused here: it reaches the target KB, which answers
