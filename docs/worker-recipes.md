@@ -154,7 +154,7 @@ snapshot. The state lives in the asset `system-state.jsonl` of the Source (its d
 §ledger has the format and the extra `feed_error` codes (`state_error`, `groups_failed`).
 
 A reference lister for Kubernetes ships in the repository, not in the binary:
-[`examples/system-recipes/kubernetes/`](../examples/system-recipes/kubernetes/README.md) (Python 3, standard library only,
+[`examples/system-recipes/kubernetes/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/kubernetes/README.md) (Python 3, standard library only,
 `kubectl`; tested with fixtures, no cluster).
 
 A script that receives a mode it does not know must exit non-zero. A change to this contract needs a new `protocol`
