@@ -509,7 +509,7 @@ tasks:                            # in priority order
 ```
 
 The key table is `internal/workerconfig`. A task `kind` must be registered in the binary; a config can
-name only the kinds the binary registers: `ingest` (D1260), `prompt` (§Prompt tasks) and `synthesis` (D1263).
+name only the kinds the binary registers: `ingest` (D1260), `poll` (§The `poll` task), `prompt` (§Prompt tasks) and `synthesis` (D1263).
 
 **The `ingest` task (D1260).** It executes the `IngestUnit`s of a campaign: per KB, one `work_list` of `type=IngestUnit`,
 the first unit that is claimable (`open`, or `in-progress` whose `review_after` is before today UTC) and that this
@@ -565,7 +565,9 @@ other is refused by the worker before it reaches the server: the server's own to
 Every value of `env` and `headers`, and `token_env`, is the **name** of a variable of the worker (a
 value is refused at load, without echoing it); the variable is read when the connector first starts,
 and a stdio child receives only the variables listed plus `PATH` and `HOME`. A connector that cannot
-start (command missing, variable unset, server down) is skipped for the run, not fatal.
+start (command missing, variable unset, server down) is skipped for the run, not fatal: a unit whose
+Source names a declared connector is offered to the unit-execution task alone, which starts the connector
+before claiming the unit and adds its allowlisted tools to that unit's loop (never poll, doctor or synthesis).
 
 ```yaml
 connectors:
@@ -619,6 +621,39 @@ recipes:
       command: ./bin/list-changes
       env: {WIKI_TOKEN: WIKI_API_TOKEN}
 ```
+The clone itself and the commands run in it afterwards (HEAD, ancestry, tree and diff listings) are anonymous too, with
+`HOME` and `XDG_CONFIG_HOME` pointed at an empty directory, so the operator's git config is out of reach
+on any git version (`GIT_CONFIG_GLOBAL` alone needs git 2.32).
+
+**`http-pages`** is the second built-in: the Source `locator` is a sitemap (XML) or an HTML index, `feed_include`
+a list of URL prefixes (a trailing `*` is accepted; none = every link of the index's own host), one level, no
+crawl. It reads only hosts in `fetch.allow_hosts` (deny by default), https unless `fetch.allow_insecure_http`,
+with the same fetch as the unit executor (1 MiB, redirects within the host, `fetch.allow_private`). More matching
+links than the poll's `max_entries` is `list_failed` and nothing is listed. The revision of a page is its `ETag`,
+else `Last-Modified`, else a content hash; every matching page is emitted each poll and the unit ID tells new
+from known; the cursor is a digest of the sorted `url|revision` list and an unchanged digest ends the poll.
+It never reports a removed page (a digest cannot say which went). A page with neither `ETag` nor `Last-Modified` whose body changes on every request (a timestamp, a counter) gets a new revision at every poll, hence a new unit at every poll: put such a page out of `feed_include`, or use an exec recipe that computes a stable revision.
+
+```yaml
+fetch:
+  allow_hosts: [docs.example.com]
+  allow_insecure_http: false
+```
+
+**The `poll` task (D1262).** `{kind: poll, model: <profile>, default_interval: 24h, min_interval: 1h,
+max_entries: 200}`, at most once. It reads the feed Sources (`source_shape: feed`) of each KB and takes the due one
+checked longest ago (`feed_checked_at` plus `feed_interval`, else `default_interval`). One feed per run: it checks the
+recipe and its host list, leases the feed (`feed_checked_at`, compare-and-swap: the loser skips silently), finds the one
+`IngestPlan` that lists the feed in `sources` and lists the entries with the recipe, with no model. For each added or
+modified entry it registers a document Source (never `sha256`; an `ingested` Source returns to `pending`) and creates
+an `IngestUnit` at the ID `<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>`; a unit that exists means the
+entry was handled and costs nothing. A new unit costs one model call with no tools (plan, feed and entry as delimited
+data; the answer is JSON the worker validates and retries once); a changed document reuses the previous unit's
+fields with no call. The cursor advances only after every entry is handled; a spent grant leaves it, and the next poll
+skips the finished entries. Removed entries are counted, never acted on. A feed that cannot be polled gets
+`feed_error: <code>: <detail>` (`bad_field`, `recipe_unknown`, `recipe_shape`, `host_not_allowed`, `no_ingest_plan`,
+`ambiguous_ingest_plan`, `list_failed`, `protocol_error`, `cursor_invalid`, `unit_refused`, `grant_exhausted`) with the values of the
+connectors' credential variables replaced by `***`, and is retried at its interval.
 
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
 for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB

@@ -137,11 +137,29 @@ func AnonymousEnv() []string {
 	}
 }
 
+// AnonymousReadEnv is AnonymousEnv for the commands run in an anonymous clone
+// afterwards (HeadSHA, IsAncestor, TreeBlobs, DiffTree), with HOME and
+// XDG_CONFIG_HOME also pointed at home, an empty directory the caller owns:
+// GIT_CONFIG_GLOBAL needs git 2.32, and an older git would still read the
+// operator's ~/.gitconfig and $XDG_CONFIG_HOME/git/config (D1262).
+func AnonymousReadEnv(home string) []string {
+	return append(AnonymousEnv(), "HOME="+home, "XDG_CONFIG_HOME="+home, "USERPROFILE="+home)
+}
+
 // CloneAnonymous clones an https remote with AnonymousEnv and without the blobs
 // of history (--filter=blob:none: the trees are what a listing reads, and the
 // checkout fetches the blobs of HEAD). The caller bounds it with ctx.
+//
+// HOME and XDG_CONFIG_HOME point at an empty directory made for the call
+// (AnonymousReadEnv): GIT_CONFIG_GLOBAL needs git 2.32, and an older git would
+// read the operator's ~/.gitconfig during the clone itself.
 func CloneAnonymous(ctx context.Context, remote, dest string) error {
-	return cloneAnonymous(ctx, remote, dest)
+	home, err := os.MkdirTemp("", "cartographer-git-home-*")
+	if err != nil {
+		return fmt.Errorf("no temporary directory: %w", err)
+	}
+	defer os.RemoveAll(home)
+	return cloneAnonymous(ctx, remote, dest, AnonymousReadEnv(home)...)
 }
 
 // cloneAnonymous: extra is appended last (a test lets plain http through to reach
@@ -650,8 +668,11 @@ func IgnoredPaths(dir string, paths []string) ([]string, error) {
 }
 
 // HeadSHA returns the SHA of the HEAD commit.
-func HeadSHA(dir string) (string, error) {
-	out, err := runGit(dir, "rev-parse", "HEAD")
+//
+// env is layered on the process environment like runGitEnv's; the poll passes
+// AnonymousReadEnv for a clone of a locator a KB writer chose.
+func HeadSHA(dir string, env ...string) (string, error) {
+	out, err := runGitEnv(dir, env, "rev-parse", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("git rev-parse HEAD: %w: %s", err, out)
 	}
@@ -877,8 +898,9 @@ func CheckoutNewBranch(dir, branch, start string, env ...string) error {
 }
 
 // IsAncestor reports whether ancestor is reachable from descendant.
-func IsAncestor(dir, ancestor, descendant string) (bool, error) {
-	out, err := runGit(dir, "merge-base", "--is-ancestor", ancestor, descendant)
+// env as in HeadSHA.
+func IsAncestor(dir, ancestor, descendant string, env ...string) (bool, error) {
+	out, err := runGitEnv(dir, env, "merge-base", "--is-ancestor", ancestor, descendant)
 	if err == nil {
 		return true, nil
 	}
@@ -936,9 +958,10 @@ type TreeBlob struct{ Mode, ID, Path string }
 // Submodule entries are left out. DiffNameStatus is not used for this family of
 // reads: it splits on whitespace and has no -z, so a path with a space or a
 // quoted non-ASCII name would be mangled (D1262).
-func TreeBlobs(dir, ref string) ([]TreeBlob, error) {
+// env as in HeadSHA.
+func TreeBlobs(dir, ref string, env ...string) ([]TreeBlob, error) {
 	cmd := exec.Command("git", "-C", dir, "ls-tree", "-r", "-z", ref)
-	cmd.Env = gitEnv(nil)
+	cmd.Env = gitEnv(env)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git ls-tree %s: %w", ref, err)
@@ -962,9 +985,10 @@ type TreeChange struct{ Status, Mode, ID, Path string }
 // DiffTree lists the paths that differ between two commits ("git diff-tree -r
 // -z --no-renames --raw"): a rename is a D plus an A. -z for the reason given at
 // TreeBlobs.
-func DiffTree(dir, from, to string) ([]TreeChange, error) {
+// env as in HeadSHA.
+func DiffTree(dir, from, to string, env ...string) ([]TreeChange, error) {
 	cmd := exec.Command("git", "-C", dir, "diff-tree", "-r", "-z", "--no-renames", "--raw", from, to)
-	cmd.Env = gitEnv(nil)
+	cmd.Env = gitEnv(env)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git diff-tree %s %s: %w", from, to, err)

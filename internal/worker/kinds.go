@@ -122,7 +122,7 @@ func NewKinds(kinds ...Kind) *Kinds {
 // DefaultKinds is the production registry: each plan that adds a task kind
 // registers it here, one line apiece.
 func DefaultKinds() *Kinds {
-	return NewKinds(IngestKind(), DoctorKind(), promptKind(), SynthesisKind())
+	return NewKinds(IngestKind(), DoctorKind(), PollKind(), promptKind(), SynthesisKind())
 }
 
 // Lookup returns the kind with the given name.
