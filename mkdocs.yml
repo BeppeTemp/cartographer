@@ -75,6 +75,7 @@ nav:
   - Live demo: https://beppetemp.github.io/cartographer/demo/
   - Using Cartographer:
       - Getting started: getting-started.md
+      - FAQ: faq.md
       - Agent install runbook: agent-install.md
       - Using the server from any MCP client: mcp-clients.md
       - Deployment: deployment.md

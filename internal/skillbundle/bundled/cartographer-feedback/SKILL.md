@@ -25,8 +25,8 @@ effect of another procedure.
 
 - A defect, a regression, or documentation contradicting behavior: **bug**.
 - A missing capability or a change of behavior: **idea**.
-- "How do I...": not feedback. Tell the user the Discussions `Q&A` category (slug `q-a`) is the
-  place, offer to draft there only if they insist, otherwise stop.
+- "How do I...": not feedback. Point the user to the FAQ, `https://beppetemp.github.io/cartographer/faq/`,
+  and the docs, then stop. A question they do not answer is a **bug** in the documentation.
 - Anything security-sensitive (a leak, a bypass, a credential exposure): do **not** file it
   publicly. Point to `SECURITY.md` in the repository and stop.
 
@@ -76,12 +76,12 @@ yourself, or use `python3 -c` or `jq -rn '@uri'` only if a shell is there. Never
 body into a shell command line: pass it on stdin or in a single-quoted heredoc (`<<'EOF'`). Without a shell, encode
 by hand at least `%`, `&`, `#`, `+`, space, newline, `?` and `=`.
 
-<!-- Repo slug as in .github/ISSUE_TEMPLATE/config.yml. Keep `template=bug.md`: blank issues are
-disabled there, so a URL without a template cannot open a form. -->
+<!-- Repo slug as in the repo_url of mkdocs.yml. Keep `template=`: blank issues are disabled in
+.github/ISSUE_TEMPLATE/config.yml, so a URL without a template cannot open a form. -->
 - Bug: `https://github.com/beppetemp/cartographer/issues/new?template=bug.md&title=...&body=...`
-- Idea: `https://github.com/beppetemp/cartographer/discussions/new?category=ideas&title=...&body=...`
+- Idea: `https://github.com/beppetemp/cartographer/issues/new?template=idea.md&title=...&body=...`
 
 If the encoded URL would exceed **6000** characters, give the URL with the title only (and the
-`template` or `category`) and print the body in a fenced code block for the user to paste.
+`template`) and print the body in a fenced code block for the user to paste.
 
 Say plainly that nothing has been sent: the user opens the link and submits it.

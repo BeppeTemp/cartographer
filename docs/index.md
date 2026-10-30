@@ -8,6 +8,7 @@ only the pages relevant to your task.
 | File | Contents |
 |---|---|
 | [getting-started.md](getting-started.md) | Zero-to-wiki tutorial: install, first KB, connect an agent, first session |
+| [faq.md](faq.md) | Questions about concurrent writes, `sync` and how Cartographer compares with an instruction file, Notion or Obsidian |
 | [agent-install.md](agent-install.md) | Command-by-command runbook for an agent to install Cartographer, mount a first KB, connect, and verify |
 | [mcp-clients.md](mcp-clients.md) | Using the server from a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop): connect, tokens with an `id`, what the model receives, limits |
 | [deployment.md](deployment.md) | Native/k8s topologies, server configuration, health, backup/DR, upgrades and CI/CD |
@@ -40,7 +41,7 @@ Mutable state does not live in narrative documentation:
 
 - [open plan issues](https://github.com/BeppeTemp/cartographer/issues?q=is%3Aissue+is%3Aopen+label%3Aplan) — approved implementation handoffs;
 - [open bugs](https://github.com/BeppeTemp/cartographer/issues?q=is%3Aissue+is%3Aopen+label%3Abug) — accepted defects;
-- [Discussions](https://github.com/BeppeTemp/cartographer/discussions) — ideas, questions and open design;
+- [open ideas](https://github.com/BeppeTemp/cartographer/issues?q=is%3Aissue+is%3Aopen+label%3Aidea) — proposals not accepted yet;
 - [pull requests](https://github.com/BeppeTemp/cartographer/pulls), [releases](https://github.com/BeppeTemp/cartographer/releases) and [`CHANGELOG.md`](https://github.com/BeppeTemp/cartographer/blob/main/CHANGELOG.md) — delivery and completed user-visible work.
 
 ## Quick reading paths
@@ -82,7 +83,7 @@ page that was not touched; the table and the file change together, and a test
 | Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`doctor`/`service`/TUI…) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `provisioning.Kinds` (the Atlas lists it; a test fails without it, D864) |
-| A feature is **not** implemented (deferred, planned, "future work") | A Discussion while it is an idea, a `plan` issue once accepted (`CONTRIBUTING.md` §Issues: bug, plan) — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
+| A feature is **not** implemented (deferred, planned, "future work") | An `idea` issue while it is a proposal, a `plan` issue once accepted (`CONTRIBUTING.md` §Issues: bug, idea, plan) — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
 | Project status, milestone, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow (which groups the newest section by area, D865) |
 | An architectural or contract choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md`, `<n>` = the plan issue or PR number (D672; `make decisions-new`; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
 | New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |

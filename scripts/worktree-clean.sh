@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# worktree-clean.sh — removes what a merged PR leaves behind (Discussion #1000).
+# worktree-clean.sh — removes what a merged PR leaves behind.
 #
 # For every branch checked out in a worktree under .worktrees/ it asks the
 # upstream repository whether a PR with that head branch was MERGED and, if so,
