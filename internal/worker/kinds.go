@@ -117,7 +117,7 @@ func NewKinds(kinds ...Kind) *Kinds {
 
 // DefaultKinds is the production registry: each plan that adds a task kind
 // registers it here, one line apiece.
-func DefaultKinds() *Kinds { return NewKinds(IngestKind(), promptKind()) }
+func DefaultKinds() *Kinds { return NewKinds(IngestKind(), DoctorKind(), promptKind()) }
 
 // Lookup returns the kind with the given name.
 func (r *Kinds) Lookup(name string) (Kind, bool) {
@@ -238,3 +238,8 @@ type Instance interface {
 	// token ceiling of rt.Grant.
 	Run(ctx context.Context, item *WorkItem, rt Runtime) (Result, error)
 }
+
+// MaxWritesKey is tasks[].max_writes of the doctor kind, declared once here and
+// as a row of the key table.
+var MaxWritesKey = settingschema.Key{Path: "tasks[].max_writes", Scope: settingschema.ScopeWorker, Type: "int", Values: "at least 1", Default: "20",
+	Description: "The most writes one doctor session may apply to a KB; past it the session is told to close."}
