@@ -28,3 +28,8 @@ money and writes to KBs when nobody is looking.
   separate goroutine sends it; only the first and the closing beat are sent synchronously (each at most 5 s,
   queued behind `sendMu`), and a failed beat or a `404` is a log line that leaves the idle signal unknown.
   Server timestamps are compared with each other (`now` against `last_activity_at`), never with the worker's clock.
+- **A connector's tools are allowlisted by the config, never by the server** (`connector/`): deny by
+  default, enforced on the call too; they reach the unit-execution task only. No KB tool name contains
+  `__` (a test in `internal/mcpserver` pins it). A child process gets only the variables the config lists
+  (`connector.ChildEnv`), so the model key never reaches third-party code. A feed's cursor is written only
+  with `if_match` (`feed/`).
