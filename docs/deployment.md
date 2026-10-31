@@ -970,7 +970,7 @@ auth:
 the environment at startup; an unset or empty variable refuses startup, naming
 the field (#680). Any other value is taken literally.
 
-`artifacts: r` (D1259) is a narrower allow, not a deny: the rule grants what its `access` grants except
+`artifacts: r` (#1405) is a narrower allow, not a deny: the rule grants what its `access` grants except
 `artifact_write`, `artifact_delete`, `artifact_move`, `skill_install` and the `/api/usage` report, which change what
 every client of the KB syncs and executes. `log_append`, `source_register`, `concept_*` and the reads stay allowed.
 A second rule of the same token without the key restores the write (rules are unioned); `artifacts: rw` with

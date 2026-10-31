@@ -606,7 +606,7 @@ func VisibleCollection(ctx context.Context, k *kb.KB, name, kind string) bool {
 }
 
 // artifactWriteTools take a caller-chosen artifact path and content: the only
-// tools an `artifacts: r` rule withholds (D17 of the worker design). Files the
+// tools an `artifacts: r` rule withholds (#1405). Files the
 // server writes with fixed content (templates/source.md) stay allowed.
 var artifactWriteTools = map[string]bool{
 	"artifact_write": true, "artifact_delete": true, "artifact_move": true, "skill_install": true,
