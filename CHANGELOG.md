@@ -8,6 +8,81 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.27.1](https://github.com/BeppeTemp/cartographer/compare/v0.27.0...v0.27.1) (2026-10-31)
+
+
+### MCP tools
+
+#### Features
+
+* a bare MCP agent starts on its own ([#1398](https://github.com/BeppeTemp/cartographer/issues/1398)) ([1691bd5](https://github.com/BeppeTemp/cartographer/commit/1691bd5bb7a6c090874746ed027db2492402b3b0))
+* a token that cannot write artifacts ([#1405](https://github.com/BeppeTemp/cartographer/issues/1405)) ([391a242](https://github.com/BeppeTemp/cartographer/commit/391a2421378338f79cb4532dea919ebace23a9f8))
+
+#### Bug Fixes
+
+* a read-only session no longer hangs when subscriptions/listen is the first message ([#1368](https://github.com/BeppeTemp/cartographer/issues/1368)) ([487b95d](https://github.com/BeppeTemp/cartographer/commit/487b95d2bebf9e1e4f9704a0bbb61fd12e781aeb))
+* concept_batch deletes an expanded concept with its satellites in one commit ([#1367](https://github.com/BeppeTemp/cartographer/issues/1367)) ([863019e](https://github.com/BeppeTemp/cartographer/commit/863019ed5af6483a78a38616f9703b5f50a6acc0))
+* search returns 20 hits with related again and no longer steers agents to section reads ([#1375](https://github.com/BeppeTemp/cartographer/issues/1375)) ([97e4af3](https://github.com/BeppeTemp/cartographer/commit/97e4af3daedadbd8eaad22f16e8d41fcfc782b0e))
+* source_register gate advice follows the findings it refuses ([#1387](https://github.com/BeppeTemp/cartographer/issues/1387)) ([ec73c81](https://github.com/BeppeTemp/cartographer/commit/ec73c815f5512b65727e767c439b20b6ce831e92))
+
+
+### Lint & repair
+
+#### Bug Fixes
+
+* count a Source locator's placeholders as citations ([#1361](https://github.com/BeppeTemp/cartographer/issues/1361)) ([f2518fe](https://github.com/BeppeTemp/cartographer/commit/f2518fe85fc5cfd193662130982abb3655c3014d))
+* journal pages do not count toward repeated_fact ([#1426](https://github.com/BeppeTemp/cartographer/issues/1426)) ([b245a1d](https://github.com/BeppeTemp/cartographer/commit/b245a1dc227a3abff36d49b7a2f3cc2c5ff2240c))
+* missing_value_contract skips commit-SHA fields ([#1388](https://github.com/BeppeTemp/cartographer/issues/1388)) ([96091fa](https://github.com/BeppeTemp/cartographer/commit/96091fadacda8acc09e01343df8aa43221353a63))
+* name the required type in the digest_missing message ([#1366](https://github.com/BeppeTemp/cartographer/issues/1366)) ([1c2fdab](https://github.com/BeppeTemp/cartographer/commit/1c2fdab4fac9e10ed06153cca94447a2a6ae2adc))
+* recognise asset links with spaces in the filename as citations ([#1362](https://github.com/BeppeTemp/cartographer/issues/1362)) ([e28033f](https://github.com/BeppeTemp/cartographer/commit/e28033fffcdc7b37a734c20d1876bdc3beb522b1))
+* repeated_fact compares whole lines, code spans included ([#1410](https://github.com/BeppeTemp/cartographer/issues/1410)) ([9260e46](https://github.com/BeppeTemp/cartographer/commit/9260e461bd8cba5b69ba0cea76e76518e15f0f89))
+
+
+### Client & CLI
+
+#### Features
+
+* kb create puts a KB on an orphan branch of a repository with history ([#1415](https://github.com/BeppeTemp/cartographer/issues/1415)) ([cc2df95](https://github.com/BeppeTemp/cartographer/commit/cc2df95e7de9ac3052725adef1ce6f3b60a996af))
+* per-KB opt-out of artifact sync (kb_options.&lt;kb&gt;.artifacts) ([#1420](https://github.com/BeppeTemp/cartographer/issues/1420)) ([2c7f2d2](https://github.com/BeppeTemp/cartographer/commit/2c7f2d2355678465113ef38a5e127503d50e9fb9))
+* per-KB read-only access with kb_options.&lt;kb&gt;.access ([#1422](https://github.com/BeppeTemp/cartographer/issues/1422)) ([2d71f19](https://github.com/BeppeTemp/cartographer/commit/2d71f19b3807bf5567ea460dba2b2442fe8e4bc5))
+* unbound_access sets the access mode of folders under no workspace binding ([#1379](https://github.com/BeppeTemp/cartographer/issues/1379)) ([9ed8b4a](https://github.com/BeppeTemp/cartographer/commit/9ed8b4afcdf96158c93a34ab61eda7faf3a002c6))
+
+#### Bug Fixes
+
+* report a bridge entry whose binary moved as drift in status ([#1364](https://github.com/BeppeTemp/cartographer/issues/1364)) ([b7612ff](https://github.com/BeppeTemp/cartographer/commit/b7612ffc9b187ed65e9dfcdf1ffaf56e3865dd84))
+* sync -dry-run no longer reports the generated SOURCE.env as pruned ([#1363](https://github.com/BeppeTemp/cartographer/issues/1363)) ([2cd031d](https://github.com/BeppeTemp/cartographer/commit/2cd031db9cc5178458ed20a4d25ccf4c9b55ff30))
+* the update notice waits until the user's channel can install the release ([#1351](https://github.com/BeppeTemp/cartographer/issues/1351)) ([8ca8a9d](https://github.com/BeppeTemp/cartographer/commit/8ca8a9dc75a75bc3204433ca9e52255a15c9d67f))
+
+
+### Server & KB
+
+#### Features
+
+* ingest pipeline data model with IngestPlan and IngestUnit concepts and shaped sources ([#1383](https://github.com/BeppeTemp/cartographer/issues/1383)) ([251b0b3](https://github.com/BeppeTemp/cartographer/commit/251b0b39d8e54a61c96a36881db02f8effdc4b67))
+* ingest writes first and reports after ([#1399](https://github.com/BeppeTemp/cartographer/issues/1399)) ([5b58329](https://github.com/BeppeTemp/cartographer/commit/5b5832907fc1e8bc353d2831f5547dcf97eda097))
+
+#### Bug Fixes
+
+* keep junk files out of server commits and let kb_repair untrack them ([#1396](https://github.com/BeppeTemp/cartographer/issues/1396)) ([79a7c01](https://github.com/BeppeTemp/cartographer/commit/79a7c01f9bba83447ef8be8ee0b5423724eb2b24))
+* remove the emptied directory when deleting an expanded concept ([#1365](https://github.com/BeppeTemp/cartographer/issues/1365)) ([60a5e9e](https://github.com/BeppeTemp/cartographer/commit/60a5e9e81562c9a398590d9600a0cd1b01acb09c))
+
+
+### General
+
+#### Features
+
+* ingest planner skill and unit mode for kb-ingest ([#1394](https://github.com/BeppeTemp/cartographer/issues/1394)) ([c85106c](https://github.com/BeppeTemp/cartographer/commit/c85106c130ac6a57e5179322dd276cab7090f723))
+* kb_repair applies a list of checks or * in one call ([#1381](https://github.com/BeppeTemp/cartographer/issues/1381)) ([e371dd9](https://github.com/BeppeTemp/cartographer/commit/e371dd9989d11bd1b64ef176326f0e23a373122b))
+
+#### Bug Fixes
+
+* Discussions are off, an idea is an issue and the FAQ is in the docs ([#1425](https://github.com/BeppeTemp/cartographer/issues/1425)) ([d0f8bc5](https://github.com/BeppeTemp/cartographer/commit/d0f8bc57213489767ee7b6fcdd9b23c1d016f287))
+
+
+### Miscellaneous Chores
+
+* release 0.27.1 from the maintenance branch ([a2ea3ee](https://github.com/BeppeTemp/cartographer/commit/a2ea3eeca8586a9b3428d3c470c46901ec074913))
+
 ## [0.27.0](https://github.com/BeppeTemp/cartographer/compare/v0.26.1...v0.27.0) (2026-10-28)
 
 
