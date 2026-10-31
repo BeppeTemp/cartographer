@@ -324,7 +324,7 @@ dispatched by hand with one of three actions.
   The skip comment says only that the gate is not clear.
 - **Out of band**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand, with the same gate cleared.
-- **Maintenance release** `x.y.(z+1)` from a branch `release-<x.y>` (D<n>), when
+- **Maintenance release** `x.y.(z+1)` from a branch `release-<x.y>` (D1443), when
   `main` already holds work for the next minor that should not ship yet. The
   maintainer cuts the branch from the `vx.y.z` tag, cherry-picks with `-x` what ships,
   and the branch carries `release-please.yml` (a push runs the pushed branch's copy):
