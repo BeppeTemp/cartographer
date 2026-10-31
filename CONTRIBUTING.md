@@ -328,7 +328,9 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   `main` already holds work for the next minor that should not ship yet. The
   maintainer cuts the branch from the `vx.y.z` tag, cherry-picks with `-x` what ships,
   and the branch carries `release-please.yml` (a push runs the pushed branch's copy):
-  release-please opens `release-please--branches--release-<x.y>` against it. An empty
+  release-please opens `release-please--branches--release-<x.y>` against it. The branch's
+  `release-please-config.json` sets `pull-request-title-pattern` to
+  `chore: release${component} ${version}`: `pr-title` knows no branch scope. An empty
   commit with the footer `Release-As: x.y.(z+1)` names the version, since a `feat`
   would make it propose the next minor. A candidate is `preview.yml` dispatched on the
   branch (`--ref release-<x.y>`, tag `vx.y.(z+1)-rc.<YYYYMMDD>`): it opens the freeze
