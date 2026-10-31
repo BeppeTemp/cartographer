@@ -50,12 +50,13 @@ jobs:
       - id: branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          TARGET: ${{ github.ref_name }}
         # Only a branch of this repository: a fork PR whose branch starts with
         # release-please-- also matches the search, and checking out its name
         # here would fail and skip the steps below. The release PR of the pushed
         # branch only: main and a maintenance branch may both have one open.
         run: |
-          b=$(gh pr list -R "${{ github.repository }}" --state open --search "head:release-please--branches--${{ github.ref_name }}" --json headRefName,isCrossRepository -q '[.[] | select(.isCrossRepository | not)][0].headRefName // empty')
+          b=$(gh pr list -R "${{ github.repository }}" --state open --search "head:release-please--branches--$TARGET" --json headRefName,isCrossRepository -q '[.[] | select(.isCrossRepository | not)][0].headRefName // empty')
           echo "name=$b" >> "$GITHUB_OUTPUT"
       # No credential stays in the checkout: the next steps run the branch's own
       # code (`make`, `go run`). The push step sets the PAT on `origin` itself,
@@ -69,6 +70,8 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # No cache: this job also runs on maintenance branches and pushes (D1020).
+          cache: false
       - if: steps.branch.outputs.name != ''
         id: regen
         run: |
