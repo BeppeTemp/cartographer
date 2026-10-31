@@ -1,7 +1,7 @@
 name: release-please
 
 # A maintenance branch `release-<x.y>` cut from a tag gets its own release PR,
-# `release-please--branches--release-<x.y>`, against that branch (D<n>): the
+# `release-please--branches--release-<x.y>`, against that branch (D1443): the
 # workflow runs from the pushed branch's copy, so the branch must carry this file.
 on:
   push:
