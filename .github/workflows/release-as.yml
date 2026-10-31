@@ -39,9 +39,9 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # Same selection as release-please.yml: this repository's release-please-- branch.
+          # main's release PR only: a maintenance branch's release PR (D1443) names its own version.
           # Captured first: a failing gh fails the step; only an empty result means "none".
-          found=$(gh pr list --state open --search "head:release-please--" --json number,title,isCrossRepository \
+          found=$(gh pr list --state open --search "head:release-please--branches--main" --json number,title,isCrossRepository \
             -q '[.[] | select(.isCrossRepository | not)][0] | select(. != null) | "\(.number) \(.title)"')
           if [ -z "$found" ]; then
             echo "no release PR open" >> "$GITHUB_STEP_SUMMARY"

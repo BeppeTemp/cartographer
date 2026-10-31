@@ -1,8 +1,11 @@
 name: release-please
 
+# A maintenance branch `release-<x.y>` cut from a tag gets its own release PR,
+# `release-please--branches--release-<x.y>`, against that branch (D1443): the
+# workflow runs from the pushed branch's copy, so the branch must carry this file.
 on:
   push:
-    branches: [main]
+    branches: [main, "release-[0-9]+.[0-9]+"]
 
 permissions:
   contents: read
@@ -12,7 +15,7 @@ permissions:
 # of the earlier one would then lack the later run's entries (Regroup leaves a
 # grouped body alone). One run at a time; a waiting one is replaced by the newest.
 concurrency:
-  group: release-please
+  group: release-please-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -28,6 +31,7 @@ jobs:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          target-branch: ${{ github.ref_name }}
 
   # release-please rewrites its branch and its PR body on every push to main, so
   # this runs after it every time, and every step is idempotent.
@@ -46,11 +50,13 @@ jobs:
       - id: branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          TARGET: ${{ github.ref_name }}
         # Only a branch of this repository: a fork PR whose branch starts with
         # release-please-- also matches the search, and checking out its name
-        # here would fail and skip the steps below.
+        # here would fail and skip the steps below. The release PR of the pushed
+        # branch only: main and a maintenance branch may both have one open.
         run: |
-          b=$(gh pr list -R "${{ github.repository }}" --state open --search "head:release-please--" --json headRefName,isCrossRepository -q '[.[] | select(.isCrossRepository | not)][0].headRefName // empty')
+          b=$(gh pr list -R "${{ github.repository }}" --state open --search "head:release-please--branches--$TARGET" --json headRefName,isCrossRepository -q '[.[] | select(.isCrossRepository | not)][0].headRefName // empty')
           echo "name=$b" >> "$GITHUB_OUTPUT"
       # No credential stays in the checkout: the next steps run the branch's own
       # code (`make`, `go run`). The push step sets the PAT on `origin` itself,
@@ -64,6 +70,8 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # No cache: this job also runs on maintenance branches and pushes (D1020).
+          cache: false
       - if: steps.branch.outputs.name != ''
         id: regen
         run: |

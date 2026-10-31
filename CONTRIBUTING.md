@@ -324,6 +324,22 @@ dispatched by hand with one of three actions.
   The skip comment says only that the gate is not clear.
 - **Out of band**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand, with the same gate cleared.
+- **Maintenance release** `x.y.(z+1)` from a branch `release-<x.y>` (D1443), when
+  `main` already holds work for the next minor that should not ship yet. The
+  maintainer cuts the branch from the `vx.y.z` tag, cherry-picks with `-x` what ships,
+  and the branch carries `release-please.yml` (a push runs the pushed branch's copy):
+  release-please opens `release-please--branches--release-<x.y>` against it. The branch's
+  `release-please-config.json` sets `pull-request-title-pattern` to
+  `chore: release${component} ${version}`: `pr-title` knows no branch scope. An empty
+  commit with the footer `Release-As: x.y.(z+1)` names the version, since a `feat`
+  would make it propose the next minor. A candidate is `preview.yml` dispatched on the
+  branch (`--ref release-<x.y>`, tag `vx.y.(z+1)-rc.<YYYYMMDD>`): it opens the freeze
+  on `main` too, until the release deletes it. The release PR is merged by hand with
+  the security gate above cleared (`release-train` serves `main` only); the tag runs
+  `release.yml` as usual. Only while it is the highest version: the release moves the
+  image's `latest` and the Homebrew cask, so a branch older than the latest stable
+  release gets no release this way. `main` keeps its own changelog from `vx.y.z`, so the
+  next minor lists the backported entries again.
 
 ## Issues: bug, idea, plan
 
