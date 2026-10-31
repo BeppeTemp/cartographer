@@ -358,7 +358,7 @@ milestone is accepted work, and a PR sits in the milestone of the issues it clos
 (the `pr-milestone` job of `plan-gate` sets it, and moves it with the issue), so a
 train's milestone lists its PRs too. **Every accepted issue has a milestone**, approved plans
 included: an open issue without one is not triaged yet, and the weekly triage puts
-it in a train, moves it to Discussions or closes it. Keep two or three milestones
+it in a train, or closes it. Keep two or three milestones
 open: the non-trivial work of the next two is written as approved plans, ready to
 be claimed; further out an issue stays a plain issue until its train comes closer,
 because a plan's `file:line` pointers age.
