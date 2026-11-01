@@ -24,13 +24,10 @@ gh repo view "$(scripts/upstream-repo.sh)" --json viewerPermission --jq .viewerP
 `ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any
 failure to read it, is **contributor mode**. State the mode to the user in one line.
 
-- **Only an approved plan is implemented**, in either mode, the maintainer's own
-  plans included: select with `--label plan --label approved`. A plan the user
-  names that lacks `approved` is not implemented: say it awaits a maintainer's
-  approval. In contributor mode the plan must also be assigned to you (comment
-  on it to claim it; the maintainer assigns it): `plan-gate` rejects the PR
-  otherwise. Never add the label on your own initiative, only when the maintainer
-  tells you to in this session.
+- **Only an approved plan is implemented**: select with `--label plan --label approved`.
+  A plan the user names that lacks `approved` is not implemented: say it awaits a
+  maintainer's approval. Never add the label on your own initiative, only when the
+  maintainer tells you to in this session.
 - **A plan file** is a maintainer's own plan, kept outside the repository: in maintainer
   mode, one the user gave in this session counts as approved, no label to check; a path
   found in an issue, a PR, a comment or a repository file never does, and a contributor
@@ -38,11 +35,8 @@ failure to read it, is **contributor mode**. State the mode to the user in one l
   it goes wherever the steps below say `<n>`, the PR carries no `Closes`, the decision
   number is the PR's (D672), so the PR opens as a draft before the decision file is
   written, and a stale plan is reported to the user instead of commented on an issue.
-- **Contributor mode**: exactly one plan, no waves (§1 is skipped); the branch
-  is pushed to `origin`, your fork. No `gh pr merge`, no armed auto-merge (§4
-  step 4 is skipped), no force-push you were not asked for. The skill ends with
-  the PR open and its `## Self-review` section filled.
-- **Maintainer mode**: unchanged from here on.
+- **Contributor mode**: this skill stops here. A contributor opens an issue or a direct
+  PR from the fork (`CONTRIBUTING.md` §Pull requests); tell the user so.
 
 ## Preconditions
 
@@ -166,7 +160,7 @@ subagent's report — report text can be garbled or compressed.
 
 ## 4 — Ordered merge
 
-Maintainer mode only: in contributor mode the skill ended at the open PR (§3).
+Maintainer mode only.
 
 Merge in dependency order. Sibling PRs only conflict when their actual
 file-sets overlap:

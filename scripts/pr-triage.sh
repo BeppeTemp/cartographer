@@ -16,7 +16,6 @@ set -euo pipefail
 
 # Limits are CONTRIBUTING.md §Pull requests; change them there and here together.
 SIZE_CAP=500      # production lines added per PR
-PLAN_FLOOR=150    # above this, a contributor's PR needs an approved plan
 # Packages whose invariants are written down outside the code (an area AGENTS.md)
 # or are about security and concurrency: a change there always gets a full review.
 INVARIANT_AREAS='^internal/(mcpserver|provisioning|auth|gitx|sops|service)/'
@@ -66,7 +65,7 @@ git remote get-url upstream >/dev/null 2>&1 && remote=upstream
 role=contributor
 if [ $# -ge 1 ]; then
   PR=$1
-  meta=$(gh pr view "$PR" --json title,author,closingIssuesReferences,statusCheckRollup,body,headRefName,labels,assignees)
+  meta=$(gh pr view "$PR" --json title,author,closingIssuesReferences,statusCheckRollup,body,headRefName,labels)
   # Not `gh pr view --json files`: it stops at 100 files, and every count below
   # (size, tier, supply chain, docs owners) would be taken on a truncated list.
   files=$(gh api --paginate "repos/{owner}/{repo}/pulls/$PR/files" --jq '.[] | "\(.additions)\t\(.deletions)\t\(.filename)"')
@@ -77,9 +76,6 @@ if [ $# -ge 1 ]; then
   [ "${prinfo##*$'\t'}" = Bot ] && role=bot
   echo "PR #$PR $(jq -r .title <<<"$meta") — by $author, branch $(jq -r .headRefName <<<"$meta")"
   sizelabel=$(jq -r '[.labels[].name] | index("size-exception") // empty' <<<"$meta")
-  # GitHub silently refuses to assign an issue to someone who never commented on it, so a
-  # maintainer can assign the PR to its author instead: only triage rights can (D955).
-  prassigned=$(jq -r --arg a "$author" '[.assignees[].login] | index($a) // empty' <<<"$meta")
   ci=$(jq -r '[.statusCheckRollup[] | (.conclusion // .state // "PENDING")] |
     if length == 0 then "none"
     elif any(. == "FAILURE" or . == "CANCELLED" or . == "TIMED_OUT" or . == "ERROR") then "FAILURE"
@@ -95,7 +91,7 @@ else
   ci=local
   slug=$("$(dirname "$0")/upstream-repo.sh")
   author=$(gh api user --jq .login 2>/dev/null || echo me)
-  sizelabel=""; prassigned=""
+  sizelabel=""
   perm=$(gh repo view "$slug" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
   case "$perm" in ADMIN|MAINTAIN|WRITE) role=maintainer ;; esac
   echo "Branch $(git rev-parse --abbrev-ref HEAD) vs $remote/main (before opening a PR)"
@@ -133,7 +129,6 @@ echo "Tier: $tier${invariant:+ — invariant areas: $(tr '\n' ' ' <<<"$invariant
 
 # Milestones only group versions (D1384): the one consumer left is the WARN below,
 # so a failed read of a milestone is a note, never a block.
-plan=""; plan_ok=""; unassigned=""
 for n in $issues; do
   # Split on "|": a label may hold spaces (`good first issue`), and a tab, being
   # whitespace to read, would swallow an empty label list.
@@ -143,19 +138,6 @@ for n in $issues; do
   if [ "$milestone" = - ]; then
     echo "WARN: #$n has no milestone — it is not triaged yet: the maintainer puts it in a version or closes it"
   fi
-  if [[ ",$labels," == *",plan,"* ]]; then
-    plan=$n
-    if [[ ",$labels," == *",approved,"* ]]; then
-      # A contributor claims an approved plan by commenting on it; the maintainer assigns it,
-      # or assigns the PR to its author (D955).
-      assignees=$(gh issue view "$n" --json assignees --jq '[.assignees[].login] | join(",")' 2>/dev/null || echo "")
-      if [ "$role" != contributor ] || [ -n "$prassigned" ] || [[ ",$assignees," == *",$author,"* ]]; then
-        plan_ok=$n
-      else
-        unassigned=$n
-      fi
-    fi
-  fi
 done
 [ -n "$issues" ] || echo "Closes: nothing"
 echo "CI: $ci"
@@ -163,14 +145,6 @@ echo "CI: $ci"
 # Counted for --gate: every BLOCK but the red CI, which must not feed back into the check itself.
 blocked=0
 [ "$ci" = FAILURE ] && echo "BLOCK: CI is red — nothing to review until it is green"
-if [ "$role" = contributor ] && [ "$prod" -gt "$PLAN_FLOOR" ] && [ -z "$plan_ok" ]; then
-  blocked=1
-  if [ -n "$unassigned" ]; then
-    echo "BLOCK: plan #$unassigned is approved but not assigned to $author: comment on it to claim it, and ask the maintainer to assign the plan, or this PR, to you"
-  else
-    echo "BLOCK: $prod production lines from a contributor without an approved plan (an issue labelled plan + approved): the design is reviewed there first"
-  fi
-fi
 if [ "$prod" -gt "$SIZE_CAP" ]; then
   # A contributor's own body line would let any PR through the required check: for a
   # contributor the exception is the maintainer-set `size-exception` label (D955).

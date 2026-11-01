@@ -1,6 +1,6 @@
 name: plan-gate
 
-# The approved-plan rule of CONTRIBUTING.md §Pull requests, enforced where a
+# The size cap of CONTRIBUTING.md §Pull requests, enforced where a
 # contributor's agent cannot skip it (D955). The rule itself lives in
 # scripts/pr-triage.sh, the single source: this file only runs it, so no threshold
 # is duplicated here. Milestones only group versions (D1384): no check reads them.
@@ -16,9 +16,9 @@ name: plan-gate
 #     a rename on main the current workflow runs a path the old tree does not have.
 #   - Every `uses:` is pinned to a full commit SHA: this is the only workflow that holds
 #     the base repository token on fork-triggered events, so a moved tag must not reach it.
-#   - Read-only permissions and no secrets; only the re-run job gets actions: write,
-#     and the milestone job pull-requests: write. Neither checks anything out: they
-#     run gh against the API with values the API returned, never PR content.
+#   - Read-only permissions and no secrets; only the milestone job gets
+#     pull-requests: write. It checks nothing out: it runs gh against the API with
+#     values the API returned, never PR content.
 #
 # TRAP: a `pull_request_target` workflow added or changed by a PR does not run
 # from that PR (it runs from the base branch): this file starts working on the
@@ -28,9 +28,9 @@ name: plan-gate
 # the required checks of `main-protection`.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, edited, labeled, unlabeled, assigned, unassigned] # edited: `Closes #n` is often added later; labeled: the `size-exception` label; assigned: the PR given to its author in place of the plan
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled] # edited: `Closes #n` is often added later; labeled: the `size-exception` label; assigned: the PR given to its author in place of the plan
   issues:
-    types: [labeled, assigned, milestoned, demilestoned] # approved or assigned: the gate reads both; milestoned/demilestoned feed pr-milestone only
+    types: [milestoned, demilestoned] # feed pr-milestone only
 
 permissions:
   contents: read
@@ -52,44 +52,13 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       # Values reach the script through the environment, never interpolated into it.
-      - name: Approved plan, size cap
+      - name: Size cap
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
           PR: ${{ github.event.pull_request.number }}
         run: scripts/pr-triage.sh --gate "$PR"
-
-  # A plan labelled `approved` or assigned after its PR was opened: the check that
-  # failed runs again, without a push.
-  rerun:
-    name: rerun-on-approval-or-assignment
-    if: >-
-      github.event_name == 'issues' &&
-      (github.event.action == 'assigned' || github.event.label.name == 'approved')
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      pull-requests: read
-      contents: read
-    steps:
-      - name: Re-run plan-gate on the PRs that close this issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          ISSUE: ${{ github.event.issue.number }}
-        run: |
-          filter='.[] | select(any(.closingIssuesReferences[]?; .number == ($i | tonumber))) | .number'
-          [ -n "$ISSUE" ] || filter='.[] | .number'
-          for pr in $(gh pr list --state open --limit 200 --json number,closingIssuesReferences \
-              | jq -r --arg i "${ISSUE:-0}" "$filter"); do
-            url=$(gh pr view "$pr" --json statusCheckRollup \
-              --jq '[.statusCheckRollup[] | select(.name == "plan-gate")] | last | .detailsUrl // empty')
-            run=$(sed -nE 's#.*/actions/runs/([0-9]+)/.*#\1#p' <<<"$url")
-            [ -n "$run" ] || { echo "PR #$pr: no plan-gate run to re-run"; continue; }
-            echo "PR #$pr: re-running plan-gate run $run"
-            gh run rerun "$run" || echo "PR #$pr: run $run could not be re-run"
-          done
 
   # A PR sits in the milestone of the issues it closes, so a version's milestone lists
   # its PRs too (CONTRIBUTING.md §Pull requests). A contributor cannot set a milestone,
