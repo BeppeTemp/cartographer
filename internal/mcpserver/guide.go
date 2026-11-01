@@ -117,7 +117,7 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 		return ""
 	}
 	s.mu.Lock()
-	readOnly := s.readOnlySession || s.readMinSession || s.tokenReadOnly || s.kbsReadOnly
+	readOnly := s.readOnlySession || s.readMinSession || s.tokenReadOnly
 	s.mu.Unlock()
 	if !readOnly && !writesAnyKB(ctx, names) {
 		readOnly = true
@@ -129,20 +129,8 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 // provisioned connection gets as before (nothing, or the bridge's read-only
 // sentence), the guide for everyone else.
 func (s *Server) handshakeInstructions(ctx context.Context) string {
-	var out string
 	if isProvisioned(ctx) {
-		out = s.sessionInstructions()
-	} else {
-		out = s.connectionGuide(ctx)
+		return s.sessionInstructions()
 	}
-	// A strict subset read-only (#1409): the names ride the request, so the
-	// sentence is added here, per handshake, never in the memoised server.
-	if ro := routedReadOnly(ctx); len(ro) > 0 && !s.kbsReadOnly {
-		sentence := readOnlyKBsSentence(ro)
-		if out == "" {
-			return sentence
-		}
-		return out + "\n\n" + sentence
-	}
-	return out
+	return s.connectionGuide(ctx)
 }

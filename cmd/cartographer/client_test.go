@@ -427,27 +427,3 @@ func TestCmdClientKBErrorsAndUnknownKB(t *testing.T) {
 		t.Error("unknown KB option not saved")
 	}
 }
-
-func TestCmdClientKBSetsAccess(t *testing.T) {
-	dir := writeClientCfg(t, []string{"claude"}, []string{"alpha"}, nil)
-	out := withStdout(t, func() {
-		if code := cmdClient([]string{"kb", "alpha", "--access=read"}); code != 0 {
-			t.Errorf("set read = %d", code)
-		}
-	})
-	if !strings.Contains(out, "access") || !strings.Contains(out, "read") || !strings.Contains(out, "cartographer sync") {
-		t.Errorf("output: %q", out)
-	}
-	if got := loadClientCfg(t, dir).ReadOnlyKBs(); len(got) != 1 || got[0] != "alpha" {
-		t.Errorf("not saved: %v", got)
-	}
-	withStderr(t, func() {
-		if code := cmdClient([]string{"kb", "alpha", "--access=rw"}); code != 2 {
-			t.Errorf("bad value = %d, want 2", code)
-		}
-	})
-	withStdout(t, func() { cmdClient([]string{"kb", "alpha", "--access=write"}) })
-	if cfg := loadClientCfg(t, dir); cfg.KBOptions != nil {
-		t.Errorf("write must remove the entry: %v", cfg.KBOptions)
-	}
-}

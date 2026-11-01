@@ -1291,7 +1291,7 @@ func TestEntriesForKBs_Routed_AccessProfile(t *testing.T) {
 		{false, mounted, "https://example.test/mcp/routed?access=read-min&provisioned=1"},
 		{true, []string{"c", "a"}, "https://example.test/mcp/routed?kbs=a,c&access=read-min&provisioned=1"},
 	} {
-		entries, err := entriesForKBsAccess("wiki", "https://example.test/mcp", mounted, tc.bound, "/mcp/routed", tc.explicit, "read-min", nil)
+		entries, err := entriesForKBsAccess("wiki", "https://example.test/mcp", mounted, tc.bound, "/mcp/routed", tc.explicit, "read-min")
 		if err != nil || len(entries) != 1 || entries[0].URL != tc.want {
 			t.Errorf("explicit=%v: %+v %v, want %s", tc.explicit, entries, err, tc.want)
 		}
@@ -1306,72 +1306,5 @@ func TestEntriesForKBs_Routed_AccessProfile(t *testing.T) {
 	}
 	if got["claude"][0].URL != "https://example.test/mcp/routed?access=read-min&provisioned=1" || got["codex"][0].URL != "https://example.test/mcp/routed?provisioned=1" {
 		t.Errorf("claude=%+v codex=%+v", got["claude"], got["codex"])
-	}
-}
-
-// #1409: readonly=<names> follows kbs= and access= and precedes provisioned=1,
-// limited to the KBs the entry reaches, and is absent by default.
-func TestEntriesForKBs_Routed_ReadOnlyKBs(t *testing.T) {
-	mounted := []string{"a", "b", "c d"}
-	const base = "https://example.test/mcp"
-	for _, tc := range []struct {
-		name     string
-		explicit bool
-		bound    []string
-		access   string
-		ro       []string
-		want     string
-	}{
-		{"default", false, mounted, "", nil, base + "/routed?provisioned=1"},
-		{"open entry", false, mounted, "", []string{"b", "gone"}, base + "/routed?readonly=b&provisioned=1"},
-		{"escaped and not mounted left out", false, mounted, "", []string{"a", "c d", "zzz"}, base + "/routed?readonly=a,c+d&provisioned=1"},
-		{"bound: only the reached", true, []string{"a", "b"}, "", []string{"b", "c d"}, base + "/routed?kbs=a,b&readonly=b&provisioned=1"},
-		{"bound, none reached", true, []string{"a"}, "", []string{"b"}, base + "/routed?kbs=a&provisioned=1"},
-		{"read-min wins", true, []string{"a", "b"}, "read-min", []string{"b"}, base + "/routed?kbs=a,b&access=read-min&provisioned=1"},
-	} {
-		entries, err := entriesForKBsAccess("wiki", base, mounted, tc.bound, "/mcp/routed", tc.explicit, tc.access, tc.ro)
-		if err != nil || len(entries) != 1 || entries[0].URL != tc.want {
-			t.Errorf("%s: %+v %v, want %s", tc.name, entries, err, tc.want)
-		}
-	}
-}
-
-func TestEntriesByProvider_ReadOnlyKBsPerProviderAndNonRouted(t *testing.T) {
-	mounted := []string{"a", "b"}
-	cfg := &clientconfig.Config{
-		ServerURL: "https://example.test/mcp", ServerName: "wiki", KnownKBs: mounted,
-		Clients: map[string]clientconfig.ClientBinding{"claude": {Access: clientconfig.AccessReadMin}, "codex": {KBs: []string{"a"}, KBsSet: true}},
-	}
-	if err := cfg.SetKBAccess("b", "read"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := entriesByProviderForKBs(cfg, []string{"claude", "codex", "kiro"}, "wiki", cfg.ServerURL, mounted, "/mcp/routed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]string{
-		"claude": "https://example.test/mcp/routed?access=read-min&provisioned=1",
-		"codex":  "https://example.test/mcp/routed?kbs=a&provisioned=1", // does not receive b
-		"kiro":   "https://example.test/mcp/routed?readonly=b&provisioned=1",
-	}
-	for p, u := range want {
-		if got[p][0].URL != u {
-			t.Errorf("%s = %s, want %s", p, got[p][0].URL, u)
-		}
-	}
-	// No routed endpoint: refuse, naming the KB, the key and the fix; a provider
-	// that does not receive the KB is not in the way.
-	if _, err := entriesByProviderForKBs(cfg, []string{"kiro"}, "wiki", cfg.ServerURL, mounted, ""); err == nil ||
-		!strings.Contains(err.Error(), "kb_options.b.access") || !strings.Contains(err.Error(), "routed") {
-		t.Errorf("non-routed refusal = %v", err)
-	}
-	if _, err := entriesByProviderForKBs(cfg, []string{"codex"}, "wiki", cfg.ServerURL, mounted, ""); err != nil {
-		t.Errorf("codex does not receive b: %v", err)
-	}
-	// Default config: not a byte of difference.
-	plain := &clientconfig.Config{ServerURL: cfg.ServerURL, ServerName: "wiki", KnownKBs: mounted}
-	got, err = entriesByProviderForKBs(plain, []string{"kiro"}, "wiki", cfg.ServerURL, mounted, "/mcp/routed")
-	if err != nil || got["kiro"][0].URL != "https://example.test/mcp/routed?provisioned=1" {
-		t.Errorf("default = %+v %v", got["kiro"], err)
 	}
 }

@@ -69,7 +69,7 @@ func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "       cartographer client unbind <provider> <kb>[,<kb>...]   removes KBs from it")
 	fmt.Fprintln(w, "       cartographer client reset <provider>                   restores every known KB")
 	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
-	fmt.Fprintln(w, "       cartographer client kb <kb> [--artifacts=true|false] [--access=read|write]   shows or sets the KB's options on every provider")
+	fmt.Fprintln(w, "       cartographer client kb <kb> [--artifacts=true|false]   shows or sets the KB's options on every provider")
 }
 
 // clientUpdate shows or sets `update_check` (D254, D906): whether the daily
@@ -120,7 +120,6 @@ func clientKB(dir string, cfg *clientconfig.Config, args []string) int {
 	fs := flag.NewFlagSet("client kb", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	artifacts := fs.String("artifacts", "", "Sync the KB's skills, subagents, hooks and MCP descriptors: true or false")
-	access := fs.String("access", "", "Connect the KB read-only (read) or read-write (write, the default) on every provider")
 	if err := fs.Parse(flagArgs); err != nil || fs.NArg() != 0 || kb == "" {
 		printClientUsage(os.Stderr)
 		return 2
@@ -138,23 +137,12 @@ func clientKB(dir string, cfg *clientconfig.Config, args []string) int {
 		cfg.SetKBArtifacts(kb, v)
 		changed = true
 	}
-	if *access != "" {
-		if err := cfg.SetKBAccess(kb, *access); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid --access %q (want read or write)\n", *access)
-			return 2
-		}
-		if !slices.Contains(cfg.KnownKBs, kb) {
-			fmt.Fprintf(os.Stderr, "warning: %q is not among the KBs the server last advertised; the setting is saved and applies if it is mounted\n", kb)
-		}
-		changed = true
-	}
 	if changed {
 		if code := saveClientConfig(dir, cfg); code != 0 {
 			return code
 		}
 	}
 	fmt.Printf("%-11s %t\n", "artifacts", cfg.KBArtifacts(kb))
-	fmt.Printf("%-11s %s\n", "access", cfg.KBAccess(kb))
 	if changed {
 		fmt.Println("run `cartographer sync` to apply")
 	}

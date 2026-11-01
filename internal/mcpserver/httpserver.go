@@ -702,8 +702,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, fmt.Sprintf("invalid provisioned %q: the only accepted value is %q (omit it for a client that has no Cartographer client side)", v, ProvisionedValue), http.StatusBadRequest)
 				return
 			}
-			q := r.URL.Query()
-			srv, unknown, renamed, ro, err := m.routedForReadOnly(r.Context(), q["kbs"], access, q[ReadonlyParam])
+			srv, unknown, renamed, err := m.routedFor(r.Context(), r.URL.Query()["kbs"], access)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -711,17 +710,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 			if access != "" {
 				w.Header().Set(AccessHeader, access)
 			}
-			// #1409: confirm the names applied (even none) to a request that
-			// carried the parameter; an older server never sends it.
-			if _, asked := q[ReadonlyParam]; asked {
-				w.Header().Set(ReadonlyHeader, strings.Join(ro, ","))
-			}
 			ctx := withRoutedRenamed(withRoutedUnknown(r.Context(), unknown), renamed)
-			// access= already makes the whole connection read-only and wins: the
-			// names are redundant there (decision 3), so they are not applied.
-			if access == "" {
-				ctx = withRoutedReadOnly(ctx, ro)
-			}
 			if provisioned {
 				ctx = withProvisioned(ctx)
 			}
