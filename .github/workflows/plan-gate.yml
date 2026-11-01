@@ -3,7 +3,7 @@ name: plan-gate
 # The size cap of CONTRIBUTING.md §Pull requests, enforced where a
 # contributor's agent cannot skip it (D955). The rule itself lives in
 # scripts/pr-triage.sh, the single source: this file only runs it, so no threshold
-# is duplicated here. Milestones only group versions (D1384): no check reads them.
+# is duplicated here.
 #
 # INVARIANTS (pinned by internal/repodocs/plan_gate_test.go):
 #   - The trigger is `pull_request_target`: the workflow file and pr-triage.sh come
@@ -16,9 +16,7 @@ name: plan-gate
 #     a rename on main the current workflow runs a path the old tree does not have.
 #   - Every `uses:` is pinned to a full commit SHA: this is the only workflow that holds
 #     the base repository token on fork-triggered events, so a moved tag must not reach it.
-#   - Read-only permissions and no secrets; only the milestone job gets
-#     pull-requests: write. It checks nothing out: it runs gh against the API with
-#     values the API returned, never PR content.
+#   - Read-only permissions and no secrets.
 #
 # TRAP: a `pull_request_target` workflow added or changed by a PR does not run
 # from that PR (it runs from the base branch): this file starts working on the
@@ -29,8 +27,6 @@ name: plan-gate
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled] # edited: `Closes #n` is often added later; labeled: the `size-exception` label
-  issues:
-    types: [milestoned, demilestoned] # feed pr-milestone only
 
 permissions:
   contents: read
@@ -60,51 +56,3 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: scripts/pr-triage.sh --gate "$PR"
 
-  # A PR sits in the milestone of the issues it closes, so a version's milestone lists
-  # its PRs too (CONTRIBUTING.md §Pull requests). A contributor cannot set a milestone,
-  # so the workflow does: on a PR whose `Closes #n` changed, and on an issue moved to
-  # another version. Of several closed issues the highest version wins (milestone
-  # titles vX.Y.Z by sort -V; a title that is not v<x.y.z> loses). A PR that closes no
-  # milestoned issue is left as it is.
-  milestone:
-    name: pr-milestone
-    if: >-
-      (github.event_name == 'pull_request_target' &&
-      (github.event.action == 'opened' || github.event.action == 'edited' || github.event.action == 'reopened')) ||
-      (github.event_name == 'issues' &&
-      (github.event.action == 'milestoned' || github.event.action == 'demilestoned'))
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      issues: read
-      contents: read
-    steps:
-      - name: Give each PR the milestone of the issues it closes
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          ISSUE: ${{ github.event.issue.number }}
-        run: |
-          if [ -n "$PR" ]; then
-            prs=$PR
-          else
-            prs=$(gh pr list --state open --limit 200 --json number,closingIssuesReferences \
-              | jq -r --arg i "$ISSUE" --arg u "https://github.com/$GH_REPO/issues/$ISSUE" \
-                '.[] | select(any(.closingIssuesReferences[]?; .number == ($i | tonumber) and .url == $u)) | .number')
-          fi
-          for pr in $prs; do
-            # Only this repository's issues: `Closes other/repo#n` must not read local #n.
-            # shellcheck disable=SC2016 # the jq program is single-quoted on purpose
-            want=$(gh pr view "$pr" --json closingIssuesReferences \
-              --jq '.closingIssuesReferences[] | select(.url | startswith("https://github.com/" + env.GH_REPO + "/issues/")) | .number' \
-              | while read -r n; do
-                  gh api "repos/$GH_REPO/issues/$n" --jq 'select(.milestone != null) | "\(.milestone.title | if test("^v[0-9]+\\.[0-9]+\\.[0-9]+$") then ltrimstr("v") else "0.0.0" end)|\(.milestone.number)|\(.milestone.title)"'
-                done | sort -t'|' -k1,1V | tail -n1)
-            [ -n "$want" ] || { echo "PR #$pr: closes no milestoned issue"; continue; }
-            IFS='|' read -r _ number title <<<"$want"
-            have=$(gh api "repos/$GH_REPO/issues/$pr" --jq '.milestone.number // empty')
-            [ "$have" = "$number" ] && { echo "PR #$pr: already in $title"; continue; }
-            echo "PR #$pr: milestone $title"
-            gh api -X PATCH "repos/$GH_REPO/issues/$pr" -F milestone="$number" --silent
-          done
