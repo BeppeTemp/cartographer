@@ -379,46 +379,6 @@ export interface MaintenanceReview {
   items: ReviewItem[];
 }
 
-/** GET /kbs/{kb}/workers (design D22): a live `cartographer worker` that declared this KB. Read-only. */
-export type WorkerState = "idle" | "running" | "waiting" | "budget_exhausted" | "stopped";
-export interface WorkerBudget {
-  profile: string;
-  tier?: "small" | "large";
-  spent: number;
-  limit: number;
-}
-export interface WorkerRow {
-  worker: string;
-  perimeter: string;
-  version?: string;
-  state: WorkerState;
-  last_beat_at: string;
-  interval_seconds: number;
-  last_run?: { at: string; units_done: number; tokens_spent: number; commits: number };
-  budgets: WorkerBudget[];
-  next_window_at?: string;
-}
-
-/** GET /kbs/{kb}/feeds: Sources whose last poll failed (any shape that writes `feed_error`). */
-export interface FeedRow {
-  id: string;
-  title?: string;
-  source_shape?: string;
-  recipe?: string;
-  feed_checked_at?: string;
-  feed_error: string;
-}
-export interface FeedList {
-  feeds: FeedRow[];
-  total: number;
-}
-
-/** The two dates of GET /kbs/{kb}/maintenance/summary the Health line reads. */
-export interface MaintenanceSummary {
-  last_doctor?: string;
-  next_doctor?: string;
-}
-
 /** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
 export interface CheckCatalog {
   categories: string[];

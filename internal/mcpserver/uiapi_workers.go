@@ -201,18 +201,7 @@ func (s *workerStore) live(kb string) []workerDecl {
 			}
 		}
 	}
-	// The store keys on principal, so two principals can declare one worker id:
-	// worker, then perimeter, then principal keeps the order stable.
-	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if a.Worker != b.Worker {
-			return a.Worker < b.Worker
-		}
-		if a.Perimeter != b.Perimeter {
-			return a.Perimeter < b.Perimeter
-		}
-		return a.Principal < b.Principal
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Worker < out[j].Worker })
 	return out
 }
 
@@ -402,36 +391,4 @@ func (m *MultiKBServer) handleWorkers(w http.ResponseWriter, r *http.Request) {
 		"server_started_at": processStartedAt,
 		"now":               now.UTC().Format(time.RFC3339Nano),
 	})
-}
-
-// GET /kbs/{kb}/workers — the live workers that declared this KB, for the
-// Atlas (design D22). Read-only: it shows the heartbeats, it never acts on
-// them. They describe the whole KB's activity, like status, so a caller that
-// does not see the whole KB gets the 404 of an unknown route. No principal id
-// and no token digest leaves the server.
-func (m *MultiKBServer) uiWorkers(w http.ResponseWriter, r *http.Request, name string, srv *Server) {
-	if !WholeVisible(r.Context(), srv.kbRef, false) {
-		writeUINotFound(w)
-		return
-	}
-	type row struct {
-		Worker          string         `json:"worker"`
-		Perimeter       string         `json:"perimeter"`
-		Version         string         `json:"version,omitempty"`
-		State           string         `json:"state"`
-		LastBeatAt      string         `json:"last_beat_at"`
-		IntervalSeconds int            `json:"interval_seconds"`
-		LastRun         *workerLastRun `json:"last_run,omitempty"`
-		Budgets         []workerBudget `json:"budgets"`
-		NextWindowAt    *time.Time     `json:"next_window_at,omitempty"`
-	}
-	rows := []row{}
-	for _, d := range m.workers.live(name) {
-		rows = append(rows, row{
-			Worker: d.Worker, Perimeter: d.Perimeter, Version: d.Version, State: d.State,
-			LastBeatAt: d.ReceivedAt.Format(time.RFC3339), IntervalSeconds: d.IntervalSeconds,
-			LastRun: d.LastRun, Budgets: d.Budgets, NextWindowAt: d.NextWindowAt,
-		})
-	}
-	writeUIJSON(w, http.StatusOK, map[string]any{"workers": rows})
 }

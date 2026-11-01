@@ -943,17 +943,10 @@ closed concept listed only for them); any other status a map's `open_statuses` n
 kind) and age (stale ones flagged), expands to its items, and opens the concept on the atlas; a search opens
 nothing. It is read-only: work changes through the agents' write tools. The pending sources, `kb_status` and the
 review list are each optional: without one (a caller that cannot see the whole KB has no `kb_status`) the board
-shows the rest. Above the board a strip lists, read-only, the live `cartographer worker` processes that declared the KB
-(perimeter and state, last run, one bar per model profile with `spent / limit` and its tier, when it was last seen,
-its next window; `GET /api/ui/v1/kbs/<kb>/workers`), then the Sources whose last poll failed (title, shape, the error,
-when it was checked, a link to the concept; `.../feeds`, keyed on the `feed_error` field). Nothing renders when both
-are empty, and a failing or `404` route leaves the page as it was.
+shows the rest.
 
 The **Health** panel (D338, D365, D947, D948) shows what is wrong with the pages and nothing else: the lint's
-findings. What a person has to answer or decide is in Work. One read-only line under the lede, on *Issues* only, says
-which worker maintains the KB and when its doctor last ran ("Maintained by team-a (2 replicas, running) · last doctor
-2026-01-01 · next due 2026-01-15"); it is upkeep, not a finding, and renders only while a live worker names the KB and
-the caller sees the whole KB. Two buttons in the header switch its views, *Issues*
+findings. What a person has to answer or decide is in Work. Two buttons in the header switch its views, *Issues*
 and *What it checks*.
 
 *Issues*: the title counts the kinds of issue found ("Cartographer found N kinds
