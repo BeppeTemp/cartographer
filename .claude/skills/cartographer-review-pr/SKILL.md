@@ -103,7 +103,7 @@ subagents each, in the background.
   the rounds rule of §5 applies to it unchanged.
 - Every verified finding is answered before the verdict: fixed, by a commit, or
   dismissed with a one-line reason. A `pre-existing` finding does not block and
-  is not fixed in this PR: it becomes one `bug` issue each, in the open milestone,
+  is not fixed in this PR: it becomes one `bug` issue each, with the `accepted` label,
   and is fixed in the same session when it is bounded (`CONTRIBUTING.md` §Fixes
   without a plan). A flaky or broken test met on the way is one too: a rerun that
   turns it green is not an answer.

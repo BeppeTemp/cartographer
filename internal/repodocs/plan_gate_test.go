@@ -1,7 +1,6 @@
 package repodocs
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -35,19 +34,12 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	if _, ok := wf.On["pull_request"]; ok {
 		t.Error("plan-gate.yml: a `pull_request` trigger would run the PR's own copy of the workflow and of pr-triage.sh")
 	}
-	// Milestones only group versions (D1384): no check reads them, so there is no
-	// `milestone` trigger. `milestoned`/`demilestoned` stay for the pr-milestone job.
-	types := func(event string) string {
-		m, _ := wf.On[event].(map[string]any)
-		return fmt.Sprint(m["types"])
-	}
-	for _, want := range []string{"milestoned", "demilestoned"} {
-		if !strings.Contains(types("issues"), want) {
-			t.Errorf("plan-gate.yml: the `issues` trigger lacks %q: pr-milestone follows an issue moved to another version", want)
+	// Milestones gate nothing and no job follows them (D1453): no `issues` or
+	// `milestone` trigger, no write permission anywhere.
+	for _, ev := range []string{"issues", "milestone"} {
+		if _, ok := wf.On[ev]; ok {
+			t.Errorf("plan-gate.yml: a `%s` trigger brings back the milestone rules retired by D1453", ev)
 		}
-	}
-	if _, ok := wf.On["milestone"]; ok {
-		t.Error("plan-gate.yml: a `milestone` trigger brings back the next-train rule (D987, retired by D1384)")
 	}
 	// Comments carry the explanations (and name the forbidden strings): judge code only.
 	var code []string
@@ -94,8 +86,8 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	}
 	for name, job := range wf.Jobs {
 		for perm, level := range job.Permissions {
-			if level == "write" && !(name == "milestone" && perm == "pull-requests") {
-				t.Errorf("plan-gate.yml: job %s has %s: write; only the milestone job's pull-requests: write is allowed", name, perm)
+			if level == "write" {
+				t.Errorf("plan-gate.yml: job %s has %s: write; the workflow is read-only", name, perm)
 			}
 		}
 	}

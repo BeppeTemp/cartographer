@@ -127,17 +127,10 @@ fi
 echo "Tier: $tier${invariant:+ — invariant areas: $(tr '\n' ' ' <<<"$invariant")}${supply:+ — supply chain: $(tr '\n' ' ' <<<"$supply")}"
 [ -n "$supply" ] && echo "WARN: supply-chain files changed — the user reads those hunks and decides the merge; no standing approval covers it"
 
-# Milestones only group versions (D1384): the one consumer left is the WARN below,
-# so a failed read of a milestone is a note, never a block.
 for n in $issues; do
-  # Split on "|": a label may hold spaces (`good first issue`), and a tab, being
-  # whitespace to read, would swallow an empty label list.
-  IFS='|' read -r labels milestone < <(gh issue view "$n" --json labels,milestone \
-    --jq '"\([.labels[].name] | join(","))|\(.milestone.title // "-")"' 2>/dev/null || echo '?|?')
-  echo "Closes #$n [$labels] milestone ${milestone/#-/none}"
-  if [ "$milestone" = - ]; then
-    echo "WARN: #$n has no milestone — it is not triaged yet: the maintainer puts it in a version or closes it"
-  fi
+  labels=$(gh issue view "$n" --json labels \
+    --jq '[.labels[].name] | join(",")' 2>/dev/null || echo '?')
+  echo "Closes #$n [$labels]"
 done
 [ -n "$issues" ] || echo "Closes: nothing"
 echo "CI: $ci"

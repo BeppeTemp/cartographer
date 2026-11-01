@@ -12,10 +12,6 @@ rules:
       # main, never a PR) and workflow_dispatch; it checks out main without
       # credentials and interpolates no event field into a run step (D1180, D1384).
       - dependabot-arm.yml
-      # workflow_run of release-please on main only (a push, never a PR); it checks
-      # out main without credentials and interpolates no event field into a run
-      # step (D1371).
-      - release-as.yml
   self-repository:
     ignore:
       # Help-level style hint: the local ./ reusable-workflow path is what the
