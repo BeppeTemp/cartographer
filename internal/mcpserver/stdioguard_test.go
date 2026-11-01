@@ -194,3 +194,38 @@ func TestGuardStdioHoldsEOFUntilAnswered(t *testing.T) {
 	}
 	<-done
 }
+
+// Ids are matched as the SDK re-encodes them, not as the client wrote them:
+// numbers by int64 truncation, strings by decoded value, the two kinds apart.
+func TestPendingIDsKeyIdsAsTheSDKDoes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, request, answer string
+		retired               bool
+	}{
+		{"integer", `1`, `1`, true},
+		{"1.0 answered as 1", `1.0`, `1`, true},
+		{"1e0 answered as 1", `1e0`, `1`, true},
+		{"1.5 answered as 1", `1.5`, `1`, true},
+		{"string with escape", `"ab"`, `"ab"`, true},
+		{"number is not string", `1`, `"1"`, false},
+		{"string is not number", `"1"`, `1`, false},
+	}
+	for _, c := range cases {
+		for _, via := range []string{"response", "cancel"} {
+			t.Run(c.name+"/"+via, func(t *testing.T) {
+				t.Parallel()
+				p := newPendingIDs()
+				p.started([]byte(`{"jsonrpc":"2.0","id":` + c.request + `,"method":"ping"}`))
+				if via == "response" {
+					p.answered([]byte(`{"jsonrpc":"2.0","id":` + c.answer + `,"result":{}}`))
+				} else {
+					p.started([]byte(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":` + c.answer + `}}`))
+				}
+				if got := p.empty(); got != c.retired {
+					t.Fatalf("request %s, %s %s: retired=%v, want %v", c.request, via, c.answer, got, c.retired)
+				}
+			})
+		}
+	}
+}

@@ -78,7 +78,23 @@ func wireMsgs(b []byte) []wireMsg {
 	return batch
 }
 
-func idKey(id json.RawMessage) string { return string(bytes.TrimSpace(id)) }
+// idKey keys a JSON-RPC id the way the SDK does (jsonrpc2.MakeID): a number is
+// truncated to int64 (so 1, 1.0 and 1e0 are one id), a string is its decoded
+// value, and the two kinds stay distinct (1 is not "1"). The SDK writes the id
+// back re-encoded, so keying by the raw text would never match a response.
+func idKey(id json.RawMessage) string {
+	var v any
+	if err := json.Unmarshal(bytes.TrimSpace(id), &v); err != nil {
+		return "raw:" + string(id)
+	}
+	switch x := v.(type) {
+	case float64:
+		return fmt.Sprintf("n:%d", int64(x))
+	case string:
+		return "s:" + x
+	}
+	return "raw:" + string(id)
+}
 
 // started records the requests of one valid inbound line; a client's
 // notifications/cancelled retires its target, which the SDK never answers.
@@ -145,6 +161,8 @@ func (p *pendingIDs) drain(d time.Duration) {
 // The caller closes the returned reader when the session ends, which releases
 // the goroutine if it is blocked handing a line over; done is closed when it
 // has returned. A goroutine blocked reading in itself returns when it closes.
+// One waiting for the drain (EOF already read) is not released by the close: it
+// lingers until the pending requests are answered or stdioDrainTimeout passes.
 func guardStdio(in io.Reader, out io.Writer) (r *io.PipeReader, w io.Writer, done <-chan struct{}) {
 	return guardStdioDrain(in, out, stdioDrainTimeout)
 }
