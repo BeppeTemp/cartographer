@@ -43,7 +43,3 @@ dist/
 # The launch film renders (film/README.md).
 film/out/
 /cmd/cartographer/cartographer
-
-# Python bytecode of the example listers.
-__pycache__/
-*.pyc

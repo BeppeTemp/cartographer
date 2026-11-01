@@ -34,8 +34,7 @@ in `references/lister-protocol.md`). If the installed worker does not accept it,
 or a file the feed recipes can read.
 
 - A group is a namespace, a service or an account region. For a metrics endpoint list the **definitions** (alert
-  rules, dashboards, targets) or **verdicts** computed at the source, words of a fixed scale, never samples: a line
-  holding a value changes at every poll and costs a unit (`worker-recipes.md` §Verdicts, not metrics).
+  rules, dashboards, targets), never samples.
 - The lister emits a normalized, deterministic snapshot: volatile fields dropped (timestamps, resource versions,
   counters), no secret value ever. Endpoint and identity come from the recipe's `env`, never from the `locator`.
 - Identity: a Kubernetes `view` ClusterRole (it excludes Secrets); a cloud read-only or view-only policy (check what
@@ -43,5 +42,4 @@ or a file the feed recipes can read.
   write-class and secret-read questions answer no and a read question answers yes: an identity that can read nothing
   is a misconfiguration.
 - Worked example in the Cartographer repository:
-  [`examples/system-recipes/kubernetes/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/kubernetes/README.md),
-  and for verdicts [`examples/system-recipes/prometheus-verdicts/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/prometheus-verdicts/README.md).
+  [`examples/system-recipes/kubernetes/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/kubernetes/README.md).
