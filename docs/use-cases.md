@@ -43,10 +43,8 @@ agent registers the source in the ledger (`source_register`, which refuses a sec
 the same source), distils it, patches the pages that own each subject instead of creating
 duplicates, cites the source in their `provenance`, opens a `Contradiction` rather than overwriting
 a claim the source disputes, records unknowns as gaps, and closes with `gate_check` and
-`log_append`. The agent writes, then reports the pages, the commits and how to revert them (every write is a
-revertible commit); it asks first only when the operator asks for a preview. On a strict map that does not
-list `Contradiction`, an unknown becomes an open checkbox on the owning page, reported for promotion.
-The agent reads the source; the server never does.
+`log_append`. A plan touching more than 5 pages or creating more than 2 is shown to the operator
+before any write. The agent reads the source; the server never does.
 
 ## Ingest a large corpus as a campaign
 
