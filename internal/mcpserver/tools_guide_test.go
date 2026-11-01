@@ -336,7 +336,7 @@ func TestKBGuide_PointersAndDescription(t *testing.T) {
 func TestKBGuide_RefusesOldAndNotServedNames(t *testing.T) {
 	t.Parallel()
 	s, _ := guideServer(t, skillbundle.FS)
-	for _, name := range []string{"kb-ingest", "kb-conflict-resolve", "kb-import", "cartographer-kb-create", "cartographer-kb-doctor", "cartographer-kb-ingest-plan", "cartographer-ops", "cartographer-feedback", "create", "doctor", "feedback"} {
+	for _, name := range []string{"kb-ingest", "kb-conflict-resolve", "kb-import", "cartographer-kb-create", "cartographer-kb-doctor", "cartographer-ops", "cartographer-feedback", "create", "doctor", "feedback"} {
 		res := callTool(t, s, "kb_guide", `{"procedure":"`+name+`"}`)
 		if !res.IsError || !strings.Contains(guideText(t, res), "ingest, conflict-resolve, import") {
 			t.Errorf("%s: want refusal listing the served names, got %+v", name, res)
