@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/worker"
 )
 
 // Defaults of the perimeter knobs (documented in docs/deployment.md).
@@ -84,7 +86,7 @@ const ExaminedPrefix = "synthesis examined: "
 func ExaminedLine(keys []string) string { return ExaminedPrefix + strings.Join(keys, ",") }
 
 type world struct {
-	tools     ToolCaller
+	tools     worker.ToolCaller
 	existing  map[string]bool     // every Contradiction id, any status
 	synthOpen [][]string          // involves of open synthesis items
 	otherOpen map[string][]string // open gaps of the doctor or a person: id -> involves
@@ -92,9 +94,8 @@ type world struct {
 	declared  map[string]bool // map names, when the target map is to be guessed
 }
 
-// ValidMap reports whether m is a configurable contradiction map: one top-level
-// directory name, never the root.
-func ValidMap(m string) bool { return validID(m) && !strings.Contains(m, "/") }
+// validMap: a configured map is one top-level directory name, never the root.
+func validMap(m string) bool { return validID(m) && !strings.Contains(m, "/") }
 
 func (w *world) declaredMaps() (map[string]bool, error) {
 	var maps []struct {
@@ -105,7 +106,7 @@ func (w *world) declaredMaps() (map[string]bool, error) {
 	}
 	out := map[string]bool{}
 	for _, m := range maps {
-		if ValidMap(m.Name) {
+		if validMap(m.Name) {
 			out[m.Name] = true
 		}
 	}
@@ -115,7 +116,7 @@ func (w *world) declaredMaps() (map[string]bool, error) {
 // Candidates returns the ordered, bounded list for one run. Read-only; every
 // input is a public MCP call. It returns nothing when the reserve blocks the
 // start, and never more than the caps.
-func Candidates(tools ToolCaller, cfg Config, b Budget, now time.Time) ([]Candidate, Config, error) {
+func Candidates(tools worker.ToolCaller, cfg Config, b Budget, now time.Time) ([]Candidate, Config, error) {
 	cfg = cfg.WithDefaults()
 	reserve := int(cfg.Reserve * float64(b.Daily))
 	per := cfg.ContextTokens + AnswerCap
@@ -149,7 +150,7 @@ func Candidates(tools ToolCaller, cfg Config, b Budget, now time.Time) ([]Candid
 	return out, cfg, nil
 }
 
-func call(tools ToolCaller, name string, args, into any) error {
+func call(tools worker.ToolCaller, name string, args, into any) error {
 	out, err := tools.CallTool(name, args)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
@@ -186,7 +187,7 @@ func (w *world) load(cfg *Config, now time.Time) error {
 			return err
 		}
 		w.declared = declared
-	} else if !ValidMap(cfg.Map) {
+	} else if !validMap(cfg.Map) {
 		return ErrNoMap
 	}
 	newest, newestID := "", ""

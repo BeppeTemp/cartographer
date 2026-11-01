@@ -90,15 +90,4 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "tasks[].kbs", Scope: settingschema.ScopeWorker, Type: "list", Values: "a non-empty subset of the perimeter's kbs", Default: "[]",
 		Example:     "- kb-a",
 		Description: "Prompt task: the KBs it runs on; omit it for every KB of the perimeter."},
-	// Task kind synthesis (D1263).
-	{Path: "tasks[].synthesis_map", Scope: settingschema.ScopeWorker, Type: "string", Values: "a top-level map name", Default: `""`,
-		Description: "The map the synthesis task writes its hypotheses into; empty means the map of the newest Contradiction, and the task never creates a map."},
-	{Path: "tasks[].synthesis_max_candidates", Scope: settingschema.ScopeWorker, Type: "int", Values: "at least 1", Default: "5",
-		Description: "Candidates the synthesis task examines per run."},
-	{Path: "tasks[].synthesis_max_new", Scope: settingschema.ScopeWorker, Type: "int", Values: "at least 1", Default: "3",
-		Description: "Hypotheses the synthesis task writes per run; the run stops at once when it is reached."},
-	{Path: "tasks[].synthesis_context_tokens", Scope: settingschema.ScopeWorker, Type: "int", Values: "at least 500", Default: "6000",
-		Description: "Cap, in tokens, of the page text the synthesis task sends to the model for one candidate."},
-	{Path: "tasks[].synthesis_reserve", Scope: settingschema.ScopeWorker, Type: "string", Values: "a fraction above 0 and below 1", Default: `"0.2"`,
-		Description: "Fraction of the profile's daily budget the synthesis task leaves untouched: it starts only above it."},
 }}

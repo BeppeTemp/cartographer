@@ -647,11 +647,6 @@ func (v *validator) tasks() error {
 			firstOf[kind.Name] = n.Line
 		}
 	}
-	for i, t := range v.c.Tasks {
-		if k, _ := v.kinds.Lookup(t.Kind); k.Last && i < len(v.c.Tasks)-1 {
-			return v.errf(fmt.Sprintf("tasks[%d].kind", i), t.Line, "kind %q must be the last entry of tasks: it runs on what the entries before it leave, and listed first it would shadow them", t.Kind)
-		}
-	}
 	for _, p := range v.c.Models {
 		if !used[p.Name] {
 			v.c.Warnings = append(v.c.Warnings, fmt.Sprintf("model profile %q is used by no task", p.Name))

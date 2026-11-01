@@ -8,15 +8,8 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/worker"
 )
-
-// ToolCaller is the MCP side the guard wraps; worker.ToolCaller has the same
-// method set. It is declared here so this package does not import the worker
-// (the task kind in package worker imports this one).
-type ToolCaller interface {
-	ListTools() ([]client.ToolInfo, error)
-	CallTool(name string, args any) (client.ToolOutput, error)
-}
 
 // The tools the model is offered: reads, and the two guarded writes.
 var (
@@ -24,9 +17,11 @@ var (
 	writeTools = []string{"concept_write", "concept_patch"}
 )
 
-// Tools is the synthesis allowlist, a subset of the default one (D9); the task
-// kind makes the agent loop's allowlist from it.
+// Tools is the synthesis allowlist, a subset of the default one (D9).
 func Tools() []string { return append(append([]string{}, readTools...), writeTools...) }
+
+// Allowlist is Tools as the agent loop's allowlist.
+func Allowlist() *worker.Allowlist { return worker.NewAllowlist(Tools()...) }
 
 // refusal is what the model is told when the guard refuses a call.
 const refusal = "synthesis creates new gaps only"
@@ -36,13 +31,10 @@ const refusal = "synthesis creates new gaps only"
 // "a claim on an active page": concept_write overwrites an existing id). A
 // refusal is a tool error the model reads, not a transport error.
 type Guard struct {
-	Inner ToolCaller
+	Inner worker.ToolCaller
 	// Target is the id the shape computed for the candidate in hand: the only id
 	// concept_write may create.
 	Target string
-	// Reason is the commit reason every write carries ("synthesis: <key>"); the
-	// guard sets it, whatever the model passed.
-	Reason string
 	// Refused counts the calls the guard turned down.
 	Refused int
 	// Written holds the id created, if any.
@@ -55,9 +47,10 @@ func (g *Guard) ListTools() ([]client.ToolInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	a := Allowlist()
 	var out []client.ToolInfo
 	for _, t := range listed {
-		if contains(Tools(), t.Name) {
+		if a.Permits(t.Name) {
 			out = append(out, t)
 		}
 	}
@@ -143,7 +136,7 @@ func (g *Guard) write(raw json.RawMessage) (client.ToolOutput, error) {
 	var keys map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &keys)
 	for k := range keys {
-		if k != "id" && k != "frontmatter" && k != "body" && k != "index_entry" && k != "reason" {
+		if k != "id" && k != "frontmatter" && k != "body" && k != "index_entry" {
 			return g.refuse("argument " + k + " is not allowed")
 		}
 	}
@@ -162,10 +155,7 @@ func (g *Guard) write(raw json.RawMessage) (client.ToolOutput, error) {
 	if _, exists, err := g.read(p.ID); err != nil || exists {
 		return g.refuse("the concept exists") // fail closed on a transport error too
 	}
-	if err := g.checkEvidence(p.Frontmatter, p.Body); err != nil {
-		return g.refuse(err.Error())
-	}
-	out, err := g.Inner.CallTool("concept_write", g.withReason(raw))
+	out, err := g.Inner.CallTool("concept_write", json.RawMessage(raw))
 	if err == nil && !out.IsError {
 		g.Written = p.ID
 	}
@@ -289,66 +279,7 @@ func (g *Guard) patch(raw json.RawMessage) (client.ToolOutput, error) {
 			return g.refuse("only the ## Evidence section may be edited")
 		}
 	}
-	return g.Inner.CallTool("concept_patch", g.withReason(raw))
-}
-
-// withReason sets the commit reason of a write, replacing the model's.
-func (g *Guard) withReason(raw json.RawMessage) json.RawMessage {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(raw, &m) != nil {
-		return raw
-	}
-	r := g.Reason
-	if r == "" {
-		r = "synthesis: " + g.Target
-	}
-	m["reason"], _ = json.Marshal(r)
-	out, err := json.Marshal(m)
-	if err != nil {
-		return raw
-	}
-	return out
-}
-
-// checkEvidence is the mechanical check of the plan: every cited provenance
-// entry exists now (a page that vanished since the context was built, or an id
-// the model made up, is named so the model can drop it), and every line of the
-// body's Evidence section links one of them. The read fails closed: only "not
-// found" counts as absent, any other error refuses.
-func (g *Guard) checkEvidence(fm map[string]any, body string) error {
-	prov := strs(fm["provenance"])
-	for _, id := range prov {
-		if !validID(id) {
-			return fmt.Errorf("provenance %q is not a concept id", id)
-		}
-		if _, ok, err := g.read(id); err != nil {
-			return fmt.Errorf("provenance %q could not be checked", id)
-		} else if !ok {
-			return fmt.Errorf("provenance %q does not exist: cite only pages you have read", id)
-		}
-	}
-	start, end, ok := evidenceBounds(body)
-	if !ok {
-		return fmt.Errorf("the body needs a ## Evidence section")
-	}
-	lines := 0
-	for _, line := range strings.Split(body[start:end], "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		lines++
-		cited := false
-		for _, id := range prov {
-			cited = cited || link(line, id)
-		}
-		if !cited {
-			return fmt.Errorf("evidence line %q links no provenance entry", strings.TrimSpace(line))
-		}
-	}
-	if lines == 0 {
-		return fmt.Errorf("the ## Evidence section is empty")
-	}
-	return nil
+	return g.Inner.CallTool("concept_patch", json.RawMessage(raw))
 }
 
 // evidenceBounds locates the content of the body's "## Evidence" section: the

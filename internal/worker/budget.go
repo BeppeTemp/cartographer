@@ -184,19 +184,6 @@ func (b *Budget) Grant(profile string) int {
 	return min(remaining, p.RunTokens) - b.run[profile]
 }
 
-// DailyLeft is what the profile may still spend today, this run's own spending
-// included: daily_tokens minus the ledger minus the run. Grant is capped by
-// run_tokens as well; this is not.
-func (b *Budget) DailyLeft(profile string) int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	p, ok := b.profiles[profile]
-	if !ok {
-		return 0
-	}
-	return max(p.DailyTokens-b.today[profile]-b.run[profile], 0)
-}
-
 // Touch records that a task started on the KB: only touched KBs get a closing
 // entry, so a run that found nothing writes nothing.
 func (b *Budget) Touch(kb string) {
