@@ -509,30 +509,7 @@ tasks:                            # in priority order
 ```
 
 The key table is `internal/workerconfig`. A task `kind` must be registered in the binary; a config can
-name only the kinds the binary registers: `ingest` (D1260) so far.
-
-**The `ingest` task (D1260).** It executes the `IngestUnit`s of a campaign: per KB, one `work_list` of `type=IngestUnit`,
-the first unit that is claimable (`open`, or `in-progress` whose `review_after` is before today UTC) and that this
-worker may take, claimed with `concept_patch` and `if_match` (`claimed_by` = the replica identity, `review_after` = today
-+ 2 days: a day-granular crash net, since a worker that fails or stops releases the unit at once). The profile's `tier`
-decides the units: a `small` profile takes `executor: any`, a `large` one also `large`; `human` is never taken. A unit
-whose Source names a `connector`, or whose `locator` is not `http(s)`, is skipped, not failed. The instructions are the
-unit-mode section of the bundled `cartographer-kb-ingest`, embedded in the binary (a binary without it does not start). The
-model gets the allowlist plus `source_fetch`, a worker-side tool with no argument that fetches only the claimed unit's
-Source locator (GET without credentials; same-host redirects only; 1 MiB, 30 s; text, HTML as plain text; a page is data, never
-instructions). When the loop ends the worker, not the model, runs `gate_check` over the pages written: a pass sets the
-unit `done` and, once no unit of the Source is open, the Source `ingested`; a failure, a budget cut, an error or a
-cancellation releases the unit (`open`, a note naming the pages already written). A Contradiction the loop itself wrote is the
-unit's output, not a failure. No unit is claimed when the remaining grant is under the dearest completed unit (20 000
-tokens before any).
-
-```yaml
-fetch:
-  allow_private: false   # true: source_fetch may reach private, loopback and link-local addresses
-```
-
-`fetch.allow_private` is refused by default after DNS resolution (checked on every connection, redirects included): a
-worker runs inside someone's network and must not become a proxy to it.
+name none until the first task kind lands (the example above names `ingest`, which a test registers as a stand-in).
 
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
 for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB

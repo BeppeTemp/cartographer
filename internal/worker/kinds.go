@@ -100,9 +100,9 @@ func NewKinds(kinds ...Kind) *Kinds {
 	return r
 }
 
-// DefaultKinds is the production registry: each plan that adds a task kind
-// registers it here, one line apiece.
-func DefaultKinds() *Kinds { return NewKinds(IngestKind()) }
+// DefaultKinds is the production registry. It is empty until the plans that add
+// task kinds each register theirs here, one line apiece.
+func DefaultKinds() *Kinds { return NewKinds() }
 
 // Lookup returns the kind with the given name.
 func (r *Kinds) Lookup(name string) (Kind, bool) {
@@ -206,12 +206,6 @@ type Result struct {
 	Units   int
 	Commits int
 	Summary string // one line
-}
-
-// Binder is implemented by an Instance that needs the loaded config and the
-// model profile of its tasks[] entry; the runner calls it once, after Build.
-type Binder interface {
-	Bind(cfg *Config, profile Profile)
 }
 
 // Instance is a kind built for one tasks[] entry. The runner owns the registry,

@@ -62,9 +62,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "schedule.poll_seconds", Scope: settingschema.ScopeWorker, Type: "int", Values: "seconds, at least 10", Default: "60",
 		Description: "How often the runner re-evaluates the triggers while it is not running."},
 
-	{Path: "fetch.allow_private", Scope: settingschema.ScopeWorker, Type: "bool", Default: "false",
-		Description: "Let the ingest task's built-in fetch reach private, loopback and link-local addresses; off, a worker inside a network cannot be used as a proxy to it."},
-
 	{Path: "tasks", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
 		Example:     "- kind: ingest\n  model: cloud",
 		Description: "The tasks the worker runs, in priority order; each has a kind, a model profile and the options of its kind."},

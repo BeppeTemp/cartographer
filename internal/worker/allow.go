@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"encoding/json"
 	"sort"
 	"strings"
 
@@ -101,34 +100,6 @@ func (a *Allowlist) Filter(listed []client.ToolInfo) []ToolSpec {
 func isRead(name string) bool {
 	for _, r := range readTools {
 		if r == name {
-			return true
-		}
-	}
-	return false
-}
-
-// batchOpTool maps an operation of concept_batch to the tool it stands for, so a
-// denied tool cannot be reached through the batch (D9): op "delete" is
-// concept_delete.
-var batchOpTool = map[string]string{"delete": "concept_delete"}
-
-// RefusesArgs reports a call that Permits lets through by name but whose
-// arguments reach a denied tool: a concept_batch carrying a delete operation.
-// Every task kind goes through it (Agent.execute).
-func (a *Allowlist) RefusesArgs(name string, args []byte) bool {
-	if name != "concept_batch" {
-		return false
-	}
-	var p struct {
-		Operations []struct {
-			Op string `json:"op"`
-		} `json:"operations"`
-	}
-	if json.Unmarshal(args, &p) != nil {
-		return false
-	}
-	for _, o := range p.Operations {
-		if t, ok := batchOpTool[o.Op]; ok && (Denied(t) || !a.names[t]) {
 			return true
 		}
 	}
