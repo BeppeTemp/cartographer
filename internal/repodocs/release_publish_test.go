@@ -79,6 +79,15 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 	if !strings.Contains(run, "draft=false") || !strings.Contains(run, ".draft") || !strings.Contains(run, ".prerelease") {
 		t.Error("release.yml: publish must un-draft the release and read draft and prerelease back")
 	}
+	// A draft lost its tag name between GoReleaser and publish (#1447): both jobs that
+	// write the draft find it by its name too, and put the tag name back.
+	workflow := readFile(t, root, ".github/workflows/release.yml")
+	if n := strings.Count(workflow, `.draft and .name == env.TAG`); n != 2 {
+		t.Errorf("release.yml: %d lookups fall back on the draft's name, want 2 (prerelease-flag and publish)", n)
+	}
+	if n := strings.Count(workflow, `-f tag_name="$TAG"`); n != 2 {
+		t.Errorf("release.yml: %d writes set the tag name, want 2 (prerelease-flag and publish)", n)
+	}
 	if !slices.Contains(needs("mcp-registry"), "publish") {
 		t.Error("release.yml: mcp-registry announces the version and must need publish")
 	}
