@@ -1,7 +1,6 @@
 package repodocs
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -35,11 +34,11 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	if _, ok := wf.On["pull_request"]; ok {
 		t.Error("plan-gate.yml: a `pull_request` trigger would run the PR's own copy of the workflow and of pr-triage.sh")
 	}
-	// Milestones gate nothing and no job follows them (D1452): no `issues` or
+	// Milestones gate nothing and no job follows them (D1453): no `issues` or
 	// `milestone` trigger, no write permission anywhere.
 	for _, ev := range []string{"issues", "milestone"} {
 		if _, ok := wf.On[ev]; ok {
-			t.Errorf("plan-gate.yml: a `%s` trigger brings back the milestone rules retired by D1452", ev)
+			t.Errorf("plan-gate.yml: a `%s` trigger brings back the milestone rules retired by D1453", ev)
 		}
 	}
 	// Comments carry the explanations (and name the forbidden strings): judge code only.
