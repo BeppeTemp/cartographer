@@ -233,7 +233,7 @@ nothing about access, and a missing or invalid one falls back to the token
 ### Origin
 
 The MCP endpoint, and every request that changes state on any other route (any
-method but GET, HEAD or OPTIONS: `/api/usage`, `/api/client-settings`, `/api/workers`, `/api/worker-settings`, the writes
+method but GET, HEAD or OPTIONS: `/api/usage`, `/api/client-settings`, `/api/workers`, the writes
 under `/api/ui/v1`, `/clients`), validate the `Origin` header, and the rule is fixed (D906):
 a request without one — every non-browser client — is unaffected; with one, its
 host and port must be the request's own `Host`, whatever the scheme (a TLS-terminating
@@ -243,10 +243,10 @@ refused origin gets HTTP 403 before authentication runs, and the CORS allow-orig
 response header echoes the accepted origin rather than a wildcard. There is no list
 of other origins to allow (`mcp.allowed_origins` was removed): a page of another
 site has no business scripting this server. The JSON-body routes (`/api/usage`,
-`/api/client-settings`, `/api/workers`, `/api/worker-settings`) also answer HTTP 415 to a body not sent as
+`/api/client-settings`, `/api/workers`) also answer HTTP 415 to a body not sent as
 `application/json` (a cross-site form cannot set that type without a preflight),
 and refuse a body over their cap with HTTP 413 (1 MiB for a usage report, 256 KiB
-for a client settings report, 64 KiB for a worker heartbeat, 128 KiB for a worker settings report); the usage store itself is refused past 4 MiB.
+for a client settings report, 64 KiB for a worker heartbeat); the usage store itself is refused past 4 MiB.
 
 The same-origin rule alone does not tell a page served from a rebound DNS name
 from the real one: `Origin` and `Host` then both name that name. A server that

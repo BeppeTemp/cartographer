@@ -93,10 +93,6 @@ type workerStore struct {
 	mu  sync.Mutex
 	now func() time.Time // nil = time.Now; tests inject
 	by  map[string]map[string]workerDecl
-	// settings are the reports of POST /api/worker-settings, per principal and
-	// perimeter. A report lives only while a live declaration of the same
-	// principal and perimeter does (pruneSettingsLocked): it needs no clock.
-	settings map[string]map[string]workerSettings
 }
 
 func (s *workerStore) clock() time.Time {
@@ -119,7 +115,6 @@ func (s *workerStore) sweepLocked(now time.Time) {
 			delete(s.by, p)
 		}
 	}
-	s.pruneSettingsLocked()
 }
 
 func (s *workerStore) put(d workerDecl) {
@@ -151,7 +146,6 @@ func (s *workerStore) put(d workerDecl) {
 		}
 		delete(s.by[op], oid)
 	}
-	s.pruneSettingsLocked()
 }
 
 func evictOldest(m map[string]workerDecl) {
@@ -180,7 +174,6 @@ func (s *workerStore) remove(principal, worker string) {
 	if len(s.by[principal]) == 0 {
 		delete(s.by, principal)
 	}
-	s.pruneSettingsLocked()
 }
 
 // hasLive reports whether a principal has a live declaration. It is the one
@@ -402,10 +395,7 @@ func (m *MultiKBServer) handleWorkers(w http.ResponseWriter, r *http.Request) {
 	}
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
 		"accepted": accepted,
-		// True when no settings report is held for this perimeter: the worker
-		// posts it at start and again only after a server restart.
-		"settings_wanted": !m.workers.hasSettings(p.ID, beat.Perimeter),
-		"kbs":             kbs,
+		"kbs":      kbs,
 		// With authentication off every caller is the local admin and the
 		// server cannot tell the worker from a person.
 		"activity_known":    !p.Local,

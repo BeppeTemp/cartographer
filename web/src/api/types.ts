@@ -666,20 +666,6 @@ export interface SettingsView {
   clients?: SettingsClient[];
   /** What a client can set, every key at its default: shown until a client reports. */
   client_template?: { entries: SettingEntry[]; yaml?: string };
-  /** The workers whose whole perimeter the viewer sees, as each last reported (D22). */
-  workers?: SettingsWorker[];
-  /** What a worker can set, every key at its default: shown until a worker reports. */
-  worker_template?: { entries: SettingEntry[] };
-}
-
-/** One worker perimeter's settings: a report shared by its replicas, no secret in it. */
-export interface SettingsWorker {
-  perimeter: string;
-  version?: string;
-  replicas: number;
-  kbs: string[];
-  entries: SettingEntry[];
-  received_at: string;
 }
 
 /** One machine's client settings, reported by its last sync (D818). */
@@ -770,8 +756,6 @@ export interface WhoamiRule {
   maps?: string[];
   journals?: string[];
   types?: string[];
-  /** "r": the rule reaches no skill, agent or hook write (a worker token). */
-  artifacts?: string;
 }
 
 /** GET /whoami: the principal behind the request and its scopes. */

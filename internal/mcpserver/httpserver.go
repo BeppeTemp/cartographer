@@ -758,11 +758,6 @@ func (m *MultiKBServer) Handler() http.Handler {
 			m.handleWorkers(w, r)
 			return
 
-		// A worker's configuration report (D22): its own route, not the beat.
-		case r.URL.Path == WorkerSettingsPath:
-			m.handleWorkerSettings(w, r)
-			return
-
 		// A client's own settings (D818): like usage, always routed.
 		case r.URL.Path == ClientSettingsPath:
 			m.handleClientSettings(w, r)
