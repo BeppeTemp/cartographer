@@ -6,10 +6,6 @@
 // OpenAI-compatible chat completions, over the standard library. Everything the
 // model returns is untrusted, and the model API key never appears in an error,
 // a log line or a printed struct.
-//
-// LoadConfig reads and validates the worker's own config file against the key
-// table of internal/workerconfig and the registry of task kinds (config.go,
-// kinds.go); the process shell that runs a config is not here yet.
 package worker
 
 import (
