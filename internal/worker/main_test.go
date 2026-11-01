@@ -15,11 +15,6 @@ const execHelperFlag = "--exec-helper"
 // TestMain: see gitxtest.QuietGit (allow_test.go builds a KB).
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == execHelperFlag {
-		if len(os.Args) > 2 && os.Args[2] == "content" {
-			fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"Inline page text."}}`)
-			fmt.Println(`{"next_cursor":"c1"}`)
-			os.Exit(0)
-		}
 		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","locator":"https://wiki.example.com/a"}}`)
 		fmt.Println(`{"next_cursor":"c1"}`)
 		os.Exit(0)

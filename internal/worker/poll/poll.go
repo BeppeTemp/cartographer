@@ -33,8 +33,6 @@ const (
 	MaxTargets  = 20
 	MaxLine     = 500
 	MaxBodyByte = 8 << 10
-	// ContentAsset is the asset that carries an entry's inline content (WP7).
-	ContentAsset = "content.txt"
 )
 
 // Executors is the vocabulary of an IngestUnit's executor (a test pins it to

@@ -362,12 +362,10 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 	if err != nil {
 		return err
 	}
-	// have maps an existing unit ID to whether it is a staged unit of ours that
-	// still lacks its content (WP7): draft with a content_asset.
 	have := map[string]bool{}
 	var ids []string
 	for _, u := range units.Results {
-		have[u.ID] = str(u.Fields, "status") == "draft" && str(u.Fields, "content_asset") != ""
+		have[u.ID] = true
 		ids = append(ids, u.ID)
 	}
 	sort.Strings(ids)
@@ -423,20 +421,8 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 			locator = f.Locator + "#" + url.PathEscape(e.Key)
 		}
 		id := poll.UnitID(unitMap, f.ID, locator, e.Revision, e.Key)
-		if staged, exists := have[id]; exists && !(staged && e.Content != "") {
-			r.skipped++ // handled; a staged unit with no content to redo it from stays inert
-			continue
-		} else if exists {
-			// Resume a unit a crash left staged: redo the idempotent steps.
-			opened, err := r.stage(id, e.Content, "poll "+f.ID)
-			if err != nil {
-				return r.fail(codeUnitRefused, "entry "+oneLineClip(e.Key, 80)+": "+oneLineClip(err.Error(), 200))
-			}
-			if opened {
-				r.created++
-			} else {
-				r.skipped++
-			}
+		if have[id] {
+			r.skipped++
 			continue
 		}
 		stop, err := r.entry(ctx, rec, e, locator, id, unitMap, planID, plan.Body, maps)
@@ -507,11 +493,6 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 	// c. Shape the unit: reuse the previous unit of this Source, else one model call.
 	fm := map[string]any{"type": "IngestUnit", "shape": "ingest-unit", "title": title, "source": reg.ID, "plan": planID,
 		"status": "open", "timestamp": r.in.now().UTC().Format(time.RFC3339)}
-	if e.Content != "" {
-		// Inline content (WP7): staged as draft, which work_list never offers,
-		// until the asset exists.
-		fm["status"], fm["content_asset"] = "draft", poll.ContentAsset
-	}
 	var prev *prevUnit
 	if reg.Duplicate {
 		prev = r.previous(unitMap, reg.ID)
@@ -553,7 +534,7 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 			} else {
 				r.created++
 			}
-			return false, r.finishStage(id, e.Content, reason, e)
+			return false, nil
 		}
 		if _, rerr := readConcept(tools, id); rerr == nil {
 			r.skipped++ // exists: another replica made it first
@@ -628,9 +609,8 @@ func (r *pollRun) previous(unitMap, source string) *prevUnit {
 func (r *pollRun) model(ctx context.Context, rec recipe.Recipe, e recipe.Entry, planBody string, maps []string, problem string) (ans poll.Answer, cut bool, bad string, err error) {
 	feedData, _ := json.Marshal(map[string]string{"id": r.f.ID, "locator": oneLineClip(r.f.Locator, 300), "source_kind": r.f.SourceKind, "recipe": r.f.Recipe})
 	entry, _ := json.Marshal(map[string]string{"key": oneLineClip(e.Key, 300), "title": oneLineClip(e.Title, 300), "revision": oneLineClip(e.Revision, 100), "change": e.Change, "locator": oneLineClip(e.Locator, 300)})
-	tok := dataToken() // per-run delimiter token: data cannot close its own block
-	user := fmt.Sprintf("Shape the IngestUnit for this entry. The plan's maps: %s.\n\n%s\n\n%s\n\n%s",
-		strings.Join(maps, ", "), dataBlock("plan", tok, clip(planBody)), dataBlock("feed", tok, string(feedData)), dataBlock("entry", tok, string(entry)))
+	user := fmt.Sprintf("Shape the IngestUnit for this entry. The plan's maps: %s.\n\nBEGIN DATA plan\n%s\nEND DATA\n\nBEGIN DATA feed\n%s\nEND DATA\n\nBEGIN DATA entry\n%s\nEND DATA",
+		strings.Join(maps, ", "), clip(planBody), feedData, entry)
 	if problem != "" {
 		user += "\n\nYour previous answer was refused: " + problem + "\nAnswer again with the corrected JSON object."
 	}
@@ -649,54 +629,4 @@ func (r *pollRun) model(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 		return poll.Answer{}, false, perr.Error(), nil
 	}
 	return ans, false, "", nil
-}
-
-// finishStage completes a unit written as draft; a failure ends the run like a
-// refused unit (the staged unit is resumed by the next poll).
-func (r *pollRun) finishStage(id, content, reason string, e recipe.Entry) error {
-	if content == "" {
-		return nil
-	}
-	if _, err := r.stage(id, content, reason); err != nil {
-		return r.fail(codeUnitRefused, "entry "+oneLineClip(e.Key, 80)+": "+oneLineClip(err.Error(), 200))
-	}
-	return nil
-}
-
-// stage makes a draft unit complete (WP7): expand it, write the asset, then
-// open it. Every step is idempotent, so a crash after any of them is resumed by
-// redoing all: already_expanded and an existing asset are success. The asset
-// already staged is kept even when it differs from content: the revision is the
-// identity of the entry, and failing here would stall the feed on every poll.
-// opened reports that this call patched the unit to open; r.res.Commits counts
-// only the writes that happened.
-func (r *pollRun) stage(id, content, reason string) (opened bool, err error) {
-	tools := r.rt.Tools
-	if _, err := callOK(tools, "concept_expand", map[string]any{"id": id}); err != nil {
-		if !strings.Contains(err.Error(), "already_expanded") {
-			return false, err
-		}
-	} else {
-		r.res.Commits++
-	}
-	if _, err := callOK(tools, "asset_write", map[string]any{"concept_id": id, "path": poll.ContentAsset, "content": content, "encoding": "text"}); err != nil {
-		if !strings.Contains(err.Error(), "already_exists") {
-			return false, err
-		}
-	} else {
-		r.res.Commits++
-	}
-	u, err := readConcept(tools, id)
-	if err != nil {
-		return false, err
-	}
-	if str(u.Frontmatter, "status") != "draft" {
-		return false, nil
-	}
-	if _, err = callOK(tools, "concept_patch", map[string]any{"id": id, "if_match": u.ContentHash, "reason": reason,
-		"frontmatter": map[string]any{"status": "open"}}); err != nil {
-		return false, err
-	}
-	r.res.Commits++
-	return true, nil
 }
