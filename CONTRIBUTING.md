@@ -423,6 +423,9 @@ only the issue and the repo must be able to implement without asking questions.
   (those land sequentially, never in parallel). Amendments made before
 implementation starts go in the issue body; later ones in comments.
 
+A maintainer may keep a plan outside the repository and hand it to the subagents as a
+file: it counts as approved, and its decision number is the PR's.
+
 A plan's decision number is its issue number (D672): nothing to reserve, and
 two sessions planning in parallel cannot collide. The issue's Closing section
 says whether the plan makes a choice worth a decision file, and its topic.

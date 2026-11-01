@@ -3,7 +3,7 @@ name: cartographer-implement-plan
 description: Use when the user asks to implement, ship or land one or more approved plan issues (labels `plan` and `approved`) — plans the waves from the cross-plan execution order, delegates each plan to a coding subagent in an isolated worktree, reviews, and squash-merges in order. Sibling of `cartographer-propose-plan`, which writes the issues this skill consumes (issue → merged PR).
 ---
 
-# cartographer-implement-plan — plan issues → merged PRs
+# cartographer-implement-plan — plans → merged PRs
 
 Source of truth is `CONTRIBUTING.md` §Plan issues + §Pull requests, `AGENTS.md`
 (workflow and delegation rules), and `docs/index.md` §Documentation maintenance rules. The
@@ -31,6 +31,11 @@ failure to read it, is **contributor mode**. State the mode to the user in one l
   on it to claim it; the maintainer assigns it): `plan-gate` rejects the PR
   otherwise. Never add the label on your own initiative, only when the maintainer
   tells you to in this session.
+- **A plan file** is a maintainer's own plan, kept outside the repository: in maintainer
+  mode, one the user gives you counts as approved, no label to check. It has no number:
+  it goes wherever the steps below say `<n>`, the PR carries no `Closes`, the decision
+  number is the PR's (D672), so the PR opens as a draft before the decision file is
+  written, and a stale plan is reported to the user instead of commented on an issue.
 - **Contributor mode**: exactly one plan, no waves (§1 is skipped); the branch
   is pushed to `origin`, your fork. No `gh pr merge`, no armed auto-merge (§4
   step 4 is skipped), no force-push you were not asked for. The skill ends with
@@ -109,21 +114,21 @@ next plan only after the previous PR is merged.
 
 Spawn the `cartographer-plan-implementer` subagent (`.claude/agents/`) with `Agent`
 and `subagent_type: cartographer-plan-implementer`, in the background: it already carries the mandate below and a fixed
-≤10-line report, so the spawn prompt is just the issue number and the absolute
+≤10-line report, so the spawn prompt is just the issue number, or the absolute plan file path, and the absolute
 worktree path. `isolation: "worktree"` is available, but pass the `make worktree-add` path
 explicitly. Without the agent, pass the mandate inline.
 
 Canonical mandate (self-contained — the subagent never sees this conversation):
 
 - Work **only** inside `<absolute-worktree-path>`; every command runs there. The tools inherit no working directory from this conversation, so pass it explicitly: `git -C <path>`, `make -C <path>`. Sibling subagents are active on other worktrees: never revert or touch their files.
-- First check the plan carries `approved` (`gh issue view <n> --json labels`); without it stop, nothing is implemented.
-- Read the plan: `gh issue view <n> --json body,comments --jq '.body, (.comments[].body)'` — later amendments live in the comments. Not `--comments`: without a TTY (every subagent) it prints the comments only and drops the body.
+- First check the plan carries `approved` (`gh issue view <n> --json labels`); without it stop, nothing is implemented. A plan file passed in this mandate needs no check.
+- Read the plan: the file, or `gh issue view <n> --json body,comments --jq '.body, (.comments[].body)'` — later amendments live in the comments. Not `--comments`: without a TTY (every subagent) it prints the comments only and drops the body.
 - Implement **all** WPs exactly, starting from the `file:line` pointers in the plan; do not re-explore from scratch.
 - Write the tests in the plan's "Tests" section.
 - **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the decision file `docs/decisions/D<issue>-<slug>.md` (`make decisions-new`); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
 - `make gate` green — iterate until it is.
 - One commit for the implementation on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it; its scope is one `scripts/pr-triage.sh --title-scopes` prints, or none), Co-Authored-By trailer. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
-- `git push -u origin feat/<slug>` + `gh pr create` with a body ending `Closes #<n>`.
+- `git push -u origin feat/<slug>` + `gh pr create` with a body ending `Closes #<n>` (a plan file: no `Closes`, `--draft` until the decision file is in).
   The PR body, commit messages and any test fixture carry placeholder names only —
   never a KB, host, user or project from a real setup (D259, `AGENTS.md`).
   Leave the `## Self-review` section as "pending review": the coordinator writes
@@ -140,7 +145,7 @@ subagent's report — report text can be garbled or compressed.
 - **Light tier**: the coordinator reads `gh pr diff <pr>` itself; one round.
 - **Standard and full tier**: spawn the reviewers of the tier (`cartographer-review-pr` §3:
   `cartographer-contract-reviewer`, plus `cartographer-security-reviewer` on full) on `.worktrees/<slug>` (round 1,
-  plan = the issue number), verify its findings per `cartographer-review-pr` §4, and send the
+  plan = the issue number or the plan file), verify its findings per `cartographer-review-pr` §4, and send the
   **verified** findings — never the raw report — to the implementer that wrote
   the PR with `SendMessage` to its agent id. The fix mandate: add commits on the branch,
   never amend; answer each finding; one report line per finding. Repeat per
@@ -180,7 +185,7 @@ file-sets overlap:
 ## 5 — Close-out
 
 Each implementation PR closes its issue via `Closes #<n>` — verify
-`gh issue view <n> --json state` is `CLOSED`. Report which plans landed, which
+`gh issue view <n> --json state` is `CLOSED`; a plan file has nothing to close, so report the merged PR. Report which plans landed, which
 wave is next, and any plan flagged as stale-vs-`main` (per `CONTRIBUTING.md`:
 stop and comment on the issue rather than guessing).
 
