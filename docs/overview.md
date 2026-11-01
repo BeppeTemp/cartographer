@@ -78,10 +78,7 @@ flowchart TB
 client (Anthropic Messages and OpenAI-compatible chat completions over
 `net/http`, token usage reported per call) that a worker, a headless MCP client
 of the public contract, will drive with its own tool loop (D9, #1257). The
-allowlist (`allow.go`: a hard deny set plus an explicit default list, enforced
-on what is offered and on every call) and the bounded loop (`loop.go`: step and
-token caps, tool errors fed back to the model, transport errors abort) run on
-top of it; `workertest` holds the scripted model and tool doubles.
+allowlisted loop lands in the second half of that plan.
 
 ## Where to continue
 
