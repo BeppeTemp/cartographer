@@ -420,36 +420,6 @@ day ahead is clamped to now. It needs the whole KB in write scope; any other cal
 `404` of an unknown KB (no existence oracle), a missing token `401`, a non-POST `405`. The
 store is `.cartographer/usage.json` (`docs/data-plane.md`), which the `artifact_unused` lint check reads (D1043).
 
-### Worker heartbeat (`POST /api/workers`, D1259)
-
-A `cartographer worker` process declares itself once a minute. Like the usage report and the client settings
-report it is client-to-server metadata: an HTTP route inside the auth chain of `/mcp`, always routed (with or
-without the web UI), never an MCP tool (a tool would spend `tools/list` budget on every client for something no
-agent calls, D285). The declaration is a hint, never trusted beyond display: validated, bounded in time and
-ignored when stale (D369); the server never acts on it, the budget is enforced by the worker.
-
-Body (one JSON object, `application/json`, 64 KiB cap): `worker` (this process, 1-64 of `[a-z0-9._-]`),
-`perimeter` (1-40 of `[a-z0-9-]`, shared by replicas), `version`, `kbs` (1-32 names), `state` (`idle`,
-`running`, `waiting`, `budget_exhausted`, `stopped`), `interval_seconds` (clamped to 15-3600, default 60),
-`last_run` (`{at, units_done, tokens_spent, commits}`), `budgets` (at most 8 `{profile, tier, spent, limit}`, one
-per model profile, never summed) and `next_window_at` (omitted when past or more than 8 days ahead). A
-`last_run.at` more than a day ahead is clamped to now; counters are clamped to `0..2^40`; text is truncated
-and stripped of control characters. `received_at` is the server's clock.
-
-State is in memory (a restart forgets it until the next beat), at most 16 workers per principal and 256 in
-total, the oldest evicted. A declaration is live while less than three intervals old; `state: stopped` removes
-it at once. The declared KBs are filtered to those the principal can write; none left answers the `404` of an
-unknown KB (no existence oracle). Errors: `405` (+ `Allow`), `401`, `415`, `413`, `400`.
-
-The answer is `{accepted, kbs: {<kb>: {last_activity_at, idle_seconds}}, activity_known, server_started_at,
-now}`. **`last_activity_at`** is the last authorized MCP tool call on that KB by a principal that has no live
-worker declaration, other than `sync_pull` (the 30-minute sync timer would otherwise keep every connected KB
-active), counted in `callToolChecked` after authorization: a denied call is not activity, nor is the Atlas UI
-API. It is `null` (and `idle_seconds` absent) until a call happens after the process started; the worker then
-reads "idle since `server_started_at`". `now` is the server's clock, so the worker never compares its own.
-`activity_known` is `false` when authentication is off: every caller is the local admin and the server cannot
-tell the worker from a person.
-
 ### Client settings reports (`POST /api/client-settings`, D818)
 
 The Settings page shows the viewer their own client beside the server and the KBs, and only the client knows its

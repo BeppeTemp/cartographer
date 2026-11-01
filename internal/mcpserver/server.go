@@ -14,7 +14,6 @@ import (
 	"io/fs"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
@@ -144,14 +143,6 @@ type Server struct {
 	// in tests for determinism.
 	now func() time.Time
 	mu  sync.Mutex
-
-	// activity is the unix-nanosecond time of the last tool call that counts
-	// as someone using this KB (zero = never); see touchActivity.
-	activity atomic.Int64
-	// liveWorker reports whether a principal currently has a live worker
-	// declaration (uiapi_workers.go). Nil when no store is wired (stdio,
-	// tests): every principal then counts as activity.
-	liveWorker func(principal string) bool
 
 	// autoRepairTrigger asks the background repair for a run after a git pull
 	// moved HEAD (D355). Buffered, so a signal never blocks the pull; created

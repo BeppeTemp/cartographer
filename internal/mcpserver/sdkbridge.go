@@ -273,8 +273,6 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 		}
 	}
 
-	s.touchActivity(principal, name)
-
 	resources := extractResources(name, args)
 	call, rejected, ok := s.beginAuditCall(principal, name, tool.ReadOnly, resources)
 	if !ok {
