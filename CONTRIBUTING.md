@@ -303,12 +303,11 @@ dispatched by hand with one of three actions.
   in the installers' default choice or as the Homebrew cask (every tag with a semver
   pre-release suffix is skipped, whatever GitHub's pre-release flag says), and the
   stable release deletes its version's candidates (`release.yml`, `candidate-cleanup`).
-- **Milestones group a version.** A milestone `vX.Y.Z` lists the work planned for that
-  version; it gates no merge. A large change still lands as PRs that change nothing a user
-  sees on their own. When the release PR proposes a version below the lowest open
-  milestone, `release-as.yml` opens a `Release-As:` PR that merges by itself (a higher
-  version is only reported). While the freeze is open it moves `main`, so a release
-  candidate already built is no longer its head: rebuild it and add `rc-ok` again.
+- **The version comes from the commits.** release-please computes it from the
+  conventional commit types (D1452): `feat` a minor, `fix` a patch, a breaking change a
+  minor while the project is below 1.0. No milestone names a release. A larger bump than
+  the commits give is a commit with the footer `Release-As: x.y.z`, added by hand. A large
+  change still lands as PRs that change nothing a user sees on their own.
 - **No release with a known hole.** The release merges only when the security gate is
   clear: no open Dependabot alert, no open code scanning alert (a false positive is
   dismissed with its reason, not left open) and no draft security advisory whose fix
@@ -363,13 +362,9 @@ change who acts:
 | `vuln-scan` | Created by `security.yml` when a vulnerability scan fails; never set by hand |
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
 
-Milestones are the roadmap: one per planned version, `vX.Y.0`; an issue in a
-milestone is accepted work, and a PR sits in the milestone of the issues it closes
-(the `pr-milestone` job of `plan-gate` sets it, and moves it with the issue), so a
-version's milestone lists its PRs too. **Every accepted issue has a milestone**, approved plans
-included: an open issue without one is not triaged yet, and the weekly triage puts
-it in a version or closes it. Keep two or three milestones
-open; further out an issue stays a plain issue until its version comes closer.
+Triage is the `accepted` label (D1451, D1452): an open issue without it is not triaged
+yet, and the weekly triage accepts it or closes it. There are no milestones: the
+version is not planned per issue, it is whatever the merged commits make it.
 
 When a maintainer picks up a bug or an idea with a plan issue, it is **promoted in
 place**: its body is rewritten from the Plan template and it gets the `plan` label,
