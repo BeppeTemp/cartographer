@@ -143,12 +143,11 @@ func (v *validator) execRecipe(name string, r rawRecipe) error {
 		return v.errf(at+".exec.command", key("exec"), "required")
 	}
 	switch r.Shape {
-	case "", recipe.ShapeFeed, recipe.ShapeSystem:
+	case "", recipe.ShapeFeed:
+	case "system":
+		return v.errf(at+".shape", key("shape"), "system is not available yet (live read-only systems, #1372); use feed")
 	default:
-		return v.errf(at+".shape", key("shape"), "must be one of feed, system")
-	}
-	if r.Shape == recipe.ShapeSystem && r.Connector != "" {
-		return v.errf(at+".connector", key("connector"), "a system recipe has no connector: its units use KB tools only")
+		return v.errf(at+".shape", key("shape"), "must be feed")
 	}
 	text, err := v.instructions(at, name, r.InstructionsFile, ln)
 	if err != nil {
@@ -164,7 +163,7 @@ func (v *validator) execRecipe(name string, r rawRecipe) error {
 		}
 	}
 	x := r.Exec
-	c := recipe.ExecConfig{Name: name, Shape: r.Shape, Command: x.Command, Args: x.Args, Env: x.Env, Connector: r.Connector,
+	c := recipe.ExecConfig{Name: name, Command: x.Command, Args: x.Args, Env: x.Env, Connector: r.Connector,
 		Instructions: text, Timeout: defaultExecTimeout, MaxOutput: defaultExecOutput, MaxContent: defaultExecContent}
 	if strings.ContainsAny(x.Command, `/\`) {
 		// Made absolute before the child's working directory is set to a temp dir.

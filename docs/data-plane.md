@@ -983,24 +983,6 @@ validate a nested per-type grammar.
   template; `source_register` has no parameter for them on purpose (a feed is
   registered once, the cursor is the worker's). Clearing `feed_cursor` makes the
   next poll list everything again.
-  **System Sources (D1372).** A Source with `source_shape: system` is one Source per
-  system, its `locator` an opaque label (a group is not a Source). It carries the same
-  feed fields, but the state is a file: the asset `system-state.jsonl` of the Source
-  (a `{"version":1}` header, then one JSON line per group sorted by key: `key`, `title`,
-  `revision`, `observed_at`, `snapshot`), and `feed_cursor` holds the sha256 of its bytes.
-  The first state write expands the Source (same ID) and links the file from its body; the
-  extension is outside the list indexed into search (D277). A file that does not match
-  `feed_cursor` is untrusted and rebuilt, not repaired. The worker diffs a listing against
-  it and creates one `IngestUnit` per changed group with four optional fields:
-  `observed_group` (the key), `observed_revision` (16 hex, for a removal the group's
-  last revision), `observed_change` (`added` \| `modified` \| `removed`) and
-  `observed_at` (RFC 3339); its body holds the brief, `## Change` (a line diff), `## Observed`
-  (the snapshot) and for a removal `## Last observed`. A newer unit marks the group's
-  still-`open` ones `skipped` with `superseded_by`. A vanished group is information: its
-  owner page is marked "observed absent since <date>" and a gap is recorded, never a delete.
-  `feed_error` adds `identity_not_read_only`, `empty_listing`, `state_error` and
-  `groups_failed` (state saved, some groups owed). Cursor and state are written only after
-  the units exist, so a crash re-lists and creates only what is missing.
 - **Ingest plan and units (D1201).** An ingest campaign is concepts, so it can be
   resumed, extended with new sources and executed by several agents at once.
   `IngestPlan` (one per campaign) has required `status`
@@ -1013,8 +995,7 @@ validate a nested per-type grammar.
   `plan`, `claimed_by`, `claimed_at` (RFC3339), `review_after` (`YYYY-MM-DD`, the
   lease), `waiting_on`, `timestamp`, `content_asset` (the name of an asset of the
   unit holding the Source's text, which the worker's poll stages for an entry a
-  recipe returned inline, #1262) and, for a system Source, `observed_group`,
-  `observed_revision`, `observed_change`, `observed_at`; its body is the self-contained brief. Both
+  recipe returned inline, #1262); its body is the self-contained brief. Both
   are keyed types (D853), so lint never calls them unknown. `ingest_setup` writes
   `templates/ingest-plan.md` and `templates/ingest-unit.md` when absent and
   declares nothing on any map. **Claim protocol**, which uses no tool of its own:

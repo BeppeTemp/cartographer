@@ -15,10 +15,6 @@ var IngestUnitStatuses = []string{"draft", "open", "in-progress", "done", "skipp
 // IngestExecutors is the vocabulary of an IngestUnit's executor.
 var IngestExecutors = []string{"any", "large", "human"}
 
-// IngestObservedChanges is the vocabulary of observed_change on a unit of a
-// system Source (D1372).
-var IngestObservedChanges = []string{"added", "modified", "removed"}
-
 // IngestPlanStatuses is the vocabulary of an IngestPlan's status.
 var IngestPlanStatuses = []string{"open", "in-progress", "done"}
 
@@ -48,10 +44,9 @@ func IngestUnitTemplate() string {
 	b.WriteString("title: \"{{title}}\"\n")
 	b.WriteString(TemplateMetaDescription + ": One claimable unit of ingest work: a source, the concepts it feeds, what to take and how to check it\n")
 	b.WriteString(TemplateMetaRequiredFields + ": [source, targets, extract, verify, executor, status]\n")
-	b.WriteString(TemplateMetaOptionalFields + ": [plan, claimed_by, claimed_at, review_after, waiting_on, timestamp, content_asset, observed_group, observed_revision, observed_change, observed_at]\n")
+	b.WriteString(TemplateMetaOptionalFields + ": [plan, claimed_by, claimed_at, review_after, waiting_on, timestamp, content_asset]\n")
 	b.WriteString(TemplateMetaFieldValues + "status: [" + strings.Join(IngestUnitStatuses, ", ") + "]\n")
 	b.WriteString(TemplateMetaFieldValues + "executor: [" + strings.Join(IngestExecutors, ", ") + "]\n")
-	b.WriteString(TemplateMetaFieldValues + "observed_change: [" + strings.Join(IngestObservedChanges, ", ") + "]\n")
 	b.WriteString(TemplateMetaOpenSections + ": true\n")
 	b.WriteString("---\n# {{title}}\n\n")
 	b.WriteString("Write here the brief an executor needs without reading the plan.\n")

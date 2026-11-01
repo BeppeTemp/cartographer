@@ -179,19 +179,6 @@ func (f Feed) Advance(ifMatch, cursor string, now time.Time) (map[string]any, er
 	return a, nil
 }
 
-// AdvanceWithError is Advance for a system whose state was saved but some groups
-// failed (D1372): the cursor (the digest of the state) moves, and feed_error says
-// which groups are still owed instead of being removed. if_match is always present.
-func (f Feed) AdvanceWithError(ifMatch, cursor, code, detail string, now time.Time) (map[string]any, error) {
-	if ifMatch == "" {
-		return nil, errNoIfMatch
-	}
-	if len(cursor) > MaxCursorBytes {
-		return nil, fmt.Errorf("feed: cursor is %d bytes, over the %d the Source holds", len(cursor), MaxCursorBytes)
-	}
-	return patch(f.ID, ifMatch, now, map[string]any{KeyCursor: cursor, KeyError: errorLine(code, detail)}), nil
-}
-
 var errNoIfMatch = errors.New("feed: a write of the cursor or its bookkeeping needs an if_match")
 
 // Fail records why the feed could not be polled, and moves feed_checked_at so a

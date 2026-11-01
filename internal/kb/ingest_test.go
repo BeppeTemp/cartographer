@@ -23,11 +23,10 @@ func TestIngestTemplatesShape(t *testing.T) {
 		t.Fatalf("unit = %+v ok=%v", unit, ok)
 	}
 	if !reflect.DeepEqual(unit.RequiredFields, []string{"source", "targets", "extract", "verify", "executor", "status"}) ||
-		!reflect.DeepEqual(unit.OptionalFields, []string{"plan", "claimed_by", "claimed_at", "review_after", "waiting_on", "timestamp", "content_asset", "observed_group", "observed_revision", "observed_change", "observed_at"}) {
+		!reflect.DeepEqual(unit.OptionalFields, []string{"plan", "claimed_by", "claimed_at", "review_after", "waiting_on", "timestamp", "content_asset"}) {
 		t.Errorf("unit fields = %+v", unit)
 	}
-	if !reflect.DeepEqual(unit.FieldValues["status"], IngestUnitStatuses) || !reflect.DeepEqual(unit.FieldValues["executor"], IngestExecutors) ||
-		!reflect.DeepEqual(unit.FieldValues["observed_change"], IngestObservedChanges) {
+	if !reflect.DeepEqual(unit.FieldValues["status"], IngestUnitStatuses) || !reflect.DeepEqual(unit.FieldValues["executor"], IngestExecutors) {
 		t.Errorf("unit values = %v", unit.FieldValues)
 	}
 }

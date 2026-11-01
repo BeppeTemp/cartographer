@@ -62,11 +62,11 @@ The synopsis says which package to open; what it does is in `go doc <pkg>`.
 
 ```
 cmd/cartographer            Command cartographer is the single binary for both sides of the Agentic Wiki
-internal/agents             detects which LLM agent CLIs/apps are installed locally
+internal/agents             detects which LLM agent CLIs/apps are installed on the local machine (Claude Code, OpenCode, Codex CLI…
 internal/artifactsig        signs and verifies provisioning artifact envelopes
 internal/audit              implements Cartographer's local, tamper-evident audit trail
 internal/auth               implements bearer-token authorization for the HTTP transport
-internal/blocktext          implements the marker-delimited "managed block" primitive
+internal/blocktext          implements the marker-delimited "managed block" primitive used by every Cartographer feature that must…
 internal/changelog          groups the newest section of a release-please changelog by area, and checks the PR body lines that…
 internal/changelog/gen      Command gen groups a release-please changelog by area and checks PR bodies for wrapped conventional…
 internal/client             implements a minimal MCP client over HTTP (JSON-RPC 2.0), used by `cartographer…
@@ -107,7 +107,6 @@ internal/worker/feed        handles a feed cursor
 internal/worker/poll        names units
 internal/worker/recipe      lists what changed in a feed Source
 internal/worker/synthesis   is the third task kind of the worker (D11)
-internal/worker/system      diffs the state of a live system
 internal/worker/workertest  is the deterministic test double of package worker
 internal/workerconfig       holds the key table of the worker config file (D21)
 ```
