@@ -65,24 +65,16 @@ type workerEnv struct {
 	models map[string]worker.Model // by profile name
 }
 
-// closeTimeout bounds each closing log_append on shutdown; the entries are
-// written in parallel, so the total stays well inside Kubernetes' default 30 s
-// terminationGracePeriodSeconds.
-const closeTimeout = 5 * time.Second
-
-// workerRunFn is the runner behind the start-up checks (stubbed by tests).
+// workerRunFn is the runner behind the start-up checks. The loop that decides
+// when to work lands in the next change; until then a started worker only
+// waits for its shutdown signal (or returns at once with --once).
 var workerRunFn = func(ctx context.Context, env *workerEnv, once bool) int {
-	r, err := worker.NewRunner(env.cfg, worker.DefaultKinds(), worker.RunnerOptions{
-		Callers:      func(kb string) worker.ToolCaller { return env.client.WithKB(kb) },
-		CloseCallers: func(kb string) worker.ToolCaller { return env.client.WithKB(kb).WithHTTPTimeout(closeTimeout) },
-		Models:       env.models,
-	})
-	if err != nil {
-		log.Printf("worker: %v", err)
-		return workerExitStart
+	log.Printf("worker %q: started for %d KB(s); no task kind is registered yet", env.cfg.Name, len(env.cfg.KBs))
+	if once {
+		return 0
 	}
-	log.Printf("worker %q (replica %s): started for %d KB(s)", env.cfg.Name, r.Replica(), len(env.cfg.KBs))
-	return r.Run(ctx, once)
+	<-ctx.Done()
+	return 0
 }
 
 // cmdWorker runs `cartographer worker --config <file>`: the third role of the
@@ -110,20 +102,8 @@ func cmdWorker(args []string) int {
 		defer f.Close()
 	}
 
-	// The first signal cancels the run (the closing entries are still written);
-	// a second one exits at once.
-	ctx, stop := context.WithCancel(context.Background())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigs)
-	go func() {
-		<-sigs
-		stop()
-		<-sigs
-		log.Print("worker: second signal, exiting now")
-		os.Exit(workerExitRuntime)
-	}()
 	if ev := watchShutdownEvent(); ev != nil {
 		go func() {
 			select {

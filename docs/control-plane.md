@@ -346,7 +346,7 @@ Parameter details not repeated in the schema:
   nudge per MCP session (the SDK session ID, so each client session that starts while a cartographer-kb-doctor
   session is due gets one) per 24 hours (an in-memory window, re-armed by a restart; a transport
   with no session ID shares one window, D358); the text asks the agent to propose a session to the operator and not start it without their
-  agreement (D704: an agent works on a KB only when the operator asks, except a configured worker, D1258); never a caller
+  agreement (D704: an agent works on a KB only when the operator asks); never a caller
   without write access to the KB, never on `kb_status` or an error, and never the Cartographer CLI
   (clientInfo name `cartographer`: `client.Call` would turn the answer into a JSON array). The block
   starts with `cartographer: KB <name>` and carries counts only — lint findings, fixable, review items, the

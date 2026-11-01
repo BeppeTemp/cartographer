@@ -297,7 +297,7 @@ in its list of local-only targets.
 `make docker-smoke` builds the server image and runs
 [`test/smoke/image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/image.sh)
 on it (D995): `git`, `sops`, `age` and `ssh` are in the image, `version` prints
-the `VERSION` build-arg, `worker` without `--config` exits 2 (the third role is in the same image and needs no volume), the user is not root, a KB created on a data volume is
+the `VERSION` build-arg, the user is not root, a KB created on a data volume is
 served over HTTP with a token (no token is a 401), and a `map_create` plus a
 `concept_batch` write read back through `concept_read` and leave one more commit in
 the KB's repository. It runs on the runner's architecture only.

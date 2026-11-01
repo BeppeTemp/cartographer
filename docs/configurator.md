@@ -204,7 +204,7 @@ server is up. A transport failure (dial, DNS, timeout) defers as "server unreach
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job an earlier release installed, printing one line when there was one:
-Cartographer never starts an agent by itself (D704), except a worker the operator has configured and deployed (D1258, [the worker](deployment.md#the-worker-a-third-role)). `sync` matters after a Homebrew upgrade, which
+Cartographer never starts an agent by itself (D704). `sync` matters after a Homebrew upgrade, which
 runs neither of the others; `doctor run|schedule|unschedule|status` fail as unknown arguments.
 
 **Token file (D699).** With `auth: true` and a `token: ${NAME}` reference (the default is `${CARTOGRAPHER_TOKENS}`),
