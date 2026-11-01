@@ -78,12 +78,6 @@ type Config struct {
 	// UnboundAccess(provider): anything but "write" is read.
 	UnboundModes map[string]string `yaml:"unbound_access,omitempty"`
 
-	// KBOptions is the per-KB setting map (#1408): one KBOption per KB name,
-	// applied to every provider on the machine. USER-owned. Always read it
-	// through KBArtifacts (and the accessors later options add): an absent
-	// entry and an absent key are the default, never a "false".
-	KBOptions map[string]KBOption `yaml:"kb_options,omitempty"`
-
 	// Workspaces is the per-provider workspace↔KB binding (D193): which KBs a
 	// provider receives while working in a given directory. USER-owned. Read it
 	// through WorkspaceBindings/ResolveWorkspace, never directly: an unbound
@@ -270,7 +264,6 @@ type yamlConfig struct {
 	Clients      map[string]ClientBinding          `yaml:"clients,omitempty"`
 	Scopes       map[string]string                 `yaml:"scopes,omitempty"`
 	UnboundModes map[string]string                 `yaml:"unbound_access,omitempty"`
-	KBOptions    map[string]KBOption               `yaml:"kb_options,omitempty"`
 	Workspaces   map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
 	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
 	Paths        map[string]string                 `yaml:"paths,omitempty"`
@@ -472,7 +465,6 @@ func Load(dir string) (*Config, error) {
 		Clients:           y.Clients,
 		Scopes:            y.Scopes,
 		UnboundModes:      y.UnboundModes,
-		KBOptions:         y.KBOptions,
 		Workspaces:        y.Workspaces,
 		AllowInsecureHTTP: y.AllowInsecureHTTP,
 		UsageScan:         true, // absent `usage_scan` key defaults to true
@@ -543,9 +535,6 @@ func Load(dir string) (*Config, error) {
 		// before this field existed default here, matching Default() (D906).
 		cfg.SearchRoots = append([]string(nil), DefaultSearchRoots...)
 	}
-	if err := cfg.validateKBOptions(Path(dir)); err != nil {
-		return nil, err
-	}
 	cfg.derived = LoadDerived(dir)
 	return &cfg, nil
 }
@@ -602,7 +591,6 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 		Clients:      cfg.Clients,
 		Scopes:       cfg.Scopes,
 		UnboundModes: cfg.UnboundModes,
-		KBOptions:    cfg.KBOptions,
 		Workspaces:   cfg.Workspaces,
 		Paths:        cfg.Paths,
 		IgnoredPaths: cfg.IgnoredPaths,

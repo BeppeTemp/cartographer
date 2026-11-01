@@ -1287,7 +1287,6 @@ identities:                     # D904; the git author of this machine's writes,
 allow_insecure_http: false      # D1023; written only when true. true: accept a plain http:// server_url that is not loopback (the token then travels in clear); set by `connect --allow-insecure-http`
 update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
-kb_options: {}                  # D1408; per-KB settings for every provider: <kb>: {artifacts: false} stops that KB's skills, subagents, hooks and MCP descriptors (it stays connected); edit with `cartographer client kb`
 scopes: {}                      # per-provider scope, provider | workspace (D193); set by `cartographer workspace bind`
 workspaces: {}                  # per-provider explicit workspace bindings, [{path, kbs}] (D193); set by `cartographer workspace bind`
 signing_keys: {}                # Ed25519 public keys pinned per source KB (`connect --pin-key`); never learned from a sync
@@ -1357,9 +1356,6 @@ warning, not a failure.
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
-| `client kb <kb> [--artifacts=true\|false]` | shows, or sets, the KB's per-KB options (the `kb_options` map, D1408), for every provider; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB the server does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
-
-`kb_options.<kb>.artifacts: false` (D1408) is a narrowing, never a widening: it wins over `scopes`, `clients.<provider>.kbs`, explicit workspace bindings and derived bindings, and changes neither which KBs a provider or folder reaches nor the KB's MCP tools. It does nothing on a server that does not name its KBs. `status` marks such a KB `artifacts: off (kb_options)` under the provider's `kbs` line.
 
 Three states, resolved only through `clientconfig.Config.BoundKBs` and never by
 testing a list for emptiness: **no entry** means every known KB (today's

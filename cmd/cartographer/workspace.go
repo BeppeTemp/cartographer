@@ -184,7 +184,7 @@ func (cs candidateSet) forProjection(cfg *clientconfig.Config, p syncProjection)
 			out = append(out, a)
 		}
 	}
-	return dropKBArtifacts(cfg, out)
+	return out
 }
 
 // --- `cartographer workspace` ---
@@ -780,7 +780,6 @@ func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjec
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
-		verified = withoutOptedOutSkillsLines(cfg, verified)
 		// Set after verification, which copies only the signed catalogue.
 		verified.Placeholders = cs.placeholdersForProjection(cfg, p)
 		verified.PathRegistries = cs.pathRegistriesForProjection(cfg, p)
