@@ -219,7 +219,7 @@ func (b *Budget) Charge(kb, profile string, tokens int) {
 // KB's closing entry carries it: a summary may name the KB's own content, and a
 // KB's log must not hold what was done on another.
 func (b *Budget) Summarize(kb, line string) {
-	if line = noMarker(oneLine(line)); line == "" {
+	if line = oneLine(line); line == "" {
 		return
 	}
 	b.mu.Lock()
@@ -264,7 +264,7 @@ func (b *Budget) entry(kb, stopped, summary string) string {
 	if s := truncateRunes(oneLine(strings.Join(append(append([]string(nil), b.sums[kb]...), summary), "; ")), maxSummary); s != "" {
 		sb.WriteString(summarySep + s)
 	}
-	return noMarker(sb.String())
+	return sb.String()
 }
 
 // maxSummary is the most runes of summary a closing entry carries.

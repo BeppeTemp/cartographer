@@ -321,7 +321,7 @@ Parameter details not repeated in the schema:
   or whose sync is `degraded`, is skipped. Each run is one line of
   `.cartographer/auto-repair-log.jsonl` (`{at, skipped?, checks: [{check, applied, skipped, commit,
   error}]}`, per-check entries kept; local, never committed). It is not a doctor session: it writes no
-  `kb-doctor` log entry, so `last_doctor` does not move. `last_doctor` is moved only by a closed doctor session, a worker's included (D1261). Stopping the server stops it. Every check whose
+  `kb-doctor` log entry, so `last_doctor` does not move. Stopping the server stops it. Every check whose
   registered fix is safe to run unattended (`AutoRepairSafe`, listed by `lint.AutoRepairChecks`) runs here, on write and under `kb repair --apply`; no setting narrows the list, and `kb_repair` still applies the others on request. The heartbeat has no off switch: `contract_legacy_key` and the drop of a `lint_ignore` field from pages (D907) are part of the list.
 - **Repair on write** (D349, D355; always on, D907): `concept_write`, `concept_new`, `concept_patch`, `supersede`,
   `concept_move` and `concept_batch` apply the safe fixes to the concepts the call left on

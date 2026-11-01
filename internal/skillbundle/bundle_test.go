@@ -369,26 +369,3 @@ func TestIngestWritesFirstAndReportsAfter(t *testing.T) {
 		t.Error("the served ingest procedure disagrees with the bundled skill (D1318)")
 	}
 }
-
-// TestDoctorSkillWorkerPassageKeepsTheInvariants pins #1261: the worker passage
-// exists, the delegated invariants stay verbatim, and the only exception to "the
-// operator asks" is the deployed worker (D704, D18).
-func TestDoctorSkillWorkerPassageKeepsTheInvariants(t *testing.T) {
-	t.Parallel()
-	data, err := fs.ReadFile(FS, "bundled/cartographer-kb-doctor/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(data)
-	for _, want := range []string{
-		"**A worker session.**",
-		"never delete a concept, never rename a map's folder, never invent content",
-		"`log_append` whose text contains `kb-doctor`",
-		"- Never start a session the operator did not ask for or agree to (a worker deployed",
-		"changes nothing",
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("the doctor skill lacks %q", want)
-		}
-	}
-}
