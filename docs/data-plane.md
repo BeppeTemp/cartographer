@@ -928,12 +928,6 @@ validate a nested per-type grammar.
   `commit_gate` or `gate_check`, whatever its `involves`, and `involves` is
   optional (a question may concern a page that does not exist yet). `kb_status`
   counts open gaps apart from open contradictions (`open_gaps`).
-  The worker's synthesis task (D1263) writes its hypotheses this way: `provenance`
-  lists the concepts the hypothesis rests on, `involves` the ones it is about, and three
-  optional keys that the server does not interpret mark it: `origin: synthesis`,
-  `confidence: low | medium | high` and, set by whoever closes it, `resolution_outcome:
-  confirmed | rejected` (`resolution` stays the prose). `work_list where origin=synthesis`
-  lists them; a rejected one is never proposed again.
 - **The source ledger (D278).** A `Source` records one primary source the KB has
   absorbed (document, transcript, ticket, thread, web page, dataset), so the KB
   can answer *already ingested?*, *what is pending?*, *where does this claim come

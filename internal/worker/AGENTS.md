@@ -15,6 +15,3 @@ money and writes to KBs when nobody is looking.
   client calls take no context and time out at 30 s, more than Kubernetes' grace period.
 - **Adding a task kind**: declare its options in `internal/workerconfig/schema.go`, write the kind
   (`Name`, `Options`, `Validate`, `Build` returning an `Instance`) and add one line to `DefaultKinds()`.
-- **A synthesis write never targets an existing concept and never uses a blocking contradiction kind**
-  (`synthesis/guard.go`, D1263): hypotheses are gap Contradictions created at a deterministic id; the guard,
-  not the server, keeps D11.
