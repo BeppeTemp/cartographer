@@ -79,7 +79,6 @@ nav:
       - Agent install runbook: agent-install.md
       - Using the server from any MCP client: mcp-clients.md
       - Deployment: deployment.md
-      - Worker recipes: worker-recipes.md
       - Client (configurator): configurator.md
       - Control plane (MCP API): control-plane.md
       - Data plane (KB model): data-plane.md

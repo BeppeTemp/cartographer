@@ -112,7 +112,7 @@ decides every step **before** running any:
 | verify | `/health` through `service status` | — |
 
 - **The remote decides create vs clone.** An empty `ls-remote` answer means an empty repository:
-  `kb create <name> --remote <url>`; any ref means content: `kb clone <url> <name>` — which, for a repository holding only a forge's initial commit (README/LICENSE/.gitignore), answers with `kb create <name> --remote <url>` instead, since that adopts it (D710). A README.md of that commit is replaced by a short generated one (a new commit on top, the forge's commit stays) only when it is a known forge boilerplate (the title and at most a description line of GitHub/Gitea/Forgejo, GitLab's "Getting started" template); any other README is kept and a hint names `--readme generate`, which replaces it whatever it holds, while `--readme keep` never replaces it (D1071). `kb create --branch X` (with `--remote`) makes `X` the KB's branch: it writes `branch: X` in `settings.yaml`, pushes the default branch carrying it, then creates and pushes `X` and leaves the clone on it; `kb clone --branch X` is per server instead: it checks `X` out and adds a `kbs[]` entry with `branch: X` to the server config (D1093). On a repository that already has history, `kb create --branch X` (X absent on the remote) creates the KB as an orphan branch `X` with no shared history, pushes only `X` (a plain push, the default branch is never touched), leaves the clone on it and records `kbs[].branch: X` in the server config, which must exist; an existing `X` is refused, and without `--branch` the refusal names it as a way out (D1412). `kb clone --branch X` mounts it even though the default branch holds no KB, and `kb clone` without `--branch` on such a repository lists the branches that do (D1412); `setup`/`connect` route any remote with refs to `kb clone` and have no `--branch`. The name is
+  `kb create <name> --remote <url>`; any ref means content: `kb clone <url> <name>` — which, for a repository holding only a forge's initial commit (README/LICENSE/.gitignore), answers with `kb create <name> --remote <url>` instead, since that adopts it (D710). A README.md of that commit is replaced by a short generated one (a new commit on top, the forge's commit stays) only when it is a known forge boilerplate (the title and at most a description line of GitHub/Gitea/Forgejo, GitLab's "Getting started" template); any other README is kept and a hint names `--readme generate`, which replaces it whatever it holds, while `--readme keep` never replaces it (D1071). `kb create --branch X` (with `--remote`) makes `X` the KB's branch: it writes `branch: X` in `settings.yaml`, pushes the default branch carrying it, then creates and pushes `X` and leaves the clone on it; `kb clone --branch X` is per server instead: it checks `X` out and adds a `kbs[]` entry with `branch: X` to the server config (D1093). The name is
   `--name`, else the repository name. The same probe proves the remote is reachable with this
   machine's credentials, under the non-interactive git environment of `kb clone` (no prompts,
   SSH batch mode, host keys never auto-accepted — D173); a failure exits 2 **before anything is
@@ -204,7 +204,7 @@ server is up. A transport failure (dial, DNS, timeout) defers as "server unreach
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job an earlier release installed, printing one line when there was one:
-Cartographer never starts an agent by itself (D704), except a worker the operator has configured and deployed (D1258, [the worker](deployment.md#the-worker-a-third-role)). `sync` matters after a Homebrew upgrade, which
+Cartographer never starts an agent by itself (D704). `sync` matters after a Homebrew upgrade, which
 runs neither of the others; `doctor run|schedule|unschedule|status` fail as unknown arguments.
 
 **Token file (D699).** With `auth: true` and a `token: ${NAME}` reference (the default is `${CARTOGRAPHER_TOKENS}`),
@@ -261,9 +261,9 @@ cases and the exact rules in `sync.md` §Workspace scope, [D1074](decisions/D107
 written into the workspace: `sync` writes the provider's global MCP entry as a local stdio bridge,
 `cartographer mcp --provider <p> [--dir <folder>]` (the folder defaults to the working directory), which serves only the KBs of the folder the session runs in
 (deepest binding wins; an unbound folder, `$HOME` included, gets the provider's default set
-**read-only** and no KB artifact (D1018), or read-write when `unbound_access` says `write` (#1356, still no artifact); `--no-kb` means no KB, never every KB). `kb_options.<kb>.access: read` holds in every folder: the bridge carries it (D1409). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
+**read-only** and no KB artifact (D1018); `--no-kb` means no KB, never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
 token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>] [--provider <p>]` shows which
-binding wins for a folder (for one provider, or each), says when it is derived from a KB's `paths.yaml` (D1019), and, for one that no binding covers, prints `access: read-only (default)`, `access: read-only (unbound_access)` or `access: read-write (unbound_access)`. `workspace list` shows the bindings, with `[gone]` next to a
+binding wins for a folder (for one provider, or each), says when it is derived from a KB's `paths.yaml` (D1019), and prints `read-only` for one that no binding covers. `workspace list` shows the bindings, with `[gone]` next to a
 directory that is not there any more and `[derived: paths.yaml of kb-a]` next to one a KB's declared repository implies, then the declared repositories with no local clone (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
 server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
 entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
@@ -901,13 +901,6 @@ source `index.md` is still rejected as a reserved destination filename. `--commi
 the scaffold (`_map.md`, `index.md`, `log.md`) created for each new destination map; on partial
 write failures it commits only successful paths and reports that the batch had errors.
 
-### `cartographer worker source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc>)`
-
-The dry run of a worker recipe: the listing the worker will run, printed, with nothing written and no model called
-(exit `0` listed, `1` the poll would record a `feed_error`, `2` could not start, `3` a system recipe's preflight
-refused). Flags, output and limits are in [worker-recipes.md](worker-recipes.md#testing-a-recipe-before-deploying-it);
-`cartographer worker --config <file>` itself is described in [deployment.md](deployment.md#the-worker-a-third-role).
-
 ### `cartographer resolve repo:<key>|path:<name>`
 
 Resolves a path portability placeholder (D75) and prints the local path to stdout. It doesn't talk to the
@@ -1294,7 +1287,6 @@ identities:                     # D904; the git author of this machine's writes,
 allow_insecure_http: false      # D1023; written only when true. true: accept a plain http:// server_url that is not loopback (the token then travels in clear); set by `connect --allow-insecure-http`
 update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
-kb_options: {}                  # D1408; per-KB settings for every provider: <kb>: {artifacts: false} stops that KB's skills, subagents, hooks and MCP descriptors (it stays connected); `<kb>: {access: read}` connects that KB read-only on every provider that receives it (D1409); edit with `cartographer client kb`
 scopes: {}                      # per-provider scope, provider | workspace (D193); set by `cartographer workspace bind`
 workspaces: {}                  # per-provider explicit workspace bindings, [{path, kbs}] (D193); set by `cartographer workspace bind`
 signing_keys: {}                # Ed25519 public keys pinned per source KB (`connect --pin-key`); never learned from a sync
@@ -1364,11 +1356,6 @@ warning, not a failure.
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
-| `client kb <kb> [--artifacts=true\|false] [--access=read\|write]` | shows, or sets, the KB's per-KB options (the `kb_options` map, D1408, D1409), for every provider; `--access=read` connects the KB read-only (below), `write` removes the key; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB the server does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
-
-`kb_options.<kb>.artifacts: false` (D1408) is a narrowing, never a widening: it wins over `scopes`, `clients.<provider>.kbs`, explicit workspace bindings and derived bindings, and changes neither which KBs a provider or folder reaches nor the KB's MCP tools. It does nothing on a server that does not name its KBs. `status` marks such a KB `artifacts: off (kb_options)` under the provider's `kbs` line.
-
-**`kb_options.<kb>.access: read` (D1409).** The one KB is connected read-only on every provider that receives it, while the provider's other KBs stay writable; absent or `write` is the default and changes nothing in any URL. `sync` writes `readonly=<kb>,…` into the routed entry after `kbs=` and `access=` (only the KBs the entry reaches, escaped like `kbs`), and the workspace bridge sends the same parameter, so it applies in a bound folder too. With `clients.<provider>.access: read-min` the provider is already read-only: no `readonly=` is written. With `scopes`/`unbound_access` the stricter wins: an unbound read-only folder already covers everything, a bound folder is read-write except for the KBs marked `read`. It is a scope filter, not a security boundary (D737): a client that edits its own URL drops it; hard isolation is a server token role (`kb:<name>:r`). It needs a routed server: against a server without the routed endpoint `connect` and `sync` refuse, naming the KB and the fix, instead of writing an entry that would allow writes. The bridge fails closed on a server that predates the parameter (it sends no `Cartographer-Readonly` header), but a plain HTTP entry cannot check a header, so an entry written for a server older than this version ignores the setting silently: upgrade the server first.
 
 Three states, resolved only through `clientconfig.Config.BoundKBs` and never by
 testing a list for emptiness: **no entry** means every known KB (today's

@@ -679,8 +679,6 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 					Maps:     rule.Maps,
 					Journals: rule.Journals,
 					Types:    rule.Types,
-
-					ReadOnlyArtifacts: rule.Artifacts == "r",
 				})
 			}
 		}

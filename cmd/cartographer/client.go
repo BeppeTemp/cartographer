@@ -53,8 +53,6 @@ func cmdClient(args []string) int {
 		return clientReset(dir, cfg, args[1:])
 	case "update":
 		return clientUpdate(dir, cfg, args[1:])
-	case "kb":
-		return clientKB(dir, cfg, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown subcommand %q\n", args[0])
 		printClientUsage(os.Stderr)
@@ -69,7 +67,6 @@ func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "       cartographer client unbind <provider> <kb>[,<kb>...]   removes KBs from it")
 	fmt.Fprintln(w, "       cartographer client reset <provider>                   restores every known KB")
 	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
-	fmt.Fprintln(w, "       cartographer client kb <kb> [--artifacts=true|false] [--access=read|write]   shows or sets the KB's options on every provider")
 }
 
 // clientUpdate shows or sets `update_check` (D254, D906): whether the daily
@@ -98,66 +95,6 @@ func clientUpdate(dir string, cfg *clientconfig.Config, args []string) int {
 		}
 	}
 	fmt.Printf("update check   %t\n", cfg.UpdateCheckEnabled())
-	return 0
-}
-
-// clientKB shows or sets the per-KB options (`kb_options`, #1408) of one KB.
-// With no flag it prints them; --artifacts=false stops sync from provisioning
-// the KB's skills, subagents, hooks and MCP descriptors (it stays connected).
-// Flags may precede or follow the KB name. A new option is a new flag below and
-// a new line in the printout. Offline like every `client` subcommand.
-func clientKB(dir string, cfg *clientconfig.Config, args []string) int {
-	var kb string
-	flagArgs := make([]string, 0, len(args))
-	for i, a := range args {
-		if kb == "" && !strings.HasPrefix(a, "-") {
-			kb = a
-			flagArgs = append(flagArgs, args[i+1:]...)
-			break
-		}
-		flagArgs = append(flagArgs, a)
-	}
-	fs := flag.NewFlagSet("client kb", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	artifacts := fs.String("artifacts", "", "Sync the KB's skills, subagents, hooks and MCP descriptors: true or false")
-	access := fs.String("access", "", "Connect the KB read-only (read) or read-write (write, the default) on every provider")
-	if err := fs.Parse(flagArgs); err != nil || fs.NArg() != 0 || kb == "" {
-		printClientUsage(os.Stderr)
-		return 2
-	}
-	changed := false
-	if *artifacts != "" {
-		v, err := strconv.ParseBool(*artifacts)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid --artifacts %q (want true or false)\n", *artifacts)
-			return 2
-		}
-		if !slices.Contains(cfg.KnownKBs, kb) {
-			fmt.Fprintf(os.Stderr, "warning: %q is not among the KBs the server last advertised; the setting is saved and applies if it is mounted\n", kb)
-		}
-		cfg.SetKBArtifacts(kb, v)
-		changed = true
-	}
-	if *access != "" {
-		if err := cfg.SetKBAccess(kb, *access); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid --access %q (want read or write)\n", *access)
-			return 2
-		}
-		if !slices.Contains(cfg.KnownKBs, kb) {
-			fmt.Fprintf(os.Stderr, "warning: %q is not among the KBs the server last advertised; the setting is saved and applies if it is mounted\n", kb)
-		}
-		changed = true
-	}
-	if changed {
-		if code := saveClientConfig(dir, cfg); code != 0 {
-			return code
-		}
-	}
-	fmt.Printf("%-11s %t\n", "artifacts", cfg.KBArtifacts(kb))
-	fmt.Printf("%-11s %s\n", "access", cfg.KBAccess(kb))
-	if changed {
-		fmt.Println("run `cartographer sync` to apply")
-	}
 	return 0
 }
 
@@ -338,7 +275,7 @@ func warnProviderCollisions(cfg *clientconfig.Config, provider string, bound []s
 		fmt.Fprintf(os.Stderr, "note: could not check for cross-KB collisions (%v); `cartographer sync` will check again\n", err)
 		return
 	}
-	for _, c := range collisionsForProvider(dropKBArtifacts(cfg, candidates.forKBs(bound)), bound) {
+	for _, c := range collisionsForProvider(candidates.forKBs(bound), bound) {
 		fmt.Fprintf(os.Stderr, "warning: %s/%s is claimed by %s — `cartographer sync` will refuse until one of them renames it\n",
 			c.Kind, c.Name, strings.Join(c.Sources, ", "))
 	}

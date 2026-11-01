@@ -70,7 +70,7 @@ those match names, not arguments, and are lost by design. Real authorization is
 per-KB scopes (D44/D45), and read auto-approval through `readOnlyHint` (D76) is
 unaffected.
 
-**URL parameters of `/mcp/routed`.** `kbs` (below), `access` (D1018, D1184: `read`, or `read-min` for the read-only connection with the minimal tool listing; empty is absent, any other value is a 400), `readonly=<kb>,<kb>` (D1409: the KBs the client set read-only; names that are not served or not readable are ignored, never a 400, and the response carries `Cartographer-Readonly` with the names applied), and `provisioned=1` (D1097: the client has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
+**URL parameters of `/mcp/routed`.** `kbs` (below), `access` (D1018, D1184: `read`, or `read-min` for the read-only connection with the minimal tool listing; empty is absent, any other value is a 400) and `provisioned=1` (D1097: the client has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
 
 **The binding travels in the URL: `/mcp/routed?kbs=kb-a,kb-b`.** Absent, the
 connection serves every mounted KB. `kbs` only **narrows**, never widens:
@@ -233,7 +233,7 @@ nothing about access, and a missing or invalid one falls back to the token
 ### Origin
 
 The MCP endpoint, and every request that changes state on any other route (any
-method but GET, HEAD or OPTIONS: `/api/usage`, `/api/client-settings`, `/api/workers`, `/api/worker-settings`, the writes
+method but GET, HEAD or OPTIONS: `/api/usage`, `/api/client-settings`, the writes
 under `/api/ui/v1`, `/clients`), validate the `Origin` header, and the rule is fixed (D906):
 a request without one — every non-browser client — is unaffected; with one, its
 host and port must be the request's own `Host`, whatever the scheme (a TLS-terminating
@@ -243,10 +243,10 @@ refused origin gets HTTP 403 before authentication runs, and the CORS allow-orig
 response header echoes the accepted origin rather than a wildcard. There is no list
 of other origins to allow (`mcp.allowed_origins` was removed): a page of another
 site has no business scripting this server. The JSON-body routes (`/api/usage`,
-`/api/client-settings`, `/api/workers`, `/api/worker-settings`) also answer HTTP 415 to a body not sent as
+`/api/client-settings`) also answer HTTP 415 to a body not sent as
 `application/json` (a cross-site form cannot set that type without a preflight),
 and refuse a body over their cap with HTTP 413 (1 MiB for a usage report, 256 KiB
-for a client settings report, 64 KiB for a worker heartbeat, 128 KiB for a worker settings report); the usage store itself is refused past 4 MiB.
+for a client settings report); the usage store itself is refused past 4 MiB.
 
 The same-origin rule alone does not tell a page served from a rebound DNS name
 from the real one: `Origin` and `Host` then both name that name. A server that
@@ -412,7 +412,7 @@ resource they address:
 | collection | `search`, `concept_list`, `atlas_overview`, `contradiction_report`, … | results are filtered per element |
 | source/destination | `concept_move` | both ends must be allowed, and for an expanded concept so must each satellite (its own type, source and destination); link rewriting additionally requires whole-KB write |
 | curated index | `index_patch` | the target Map/Journal must be allowed for write by a rule that names no type: the index lists pages of every type, so a role narrowed by type cannot rewrite it, and its own entry is written with `index_entry` on the creation, under the page's grant (D714); the root index (no single Map/Journal of its own) requires whole-KB write even under a policy that already grants a write inside one of its Maps (D122) |
-| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics. `artifact_write`, `artifact_delete`, `artifact_move` (on both KBs) and `skill_install` need the artifacts grant as well (D1259): a rule with `artifacts: r` grants everything its whole-KB write grants except those four, and `/api/usage`, which writes artifact metadata. It is a narrower allow, not a deny rule, so a second rule of the token without the key restores them |
+| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics |
 
 A tool absent from the registry is denied, so a newly added tool fails closed
 until its resource semantics are chosen deliberately.
@@ -424,7 +424,7 @@ Two properties are load-bearing:
   not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
   `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
   `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
-  `no_principal`, `artifacts_read_only`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB the client set read-only with `readonly=`, D1409); the reason describes the caller's own token and arguments,
+  `no_principal`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184); the reason describes the caller's own token and arguments,
   never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS

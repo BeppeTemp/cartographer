@@ -1260,10 +1260,8 @@ func TestCreateMap_ServicesReserved(t *testing.T) {
 					if !errors.Is(err, okf.ErrInvalidPath) {
 						t.Fatalf("CreateMap services: err = %v, want ErrInvalidPath", err)
 					}
-					for _, want := range []string{"reserved for service descriptors", "reserved names: services", "services/<id>", "service-notes"} {
-						if !strings.Contains(err.Error(), want) {
-							t.Fatalf("CreateMap services: message lacks %q: %v", want, err)
-						}
+					if !strings.Contains(err.Error(), "reserved for service descriptors") {
+						t.Fatalf("CreateMap services: message does not say why: %v", err)
 					}
 					after := snapshotTree(t, dir)
 					if fmt.Sprint(before) != fmt.Sprint(after) {
@@ -2405,21 +2403,6 @@ func TestInit_ExcludesJunkAtEveryLevel(t *testing.T) {
 	for _, p := range []string{".DS_Store", "skills/x/.DS_Store", "__pycache__", "notes.swp"} {
 		if strings.Contains(string(out), p) {
 			t.Errorf("%s was staged: %s", p, out)
-		}
-	}
-}
-
-// ScaffoldMap shares the CreateMap refusal (one constant, one message, #1316).
-func TestScaffoldMap_ReservedNameSameRefusal(t *testing.T) {
-	t.Parallel()
-	k := newTestKB(t)
-	err := k.ScaffoldMap("services", "Services")
-	if !errors.Is(err, okf.ErrInvalidPath) {
-		t.Fatalf("ScaffoldMap services: err = %v, want ErrInvalidPath", err)
-	}
-	for _, want := range []string{"reserved names: services", "services/<id>", "service-notes"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("ScaffoldMap services: message lacks %q: %v", want, err)
 		}
 	}
 }

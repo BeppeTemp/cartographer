@@ -50,7 +50,7 @@ func (m *MultiKBServer) handleUsage(w http.ResponseWriter, r *http.Request) {
 	} else if srv, ok := m.servers[name]; ok {
 		k = srv.kbRef
 	}
-	if k == nil || !ArtifactWriteVisible(r.Context(), k) {
+	if k == nil || !WholeVisible(r.Context(), k, true) {
 		writeUINotFound(w)
 		return
 	}

@@ -18,13 +18,12 @@ in-memory graphs are derived state and can be rebuilt.
 
 ## Runtime shapes
 
-The same binary supports two transports and a third role, the worker:
+The same binary supports two transports:
 
 | Shape | Command | Intended use |
 |---|---|---|
 | Local stdio | `cartographer serve --kb <path>` | One local client connected to one KB |
 | HTTP server | `cartographer serve --config <file>` | One or more KBs, remote clients, optional static bearer authorization |
-| Worker | `cartographer worker --config <file>` | A background process for one perimeter of KBs, with its own model profiles and budgets; never started by `serve` (§The worker in `deployment.md`) |
 
 HTTP can be run as a native user service, a container or a Kubernetes
 workload. These are deployment choices, not separate product profiles: the KB
@@ -74,15 +73,6 @@ flowchart TB
     M --> I
     V --> G
 ```
-
-`internal/worker` is a library, not yet a component of the binary: the model
-client (Anthropic Messages and OpenAI-compatible chat completions over
-`net/http`, token usage reported per call) that a worker, a headless MCP client
-of the public contract, will drive with its own tool loop (D9, #1257). The
-allowlist (`allow.go`: a hard deny set plus an explicit default list, enforced
-on what is offered and on every call) and the bounded loop (`loop.go`: step and
-token caps, tool errors fed back to the model, transport errors abort) run on
-top of it; `workertest` holds the scripted model and tool doubles.
 
 ## Where to continue
 

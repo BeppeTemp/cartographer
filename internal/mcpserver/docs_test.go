@@ -46,14 +46,11 @@ var docsNonTools = map[string]bool{
 	// kbs[] / settings.yaml keys (D746), not tools
 	"git_base_branch": true, "git_forge": true, "git_working_branch": true, "git_branch": true,
 	"kb_aliases":         true, // server config key (D772), not a tool
-	"kb_options":         true, // client config key (D1408), not a tool
 	"search_misses":      true, // kb_status field (D247), not a tool
 	"changes_by_day":     true, // changes_since field (D1057), not a tool
 	"template_unusable":  true, // policy denial code (D343), not a tool
 	"sync_timer_opt_out": true, // client config key (D325), not a tool
 	"open_gaps":          true, // kb_status field (D273), not a tool
-	"source_shape":       true, // Source frontmatter field (D1201), not a tool
-	"source_fetch":       true, // the ingest worker's own tool (D1260), never in the server's list
 	"index_entry":        true, // concept_write/concept_new/concept_batch parameter (D714, D1099), not a tool
 	"commit_count":       true, // changes_since result field, not a tool
 	"commit_sha":         true, // audit entry field (GET /kbs/{kb}/audit), not a tool

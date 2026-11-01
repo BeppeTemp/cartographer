@@ -21,8 +21,7 @@ describe("ErrorState", () => {
 });
 
 describe.each([
-  // "/work?" and not "/work": the fragment would also match /workers.
-  ["work", "/work?", "Work list unavailable", { total: 0, open_concepts: 0, by_status: {}, by_map: {}, open_items: 0, entries: [] }],
+  ["work", "/work", "Work list unavailable", { total: 0, open_concepts: 0, by_status: {}, by_map: {}, open_items: 0, entries: [] }],
   ["activity", "/changes", "History unavailable", { concepts: [{ id: "a/b", change: "modified", last_at: new Date().toISOString(), ops: ["concept_write"] }], truncated: false }],
 ])("the %s page on a failed fetch", (panel, path, title, ok) => {
   beforeEach(() => {

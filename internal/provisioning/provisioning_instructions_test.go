@@ -184,8 +184,8 @@ func TestBuildManifest_Instructions_NessunArchivio(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	a := findInstructionsArtifact(t, m, "vuota")
-	if !strings.Contains(string(a.Files[0].Content), "No maps") {
-		t.Errorf("expected an explicit message for a KB with no maps: %s", a.Files[0].Content)
+	if !strings.Contains(string(a.Files[0].Content), "No archives") {
+		t.Errorf("expected an explicit message for a KB with no archives: %s", a.Files[0].Content)
 	}
 }
 
@@ -236,7 +236,7 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 	}
 	// Brief form (D1182): the routing paragraph only; the bullets are written
 	// once per block by the client, not per KB.
-	want := "The \"kb-a\" KB is served via MCP by the \"cartographer\" server. Maps: entities/.\n\n"
+	want := "The \"kb-a\" KB is served via MCP by the \"cartographer\" server. Archives: entities/.\n\n"
 	if content != want {
 		t.Errorf("output changed with no agent/instructions.md:\ngot:\n%s\nwant:\n%s", content, want)
 	}
@@ -318,7 +318,7 @@ func TestBuildManifest_Instructions_CuratoSenzaFrontmatter(t *testing.T) {
 	if !strings.Contains(content, "Rule: bulk reads -> explorer.") {
 		t.Errorf("instructions.md body not included:\n%s", content)
 	}
-	autoIdx := strings.Index(content, "Maps: entities/")
+	autoIdx := strings.Index(content, "Archives: entities/")
 	curatedIdx := strings.Index(content, "Rule: bulk reads")
 	if autoIdx == -1 || curatedIdx == -1 || curatedIdx < autoIdx {
 		t.Errorf("the curated part must come after the generated part:\n%s", content)

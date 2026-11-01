@@ -29,8 +29,8 @@ See [transport-auth.md](transport-auth.md) §Per-KB scopes and §Identity and au
 
 ## What the model receives
 
-- **The operating guide in `initialize.instructions`**: the KBs the token can use, how to pass `kb`, orientation and write habits, the procedures (`ingest`, `conflict-resolve`, `import`), how to create the first map on an empty KB and each KB's own `instructions.md`; it says it is the whole guide, so an agent that received it does not call `kb_guide` for it again. A host that does not forward it to the model should paste it into the system prompt.
-- **The `kb_guide` tool**: returns the same guide (including the procedures list) and, with `procedure`, the steps (`ingest`, `conflict-resolve`, `import`) as text the model can read. It is the fallback for a host that does not show `initialize.instructions` (D1100).
+- **The operating guide in `initialize.instructions`**: the KBs the token can use, how to pass `kb`, orientation and write habits, and each KB's own `instructions.md`. A host that does not forward it to the model should paste it into the system prompt.
+- **The `kb_guide` tool**: returns the same guide plus the procedures (`ingest`, `conflict-resolve`, `import`) as text the model can read. A generic agent calls it first.
 - **A `tools/list` shaped by the token**: only the KBs it reads, and no write tool for a token that cannot write.
 - **A first page the write gate accepts**: `concept_write` takes `index_entry` so the first page of a new map is indexed in the same write.
 
@@ -46,7 +46,7 @@ The names of the settings below are generic: host UIs change.
 
 - **Open WebUI**: add an MCP server over Streamable HTTP with bearer authentication, the URL above and the token.
 - **AgentCore Gateway**: an MCP server target whose outbound authorization sends `Authorization: Bearer <token>`. The gateway snapshots `tools/list` when the target is synchronized, so synchronize again after adding a KB, changing a token's scopes or upgrading the server. It may prefix tool names with the target name; the guide names tools without a prefix.
-- **An SDK agent loop**: put `initialize.instructions` into the system prompt when the SDK does not (when it cannot, call `kb_guide` first), and pass tool results back to the model unmodified.
+- **An SDK agent loop**: put `initialize.instructions` into the system prompt when the SDK does not, call `kb_guide` first, and pass tool results back to the model unmodified.
 
 ## Limits
 

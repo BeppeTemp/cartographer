@@ -44,9 +44,7 @@ auth:
   #   - ${CARTOGRAPHER_TOKEN_ADMIN}
 
   # Named permission sets that tokens reference by name; each has a name and
-  # rules (kb, access r or rw, and optional maps, journals, types, and
-  # artifacts: r to withhold the skill, agent and hook write tools from a rule
-  # that otherwise writes).
+  # rules (kb, access r or rw, and optional maps, journals, types).
   # Needs a restart
   # roles:
   #   - name: runbook-editor

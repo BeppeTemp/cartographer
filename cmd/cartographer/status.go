@@ -248,9 +248,6 @@ func printBindingLine(p providerStatus) {
 		kbs = strings.Join(p.BoundKBs, ", ")
 	}
 	fmt.Printf("  kbs %s (%s)\n", kbs, p.BindingOrigin)
-	for _, kb := range p.ArtifactsOff {
-		fmt.Printf("  %s artifacts: off (kb_options)\n", kb)
-	}
 	if len(p.KBCounts) == 0 {
 		return
 	}

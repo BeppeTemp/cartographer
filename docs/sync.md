@@ -190,15 +190,13 @@ than one exists.
 
 ## The generated instructions block
 
-A KB with `kb_options.<kb>.artifacts: false` (D1408) keeps its region but loses the `Skills:` line, and no subagent sentence is written for it.
-
 The client steering file carries **one** managed block, shared by every mounted KB, delimited by
 `<!-- cartographer:instructions:begin … -->` / `<!-- cartographer:instructions:end -->`. The block is
 **brief by default** ([D1182](decisions/D1182-the-managed-block-is-brief-by-default.md)): it is paid on every
 model call of every session, and it grew linearly with the bound KBs (nine KBs measured at about 40k
 tokens, one at 3k). Inside it each KB gets its own named, delimited region
 `<!-- cartographer:kb:<name>:begin -->` … `<!-- cartographer:kb:<name>:end -->` (D182) holding only the
-generated routing sentence (KB name, server, maps) and one line `Skills: a, b, …` with the **names**
+generated routing sentence (KB name, server, archives) and one line `Skills: a, b, …` with the **names**
 of the KB's valid skills, sorted and capped at 40 (`+<n> more (kb_guide)` after the 40th). Then, once per
 block, after the last region: the **shared operational section** (the "Operational instructions" bullets,
 written once, not per KB, plus the rule that procedures, runbooks and incidents are read whole with
@@ -324,8 +322,6 @@ every run: `kb-create` and the other old names reach the client next to the bund
 - Sync never carries secrets, only references (`skills-services-secrets.md`).
 
 ## Pruning
-
-- **A KB with `kb_options.<kb>.artifacts: false`** (D1408) is pruned like a KB that stops being bound, for its skills, subagents, hooks and MCP descriptors: they leave the manifest before the strict merge, `ComputeDiff` lists them Removed and `PruneManaged` removes them through the lockfile. Its instructions artifact stays, rewritten without the `Skills:` line (client-side, after verification, rehashed), and the subagent sentence disappears with its agents; `bundle` skills and the synthetic hooks are not KB artifacts and stay.
 
 - `Apply`/`PruneManaged` remove **only** the paths in `managed[]` that are no longer in the manifest — never files not created by Cartographer. Healing (D139) obeys the same boundary: it reads and rewrites managed paths only.
 - **Empty directories** (`pruneEmptyDirs`): after every removal, it walks up the parent directories deleting the ones left empty, always stopping at known roots (`.claude`, `.codex`, `.kiro`, `.opencode`, `.config`, `.config/opencode`, `.config/crush`, `.gemini`, `.copilot`, in a workspace also `.agents` and `.crush`, or `BaseDir`; a test checks the list against both destination matrices), which are never removed (disconnecting a workspace can leave an empty `.agents/` or `.crush/` behind, as it can `.claude/`). `os.Remove` (never `RemoveAll`) is the natural guard against non-empty directories.
@@ -465,8 +461,6 @@ that skill is not materialized, with a warning naming it, and the rest of the sy
 
 ## Workspace scope (D193)
 
-`kb_options.<kb>.artifacts: false` (D1408) applies inside every projection too: a KB bound to a folder (explicitly or by derivation, D1019) still reaches it with its MCP tools and its routing sentence, with no artifact files.
-
 By default a provider has **one** catalogue, under the user's home, shared by every session of
 that provider on the machine. A provider that works in two perimeters therefore sees both
 perimeters' skills everywhere, and chooses between them from name and description alone — the
@@ -504,13 +498,7 @@ the workspace for this: no `.mcp.json`, no project entry, whichever client.
 Rules: a folder under no binding, `$HOME` included, gets the provider's default set **read-only**
 (D1018): the bridge sends `access=read` and the server lists no write tool and refuses a call to one,
 naming `cartographer workspace bind` and a KB's `paths.yaml` as the ways to write; the folder also
-receives no KB artifact. That is the default: the client setting `unbound_access` (`default: <mode>` for
-every provider, `<provider>: <mode>` overrides; `read` or `write`, anything else is `read`; #1356) turns
-an unbound folder read-write instead, still without artifacts (they stay tied to a binding, D193). The
-bridge then sends no `access=read`, so the session is an ordinary routed one, and its `initialize`
-instructions say it is unbound (the bridge appends the sentence to what the server answers, in a JSON
-or an SSE answer). The setting is inert for a provider on the HTTP entry (no binding, already
-read-write), a bound folder never changes, and it is not a security boundary (D737). A bridge whose server does not confirm the mode (`Cartographer-Access:
+receives no KB artifact. A bridge whose server does not confirm the mode (`Cartographer-Access:
 read`, older servers) serves no tools. Until that confirmation the bridge forwards one message at a time, and a response that opens an event stream (`subscriptions/listen`) releases the next one as soon as its headers confirm the mode, so the stream never holds back `tools/list`. A binding that wins is never read-only. An empty
 binding (`--no-kb`), or one whose KBs are all unmounted, gets a session with no Cartographer tools,
 never every KB (the bridge answers the handshake itself and sends nothing to the server); a binding
@@ -749,7 +737,7 @@ cannot reach past its own projection.
 
 ## Instructions (imprinting)
 
-For every mounted KB, `BuildManifest` generates a `kind: instructions` artifact (name = KB name) whose content **does not live on disk**: it is produced by `generateKBInstructions` (pure and deterministic) and placed in `Artifact.Files`. It contains: a header (the KB is served via MCP) with the **names** of `data/`'s top-level maps inline ("Maps: a/, b/.", #1316) (no page counts — it's stable imprinting, not state, D65), operational instructions, built from pieces shared with the server's `initialize` guide (D1097) (start with `search`/`atlas_overview`, read with `concept_read`, write with `concept_write`, close with `log_append`; every write is a commit; never run git in the KB's clone, report `sync_status` instead — D264), the **names only** of the KB's agents (descriptions already come from the client's agent registry — the agent is installed natively, D65), and the verbatim content of the optional curated file `<kbRoot>/instructions.md` (at the root, never under `data/`). `ContentHash` = sha256 of the generated content: it changes only if the set of maps/agents or the curated file changes — not on every added page. Details → [D56/D61](decisions/D56-instructions-kind-kb-imprinting-via-managed-block-in.md) and [D65](decisions/D65-agent-tool-profile-and-compact-instructions-less-fixed.md).
+For every mounted KB, `BuildManifest` generates a `kind: instructions` artifact (name = KB name) whose content **does not live on disk**: it is produced by `generateKBInstructions` (pure and deterministic) and placed in `Artifact.Files`. It contains: a header (the KB is served via MCP) with the **names** of `data/`'s top-level archives inline (no page counts — it's stable imprinting, not state, D65), operational instructions, built from pieces shared with the server's `initialize` guide (D1097) (start with `search`/`atlas_overview`, read with `concept_read`, write with `concept_write`, close with `log_append`; every write is a commit; never run git in the KB's clone, report `sync_status` instead — D264), the **names only** of the KB's agents (descriptions already come from the client's agent registry — the agent is installed natively, D65), and the verbatim content of the optional curated file `<kbRoot>/instructions.md` (at the root, never under `data/`). `ContentHash` = sha256 of the generated content: it changes only if the set of archives/agents or the curated file changes — not on every added page. Details → [D56/D61](decisions/D56-instructions-kind-kb-imprinting-via-managed-block-in.md) and [D65](decisions/D65-agent-tool-profile-and-compact-instructions-less-fixed.md).
 
 Materialization: a **managed block** delimited by markers (`<!-- cartographer:instructions:begin/end -->`) inside the provider's global instructions file (see the matrix above) — a user file, never overwritten or deleted:
 

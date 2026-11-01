@@ -53,7 +53,7 @@ touches a package with platform-specific code — `cmd/`, `internal/{service,pro
 the installers, any `*_windows.go` (D672). A regression elsewhere still shows
 on `main` right after the merge. The `web` legs run after every push to `main`
 and on a PR that touches the frontend, `test/lib/`, the build files, or a
-non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen,worker/workertest}`
+non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen}`
 and every `_test.go` cannot change what the browser sees, so they do not trigger it (D672, D255, D994); the
 Playwright browser is cached by version. A `demo-edge` job runs the demo
 Worker's tests (`make demo-worker-test`) and, for Terraform changes, `make demo-tf-check`
@@ -297,7 +297,7 @@ in its list of local-only targets.
 `make docker-smoke` builds the server image and runs
 [`test/smoke/image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/image.sh)
 on it (D995): `git`, `sops`, `age` and `ssh` are in the image, `version` prints
-the `VERSION` build-arg, `worker` without `--config` exits 2 (the third role is in the same image and needs no volume), the user is not root, a KB created on a data volume is
+the `VERSION` build-arg, the user is not root, a KB created on a data volume is
 served over HTTP with a token (no token is a 401), and a `map_create` plus a
 `concept_batch` write read back through `concept_read` and leave one more commit in
 the KB's repository. It runs on the runner's architecture only.

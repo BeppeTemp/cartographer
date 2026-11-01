@@ -36,8 +36,6 @@ const (
 	denyUnboundFolder    = "unbound_folder"
 	denyLocalOnly        = "local_only"
 	denyReadOnlyProfile  = "read_only_profile"
-	denyArtifactsRO      = "artifacts_read_only"
-	denyReadOnlyKB       = "read_only_kb"
 )
 
 var denyHints = map[string]string{
@@ -51,8 +49,6 @@ var denyHints = map[string]string{
 	denyNoKBAccess:       "the token has no access to this KB",
 	denyNoPrincipal:      "no principal resolved for this connection",
 	denyLocalOnly:        "this tool acts on the host the server runs on and is available only to the local operator (stdio, or HTTP with authentication off); use sync_pull from a client",
-	denyArtifactsRO:      "the token's rule for this KB carries artifacts: r, which withholds the tools that change skills, agents and hooks",
-	denyReadOnlyKB:       "this KB is read-only on this connection (kb_options access: read on the client): the other KBs of the connection stay writable",
 	denyReadOnlyProfile:  "this connection was opened read-only (access=read-min): connect without it to write",
 	denyUnboundFolder: "this session is read-only because the folder it was started in is bound to no KB: " +
 		"bind the folder (cartographer workspace bind <provider> <path> --kb <name>) or declare its repository in a KB's paths.yaml, then start a new agent session",
@@ -97,7 +93,7 @@ func resourceClassForTool(name string) string {
 		return resourceBatch
 	case "index_patch":
 		return resourceCuratedIndex
-	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "ingest_setup", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "reindex", "kb_status", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "artifact_move", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
+	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "reindex", "kb_status", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "artifact_move", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
 		return resourceWhole
 	default:
 		return ""
@@ -167,14 +163,11 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 	// Whole-KB tools have no safe partial semantics. The list is deliberately
 	// conservative; adding an unclassified tool can only deny a restricted caller.
 	switch tool {
-	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "ingest_setup", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "artifact_move", "secret_set", "secret_resolve", "reindex", "kb_status", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
-		if !policy.AllowsWholeKB(name, write) {
-			return deny(denyNeedsWholeKB)
+	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "artifact_move", "secret_set", "secret_resolve", "reindex", "kb_status", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
+		if policy.AllowsWholeKB(name, write) {
+			return nil
 		}
-		if artifactWriteTools[tool] && !policy.AllowsArtifactWrite(name) {
-			return deny(denyArtifactsRO)
-		}
-		return nil
+		return deny(denyNeedsWholeKB)
 	}
 
 	var raw map[string]json.RawMessage
@@ -603,20 +596,6 @@ func VisibleCollection(ctx context.Context, k *kb.KB, name, kind string) bool {
 		return p.Policy.AllowsCollection(kbName(k), "", name, false)
 	}
 	return p.Policy.AllowsCollection(kbName(k), name, "", false)
-}
-
-// artifactWriteTools take a caller-chosen artifact path and content: the only
-// tools an `artifacts: r` rule withholds (D17 of the worker design). Files the
-// server writes with fixed content (templates/source.md) stay allowed.
-var artifactWriteTools = map[string]bool{
-	"artifact_write": true, "artifact_delete": true, "artifact_move": true, "skill_install": true,
-}
-
-// ArtifactWriteVisible is WholeVisible(write) plus the artifacts grant, for the
-// routes that change artifact metadata (/api/usage).
-func ArtifactWriteVisible(ctx context.Context, k *kb.KB) bool {
-	p := auth.PrincipalFromContext(ctx)
-	return p.ID != "" && (p.Policy.Admin || p.Policy.AllowsArtifactWrite(kbName(k)))
 }
 
 func WholeVisible(ctx context.Context, k *kb.KB, write bool) bool {

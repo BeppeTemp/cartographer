@@ -7,7 +7,6 @@ import type {
   SettingOrigin,
   SettingsClient,
   SettingsKB,
-  SettingsWorker,
   SettingsView,
   Whoami,
   WhoamiRule,
@@ -248,46 +247,20 @@ export function Settings({
   const client = tab.startsWith("client")
     ? (clients.find((c) => `client:${c.machine}` === tab) ?? clients[0] ?? null)
     : undefined;
-  // A worker tab opens on its perimeter; with none reported, on the template.
-  const workers = view.workers ?? [];
-  // Tabs are keyed by position: two principals can run the same perimeter name.
-  const worker = tab.startsWith("worker") ? (workers[Number(tab.split(":")[1])] ?? workers[0] ?? null) : undefined;
-  const workerId = worker ? `worker:${workers.indexOf(worker)}` : "worker";
-  const current =
-    worker !== undefined
-      ? workerId
-      : client !== undefined
-        ? client
-          ? `client:${client.machine}`
-          : "client"
-        : kb
-          ? "kb"
-          : "server";
+  const current = client !== undefined ? (client ? `client:${client.machine}` : "client") : kb ? "kb" : "server";
 
   return (
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
-        title={
-          worker !== undefined
-            ? (worker?.perimeter ?? "Worker")
-            : client !== undefined
-              ? (client?.machine ?? "Client")
-              : kb
-                ? kb.name
-                : "Server"
-        }
+        title={client !== undefined ? (client?.machine ?? "Client") : kb ? kb.name : "Server"}
         subtitle={
           <>
-            {worker !== undefined
-              ? worker
-                ? `Worker${worker.version ? ` ${worker.version}` : ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · ${worker.kbs.join(", ")} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
-                : "No worker has reported: every key at its default, read-only"
-              : client
-                ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
-                : kb
-                  ? "This Knowledge Base's configuration, read-only"
-                  : "The configuration this server runs with, read-only"}
+            {client
+              ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+              : kb
+                ? "This Knowledge Base's configuration, read-only"
+                : "The configuration this server runs with, read-only"}
             {who && (
               <>
                 {" · "}
@@ -325,21 +298,11 @@ export function Settings({
               Knowledge Base
             </Tab>
           )}
-          {(workers.length ? workers : [null]).map((w, i) => {
-            const id = w ? `worker:${i}` : "worker";
-            return (
-              <Tab key={id} id={id} current={current === id} onSelect={setTab}>
-                {w && workers.length > 1 ? `Worker · ${w.perimeter}` : "Worker"}
-              </Tab>
-            );
-          })}
         </div>
       </div>
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
-        {worker !== undefined ? (
-          <WorkerPanel worker={worker} template={view.worker_template} mode={mode} query={query} />
-        ) : client !== undefined ? (
+        {client !== undefined ? (
           <ClientValues.Provider value={true}>
             <ClientPanel
               client={client}
@@ -514,37 +477,6 @@ function ClientPanel({
           {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
         </>
       )}
-    </>
-  );
-}
-
-/** A worker perimeter's reported settings (D22), keys grouped by first path segment so a new task kind needs no entry here. */
-function WorkerPanel({
-  worker,
-  template,
-  mode,
-  query,
-}: {
-  worker: SettingsWorker | null;
-  template?: { entries: SettingEntry[] };
-  mode: Mode;
-  query: string;
-}) {
-  const source = worker ?? template;
-  const groups = new Map<string, SettingEntry[]>();
-  for (const e of (source?.entries ?? []).filter((e) => matches(e, query))) {
-    const g = e.key.split(/[.[]/)[0]!;
-    groups.set(g, [...(groups.get(g) ?? []), e]);
-  }
-  return mode === "yaml" ? (
-    <p className="page-note">A worker reports its typed values, not its file: there is no YAML to show.</p>
-  ) : groups.size === 0 ? (
-    <NoMatch query={query} />
-  ) : (
-    <>
-      {[...groups].map(([g, rows]) => (
-        <Rows key={g} group={{ title: g, intro: "" }} entries={rows} label={`Worker ${g} settings`} />
-      ))}
     </>
   );
 }
@@ -1148,7 +1080,7 @@ function describeRule(rule: WhoamiRule): string {
   ]
     .filter(Boolean)
     .join("; ");
-  return `${rule.write ? "can read and write" : "can read"} ${scope}${rule.artifacts === "r" ? ", not skills, agents or hooks" : ""}`;
+  return `${rule.write ? "can read and write" : "can read"} ${scope}`;
 }
 
 /** Who is looking, in a few words: the principal and what it reaches. */

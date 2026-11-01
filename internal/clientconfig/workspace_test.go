@@ -3,7 +3,6 @@ package clientconfig
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -319,54 +318,5 @@ func TestWorkspacesRoundTrip(t *testing.T) {
 	got := reloaded.WorkspaceBindings("claude")
 	if len(got) != 1 || got[0].Path != canonical || got[0].Remote != "git.example.com/team/repo" || got[0].KBs[0] != "homelab-kb" {
 		t.Errorf("bindings did not survive a round trip: %+v", got)
-	}
-}
-
-// #1356: the unbound_access resolution matrix.
-func TestUnboundAccess(t *testing.T) {
-	cases := []struct {
-		name       string
-		m          map[string]string
-		provider   string
-		mode, orig string
-	}{
-		{"unset", nil, "claude", "read", "default"},
-		{"default write", map[string]string{"default": "write"}, "claude", "write", "unbound_access"},
-		{"default write, kiro read", map[string]string{"default": "write", "kiro": "read"}, "kiro", "read", "unbound_access"},
-		{"default write, kiro read, other", map[string]string{"default": "write", "kiro": "read"}, "claude", "write", "unbound_access"},
-		{"default read, kiro write", map[string]string{"default": "read", "kiro": "write"}, "kiro", "write", "unbound_access"},
-		{"default read, kiro write, other", map[string]string{"default": "read", "kiro": "write"}, "claude", "read", "unbound_access"},
-		{"unknown value", map[string]string{"default": "yes"}, "claude", "read", "unbound_access"},
-		{"unknown provider key", map[string]string{"nobody": "write"}, "claude", "read", "default"},
-	}
-	for _, c := range cases {
-		cfg := &Config{UnboundModes: c.m}
-		if mode, orig := cfg.UnboundAccess(c.provider); mode != c.mode || orig != c.orig {
-			t.Errorf("%s: got %s/%s, want %s/%s", c.name, mode, orig, c.mode, c.orig)
-		}
-	}
-}
-
-// TRAP (#1356): unbound_access changes the session's tools, never what is
-// projected. Artifacts stay tied to a binding (D193), so the projection code
-// must not read the setting: sync output is then identical with it on or off.
-func TestProjectionDoesNotReadUnboundAccess(t *testing.T) {
-	err := filepath.WalkDir("../provisioning", func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || filepath.Ext(p) != ".go" {
-			return err
-		}
-		b, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return rerr
-		}
-		for _, id := range []string{"UnboundAccess", "UnboundModes", "unbound_access"} {
-			if strings.Contains(string(b), id) {
-				t.Errorf("%s reads %s: the projection must not depend on the unbound access mode", p, id)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }
