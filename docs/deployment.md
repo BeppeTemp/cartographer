@@ -555,32 +555,6 @@ fetch:
 `fetch.allow_private` is refused by default after DNS resolution (checked on every connection, redirects included): a
 worker runs inside someone's network and must not become a proxy to it.
 
-**Connectors (D1262).** `connectors` is a mapping, by name (`[a-z0-9-]{1,30}`, not `git`, `fetch` or
-`artifact`), of external MCP servers the unit-execution task may read documents through. Each takes
-`transport: stdio` (`command`, `args`, `env`) or `transport: http` (`url`, `token_env`, `headers`,
-`allow_insecure_http`), plus `tools` (required), `call_timeout` (default 60s) and `max_result_bytes`
-(default 256 KiB). A Source names a connector in its `connector` field; nothing else in a KB selects
-one. The model is offered only the tools listed in `tools`, as `<connector>__<tool>`, and a call to any
-other is refused by the worker before it reaches the server: the server's own tool list is untrusted.
-Every value of `env` and `headers`, and `token_env`, is the **name** of a variable of the worker (a
-value is refused at load, without echoing it); the variable is read when the connector first starts,
-and a stdio child receives only the variables listed plus `PATH` and `HOME`. A connector that cannot
-start (command missing, variable unset, server down) is skipped for the run, not fatal.
-
-```yaml
-connectors:
-  docs-wiki:
-    transport: http
-    url: https://wiki-mcp.example.com/mcp
-    token_env: WIKI_TOKEN
-    tools: [get_page, search]
-  local-files:
-    transport: stdio
-    command: ./bin/files-mcp     # a path with a separator is resolved against this file's directory
-    env: {API_TOKEN: FILES_TOKEN}
-    tools: [read_file]
-```
-
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
 for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB
 closes with a `log_append` (path `worker/<name>`) whose line carries `day=`, `tokens.<profile>=` and

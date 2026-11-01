@@ -28,7 +28,7 @@ func SourceTemplate() string {
 	b.WriteString("title: \"{{title}}\"\n")
 	b.WriteString(TemplateMetaDescription + ": One primary source the knowledge base has absorbed, with its ingest status\n")
 	b.WriteString(TemplateMetaRequiredFields + ": [source_kind, ingest_status]\n")
-	b.WriteString(TemplateMetaOptionalFields + ": [locator, sha256, timestamp, ingested_at, source_shape, connector, recipe, feed_cursor, feed_checked_at, feed_interval, feed_include, feed_error]\n")
+	b.WriteString(TemplateMetaOptionalFields + ": [locator, sha256, timestamp, ingested_at, source_shape, connector, recipe]\n")
 	b.WriteString(TemplateMetaFieldValues + "ingest_status: [" + strings.Join(SourceIngestStatuses, ", ") + "]\n")
 	b.WriteString(TemplateMetaFieldValues + "source_shape: [" + strings.Join(SourceShapes, ", ") + "]\n")
 	b.WriteString(TemplateMetaOpenSections + ": true\n")

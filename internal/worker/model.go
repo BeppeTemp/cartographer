@@ -1,4 +1,5 @@
-// Package worker is the model client and agent loop of the worker (D9): library only, nothing reaches it from the binary yet.
+// Package worker is the model client and the allowlisted agent loop a worker
+// runs against a KB's MCP server (D9): library only, nothing reaches it from the binary yet.
 //
 // A worker is a headless MCP client of the public HTTP contract plus its own
 // loop calling the model API directly: the Anthropic Messages API and

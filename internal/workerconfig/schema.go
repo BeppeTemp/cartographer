@@ -51,36 +51,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "models[].budget.run_tokens", Scope: settingschema.ScopeWorker, Type: "int", Values: "tokens, above 0 and at most daily_tokens", Default: "daily_tokens",
 		Description: "The most one run spends on the profile, all its tasks together."},
 
-	// connectors is a mapping keyed by connector name: "{name}" stands for any
-	// key (the loader in internal/worker reads it so; settingschema's realign has
-	// no such segment and the worker file is never realigned). Display rules
-	// (D22): env, headers and token_env show the variable name and whether it is
-	// set, never a value; a command shows its base name, args never.
-	{Path: "connectors", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
-		Description: "External MCP servers the unit-execution task may read through, by name; a Source names one in its connector field."},
-	{Path: "connectors.{name}.transport", Scope: settingschema.ScopeWorker, Type: "string", Values: "stdio | http", Default: `""`,
-		Description: "How the worker reaches the server: a child process on stdio, or a streamable HTTP endpoint."},
-	{Path: "connectors.{name}.command", Scope: settingschema.ScopeWorker, Type: "string", Default: `""`,
-		Description: "The program of a stdio connector: a path with a separator is resolved against the config file's directory, a bare name is looked up on PATH."},
-	{Path: "connectors.{name}.args", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
-		Description: "Arguments of the stdio program, passed verbatim with no shell."},
-	{Path: "connectors.{name}.env", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
-		Description: "Variables of a stdio child, as NAME: the name of the worker's own variable holding the value; the child gets only these plus PATH and HOME."},
-	{Path: "connectors.{name}.url", Scope: settingschema.ScopeWorker, Type: "url", Default: `""`,
-		Description: "Endpoint of an http connector, without credentials in it."},
-	{Path: "connectors.{name}.allow_insecure_http", Scope: settingschema.ScopeWorker, Type: "bool", Default: "false",
-		Description: "Accept a plain http:// url to a non-loopback host, which sends the token in clear."},
-	{Path: "connectors.{name}.token_env", Scope: settingschema.ScopeWorker, Type: "env", Default: `""`,
-		Description: "Name of the environment variable holding the bearer token of an http connector."},
-	{Path: "connectors.{name}.headers", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
-		Description: "Extra headers of an http connector, as Header-Name: the name of the variable holding the value."},
-	{Path: "connectors.{name}.tools", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
-		Description: "The only tools of the server the model is offered and may call, named as the server names them; required, because the server's own list is untrusted."},
-	{Path: "connectors.{name}.call_timeout", Scope: settingschema.ScopeWorker, Type: "duration", Default: "60s",
-		Description: "Time allowed to start the connector and for each of its calls."},
-	{Path: "connectors.{name}.max_result_bytes", Scope: settingschema.ScopeWorker, Type: "int", Values: "bytes, above 0", Default: "262144",
-		Description: "Largest tool result kept in memory; the rest is cut."},
-
 	{Path: "schedule.window.start", Scope: settingschema.ScopeWorker, Type: "string", Values: "HH:MM", Default: `""`,
 		Description: "Start of the daily window in which the worker acts."},
 	{Path: "schedule.window.end", Scope: settingschema.ScopeWorker, Type: "string", Values: "HH:MM, excluded; before start means across midnight", Default: `""`,

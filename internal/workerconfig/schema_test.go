@@ -40,7 +40,7 @@ func TestSchemaConventions(t *testing.T) {
 		if strings.HasSuffix(last, "_env") != (k.Type == "env") {
 			t.Errorf("%s: a *_env key has Type env, and only such a key does (Type %q)", k.Path, k.Type)
 		}
-		if (strings.HasSuffix(last, "_url") || last == "base_url" || last == "url") != (k.Type == "url") {
+		if (strings.HasSuffix(last, "_url") || last == "base_url") != (k.Type == "url") {
 			t.Errorf("%s: a URL key has Type url, and only such a key does (Type %q)", k.Path, k.Type)
 		}
 	}

@@ -18,7 +18,6 @@ import (
 	_ "time/tzdata"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
-	"github.com/BeppeTemp/cartographer/internal/worker/connector"
 	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 	"gopkg.in/yaml.v3"
 )
@@ -104,8 +103,6 @@ type Config struct {
 	// may reach private, loopback and link-local destinations.
 	FetchAllowPrivate bool
 	Tasks             []TaskSpec
-	// Connectors are the external MCP servers of the perimeter, by name (D1262).
-	Connectors []connector.Config
 	// Warnings are conditions worth one line at start that do not stop it.
 	Warnings []string
 
@@ -139,9 +136,6 @@ func (c Config) GoString() string {
 		c.Name, c.ServerURL, c.KBs, c.Models, len(c.Tasks))
 }
 
-// nameSegment stands in a key-table path for any key of a name-keyed mapping.
-const nameSegment = "{name}"
-
 var nameRE = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 var clockRE = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 
@@ -158,8 +152,7 @@ type rawConfig struct {
 	Fetch             struct {
 		AllowPrivate bool `yaml:"allow_private"`
 	} `yaml:"fetch"`
-	Tasks      []yaml.Node             `yaml:"tasks"`
-	Connectors map[string]rawConnector `yaml:"connectors"`
+	Tasks []yaml.Node `yaml:"tasks"`
 }
 
 type rawModel struct {
@@ -195,16 +188,17 @@ func LoadConfig(path string, kinds *Kinds) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("worker config: read %q: %w", path, err)
 	}
-	c, err := parseConfig(data, kinds, filepath.Dir(path))
+	c, err := parseConfigIn(data, kinds, filepath.Dir(path))
 	if err != nil {
 		return nil, fmt.Errorf("worker config %s: %w", path, err)
 	}
 	return c, nil
 }
 
-// parseConfig parses a config; dir is the config file's directory, against which
-// a relative path in the file is resolved ("" leaves such a path as written).
-func parseConfig(data []byte, kinds *Kinds, dir string) (*Config, error) {
+func parseConfig(data []byte, kinds *Kinds) (*Config, error) { return parseConfigIn(data, kinds, "") }
+
+// parseConfigIn is parseConfig with the directory kinds resolve their files in.
+func parseConfigIn(data []byte, kinds *Kinds, dir string) (*Config, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, err
@@ -283,16 +277,10 @@ func (w *walker) walk(n *yaml.Node, path, at string) error {
 		}
 		seen[k.Value] = k.Line
 		child, ok := known.children[k.Value]
-		seg := k.Value
-		if !ok {
-			// A name-keyed mapping (connectors): the table spells its keys {name}.
-			child, ok = known.children[nameSegment]
-			seg = nameSegment
-		}
 		if !ok {
 			return fmt.Errorf("unknown key %q under %s (line %d, column %d)", k.Value, where, k.Line, k.Column)
 		}
-		childPath := join(path, seg)
+		childPath := join(path, k.Value)
 		if child.list {
 			childPath += "[]"
 		}
@@ -470,9 +458,6 @@ func (v *validator) run() error {
 		return err
 	}
 	if err := v.schedule(); err != nil {
-		return err
-	}
-	if err := v.connectors(); err != nil {
 		return err
 	}
 	return v.tasks()
