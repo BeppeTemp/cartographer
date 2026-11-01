@@ -21,12 +21,12 @@ gh repo view "$(scripts/upstream-repo.sh)" --json viewerPermission --jq .viewerP
 `ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any
 failure to read it, is **contributor mode**. State the mode to the user in one line.
 
-A plan is a **proposal**: the skill ends by telling the user it waits for a
+In contributor mode this skill stops here: a contributor opens a bug, an idea or a
+direct PR, and writes no plan; tell the user so.
+
+A plan issue is a **proposal**: the skill ends by telling the user it waits for a
 maintainer's `approved` label, and never adds that label itself (a maintainer may
-tell you to, in the session). In contributor mode the label edits below are out of
-reach (they need triage rights): you create a Plan issue, nothing else. To
-implement an approved plan, a contributor comments on it to claim it; the
-maintainer assigns it to them.
+tell you to, in the session).
 
 ## Writing a plan
 
@@ -47,7 +47,7 @@ maintainer assigns it to them.
    pointers, not paraphrases.
 4. Write the body (in English) to a scratch file following the template
    structure, then:
-   `gh issue create --title "Plan: <title>" --label plan --body-file <file>` (a contributor cannot set labels: the template sets `plan`).
+   `gh issue create --title "Plan: <title>" --label plan --body-file <file>`.
    Delete the scratch file afterwards — it is not a repository artifact.
    A maintainer who keeps a plan outside the repository stops at the scratch file
    and takes it from there: no issue, no number, nothing below that needs one.
@@ -63,12 +63,11 @@ maintainer assigns it to them.
    body to reference siblings as `#<issue>` — the numbers exist only after
    creation. A pointer into a sibling's not-yet-implemented artifact cites the
    plan (`#<issue> WP<m>`), never an invented `file:line`.
-8. A plan written from a `bug` or `idea` issue is **promoted in place**, not filed anew
-   (maintainer mode): rewrite that issue's body from the template (keep a
+8. A plan written from a `bug` or `idea` issue is **promoted in place**, not filed anew:
+   rewrite that issue's body from the template (keep a
    one-line summary of the original request at the top), retitle it
    `Plan: <title>`, and `gh issue edit <m> --add-label plan`. One issue, one
-   history, nothing to close by hand. In contributor mode, open a new Plan issue
-   that links the original instead. Only an analysis that splits one request
+   history, nothing to close by hand. Only an analysis that splits one request
    into several plans files new issues; it then closes the request with
    `-c "Split into #<a>, #<b>"`.
 

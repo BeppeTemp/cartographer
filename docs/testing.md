@@ -61,7 +61,7 @@ when `deploy/demo/` changes. A `changes` job decides all of these with
 `scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
 which also compares the excluded packages with `go list -deps`), failing open, and the
 release-please PR always runs everything. `test`, `test-windows`, `web` and
-`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the approved-plan and size rules, D955; the docs-owner `WARN` it prints is not enforced) are required checks; a job skipped by its path condition reports as
+`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are required checks; a job skipped by its path condition reports as
 passed. On `main` every push gets its own run (the concurrency group is the
 commit), and the `main-status` job opens a `ci-red` issue on the first
 failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
