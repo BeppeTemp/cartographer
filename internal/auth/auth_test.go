@@ -507,26 +507,3 @@ func TestMiddlewarePublicPathPrincipal(t *testing.T) {
 		}
 	}
 }
-
-func TestAllowsArtifactWrite(t *testing.T) {
-	flagged := Permission{KB: "kb-a", Write: true, ReadOnlyArtifacts: true}
-	plain := Permission{KB: "kb-a", Write: true}
-	cases := []struct {
-		name string
-		p    Policy
-		want bool
-	}{
-		{"admin", Policy{Admin: true}, true},
-		{"plain write", Policy{Permissions: []Permission{plain}}, true},
-		{"flagged", Policy{Permissions: []Permission{flagged}}, false},
-		{"flagged plus plain (union widens)", Policy{Permissions: []Permission{flagged, plain}}, true},
-		{"plain on another KB", Policy{Permissions: []Permission{{KB: "kb-b", Write: true}, flagged}}, false},
-		{"read only", Policy{Permissions: []Permission{{KB: "kb-a"}}}, false},
-		{"scoped", Policy{Permissions: []Permission{{KB: "kb-a", Write: true, Maps: []string{"m"}}}}, false},
-	}
-	for _, c := range cases {
-		if got := c.p.AllowsArtifactWrite("kb-a"); got != c.want {
-			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
-		}
-	}
-}

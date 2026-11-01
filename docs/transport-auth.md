@@ -412,7 +412,7 @@ resource they address:
 | collection | `search`, `concept_list`, `atlas_overview`, `contradiction_report`, … | results are filtered per element |
 | source/destination | `concept_move` | both ends must be allowed, and for an expanded concept so must each satellite (its own type, source and destination); link rewriting additionally requires whole-KB write |
 | curated index | `index_patch` | the target Map/Journal must be allowed for write by a rule that names no type: the index lists pages of every type, so a role narrowed by type cannot rewrite it, and its own entry is written with `index_entry` on the creation, under the page's grant (D714); the root index (no single Map/Journal of its own) requires whole-KB write even under a policy that already grants a write inside one of its Maps (D122) |
-| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics. `artifact_write`, `artifact_delete`, `artifact_move` (on both KBs) and `skill_install` need the artifacts grant as well (D1259): a rule with `artifacts: r` grants everything its whole-KB write grants except those four, and `/api/usage`, which writes artifact metadata. It is a narrower allow, not a deny rule, so a second rule of the token without the key restores them |
+| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics |
 
 A tool absent from the registry is denied, so a newly added tool fails closed
 until its resource semantics are chosen deliberately.
@@ -424,7 +424,7 @@ Two properties are load-bearing:
   not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
   `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
   `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
-  `no_principal`, `artifacts_read_only`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184); the reason describes the caller's own token and arguments,
+  `no_principal`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184); the reason describes the caller's own token and arguments,
   never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS

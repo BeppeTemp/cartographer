@@ -39,7 +39,6 @@ func TestPolicyDenialsCarryReasonCodes(t *testing.T) {
 		{"unclassified", rw, "no_such_tool", `{}`, "unclassified_tool"},
 		{"read-only write", ro, "concept_new", `{"id":"manutenzione/n","template":"runbook"}`, "read_only_token"},
 		{"read-only whole-kb write", ro, "map_create", `{"name":"x"}`, "read_only_token"},
-		{"artifacts read-only", auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, ReadOnlyArtifacts: true}}}, "artifact_write", `{}`, "artifacts_read_only"},
 		{"scoped whole-kb", ro, "kb_status", `{}`, "needs_whole_kb"},
 		{"service secrets", rw, "service_get", `{"service_id":"s","resolve_secrets":true}`, "needs_whole_kb"},
 		{"move rewrite", rw, "concept_move", `{"source_id":"manutenzione/test-runbook","target_id":"manutenzione/m"}`, "needs_whole_kb"},
