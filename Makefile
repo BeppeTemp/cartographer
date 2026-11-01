@@ -161,7 +161,7 @@ test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and t
 # filesystem with its own subagents, so isolation is not free anywhere: these
 # two targets are the single client-neutral way to get it, and they are why the
 # cartographer-implement-plan skill no longer carries four copies of the same git commands.
-# BRANCH_PREFIX is feat by default; EXP=1 makes it exp, the long lane's branch (D1443, CONTRIBUTING.md §Experiment branches).
+# BRANCH_PREFIX is feat by default; EXP=1 makes it exp, the long lane's branch (D1454, CONTRIBUTING.md §Experiment branches).
 BRANCH_PREFIX = $(if $(EXP),exp,feat)
 
 worktree-add: ## Isolated worktree for a plan branch (from upstream/main when that remote exists, else origin/main): make worktree-add SLUG=my-change [EXP=1 for exp/<slug>]
@@ -171,11 +171,12 @@ worktree-add: ## Isolated worktree for a plan branch (from upstream/main when th
 	git fetch $$base && git worktree add -b "$(BRANCH_PREFIX)/$(SLUG)" ".worktrees/$(SLUG)" $$base/main
 	@echo "worktree: $(CURDIR)/.worktrees/$(SLUG) on $(BRANCH_PREFIX)/$(SLUG)"
 
-worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree-rm SLUG=my-change [EXP=1 for exp/<slug>]
+worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree-rm SLUG=my-change (the branch is read from the worktree: feat/ or exp/)
 	@test -n "$(SLUG)" || (echo "worktree-rm: SLUG is required" && exit 1)
 	@test -d ".worktrees/$(SLUG)" || (echo "worktree-rm: no worktree at .worktrees/$(SLUG)" && exit 1)
-	@git worktree remove --force ".worktrees/$(SLUG)"
-	@git branch -D "$(BRANCH_PREFIX)/$(SLUG)" 2>/dev/null || true
+	@br=$$(git -C ".worktrees/$(SLUG)" branch --show-current); \
+	git worktree remove --force ".worktrees/$(SLUG)"; \
+	test -z "$$br" || git branch -D "$$br" 2>/dev/null || true
 	@echo "worktree removed: .worktrees/$(SLUG)"
 
 worktree-clean: ## Remove the worktrees, local and fork branches of merged PRs, each checked against its PR: make worktree-clean [DRY=1]

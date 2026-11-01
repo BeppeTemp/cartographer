@@ -139,6 +139,7 @@ Working on more than one plan at a time? A subagent shares your working copy, so
 
 ```bash
 make worktree-add SLUG=my-change    # branches feat/my-change from upstream/main (origin/main without an upstream remote)
+make worktree-add SLUG=my-theme EXP=1  # the same, branch exp/my-theme (§Experiment branches)
 make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check first
 make worktree-clean DRY=1           # or: list what a merged PR left behind (worktree, local and fork branch) ...
 make worktree-clean                 # ... and remove it, each only after its PR is verified MERGED
@@ -351,7 +352,7 @@ never needs a `release-x.y` branch for work that is not ready. Every release sti
 its candidate.
 
 - **Create it** from `main`: `make worktree-add SLUG=<theme> EXP=1` (branch `exp/<theme>`,
-  worktree `.worktrees/<theme>`). `make worktree-rm SLUG=<theme> EXP=1` removes both.
+  worktree `.worktrees/<theme>`). `make worktree-rm SLUG=<theme>` removes both (it reads the branch from the worktree).
 - **Stay aligned**: merge `main` into the branch regularly, and always before a public
   build, so what is tried is what would land.
 - **CI without a PR**: `gh workflow run ci.yml --ref exp/<theme>` runs every job
@@ -363,7 +364,7 @@ its candidate.
   the `exp/` branch is never merged as a whole. It is deleted when the last slice has
   landed.
 - **A public build** of the branch (an image or binaries to try on a real deployment) is
-  a pre-release tagged `vX.Y.Z-exp.<YYYYMMDD>` (`preview.yml` dispatched on the branch).
+  a pre-release tagged `vX.Y.Z-exp.<YYYYMMDD>` (`gh workflow run preview.yml --ref exp/<theme> -f tag=vX.Y.Z-exp.<YYYYMMDD>`; the tag is a required input).
   `release.yml` ignores it and the candidate cleanup only deletes `-rc.` tags, so the
   maintainer deletes the pre-release and its tag by hand when the trial is over.
 
