@@ -91,12 +91,6 @@ func (v *validator) recipes() error {
 		}
 	}
 	v.c.GitAllowHosts = append([]string(nil), v.raw.Git.AllowHosts...)
-	for i, h := range v.raw.Fetch.AllowHosts {
-		if !recipe.ValidHostPattern(h) {
-			return v.errf("fetch.allow_hosts", v.line("fetch", "allow_hosts"), "entry %d is not a host or *.host (no scheme, port or path)", i)
-		}
-	}
-	v.c.FetchAllowHosts = append([]string(nil), v.raw.Fetch.AllowHosts...)
 	return nil
 }
 

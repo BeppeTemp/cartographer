@@ -104,11 +104,7 @@ type Config struct {
 	// FetchAllowPrivate is fetch.allow_private: the ingest task's built-in fetch
 	// may reach private, loopback and link-local destinations.
 	FetchAllowPrivate bool
-	// FetchAllowHosts and FetchAllowInsecureHTTP are fetch.allow_hosts and
-	// fetch.allow_insecure_http: they gate the http-pages recipe only (D1262).
-	FetchAllowHosts        []string
-	FetchAllowInsecureHTTP bool
-	Tasks                  []TaskSpec
+	Tasks             []TaskSpec
 	// Connectors are the external MCP servers of the perimeter, by name (D1262).
 	Connectors []connector.Config
 	// RecipeInstructions are the recipes.<name>.instructions_file texts, read at
@@ -168,9 +164,7 @@ type rawConfig struct {
 	Models            []rawModel  `yaml:"models"`
 	Schedule          rawSchedule `yaml:"schedule"`
 	Fetch             struct {
-		AllowPrivate      bool     `yaml:"allow_private"`
-		AllowHosts        []string `yaml:"allow_hosts"`
-		AllowInsecureHTTP bool     `yaml:"allow_insecure_http"`
+		AllowPrivate bool `yaml:"allow_private"`
 	} `yaml:"fetch"`
 	Tasks      []yaml.Node             `yaml:"tasks"`
 	Connectors map[string]rawConnector `yaml:"connectors"`
@@ -442,7 +436,6 @@ func (v *validator) run() error {
 	r, c := v.raw, v.c
 	c.Name, c.ServerURL, c.AllowInsecureHTTP, c.TokenEnv = r.Name, r.ServerURL, r.AllowInsecureHTTP, r.TokenEnv
 	c.FetchAllowPrivate = r.Fetch.AllowPrivate
-	c.FetchAllowInsecureHTTP = r.Fetch.AllowInsecureHTTP
 
 	if !nameRE.MatchString(r.Name) {
 		return v.errf("name", v.line("name"), "required, 1 to 40 characters of a-z, 0-9 and -")

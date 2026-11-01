@@ -104,7 +104,6 @@ internal/webui/gen          Command webui-provenance writes internal/webui/dist/
 internal/worker             is the model client and agent loop of the worker (D9)
 internal/worker/connector   mounts allowed MCP tools
 internal/worker/feed        handles a feed cursor
-internal/worker/poll        names units
 internal/worker/recipe      lists what changed in a feed Source
 internal/worker/synthesis   is the third task kind of the worker (D11)
 internal/worker/workertest  is the deterministic test double of package worker

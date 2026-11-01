@@ -138,28 +138,3 @@ func TestSourceFetchStopsWithTheRunContext(t *testing.T) {
 		t.Fatalf("not cancelled: %+v after %v", out, time.Since(start))
 	}
 }
-
-func TestFetcherPageRefusesARedirectToAnotherHostAndReadsValidators(t *testing.T) {
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("other")) }))
-	defer other.Close()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/go" {
-			http.Redirect(w, r, other.URL, http.StatusFound)
-			return
-		}
-		w.Header().Set("ETag", `"v1"`)
-		_, _ = w.Write([]byte("page"))
-	}))
-	defer srv.Close()
-	f := &fetcher{allowPrivate: true}
-	p, err := f.page(context.Background(), srv.URL+"/p")
-	if err != nil || string(p.Body) != "page" || p.ETag != `"v1"` {
-		t.Fatalf("%+v %v", p, err)
-	}
-	if _, err := f.page(context.Background(), srv.URL+"/go"); err == nil {
-		t.Fatal("a redirect to another host was followed")
-	}
-	if _, err := (&fetcher{}).page(context.Background(), srv.URL+"/p"); err == nil {
-		t.Fatal("a loopback page was read with fetch.allow_private off")
-	}
-}

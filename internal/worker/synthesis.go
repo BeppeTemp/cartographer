@@ -33,9 +33,9 @@ const (
 	synthesisBytesPerToken = 4
 )
 
-// schemaOption declares an option from its row of the key table, the one
+// synthesisOption declares an option from its row of the key table, the one
 // place its description and default are written (CheckSchema pins the pair).
-func schemaOption(name string) KindOption {
+func synthesisOption(name string) KindOption {
 	k, ok := workerconfig.Schema.Lookup("tasks[]." + name)
 	if !ok {
 		panic("worker: no key table row for tasks[]." + name)
@@ -49,8 +49,8 @@ func SynthesisKind() Kind {
 		Name: synthesisKindName,
 		Last: true,
 		Options: []KindOption{
-			schemaOption("synthesis_map"), schemaOption("synthesis_max_candidates"), schemaOption("synthesis_max_new"),
-			schemaOption("synthesis_context_tokens"), schemaOption("synthesis_reserve"),
+			synthesisOption("synthesis_map"), synthesisOption("synthesis_max_candidates"), synthesisOption("synthesis_max_new"),
+			synthesisOption("synthesis_context_tokens"), synthesisOption("synthesis_reserve"),
 		},
 		Validate: func(o map[string]any) error {
 			for _, k := range []string{"synthesis_max_candidates", "synthesis_max_new"} {

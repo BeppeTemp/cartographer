@@ -87,16 +87,13 @@ type Options struct {
 	Instructions map[string]string // recipes.<name>.instructions_file, already read
 	Clone        CloneFunc         // nil = gitx over https; tests inject a fixture
 	Exec         []ExecConfig      // recipes.<name>.exec, already validated (D1262)
-	FetchHosts   []string          // fetch.allow_hosts
-	InsecureHTTP bool              // fetch.allow_insecure_http
-	Get          GetFunc           // http-pages' fetch; nil = every request fails
 }
 
 // Registry holds the built-ins, always available under their own names.
 type Registry struct{ byName map[string]Recipe }
 
 // Builtins are the names of the recipes shipped in the binary.
-func Builtins() []string { return []string{"git-docs", "http-pages"} }
+func Builtins() []string { return []string{"git-docs"} }
 
 // NewRegistry builds the built-ins; it fails when one has no embedded text.
 func NewRegistry(o Options) (*Registry, error) {
@@ -110,16 +107,7 @@ func NewRegistry(o Options) (*Registry, error) {
 			}
 			text = string(b)
 		}
-		switch name {
-		case "git-docs":
-			r.byName[name] = newGitDocs(text, o)
-		case "http-pages":
-			get := o.Get
-			if get == nil {
-				get = func(context.Context, string) (Page, error) { return Page{}, fmt.Errorf("no fetch is configured") }
-			}
-			r.byName[name] = &httpPages{text: text, hosts: o.FetchHosts, insecure: o.InsecureHTTP, get: get}
-		}
+		r.byName[name] = newGitDocs(text, o)
 	}
 	for _, c := range o.Exec {
 		if _, dup := r.byName[c.Name]; dup {

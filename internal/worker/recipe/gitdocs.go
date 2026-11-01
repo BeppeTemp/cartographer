@@ -88,18 +88,10 @@ func (g *gitDocs) List(ctx context.Context, req Request) (Listing, error) {
 	}
 	defer os.RemoveAll(tmp) // losing the clone is harmless: the cursor is in the Source
 	dir := filepath.Join(tmp, "repo")
-	// Every git command run in the clone is anonymous too, with the operator's
-	// HOME out of reach (gitx.AnonymousReadEnv): the clone's own config is a
-	// stranger's, the operator's must not be read next to it.
-	home := filepath.Join(tmp, "home")
-	if err := os.Mkdir(home, 0o700); err != nil {
-		return Listing{}, fail(CodeListFailed, "no temporary directory")
-	}
-	env := gitx.AnonymousReadEnv(home)
 	if err := g.clone(ctx, u.String(), dir); err != nil {
 		return Listing{}, fail(CodeListFailed, "clone failed: %s", oneLine(err.Error()))
 	}
-	head, err := gitx.HeadSHA(dir, env...)
+	head, err := gitx.HeadSHA(dir)
 	if err != nil {
 		return Listing{}, fail(CodeListFailed, "the repository has no HEAD")
 	}
@@ -111,12 +103,12 @@ func (g *gitDocs) List(ctx context.Context, req Request) (Listing, error) {
 	// HEAD (or no longer exists) means history was rewritten.
 	invalid := fail(CodeCursorInvalid, "the cursor is not an ancestor of HEAD (history rewritten?); clear feed_cursor to list everything again")
 	if cur.to != "" {
-		if anc, err := gitx.IsAncestor(dir, cur.to, head, env...); err != nil || !anc {
+		if anc, err := gitx.IsAncestor(dir, cur.to, head); err != nil || !anc {
 			return Listing{}, invalid
 		}
 	}
 	if cur.from != "" {
-		if anc, err := gitx.IsAncestor(dir, cur.from, to, env...); err != nil || !anc {
+		if anc, err := gitx.IsAncestor(dir, cur.from, to); err != nil || !anc {
 			return Listing{}, invalid
 		}
 	}
@@ -124,7 +116,7 @@ func (g *gitDocs) List(ctx context.Context, req Request) (Listing, error) {
 	if len(include) == 0 {
 		include = []string{defaultInclude}
 	}
-	all, err := changes(dir, cur.from, to, env)
+	all, err := changes(dir, cur.from, to)
 	if err != nil {
 		return Listing{}, fail(CodeListFailed, "%s", oneLine(err.Error()))
 	}
@@ -155,10 +147,10 @@ func (g *gitDocs) List(ctx context.Context, req Request) (Listing, error) {
 
 // changes lists the files from -> to as entries (Key = Path is set here; the
 // Locator is the caller's). from empty = everything at to is added.
-func changes(dir, from, to string, env []string) ([]Entry, error) {
+func changes(dir, from, to string) ([]Entry, error) {
 	var out []Entry
 	if from == "" {
-		blobs, err := gitx.TreeBlobs(dir, to, env...)
+		blobs, err := gitx.TreeBlobs(dir, to)
 		if err != nil {
 			return nil, err
 		}
@@ -169,7 +161,7 @@ func changes(dir, from, to string, env []string) ([]Entry, error) {
 		}
 		return out, nil
 	}
-	diff, err := gitx.DiffTree(dir, from, to, env...)
+	diff, err := gitx.DiffTree(dir, from, to)
 	if err != nil {
 		return nil, err
 	}

@@ -12,15 +12,12 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
-	"github.com/BeppeTemp/cartographer/internal/worker/connector"
-	"github.com/BeppeTemp/cartographer/internal/worker/recipe"
 )
 
 // sourceFetchTool is the worker-side tool of one unit: no arguments, it fetches
@@ -199,13 +196,7 @@ type ingestTools struct {
 	fetch sourceReader
 	ctx   context.Context // the run's: a cancelled worker stops its fetch
 	unit  string          // the claimed unit: only the worker writes it
-	// conns and connTools are the claimed unit's connector, when its Source names
-	// one: a composite caller. Connector tools reach this task only (never poll,
-	// doctor or synthesis: they build their tool sets without it), and only those
-	// of the claimed unit's own connector; a test pins both.
-	conns     *connector.Set
-	connTools []connector.Tool
-	types     map[string]string
+	types map[string]string
 
 	mu   sync.Mutex
 	ids  []string
@@ -217,10 +208,6 @@ func (t *ingestTools) ListTools() ([]client.ToolInfo, error) {
 	l, err := t.inner.ListTools()
 	if err != nil {
 		return nil, err
-	}
-	for _, ct := range t.connTools {
-		schema, _ := json.Marshal(ct.InputSchema)
-		l = append(l, client.ToolInfo{Name: ct.Name, Description: ct.Description, InputSchema: schema})
 	}
 	return append(l, client.ToolInfo{
 		Name:        sourceFetchTool,
@@ -234,11 +221,6 @@ func (t *ingestTools) CallTool(name string, args any) (client.ToolOutput, error)
 	if name == sourceFetchTool {
 		return t.fetch.fetch(t.ctx), nil
 	}
-	// Routing by the separator is safe because no KB tool name contains it
-	// (pinned in internal/mcpserver), so a connector cannot shadow a KB tool.
-	if strings.Contains(name, connector.Separator) {
-		return t.callConnector(name, args), nil
-	}
 	if why := t.refuse(name, args); why != "" {
 		return client.ToolOutput{IsError: true, Text: "refused: " + why}, nil
 	}
@@ -247,63 +229,6 @@ func (t *ingestTools) CallTool(name string, args any) (client.ToolOutput, error)
 		t.record(name, args)
 	}
 	return out, err
-}
-
-// connectorNames are the qualified names offered for this unit.
-func (t *ingestTools) connectorNames() []string {
-	var n []string
-	for _, ct := range t.connTools {
-		n = append(n, ct.Name)
-	}
-	return n
-}
-
-// callConnector runs an offered connector tool; a name that was not offered
-// (the allowlist of the config, then Set.Call) is refused without a request to
-// the server. The result is data, never instructions.
-func (t *ingestTools) callConnector(name string, args any) client.ToolOutput {
-	if t.conns == nil || !slices.Contains(t.connectorNames(), name) {
-		return client.ToolOutput{IsError: true, Text: "refused: " + name + " is not a tool of this unit's connector"}
-	}
-	raw, ok := args.(json.RawMessage)
-	if !ok {
-		raw, _ = json.Marshal(args)
-	}
-	var m map[string]any
-	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {
-		return client.ToolOutput{IsError: true, Text: "the arguments are not a JSON object"}
-	}
-	res, err := t.conns.Call(t.ctx, name, m)
-	if err != nil {
-		return client.ToolOutput{IsError: true, Text: "connector call failed: " + brief(err.Error())}
-	}
-	return client.ToolOutput{IsError: res.IsError, Text: fetchBanner + "\n\n" + res.Text}
-}
-
-// page fetches one URL for the http-pages recipe with the same client as the
-// unit executor (private-address refusal, redirects within the host, no
-// credentials): the recipe adds the scheme and host checks in front.
-func (f *fetcher) page(ctx context.Context, rawURL string) (recipe.Page, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return recipe.Page{}, errors.New("bad URL")
-	}
-	resp, err := f.client().Do(req)
-	if err != nil {
-		return recipe.Page{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return recipe.Page{}, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, fetchMaxBytes+1))
-	if err != nil {
-		return recipe.Page{}, err
-	}
-	if len(data) > fetchMaxBytes {
-		return recipe.Page{}, fmt.Errorf("the page is over %d bytes", fetchMaxBytes)
-	}
-	return recipe.Page{Body: data, ETag: resp.Header.Get("ETag"), LastModified: resp.Header.Get("Last-Modified")}, nil
 }
 
 var writesIDs = map[string]bool{"concept_write": true, "concept_patch": true, "concept_new": true, "concept_batch": true}

@@ -95,10 +95,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "fetch.allow_private", Scope: settingschema.ScopeWorker, Type: "bool", Default: "false",
 		Description: "Let the ingest task's built-in fetch reach private, loopback and link-local addresses; off, a worker inside a network cannot be used as a proxy to it."},
 
-	{Path: "fetch.allow_hosts", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
-		Description: "Hosts a feed may be read from through the built-in http-pages recipe; empty, no feed uses it. A page of the feed is on the index's own host."},
-	{Path: "fetch.allow_insecure_http", Scope: settingschema.ScopeWorker, Type: "bool", Default: "false",
-		Description: "Let the http-pages recipe read plain http pages; off, only https is read."},
 	{Path: "git.allow_hosts", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]", Example: "[git.example.com, \"*.corp.example.com\"]",
 		Description: "Hosts a feed may be read from through the built-in git reader (https, no credential); empty, no feed and no git entry is read."},
 	{Path: "recipes", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
@@ -147,13 +143,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "tasks[].kbs", Scope: settingschema.ScopeWorker, Type: "list", Values: "a non-empty subset of the perimeter's kbs", Default: "[]",
 		Example:     "- kb-a",
 		Description: "Prompt task: the KBs it runs on; omit it for every KB of the perimeter."},
-	// Task kind poll (D1262).
-	{Path: "tasks[].default_interval", Scope: settingschema.ScopeWorker, Type: "duration", Values: "Go duration at or above min_interval", Default: "24h", Example: "12h",
-		Description: "Poll task: how long after its last check a feed is due again, unless the Source sets feed_interval."},
-	{Path: "tasks[].min_interval", Scope: settingschema.ScopeWorker, Type: "duration", Values: "Go duration above zero", Default: "1h", Example: "1h",
-		Description: "Poll task: the floor of a Source's feed_interval; a feed asking for less is recorded as bad_field."},
-	{Path: "tasks[].max_entries", Scope: settingschema.ScopeWorker, Type: "int", Values: "at least 1", Default: "200",
-		Description: "Poll task: the most entries one listing of a feed may return; a recipe past it splits the listing or fails."},
 	// Task kind synthesis (D1263).
 	{Path: "tasks[].synthesis_map", Scope: settingschema.ScopeWorker, Type: "string", Values: "a top-level map name", Default: `""`,
 		Description: "The map the synthesis task writes its hypotheses into; empty means the map of the newest Contradiction, and the task never creates a map."},
