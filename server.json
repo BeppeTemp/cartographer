@@ -12,6 +12,34 @@
     {
       "registryType": "oci",
       "identifier": "ghcr.io/beppetemp/cartographer:v0.0.0-dev",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--mount",
+          "value": "type=bind,src={kb_path},dst=/kb",
+          "description": "Bind-mounts your KB folder (the one holding data/index.md) onto /kb in the container.",
+          "isRequired": true,
+          "variables": {
+            "kb_path": {
+              "description": "Absolute path of the KB folder on this machine, writable by the container user. Create one with `cartographer kb create`.",
+              "format": "filepath",
+              "isRequired": true
+            }
+          }
+        }
+      ],
+      "runtimeHint": "docker",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "serve"
+        },
+        {
+          "type": "named",
+          "name": "--kb",
+          "value": "/kb"
+        }
+      ],
       "transport": {
         "type": "stdio"
       }
