@@ -139,6 +139,7 @@ Working on more than one plan at a time? A subagent shares your working copy, so
 
 ```bash
 make worktree-add SLUG=my-change    # branches feat/my-change from upstream/main (origin/main without an upstream remote)
+make worktree-add SLUG=my-theme EXP=1  # the same, branch exp/my-theme (§Experiment branches)
 make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check first
 make worktree-clean DRY=1           # or: list what a merged PR left behind (worktree, local and fork branch) ...
 make worktree-clean                 # ... and remove it, each only after its PR is verified MERGED
@@ -324,7 +325,8 @@ dispatched by hand with one of three actions.
   The skip comment says only that the gate is not clear.
 - **Out of band**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand, with the same gate cleared.
-- **Maintenance release** `x.y.(z+1)` from a branch `release-<x.y>` (D1443), when
+- **Maintenance release**, for emergencies only (a feature never needs it: it waits on an
+  `exp/<theme>` branch, §Experiment branches), `x.y.(z+1)` from a branch `release-<x.y>` (D1443), when
   `main` already holds work for the next minor that should not ship yet. The
   maintainer cuts the branch from the `vx.y.z` tag, cherry-picks with `-x` what ships,
   and the branch carries `release-please.yml` (a push runs the pushed branch's copy):
@@ -340,6 +342,31 @@ dispatched by hand with one of three actions.
   image's `latest` and the Homebrew cask, so a branch older than the latest stable
   release gets no release this way. `main` keeps its own changelog from `vx.y.z`, so the
   next minor lists the backported entries again.
+
+## Experiment branches (`exp/*`)
+
+Two lanes (D1443 amended): only bug fixes reach `main` directly, as `feat/<slug>` PRs with
+the full gate. A feature, an experiment or a change that takes weeks lives on
+`exp/<theme>` and lands on `main` in slices, so `main` stays releasable and a release
+never needs a `release-x.y` branch for work that is not ready. Every release still keeps
+its candidate.
+
+- **Create it** from `main`: `make worktree-add SLUG=<theme> EXP=1` (branch `exp/<theme>`,
+  worktree `.worktrees/<theme>`). `make worktree-rm SLUG=<theme>` removes both (it reads the branch from the worktree).
+- **Stay aligned**: merge `main` into the branch regularly, and always before a public
+  build, so what is tried is what would land.
+- **CI without a PR**: `gh workflow run ci.yml --ref exp/<theme>` runs every job
+  (`workflow_dispatch`); pushes to the branch do not run CI by themselves.
+- **No decision number yet**: a `D<n>` is numbered after a PR (D672), so an experiment
+  writes none; each slice that lands carries its own decision file, numbered after its PR.
+- **Landing in slices**: each slice is a normal PR from a `feat/<slug>` branch made off
+  `main`, small enough for the size cap, that changes nothing a user sees on its own;
+  the `exp/` branch is never merged as a whole. It is deleted when the last slice has
+  landed.
+- **A public build** of the branch (an image or binaries to try on a real deployment) is
+  a pre-release tagged `vX.Y.Z-exp.<YYYYMMDD>` (`gh workflow run preview.yml --ref exp/<theme> -f tag=vX.Y.Z-exp.<YYYYMMDD>`; the tag is a required input).
+  `release.yml` ignores it and the candidate cleanup only deletes `-rc.` tags, so the
+  maintainer deletes the pre-release and its tag by hand when the trial is over.
 
 ## Issues: bug, idea, plan
 
