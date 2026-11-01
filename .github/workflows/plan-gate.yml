@@ -55,4 +55,3 @@ jobs:
           AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
           PR: ${{ github.event.pull_request.number }}
         run: scripts/pr-triage.sh --gate "$PR"
-
