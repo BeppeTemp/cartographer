@@ -72,12 +72,6 @@ type Config struct {
 	// and the default must never change under an existing installation.
 	Scopes map[string]string `yaml:"scopes,omitempty"`
 
-	// UnboundModes is the access mode of a folder under no workspace binding
-	// (#1356): a "default" entry for every provider and optional <provider>
-	// entries, values "read" or "write". USER-owned. Always read it through
-	// UnboundAccess(provider): anything but "write" is read.
-	UnboundModes map[string]string `yaml:"unbound_access,omitempty"`
-
 	// Workspaces is the per-provider workspace↔KB binding (D193): which KBs a
 	// provider receives while working in a given directory. USER-owned. Read it
 	// through WorkspaceBindings/ResolveWorkspace, never directly: an unbound
@@ -263,7 +257,6 @@ type yamlConfig struct {
 	Token        string                            `yaml:"token"`
 	Clients      map[string]ClientBinding          `yaml:"clients,omitempty"`
 	Scopes       map[string]string                 `yaml:"scopes,omitempty"`
-	UnboundModes map[string]string                 `yaml:"unbound_access,omitempty"`
 	Workspaces   map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
 	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
 	Paths        map[string]string                 `yaml:"paths,omitempty"`
@@ -464,7 +457,6 @@ func Load(dir string) (*Config, error) {
 		Token:             y.Token,
 		Clients:           y.Clients,
 		Scopes:            y.Scopes,
-		UnboundModes:      y.UnboundModes,
 		Workspaces:        y.Workspaces,
 		AllowInsecureHTTP: y.AllowInsecureHTTP,
 		UsageScan:         true, // absent `usage_scan` key defaults to true
@@ -590,7 +582,6 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 		Token:        cfg.Token,
 		Clients:      cfg.Clients,
 		Scopes:       cfg.Scopes,
-		UnboundModes: cfg.UnboundModes,
 		Workspaces:   cfg.Workspaces,
 		Paths:        cfg.Paths,
 		IgnoredPaths: cfg.IgnoredPaths,
@@ -859,12 +850,6 @@ func (c *Config) dropUnsupportedProviders() {
 		if !known(name) {
 			seen[name] = true
 			delete(c.Scopes, name)
-		}
-	}
-	for name := range c.UnboundModes {
-		if name != UnboundDefault && !known(name) {
-			seen[name] = true
-			delete(c.UnboundModes, name)
 		}
 	}
 	for name := range c.Workspaces {

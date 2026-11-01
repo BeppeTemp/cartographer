@@ -498,13 +498,7 @@ the workspace for this: no `.mcp.json`, no project entry, whichever client.
 Rules: a folder under no binding, `$HOME` included, gets the provider's default set **read-only**
 (D1018): the bridge sends `access=read` and the server lists no write tool and refuses a call to one,
 naming `cartographer workspace bind` and a KB's `paths.yaml` as the ways to write; the folder also
-receives no KB artifact. That is the default: the client setting `unbound_access` (`default: <mode>` for
-every provider, `<provider>: <mode>` overrides; `read` or `write`, anything else is `read`; #1356) turns
-an unbound folder read-write instead, still without artifacts (they stay tied to a binding, D193). The
-bridge then sends no `access=read`, so the session is an ordinary routed one, and its `initialize`
-instructions say it is unbound (the bridge appends the sentence to what the server answers, in a JSON
-or an SSE answer). The setting is inert for a provider on the HTTP entry (no binding, already
-read-write), a bound folder never changes, and it is not a security boundary (D737). A bridge whose server does not confirm the mode (`Cartographer-Access:
+receives no KB artifact. A bridge whose server does not confirm the mode (`Cartographer-Access:
 read`, older servers) serves no tools. Until that confirmation the bridge forwards one message at a time, and a response that opens an event stream (`subscriptions/listen`) releases the next one as soon as its headers confirm the mode, so the stream never holds back `tools/list`. A binding that wins is never read-only. An empty
 binding (`--no-kb`), or one whose KBs are all unmounted, gets a session with no Cartographer tools,
 never every KB (the bridge answers the handshake itself and sends nothing to the server); a binding

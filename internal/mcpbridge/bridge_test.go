@@ -465,8 +465,6 @@ func TestEndpointCarriesTheProvisionedMarker(t *testing.T) {
 		{Scope{KBs: []string{"kb-a", "kb-b"}}, "/mcp/routed?kbs=kb-a,kb-b&provisioned=1"},
 		{Scope{All: true, ReadOnly: true}, "/mcp/routed?access=read&provisioned=1"},
 		{Scope{KBs: []string{"kb-a"}, ReadOnly: true}, "/mcp/routed?kbs=kb-a&access=read&provisioned=1"},
-		{Scope{All: true, Unbound: true}, "/mcp/routed?provisioned=1"},
-		{Scope{KBs: []string{"kb-a"}, Unbound: true}, "/mcp/routed?kbs=kb-a&provisioned=1"},
 	} {
 		got, err := b.endpoint(c.scope)
 		if err != nil || !strings.HasSuffix(got, c.want) {

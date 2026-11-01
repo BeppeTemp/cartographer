@@ -186,11 +186,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 				// would put the instructions of another set (naming its KBs)
 				// into a session that ends up with a different one, so the
 				// handshake is answered here without naming any KB.
-				instr := rootsPendingInstructions
-				if sc := b.currentScope(); sc.Unbound && !sc.ReadOnly {
-					instr += rootsUnboundWriteNote
-				}
-				b.answerInitialize(m, instr)
+				b.answerInitialize(m, rootsPendingInstructions)
 				continue
 			}
 		case m.Method == "notifications/initialized":
@@ -376,44 +372,6 @@ func (b *Bridge) answerLocally(scope Scope, m message) {
 const rootsPendingInstructions = "Cartographer's KBs for this session are chosen from the workspace roots " +
 	"the client reports; list the tools to see them."
 
-// rootsUnboundWriteNote is appended to rootsPendingInstructions when the
-// unbound folder is read-write (#1356).
-const rootsUnboundWriteNote = " If none of the roots is bound to a KB, the session is unbound: " + unboundWriteNote
-
-// unboundWriteNote is the sentence the bridge adds to the initialize result of
-// an unbound read-write session (#1356). The server's own text for a bridge
-// session is empty (provisioned=1), so this is the only wording.
-const unboundWriteNote = "this session was started in a folder bound to no KB and has write access to the provider's KBs. " +
-	"No KB skills, agents or instructions are installed here: pass `kb` explicitly to every tool and read the KB's guide before writing. " +
-	"`cartographer workspace bind` gives the folder a KB's skills."
-
-// withUnboundNote returns body with unboundWriteNote appended to the
-// instructions of an initialize result; any other body comes back untouched.
-func withUnboundNote(body []byte) []byte {
-	var env map[string]json.RawMessage
-	if json.Unmarshal(body, &env) != nil || env["result"] == nil {
-		return body
-	}
-	var res map[string]json.RawMessage
-	if json.Unmarshal(env["result"], &res) != nil || res == nil {
-		return body
-	}
-	var cur string
-	if raw, ok := res["instructions"]; ok {
-		_ = json.Unmarshal(raw, &cur)
-	}
-	if cur != "" {
-		cur += "\n\n"
-	}
-	res["instructions"], _ = json.Marshal(cur + "This is an unbound session: " + unboundWriteNote)
-	env["result"], _ = json.Marshal(res)
-	out, err := json.Marshal(env)
-	if err != nil {
-		return body
-	}
-	return out
-}
-
 // answerInitialize answers the handshake locally.
 func (b *Bridge) answerInitialize(m message, instructions string) {
 	var p struct {
@@ -556,9 +514,6 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		}
 	}
 
-	// The handshake of an unbound read-write session says it is unbound.
-	rewrite := m.Method == "initialize" && scope.Unbound && !scope.ReadOnly
-
 	resp, err := client.HTTPClient(b.HTTP, b.Cfg.InsecureHTTPAllowed()).Do(req)
 	if err != nil {
 		b.writeError(m.ID, -32000, client.UnreachableMessage(reqURL, err)+": "+err.Error())
@@ -590,7 +545,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		if confirmed {
 			release()
 		}
-		b.relayEvents(resp.Body, rewrite)
+		b.relayEvents(resp.Body)
 	default:
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024))
 		if err != nil {
@@ -603,26 +558,19 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 			return
 		}
 		if len(body) > 0 {
-			if rewrite {
-				body = withUnboundNote(body)
-			}
 			b.write(body)
 		}
 	}
 }
 
 // relayEvents copies each `data:` event of an SSE response to stdout.
-func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool) {
+func (b *Bridge) relayEvents(r io.Reader) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), maxLine)
 	var data []string
 	flush := func() {
 		if len(data) > 0 {
-			ev := []byte(strings.Join(data, "\n"))
-			if rewriteInit {
-				ev = withUnboundNote(ev)
-			}
-			b.write(ev)
+			b.write([]byte(strings.Join(data, "\n")))
 			data = nil
 		}
 	}
