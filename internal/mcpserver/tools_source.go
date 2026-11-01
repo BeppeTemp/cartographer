@@ -77,7 +77,7 @@ func fmString(fm *okf.Frontmatter, key string) string {
 func toolSourceRegister(k *kb.KB) Tool {
 	return Tool{
 		Name:        "source_register",
-		Description: "Records a primary source BEFORE ingesting it: a Source concept in a journal (default 'sources', map_create kind journal). Dedupes by sha256, else locator: a duplicate returns {id, duplicate: true, ingest_status}, writes nothing, plus locator_mismatch + existing_locator if the locator differs. Never fetches; body is your distillation. Cite its ID in provenance, then patch ingest_status. connector/recipe are worker setting names, never credentials.",
+		Description: "Records a primary source BEFORE ingesting it: a Source concept in a journal (default 'sources', map_create kind journal). Dedupes by sha256, else locator: a duplicate returns {id, duplicate: true, ingest_status}, writes nothing, adding locator_mismatch + existing_locator if the locator differs. Never fetches; body is your distillation. Cite its ID in provenance, then concept_patch ingest_status.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["title", "source_kind"],
@@ -89,10 +89,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 				"timestamp": {"type": "string"},
 				"body": {"type": "string", "description": "Distillation: facts, decisions, open questions"},
 				"map": {"type": "string", "description": "Ledger journal; default 'sources'"},
-				"ingest_status": {"type": "string", "enum": ["pending", "ingested", "skipped"]},
-				"source_shape": {"type": "string", "enum": ["document", "collection", "feed", "system"]},
-				"connector": {"type": "string"},
-				"recipe": {"type": "string"}
+				"ingest_status": {"type": "string", "enum": ["pending", "ingested", "skipped"]}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -105,16 +102,9 @@ func toolSourceRegister(k *kb.KB) Tool {
 				Body         string `json:"body"`
 				Map          string `json:"map"`
 				IngestStatus string `json:"ingest_status"`
-				SourceShape  string `json:"source_shape"`
-				Connector    string `json:"connector"`
-				Recipe       string `json:"recipe"`
 			}
 			if err := json.Unmarshal(args, &p); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
-			}
-			p.SourceShape, p.Connector, p.Recipe = strings.TrimSpace(p.SourceShape), strings.TrimSpace(p.Connector), strings.TrimSpace(p.Recipe)
-			if p.SourceShape != "" && !slices.Contains(kb.SourceShapes, p.SourceShape) {
-				return errorResult(fmt.Sprintf("source_register: source_shape %q must be one of %s", p.SourceShape, strings.Join(kb.SourceShapes, ", "))), nil
 			}
 			p.Title, p.SourceKind = strings.TrimSpace(p.Title), strings.TrimSpace(p.SourceKind)
 			p.Locator = strings.TrimSpace(p.Locator)
@@ -135,11 +125,6 @@ func toolSourceRegister(k *kb.KB) Tool {
 			}
 			if bad := lint.FirstMachinePath(p.Locator); bad != "" {
 				return errorResult(fmt.Sprintf("source_register: locator %q is a client-local path — use a URL or a {{path:<key>}} placeholder (D75)", bad)), nil
-			}
-			for _, f := range [][2]string{{"locator", p.Locator}, {"connector", p.Connector}, {"recipe", p.Recipe}} {
-				if why := lint.URLCredential(f[1]); why != "" {
-					return errorResult(fmt.Sprintf("source_register: %s carries a credential (%s): credentials never go in the ledger — name a connector and keep the secret in the worker's configuration or in sops", f[0], why)), nil
-				}
 			}
 			when := time.Now().UTC()
 			if p.Timestamp != "" {
@@ -223,11 +208,6 @@ func toolSourceRegister(k *kb.KB) Tool {
 				fm.Set("timestamp", p.Timestamp)
 			}
 			fm.Set("ingest_status", p.IngestStatus)
-			for _, kv := range [][2]string{{"source_shape", p.SourceShape}, {"connector", p.Connector}, {"recipe", p.Recipe}} {
-				if kv[1] != "" {
-					fm.Set(kv[0], kv[1])
-				}
-			}
 			if p.IngestStatus == "ingested" {
 				fm.Set("ingested_at", time.Now().UTC().Format(time.RFC3339))
 			}
@@ -387,7 +367,7 @@ func ensureSourceTemplate(k *kb.KB, mapName string) (notes, warnings []string) {
 func toolSourceList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "source_list",
-		Description: "Source ledger (Source concepts), oldest first: {id, title, source_kind, source_shape?, connector?, recipe?, ingest_status, timestamp?, cited_by (count), cited_by_ids (concepts citing it in provenance)}. status defaults to pending ('*' = all). Read-only.",
+		Description: "Source ledger (Source concepts), oldest first: {id, title, source_kind, ingest_status, timestamp?, cited_by (count), cited_by_ids (concepts citing it in provenance)}. status defaults to pending ('*' = all). Read-only.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -425,9 +405,6 @@ func toolSourceList(k *kb.KB) Tool {
 				ID           string   `json:"id"`
 				Title        string   `json:"title,omitempty"`
 				SourceKind   string   `json:"source_kind,omitempty"`
-				SourceShape  string   `json:"source_shape,omitempty"`
-				Connector    string   `json:"connector,omitempty"`
-				Recipe       string   `json:"recipe,omitempty"`
 				IngestStatus string   `json:"ingest_status"`
 				Timestamp    string   `json:"timestamp,omitempty"`
 				CitedBy      int      `json:"cited_by"`
@@ -464,7 +441,6 @@ func toolSourceList(k *kb.KB) Tool {
 					return nil
 				}
 				entries = append(entries, entry{ID: sid, Title: fmString(fm, "title"), SourceKind: fmString(fm, "source_kind"),
-					SourceShape: fmString(fm, "source_shape"), Connector: fmString(fm, "connector"), Recipe: fmString(fm, "recipe"),
 					IngestStatus: st, Timestamp: fmString(fm, "timestamp")})
 				return nil
 			})

@@ -51,7 +51,6 @@ var docsNonTools = map[string]bool{
 	"template_unusable":  true, // policy denial code (D343), not a tool
 	"sync_timer_opt_out": true, // client config key (D325), not a tool
 	"open_gaps":          true, // kb_status field (D273), not a tool
-	"source_shape":       true, // Source frontmatter field (D1201), not a tool
 	"index_entry":        true, // concept_write/concept_new/concept_batch parameter (D714, D1099), not a tool
 	"commit_count":       true, // changes_since result field, not a tool
 	"commit_sha":         true, // audit entry field (GET /kbs/{kb}/audit), not a tool
