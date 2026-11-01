@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/BeppeTemp/cartographer/internal/worker/recipe"
 	"sort"
 	"strings"
 	"sync"
@@ -95,10 +94,7 @@ type ingestInstance struct {
 	tier   string
 	// allowPrivate is fetch.allow_private of the config.
 	allowPrivate bool
-	// gitHosts is git.allow_hosts: the hosts the built-in git reader may clone.
-	gitHosts []string
-	gitClone recipe.CloneFunc // nil = https; tests inject a fixture
-	now      func() time.Time
+	now          func() time.Time
 
 	mu       sync.Mutex
 	skipped  map[string]time.Time // kb + "\x00" + unit ID -> until
@@ -108,10 +104,10 @@ type ingestInstance struct {
 
 // Bind implements Binder: the tier of the task's profile and the fetch scope.
 func (in *ingestInstance) Bind(cfg *Config, p Profile) {
-	in.tier, in.allowPrivate, in.gitHosts = p.Tier, cfg.FetchAllowPrivate, cfg.GitAllowHosts
+	in.tier, in.allowPrivate = p.Tier, cfg.FetchAllowPrivate
 }
 
-type ingestCand struct{ unit, source, locator, connector string }
+type ingestCand struct{ unit, source, locator string }
 
 type workListOut struct {
 	Entries []struct {
@@ -238,18 +234,11 @@ func (in *ingestInstance) Next(_ context.Context, kb string, tools ToolCaller) (
 		// A Source with a recipe is fetched as plain http: a recipe is how the
 		// poll task lists a feed (#1262), not a connector the unit executor needs.
 		locator := strings.TrimSpace(str(src.Frontmatter, "locator"))
-		conn := str(src.Frontmatter, "connector")
-		if conn == "git" {
-			// The built-in git reader (D1262): only a repository on git.allow_hosts.
-			if _, _, err := recipe.SplitGitLocator(locator, in.gitHosts); err != nil {
-				in.skip(kb, e.ID, "connector")
-				continue
-			}
-		} else if conn != "" || (locator != "" && !httpLocator(locator)) {
+		if str(src.Frontmatter, "connector") != "" || (locator != "" && !httpLocator(locator)) {
 			in.skip(kb, e.ID, "connector") // skip-not-fail: a connector this worker lacks (D1260)
 			continue
 		}
-		return &WorkItem{Key: e.ID, Data: ingestCand{unit: e.ID, source: f["source"], locator: locator, connector: conn}}, nil
+		return &WorkItem{Key: e.ID, Data: ingestCand{unit: e.ID, source: f["source"], locator: locator}}, nil
 	}
 	return nil, nil
 }
@@ -320,13 +309,7 @@ func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Re
 	in.skip(rt.KB, c.unit, "") // whatever happens next, this run does not take it again
 	src, _ := readConcept(rt.Tools, c.source)
 
-	var reader sourceReader = &fetcher{locator: c.locator, allowPrivate: in.allowPrivate}
-	if c.connector == "git" {
-		g := &gitFetcher{locator: c.locator, reader: recipe.NewGitReader(in.gitHosts, in.gitClone)}
-		defer g.reader.Close() // the clones live for this run only
-		reader = g
-	}
-	tools := &ingestTools{inner: rt.Tools, unit: c.unit, ctx: ctx, fetch: reader}
+	tools := &ingestTools{inner: rt.Tools, unit: c.unit, ctx: ctx, fetch: &fetcher{locator: c.locator, allowPrivate: in.allowPrivate}}
 	allow := NewAllowlist(ingestAllowed()...)
 	agent := NewAgent(rt.Model, tools, allow, Limits{MaxSteps: ingestMaxSteps, MaxTotalTokens: rt.Grant})
 	user := fmt.Sprintf("Execute the IngestUnit %q. claimed_by is %q.\n\nBEGIN DATA unit\n%s\nEND DATA\n\nBEGIN DATA source\n%s\nEND DATA",
