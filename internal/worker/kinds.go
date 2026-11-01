@@ -30,26 +30,11 @@ type Kind struct {
 	// applied) and returns an error naming the option at fault; the loader adds
 	// the key path and the line.
 	Validate func(opts map[string]any) error
-	// Load runs after Validate with what only the loader knows (the config
-	// directory, the perimeter, the entry's profile). It may read files and add
-	// derived values to opts, under keys no declared option uses; Build then
-	// finds them there.
-	Load func(env LoadEnv, opts map[string]any) error
 	// Build is the execution half: it makes one Instance from the decoded
 	// options of one tasks[] entry (so two entries of a repeatable kind are two
 	// independent instances). A kind without Build can be loaded and described
 	// but not run; NewRunner refuses it.
 	Build func(opts map[string]any) (Instance, error)
-}
-
-// LoadEnv is what Kind.Load receives for one tasks[] entry.
-type LoadEnv struct {
-	Dir       string // directory of the config file; "" when the config came from memory
-	Perimeter string
-	KBs       []string // the perimeter's kbs
-	Profile   Profile
-	Given     map[string]bool // options the entry sets explicitly
-	Warn      func(format string, args ...any)
 }
 
 // repeatable reports whether the kind may appear more than once in tasks (D23):
@@ -117,7 +102,7 @@ func NewKinds(kinds ...Kind) *Kinds {
 
 // DefaultKinds is the production registry: each plan that adds a task kind
 // registers it here, one line apiece.
-func DefaultKinds() *Kinds { return NewKinds(IngestKind(), promptKind()) }
+func DefaultKinds() *Kinds { return NewKinds(IngestKind()) }
 
 // Lookup returns the kind with the given name.
 func (r *Kinds) Lookup(name string) (Kind, bool) {

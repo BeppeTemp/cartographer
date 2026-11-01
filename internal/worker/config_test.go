@@ -361,14 +361,7 @@ func TestNewKindsPanicsOnBadDeclarations(t *testing.T) {
 
 func TestKindsCheckSchema(t *testing.T) {
 	table := func(keys ...settingschema.Key) settingschema.Schema {
-		// The production kind options are left out: the test supplies its own.
-		var own []settingschema.Key
-		for _, k := range workerconfig.Schema.Keys {
-			if opt := strings.HasPrefix(k.Path, "tasks[]."); !opt || k.Path == "tasks[].kind" || k.Path == "tasks[].model" {
-				own = append(own, k)
-			}
-		}
-		return settingschema.Schema{Keys: append(own, keys...)}
+		return settingschema.Schema{Keys: append(append([]settingschema.Key{}, workerconfig.Schema.Keys...), keys...)}
 	}
 	all := table(cfgNameKey, cfgEveryKey, cfgPathsKey, cfgDepthKey, cfgFastKey, cfgRootKey)
 	if err := cfgKinds().CheckSchema(all); err != nil {

@@ -74,18 +74,4 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "The model profile the task runs on: a models[].name."},
 	// The option keys of each task kind go here, one row per path, declared by
 	// the plan that adds the kind. A path shared by two kinds is one row.
-
-	// kind: prompt (D23)
-	{Path: "tasks[].name", Scope: settingschema.ScopeWorker, Type: "string", Values: "[a-z0-9-], 1 to 40 characters, unique among the tasks", Default: `""`, Example: "weekly-digest",
-		Description: "Prompt task: its name, written into its log entries and commit reasons; a rename restarts its cadence."},
-	{Path: "tasks[].instructions_file", Scope: settingschema.ScopeWorker, Type: "string", Values: "relative path inside the config directory, at most 16 KiB of UTF-8", Default: `""`, Example: "prompts/weekly-digest.md",
-		Description: "Prompt task: the operator's instructions, read once at start; never taken from a KB."},
-	{Path: "tasks[].tools", Scope: settingschema.ScopeWorker, Type: "list", Values: "names from the worker's default allowlist, never a denied tool", Default: "[]",
-		Example:     "- changes_since\n- concept_read\n- concept_write",
-		Description: "Prompt task: exactly the tools the model may call; nothing is implicit."},
-	{Path: "tasks[].every", Scope: settingschema.ScopeWorker, Type: "duration", Values: "Go duration of at least 1h (168h is a week)", Default: `""`, Example: "168h",
-		Description: "Prompt task: how long after its last run on a KB it is due again."},
-	{Path: "tasks[].kbs", Scope: settingschema.ScopeWorker, Type: "list", Values: "a non-empty subset of the perimeter's kbs", Default: "[]",
-		Example:     "- kb-a",
-		Description: "Prompt task: the KBs it runs on; omit it for every KB of the perimeter."},
 }}
