@@ -369,9 +369,7 @@ milestone is accepted work, and a PR sits in the milestone of the issues it clos
 version's milestone lists its PRs too. **Every accepted issue has a milestone**, approved plans
 included: an open issue without one is not triaged yet, and the weekly triage puts
 it in a version or closes it. Keep two or three milestones
-open: the non-trivial work of the next two is written as approved plans, ready to
-be claimed; further out an issue stays a plain issue until its version comes closer,
-because a plan's `file:line` pointers age.
+open; further out an issue stays a plain issue until its version comes closer.
 
 When a maintainer picks up a bug or an idea with a plan issue, it is **promoted in
 place**: its body is rewritten from the Plan template and it gets the `plan` label,

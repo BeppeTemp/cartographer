@@ -8,7 +8,7 @@
 #   pr-triage.sh               the current branch against upstream/main (origin/main when
 #                           there is no `upstream` remote), before opening a PR
 #
-# Prints at most ~20 lines: size split by kind, areas, review tier, linked plan,
+# Prints at most ~20 lines: size split by kind, areas, review tier, closed issues,
 # CI, docs and decision hints (the docs-owner WARN comes from doc-owners.sh), and the
 # BLOCK/WARN lines that send a PR back
 # without anyone reading its code. It reads metadata only, never the diff body.
@@ -61,7 +61,7 @@ git remote get-url upstream >/dev/null 2>&1 && remote=upstream
 
 # Role (D955): the GitHub permission. author_association in a PR, the caller's
 # viewerPermission before opening one. OWNER/MEMBER/COLLABORATOR and
-# ADMIN/MAINTAIN/WRITE are the maintainer side; a bot is exempt from the plan rule.
+# ADMIN/MAINTAIN/WRITE are the maintainer side; a bot has its own role.
 role=contributor
 if [ $# -ge 1 ]; then
   PR=$1
