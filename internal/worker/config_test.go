@@ -592,7 +592,7 @@ func TestLoadConfigRecipesAndGitHosts(t *testing.T) {
 	}
 	for name, tc := range map[string]struct{ yaml, want string }{
 		"other name":    {"recipes:\n  http-pages:\n    instructions_file: mine.md\n", "recipes.http-pages (line "},
-		"other key":     {"recipes:\n  git-docs:\n    nope: x\n", "unknown key"},
+		"other key":     {"recipes:\n  git-docs:\n    exec: ./x\n", "unknown key"},
 		"missing file":  {"recipes:\n  git-docs:\n    instructions_file: nope.md\n", "recipes.git-docs.instructions_file (line "},
 		"escapes dir":   {"recipes:\n  git-docs:\n    instructions_file: ../mine.md\n", "inside the config file's directory"},
 		"too big":       {"recipes:\n  git-docs:\n    instructions_file: big.md\n", "16 KiB"},
@@ -601,86 +601,6 @@ func TestLoadConfigRecipesAndGitHosts(t *testing.T) {
 	} {
 		if _, err := load(tc.yaml); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want %q", name, err, tc.want)
-		}
-	}
-}
-
-func TestLoadConfigExecRecipes(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("WORKER_TOKEN", "x")
-	t.Setenv("CLOUD_API_KEY", "y")
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	load := func(extra string) (*Config, error) {
-		write("worker.yaml", cfgGolden+extra)
-		return LoadConfig(filepath.Join(dir, "worker.yaml"), cfgKinds())
-	}
-	write("feed.md", "A unit covers one page.")
-	const conn = "connectors:\n  wiki:\n    transport: http\n    url: https://wiki.example.com/mcp\n    tools: [get_page]\n"
-	c, err := load(conn + `recipes:
-  wiki-changes:
-    instructions_file: feed.md
-    connector: wiki
-    exec:
-      command: ./bin/list-changes
-      args: ["--space", "ENG; $(x)"]
-      env: {WIKI_TOKEN: WIKI_API_TOKEN}
-      timeout: 90s
-      max_output_bytes: 1000
-      max_content_bytes: 2000
-  bare:
-    instructions_file: feed.md
-    exec: {command: list-changes}
-`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(c.ExecRecipes) != 2 || len(c.RecipeInstructions) != 0 {
-		t.Fatalf("recipes = %+v", c.ExecRecipes)
-	}
-	bare, w := c.ExecRecipes[0], c.ExecRecipes[1] // sorted by name
-	if w.Name != "wiki-changes" || w.Command != filepath.Join(dir, "bin", "list-changes") || w.Connector != "wiki" ||
-		w.Timeout != 90*time.Second || w.MaxOutput != 1000 || w.MaxContent != 2000 || w.Instructions != "A unit covers one page." ||
-		w.Env["WIKI_TOKEN"] != "WIKI_API_TOKEN" || len(w.Args) != 2 || w.Args[1] != "ENG; $(x)" {
-		t.Errorf("wiki-changes = %+v", w)
-	}
-	if bare.Command != "list-changes" || bare.Timeout != 5*time.Minute || bare.MaxOutput != 8<<20 || bare.MaxContent != 128<<10 || bare.Connector != "" {
-		t.Errorf("defaults = %+v", bare)
-	}
-	if c, err = load(`recipes:
-  mine:
-    instructions_file: feed.md
-    connector: git
-    exec: {command: x}
-`); err != nil || c.ExecRecipes[0].Connector != "git" {
-		t.Errorf("git connector: %v", err)
-	}
-	for name, tc := range map[string]struct{ yaml, want string }{
-		"builtin with exec":  {"recipes:\n  git-docs:\n    instructions_file: feed.md\n    exec: {command: x}\n", "recipes.git-docs (line "},
-		"system shape":       {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    exec: {command: x}\n", "#1372"},
-		"other shape":        {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: collection\n    exec: {command: x}\n", "recipes.mine.shape (line "},
-		"bad name":           {"recipes:\n  Bad_Name:\n    instructions_file: feed.md\n    exec: {command: x}\n", "recipes.Bad_Name (line "},
-		"no exec":            {"recipes:\n  mine:\n    instructions_file: feed.md\n", "recipes.mine (line "},
-		"no command":         {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {args: [a]}\n", "recipes.mine.exec.command (line "},
-		"no instructions":    {"recipes:\n  mine:\n    exec: {command: x}\n", "recipes.mine.instructions_file (line "},
-		"unknown connector":  {"recipes:\n  mine:\n    instructions_file: feed.md\n    connector: nope\n    exec: {command: x}\n", "recipes.mine.connector (line "},
-		"unknown exec key":   {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, shell: true}\n", "unknown key"},
-		"literal env value":  {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, env: {T: hunter2-secret}}\n", "recipes.mine.exec.env (line "},
-		"env key has =":      {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, env: {\"A=B\": WIKI_API_TOKEN}}\n", "recipes.mine.exec.env (line "},
-		"timeout too long":   {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, timeout: 2h}\n", "recipes.mine.exec.timeout (line "},
-		"timeout not a time": {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, timeout: soon}\n", "recipes.mine.exec.timeout (line "},
-		"output too big":     {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, max_output_bytes: 67108865}\n", "recipes.mine.exec.max_output_bytes (line "},
-		"content too big":    {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, max_content_bytes: 1048577}\n", "recipes.mine.exec.max_content_bytes (line "},
-		"negative output":    {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {command: x, max_output_bytes: -1}\n", "recipes.mine.exec.max_output_bytes (line "},
-	} {
-		_, err := load(tc.yaml)
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%s: %v, want %q", name, err, tc.want)
-		} else if strings.Contains(err.Error(), "hunter2-secret") {
-			t.Errorf("%s: error echoes a value: %v", name, err)
 		}
 	}
 }

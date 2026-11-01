@@ -154,10 +154,7 @@ func envNames(m map[string]string) error {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		if k == "" || strings.ContainsAny(k, "=\x00") {
-			return fmt.Errorf("the name %q the child sees must be non-empty and hold no = or NUL", k)
-		}
-		if !envNameRE.MatchString(m[k]) {
+		if k == "" || !envNameRE.MatchString(m[k]) {
 			return fmt.Errorf("the value of %q must be the name of an environment variable (capitals, digits and _), not a value", k)
 		}
 	}

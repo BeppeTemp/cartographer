@@ -323,9 +323,6 @@ func TestGitReaderReadsAndRefuses(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	if len(os.Args) > 2 && os.Args[1] == execHelperFlag {
-		runExecHelper(os.Args[2], os.Args[3:]) // exits
-	}
 	gitxtest.QuietGit()
 	os.Exit(m.Run())
 }

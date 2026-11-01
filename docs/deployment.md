@@ -601,25 +601,6 @@ recipes:
     instructions_file: recipes/git-docs.md
 ```
 
-**Exec recipes (D1262).** A recipe of your own is an executable declared under `recipes.<name>` with an `exec` block
-(`command`, `args`, `env`, `timeout`, `max_output_bytes`, `max_content_bytes`), an `instructions_file` and optionally
-a `connector`; it lists a feed over a JSON stdin/stdout protocol, with no shell, a per-call temp directory and only
-the environment variables you list. The keys, protocol v1 and the trust model are in
-[worker-recipes.md](worker-recipes.md). The image does not change: a script that needs an interpreter runs from a
-derived image (`FROM` the Cartographer image) or from a mounted read-only volume, and the worker now needs a
-**writable temp directory** (an `emptyDir` on Kubernetes) for exec recipes and git reads, which refines "no volume"
-to "no persistent volume".
-
-```yaml
-recipes:
-  wiki-changes:
-    instructions_file: recipes/wiki-changes.md
-    connector: docs-wiki
-    exec:
-      command: ./bin/list-changes
-      env: {WIKI_TOKEN: WIKI_API_TOKEN}
-```
-
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
 for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB
 closes with a `log_append` (path `worker/<name>`) whose line carries `day=`, `tokens.<profile>=` and
