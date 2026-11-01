@@ -116,22 +116,16 @@ An alternative never weakens a rule: a delegated session never deletes a concept
    "Tools not in `tools/list`"). Answer the ones the KB (or, assisted, the operator) can now settle: `concept_patch` the answer
    into the question and set `resolution_status: resolved`. Say in two lines what the
    session will cover (assisted: to the operator, before starting).
-2. **Mechanical.** `conformance.repair` names the call: `kb_repair(check: "*")` plans every check in
-   `conformance.repairable` in one dry run (at most 5 `planned` per check; `found_total` per check is
-   the whole job). An apply of `"*"` also includes removals and the checks that drop links
-   (`invalid_field_value` removals, `reciprocal_link_item`, `broken_link`), so apply by list: first the
-   checks whose fix is safe to run unattended (`nonstandard_field`, `tool_param_field`,
-   `duplicate_link`, `prose_value` and the like), as one `kb_repair` with
-   `check: [...]` and `dry_run: false` (the server orders them), deterministic and never
-   dropping a link (D323); report the counts. `invalid_field_value` joins that list only when its
-   dry-run entry has no `removals` (D1197: a removal drops a value a person wrote); otherwise it is
-   confirm-first. The server applies them
+2. **Mechanical.** For each check in `conformance.repairable` (every check with a fixable finding,
+   drift or not; `fixable` counts only the conformance ones): `kb_repair` with `dry_run: true`. The checks whose fix is safe to run unattended (`nonstandard_field`, `tool_param_field`,
+   `invalid_field_value`, `duplicate_link`, `prose_value` and the like) are deterministic and never
+   drop a link (D323): apply them (`dry_run: false`) and report the counts. The server applies them
    by itself every day and on each write (D907), so they are usually already done: run them again
    only when findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
    undo a repair commit, `repair_revert` with its `sha` (not in `tools/list`: see the section above; only `kb_repair` and auto-repair commits are
-   accepted; `git log` on the KB shows them with reason "auto-repair (background)"). Any other check: show the plan (`found_total` is the whole
+   accepted; `git log` on the KB shows them with reason "auto-repair (background)"). Any other: show the plan (`found_total` is the whole
    job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
-   one commit, so one `repair_revert` undoes all of it. A `skipped` entry is either a concept changed since it was listed (run the check
+   one commit. A `skipped` entry is either a concept changed since it was listed (run the check
    again) or a fix that needs a person — two synonyms of one field holding different values: pick
    the value with the operator and write it with `concept_patch`; the concept's other fixes were
    already applied.
