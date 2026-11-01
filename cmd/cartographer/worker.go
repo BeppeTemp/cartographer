@@ -104,9 +104,6 @@ var workerRunFn = func(ctx context.Context, env *workerEnv, once bool) int {
 // cmdWorker runs `cartographer worker --config <file>`: the third role of the
 // binary, a background process for one perimeter. `serve` never starts it.
 func cmdWorker(args []string) int {
-	if len(args) > 0 && args[0] == "source" {
-		return cmdWorkerSource(args[1:])
-	}
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	configFlag := fs.String("config", "", "Path to the worker YAML config (required)")
@@ -116,7 +113,7 @@ func cmdWorker(args []string) int {
 		return workerExitStart
 	}
 	if *configFlag == "" {
-		fmt.Fprintln(os.Stderr, "usage: cartographer worker --config <file> [--once] [--log-file <file>]\n       cartographer worker source test --config <file> ... (try a recipe before deploying it)")
+		fmt.Fprintln(os.Stderr, "usage: cartographer worker --config <file> [--once] [--log-file <file>]")
 		fs.PrintDefaults()
 		return workerExitStart
 	}

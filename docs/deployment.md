@@ -607,7 +607,7 @@ recipes:
 (`command`, `args`, `env`, `timeout`, `max_output_bytes`, `max_content_bytes`), an `instructions_file` and optionally
 a `connector`; it lists a feed over a JSON stdin/stdout protocol, with no shell, a per-call temp directory and only
 the environment variables you list. The keys, protocol v1 and the trust model are in
-[worker-recipes.md](worker-recipes.md), which also describes `cartographer worker source test`, the dry run of a recipe. The image does not change: a script that needs an interpreter runs from a
+[worker-recipes.md](worker-recipes.md). The image does not change: a script that needs an interpreter runs from a
 derived image (`FROM` the Cartographer image) or from a mounted read-only volume, and the worker now needs a
 **writable temp directory** (an `emptyDir` on Kubernetes) for exec recipes and git reads, which refines "no volume"
 to "no persistent volume".

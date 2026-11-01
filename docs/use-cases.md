@@ -58,15 +58,6 @@ the units one each with `cartographer-kb-ingest` in unit mode, claiming them fro
 `if_match` patch, while the planner reviews a sample of the done units. When the corpus is already a wiki to
 be mapped wholesale, use `cartographer-kb-import` instead.
 
-## Follow a live source
-
-A wiki space, a tracker project or a document library should flow into the KB as it changes. The operator
-starts the bundled `cartographer-kb-source-author` skill (D1373): it finds the way in (a built-in recipe, an exec
-lister or an MCP connector), requires a read-only identity, writes the lister and the worker config snippet into the
-operator's repository, and runs `cartographer worker source test`, which lists with the real recipe and writes
-nothing. It then registers the Source, hands it to `cartographer-kb-ingest-plan` for the plan, and hands the
-operator the deploy change. The script never enters the KB.
-
 ## Keep an old KB aligned with the current standard
 
 A KB whose pages predate the conventions, or were written by agents that never saw them, drifts: synonym

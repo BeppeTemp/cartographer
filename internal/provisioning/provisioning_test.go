@@ -95,7 +95,7 @@ func TestBuildManifest_BundledSkillInventory(t *testing.T) {
 			found[artifact.Name] = true
 		}
 	}
-	for _, name := range []string{"cartographer-ops", "cartographer-kb-conflict-resolve", "cartographer-kb-create", "cartographer-kb-import", "cartographer-kb-ingest", "cartographer-kb-source-author", "cartographer-kb-ingest-plan", "cartographer-feedback"} {
+	for _, name := range []string{"cartographer-ops", "cartographer-kb-conflict-resolve", "cartographer-kb-create", "cartographer-kb-import", "cartographer-kb-ingest", "cartographer-kb-ingest-plan", "cartographer-feedback"} {
 		if !found[name] {
 			t.Errorf("bundled skill %q missing from manifest", name)
 		}

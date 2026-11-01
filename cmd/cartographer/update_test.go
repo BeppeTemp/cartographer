@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,36 +29,6 @@ import (
 // the opt-out is set as a second line of defence for anything that reaches
 // the real updatecheck.Check.
 func TestMain(m *testing.M) {
-	if len(os.Args) > 2 && os.Args[1] == "--exec-helper" { // the test binary as an operator's lister
-		if os.Args[2] == "fail" {
-			fmt.Fprintln(os.Stderr, "lister broke")
-			os.Exit(3)
-		}
-		if os.Args[2] == "system" { // LISTER_VALUE is the preflight's read_only answer
-			b, _ := io.ReadAll(os.Stdin)
-			if strings.Contains(string(b), `"mode":"preflight"`) {
-				fmt.Println(`{"read_only":` + os.Getenv("LISTER_VALUE") + `,"identity":"dev-viewer","detail":"ok"}`)
-			} else {
-				fmt.Println(`{"entry":{"key":"namespace/team-a","title":"Team A","content":"deployment api"}}`)
-				fmt.Println(`{"next_cursor":""}`)
-			}
-			os.Exit(0)
-		}
-		if os.Args[2] == "empty" {
-			fmt.Println(`{"next_cursor":"` + "c9" + `"}`)
-			os.Exit(0)
-		}
-		if os.Args[2] == "many" {
-			for i := 0; i < 60; i++ {
-				fmt.Printf(`{"entry":{"key":"k%02d","title":"T%02d","revision":"r","change":"added"}}`+"\n", i, i)
-			}
-			fmt.Println(`{"next_cursor":"c60"}`)
-			os.Exit(0)
-		}
-		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"` + os.Getenv("LISTER_VALUE") + `"}}`)
-		fmt.Println(`{"next_cursor":"c1"}`)
-		os.Exit(0)
-	}
 	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
 	os.Setenv(updatecheck.EnvDisable, "1")
 	cache, err := os.MkdirTemp("", "cartographer-update-cache-")

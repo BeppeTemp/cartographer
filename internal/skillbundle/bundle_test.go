@@ -392,30 +392,3 @@ func TestDoctorSkillWorkerPassageKeepsTheInvariants(t *testing.T) {
 		}
 	}
 }
-
-// TestSourceAuthorSkillCarriesItsInvariants pins the durable substance of
-// cartographer-kb-source-author (D1373): the dry test command, the single
-// registration call, the planner hand-off and the credential and script rules; and
-// that it ships references and no scripts/ directory (a script would have to be a
-// #!/bin/sh one, and a lister skeleton is text the agent copies, never run from the bundle).
-func TestSourceAuthorSkillCarriesItsInvariants(t *testing.T) {
-	t.Parallel()
-	data, err := fs.ReadFile(FS, "bundled/cartographer-kb-source-author/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(data)
-	for _, want := range []string{
-		"cartographer worker source test", "source_register", "`recipe`", "concept_patch", "`if_match`",
-		"cartographer-kb-ingest-plan", "read-only", "No credential value anywhere",
-		"never stored in a KB", "references/lister-protocol.md", "references/source-types.md",
-		"Read-only identity, for every source", "commit, push, apply and deploy",
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("the source-author skill lacks %q", want)
-		}
-	}
-	if _, err := fs.ReadDir(FS, "bundled/cartographer-kb-source-author/scripts"); err == nil {
-		t.Error("the source-author skill must ship no scripts/ directory")
-	}
-}

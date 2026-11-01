@@ -65,11 +65,7 @@ func TestCloneAnonymousCarriesNoOperatorIdentityAndFollowsNoRedirect(t *testing.
 		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusFound)
 	}))
 	defer redirect.Close()
-	// Its own deadline: on a slow runner the two clones above can spend the whole
-	// shared one, and then this clone never reaches the server.
-	redirCtx, redirCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer redirCancel()
-	_ = cloneAnonymous(redirCtx, redirect.URL+"/r.git", filepath.Join(t.TempDir(), "redir"), "GIT_ALLOW_PROTOCOL=http")
+	_ = cloneAnonymous(ctx, redirect.URL+"/r.git", filepath.Join(t.TempDir(), "redir"), "GIT_ALLOW_PROTOCOL=http")
 	if redirects.Load() == 0 {
 		t.Fatal("the redirecting server was never asked: the test proves nothing")
 	}
