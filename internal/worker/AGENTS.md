@@ -22,9 +22,3 @@ money and writes to KBs when nobody is looking.
   under `worker/` in the log is written by a model, and its marker path stays apart from the budget's by the bracketed prefix.
 - **Nothing but the model's closing step may write `kb-doctor`** (`doctor.go`): a worker's own entries pass `noMarker`, or an interrupted session would silence `doctor_suggested`.
 - `synthesis/` defines its own `ToolCaller` and never imports this package: the kind (`synthesis.go`) imports it, so the other direction would be a cycle.
-- **The beater never blocks the runner** (`beater.go`, D1259): `Beat` only copies a snapshot under a mutex, a
-  separate goroutine sends it, and a failed beat or a `404` is a log line that leaves the idle signal unknown.
-- **The beater bounds its wait on the runner** (`beater.go`, D1259): `Beat` copies a snapshot under a mutex and a
-  separate goroutine sends it; only the first and the closing beat are sent synchronously (each at most 5 s,
-  queued behind `sendMu`), and a failed beat or a `404` is a log line that leaves the idle signal unknown.
-  Server timestamps are compared with each other (`now` against `last_activity_at`), never with the worker's clock.

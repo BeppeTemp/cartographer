@@ -600,43 +600,6 @@ func (c *MCPClient) ReportClientSettings(report any, timeout time.Duration) erro
 	return c.apiCall(http.MethodPost, clientSettingsPath, "", report, timeout)
 }
 
-// workersPath and workerSettingsPath are the routes of a worker's heartbeat
-// and settings report (D1259).
-const (
-	workersPath        = "/api/workers"
-	workerSettingsPath = "/api/worker-settings"
-)
-
-// HeartbeatAnswer is the answer of POST /api/workers: the idle signal of each
-// accepted KB and whether the server wants the settings report.
-type HeartbeatAnswer struct {
-	Accepted []string `json:"accepted"`
-	KBs      map[string]struct {
-		LastActivityAt *time.Time `json:"last_activity_at"`
-	} `json:"kbs"`
-	ActivityKnown   bool      `json:"activity_known"`
-	ServerStartedAt time.Time `json:"server_started_at"`
-	Now             time.Time `json:"now"`
-	SettingsWanted  bool      `json:"settings_wanted"`
-}
-
-// Heartbeat posts a worker's declaration (a JSON-encodable object) and returns
-// the server's answer. A server too old for the route answers 404, an error the
-// worker ignores.
-func (c *MCPClient) Heartbeat(report any, timeout time.Duration) (*HeartbeatAnswer, error) {
-	var a HeartbeatAnswer
-	if err := c.apiCallInto(http.MethodPost, workersPath, "", report, &a, timeout); err != nil {
-		return nil, err
-	}
-	return &a, nil
-}
-
-// ReportWorkerSettings posts a worker's settings report. Best-effort like
-// ReportClientSettings.
-func (c *MCPClient) ReportWorkerSettings(report any, timeout time.Duration) error {
-	return c.apiCall(http.MethodPost, workerSettingsPath, "", report, timeout)
-}
-
 // doctorSchedulePath is the server route a scheduled-doctor declaration goes to (D369).
 const doctorSchedulePath = "/api/doctor-schedule"
 
@@ -656,12 +619,6 @@ func (c *MCPClient) WithdrawDoctorSchedule(kbName string, timeout time.Duration)
 // apiCall sends one request to a server /api route (client-to-server metadata,
 // not an MCP call) with the same auth and error mapping for every caller.
 func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time.Duration) error {
-	return c.apiCallInto(method, route, kbName, body, nil, timeout)
-}
-
-// apiCallInto is apiCall that also decodes a 2xx JSON answer into out (nil
-// keeps the old behaviour: the body is read, capped at 1 MiB, and dropped).
-func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, timeout time.Duration) error {
 	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
 		return err
 	}
@@ -703,7 +660,7 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 			Message: fmt.Sprintf("could not reach %s", u.Redacted()), Cause: err}
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
@@ -711,12 +668,6 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode}
-	}
-	if out != nil {
-		if err := json.Unmarshal(raw, out); err != nil {
-			return &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-				Message: fmt.Sprintf("invalid answer from %s", u.Redacted()), Cause: err}
-		}
 	}
 	return nil
 }

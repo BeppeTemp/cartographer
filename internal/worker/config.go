@@ -439,9 +439,6 @@ func (v *validator) run() error {
 	if len(r.KBs) == 0 {
 		return v.errf("kbs", v.line("kbs"), "required: at least one KB name")
 	}
-	if len(r.KBs) > MaxKBs {
-		return v.errf("kbs", v.line("kbs"), "at most %d KBs per perimeter (the server refuses a heartbeat naming more)", MaxKBs)
-	}
 	seenKB := map[string]bool{}
 	for i, kb := range r.KBs {
 		switch {
@@ -463,19 +460,9 @@ func (v *validator) run() error {
 	return v.tasks()
 }
 
-// Limits of the heartbeat and settings routes (D1259): a config past them would
-// have every beat refused with 400, so it is refused at load instead.
-const (
-	MaxKBs      = 32
-	MaxProfiles = 8
-)
-
 func (v *validator) models() error {
 	if len(v.raw.Models) == 0 {
 		return v.errf("models", v.line("models"), "required: at least one model profile")
-	}
-	if len(v.raw.Models) > MaxProfiles {
-		return v.errf("models", v.line("models"), "at most %d model profiles (the server refuses a heartbeat with more budgets)", MaxProfiles)
 	}
 	for i, m := range v.raw.Models {
 		at := fmt.Sprintf("models[%d]", i)

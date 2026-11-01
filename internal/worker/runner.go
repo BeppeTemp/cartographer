@@ -177,8 +177,6 @@ const (
 // single time. A revoked token or a refused host returns ExitRuntime.
 func (r *Runner) Run(ctx context.Context, once bool) int {
 	poll := time.Duration(r.cfg.PollSeconds) * time.Second
-	// The first beat comes before the triggers are read: its answer is the idle signal.
-	r.beat(StateWaiting)
 	for {
 		if ctx.Err() != nil {
 			r.beat(StateStopped)
