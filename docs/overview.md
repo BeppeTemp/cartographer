@@ -74,12 +74,6 @@ flowchart TB
     V --> G
 ```
 
-`internal/worker` is a library, not yet a component of the binary: the model
-client (Anthropic Messages and OpenAI-compatible chat completions over
-`net/http`, token usage reported per call) that a worker, a headless MCP client
-of the public contract, will drive with its own tool loop (D9, #1257). The
-allowlisted loop lands in the second half of that plan.
-
 ## Where to continue
 
 - [Data plane](data-plane.md): KB layout, concept model, and non-Markdown dossier assets.
