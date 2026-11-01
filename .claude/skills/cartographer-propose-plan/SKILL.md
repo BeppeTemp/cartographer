@@ -49,6 +49,8 @@ maintainer assigns it to them.
    structure, then:
    `gh issue create --title "Plan: <title>" --label plan --body-file <file>` (a contributor cannot set labels: the template sets `plan`).
    Delete the scratch file afterwards — it is not a repository artifact.
+   A maintainer who keeps a plan outside the repository stops at the scratch file
+   and takes it from there: no issue, no number, nothing below that needs one.
 5. Apply the self-sufficiency test from `CONTRIBUTING.md` before submitting, and
    replace every real KB name, host, username, employer or client with a
    placeholder — the issue is public (D259).

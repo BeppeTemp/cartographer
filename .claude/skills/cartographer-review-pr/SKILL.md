@@ -83,7 +83,7 @@ git worktree add --detach .worktrees/pr-<pr> FETCH_HEAD
 ```
 
 Spawn `cartographer-contract-reviewer` with the PR number, the absolute worktree path, the tier and
-the plan issue number (or "none") and the round (§5), the triage's docs lines (`WARN` mentioning `not touched`, `Docs: none`) verbatim, and a `base` when the change is not against `origin/main` (default `origin/main`; §Changing the reviewer). It carries the rest. On the
+the plan issue number, the absolute path of a plan file or "none", and the round (§5), the triage's docs lines (`WARN` mentioning `not touched`, `Docs: none`) verbatim, and a `base` when the change is not against `origin/main` (default `origin/main`; §Changing the reviewer). It carries the rest. On the
 full tier spawn `cartographer-security-reviewer` too, in parallel on the same worktree with the
 same mandate: both are read-only. Standard and light tiers get no security pass,
 for cost. Several PRs can be reviewed in parallel, one worktree and one pair of
@@ -98,7 +98,7 @@ subagents each, in the background.
   never the whole diff of the area — most PRs touch `internal/mcpserver`, and
   reading all of it is the cost this skill exists to avoid.
 - Plan conformance: compare the reviewer's work-package line with the plan's
-  `## WP` headings (`gh issue view <plan> --json body`), not with the whole
+  `## WP` headings (`gh issue view <plan> --json body`, or the plan file), not with the whole
   discussion.
 - `cartographer-security-reviewer` findings are verified the same way. A verified high or
   medium one blocks the verdict and the merge, whatever standing approval exists;
