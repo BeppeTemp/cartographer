@@ -192,16 +192,6 @@ func appendBranchEntry(configPath, remote, name, branch string) error {
 	return writeFileAtomic(configPath, out, mode)
 }
 
-// readFileMode returns the content and permission bits of path.
-func readFileMode(path string) ([]byte, os.FileMode, error) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return nil, 0, err
-	}
-	b, err := os.ReadFile(path)
-	return b, fi.Mode().Perm(), err
-}
-
 // writeFileAtomic replaces path with data through a temporary file in the same
 // directory and a rename, so a crash never leaves the server file half written.
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {

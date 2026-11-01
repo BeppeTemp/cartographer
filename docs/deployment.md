@@ -222,7 +222,7 @@ writes no entry) needs an entry with `remote:` and `branch:` for it. An existing
 to the effective one by the first sync when that loses nothing (HEAD on a branch, clean tree, nothing unpushed there);
 otherwise it stays `degraded` and `last_error` says why (`concurrency.md`).
 `kb clone <url> --branch X` checks `X` out and adds that entry to the server file (`--config`, which must exist);
-`kb create <name> --remote <url> --branch X` writes `branch: X` in the KB's own `settings.yaml` instead (D1093). On a repository with history and no `X`, `X` becomes an orphan branch pushed alone; there the `branch:` line is informational, since the server reads the override from the `kbs[]` entry that `kb create` records (D1412).
+`kb create <name> --remote <url> --branch X` writes `branch: X` in the KB's own `settings.yaml` instead (D1093).
 
 The clone is atomic (D348): it lands in `<data>/.<name>.cloning` and is renamed to `<data>/<name>` only when complete, so a process killed mid-clone leaves no half-clone that the next start would take for a finished one. A half-clone found at `<data>/<name>` is not detected (an existing clone is never touched): remove that directory.
 
@@ -333,7 +333,7 @@ cartographer service install                 # generates config + plist/unit, st
 cartographer service status                  # binary, config, and the observable state of the local service
 cartographer service start|stop|restart
 cartographer service uninstall               # removes the service; config and data remain
-cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134); --branch X makes X the KB's branch, an orphan branch on a repository with history (D1093, D1412)
+cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134); --branch X makes X the KB's branch (D1093)
 cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97); --branch X: this server writes to X (kbs[].branch, D1093)
 cartographer kb list                         # what is on disk, and what the server actually serves (D173)
 cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + alias in the server state file + client bindings (D177, D754, D772, D906)
