@@ -304,7 +304,7 @@ dispatched by hand with one of three actions.
   pre-release suffix is skipped, whatever GitHub's pre-release flag says), and the
   stable release deletes its version's candidates (`release.yml`, `candidate-cleanup`).
 - **The version comes from the commits.** release-please computes it from the
-  conventional commit types (D1452): `feat` a minor, `fix` a patch, a breaking change a
+  conventional commit types (D1453): `feat` a minor, `fix` a patch, a breaking change a
   minor while the project is below 1.0. No milestone names a release. A larger bump than
   the commits give is a commit with the footer `Release-As: x.y.z`, added by hand. A large
   change still lands as PRs that change nothing a user sees on their own.
@@ -362,7 +362,7 @@ change who acts:
 | `vuln-scan` | Created by `security.yml` when a vulnerability scan fails; never set by hand |
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
 
-Triage is the `accepted` label (D1451, D1452): an open issue without it is not triaged
+Triage is the `accepted` label (D1451, D1453): an open issue without it is not triaged
 yet, and the weekly triage accepts it or closes it. There are no milestones: the
 version is not planned per issue, it is whatever the merged commits make it.
 
