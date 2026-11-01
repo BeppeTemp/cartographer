@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,7 +9,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
-	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 // The operating guide (D1097): what `initialize` and `server/discover` tell a
@@ -54,23 +52,6 @@ func GuideKB(ctx context.Context, k *kb.KB, name string) (g provisioning.GuideKB
 		g.Curated, g.SkipPreamble = provisioning.KBCuratedInstructions(k.Root)
 	}
 	return g, true
-}
-
-// procedureLines are the served procedures whose body the bundle holds, for the
-// guide's list (#1316). The one copy of the line source: connectionGuide
-// (initialize) and renderKBGuide (kb_guide) both call it. No bundle, no list.
-func procedureLines(bundle fs.FS) []provisioning.ProcedureLine {
-	if bundle == nil {
-		return nil
-	}
-	var lines []provisioning.ProcedureLine
-	for _, p := range skillbundle.Procedures() {
-		if _, err := p.Body(bundle); err != nil {
-			continue
-		}
-		lines = append(lines, provisioning.ProcedureLine{Short: p.Short, UseWhen: p.UseWhen})
-	}
-	return lines
 }
 
 // guideArchiveNames lists the KB's archives, none when data/ is a symlink: a
@@ -122,7 +103,7 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 	if !readOnly && !writesAnyKB(ctx, names) {
 		readOnly = true
 	}
-	return provisioning.RenderGuide(kbs, provisioning.GuideOptions{Routed: routed, ReadOnly: readOnly, Procedures: procedureLines(s.guideBundle)})
+	return provisioning.RenderGuide(kbs, provisioning.GuideOptions{Routed: routed, ReadOnly: readOnly})
 }
 
 // handshakeInstructions is the `instructions` of one handshake: what a

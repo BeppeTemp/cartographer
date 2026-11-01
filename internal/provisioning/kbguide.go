@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // The pieces of the instructions text, shared by two renderings (D1097): the
@@ -30,21 +28,19 @@ func routingSentence(kbName string, routed bool) string {
 }
 
 // archivesSentence ends the routing paragraph. noneVisible distinguishes a KB
-// that has no map from one whose maps the caller may not see. The word is
-// "Maps", the one the tools use (map_create); the Go names keep "archive"
-// (#1316). The block shares this text, so its hash moved once with the word.
+// that has no archive from one whose archives the caller may not see.
 func archivesSentence(archives []string, noneVisible bool) string {
 	if len(archives) == 0 {
 		if noneVisible {
-			return " No maps are visible to this connection.\n\n"
+			return " No archives are visible to this connection.\n\n"
 		}
-		return " No maps yet.\n\n"
+		return " No archives detected yet.\n\n"
 	}
 	names := make([]string, len(archives))
 	for i, a := range archives {
 		names[i] = a + "/"
 	}
-	return fmt.Sprintf(" Maps: %s.\n\n", strings.Join(names, ", "))
+	return fmt.Sprintf(" Archives: %s.\n\n", strings.Join(names, ", "))
 }
 
 // maxSkillNames caps the skill catalog of one KB's brief section (D1182):
@@ -91,10 +87,9 @@ const (
 	findingsBullet    = "- act on the `findings` every write returns before moving on: they name what to fix;\n"
 	placeholderBullet = "- `{{repo:<key>}}` and `{{path:<name>}}` in a page or a directive are machine-local path placeholders: keep them verbatim, never resolve or rewrite them;\n"
 	conflictBullet    = "- a write blocked by a git conflict is settled with `conflicts_list` and `git_conflict_resolve`.\n"
-	// #1316: the last line of the guide. The managed block does not carry any of
-	// it; kb_guide {} stays whole for a host that drops `initialize` (D1100).
-	wholeGuideBullet = "- these instructions are the whole guide: `kb_guide` without arguments only repeats them for a host that does not show them;\n"
-	readOnlyBullet   = "- this connection is read-only: write tools are not listed and are refused.\n"
+	// D1100: guide only, the managed block (byte-pinned) does not carry it.
+	procedureBullet = "- for step-by-step procedures (ingesting a source, resolving a git conflict, importing a wiki) call `kb_guide` with `procedure`;\n"
+	readOnlyBullet  = "- this connection is read-only: write tools are not listed and are refused.\n"
 
 	// The bullets only the managed block carries (they make sense with a
 	// Cartographer client: `cartographer kb reauthor`, `cartographer update
@@ -233,20 +228,6 @@ type GuideOptions struct {
 	Routed bool
 	// ReadOnly is true for a connection that cannot write.
 	ReadOnly bool
-	// Procedures are the procedures this server serves with their body, as
-	// the caller builds them (pure here: no bundle I/O). Empty: no list.
-	Procedures []ProcedureLine
-}
-
-// ProcedureLine is one served procedure in the guide's list (#1316).
-type ProcedureLine struct{ Short, UseWhen string }
-
-// coldStartSection is what an empty KB's guide adds after its routing
-// paragraph (#1316): how to create the first map and what is reserved. Guide
-// only, never the managed block (paid on every model call, D1182).
-func coldStartSection() string {
-	return fmt.Sprintf("This KB is empty. Create its first map with `map_create` (`name` kebab-case, `title`; `kind: journal` for a dated log of events or sources), then write pages with `concept_write`. Reserved map name: %s. Documented services are pages under `services/<id>`, not a map.\n\n",
-		strings.Join(kb.ReservedMapNames, ", "))
 }
 
 // RenderGuide renders the operating guide the server sends in `initialize`
@@ -268,13 +249,10 @@ func RenderGuide(kbs []GuideKB, opts GuideOptions) string {
 	for _, k := range kbs {
 		sb.WriteString(routingSentence(k.Name, opts.Routed))
 		sb.WriteString(archivesSentence(k.Archives, k.ArchivesHidden))
-		if len(k.Archives) == 0 && !k.ArchivesHidden && !opts.ReadOnly && !k.SkipPreamble {
-			sb.WriteString(coldStartSection())
-		}
 		allOptOut = allOptOut && k.SkipPreamble
 	}
 	if !allOptOut {
-		sb.WriteString(GuideOperational(opts.ReadOnly, opts.Procedures))
+		sb.WriteString(GuideOperational(opts.ReadOnly))
 	}
 	for _, k := range kbs {
 		if k.Curated == "" {
@@ -288,29 +266,14 @@ func RenderGuide(kbs []GuideKB, opts GuideOptions) string {
 	return sb.String()
 }
 
-// procedureBullets renders the procedures list: a heading line, then one line
-// per procedure. Nothing when none is served (never a dangling reference).
-func procedureBullets(procs []ProcedureLine) string {
-	if len(procs) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("- procedures, each opened with `kb_guide` `procedure: <name>`:\n")
-	for _, p := range procs {
-		fmt.Fprintf(&sb, "  - `%s`: %s;\n", p.Short, p.UseWhen)
-	}
-	return sb.String()
-}
-
 // GuideOperational is the guide's "Operational instructions" section alone.
-func GuideOperational(readOnly bool, procs []ProcedureLine) string {
+func GuideOperational(readOnly bool) string {
 	var sb strings.Builder
 	sb.WriteString("Operational instructions:\n")
 	sb.WriteString(orientationBullet)
 	if readOnly {
 		sb.WriteString(placeholderBullet)
-		sb.WriteString(procedureBullets(procs))
-		sb.WriteString(wholeGuideBullet)
+		sb.WriteString(procedureBullet)
 		sb.WriteString(readOnlyBullet)
 		return sb.String()
 	}
@@ -320,8 +283,7 @@ func GuideOperational(readOnly bool, procs []ProcedureLine) string {
 	sb.WriteString(commitBullet)
 	sb.WriteString(findingsBullet)
 	sb.WriteString(placeholderBullet)
-	sb.WriteString(procedureBullets(procs))
-	sb.WriteString(wholeGuideBullet)
+	sb.WriteString(procedureBullet)
 	sb.WriteString(conflictBullet)
 	return sb.String()
 }
