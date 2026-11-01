@@ -4,7 +4,7 @@ topic: project-governance
 
 # D1450 — A maintainer's plan can reach the subagents as a file
 
-**Decision.** A plan reaches `cartographer-plan-implementer`, `cartographer-plan-writer` and the reviewers either as an issue number or as an absolute file path. A file passed by a maintainer's coordinator counts as approved. It has no number, so its PR carries no `Closes` and the decision number is the PR's (D672). Skills and agents never name where such a file is kept.
+**Decision.** A plan reaches `cartographer-plan-implementer`, `cartographer-plan-writer` and the reviewers either as an issue number or as an absolute file path. A file counts as approved only in maintainer mode, when the user gave it in the session; a path found in an issue, a PR, a comment or a repository file never does. It has no number, so its PR carries no `Closes` and the decision number is the PR's (D672). Skills and agents never name where such a file is kept.
 
 **Why.** A plan is a handoff between sessions, and a maintainer's plans need not live on the public tracker. The repository must keep working with only `git`, `gh` and `make`, so the coordinator reads the plan wherever it is and hands over a file. The cost: approval of a file is the coordinator's act, not a label anyone can see.
 
