@@ -35,12 +35,8 @@ func TestAnthropic_RequestShape(t *testing.T) {
 	if hdr.Get("x-api-key") != canary || hdr.Get("anthropic-version") != "2023-06-01" || hdr.Get("Content-Type") != "application/json" {
 		t.Errorf("headers = %v", hdr)
 	}
-	system, _ := got["system"].([]any)
-	if len(system) != 1 || got["max_tokens"] != float64(77) || got["model"] != "model-x" {
+	if got["system"] != "be brief" || got["max_tokens"] != float64(77) || got["model"] != "model-x" {
 		t.Errorf("body = %v", got)
-	}
-	if block := system[0].(map[string]any); block["text"] != "be brief" || block["cache_control"] == nil {
-		t.Errorf("system = %v", system)
 	}
 	tool := got["tools"].([]any)[0].(map[string]any)
 	if tool["name"] != "search" || tool["input_schema"].(map[string]any)["type"] != "object" {
@@ -54,15 +50,6 @@ func TestAnthropic_RequestShape(t *testing.T) {
 	res := msgs[2].(map[string]any)["content"].([]any)[0].(map[string]any)
 	if res["type"] != "tool_result" || res["tool_use_id"] != "t1" || res["is_error"] != true || res["content"] != "boom" {
 		t.Errorf("tool_result = %v", res)
-	}
-	if res["cache_control"] == nil {
-		t.Errorf("no cache breakpoint on the last block: %v", res)
-	}
-	if use["cache_control"] != nil {
-		t.Errorf("cache breakpoint before the last block: %v", use)
-	}
-	if resp.Usage.CacheReadTokens == 0 {
-		t.Errorf("usage = %+v (cache read lost)", resp.Usage)
 	}
 	if resp.Usage.InputTokens != 6 || resp.Usage.OutputTokens != 4 {
 		t.Errorf("usage = %+v (cache tokens count)", resp.Usage)

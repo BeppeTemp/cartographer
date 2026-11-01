@@ -36,10 +36,6 @@ const (
 	ProviderOpenAI    = "openai"
 )
 
-// DefaultContextTokens is the window assumed for a model that does not declare
-// one: a small local model, so a larger one is an explicit choice.
-const DefaultContextTokens = 32_000
-
 // Profile is one named model profile and its budget (D21).
 type Profile struct {
 	Name              string
@@ -51,9 +47,6 @@ type Profile struct {
 	Tier              string
 	DailyTokens       int
 	RunTokens         int // at most DailyTokens; the most one run spends
-	ContextTokens     int // the model's window: the most one prompt may hold
-	MaxOutputTokens   int // the most one answer may hold; 0 is the loop's default
-	TimeoutSeconds    int // per attempt of a model call; 0 is the client's default
 
 	apiKey string
 }
@@ -193,9 +186,6 @@ type rawModel struct {
 	Model             string `yaml:"model"`
 	APIKeyEnv         string `yaml:"api_key_env"`
 	Tier              string `yaml:"tier"`
-	ContextTokens     int    `yaml:"context_tokens"`
-	MaxOutputTokens   int    `yaml:"max_output_tokens"`
-	TimeoutSeconds    int    `yaml:"timeout_seconds"`
 	Budget            struct {
 		DailyTokens int `yaml:"daily_tokens"`
 		RunTokens   int `yaml:"run_tokens"`
@@ -554,21 +544,6 @@ func (v *validator) models() error {
 		}
 		p := Profile{Name: m.Name, Provider: m.Provider, BaseURL: m.BaseURL, AllowInsecureHTTP: m.AllowInsecureHTTP,
 			Model: m.Model, APIKeyEnv: m.APIKeyEnv, Tier: m.Tier, DailyTokens: m.Budget.DailyTokens, RunTokens: m.Budget.RunTokens}
-		switch {
-		case m.ContextTokens < 0:
-			return v.errf(at+".context_tokens", ln("context_tokens"), "must be above 0")
-		case m.ContextTokens == 0:
-			p.ContextTokens = DefaultContextTokens
-		default:
-			p.ContextTokens = m.ContextTokens
-		}
-		if m.MaxOutputTokens < 0 {
-			return v.errf(at+".max_output_tokens", ln("max_output_tokens"), "must be above 0")
-		}
-		if m.TimeoutSeconds < 0 {
-			return v.errf(at+".timeout_seconds", ln("timeout_seconds"), "must be above 0")
-		}
-		p.MaxOutputTokens, p.TimeoutSeconds = m.MaxOutputTokens, m.TimeoutSeconds
 		if m.Provider != ProviderAnthropic && m.Provider != ProviderOpenAI {
 			return v.errf(at+".provider", ln("provider"), "required: %s or %s", ProviderAnthropic, ProviderOpenAI)
 		}

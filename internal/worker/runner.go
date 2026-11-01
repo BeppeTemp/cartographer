@@ -347,12 +347,10 @@ kbs:
 			tried[idx][kb+"\x00"+item.Key] = true
 			r.budget.Touch(kb)
 			prof, _ := r.cfg.Profile(t.Profile)
-			started := r.opt.Now()
 			res, err := r.instances[idx].Run(ctx, item, Runtime{
 				KB: kb, Perimeter: r.cfg.Name, Replica: r.replica, Profile: prof,
 				Model: r.opt.Models[t.Profile], Grant: r.budget.Grant(t.Profile), DailyLeft: r.budget.DailyLeft(t.Profile), Tools: r.opt.Callers(kb),
 			})
-			r.opt.Logf("%s", taskMetric(r.cfg.Name, r.replica, kb, t, prof.Model, item.Key, r.opt.Now().Sub(started), res, err))
 			r.budget.Charge(kb, t.Profile, res.Tokens)
 			r.budget.Note(kb, res.Units, res.Commits)
 			r.budget.Summarize(kb, res.Summary)

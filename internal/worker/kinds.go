@@ -224,12 +224,6 @@ type Runtime struct {
 	Tools     ToolCaller
 }
 
-// Limits is the loop's ceiling for a task of this runtime: maxTokens is its
-// share of the grant.
-func (rt Runtime) Limits(maxSteps, maxTokens int) Limits {
-	return Limits{MaxSteps: maxSteps, MaxTotalTokens: maxTokens, MaxOutputTokens: rt.Profile.MaxOutputTokens, MaxContextTokens: rt.Profile.ContextTokens}
-}
-
 // Result is what a finished (or failed) task reports. Tokens are charged to the
 // task's profile even when Run also returns an error.
 type Result struct {
@@ -237,26 +231,6 @@ type Result struct {
 	Units   int
 	Commits int
 	Summary string // one line
-
-	CacheReadTokens int // the part of Tokens read from the provider's cache
-	Steps           int
-	MaxPromptTokens int // the largest prompt of the run
-	ToolCalls       int
-	ToolErrors      int // calls answered with an error, a refused write included
-}
-
-// measure copies the loop's figures into the result.
-func (r *Result) measure(out Outcome) {
-	r.Tokens += out.Usage.Total()
-	r.CacheReadTokens += out.Usage.CacheReadTokens
-	r.Steps += out.Steps
-	r.MaxPromptTokens = max(r.MaxPromptTokens, out.MaxPromptTokens)
-	r.ToolCalls += out.ToolCalls
-	for _, c := range out.Calls {
-		if c.IsError {
-			r.ToolErrors++
-		}
-	}
 }
 
 // Binder is implemented by an Instance that needs the loaded config and the

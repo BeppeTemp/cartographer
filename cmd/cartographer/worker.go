@@ -71,12 +71,7 @@ type workerEnv struct {
 // closeTimeout bounds each closing log_append on shutdown; the entries are
 // written in parallel, so the total stays well inside Kubernetes' default 30 s
 // terminationGracePeriodSeconds.
-const closeTimeout = 25 * time.Second
-
-// toolCallTimeout bounds one tool call of a task. The client's default 30 s is
-// for interactive use: kb_repair over a whole KB takes over a minute, and a call
-// the client abandons keeps running on the server, holding the KB's lock.
-const toolCallTimeout = 5 * time.Minute
+const closeTimeout = 5 * time.Second
 
 // workerRunFn is the runner behind the start-up checks (stubbed by tests).
 var workerRunFn = func(ctx context.Context, env *workerEnv, once bool) int {
@@ -87,7 +82,7 @@ var workerRunFn = func(ctx context.Context, env *workerEnv, once bool) int {
 	beater := &worker.Beater{API: env.client, Perimeter: env.cfg.Name, Version: version, KBs: env.cfg.KBs,
 		Tiers: tiers, Settings: env.settings, Logf: log.Printf}
 	r, err := worker.NewRunner(env.cfg, worker.DefaultKinds(), worker.RunnerOptions{
-		Callers:      func(kb string) worker.ToolCaller { return env.client.WithKB(kb).WithHTTPTimeout(toolCallTimeout) },
+		Callers:      func(kb string) worker.ToolCaller { return env.client.WithKB(kb) },
 		CloseCallers: func(kb string) worker.ToolCaller { return env.client.WithKB(kb).WithHTTPTimeout(closeTimeout) },
 		Models:       env.models,
 		Idle:         beater,
@@ -232,12 +227,12 @@ func workerStartup(ctx context.Context, path string, kinds *worker.Kinds, retry 
 }
 
 func buildModel(p worker.Profile) (worker.Model, error) {
-	opts := []worker.Option{worker.WithAllowInsecureHTTP(p.AllowInsecureHTTP), worker.WithTimeout(time.Duration(p.TimeoutSeconds) * time.Second)}
+	opt := worker.WithAllowInsecureHTTP(p.AllowInsecureHTTP)
 	switch p.Provider {
 	case worker.ProviderAnthropic:
-		return worker.NewAnthropic(p.BaseURL, p.APIKey(), p.Model, opts...)
+		return worker.NewAnthropic(p.BaseURL, p.APIKey(), p.Model, opt)
 	case worker.ProviderOpenAI:
-		return worker.NewOpenAI(p.BaseURL, p.APIKey(), p.Model, opts...)
+		return worker.NewOpenAI(p.BaseURL, p.APIKey(), p.Model, opt)
 	}
 	return nil, fmt.Errorf("unknown provider %q", p.Provider)
 }

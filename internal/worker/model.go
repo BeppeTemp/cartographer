@@ -107,10 +107,6 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	Estimated    bool
-
-	// CacheReadTokens is the part of InputTokens served from the provider's
-	// cache: it is counted in InputTokens and costs a fraction of it.
-	CacheReadTokens int
 }
 
 // Total is the sum a daily budget adds up.

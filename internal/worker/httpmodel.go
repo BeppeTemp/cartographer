@@ -42,9 +42,6 @@ func WithAllowInsecureHTTP(allow bool) Option { return func(t *transport) { t.al
 // twice it). Tests use a few milliseconds.
 func WithRetryDelay(d time.Duration) Option { return func(t *transport) { t.retryDelay = d } }
 
-// WithTimeout sets the limit of one attempt; 0 keeps the default.
-func WithTimeout(d time.Duration) Option { return func(t *transport) { t.timeout = d } }
-
 // transport is the HTTP half shared by both providers. key is a secret: the
 // owning types redact themselves, and every error text is scrubbed of it.
 type transport struct {
@@ -54,7 +51,6 @@ type transport struct {
 	base          *http.Client
 	allowInsecure bool
 	retryDelay    time.Duration
-	timeout       time.Duration
 	hc            *http.Client
 }
 
@@ -75,16 +71,13 @@ func newTransport(baseURL, key, model string, opts []Option) (*transport, error)
 		}
 		return nil, err
 	}
-	if t.timeout == 0 {
-		t.timeout = defaultTimeout
-	}
 	if t.base == nil {
-		t.base = &http.Client{Timeout: t.timeout}
+		t.base = &http.Client{Timeout: defaultTimeout}
 	}
 	hc := client.HTTPClient(t.base, t.allowInsecure)
 	if hc.Timeout == 0 {
 		// A caller's client without a timeout would leave an attempt unbounded.
-		hc.Timeout = t.timeout
+		hc.Timeout = defaultTimeout
 	}
 	policy := hc.CheckRedirect
 	hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
