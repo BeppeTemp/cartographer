@@ -13,6 +13,13 @@ set -eu
 
 INSTALL_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
+# A prefix assignment before a function call survives the call in bash's POSIX
+# mode (macOS /bin/sh) but not in dash: refuse it (see run_install in lib/harness.sh).
+if grep -nE '^[[:space:]]*[A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*[[:space:]]+run_install' "${INSTALL_DIR}"/scenarios/*.sh; then
+    echo "[run] FAIL — a scenario prefixes run_install with an assignment; export and unset the variable instead"
+    exit 1
+fi
+
 TOTAL=0
 FAILED=0
 PASSED=0

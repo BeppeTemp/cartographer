@@ -58,6 +58,10 @@ FAKEBIN
 #   Runs install.sh <subcommand> against the scenario sandbox, capturing
 #   combined stdout+stderr into $INSTALL_OUTPUT and the exit code into
 #   $INSTALL_RC.
+#   Never prefix it with an assignment (`VAR=x run_install ...`): in bash's POSIX
+#   mode (macOS /bin/sh) the assignment outlives the function call, in dash it
+#   does not. Export the variable, call, then unset it; run.sh refuses a
+#   scenario that prefixes it.
 run_install() {
     INSTALL_OUTPUT_FILE="${SCENARIO_TMP}/output.log"
     FAKE_NEW_BINARY="$NEW_BINARY"
