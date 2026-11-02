@@ -70,6 +70,9 @@ type providerStatus struct {
 	// list of names means two different things and the reader cannot tell.
 	BoundKBs      []string `json:"bound_kbs,omitempty"`
 	BindingOrigin string   `json:"binding_origin,omitempty"`
+	// ArtifactsOff names the bound KBs with `kb_options.<kb>.artifacts: false`
+	// (#1408): their missing skills are a setting, not a failure.
+	ArtifactsOff []string `json:"artifacts_off,omitempty"`
 	// KBCounts breaks the materialized artifacts down by source KB, read from
 	// the lockfile's per-file Source (D170). Empty for a lockfile written
 	// before that field existed: unknown, not zero.
@@ -466,6 +469,11 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.HookLimitAcked = lock.SessionHookLimitAcked
 		bound, explicit := cfg.BoundKBs(p.Name)
 		p.BoundKBs = bound
+		for _, kb := range bound {
+			if !cfg.KBArtifacts(kb) {
+				p.ArtifactsOff = append(p.ArtifactsOff, kb)
+			}
+		}
 		p.BindingOrigin = "default"
 		if explicit {
 			p.BindingOrigin = "explicit"

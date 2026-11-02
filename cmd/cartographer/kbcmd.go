@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -107,10 +108,10 @@ func cmdKBCreate(args []string) int {
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
 	configFlag := fs.String("config", "", "Server config YAML to read data: from (default: the standard path)")
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
-	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), whose files are kept (a recognised boilerplate README.md is replaced, see --readme): attached as origin and pushed to")
+	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), whose files are kept (a recognised boilerplate README.md is replaced, see --readme): attached as origin and pushed to; a repository with history needs --branch, which puts the KB on an orphan branch of its own")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	readmeFlag := fs.String("readme", "", "What to do with the README.md of a forge's initial commit: generate (replace it with a short generated one) or keep (leave it); default replaces only a recognised forge boilerplate")
-	branchFlag := fs.String("branch", "", "Branch the KB lives on, written as `branch` in its settings.yaml (the team's default, read from the remote's default branch) and pushed after it; needs --remote")
+	branchFlag := fs.String("branch", "", "Branch the KB lives on, written as `branch` in its settings.yaml (the team's default, read from the remote's default branch) and pushed after it; on a repository with history and no such branch, the KB becomes an orphan branch X and only X is pushed (kbs[].branch is recorded in the server config, which must exist); needs --remote")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
 	if code := bindPositionals("kb create", parseFlagsAnywhere(fs, args), &name); code != 0 {
 		return code
@@ -170,6 +171,7 @@ func cmdKBCreate(args []string) int {
 	// default branch (D903), so the scaffold carries it and the default branch
 	// is pushed first; the branch itself is created from it afterwards. A branch
 	// that is the one the first push lands on needs no key at all.
+	wantBranch := branch
 	if branch != "" && branch == remoteTargetBranch(remote) {
 		branch = ""
 	}
@@ -183,7 +185,8 @@ func cmdKBCreate(args []string) int {
 	// no separate MkdirAll(dataDir) needed.
 	var originBranch string
 	var adopted []string
-	var replacedReadme bool
+	var replacedReadme, orphan bool
+	var orphanConfig string
 	if _, err := kb.InitWithSettings(path, authorName, authorEmail, settingsFile); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		// A failed initial commit stops here, before the push: pushing an
@@ -195,7 +198,7 @@ func cmdKBCreate(args []string) int {
 		return 1
 	}
 	if remote != "" {
-		res := attachOrigin(path, remote, name, readme, authorName, authorEmail)
+		res := attachOrigin(path, remote, name, readme, authorName, authorEmail, wantBranch, *configFlag)
 		if res.code != 0 {
 			if res.discard {
 				// Nothing was pushed and the next step is a rerun of this
@@ -209,7 +212,8 @@ func cmdKBCreate(args []string) int {
 			return res.code
 		}
 		originBranch, adopted, replacedReadme = res.branch, res.adopted, res.replacedReadme
-		if branch != "" && branch != originBranch {
+		orphan, orphanConfig = res.orphan, res.configPath
+		if !res.orphan && branch != "" && branch != originBranch {
 			if err := pushKBBranch(path, branch); err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)
 				printUnpushedScaffoldGuidance(path, originBranch, authorName, authorEmail, dataDir)
@@ -220,6 +224,9 @@ func cmdKBCreate(args []string) int {
 	}
 	fmt.Printf("KB %q created at %s\n", name, path)
 	if remote != "" {
+		if orphan && readme != "" {
+			fmt.Printf("note: --readme %s has no effect: an orphan branch adopts nothing from the repository\n", readme)
+		}
 		if len(adopted) > 0 {
 			replaced := ""
 			if replacedReadme {
@@ -229,7 +236,9 @@ func cmdKBCreate(args []string) int {
 		} else {
 			fmt.Printf("origin: %s\n", remote)
 		}
-		if branch != "" {
+		if orphan {
+			fmt.Printf("branch: %s (an orphan branch: it shares no history with the repository, whose other branches were not touched; kbs[].branch is recorded in %s)\n", originBranch, orphanConfig)
+		} else if branch != "" {
 			fmt.Printf("branch: %s (the KB's own setting; the default branch %s carries the settings.yaml that names it)\n", branch, originBranch)
 		}
 	} else {
@@ -331,6 +340,10 @@ type originResult struct {
 	adopted []string
 	// replacedReadme: the adopted README.md was replaced by a generated one.
 	replacedReadme bool
+	// orphan: the KB was pushed as an orphan branch of a repository with
+	// history (D1412); configPath is the server file that must record it.
+	orphan     bool
+	configPath string
 }
 
 // attachOrigin wires the freshly scaffolded KB at path to remote as "origin"
@@ -342,7 +355,10 @@ type originResult struct {
 // non-empty remote is refused before the push. An unreachable remote falls
 // through to the push, whose failure keeps the scaffold (D156). readme is the
 // --readme choice for the adopted forge README.md (replaceForgeReadme).
-func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string) originResult {
+//
+// want is the --branch the operator gave ("" when none): on a repository with
+// history it decides between the refusal and the orphan branch (D1412).
+func attachOrigin(path, remote, kbName, readme, authorName, authorEmail, want, configFlag string) originResult {
 	if err := gitx.AddRemote(path, "origin", remote); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return originResult{code: 1}
@@ -352,15 +368,35 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string) 
 		branch = gitx.DefaultBranch
 	}
 	var adopted []string
-	var replaced bool
+	var replaced, orphan bool
+	var configPath string
 	if refs, lsErr := gitx.LsRemote(path, "origin"); lsErr == nil && refs.HasRefs {
 		var res *originResult
-		if branch, adopted, replaced, res = adoptForgeCommit(path, remote, kbName, readme, branch, refs, authorName, authorEmail); res != nil {
+		if branch, adopted, replaced, orphan, configPath, res = adoptForgeCommit(path, remote, kbName, readme, branch, want, configFlag, refs, authorName, authorEmail); res != nil {
 			return *res
 		}
 	}
+	// The server must follow X before it exists on the remote, or a discovered
+	// KB would be switched to the customer's default branch by its first sync
+	// (D1412). A failed push puts the server file back as it was.
+	restore := func() {}
+	if orphan {
+		orig, mode, rerr := readFileMode(configPath)
+		if rerr == nil {
+			rerr = appendBranchEntry(configPath, remote, kbName, branch)
+		}
+		if rerr != nil {
+			fmt.Fprintln(os.Stderr, "Error:", rerr)
+			return originResult{code: 1, discard: true}
+		}
+		restore = func() { _ = writeFileAtomic(configPath, orig, mode) }
+	}
 	if err := gitx.PushSetUpstream(path, "origin", branch); err != nil {
+		restore()
 		fmt.Fprintln(os.Stderr, "Error:", err)
+		if orphan {
+			fmt.Fprintf(os.Stderr, "Hint: once the push succeeds, add this entry under kbs: in %s:\n  - remote: %s\n    branch: %s\n", configPath, remote, branch)
+		}
 		if strings.Contains(err.Error(), "src refspec") {
 			// Not an authentication problem: the branch has no commit yet.
 			fmt.Fprintf(os.Stderr, "Hint: the KB has no commit to push — git could not make the initial commit (often: committer identity unknown). Commit it, which also shows why it failed: git -C %s commit -m %q\n", path, "init: KB initialized")
@@ -370,7 +406,7 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string) 
 		fmt.Fprintf(os.Stderr, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", remote)
 		return originResult{code: 1, branch: branch}
 	}
-	return originResult{branch: branch, adopted: adopted, replacedReadme: replaced}
+	return originResult{branch: branch, adopted: adopted, replacedReadme: replaced, orphan: orphan, configPath: configPath}
 }
 
 // adoptForgeCommit handles a remote that already has refs. It returns the
@@ -378,9 +414,9 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string) 
 // must stop: a remote that holds content, a path collision, or a failed fetch
 // or rebase, or the README replacement — all before anything was pushed, so
 // the local KB is discarded. The bool reports a replaced README.md.
-func adoptForgeCommit(path, remote, kbName, readme, branch string, refs gitx.RemoteRefs, authorName, authorEmail string) (string, []string, bool, *originResult) {
-	refuse := func() (string, []string, bool, *originResult) {
-		return branch, nil, false, &originResult{code: 1, discard: true}
+func adoptForgeCommit(path, remote, kbName, readme, branch, want, configFlag string, refs gitx.RemoteRefs, authorName, authorEmail string) (string, []string, bool, bool, string, *originResult) {
+	refuse := func() (string, []string, bool, bool, string, *originResult) {
+		return branch, nil, false, false, "", &originResult{code: 1, discard: true}
 	}
 	if err := gitx.Fetch(path, "origin"); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -399,9 +435,36 @@ func adoptForgeCommit(path, remote, kbName, readme, branch string, refs gitx.Rem
 			return refuse()
 		}
 	}
+	if want != "" && refs.HasBranch(want) && !(forgeInit && target == want) {
+		fmt.Fprintf(os.Stderr, "Error: the remote %s already has a branch %s, so a new KB cannot be created on it.\n", remote, want)
+		fmt.Fprintf(os.Stderr, "Hint: if it holds a KB, mount it: cartographer kb clone %s --branch %s\n", remote, want)
+		fmt.Fprintln(os.Stderr, "Hint: otherwise pick another branch name.")
+		return refuse()
+	}
+	if !forgeInit && want != "" {
+		// Orphan mode (D1412): the scaffold is a fresh `git init`, so its
+		// branch already shares no history with the repository. Every refusal
+		// is decided here, before the push.
+		configPath, err := serverConfigFile(configFlag)
+		if err == nil {
+			err = checkBranchEntryFree(configPath, remote, kbName)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return refuse()
+		}
+		if want != branch {
+			if err := gitx.RenameBranch(path, want); err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return refuse()
+			}
+		}
+		return want, nil, false, true, configPath, nil
+	}
 	if !forgeInit {
 		fmt.Fprintf(os.Stderr, "Error: the remote %s already has commits, so a new KB cannot be created in it.\n", remote)
 		fmt.Fprintf(os.Stderr, "Hint: if it holds a KB, mount it: cartographer kb clone %s\n", remote)
+		fmt.Fprintf(os.Stderr, "Hint: put the KB on a branch of its own, leaving the rest of the repository untouched: cartographer kb create %s --remote %s --branch <name>\n", kbName, remote)
 		fmt.Fprintln(os.Stderr, "Hint: otherwise import its content with the cartographer-kb-import skill, or point --remote at an empty repository.")
 		return refuse()
 	}
@@ -447,7 +510,7 @@ func adoptForgeCommit(path, remote, kbName, readme, branch string, refs gitx.Rem
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return refuse()
 	}
-	return target, forgePaths, replaced, nil
+	return target, forgePaths, replaced, false, "", nil
 }
 
 const (
@@ -622,23 +685,39 @@ func cmdKBClone(args []string) int {
 		}
 		return 1
 	}
-	if _, err := kb.Open(path); err != nil {
-		// A forge's initial commit is not a KB to import but an empty project
-		// to build one in: point at kb create, which adopts it (D710).
-		if forgeInitClone(path) {
-			fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s\n", remote, remote)
+	// The layout is checked on the branch that will be mounted: a repository
+	// whose default branch holds no KB can still carry one on --branch (D1412).
+	teamBranch := ""
+	if branch != "" {
+		if !gitx.RemoteBranchExists(path, "origin", branch) && !hasKBLayout(path, "HEAD") {
+			if forgeInitClone(path) {
+				fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s --branch %s\n", remote, remote, branch)
+				return 1
+			}
+			fmt.Fprintf(os.Stderr, "Error: branch %s does not exist on the remote and the default branch holds no KB\n", branch)
 			return 1
 		}
-		fmt.Fprintln(os.Stderr, "Error: not an OKF KB — import it with the cartographer-kb-import skill, push, then retry")
-		return 1
-	}
-
-	if branch != "" {
-		teamBranch := committedBranchSetting(path)
+		teamBranch = committedBranchSetting(path)
 		if err := checkoutConfiguredBranch(path, branch); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 1
 		}
+	}
+	if _, err := kb.Open(path); err != nil {
+		// A forge's initial commit is not a KB to import but an empty project
+		// to build one in: point at kb create, which adopts it (D710).
+		if branch == "" && forgeInitClone(path) {
+			fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s\n", remote, remote)
+			return 1
+		}
+		fmt.Fprintln(os.Stderr, "Error: not an OKF KB — import it with the cartographer-kb-import skill, push, then retry")
+		if branch == "" {
+			printKBBranchHint(path, remote)
+		}
+		return 1
+	}
+
+	if branch != "" {
 		if err := appendBranchEntry(configPath, remote, name, branch); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 1
@@ -657,6 +736,49 @@ func cmdKBClone(args []string) int {
 	fmt.Printf("KB %q mounted at %s\n", name, path)
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
+}
+
+// hasKBLayout reports whether ref of the clone at path holds data/index.md,
+// the file kb.Open requires.
+func hasKBLayout(path, ref string) bool {
+	_, err := gitx.ShowFile(path, ref, "data/index.md")
+	return err == nil
+}
+
+// maxBranchHints caps the candidate branches a failed `kb clone` lists.
+const maxBranchHints = 5
+
+var safeHintBranch = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
+// safeBranchHint admits only branch names that are safe to print inside a
+// paste-ready shell command: a remote chooses its branch names.
+func safeBranchHint(b string) bool {
+	return safeHintBranch.MatchString(b) && kb.ValidateBranchName(b) == nil
+}
+
+// printKBBranchHint tells where a KB may live when the default branch holds
+// none: the remote-tracking branches of the fresh clone (all fetched, so the
+// check is local) that carry data/index.md, else the generic --branch hint.
+func printKBBranchHint(path, remote string) {
+	current, _ := gitx.Branch(path)
+	var found []string
+	if branches, err := gitx.RemoteTrackingBranches(path, "origin"); err == nil {
+		for _, b := range branches {
+			if b != current && safeBranchHint(b) && hasKBLayout(path, "origin/"+b) {
+				found = append(found, b)
+			}
+		}
+	}
+	if len(found) == 0 {
+		fmt.Fprintf(os.Stderr, "Hint: if the KB is on another branch: cartographer kb clone %s --branch <name>\n", remote)
+		return
+	}
+	if len(found) > maxBranchHints {
+		found = found[:maxBranchHints]
+	}
+	for _, b := range found {
+		fmt.Fprintf(os.Stderr, "Hint: a KB lives on branch %s: cartographer kb clone %s --branch %s\n", b, remote, b)
+	}
 }
 
 // forgeInitClone reports whether the fresh clone at path holds only a forge's
