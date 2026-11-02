@@ -1153,3 +1153,66 @@ func TestCloneEnv_AllowProtocol(t *testing.T) {
 		t.Errorf("caller's GIT_ALLOW_PROTOCOL must be kept alone, got %d entries", n)
 	}
 }
+
+func TestRemoteRemedy_PerForgePhrase(t *testing.T) {
+	const notFound = "the remote repository does not exist or this account cannot see it"
+	for _, out := range []string{
+		"remote: Repository not found.\nfatal: repository 'x' not found",
+		"remote: The project you were looking for could not be found or you don't have permission to view it.\nfatal: Could not read from remote repository.",
+	} {
+		if got := remoteRemedy(out); got != notFound {
+			t.Errorf("remoteRemedy(%q) = %q, want %q", out, got, notFound)
+		}
+	}
+}
+
+func TestProbeRemoteContent(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	ctx := context.Background()
+	mk := func(files map[string]string, commits int) string {
+		src := t.TempDir()
+		if err := Init(src); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < commits; i++ {
+			for name, body := range files {
+				if err := os.WriteFile(filepath.Join(src, name), []byte(body+string(rune('a'+i))), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := Commit(src, "c", "t", "t@example.com"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return src
+	}
+	empty := filepath.Join(t.TempDir(), "empty.git")
+	if out, err := exec.Command("git", "init", "--bare", empty).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	cases := []struct {
+		name string
+		repo string
+		want RemoteProbe
+	}{
+		{"empty", empty, RemoteProbe{}},
+		{"forge initial commit", mk(map[string]string{"README.md": "x", ".gitignore": "x"}, 1), RemoteProbe{HasRefs: true, ForgeInit: true}},
+		{"forge files but history", mk(map[string]string{"README.md": "x"}, 2), RemoteProbe{HasRefs: true}},
+		{"one commit with content", mk(map[string]string{"a.md": "x"}, 1), RemoteProbe{HasRefs: true}},
+	}
+	for _, c := range cases {
+		got, err := ProbeRemoteContent(ctx, c.repo)
+		if err != nil || got != c.want {
+			t.Errorf("%s: ProbeRemoteContent = (%+v, %v), want %+v", c.name, got, err, c.want)
+		}
+	}
+	two := mk(map[string]string{"README.md": "x"}, 1)
+	if out, err := exec.Command("git", "-C", two, "branch", "other").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if got, err := ProbeRemoteContent(ctx, two); err != nil || got != (RemoteProbe{HasRefs: true}) {
+		t.Errorf("two branches = (%+v, %v), want refs only", got, err)
+	}
+}
