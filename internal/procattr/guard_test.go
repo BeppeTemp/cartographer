@@ -36,7 +36,7 @@ var guardAllowlist = map[string]string{
 }
 
 // TestEveryChildProcessIsHidden is a parse-only check (it runs on every OS):
-// a function of a non-test file that calls exec.Command or exec.CommandContext
+// a top-level declaration of a non-test file that calls exec.Command or exec.CommandContext
 // must also call Hide, unless its file is on the allowlist.
 func TestEveryChildProcessIsHidden(t *testing.T) {
 	root := repoRoot(t)
@@ -63,11 +63,11 @@ func TestEveryChildProcessIsHidden(t *testing.T) {
 			return err
 		}
 		for _, decl := range f.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
+			name := "var"
+			if fn, ok := decl.(*ast.FuncDecl); ok {
+				name = fn.Name.Name
 			}
-			spawns, hides := callsIn(fn.Body)
+			spawns, hides := callsIn(decl) // a package-level var may hold a func literal
 			if !spawns || hides {
 				continue
 			}
@@ -75,7 +75,7 @@ func TestEveryChildProcessIsHidden(t *testing.T) {
 				seen[rel] = true
 				continue
 			}
-			bad = append(bad, rel+": "+fn.Name.Name)
+			bad = append(bad, rel+": "+name)
 		}
 		return nil
 	})
@@ -95,7 +95,7 @@ func TestEveryChildProcessIsHidden(t *testing.T) {
 
 // callsIn reports whether body calls exec.Command/CommandContext and whether
 // it calls a Hide function (procattr.Hide, or Hide inside this package).
-func callsIn(body *ast.BlockStmt) (spawns, hides bool) {
+func callsIn(body ast.Node) (spawns, hides bool) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
