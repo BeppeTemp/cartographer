@@ -20,6 +20,9 @@ import (
 // call happens on that thread. The poll goroutine reaches it only through a
 // mutex-guarded slot plus performSelectorOnMainThread:, never by calling AppKit.
 
+// init, not Run: only init guarantees the main goroutine stays on the process's
+// first thread. It pins every darwin command's main goroutine, which costs the
+// others nothing.
 func init() { runtime.LockOSThread() }
 
 const (
@@ -84,6 +87,11 @@ func pool(fn func()) {
 // Run implements UI.
 func (u *macUI) Run(menu Menu, updates <-chan Snapshot, onAction func(Action)) error {
 	u.menu, u.onAction = menu, onAction
+	// AppKit (which pulls in Foundation) must be loaded before the first pool:
+	// NSAutoreleasePool does not exist until then.
+	if _, err := purego.Dlopen(appKitPath, purego.RTLD_NOW|purego.RTLD_GLOBAL); err != nil {
+		return err
+	}
 	var err error
 	pool(func() { err = u.setup() })
 	if err != nil {
@@ -98,13 +106,7 @@ func (u *macUI) Run(menu Menu, updates <-chan Snapshot, onAction func(Action)) e
 }
 
 func (u *macUI) setup() error {
-	if _, err := purego.Dlopen(appKitPath, purego.RTLD_NOW|purego.RTLD_GLOBAL); err != nil {
-		return err
-	}
 	u.app = class("NSApplication").Send(s("sharedApplication"))
-	if u.app == 0 {
-		return errors.New("tray: no GUI session (NSApplication is unavailable)")
-	}
 	u.app.Send(s("setActivationPolicy:"), activationPolicy)
 	if err := u.registerTarget(); err != nil {
 		return err
@@ -115,7 +117,7 @@ func (u *macUI) setup() error {
 		u.button = u.item.Send(s("button"))
 	}
 	if u.item == 0 || u.button == 0 {
-		return errors.New("tray: no GUI session (the menu bar is unavailable; run it from a desktop login)")
+		return errors.New("tray: the menu bar gave no status item (run it from a desktop login)")
 	}
 	u.images = map[State]objc.ID{}
 	for _, st := range []State{StateRunning, StateStarting, StateStopped, StateNotInstalled} {
@@ -163,7 +165,10 @@ func (u *macUI) feed(updates <-chan Snapshot) {
 }
 
 func (u *macUI) onMain(sel string) {
-	u.target.Send(s("performSelectorOnMainThread:withObject:waitUntilDone:"), s(sel), objc.ID(0), false)
+	// Off the main thread: no run loop pool is active here, so bring our own.
+	pool(func() {
+		u.target.Send(s("performSelectorOnMainThread:withObject:waitUntilDone:"), s(sel), objc.ID(0), false)
+	})
 }
 
 func (u *macUI) applyPending() {
