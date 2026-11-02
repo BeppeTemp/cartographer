@@ -175,10 +175,13 @@ func TestApplyKBRename_FailedWriteLeavesNoAlias(t *testing.T) {
 	}
 	dataDir := seedRenameKB(t, "wiki")
 	cfgPath := writeServerConfig(t, "data: "+dataDir+"\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n")
-	if err := os.Chmod(cfgPath, 0o400); err != nil {
+	// The config is replaced through a temporary file beside it (#1501), so the
+	// directory is what has to refuse the write.
+	cfgDir := filepath.Dir(cfgPath)
+	if err := os.Chmod(cfgDir, 0o500); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(cfgPath, 0o600) })
+	t.Cleanup(func() { os.Chmod(cfgDir, 0o700) })
 
 	p := &renamePlan{
 		Old: "wiki", New: "atlas",

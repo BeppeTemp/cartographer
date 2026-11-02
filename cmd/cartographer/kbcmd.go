@@ -425,7 +425,7 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string, 
 	// (D1412). A failed push puts the server file back as it was.
 	restore := func() {}
 	if orphan {
-		orig, mode, rerr := readFileMode(configPath)
+		orig, _, rerr := readFileMode(configPath)
 		if rerr == nil {
 			rerr = appendBranchEntry(configPath, remote, kbName, branch)
 		}
@@ -433,7 +433,7 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string, 
 			fmt.Fprintln(os.Stderr, "Error:", rerr)
 			return originResult{code: 1, discard: true}
 		}
-		restore = func() { _ = writeFileAtomic(configPath, orig, mode) }
+		restore = func() { _ = config.WriteFileAtomic(configPath, orig) }
 	}
 	if err := gitx.PushSetUpstream(path, "origin", branch); err != nil {
 		restore()

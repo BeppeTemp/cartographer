@@ -431,11 +431,7 @@ func rewriteServerConfig(p *renamePlan) error {
 	}
 	rewriteEntryNode(entry, p)
 
-	out, err := yaml.Marshal(&doc)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(p.ConfigPath, out, 0o600)
+	return config.WriteYAML(p.ConfigPath, &doc)
 }
 
 func rewriteEntryNode(entry *yaml.Node, p *renamePlan) {
