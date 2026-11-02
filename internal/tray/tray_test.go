@@ -19,7 +19,7 @@ func boolp(b bool) *bool { return &b }
 
 func TestClassify(t *testing.T) {
 	installed := service.Status{Installed: true, UIURL: "http://127.0.0.1:39273/ui/"}
-	two := []client.HealthKB{{}, {}}
+	two := []client.HealthKB{{Name: "kb-a"}, {Name: "work-kb"}}
 	refused := &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeUnreachable}
 	starting := &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeStarting}
 	notFound := &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeHTTPFailed, HTTPStatus: http.StatusNotFound}
@@ -33,7 +33,7 @@ func TestClassify(t *testing.T) {
 		want   Snapshot
 	}{
 		{"healthy", &client.Health{Version: "1.2.3", Ready: boolp(true), KBs: &two}, nil, installed,
-			Snapshot{State: StateRunning, Version: "1.2.3", KBCount: 2, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{State: StateRunning, Version: "1.2.3", KBCount: 2, KBNames: "kb-a\nwork-kb", UIURL: installed.UIURL, Installed: true}},
 		{"older server without kbs", &client.Health{Version: "1.0.0"}, nil, installed,
 			Snapshot{State: StateRunning, Version: "1.0.0", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"ready false", &client.Health{Version: "1", Ready: boolp(false)}, nil, installed,
@@ -285,14 +285,21 @@ func TestRenderShapes(t *testing.T) {
 				}
 			}
 		}
-		mid, row := size/2, int(0.38*float64(size))
-		if Render(StateRunning, size, color.White).NRGBAAt(mid, row).A != 255 {
-			t.Errorf("size %d: running pin is not filled at its centre", size)
+		// The C's stroke at its leftmost point, and the centre of the point.
+		at := func(st State, x, y float64) uint8 {
+			return Render(st, size, color.White).NRGBAAt(int(x*float64(size)), int(y*float64(size))).A
 		}
-		for _, s := range []State{StateStopped, StateNotInstalled} {
-			if Render(s, size, color.White).NRGBAAt(mid, row).A == 255 {
-				t.Errorf("size %d: %v pin is filled at its centre, want an outline", size, s)
-			}
+		if at(StateRunning, arcX-arcR, arcY) != 255 {
+			t.Errorf("size %d: running mark has no C stroke", size)
+		}
+		if at(StateRunning, dotX, dotY) != 255 {
+			t.Errorf("size %d: running mark has no point", size)
+		}
+		if at(StateStarting, dotX, dotY) != 0 {
+			t.Errorf("size %d: starting mark has its point, want it absent until ready", size)
+		}
+		if at(StateStopped, 0.5, 0.5) != 255 {
+			t.Errorf("size %d: stopped mark has no slash through its centre", size)
 		}
 		// Not installed is dimmed: no pixel above the dimmed alpha.
 		for _, a := range masks[StateNotInstalled] {
@@ -324,8 +331,9 @@ func TestPNGDecodesToTheBlackIcon(t *testing.T) {
 			t.Errorf("%v: bounds %v", s, b)
 		}
 		if s == StateRunning {
-			if _, _, _, a := img.At(18, 14).RGBA(); a == 0 {
-				t.Errorf("running PNG is empty at the centre")
+			x, y := (arcX-arcR)*36.0, arcY*36.0
+			if _, _, _, a := img.At(int(x), int(y)).RGBA(); a == 0 {
+				t.Errorf("running PNG is empty on the C stroke")
 			}
 		}
 	}
@@ -335,4 +343,58 @@ func TestStateString(t *testing.T) {
 	if StateStopped.String() != "stopped" || State(99).String() != "unknown" {
 		t.Error("State.String")
 	}
+}
+
+func TestRunRefreshesAgentsSparingly(t *testing.T) {
+	f := &fakeEnv{
+		status: service.Status{Installed: true, HTTPAddr: "127.0.0.1:1"},
+		health: &client.Health{Version: "1", Ready: boolp(true)},
+		ticks:  make(chan time.Time),
+	}
+	d := f.deps()
+	var mu sync.Mutex
+	reads := 0
+	d.Agents = func() Agents {
+		mu.Lock()
+		defer mu.Unlock()
+		reads++
+		return Agents{Known: true, N: reads}
+	}
+	waitReads := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			mu.Lock()
+			n := reads
+			mu.Unlock()
+			if n == want {
+				return
+			}
+			if n > want || time.Now().After(deadline) {
+				t.Fatalf("agents read %d times, want %d", n, want)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, d, 0, func(Snapshot) {}); close(done) }() // interval 0 → MinInterval
+	waitReads(1)                                                   // at start
+	for i := 1; i < int(AgentsInterval/MinInterval); i++ {
+		f.ticks <- time.Now()
+	}
+	waitReads(1) // not before AgentsInterval worth of polls
+	f.ticks <- time.Now()
+	waitReads(2)
+	// The server goes away and comes back: the agents are read again at once.
+	// A send returns once Run has the tick, before its poll ran: the second
+	// send proves the first poll saw the server down.
+	f.set(func() { f.health, f.pErr = nil, errors.New("down") })
+	f.ticks <- time.Now()
+	f.ticks <- time.Now()
+	f.set(func() { f.health, f.pErr = &client.Health{Version: "1", Ready: boolp(true)}, nil })
+	f.ticks <- time.Now()
+	waitReads(3)
+	cancel()
+	<-done
 }

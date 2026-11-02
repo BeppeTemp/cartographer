@@ -2,44 +2,75 @@ package tray
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
 func TestMenuItems(t *testing.T) {
 	m := DefaultMenu()
-	type row struct {
-		text    string
-		enabled bool
-	}
-	rows := func(s Snapshot) []row {
-		var out []row
-		for _, it := range MenuItems(m, s) {
-			if it.Separator {
-				out = append(out, row{"-", false})
-				continue
+	rows := func(items []MenuItem) []string {
+		var out []string
+		for _, it := range items {
+			switch {
+			case it.Separator:
+				out = append(out, "-")
+			case it.Status:
+				out = append(out, strings.Join(PlainLines(it), " | "))
+			default:
+				r := it.Text
+				if !it.Enabled {
+					r += " (off)"
+				}
+				if it.Children != nil {
+					r += " >"
+				}
+				out = append(out, r)
 			}
-			out = append(out, row{it.Text, it.Enabled})
 		}
 		return out
 	}
-	full := Snapshot{State: StateRunning, Version: "1.0", KBCount: 2, UIURL: "http://127.0.0.1:1/ui/", LogPath: "l", Installed: true}
-	if got, want := rows(full), []row{
-		{"Cartographer 1.0 — 2 KBs", false}, {"-", false}, {"Open Atlas", true}, {"Restart service", true},
-		{"Open log", true}, {"-", false}, {"Quit", true},
+	agents := Agents{Known: true, N: 2}
+	agents.Rows[0] = AgentRow{Name: "Claude Code", Sync: SyncOK}
+	agents.Rows[1] = AgentRow{Name: "Codex CLI", Sync: SyncDrift}
+	full := Snapshot{State: StateRunning, Version: "1.0", KBCount: 2, KBNames: "kb-a\nwork-kb", LatestVersion: "1.1",
+		UIURL: "http://127.0.0.1:1/ui/", LogPath: "l", Installed: true, Agents: agents}
+	if got, want := rows(MenuItems(m, full)), []string{
+		"Cartographer — Running | v1.0 · 127.0.0.1:1", "Update available — v1.1", "-",
+		"Agents", "Claude Code — In sync", "Codex CLI — Out of sync", "-",
+		"Knowledge Bases (2) >", "-",
+		"Open Atlas", "Restart Service", "Open Log", "-", "Quit",
 	}; !reflect.DeepEqual(got, want) {
-		t.Errorf("full menu = %v, want %v", got, want)
+		t.Errorf("full menu =\n%q\nwant\n%q", got, want)
 	}
+	kb := MenuItems(m, full)[7]
+	if got := rows(kb.Children); !reflect.DeepEqual(got, []string{"kb-a", "work-kb"}) {
+		t.Errorf("KB submenu = %q", got)
+	}
+	if kb.Children[1].Action != ActionOpenKB+1 {
+		t.Errorf("second KB action = %d, want %d", kb.Children[1].Action, ActionOpenKB+1)
+	}
+
 	bare := Snapshot{State: StateStopped, KBCount: -1}
-	if got, want := rows(bare), []row{
-		{"stopped", false}, {"-", false}, {"Open Atlas", false}, {"Restart service", false},
-		{"Open log", false}, {"-", false}, {"Quit", true},
+	if got, want := rows(MenuItems(m, bare)), []string{
+		"Cartographer — Stopped", "-",
+		"Open Atlas (off)", "Restart Service (off)", "Open Log (off)", "-", "Quit",
 	}; !reflect.DeepEqual(got, want) {
-		t.Errorf("bare menu = %v, want %v", got, want)
+		t.Errorf("bare menu = %q, want %q", got, want)
 	}
-	busy := full
-	busy.Restarting = true
-	if rows(busy)[3].enabled {
+
+	unchecked := full
+	unchecked.Agents.Rows[0].Sync, unchecked.Agents.Rows[1].Sync = SyncUnknown, SyncUnknown
+	unchecked.Restarting = true
+	got := rows(MenuItems(m, unchecked))
+	if got[0] != "Cartographer — Restarting… | v1.0 · 127.0.0.1:1" || got[4] != "Claude Code — Not checked" || got[5] != "Codex CLI — Not checked" {
+		t.Errorf("restarting, unchecked = %q", got)
+	}
+	if got[10] != "Restart Service (off)" {
 		t.Error("Restart must be disabled while a restart is in flight")
+	}
+	none := Snapshot{State: StateNotInstalled, KBCount: -1, Agents: Agents{Known: true}}
+	if got := rows(MenuItems(m, none)); got[0] != "Cartographer — Not installed" || got[3] != "None connected" {
+		t.Errorf("not installed, no agents = %q", got)
 	}
 }
 

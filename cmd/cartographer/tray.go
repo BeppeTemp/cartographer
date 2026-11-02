@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/tray"
 )
@@ -68,6 +70,7 @@ func cmdTray(args []string) int {
 	actions := tray.NewActions(m, logf)
 	deps := tray.NewDeps(statusFn, trayServerLogPath())
 	deps.Busy = actions.Busy
+	deps.Agents = trayAgents
 	deps.Logf = logf
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -117,4 +120,44 @@ func trayServerLogPath() string {
 		return ""
 	}
 	return p
+}
+
+// trayAgents is the agent-client row of the menu: what `cartographer status`
+// reports, read without the service part (the tray probes that itself).
+func trayAgents() tray.Agents {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return tray.Agents{}
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || len(cfg.Agents) == 0 {
+		return tray.Agents{Known: err == nil}
+	}
+	s := snapshotForConfig(dir, cfg, false)
+	a := tray.Agents{Known: true}
+	for _, p := range s.Providers {
+		if !p.Connected || a.N == tray.MaxAgents {
+			continue
+		}
+		a.Rows[a.N] = trayAgentRow(p)
+		a.N++
+	}
+	return a
+}
+
+// trayAgentRow maps one provider of the status snapshot. Only "in_sync" and
+// "drift" are judgements; every other state ("unknown" when the server, the
+// manifests or the lockfile could not be read) is Not checked.
+func trayAgentRow(p providerStatus) tray.AgentRow {
+	row := tray.AgentRow{Name: p.Name}
+	if d, ok := configurator.Lookup(configurator.Provider(p.Name)); ok && d.DisplayName != "" {
+		row.Name = d.DisplayName
+	}
+	switch p.State {
+	case "in_sync":
+		row.Sync = tray.SyncOK
+	case "drift":
+		row.Sync = tray.SyncDrift
+	}
+	return row
 }

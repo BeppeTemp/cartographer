@@ -35,14 +35,25 @@ func osOpen(target string) error {
 }
 
 // OpenURL opens the Atlas URL. Only the http URL Status.UIURL builds is
-// accepted (host:port and /ui/); nothing read from /health reaches here.
+// accepted (host:port and /ui/), optionally with the one query KBURL adds.
 func OpenURL(raw string) error {
+	refuse := fmt.Errorf("tray: refusing to open %q", raw)
 	u, err := url.Parse(raw)
+	if err != nil {
+		return refuse
+	}
+	q, err := url.ParseQuery(u.RawQuery)
 	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil ||
-		u.Path != "/ui/" || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("tray: refusing to open %q", raw)
+		u.Path != "/ui/" || u.Fragment != "" || (u.RawQuery != "" && (len(q) != 1 || len(q["kb"]) != 1)) {
+		return refuse
 	}
 	return openFn(raw)
+}
+
+// KBURL is the Atlas URL that opens one KB (the UI's ?kb= view state). The
+// name comes from /health: it is only ever a query value, escaped here.
+func KBURL(uiURL, kb string) string {
+	return uiURL + "?" + url.Values{"kb": {kb}}.Encode()
 }
 
 // OpenPath opens a file (the server log) with its associated program.
@@ -116,6 +127,17 @@ func (a *Actions) Handle(act Action) {
 			return // greyed in the menu; there is no service to restart
 		}
 		a.startRestart()
+	default:
+		// The index is into the newest snapshot (D1495): a KB list that
+		// changed while the menu was open may shift it; out of range is ignored.
+		kbs := snap.KBs()
+		i := int(act - ActionOpenKB)
+		if act < ActionOpenKB || i >= len(kbs) || snap.UIURL == "" {
+			return
+		}
+		if err := OpenURL(KBURL(snap.UIURL, kbs[i])); err != nil {
+			a.logf("tray: open %s: %v", kbs[i], err)
+		}
 	}
 }
 

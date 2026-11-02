@@ -49,6 +49,7 @@ const (
 	mfGrayed        = 0x1
 	mfDisabled      = 0x2
 	mfSeparator     = 0x800
+	mfPopup         = 0x10
 	tpmRightButton  = 0x2
 	tpmReturnCmd    = 0x100
 	smCxSmIcon      = 49
@@ -376,18 +377,28 @@ func (u *winUI) makeIcon() uintptr {
 	return call(procCreateIcon, moduleHandle(), uintptr(size), uintptr(size), 1, 32, uintptr(unsafe.Pointer(&and[0])), uintptr(unsafe.Pointer(&xor[0])))
 }
 
-func (u *winUI) showMenu() {
-	h := call(procCreatePopupMenu)
-	if h == 0 {
-		return
-	}
-	defer call(procDestroyMenu, h)
-	for _, it := range MenuItems(u.menu, u.snap) {
+// appendRows fills popup menu h; a row with children becomes a submenu.
+func appendRows(h uintptr, items []MenuItem) {
+	for _, it := range items {
 		switch {
 		case it.Separator:
 			call(procAppendMenu, h, mfSeparator, 0, 0)
+		case it.Status:
+			// Information rows keep command id 0 (Action 0 is Open Atlas) and
+			// stay black: choosing one is the same as dismissing the menu.
+			for _, line := range PlainLines(it) {
+				t, _ := windows.UTF16PtrFromString(line)
+				call(procAppendMenu, h, mfString, 0, uintptr(unsafe.Pointer(t)))
+			}
+		case it.Children != nil:
+			sub := call(procCreatePopupMenu)
+			if sub == 0 {
+				continue
+			}
+			appendRows(sub, it.Children)
+			t, _ := windows.UTF16PtrFromString(it.Text)
+			call(procAppendMenu, h, mfString|mfPopup, sub, uintptr(unsafe.Pointer(t)))
 		default:
-			// The status line has command id 0: it would collide with Action 0.
 			flags, id := uintptr(mfString), uintptr(it.CommandID())
 			if !it.Enabled {
 				flags |= mfGrayed | mfDisabled
@@ -396,6 +407,15 @@ func (u *winUI) showMenu() {
 			call(procAppendMenu, h, flags, id, uintptr(unsafe.Pointer(t)))
 		}
 	}
+}
+
+func (u *winUI) showMenu() {
+	h := call(procCreatePopupMenu)
+	if h == 0 {
+		return
+	}
+	defer call(procDestroyMenu, h) // also destroys the attached submenus
+	appendRows(h, MenuItems(u.menu, u.snap))
 	var p point
 	call(procGetCursorPos, uintptr(unsafe.Pointer(&p)))
 	// Documented dismiss-on-click-away fix: foreground before, WM_NULL after.
