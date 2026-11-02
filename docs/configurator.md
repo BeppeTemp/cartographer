@@ -853,7 +853,7 @@ sits in the overflow (^) menu until the user pins it to the taskbar.
 
 The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
 address from the installed service definition on every tick (`--config` overrides the config path used
-only to read that address and the Atlas URL; Restart service calls the manager without it). For the
+only to read that address and the Atlas URL; Restart service calls the manager without it). A tick reads the definition file's presence and the config and probes `/health` once: it runs no scheduler command (`launchctl`, `systemctl`, PowerShell). For the
 Agents rows it also runs what `cartographer status` runs, off the poll loop: it reads the client
 config, the lockfile and the agents' files and asks the client's server (authenticated, like
 `status`), which may refresh the repository-path cache as `status` does. It never writes server or KB
