@@ -357,7 +357,7 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 | `--workspace` | *(unset)* | Projects the selected KBs into this repository instead of the global catalogue (D193) |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906) |
 
-**An unloadable `.cartographer.yaml` is never replaced** (D1501). `connect`, `disconnect` and the dashboard's connect form fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `clients.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
+**An unloadable `.cartographer.yaml` is never replaced** (D1514). `connect`, `disconnect` and the dashboard's connect form fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `clients.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
 
 ### Transport security (D1023)
 

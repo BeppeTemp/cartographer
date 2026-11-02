@@ -16,8 +16,8 @@ package main
 // individually reviewable.
 
 import (
-	"errors"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
