@@ -12,7 +12,7 @@ import (
 	"github.com/ebitengine/purego/objc"
 )
 
-// The menu-bar UI, NSStatusItem driven through purego (no cgo, D1486). This is
+// The menu-bar UI, NSStatusItem driven through purego (no cgo, D1493). This is
 // the only file that imports purego, so Windows and Linux binaries never link it.
 //
 // Cocoa wants the process's first thread: init locks the main goroutine to it

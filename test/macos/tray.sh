@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The menu-bar icon under a real window server (D1486): `cartographer tray` adds
+# The menu-bar icon under a real window server (D1493): `cartographer tray` adds
 # its status item, stays alive, and leaves cleanly on SIGTERM. It touches no
 # launchd job and no server: with nothing installed the icon shows "not installed".
 #
