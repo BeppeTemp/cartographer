@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -61,22 +62,27 @@ func TestOpenAppendLog_UnopenablePathFails(t *testing.T) {
 func TestRedirectServerLog_SendsTheStandardLoggerToTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.log")
 	origOut, origFlags := log.Writer(), log.Flags()
-	stdoutBefore := os.Stdout
-	t.Cleanup(func() { log.SetOutput(origOut); log.SetFlags(origFlags) })
+	stdoutBefore, stderrBefore := os.Stdout, os.Stderr
+	t.Cleanup(func() { log.SetOutput(origOut); log.SetFlags(origFlags); os.Stderr = stderrBefore })
 
 	f, err := redirectServerLog(path)
 	if err != nil {
 		t.Fatalf("redirectServerLog: %v", err)
 	}
 	log.Printf("hello from the service")
+	// internal/mcpserver reports timing and warnings straight to os.Stderr:
+	// those lines belong in the service log too (D1479).
+	fmt.Fprintln(os.Stderr, "cartographer: timing op=\"kb_status\"")
 	f.Close()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if !strings.Contains(string(data), "hello from the service") {
-		t.Errorf("log file = %q, want the logged line", data)
+	for _, want := range []string{"hello from the service", "cartographer: timing"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("log file = %q, want it to contain %q", data, want)
+		}
 	}
 	// Stdout is untouched on purpose: in stdio transport it carries the MCP
 	// protocol itself, and redirecting it would move the protocol into the log.

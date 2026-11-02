@@ -15,7 +15,8 @@ import (
 //
 // This exists because there is no CLI-deliverable SIGTERM on Windows: Stop-
 // ScheduledTask kills the action, and GenerateConsoleCtrlEvent cannot reach a
-// process that runs without a console — which a Scheduled Task's action does.
+// process that does not share the caller's console — and a Scheduled Task's
+// action never does (it detaches from its own at startup, D1479).
 // Without the event, Replace would have no drain at all, and D76 WP4's flush of
 // pending pushes would be lost on every upgrade.
 //

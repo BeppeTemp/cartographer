@@ -90,14 +90,18 @@ Three behaviours are fixed, not settings (D906): `serve` never creates a KB (a m
 A server that would listen **off-loopback with authentication off** refuses to start and says why: loopback is a listen host in `127.0.0.0/8`, `::1` or `localhost`; `auth.mode: off`, or `auto` with no token, is auth off; `:39273` and `0.0.0.0:39273` listen on every interface. The local service pins auth off on `127.0.0.1` (D268) and is unaffected.
 
 One startup option is deliberately **flag-only**, with no YAML key and no environment variable:
-`serve --log-file <path>` appends the server log to a file instead of writing it to stderr,
-creating the parent directory and never rotating (neither does launchd). It exists because a
+`serve --log-file <path>` appends the server log — the standard logger and everything written to
+stderr — to a file, creating the parent directory and never rotating (neither does launchd). It exists because a
 Windows Scheduled Task's action cannot declare a log destination the way a launchd plist does, and
 Windows has no journald — so the process takes the path itself and the task's argv stays flat
 enough for `EffectiveConfigPath` to read `--config` back out of it
 ([D217](decisions/D217-the-native-service-on-windows-is-a-per-user-scheduled-task.md)). It applies
 on every platform; a path that cannot be opened is a startup error, because a service that silently
-logs nowhere is the failure the flag exists to prevent. `cartographer sync --log-file` is the
+logs nowhere is the failure the flag exists to prevent. On Windows, with `--log-file` set, a process that is
+the only one attached to its console releases it at startup: that console is the window Task
+Scheduler opens for the task in the user's session, and closing it would stop the server. Run from
+a terminal, the process shares the shell's console and keeps it
+([D1479](decisions/D1479-the-windows-service-detaches-from-its-console.md)). `cartographer sync --log-file` is the
 client-side counterpart, used by the scheduled sync task. It is not in the YAML because it belongs
 to *this invocation*, not to the served configuration: two services sharing one config file must
 still be able to log to two files.

@@ -65,6 +65,9 @@ func cmdServe(args []string) int {
 			log.Fatal(err)
 		}
 		defer f.Close()
+		// The service shape: close the console window a Scheduled Task
+		// opens, which would otherwise stop the server when closed (D1479).
+		detachOwnConsole()
 	}
 
 	cfg, err := loadServeConfig(fs, config.FlagOverrides{
