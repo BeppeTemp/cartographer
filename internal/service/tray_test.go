@@ -127,22 +127,86 @@ func TestInstallTray_NoGUISessionIsAnErrorTheCallerWarnsAbout(t *testing.T) {
 func TestInstallUninstallTray_Windows(t *testing.T) {
 	installTraySetup(t, "windows")
 	m, stub := newTestManager()
+	// The stub answers every cmdlet with success, which windowsTaskRunning
+	// reads as Running; this test is about a tray that stops.
+	stub.fail = map[string]bool{"State -eq 'Running'": true}
 	if err := m.InstallTray(); err != nil {
 		t.Fatalf("InstallTray: %v", err)
 	}
 	calls := callNames(stub)
-	stop, reg, start := indexOf(calls, "Stop-ScheduledTask"), indexOf(calls, "Register-ScheduledTask"), indexOf(calls, "Start-ScheduledTask")
-	if stop < 0 || reg < stop || start < reg {
-		t.Errorf("want stop (IgnoreNew), register, start: %v", calls)
+	reg, start := indexOf(calls, "Register-ScheduledTask"), indexOf(calls, "Start-ScheduledTask")
+	if reg < 0 || start < reg {
+		t.Errorf("want register then start: %v", calls)
 	}
 	if !m.TrayInstalled() {
 		t.Fatal("task definition not written")
 	}
+	// Nothing running: no stop is issued, the task is just unregistered.
 	stub.calls = nil
 	if err := m.UninstallTray(); err != nil {
 		t.Fatal(err)
 	}
 	calls = callNames(stub)
+	if indexOf(calls, "Unregister-ScheduledTask") < 0 {
+		t.Errorf("want unregister: %v", calls)
+	}
+	if m.TrayInstalled() {
+		t.Error("task definition not removed")
+	}
+}
+
+// A tray that survives the stop keeps cartographer.exe locked: both calls
+// report it, and uninstall keeps tray.xml so it can be retried.
+func TestTraySurvivorIsReportedAndKeepsTheDefinition(t *testing.T) {
+	installTraySetup(t, "windows")
+	m, stub := newTestManager()
+	stub.fail = map[string]bool{"State -eq 'Running'": true}
+	if err := m.InstallTray(); err != nil {
+		t.Fatal(err)
+	}
+	stub.fail = nil // the task now reads as Running whatever is stopped
+	stub.calls = nil
+	err := m.UninstallTray()
+	if err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("UninstallTray with a survivor: err = %v", err)
+	}
+	if !m.TrayInstalled() {
+		t.Error("tray.xml was removed although the tray survived; a retry would be a no-op")
+	}
+	calls := callNames(stub)
+	if s := indexOf(calls, "Stop-ScheduledTask"); s < 0 || indexOf(calls, "Unregister-ScheduledTask") >= 0 {
+		t.Errorf("want a stop and no unregister: %v", calls)
+	}
+	stub.calls = nil
+	if err := m.InstallTray(); err == nil || indexOf(callNames(stub), "Start-ScheduledTask") >= 0 {
+		t.Errorf("InstallTray must fail before starting when the old tray survives: %v", err)
+	}
+}
+
+func TestInstallUninstallTray_WindowsStopsARunningTray(t *testing.T) {
+	installTraySetup(t, "windows")
+	m, stub := newTestManager()
+	stub.fail = map[string]bool{"State -eq 'Running'": true}
+	if err := m.InstallTray(); err != nil {
+		t.Fatal(err)
+	}
+	stub.fail = nil
+	runningPolls := 0
+	m.run = func(name string, args ...string) (string, error) {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "State -eq 'Running'") {
+			runningPolls++
+			if runningPolls > 2 { // the stop takes effect after two polls
+				return "", errNotLoaded
+			}
+		}
+		return stub.run(name, args...)
+	}
+	stub.calls = nil
+	if err := m.UninstallTray(); err != nil {
+		t.Fatalf("UninstallTray: %v", err)
+	}
+	calls := callNames(stub)
 	if s, u := indexOf(calls, "Stop-ScheduledTask"), indexOf(calls, "Unregister-ScheduledTask"); s < 0 || u < s {
 		t.Errorf("want stop then unregister: %v", calls)
 	}

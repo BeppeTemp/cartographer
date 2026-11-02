@@ -204,6 +204,11 @@ try {
     $r = Invoke-Installer 'valid' @('uninstall')
     Check ($r.rc -ne 0 -and $r.out -match 'cartographer service uninstall') 'refuses while a Scheduled Task is registered, naming the fix'
     Check (Test-Path $dest) 'and keeps the binary'
+    Remove-Item -Path (Join-Path $tasks 'serve.xml')
+    Set-Content -Path (Join-Path $tasks 'tray.xml') -Value '<Task/>'
+    $r = Invoke-Installer 'valid' @('uninstall')
+    Check ($r.rc -ne 0 -and $r.out -match 'cartographer service tray uninstall') 'refuses while only the tray task is registered, naming the fix'
+    Check (Test-Path $dest) 'and keeps the binary then too'
     $r = Invoke-Installer 'valid' @('uninstall', '-BinaryOnly')
     Check ($r.rc -eq 0 -and -not (Test-Path $dest)) '-BinaryOnly removes it anyway'
     Remove-Item -Recurse -Force $tasks

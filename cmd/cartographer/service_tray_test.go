@@ -19,6 +19,9 @@ func stubTray(t *testing.T) (home string, installs *int) {
 	home = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	oldGOOS := trayGOOS
+	trayGOOS = "darwin"
+	t.Cleanup(func() { trayGOOS = oldGOOS })
 	n := 0
 	trayInstallFn = func() error { n++; return nil }
 	trayUninstallFn = func() error { return nil }
@@ -124,5 +127,58 @@ func TestCmdUpgradeRepair_TrayStepPlacementAndExitCode(t *testing.T) {
 				t.Errorf("tray step calls = %d, want %d", calls, tc.wantTray)
 			}
 		})
+	}
+}
+
+func TestServiceInstallNoTray_RemovesAnInstalledTray(t *testing.T) {
+	stubTray(t)
+	uninstalls := 0
+	trayUninstallFn = func() error { uninstalls++; return nil }
+	withStdout(t, func() { installTrayWithService(true) })
+	if uninstalls != 1 {
+		t.Fatalf("--no-tray over an installed tray must uninstall it, got %d", uninstalls)
+	}
+	trayUninstallFn = func() error { return errors.New("locked") }
+	stderr := withStderr(t, func() { installTrayWithService(true) })
+	if !strings.Contains(stderr, "Warning:") {
+		t.Errorf("a failed removal is a warning: %q", stderr)
+	}
+	trayInstalledFn = func() bool { return false }
+	trayUninstallFn = func() error { t.Fatal("nothing installed, nothing to uninstall"); return nil }
+	withStdout(t, func() { installTrayWithService(true) })
+}
+
+func TestServiceTray_UnsupportedPlatform(t *testing.T) {
+	home, installs := stubTray(t)
+	trayGOOS = "linux"
+	var stderr string
+	var code int
+	withStdout(t, func() { stderr = withStderr(t, func() { code = cmdService([]string{"tray", "install"}) }) })
+	if code != exitStatusError || !strings.Contains(stderr, "supported on Windows and macOS only") || *installs != 0 {
+		t.Errorf("install on linux: code=%d stderr=%q installs=%d", code, stderr, *installs)
+	}
+	out := withStdout(t, func() {
+		if c := cmdService([]string{"tray", "uninstall"}); c != 0 {
+			t.Errorf("uninstall exit = %d", c)
+		}
+	})
+	if strings.Contains(out, "tray uninstalled") {
+		t.Errorf("uninstall must not claim a removal on linux: %q", out)
+	}
+	if cfg, err := clientconfig.Load(home); err != nil || !cfg.TrayOptOut {
+		t.Errorf("the opt-out is still recorded: cfg=%+v err=%v", cfg, err)
+	}
+	out = withStdout(t, func() {
+		if c := cmdService([]string{"tray", "status"}); c != exitStatusNotInstalled {
+			t.Errorf("status exit = %d", c)
+		}
+	})
+	if !strings.Contains(out, "Windows and macOS only") {
+		t.Errorf("status = %q", out)
+	}
+	// And a plain `service install` does nothing about the tray there.
+	withStdout(t, func() { installTrayWithService(false) })
+	if *installs != 0 {
+		t.Error("service install must not install a tray on linux")
 	}
 }

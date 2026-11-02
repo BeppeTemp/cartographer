@@ -17,7 +17,7 @@ mac_guard() {
   # Even in CI: a unit already here belongs to a real service this run would
   # replace and then delete.
   local unit
-  for unit in com.cartographer.serve com.cartographer.sync; do
+  for unit in com.cartographer.serve com.cartographer.sync com.cartographer.tray; do
     if [ -e "$HOME/Library/LaunchAgents/$unit.plist" ]; then
       echo "test/macos: refusing to run: $HOME/Library/LaunchAgents/$unit.plist already exists, and this test would replace and then delete it." >&2
       exit 2

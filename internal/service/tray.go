@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const trayLaunchdLabel = "com.cartographer.tray"
@@ -196,7 +197,11 @@ func (m *Manager) InstallTray() error {
 	if err := os.WriteFile(defPath, []byte(RenderWindowsTrayTaskXML(binPath, logPath, windowsTaskUser())), 0o644); err != nil {
 		return fmt.Errorf("service: write tray task definition: %w", err)
 	}
-	_ = m.stopWindowsTask(windowsTrayTaskName) // best effort: not registered yet on a first install
+	// IgnoreNew turns a start on a running task into a no-op, so a tray that
+	// survives the stop would keep the old binary and definition: an error.
+	if err := m.stopTrayAndWait(); err != nil {
+		return err
+	}
 	if err := m.registerWindowsTask(windowsTrayTaskName, defPath); err != nil {
 		return err
 	}
@@ -231,11 +236,41 @@ func (m *Manager) UninstallTray() error {
 		if _, err := os.Stat(p); err != nil {
 			return nil
 		}
-		_ = m.stopWindowsTask(windowsTrayTaskName)
+		// A tray still running would keep cartographer.exe locked, and once
+		// tray.xml is gone a retry would be a no-op: on a survivor, keep the
+		// definition and report, so the uninstall can be run again.
+		if err := m.stopTrayAndWait(); err != nil {
+			return err
+		}
 		m.unregisterWindowsTask(windowsTrayTaskName)
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove tray task definition: %w", err)
 		}
 	}
 	return nil
+}
+
+// stopTrayAndWait ends a running tray task and returns only once the process
+// is gone, as stopServeAndWait does for the server (the poll budget is
+// windowsKillTimeout, counted in slept intervals). A task that is not
+// registered or not running is already stopped, whatever the stop reported.
+func (m *Manager) stopTrayAndWait() error {
+	if !m.windowsTaskRunning(windowsTrayTaskName) {
+		return nil
+	}
+	stopErr := m.stopWindowsTask(windowsTrayTaskName)
+	for waited := time.Duration(0); ; waited += windowsDrainPoll {
+		if !m.windowsTaskRunning(windowsTrayTaskName) {
+			return nil
+		}
+		if waited >= windowsKillTimeout {
+			break
+		}
+		windowsSleep(windowsDrainPoll)
+	}
+	err := fmt.Errorf("service: the tray task (\\%s\\%s) is still running after Stop-ScheduledTask; end its cartographer.exe process (Stop-Process) and retry", windowsTaskFolder, windowsTrayTaskName)
+	if stopErr != nil {
+		err = fmt.Errorf("%w (Stop-ScheduledTask: %v)", err, stopErr)
+	}
+	return err
 }

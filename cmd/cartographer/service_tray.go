@@ -17,6 +17,10 @@ var (
 	trayInstalledFn = func() bool { return service.NewManager().TrayInstalled() }
 )
 
+const trayUnsupportedMsg = "the status icon is supported on Windows and macOS only"
+
+func traySupported() bool { return trayGOOS == "windows" || trayGOOS == "darwin" }
+
 // trayOptedOut reads the remembered opt-out (D1482); an unreadable client
 // config reads as "not opted out", the default of the feature.
 func trayOptedOut() bool {
@@ -33,8 +37,17 @@ func trayOptedOut() bool {
 // is a warning only: the server is installed, and a session with no GUI (ssh)
 // cannot show an icon.
 func installTrayWithService(noTray bool) {
+	if !traySupported() {
+		return
+	}
 	if noTray {
 		setTrayOptOut(true)
+		// A reinstall with --no-tray must not leave the earlier tray behind.
+		if trayInstalledFn() {
+			if err := trayUninstallFn(); err != nil {
+				fmt.Fprintln(os.Stderr, "Warning: the existing status icon was not removed:", err)
+			}
+		}
 		return
 	}
 	if trayOptedOut() {
@@ -62,6 +75,21 @@ func cmdServiceTray(args []string) int {
 	if action == "install" || action == "uninstall" || action == "status" {
 		if code := noExtraArgs(fs, rest); code != 0 {
 			return code
+		}
+	}
+	if !traySupported() && (action == "install" || action == "uninstall" || action == "status") {
+		switch action {
+		case "install":
+			fmt.Fprintln(os.Stderr, "Error:", trayUnsupportedMsg)
+			return exitStatusError
+		case "uninstall":
+			// Nothing to remove here; the choice is still recorded, silently,
+			// so a config shared with another machine keeps it.
+			setTrayOptOut(true)
+			return 0
+		default:
+			fmt.Println("tray not installed:", trayUnsupportedMsg)
+			return exitStatusNotInstalled
 		}
 	}
 	switch action {
