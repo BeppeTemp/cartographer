@@ -178,8 +178,23 @@ func cmdKBCreate(args []string) int {
 	settingsFile := newKBSettingsFile(branch)
 
 	// The author has to be right before the initial commit exists: it is the
-	// commit a forge with an author-membership push rule rejects (D156).
-	authorName, authorEmail := operatorIdentity(path)
+	// commit a forge with an author-membership push rule rejects (D156). git
+	// resolves an identity only inside an existing repository (a missing
+	// directory fails `git -C`, and an includeIf gitdir: matches only there),
+	// so the repository is created first (#1464).
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	if err := gitx.Init(path); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		_ = os.RemoveAll(path)
+		return 1
+	}
+	authorName, authorEmail, fallbackIdentity := resolveOperatorIdentity(path)
+	if fallbackIdentity && remote != "" {
+		writeFallbackIdentityWarning(os.Stderr, authorName, authorEmail, dataDir)
+	}
 
 	// kb.Init creates <path> (and its parents, i.e. dataDir too) itself —
 	// no separate MkdirAll(dataDir) needed.
@@ -198,7 +213,7 @@ func cmdKBCreate(args []string) int {
 		return 1
 	}
 	if remote != "" {
-		res := attachOrigin(path, remote, name, readme, authorName, authorEmail, wantBranch, *configFlag)
+		res := attachOrigin(path, remote, name, readme, authorName, authorEmail, fallbackIdentity, wantBranch, *configFlag)
 		if res.code != 0 {
 			if res.discard {
 				// Nothing was pushed and the next step is a rerun of this
@@ -208,7 +223,7 @@ func cmdKBCreate(args []string) int {
 			}
 			// The scaffold is complete and valid; only the push failed, so
 			// deleting it turns a recoverable state into no KB at all (D156).
-			printUnpushedScaffoldGuidance(path, res.branch, authorName, authorEmail, dataDir)
+			printUnpushedScaffoldGuidance(path, res.branch, fallbackIdentity, dataDir)
 			return res.code
 		}
 		originBranch, adopted, replacedReadme = res.branch, res.adopted, res.replacedReadme
@@ -216,7 +231,7 @@ func cmdKBCreate(args []string) int {
 		if !res.orphan && branch != "" && branch != originBranch {
 			if err := pushKBBranch(path, branch); err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)
-				printUnpushedScaffoldGuidance(path, originBranch, authorName, authorEmail, dataDir)
+				printUnpushedScaffoldGuidance(path, originBranch, fallbackIdentity, dataDir)
 				fmt.Fprintf(os.Stderr, "The default branch %s is on the remote with settings.yaml; then create and push the KB's branch:\n  git -C %s checkout -b %s && git -C %s push -u origin %s\n", originBranch, path, branch, path, branch)
 				return 1
 			}
@@ -255,25 +270,54 @@ func cmdKBCreate(args []string) int {
 // per-folder identity included), then the server identity on a machine with
 // none (D904, D156). It is the committer of those commits too (D950).
 func operatorIdentity(path string) (name, email string) {
+	name, email, _ = resolveOperatorIdentity(path)
+	return name, email
+}
+
+// resolveOperatorIdentity is operatorIdentity that also says whether the
+// server identity was the fallback. path has to be an existing repository.
+func resolveOperatorIdentity(path string) (name, email string, fallback bool) {
 	if n, e, err := gitx.AuthorIdent(path); err == nil && n != "" && e != "" {
-		return n, e
+		return n, e, false
 	}
-	return kb.ServerIdentity()
+	n, e := kb.ServerIdentity()
+	return n, e, true
+}
+
+// writeFallbackIdentityWarning tells the operator, before the initial commit,
+// that git has no identity for the KB and which author it will carry (#1463).
+// It warns and does not stop: both routes are named, the second being the
+// three settings an operator who wants an identity for the KBs only needs.
+func writeFallbackIdentityWarning(w io.Writer, name, email, dataDir string) {
+	fmt.Fprintf(w, "Warning: git has no identity for this folder, so the initial commit is authored as %s <%s>.\n", name, email)
+	fmt.Fprintln(w, "  A forge with an author-membership push rule refuses that author. Set one it knows first:")
+	fmt.Fprintln(w, "  - everywhere: git config --global user.name \"<name>\" && git config --global user.email \"<an email of your forge account>\"")
+	fmt.Fprintf(w, "  - for the KBs only, the same \"Name <email>\" in three places:\n")
+	fmt.Fprintf(w, "      1. an includeIf \"gitdir/i:%s/\" in your global git config (commits made here by kb create and setup)\n", filepath.ToSlash(dataDir))
+	fmt.Fprintln(w, "      2. git.identity in the server file (commits the server makes with no writer)")
+	fmt.Fprintln(w, "      3. identities.default in .cartographer.yaml (writes through an HTTP entry)")
 }
 
 // printUnpushedScaffoldGuidance explains what to do with a KB whose scaffold is
 // valid but whose first push failed. The scaffold is deliberately kept (D156):
 // the local work is correct and re-doing it by hand was the reported cost.
-func printUnpushedScaffoldGuidance(path, branch, authorName, authorEmail, dataDir string) {
-	writeUnpushedScaffoldGuidance(os.Stderr, runtime.GOOS, path, branch, authorName, authorEmail, dataDir)
+func printUnpushedScaffoldGuidance(path, branch string, fallbackIdentity bool, dataDir string) {
+	writeUnpushedScaffoldGuidance(os.Stderr, runtime.GOOS, path, branch, fallbackIdentity, dataDir)
 }
 
 // writeUnpushedScaffoldGuidance takes goos so the Windows wording is testable
 // on any host.
-func writeUnpushedScaffoldGuidance(w io.Writer, goos, path, branch, authorName, authorEmail, dataDir string) {
+//
+// fallbackIdentity is true when the initial commit carries the server identity
+// because git had none. Re-authoring is then the way out, once an identity the
+// forge knows is set; with the operator's own identity amending to the same
+// author never helps, so the line is left out (#1461).
+func writeUnpushedScaffoldGuidance(w io.Writer, goos, path, branch string, fallbackIdentity bool, dataDir string) {
 	fmt.Fprintf(w, "\nThe KB at %s is complete and valid; only the push failed. Finish it with:\n", path)
-	fmt.Fprintf(w, "  git -C %s commit --amend --author %q   # if the forge rejected the author\n",
-		path, fmt.Sprintf("%s <%s>", authorName, authorEmail))
+	if fallbackIdentity {
+		fmt.Fprintln(w, "  git config --global user.email \"<an email of your forge account>\"   # or a per-folder identity")
+		fmt.Fprintf(w, "  git -C %s commit --amend --reset-author --no-edit   # if the forge rejected the author\n", path)
+	}
 	fmt.Fprintf(w, "  git -C %s push -u origin %s\n", path, branch)
 	fmt.Fprintf(w, "Or remove it: %s   (a server started with data: %s would otherwise mount it)\n", removeDirCommand(goos, path), dataDir)
 }
@@ -358,7 +402,7 @@ type originResult struct {
 //
 // want is the --branch the operator gave ("" when none): on a repository with
 // history it decides between the refusal and the orphan branch (D1412).
-func attachOrigin(path, remote, kbName, readme, authorName, authorEmail, want, configFlag string) originResult {
+func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string, fallbackIdentity bool, want, configFlag string) originResult {
 	if err := gitx.AddRemote(path, "origin", remote); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return originResult{code: 1}
@@ -402,11 +446,31 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail, want, c
 			fmt.Fprintf(os.Stderr, "Hint: the KB has no commit to push — git could not make the initial commit (often: committer identity unknown). Commit it, which also shows why it failed: git -C %s commit -m %q\n", path, "init: KB initialized")
 			return originResult{code: 1, branch: branch}
 		}
-		fmt.Fprintln(os.Stderr, "Hint: authenticate git with your SSH agent or credential helper, then retry.")
-		fmt.Fprintf(os.Stderr, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", remote)
+		writePushRefusalHints(os.Stderr, err.Error(), remote, authorName, authorEmail, fallbackIdentity)
 		return originResult{code: 1, branch: branch}
 	}
 	return originResult{branch: branch, adopted: adopted, replacedReadme: replaced, orphan: orphan, configPath: configPath}
+}
+
+// writePushRefusalHints names the likely cause of a refused first push the way
+// the server's sync does (internal/kb/gitsync.go): the identity test first,
+// because a membership rule and a branch protection both end with
+// "pre-receive hook declined" (D1063); authentication only when neither fits.
+func writePushRefusalHints(w io.Writer, gitOut, remote, authorName, authorEmail string, fallbackIdentity bool) {
+	switch {
+	case gitx.IsIdentityRejection(gitOut):
+		fmt.Fprintf(w, "Hint: the remote refused the commit's author, %s <%s>; authentication worked.\n", authorName, authorEmail)
+		if fallbackIdentity {
+			fmt.Fprintln(w, "Hint: git has no identity of yours, so the server identity was used. Set a git identity the forge knows (git config --global user.email \"<an email of your forge account>\", or a per-folder identity), then re-author the commit as printed below.")
+		} else {
+			fmt.Fprintln(w, "Hint: that is the identity git resolves for this folder. Use an email of your forge account (git config --global user.email, or a per-folder identity), then re-author the commit: git commit --amend --reset-author --no-edit in the KB.")
+		}
+	case gitx.IsProtectedBranchRejection(gitOut):
+		fmt.Fprintln(w, "Hint: the branch is protected for this account: the remote refuses a direct push to it. Push with an account allowed to, or ask for the protection to be lifted on this branch.")
+	default:
+		fmt.Fprintln(w, "Hint: authenticate git with your SSH agent or credential helper, then retry.")
+		fmt.Fprintf(w, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", remote)
+	}
 }
 
 // adoptForgeCommit handles a remote that already has refs. It returns the

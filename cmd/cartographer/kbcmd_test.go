@@ -293,7 +293,8 @@ func TestCmdKBCreateAdoptsForgeInitialCommit(t *testing.T) {
 			bare := seedForgeRemote(t, tmp, branch, []string{"README.md", "LICENSE"}, 1)
 			forgeSHA := gitOut(t, bare, "rev-parse", branch)
 			// A committer of the process environment must not leak into the
-			// rebased commit: the committer is the server (D904, D265).
+			// rebased commit: the committer is the operator's identity, the
+			// one the author has (D950, D904, D265).
 			t.Setenv("GIT_AUTHOR_NAME", "Kb User")
 			t.Setenv("GIT_AUTHOR_EMAIL", "user@example.com")
 			t.Setenv("GIT_COMMITTER_NAME", "Someone Else")
@@ -329,9 +330,8 @@ func TestCmdKBCreateAdoptsForgeInitialCommit(t *testing.T) {
 				}
 			}
 			cm := gitOut(t, bare, "log", "-1", "--format=%cn <%ce>", branch)
-			name, email := kb.ServerIdentity()
-			if cm != name+" <"+email+">" {
-				t.Errorf("committer %q, want the server", cm)
+			if want := "Kb User <user@example.com>"; cm != want {
+				t.Errorf("committer %q, want %q", cm, want)
 			}
 			if branch == "master" && strings.Contains(gitOut(t, bare, "branch", "--list"), "main") {
 				t.Error("a main branch was pushed beside the forge's master (D264)")
@@ -1087,7 +1087,7 @@ func TestUnpushedScaffoldGuidanceRemovalCommand(t *testing.T) {
 	}
 	for _, c := range cases {
 		var b strings.Builder
-		writeUnpushedScaffoldGuidance(&b, c.goos, c.path, gitx.DefaultBranch, "user", "user@example.com", "data")
+		writeUnpushedScaffoldGuidance(&b, c.goos, c.path, gitx.DefaultBranch, true, "data")
 		if !strings.Contains(b.String(), c.want) {
 			t.Errorf("%s: guidance lacks %q:\n%s", c.goos, c.want, b.String())
 		}
@@ -1262,5 +1262,196 @@ func TestKBRemoteHelperRefused(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dataDir, "beta")); err == nil {
 			t.Errorf("kb clone %q left a directory", remote)
 		}
+	}
+}
+
+// isolatedGitConfig points git at a global config holding body and nothing
+// else, with no GIT_* identity in the environment (#1464).
+func isolatedGitConfig(t *testing.T, body string) string {
+	t.Helper()
+	home := t.TempDir()
+	cfg := filepath.Join(home, "gitconfig")
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, k := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"} {
+		// Unset, not empty: an empty GIT_AUTHOR_NAME is an empty name.
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	return cfg
+}
+
+func createKBWithBareRemote(t *testing.T, dataDir string) (stderr string, code int) {
+	t.Helper()
+	bare := filepath.Join(t.TempDir(), "alpha.git")
+	mustRunGit(t, "", "init", "--bare", bare)
+	stderr = withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", fileURL(bare)})
+		})
+	})
+	return stderr, code
+}
+
+// #1464: the identity was resolved before the KB directory existed, where
+// `git -C` fails, so the operator's own identity was never used.
+func TestCmdKBCreateUsesTheOperatorsGitIdentity(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	isolatedGitConfig(t, "[user]\n\tname = Op Erator\n\temail = op@example.com\n")
+	dataDir := filepath.Join(t.TempDir(), "data")
+	stderr, code := createKBWithBareRemote(t, dataDir)
+	if code != 0 {
+		t.Fatalf("kb create = %d\n%s", code, stderr)
+	}
+	got := gitOut(t, filepath.Join(dataDir, "alpha"), "log", "-1", "--format=%an <%ae> / %cn <%ce>")
+	if want := "Op Erator <op@example.com> / Op Erator <op@example.com>"; got != want {
+		t.Errorf("initial commit author/committer = %q, want %q", got, want)
+	}
+	if strings.Contains(stderr, "Warning") {
+		t.Errorf("a configured identity must not warn:\n%s", stderr)
+	}
+}
+
+// A per-folder identity applies only inside the repository, so it needs the
+// repository to exist when the identity is resolved.
+func TestCmdKBCreateUsesAPerFolderGitIdentity(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	// git matches gitdir: against the real path (macOS /var is a symlink).
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(root, "data")
+	folderCfg := filepath.Join(t.TempDir(), "kbs.gitconfig")
+	if err := os.WriteFile(folderCfg, []byte("[user]\n\tname = Folder User\n\temail = folder@example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	isolatedGitConfig(t, "[user]\n\tuseConfigOnly = true\n[includeIf \"gitdir/i:"+filepath.ToSlash(dataDir)+"/\"]\n\tpath = "+filepath.ToSlash(folderCfg)+"\n")
+	stderr, code := createKBWithBareRemote(t, dataDir)
+	if code != 0 {
+		t.Fatalf("kb create = %d\n%s", code, stderr)
+	}
+	if got, want := gitOut(t, filepath.Join(dataDir, "alpha"), "log", "-1", "--format=%an <%ae>"), "Folder User <folder@example.com>"; got != want {
+		t.Errorf("initial commit author = %q, want %q", got, want)
+	}
+}
+
+// #1463: with no identity the fallback is used and the operator is told
+// before the commit, with both routes; no remote, no warning.
+func TestCmdKBCreateWarnsWhenGitHasNoIdentity(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	isolatedGitConfig(t, "[user]\n\tuseConfigOnly = true\n")
+	dataDir := filepath.Join(t.TempDir(), "data")
+	stderr, code := createKBWithBareRemote(t, dataDir)
+	if code != 0 {
+		t.Fatalf("a missing identity warns and does not stop: kb create = %d\n%s", code, stderr)
+	}
+	fbName, fbEmail := kb.ServerIdentity()
+	for _, want := range []string{"Warning", fbName + " <" + fbEmail + ">", "git config --global user.email", "includeIf", "git.identity", "identities.default"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("warning lacks %q:\n%s", want, stderr)
+		}
+	}
+	if got, want := gitOut(t, filepath.Join(dataDir, "alpha"), "log", "-1", "--format=%an <%ae>"), fbName+" <"+fbEmail+">"; got != want {
+		t.Errorf("fallback author = %q, want %q", got, want)
+	}
+
+	var code2 int
+	out := withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code2 = cmdKBCreate([]string{"beta", "--data", dataDir, "--no-remote"})
+		})
+	})
+	if code2 != 0 || strings.Contains(out, "git has no identity") {
+		t.Errorf("--no-remote: code %d, stderr %q; want 0 and no warning", code2, out)
+	}
+}
+
+// #1461: the amend line re-authors, and only when the fallback was used.
+func TestUnpushedScaffoldGuidanceAmendOnlyForFallbackIdentity(t *testing.T) {
+	var fb, own strings.Builder
+	writeUnpushedScaffoldGuidance(&fb, "linux", "/k/kb-a", "main", true, "/k")
+	writeUnpushedScaffoldGuidance(&own, "linux", "/k/kb-a", "main", false, "/k")
+	for _, want := range []string{"git config --global user.email", "commit --amend --reset-author --no-edit", "push -u origin main"} {
+		if !strings.Contains(fb.String(), want) {
+			t.Errorf("fallback guidance lacks %q:\n%s", want, fb.String())
+		}
+	}
+	if strings.Contains(fb.String(), "--author") {
+		t.Errorf("guidance still suggests the author the commit already has:\n%s", fb.String())
+	}
+	if strings.Contains(own.String(), "--amend") || !strings.Contains(own.String(), "push -u origin main") {
+		t.Errorf("own-identity guidance must drop the amend and keep the push:\n%s", own.String())
+	}
+}
+
+// #1462: the refusal is classified like the server's sync does.
+func TestWritePushRefusalHints(t *testing.T) {
+	cases := []struct {
+		name, git string
+		fallback  bool
+		want      []string
+		not       []string
+	}{
+		{"identity", "remote: GitLab: Author 'cartographer@host' is not a member of team\n ! [remote rejected] main -> main (pre-receive hook declined)", true,
+			[]string{"refused the commit's author, Op <op@example.com>", "Set a git identity"}, []string{"authenticate", "protected"}},
+		{"identity of the operator", "remote: GitLab: Author 'op@example.com' is not a member of team\n ! [remote rejected] main -> main (pre-receive hook declined)", false,
+			[]string{"refused the commit's author", "identity git resolves"}, []string{"authenticate"}},
+		{"protected", "remote: GitLab: You are not allowed to push code to protected branches on this project.\n ! [remote rejected] main -> main (pre-receive hook declined)", false,
+			[]string{"protected for this account"}, []string{"authenticate", "refused the commit's author"}},
+		{"authentication", "fatal: Authentication failed for 'https://forge.example.com/g/kb-a.git'", false,
+			[]string{"authenticate git", "kb clone https://forge.example.com/g/kb-a.git"}, []string{"protected"}},
+	}
+	for _, c := range cases {
+		var b strings.Builder
+		writePushRefusalHints(&b, c.git, "https://forge.example.com/g/kb-a.git", "Op", "op@example.com", c.fallback)
+		for _, w := range c.want {
+			if !strings.Contains(b.String(), w) {
+				t.Errorf("%s: hints lack %q:\n%s", c.name, w, b.String())
+			}
+		}
+		for _, n := range c.not {
+			if strings.Contains(b.String(), n) {
+				t.Errorf("%s: hints contain %q:\n%s", c.name, n, b.String())
+			}
+		}
+	}
+}
+
+// #1462 end to end: a forge hook that refuses the author must not be reported
+// as an authentication problem.
+func TestCmdKBCreateIdentityRefusalHint(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	isolatedGitConfig(t, "[user]\n\tname = Op Erator\n\temail = op@example.com\n")
+	bare := filepath.Join(t.TempDir(), "alpha.git")
+	mustRunGit(t, "", "init", "--bare", bare)
+	hook := "#!/bin/sh\necho \"GitLab: Author 'op@example.com' is not a member of team\" >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bare, "hooks", "pre-receive"), []byte(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	out := withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBCreate([]string{"alpha", "--data", filepath.Join(t.TempDir(), "data"), "--remote", fileURL(bare)})
+		})
+	})
+	if code == 0 {
+		t.Fatal("a refused push exited 0")
+	}
+	if !strings.Contains(out, "refused the commit's author") || strings.Contains(out, "authenticate git") {
+		t.Errorf("hint misclassifies the refusal:\n%s", out)
 	}
 }

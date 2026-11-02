@@ -117,6 +117,17 @@ decides every step **before** running any:
   machine's credentials, under the non-interactive git environment of `kb clone` (no prompts,
   SSH batch mode, host keys never auto-accepted — D173); a failure exits 2 **before anything is
   written**, with the remedy for the recognised git errors.
+- **The KB's initial commit is authored by the operator (D904, D156).** `kb create` (so `setup`'s KB
+  step) creates the repository first and then asks git who the operator is there, so a global identity
+  and an `includeIf gitdir:` for the data dir both apply; the author is also the committer. Only a
+  machine with no identity gets the server's `Cartographer <cartographer@host>`, and with `--remote`
+  the command warns before committing (it does not stop), naming that author and both routes: a global
+  `user.name`/`user.email`, or an identity for the KBs only, which takes the same `Name <email>` in three
+  places: an `includeIf "gitdir/i:<data dir>/"` in the global git config, `git.identity` in the server
+  file, `identities.default` in `.cartographer.yaml`. A first push the remote refuses is classified like
+  the server's sync does: a refused author names that author and the identity to set (with the server
+  identity, `commit --amend --reset-author --no-edit` re-authors the kept scaffold), a protected branch
+  says so, and only otherwise the hint is about authentication.
 - **Workspace.** `--workspace <repo>` is passed through to `connect --workspace` (D193): the KBs are
   confined to that repository instead of every directory.
 - **KB binding (D190).** `--kb` is passed through. Without it: one KB binds itself; agents that
