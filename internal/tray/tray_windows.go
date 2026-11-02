@@ -39,7 +39,6 @@ const (
 	wmSettingChange = 0x001A
 	wmNull          = 0x0000
 	wmLButtonUp     = 0x0202
-	wmLButtonDblClk = 0x0203
 	wmRButtonUp     = 0x0205
 	wmApp           = 0x8000
 	wmUpdate        = wmApp + 1 // a snapshot is waiting in pending
@@ -101,6 +100,14 @@ var (
 	// bare callback with no receiver.
 	current *winUI
 )
+
+// trayMessageOpensMenu maps the icon's mouse messages to the one action they
+// have: either button opens the menu, as on macOS. There is no double-click
+// action: the first click already opens the modal menu, which swallows the
+// second one.
+func trayMessageOpensMenu(msg uint32) bool {
+	return msg == wmLButtonUp || msg == wmRButtonUp
+}
 
 func moduleHandle() uintptr { return call(procGetModuleHandle, 0) }
 
@@ -287,11 +294,8 @@ func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case wmTrayIcon:
-		switch uint32(lParam & 0xFFFF) {
-		case wmLButtonUp, wmRButtonUp:
+		if trayMessageOpensMenu(uint32(lParam & 0xFFFF)) {
 			u.showMenu()
-		case wmLButtonDblClk:
-			u.onAction(ActionOpenAtlas)
 		}
 		return 0
 	case wmTimer:

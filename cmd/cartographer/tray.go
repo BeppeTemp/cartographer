@@ -22,7 +22,7 @@ import (
 var trayGOOS = runtime.GOOS
 
 // cmdTray runs the status icon: a separate process from `serve` (D1482), so it
-// stays visible, red, when the server is down and can restart it. It reads
+// stays visible, shown stopped, when the server is down and can restart it. It reads
 // /health and acts only through service.Manager and the OS "open".
 func cmdTray(args []string) int {
 	// Before anything touches a file: there is no tray to run elsewhere.

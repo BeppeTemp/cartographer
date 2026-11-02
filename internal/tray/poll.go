@@ -95,6 +95,7 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 	var last Snapshot
 	have := false
 	var good *service.Status // last Status() that succeeded
+	var lastErr string       // the Status() error already logged; empty after a success
 	var mu sync.Mutex
 	var agents Agents
 	refresh := make(chan struct{}, 1)
@@ -116,7 +117,7 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 	every := max(1, int(AgentsInterval/interval))
 	polls := 0
 	poll := func() {
-		snap := d.snapshot(&good)
+		snap := d.snapshot(&good, &lastErr)
 		if d.Agents != nil {
 			back := have && last.State != StateRunning && snap.State == StateRunning
 			if polls%every == 0 || back {
@@ -152,11 +153,17 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 // one is reused, so an installed service does not flip to "not installed" for a
 // tick. With no earlier good read the answer is Stopped, never NotInstalled:
 // an unreadable definition proves nothing about installation.
-func (d Deps) snapshot(good **service.Status) Snapshot {
+func (d Deps) snapshot(good **service.Status, lastErr *string) Snapshot {
 	st, err := d.Status()
 	var health *client.Health
 	if err != nil {
-		d.logf("tray: service status: %v", err)
+		// A permanent error would write a line every tick into a log nobody
+		// rotates: report it once, again when the message changes or after a
+		// success.
+		if msg := err.Error(); msg != *lastErr {
+			*lastErr = msg
+			d.logf("tray: service status: %v", err)
+		}
 		if *good != nil {
 			st, err = **good, nil
 		} else {
@@ -165,6 +172,7 @@ func (d Deps) snapshot(good **service.Status) Snapshot {
 	} else {
 		cp := st
 		*good = &cp
+		*lastErr = ""
 	}
 	if err != nil {
 		// no earlier good read: nothing to probe, classify as Stopped

@@ -876,7 +876,7 @@ connected"; read at start, every 5 minutes and whenever the server comes back;
 the UI thread, disabled while in flight and when no service is installed), Open Log, Quit (the tray
 only; the server keeps running). On macOS the information rows are drawn in the label colour with the
 states coloured (the brand's accent for Running and In sync, orange, red, blue for an update) and the
-actions have ⌘O, ⌘R, ⌘L, ⌘Q while the menu is open; Windows shows the same rows as plain text. `--log-file` appends the tray's own log there, as for `serve`.
+actions have ⌘O, ⌘R, ⌘L, ⌘Q while the menu is open; Windows shows the same rows as plain text. `--log-file` appends the tray's own log there, as for `serve`. Either mouse button on the icon opens the menu on both platforms (a double-click has no action). A second tray exits silently with status 0: Windows by a named mutex, macOS by an `flock` on `~/Library/Application Support/cartographer/tray.lock`. A `Status` error that repeats is logged once, again when the message changes or after a success.
 
 ### `cartographer import`
 

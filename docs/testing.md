@@ -40,6 +40,7 @@ Three tests in `internal/mcpserver` guard what a tool result costs (D1185). `Tes
 
 `TestStopTray_ClosesTheWindowBeforeStoppingTheTask` (`internal/service`) pins that the tray is asked to close its window before `Stop-ScheduledTask`, and that the task is still stopped when no window answers; `TestRequestTrayClose` (Windows leg) checks a window of the tray's class receives `WM_CLOSE`.
 `TestLaunchdPlists_EscapeXML` (`internal/service`) renders both launchd plists with `&`, `<` and a space in the paths, parses them with `encoding/xml` and reads the paths back through the extractors; `TestLaunchdPlists_PassPlutil` runs `plutil -lint` on macOS. `TestInstall_Linux_RestartsAnActiveUnit` pins, on the stub runner, that a first install makes no `restart` call and a reinstall of an active unit restarts after `daemon-reload`.
+The tray's small behaviours (`internal/tray`): `TestSnapshotLogsARepeatedStatusErrorOnce` (one log line for a persistent error, another when it changes), `TestAcquireInstanceLock` (the macOS single-instance `flock`, runs on Linux too) and, on Windows, `TestTrayMessageOpensMenu` (the double-click message has no action).
 
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
