@@ -360,23 +360,41 @@ func TestRunRefreshesAgentsSparingly(t *testing.T) {
 		reads++
 		return Agents{Known: true, N: reads}
 	}
+	waitReads := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			mu.Lock()
+			n := reads
+			mu.Unlock()
+			if n == want {
+				return
+			}
+			if n > want || time.Now().After(deadline) {
+				t.Fatalf("agents read %d times, want %d", n, want)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { Run(ctx, d, 0, func(Snapshot) {}); close(done) }()
-	for i := 0; i < AgentsEvery; i++ {
+	go func() { Run(ctx, d, 0, func(Snapshot) {}); close(done) }() // interval 0 → MinInterval
+	waitReads(1)                                                   // at start
+	for i := 1; i < int(AgentsInterval/MinInterval); i++ {
 		f.ticks <- time.Now()
 	}
+	waitReads(1) // not before AgentsInterval worth of polls
+	f.ticks <- time.Now()
+	waitReads(2)
 	// The server goes away and comes back: the agents are read again at once.
+	// A send returns once Run has the tick, before its poll ran: the second
+	// send proves the first poll saw the server down.
 	f.set(func() { f.health, f.pErr = nil, errors.New("down") })
+	f.ticks <- time.Now()
 	f.ticks <- time.Now()
 	f.set(func() { f.health, f.pErr = &client.Health{Version: "1", Ready: boolp(true)}, nil })
 	f.ticks <- time.Now()
+	waitReads(3)
 	cancel()
 	<-done
-	mu.Lock()
-	defer mu.Unlock()
-	// First poll, poll AgentsEvery, and the recovery.
-	if reads != 3 {
-		t.Errorf("agents read %d times, want 3", reads)
-	}
 }

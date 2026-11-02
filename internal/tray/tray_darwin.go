@@ -83,6 +83,8 @@ type macUI struct {
 	onAction func(Action)
 
 	app, item, button, target objc.ID
+	statusMenu                objc.ID
+	snap                      Snapshot // the newest applied; read on the main thread only
 	images                    map[State]objc.ID
 
 	mu      sync.Mutex
@@ -145,6 +147,9 @@ func (u *macUI) setup() error {
 	for _, st := range []State{StateRunning, StateStarting, StateStopped, StateNotInstalled} {
 		u.images[st] = nsImage(PNG(st, iconPixels), iconPoints)
 	}
+	u.statusMenu = newMenu()
+	u.statusMenu.Send(s("setDelegate:"), u.target)
+	u.item.Send(s("setMenu:"), u.statusMenu)
 	u.apply(Snapshot{KBCount: -1})
 	return nil
 }
@@ -163,6 +168,12 @@ func (u *macUI) registerTarget() error {
 		}})
 	}
 	methods = append(methods,
+		objc.MethodDef{Cmd: s("menuNeedsUpdate:"), Fn: func(_ objc.ID, _ objc.SEL, menu objc.ID) {
+			if menu == u.statusMenu {
+				menu.Send(s("removeAllItems"))
+				u.fill(menu, MenuItems(u.menu, u.snap))
+			}
+		}},
 		objc.MethodDef{Cmd: s(selOpenKB), Fn: func(_ objc.ID, _ objc.SEL, sender objc.ID) {
 			u.onAction(Action(objc.Send[int](sender, s("tag"))))
 		}},
@@ -180,6 +191,7 @@ func (u *macUI) registerTarget() error {
 // feed hands snapshots to the main thread. A closed updates channel is the
 // caller's request to stop (cmdTray closes it on SIGINT/SIGTERM).
 func (u *macUI) feed(updates <-chan Snapshot) {
+	runtime.LockOSThread() // onMain's pool must drain on the thread that made it
 	for sn := range updates {
 		u.mu.Lock()
 		u.pending = &sn
@@ -220,15 +232,19 @@ func (u *macUI) apply(sn Snapshot) {
 	u.button.Send(s("setImage:"), u.images[sn.State])
 	u.button.Send(s("setToolTip:"), nsString(StatusLine(sn)))
 
-	m := u.buildMenu(MenuItems(u.menu, sn))
-	u.item.Send(s("setMenu:"), m)
-	m.Send(s("release"))
+	u.snap = sn // the menu is filled from it when it opens (menuNeedsUpdate:)
 }
 
-// buildMenu turns rows into an NSMenu (retained: the caller releases it).
-func (u *macUI) buildMenu(items []MenuItem) objc.ID {
+// newMenu returns an empty NSMenu (retained: the owner releases it).
+func newMenu() objc.ID {
 	m := class("NSMenu").Send(s("alloc")).Send(s("initWithTitle:"), nsString("Cartographer"))
 	m.Send(s("setAutoenablesItems:"), false) // we say which rows are enabled
+	return m
+}
+
+// fill adds rows to m. The status menu is filled each time it opens, so the
+// accent follows a light/dark switch and the rows the newest snapshot.
+func (u *macUI) fill(m objc.ID, items []MenuItem) {
 	for _, it := range items {
 		var mi objc.ID
 		switch {
@@ -245,7 +261,7 @@ func (u *macUI) buildMenu(items []MenuItem) objc.ID {
 				}
 			}
 			if it.Children != nil {
-				sel = ""
+				sel, key = "", "" // a submenu parent acts on nothing
 			}
 			mi = class("NSMenuItem").Send(s("alloc")).Send(s("initWithTitle:action:keyEquivalent:"), nsString(it.Text), s0(sel), nsString(key))
 			if sel != "" {
@@ -253,7 +269,8 @@ func (u *macUI) buildMenu(items []MenuItem) objc.ID {
 				mi.Send(s("setTag:"), int(it.Action))
 			}
 			if it.Children != nil {
-				sub := u.buildMenu(it.Children)
+				sub := newMenu()
+				u.fill(sub, it.Children)
 				mi.Send(s("setSubmenu:"), sub)
 				sub.Send(s("release"))
 			}
@@ -262,7 +279,6 @@ func (u *macUI) buildMenu(items []MenuItem) objc.ID {
 		m.Send(s("addItem:"), mi)
 		mi.Send(s("release"))
 	}
-	return m
 }
 
 // infoItem is an information row as a menu item with a view, which is neither

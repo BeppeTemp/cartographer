@@ -93,3 +93,13 @@ func TestRunTrayReturnsWhenContextIsCancelled(t *testing.T) {
 		t.Fatal("runTray did not return after the context was cancelled")
 	}
 }
+
+func TestTrayAgentRow(t *testing.T) {
+	for state, want := range map[string]tray.Sync{
+		"in_sync": tray.SyncOK, "drift": tray.SyncDrift, "unknown": tray.SyncUnknown, "error": tray.SyncUnknown,
+	} {
+		if got := trayAgentRow(providerStatus{Name: "claude", State: state}); got.Sync != want || got.Name != "Claude Code" {
+			t.Errorf("%s: got %+v, want sync %v as Claude Code", state, got, want)
+		}
+	}
+}

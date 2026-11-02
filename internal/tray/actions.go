@@ -37,11 +37,15 @@ func osOpen(target string) error {
 // OpenURL opens the Atlas URL. Only the http URL Status.UIURL builds is
 // accepted (host:port and /ui/), optionally with the one query KBURL adds.
 func OpenURL(raw string) error {
+	refuse := fmt.Errorf("tray: refusing to open %q", raw)
 	u, err := url.Parse(raw)
-	q, qerr := url.ParseQuery(u.RawQuery)
-	if err != nil || qerr != nil || u.Scheme != "http" || u.Host == "" || u.User != nil ||
+	if err != nil {
+		return refuse
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil ||
 		u.Path != "/ui/" || u.Fragment != "" || (u.RawQuery != "" && (len(q) != 1 || len(q["kb"]) != 1)) {
-		return fmt.Errorf("tray: refusing to open %q", raw)
+		return refuse
 	}
 	return openFn(raw)
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -17,9 +18,10 @@ const (
 	// MinInterval is the smallest interval `--interval` accepts.
 	MinInterval  = time.Second
 	probeTimeout = 2 * time.Second
-	// AgentsEvery is how many polls apart the agent clients are re-read: their
-	// state reads files and asks the server, and changes only on a sync.
-	AgentsEvery = 12
+	// AgentsInterval is how often the agent clients are re-read: that is the
+	// `cartographer status` path, which reads files and asks the server, and
+	// its answer changes only on a sync.
+	AgentsInterval = 5 * time.Minute
 )
 
 // Deps is what Run needs from the outside; tests replace every field.
@@ -38,8 +40,9 @@ type Deps struct {
 	LogPath string
 	// Logf receives probe-side problems; optional.
 	Logf func(format string, args ...any)
-	// Agents reads the agent clients (`cartographer status`); optional. Called
-	// on the first poll, every AgentsEvery polls and when the server returns.
+	// Agents reads the agent clients (`cartographer status`); optional. It
+	// runs off the poll loop, at start, every AgentsInterval worth of polls
+	// and when the server comes back; a poll shows the newest result.
 	Agents func() Agents
 }
 
@@ -92,17 +95,40 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 	var last Snapshot
 	have := false
 	var good *service.Status // last Status() that succeeded
+	var mu sync.Mutex
 	var agents Agents
+	refresh := make(chan struct{}, 1)
+	if d.Agents != nil {
+		go func() { // never blocks the icon, nor Quit: Run does not wait for it
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-refresh:
+				}
+				a := d.Agents()
+				mu.Lock()
+				agents = a
+				mu.Unlock()
+			}
+		}()
+	}
+	every := max(1, int(AgentsInterval/interval))
 	polls := 0
 	poll := func() {
 		snap := d.snapshot(&good)
 		if d.Agents != nil {
 			back := have && last.State != StateRunning && snap.State == StateRunning
-			if polls%AgentsEvery == 0 || back {
-				agents = d.Agents()
+			if polls%every == 0 || back {
+				select {
+				case refresh <- struct{}{}:
+				default: // a read is already queued
+				}
 			}
 			polls++
+			mu.Lock()
 			snap.Agents = agents
+			mu.Unlock()
 		}
 		if have && snap == last {
 			return

@@ -151,11 +151,11 @@ func InfoItems(s Snapshot) []MenuItem {
 			items = append(items, MenuItem{Status: true, Text: "None connected"})
 		}
 		for _, r := range s.Agents.Rows[:min(s.Agents.N, MaxAgents)] {
-			it := MenuItem{Status: true, Text: r.Name, Badge: "In sync", Tone: ToneOK}
-			switch {
-			case s.Agents.Unchecked:
-				it.Badge, it.Tone = "Not checked", ToneIdle
-			case r.Drifted:
+			it := MenuItem{Status: true, Text: r.Name, Badge: "Not checked", Tone: ToneIdle}
+			switch r.Sync {
+			case SyncOK:
+				it.Badge, it.Tone = "In sync", ToneOK
+			case SyncDrift:
 				it.Badge, it.Tone = "Out of sync", ToneBusy
 			}
 			items = append(items, it)

@@ -30,8 +30,8 @@ func TestMenuItems(t *testing.T) {
 		return out
 	}
 	agents := Agents{Known: true, N: 2}
-	agents.Rows[0] = AgentRow{Name: "Claude Code"}
-	agents.Rows[1] = AgentRow{Name: "Codex CLI", Drifted: true}
+	agents.Rows[0] = AgentRow{Name: "Claude Code", Sync: SyncOK}
+	agents.Rows[1] = AgentRow{Name: "Codex CLI", Sync: SyncDrift}
 	full := Snapshot{State: StateRunning, Version: "1.0", KBCount: 2, KBNames: "kb-a\nwork-kb", LatestVersion: "1.1",
 		UIURL: "http://127.0.0.1:1/ui/", LogPath: "l", Installed: true, Agents: agents}
 	if got, want := rows(MenuItems(m, full)), []string{
@@ -59,7 +59,7 @@ func TestMenuItems(t *testing.T) {
 	}
 
 	unchecked := full
-	unchecked.Agents.Unchecked = true
+	unchecked.Agents.Rows[0].Sync, unchecked.Agents.Rows[1].Sync = SyncUnknown, SyncUnknown
 	unchecked.Restarting = true
 	got := rows(MenuItems(m, unchecked))
 	if got[0] != "Cartographer — Restarting… | v1.0 · 127.0.0.1:1" || got[4] != "Claude Code — Not checked" || got[5] != "Codex CLI — Not checked" {

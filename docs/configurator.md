@@ -853,8 +853,11 @@ sits in the overflow (^) menu until the user pins it to the taskbar.
 
 The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
 address from the installed service definition on every tick (`--config` overrides the config path used
-only to read that address and the Atlas URL; Restart service calls the manager without it). It never writes server or KB state; it acts only through `service restart`'s
-code path and the system "open". The icon is the brand mark (Coordinate; the micro variant, without
+only to read that address and the Atlas URL; Restart service calls the manager without it). For the
+Agents rows it also runs what `cartographer status` runs, off the poll loop: it reads the client
+config, the lockfile and the agents' files and asks the client's server (authenticated, like
+`status`), which may refresh the repository-path cache as `status` does. It never writes server or KB
+state; it acts only through `service restart`'s code path and the system "open". The icon is the brand mark (Coordinate; the micro variant, without
 the inner arc, below 32 px) and its **shape** tells the state, because a macOS template image is
 tinted by the system: the mark = running, the mark without its point = starting (`ready: false` or
 bootstrapping), the mark crossed by a slash = stopped, the mark dimmed = service not installed.
@@ -862,8 +865,8 @@ bootstrapping), the mark crossed by a slash = stopped, the mark dimmed = service
 Menu (D1495), top to bottom: "Cartographer" with the state at the right (Running, Starting…, Restarting…,
 Stopped, Not installed) over the version and the address; "Update available" with the newer
 release, when `/health` reports one; an **Agents** section, one row per connected agent client with
-"In sync", "Out of sync" or "Not checked" (the server could not be asked) at the right, read as
-`cartographer status` does, on the first poll, every 12 polls and whenever the server comes back;
+"In sync", "Out of sync" or "Not checked" (anything `status` could not judge) at the right, or "None
+connected"; read at start, every 5 minutes and whenever the server comes back;
 **Knowledge Bases (n)**, a submenu of the KBs `/health` lists, each opening the Atlas on that KB
 (`/ui/?kb=<name>`); then Open Atlas (greyed when the config has no web UI), Restart Service (runs off
 the UI thread, disabled while in flight and when no service is installed), Open Log, Quit (the tray

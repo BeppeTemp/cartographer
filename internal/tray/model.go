@@ -87,16 +87,24 @@ const MaxAgents = 8
 
 // AgentRow is one connected agent client.
 type AgentRow struct {
-	Name    string // display name, e.g. "Claude Code"
-	Drifted bool   // its materialized files differ from the server's
+	Name string // display name, e.g. "Claude Code"
+	Sync Sync
 }
+
+// Sync is whether an agent client's materialized files match the server.
+type Sync int
+
+const (
+	SyncUnknown Sync = iota // not checked: the server or the lockfile could not be read
+	SyncOK
+	SyncDrift
+)
 
 // Agents is the client side of `cartographer status`, kept comparable.
 type Agents struct {
-	Known     bool // read at least once
-	Unchecked bool // the server could not be asked: sync state unknown
-	N         int  // how many of Rows are set
-	Rows      [MaxAgents]AgentRow
+	Known bool // read at least once
+	N     int  // how many of Rows are set
+	Rows  [MaxAgents]AgentRow
 }
 
 // Classify turns one probe result into a snapshot. health and err are the
