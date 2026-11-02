@@ -1,0 +1,24 @@
+# Token source (b): YAML tokens that are ${NAME} references, the variables coming from an
+# existing Secret through extraEnvFrom, and the role a Surveyor token needs (artifacts: r).
+server:
+  credentials:
+    enabled: false
+  extraEnvFrom:
+    - cartographer-token-env
+  config:
+    auth:
+      mode: "on"
+      roles:
+        - name: surveyor-team-a
+          rules:
+            - kb: kb-a
+              access: rw
+              artifacts: r
+      tokens:
+        - token: ${SURVEYOR_TOKEN}
+          id: surveyor-team-a
+          roles: [surveyor-team-a]
+        - token: ${ADMIN_TOKEN}
+          id: admin
+    kbs:
+      - remote: https://git.example.com/user/kb-a.git
