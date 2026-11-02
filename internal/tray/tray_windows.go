@@ -39,41 +39,34 @@ const (
 	wmApp           = 0x8000
 	wmUpdate        = wmApp + 1 // a snapshot is waiting in pending
 	wmTrayIcon      = wmApp + 2 // the icon's callback message
-
-	nimAdd    = 0
-	nimModify = 1
-	nimDelete = 2
-
-	nifMessage = 0x1
-	nifIcon    = 0x2
-	nifTip     = 0x4
-
-	mfString    = 0x0
-	mfGrayed    = 0x1
-	mfDisabled  = 0x2
-	mfSeparator = 0x800
-
-	tpmRightButton = 0x2
-	tpmReturnCmd   = 0x100
-
-	smCxSmIcon = 49
-
-	iconUID      = 1 // fixed ID, never NIF_GUID: a GUID binds to the binary's path and breaks after an in-place update (install.ps1)
-	retryTimer   = 1
-	retryMillis  = 1000
-	retryMax     = 30 // a logon task can run before the shell has made the notification area
-	tipMaxUnits  = 127
-	errClassDup  = 1410 // ERROR_CLASS_ALREADY_EXISTS
-	mutexName    = `Local\CartographerTray`
-	className    = "CartographerTrayWindow"
-	personalize  = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
-	lightThemeKV = "SystemUsesLightTheme"
+	nimAdd          = 0
+	nimModify       = 1
+	nimDelete       = 2
+	nifMessage      = 0x1
+	nifIcon         = 0x2
+	nifTip          = 0x4
+	mfString        = 0x0
+	mfGrayed        = 0x1
+	mfDisabled      = 0x2
+	mfSeparator     = 0x800
+	tpmRightButton  = 0x2
+	tpmReturnCmd    = 0x100
+	smCxSmIcon      = 49
+	iconUID         = 1 // fixed ID, never NIF_GUID: a GUID binds to the binary's path and breaks after an in-place update (install.ps1)
+	retryTimer      = 1
+	retryMillis     = 1000
+	retryMax        = 30 // a logon task can run before the shell has made the notification area
+	tipMaxUnits     = 127
+	errClassDup     = 1410 // ERROR_CLASS_ALREADY_EXISTS
+	mutexName       = `Local\CartographerTray`
+	className       = "CartographerTrayWindow"
+	personalize     = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
+	lightThemeKV    = "SystemUsesLightTheme"
 )
 
 var (
-	user32  = windows.NewLazySystemDLL("user32.dll")
-	shell32 = windows.NewLazySystemDLL("shell32.dll")
-
+	user32                = windows.NewLazySystemDLL("user32.dll")
+	shell32               = windows.NewLazySystemDLL("shell32.dll")
 	procRegisterClassEx   = user32.NewProc("RegisterClassExW")
 	procCreateWindowEx    = user32.NewProc("CreateWindowExW")
 	procDefWindowProc     = user32.NewProc("DefWindowProcW")
@@ -96,17 +89,13 @@ var (
 	procSetTimer          = user32.NewProc("SetTimer")
 	procKillTimer         = user32.NewProc("KillTimer")
 	procShellNotifyIcon   = shell32.NewProc("Shell_NotifyIconW")
-
-	wndProcCallback = syscall.NewCallback(wndProc)
-
+	procGetModuleHandle   = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetModuleHandleW")
+	wndProcCallback       = syscall.NewCallback(wndProc)
 	// current is the one window of this process; the window procedure is a
 	// bare callback with no receiver.
 	current *winUI
 )
 
-var procGetModuleHandle = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetModuleHandleW")
-
-// moduleHandle is this executable's HINSTANCE.
 func moduleHandle() uintptr { return call(procGetModuleHandle, 0) }
 
 func call(p *windows.LazyProc, args ...uintptr) uintptr {
@@ -118,47 +107,40 @@ func call(p *windows.LazyProc, args ...uintptr) uintptr {
 // 64-bit). A wrong layout silently shows no icon: TestNotifyIconDataLayout
 // pins it.
 type notifyIconData struct {
-	cbSize           uint32
-	hWnd             uintptr
-	uID              uint32
-	uFlags           uint32
-	uCallbackMessage uint32
-	hIcon            uintptr
-	szTip            [128]uint16
-	dwState          uint32
-	dwStateMask      uint32
-	szInfo           [256]uint16
-	uVersion         uint32
-	szInfoTitle      [64]uint16
-	dwInfoFlags      uint32
-	guidItem         windows.GUID
-	hBalloonIcon     uintptr
+	cbSize                   uint32
+	hWnd                     uintptr
+	uID                      uint32
+	uFlags, uCallbackMessage uint32
+	hIcon                    uintptr
+	szTip                    [128]uint16
+	dwState, dwStateMask     uint32
+	szInfo                   [256]uint16
+	uVersion                 uint32
+	szInfoTitle              [64]uint16
+	dwInfoFlags              uint32
+	guidItem                 windows.GUID
+	hBalloonIcon             uintptr
 }
 
 type wndClassEx struct {
-	cbSize     uint32
-	style      uint32
-	wndProc    uintptr
-	clsExtra   int32
-	wndExtra   int32
-	instance   uintptr
-	icon       uintptr
-	cursor     uintptr
-	background uintptr
-	menuName   *uint16
-	className  *uint16
-	iconSm     uintptr
+	cbSize                             uint32
+	style                              uint32
+	wndProc                            uintptr
+	clsExtra, wndExtra                 int32
+	instance, icon, cursor, background uintptr
+	menuName                           *uint16
+	className                          *uint16
+	iconSm                             uintptr
 }
 
 type point struct{ x, y int32 }
 
 type msg struct {
-	hwnd    uintptr
-	message uint32
-	wParam  uintptr
-	lParam  uintptr
-	time    uint32
-	pt      point
+	hwnd           uintptr
+	message        uint32
+	wParam, lParam uintptr
+	time           uint32
+	pt             point
 }
 
 // NewUI returns the notification-area UI.
