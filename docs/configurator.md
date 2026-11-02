@@ -854,13 +854,22 @@ sits in the overflow (^) menu until the user pins it to the taskbar.
 The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
 address from the installed service definition on every tick (`--config` overrides the config path used
 only to read that address and the Atlas URL; Restart service calls the manager without it). It never writes server or KB state; it acts only through `service restart`'s
-code path and the system "open". The icon is a map pin whose **shape** tells the state, because a
-macOS template image is tinted by the system: filled = running, half-filled head = starting
-(`ready: false` or bootstrapping), outline with a slash = stopped, dimmed outline = service not
-installed. A newer release (`latest_version`) only adds "update available: vX" to the status line.
-Menu: status line (version, KB count), Open Atlas (greyed when the config has no web UI), Restart
-service (runs off the UI thread, disabled while in flight and when no service is installed), Open log, Quit (the tray only; the server
-keeps running). `--log-file` appends the tray's own log there, as for `serve`.
+code path and the system "open". The icon is the brand mark (Coordinate; the micro variant, without
+the inner arc, below 32 px) and its **shape** tells the state, because a macOS template image is
+tinted by the system: the mark = running, the mark without its point = starting (`ready: false` or
+bootstrapping), the mark crossed by a slash = stopped, the mark dimmed = service not installed.
+
+Menu, top to bottom: "Cartographer" with the state at the right (Running, Starting…, Restarting…,
+Stopped, Not installed) over the version and the address; "Update available" with the newer
+release, when `/health` reports one; an **Agents** section, one row per connected agent client with
+"In sync", "Out of sync" or "Not checked" (the server could not be asked) at the right, read as
+`cartographer status` does, on the first poll, every 12 polls and whenever the server comes back;
+**Knowledge Bases (n)**, a submenu of the KBs `/health` lists, each opening the Atlas on that KB
+(`/ui/?kb=<name>`); then Open Atlas (greyed when the config has no web UI), Restart Service (runs off
+the UI thread, disabled while in flight and when no service is installed), Open Log, Quit (the tray
+only; the server keeps running). On macOS the information rows are drawn in the label colour with the
+states coloured (the brand's accent for Running and In sync, orange, red, blue for an update) and the
+actions have ⌘O, ⌘R, ⌘L, ⌘Q while the menu is open; Windows shows the same rows as plain text. `--log-file` appends the tray's own log there, as for `serve`.
 
 ### `cartographer import`
 

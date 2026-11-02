@@ -88,3 +88,20 @@ func TestRestartRunsOnceOffTheCallerAndLogsErrors(t *testing.T) {
 		t.Errorf("calls=%d logged=%v", calls, logged)
 	}
 }
+
+func TestOpenKB(t *testing.T) {
+	opened := stubOpen(t)
+	a := newActions(func() error { return nil }, nil)
+	a.Observe(Snapshot{UIURL: "http://127.0.0.1:1/ui/", KBNames: "kb-a\nwork kb&x"})
+	a.Handle(ActionOpenKB + 1)
+	a.Handle(ActionOpenKB + 2) // out of range: the list changed under the menu
+	if want := "http://127.0.0.1:1/ui/?kb=work+kb%26x"; len(*opened) != 1 || (*opened)[0] != want {
+		t.Errorf("opened %v, want [%s]", *opened, want)
+	}
+	if err := OpenURL("http://127.0.0.1:1/ui/?kb=a&kb=b"); err == nil {
+		t.Error("two kb values accepted")
+	}
+	if err := OpenURL("http://127.0.0.1:1/ui/?panel=x"); err == nil {
+		t.Error("a query other than kb accepted")
+	}
+}

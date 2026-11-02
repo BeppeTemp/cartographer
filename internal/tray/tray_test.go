@@ -344,3 +344,39 @@ func TestStateString(t *testing.T) {
 		t.Error("State.String")
 	}
 }
+
+func TestRunRefreshesAgentsSparingly(t *testing.T) {
+	f := &fakeEnv{
+		status: service.Status{Installed: true, HTTPAddr: "127.0.0.1:1"},
+		health: &client.Health{Version: "1", Ready: boolp(true)},
+		ticks:  make(chan time.Time),
+	}
+	d := f.deps()
+	var mu sync.Mutex
+	reads := 0
+	d.Agents = func() Agents {
+		mu.Lock()
+		defer mu.Unlock()
+		reads++
+		return Agents{Known: true, N: reads}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, d, 0, func(Snapshot) {}); close(done) }()
+	for i := 0; i < AgentsEvery; i++ {
+		f.ticks <- time.Now()
+	}
+	// The server goes away and comes back: the agents are read again at once.
+	f.set(func() { f.health, f.pErr = nil, errors.New("down") })
+	f.ticks <- time.Now()
+	f.set(func() { f.health, f.pErr = &client.Health{Version: "1", Ready: boolp(true)}, nil })
+	f.ticks <- time.Now()
+	cancel()
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	// First poll, poll AgentsEvery, and the recovery.
+	if reads != 3 {
+		t.Errorf("agents read %d times, want 3", reads)
+	}
+}
