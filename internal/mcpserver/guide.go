@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 // The operating guide (D1097): what `initialize` and `server/discover` tell a
@@ -52,6 +54,23 @@ func GuideKB(ctx context.Context, k *kb.KB, name string) (g provisioning.GuideKB
 		g.Curated, g.SkipPreamble = provisioning.KBCuratedInstructions(k.Root)
 	}
 	return g, true
+}
+
+// procedureLines are the served procedures whose body the bundle holds, for the
+// guide's list (#1316). The one copy of the line source: connectionGuide
+// (initialize) and renderKBGuide (kb_guide) both call it. No bundle, no list.
+func procedureLines(bundle fs.FS) []provisioning.ProcedureLine {
+	if bundle == nil {
+		return nil
+	}
+	var lines []provisioning.ProcedureLine
+	for _, p := range skillbundle.Procedures() {
+		if _, err := p.Body(bundle); err != nil {
+			continue
+		}
+		lines = append(lines, provisioning.ProcedureLine{Short: p.Short, UseWhen: p.UseWhen})
+	}
+	return lines
 }
 
 // guideArchiveNames lists the KB's archives, none when data/ is a symlink: a
@@ -98,20 +117,32 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 		return ""
 	}
 	s.mu.Lock()
-	readOnly := s.readOnlySession || s.readMinSession || s.tokenReadOnly
+	readOnly := s.readOnlySession || s.readMinSession || s.tokenReadOnly || s.kbsReadOnly
 	s.mu.Unlock()
 	if !readOnly && !writesAnyKB(ctx, names) {
 		readOnly = true
 	}
-	return provisioning.RenderGuide(kbs, provisioning.GuideOptions{Routed: routed, ReadOnly: readOnly})
+	return provisioning.RenderGuide(kbs, provisioning.GuideOptions{Routed: routed, ReadOnly: readOnly, Procedures: procedureLines(s.guideBundle)})
 }
 
 // handshakeInstructions is the `instructions` of one handshake: what a
 // provisioned connection gets as before (nothing, or the bridge's read-only
 // sentence), the guide for everyone else.
 func (s *Server) handshakeInstructions(ctx context.Context) string {
+	var out string
 	if isProvisioned(ctx) {
-		return s.sessionInstructions()
+		out = s.sessionInstructions()
+	} else {
+		out = s.connectionGuide(ctx)
 	}
-	return s.connectionGuide(ctx)
+	// A strict subset read-only (#1409): the names ride the request, so the
+	// sentence is added here, per handshake, never in the memoised server.
+	if ro := routedReadOnly(ctx); len(ro) > 0 && !s.kbsReadOnly {
+		sentence := readOnlyKBsSentence(ro)
+		if out == "" {
+			return sentence
+		}
+		return out + "\n\n" + sentence
+	}
+	return out
 }
