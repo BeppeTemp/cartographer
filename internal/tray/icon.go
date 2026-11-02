@@ -10,7 +10,7 @@ import (
 
 // Icons are generated, not checked in: no asset to review, no generate step.
 // Each is an alpha mask of a map pin, anti-aliased by supersampling, filled
-// with one colour. The state is told by shape (DPRNUM):
+// with one colour. The state is told by shape (D1482):
 //
 //	running        filled pin
 //	starting       outlined pin, left half of the head filled

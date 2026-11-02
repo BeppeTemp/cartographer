@@ -24,7 +24,7 @@ var trayGOOS = runtime.GOOS
 // that replaces it is `detachConsoleFn = detachOwnConsole`.
 var detachConsoleFn = func() {}
 
-// cmdTray runs the status icon: a separate process from `serve` (DPRNUM), so it
+// cmdTray runs the status icon: a separate process from `serve` (D1482), so it
 // stays visible, red, when the server is down and can restart it. It reads
 // /health and acts only through service.Manager and the OS "open".
 func cmdTray(args []string) int {

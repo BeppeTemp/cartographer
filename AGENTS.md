@@ -98,6 +98,7 @@ internal/sqlindex       implements a persistent SQLite-backed keyword index
 internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818, D1032)
 internal/testkbs/gen    Command gen writes the test KB fleet of package testkbs into a data directory, one subdirectory per KB
 internal/testtree       snapshots a directory tree in memory and restores it elsewhere
+internal/tray           is the core of `cartographer tray` (D1482)
 internal/updatecheck    answers whether a newer Cartographer release exists and how this binary is upgraded (D254)
 internal/webui          serves the embedded read-only Atlas UI (D227)
 internal/webui/gen      Command webui-provenance writes internal/webui/dist/provenance.json with the hash of the web/ source…

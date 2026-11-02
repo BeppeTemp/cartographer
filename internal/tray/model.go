@@ -1,4 +1,4 @@
-// Package tray is the core of `cartographer tray` (DPRNUM): the health model of
+// Package tray is the core of `cartographer tray` (D1482): the health model of
 // the local server, the poll loop that keeps it current, the actions the menu
 // offers and the generated monochrome icons. It draws nothing itself: the
 // notification-area and menu-bar implementations of [UI] live in
@@ -17,7 +17,7 @@ import (
 )
 
 // State is what the icon shows. The states are carried by shape, never by
-// colour: a macOS template image is tinted by the system (DPRNUM).
+// colour: a macOS template image is tinted by the system (D1482).
 type State int
 
 const (
