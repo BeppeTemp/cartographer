@@ -2,14 +2,18 @@ package service
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1946,5 +1950,120 @@ func TestTrayView_RunsNoCommand(t *testing.T) {
 				t.Errorf("installed: %+v", st)
 			}
 		})
+	}
+}
+
+// A reinstall on Linux restarts a unit that was active, so the installed
+// definition and the running process agree; a first install starts it once
+// (`enable --now`) and restarts nothing.
+func TestInstall_Linux_RestartsAnActiveUnit(t *testing.T) {
+	withTestHome(t, "linux")
+	oldExec := osExecutable
+	osExecutable = func() (string, error) { return "/home/user/.local/bin/cartographer", nil }
+	t.Cleanup(func() { osExecutable = oldExec })
+	cfg := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(cfg, []byte("data: "+t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	joined := func(s *stubRunner) []string {
+		var out []string
+		for _, c := range s.calls {
+			out = append(out, strings.Join(c, " "))
+		}
+		return out
+	}
+
+	first, stub := newTestManager()
+	stub.fail = map[string]bool{"is-active": true} // not running yet
+	if _, err := first.Install(InstallOptions{ConfigPath: cfg}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range joined(stub) {
+		if strings.Contains(c, " restart ") {
+			t.Errorf("a first install must not restart: %v", joined(stub))
+		}
+	}
+
+	again, stub2 := newTestManager() // is-active succeeds: the unit runs
+	if _, err := again.Install(InstallOptions{ConfigPath: cfg}); err != nil {
+		t.Fatal(err)
+	}
+	calls := joined(stub2)
+	reload, restart := -1, -1
+	for i, c := range calls {
+		switch c {
+		case "systemctl --user daemon-reload":
+			reload = i
+		case "systemctl --user restart " + systemdUnit:
+			restart = i
+		}
+	}
+	if reload < 0 || restart < reload {
+		t.Errorf("want restart after daemon-reload, calls = %v", calls)
+	}
+}
+
+// A path is user data: R&D, a space or an angle bracket must leave both
+// launchd plists well-formed, and the readers must give the path back.
+func TestLaunchdPlists_EscapeXML(t *testing.T) {
+	bin := "/Users/user/R&D <x>/bin/cartographer"
+	cfg := "/Users/user/R&D <x>/server.yaml"
+	logp := "/Users/user/R&D/Logs/server&.log"
+	serve := RenderLaunchdPlist(bin, cfg, logp)
+	syncPlist := RenderSyncLaunchdPlist(bin, logp, time.Hour)
+
+	for name, doc := range map[string]string{"serve": serve, "sync": syncPlist} {
+		var strs []string
+		dec := xml.NewDecoder(strings.NewReader(doc))
+		dec.Strict = true
+		dec.Entity = nil
+		for {
+			tok, err := dec.Token()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("%s plist is not well-formed XML: %v", name, err)
+			}
+			if cd, ok := tok.(xml.CharData); ok && strings.Contains(string(cd), "R&D") {
+				strs = append(strs, string(cd))
+			}
+		}
+		if len(strs) == 0 {
+			t.Errorf("%s plist: the decoded path was not found", name)
+		}
+	}
+
+	if got, err := extractPlistBinary([]byte(serve)); err != nil || got != bin {
+		t.Errorf("extractPlistBinary = %q, %v, want %q", got, err, bin)
+	}
+	if got, err := extractPlistBinary([]byte(syncPlist)); err != nil || got != bin {
+		t.Errorf("extractPlistBinary(sync) = %q, %v, want %q", got, err, bin)
+	}
+	if got, err := extractPlistConfigPath([]byte(serve)); err != nil || got != cfg {
+		t.Errorf("extractPlistConfigPath = %q, %v, want %q", got, err, cfg)
+	}
+}
+
+func TestLaunchdPlists_PassPlutil(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("plutil is macOS only")
+	}
+	plutil, err := exec.LookPath("plutil")
+	if err != nil {
+		t.Skip("plutil not found")
+	}
+	bin := "/Users/user/R&D <x>/bin/cartographer"
+	for name, doc := range map[string]string{
+		"serve": RenderLaunchdPlist(bin, "/Users/user/R&D/server.yaml", "/tmp/s&.log"),
+		"sync":  RenderSyncLaunchdPlist(bin, "/tmp/s&.log", time.Hour),
+	} {
+		p := filepath.Join(t.TempDir(), name+".plist")
+		if err := os.WriteFile(p, []byte(doc), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command(plutil, "-lint", p).CombinedOutput(); err != nil {
+			t.Errorf("%s: plutil -lint: %v\n%s", name, err, out)
+		}
 	}
 }

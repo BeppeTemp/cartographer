@@ -252,7 +252,7 @@ func RenderSyncLaunchdPlist(binPath, logPath string, interval time.Duration) str
 	<string>%s</string>
 </dict>
 </plist>
-`, syncLaunchdLabel, binPath, int(interval.Seconds()), logPath, logPath)
+`, xmlEscape(syncLaunchdLabel), xmlEscape(binPath), int(interval.Seconds()), xmlEscape(logPath), xmlEscape(logPath))
 }
 
 // RenderSyncSystemdService renders the oneshot unit the timer activates.
