@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/tray"
@@ -71,18 +72,28 @@ func cmdTray(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	updates, emit := tray.Latest()
+	return runTray(ctx, ui, deps, *interval, actions)
+}
+
+// runTray polls until ctx ends or the UI returns. A signal only cancels ctx, so
+// once the poll loop has ended the updates channel is closed: that is what makes
+// ui.Run return (the contract on tray.UI), and the icon goes away.
+func runTray(ctx context.Context, ui tray.UI, deps tray.Deps, interval time.Duration, actions *tray.Actions) int {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	updates, emit, closeUpdates := tray.Latest()
 	pollDone := make(chan struct{})
 	go func() {
 		defer close(pollDone)
-		tray.Run(ctx, deps, *interval, func(s tray.Snapshot) {
+		tray.Run(ctx, deps, interval, func(s tray.Snapshot) {
 			actions.Observe(s)
 			emit(s)
 		})
+		closeUpdates()
 	}()
 
-	err = ui.Run(tray.DefaultMenu(), updates, actions.Handle)
-	stop()
+	err := ui.Run(tray.DefaultMenu(), updates, actions.Handle)
+	cancel() // the user quit: stop polling
 	<-pollDone
 	actions.Wait()
 	if err != nil {

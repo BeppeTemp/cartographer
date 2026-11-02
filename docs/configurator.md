@@ -837,8 +837,8 @@ on Linux it prints an error and exits 2. Nothing starts it yet and the platform 
 build: today the command builds the health model and then reports that the UI is missing.
 
 The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
-address from the installed service definition on every tick (`--config` overrides the config path, as
-for `service restart`). It never writes server or KB state; it acts only through `service restart`'s
+address from the installed service definition on every tick (`--config` overrides the config path used
+only to read that address and the Atlas URL; Restart service calls the manager without it). It never writes server or KB state; it acts only through `service restart`'s
 code path and the system "open". The icon is a map pin whose **shape** tells the state, because a
 macOS template image is tinted by the system: filled = running, half-filled head = starting
 (`ready: false` or bootstrapping), outline with a slash = stopped, dimmed outline = service not

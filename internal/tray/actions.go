@@ -92,8 +92,9 @@ func (a *Actions) Busy() bool { return a.inflight.Load() }
 // Wait blocks until an in-flight restart finishes.
 func (a *Actions) Wait() { a.wg.Wait() }
 
-// Handle performs one action. It never blocks on the restart: on Windows the
-// restart waits up to ~30 s for the old process, far too long for a UI thread.
+// Handle performs one action. It is called on the UI thread and returns
+// promptly: the restart runs in its own goroutine, because on Windows it waits
+// up to ~30 s for the old process, far too long for a UI thread.
 func (a *Actions) Handle(act Action) {
 	a.mu.Lock()
 	snap := a.last
