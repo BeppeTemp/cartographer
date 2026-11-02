@@ -3,12 +3,13 @@ name: Preview image
 run-name: Preview image ${{ inputs.tag }}
 
 # A release candidate for trying an unreleased main before the release PR is
-# merged (D303, D1192): the server image ghcr.io/…:<tag> for a deployment, and a
+# merged (D303, D1192): the server image ghcr.io/…/cartographer:<tag> and the
+# Surveyor image ghcr.io/…/cartographer-surveyor:<tag> for a deployment, and a
 # GitHub pre-release <tag> with the GoReleaser binaries for a native service and
 # client. Nothing stable: no `latest` image, no Homebrew cask, no MCP Registry
 # entry, GitHub's "latest release" untouched — those belong to release.yml, which
 # a candidate tag never starts (its tag filter, and the default token here).
-# The binaries are published only after the image passed its smoke and was pushed.
+# The binaries are published only after both images passed their smoke and were pushed.
 on:
   workflow_dispatch:
     inputs:
@@ -69,6 +70,24 @@ jobs:
         env:
           TAG: ${{ inputs.tag }}
         run: test/smoke/image.sh cartographer:smoke "$TAG"
+      # The Surveyor candidate (D1440), smoked before the first push as well.
+      - name: Build the Surveyor candidate for the smoke
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: surveyor
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: cartographer-surveyor:smoke
+          build-args: |
+            VERSION=${{ inputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke the Surveyor candidate
+        env:
+          TAG: ${{ inputs.tag }}
+        run: test/smoke/surveyor-image.sh cartographer-surveyor:smoke "$TAG"
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
@@ -84,6 +103,17 @@ jobs:
             VERSION=${{ inputs.tag }}
           tags: |
             ghcr.io/beppetemp/cartographer:${{ inputs.tag }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: surveyor
+          platforms: linux/amd64,linux/arm64
+          push: true
+          cache-from: type=gha
+          build-args: |
+            VERSION=${{ inputs.tag }}
+          tags: |
+            ghcr.io/beppetemp/cartographer-surveyor:${{ inputs.tag }}
 
   # The candidate's binaries as a GitHub pre-release (D1192), after the image: a
   # failed smoke or push publishes nothing, and a failure here makes the run red,
@@ -172,4 +202,4 @@ jobs:
           fi
           version=${TAG%%-*}
           gh release create "$TAG" rc/* --prerelease --latest=false --target "$GITHUB_SHA" --title "$TAG" \
-            --notes "Release candidate of ${version}, built from ${GITHUB_SHA}. Not a release: it is never offered as an update. Install it with CARTOGRAPHER_INSTALL_TAG=${TAG} (install.sh or install.ps1); the image is ghcr.io/beppetemp/cartographer:${TAG}."
+            --notes "Release candidate of ${version}, built from ${GITHUB_SHA}. Not a release: it is never offered as an update. Install it with CARTOGRAPHER_INSTALL_TAG=${TAG} (install.sh or install.ps1); the images are ghcr.io/beppetemp/cartographer:${TAG} and ghcr.io/beppetemp/cartographer-surveyor:${TAG}."

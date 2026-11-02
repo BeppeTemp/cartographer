@@ -67,7 +67,7 @@ that moved together. It proposes no threshold and no fix, and it has no tool on 
 
 1. Create the map the gaps live in, `gaps` here, admitting `Contradiction`. Another name means changing it in
    `instructions.md` and `system-review.md`.
-2. Put the script and the files where the Surveyor can run them (a derived image with Python 3, or a mounted read-only
+2. Put the script and the files where the Surveyor can run them (a derived image `FROM` the Surveyor image with Python 3, see [Running scripts in the container](../../../docs/surveyor-recipes.md#running-scripts-in-the-container), or a mounted read-only
    volume), add `recipe.yaml` to the Surveyor config with the two `.md` files in the config directory, and set
    `METRICS_URL` and `METRICS_TOKEN` in the Surveyor's environment. Name a `model` your config declares.
 3. Register the system once: `source_register` with `source_shape: system`, `recipe: metrics-verdicts` and

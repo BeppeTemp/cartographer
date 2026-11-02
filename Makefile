@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -107,6 +107,12 @@ docker: ## Build the Docker image
 
 docker-smoke: docker ## Build the image, then check its tools, user and a served write (test/smoke/image.sh, D995)
 	test/smoke/image.sh cartographer
+
+docker-surveyor: ## Build the Surveyor image (the `surveyor` stage, D1440)
+	docker build --target surveyor -t cartographer-surveyor .
+
+docker-surveyor-smoke: docker-surveyor ## Build the Surveyor image, then check its tools, user and entrypoint (test/smoke/surveyor-image.sh)
+	test/smoke/surveyor-image.sh cartographer-surveyor
 
 DEMO_IMAGE ?= cartographer-demo
 # Override with BASE=cartographer (after `make docker`) to test the working tree.

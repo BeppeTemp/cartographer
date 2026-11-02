@@ -161,7 +161,7 @@ jobs:
           fi
           echo "$TAG: published (isDraft/isPrerelease=$got)"
 
-  # Multi-arch server image on ghcr.io.
+  # Multi-arch server and Surveyor images on ghcr.io (D1440).
   docker:
     runs-on: ubuntu-latest
     permissions:
@@ -200,6 +200,32 @@ jobs:
         with:
           subject-name: ghcr.io/beppetemp/cartographer
           subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      # The Surveyor image, second: a failure here leaves the release a draft
+      # (D1350), nothing announced. Its own step id, so its attestation names its
+      # own digest (release_publish_test.go pins it). FIRST PUBLISH: the new
+      # package ghcr.io/beppetemp/cartographer-surveyor is private until set
+      # Public in its settings, and "Manage Actions access" must list this
+      # repository with Write, or the push is denied (D1440).
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: push-surveyor
+        with:
+          context: .
+          target: surveyor
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          tags: |
+            ghcr.io/beppetemp/cartographer-surveyor:${{ github.ref_name }}
+            ghcr.io/beppetemp/cartographer-surveyor:latest
+      - name: Attest the Surveyor image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/beppetemp/cartographer-surveyor
+          subject-digest: ${{ steps.push-surveyor.outputs.digest }}
           push-to-registry: true
 
   # Live read-only MCP demo on Cloud Run (D751). Skipped until the repository

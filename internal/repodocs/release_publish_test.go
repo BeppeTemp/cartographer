@@ -92,3 +92,75 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 		t.Error("release.yml: mcp-registry announces the version and must need publish")
 	}
 }
+
+// The docker job publishes two images, each attested on its own digest (D1440).
+// Attesting the Surveyor with the server's digest (a copy-paste of the step) is
+// the trap: the signature would vouch for the wrong image.
+func TestReleaseDockerJobPublishesAndAttestsBothImages(t *testing.T) {
+	var wf struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				ID   string         `yaml:"id"`
+				Uses string         `yaml:"uses"`
+				With map[string]any `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, repoRoot(t), ".github/workflows/release.yml")), &wf); err != nil {
+		t.Fatalf("release.yml: %v", err)
+	}
+	str := func(v any) string { s, _ := v.(string); return s }
+	pushID := map[string]string{} // image -> id of the step that pushed it
+	attested := map[string]string{}
+	for _, s := range wf.Jobs["docker"].Steps {
+		switch {
+		case strings.HasPrefix(s.Uses, "docker/build-push-action@"):
+			if s.With["push"] != true {
+				continue
+			}
+			if !strings.HasPrefix(str(s.With["provenance"]), "mode=max") || s.With["sbom"] != true {
+				t.Errorf("release.yml docker: push step %q lacks provenance: mode=max or sbom: true", s.ID)
+			}
+			tags := str(s.With["tags"])
+			image, target := "ghcr.io/beppetemp/cartographer", str(s.With["target"])
+			switch target {
+			case "":
+			case "surveyor":
+				image += "-surveyor"
+			default:
+				t.Errorf("release.yml docker: unexpected target %q", target)
+			}
+			for _, tag := range []string{image + ":${{ github.ref_name }}", image + ":latest"} {
+				if !strings.Contains(tags, tag+"\n") && !strings.HasSuffix(strings.TrimSpace(tags), tag) {
+					t.Errorf("release.yml docker: step %q (target %q) lacks tag %s", s.ID, target, tag)
+				}
+			}
+			for _, line := range strings.Split(strings.TrimSpace(tags), "\n") {
+				line = strings.TrimSpace(line)
+				if !strings.HasPrefix(line, image+":") {
+					t.Errorf("release.yml docker: step %q (target %q) pushes %s, outside %s", s.ID, target, line, image)
+				}
+			}
+			if s.ID == "" {
+				t.Errorf("release.yml docker: push step for %s has no id to attest by", image)
+			}
+			pushID[image] = s.ID
+		case strings.HasPrefix(s.Uses, "actions/attest-build-provenance@"):
+			attested[str(s.With["subject-name"])] = str(s.With["subject-digest"])
+		}
+	}
+	for _, image := range []string{"ghcr.io/beppetemp/cartographer", "ghcr.io/beppetemp/cartographer-surveyor"} {
+		id, ok := pushID[image]
+		if !ok {
+			t.Errorf("release.yml docker: no push step for %s", image)
+			continue
+		}
+		want := "${{ steps." + id + ".outputs.digest }}"
+		if got := attested[image]; got != want {
+			t.Errorf("release.yml docker: %s is attested with digest %q, want %q (the step that pushed it)", image, got, want)
+		}
+	}
+	if len(pushID) != 2 || len(attested) != 2 {
+		t.Errorf("release.yml docker: %d push steps and %d attestations, want 2 and 2", len(pushID), len(attested))
+	}
+}

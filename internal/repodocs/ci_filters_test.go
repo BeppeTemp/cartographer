@@ -67,6 +67,7 @@ func TestCIFiltersTable(t *testing.T) {
 		{"go.mod", "feat/x", []string{"go.mod"}, true, true, false, false, true, false, false},
 		{"demo guestbook seed", "feat/x", []string{"demo/guestbook/index.md"}, false, false, false, false, true, false, false},
 		{"image smoke script", "feat/x", []string{"test/smoke/image.sh"}, false, false, false, false, true, false, false},
+		{"surveyor image smoke script", "feat/x", []string{"test/smoke/surveyor-image.sh"}, false, false, false, false, true, false, false},
 		{"forge hook", "feat/x", []string{"test/forge/pre-receive.sh"}, false, true, false, false, false, true, false},
 		{"forge runner", "feat/x", []string{"test/forge/run.sh"}, false, false, false, false, false, true, false},
 		{"service package", "feat/x", []string{"internal/service/manager.go"}, true, true, false, false, false, false, true},
@@ -149,7 +150,9 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		"settings-example": true, "demo-kb": true, "demo-image": true,
 		// The docker job builds with buildx (layer cache in the GitHub cache) and
 		// runs test/smoke/image.sh itself; these two are the same checks by hand.
-		"docker": true, "docker-smoke": true,
+		// docker-surveyor(-smoke) are the Surveyor image's, built and smoked by the
+		// same job.
+		"docker": true, "docker-smoke": true, "docker-surveyor": true, "docker-surveyor-smoke": true,
 	}
 	var wf strings.Builder
 	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))

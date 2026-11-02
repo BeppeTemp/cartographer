@@ -257,7 +257,7 @@ dispatched by hand with one of three actions.
   release PR with every check below, `action: discard` deletes the candidate(s) of the
   pending version. After the merge release-please cuts the tag and creates the release
   as a draft: `release.yml` publishes it only after the binaries, the Homebrew cask and
-  the image exist, so no client is told of a version it cannot install (D1350).
+  images exist, so no client is told of a version it cannot install (D1350).
 - **Freeze, opened by the candidate.** It is open from the moment a candidate tag
   `vX.Y.Z-rc.<YYYYMMDD>` with `X.Y.Z` greater than the latest stable release exists, until
   that version is released (`release.yml` deletes its candidates) or the candidate is
@@ -273,13 +273,14 @@ dispatched by hand with one of three actions.
   release. A PR the freeze blocks waits until the release.
 - **The release candidate.** `action: rc` builds the candidate
   `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. It is a
-  server image **and** a GitHub pre-release with the binaries (the same archives and
-  `sha256sums.txt` as a stable release). The image is started and smoked before anything
-  is published (tools, non-root user, a KB served over HTTP with a write that commits),
-  so a candidate that exists starts; the binaries are published only after the image,
+  server image, a Surveyor image **and** a GitHub pre-release with the binaries (the same archives and
+  `sha256sums.txt` as a stable release). Both images are started and smoked before anything
+  is published (tools, non-root user, a KB served over HTTP with a write that commits for the server;
+  tools present and absent, entrypoint for the Surveyor),
+  so a candidate that exists starts; the binaries are published only after the images,
   and only once the built binary prints the candidate's tag. The same run renders the
   README film when its sources changed (`film.yml`, D1068): a red film job fails the
-  candidate, so there is nothing to release until it is fixed. A maintainer runs the image on a
+  candidate, so there is nothing to release until it is fixed. A maintainer runs the images on a
   real deployment and the binaries as native service and client (below), adds the
   `rc-ok` label and runs `action: release`. Without the label, or if the candidate
   is not the current head of `main` (a fix landed after the build), the release is
