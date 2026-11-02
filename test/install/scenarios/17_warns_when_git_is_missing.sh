@@ -49,6 +49,12 @@ STUB
     chmod +x "${SCENARIO_TMP}/fakebin/uname"
 }
 
+# No Command Line Tools: xcode-select -p fails (the host's own would answer).
+cat > "${SCENARIO_TMP}/fakebin/xcode-select" <<'STUB'
+#!/bin/sh
+exit 2
+STUB
+chmod +x "${SCENARIO_TMP}/fakebin/xcode-select"
 PATH="${SCENARIO_TMP}/fakebin:${TOOLS}"
 write_uname Darwin
 run_install install
@@ -74,6 +80,31 @@ run_install install
 echo "--- Assertions (git present) ---"
 assert_eq "$INSTALL_RC" "0" "install succeeds with git present"
 assert_not_contains "$INSTALL_OUTPUT" "git is not installed" "no warning when git is on the PATH"
+
+# macOS without the Command Line Tools: /usr/bin/git is a shim, so git is on the
+# PATH, but xcode-select -p fails. The warning must still fire.
+write_uname Darwin
+rm -f "$DEST"
+run_install install
+echo "--- Assertions (macOS, git shim, no Command Line Tools) ---"
+assert_eq "$INSTALL_RC" "0" "install succeeds"
+assert_contains "$INSTALL_OUTPUT" "warning: git is not installed" "warns although git is on the PATH"
+assert_contains "$INSTALL_OUTPUT" "xcode-select --install" "names the Command Line Tools install"
+
+printf '#!/bin/sh\nexit 0\n' > "${SCENARIO_TMP}/fakebin/xcode-select"
+rm -f "$DEST"
+run_install install
+echo "--- Assertions (macOS, Command Line Tools present) ---"
+assert_not_contains "$INSTALL_OUTPUT" "git is not installed" "no warning when the tools are installed"
+
+# A rerun that finds the current version installed still warns: that is when a
+# user without git tries again.
+rm -f "${SCENARIO_TMP}/fakebin/git"
+printf '#!/bin/sh\nexit 2\n' > "${SCENARIO_TMP}/fakebin/xcode-select"
+run_install install
+echo "--- Assertions (already installed, no usable git) ---"
+assert_contains "$INSTALL_OUTPUT" "already installed" "the second run is the early return"
+assert_contains "$INSTALL_OUTPUT" "warning: git is not installed" "the early return warns too"
 
 PATH="$FULL_PATH"
 install_report "$SCENARIO_NAME"

@@ -178,6 +178,7 @@ function Install-Cartographer {
         if ($current -eq $tag) {
             Write-Host "cartographer $tag already installed at $dest"
             Add-CartographerToUserPath $dir
+            Write-CartographerGitWarning
             return
         }
         if ($current) { Write-Host "updating cartographer $current -> $tag" } else { Write-Host "installing cartographer $tag to $dest" }

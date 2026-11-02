@@ -93,15 +93,21 @@ latest_tag() {
         | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true
 }
 
-# warn_no_git prints one warning when git is not on the PATH, never fails: a
-# KB is a git repository, so the first `cartographer setup` stops without it,
-# and on macOS the first `git` call otherwise opens the Command Line Tools
-# dialog in the middle of setup.
+# warn_no_git prints one warning when git is unusable, never fails: a KB is a
+# git repository, so the first `cartographer setup` stops without it. On macOS
+# without the Command Line Tools /usr/bin/git is a shim that is on the PATH
+# yet opens the installer dialog when run, so there the check is
+# `xcode-select -p`, never `git --version`.
 warn_no_git() {
-    command -v git >/dev/null 2>&1 && return 0
+    os=$(uname -s)
+    if [ "$os" = Darwin ]; then
+        xcode-select -p >/dev/null 2>&1 && return 0
+    else
+        command -v git >/dev/null 2>&1 && return 0
+    fi
     log ""
     log "warning: git is not installed — Cartographer needs it for every KB."
-    case "$(uname -s)" in
+    case "$os" in
         Darwin) log "  xcode-select --install     (then run cartographer setup again)" ;;
         *) log "  install git with your package manager (apt, dnf, pacman, apk...)." ;;
     esac
@@ -128,6 +134,7 @@ do_install() {
         current=$("$dest" version 2>/dev/null || echo "unknown")
         if [ "$current" = "$tag" ]; then
             log "cartographer ${tag} already installed at ${dest}"
+            warn_no_git
             return 0
         fi
         log "updating cartographer ${current} -> ${tag}"
