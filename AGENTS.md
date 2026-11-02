@@ -19,7 +19,7 @@ make test-install    # network-free install.sh/Cask packaging suite + goreleaser
 make docker          # build Docker image
 make clean           # remove bin/ and demo-kb/
 
-make decisions-new N=<issue> SLUG=my-choice TOPIC=control-plane   # D<n> = plan issue (or PR) number
+make decisions-new N=<pr> SLUG=my-choice TOPIC=control-plane   # D<n> = PR number
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
@@ -126,12 +126,12 @@ Not duplicated here:
 - Isolable code may be delegated to a coding subagent; the coordinator verifies `make gate`.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter (D259).
 - **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code, otherwise one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).
-- Design and implementation often happen in separate sessions: the maintainer's handoff is a plan, a file or a **plan issue** (`CONTRIBUTING.md` §Plan issues). A plan issue is a proposal until a maintainer adds `approved`: no agent implements one without it, and none adds it unasked. A contributor opens an issue or a direct PR.
+- Design and implementation often happen in separate sessions: the maintainer's handoff is a **plan file** kept outside the repository (`CONTRIBUTING.md` §Plans): no agent implements a plan the maintainer did not give it in the session. A contributor opens an issue or a direct PR.
 - **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor whose agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
 - A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user, landing one PR (`cartographer-develop-live` skill).
 - A PR is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap: `CONTRIBUTING.md` §Pull requests.
 - Releases (release-please PR merge, pipeline, rollout) → maintainer-local tooling, not versioned here; the on-demand flow is in `CONTRIBUTING.md` §Releases.
 - **Documentation is updated in the same session as the code — never afterward.** The "what changes → which file" table is in `docs/index.md` §Documentation maintenance rules.
-- Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its plan issue or PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).
+- Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).
 - Status and backlog live in GitHub issues, PRs and releases; user-visible completed work in `CHANGELOG.md`.
 - **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks excluded) or 12.000 characters in total: past that a client drops instructions silently.

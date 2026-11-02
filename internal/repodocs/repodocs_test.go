@@ -569,7 +569,6 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 		"internal/mcpserver/AGENTS.md",
 		"internal/provisioning/provisioning.go",
 		".claude/skills/cartographer-implement-plan/SKILL.md",
-		".github/ISSUE_TEMPLATE/plan.md",
 		"test/e2e/scenarios/03_config_opencode.sh",
 		"config.example.yaml",
 	} {

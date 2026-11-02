@@ -110,14 +110,13 @@ var GapDecisions = map[int]string{
 	163: "a copied off-by-one for D162, not a missing record — see D206",
 }
 
-// ReservedDecisions are numbers held by an open plan issue whose record arrives
-// with the implementation. A plan title reserves its number before any file
-// exists (CONTRIBUTING.md §Plan issues), so a forward reference to one is
-// correct, not dangling — and this is where that is declared instead of being
-// indistinguishable from a mistake.
+// ReservedDecisions are numbers held by an open PR whose record arrives with
+// the implementation, so a forward reference to one is correct, not dangling —
+// and this is where that is declared instead of being indistinguishable from a
+// mistake.
 //
-// An entry is removed when the plan lands and writes its record: a reserved
-// number that already has a file fails the test. A plan abandoned without
+// An entry is removed when the PR lands and writes its record: a reserved
+// number that already has a file fails the test. A PR abandoned without
 // implementing gets a "retired" record of its own (D130) or moves to
 // GapDecisions — it does not stay here.
 var ReservedDecisions = map[int]string{}
