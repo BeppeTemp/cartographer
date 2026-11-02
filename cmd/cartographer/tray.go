@@ -42,6 +42,14 @@ func cmdTray(args []string) int {
 		return exitStatusError
 	}
 
+	// Before the log is opened and the first poll runs: a second tray on macOS
+	// exits 0 without a line in the shared log.
+	release, second := tray.SingleInstance()
+	defer release()
+	if second {
+		return 0
+	}
+
 	if *logFile != "" {
 		f, err := redirectServerLog(*logFile)
 		if err != nil {

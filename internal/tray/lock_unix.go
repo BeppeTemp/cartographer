@@ -41,3 +41,15 @@ func trayLockPath() (string, error) {
 	}
 	return filepath.Join(home, "Library", "Application Support", "cartographer", "tray.lock"), nil
 }
+
+// singleInstanceAt takes the lock at path. second is true when another tray
+// holds it. When the lock cannot be had at all the tray runs unguarded, and
+// warn says so once.
+func singleInstanceAt(path string, warn func(string)) (release func(), second bool) {
+	held, release, err := acquireInstanceLock(path)
+	if err != nil {
+		warn("tray: single-instance lock unavailable, running unguarded: " + err.Error())
+		return func() {}, false
+	}
+	return release, !held
+}

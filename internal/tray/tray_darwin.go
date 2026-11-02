@@ -108,18 +108,9 @@ func pool(fn func()) {
 	fn()
 }
 
-// Run implements UI. A second tray in the same session exits quietly with
-// status 0 (the LaunchAgent restarts only an unsuccessful exit): a hand-typed
-// command would otherwise show two icons that poll alike. If the lock file
-// cannot be had at all the tray runs without the guard.
+// Run implements UI. The single-instance guard is SingleInstance, taken by
+// cmdTray before the first poll.
 func (u *macUI) Run(menu Menu, updates <-chan Snapshot, onAction func(Action)) error {
-	if lock, err := trayLockPath(); err == nil {
-		held, release, err := acquireInstanceLock(lock)
-		if err == nil && !held {
-			return nil
-		}
-		defer release()
-	}
 	u.menu, u.onAction = menu, onAction
 	// AppKit (which pulls in Foundation) must be loaded before the first pool:
 	// NSAutoreleasePool does not exist until then.
