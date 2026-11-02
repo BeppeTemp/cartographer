@@ -43,6 +43,20 @@ RUN set -e; \
 FROM scratch AS artifacts
 COPY --from=dist /dist /
 
+# Surveyor runtime image (D1440): the same binary, started as `cartographer
+# surveyor`. It sits BEFORE the final stage on purpose: the last stage is the
+# default build target (`docker build .`, the demo's base) and must stay the
+# server. Tools: git (anonymous https clones through internal/gitx) and the CA
+# bundle Alpine already ships; no sops, age or ssh, which only `serve` uses.
+# No MCP Registry label: that is the server's.
+FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35 AS surveyor
+RUN apk add --no-cache git
+COPY --from=builder /cartographer /usr/local/bin/cartographer
+RUN adduser -D -h /home/cartographer cartographer
+USER cartographer
+WORKDIR /home/cartographer
+ENTRYPOINT ["cartographer", "surveyor"]
+
 # Final stage (default): server runtime image.
 FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35
 # Ownership verification for the MCP Registry (must match server.json's name).

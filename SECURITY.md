@@ -40,12 +40,13 @@ has a fix waiting to land (`CONTRIBUTING.md` §Releases).
 
 ## Verifying a release
 
-Release assets and the container image carry GitHub artifact attestations (Sigstore,
+Release assets and the container images (server and Surveyor) carry GitHub artifact attestations (Sigstore,
 keyless, tied to this repository's `release.yml`). With the `gh` CLI:
 
 ```bash
 gh attestation verify <downloaded-asset> --repo BeppeTemp/cartographer
 gh attestation verify oci://ghcr.io/beppetemp/cartographer:<tag> --repo BeppeTemp/cartographer
+gh attestation verify oci://ghcr.io/beppetemp/cartographer-surveyor:<tag> --repo BeppeTemp/cartographer
 ```
 
 Each release also ships an SPDX SBOM per platform binary. `install.sh` and

@@ -264,7 +264,10 @@ Errors go to stderr with a non-zero exit; never print a credential.
 
 ## Running scripts in the container
 
-The image is unchanged: a script that needs an interpreter or a CLI runs from a derived image (`FROM` the
-Cartographer image, plus the interpreter) or from a mounted read-only volume holding the script. The Surveyor needs a
+A script that needs an interpreter or a CLI runs from a derived image or from a mounted read-only volume holding
+the script. Derive `FROM ghcr.io/beppetemp/cartographer-surveyor:<tag>`: the image's user is the non-root
+`cartographer`, so the derived image switches to `root` to install the interpreter or CLI with `apk` and back to
+`cartographer`. The entrypoint (`cartographer surveyor`) is inherited, so the derived image is run with flags only and
+a recipe is tried with `docker run <derived> source test --config …`. The Surveyor needs a
 **writable temp directory** (an `emptyDir` on Kubernetes) for exec recipes and git reads; it still needs no
 persistent volume.
