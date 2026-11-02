@@ -274,10 +274,7 @@ type reviewConcept struct {
 func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	var concepts []*reviewConcept
 	byID := map[okf.ConceptID]*reviewConcept{}
-	if err := k.WalkConceptPaths(func(id okf.ConceptID, physicalPath string, content string) error {
-		if _, dup := byID[id]; dup {
-			return nil // direct form wins, as in Run
-		}
+	if err := walkConceptsDirectWins(k, func(id okf.ConceptID, physicalPath string, content string) error {
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
 		c := &reviewConcept{id: id, body: body, path: physicalPath, content: content}
 		if parts := strings.Split(string(id), "/"); len(parts) > 1 {

@@ -197,22 +197,51 @@ func owningMap(path string) string {
 	return ""
 }
 
+// walkConceptsDirectWins walks the concepts like k.WalkConceptPaths but calls fn
+// once per id, in the order the ids were first met, with the file the read path
+// serves: for an id with both "<id>.md" and "<id>/index.md" the direct form wins,
+// as in kb.resolveConceptRelPath. Run, ScopedCheck, Work and Review all read
+// concepts through it, so they cannot answer differently about the same id
+// (the walk emits the directory's index first, so "first wins" picked the
+// expanded file while "last wins" kept the direct file's content, #1503).
+func walkConceptsDirectWins(k *kb.KB, fn func(id okf.ConceptID, physicalPath, content string) error) error {
+	type file struct{ path, content string }
+	var order []okf.ConceptID
+	won := map[okf.ConceptID]file{}
+	if err := k.WalkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
+		cur, seen := won[id]
+		if !seen {
+			order = append(order, id)
+		}
+		if !seen || (physicalPath == okf.IDToPath(id) && cur.path != physicalPath) {
+			won[id] = file{physicalPath, content}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, id := range order {
+		f := won[id]
+		if err := fn(id, f.path, f.content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // runChecks is the whole of Run: no setting, no frontmatter field and no map
 // key silences a finding (D907).
 func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, error) {
 	// Collect all non-reserved concepts and their physical paths.
 	// relPathOf mirrors resolveConceptRelPath on the read path: for a plain
-	// concept it holds "<id>.md", for an expanded one "<id>/index.md".  When
-	// both forms exist the walk emits two files with the same id; the direct
-	// form comes first in walk order and wins (matching resolveConceptRelPath's
-	// "direct wins" rule on the read path).
+	// concept it holds "<id>.md", for an expanded one "<id>/index.md". When
+	// both forms exist the direct form wins, with its own content
+	// (walkConceptsDirectWins): path and content always come from one file.
 	allConcepts := map[okf.ConceptID]string{} // id → full content
 	relPathOf := map[okf.ConceptID]string{}   // id → physical rel path
-	if err := k.WalkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
+	if err := walkConceptsDirectWins(k, func(id okf.ConceptID, physicalPath, content string) error {
 		allConcepts[id] = content
-		if _, exists := relPathOf[id]; !exists {
-			relPathOf[id] = physicalPath // direct form wins
-		}
+		relPathOf[id] = physicalPath
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("lint.Run: walk: %w", err)

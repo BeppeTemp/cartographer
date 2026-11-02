@@ -78,13 +78,8 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 			}
 		}
 	}
-	seen := map[okf.ConceptID]bool{}
 	var out []WorkEntry
-	err := k.WalkConceptPaths(func(id okf.ConceptID, _ string, content string) error {
-		if seen[id] {
-			return nil // direct form wins, as in Run
-		}
-		seen[id] = true
+	err := walkConceptsDirectWins(k, func(id okf.ConceptID, _ string, content string) error {
 		mapName, _, _ := strings.Cut(string(id), "/")
 		if !strings.Contains(string(id), "/") {
 			mapName = ""
