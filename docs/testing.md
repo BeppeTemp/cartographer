@@ -20,7 +20,7 @@ is non-deterministic, costly and dependent on external providers.
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
-`make vet` runs `go vet ./...` twice, natively and with `GOOS=windows` (the `test-windows` job is skipped on feature PRs outside platform-specific code, so a test that does not compile on Windows would otherwise reach `main`), and `make fmt-check` fails on anything not
+`make vet` runs `go vet ./...` three times, natively, with `GOOS=windows` and with `GOOS=darwin` (the `test-windows` and `test-macos` jobs are skipped on feature PRs outside platform-specific code, so a file or test that does not compile there would otherwise reach `main`; the darwin leg is what compiles the purego menu-bar UI on the Linux gate, with cgo off), and `make fmt-check` fails on anything not
 gofmt-clean. `make race` runs, under the race detector, the tests whose name
 contains `Race` or `Concurrent`: a data race seldom fails an assertion, so a test
 that drives readers and writers concurrently only proves something under `-race`,
@@ -203,11 +203,11 @@ the upgrade, not the one-time migration of D1166: exercise that with
 ### Real macOS (D997)
 
 The `test-macos` CI job (`macos-latest`) runs the scripts under `test/macos/`
-(`service.sh`, `install.sh`, `cask.sh`; shared helpers in `lib.sh`, bash 3.2 as macOS ships it), against two real binaries
+(`service.sh`, `tray.sh`, `install.sh`, `cask.sh`; shared helpers in `lib.sh`, bash 3.2 as macOS ships it), against two real binaries
 built with `-X main.version=v9.9.8` and `v9.9.9`. `service.sh` installs the service
 under the real launchd (`plutil -lint`, `launchctl print` state, `/health` ready,
 `restart --wait` with a new pid, `stop` (nothing serves) then `start`, `uninstall` then status
-exit 4, the sync timer plist). `install.sh` runs `install.sh install` and `update`
+exit 4, the sync timer plist). `tray.sh` runs `cartographer tray` under the runner's window server: it stays alive for 3 seconds and exits 0 on SIGTERM (no job, no server). `install.sh` runs `install.sh install` and `update`
 (the fake curl of `test/install/lib/`, no network) over a real running service and
 asserts `/health` reports the new version after `upgrade-repair`, that a checksum
 mismatch leaves the old binary and the same pid, and that `uninstall` refuses while

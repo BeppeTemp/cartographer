@@ -408,6 +408,8 @@ jobs:
         run: launchctl print "gui/$(id -u)" >/dev/null
       - name: launchd service
         run: test/macos/service.sh "$RUNNER_TEMP/new/cartographer"
+      - name: Menu-bar icon
+        run: test/macos/tray.sh "$RUNNER_TEMP/new/cartographer"
       - name: install.sh against a real service
         run: test/macos/install.sh "$RUNNER_TEMP/old/cartographer" "$RUNNER_TEMP/new/cartographer"
       # Never published: --skip=publish needs no HOMEBREW_TAP_TOKEN. Only the Cask
