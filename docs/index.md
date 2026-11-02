@@ -40,7 +40,6 @@ only the pages relevant to your task.
 
 Mutable state does not live in narrative documentation:
 
-- [open plan issues](https://github.com/BeppeTemp/cartographer/issues?q=is%3Aissue+is%3Aopen+label%3Aplan) — approved implementation handoffs;
 - [open bugs](https://github.com/BeppeTemp/cartographer/issues?q=is%3Aissue+is%3Aopen+label%3Abug) — accepted defects;
 - [open ideas](https://github.com/BeppeTemp/cartographer/issues?q=is%3Aissue+is%3Aopen+label%3Aidea) — proposals not accepted yet;
 - [pull requests](https://github.com/BeppeTemp/cartographer/pulls), [releases](https://github.com/BeppeTemp/cartographer/releases) and [`CHANGELOG.md`](https://github.com/BeppeTemp/cartographer/blob/main/CHANGELOG.md) — delivery and completed user-visible work.
@@ -84,9 +83,9 @@ page that was not touched; the table and the file change together, and a test
 | Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`doctor`/`service`/TUI…) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `provisioning.Kinds` (the Atlas lists it; a test fails without it, D864) |
-| A feature is **not** implemented (deferred, planned, "future work") | An `idea` issue while it is a proposal, a `plan` issue once accepted (`CONTRIBUTING.md` §Issues: bug, idea, plan) — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
+| A feature is **not** implemented (deferred, planned, "future work") | An `idea` issue while it is a proposal, `accepted` once triaged (`CONTRIBUTING.md` §Issues: bug, idea) — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
 | Project status, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow (which groups the newest section by area, D865) |
-| An architectural or contract choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md`, `<n>` = the plan issue or PR number (D672; `make decisions-new`; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
+| An architectural or contract choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md`, `<n>` = the PR number (D672; `make decisions-new`; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
 | New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
 | Which CI jobs a PR runs (`web`, `windows`, `demo-edge` path filters) | the table in `scripts/ci-filters.sh` and its test `internal/repodocs/ci_filters_test.go` (D994), then `testing.md` §Go tests; never regex inline in `ci.yml` |
@@ -97,7 +96,7 @@ page that was not touched; the table and the file change together, and a test
 | `test/macos/` (the launchd, `install.sh` and Cask scripts of the `test-macos` job), `internal/service/`, `install.sh` or `.goreleaser.yaml` | `testing.md` §Real macOS; the `test-macos` job in `ci.yml` and the `macos` filter in `scripts/ci-filters.sh` (D997); the scripts refuse to run outside CI because they register a real launchd job |
 | `test/forge/` (the shared `pre-receive.sh` hook, `run.sh` against Forgejo and GitLab CE), `internal/gitx/gitxtest` or the git config `test/e2e/run.sh` and `test/smoke/http.sh` isolate | `testing.md` §Go tests (git write coverage) and §Real forges; the `forge` job in `ci.yml` and the `forge` filter in `scripts/ci-filters.sh` (D996); pin bumps of the container images live in `run.sh` |
 | `Dockerfile`, `.dockerignore`, `go.mod`/`go.sum` or `deploy/demo/` (what the image is built from) | `test/smoke/image.sh` still passes on the built image (`make docker-smoke`); `testing.md` §Image smoke, `deployment.md` §CI/CD (the `docker` job and the candidate smoke, D995); the `docker` filter in `scripts/ci-filters.sh` |
-| Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
+| Contributor workflow (PR flow, plans, build loop) | `CONTRIBUTING.md` |
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix **first** (`destinationMatrix` in `internal/provisioning/provisioning.go`, `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, provider descriptors in `internal/configurator/registry.go`), then `docs/harnesses.md` and `docs/interoperability.md`, which restate it |
 | A client re-audit (version bump, new sources, watch items) | `harnesses.md` (via the `cartographer-audit-clients` skill); the matrix and docs above only if a cell changes |
 | User-facing install/onboarding flow | `getting-started.md` (+ README Quick start/Install, kept short: details live in `getting-started.md`) |

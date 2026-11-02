@@ -27,7 +27,9 @@ FAKE_REPAIR_EXIT="0"
 FAKE_SHA_MODE="valid"
 write_fake_binary "$NEW_BINARY" "v2.1.0-rc.20261111"
 
-CARTOGRAPHER_INSTALL_TAG="v2.1.0-rc.20261111" run_install install
+CARTOGRAPHER_INSTALL_TAG="v2.1.0-rc.20261111"; export CARTOGRAPHER_INSTALL_TAG
+run_install install
+unset CARTOGRAPHER_INSTALL_TAG
 
 echo "--- Assertions ---"
 assert_eq "$INSTALL_RC" "0" "the pinned candidate installs"
@@ -48,7 +50,9 @@ assert_file_contains "$INSTALL_OUTPUT_FILE" "updating cartographer v2.1.0-rc.202
 
 rm -f "$DEST"
 FAKE_SHA_MODE="absent"
-CARTOGRAPHER_INSTALL_TAG="v2.1.0-rc.20261111" run_install install
+CARTOGRAPHER_INSTALL_TAG="v2.1.0-rc.20261111"; export CARTOGRAPHER_INSTALL_TAG
+run_install install
+unset CARTOGRAPHER_INSTALL_TAG
 if [ "$INSTALL_RC" -eq 0 ]; then
     _assert_fail "a pinned tag without sha256sums.txt must fail the install"
 else
@@ -62,7 +66,9 @@ else
 fi
 
 FAKE_SHA_MODE="valid"
-CARTOGRAPHER_INSTALL_TAG='v2.1.0/../../evil' run_install install
+CARTOGRAPHER_INSTALL_TAG='v2.1.0/../../evil'; export CARTOGRAPHER_INSTALL_TAG
+run_install install
+unset CARTOGRAPHER_INSTALL_TAG
 assert_file_contains "$INSTALL_OUTPUT_FILE" "is not a release tag" "a value that is not a release tag is refused"
 if [ -e "$DEST" ]; then
     _assert_fail "a refused tag installs nothing"

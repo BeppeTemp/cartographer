@@ -76,6 +76,9 @@ type setupFacts struct {
 	TimerOptOut    bool // the operator uninstalled the sync timer on purpose (D325)
 	RemoteProbed   bool
 	RemoteHasRefs  bool
+	// RemoteForgeInit: the refs are only a forge's initial commit, which kb
+	// create adopts (D710): planned as create, not mount.
+	RemoteForgeInit bool
 }
 
 // setupPlan is the decided sequence, rendered before it runs.
@@ -151,7 +154,7 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 			if !f.RemoteProbed {
 				return p, errors.New("internal: the remote was not probed")
 			}
-			if f.RemoteHasRefs {
+			if f.RemoteHasRefs && !f.RemoteForgeInit {
 				p.KB = kbClone
 			} else {
 				p.KB = kbCreate
@@ -244,7 +247,11 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 		if p.Remote == "" {
 			line("KB           create %q, LOCAL ONLY (not backed up, never synced)", p.KBName)
 		} else {
-			line("KB           create %q and push it to %s (empty repository)", p.KBName, p.Remote)
+			note := "empty repository"
+			if f.RemoteForgeInit {
+				note = "the forge's initial commit is adopted, D710"
+			}
+			line("KB           create %q and push it to %s (%s)", p.KBName, p.Remote, note)
 		}
 	case kbClone:
 		line("KB           mount %q from %s (the repository already has content)", p.KBName, p.Remote)
@@ -288,7 +295,7 @@ func serviceAddrOrDefault(st service.Status) string {
 // Indirections for tests: gathering touches the machine, and every step is a
 // real command.
 var (
-	setupProbeRemote   = gitx.ProbeRemote
+	setupProbeRemote   = gitx.ProbeRemoteContent
 	setupLookGit       = func() bool { _, err := exec.LookPath("git"); return err == nil }
 	setupServiceStatus = func() (service.Status, error) { return service.NewManager().Status("") }
 	setupInstallSvc    = func() error { return installServiceAndWaitHealthy(service.NewManager(), 20*time.Second) }
@@ -330,11 +337,11 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 	if o.Remote != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), setupProbeTimeout)
 		defer cancel()
-		has, err := setupProbeRemote(ctx, o.Remote)
+		probe, err := setupProbeRemote(ctx, o.Remote)
 		if err != nil {
 			return f, fmt.Errorf("cannot reach %s with this machine's git credentials — nothing was changed:\n  %v", o.Remote, err)
 		}
-		f.RemoteProbed, f.RemoteHasRefs = true, has
+		f.RemoteProbed, f.RemoteHasRefs, f.RemoteForgeInit = true, probe.HasRefs, probe.ForgeInit
 	}
 	return f, nil
 }

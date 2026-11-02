@@ -281,6 +281,7 @@ func remoteRemedy(output string) string {
 		{"permission denied (publickey", "the forge rejected this machine's SSH key: check the key loaded in your agent has access to the repository"},
 		{"host key verification failed", "the forge's host key is not in known_hosts: connect once with ssh to review and accept it, then retry"},
 		{"repository not found", "the remote repository does not exist or this account cannot see it"},
+		{"the project you were looking for could not be found", "the remote repository does not exist or this account cannot see it"},
 		{"not found in the known hosts", "the forge's host key is not in known_hosts: connect once with ssh to review and accept it, then retry"},
 		{"authentication failed", "the credentials were rejected: check the token or credential helper for this forge"},
 		{"terminal prompts disabled", "git needed credentials and could not ask: configure a credential helper or use an ssh remote"},
@@ -294,36 +295,82 @@ func remoteRemedy(output string) string {
 	return ""
 }
 
-// ErrProbeTimeout reports that ProbeRemote was stopped by its context
+// ErrProbeTimeout reports that ProbeRemoteContent was stopped by its context
 // deadline: the remote did not answer in time.
 var ErrProbeTimeout = errors.New("git ls-remote timed out")
 
-// ProbeRemote asks remote which refs it has ("git ls-remote"), under the same
-// non-interactive environment as Clone, and reports whether it has any. It is
-// the read-only question `cartographer setup` asks before changing anything:
-// it proves the remote is reachable with this machine's credentials, and an
-// empty answer is what distinguishes a repository to create a KB in from one
-// that already holds something to clone.
-func ProbeRemote(ctx context.Context, remote string) (hasRefs bool, err error) {
+// lsRemoteProbe asks remote which refs it has ("git ls-remote --symref"),
+// under the same non-interactive environment as Clone. It is the read-only
+// question `cartographer setup` asks before changing anything: it proves the
+// remote is reachable with this machine's credentials.
+func lsRemoteProbe(ctx context.Context, remote string) (RemoteRefs, error) {
 	if err := ValidateRemote(remote); err != nil {
-		return false, err
+		return RemoteRefs{}, err
 	}
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--", remote)
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", remote)
 	cmd.Env = cloneEnv(remote, nil)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() != nil {
-			return false, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, remote, ctx.Err())
+			return RemoteRefs{}, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, remote, ctx.Err())
 		}
 		output := strings.TrimSpace(stderr.String())
 		if remedy := remoteRemedy(output); remedy != "" {
-			return false, fmt.Errorf("git ls-remote %s: %s\n%s", remote, remedy, output)
+			return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %s\n%s", remote, remedy, output)
 		}
-		return false, fmt.Errorf("git ls-remote %s: %w: %s", remote, err, output)
+		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", remote, err, output)
 	}
-	return strings.TrimSpace(string(out)) != "", nil
+	return parseLsRemoteSymref(string(out)), nil
+}
+
+// RemoteProbe is what `cartographer setup` learns about a remote before it
+// plans: whether it has refs, and whether they are only a forge's initial
+// commit (ForgeInitialized), which is an empty project to build a KB in, not
+// a KB to mount (D710).
+type RemoteProbe struct {
+	HasRefs   bool
+	ForgeInit bool
+}
+
+// ProbeRemoteContent reports whether the remote has refs and what they hold:
+// the question that distinguishes a repository to create a KB in from one that
+// already holds something to clone. When ls-remote shows refs on exactly one branch it fetches that branch two
+// commits deep, without blobs, into a temporary repository (two, so a root commit is told
+// from a longer history) and applies ForgeInitialized to it. Anything else
+// with refs is content to mount.
+func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error) {
+	refs, err := lsRemoteProbe(ctx, remote)
+	if err != nil {
+		return RemoteProbe{}, err
+	}
+	probe := RemoteProbe{HasRefs: refs.HasRefs}
+	if !refs.HasRefs || len(refs.Branches) != 1 {
+		return probe, nil
+	}
+	tmp, err := os.MkdirTemp("", "cartographer-probe-")
+	if err != nil {
+		return probe, fmt.Errorf("probe %s: %w", remote, err)
+	}
+	defer os.RemoveAll(tmp)
+	if out, err := runGit(tmp, "init", "--quiet"); err != nil {
+		return probe, fmt.Errorf("git init: %w: %s", err, out)
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0])
+	cmd.Env = cloneEnv(remote, nil)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			return probe, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, remote, ctx.Err())
+		}
+		return probe, fmt.Errorf("git fetch %s: %w: %s", remote, err, strings.TrimSpace(string(out)))
+	}
+	_, ok, err := ForgeInitialized(tmp, "FETCH_HEAD")
+	if err != nil {
+		return probe, err
+	}
+	probe.ForgeInit = ok
+	return probe, nil
 }
 
 // DefaultBranch is the branch a freshly initialized KB is created on. Sync

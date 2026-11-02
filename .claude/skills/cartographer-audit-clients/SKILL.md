@@ -60,7 +60,7 @@ D292.
 6. **Act.**
    - Report, always, as a table: client · entry · class · probe outcome · action.
    - `doc` → fix in the same PR as the ledger update.
-   - `cell` confirmed → a plan issue via the `cartographer-propose-plan` skill. Never change
+   - `cell` confirmed → a plan via the `cartographer-propose-plan` skill. Never change
      matrix code from inside this skill.
    - `watch` → comment the outcome on the watch issue; close it only when its
      trigger fired **and** the follow-up plan exists.
