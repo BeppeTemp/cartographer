@@ -498,6 +498,21 @@ func Load(dir string) (*Config, error) {
 		// Never lost in silence: token wins, or the name cannot be a variable.
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("token_env is ignored: token is already %s (or its value is not an environment variable name); set token: ${NAME} to read a variable", tokenLabel(cfg.Token)))
 	}
+	// A key the file does not carry takes the schema's default, as Default()
+	// does: an empty ServerName would reach sync's MCP entry name and the Atlas
+	// report would show "default: cartographer" for an empty value. Only an
+	// absent key: an explicit empty one is the operator's.
+	root := documentMapping(&yamlDoc)
+	absent := func(key string) bool { return root == nil || pairIndex(root, key) < 0 }
+	if absent("server_url") {
+		cfg.ServerURL = defaultServerURL()
+	}
+	if absent("server_name") {
+		cfg.ServerName = "cartographer"
+	}
+	if absent("token") && cfg.Token == "" {
+		cfg.Token = EnvRefToken(DefaultTokenEnv)
+	}
 	if cfg.LiteralToken() != "" && !fileIsPrivate(Path(dir)) {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s holds a literal token and is readable by other users: run `chmod 600 %s`", Path(dir), Path(dir)))
 	}
@@ -553,6 +568,15 @@ func Load(dir string) (*Config, error) {
 	}
 	cfg.derived = LoadDerived(dir)
 	return &cfg, nil
+}
+
+// documentMapping is the top-level mapping of a parsed document, nil when the
+// file is empty or not a mapping.
+func documentMapping(doc *yaml.Node) *yaml.Node {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	return doc.Content[0]
 }
 
 // Save writes cfg to dir, creating the directory if necessary.
