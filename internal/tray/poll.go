@@ -17,6 +17,9 @@ const (
 	// MinInterval is the smallest interval `--interval` accepts.
 	MinInterval  = time.Second
 	probeTimeout = 2 * time.Second
+	// AgentsEvery is how many polls apart the agent clients are re-read: their
+	// state reads files and asks the server, and changes only on a sync.
+	AgentsEvery = 12
 )
 
 // Deps is what Run needs from the outside; tests replace every field.
@@ -35,6 +38,10 @@ type Deps struct {
 	LogPath string
 	// Logf receives probe-side problems; optional.
 	Logf func(format string, args ...any)
+	// Agents reads the connected agent clients (`cartographer status`);
+	// optional. Called on the first poll, then every AgentsEvery polls and
+	// whenever the server comes back.
+	Agents func() Agents
 }
 
 // NewDeps wires the production implementation: statusFn is
@@ -86,8 +93,18 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 	var last Snapshot
 	have := false
 	var good *service.Status // last Status() that succeeded
+	var agents Agents
+	polls := 0
 	poll := func() {
 		snap := d.snapshot(&good)
+		if d.Agents != nil {
+			back := have && last.State != StateRunning && snap.State == StateRunning
+			if polls%AgentsEvery == 0 || back {
+				agents = d.Agents()
+			}
+			polls++
+			snap.Agents = agents
+		}
 		if have && snap == last {
 			return
 		}

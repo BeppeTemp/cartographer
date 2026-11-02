@@ -11,6 +11,7 @@ package tray
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -53,6 +54,9 @@ type Snapshot struct {
 	// KBCount is the number of KBs the server reported, -1 when it did not
 	// send the list (an older or single-KB server).
 	KBCount int
+	// KBNames are the KBs the server reported, newline-separated in its order
+	// (a string keeps Snapshot comparable).
+	KBNames string
 	// LatestVersion is a newer release the server knows of (D254). It only
 	// changes the status line, never the icon.
 	LatestVersion string
@@ -65,6 +69,39 @@ type Snapshot struct {
 	Installed bool
 	// Restarting is true while a restart requested from the menu is in flight.
 	Restarting bool
+	// Agents is this machine's connected agent clients and whether their
+	// materialized files match the server, refreshed less often than /health.
+	Agents Agents
+}
+
+// KBs splits KBNames.
+func (s Snapshot) KBs() []string {
+	if s.KBNames == "" {
+		return nil
+	}
+	return strings.Split(s.KBNames, "\n")
+}
+
+// MaxAgents bounds the agent rows a snapshot carries: an array keeps Snapshot
+// comparable, and there are fewer supported agent clients than this.
+const MaxAgents = 8
+
+// AgentRow is one connected agent client.
+type AgentRow struct {
+	Name    string // display name, e.g. "Claude Code"
+	Drifted bool   // its materialized files differ from the server's
+}
+
+// Agents is the client side of `cartographer status`, kept comparable.
+type Agents struct {
+	// Known is false until it was read once, or when it could not be read.
+	Known bool
+	// Unchecked is true when the server could not be asked, so whether the
+	// clients are in sync is unknown.
+	Unchecked bool
+	// N is how many of Rows are set.
+	N    int
+	Rows [MaxAgents]AgentRow
 }
 
 // Classify turns one probe result into a snapshot. health and err are the
@@ -98,6 +135,11 @@ func Classify(health *client.Health, err error, status service.Status) Snapshot 
 		snap.LatestVersion = health.LatestVersion
 		if health.KBs != nil {
 			snap.KBCount = len(*health.KBs)
+			names := make([]string, 0, len(*health.KBs))
+			for _, kb := range *health.KBs {
+				names = append(names, kb.Name)
+			}
+			snap.KBNames = strings.Join(names, "\n")
 		}
 	}
 	return snap

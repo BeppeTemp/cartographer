@@ -19,7 +19,7 @@ func boolp(b bool) *bool { return &b }
 
 func TestClassify(t *testing.T) {
 	installed := service.Status{Installed: true, UIURL: "http://127.0.0.1:39273/ui/"}
-	two := []client.HealthKB{{}, {}}
+	two := []client.HealthKB{{Name: "kb-a"}, {Name: "work-kb"}}
 	refused := &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeUnreachable}
 	starting := &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeStarting}
 	notFound := &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeHTTPFailed, HTTPStatus: http.StatusNotFound}
@@ -33,7 +33,7 @@ func TestClassify(t *testing.T) {
 		want   Snapshot
 	}{
 		{"healthy", &client.Health{Version: "1.2.3", Ready: boolp(true), KBs: &two}, nil, installed,
-			Snapshot{State: StateRunning, Version: "1.2.3", KBCount: 2, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{State: StateRunning, Version: "1.2.3", KBCount: 2, KBNames: "kb-a\nwork-kb", UIURL: installed.UIURL, Installed: true}},
 		{"older server without kbs", &client.Health{Version: "1.0.0"}, nil, installed,
 			Snapshot{State: StateRunning, Version: "1.0.0", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"ready false", &client.Health{Version: "1", Ready: boolp(false)}, nil, installed,
@@ -285,14 +285,21 @@ func TestRenderShapes(t *testing.T) {
 				}
 			}
 		}
-		mid, row := size/2, int(0.38*float64(size))
-		if Render(StateRunning, size, color.White).NRGBAAt(mid, row).A != 255 {
-			t.Errorf("size %d: running pin is not filled at its centre", size)
+		// The C's stroke at its leftmost point, and the centre of the point.
+		at := func(st State, x, y float64) uint8 {
+			return Render(st, size, color.White).NRGBAAt(int(x*float64(size)), int(y*float64(size))).A
 		}
-		for _, s := range []State{StateStopped, StateNotInstalled} {
-			if Render(s, size, color.White).NRGBAAt(mid, row).A == 255 {
-				t.Errorf("size %d: %v pin is filled at its centre, want an outline", size, s)
-			}
+		if at(StateRunning, arcX-arcR, arcY) != 255 {
+			t.Errorf("size %d: running mark has no C stroke", size)
+		}
+		if at(StateRunning, dotX, dotY) != 255 {
+			t.Errorf("size %d: running mark has no point", size)
+		}
+		if at(StateStarting, dotX, dotY) != 0 {
+			t.Errorf("size %d: starting mark has its point, want it absent until ready", size)
+		}
+		if at(StateStopped, 0.5, 0.5) != 255 {
+			t.Errorf("size %d: stopped mark has no slash through its centre", size)
 		}
 		// Not installed is dimmed: no pixel above the dimmed alpha.
 		for _, a := range masks[StateNotInstalled] {
@@ -324,8 +331,9 @@ func TestPNGDecodesToTheBlackIcon(t *testing.T) {
 			t.Errorf("%v: bounds %v", s, b)
 		}
 		if s == StateRunning {
-			if _, _, _, a := img.At(18, 14).RGBA(); a == 0 {
-				t.Errorf("running PNG is empty at the centre")
+			x, y := (arcX-arcR)*36.0, arcY*36.0
+			if _, _, _, a := img.At(int(x), int(y)).RGBA(); a == 0 {
+				t.Errorf("running PNG is empty on the C stroke")
 			}
 		}
 	}

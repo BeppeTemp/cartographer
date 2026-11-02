@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/tray"
 )
@@ -68,6 +70,7 @@ func cmdTray(args []string) int {
 	actions := tray.NewActions(m, logf)
 	deps := tray.NewDeps(statusFn, trayServerLogPath())
 	deps.Busy = actions.Busy
+	deps.Agents = trayAgents
 	deps.Logf = logf
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -117,4 +120,31 @@ func trayServerLogPath() string {
 		return ""
 	}
 	return p
+}
+
+// trayAgents is the agent-client row of the menu: what `cartographer status`
+// reports, read without the service part (the tray probes that itself).
+func trayAgents() tray.Agents {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return tray.Agents{}
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || len(cfg.Agents) == 0 {
+		return tray.Agents{Known: err == nil}
+	}
+	s := snapshotForConfig(dir, cfg, false)
+	a := tray.Agents{Known: true, Unchecked: !s.Reachable}
+	for _, p := range s.Providers {
+		if !p.Connected || a.N == tray.MaxAgents {
+			continue
+		}
+		name := p.Name
+		if d, ok := configurator.Lookup(configurator.Provider(p.Name)); ok && d.DisplayName != "" {
+			name = d.DisplayName
+		}
+		a.Rows[a.N] = tray.AgentRow{Name: name, Drifted: p.State == "drift"}
+		a.N++
+	}
+	return a
 }

@@ -9,67 +9,104 @@ import (
 )
 
 // Icons are generated, not checked in: no asset to review, no generate step.
-// Each is an alpha mask of a map pin, anti-aliased by supersampling, filled
-// with one colour. The state is told by shape (D1482):
+// Each is an alpha mask of the brand mark (docs/brand/coordinate-*.svg: an
+// open C, an inner arc, a separate reference point), anti-aliased by
+// supersampling, filled with one colour. Below 32 px the inner arc is dropped,
+// as the brand's micro variant does. The state is told by shape (D1482):
 //
-//	running        filled pin
-//	starting       outlined pin, left half of the head filled
-//	stopped        outlined pin crossed by a diagonal slash
-//	not installed  outlined pin, dimmed
+//	running        the mark
+//	starting       the mark without its point, which appears once ready
+//	stopped        the mark crossed by a slash, with a gap cut around it
+//	not installed  the mark, dimmed
 //
 // macOS tints a template image itself (PNG, black); Windows has no template
 // icons, so its UI renders the same mask white or black from the taskbar theme.
 
-// DimmedAlpha is the opacity of the not-installed pin.
+// DimmedAlpha is the opacity of the not-installed mark.
 const DimmedAlpha = 0.4
 
 const supersample = 4
 
-// Pin geometry in unit coordinates (y grows downwards).
+// Mark geometry in unit coordinates (y grows downwards), from the 64x64
+// viewBox of coordinate.svg: the arc "M50.9 47.9 A26 26 0 1 1 40.9 7.6"
+// (stroke 6, butt caps), the inner arc "M42 18 A18 18 0 0 0 17 42" (stroke
+// 2.5, round caps) and the point at (55,16) r 5.
 const (
-	headX, headY, headR = 0.5, 0.38, 0.30
-	tipY                = 0.93
-	baseY               = 0.50
-	baseHalf            = 0.26
-	stroke              = 0.11 // outline thickness
+	arcX, arcY, arcR       = 0.47983, 0.49249, 26.0 / 64
+	arcHalf                = 3.0 / 64      // half the stroke width
+	arcFrom, arcTo         = 39.05, 293.08 // degrees, clockwise on screen
+	innerX, innerY, innerR = 0.51367, 0.52368, 18.0 / 64
+	innerHalf              = 1.25 / 64
+	innerFrom, innerTo     = 151.88, 300.46
+	dotX, dotY, dotR       = 55.0 / 64, 16.0 / 64, 5.0 / 64
+	// minInnerArc is the size from which the inner arc is drawn: the brand's
+	// minimum for the standard mark (docs/brand/index.md).
+	minInnerArc = 32
+	slashHalf   = 0.06 // half the slash width
+	slashGap    = 0.05 // clearance cut around the slash
 )
 
-func inPin(x, y, inset float64) bool {
-	dx, dy := x-headX, y-headY
-	if dx*dx+dy*dy <= (headR-inset)*(headR-inset) {
-		return true
-	}
-	// Triangle from the base chord to the tip, inset along its edges.
-	if y < baseY || y > tipY-inset*2.4 {
+// inArc reports whether (x, y) is on the C stroke between arcFrom and to.
+// The angle bounds are radial cuts, the butt caps of the SVG.
+func inArc(x, y, to float64) bool {
+	dx, dy := x-arcX, y-arcY
+	if math.Abs(math.Hypot(dx, dy)-arcR) > arcHalf {
 		return false
 	}
-	t := (y - baseY) / (tipY - baseY) // 0 at the base, 1 at the tip
-	half := (baseHalf - inset*1.2) * (1 - t)
-	return math.Abs(x-headX) <= half
+	a := math.Mod(math.Atan2(dy, dx)*180/math.Pi+360, 360)
+	return a >= arcFrom && a <= to
 }
 
-// inSlash is a band around the anti-diagonal x + y = 1.
-func inSlash(x, y float64) bool {
-	return math.Abs(x+y-1.0)/math.Sqrt2 <= 0.065 && x > 0.1 && x < 0.9
+// inInner reports whether (x, y) is on the inner arc, round caps included.
+func inInner(x, y float64) bool {
+	dx, dy := x-innerX, y-innerY
+	if math.Abs(math.Hypot(dx, dy)-innerR) <= innerHalf {
+		a := math.Mod(math.Atan2(dy, dx)*180/math.Pi+360, 360)
+		if a >= innerFrom && a <= innerTo {
+			return true
+		}
+	}
+	for _, deg := range []float64{innerFrom, innerTo} {
+		r := deg * math.Pi / 180
+		if math.Hypot(x-innerX-innerR*math.Cos(r), y-innerY-innerR*math.Sin(r)) <= innerHalf {
+			return true
+		}
+	}
+	return false
 }
 
-func covered(state State, x, y float64) float64 {
-	outline := inPin(x, y, 0) && !inPin(x, y, stroke)
+func inDot(x, y float64) bool {
+	return math.Hypot(x-dotX, y-dotY) <= dotR
+}
+
+// slashDist is the distance from the slash's axis, the diagonal from the
+// top-left to the bottom-right corner (it clears the point, top-right).
+func slashDist(x, y float64) float64 {
+	if x < 0.08 || x > 0.92 {
+		return math.Inf(1)
+	}
+	return math.Abs(x-y) / math.Sqrt2
+}
+
+func covered(state State, x, y float64, inner bool) float64 {
+	body := inArc(x, y, arcTo) || (inner && inInner(x, y))
+	mark := body || inDot(x, y)
 	switch state {
 	case StateRunning:
-		if inPin(x, y, 0) {
+		if mark {
 			return 1
 		}
 	case StateStarting:
-		if outline || (x < headX && math.Hypot(x-headX, y-headY) <= headR) {
+		if body {
 			return 1
 		}
 	case StateStopped:
-		if outline || inSlash(x, y) {
+		d := slashDist(x, y)
+		if d <= slashHalf || (mark && d > slashHalf+slashGap) {
 			return 1
 		}
 	case StateNotInstalled:
-		if outline {
+		if mark {
 			return DimmedAlpha
 		}
 	}
@@ -82,6 +119,7 @@ func Render(state State, size int, fg color.Color) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 	c := color.NRGBAModel.Convert(fg).(color.NRGBA)
 	n := float64(size)
+	inner := size >= minInnerArc
 	for py := 0; py < size; py++ {
 		for px := 0; px < size; px++ {
 			var sum float64
@@ -89,7 +127,7 @@ func Render(state State, size int, fg color.Color) *image.NRGBA {
 				for sx := 0; sx < supersample; sx++ {
 					x := (float64(px) + (float64(sx)+0.5)/supersample) / n
 					y := (float64(py) + (float64(sy)+0.5)/supersample) / n
-					sum += covered(state, x, y)
+					sum += covered(state, x, y, inner)
 				}
 			}
 			a := sum / (supersample * supersample) * float64(c.A) / 255
