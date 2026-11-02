@@ -929,8 +929,37 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 // characters; titleQualityFindings recognises the case by it.
 const decorativeTitleMsg = "title contains decorative characters"
 
+// isDecorative is true for emoji and pictographs only: Extended_Pictographic,
+// variation selectors, the zero-width joiner and the dingbats block. ASCII
+// symbols (^ ` ~), the degree sign and the registered, copyright and
+// trade-mark signs are part of a title's meaning, never decoration (#1503).
 func isDecorative(r rune) bool {
-	return unicode.Is(unicode.So, r) || unicode.Is(unicode.Sk, r) || r == '\uFE0F' || r == '\u200D'
+	switch {
+	case r == '\u00B0' || r == '\u00AE' || r == '\u00A9' || r == '\u2122':
+		return false
+	case r < 0x80:
+		return false
+	case r == '\u200D' || (r >= '\uFE00' && r <= '\uFE0F'):
+		return true
+	case r >= '\u2700' && r <= '\u27BF': // dingbats
+		return true
+	case r >= 0x1F1E6 && r <= 0x1F1FF: // regional indicators (flags)
+		return true
+	}
+	return unicode.Is(extendedPictographic, r)
+}
+
+// extendedPictographic is the Unicode Extended_Pictographic property as far as
+// titles meet it: the emoji and pictograph blocks plus the older symbols that
+// have an emoji presentation.
+var extendedPictographic = &unicode.RangeTable{
+	R16: []unicode.Range16{
+		{0x203C, 0x203C, 1}, {0x2049, 0x2049, 1}, {0x2139, 0x2139, 1}, {0x2194, 0x21AA, 1},
+		{0x231A, 0x23FF, 1}, {0x24C2, 0x24C2, 1}, {0x25AA, 0x25FE, 1}, {0x2600, 0x26FF, 1},
+		{0x2900, 0x2935, 1}, {0x2B05, 0x2B55, 1}, {0x3030, 0x3030, 1}, {0x303D, 0x303D, 1},
+		{0x3297, 0x3299, 1},
+	},
+	R32: []unicode.Range32{{0x1F000, 0x1FAFF, 1}},
 }
 
 // StripDecoration removes the decorative characters title_quality reports
