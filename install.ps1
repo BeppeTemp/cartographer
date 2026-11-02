@@ -267,7 +267,7 @@ function Uninstall-Cartographer([bool]$BinaryOnly) {
     # The Scheduled Task definitions (D217) are what "installed" means for the
     # native service. Deleting the binary under them leaves tasks pointing at a
     # missing executable, and only Cartographer itself can unregister them.
-    $tasks = @('serve.xml', 'sync.xml') |
+    $tasks = @('serve.xml', 'sync.xml', 'tray.xml') |
         ForEach-Object { Join-Path $env:LOCALAPPDATA "cartographer\tasks\$_" } |
         Where-Object { Test-Path -LiteralPath $_ }
     if ($tasks -and -not $BinaryOnly) {
@@ -277,6 +277,7 @@ function Uninstall-Cartographer([bool]$BinaryOnly) {
         $lines += 'removing only the binary would leave them pointing at a missing executable.'
         $lines += 'Remove them first, with the binary still in place:'
         $lines += '  cartographer service sync-timer uninstall'
+        $lines += '  cartographer service tray uninstall'
         $lines += '  cartographer service uninstall'
         $lines += '  cartographer disconnect            # removes the artifacts materialized into your agents'
         $lines += ''

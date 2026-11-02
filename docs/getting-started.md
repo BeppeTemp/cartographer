@@ -66,7 +66,7 @@ Windows PowerShell 5.1 and PowerShell 7 alike.
 - **`uninstall` refuses while the Scheduled Tasks are registered** and names the
   teardown to run first, with the binary still in place: `cartographer
   disconnect`, `cartographer service sync-timer uninstall`, `cartographer service
-  uninstall`. `-BinaryOnly` deletes the binary anyway. Your KBs are git
+  tray uninstall`, `cartographer service uninstall`. `-BinaryOnly` deletes the binary anyway. Your KBs are git
   repositories in the data directory: nothing here deletes them.
 - `CARTOGRAPHER_INSTALL_DIR` picks another directory; `GITHUB_TOKEN` avoids the
   API rate limit.
@@ -187,7 +187,12 @@ agent made can be reviewed or reverted with ordinary git.
   generated at `~/.config/cartographer/server.yaml` — on Windows
   `%APPDATA%\cartographer\server.yaml`, with the log at
   `%LOCALAPPDATA%\cartographer\Logs\server.log`. None of the three needs
-  administrator rights. The service is **optional** — a stdio-only setup
+  administrator rights. `service install` also starts **the status icon**
+  (`cartographer tray`, a notification-area icon on Windows, a menu-bar item on
+  macOS; none on Linux) at every logon, as `com.cartographer.tray` or the task
+  `\Cartographer\Tray`; on Windows 11 it first appears in the overflow (^) menu
+  until you pin it. `--no-tray`, or `cartographer service tray uninstall`, opts
+  out and is remembered. The service is **optional** — a stdio-only setup
   (`serve --kb <path>`) is a legitimate topology and installs none of this.
 - **A data directory**, `~/cartographer-data` by default, holding the cloned KBs.
 - **Writes into your agent clients' own configuration** under `$HOME`, and only

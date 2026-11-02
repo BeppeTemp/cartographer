@@ -803,8 +803,9 @@ three needs administrator rights. Client and server are the same binary: the cli
 talk to the daemonized server over loopback.
 
 ```bash
-cartographer service install [--config <path>] [--data <dir>] [--http <addr>]
+cartographer service install [--config <path>] [--data <dir>] [--http <addr>] [--no-tray]
 cartographer service uninstall|start|stop|restart
+cartographer service tray install|uninstall|status   # the status icon's autostart (D1482)
 cartographer service restart --wait [--config <path>]   # graceful, version-gated (D121)
 cartographer service status        # exit: 0 running, 3 installed but stopped, 4 not installed
 ```
@@ -825,6 +826,16 @@ relaunch of the task — nothing else would restart a process that drained and e
 and from another logon session (SSH), where the event cannot be reached, the task is stopped
 instead and the command says so (D266).
 
+`service install` also installs the **tray** (`cartographer tray`, below) so it starts at logon: a
+LaunchAgent `com.cartographer.tray` on macOS, a Scheduled Task `\Cartographer\Tray` on Windows, started
+at once so the icon appears without logging off; Linux has none. A failure to register it (an SSH
+session has no GUI) is a warning, never an install failure. `--no-tray` or `service tray uninstall`
+opts out and the choice is remembered (`tray_opt_out` in the client state file), so `upgrade-repair` does
+not bring it back; `service tray install` clears it. `service uninstall` removes the tray with the
+server. `upgrade-repair` re-renders and restarts the tray (also when the service is stopped, and for
+installs that predate it) so a tray running the previous binary picks up the new one; a tray failure
+there is a warning and never changes the exit code. `service tray status` exits 0 when installed, 4 when not.
+
 Operational details (generated paths, defaults, behavior with an existing config, automatic
 repair on `install.sh update` and Cask upgrade) in `deployment.md` §Example: native local service
 and §Upgrades, schema migration, and repo growth.
@@ -833,8 +844,9 @@ and §Upgrades, schema migration, and repo growth.
 
 A status icon for the local server, in its own process (not part of `serve`, so it stays visible
 when the server is down and can restart it). Windows (notification area) and macOS (menu bar) only;
-on Linux it prints an error and exits 2. Nothing starts it yet and the platform UIs are not in this
-build: today the command builds the health model and then reports that the UI is missing.
+on Linux it prints an error and exits 2. `cartographer service install` registers it to start at logon
+(next section); a hand-typed `cartographer tray` works too. On Windows 11 a new notification-area icon
+sits in the overflow (^) menu until the user pins it to the taskbar.
 
 The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
 address from the installed service definition on every tick (`--config` overrides the config path used

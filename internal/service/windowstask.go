@@ -37,6 +37,8 @@ const (
 	// (TestSyncTimerFilesAreDistinctFromServerService).
 	windowsServeTaskName = "Serve"
 	windowsSyncTaskName  = "Sync"
+	// windowsTrayTaskName is the third task: the status icon (D1482).
+	windowsTrayTaskName = "Tray"
 )
 
 // The budgets of stopServeAndWait. Variables only so tests can shrink them.

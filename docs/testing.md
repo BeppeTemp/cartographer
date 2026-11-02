@@ -205,7 +205,8 @@ the upgrade, not the one-time migration of D1166: exercise that with
 The `test-macos` CI job (`macos-latest`) runs the scripts under `test/macos/`
 (`service.sh`, `tray.sh`, `install.sh`, `cask.sh`; shared helpers in `lib.sh`, bash 3.2 as macOS ships it), against two real binaries
 built with `-X main.version=v9.9.8` and `v9.9.9`. `service.sh` installs the service
-under the real launchd (`plutil -lint`, `launchctl print` state, `/health` ready,
+under the real launchd (`service install --no-tray`, so no GUI app starts in the test; the tray
+plist is linted by a Go test, never loaded; `plutil -lint`, `launchctl print` state, `/health` ready,
 `restart --wait` with a new pid, `stop` (nothing serves) then `start`, `uninstall` then status
 exit 4, the sync timer plist). `tray.sh` runs `cartographer tray` under the runner's window server: it stays alive for 3 seconds and exits 0 on SIGTERM (no job, no server). `install.sh` runs `install.sh install` and `update`
 (the fake curl of `test/install/lib/`, no network) over a real running service and

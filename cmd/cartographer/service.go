@@ -59,6 +59,8 @@ func cmdService(args []string) int {
 		return cmdServiceStatus(rest)
 	case "sync-timer":
 		return cmdServiceSyncTimer(rest)
+	case "tray":
+		return cmdServiceTray(rest)
 	default:
 		fmt.Fprintln(os.Stderr, "Error: service action required")
 		printServiceUsage(os.Stderr)
@@ -69,6 +71,8 @@ func cmdService(args []string) int {
 func printServiceUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: cartographer service <install|uninstall|start|stop|restart|status> [flags]")
 	fmt.Fprintln(w, "       cartographer service sync-timer <install|uninstall|status> [--interval <duration>]")
+	fmt.Fprintln(w, "       cartographer service tray <install|uninstall|status>")
+	fmt.Fprintln(w, "       (service install also starts the status icon at logon; --no-tray skips it)")
 	// Naming the three implementations is not trivia: it is what tells an
 	// operator which tool to look with when they want to see the service
 	// outside Cartographer — launchctl, systemctl, or the Task Scheduler.
@@ -165,6 +169,16 @@ func cmdServiceSyncTimer(args []string) int {
 // to record an opt-out; clearing one never creates it. Reports whether the
 // value was written.
 func setSyncTimerOptOut(optOut bool) bool {
+	return setClientOptOut(optOut, func(c *clientconfig.Config) *bool { return &c.SyncTimerOptOut })
+}
+
+// setTrayOptOut persists the operator's choice about the tray (D1482), with the
+// same best-effort contract as setSyncTimerOptOut.
+func setTrayOptOut(optOut bool) bool {
+	return setClientOptOut(optOut, func(c *clientconfig.Config) *bool { return &c.TrayOptOut })
+}
+
+func setClientOptOut(optOut bool, field func(*clientconfig.Config) *bool) bool {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return false
@@ -176,10 +190,10 @@ func setSyncTimerOptOut(optOut bool) bool {
 		}
 		cfg = clientconfig.Default()
 	}
-	if cfg.SyncTimerOptOut == optOut {
+	if *field(cfg) == optOut {
 		return optOut
 	}
-	cfg.SyncTimerOptOut = optOut
+	*field(cfg) = optOut
 	return clientconfig.Save(dir, cfg) == nil && optOut
 }
 
@@ -189,6 +203,7 @@ func cmdServiceInstall(args []string) int {
 	configFlag := fs.String("config", defaultConfig, "Path to the generated server config YAML")
 	dataFlag := fs.String("data", defaultDataDir(), "KB data directory (only used when generating a new config)")
 	httpFlag := fs.String("http", defaults.DefaultListenAddress, "HTTP listen address (only used when generating a new config)")
+	noTray := fs.Bool("no-tray", false, "Do not install the status icon (tray); remembered until `service tray install`")
 	if code := noExtraArgs(fs, args); code != 0 {
 		return code
 	}
@@ -212,6 +227,7 @@ func cmdServiceInstall(args []string) int {
 		return exitStatusError
 	}
 	fmt.Println("service installed and started")
+	installTrayWithService(*noTray)
 
 	dataDir := *dataFlag
 	if cfg, cfgErr := config.Load(*configFlag); cfgErr == nil && cfg.Data != "" {

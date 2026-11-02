@@ -245,6 +245,18 @@ func (m *Manager) installLinux(binPath, configPath string) error {
 // Uninstall stops the service and removes the plist/unit. The config YAML
 // and KB data are never touched.
 func (m *Manager) Uninstall() error {
+	// The tray goes first and never blocks the server removal: a running tray
+	// keeps cartographer.exe locked on Windows, and its failure is reported
+	// next to the server's own result.
+	trayErr := m.UninstallTray()
+	err := m.uninstallServer()
+	if err == nil && trayErr != nil {
+		return fmt.Errorf("service: removed, but the tray could not be: %w", trayErr)
+	}
+	return err
+}
+
+func (m *Manager) uninstallServer() error {
 	switch goos {
 	case "darwin":
 		plistPath, err := LaunchdPlistPath()

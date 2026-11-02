@@ -147,6 +147,10 @@ type Config struct {
 	// because no client needs the timer any more does not set it. Kept in the
 	// state file with Agents (D906).
 	SyncTimerOptOut bool `yaml:"-"`
+	// TrayOptOut remembers that the operator removed the tray (`service tray
+	// uninstall`, `service install --no-tray`); upgrade-repair then leaves it
+	// out (D1482). State file only.
+	TrayOptOut bool `yaml:"-"`
 	// ApprovalsMigrated is set once the sync that approves what a pre-D1141
 	// client had installed has run (D1166). It is the YAML key
 	// `approvals_migrated`, beside mcp_approvals: the marker and the approvals
@@ -502,6 +506,7 @@ func Load(dir string) (*Config, error) {
 		cfg.ServerMountMode = state.ServerMountMode
 		cfg.ServerRoutedPath = state.ServerRoutedPath
 		cfg.SyncTimerOptOut = state.SyncTimerOptOut
+		cfg.TrayOptOut = state.TrayOptOut
 		if state.Agents != nil {
 			cfg.Agents = *state.Agents
 		}

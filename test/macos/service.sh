@@ -23,7 +23,7 @@ echo "→ install"
 mac_probe_domain
 # serve never creates a KB (D906), so one exists before the service starts.
 "$BIN" kb create smoke --no-remote --local --data "$work/data" >/dev/null
-"$BIN" service install --config "$work/server.yaml" --data "$work/data" --http "127.0.0.1:$port" >/dev/null
+"$BIN" service install --no-tray --config "$work/server.yaml" --data "$work/data" --http "127.0.0.1:$port" >/dev/null
 plutil -lint "$MAC_PLIST" >/dev/null || mac_fail "plutil rejects $MAC_PLIST"
 mac_ok "plist passes plutil -lint"
 mac_launchd_running || mac_fail "launchctl print: job is not running"

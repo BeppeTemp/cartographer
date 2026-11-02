@@ -30,12 +30,16 @@ func saveRepairFns(t *testing.T) {
 	origSame := repairSameBinaryFn
 	origSwitch := repairSwitchBinaryFn
 	origCheck, origDef := repairCheckBinaryFn, repairDefinitionPathFn
+	origTray := repairEnsureTrayFn
+	// Never the real tray: on a Mac it would register a LaunchAgent.
+	repairEnsureTrayFn = func() error { return nil }
 	origWait, origPoll := repairSwitchWait, repairSwitchPoll
 	// The test binary lives in a go-build/temp directory the real guard refuses.
 	repairCheckBinaryFn = func() error { return nil }
 	repairDefinitionPathFn = func() (string, error) { return "/home/user/Library/LaunchAgents/com.cartographer.serve.plist", nil }
 	repairSwitchWait, repairSwitchPoll = 50*time.Millisecond, time.Millisecond
 	t.Cleanup(func() {
+		repairEnsureTrayFn = origTray
 		repairCheckBinaryFn, repairDefinitionPathFn = origCheck, origDef
 		repairSwitchWait, repairSwitchPoll = origWait, origPoll
 		repairSameBinaryFn = origSame

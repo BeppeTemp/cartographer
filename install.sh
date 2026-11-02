@@ -211,6 +211,7 @@ leftover_units() {
     for unit in \
         "${HOME}/Library/LaunchAgents/com.cartographer.serve.plist" \
         "${HOME}/Library/LaunchAgents/com.cartographer.sync.plist" \
+        "${HOME}/Library/LaunchAgents/com.cartographer.tray.plist" \
         "${HOME}/.config/systemd/user/cartographer.service" \
         "${HOME}/.config/systemd/user/cartographer-sync.timer"
     do
@@ -231,6 +232,7 @@ do_uninstall() {
         log "removing only the binary would leave them pointing at a missing executable."
         log "Remove them first, with the binary still in place:"
         log "  cartographer service sync-timer uninstall"
+        log "  cartographer service tray uninstall"
         log "  cartographer service uninstall"
         log "  cartographer disconnect            # removes the artifacts materialized into your agents"
         log ""

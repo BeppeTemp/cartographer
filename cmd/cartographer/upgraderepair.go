@@ -78,6 +78,12 @@ func cmdUpgradeRepair(args []string) int {
 		fmt.Println("native service not installed — nothing to repair")
 		return exitRepairOK
 	}
+	// The tray is repaired before the stopped-service return: a stopped
+	// server is exactly when a status icon is useful. A failure is a warning
+	// and never changes the exit code, which is about the service.
+	if err := repairEnsureTrayFn(); err != nil {
+		fmt.Fprintln(os.Stderr, "Warning: could not refresh the status icon:", err)
+	}
 	if !st.Running {
 		fmt.Println("native service is stopped — leaving it stopped; start it intentionally (`cartographer service start`), then run `cartographer sync`")
 		return exitRepairOK
