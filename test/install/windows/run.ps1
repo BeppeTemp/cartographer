@@ -91,12 +91,15 @@ $env:CARTOGRAPHER_INSTALL_API_URL = "http://127.0.0.1:$port/api"
 $installDir = Join-Path $env:LOCALAPPDATA 'Cartographer\bin'
 $dest = Join-Path $installDir 'cartographer.exe'
 
+# $Shell is ValidateSet-bound, so it is never reassigned: a section that needs the
+# shell's full path sets this variable instead.
+$script:ShellExe = $Shell
 function Invoke-Installer([string]$case, [string[]]$arguments) {
     $env:CARTOGRAPHER_INSTALL_DOWNLOAD_URL = "http://127.0.0.1:$port/$case"
     # The installer's stderr is captured with 2>&1; under Stop that would turn
     # its first error line into a terminating error in *this* script.
     $ErrorActionPreference = 'Continue'
-    $out = & $Shell -NoProfile -ExecutionPolicy Bypass -File $installer @arguments 2>&1 | Out-String
+    $out = & $script:ShellExe -NoProfile -ExecutionPolicy Bypass -File $installer @arguments 2>&1 | Out-String
     return @{ rc = $LASTEXITCODE; out = $out }
 }
 # A freshly written exe is often held for a moment by something else (Defender
@@ -141,12 +144,11 @@ try {
     # Warning only (#1467): the install succeeds and names the fix. The shell is
     # resolved first, then git's directories are dropped from the child's PATH.
     Copy-Fixture $OldBin $dest
-    $savedShell = $Shell
     $savedPath = $env:PATH
-    $Shell = (Get-Command $savedShell).Source
+    $script:ShellExe = (Get-Command $Shell).Source
     $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'git.exe')) }) -join ';'
     $r = Invoke-Installer 'valid' @('update')
-    $Shell = $savedShell
+    $script:ShellExe = $Shell
     $env:PATH = $savedPath
     Check ($r.rc -eq 0) 'a missing git does not fail the install'
     Check ($r.out -match 'warning: git is not installed' -and $r.out -match 'winget install --id Git.Git -e') 'warns and names winget'
