@@ -695,7 +695,7 @@ func removeLegacyDoctorTimer() {
 // Only a missing file means "first connect" and gives Default(); any other
 // error (malformed YAML, a rejected key, EACCES) stops the command before any
 // write, because Save from Default() would replace pins, identities and
-// approvals no default can rebuild (D1501).
+// approvals no default can rebuild (D1514).
 func loadConfigForWrite(dir string) (*clientconfig.Config, error) {
 	cfg, err := clientconfig.Load(dir)
 	if err == nil {

@@ -26,7 +26,7 @@ var droppedKeys = map[string]bool{
 }
 
 // ErrUnparsable is what Save returns for an existing file that is not YAML: it
-// is never replaced (D1501).
+// is never replaced (D1514).
 var ErrUnparsable = errors.New("unparsable client config")
 
 // yamlKeys lists the top-level YAML keys of yamlConfig, in field order.
@@ -55,7 +55,7 @@ func buildDocument(existing []byte, y *yamlConfig, extra map[string]interface{})
 	if len(existing) > 0 {
 		if err := yaml.Unmarshal(existing, &doc); err != nil {
 			// Never replaced: the file holds pins, identities and approvals no
-			// default can rebuild (D1501). The operator fixes or removes it.
+			// default can rebuild (D1514). The operator fixes or removes it.
 			return nil, fmt.Errorf("%w: the file does not parse, not replacing it: %v", ErrUnparsable, err)
 		}
 	}

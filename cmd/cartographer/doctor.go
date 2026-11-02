@@ -286,7 +286,7 @@ func checkClientConfig(dir string, cfg *clientconfig.Config, loadErr error, only
 	path := filepath.Join(dir, clientconfig.FileName)
 	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
 		// The file is there but cannot be used: `connect` refuses to replace it
-		// (D1501), so the fix is to correct the named error, not to connect.
+		// (D1514), so the fix is to correct the named error, not to connect.
 		return []doctorFinding{{
 			Check: "client-config", Severity: doctorError, Path: path,
 			Message: "the client configuration cannot be read: " + loadErr.Error(),
