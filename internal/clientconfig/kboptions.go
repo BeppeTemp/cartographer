@@ -15,10 +15,22 @@ type KBOption struct {
 	// hooks and MCP descriptors, and removes the ones already installed. Absent
 	// is true: artifacts are synced. Read it through Config.KBArtifacts.
 	Artifacts *bool `yaml:"artifacts,omitempty"`
+	// Access is "" or "write" (read-write, the default) or "read": the KB is
+	// connected read-only on every provider that receives it (#1409). A scope
+	// filter, not a security boundary. Read it through Config.KBAccess.
+	Access string `yaml:"access,omitempty"`
 }
 
+// The two values of KBOption.Access. Absent equals KBAccessWrite.
+const (
+	KBAccessRead  = "read"
+	KBAccessWrite = "write"
+)
+
 // isZero reports whether the entry sets nothing, so it can be dropped.
-func (o KBOption) isZero() bool { return o.Artifacts == nil }
+func (o KBOption) isZero() bool {
+	return o.Artifacts == nil && (o.Access == "" || o.Access == KBAccessWrite)
+}
 
 // KBArtifacts reports whether kb's artifacts are synced. False only for an
 // entry that says `artifacts: false`: a nil Config, an empty name, a missing
@@ -48,6 +60,45 @@ func (c *Config) SetKBArtifacts(kb string, on bool) {
 	c.setKBOption(kb, o)
 }
 
+// KBAccess returns kb's access, KBAccessRead or KBAccessWrite (the default for
+// a nil Config, an empty name, a missing entry and an absent key).
+func (c *Config) KBAccess(kb string) string {
+	if c == nil || kb == "" || c.KBOptions[kb].Access != KBAccessRead {
+		return KBAccessWrite
+	}
+	return KBAccessRead
+}
+
+// SetKBAccess sets kb's access ("read" or "write"). Write removes the key, the
+// entry once it holds nothing else and the map once empty.
+func (c *Config) SetKBAccess(kb, access string) error {
+	if access != KBAccessRead && access != KBAccessWrite {
+		return fmt.Errorf("clientconfig: invalid access %q: want %q or %q", access, KBAccessRead, KBAccessWrite)
+	}
+	o := c.KBOptions[kb]
+	o.Access = access
+	if access == KBAccessWrite {
+		o.Access = ""
+	}
+	c.setKBOption(kb, o)
+	return nil
+}
+
+// ReadOnlyKBs returns, sorted, the KBs whose access is "read".
+func (c *Config) ReadOnlyKBs() []string {
+	if c == nil {
+		return nil
+	}
+	var out []string
+	for k, o := range c.KBOptions {
+		if k != "" && o.Access == KBAccessRead {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // setKBOption stores o under kb, deleting an empty entry and an empty map.
 func (c *Config) setKBOption(kb string, o KBOption) {
 	if o.isZero() {
@@ -74,6 +125,9 @@ func (c *Config) validateKBOptions(path string) error {
 	for _, k := range names {
 		if k == "" {
 			return fmt.Errorf("clientconfig: %s: kb_options has an entry with an empty KB name", path)
+		}
+		if a := c.KBOptions[k].Access; a != "" && a != KBAccessRead && a != KBAccessWrite {
+			return fmt.Errorf("clientconfig: %s: kb_options.%s.access %q is not valid: the values are %q and %q (remove the key for %q)", path, k, a, KBAccessRead, KBAccessWrite, KBAccessWrite)
 		}
 	}
 	return nil

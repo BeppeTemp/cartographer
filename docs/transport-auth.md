@@ -21,6 +21,8 @@ concurrently; a client that needs ordering waits for each response, as the
 JSON-RPC id is there to allow.
 A line that is not a valid message never ends the session: stdio answers it with the same errors as HTTP (`-32700` for a line that is not JSON, `-32600` for an empty batch, a `jsonrpc` other than `2.0` or an `id` that is not a string or a number; `id` is `null` unless the request carried a valid one) and reads the next line. Only an I/O error on stdin or stdout ends it, and a line over 16 MiB (far above the HTTP body limit), the one frame that is refused by ending the session. One message per line: a message spread over several lines is no longer accepted.
 
+EOF on stdin is not an abort: the requests read before it are answered, then the process exits with status 0. The server holds the end of input back until every request id it read has a response written (a `notifications/cancelled` retires its target), for at most 30 seconds; a handler still running after that is abandoned and the process exits. A piped smoke test (`cartographer serve < requests.jsonl`) therefore gets all its answers. The wait is on responses only: a notification has none, so one still running at EOF is not waited for.
+
 The HTTP listener sets its own connection timeouts: a 15s header deadline, a
 60s request-read deadline and a 120s keep-alive idle deadline. There is
 deliberately **no** write deadline — it would also cap a legitimately slow tool
@@ -70,7 +72,7 @@ those match names, not arguments, and are lost by design. Real authorization is
 per-KB scopes (D44/D45), and read auto-approval through `readOnlyHint` (D76) is
 unaffected.
 
-**URL parameters of `/mcp/routed`.** `kbs` (below), `access` (D1018, D1184: `read`, or `read-min` for the read-only connection with the minimal tool listing; empty is absent, any other value is a 400) and `provisioned=1` (D1097: the client has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
+**URL parameters of `/mcp/routed`.** `kbs` (below), `access` (D1018, D1184: `read`, or `read-min` for the read-only connection with the minimal tool listing; empty is absent, any other value is a 400), `readonly=<kb>,<kb>` (D1409: the KBs the client set read-only; names that are not served or not readable are ignored, never a 400, and the response carries `Cartographer-Readonly` with the names applied), and `provisioned=1` (D1097: the client has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
 
 **The binding travels in the URL: `/mcp/routed?kbs=kb-a,kb-b`.** Absent, the
 connection serves every mounted KB. `kbs` only **narrows**, never widens:
@@ -412,7 +414,7 @@ resource they address:
 | collection | `search`, `concept_list`, `atlas_overview`, `contradiction_report`, … | results are filtered per element |
 | source/destination | `concept_move` | both ends must be allowed, and for an expanded concept so must each satellite (its own type, source and destination); link rewriting additionally requires whole-KB write |
 | curated index | `index_patch` | the target Map/Journal must be allowed for write by a rule that names no type: the index lists pages of every type, so a role narrowed by type cannot rewrite it, and its own entry is written with `index_entry` on the creation, under the page's grant (D714); the root index (no single Map/Journal of its own) requires whole-KB write even under a policy that already grants a write inside one of its Maps (D122) |
-| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics |
+| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics. `artifact_write`, `artifact_delete`, `artifact_move` (on both KBs) and `skill_install` need the artifacts grant as well (#1405): a rule with `artifacts: r` grants everything its whole-KB write grants except those four, and `/api/usage`, which writes artifact metadata. It is a narrower allow, not a deny rule, so a second rule of the token without the key restores them |
 
 A tool absent from the registry is denied, so a newly added tool fails closed
 until its resource semantics are chosen deliberately.
@@ -424,7 +426,7 @@ Two properties are load-bearing:
   not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
   `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
   `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
-  `no_principal`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184); the reason describes the caller's own token and arguments,
+  `no_principal`, `artifacts_read_only`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB the client set read-only with `readonly=`, D1409); the reason describes the caller's own token and arguments,
   never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS

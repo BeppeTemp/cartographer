@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"sync"
 	"time"
@@ -104,6 +105,9 @@ type Server struct {
 	// connKB resolves a name of connKBs to its KB, for the guide (D1097).
 	// Installed by buildRouted; nil on a per-KB server, which uses kbRef.
 	connKB func(name string) *kb.KB
+	// guideBundle is the bundled skills FS the guide lists procedures from
+	// (#1316); nil means no list. Set by RegisterKBTools, copied to a routed view.
+	guideBundle fs.FS
 	// readOnlySession marks a routed connection that asked for ?access=read:
 	// tools/list carries no write tool and a call to one is refused with
 	// denyUnboundFolder. Set once by buildRouted, before the server is served.
@@ -112,6 +116,10 @@ type Server struct {
 	// (D1184): tools/list carries only readMinTools, a write is refused with
 	// denyReadOnlyProfile. Set once by buildRouted.
 	readMinSession bool
+	// kbsReadOnly marks a routed view whose every KB is read-only on the client
+	// (?readonly= naming the whole set, #1409): like readOnlySession, no write
+	// tool is listed, but the refusal is read_only_kb. Set once by buildRouted.
+	kbsReadOnly bool
 	// tokenReadOnly marks a routed view for a principal that can write none of
 	// the connection's KBs (D1096): tools/list carries no write tool, but the
 	// call is not refused here: it reaches the target KB, which answers

@@ -269,7 +269,7 @@ for pair in "R:$INIT_R" "W:$INIT_W"; do
     who="${pair%%:*}"
     ins="$(printf '%s' "${pair#*:}" | instructions)"
     if [[ -n "$ins" ]]; then _assert_pass "B ${who}: initialize carries instructions"; else _assert_fail "B ${who}: initialize has no instructions"; fi
-    for needle in 'kb-a' "$SENTINEL_A" 'search' '{{repo:' 'kb_guide'; do
+    for needle in 'kb-a' "$SENTINEL_A" 'search' '{{repo:' 'kb_guide' 'Maps' 'ingest' 'conflict-resolve' 'import'; do
         assert_mcp_contains "B ${who}: instructions contain '${needle}'" "$ins" "$needle"
     done
     assert_mcp_not_discloses "B ${who}: instructions do not name work-kb" "$ins" 'work-kb'
