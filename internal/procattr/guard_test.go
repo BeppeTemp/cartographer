@@ -48,8 +48,16 @@ func TestEveryChildProcessIsHidden(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", ".worktrees", "node_modules", "web", "film", "demo", "test", "scripts":
+			case ".git", ".worktrees", "node_modules":
 				return fs.SkipDir
+			}
+			// Directories with no Go the service runs: root level only, so a
+			// package named like one of them deeper down is still checked.
+			if filepath.Dir(path) == root {
+				switch d.Name() {
+				case "web", "film", "demo", "test", "scripts":
+					return fs.SkipDir
+				}
 			}
 			return nil
 		}
