@@ -24,28 +24,51 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "http", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_HTTP", Flag: "--http", Restart: true, Example: `":39273"`,
 		Description: "Listen address of the HTTP transport, for example :39273. Empty serves MCP over stdio."},
 	{Path: "data", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_DATA", Flag: "--data", Restart: true, Example: "/data",
-		Description: "Directory whose direct subdirectories are discovered as KBs, and where remote KBs are cloned. The name credentials is the server's own and is never discovered."},
+		Description: "Directory whose direct subdirectories are discovered as KBs, and where remote KBs are cloned. The name credentials is the server's own and is never discovered.",
+		Previous: []string{
+			"Directory whose direct subdirectories are discovered as KBs, and where remote KBs are cloned.",
+		}},
 	{Path: "credentials_dir", Scope: settingschema.ScopeServer, Type: "string", Default: "<data>/credentials", Env: "CARTOGRAPHER_CREDENTIALS_DIR", Restart: true, Example: "/etc/cartographer/credentials",
 		Description: "Directory with every secret file, looked up by KB name: <kb>.ssh, <kb>.token and <kb>.age (each with a default.* for the KBs without their own), <kb>.signing (the artifact signing seed, no default) and known_hosts (one file for every remote). On Kubernetes it is one mounted Secret (defaultMode 0440 with the pod's fsGroup). A file readable by other users, or by the group when it is the server's own, is warned about once at start."},
 	{Path: "update_check", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_UPDATE_CHECK", Flag: "--update-check", Restart: true,
-		Description: "Look up the latest release once a day and report it in /health and kb_status when it is newer; the Atlas reads the release history from the same GitHub list when someone opens it. Off, the server makes neither call. A dev build never checks."},
+		Description: "Look up the latest release once a day and report it in /health and kb_status when it is newer; the Atlas reads the release history from the same GitHub list when someone opens it. Off, the server makes neither call. A dev build never checks.",
+		Previous: []string{
+			"Look up the latest release once a day and report it in /health and kb_status when it is newer. A dev build never checks.",
+		}},
 
 	{Path: "auth.mode", Scope: settingschema.ScopeServer, Type: "string", Values: "on | off | auto", Default: "auto", Env: "CARTOGRAPHER_AUTH", Restart: true, Example: "auto",
 		Description: "Bearer-token authentication of the HTTP transport. auto turns it on when at least one token is configured."},
 	{Path: "auth.tokens", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Env: "CARTOGRAPHER_TOKENS", Flag: "--tokens", Restart: true, Secret: true,
 		Example:     "- token: ${CARTOGRAPHER_TOKEN_CI}\n  id: ci\n  scopes: [kb:kb-a:rw]\n- ${CARTOGRAPHER_TOKEN_ADMIN}",
-		Description: "Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles and id. A token may be written ${NAME} to read it from the environment."},
+		Description: "Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles and id. A token may be written ${NAME} to read it from the environment.",
+		Previous: []string{
+			"Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles, id, author_name and author_email. A token may be written ${NAME} to read it from the environment.",
+		}},
 	{Path: "auth.roles", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
 		Example:     "- name: runbook-editor\n  rules:\n    - kb: kb-a\n      access: rw\n      maps: [infra]\n      types: [Runbook]",
-		Description: "Named permission sets that tokens reference by name; each has a name and rules (kb, access r or rw, and optional maps, journals, types, and artifacts: r to withhold the skill, agent and hook write tools from a rule that otherwise writes)."},
+		Description: "Named permission sets that tokens reference by name; each has a name and rules (kb, access r or rw, and optional maps, journals, types, and artifacts: r to withhold the skill, agent and hook write tools from a rule that otherwise writes).",
+		Previous: []string{
+			"Named permission sets that tokens reference by name; each has a name and rules (kb, access r or rw, and optional maps, journals, types).",
+		}},
 
 	{Path: "kbs", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Env: "CARTOGRAPHER_KB_REMOTES", Restart: true,
 		Example:     "- remote: https://git.example.com/user/kb-a.git\n  name: kb-a",
-		Description: "The KBs to clone and mount: each entry has a remote. A KB that is a folder under data is discovered and needs no entry. KBs from CARTOGRAPHER_KB_REMOTES are added to this list (bare remotes: name and branch need the file)."},
+		Description: "The KBs to clone and mount: each entry has a remote. A KB that is a folder under data is discovered and needs no entry. KBs from CARTOGRAPHER_KB_REMOTES are added to this list (bare remotes: name and branch need the file).",
+		Previous: []string{
+			"The KBs to mount: each entry has a path or a remote. KBs from the environment and flags are added to this list.",
+			"The KBs to clone and mount: each entry has a remote. A KB that is a folder under data is discovered and needs no entry. KBs from CARTOGRAPHER_KB_REMOTES are added to this list.",
+		}},
 	{Path: "kbs[].remote", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "https://git.example.com/user/kb-a.git",
-		Description: "Git remote a KB is cloned from, under data. A KB with a remote syncs with it; one without never contacts anything."},
+		Description: "Git remote a KB is cloned from, under data. A KB with a remote syncs with it; one without never contacts anything.",
+		Previous: []string{
+			"Git remote a KB is cloned from, under data.",
+		}},
 	{Path: "kbs[].name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "kb-a",
-		Description: "KB name, in place of the one derived from the remote. It drives the endpoint, the token scopes, the clone directory and the names of the KB's files in credentials_dir."},
+		Description: "KB name, in place of the one derived from the remote. It drives the endpoint, the token scopes, the clone directory and the names of the KB's files in credentials_dir.",
+		Previous: []string{
+			"KB name, in place of the one derived from the path or remote. It drives the endpoint, the token scopes, the clone directory and the token and age-key file conventions.",
+			"KB name, in place of the one derived from the remote. It drives the endpoint, the token scopes, the clone directory and the token and age-key file conventions.",
+		}},
 
 	{Path: "kbs[].branch", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true, Example: "try-cartographer",
 		Description: "Branch this server alone commits and pushes to, in place of the KB's own branch setting (which is then not read); the first push creates it. Empty keeps the KB's setting, and without one the remote's default branch. Only here, in the file: CARTOGRAPHER_KB_REMOTES has no per-entry option."},
@@ -56,11 +79,20 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "The identity of git.identity, per KB name; the key default stands for every KB without an entry. A present empty entry means that KB has none and commits as the server identity."},
 
 	{Path: "audit.log", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_AUDIT_LOG", Restart: true,
-		Description: "Path of the append-only operation log, which is always on and signed with audit.key from credentials_dir (generated at the first start). Empty keeps it at <data>/audit/audit.log."},
+		Description: "Path of the append-only operation log, which is always on and signed with audit.key from credentials_dir (generated at the first start). Empty keeps it at <data>/audit/audit.log.",
+		Previous: []string{
+			"Path of the append-only operation log. Empty turns the audit trail off.",
+		}},
 	{Path: "audit.mode", Scope: settingschema.ScopeServer, Type: "string", Values: "best_effort | required", Default: "best_effort", Restart: true,
-		Description: "With best_effort a failed append is logged and the call carries on, and a log or key the server cannot open is a warning at start; with required the call is rejected before the tool runs, and the server does not start without its signed log."},
+		Description: "With best_effort a failed append is logged and the call carries on, and a log or key the server cannot open is a warning at start; with required the call is rejected before the tool runs, and the server does not start without its signed log.",
+		Previous: []string{
+			"With best_effort a failed append is logged and the call carries on; with required the call is rejected before the tool runs.",
+		}},
 	{Path: "audit.max_segment_bytes", Scope: settingschema.ScopeServer, Type: "int", Values: "bytes; 0 keeps the default", Default: "67108864", Restart: true,
-		Description: "Size after which the active log segment is rotated (64 MiB by default), so retention has segments to delete."},
+		Description: "Size after which the active log segment is rotated (64 MiB by default), so retention has segments to delete.",
+		Previous: []string{
+			"Size after which the active log segment is rotated.",
+		}},
 	{Path: "audit.archive_dir", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
 		Description: "Directory of rotated segments; empty keeps them beside the log."},
 	{Path: "audit.retention_days", Scope: settingschema.ScopeServer, Type: "int", Values: "days; 0 keeps everything", Default: "90", Restart: true,
@@ -83,7 +115,11 @@ Every key is optional. Precedence, highest first: flag, environment variable, th
 // tables together).
 var KBKeys = []settingschema.Key{
 	{Path: "usage_stale_days", Scope: settingschema.ScopeKB, Type: "int", Values: "7 or more", Default: "42",
-		Description: "Days a skill or agent may go unused by every client before kb_status.usage counts it as stale. A value under 7 is raised to 7 with a warning; there is no value that turns the signal off."},
+		Description: "Days a skill or agent may go unused by every client before kb_status.usage counts it as stale. A value under 7 is raised to 7 with a warning; there is no value that turns the signal off.",
+		Previous: []string{
+			"Days a skill or agent may go unused by every client before artifact_unused reports it.",
+			"Days a skill or agent may go unused by every client before artifact_unused reports it. A value under 7 is raised to 7 with a warning; there is no value that turns the finding off.",
+		}},
 	{Path: "branch", Scope: settingschema.ScopeKB, Type: "string", Default: `""`,
 		Description: "Branch Cartographer commits and pushes to, in place of the remote's default one; the first push creates it. Empty or absent: the remote's default branch. Only the settings.yaml committed on the remote's default branch counts: a change made on any other branch has no effect until it reaches the default one."},
 }

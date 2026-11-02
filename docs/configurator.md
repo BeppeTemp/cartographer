@@ -1365,7 +1365,10 @@ reads either divider and writes the new one. The text comes from one table, `Sch
 a test fails when a key exists in the file without an entry there, so a new setting starts in the
 table. `Save` is a `yaml.Node` round-trip of the existing file: a comment you wrote and a key the
 program does not know survive every save, a key you had commented out leaves the block when it gets
-set, and a file written by an older version gains the comments at its next save. A save that changes
+set, and a file written by an older version gains the comments at its next save. A comment the schema
+wrote in the wording of an earlier release is rewritten to the current one at the next realignment (the
+key's `Previous` descriptions, whatever default or values line went with them), and the comment of a
+removed key goes with it, wherever an older realignment left it. A save that changes
 no setting does not rewrite the file. A file with no comments loads exactly as before: comments are
 additive.
 

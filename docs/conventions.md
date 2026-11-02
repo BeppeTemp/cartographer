@@ -43,6 +43,12 @@ Rules to keep the code consistent. New code should resemble the existing code.
   the server file. Machine-written caches are not settings: they go in `.cartographer-state.json`, not in the YAML.
 - Code that rewrites a user-edited YAML file edits its `yaml.Node` tree; it never marshals a map or a struct over the file,
   which drops every comment (D747).
+- A comment the schema wrote is told from a person's by its text, so the table keeps the texts a key has had (D<n>).
+  Changing a key's `Description` means appending the old one to its `Previous`; taking a key out of the table means
+  recording its last `Description` in the registry entry that retires it (`Retired`, `kb.SettingsRetired`). Otherwise every
+  file written before the change keeps the old comment for good, and a retired key's comment moves onto its neighbour.
+  `TestDescriptionsAreRecordedWhenTheyChange` compares `internal/settingschema/testdata/descriptions.tsv` with the
+  schemas and names the line to add; `-update` refreshes the list once the history is recorded.
 
 ## Tests
 

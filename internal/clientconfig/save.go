@@ -121,9 +121,12 @@ func removePair(doc, m *yaml.Node, idx int) {
 	carry := k.HeadComment
 	// Recognised as the realignment does (settingschema.IsGenerated): a file written
 	// by an earlier version carries the comments in the wording of its day, and
-	// those are the schema's too.
+	// those are the schema's too. A key that is gone from the table (droppedKeys,
+	// Retired) is recognised by the text it was retired with (DropFossils).
 	if sk, ok := Schema.Lookup(k.Value); ok && settingschema.IsGenerated(carry, sk) {
 		carry = ""
+	} else if !ok {
+		carry = Schema.DropFossils(carry, Retired)
 	}
 	m.Content = append(m.Content[:idx], m.Content[idx+2:]...)
 	if carry == "" {

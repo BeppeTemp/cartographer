@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -45,6 +46,15 @@ type Removed struct {
 	// ignoring it would change where writes go (kbs[].git_branch, D903): the
 	// value has to reach Replacement first. The refusal names Replacement.
 	RefuseAny bool
+	// Description is the description the key had in its last release, and
+	// Previous the ones before it, as in Key. They are how the comment the schema
+	// wrote above the key is told from a person's once the key is no longer in the
+	// table: that comment goes with the key, and a copy an earlier realignment
+	// moved onto the next key is dropped from there (Schema.DropFossils). A key
+	// retired without them leaves its comment behind in every file that had it,
+	// and the guard test names the text to record.
+	Description string
+	Previous    []string
 }
 
 // Refuses reports whether value, an environment variable's, is one the key
@@ -383,6 +393,11 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 	// keys, read them where the mapping they list holds them.
 	s.homeBlocks(&doc)
 
+	// The comments the schema wrote for keys it has retired go, wherever they
+	// stand: above the key itself, and above the neighbour an earlier
+	// realignment moved them to, which is what a removal below would do.
+	s.dropFossils(&doc, reg)
+
 	hits := reg.Find(&doc)
 	var touched []*yaml.Node
 	for _, h := range hits {
@@ -424,6 +439,116 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 		rep.Changes = append(rep.Changes, Change{Kind: ChangeDocumented, Detail: "rewrote the file with the comments of the settings schema"})
 	}
 	return enc, rep, nil
+}
+
+// wordings is the description lines of every removed key, in each of the texts
+// it had: what a comment the schema wrote for it opens with.
+func (r Registry) wordings() [][]string {
+	var out [][]string
+	for _, e := range r.Removed {
+		for _, d := range append([]string{e.Description}, e.Previous...) {
+			if w := wording(d); len(w) > 0 {
+				out = append(out, w)
+			}
+		}
+	}
+	return out
+}
+
+// wordings is the description lines of every key of the schema, current and
+// previous.
+func (s Schema) wordings() [][]string {
+	var out [][]string
+	for _, k := range s.Keys {
+		for _, d := range append([]string{k.Description}, k.Previous...) {
+			if w := wording(d); len(w) > 0 {
+				out = append(out, w)
+			}
+		}
+	}
+	return out
+}
+
+// longestAt returns the longest of the wordings that lines starts with at p, and
+// nil when none does.
+func longestAt(lines []string, p int, wordings [][]string) []string {
+	var best []string
+	for _, w := range wordings {
+		if len(w) > len(best) && p+len(w) <= len(lines) && slices.Equal(lines[p:p+len(w)], w) {
+			best = w
+		}
+	}
+	return best
+}
+
+// DropFossils removes from comment, a head comment as the parser hands it over,
+// every run of lines that is, whole, a comment the schema wrote for a key of reg
+// that has been removed: its description in one of its texts and the notes
+// under it. A run ends where the description of another key (of reg or of the
+// schema) begins, or at the end of the comment, and must be notes all the way:
+// a line a person wrote under it keeps the run, and the person's text, as it is.
+// What a realignment moved onto the next key before the retired key's text was
+// known is what this takes off again.
+func (s Schema) DropFossils(comment string, reg Registry) string {
+	retired := reg.wordings()
+	if len(retired) == 0 || comment == "" {
+		return comment
+	}
+	return dropFossils(comment, retired, append(s.wordings(), retired...))
+}
+
+func dropFossils(comment string, retired, known [][]string) string {
+	lines := strings.Split(comment, "\n")
+	var out []string
+	for p := 0; p < len(lines); {
+		w := longestAt(lines, p, retired)
+		if w == nil {
+			out = append(out, lines[p])
+			p++
+			continue
+		}
+		end := p + len(w)
+		for end < len(lines) && longestAt(lines, end, known) == nil {
+			end++
+		}
+		if !isNotes(lines[p+len(w) : end]) {
+			out = append(out, lines[p])
+			p++
+			continue
+		}
+		p = end
+	}
+	if len(out) == len(lines) {
+		return comment
+	}
+	return strings.Trim(strings.Join(out, "\n"), "\n")
+}
+
+// dropFossils takes the comments of removed keys off every head comment of doc,
+// and off the text a person has at the end of the file (before the block of
+// unset settings), where the comment of a last key goes when it is removed.
+func (s Schema) dropFossils(doc *yaml.Node, reg Registry) {
+	retired := reg.wordings()
+	if len(retired) == 0 {
+		return
+	}
+	known := append(s.wordings(), retired...)
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		if n.HeadComment != "" {
+			n.HeadComment = dropFossils(n.HeadComment, retired, known)
+		}
+		for _, c := range n.Content {
+			walk(c)
+		}
+	}
+	walk(doc)
+	if doc.Kind == yaml.DocumentNode && doc.FootComment != "" {
+		user, segs := splitSegments(doc.FootComment)
+		if kept := dropFossils(user, retired, known); kept != user {
+			doc.FootComment = joinSegs(kept, segs)
+		}
+	}
 }
 
 // commentOnlyPrefix is the text a file made only of comments carries above its
