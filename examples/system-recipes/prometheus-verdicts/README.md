@@ -1,7 +1,7 @@
 # Verdict lister for a metrics endpoint
 
 A recipe of `shape: system` that reports what a Prometheus HTTP API **concludes**, never what it measures
-([worker-recipes.md](../../../docs/worker-recipes.md) §Verdicts, not metrics). A Python 3 script (standard library
+([surveyor-recipes.md](../../../docs/surveyor-recipes.md) §Verdicts, not metrics). A Python 3 script (standard library
 only) and a file of checks; it is an example in the repository, not part of the binary.
 
 Files: `lister.py` (the recipe's command), `checks.json` (the groups and signals, yours to replace), `instructions.md`
@@ -44,7 +44,7 @@ Files: `lister.py` (the recipe's command), `checks.json` (the groups and signals
 
 | Key | Meaning |
 |---|---|
-| `identity` | Optional, the name the preflight reports. It is here and not in `exec.env` because the worker redacts those values from what a lister prints |
+| `identity` | Optional, the name the preflight reports. It is here and not in `exec.env` because the Surveyor redacts those values from what a lister prints |
 | `groups[].key`, `title` | The group, as in §System recipes: one responsibility a page owns, never a person |
 | `groups[].alert_labels` | Optional: the alert rules whose labels hold all of these. A group with none matching prints `alerts: none` |
 | `signals[].name`, `query` | The line's name and an instant query that answers one series |
@@ -52,7 +52,7 @@ Files: `lister.py` (the recipe's command), `checks.json` (the groups and signals
 
 The value can run either way: `days-to-full` in `checks.json` goes from `bad` up to `ok`. Compute at the source, in the
 query, what a band must compare: a window against its baseline, a trend. Put a long window in a recording rule
-(`sli:api_error_ratio:rate28d` in the example): a query over 28 days at every poll costs the server, not the worker.
+(`sli:api_error_ratio:rate28d` in the example): a query over 28 days at every poll costs the server, not the Surveyor.
 Make bands wide and windows long: the lister keeps no state, so a band that flaps is one unit per flap.
 
 ## The periodic review
@@ -67,9 +67,9 @@ that moved together. It proposes no threshold and no fix, and it has no tool on 
 
 1. Create the map the gaps live in, `gaps` here, admitting `Contradiction`. Another name means changing it in
    `instructions.md` and `system-review.md`.
-2. Put the script and the files where the worker can run them (a derived image with Python 3, or a mounted read-only
-   volume), add `recipe.yaml` to the worker config with the two `.md` files in the config directory, and set
-   `METRICS_URL` and `METRICS_TOKEN` in the worker's environment. Name a `model` your config declares.
+2. Put the script and the files where the Surveyor can run them (a derived image with Python 3, or a mounted read-only
+   volume), add `recipe.yaml` to the Surveyor config with the two `.md` files in the config directory, and set
+   `METRICS_URL` and `METRICS_TOKEN` in the Surveyor's environment. Name a `model` your config declares.
 3. Register the system once: `source_register` with `source_shape: system`, `recipe: metrics-verdicts` and
    `locator: metrics://production` (a label, nothing selects an endpoint from it), list the Source in an IngestPlan's
    `sources`, and set `feed_interval` to an hour or more with `concept_patch`.

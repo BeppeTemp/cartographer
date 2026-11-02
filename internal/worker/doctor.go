@@ -207,7 +207,7 @@ func (g *doctorGuard) CallTool(name string, args any) (client.ToolOutput, error)
 	}
 	refuse := func(text string) (client.ToolOutput, error) {
 		g.denied++
-		log.Printf("worker: doctor: %s: %s refused: %s", g.key, name, oneLineClip(text, 120))
+		log.Printf("surveyor: doctor: %s: %s refused: %s", g.key, name, oneLineClip(text, 120))
 		return client.ToolOutput{IsError: true, Text: "refused: " + text}, nil
 	}
 	if !slices.Contains(g.rule.tools(), name) {
@@ -240,7 +240,7 @@ func (g *doctorGuard) CallTool(name string, args any) (client.ToolOutput, error)
 			why = err.Error()
 		}
 		g.denied++
-		log.Printf("worker: doctor: %s: %s failed: %s", g.key, name, oneLineClip(why, 120))
+		log.Printf("surveyor: doctor: %s: %s failed: %s", g.key, name, oneLineClip(why, 120))
 		if g.refused++; g.refused >= maxRefusedWrites {
 			return out, errDoctorRefused
 		}
@@ -588,7 +588,7 @@ func (d *doctorInstance) repair(tools ToolCaller, checks []string) int {
 		err = json.Unmarshal([]byte(out.Text), &answer)
 	}
 	if err != nil {
-		log.Printf("worker: doctor: kb_repair: %v", err)
+		log.Printf("surveyor: doctor: kb_repair: %v", err)
 	}
 	return answer.AppliedTotal
 }
@@ -598,7 +598,7 @@ func (d *doctorInstance) today() string { return d.now().UTC().Format("2006-01-0
 // doctorLogPath is where a run records what it examined: a path of its own under
 // the perimeter's, which the budget's bracketed prefix never matches (markerPath
 // has the same reasoning).
-func doctorLogPath(perimeter string) string { return "worker/" + perimeter + "/doctor" }
+func doctorLogPath(perimeter string) string { return "surveyor/" + perimeter + "/doctor" }
 
 // examined reads the keys recorded in the last doctorRetryDays. A malformed line
 // is skipped: the cost is an item examined again.
@@ -794,7 +794,7 @@ func (d *doctorInstance) record(tools ToolCaller, examined []string, writes int)
 		}
 		last = err
 	}
-	log.Printf("worker: doctor: record not written: %v", last)
+	log.Printf("surveyor: doctor: record not written: %v", last)
 }
 
 // Run repairs what needs no model, then examines the queue, one loop per item,
@@ -848,7 +848,7 @@ func (d *doctorInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Resu
 		agent := NewAgent(rt.Model, guard, NewAllowlist(it.rule.tools()...), lim)
 		out, err := agent.Run(ctx, Task{System: doctorSystem(it), User: d.prompt(it)})
 		res.measure(out)
-		log.Printf("worker: doctor: %s on %s: %v, %d steps, %d writes, %d did not land", guard.key, rt.KB, out.Reason, out.Steps, guard.applied-before, guard.denied)
+		log.Printf("surveyor: doctor: %s on %s: %v, %d steps, %d writes, %d did not land", guard.key, rt.KB, out.Reason, out.Steps, guard.applied-before, guard.denied)
 		if err != nil {
 			runErr = err
 			if errors.Is(err, ErrModelAuth) || errors.Is(err, errDoctorRefused) || ctx.Err() != nil {

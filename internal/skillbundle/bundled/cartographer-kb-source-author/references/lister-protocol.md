@@ -1,6 +1,6 @@
 # Lister protocol v1 and the recipe config
 
-The full contract is `docs/worker-recipes.md` in the Cartographer repository; this is what a lister author needs.
+The full contract is `docs/surveyor-recipes.md` in the Cartographer repository; this is what a lister author needs.
 
 ## The request (stdin)
 
@@ -15,7 +15,7 @@ One JSON object, then closed:
 ## The answer (stdout)
 
 JSON lines: `{"entry": {...}}` repeated, then **exactly one last** `{"next_cursor": "<string>"}` (at most 1024
-bytes, opaque: the worker never orders it). An entry has:
+bytes, opaque: the Surveyor never orders it). An entry has:
 
 - `key` (required, at most 512 bytes, unique), `change` (`added`, `modified` or `removed`);
 - `title` and `revision` for `added` and `modified` (at most 200 bytes each); `revision` changes whenever the
@@ -27,14 +27,14 @@ Return a cursor that covers exactly what you emitted.
 
 ## System recipes (`shape: system`)
 
-The recipe sets `shape: system` and has no `connector`. Before every listing the worker sends `mode: "preflight"`;
+The recipe sets `shape: system` and has no `connector`. Before every listing the Surveyor sends `mode: "preflight"`;
 the script answers exactly one JSON object, exit 0: `{"read_only": true, "identity": "...", "detail": "..."}`, true
 only if the identity can neither write nor read secrets (ask the system, do not echo a label). Anything else refuses
 the run. The listing then has `cursor: null`: one entry per group with required `content` (a normalized snapshot, volatile
-fields dropped, never a secret), the key a stable group name, and the final line `{"next_cursor": ""}`. The worker
+fields dropped, never a secret), the key a stable group name, and the final line `{"next_cursor": ""}`. The Surveyor
 computes each revision itself and diffs against the stored state. Endpoint and identity come from `exec.env`, never
 from the `locator`, which is only a label. Any failure: a message on stderr (no secret) and a non-zero
-exit. `removed` entries are only counted: the worker deletes nothing.
+exit. `removed` entries are only counted: the Surveyor deletes nothing.
 
 ## Config: `recipes.<name>`
 
@@ -51,7 +51,7 @@ recipes:
 ```
 
 - `command` with a path separator is resolved against the config file's directory; it needs a shebang and the
-  executable bit. `args` are verbatim (no shell). `env` maps the name the script sees to the **name** of the worker's
+  executable bit. `args` are verbatim (no shell). `env` maps the name the script sees to the **name** of the Surveyor's
   own variable. `timeout`, `max_output_bytes` and `max_content_bytes` have defaults.
 - `instructions_file` is required. `connector` is omitted when entries carry `content` or a locator the executor
   reads some other way.

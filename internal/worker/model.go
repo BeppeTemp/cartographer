@@ -1,4 +1,4 @@
-// Package worker is the model client and agent loop of the worker (D9): library only, nothing reaches it from the binary yet.
+// Package worker is the model client and agent loop of the Surveyor (D9).
 //
 // A worker is a headless MCP client of the public HTTP contract plus its own
 // loop calling the model API directly: the Anthropic Messages API and
@@ -6,9 +6,9 @@
 // model returns is untrusted, and the model API key never appears in an error,
 // a log line or a printed struct.
 //
-// LoadConfig reads and validates the worker's own config file against the key
+// LoadConfig reads and validates the Surveyor's own config file against the key
 // table of internal/workerconfig and the registry of task kinds (config.go,
-// kinds.go); the process shell that runs a config is not here yet.
+// kinds.go); the process shell that runs a config is cmd/cartographer/worker.go.
 package worker
 
 import (

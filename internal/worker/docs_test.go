@@ -16,7 +16,7 @@ func TestDocumentedWorkerConfigLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("WORKER_TOKEN", "example-token")
+	t.Setenv("SURVEYOR_TOKEN", "example-token")
 	t.Setenv("CLOUD_API_KEY", "example-key")
 	t.Setenv("MODEL_API_KEY", "example-key")
 	fixture, err := os.ReadFile(filepath.Join("testdata", "prompts", "weekly-digest.md"))

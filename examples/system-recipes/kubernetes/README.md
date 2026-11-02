@@ -1,6 +1,6 @@
 # Kubernetes system lister
 
-The reference recipe of `shape: system` ([worker-recipes.md](../../../docs/worker-recipes.md) §System recipes): a
+The reference recipe of `shape: system` ([surveyor-recipes.md](../../../docs/surveyor-recipes.md) §System recipes): a
 Python 3 script (standard library only) that prints one entry per namespace of a cluster, through `kubectl`. It is an
 example in the repository, not part of the binary.
 
@@ -43,9 +43,9 @@ variable.
 1. Give the lister a **read-only identity**: a dedicated ServiceAccount bound to the `view` ClusterRole (it does not
    include Secrets) and a kubeconfig that uses it. The preflight is a guard against a mistake here, not a security
    boundary: the script is yours.
-2. Put `lister.py` where the worker can run it (a derived image with Python 3 and `kubectl`, or a mounted read-only
-   volume) and add `recipe.yaml` to the worker config, with `instructions.md` in the config directory. Set `KUBECTL`,
-   `KUBE_CONTEXT` and `KUBECONFIG` in the worker's environment.
+2. Put `lister.py` where the Surveyor can run it (a derived image with Python 3 and `kubectl`, or a mounted read-only
+   volume) and add `recipe.yaml` to the Surveyor config, with `instructions.md` in the config directory. Set `KUBECTL`,
+   `KUBE_CONTEXT` and `KUBECONFIG` in the Surveyor's environment.
 3. Register the system once: `source_register` with `source_shape: system`, `recipe: k8s-dev` and
    `locator: kubernetes://dev-cluster` (a label, nothing selects a context from it), list the Source in an
    IngestPlan's `sources`, and set `feed_interval` with `concept_patch`.

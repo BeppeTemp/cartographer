@@ -30,12 +30,12 @@ Use the built-in `http-pages` (the host must be in `fetch.allow_hosts`); no scri
 ## Live systems (cluster, cloud account, metrics endpoint)
 
 A live system is the **current state** of something, not a stream of changed documents: use `shape: system` (protocol
-in `references/lister-protocol.md`). If the installed worker does not accept it, export the state to a git repository
+in `references/lister-protocol.md`). If the installed Surveyor does not accept it, export the state to a git repository
 or a file the feed recipes can read.
 
 - A group is a namespace, a service or an account region. For a metrics endpoint list the **definitions** (alert
   rules, dashboards, targets) or **verdicts** computed at the source, words of a fixed scale, never samples: a line
-  holding a value changes at every poll and costs a unit (`worker-recipes.md` §Verdicts, not metrics).
+  holding a value changes at every poll and costs a unit (`surveyor-recipes.md` §Verdicts, not metrics).
 - The lister emits a normalized, deterministic snapshot: volatile fields dropped (timestamps, resource versions,
   counters), no secret value ever. Endpoint and identity come from the recipe's `env`, never from the `locator`.
 - Identity: a Kubernetes `view` ClusterRole (it excludes Secrets); a cloud read-only or view-only policy (check what

@@ -16,7 +16,7 @@ type OpenAI struct{ t *transport }
 // empty apiKey sends no Authorization header (local servers take none).
 func NewOpenAI(baseURL, apiKey, model string, opts ...Option) (*OpenAI, error) {
 	if baseURL == "" {
-		return nil, errors.New("worker: OpenAI-compatible endpoint needs a base URL")
+		return nil, errors.New("surveyor: OpenAI-compatible endpoint needs a base URL")
 	}
 	t, err := newTransport(baseURL, apiKey, model, opts)
 	if err != nil {
@@ -128,7 +128,7 @@ func (o *OpenAI) Complete(ctx context.Context, req Request) (Response, error) {
 	}
 	body, err := json.Marshal(wire)
 	if err != nil {
-		return Response{}, fmt.Errorf("worker: encode model request: %w", err)
+		return Response{}, fmt.Errorf("surveyor: encode model request: %w", err)
 	}
 	headers := map[string]string{}
 	if o.t.key != "" {
@@ -140,10 +140,10 @@ func (o *OpenAI) Complete(ctx context.Context, req Request) (Response, error) {
 	}
 	var resp oaiResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return Response{}, fmt.Errorf("worker: model response is not the expected JSON: %w", err)
+		return Response{}, fmt.Errorf("surveyor: model response is not the expected JSON: %w", err)
 	}
 	if len(resp.Choices) == 0 {
-		return Response{}, errors.New("worker: model response has no choices")
+		return Response{}, errors.New("surveyor: model response has no choices")
 	}
 	ch := resp.Choices[0]
 	out := Response{RawStop: ch.FinishReason}

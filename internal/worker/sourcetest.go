@@ -13,7 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/worker/system"
 )
 
-// The dry run of a recipe (`cartographer worker source test`): what the poll
+// The dry run of a recipe (`cartographer surveyor source test`): what the poll
 // does up to and including the listing, and nothing after it. It goes through
 // NewRecipeRegistry, feedPreconditions and listFeed, the very functions the poll
 // calls, so a script it passes is a script the poll accepts. It takes no lease,

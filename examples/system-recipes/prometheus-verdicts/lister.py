@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A system lister that reports verdicts, not metrics, from a Prometheus HTTP API.
 
-It speaks protocol v1 of the worker's exec recipes (docs/worker-recipes.md):
+It speaks protocol v1 of the Surveyor's exec recipes (docs/surveyor-recipes.md):
 one JSON request on stdin, mode "preflight" or "list", the answer on stdout.
 The computing happens at the source, in PromQL; this script only turns each
 answer into one word of a fixed scale. A value that moves inside its band
@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-# The scale, best to worst: the worker's model reads a change of word and needs no
+# The scale, best to worst: the Surveyor's model reads a change of word and needs no
 # threshold to say which way it went. A rule that cannot be evaluated hides its
 # state, so it is worse than a warning and better than an alert that fired.
 SCALE = ("ok", "watch", "no data", "bad")

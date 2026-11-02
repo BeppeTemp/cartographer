@@ -78,11 +78,11 @@ func newTestBudget(kbs map[string]*ledgerCaller) *Budget {
 func TestBudgetSumsPerProfileAcrossKBs(t *testing.T) {
 	kbs := map[string]*ledgerCaller{
 		"kb-a": {entries: []string{
-			"[worker/docs-night] run r1 day=2026-10-29 tokens.cloud=300 tokens.local=5000 units=2 commits=2 stopped=done — ok tokens.cloud=9999",
-			"[worker/docs-night] run r0 day=2026-10-28 tokens.cloud=900 units=1 commits=1 stopped=done", // yesterday
-			"[worker/docs-night] run r9 day=2026-10-29 tokens.gone=777 units=1 commits=1 stopped=done",  // unknown profile
+			"[surveyor/docs-night] run r1 day=2026-10-29 tokens.cloud=300 tokens.local=5000 units=2 commits=2 stopped=done — ok tokens.cloud=9999",
+			"[surveyor/docs-night] run r0 day=2026-10-28 tokens.cloud=900 units=1 commits=1 stopped=done", // yesterday
+			"[surveyor/docs-night] run r9 day=2026-10-29 tokens.gone=777 units=1 commits=1 stopped=done",  // unknown profile
 		}},
-		"work-kb": {entries: []string{"[worker/docs-night] run r2 day=2026-10-29 tokens.cloud=100 units=1 commits=0 stopped=budget"}},
+		"work-kb": {entries: []string{"[surveyor/docs-night] run r2 day=2026-10-29 tokens.cloud=100 units=1 commits=0 stopped=budget"}},
 	}
 	b := newTestBudget(kbs)
 	if err := b.Begin([]string{"kb-a", "work-kb"}, testNow); err != nil {
@@ -97,7 +97,7 @@ func TestBudgetSumsPerProfileAcrossKBs(t *testing.T) {
 }
 
 func TestBudgetGrantAndExhaustedProfile(t *testing.T) {
-	kbs := map[string]*ledgerCaller{"kb-a": {entries: []string{"[worker/docs-night] run r1 day=2026-10-29 tokens.cloud=700 units=1 commits=1 stopped=done"}}}
+	kbs := map[string]*ledgerCaller{"kb-a": {entries: []string{"[surveyor/docs-night] run r1 day=2026-10-29 tokens.cloud=700 units=1 commits=1 stopped=done"}}}
 	b := newTestBudget(kbs)
 	if err := b.Begin([]string{"kb-a"}, testNow); err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestBudgetLedgerEdgeCases(t *testing.T) {
 	if err := b.Begin([]string{"kb-a"}, testNow); err == nil {
 		t.Error("any other log_tail failure must skip the run")
 	}
-	bad := &ledgerCaller{entries: []string{"[worker/docs-night] run r1 tokens.cloud=5 stopped=done", "[worker/other] run r2 day=2026-10-29 tokens.cloud=5"}}
+	bad := &ledgerCaller{entries: []string{"[surveyor/docs-night] run r1 tokens.cloud=5 stopped=done", "[surveyor/other] run r2 day=2026-10-29 tokens.cloud=5"}}
 	b = newTestBudget(map[string]*ledgerCaller{"kb-a": bad})
 	var warned int
 	b.Logf = func(string, ...any) { warned++ }
@@ -152,7 +152,7 @@ func TestBudgetLedgerEdgeCases(t *testing.T) {
 }
 
 func TestBudgetDoublesTheReadThenFailsClosed(t *testing.T) {
-	today := "[worker/docs-night] run r day=2026-10-29 tokens.cloud=1 stopped=done"
+	today := "[surveyor/docs-night] run r day=2026-10-29 tokens.cloud=1 stopped=done"
 	var many []string
 	for i := 0; i < 250; i++ {
 		many = append(many, today)
@@ -199,14 +199,14 @@ func TestBudgetCloseWritesOneEntryPerTouchedKB(t *testing.T) {
 	}
 	got := a.appends[0]
 	want := fmt.Sprintf("run %s day=2026-10-29 tokens.cloud=120 tokens.local=30 units=2 commits=1 stopped=done — did two things", b.RunID())
-	if got["entry"] != want || got["path"] != "worker/docs-night" {
+	if got["entry"] != want || got["path"] != "surveyor/docs-night" {
 		t.Fatalf("append = %v\nwant entry %s", got, want)
 	}
 	if e := w.appends[0]["entry"].(string); strings.Contains(e, "tokens.") {
 		t.Fatalf("a profile that spent nothing must not appear: %s", e)
 	}
 	// What Close writes, Begin reads back (with the server's prefix).
-	next := newTestBudget(map[string]*ledgerCaller{"kb-a": {entries: []string{"[worker/docs-night] " + got["entry"].(string)}}})
+	next := newTestBudget(map[string]*ledgerCaller{"kb-a": {entries: []string{"[surveyor/docs-night] " + got["entry"].(string)}}})
 	next.Begin([]string{"kb-a"}, testNow)
 	if next.Remaining("cloud") != 880 || next.Remaining("local") != 99970 {
 		t.Fatalf("round trip: %d %d", next.Remaining("cloud"), next.Remaining("local"))
@@ -241,11 +241,11 @@ func TestBudgetForgedFiguresFailClosed(t *testing.T) {
 	huge := "tokens.cloud=9223372036854775807"
 	kbs := map[string]*ledgerCaller{
 		"kb-a": {entries: []string{
-			"[worker/docs-night] run r1 day=2026-10-29 " + huge + " " + huge + " stopped=done",
-			"[worker/docs-night] run r2 day=2026-10-29 " + huge + " stopped=done",
-			"[worker/docs-night] run r3 day=2026-10-29 tokens.cloud=99999999999999999999 stopped=done",
+			"[surveyor/docs-night] run r1 day=2026-10-29 " + huge + " " + huge + " stopped=done",
+			"[surveyor/docs-night] run r2 day=2026-10-29 " + huge + " stopped=done",
+			"[surveyor/docs-night] run r3 day=2026-10-29 tokens.cloud=99999999999999999999 stopped=done",
 		}},
-		"work-kb": {entries: []string{"[worker/docs-night] run r4 day=2026-10-29 " + huge + " stopped=done"}},
+		"work-kb": {entries: []string{"[surveyor/docs-night] run r4 day=2026-10-29 " + huge + " stopped=done"}},
 	}
 	b := newTestBudget(kbs)
 	if err := b.Begin([]string{"kb-a", "work-kb"}, testNow); err != nil {
@@ -263,8 +263,8 @@ func TestBudgetOldestJudgedByDateNotPosition(t *testing.T) {
 	// The last entry of a full answer is not necessarily the oldest (a legacy
 	// directory log is returned before the root entries): a yesterday entry
 	// anywhere in it ends the read.
-	today := "[worker/docs-night] run t day=2026-10-29 tokens.cloud=1 stopped=done"
-	old := "[worker/docs-night] run o day=2026-10-28 tokens.cloud=1 stopped=done"
+	today := "[surveyor/docs-night] run t day=2026-10-29 tokens.cloud=1 stopped=done"
+	old := "[surveyor/docs-night] run o day=2026-10-28 tokens.cloud=1 stopped=done"
 	var entries []string
 	for i := 0; i < ledgerStart; i++ {
 		entries = append(entries, today)
@@ -277,5 +277,20 @@ func TestBudgetOldestJudgedByDateNotPosition(t *testing.T) {
 	}
 	if fmt.Sprint(kb.tails) != "[100]" {
 		t.Fatalf("tails = %v: a dated-before-today entry should stop the read", kb.tails)
+	}
+}
+
+// An entry under the previous `worker/` prefix is not spend (D1442): no second
+// prefix is accepted, because that would be an alias in the data.
+func TestBudgetIgnoresTheOldWorkerPrefix(t *testing.T) {
+	kbs := map[string]*ledgerCaller{"kb-a": {entries: []string{
+		"[worker/docs-night] run r1 day=2026-10-29 tokens.cloud=700 units=1 commits=1 stopped=done",
+	}}}
+	b := newTestBudget(kbs)
+	if err := b.Begin([]string{"kb-a"}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.Remaining("cloud"); got != 1000 {
+		t.Errorf("cloud remaining = %d, want 1000 (a [worker/...] entry must not count)", got)
 	}
 }
