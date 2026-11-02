@@ -91,7 +91,7 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 		}
 		contract := contracts[mapName]
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		e := WorkEntry{ID: string(id), Map: mapName, Items: workItems(body)}
+		e := WorkEntry{ID: string(id), Map: mapName, Items: workItems(body, contract)}
 		fm, perr := okf.ParseFrontmatter(fmRaw)
 		if perr != nil || fm == nil {
 			// Not work we can read: validate already reports the page, and
@@ -225,27 +225,56 @@ func holdsWork(contract *kb.MapContract) bool {
 }
 
 // workItems returns the unchecked items of a body outside code, each with the
-// nearest preceding heading and its 1-based line in the body.
-func workItems(body string) []WorkItem {
-	masked := strings.Split(kb.MaskCodeSpans(body), "\n")
+// nearest preceding heading and its 1-based line in the body, skipping the
+// procedure sections openItems skips.
+func workItems(body string, contract *kb.MapContract) []WorkItem {
 	orig := strings.Split(body, "\n")
 	items := []WorkItem{}
-	section := ""
-	for i, line := range masked {
-		if m := workHeading.FindStringSubmatch(line); m != nil {
-			section = m[1]
+	for _, o := range openItems(kb.MaskCodeSpans(body), contract) {
+		if o.line >= len(orig) {
 			continue
 		}
-		if !openCheckbox.MatchString(line) || i >= len(orig) {
-			continue
-		}
-		_, after, _ := strings.Cut(orig[i], "[ ]")
-		items = append(items, WorkItem{Text: cutAtRune(strings.TrimSpace(after), workItemTextMax), Section: section, Line: i + 1})
+		_, after, _ := strings.Cut(orig[o.line], "[ ]")
+		items = append(items, WorkItem{Text: cutAtRune(strings.TrimSpace(after), workItemTextMax), Section: o.section, Line: o.line + 1})
 	}
 	return items
 }
 
-var workHeading = regexp.MustCompile(`^ {0,3}#{1,6}\s+(.*?)\s*#*\s*$`)
+// openItem is one unchecked item: its 0-based line and nearest heading.
+type openItem struct {
+	line    int
+	section string
+}
+
+// openItems is the one reader of unchecked items in a code-masked body, so
+// work_list, scattered_work, status_reclassify and closed_with_open_items
+// agree on what is open (D1476). Items under an H2 that matches the map's
+// procedure_headings are skipped: a procedure's checklist is a reusable
+// template (D313). An H3 or deeper stays inside the section; the next H2 or an
+// H1 leaves it.
+func openItems(masked string, contract *kb.MapContract) []openItem {
+	headings := procedureHeadingsOf(contract)
+	var out []openItem
+	section, inProcedure := "", false
+	for i, line := range strings.Split(masked, "\n") {
+		if m := workHeading.FindStringSubmatch(line); m != nil {
+			section = m[2]
+			switch len(m[1]) {
+			case 1:
+				inProcedure = false
+			case 2:
+				inProcedure = isProcedureHeading(section, headings)
+			}
+			continue
+		}
+		if !inProcedure && openCheckbox.MatchString(line+"\n") {
+			out = append(out, openItem{line: i, section: section})
+		}
+	}
+	return out
+}
+
+var workHeading = regexp.MustCompile(`^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$`)
 
 // cutAtRune cuts s to at most n bytes at a rune boundary, without marker.
 func cutAtRune(s string, n int) string {

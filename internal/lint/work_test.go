@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"strings"
 	"testing"
 	"time"
@@ -181,5 +182,57 @@ func TestWorkSkipsUnparseableFrontmatter(t *testing.T) {
 	}
 	if got := workByID(t, entries); len(got) != 1 || got["m/ok"].ID == "" {
 		t.Fatalf("entries = %+v, want only m/ok", entries)
+	}
+}
+
+// A checklist under an H2 the map's procedure_headings name is a reusable
+// template, not work: Work and closed_with_open_items read it the same way
+// (D313). An H3 inside it stays inside; the next H2 or an H1 leaves it.
+func TestWorkSkipsProcedureChecklists(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "p/_map.md", "---\ntype: Map\ntitle: P\nprocedure_headings: [closing]\n---\n")
+	writeFile(t, k.DataRoot(), "d/_map.md", "---\ntype: Map\ntitle: D\n---\n")
+	body := "# Plan\n\n## Work\n\n- [ ] real\n\n## Closing\n\n- [ ] docs updated\n\n### Traps\n\n- [ ] trap fixed\n\n## After\n\n- [ ] follow-up\n"
+	writeFile(t, k.DataRoot(), "p/plan.md", "---\ntype: Topic\ntitle: Plan\nstatus: active\n---\n"+body)
+	// No procedure_headings: the defaults apply, so Closing is work here.
+	writeFile(t, k.DataRoot(), "d/plan.md", "---\ntype: Topic\ntitle: Plan\nstatus: active\n---\n"+body+"\n## Steps\n\n- [ ] step\n")
+
+	entries, err := Work(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := workByID(t, entries)
+	var texts []string
+	for _, it := range got["p/plan"].Items {
+		texts = append(texts, it.Text)
+	}
+	if strings.Join(texts, ",") != "real,follow-up" {
+		t.Fatalf("declared procedure heading: items %v, want real,follow-up", texts)
+	}
+	texts = nil
+	for _, it := range got["d/plan"].Items {
+		texts = append(texts, it.Text)
+	}
+	if strings.Join(texts, ",") != "real,docs updated,trap fixed,follow-up" {
+		t.Fatalf("default procedure headings: items %v", texts)
+	}
+}
+
+// Every reader of unchecked items goes through openItems: closed_with_open_items
+// counts what Work lists (an indented H2 is a heading for both), and
+// status_reclassify does not read a procedure's checklist as pending work.
+func TestOpenItemReadersAgree(t *testing.T) {
+	c := &kb.MapContract{ProcedureHeadings: []string{"steps"}}
+	body := "# P\n\n  ## Steps\n\n- [ ] step\n\n## Next\n\n- [ ] real\n"
+	if n, w := countOpenItems(kb.MaskCodeSpans(body), c), len(workItems(body, c)); n != 1 || w != 1 {
+		t.Fatalf("countOpenItems %d, workItems %d, want 1 and 1", n, w)
+	}
+	only := &reviewConcept{body: "# P\n\n## Steps\n\n- [ ] step\n"}
+	if p, _ := reclassifySignal(only, c); p == "in-progress" {
+		t.Fatalf("a procedure checklist alone proposed %q", p)
+	}
+	open := &reviewConcept{body: "# P\n\n- [ ] real\n"}
+	if p, _ := reclassifySignal(open, c); p != "in-progress" {
+		t.Fatalf("an open item proposed %q, want in-progress", p)
 	}
 }
