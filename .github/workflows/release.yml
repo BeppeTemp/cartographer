@@ -106,14 +106,15 @@ jobs:
             v0.*) want=true ;;
             *)    want=false ;;
           esac
-          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG) | .id')
+          # A draft can lose its tag name after GoReleaser (#1447): its name still says.
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG or (.draft and .name == env.TAG)) | .id')
           if [ -z "$id" ] || [ "$(printf '%s\n' "$id" | wc -l)" != 1 ]; then
             echo "::error::no single release for $TAG" >&2
             exit 1
           fi
           # By id: the release is a draft (D1350) and the tag endpoint hides drafts.
           if [ "$want" = true ]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F prerelease=true > /dev/null
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f tag_name="$TAG" -F prerelease=true > /dev/null
           fi
           got=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq .prerelease)
           if [ "$got" != "$want" ]; then
@@ -145,13 +146,14 @@ jobs:
             v0.*) want=true ;;
             *)    want=false ;;
           esac
-          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG) | .id')
+          # A draft can lose its tag name after GoReleaser (#1447): its name still says.
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG or (.draft and .name == env.TAG)) | .id')
           if [ -z "$id" ] || [ "$(printf '%s\n' "$id" | wc -l)" != 1 ]; then
             echo "::error::no single release for $TAG" >&2
             exit 1
           fi
           # By id: the tag endpoint does not return a draft.
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false > /dev/null
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f tag_name="$TAG" -F draft=false > /dev/null
           got=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '"\(.draft) \(.prerelease)"')
           if [ "$got" != "false $want" ]; then
             echo "::error::$TAG is isDraft/isPrerelease=$got, want false $want (D1350, D82)" >&2

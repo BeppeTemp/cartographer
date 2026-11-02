@@ -34,30 +34,6 @@ func guideText(t *testing.T, res ToolResult) string {
 	return res.Content[0].Text
 }
 
-// #1316 WP4: on a connection that got the guide in `initialize`, kb_guide {}
-// says so and still carries everything (the D1100 fallback); a provisioned
-// connection gets no such line.
-func TestKBGuide_NonProvisionedOpensWithAlreadySent(t *testing.T) {
-	t.Parallel()
-	s, k := guideServer(t, skillbundle.FS)
-	if err := os.WriteFile(filepath.Join(k.Root, "instructions.md"), []byte("Rules of docs.\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	text := guideText(t, callTool(t, s, "kb_guide", `{}`))
-	if !strings.HasPrefix(text, "This is the text already sent in the `initialize` instructions.") {
-		t.Errorf("kb_guide {} must open with the already-sent line:\n%s", text)
-	}
-	for _, want := range []string{"Operational instructions:", "Rules of docs.", "`ingest`", "`conflict-resolve`", "`import`", "the whole guide"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("kb_guide {} lacks %q:\n%s", want, text)
-		}
-	}
-	prov := s.callTool(withProvisioned(authLocalContext()), "kb_guide", json.RawMessage(`{}`))
-	if strings.Contains(guideText(t, prov), "already sent") {
-		t.Errorf("a provisioned connection was sent nothing in initialize:\n%s", guideText(t, prov))
-	}
-}
-
 func TestKBGuide_GuideAndProcedures(t *testing.T) {
 	t.Parallel()
 	s, k := guideServer(t, skillbundle.FS)
@@ -69,7 +45,7 @@ func TestKBGuide_GuideAndProcedures(t *testing.T) {
 		t.Fatalf("kb_guide: %s", guideText(t, res))
 	}
 	text := guideText(t, res)
-	for _, want := range []string{"Operational instructions:", "Rules of docs.", "Maps: manutenzione/", "`ingest`", "`conflict-resolve`", "`import`"} {
+	for _, want := range []string{"Operational instructions:", "Rules of docs.", "Archives: manutenzione/", "## Procedures", "`ingest`", "`conflict-resolve`", "`import`"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("guide lacks %q:\n%s", want, text)
 		}
@@ -181,7 +157,7 @@ func TestKBGuide_NoBundle(t *testing.T) {
 	t.Parallel()
 	s, _ := guideServer(t, nil)
 	text := guideText(t, callTool(t, s, "kb_guide", `{}`))
-	if !strings.Contains(text, "Operational instructions:") || strings.Contains(text, "`ingest`") {
+	if !strings.Contains(text, "Operational instructions:") || strings.Contains(text, "## Procedures") {
 		t.Errorf("guide without a bundle:\n%s", text)
 	}
 	if res := callTool(t, s, "kb_guide", `{"procedure":"ingest"}`); !res.IsError || !strings.Contains(guideText(t, res), "no bundled procedures") {
@@ -265,7 +241,7 @@ func TestKBGuide_Authorization(t *testing.T) {
 	// A map-scoped principal: the guide and the procedures, no word of skills.
 	res := f.call(t, tokMapRule, RoutedMountPath, "kb_guide", map[string]any{"kb": "kb-a"})
 	text := guideText(t, res)
-	if res.IsError || !strings.Contains(text, "`ingest`") || strings.Contains(text, "skills") || strings.Contains(text, "my-skill") {
+	if res.IsError || !strings.Contains(text, "## Procedures") || strings.Contains(text, "skills") || strings.Contains(text, "my-skill") {
 		t.Errorf("map-scoped principal:\n%s", text)
 	}
 	// The read-only routed view lists it and serves it.
@@ -360,7 +336,7 @@ func TestKBGuide_PointersAndDescription(t *testing.T) {
 func TestKBGuide_RefusesOldAndNotServedNames(t *testing.T) {
 	t.Parallel()
 	s, _ := guideServer(t, skillbundle.FS)
-	for _, name := range []string{"kb-ingest", "kb-conflict-resolve", "kb-import", "cartographer-kb-create", "cartographer-kb-doctor", "cartographer-kb-ingest-plan", "cartographer-ops", "cartographer-feedback", "create", "doctor", "feedback"} {
+	for _, name := range []string{"kb-ingest", "kb-conflict-resolve", "kb-import", "cartographer-kb-create", "cartographer-kb-doctor", "cartographer-ops", "cartographer-feedback", "create", "doctor", "feedback"} {
 		res := callTool(t, s, "kb_guide", `{"procedure":"`+name+`"}`)
 		if !res.IsError || !strings.Contains(guideText(t, res), "ingest, conflict-resolve, import") {
 			t.Errorf("%s: want refusal listing the served names, got %+v", name, res)

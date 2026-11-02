@@ -249,7 +249,7 @@
         "idempotentHint": false,
         "readOnlyHint": true
       },
-      "description": "The operating guide, the procedures and the KB's skills. procedure (ingest, conflict-resolve, import) returns its steps; file, one of its references/ files. No arguments: the guide again, for a host that hides the initialize instructions. Read-only.",
+      "description": "How to work in this KB: the operating guide, the procedures available and, if you may see them, the KB's own skills. Call it first if you were given no instructions. procedure (ingest, conflict-resolve, import) returns its steps; file reads a references/ file of that procedure. Read-only.",
       "inputSchema": {
         "properties": {
           "file": {

@@ -79,11 +79,6 @@ type RemoteError struct {
 	// (CodeHTTPFailed from an answering server), zero otherwise. It lets a
 	// caller tell a refused credential (403) from a transport failure (#1299).
 	HTTPStatus int
-	// RPCCode is the JSON-RPC error code of a CodeMCPFailed that came from an
-	// "error" object (for example -32602, invalid params), zero otherwise. It
-	// lets a caller tell a refused argument from a failure without parsing
-	// Message.
-	RPCCode int
 }
 
 func (e *RemoteError) Error() string {
@@ -232,17 +227,6 @@ func New(serverURL, token string) *MCPClient {
 func (c *MCPClient) WithKB(name string) *MCPClient {
 	cp := *c
 	cp.KB = name
-	return &cp
-}
-
-// WithHTTPTimeout returns a copy of the client whose HTTP calls time out after d
-// (the default is 30 s, and calls take no context). The worker writes its closing
-// entries with a short one so that a shutdown fits the orchestrator's grace period.
-func (c *MCPClient) WithHTTPTimeout(d time.Duration) *MCPClient {
-	cp := *c
-	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
-	hc.Timeout = d
-	cp.HTTP = &hc
 	return &cp
 }
 
@@ -452,7 +436,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusNotFound {
 			var rpcResp rpcResponse
 			if err := json.Unmarshal(respBody, &rpcResp); err == nil && rpcResp.Error != nil {
-				return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, RPCCode: rpcResp.Error.Code,
+				return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
 					Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)}
 			}
 		}
@@ -467,7 +451,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 			Message: fmt.Sprintf("invalid JSON-RPC response from %s", reqURL), Cause: err}
 	}
 	if rpcResp.Error != nil {
-		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, RPCCode: rpcResp.Error.Code,
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
 			Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)}
 	}
 	return rpcResp.Result, nil
@@ -600,43 +584,6 @@ func (c *MCPClient) ReportClientSettings(report any, timeout time.Duration) erro
 	return c.apiCall(http.MethodPost, clientSettingsPath, "", report, timeout)
 }
 
-// workersPath and workerSettingsPath are the routes of a worker's heartbeat
-// and settings report (D1259).
-const (
-	workersPath        = "/api/workers"
-	workerSettingsPath = "/api/worker-settings"
-)
-
-// HeartbeatAnswer is the answer of POST /api/workers: the idle signal of each
-// accepted KB and whether the server wants the settings report.
-type HeartbeatAnswer struct {
-	Accepted []string `json:"accepted"`
-	KBs      map[string]struct {
-		LastActivityAt *time.Time `json:"last_activity_at"`
-	} `json:"kbs"`
-	ActivityKnown   bool      `json:"activity_known"`
-	ServerStartedAt time.Time `json:"server_started_at"`
-	Now             time.Time `json:"now"`
-	SettingsWanted  bool      `json:"settings_wanted"`
-}
-
-// Heartbeat posts a worker's declaration (a JSON-encodable object) and returns
-// the server's answer. A server too old for the route answers 404, an error the
-// worker ignores.
-func (c *MCPClient) Heartbeat(report any, timeout time.Duration) (*HeartbeatAnswer, error) {
-	var a HeartbeatAnswer
-	if err := c.apiCallInto(http.MethodPost, workersPath, "", report, &a, timeout); err != nil {
-		return nil, err
-	}
-	return &a, nil
-}
-
-// ReportWorkerSettings posts a worker's settings report. Best-effort like
-// ReportClientSettings.
-func (c *MCPClient) ReportWorkerSettings(report any, timeout time.Duration) error {
-	return c.apiCall(http.MethodPost, workerSettingsPath, "", report, timeout)
-}
-
 // doctorSchedulePath is the server route a scheduled-doctor declaration goes to (D369).
 const doctorSchedulePath = "/api/doctor-schedule"
 
@@ -656,12 +603,6 @@ func (c *MCPClient) WithdrawDoctorSchedule(kbName string, timeout time.Duration)
 // apiCall sends one request to a server /api route (client-to-server metadata,
 // not an MCP call) with the same auth and error mapping for every caller.
 func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time.Duration) error {
-	return c.apiCallInto(method, route, kbName, body, nil, timeout)
-}
-
-// apiCallInto is apiCall that also decodes a 2xx JSON answer into out (nil
-// keeps the old behaviour: the body is read, capped at 1 MiB, and dropped).
-func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, timeout time.Duration) error {
 	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
 		return err
 	}
@@ -703,7 +644,7 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 			Message: fmt.Sprintf("could not reach %s", u.Redacted()), Cause: err}
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
@@ -712,103 +653,7 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 		return &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode}
 	}
-	if out != nil {
-		if err := json.Unmarshal(raw, out); err != nil {
-			return &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-				Message: fmt.Sprintf("invalid answer from %s", u.Redacted()), Cause: err}
-		}
-	}
 	return nil
-}
-
-// decodeToolResult parses a tools/call result; Call and CallTool share it so
-// the "invalid tool result" wording lives in one place.
-func decodeToolResult(tool string, raw json.RawMessage) (toolResult, error) {
-	var tr toolResult
-	if err := json.Unmarshal(raw, &tr); err != nil {
-		return tr, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-			Message: fmt.Sprintf("invalid tool result for %q", tool), Cause: err}
-	}
-	return tr, nil
-}
-
-// ToolInfo is one entry of a tools/list answer; InputSchema is passed through
-// untouched.
-type ToolInfo struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
-}
-
-// ToolOutput is a tool result that keeps the tool-level isError flag instead
-// of turning it into a Go error (see CallTool).
-type ToolOutput struct {
-	Text    string
-	IsError bool
-}
-
-// maxToolListPages bounds the tools/list cursor walk: a server looping on
-// cursors must not hang the caller.
-const maxToolListPages = 20
-
-// ListTools asks the server for its tool list (the server filters it per
-// token), following nextCursor until empty. A tool without a name is skipped.
-func (c *MCPClient) ListTools() ([]ToolInfo, error) {
-	var out []ToolInfo
-	cursor := ""
-	for page := 0; page < maxToolListPages; page++ {
-		params := map[string]any{}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		raw, err := c.do("tools/list", params)
-		if err != nil {
-			return nil, err
-		}
-		var res struct {
-			Tools      []ToolInfo `json:"tools"`
-			NextCursor string     `json:"nextCursor"`
-		}
-		if err := json.Unmarshal(raw, &res); err != nil {
-			return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-				Message: "invalid tools/list result", Cause: err}
-		}
-		for _, t := range res.Tools {
-			if t.Name != "" {
-				out = append(out, t)
-			}
-		}
-		if res.NextCursor == "" {
-			return out, nil
-		}
-		cursor = res.NextCursor
-	}
-	return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-		Message: fmt.Sprintf("tools/list still paging after %d pages", maxToolListPages)}
-}
-
-// CallTool invokes a tool like Call, but returns the result text and the
-// tool's own isError flag so a caller can hand a tool-level refusal back to a
-// model. Transport and JSON-RPC failures remain *RemoteError.
-func (c *MCPClient) CallTool(tool string, args any) (ToolOutput, error) {
-	raw, err := c.do("tools/call", map[string]any{"name": tool, "arguments": args})
-	if err != nil {
-		return ToolOutput{}, err
-	}
-	tr, err := decodeToolResult(tool, raw)
-	if err != nil {
-		return ToolOutput{}, err
-	}
-	if len(tr.Content) == 0 {
-		return ToolOutput{IsError: true, Text: "tool returned no content"}, nil
-	}
-	texts := make([]string, 0, len(tr.Content))
-	for _, block := range tr.Content {
-		if block.Type == "text" {
-			texts = append(texts, block.Text)
-		}
-	}
-	return ToolOutput{Text: strings.Join(texts, "\n"), IsError: tr.IsError}, nil
 }
 
 // Call invokes an MCP tool via tools/call and preserves all text content blocks.
@@ -818,9 +663,10 @@ func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 		return nil, err
 	}
 
-	tr, err := decodeToolResult(tool, raw)
-	if err != nil {
-		return nil, err
+	var tr toolResult
+	if err := json.Unmarshal(raw, &tr); err != nil {
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("invalid tool result for %q", tool), Cause: err}
 	}
 	if len(tr.Content) == 0 {
 		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,

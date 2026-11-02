@@ -46,7 +46,7 @@ test or a decision record: none of them is a preference.
   traverse a symlink for a reason: writing through one truncates the target
   instead of replacing the link, which is how a single sync modified 23 files in
   an unrelated checkout (D148).
-- **A fact about the request (`unknown`, `renamed`, `provisioned`, `readonly`) rides the
+- **A fact about the request (`unknown`, `renamed`, `provisioned`) rides the
   context, never the cached routed view.** The view is shared by every URL that
   resolves to the same set, and the target KB's server (where the doctor nudge
   runs) is not the view. For the same reason `initialize` instructions are set
@@ -64,6 +64,3 @@ test or a decision record: none of them is a preference.
   exactly when it has one, and no setting turns it off). Use a bare repository in
   `t.TempDir()`, or an address that refuses at once such as `127.0.0.1:1`; never a real
   host, which a read or a write would then contact.
-- **`kb_guide {}` stays the whole guide**, whatever `initialize` carries (D1100, D1316): it
-  is the only route for a host that drops `initialize.instructions`. Tell the agent it
-  already holds the text; never empty the fallback.

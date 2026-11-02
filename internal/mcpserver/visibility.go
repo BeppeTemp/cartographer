@@ -134,9 +134,6 @@ var advancedToolNames = map[string]bool{
 	// graph_path (D242): "how is X connected to Y" is an investigation, not
 	// a step of the normal loop; graph_context and link_suggest are.
 	"graph_path": true,
-	// ingest_setup (D1201): a one-off, idempotent provisioning of the two
-	// ingest templates, reached by name from kb_guide and the planner skill.
-	"ingest_setup": true,
 }
 
 // ToolAdvanced reports whether the named tool is hidden from tools/list under

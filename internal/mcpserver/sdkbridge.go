@@ -57,20 +57,7 @@ const readMinInstructions = "This connection is read-only: only the minimal read
 	"every other read tool (graph_path, lint, kb_status, work_list, artifact_list...) can still be called by name, " +
 	"and every write is refused with read_only_profile."
 
-// kbsReadOnlyInstructions is the instructions of a connection whose every KB is
-// read-only (#1409). Generic wording: no CLI command.
-const kbsReadOnlyInstructions = "This connection is read-only: its KBs are set read-only on the client, so no write tool is listed and every write is refused with read_only_kb."
-
-// readOnlyKBsSentence is the per-handshake sentence of a connection where only
-// some KBs are read-only (#1409): the names come from the request context.
-func readOnlyKBsSentence(names []string) string {
-	return "Read-only on this connection: " + strings.Join(names, ", ") + "; the others are writable."
-}
-
 func (s *Server) sessionInstructions() string {
-	if s.kbsReadOnly {
-		return kbsReadOnlyInstructions
-	}
 	if s.readMinSession {
 		return readMinInstructions
 	}
@@ -286,8 +273,6 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 		}
 	}
 
-	s.touchActivity(principal, name)
-
 	resources := extractResources(name, args)
 	call, rejected, ok := s.beginAuditCall(principal, name, tool.ReadOnly, resources)
 	if !ok {
@@ -440,7 +425,7 @@ func (s *Server) agentProfileMiddleware() sdk.Middleware {
 			}
 			s.mu.Lock()
 			hide := s.agentProfile
-			readOnly := s.readOnlySession || s.tokenReadOnly || s.kbsReadOnly
+			readOnly := s.readOnlySession || s.tokenReadOnly
 			readMin := s.readMinSession
 			s.mu.Unlock()
 			if !hide && !readOnly && !readMin {

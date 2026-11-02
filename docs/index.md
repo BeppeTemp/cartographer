@@ -11,8 +11,7 @@ only the pages relevant to your task.
 | [faq.md](faq.md) | Questions about concurrent writes, `sync` and how Cartographer compares with an instruction file, Notion or Obsidian |
 | [agent-install.md](agent-install.md) | Command-by-command runbook for an agent to install Cartographer, mount a first KB, connect, and verify |
 | [mcp-clients.md](mcp-clients.md) | Using the server from a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop): connect, tokens with an `id`, what the model receives, limits |
-| [deployment.md](deployment.md) | Native/k8s topologies, server configuration, health, backup/DR, upgrades, CI/CD and the worker (a third role) |
-| [worker-recipes.md](worker-recipes.md) | Worker exec recipes: the `recipes.<name>` keys, protocol v1 (stdin request, JSON-lines listing), failures, trust model, example script |
+| [deployment.md](deployment.md) | Native/k8s topologies, server configuration, health, backup/DR, upgrades and CI/CD |
 | [configurator.md](configurator.md) | Multi-provider client and service subcommands (`cartographer setup/agents/connect/disconnect/reconnect/status/sync/doctor/update/kb/service/…` + TUI): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
 | [control-plane.md](control-plane.md) | Go server, complete MCP tool API (source of truth for the list), search index and validation |
 | [data-plane.md](data-plane.md) | KB model: Atlas/Map/Journal hierarchy, filesystem layout, expanded concepts, OKF concepts, naming, extended type schema |
@@ -85,7 +84,7 @@ page that was not touched; the table and the file change together, and a test
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `provisioning.Kinds` (the Atlas lists it; a test fails without it, D864) |
 | A feature is **not** implemented (deferred, planned, "future work") | An `idea` issue while it is a proposal, a `plan` issue once accepted (`CONTRIBUTING.md` §Issues: bug, idea, plan) — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
-| Project status, milestone, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow (which groups the newest section by area, D865) |
+| Project status, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow (which groups the newest section by area, D865) |
 | An architectural or contract choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md`, `<n>` = the plan issue or PR number (D672; `make decisions-new`; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
 | New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |

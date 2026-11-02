@@ -81,17 +81,6 @@ describe("the ported panels", () => {
       expect(who).toHaveTextContent(/in kb-a you can read the maps infra/);
     });
 
-    it("says a rule that cannot write artifacts", async () => {
-      stubApi({
-        "/settings": () => json(settings),
-        "/whoami": () =>
-          json({ id: "worker-a", admin: false, permissions: [{ kb: "kb-a", write: true, artifacts: "r" }] }),
-      });
-      render(<App />);
-      const who = await screen.findByLabelText("Who is looking");
-      expect(who).toHaveTextContent(/can read and write every map, not skills, agents or hooks/);
-    });
-
     it("leaves the section out when whoami fails", async () => {
       stubApi({ "/settings": () => json(settings) });
       render(<App />);

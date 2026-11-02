@@ -842,8 +842,6 @@ export function App() {
             />
           ) : view.panel === "health" ? (
             <Health
-              kb={activeKB}
-              live={live}
               report={lint}
               checks={checks}
               conflicts={conflicts}
