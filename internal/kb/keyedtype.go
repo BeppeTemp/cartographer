@@ -11,6 +11,10 @@ const (
 	// SourceType is the conventional concept type of a source-ledger entry
 	// (D278), matched exactly.
 	SourceType = "Source"
+	// IngestPlanType and IngestUnitType are the conventional types of an ingest
+	// campaign and of one unit of its work (D1201), matched exactly.
+	IngestPlanType = "IngestPlan"
+	IngestUnitType = "IngestUnit"
 	// ContradictionType is the type the gate and the governance tools count,
 	// matched exactly.
 	ContradictionType = "Contradiction"
@@ -25,6 +29,12 @@ const (
 // IsSourceType reports whether t is exactly SourceType.
 func IsSourceType(t string) bool { return t == SourceType }
 
+// IsIngestPlanType reports whether t is exactly IngestPlanType.
+func IsIngestPlanType(t string) bool { return t == IngestPlanType }
+
+// IsIngestUnitType reports whether t is exactly IngestUnitType.
+func IsIngestUnitType(t string) bool { return t == IngestUnitType }
+
 // IsContradictionType reports whether t is exactly ContradictionType.
 func IsContradictionType(t string) bool { return t == ContradictionType }
 
@@ -37,5 +47,6 @@ func IsDigestType(t string) bool { return strings.EqualFold(t, DigestType) }
 // IsKeyedType reports whether t is one of the types the server keys on, each
 // matched the way its own predicate does.
 func IsKeyedType(t string) bool {
-	return IsSourceType(t) || IsContradictionType(t) || IsServiceType(t) || IsDigestType(t)
+	return IsSourceType(t) || IsContradictionType(t) || IsServiceType(t) || IsDigestType(t) ||
+		IsIngestPlanType(t) || IsIngestUnitType(t)
 }

@@ -332,6 +332,10 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 	return err != nil || !now.Before(t.AddDate(0, 0, intervalDays))
 }
 
+// repairCallHint is the conformance.repair text of kb_status when something is
+// repairable: the one call that plans, then applies, every mechanical fix.
+const repairCallHint = "kb_repair(check: \"*\") plans every mechanical fix; add dry_run: false to apply them in one commit"
+
 // summarizeConformance turns the findings and the review items the caller may
 // see into the kb_status conformance object. A pure function of its inputs, so
 // the doctor_suggested truth table is testable without a KB.
@@ -368,6 +372,10 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 		"repairable":       repairable,
 		"lint_findings":    len(findings),
 		"doctor_suggested": (len(findings)+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
+	}
+	if len(repairable) > 0 {
+		// Names the one call; fixed text, no finding, count or KB content.
+		out["repair"] = repairCallHint
 	}
 	if lastDoctor != "" {
 		out["last_doctor"] = lastDoctor

@@ -222,7 +222,7 @@ writes no entry) needs an entry with `remote:` and `branch:` for it. An existing
 to the effective one by the first sync when that loses nothing (HEAD on a branch, clean tree, nothing unpushed there);
 otherwise it stays `degraded` and `last_error` says why (`concurrency.md`).
 `kb clone <url> --branch X` checks `X` out and adds that entry to the server file (`--config`, which must exist);
-`kb create <name> --remote <url> --branch X` writes `branch: X` in the KB's own `settings.yaml` instead (D1093).
+`kb create <name> --remote <url> --branch X` writes `branch: X` in the KB's own `settings.yaml` instead (D1093). On a repository with history and no `X`, `X` becomes an orphan branch pushed alone; there the `branch:` line is informational, since the server reads the override from the `kbs[]` entry that `kb create` records (D1412).
 
 The clone is atomic (D348): it lands in `<data>/.<name>.cloning` and is renamed to `<data>/<name>` only when complete, so a process killed mid-clone leaves no half-clone that the next start would take for a finished one. A half-clone found at `<data>/<name>` is not detected (an existing clone is never touched): remove that directory.
 
@@ -333,7 +333,7 @@ cartographer service install                 # generates config + plist/unit, st
 cartographer service status                  # binary, config, and the observable state of the local service
 cartographer service start|stop|restart
 cartographer service uninstall               # removes the service; config and data remain
-cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134); --branch X makes X the KB's branch (D1093)
+cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134); --branch X makes X the KB's branch, an orphan branch on a repository with history (D1093, D1412)
 cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97); --branch X: this server writes to X (kbs[].branch, D1093)
 cartographer kb list                         # what is on disk, and what the server actually serves (D173)
 cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + alias in the server state file + client bindings (D177, D754, D772, D906)
@@ -954,6 +954,11 @@ auth:
           types: [Runbook]      # empty = every type
         - kb: reference
           access: r
+    - name: automation-a        # an automation token that cannot change artifacts
+      rules:
+        - kb: kb-a
+          access: rw
+          artifacts: r          # rw (default) | r: everything above except changing skills, agents, hooks
   tokens:
     - token: ${CARTOGRAPHER_TOKEN}
       id: ci                    # stable principal id for logs; derived from a
@@ -965,6 +970,12 @@ auth:
 the environment at startup; an unset or empty variable refuses startup, naming
 the field (#680). Any other value is taken literally.
 
+`artifacts: r` (#1405) is a narrower allow, not a deny: the rule grants what its `access` grants except
+`artifact_write`, `artifact_delete`, `artifact_move`, `skill_install` and the `/api/usage` report, which change what
+every client of the KB syncs and executes. `log_append`, `source_register`, `concept_*` and the reads stay allowed.
+A second rule of the same token without the key restores the write (rules are unioned); `artifacts: rw` with
+`access: r` is refused at startup.
+
 Rollout notes:
 
 - **Nothing changes until you opt in.** Tokens without `roles` behave exactly as
@@ -972,7 +983,7 @@ Rollout notes:
 - **Migrate one token at a time.** `roles` and `scopes` on the same token are
   unioned, so a token can gain a narrow role while keeping an existing scope.
 - **Validation is fatal at startup.** A duplicate role or principal ID, an
-  unknown role reference, an empty `kb`, an `access` other than `r`/`rw`, an
+  unknown role reference, an empty `kb`, an `access` other than `r`/`rw`, an `artifacts` other than `r`/`rw` (or `rw` on an `r` rule), an
   empty or traversal selector, or a selector declared as both map and journal
   aborts the boot. Diagnostics name the role and rule index, never a token.
 - **Selectors are not validated against KB content**: a role may reference a map

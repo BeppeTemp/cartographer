@@ -260,6 +260,36 @@ func TestShared_Convergence(t *testing.T) {
 	}
 }
 
+// #1316: "Archives:" became "Maps:". A block an older release wrote with the
+// old word is rewritten once, then stays byte-identical; and the guide-only
+// texts (cold start, procedures list) never reach the block (D1182).
+func TestShared_MapsWordConvergesAndGuideTextsStayOut(t *testing.T) {
+	m := sharedKBs(t, 2, nil)
+	base := t.TempDir()
+	r1, content1 := applyBlock(t, m, base, provisioning.Lock{})
+	if !strings.Contains(content1, "Maps: entities/") || strings.Contains(content1, "Archives:") {
+		t.Fatalf("the block must say Maps:\n%s", content1)
+	}
+	for _, frag := range []string{"This KB is empty", "map_create", "procedure: <name>", "whole guide"} {
+		if strings.Contains(content1, frag) {
+			t.Errorf("the managed block carries guide-only text %q", frag)
+		}
+	}
+	old := strings.ReplaceAll(content1, "Maps: entities/", "Archives: entities/")
+	if err := os.WriteFile(filepath.Join(base, ".claude", "CLAUDE.md"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale := r1.NewLock
+	stale.PathsSectionHash = "from-an-older-release"
+	r2, content2 := applyBlock(t, m, base, stale)
+	if len(r2.Written) == 0 || content2 != content1 {
+		t.Errorf("a block with the old word must be rewritten once to the current text: %+v", r2.Written)
+	}
+	if r3, content3 := applyBlock(t, m, base, r2.NewLock); len(r3.Written) != 0 || content3 != content1 {
+		t.Errorf("and then stay byte-identical: %+v", r3.Written)
+	}
+}
+
 func TestBrief_DirectiveCollisionScope(t *testing.T) {
 	build := func(directive string, full bool) provisioning.Artifact {
 		root := makeKBWithArchives(t, nil)
