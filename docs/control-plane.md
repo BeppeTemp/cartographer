@@ -203,6 +203,8 @@ lint check, not by a tool.
 | 1 MiB per concept file | `kb.MaxConceptBytes` (`internal/kb/kb.go`) | every concept write (`concept_write`, `concept_new`, `concept_patch`, `concept_batch`, the move and transfer tools): the whole file, serialized frontmatter plus body, over the limit is refused with `concept_too_large` naming the total and its two halves, before anything is written; `kb_repair` rewrites are exempt. An existing page already over the limit is refused too, a frontmatter-only change included: it must be split (only `kb_repair` can still rewrite it) |
 | 500 lines per skill body | `maxSkillBodyLines` (`internal/skill/skill.go`) | `skill_warning` |
 
+A panic in a tool call (handler, doctor nudge or audit close) is not a limit but is contained the same way: the caller gets an `internal error` result, the stack is logged and the audit call closes as `internal_error` (D1516).
+
 `required_fields`, `field_values`, `forbidden_fields` and the curated index are **lint contracts**: a
 violation is a `lint`/`validate` finding. A write never introduces one, though: each is a check a
 write can avoid, so in a git KB the write gate refuses the write that would (D907) and an existing
