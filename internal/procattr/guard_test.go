@@ -16,23 +16,11 @@ import (
 // each with the reason. Everything else that starts a process on Windows goes
 // through Hide (D1518).
 var guardAllowlist = map[string]string{
-	// WP2 of the tray follow-ups hid the service manager and the taskkill
-	// call; the sites below are hidden by the next change and leave the list.
-	"cmd/cartographer/workspace.go":            "git, hidden next",
-	"internal/clientconfig/workspace.go":       "git, hidden next",
-	"internal/gitx/gitx.go":                    "git, hidden next",
-	"internal/gitx/ident.go":                   "git, hidden next",
-	"internal/gitx/realign.go":                 "git, hidden next",
-	"internal/provisioning/kbtracked.go":       "git, hidden next",
-	"internal/provisioning/opencodeversion.go": "opencode, hidden next",
-	"internal/provisioning/repohygiene.go":     "git, hidden next",
-	"internal/sops/create.go":                  "sops, hidden next",
-	"internal/sops/sops.go":                    "sops, hidden next",
-	"cmd/cartographer/setup.go":                "loginctl: Linux only",
-	"internal/tray/actions.go":                 "rundll32 is a GUI binary, open is macOS: no console to hide",
-	"internal/gitx/gitxtest/gitxtest.go":       "test helper",
-	"internal/testkbs/testkbs.go":              "builds the synthetic KBs of `make dev`, never runs as a service",
-	"internal/repodocs/repodocs.go":            "repository checks, run by the gate",
+	"cmd/cartographer/setup.go":          "loginctl: Linux only",
+	"internal/tray/actions.go":           "rundll32 is a GUI binary, open is macOS: no console to hide",
+	"internal/gitx/gitxtest/gitxtest.go": "test helper",
+	"internal/testkbs/testkbs.go":        "builds the synthetic KBs of `make dev`, never runs as a service",
+	"internal/repodocs/repodocs.go":      "repository checks, run by the gate",
 }
 
 // TestEveryChildProcessIsHidden is a parse-only check (it runs on every OS):

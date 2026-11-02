@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // ErrNothingToCommit signals that there was nothing to commit.
@@ -52,7 +54,7 @@ func netEnv(dir string, extra []string) []string {
 	// thing that hangs.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cfg := exec.CommandContext(ctx, "git", "-C", dir, "config", "--get", "core.sshCommand")
+	cfg := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "config", "--get", "core.sshCommand"))
 	cfg.Env = env
 	if out, err := cfg.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
 		return env
@@ -66,7 +68,7 @@ func netEnv(dir string, extra []string) []string {
 func runGitNet(dir, remote string, timeout time.Duration, env []string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...))
 	cmd.Env = netEnv(dir, env)
 	killGroupOnCancel(cmd)
 	cmd.WaitDelay = time.Second
@@ -79,7 +81,7 @@ func runGitNet(dir, remote string, timeout time.Duration, env []string, args ...
 
 // IsRepo checks whether the directory is a valid git repository.
 func IsRepo(dir string) bool {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
+	cmd := procattr.Hide(exec.Command("git", "-C", dir, "rev-parse", "--git-dir"))
 	cmd.Env = gitEnv(nil)
 	return cmd.Run() == nil
 }
@@ -108,7 +110,7 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 	if err := ValidateRemote(remote); err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", "--", remote, dest)
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "clone", "--progress", "--", remote, dest))
 	cmd.Env = cloneEnv(remote, env)
 	var stderr strings.Builder
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
@@ -248,7 +250,7 @@ func lsRemoteProbe(ctx context.Context, remote string) (RemoteRefs, error) {
 	if err := ValidateRemote(remote); err != nil {
 		return RemoteRefs{}, err
 	}
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", remote)
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", remote))
 	cmd.Env = cloneEnv(remote, nil)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -298,7 +300,7 @@ func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error)
 	if out, err := runGit(tmp, "init", "--quiet"); err != nil {
 		return probe, fmt.Errorf("git init: %w: %s", err, out)
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0])
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0]))
 	cmd.Env = cloneEnv(remote, nil)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
@@ -563,7 +565,7 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-remote", "--symref", remote)
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "ls-remote", "--symref", remote))
 	cmd.Env = netEnv(dir, env)
 	killGroupOnCancel(cmd)
 	cmd.WaitDelay = time.Second
@@ -679,7 +681,7 @@ func runGit(dir string, args ...string) (string, error) {
 // behaves exactly like runGit.
 func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	fullArgs := append([]string{"-C", dir}, args...)
-	cmd := exec.Command("git", fullArgs...)
+	cmd := procattr.Hide(exec.Command("git", fullArgs...))
 	cmd.Env = gitEnv(env)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -691,7 +693,7 @@ func runGitEnv(dir string, env []string, args ...string) (string, error) {
 // Windows, "unable to access '<dir>/.gitignore': Filename too long" for a path
 // past MAX_PATH) would otherwise be glued to one of its names.
 func runGitStdin(dir, stdin string, args ...string) (stdout, stderr string, err error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := procattr.Hide(exec.Command("git", append([]string{"-C", dir}, args...)...))
 	cmd.Env = gitEnv(nil)
 	cmd.Stdin = strings.NewReader(stdin)
 	var errBuf strings.Builder
@@ -807,7 +809,7 @@ func Fetch(dir, remote string, env ...string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "fetch", remote)
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "fetch", remote))
 	cmd.Env = netEnv(dir, env)
 	killGroupOnCancel(cmd)
 	cmd.WaitDelay = time.Second
@@ -919,7 +921,7 @@ func RebaseOntoAutostash(dir, remote, branch string, env ...string) error {
 // TreePaths returns the paths of every file in ref's tree, slash-separated
 // ("git ls-tree -r --name-only -z <ref>").
 func TreePaths(dir, ref string) ([]string, error) {
-	cmd := exec.Command("git", "-C", dir, "ls-tree", "-r", "--name-only", "-z", ref)
+	cmd := procattr.Hide(exec.Command("git", "-C", dir, "ls-tree", "-r", "--name-only", "-z", ref))
 	cmd.Env = gitEnv(nil)
 	out, err := cmd.Output()
 	if err != nil {
@@ -1265,7 +1267,7 @@ func UnmergedFiles(dir string) ([]string, error) {
 // --exclude-standard", slash-separated and relative to dir. An error means dir
 // is not inside a git work tree (or git is missing).
 func ListFiles(dir string) ([]string, error) {
-	cmd := exec.Command("git", "-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	cmd := procattr.Hide(exec.Command("git", "-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard"))
 	cmd.Env = gitEnv(nil)
 	out, err := cmd.Output() // stdout only: a warning on stderr is not a path
 	if err != nil {
@@ -1289,7 +1291,7 @@ func TrackedPaths(dir string, paths ...string) (map[string]bool, error) {
 	if len(paths) == 0 {
 		return out, nil
 	}
-	cmd := exec.Command("git", append([]string{"--literal-pathspecs", "-C", dir, "ls-files", "-z", "--"}, paths...)...)
+	cmd := procattr.Hide(exec.Command("git", append([]string{"--literal-pathspecs", "-C", dir, "ls-files", "-z", "--"}, paths...)...))
 	cmd.Env = gitEnv(nil)
 	b, err := cmd.Output()
 	if err != nil {
@@ -1750,7 +1752,7 @@ func MergeFileUnion(base, ours, theirs string) (string, error) {
 			return "", fmt.Errorf("merge-file temp file: %w", err)
 		}
 	}
-	cmd := exec.Command("git", "merge-file", "-p", "--union", paths[0], paths[1], paths[2])
+	cmd := procattr.Hide(exec.Command("git", "merge-file", "-p", "--union", paths[0], paths[1], paths[2]))
 	cmd.Env = gitEnv(nil)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

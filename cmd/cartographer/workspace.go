@@ -13,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/mcpbridge"
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -1200,7 +1201,7 @@ func uncoveredProjectionFiles(provider configurator.Provider, workspace string, 
 	if len(args) == n {
 		return nil
 	}
-	raw, err := exec.Command("git", args...).Output()
+	raw, err := procattr.Hide(exec.Command("git", args...)).Output()
 	if err != nil {
 		return nil
 	}

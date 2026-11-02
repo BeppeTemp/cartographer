@@ -25,6 +25,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // SecretFile represents a decrypted SOPS file. Values are keyed by RFC 6901
@@ -82,7 +84,7 @@ func Decrypt(kbRoot, relativePath string, env ...string) (*SecretFile, error) {
 		return nil, err
 	}
 	defer cleanup()
-	cmd := exec.Command("sops", "decrypt", "--output-type", "yaml", relativePath)
+	cmd := procattr.Hide(exec.Command("sops", "decrypt", "--output-type", "yaml", relativePath))
 	cmd.Dir = kbRoot
 	cmd.Env = childEnv
 	// Only stdout is the document: a warning sops prints on stderr during a
@@ -278,7 +280,7 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 		return err
 	}
 	defer cleanup()
-	cmd := exec.Command("sops", "set", "--value-stdin", tmpRel, selector)
+	cmd := procattr.Hide(exec.Command("sops", "set", "--value-stdin", tmpRel, selector))
 	cmd.Dir = kbRoot
 	cmd.Stdin = bytes.NewReader(encoded)
 	cmd.Env = childEnv

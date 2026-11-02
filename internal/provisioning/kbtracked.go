@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // kbTracked is the set of files git tracks in a KB clone, as slash paths
@@ -37,7 +39,7 @@ func kbTrackedFilter(kbRoot string) (kbTracked, error) {
 			return kbTracked{set: e.set}, nil
 		}
 	}
-	out, err := exec.Command("git", "-C", kbRoot, "ls-files", "-z", "--", "skills", "agents", "hooks", "mcp").Output()
+	out, err := procattr.Hide(exec.Command("git", "-C", kbRoot, "ls-files", "-z", "--", "skills", "agents", "hooks", "mcp")).Output()
 	if err != nil {
 		return kbTracked{}, fmt.Errorf("provisioning: list tracked files in %s: %w", kbRoot, err)
 	}
