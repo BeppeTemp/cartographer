@@ -59,13 +59,7 @@ func cmdTray(args []string) int {
 	}
 
 	m := service.NewManager()
-	statusFn := func() (service.Status, error) {
-		cfg, err := m.EffectiveConfigPath(*configFlag)
-		if err != nil {
-			return service.Status{}, err
-		}
-		return m.Status(cfg)
-	}
+	statusFn := trayStatusFn(m, *configFlag)
 	logf := log.Printf
 	actions := tray.NewActions(m, logf)
 	deps := tray.NewDeps(statusFn, trayServerLogPath())
@@ -76,6 +70,14 @@ func cmdTray(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return runTray(ctx, ui, deps, *interval, actions)
+}
+
+// trayStatusFn is the tray's view of the service on every tick: the light
+// Manager.TrayView, which runs no scheduler command (a PowerShell or launchctl
+// start every 5 s is what it replaced) and no /health probe, the tray probes
+// that itself.
+func trayStatusFn(m *service.Manager, configFlag string) func() (service.Status, error) {
+	return func() (service.Status, error) { return m.TrayView(configFlag) }
 }
 
 // runTray polls until ctx ends or the UI returns. A signal only cancels ctx, so
