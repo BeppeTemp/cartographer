@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 	"github.com/BeppeTemp/cartographer/internal/webui"
 )
 
@@ -56,7 +57,7 @@ func execRun(name string, args ...string) (string, error) {
 	if err := guardScheduler(name); err != nil {
 		return "", err
 	}
-	out, err := exec.Command(name, args...).CombinedOutput()
+	out, err := procattr.Hide(exec.Command(name, args...)).CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("%s %s: %w (output: %s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
