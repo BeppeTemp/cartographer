@@ -173,7 +173,7 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 
 What lands where, upgrades and removal:
 [`docs/getting-started.md`](docs/getting-started.md#what-gets-installed). Server configuration,
-environment variables and deployment topologies: [`docs/deployment.md`](docs/deployment.md).
+environment variables, deployment components and scenarios: [`docs/deployment.md`](docs/deployment.md).
 
 ## Documentation
 
@@ -183,7 +183,7 @@ map is [`docs/index.md`](docs/index.md).
 - [Getting started](docs/getting-started.md) — from zero to a working wiki
 - [Overview](docs/overview.md) — vision, principles, architecture
 - [MCP tools](docs/control-plane.md) — the full tool API
-- [Deployment](docs/deployment.md) — topologies, configuration, backup
+- [Deployment](docs/deployment.md) — components, deployment scenarios, configuration, backup
 - [Sync](docs/sync.md) — how artifacts reach each agent client
 
 ## Contributing

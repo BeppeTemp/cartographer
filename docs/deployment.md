@@ -2,15 +2,45 @@
 
 ## Deployment and packaging
 
-The server is distributed as a native **Go binary** (via `install.sh`, see §Client installation — client and server are the same binary). The Docker image only exists as a CI artifact for k8s deployment: **it is not a local deployment mode** (D73 — containers on macOS mean a slow virtualized filesystem for git/SQLite, and an always-on VM).
+The server is distributed as a native **Go binary** (via `install.sh`, see §Client installation; the client side and the server are the same binary, one per platform) and as one container image. The image holds `git`, `sops`, `age` and `openssh-client`, runs as the non-root user `cartographer` with the entrypoint `cartographer`, and is what Kubernetes, compose on a shared VM, Cloud Run, the Surveyor and the MCP Registry entry run. **It is not a local deployment mode** (D73: containers on macOS mean a slow virtualized filesystem for git and SQLite, and an always-on VM).
 
-### Topologies
+### Components
 
-| Topology | Description |
-|---|---|
-| **Local** | The binary runs as a native user service (`cartographer service`: launchd, systemd, or a Windows Scheduled Task); the client on the same machine points to `127.0.0.1`. |
-| **Shared server** | HTTP with optional static bearer tokens for multiple agents, on a trusted network or behind a reverse proxy (for example Kubernetes). |
-| **Partitioned servers** | Several instances mount different KBs. A client can connect to entries from more than one server. Do not use several active writer servers as replicas for the same KB; git conflict recovery is a safety net, not a write-scaling protocol. |
+Cartographer deploys as four **deployment components**: Server, Surveyor, Atlas, Client. They are deployment units, **not separate binaries**: every native channel ships one binary per platform and every component below is a subcommand of it (D37, D227, D1439).
+
+| Component | What it is | Command | State | Network | Reached through |
+|---|---|---|---|---|---|
+| **Server** | The MCP server and the only stateful component: the KBs' git working trees, indices, `.cartographer/` runtime files and the credentials directory. **One writer per KB.** Over stdio it serves exactly one KB and no Atlas; over HTTP, any number | `cartographer serve` (stdio, or HTTP with `--http`/`--config`) | The data directory | Inbound on the HTTP port; outbound to the KBs' git remotes | The binary, the image |
+| **Surveyor** | A background process for one perimeter of KBs, with its own model profiles and budgets (§The Surveyor (a third role)) | `cartographer surveyor` | None persistent; a writable temporary directory for exec recipes and git reads. The budget is rebuilt from the KBs' logs | No inbound port. Outbound to the Server, the model endpoints and whatever its own config names: fetch hosts, `git.allow_hosts`, MCP connectors, exec listers | The binary, the image |
+| **Atlas** | The read-only browser UI. Not a process: it is embedded in the Server, and `/ui/` and `/api/ui/v1` belong to the Server | None; one switch, `web.enabled` (`CARTOGRAPHER_WEB_ENABLED`, `--web-enabled`). stdio never serves it | The Server's | The Server's HTTP port | The Server |
+| **Client** | What runs next to the agent: `connect`, `sync`, `status`, `doctor` and the workspace bridge `cartographer mcp`. Not a workload: it writes under the agent's `$HOME` and never belongs in a Deployment | `cartographer connect` and the other client subcommands | The agent's `$HOME` | Outbound to one Server (the managed Client follows one `server_url`) | The binary |
+
+The Server also owns the data-directory administration commands (`kb`, `import`, `reindex`, `audit`), which run on the host that holds the data directory: `kb` refuses on a client pointed at a remote server. `cartographer service` manages the Server's native user service and the Client's sync timer, never the Surveyor. The Atlas is never deployed on its own: a standalone frontend is not a supported topology, and the static public Atlas below is a demo.
+
+### Deployment scenarios
+
+Each row is a way of deploying that this page documents or has assembled by hand. **Status** is `documented` when the row links its own section and `assembled by hand` when it has none yet and links the issue that will write it. A new way of deploying is a new row.
+
+| # | Scenario | Components | Status | Where |
+|---|---|---|---|---|
+| 1 | Local all-in-one: native service, embedded Atlas, client on the same machine, loopback, auth off | Server, Atlas, Client | documented | §Example: native local service; [getting-started](getting-started.md) |
+| 2 | stdio: the client spawns the server (a binary, or the image) | Server, no Atlas | documented | §Example: stdio |
+| 3 | Single VM: server and optional Surveyor under systemd or compose, bearer tokens, reverse proxy | Server, Atlas, Surveyor | documented | §Example: single VM |
+| 4 | Kubernetes minimal: server with embedded Atlas, PVC or `emptyDir`, Ingress | Server, Atlas | documented | §Example: K8s pod |
+| 5 | Kubernetes full: the previous row plus one Surveyor per perimeter | Server, Atlas, Surveyor | documented | §Example: K8s pod; §The Surveyor (a third role), Packaging |
+| 6 | Serverless: Cloud Run, one instance at most, synchronous push | Server, Atlas | documented (the demo) | §The hosted MCP demo; `deploy/demo/README.md` |
+| 7 | Public static Atlas: bundle on Pages, API behind an edge with CORS | A static Atlas snapshot and a live API | documented (**a demo, not a topology to copy**) | §The public static demo |
+| 8 | Partitioned: different KBs on different servers | Several Servers, one managed Client | documented | §Several servers |
+| 9 | Same KB on two servers | Two Servers | documented | §Several servers |
+| 10 | Surveyor outside the cluster (a GPU host, a local model), to the server over HTTPS | Surveyor | documented | §Example: Surveyor outside the cluster |
+| 11 | Surveyor scheduled: `--once` from a CronJob or an external scheduler | Surveyor | documented | §Example: Surveyor as a CronJob |
+| 12 | Surveyor exec recipes: a derived image with its tools and a read-only identity | Surveyor | documented | §Example: a derived image for exec recipes; `examples/system-recipes/kubernetes/README.md` |
+| 13 | Client on a workstation: `connect`, `sync`, workspace bridge | Client | documented | [configurator](configurator.md) §`cartographer connect`, §`cartographer sync` |
+| 14 | Client on a headless always-on host, timer sync | Client | documented | [configurator](configurator.md) §Headless hosts, CI and agent containers |
+| 15 | Client in CI, a devcontainer or an agent pod: the binary in the agent's image, one-shot sync | Client | documented | [configurator](configurator.md) §Headless hosts, CI and agent containers |
+| 16 | No client: a remote agent on `/mcp/routed` with a bearer token, no skills or hooks | none | documented | [mcp-clients](mcp-clients.md) |
+
+Three rules sit outside any row. The Atlas is never deployed alone. The same KB on two servers is synchronization, not scaling: two servers never add write capacity or availability to one KB. A Kubernetes or VM recipe never runs two Server processes on one working copy (`concurrency.md` §Writer boundary).
 
 ### Provisioning artifact signing
 
@@ -114,8 +144,8 @@ An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` 
 `kbs[]` (YAML) is additive to `CARTOGRAPHER_KB_REMOTES` (append, not replace) — all listed KBs get
 mounted — and every entry has a `remote`: a KB without one is a folder under `data`, which is discovered
 (there is no `kbs[].path`). The `--kb` flag and `CARTOGRAPHER_KB` mount one more folder from the command
-line, for development and tests: it is not a key of the YAML file, and a folder mounted that way has no
-remote, so it never syncs. Scalar fields (`http`, `data`, tokens, ...) follow flag > env > YAML
+line, for development and tests: it is not a key of the YAML file, and a folder mounted that way syncs
+only when it has a git remote, like any other KB. Scalar fields (`http`, `data`, tokens, ...) follow flag > env > YAML
 precedence: the last explicitly set level wins.
 
 **Git: one way to write (D903).** Cartographer has no git settings of its own: the SSH key and the token that reach a remote are files of the credentials directory (D905). Every write is one commit on the KB's branch: the remote's default branch, or the one the KB's `settings.yaml` names with `branch` (the team's choice), or, for one server alone, the one its `kbs[].branch` names (below); a KB syncs exactly
@@ -387,7 +417,7 @@ Two entries that could both be the KB is a refusal, naming them: guessing there 
 
 The `--output json` shape is a contract: fields are added, existing fields and the exit codes keep their meaning.
 
-**Data/code separation**: the cartographer repo contains no data. KBs live in the data dir (default `~/cartographer-data`); every subdirectory of it is a separate KB. For multiple users on shared KBs, see the k8s topology below — the server configuration is identical, only where it runs changes; one server process is the sole writer of a given working copy, so several instances mean separate clones synchronizing through the same remote, never two writers on one checkout (`concurrency.md` §Writer boundary).
+**Data/code separation**: the cartographer repo contains no data. KBs live in the data dir (default `~/cartographer-data`); every subdirectory of it is a separate KB. For multiple users on shared KBs, see §Example: K8s pod (Kubernetes minimal) below — the server configuration is identical, only where it runs changes; one server process is the sole writer of a given working copy, so several instances mean separate clones synchronizing through the same remote, never two writers on one checkout (`concurrency.md` §Writer boundary).
 
 Client-side convenience: if `cartographer connect` targets a loopback URL and the probe fails because the service isn't running, it directly offers to install+start the service (in the interactive flow) or suggests `cartographer service install` (in the non-interactive one).
 
@@ -458,9 +488,168 @@ without it a `best_effort` log runs unsigned, warning at every start, while `aud
 not start. Back the key up, since the audit log's signatures depend on it. A KB that needs a key of its
 own adds `<kb>.ssh`; an HTTPS remote reads `<kb>.token` or `default.token`.
 
-This topology serves **multiple clients** (one or more agents connected via `cartographer connect` /
+This scenario serves **multiple clients** (one or more agents connected via `cartographer connect` /
 `cartographer sync`, all over HTTP): git remains the sync/backup layer between the server and the
 remote KBs, not a requirement for the client.
+
+The scenario is **Kubernetes minimal**. The excerpt above is the base; the rest of the scenario is each of these blocks, kept separate.
+
+The data volume, `ReadWriteOnce`, which the `fsGroup` of the excerpt makes writable:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cartographer-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+```
+
+One writer per working copy (`concurrency.md` §Writer boundary): the Deployment has `replicas: 1` and the **Recreate** strategy. A rolling update starts a second pod on the same volume, or hangs waiting for a `ReadWriteOnce` volume to detach:
+
+```yaml
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+```
+
+A ClusterIP Service on the one port:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: cartographer
+spec:
+  selector: {app: cartographer}
+  ports:
+    - {name: http, port: 39273, targetPort: 39273}
+```
+
+An Ingress with TLS on one host, every path to the one Service. The Ingress controller must pass the browser's `Host` header through unchanged (§Example: single VM, reverse proxy requirements):
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cartographer
+spec:
+  tls:
+    - hosts: [kb.example.com]
+      secretName: cartographer-tls
+  rules:
+    - host: kb.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: cartographer, port: {number: 39273}}
+```
+
+To put single sign-on in front of the Atlas only, split `/ui` and `/api/ui` from the rest of the paths, as §The embedded Atlas UI (D227) describes (D308). Probes are in §Observability.
+
+**The `emptyDir` variant** replaces the `cartographer-data` claim by an `emptyDir` volume, for a trial or a read-mostly server, never for a KB whose only copy is the pod. What it loses: the KBs are cloned again at every pod start, so **every KB needs a remote**; a pod lost inside the 3 s push debounce loses its last writes; `usage.json`, the conflict registry (`.cartographer/conflicts.json`) and the audit log (`<data>/audit/audit.log`) vanish with the pod, unless `audit.log` points at a persistent path (§State and volumes).
+
+#### Example: stdio
+
+The agent's client spawns `cartographer serve --kb <KB folder>`, with no `--http`: that is stdio, exactly one KB, no Atlas and no `/health` (`transport-auth.md`). The entry is **written by hand** in the agent's own configuration, because `connect` writes HTTP entries only (D37). A stdio session keeps no audit log and no credentials directory unless the configuration says where (§Audit log).
+
+The binary form, with the KB created beforehand (`cartographer kb create <name> --no-remote --local --data <dir>` or `kb clone`):
+
+```json
+{ "command": "cartographer", "args": ["serve", "--kb", "/home/user/cartographer-data/kb-a"] }
+```
+
+The container form runs the image with the KB folder bind-mounted. The entry is `docker run -i --rm` with the mount and `serve --kb` pointing at the mounted folder as the arguments:
+
+```sh
+docker run -i --rm \
+  --mount type=bind,src=/home/user/cartographer-data/kb-a,dst=/kb \
+  ghcr.io/beppetemp/cartographer:<tag> serve --kb /kb
+```
+
+The folder must be writable by the image's user: a folder created by the host user needs `--user "$(id -u):$(id -g)"` on the `docker run`, and a fresh named volume is root-owned and needs one `chown` run before the first start (the same step as §Example: single VM).
+
+The MCP Registry entry (`server.json`) declares the image on stdio **with no arguments**: the image's entrypoint is `cartographer`, and with no arguments and no terminal it prints the usage and exits. A client that launches the entry as published gets no MCP server; the explicit `docker run -i` form above works. The entry is tracked by [#1438](https://github.com/BeppeTemp/cartographer/issues/1438).
+
+#### Example: single VM
+
+A **shared-VM recipe**: one always-on host, the server and optionally a Surveyor, bearer tokens, TLS at a reverse proxy. It is not a local mode, and containers stay out of the local deployment (D73). Two forms.
+
+**systemd, native binary.** A **system** unit, not `service install`: that one is a per-user unit whose generated definition sets only `PATH`. Create a dedicated system user, install the binary with `install.sh`, put the tokens in an environment file with mode 0600 (`CARTOGRAPHER_TOKENS`: never in the YAML), and give the unit's user the data directory:
+
+```ini
+# /etc/systemd/system/cartographer.service
+[Unit]
+Description=Cartographer server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cartographer
+EnvironmentFile=/etc/cartographer/env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/cartographer serve --config /etc/cartographer/server.yaml
+Restart=on-failure
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The stop timeout is at least 30 s, for the graceful drain and the push flush. `git` is on the unit's `PATH`, and so are `sops`, `age` and `ssh` when the KBs use secrets or SSH remotes (the trap of the native service, §Example: native local service). After `install.sh update` the operator restarts the unit: `upgrade-repair` acts only on the native user service on loopback (§Client installation).
+
+**compose.** The server service from the image, with the configuration and the credentials directory mounted read-only (`audit.key`, `default.ssh` and `known_hosts` are read, never written: read-only is fine), the tokens from an env file, the data in a named volume and the port published on `127.0.0.1` only, because the proxy runs on the host:
+
+```yaml
+# compose.yaml
+services:
+  server:
+    image: ghcr.io/beppetemp/cartographer:latest
+    command: ["serve", "--config=/etc/cartographer/config.yaml"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file: ./cartographer.env          # CARTOGRAPHER_TOKENS=...
+    ports:
+      - "127.0.0.1:39273:39273"
+    volumes:
+      - ./config.yaml:/etc/cartographer/config.yaml:ro
+      - ./credentials:/etc/cartographer-credentials:ro
+      - cartographer-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:39273/health"]
+      interval: 30s
+volumes:
+  cartographer-data:
+```
+
+The configuration sets `http: ":39273"`, `data: /data`, `credentials_dir: /etc/cartographer-credentials` and `auth: {mode: "on"}`. The health check uses `/health`: `/ready` needs a token once auth is on (§Observability). Two errors to expect. A listener off loopback with no token refuses to start. A fresh named volume is root-owned while the image runs as `cartographer`, so one `chown` run precedes the first start: `docker compose run --rm -u root --entrypoint chown server cartographer /data`.
+
+The optional Surveyor is a second service, the compose block of §The Surveyor (a third role), Packaging, with `server_url` set to the same HTTPS URL the clients use. On a host with the native binary it is the unit of §Example: Surveyor outside the cluster instead.
+
+**Reverse proxy requirements** (the proxy is not a product configuration): terminate TLS; forward `/mcp`, `/ui/`, `/api/`, `/health` and `/ready` to the one upstream; **preserve the browser's `Host` header**, because the Origin check compares the `Origin` host with the request's `Host` and a proxy that rewrites `Host` makes the Atlas and every browser caller fail with 403; set `X-Forwarded-Proto`. A single sign-on variant that protects `/ui` and `/api/ui` only, and leaves `/mcp` on bearer authentication, is in §The embedded Atlas UI (D308).
+
+### Several servers
+
+Two scenarios involve more than one Server. They share one rule: **synchronization yes, scaling no**.
+
+**Partitioned servers** (different KBs on different servers). Each server mounts its own KBs. The managed Client follows **one** server (`server_url`): it receives that server's skills, hooks and instructions (D73, one server at a time). Another server is reached by an MCP entry **written by hand** in the agent's configuration, on that server's `/mcp/routed` URL with a bearer header ([mcp-clients](mcp-clients.md) §Connect). `sync` leaves such an entry alone, it carries no managed block, and with no `provisioned=1` in its URL the server sends the operating guide in `initialize`. Kiro's tool namespace is flat (D102), so identical bare tool names of two servers collide there.
+
+**The same KB on two servers.** Two servers may mount one KB to keep it available in two places (a laptop and a cluster). Their writes reconcile through git, and a conflict on the same concept degrades to `needs-resolution`. This is the multi-server cooperation of D73; it is never a way to add write capacity or availability, which is what the rule "do not use several active writer servers as replicas" forbids. The recipe:
+
+- Both servers mount one remote: a cluster server through `kbs[].remote` (§Bootstrapping a KB from a git remote), a laptop through `kb clone`. Each has its own clone and credentials and, when the forge enforces membership, its own `git.identity`. Commits carry `Cartographer-Host`, which says which instance wrote.
+- **Both write the same branch**: the remote's default, or the `branch` of the KB's `settings.yaml`. A per-server `kbs[].branch` that differs on one of them makes the two servers write different branches that never reconcile.
+- There is no push notification. A write on one server reaches the other after the push debounce (3 s) and that server's next pull, which a read starts in the background once the 30 s freshness window has expired (`concurrency.md`).
+- A conflict on the same concept is `needs-resolution`: the registry `.cartographer/conflicts.json`, `conflicts_list` and `git_conflict_resolve` (`concurrency.md`). Reserved files such as `log.md` merge by themselves (D311).
+- Each Client follows one of the two servers (D73); moving a Client between them is `connect --server-url`.
+
+What it is **not**: no replicas of one KB, no load balancer in front of two servers sharing a KB, no automatic failover, and never two Server processes on one working copy (`concurrency.md` §Writer boundary).
+
 
 ### The Surveyor (a third role)
 
@@ -823,6 +1012,99 @@ roles), with an `id` so the audit log names the Surveyor. A Surveyor must not ch
 that every client of the KB syncs and executes, yet it needs whole-KB `rw` (`log_append`, `source_register`):
 give it a role with `artifacts: r` (§Fine-grained roles). To drive the Surveyor from an external scheduler instead of its own window,
 run it with `--once`. As a native service, write the unit yourself: `cartographer service` manages only the server.
+
+In Kubernetes a perimeter is one Deployment, one ConfigMap and one Secret: one config per perimeter, so a second perimeter is a second set. Set `server_url` to the Ingress's HTTPS URL. The in-cluster Service URL over plain `http` works only with the `allow_insecure_http` opt-in and sends the token in clear on the pod network.
+
+#### Example: Surveyor outside the cluster
+
+A machine with a GPU or a local model, reaching the Server over HTTPS. `server_url` must be `https://` for a non-loopback host unless `allow_insecure_http` is set. `cartographer service` does not manage the Surveyor, so the unit is a **system unit** written by hand: the binary comes from `install.sh`, the command is `surveyor --config <file>`, and the variables the config names (`token_env`, `api_key_env`) come from an environment file with mode 0600, never from the YAML. There is no port to open.
+
+```ini
+# /etc/systemd/system/cartographer-surveyor.service
+[Unit]
+Description=Cartographer Surveyor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cartographer
+EnvironmentFile=/etc/cartographer/surveyor.env
+ExecStart=/usr/local/bin/cartographer surveyor --config /etc/cartographer/surveyor.yaml
+Restart=on-failure
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The stop timeout is at least 30 s, the grace period the Surveyor itself advises (§The Surveyor (a third role), Shutdown). The model endpoint is local: a loopback `base_url` needs no opt-in, and a plain `http` model URL on another host needs `models[].allow_insecure_http` in the config. The token is the dedicated, perimeter-scoped one with a role that has `artifacts: r` (§The Surveyor (a third role), end of Packaging). The same unit serves a Surveyor next to the Server on one VM (§Example: single VM), where it replaces the compose service.
+
+#### Example: Surveyor as a CronJob
+
+`surveyor --config <file> --once` evaluates the triggers once, runs if a task is due and exits. Each of these is a trap:
+
+- The config still needs `schedule.window`, and `--once` runs only when the window holds at launch: **the CronJob's schedule falls inside the window**. Use a window as wide as the CronJob needs; `00:00` to `23:59` is the widest the loader accepts (equal start and end is refused), and a launch in the last minute does nothing and exits 0.
+- Nothing is kept on local disk and the budget is rebuilt from the KBs' logs, so a CronJob loses nothing between runs.
+- Two overlapping runs both run a due task (there is no lock), so `concurrencyPolicy` is `Forbid`.
+- The exit codes are 0 done, 1 runtime failure and 2 start error. The Job does not retry (`restartPolicy: Never`, `backoffLimit: 0`) and the next schedule is the retry. Bound a run with `activeDeadlineSeconds`.
+
+The config is the ConfigMap and the two secret variables the Secret of the Deployment manifest above, with `terminationGracePeriodSeconds` of 30 or more. The window of the config, as an excerpt:
+
+```yaml
+schedule:
+  window: {start: "00:00", end: "23:59", timezone: UTC}
+```
+
+```yaml
+# Kubernetes: the same ConfigMap and Secret as the Deployment
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cartographer-surveyor
+spec:
+  schedule: "15 2 * * *"            # inside schedule.window
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 14400
+      template:
+        spec:
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 30
+          containers:
+            - name: surveyor
+              image: ghcr.io/beppetemp/cartographer:latest
+              args: ["surveyor", "--config=/etc/cartographer/surveyor.yaml", "--once"]
+              envFrom:
+                - secretRef: {name: cartographer-surveyor-env}
+              volumeMounts:
+                - {name: config, mountPath: /etc/cartographer, readOnly: true}
+          volumes:
+            - name: config
+              configMap: {name: cartographer-surveyor}
+```
+
+A systemd timer or any external scheduler has the same semantics: the launch time falls inside the window, runs must not overlap, and the next launch is the retry.
+
+#### Example: a derived image for exec recipes
+
+An exec recipe (§The Surveyor (a third role), Exec recipes) runs a lister the image does not carry. The reference lister of `examples/system-recipes/kubernetes/` needs Python 3 and `kubectl`, so the image is **derived** from the Cartographer one:
+
+```dockerfile
+FROM ghcr.io/beppetemp/cartographer:latest
+USER root
+RUN apk add --no-cache python3
+# Pin the version and verify its checksum: a downloaded binary is not trusted by its name.
+ARG KUBECTL_VERSION=v1.31.0
+ARG KUBECTL_SHA256=<sha256 of that release's linux/amd64 kubectl>
+ADD https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl /usr/local/bin/kubectl
+RUN echo "${KUBECTL_SHA256}  /usr/local/bin/kubectl" | sha256sum -c - && chmod 0755 /usr/local/bin/kubectl
+COPY lister.py /opt/surveyor/lister.py
+USER cartographer
+```
+
+The last line matters: the image runs as the non-root `cartographer` user and a derived image keeps it. At run time the kubeconfig of the dedicated read-only identity comes from a Secret mounted read-only, and `KUBECTL`, `KUBE_CONTEXT` and `KUBECONFIG` are set in the Surveyor's environment. With a read-only root filesystem, give the temporary directory an `emptyDir`. The identity rules (a ServiceAccount bound to the `view` role, which does not include Secrets) are in §The Surveyor (a third role), Exec recipes, and in [surveyor-recipes](surveyor-recipes.md).
 
 ### Prompt tasks
 

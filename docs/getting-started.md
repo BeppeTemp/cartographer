@@ -188,7 +188,7 @@ agent made can be reviewed or reverted with ordinary git.
   `%APPDATA%\cartographer\server.yaml`, with the log at
   `%LOCALAPPDATA%\cartographer\Logs\server.log`. None of the three needs
   administrator rights. The service is **optional** — a stdio-only setup
-  (`serve --kb <path>`) is a legitimate topology and installs none of this.
+  (`serve --kb <path>`) is a legitimate way to run (`deployment.md` §Example: stdio) and installs none of this.
 - **A data directory**, `~/cartographer-data` by default, holding the cloned KBs.
 - **Writes into your agent clients' own configuration** under `$HOME`, and only
   when you run `cartographer connect` — never before. Each destination path is
