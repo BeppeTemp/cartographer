@@ -183,6 +183,11 @@ func setClientOptOut(optOut bool, field func(*clientconfig.Config) *bool) bool {
 	if err != nil {
 		return false
 	}
+	release, err := lockClient(dir)
+	if err != nil {
+		return false
+	}
+	defer release()
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) || !optOut {

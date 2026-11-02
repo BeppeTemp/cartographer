@@ -394,10 +394,11 @@ func cmdPathsSet(args []string) int {
 		return 2
 	}
 	value := args[1]
-	dir, cfg, code := loadConfigForPaths()
+	dir, cfg, release, code := loadConfigForPaths()
 	if code != 0 {
 		return code
 	}
+	defer release()
 	if kind == "" {
 		kind = recordedKind(dir, key)
 	}
@@ -429,10 +430,11 @@ func cmdPathsUnset(args []string) int {
 		return 2
 	}
 	key, _ := pathsConfigKey(args[0])
-	dir, cfg, code := loadConfigForPaths()
+	dir, cfg, release, code := loadConfigForPaths()
 	if code != 0 {
 		return code
 	}
+	defer release()
 	_, hadPath := cfg.Paths[key]
 	remaining := withoutIgnored(cfg.IgnoredPaths, key)
 	hadIgnore := len(remaining) != len(cfg.IgnoredPaths)
@@ -478,10 +480,11 @@ func cmdPathsIgnore(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error: empty key")
 		return 2
 	}
-	dir, cfg, code := loadConfigForPaths()
+	dir, cfg, release, code := loadConfigForPaths()
 	if code != 0 {
 		return code
 	}
+	defer release()
 	if kind == "" {
 		kind = recordedKind(dir, key)
 	}
@@ -510,22 +513,32 @@ func cmdPathsIgnore(args []string) int {
 // loadConfigForPaths loads the client config for a write. A missing file is
 // an error, not a default: writing a fresh `.cartographer.yaml` holding only
 // `paths:` would make every other command believe the client is connected.
-func loadConfigForPaths() (string, *clientconfig.Config, int) {
+//
+// It takes the client lock (D172) and loads after taking it; the caller defers
+// the returned release, which is a no-op on failure.
+func loadConfigForPaths() (string, *clientconfig.Config, func(), int) {
+	noop := func() {}
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return "", nil, 2
+		return "", nil, noop, 2
 	}
 	if _, err := os.Stat(clientconfig.Path(dir)); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s not found — run `cartographer connect` first\n", clientconfig.Path(dir))
-		return "", nil, 2
+		return "", nil, noop, 2
+	}
+	release, err := lockClient(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return "", nil, noop, 1
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
+		release()
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return "", nil, 1
+		return "", nil, noop, 1
 	}
-	return dir, cfg, 0
+	return dir, cfg, release, 0
 }
 
 // recordedKind names the kind the lockfile knows key under, so an unprefixed

@@ -354,10 +354,7 @@ func removeBindings(name string) error {
 	if err != nil {
 		return err
 	}
-	cfg, err := clientconfig.Load(dir)
-	if err != nil {
-		return err
-	}
+	return withClientConfig(dir, func(cfg *clientconfig.Config) error {
 	for p, b := range cfg.Clients {
 		if containsString(b.KBs, name) {
 			b.KBs = removeFromList(b.KBs, name)
@@ -376,7 +373,8 @@ func removeBindings(name string) error {
 			return err
 		}
 	}
-	return clientconfig.Save(dir, cfg)
+	return nil
+	})
 }
 
 func removeFromList(list []string, name string) []string {

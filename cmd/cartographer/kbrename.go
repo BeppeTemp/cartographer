@@ -306,10 +306,7 @@ func rewriteBindings(old, newName string) error {
 	if err != nil {
 		return err
 	}
-	cfg, err := clientconfig.Load(dir)
-	if err != nil {
-		return err
-	}
+	return withClientConfig(dir, func(cfg *clientconfig.Config) error {
 	for p, b := range cfg.Clients {
 		b.KBs = renameInList(b.KBs, old, newName)
 		cfg.Clients[p] = b
@@ -325,7 +322,8 @@ func rewriteBindings(old, newName string) error {
 			return err
 		}
 	}
-	return clientconfig.Save(dir, cfg)
+	return nil
+	})
 }
 
 func renameInList(list []string, old, newName string) []string {

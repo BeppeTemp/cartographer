@@ -59,6 +59,19 @@ func cmdSync(args []string) int {
 	if !*dryRun {
 		realignClientConfig(dir)
 	}
+	// The lock comes before the load: the config saved at the end of the sync
+	// must be the one read after every other writer finished (D172). A dry run
+	// writes nothing and takes none.
+	locked := false
+	if !*dryRun {
+		release, err := lockClient(dir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		defer release()
+		locked = true
+	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)
@@ -70,20 +83,12 @@ func cmdSync(args []string) int {
 	if len(cfg.Agents) == 0 {
 		// Nothing left to sync, but a config that listed only a client the
 		// registry dropped (D898) must still be cleaned and say why.
-		if !*dryRun {
-			release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "Error:", err)
-				return 2
-			}
-			defer release()
-		}
 		handleUnsupportedProviders(dir, cfg, !*dryRun)
 		fmt.Println("no agent connected (run `cartographer connect`)")
 		return 0
 	}
 
-	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true}); err != nil {
+	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -113,6 +118,10 @@ type syncOptions struct {
 	// previous binary before syncing (D199). Only cmdSync sets it:
 	// upgrade-repair has already verified the service itself.
 	RepairService bool
+	// Locked says the caller already holds the client lock and loaded cfg after
+	// taking it (D172): runSync takes none, because a second descriptor on the
+	// lock file in the same process would block.
+	Locked bool
 }
 
 // syncResult is the subset of a completed sync a caller may need beyond the
@@ -146,11 +155,13 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// flight at once and the loser of that race silently drops another
 	// provider's lock entry (D172). A dry run writes nothing and needs none.
 	if !opts.DryRun {
-		release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
-		if err != nil {
-			return syncResult{}, err
+		if !opts.Locked {
+			release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
+			if err != nil {
+				return syncResult{}, err
+			}
+			defer release()
 		}
-		defer release()
 		// Under the lock, so concurrent session-start syncs replace a stale
 		// service once: the next one in line finds it already current.
 		if opts.RepairService {

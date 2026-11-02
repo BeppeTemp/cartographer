@@ -567,7 +567,7 @@ written and the error says so. `upgrade-repair` gets the same behaviour through
 the same code, and reports the provider sync as pending
 ([D257](decisions/D257-sync-continues-past-a-kb-that-cannot-be-pulled.md)).
 
-Before anything else — before the client-state lock and before the first network call, `--dry-run`
+Before anything else — before the first network call, `--dry-run`
 included — `sync` checks the environment it needs: when `.cartographer.yaml` has `auth: true` with a
 `token: ${NAME}` reference, that variable **or the token file** (D699); a literal token needs nothing here. Missing ones are reported in one error naming each, so an
 unattended run (session-start hook, sync timer, CI — none of which inherit a login shell's exports)
