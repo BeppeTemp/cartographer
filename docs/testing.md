@@ -426,6 +426,8 @@ invokes `upgrade-repair`, a stopped or absent service is never started, exit
 `1` still leaves the binary update successful, and exit `2` (or an unexpected
 code) fails visibly but only *after* the new binary is in place.
 
+The scenarios never prefix `run_install` with an assignment (bash POSIX mode, macOS `/bin/sh`, keeps it after the call); `run.sh` refuses one.
+
 The suite also covers the checksum path — a matching digest installs
 and says `checksum OK`, a mismatch fails without leaving a binary behind, a
 `sha256sums.txt` that exists but does not cover the asset is an **error** rather
