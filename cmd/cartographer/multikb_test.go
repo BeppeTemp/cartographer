@@ -636,15 +636,7 @@ func TestDoConnect_MultiKB_WithoutSelection_FailsAndWritesNothing(t *testing.T) 
 		}
 	}
 
-	entries, rerr := os.ReadDir(dir)
-	if rerr != nil {
-		t.Fatalf("read dir: %v", rerr)
-	}
-	if len(entries) != 0 {
-		var names []string
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
+	if names := dirEntries(t, dir); len(names) != 0 {
 		t.Errorf("nothing may be written before the choice is made, found: %v", names)
 	}
 }
@@ -744,12 +736,8 @@ func TestDoConnect_UnknownKB_FailsBeforeAnyWrite(t *testing.T) {
 	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}", KBs: []string{"delta"}}); err == nil {
 		t.Fatal("an unmounted KB name must fail")
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read dir: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("a rejected selection must write nothing, found %d entries", len(entries))
+	if names := dirEntries(t, dir); len(names) != 0 {
+		t.Errorf("a rejected selection must write nothing, found %v", names)
 	}
 }
 

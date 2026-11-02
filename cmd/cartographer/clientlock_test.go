@@ -84,3 +84,56 @@ func TestSyncWaitsForTheLock(t *testing.T) {
 	// cmdSync with no agent connected still loads and may save: it must wait.
 	holdLockThenEdit(t, home, func() { cmdSync(nil) })
 }
+
+// connect, disconnect and reconnect hold the client lock for their whole run
+// (D172): a dry run is the only one that does not wait for it.
+func TestConnectDisconnectReconnectWaitForTheLock(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	conn := connectOptions{Providers: []string{"claude"}, Dir: home, ServerURL: "http://127.0.0.1:1/mcp", Name: "cartographer"}
+	calls := map[string]func() error{
+		"connect": func() error { _, err := doConnect(conn); return err },
+		"disconnect": func() error {
+			_, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: home})
+			return err
+		},
+		"reconnect": func() error { _, err := doReconnect(reconnectOptions{Dir: home, Target: "all"}); return err },
+	}
+	// connect first, so the other two have something to act on.
+	if err := calls["connect"](); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"connect", "disconnect", "reconnect"} {
+		release, err := provisioning.LockClientState(home, provisioning.DefaultClientLockTimeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		errc := make(chan error, 1)
+		go func() { errc <- calls[name]() }()
+		select {
+		case <-errc:
+			t.Fatalf("%s ran while the client lock was held", name)
+		case <-time.After(300 * time.Millisecond):
+		}
+		release()
+		select {
+		case err := <-errc:
+			if err != nil {
+				t.Errorf("%s after the release: %v", name, err)
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatalf("%s did not finish after the lock was released", name)
+		}
+	}
+	// A dry run takes no lock.
+	release, err := provisioning.LockClientState(home, provisioning.DefaultClientLockTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	dry := conn
+	dry.DryRun = true
+	if _, err := doConnect(dry); err != nil {
+		t.Errorf("dry-run connect under a held lock: %v", err)
+	}
+}

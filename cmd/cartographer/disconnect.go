@@ -164,20 +164,28 @@ func (r disconnectResult) keptConnected() []string {
 // kbs as the defaults for the next connect. DryRun computes everything
 // without writing.
 func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
-	var res disconnectResult
 	if len(opts.Providers) == 0 {
-		return res, nil
+		return disconnectResult{}, nil
 	}
-
 	// Same client-state lock every other mutating path takes (D172): a
 	// disconnect racing a sync would otherwise resurrect the provider entry
 	// it just dropped, or lose the one the sync recorded.
 	if !opts.DryRun {
-		release, err := provisioning.LockClientState(opts.Dir, provisioning.DefaultClientLockTimeout)
+		release, err := lockClient(opts.Dir)
 		if err != nil {
-			return res, err
+			return disconnectResult{}, err
 		}
 		defer release()
+	}
+	return doDisconnectLocked(opts)
+}
+
+// doDisconnectLocked is doDisconnect for a caller that already holds the
+// client lock (reconnect).
+func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
+	var res disconnectResult
+	if len(opts.Providers) == 0 {
+		return res, nil
 	}
 
 	cfg, err := loadConfigForWrite(opts.Dir)

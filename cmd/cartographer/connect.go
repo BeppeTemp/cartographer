@@ -847,7 +847,30 @@ func (o connectOptions) insecureHTTPAllowed() bool {
 // sync_pull (deferred, not fatal, if the server is unreachable), and persists
 // .cartographer.yaml. It is the single source of truth for "connect" business
 // logic, shared by cmdConnect (CLI) and the TUI connect form.
+//
+// It holds the client lock (D172) from the first read of .cartographer.yaml to
+// the last write, so a sync started by the timer or a session hook meanwhile
+// waits instead of losing a lockfile entry or being overwritten by connect's
+// final Save. A dry run writes nothing and takes none. The placeholder prompt
+// (PromptPaths) runs under the lock: a sync that waits longer than the lock
+// timeout reports it and is retried by the next trigger.
 func doConnect(opts connectOptions) (connectResult, error) {
+	if len(opts.Providers) == 0 {
+		return connectResult{}, fmt.Errorf("no providers to connect")
+	}
+	if !opts.DryRun {
+		release, err := lockClient(opts.Dir)
+		if err != nil {
+			return connectResult{}, err
+		}
+		defer release()
+	}
+	return doConnectLocked(opts)
+}
+
+// doConnectLocked is doConnect for a caller that already holds the client lock
+// (reconnect, which spans disconnect and connect with one).
+func doConnectLocked(opts connectOptions) (connectResult, error) {
 	if len(opts.Providers) == 0 {
 		return connectResult{}, fmt.Errorf("no providers to connect")
 	}
@@ -870,7 +893,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 	if _, statErr := os.Stat(clientconfig.Path(opts.Dir)); statErr == nil {
 		// connect saves the config itself, which drops the name; the lockfile
-		// section goes with the next sync (connect holds no client lock here).
+		// section goes with the next sync.
 		handleUnsupportedProviders(opts.Dir, existing, false)
 	}
 	// A client that installed nothing yet has no pre-approval install for the
