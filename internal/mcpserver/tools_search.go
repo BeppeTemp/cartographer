@@ -186,7 +186,11 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	// gap — and recording it would show that user's queries to every
 	// whole-KB reader of kb_status.
 	// record_miss: false is a caller's probe, not a gap (D319).
-	if len(hits) == 0 && (params.RecordMiss == nil || *params.RecordMiss) && WholeVisible(ctx, k, false) {
+	// A search that did not look at the whole KB (a scope, or archived pages
+	// excluded by include_archived: false) found no gap of the KB, and the
+	// re-check, which has neither filter, could not reproduce it.
+	wholeKB := params.Scope == "" && (params.IncludeArchived == nil || *params.IncludeArchived)
+	if len(hits) == 0 && wholeKB && (params.RecordMiss == nil || *params.RecordMiss) && WholeVisible(ctx, k, false) {
 		misses.record(params.Query)
 	}
 	// A hit is surfaced, not read (D778): most hits are never opened, so only

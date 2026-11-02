@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -30,6 +31,14 @@ const (
 	// searchMissWindow.
 	searchMissTop    = 10
 	searchMissWindow = 30 * 24 * time.Hour
+	// A recorded query is cut to searchMissQueryRunes runes: a line longer than
+	// the reader's buffer could not be read back.
+	searchMissQueryRunes = 512
+	// top() re-checks at most searchMissMaxChecks queries, however many are
+	// resolved: each check is a search.
+	searchMissMaxChecks = 4 * searchMissTop
+	// A line over searchMissMaxLine bytes is skipped by the reader, not fatal.
+	searchMissMaxLine = 64 * 1024
 )
 
 // searchMissNow is the log's clock. Override in tests.
@@ -90,6 +99,9 @@ func (l *searchMissLog) record(query string) {
 	q := normalizeMissQuery(query)
 	if q == "" {
 		return
+	}
+	if r := []rune(q); len(r) > searchMissQueryRunes {
+		q = strings.TrimSpace(string(r[:searchMissQueryRunes]))
 	}
 	if err := l.append(searchMiss{At: searchMissNow().UTC().Format(time.RFC3339), Query: q}); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: search-miss log: %v\n", err)
@@ -173,14 +185,38 @@ func (l *searchMissLog) readLocked() ([]searchMiss, error) {
 	}
 	defer f.Close()
 	var out []searchMiss
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		var m searchMiss
-		if json.Unmarshal(sc.Bytes(), &m) == nil && m.Query != "" {
-			out = append(out, m)
+	// ReadLine-style reading with a bounded buffer: a line longer than the
+	// buffer (a log poisoned by an old, untruncated query) is skipped, so the
+	// file heals instead of failing every read.
+	r := bufio.NewReaderSize(f, 4096)
+	var line []byte
+	tooLong := false
+	for {
+		chunk, isPrefix, err := r.ReadLine()
+		if err != nil {
+			if err != io.EOF {
+				return out, err
+			}
+			break
 		}
+		if !tooLong && len(line)+len(chunk) > searchMissMaxLine {
+			tooLong = true
+		}
+		if !tooLong {
+			line = append(line, chunk...)
+		}
+		if isPrefix {
+			continue
+		}
+		if !tooLong {
+			var m searchMiss
+			if json.Unmarshal(line, &m) == nil && m.Query != "" {
+				out = append(out, m)
+			}
+		}
+		line, tooLong = line[:0], false
 	}
-	return out, sc.Err()
+	return out, nil
 }
 
 type searchMissSummary struct {
@@ -195,8 +231,9 @@ type searchMissSummary struct {
 // most frequent queries, by count desc, then last seen desc, then query.
 // With a checker, each query is re-run and one that now has results is
 // marked Resolved and sorted after every open one (D319). Queries are checked
-// in rank order only until searchMissTop open ones are found, so the re-check
-// costs at most a handful of in-memory searches beyond the reported ones.
+// in rank order until searchMissTop open ones are found or searchMissMaxChecks
+// queries have been checked; the ones not reached are reported unchecked,
+// after the open ones.
 func (l *searchMissLog) top() []searchMissSummary {
 	if l == nil {
 		return nil
@@ -242,11 +279,17 @@ func (l *searchMissLog) top() []searchMissSummary {
 		if l.prepare != nil && len(out) > 0 {
 			l.prepare()
 		}
-		var open, resolved []searchMissSummary
+		var open, resolved, unchecked []searchMissSummary
+		checks := 0
 		for _, s := range out {
 			if len(open) == searchMissTop {
 				break
 			}
+			if checks == searchMissMaxChecks {
+				unchecked = append(unchecked, s)
+				continue
+			}
+			checks++
 			if l.checker(s.Query) {
 				s.Resolved = true
 				resolved = append(resolved, s)
@@ -254,7 +297,7 @@ func (l *searchMissLog) top() []searchMissSummary {
 				open = append(open, s)
 			}
 		}
-		out = append(open, resolved...)
+		out = append(append(open, unchecked...), resolved...)
 	}
 	if len(out) > searchMissTop {
 		out = out[:searchMissTop]
