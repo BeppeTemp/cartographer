@@ -195,7 +195,7 @@ func (s *Set) Close() {
 func (s *Set) start(ctx context.Context, name string) (*conn, error) {
 	cfg, ok := s.cfgs[name]
 	if !ok {
-		return nil, fmt.Errorf("connector %q is not declared in the worker config", name)
+		return nil, fmt.Errorf("connector %q is not declared in the Surveyor config", name)
 	}
 	s.mu.Lock()
 	c := s.live[name]
@@ -222,7 +222,7 @@ func (s *Set) connect(ctx context.Context, cfg Config, c *conn) error {
 	c.cancel = cancel
 	sctx, cancel := context.WithTimeout(ctx, cfg.CallTimeout)
 	defer cancel()
-	cl := mcp.NewClient(&mcp.Implementation{Name: "cartographer-worker", Version: "1"}, nil)
+	cl := mcp.NewClient(&mcp.Implementation{Name: "cartographer-surveyor", Version: "1"}, nil)
 	sess, err := cl.Connect(sctx, tr, nil)
 	if err != nil {
 		if cancel != nil {
@@ -248,7 +248,7 @@ func (s *Set) connect(ctx context.Context, cfg Config, c *conn) error {
 			continue
 		}
 		if raw, _ := json.Marshal(t.InputSchema); len(raw) > maxSchemaBytes {
-			s.logf("worker: connector %s: tool %s not offered: its input schema is over %d bytes", cfg.Name, t.Name, maxSchemaBytes)
+			s.logf("surveyor: connector %s: tool %s not offered: its input schema is over %d bytes", cfg.Name, t.Name, maxSchemaBytes)
 			continue
 		}
 		c.offered[t.Name] = true

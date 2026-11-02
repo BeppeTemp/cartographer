@@ -215,7 +215,7 @@ server is up. A transport failure (dial, DNS, timeout) defers as "server unreach
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job an earlier release installed, printing one line when there was one:
-Cartographer never starts an agent by itself (D704), except a worker the operator has configured and deployed (D1258, [the worker](deployment.md#the-worker-a-third-role)). `sync` matters after a Homebrew upgrade, which
+Cartographer never starts an agent by itself (D704), except a Surveyor the operator has configured and deployed (D1258, [the Surveyor](deployment.md#the-surveyor-a-third-role)). `sync` matters after a Homebrew upgrade, which
 runs neither of the others; `doctor run|schedule|unschedule|status` fail as unknown arguments.
 
 **Token file (D699).** With `auth: true` and a `token: ${NAME}` reference (the default is `${CARTOGRAPHER_TOKENS}`),
@@ -912,12 +912,12 @@ source `index.md` is still rejected as a reserved destination filename. `--commi
 the scaffold (`_map.md`, `index.md`, `log.md`) created for each new destination map; on partial
 write failures it commits only successful paths and reports that the batch had errors.
 
-### `cartographer worker source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc>)`
+### `cartographer surveyor source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc>)`
 
-The dry run of a worker recipe: the listing the worker will run, printed, with nothing written and no model called
+The dry run of a Surveyor recipe: the listing the Surveyor will run, printed, with nothing written and no model called
 (exit `0` listed, `1` the poll would record a `feed_error`, `2` could not start, `3` a system recipe's preflight
-refused). Flags, output and limits are in [worker-recipes.md](worker-recipes.md#testing-a-recipe-before-deploying-it);
-`cartographer worker --config <file>` itself is described in [deployment.md](deployment.md#the-worker-a-third-role).
+refused). Flags, output and limits are in [surveyor-recipes.md](surveyor-recipes.md#testing-a-recipe-before-deploying-it);
+`cartographer surveyor --config <file>` itself is described in [deployment.md](deployment.md#the-surveyor-a-third-role).
 
 ### `cartographer resolve repo:<key>|path:<name>`
 

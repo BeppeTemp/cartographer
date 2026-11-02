@@ -413,7 +413,7 @@ func TestIngestRefusedReleaseLeavesTheUnitAlone(t *testing.T) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	u := k.pages["u/1"]
-	if u.fm["claimed_by"] != "docs-other" || u.fm["status"] != "in-progress" || strings.Contains(u.body, "Worker note") {
+	if u.fm["claimed_by"] != "docs-other" || u.fm["status"] != "in-progress" || strings.Contains(u.body, "Surveyor note") {
 		t.Fatalf("the unit was touched: %v %q", u.fm, u.body)
 	}
 }
@@ -423,7 +423,7 @@ func TestIngestInstructionsAreTheBundledUnitMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"headless worker", "## Unit mode", "IngestUnit", "source_fetch"} {
+	for _, want := range []string{"headless Surveyor", "## Unit mode", "IngestUnit", "source_fetch"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("instructions lack %q", want)
 		}

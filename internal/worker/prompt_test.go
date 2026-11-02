@@ -375,7 +375,7 @@ func TestPromptCadenceAndEndToEnd(t *testing.T) {
 	}
 	// Marker: exact path and content, no tokens= key, no model text.
 	marker := tools.log.last()
-	want := "[worker/perimeter-a/task/weekly-digest] task=weekly-digest at=2026-10-29T02:00:00Z day=2026-10-29 stopped=done writes=1"
+	want := "[surveyor/perimeter-a/task/weekly-digest] task=weekly-digest at=2026-10-29T02:00:00Z day=2026-10-29 stopped=done writes=1"
 	if marker != want {
 		t.Errorf("marker = %q, want %q", marker, want)
 	}
@@ -401,7 +401,7 @@ func TestPromptCadenceAndEndToEnd(t *testing.T) {
 func TestPromptNextReadsTheLog(t *testing.T) {
 	now := t0
 	p := mustPromptInstance(t, func(p *promptTask) { p.now = func() time.Time { return now } })
-	path := "worker/perimeter-a/task/weekly-digest"
+	path := "surveyor/perimeter-a/task/weekly-digest"
 	tools := newPromptTools()
 	due := func() bool { it, err := p.Next(context.Background(), "kb-a", tools); return err == nil && it != nil }
 	entry := func(at time.Time) string {
@@ -559,12 +559,12 @@ func TestPromptGuard(t *testing.T) {
 	}
 	// log_append: path forced, forging refused with zero server calls.
 	before := tools.count("log_append")
-	call("log_append", `{"entry":"hello","path":"worker/perimeter-a"}`)
+	call("log_append", `{"entry":"hello","path":"surveyor/perimeter-a"}`)
 	if got := tools.log.last(); got != "[task/weekly-digest] hello" {
 		t.Errorf("model log line filed as %q", got)
 	}
 	for _, e := range []string{"a\n## 2026-01-01T00:00:00Z\nb", "## x", "note kb-doctor ok"} {
-		b, _ := json.Marshal(map[string]string{"entry": e, "path": "worker/perimeter-a"})
+		b, _ := json.Marshal(map[string]string{"entry": e, "path": "surveyor/perimeter-a"})
 		if out := call("log_append", string(b)); !out.IsError {
 			t.Errorf("entry %q accepted", e)
 		}

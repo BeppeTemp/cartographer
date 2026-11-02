@@ -66,7 +66,7 @@ the worker's own git setup; KB sync keeps the gitx defaults.
 ## Exec recipes and protocol v1 (fourth step)
 
 The second kind of recipe is an executable the operator declares under `recipes.<name>.exec` in the worker
-config (`internal/worker/recipe/exec.go`, reference `docs/worker-recipes.md`). The invariant is that nothing a KB
+config (`internal/worker/recipe/exec.go`, reference `docs/surveyor-recipes.md`). The invariant is that nothing a KB
 contains selects code: the command, its arguments and its environment variables come from the config and a Source
 can only name the recipe. The runner uses an argv list with no shell, a per-call temp directory, the environment of
 `connector.ChildEnv` (exactly the listed variables plus `PATH`/`HOME`) and the process-group kill of the connector

@@ -81,7 +81,7 @@ answered, close it with `concept_patch`, setting `resolution_status: resolved`
 and a `resolution` (D273). The advanced `contradiction_report` (`kind: gap`) and
 `conflict_resolve`, callable by name, list and close them too.
 
-A worker's synthesis task (D1263) also writes gaps, marked `origin: synthesis`, with the
+A Surveyor's synthesis task (D1263) also writes gaps, marked `origin: synthesis`, with the
 evidence in `provenance`: they are hypotheses, not claims. Whoever confirms one writes the
 content through the normal path, then closes the item with `resolution_status: resolved`, a
 `resolution` and `resolution_outcome: confirmed`; rejecting it is the same with `rejected`
@@ -102,7 +102,7 @@ distil, patch the owning pages, cite, record gaps, verify, close — for any new
 
 ## The maintenance loop
 
-The server finds the problems; an agent works on them only when the operator asks (D704), except a worker the operator has configured (D1258, [the worker](deployment.md#the-worker-a-third-role)). Discovery
+The server finds the problems; an agent works on them only when the operator asks (D704), except a Surveyor the operator has configured (D1258, [the Surveyor](deployment.md#the-surveyor-a-third-role)). Discovery
 is deterministic (`lint`, `kb_review`) and never runs a model on the server (D14). The layers,
 cheapest first:
 
@@ -119,7 +119,7 @@ cheapest first:
    to the operator. The agent never starts it without their agreement. In the session the
    operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to
    10 review items (or the number the operator names when asking for the session) plus every mechanical repair; the session closes with a
-   `log_append` listing every decision. A deployed `cartographer worker` with a `doctor` task runs no session (D1436): it works `kb_review` one item at a time, as far as its `doctor_allow` lets it, and never writes `kb-doctor`, so `last_doctor` moves only with an operator's session.
+   `log_append` listing every decision. A deployed `cartographer surveyor` with a `doctor` task runs no session (D1436): it works `kb_review` one item at a time, as far as its `doctor_allow` lets it, and never writes `kb-doctor`, so `last_doctor` moves only with an operator's session.
 4. **What the KB does not know**: a fact nobody in the session can supply yet becomes a
    `Contradiction` of kind `missing_context` or `open_question` naming the concept and the
    question; the review item stays listed until the answer is written (nothing dismisses an item,

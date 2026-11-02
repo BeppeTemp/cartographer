@@ -162,7 +162,7 @@ func (b *Beater) send() {
 	b.mu.Unlock()
 	a, err := b.API.Heartbeat(b.body(s), beatCallTimeout)
 	if err != nil {
-		b.logf("worker: heartbeat: %v", err)
+		b.logf("surveyor: heartbeat: %v", err)
 		var re *client.RemoteError
 		if errors.As(err, &re) && re.HTTPStatus == http.StatusNotFound {
 			b.mu.Lock()
@@ -186,10 +186,10 @@ func (b *Beater) send() {
 			b.mu.Lock()
 			b.refused = true
 			b.mu.Unlock()
-			b.logf("worker: settings report refused (%v): not sent again", err)
+			b.logf("surveyor: settings report refused (%v): not sent again", err)
 			return
 		}
-		b.logf("worker: settings report: %v", err)
+		b.logf("surveyor: settings report: %v", err)
 		return
 	}
 	b.mu.Lock()

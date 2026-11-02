@@ -187,7 +187,7 @@ func TestRunnerNoopKindEndToEnd(t *testing.T) {
 		t.Errorf("ran %s", got)
 	}
 	e := f.log.last()
-	for _, want := range []string{"[worker/docs-night] run ", "day=2026-10-29", "tokens.cloud=300", "units=3", "commits=3", "stopped=done", " — did u1; did u2; did u3"} {
+	for _, want := range []string{"[surveyor/docs-night] run ", "day=2026-10-29", "tokens.cloud=300", "units=3", "commits=3", "stopped=done", " — did u1; did u2; did u3"} {
 		if !strings.Contains(e, want) {
 			t.Errorf("entry %q lacks %q", e, want)
 		}

@@ -149,7 +149,7 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 	}
 	body, err := json.Marshal(wire)
 	if err != nil {
-		return Response{}, fmt.Errorf("worker: encode model request: %w", err)
+		return Response{}, fmt.Errorf("surveyor: encode model request: %w", err)
 	}
 	data, err := a.t.post(ctx, "/v1/messages", map[string]string{
 		"x-api-key":         a.t.key,
@@ -160,7 +160,7 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 	}
 	var resp anthResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return Response{}, fmt.Errorf("worker: model response is not the expected JSON: %w", err)
+		return Response{}, fmt.Errorf("surveyor: model response is not the expected JSON: %w", err)
 	}
 	out := Response{RawStop: resp.StopReason}
 	var text []string

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A system lister for Kubernetes: the reference recipe of `shape: system`.
 
-It speaks protocol v1 of the worker's exec recipes (docs/worker-recipes.md):
+It speaks protocol v1 of the Surveyor's exec recipes (docs/surveyor-recipes.md):
 one JSON request on stdin, mode "preflight" or "list", the answer on stdout.
 It talks to the cluster only through kubectl and never uses the request's
 source.locator to choose a context, namespace, file or command.

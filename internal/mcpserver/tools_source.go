@@ -77,7 +77,7 @@ func fmString(fm *okf.Frontmatter, key string) string {
 func toolSourceRegister(k *kb.KB) Tool {
 	return Tool{
 		Name:        "source_register",
-		Description: "Records a primary source BEFORE ingesting it: a Source concept in a journal (default 'sources', map_create kind journal). Dedupes by sha256, else locator: a duplicate returns {id, duplicate: true, ingest_status}, writes nothing, plus locator_mismatch + existing_locator if the locator differs. Never fetches; body is your distillation. Cite its ID in provenance, then patch ingest_status. connector/recipe are worker setting names, never credentials.",
+		Description: "Records a primary source BEFORE ingesting it: a Source concept in a journal (default 'sources', map_create kind journal). Dedupes by sha256, else locator: a duplicate returns {id, duplicate: true, ingest_status}, writes nothing, plus locator_mismatch + existing_locator if the locator differs. Never fetches; body is your distillation. Cite its ID in provenance, then patch ingest_status. connector/recipe are Surveyor setting names, never credentials.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["title", "source_kind"],
@@ -138,7 +138,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 			}
 			for _, f := range [][2]string{{"locator", p.Locator}, {"connector", p.Connector}, {"recipe", p.Recipe}} {
 				if why := lint.URLCredential(f[1]); why != "" {
-					return errorResult(fmt.Sprintf("source_register: %s carries a credential (%s): credentials never go in the ledger — name a connector and keep the secret in the worker's configuration or in sops", f[0], why)), nil
+					return errorResult(fmt.Sprintf("source_register: %s carries a credential (%s): credentials never go in the ledger — name a connector and keep the secret in the Surveyor's configuration or in sops", f[0], why)), nil
 				}
 			}
 			when := time.Now().UTC()

@@ -14,7 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
-// WorkersPath is where a `cartographer worker` process declares itself, once
+// WorkersPath is where a `cartographer surveyor` process declares itself, once
 // a minute. Client-to-server metadata like UsagePath and ClientSettingsPath: an
 // HTTP route inside the auth chain of /mcp, not an MCP tool (a tool would
 // spend tools/list budget on every client for something no agent calls, D285).
@@ -288,7 +288,7 @@ func (m *MultiKBServer) handleWorkers(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWorkerBody))
 	if err != nil {
-		writeUIError(w, http.StatusRequestEntityTooLarge, uiCodeInvalidRequest, "worker heartbeat too large", "")
+		writeUIError(w, http.StatusRequestEntityTooLarge, uiCodeInvalidRequest, "surveyor heartbeat too large", "")
 		return
 	}
 	var beat workerBeat

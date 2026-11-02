@@ -62,8 +62,8 @@ be mapped wholesale, use `cartographer-kb-import` instead.
 
 A wiki space, a tracker project or a document library should flow into the KB as it changes. The operator
 starts the bundled `cartographer-kb-source-author` skill (D1373): it finds the way in (a built-in recipe, an exec
-lister or an MCP connector), requires a read-only identity, writes the lister and the worker config snippet into the
-operator's repository, and runs `cartographer worker source test`, which lists with the real recipe and writes
+lister or an MCP connector), requires a read-only identity, writes the lister and the Surveyor config snippet into the
+operator's repository, and runs `cartographer surveyor source test`, which lists with the real recipe and writes
 nothing. It then registers the Source, hands it to `cartographer-kb-ingest-plan` for the plan, and hands the
 operator the deploy change. The script never enters the KB.
 

@@ -205,7 +205,7 @@ func checkFrontmatter(fm map[string]any, id string) error {
 	}
 	for k := range fm {
 		if strings.HasPrefix(k, "resolution") && k != "resolution_status" {
-			return fmt.Errorf("%s is the confirmer's, not the worker's", k)
+			return fmt.Errorf("%s is the confirmer's, not the Surveyor's", k)
 		}
 	}
 	return nil

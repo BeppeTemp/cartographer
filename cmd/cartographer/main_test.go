@@ -271,6 +271,20 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 }
 
+// TestRunWorkerIsUnknown documents the no-alias decision (D1442): the role was
+// never released under the old name, so `worker` is an unknown command with no
+// suggestion.
+func TestRunWorkerIsUnknown(t *testing.T) {
+	var code int
+	errs := withStderr(t, func() { code = run([]string{"worker"}) })
+	if code != 2 {
+		t.Errorf("run([worker]) = %d, want 2", code)
+	}
+	if !strings.Contains(errs, `unknown command "worker"`) || strings.Contains(errs, "did you mean") {
+		t.Errorf("stderr = %q", errs)
+	}
+}
+
 func TestRunUnknownFlagAtRoot(t *testing.T) {
 	if code := run([]string{"--kb", "/some/path"}); code != 2 {
 		t.Errorf("run([--kb ...]) = %d, want 2", code)

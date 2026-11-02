@@ -17,7 +17,7 @@ import (
 
 // ErrModelAuth is wrapped by the error of a 401 or 403 from the model API, so
 // a caller can say "check the key variable" without parsing text.
-var ErrModelAuth = errors.New("worker: model API rejected the credential")
+var ErrModelAuth = errors.New("surveyor: model API rejected the credential")
 
 const (
 	maxAttempts      = 3
@@ -64,13 +64,13 @@ func newTransport(baseURL, key, model string, opts []Option) (*transport, error)
 		o(t)
 	}
 	if t.baseURL == "" {
-		return nil, errors.New("worker: model base URL is required")
+		return nil, errors.New("surveyor: model base URL is required")
 	}
 	if err := client.CheckServerURL(t.baseURL, t.allowInsecure); err != nil {
 		// CheckServerURL words the refusal for the bearer token and the
 		// connect command; a model endpoint has neither.
 		if u, perr := url.Parse(t.baseURL); perr == nil && strings.EqualFold(u.Scheme, "http") && !client.IsLoopbackHost(u.Hostname()) {
-			return nil, fmt.Errorf("worker: refusing plain http:// model endpoint %s: the API key and the prompts would travel in clear; "+
+			return nil, fmt.Errorf("surveyor: refusing plain http:// model endpoint %s: the API key and the prompts would travel in clear; "+
 				"use https://, or allow it explicitly (WithAllowInsecureHTTP, for a private-network model server)", u.Redacted())
 		}
 		return nil, err
@@ -165,7 +165,7 @@ func retryable(status int) bool {
 func (t *transport) once(ctx context.Context, path string, headers map[string]string, body []byte) (out []byte, retryAfter string, retry bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, "", false, fmt.Errorf("worker: build model request: %s", t.scrub(err.Error()))
+		return nil, "", false, fmt.Errorf("surveyor: build model request: %s", t.scrub(err.Error()))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
@@ -176,7 +176,7 @@ func (t *transport) once(ctx context.Context, path string, headers map[string]st
 		if ctx.Err() != nil {
 			return nil, "", false, ctx.Err()
 		}
-		return nil, "", true, fmt.Errorf("worker: model request failed: %s", t.scrub(err.Error()))
+		return nil, "", true, fmt.Errorf("surveyor: model request failed: %s", t.scrub(err.Error()))
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
@@ -184,10 +184,10 @@ func (t *transport) once(ctx context.Context, path string, headers map[string]st
 		if ctx.Err() != nil {
 			return nil, "", false, ctx.Err()
 		}
-		return nil, "", true, fmt.Errorf("worker: read model response: %s", t.scrub(err.Error()))
+		return nil, "", true, fmt.Errorf("surveyor: read model response: %s", t.scrub(err.Error()))
 	}
 	if len(data) > maxResponseBytes {
-		return nil, "", false, fmt.Errorf("worker: model response over %d bytes", maxResponseBytes)
+		return nil, "", false, fmt.Errorf("surveyor: model response over %d bytes", maxResponseBytes)
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		return data, "", false, nil
@@ -202,5 +202,5 @@ func (t *transport) once(ctx context.Context, path string, headers map[string]st
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return nil, "", false, fmt.Errorf("%w: %s", ErrModelAuth, msg)
 	}
-	return nil, resp.Header.Get("Retry-After"), retryable(resp.StatusCode), errors.New("worker: " + msg)
+	return nil, resp.Header.Get("Retry-After"), retryable(resp.StatusCode), errors.New("surveyor: " + msg)
 }

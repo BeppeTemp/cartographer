@@ -257,7 +257,7 @@ func (r *Runner) tick(ctx context.Context) int {
 	// failing closed (about one log_tail per KB per poll_seconds, only while a
 	// window or idle trigger holds).
 	if err := r.budget.Begin(r.cfg.KBs, now); err != nil {
-		r.opt.Logf("worker: run skipped: %v", err)
+		r.opt.Logf("surveyor: run skipped: %v", err)
 		r.beat(StateWaiting)
 		return ExitOK
 	}
@@ -299,7 +299,7 @@ kbs:
 				break kbs
 			}
 			if consecutive >= maxConsecutiveErrors {
-				r.opt.Logf("worker: %d consecutive errors on %s: skipped until the next poll", consecutive, kb)
+				r.opt.Logf("surveyor: %d consecutive errors on %s: skipped until the next poll", consecutive, kb)
 				break
 			}
 			if r.trigger(ctx, kb, r.opt.Now()) == "" {
@@ -328,7 +328,7 @@ kbs:
 						fatal = err
 						break kbs
 					}
-					r.opt.Logf("worker: %s task %d (%s) on %s: %v", r.cfg.Name, i, t.Kind, kb, err)
+					r.opt.Logf("surveyor: %s task %d (%s) on %s: %v", r.cfg.Name, i, t.Kind, kb, err)
 					broken[i] = true
 					consecutive++
 					errored = true
@@ -366,11 +366,11 @@ kbs:
 				break kbs
 			case errors.Is(err, ErrModelAuth):
 				disabled[t.Profile] = true
-				r.opt.Logf("worker: profile %q: the model API rejected the credential; its tasks are off until the next run", t.Profile)
+				r.opt.Logf("surveyor: profile %q: the model API rejected the credential; its tasks are off until the next run", t.Profile)
 			default:
 				consecutive++
 				errored = true
-				r.opt.Logf("worker: %s task %d (%s) on %s: %v", r.cfg.Name, idx, t.Kind, kb, err)
+				r.opt.Logf("surveyor: %s task %d (%s) on %s: %v", r.cfg.Name, idx, t.Kind, kb, err)
 			}
 		}
 	}
@@ -395,7 +395,7 @@ kbs:
 	r.budget.Close(stopped, tail)
 	r.last = LastRun{At: r.opt.Now(), Units: r.budget.totalUnits(), Commits: r.budget.totalCommits()}
 	if fatal != nil {
-		r.opt.Logf("worker: ending the run: %v", fatal)
+		r.opt.Logf("surveyor: ending the run: %v", fatal)
 		return ExitRuntime
 	}
 	return ExitOK

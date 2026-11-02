@@ -397,14 +397,14 @@ func (t *ingestTools) refuse(name string, args any) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if name == "concept_new" && t.protectedTemplate(a.Template) {
-		return "template " + a.Template + " makes a Source or an IngestUnit (or its type is unknown): the worker alone writes those"
+		return "template " + a.Template + " makes a Source or an IngestUnit (or its type is unknown): the Surveyor alone writes those"
 	}
 	if t.protected(a.ID, a.Frontmatter) {
-		return a.ID + " is the unit, another unit or a Source: the worker alone writes those"
+		return a.ID + " is the unit, another unit or a Source: the Surveyor alone writes those"
 	}
 	for _, o := range a.Ops {
 		if t.protected(o.ID, o.Frontmatter) {
-			return o.ID + " is the unit, another unit or a Source: the worker alone writes those"
+			return o.ID + " is the unit, another unit or a Source: the Surveyor alone writes those"
 		}
 	}
 	return ""

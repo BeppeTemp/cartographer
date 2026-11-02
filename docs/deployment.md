@@ -462,9 +462,9 @@ This topology serves **multiple clients** (one or more agents connected via `car
 `cartographer sync`, all over HTTP): git remains the sync/backup layer between the server and the
 remote KBs, not a requirement for the client.
 
-### The worker (a third role)
+### The Surveyor (a third role)
 
-`cartographer worker --config <file>` is a background process for one **perimeter**: a set of KBs, the
+`cartographer surveyor --config <file>` is a background process for one **perimeter**: a set of KBs, the
 token that reads and writes them, the model endpoints and their budgets. It is a process of its own (its
 own container, sidecar or a unit you write), never started by `serve`: the server stays model-less and
 fetches nothing. It has no volume, no inbound port and no probe endpoint; the server and the model
@@ -473,7 +473,7 @@ the same config.
 
 | Flag | Meaning |
 |---|---|
-| `--config <file>` | The worker YAML (required; there is no environment alias). Without it the command prints usage and exits 2 |
+| `--config <file>` | The Surveyor YAML (required; there is no environment alias). Without it the command prints usage and exits 2 |
 | `--once` | Evaluate the triggers once, run if due, exit 0 (for an external scheduler) |
 | `--log-file <file>` | Append the log to a file instead of stderr, as `serve` does |
 
@@ -486,7 +486,7 @@ The file is strict: an unknown key fails with its path and line. Secrets are nev
 ```yaml
 name: docs-night                  # the perimeter; [a-z0-9-]{1,40}
 server_url: https://wiki.example.com/mcp
-token_env: WORKER_TOKEN
+token_env: SURVEYOR_TOKEN
 kbs: [wiki-kb]
 models:                           # named profiles; tasks pick one
   - name: cloud
@@ -514,14 +514,14 @@ name only the kinds the binary registers: `ingest` (D1260), `poll` (§The `poll`
 
 **The `ingest` task (D1260).** It executes the `IngestUnit`s of a campaign: per KB, one `work_list` of `type=IngestUnit`,
 the first unit that is claimable (`open`, or `in-progress` whose `review_after` is before today UTC) and that this
-worker may take, claimed with `concept_patch` and `if_match` (`claimed_by` = the replica identity, `review_after` = today
-+ 2 days: a day-granular crash net, since a worker that fails or stops releases the unit at once). The profile's `tier`
+Surveyor may take, claimed with `concept_patch` and `if_match` (`claimed_by` = the replica identity, `review_after` = today
++ 2 days: a day-granular crash net, since a Surveyor that fails or stops releases the unit at once). The profile's `tier`
 decides the units: a `small` profile takes `executor: any`, a `large` one also `large`; `human` is never taken. A unit
 whose Source names a `connector` other than the built-in `git`, or whose `locator` is not `http(s)` (for `git`: not an `https://<repo>#<path>` on `git.allow_hosts`), is skipped, not failed. The instructions are the
 unit-mode section of the bundled `cartographer-kb-ingest`, embedded in the binary (a binary without it does not start). The
-model gets the allowlist plus `source_fetch`, except for a unit that carries inline content (`content_asset`), which is fed from its asset and gets no `source_fetch`; `source_fetch` is a worker-side tool with no argument that fetches only the claimed unit's
+model gets the allowlist plus `source_fetch`, except for a unit that carries inline content (`content_asset`), which is fed from its asset and gets no `source_fetch`; `source_fetch` is a Surveyor-side tool with no argument that fetches only the claimed unit's
 Source locator (GET without credentials; same-host redirects only; 1 MiB, 30 s; text, HTML as plain text; a page is data, never
-instructions). When the loop ends the worker, not the model, runs `gate_check` over the pages written: a pass sets the
+instructions). When the loop ends the Surveyor, not the model, runs `gate_check` over the pages written: a pass sets the
 unit `done` and, once no unit of the Source is open, the Source `ingested`; a failure, a budget cut, an error or a
 cancellation releases the unit (`open`, a note naming the pages already written). A Contradiction the loop itself wrote is the
 unit's output, not a failure. No unit is claimed when the remaining grant is under the dearest completed unit (20 000
@@ -535,7 +535,7 @@ work, so it runs only when the entries before it have none. It offers work only 
 only the daily budget above `synthesis_reserve` (a fraction of `daily_tokens`, kept whatever `run_tokens` says). Per run it takes the candidates the
 server's own signals give (undefined terms, repeated search misses, repeated facts, unlinked central pages), at most
 `synthesis_max_candidates`, one model call each, and writes at most `synthesis_max_new`. The instructions are embedded in
-the binary. The model sees a narrower allowlist than ingest and a worker-side guard refuses every other call, so a
+the binary. The model sees a narrower allowlist than ingest and a Surveyor-side guard refuses every other call, so a
 write can only create the hypothesis at its computed id; every commit's reason is `synthesis: <id>`. The run record
 (the closing `log_append`) lists the candidates examined and the hypotheses written; the next run skips the ones listed
 in the last 7 days. Closing a hypothesis is a reader's work (`resolution_outcome: confirmed | rejected`).
@@ -554,7 +554,7 @@ fetch:
 ```
 
 `fetch.allow_private` is refused by default after DNS resolution (checked on every connection, redirects included): a
-worker runs inside someone's network and must not become a proxy to it.
+Surveyor runs inside someone's network and must not become a proxy to it.
 
 **Connectors (D1262).** `connectors` is a mapping, by name (`[a-z0-9-]{1,30}`, not `git`, `fetch` or
 `artifact`), of external MCP servers the unit-execution task may read documents through. Each takes
@@ -562,8 +562,8 @@ worker runs inside someone's network and must not become a proxy to it.
 `allow_insecure_http`), plus `tools` (required), `call_timeout` (default 60s) and `max_result_bytes`
 (default 256 KiB). A Source names a connector in its `connector` field; nothing else in a KB selects
 one. The model is offered only the tools listed in `tools`, as `<connector>__<tool>`, and a call to any
-other is refused by the worker before it reaches the server: the server's own tool list is untrusted.
-Every value of `env` and `headers`, and `token_env`, is the **name** of a variable of the worker (a
+other is refused by the Surveyor before it reaches the server: the server's own tool list is untrusted.
+Every value of `env` and `headers`, and `token_env`, is the **name** of a variable of the Surveyor (a
 value is refused at load, without echoing it); the variable is read when the connector first starts,
 and a stdio child receives only the variables listed plus `PATH` and `HOME`. A connector that cannot
 start (command missing, variable unset, server down) is skipped for the run, not fatal: a unit whose
@@ -592,7 +592,7 @@ entry is read. The reader takes https remotes only, with no credential: `file://
 paths and any remote with userinfo are refused before a clone; a private repository is an exec recipe or an MCP
 connector. (An inline unit has no `source_fetch`.) For a unit whose Source has `connector: git` the `source_fetch` tool reads
 `<repo URL>#<path>` from a clone made for that unit's run only (one clone per unit, deleted when the unit finishes, not shared across units), after checking the host, that the path is
-inside the repository (`.git` included) and that no component is a symlink; 1 MiB. Every clone is anonymous whatever the worker's own git setup: no global or system git config, credential helper, askpass or extra header, no redirect followed, 5 minutes at most, history blobs not fetched. Symlinks, submodules and type changes are never listed. `recipes.<name>.instructions_file` (a built-in's
+inside the repository (`.git` included) and that no component is a symlink; 1 MiB. Every clone is anonymous whatever the Surveyor's own git setup: no global or system git config, credential helper, askpass or extra header, no redirect followed, 5 minutes at most, history blobs not fetched. Symlinks, submodules and type changes are never listed. `recipes.<name>.instructions_file` (a built-in's
 name only, a path inside the config directory, at most 16 KiB UTF-8, read at load) replaces the recipe's embedded
 instructions text.
 
@@ -608,8 +608,8 @@ recipes:
 (`command`, `args`, `env`, `timeout`, `max_output_bytes`, `max_content_bytes`), an `instructions_file` and optionally
 a `connector`; it lists a feed over a JSON stdin/stdout protocol, with no shell, a per-call temp directory and only
 the environment variables you list. The keys, protocol v1 and the trust model are in
-[worker-recipes.md](worker-recipes.md), which also describes `cartographer worker source test`, the dry run of a recipe. The image does not change: a script that needs an interpreter runs from a
-derived image (`FROM` the Cartographer image) or from a mounted read-only volume, and the worker now needs a
+[surveyor-recipes.md](surveyor-recipes.md), which also describes `cartographer surveyor source test`, the dry run of a recipe. The image does not change: a script that needs an interpreter runs from a
+derived image (`FROM` the Cartographer image) or from a mounted read-only volume, and the Surveyor now needs a
 **writable temp directory** (an `emptyDir` on Kubernetes) for exec recipes and git reads, which refines "no volume"
 to "no persistent volume".
 
@@ -628,15 +628,15 @@ on any git version (`GIT_CONFIG_GLOBAL` alone needs git 2.32).
 
 **System sources (D1372).** A live read-only system (a Kubernetes cluster, a cloud account, a metrics or dashboard
 instance) is a Source with `source_shape: system` and a `recipe` whose `shape` is `system`
-([worker-recipes.md](worker-recipes.md) §System recipes). Register it once with `source_register` (`source_shape:
+([surveyor-recipes.md](surveyor-recipes.md) §System recipes). Register it once with `source_register` (`source_shape:
 system`, `recipe`, `locator` an opaque label such as `kubernetes://dev-cluster`) and set `feed_interval` and
 `feed_include` with `concept_patch`; an IngestPlan must list it in `sources`. Every poll runs the lister's preflight,
 lists the current state grouped, diffs it against the state kept on the Source and creates one unit per **changed**
 group; the executor runs those units with KB tools only (no tool on the system). The reference lister, its recipe
 block and its README are in `examples/system-recipes/kubernetes/`; it needs Python 3 and `kubectl` in the image
-(a derived image or a mounted volume, as above), and `KUBECTL`, `KUBE_CONTEXT` and `KUBECONFIG` set in the worker's
+(a derived image or a mounted volume, as above), and `KUBECTL`, `KUBE_CONTEXT` and `KUBECONFIG` set in the Surveyor's
 environment.
-A metrics source reports verdicts, not values ([worker-recipes.md](worker-recipes.md) §Verdicts, not metrics): its
+A metrics source reports verdicts, not values ([surveyor-recipes.md](surveyor-recipes.md) §Verdicts, not metrics): its
 reference lister and weekly review task are in `examples/system-recipes/prometheus-verdicts/`.
 
 *Cost.* One measured development cluster had 583 objects in 27 namespaces: 4.3 MB of raw JSON (about 1.1M tokens),
@@ -678,7 +678,7 @@ recipe and its host list, leases the feed (`feed_checked_at`, compare-and-swap: 
 modified entry it registers a document Source (never `sha256`; an `ingested` Source returns to `pending`) and creates
 an `IngestUnit` at the ID `<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>`; a unit that exists means the
 entry was handled and costs nothing. A new unit costs one model call with no tools (plan, feed and entry as delimited
-data; the answer is JSON the worker validates and retries once); a changed document reuses the previous unit's
+data; the answer is JSON the Surveyor validates and retries once); a changed document reuses the previous unit's
 fields with no call. The cursor advances only after every entry is handled; a spent grant leaves it, and the next poll
 skips the finished entries. Removed entries are counted, never acted on. A feed that cannot be polled gets
 `feed_error: <code>: <detail>` (`bad_field`, `recipe_unknown`, `recipe_shape`, `host_not_allowed`, `no_ingest_plan`,
@@ -687,7 +687,7 @@ connectors' credential variables replaced by `***`, and is retried at its interv
 
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
 for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB
-closes with a `log_append` (path `worker/<name>`) whose line carries `day=`, `tokens.<profile>=` and
+closes with a `log_append` (path `surveyor/<name>`) whose line carries `day=`, `tokens.<profile>=` and
 `stopped=`, and the next run sums today's lines. A task's grant is
 `min(remaining today, run_tokens)` minus what the run already spent on its profile; an exhausted profile
 skips its tasks while the others go on. The day is the calendar day of `schedule.window.timezone` (UTC
@@ -696,12 +696,12 @@ and retried at the next poll.
 
 Tokens are counted as the API reports them, whatever the provider: tokens read from a prompt cache count in
 full, so a test on a cloud model spends the same budget as the run on a local one. Cache reads appear only in
-the `worker_task` metric. `context_tokens` (default 32 000) is a separate limit: a run is told once to close when a
+the `surveyor_task` metric. `context_tokens` (default 32 000) is a separate limit: a run is told once to close when a
 prompt reaches 75% of it, when the budget would not pay for two more turns or when two steps are left, and it
 stops before a prompt that would not fit. A tool result is capped at half of it, read as bytes: 16 000 at the default, down from 32 KiB. `max_output_tokens`
 (default 4096) bounds one answer: a turn it cuts is dropped and retried once, the second in a row stops the
 task. `timeout_seconds` (default 120) bounds one attempt of a model call, which is not streamed: a slow local
-model needs more. Each finished task logs one JSON line `{"metric":"worker_task",...}` with tokens, cache reads,
+model needs more. Each finished task logs one JSON line `{"metric":"surveyor_task",...}` with tokens, cache reads,
 steps, the largest prompt, tool calls and tool errors, and never a page's content. An unattended doctor does not
 get `map_create` or `map_update`: the shape of a map is the operator's.
 
@@ -711,11 +711,11 @@ to 5 minutes, then exit 1); `server/discover` accepts the token (`/health` is pu
 token as an anonymous caller, so only this call proves it); `/health` names KBs for the token; every
 name in `kbs` is among them. The roster is a read view: the perimeter token needs `kb:<name>:rw` on
 each KB (§Fine-grained roles), and a read-only token meets its first refusal at the first write. Give
-it an `id` so the audit log names the worker.
+it an `id` so the audit log names the Surveyor.
 
-**Why the worker may run unasked (D1258).** D704 says an agent works on a KB only when the operator asks;
-deploying a worker for a perimeter, with its budgets, window, KBs, profiles and tasks, is that asking.
-Nothing else changes: the server runs no model, `serve` never starts or links the worker, `connect`/`sync`
+**Why the Surveyor may run unasked (D1258).** D704 says an agent works on a KB only when the operator asks;
+deploying a Surveyor for a perimeter, with its budgets, window, KBs, profiles and tasks, is that asking.
+Nothing else changes: the server runs no model, `serve` never starts or links the Surveyor, `connect`/`sync`
 install no scheduler, and every write is a revertible commit with a `Reason` trailer.
 
 **The `doctor` task (D1261, D1436).** `kind: doctor` (one entry) keeps a KB in order on its own. Put it after the ingest kinds: it works with what they leave. It needs no `doctor_suggested`: the signal is that a repair or a review item is waiting. A degraded KB is skipped, and a KB with nothing to do costs no model call and is read again after an hour. `tasks[].doctor_allow` says how far a run goes:
@@ -725,16 +725,16 @@ install no scheduler, and every write is a revertible commit with a `Reason` tra
 | (always on) | Close or suspend work, frontmatter only: `status_reclassify`, `zombie_work`, the `stale_open` lint judgement |
 | `repair` (the default) | Apply, in one commit and with no model, the mechanical fixes the server's background repair leaves: `broken_link`, `superseded_target_retired`, `unknown_type`. `invalid_field_value` also needs `structure`, because it drops values from pages. Any other check never runs unattended, a new one included: `reciprocal_link_item` can drop hundreds of edges and `junk_file` changes what git tracks |
 | `pages` | Edit the body of the pages an item names: `repeated_fact`, `duplicate_candidate` (a link between two different subjects), `closed_with_open_items`, `template_extra_section`, `template_section_missing`, the `island` observation |
-| `structure` | `facet_sprawl` and `missing_value_contract`: declare the proposed vocabulary with `map_update`, on the item's map, only the field the item proposes and exactly its list, and the worker adds back the fields the map already declares. With `repair`, the next run converges the pages, dropping values outside the list. `index_unclassified`: `index_patch` on the item's map |
+| `structure` | `facet_sprawl` and `missing_value_contract`: declare the proposed vocabulary with `map_update`, on the item's map, only the field the item proposes and exactly its list, and the Surveyor adds back the fields the map already declares. With `repair`, the next run converges the pages, dropping values outside the list. `index_unclassified`: `index_patch` on the item's map |
 | `archive` | `harvest_candidate` and `lesson_unpromoted`: carry a closed journal entry's facts to the live pages it links when the item starts, body only, then set it `archived`. Nothing is deleted or moved |
 
-The worker reads `kb_review` itself, at no token cost, up to 500 items per kind, and deals them one rule at a time, in that order, so a long check does not keep the others out of a run. An item no rule covers stays for a prompt task (§Prompt tasks) or an operator's `cartographer-kb-doctor` session; that includes `concept_merge` and `concept_archive`, which `tools/list` does not advertise, and a new template, which needs `artifact_write`. Each item is a loop of its own, at most 8 steps and 40,000 tokens, with short instructions embedded in the binary and only the tools its rule names, so one item's context never reaches the next. Frontmatter stays `status`, `waiting_on` and `review_after`. A run examines at most 10 items, applies at most `max_writes` writes (default 20), starts an item only with 20,000 tokens of grant left, and ends after three writes in a row the server refuses (a read-only token). The KB is the memory: a settled item leaves `kb_review`, and an examined one is recorded on the log path `worker/<perimeter>/doctor` (`day=<date> examined=<keys> writes=<n>`) and left alone for 14 days, so the next run picks up where this one stopped. A run stopped by a shutdown records nothing and an item cut by `max_writes` is not recorded: what they did not settle comes back. A run never writes `kb-doctor`: `last_doctor` moves only with an operator's session. Every commit carries `Reason: doctor: <key>` (`doctor: repair` for the repair), so `git log --grep 'doctor: '` finds a pass and each commit reverts alone. The worker's log has one line per item, with how it ended, its steps, its writes and how many did not land, and one line for each write refused by the guard or the server, so an item with no commit tells a model that left it from a fence that stopped it.
+The Surveyor reads `kb_review` itself, at no token cost, up to 500 items per kind, and deals them one rule at a time, in that order, so a long check does not keep the others out of a run. An item no rule covers stays for a prompt task (§Prompt tasks) or an operator's `cartographer-kb-doctor` session; that includes `concept_merge` and `concept_archive`, which `tools/list` does not advertise, and a new template, which needs `artifact_write`. Each item is a loop of its own, at most 8 steps and 40,000 tokens, with short instructions embedded in the binary and only the tools its rule names, so one item's context never reaches the next. Frontmatter stays `status`, `waiting_on` and `review_after`. A run examines at most 10 items, applies at most `max_writes` writes (default 20), starts an item only with 20,000 tokens of grant left, and ends after three writes in a row the server refuses (a read-only token). The KB is the memory: a settled item leaves `kb_review`, and an examined one is recorded on the log path `surveyor/<perimeter>/doctor` (`day=<date> examined=<keys> writes=<n>`) and left alone for 14 days, so the next run picks up where this one stopped. A run stopped by a shutdown records nothing and an item cut by `max_writes` is not recorded: what they did not settle comes back. A run never writes `kb-doctor`: `last_doctor` moves only with an operator's session. Every commit carries `Reason: doctor: <key>` (`doctor: repair` for the repair), so `git log --grep 'doctor: '` finds a pass and each commit reverts alone. The Surveyor's log has one line per item, with how it ended, its steps, its writes and how many did not land, and one line for each write refused by the guard or the server, so an item with no commit tells a model that left it from a fence that stopped it.
 
 **What the words trust.** The guard limits where a write lands, not what it says: a model reads the pages it edits, so text in a page can steer it inside its fence. With `pages`, `archive` or `structure` someone who can write a page can have a run write to the pages an item names, or to a map's index (`index_unclassified`), and with `archive` the author of a journal entry chooses the pages it links, and so where a run may write, and an item can add a link that a later item or run follows. Turn them on for a KB whose writers you trust. The default is narrower, not immune: a repair is mechanical, but a rule always on is a model reading a page, so a page's writer can steer whether the item's pages are closed or suspended and the text of `waiting_on`.
 
 **The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
-idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the worker's heartbeat, `POST /api/workers`: [control-plane](control-plane.md) §Worker heartbeat; until the worker beats, it is
-window-only). **Beat, settings, idle (D1259).** The worker declares itself with `POST /api/workers` from its own goroutine: once at
+idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the Surveyor's heartbeat, `POST /api/workers`: [control-plane](control-plane.md) §Surveyor heartbeat; until the Surveyor beats, it is
+window-only). **Beat, settings, idle (D1259).** The Surveyor declares itself with `POST /api/workers` from its own goroutine: once at
 start (before the triggers are read, so `--once` has the idle signal), every 60 s, and once with `state: stopped`
 on a clean exit; the instance id is the perimeter `name`, `-` and six random hex characters. Right after the first
 beat it posts its settings to `POST /api/worker-settings` (typed scalar entries, never a secret: an `*_env` value
@@ -742,7 +742,7 @@ is a variable name followed by `(set)` or `(unset)`, a URL has no userinfo, mode
 again whenever a beat answers `settings_wanted`. The idle time is the answer's `now` minus `last_activity_at`
 (or `server_started_at` when `null`), plus the local time since the answer; an answer older than three beats, a
 `404` from an older server, a KB the answer omits and `activity_known: false` (authentication off: the server
-cannot tell the worker from a person) all make the idle trigger not hold, so the worker runs on its window only.
+cannot tell the Surveyor from a person) all make the idle trigger not hold, so the Surveyor runs on its window only.
 A failed beat or report is a log line and never fails a run; a settings report the server refuses with a 4xx is
 logged once and not sent again. The server bounds a heartbeat, so the config is refused at load past **32 KBs**
 or **8 model profiles**.
@@ -773,55 +773,55 @@ second signal exits at once with 1. Keep `terminationGracePeriodSeconds` at 30 o
 
 The budget is a cost-control guard, not a quota the provider enforces; set `run_tokens` to the overshoot you accept.
 
-**Packaging.** The worker is the server image with another command: no new image, no volume, no inbound port.
+**Packaging.** The Surveyor is the server image with another command: no new image, no volume, no inbound port.
 The image has no `tzdata`; the binary embeds the zone database, so `schedule.window.timezone` resolves there.
 
 ```yaml
 # compose.yaml
 services:
-  worker:
+  surveyor:
     image: ghcr.io/beppetemp/cartographer:latest
-    command: ["worker", "--config=/etc/cartographer/worker.yaml"]
+    command: ["surveyor", "--config=/etc/cartographer/surveyor.yaml"]
     restart: unless-stopped
     environment:
-      WORKER_TOKEN: ${WORKER_TOKEN}
+      SURVEYOR_TOKEN: ${SURVEYOR_TOKEN}
       CLOUD_API_KEY: ${CLOUD_API_KEY}
     volumes:
-      - ./worker.yaml:/etc/cartographer/worker.yaml:ro
+      - ./surveyor.yaml:/etc/cartographer/surveyor.yaml:ro
 ```
 
 ```yaml
-# Kubernetes: worker.yaml in a ConfigMap, the two variables in a Secret
+# Kubernetes: surveyor.yaml in a ConfigMap, the two variables in a Secret
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cartographer-worker
+  name: cartographer-surveyor
 spec:
   replicas: 1                      # more replicas are more processes with the same config
   selector:
-    matchLabels: {app: cartographer-worker}
+    matchLabels: {app: cartographer-surveyor}
   template:
     metadata:
-      labels: {app: cartographer-worker}
+      labels: {app: cartographer-surveyor}
     spec:
       terminationGracePeriodSeconds: 30
       containers:
-        - name: worker
+        - name: surveyor
           image: ghcr.io/beppetemp/cartographer:latest
-          args: ["worker", "--config=/etc/cartographer/worker.yaml"]
+          args: ["surveyor", "--config=/etc/cartographer/surveyor.yaml"]
           envFrom:
-            - secretRef: {name: cartographer-worker-env}   # WORKER_TOKEN, CLOUD_API_KEY
+            - secretRef: {name: cartographer-surveyor-env}   # SURVEYOR_TOKEN, CLOUD_API_KEY
           volumeMounts:
             - {name: config, mountPath: /etc/cartographer, readOnly: true}
       volumes:
         - name: config
-          configMap: {name: cartographer-worker}
+          configMap: {name: cartographer-surveyor}
 ```
 
 The token is a dedicated one, scoped `kb:<name>:rw` to the perimeter's KBs only (`auth.tokens`, §Fine-grained
-roles), with an `id` so the audit log names the worker. A worker must not change a skill, an agent or a hook
+roles), with an `id` so the audit log names the Surveyor. A Surveyor must not change a skill, an agent or a hook
 that every client of the KB syncs and executes, yet it needs whole-KB `rw` (`log_append`, `source_register`):
-give it a role with `artifacts: r` (§Fine-grained roles). To drive the worker from an external scheduler instead of its own window,
+give it a role with `artifacts: r` (§Fine-grained roles). To drive the Surveyor from an external scheduler instead of its own window,
 run it with `--once`. As a native service, write the unit yourself: `cartographer service` manages only the server.
 
 ### Prompt tasks
@@ -829,7 +829,7 @@ run it with `--once`. As a native service, write the unit yourself: `cartographe
 A task of `kind: prompt` (D23, D1374) is a recurring chore of the operator's own that no shipped kind covers: a
 weekly digest of what changed, a monthly check that every runbook names a live owner. Its instructions are a
 file the operator wrote; the model has only the MCP tools the entry lists, and there is no shell and no code
-execution (code the worker runs is a different mechanism). It runs inside the window, idle trigger, budget and
+execution (code the Surveyor runs is a different mechanism). It runs inside the window, idle trigger, budget and
 priority order of every other task.
 
 | Option | Meaning |
@@ -837,7 +837,7 @@ priority order of every other task.
 | `name` | Required, `[a-z0-9-]{1,40}`, unique among the tasks, never containing `kb-doctor`; written into the task's log entries and commit reasons |
 | `model` | Required, a profile whose `run_tokens` is at least 8 000 (a task needs a grant of 8 000 tokens to start) |
 | `instructions_file` | Required, a relative path inside the directory of the `--config` file; at most 16 KiB of UTF-8 |
-| `tools` | Required, non-empty, a subset of the worker's default allowlist plus `kb_review` and `kb_repair`, and a task with `kb_repair` can run any repair, removals and `junk_file` included (the `doctor` task's limits do not apply to it); a denied tool (`artifact_*`, `concept_delete`, ...) is a load error and nothing is implicit: list the read tools the task needs too |
+| `tools` | Required, non-empty, a subset of the Surveyor's default allowlist plus `kb_review` and `kb_repair`, and a task with `kb_repair` can run any repair, removals and `junk_file` included (the `doctor` task's limits do not apply to it); a denied tool (`artifact_*`, `concept_delete`, ...) is a load error and nothing is implicit: list the read tools the task needs too |
 | `every` | Required, a Go duration of at least `1h` (`168h` is a week; no `d` or `w` units) |
 | `kbs` | Optional, a non-empty subset of the perimeter's `kbs`; omitted means all of them |
 
@@ -846,18 +846,18 @@ Kubernetes (a relative symlink inside the directory, which is how a ConfigMap vo
 leaves it is refused), a read-only bind mount in compose. The file is read once at start, so a change needs a
 restart. It is never read from a KB, and its text appears in no log line, error or report.
 
-**Cadence.** After a run that reached the model the worker files one marker, `task=<name> at=<RFC 3339>
-day=<date> stopped=done|steps|budget|error|shutdown writes=<n>`, on the log path `worker/<perimeter>/task/<name>`
+**Cadence.** After a run that reached the model the Surveyor files one marker, `task=<name> at=<RFC 3339>
+day=<date> stopped=done|steps|budget|error|shutdown writes=<n>`, on the log path `surveyor/<perimeter>/task/<name>`
 (read it with `log_tail`). The task is due on a KB when none exists or `every` has elapsed since the newest, so a
 skipped period is not replayed: the next due time follows the actual last run. A due task whose profile has less than
 8 000 tokens of grant waits and stays due. Renaming the task or the perimeter starts a new marker path, so it runs once
 more at once. Two replicas that find the task due together both run it (there is no lock; the bound is `replicas x
 grant`): write instructions that begin by checking whether this period's work exists.
 
-**What a task writes.** Every commit carries `Reason: prompt task <name>[: <the model's reason>]`, set by the worker,
+**What a task writes.** Every commit carries `Reason: prompt task <name>[: <the model's reason>]`, set by the Surveyor,
 so `git log --grep 'prompt task <name>'` finds a pass and each commit reverts alone. The task's own `log_append`
 lines are filed under `task/<name>` whatever path the model passes, and an entry with a line starting `## ` or the text
-`kb-doctor` is refused, so a model can never forge a `worker/` budget or cadence entry. A task that lists
+`kb-doctor` is refused, so a model can never forge a `surveyor/` budget or cadence entry. A task that lists
 `concept_write` can overwrite any page its token can write: the fences are the `tools` list, the token's scopes,
 `if_match` in the instructions, and the revertible commits.
 
@@ -866,7 +866,7 @@ Example: a weekly digest of `kb-a`.
 ```yaml
 name: perimeter-a
 server_url: https://wiki.example.com/mcp
-token_env: WORKER_TOKEN
+token_env: SURVEYOR_TOKEN
 kbs: [kb-a, kb-b]
 schedule:
   window: {start: "02:00", end: "05:00", timezone: Europe/Rome}
@@ -905,7 +905,7 @@ You write the weekly digest of this knowledge base. Follow these steps in order.
 
 The journal `digests` must exist (created once with `map_create`, which the task does not list) and allow the type
 the page uses. The first window after the start runs the task; `git log` shows `Reason: prompt task weekly-digest: ...`,
-`log_tail` on `worker/perimeter-a/task/weekly-digest` shows one `task=weekly-digest at=... stopped=done writes=1` line,
+`log_tail` on `surveyor/perimeter-a/task/weekly-digest` shows one `task=weekly-digest at=... stopped=done writes=1` line,
 the next seven days of polls do nothing for `kb-a`, and `kb-b` is never touched.
 
 A prompt task is also how to go past what the `doctor` task covers without new code. `examples/prompt-tasks/kb-scout.md`
@@ -988,7 +988,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   and where it went and why, read from the root `log.md` (D1146: the Retired tab is gone, and
   `panel=retired` links land on Activity); an archive map wears an "Archive" badge in the rail; the command palette's "Include archived" toggle adds archived pages to a search;
   pending sources are Work's "to ingest" column. Settings has the tabs Client, Server,
-  Knowledge Base and Worker (no counts on them; the Worker tab shows each reported worker perimeter's typed values (no YAML pane), or the template of every key at its default while none has reported, and one tab per perimeter when several are visible), and opens on the Client one: the client's own settings first, as the
+  Knowledge Base and Surveyor (no counts on them; the Surveyor tab shows each reported Surveyor perimeter's typed values (no YAML pane), or the template of every key at its default while none has reported, and one tab per perimeter when several are visible), and opens on the Client one: the client's own settings first, as the
   viewer's last `sync` reported them (its agents, the workspaces with their isolation), then the KBs as a row
   of pills (the active one picked) and, for the picked one, the client keys that concern it: which of the machine's agents receive it and where (everywhere, or only the folders
   bound to it, through the bridge or over HTTP) and where its placeholders resolve on that machine. Each key
@@ -1252,16 +1252,16 @@ closed concept listed only for them); any other status a map's `open_statuses` n
 kind) and age (stale ones flagged), expands to its items, and opens the concept on the atlas; a search opens
 nothing. It is read-only: work changes through the agents' write tools. The pending sources, `kb_status` and the
 review list are each optional: without one (a caller that cannot see the whole KB has no `kb_status`) the board
-shows the rest. Above the board a strip lists, read-only, the live `cartographer worker` processes that declared the KB
+shows the rest. Above the board a strip lists, read-only, the live `cartographer surveyor` processes that declared the KB
 (perimeter and state, last run, one bar per model profile with `spent / limit` and its tier, when it was last seen,
-its next window; `GET /api/ui/v1/kbs/<kb>/workers`), then the Sources whose last poll failed (title, shape, the error,
+its next window; `GET /api/ui/v1/kbs/<kb>/Surveyors`), then the Sources whose last poll failed (title, shape, the error,
 when it was checked, a link to the concept; `.../feeds`, keyed on the `feed_error` field). Nothing renders when both
 are empty, and a failing or `404` route leaves the page as it was.
 
 The **Health** panel (D338, D365, D947, D948) shows what is wrong with the pages and nothing else: the lint's
 findings. What a person has to answer or decide is in Work. One read-only line under the lede, on *Issues* only, says
-which worker maintains the KB and when a doctor session last closed ("Maintained by team-a (2 replicas, running) · last doctor
-2026-01-01 · next due 2026-01-15"); it is upkeep, not a finding, and renders only while a live worker names the KB and
+which Surveyor maintains the KB and when a doctor session last closed ("Maintained by team-a (2 replicas, running) · last doctor
+2026-01-01 · next due 2026-01-15"); it is upkeep, not a finding, and renders only while a live Surveyor names the KB and
 the caller sees the whole KB. Two buttons in the header switch its views, *Issues*
 and *What it checks*.
 
@@ -1420,7 +1420,7 @@ auth:
           types: [Runbook]      # empty = every type
         - kb: reference
           access: r
-    - name: worker-team-a       # a worker token: one role per perimeter
+    - name: surveyor-team-a       # a Surveyor token: one role per perimeter
       rules:
         - kb: kb-a
           access: rw
@@ -1440,7 +1440,7 @@ the field (#680). Any other value is taken literally.
 `artifact_write`, `artifact_delete`, `artifact_move`, `skill_install` and the `/api/usage` report, which change what
 every client of the KB syncs and executes. `log_append`, `source_register`, `concept_*` and the reads stay allowed.
 A second rule of the same token without the key restores the write (rules are unioned); `artifacts: rw` with
-`access: r` is refused at startup. The worker token recipe is the `worker-team-a` role above: one role per
+`access: r` is refused at startup. The Surveyor token recipe is the `surveyor-team-a` role above: one role per
 perimeter, `rw` on the perimeter's KBs, `artifacts: r`, no other KB.
 
 Rollout notes:

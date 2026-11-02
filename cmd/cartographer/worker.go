@@ -18,7 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 )
 
-// Exit codes of `cartographer worker`: 0 graceful shutdown, 1 runtime failure,
+// Exit codes of `cartographer surveyor`: 0 graceful shutdown, 1 runtime failure,
 // 2 start error (nothing was started).
 const (
 	workerExitRuntime = 1
@@ -94,7 +94,7 @@ var workerRunFn = func(ctx context.Context, env *workerEnv, once bool) int {
 		Heartbeat:    beater,
 	})
 	if err != nil {
-		log.Printf("worker: %v", err)
+		log.Printf("surveyor: %v", err)
 		return workerExitStart
 	}
 	beater.Worker = r.Replica()
@@ -102,26 +102,26 @@ var workerRunFn = func(ctx context.Context, env *workerEnv, once bool) int {
 		env.settings.Worker = r.Replica()
 	}
 	beater.Start(ctx)
-	log.Printf("worker %q (replica %s): started for %d KB(s)", env.cfg.Name, r.Replica(), len(env.cfg.KBs))
+	log.Printf("surveyor %q (replica %s): started for %d KB(s)", env.cfg.Name, r.Replica(), len(env.cfg.KBs))
 	return r.Run(ctx, once)
 }
 
-// cmdWorker runs `cartographer worker --config <file>`: the third role of the
+// cmdWorker runs `cartographer surveyor --config <file>`: the third role of the
 // binary, a background process for one perimeter. `serve` never starts it.
 func cmdWorker(args []string) int {
 	if len(args) > 0 && args[0] == "source" {
 		return cmdWorkerSource(args[1:])
 	}
-	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
+	fs := flag.NewFlagSet("surveyor", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	configFlag := fs.String("config", "", "Path to the worker YAML config (required)")
+	configFlag := fs.String("config", "", "Path to the Surveyor YAML config (required)")
 	onceFlag := fs.Bool("once", false, "Evaluate the triggers once, run if due, and exit")
 	logFileFlag := fs.String("log-file", "", "Append the log to this file instead of stderr (created if absent; never rotated)")
 	if err := fs.Parse(args); err != nil {
 		return workerExitStart
 	}
 	if *configFlag == "" {
-		fmt.Fprintln(os.Stderr, "usage: cartographer worker --config <file> [--once] [--log-file <file>]\n       cartographer worker source test --config <file> ... (try a recipe before deploying it)")
+		fmt.Fprintln(os.Stderr, "usage: cartographer surveyor --config <file> [--once] [--log-file <file>]\n       cartographer surveyor source test --config <file> ... (try a recipe before deploying it)")
 		fs.PrintDefaults()
 		return workerExitStart
 	}
@@ -145,7 +145,7 @@ func cmdWorker(args []string) int {
 		<-sigs
 		stop()
 		<-sigs
-		log.Print("worker: second signal, exiting now")
+		log.Print("surveyor: second signal, exiting now")
 		os.Exit(workerExitRuntime)
 	}()
 	if ev := watchShutdownEvent(); ev != nil {
@@ -163,7 +163,7 @@ func cmdWorker(args []string) int {
 		if ctx.Err() != nil {
 			return 0 // interrupted while waiting for the server: a graceful stop
 		}
-		log.Printf("worker: %v", err)
+		log.Printf("surveyor: %v", err)
 		var se *startError
 		if errors.As(err, &se) {
 			return se.code
@@ -182,7 +182,7 @@ func workerStartup(ctx context.Context, path string, kinds *worker.Kinds, retry 
 		return nil, startFail(workerExitStart, "%v", err)
 	}
 	for _, w := range cfg.Warnings {
-		fmt.Fprintf(out, "worker: warning: %s\n", w)
+		fmt.Fprintf(out, "surveyor: warning: %s\n", w)
 	}
 
 	models := map[string]worker.Model{}

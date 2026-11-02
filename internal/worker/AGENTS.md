@@ -1,13 +1,13 @@
-# AGENTS.md — the worker
+# AGENTS.md — the Surveyor
 
-The model client, the agent loop and the runner of `cartographer worker` (D1258). A defect here spends
+The model client, the agent loop and the runner of `cartographer surveyor` (D1258). This package is the Surveyor's: the command is `cartographer surveyor`, and the package, its siblings and the wire names keep `worker` (D1442), so a search for "surveyor" lands here. A defect here spends
 money and writes to KBs when nobody is looking.
 
 - **No secret anywhere**: the config names environment variables (`*_env`); a value never reaches a
   log line, a `log_append` entry or an error. Types with a key redact in `String`/`GoString`.
 - **A KB never selects code**: the runner dispatches registered task kinds only; their instructions
   come from the config directory or the binary, never from what a KB contains.
-- **The budget is rebuilt from the KBs' logs, never from local disk** (`budget.go`): a worker has no
+- **The budget is rebuilt from the KBs' logs, never from local disk** (`budget.go`): a Surveyor has no
   volume. The closing entry's format is the contract the reader parses.
 - **`serve` never links this package**, and this package imports no `internal/mcpserver` or
   `internal/kb` (`imports_test.go` pins both).
@@ -18,9 +18,8 @@ money and writes to KBs when nobody is looking.
 - **A synthesis write never targets an existing concept and never uses a blocking contradiction kind**
   (`synthesis/guard.go`, D1263): hypotheses are gap Contradictions created at a deterministic id; the guard,
   not the server, keeps D11.
-- **A prompt task's log lines and trailers come from the guard (`prompt_guard.go`), never from the model**: nothing
-  under `worker/` in the log is written by a model, and its marker path stays apart from the budget's by the bracketed prefix.
-- **A worker never writes `kb-doctor`** (`doctor.go`, D1436): every entry it files passes `noMarker` and a model's write carrying the marker is refused, or a run would silence `doctor_suggested` with the debt still there.
+- **A prompt task's log lines and trailers come from the guard (`prompt_guard.go`), never from the model**: nothing  under `surveyor/` in the log is written by a model, and its marker path stays apart from the budget's by the bracketed prefix.
+- **A Surveyor never writes `kb-doctor`** (`doctor.go`, D1436): every entry it files passes `noMarker` and a model's write carrying the marker is refused, or a run would silence `doctor_suggested` with the debt still there.
 - **A doctor write reaches only what its item names** (`doctor.go`, D1436): the guard fences each tool to the item's pages or map, with the arguments and frontmatter keys it lists, and `doctor_allow` turns rules on; a rule needs a fence before it needs a tool, and a rule always on never edits a body. `doctorRepairs` is an allow-list: a repairable check stays out until it is named there. `map_update` replaces `field_values` whole, so `fenceMap` adds back what the map declares. A tool `tools/list` does not advertise (`concept_merge`, `concept_archive`) never reaches a model: the allowlist intersects the list.
 - `synthesis/` defines its own `ToolCaller` and never imports this package: the kind (`synthesis.go`) imports it, so the other direction would be a cycle.
 - **The beater never blocks the runner** (`beater.go`, D1259): `Beat` only copies a snapshot under a mutex, a
