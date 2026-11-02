@@ -202,7 +202,7 @@ func TestMapUpdate_OpenField(t *testing.T) {
 // --- read-access log (D322) ---
 
 // touchConcepts creates a minimal file for each id: newReadAccessLog drops the
-// ids of concepts that do not exist (D1522).
+// ids of concepts that do not exist (D1529).
 func touchConcepts(t *testing.T, k *kb.KB, ids ...string) {
 	t.Helper()
 	for _, id := range ids {

@@ -48,7 +48,7 @@ type readAccessLog struct {
 	lastFlush time.Time
 	// snapSeq numbers the snapshots taken under mu; ioMu serialises the file
 	// writes and writtenSeq makes a stale snapshot, taken before a newer one
-	// but written after it, a no-op. The I/O happens outside mu (D1522): a
+	// but written after it, a no-op. The I/O happens outside mu (D1529): a
 	// slow disk must not stall every concept_read and search behind the lock.
 	snapSeq    uint64
 	ioMu       sync.Mutex
@@ -202,7 +202,7 @@ func summarize(m map[string]time.Time) accessSummary {
 	return s
 }
 
-// save writes the file now. It is what the server calls at shutdown (D1522):
+// save writes the file now. It is what the server calls at shutdown (D1529):
 // the five-minute flush of stamp bounds the loss of a crash, not of a clean
 // stop.
 func (l *readAccessLog) save() {

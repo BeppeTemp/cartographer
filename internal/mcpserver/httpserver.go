@@ -488,7 +488,7 @@ func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 }
 
 // FlushReadAccess writes the read-access log of every mounted KB. serveHTTP
-// calls it once the listener has drained (D1522).
+// calls it once the listener has drained (D1529).
 func (m *MultiKBServer) FlushReadAccess() {
 	for _, srv := range m.servers {
 		srv.FlushReadAccess()

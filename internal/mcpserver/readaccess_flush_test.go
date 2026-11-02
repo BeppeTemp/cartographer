@@ -19,7 +19,7 @@ func fixReadAccessClock(t *testing.T, at time.Time) *time.Time {
 }
 
 // A session shorter than the flush interval writes nothing by itself; the
-// shutdown flush (Server and MultiKBServer) is what keeps it (D1522).
+// shutdown flush (Server and MultiKBServer) is what keeps it (D1529).
 func TestReadAccessIsFlushedAtShutdown(t *testing.T) {
 	k := kbtest.New(t)
 	touchConcepts(t, k, "ops/a", "ops/b")
