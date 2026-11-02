@@ -45,6 +45,7 @@ func cmdSync(args []string) int {
 			return 2
 		}
 		defer f.Close()
+		detachOwnConsole() // the sync task's console window (D1479)
 	}
 
 	dir, err := clientconfig.TargetDir()

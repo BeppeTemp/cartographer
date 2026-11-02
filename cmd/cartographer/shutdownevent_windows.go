@@ -15,8 +15,9 @@ import (
 //
 // It is the Windows stand-in for SIGTERM, and it exists because nothing else can
 // deliver one here: Stop-ScheduledTask terminates the action, and
-// GenerateConsoleCtrlEvent cannot reach a process that runs without a console,
-// which a task's action does. Without it `service restart --wait` could only
+// GenerateConsoleCtrlEvent cannot reach a process that does not share the
+// caller's console, which a task's action never does (it detaches from its own
+// at startup, D1479). Without it `service restart --wait` could only
 // kill the server, losing the in-flight requests and the pending pushes that
 // D76 WP4's drain exists to flush.
 //

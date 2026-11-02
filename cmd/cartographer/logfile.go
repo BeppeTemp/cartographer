@@ -38,17 +38,23 @@ func openAppendLog(path string) (*os.File, error) {
 	return f, nil
 }
 
-// redirectServerLog sends the standard logger to path. Stdout is deliberately
-// left alone: in stdio transport it carries the MCP protocol itself
+// redirectServerLog sends the standard logger *and* os.Stderr to path. Stdout is
+// deliberately left alone: in stdio transport it carries the MCP protocol itself
 // (serveStdio's s.Run(os.Stdin, os.Stdout)), and redirecting it would move the
-// protocol into the log file. Everything `serve` reports goes through the log
-// package, which writes to stderr — that is what moves.
+// protocol into the log file.
+//
+// Stderr moves too because not everything `serve` reports goes through the log
+// package: internal/mcpserver writes its timing and warning lines with
+// fmt.Fprintf(os.Stderr, "cartographer: …"). Moving only the logger left those
+// in the Scheduled Task's console window and out of server.log — and once the
+// service detaches from that console (D1479) they would go nowhere at all.
 func redirectServerLog(path string) (*os.File, error) {
 	f, err := openAppendLog(path)
 	if err != nil {
 		return nil, err
 	}
 	log.SetOutput(f)
+	os.Stderr = f
 	return f, nil
 }
 
