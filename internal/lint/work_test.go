@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"strings"
 	"testing"
 	"time"
@@ -214,5 +215,24 @@ func TestWorkSkipsProcedureChecklists(t *testing.T) {
 	}
 	if strings.Join(texts, ",") != "real,docs updated,trap fixed,follow-up" {
 		t.Fatalf("default procedure headings: items %v", texts)
+	}
+}
+
+// Every reader of unchecked items goes through openItems: closed_with_open_items
+// counts what Work lists (an indented H2 is a heading for both), and
+// status_reclassify does not read a procedure's checklist as pending work.
+func TestOpenItemReadersAgree(t *testing.T) {
+	c := &kb.MapContract{ProcedureHeadings: []string{"steps"}}
+	body := "# P\n\n  ## Steps\n\n- [ ] step\n\n## Next\n\n- [ ] real\n"
+	if n, w := countOpenItems(kb.MaskCodeSpans(body), c), len(workItems(body, c)); n != 1 || w != 1 {
+		t.Fatalf("countOpenItems %d, workItems %d, want 1 and 1", n, w)
+	}
+	only := &reviewConcept{body: "# P\n\n## Steps\n\n- [ ] step\n"}
+	if p, _ := reclassifySignal(only, c); p == "in-progress" {
+		t.Fatalf("a procedure checklist alone proposed %q", p)
+	}
+	open := &reviewConcept{body: "# P\n\n- [ ] real\n"}
+	if p, _ := reclassifySignal(open, c); p != "in-progress" {
+		t.Fatalf("an open item proposed %q, want in-progress", p)
 	}
 }

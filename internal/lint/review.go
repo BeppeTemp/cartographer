@@ -944,7 +944,7 @@ func statusReclassifyItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 		if !ok || !activeNotOpen(c.fm, &contract) {
 			continue
 		}
-		proposed, signal := reclassifySignal(c)
+		proposed, signal := reclassifySignal(c, &contract)
 		it := ReviewItem{
 			Kind:     ReviewStatusReclassify,
 			Concepts: []string{string(c.id)},
@@ -961,7 +961,7 @@ func statusReclassifyItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 }
 
 // reclassifySignal is the first matching signal's proposal and its name.
-func reclassifySignal(c *reviewConcept) (proposed, signal string) {
+func reclassifySignal(c *reviewConcept, contract *kb.MapContract) (proposed, signal string) {
 	if reclassifyReferenceTypes[strings.ToLower(c.typ)] {
 		return "reference", "type " + strings.ToLower(c.typ)
 	}
@@ -978,7 +978,7 @@ func reclassifySignal(c *reviewConcept) (proposed, signal string) {
 	switch {
 	case hasHead(reclassifyClosedHeads):
 		return "done", "outcome section"
-	case openCheckbox.MatchString(masked+"\n") || hasHead(reclassifyNextHeads):
+	case countOpenItems(masked, contract) > 0 || hasHead(reclassifyNextHeads):
 		return "in-progress", "unchecked items or next steps"
 	}
 	folded := search.Fold(strings.ToLower(masked))
