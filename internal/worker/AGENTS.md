@@ -18,7 +18,7 @@ money and writes to KBs when nobody is looking.
 - **A synthesis write never targets an existing concept and never uses a blocking contradiction kind**
   (`synthesis/guard.go`, D1263): hypotheses are gap Contradictions created at a deterministic id; the guard,
   not the server, keeps D11.
-- **A prompt task's log lines and trailers come from the guard (`prompt_guard.go`), never from the model**: nothing  under `surveyor/` in the log is written by a model, and its marker path stays apart from the budget's by the bracketed prefix.
+- **A prompt task's log lines and trailers come from the guard (`prompt_guard.go`), never from the model**: nothing under `surveyor/` in the log is written by a model, and its marker path stays apart from the budget's by the bracketed prefix.
 - **A Surveyor never writes `kb-doctor`** (`doctor.go`, D1436): every entry it files passes `noMarker` and a model's write carrying the marker is refused, or a run would silence `doctor_suggested` with the debt still there.
 - **A doctor write reaches only what its item names** (`doctor.go`, D1436): the guard fences each tool to the item's pages or map, with the arguments and frontmatter keys it lists, and `doctor_allow` turns rules on; a rule needs a fence before it needs a tool, and a rule always on never edits a body. `doctorRepairs` is an allow-list: a repairable check stays out until it is named there. `map_update` replaces `field_values` whole, so `fenceMap` adds back what the map declares. A tool `tools/list` does not advertise (`concept_merge`, `concept_archive`) never reaches a model: the allowlist intersects the list.
 - `synthesis/` defines its own `ToolCaller` and never imports this package: the kind (`synthesis.go`) imports it, so the other direction would be a cycle.
