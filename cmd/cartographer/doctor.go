@@ -16,6 +16,7 @@ package main
 // individually reviewable.
 
 import (
+	"errors"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -283,6 +284,15 @@ func printDoctorReport(r doctorReport) {
 // every connected provider is still installed on this machine.
 func checkClientConfig(dir string, cfg *clientconfig.Config, loadErr error, only string) []doctorFinding {
 	path := filepath.Join(dir, clientconfig.FileName)
+	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
+		// The file is there but cannot be used: `connect` refuses to replace it
+		// (D1501), so the fix is to correct the named error, not to connect.
+		return []doctorFinding{{
+			Check: "client-config", Severity: doctorError, Path: path,
+			Message: "the client configuration cannot be read: " + loadErr.Error(),
+			Fix:     "fix or remove " + path,
+		}}
+	}
 	if loadErr != nil {
 		return []doctorFinding{{
 			Check: "client-config", Severity: doctorError, Path: path,

@@ -636,7 +636,11 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("clientconfig: read %s: %w", Path(dir), err)
 	}
-	return buildDocument(existing, &y, cfg.Extra)
+	doc, err := buildDocument(existing, &y, cfg.Extra)
+	if errors.Is(err, ErrUnparsable) {
+		return nil, fmt.Errorf("clientconfig: %s: %w (fix or remove it)", Path(dir), err)
+	}
+	return doc, err
 }
 
 // ApproveMCP records the exact descriptor hash for one source/name pair.

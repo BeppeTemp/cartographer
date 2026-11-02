@@ -39,7 +39,12 @@ func cmdDisconnect(args []string) int {
 	}
 
 	var connectedAgents []string
-	if cfg, err := clientconfig.Load(dir); err == nil {
+	if _, statErr := os.Stat(clientconfig.Path(dir)); statErr == nil {
+		cfg, err := loadConfigForWrite(dir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
 		connectedAgents = cfg.Agents
 	}
 
@@ -175,10 +180,11 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		defer release()
 	}
 
-	cfg, err := clientconfig.Load(opts.Dir)
+	cfg, err := loadConfigForWrite(opts.Dir)
 	if err != nil {
-		cfg = clientconfig.Default()
-	} else {
+		return disconnectResult{}, err
+	}
+	if _, statErr := os.Stat(clientconfig.Path(opts.Dir)); statErr == nil {
 		// Before the lockfile is read: a removed client's section would
 		// otherwise keep len(lockFile.Providers) above zero, and the lockfile
 		// and token file of a fully disconnected client would stay (D898).
