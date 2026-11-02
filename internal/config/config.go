@@ -625,12 +625,20 @@ func FromEnv(cfg *Config) error {
 		cfg.Auth.Mode = m
 	}
 	if v := os.Getenv("CARTOGRAPHER_WEB_ENABLED"); v != "" {
+		b, err := parseBool("CARTOGRAPHER_WEB_ENABLED", v)
+		if err != nil {
+			return err
+		}
 		cfg.mark(OriginEnv, "web.enabled")
-		cfg.Web.Enabled = parseBool(v, cfg.Web.Enabled)
+		cfg.Web.Enabled = b
 	}
 	if v := os.Getenv("CARTOGRAPHER_UPDATE_CHECK"); v != "" {
+		b, err := parseBool("CARTOGRAPHER_UPDATE_CHECK", v)
+		if err != nil {
+			return err
+		}
 		cfg.mark(OriginEnv, "update_check")
-		cfg.UpdateCheck = parseBool(v, cfg.UpdateCheck)
+		cfg.UpdateCheck = b
 	}
 	if v := os.Getenv("CARTOGRAPHER_CREDENTIALS_DIR"); v != "" {
 		cfg.mark(OriginEnv, "credentials_dir")
@@ -708,13 +716,18 @@ func normalizeAuthMode(v string) (string, error) {
 	}
 }
 
-// parseBool parses v as a bool, returning fallback if v is not a valid bool.
-func parseBool(v string, fallback bool) bool {
-	b, err := strconv.ParseBool(v)
-	if err != nil {
-		return fallback
+// parseBool parses the value of a boolean environment variable with the words
+// CARTOGRAPHER_AUTH accepts (true/1/yes/on, false/0/no/off, in any case; t and f
+// as before). Anything else is an error: a typo must not hide behind the
+// default while the settings view shows the key as set by the environment.
+func parseBool(name, v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "t", "1", "yes", "on":
+		return true, nil
+	case "false", "f", "0", "no", "off":
+		return false, nil
 	}
-	return b
+	return false, fmt.Errorf("%s: %q is not a boolean: want true, 1, yes, on, false, 0, no or off", name, v)
 }
 
 // splitCSV splits a comma-separated string, trimming whitespace and

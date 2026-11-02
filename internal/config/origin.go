@@ -183,13 +183,27 @@ func (c *Config) Settings(kbNames []string) View {
 			spec = eff
 		}
 		fields := kbFields(spec)
+		// kbs[].branch is the server file's override (D1093), a field the YAML
+		// encoding of KBSpec leaves out (yaml:"-"), so it is added here.
+		if spec.BranchOverride != "" {
+			fields["branch"] = spec.BranchOverride
+		}
 		section := KBEntries{Name: name, Entries: []Entry{}}
 		add := func(k settingschema.Key, key string) {
 			val, set := fields[key]
 			if !set {
 				val = k.Default
 			}
-			section.Entries = append(section.Entries, c.entry(k, KBOriginKey(name, key), val, set))
+			e := c.entry(k, KBOriginKey(name, key), val, set)
+			if key == "branch" {
+				// The KB's own `branch` shares this origin key and would read as
+				// "kb"; this entry is the server file's, so only the file counts.
+				e.Origin = OriginDefault
+				if o, ok := c.Origins[KBOriginKey(name, key)]; ok {
+					e.Origin = o
+				}
+			}
+			section.Entries = append(section.Entries, e)
 		}
 		// The machine's side of the KB (remote, name), then the KB's own keys,
 		// which the view keeps in the "kbs[]." form (D746).
