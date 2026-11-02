@@ -1,12 +1,12 @@
-// Package tray is the core of `cartographer tray` (D1482): the health model of
-// the local server, the poll loop that keeps it current, the actions the menu
-// offers and the generated monochrome icons. It draws nothing itself: the
+// Package tray is the core of the local server's status icon (D1482): the health model of
+// the local server, the poll loop that keeps it current and the generated
+// monochrome icons. It draws nothing itself: the
 // notification-area and menu-bar implementations of [UI] live in
 // platform files, so everything here runs and is tested on any OS.
 //
 // The tray never writes server or KB state. It reads /health through the MCP
-// client, and acts only through service.Manager (the path of
-// `cartographer service restart`) and the operating system's "open".
+// client, and the actions it offers (a later change) go only through
+// service.Manager and the operating system's "open".
 package tray
 
 import (
