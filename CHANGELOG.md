@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.27.3](https://github.com/BeppeTemp/cartographer/compare/v0.27.2...v0.27.3) (2026-11-02)
+
+
+### Bug Fixes
+
+* restore the features 0.27.2 dropped from 0.27.1 ([#1459](https://github.com/BeppeTemp/cartographer/issues/1459)) ([e4b8411](https://github.com/BeppeTemp/cartographer/commit/e4b8411bcdb27502621b5b1d332c1c402a058c4f))
+
 ## [0.27.2](https://github.com/BeppeTemp/cartographer/compare/v0.27.0...v0.27.2) (2026-11-01)
 
 
