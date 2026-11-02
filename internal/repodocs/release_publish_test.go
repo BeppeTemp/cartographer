@@ -67,7 +67,7 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 	if !ok {
 		t.Fatal("release.yml: no publish job (D1350)")
 	}
-	for _, j := range []string{"goreleaser", "prerelease-flag", "docker"} {
+	for _, j := range []string{"goreleaser", "prerelease-flag", "docker", "chart"} {
 		if !slices.Contains(needs("publish"), j) {
 			t.Errorf("release.yml: publish must need %s", j)
 		}

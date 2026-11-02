@@ -115,6 +115,58 @@ jobs:
           tags: |
             ghcr.io/beppetemp/cartographer-surveyor:${{ inputs.tag }}
 
+  # The candidate's chart (D1441), after both images have passed their smoke and been pushed: the same
+  # package and push as release.yml, so a candidate proves the pipeline before a release. It is not
+  # attested, like the candidate images (D1022: a preview is not a release and nothing verifies
+  # it), and `binaries` does not wait for it: a red chart fails the run, so release-train.yml
+  # finds no successful candidate. FIRST PUBLISH: see release.yml.
+  chart:
+    runs-on: ubuntu-latest
+    needs: docker
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm
+        run: scripts/install-helm.sh "$RUNNER_TEMP/bin"
+      # The same checks as the `helm` job of ci.yml, so a chart that fails them is never pushed.
+      - name: make helm-check
+        env:
+          BIN: ${{ runner.temp }}/bin
+        run: PATH="$BIN:$PATH" make helm-check
+      # Version and appVersion are stamped here from the tag, as server.json's are (D1441): no
+      # commit, and release-please does not touch Chart.yaml. appVersion keeps the v: it is the image tag.
+      - name: Package the chart
+        env:
+          BIN: ${{ runner.temp }}/bin
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          PATH="$BIN:$PATH" helm package deploy/helm/cartographer --version "${TAG#v}" --app-version "$TAG" --destination "$RUNNER_TEMP/chart"
+      - name: Push the chart to ghcr.io
+        id: push
+        env:
+          BIN: ${{ runner.temp }}/bin
+          TAG: ${{ inputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export PATH="$BIN:$PATH"
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USER" --password-stdin
+          out=$(helm push "$RUNNER_TEMP/chart/cartographer-${TAG#v}.tgz" oci://ghcr.io/beppetemp/charts 2>&1) || { printf '%s\n' "$out" >&2; exit 1; }
+          printf '%s\n' "$out"
+          digest=$(printf '%s\n' "$out" | sed -n 's/^Digest: //p')
+          pushed=$(printf '%s\n' "$out" | sed -n 's/^Pushed: //p')
+          if [ "$pushed" != "ghcr.io/beppetemp/charts/cartographer:${TAG#v}" ] || ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::helm push reported '$pushed' and '$digest', want ghcr.io/beppetemp/charts/cartographer:${TAG#v} and a sha256 digest" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
   # The candidate's binaries as a GitHub pre-release (D1192), after the image: a
   # failed smoke or push publishes nothing, and a failure here makes the run red,
   # so release-train.yml finds no successful candidate and the release gate skips.
