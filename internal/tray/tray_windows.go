@@ -13,6 +13,8 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
 
 // The notification-area UI, pure Go through user32/shell32 (no cgo).
@@ -63,7 +65,7 @@ const (
 	tipMaxUnits     = 127
 	errClassDup     = 1410 // ERROR_CLASS_ALREADY_EXISTS
 	mutexName       = `Local\CartographerTray`
-	className       = "CartographerTrayWindow"
+	className       = defaults.WindowsTrayWindowClass
 	personalize     = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 	lightThemeKV    = "SystemUsesLightTheme"
 )

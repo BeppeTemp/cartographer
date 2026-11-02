@@ -263,3 +263,61 @@ func TestRenderTrayLaunchdPlist_PassesPlutil(t *testing.T) {
 		t.Fatalf("plutil -lint: %v\n%s", err, out)
 	}
 }
+
+// The tray is asked to close its window before the task is stopped, so the
+// shell loses the icon; Stop-ScheduledTask stays the fallback for a tray with
+// no window (another session) or one that does not leave.
+func TestStopTray_ClosesTheWindowBeforeStoppingTheTask(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		closeErr error
+		exits    bool // the process leaves after the close request
+		wantStop bool
+	}{
+		{"window closes the tray", nil, true, false},
+		{"no window: stop the task", errNotLoaded, false, true},
+		{"window ignored: stop the task", nil, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			installTraySetup(t, "windows")
+			m, stub := newTestManager()
+			stub.fail = map[string]bool{"State -eq 'Running'": true}
+			if err := m.InstallTray(); err != nil {
+				t.Fatal(err)
+			}
+			stub.fail = nil // the task reads as Running
+			stub.calls = nil
+			closed := false
+			old := closeTrayWindow
+			closeTrayWindow = func() error {
+				if indexOf(callNames(stub), "Stop-ScheduledTask") >= 0 {
+					t.Error("the close request came after Stop-ScheduledTask")
+				}
+				closed = true
+				return tc.closeErr
+			}
+			t.Cleanup(func() { closeTrayWindow = old })
+			base := m.run
+			m.run = func(name string, args ...string) (string, error) {
+				joined := strings.Join(args, " ")
+				if strings.Contains(joined, "State -eq 'Running'") && closed && tc.exits {
+					return "", errNotLoaded // the tray exited on WM_CLOSE
+				}
+				if strings.Contains(joined, "Stop-ScheduledTask") {
+					closed = true
+					tc.exits = true // the stop works
+				}
+				return base(name, args...)
+			}
+			if err := m.stopTrayAndWait(); err != nil {
+				t.Fatalf("stopTrayAndWait: %v", err)
+			}
+			if !closed {
+				t.Error("the close hook was not called")
+			}
+			if got := indexOf(callNames(stub), "Stop-ScheduledTask") >= 0; got != tc.wantStop {
+				t.Errorf("Stop-ScheduledTask called = %v, want %v: %v", got, tc.wantStop, callNames(stub))
+			}
+		})
+	}
+}

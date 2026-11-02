@@ -38,6 +38,8 @@ Three tests in `internal/mcpserver` guard what a tool result costs (D1185). `Tes
 
 `TestWin32PointersStayAlive` (`internal/tray`, parse-only, every OS) pins that `call` in `tray_windows.go` carries `//go:uintptrescapes` and that every `uintptr(unsafe.Pointer(...))` of the file is an argument of `call` or `syscall.SyscallN`; the memory effect itself cannot be tested.
 
+`TestStopTray_ClosesTheWindowBeforeStoppingTheTask` (`internal/service`) pins that the tray is asked to close its window before `Stop-ScheduledTask`, and that the task is still stopped when no window answers; `TestRequestTrayClose` (Windows leg) checks a window of the tray's class receives `WM_CLOSE`.
+
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
 There the git-backed packages are about 13 times slower (process creation), so

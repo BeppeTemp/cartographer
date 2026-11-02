@@ -37,6 +37,12 @@ const (
 	// arrangement that already shares the listen port, so it is not a case this
 	// name has to distinguish.
 	WindowsShutdownEventName = `Local\cartographer-serve-shutdown`
+
+	// WindowsTrayWindowClass is the window class of the tray's hidden window
+	// on Windows. The tray registers it and `internal/service` looks it up to
+	// post WM_CLOSE before stopping the tray's task, so the shell removes the
+	// notification icon instead of keeping a ghost.
+	WindowsTrayWindowClass = "CartographerTrayWindow"
 )
 
 // MigrateLegacyMCPURL rewrites a URL on the pre-#329 default origin,
