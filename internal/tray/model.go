@@ -60,6 +60,9 @@ type Snapshot struct {
 	UIURL string
 	// LogPath is the server log the menu opens.
 	LogPath string
+	// Installed is whether a service definition exists, so a UI can grey out
+	// "Restart service" when there is nothing to restart.
+	Installed bool
 	// Restarting is true while a restart requested from the menu is in flight.
 	Restarting bool
 }
@@ -67,14 +70,14 @@ type Snapshot struct {
 // Classify turns one probe result into a snapshot. health and err are the
 // outcome of client.MCPClient.Health; status is the service definition's view.
 //
-// Order matters. A server that answers but is bootstrapping is Starting even
-// when nothing is installed (someone runs it by hand). With no service
-// installed and nothing answering, the honest state is NotInstalled, not
-// Stopped: there is nothing the Restart item could start. Any other failure
-// (refused connection, a non-200 answer, a 401 that /health cannot produce)
-// is Stopped.
+// Order matters. A server that answers is Running (or Starting while it
+// bootstraps) whether or not a service is installed: someone may run it by
+// hand, and hiding it would be a lie; Snapshot.Installed tells the UI whether
+// Restart has anything to act on. NotInstalled is only "nothing installed and
+// nothing answering". Any other failure (refused connection, a non-200 answer,
+// a 401 that /health cannot produce) is Stopped.
 func Classify(health *client.Health, err error, status service.Status) Snapshot {
-	snap := Snapshot{KBCount: -1, UIURL: status.UIURL}
+	snap := Snapshot{KBCount: -1, UIURL: status.UIURL, Installed: status.Installed}
 	var remote *client.RemoteError
 	starting := errors.As(err, &remote) && remote.Code == client.CodeStarting
 	switch {
@@ -87,8 +90,6 @@ func Classify(health *client.Health, err error, status service.Status) Snapshot 
 		}
 	case health.Ready != nil && !*health.Ready:
 		snap.State = StateStarting
-	case !status.Installed:
-		snap.State = StateNotInstalled
 	default:
 		snap.State = StateRunning
 	}

@@ -85,8 +85,9 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 
 	var last Snapshot
 	have := false
+	var good *service.Status // last Status() that succeeded
 	poll := func() {
-		snap := d.snapshot()
+		snap := d.snapshot(&good)
 		if have && snap == last {
 			return
 		}
@@ -104,11 +105,27 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 	}
 }
 
-func (d Deps) snapshot() Snapshot {
+// snapshot probes once. good holds the last Status that was read successfully:
+// when Status() fails (a transient error, say a failing PowerShell call), that
+// one is reused, so an installed service does not flip to "not installed" for a
+// tick. With no earlier good read the answer is Stopped, never NotInstalled:
+// an unreadable definition proves nothing about installation.
+func (d Deps) snapshot(good **service.Status) Snapshot {
 	st, err := d.Status()
 	var health *client.Health
 	if err != nil {
 		d.logf("tray: service status: %v", err)
+		if *good != nil {
+			st, err = **good, nil
+		} else {
+			st = service.Status{Installed: true} // see above: not "not installed"
+		}
+	} else {
+		cp := st
+		*good = &cp
+	}
+	if err != nil {
+		// no earlier good read: nothing to probe, classify as Stopped
 	} else if st.HTTPAddr == "" {
 		// Stdio transport or no readable config: there is nothing to probe.
 		err = errors.New("no http address")

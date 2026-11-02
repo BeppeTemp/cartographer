@@ -33,26 +33,26 @@ func TestClassify(t *testing.T) {
 		want   Snapshot
 	}{
 		{"healthy", &client.Health{Version: "1.2.3", Ready: boolp(true), KBs: &two}, nil, installed,
-			Snapshot{State: StateRunning, Version: "1.2.3", KBCount: 2, UIURL: installed.UIURL}},
+			Snapshot{State: StateRunning, Version: "1.2.3", KBCount: 2, UIURL: installed.UIURL, Installed: true}},
 		{"older server without kbs", &client.Health{Version: "1.0.0"}, nil, installed,
-			Snapshot{State: StateRunning, Version: "1.0.0", KBCount: -1, UIURL: installed.UIURL}},
+			Snapshot{State: StateRunning, Version: "1.0.0", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"ready false", &client.Health{Version: "1", Ready: boolp(false)}, nil, installed,
-			Snapshot{State: StateStarting, Version: "1", KBCount: -1, UIURL: installed.UIURL}},
+			Snapshot{State: StateStarting, Version: "1", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"bootstrapping", nil, starting, installed,
-			Snapshot{State: StateStarting, KBCount: -1, UIURL: installed.UIURL}},
+			Snapshot{State: StateStarting, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"connection refused", nil, refused, installed,
-			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL}},
-		{"404", nil, notFound, installed, Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL}},
+			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+		{"404", nil, notFound, installed, Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"401 cannot happen, is stopped", nil, unauth, installed,
-			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL}},
+			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"plain error", nil, errors.New("boom"), installed,
-			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL}},
+			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"not installed and silent", nil, refused, service.Status{},
 			Snapshot{State: StateNotInstalled, KBCount: -1}},
-		{"answers but not installed", &client.Health{Version: "1", Ready: boolp(true)}, nil, service.Status{},
-			Snapshot{State: StateNotInstalled, Version: "1", KBCount: -1}},
+		{"answers but not installed: a hand-run server is running", &client.Health{Version: "1", Ready: boolp(true)}, nil, service.Status{},
+			Snapshot{State: StateRunning, Version: "1", KBCount: -1}},
 		{"latest_version rides along", &client.Health{Version: "1", LatestVersion: "2.0.0", Ready: boolp(true)}, nil, installed,
-			Snapshot{State: StateRunning, Version: "1", LatestVersion: "2.0.0", KBCount: -1, UIURL: installed.UIURL}},
+			Snapshot{State: StateRunning, Version: "1", LatestVersion: "2.0.0", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 	}
 	for _, c := range cases {
 		if got := Classify(c.health, c.err, c.status); got != c.want {
@@ -164,17 +164,27 @@ func TestRunSurvivesFailingStatusAndProbe(t *testing.T) {
 	d := f.deps()
 	d.Logf = func(string, ...any) {}
 	go func() { Run(ctx, d, time.Hour, func(s Snapshot) { out <- s }); close(done) }()
-	if got := <-out; got.State != StateNotInstalled {
-		t.Errorf("status error: %+v", got)
+	// No good Status read yet: Stopped, not NotInstalled.
+	if got := <-out; got.State != StateStopped {
+		t.Errorf("status error with no earlier read: %+v", got)
 	}
 	f.set(func() {
 		f.sErr = nil
 		f.status = service.Status{Installed: true, HTTPAddr: "x"}
-		f.pErr = errors.New("bad")
+		f.health = &client.Health{Version: "1", Ready: boolp(true)}
 	})
 	f.ticks <- time.Now()
-	if got := <-out; got.State != StateStopped {
-		t.Errorf("probe error: %+v", got)
+	if got := <-out; got.State != StateRunning {
+		t.Errorf("healthy: %+v", got)
+	}
+	// A transient Status error reuses the last good Status: still running.
+	f.set(func() { f.sErr = errors.New("powershell failed") })
+	f.ticks <- time.Now()
+	f.set(func() { f.sErr = nil; f.pErr = errors.New("bad") })
+	f.ticks <- time.Now()
+	got := <-out // the only change since Running is the probe failure
+	if got.State != StateStopped || !got.Installed {
+		t.Errorf("probe error after a transient status error: %+v", got)
 	}
 	f.set(func() { f.pErr = nil; f.health = nil }) // a nil health with no error is still stopped
 	f.ticks <- time.Now()
