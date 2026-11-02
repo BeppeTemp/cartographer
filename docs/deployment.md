@@ -1831,7 +1831,7 @@ gh attestation verify oci://ghcr.io/beppetemp/charts/cartographer:<version> --re
 helm pull oci://ghcr.io/beppetemp/charts/cartographer --version <version>
 ```
 
-A modified copy of an asset fails the first command. The installers do not require `gh`: they keep verifying `sha256sums.txt` only, and attestation verification is for whoever wants the stronger proof (D1022). The SBOMs are the release assets `cartographer_<version>_<os>_<arch>.sbom.json`. `preview.yml` images and charts are not attested. The `gh` form against a Helm OCI artifact cannot be tried before the first stable release, since a candidate's chart is unattested: the first release verifies it, and this line is corrected if `gh` cannot resolve it.
+A modified copy of an asset fails the first command. The installers do not require `gh`: they keep verifying `sha256sums.txt` only, and attestation verification is for whoever wants the stronger proof (D1022). The SBOMs are the release assets `cartographer_<version>_<os>_<arch>.sbom.json`. `preview.yml` images and charts are not attested. The chart's `gh attestation verify` line has not been exercised on a published chart: no stable release carries an attested chart yet, so it is untested and may need correcting once one does.
 
 ### Client installation (`install.sh`, `install.ps1`)
 

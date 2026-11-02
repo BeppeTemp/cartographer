@@ -18,8 +18,8 @@ spec:
   {{- with .startingDeadlineSeconds }}
   startingDeadlineSeconds: {{ . }}
   {{- end }}
-  successfulJobsHistoryLimit: {{ default 3 .successfulJobsHistoryLimit }}
-  failedJobsHistoryLimit: {{ default 1 .failedJobsHistoryLimit }}
+  successfulJobsHistoryLimit: {{ ternary .successfulJobsHistoryLimit 3 (hasKey . "successfulJobsHistoryLimit") }}
+  failedJobsHistoryLimit: {{ ternary .failedJobsHistoryLimit 1 (hasKey . "failedJobsHistoryLimit") }}
   jobTemplate:
     spec:
       # The Surveyor retries an unreachable server itself; the next tick is the retry after that.

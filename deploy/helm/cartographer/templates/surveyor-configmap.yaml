@@ -20,8 +20,7 @@ metadata:
 data:
   surveyor.yaml: |
     {{- toYaml $cfg | nindent 4 }}
-  {{- range $f, $text := .files }}
-  {{ $f }}: |
-    {{- $text | nindent 4 }}
+  {{- with .files }}
+  {{- toYaml . | nindent 2 }}
   {{- end }}
 {{- end }}
