@@ -82,8 +82,7 @@ func (s Snapshot) KBs() []string {
 	return strings.Split(s.KBNames, "\n")
 }
 
-// MaxAgents bounds the agent rows a snapshot carries: an array keeps Snapshot
-// comparable, and there are fewer supported agent clients than this.
+// MaxAgents bounds the agent rows (an array keeps Snapshot comparable).
 const MaxAgents = 8
 
 // AgentRow is one connected agent client.
@@ -94,14 +93,10 @@ type AgentRow struct {
 
 // Agents is the client side of `cartographer status`, kept comparable.
 type Agents struct {
-	// Known is false until it was read once, or when it could not be read.
-	Known bool
-	// Unchecked is true when the server could not be asked, so whether the
-	// clients are in sync is unknown.
-	Unchecked bool
-	// N is how many of Rows are set.
-	N    int
-	Rows [MaxAgents]AgentRow
+	Known     bool // read at least once
+	Unchecked bool // the server could not be asked: sync state unknown
+	N         int  // how many of Rows are set
+	Rows      [MaxAgents]AgentRow
 }
 
 // Classify turns one probe result into a snapshot. health and err are the

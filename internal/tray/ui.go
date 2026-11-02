@@ -72,11 +72,7 @@ func StatusLine(s Snapshot) string {
 		parts = append(parts, fmt.Sprintf("%d %s", s.KBCount, noun))
 	}
 	if s.LatestVersion != "" {
-		v := s.LatestVersion
-		if !strings.HasPrefix(v, "v") {
-			v = "v" + v
-		}
-		parts = append(parts, "update available: "+v)
+		parts = append(parts, "update available: "+withV(s.LatestVersion))
 	}
 	return strings.Join(parts, " — ")
 }

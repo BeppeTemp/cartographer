@@ -38,9 +38,8 @@ type Deps struct {
 	LogPath string
 	// Logf receives probe-side problems; optional.
 	Logf func(format string, args ...any)
-	// Agents reads the connected agent clients (`cartographer status`);
-	// optional. Called on the first poll, then every AgentsEvery polls and
-	// whenever the server comes back.
+	// Agents reads the agent clients (`cartographer status`); optional. Called
+	// on the first poll, every AgentsEvery polls and when the server returns.
 	Agents func() Agents
 }
 

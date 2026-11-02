@@ -36,10 +36,8 @@ const (
 	eventApplicationEv = 15             // NSEventTypeApplicationDefined
 )
 
-// selectorActions maps each target selector to the menu action it triggers
-// and its key equivalent, active while the menu is open. No images: the
-// guidelines keep symbols in menus for where they clarify, and macOS 27 hides
-// them by default.
+// selectorActions maps each target selector to its menu action and key
+// equivalent. No images: macOS 27 hides menu symbols by default (D1495).
 var selectorActions = []struct {
 	sel    string
 	action Action
@@ -267,11 +265,8 @@ func (u *macUI) buildMenu(items []MenuItem) objc.ID {
 	return m
 }
 
-// infoItem is an information row as a menu item with a view: a plain item,
-// disabled, would be drawn grey, and enabled it would highlight under the
-// pointer. A view does neither. The view holds the row's lines of text (a
-// header has a bold title over a smaller detail line) and its badge, kept to
-// the right edge.
+// infoItem is an information row as a menu item with a view, which is neither
+// greyed (a disabled item) nor highlighted on hover (an enabled one) (D1495).
 func (u *macUI) infoItem(it MenuItem) objc.ID {
 	menuFont := class("NSFont").Send(s("menuFontOfSize:"), 0.0)
 	size := objc.Send[float64](menuFont, s("pointSize"))
@@ -335,8 +330,7 @@ func (u *macUI) dark() bool {
 	return name != 0 && objc.Send[bool](name, s("containsString:"), nsString("Dark"))
 }
 
-// accent is the brand's accent (docs/brand/index.md): sage on dark menus, pine
-// on light ones. Section titles and an agent in sync wear it.
+// accent is the brand accent (docs/brand/index.md): sage on dark, pine on light.
 func (u *macUI) accent() objc.ID {
 	c := pine
 	if u.dark() {

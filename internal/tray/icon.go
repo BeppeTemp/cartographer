@@ -46,33 +46,26 @@ const (
 	slashGap    = 0.05 // clearance cut around the slash
 )
 
-// inArc reports whether (x, y) is on the C stroke between arcFrom and to.
-// The angle bounds are radial cuts, the butt caps of the SVG.
-func inArc(x, y, to float64) bool {
-	dx, dy := x-arcX, y-arcY
-	if math.Abs(math.Hypot(dx, dy)-arcR) > arcHalf {
-		return false
-	}
+// onRing reports whether (x, y) is on a stroke of half-width half around the
+// circle (cx, cy, r) between angles from and to (degrees, clockwise on
+// screen). The bounds are radial cuts, the outer C's butt caps.
+func onRing(x, y, cx, cy, r, half, from, to float64) bool {
+	dx, dy := x-cx, y-cy
 	a := math.Mod(math.Atan2(dy, dx)*180/math.Pi+360, 360)
-	return a >= arcFrom && a <= to
+	return math.Abs(math.Hypot(dx, dy)-r) <= half && a >= from && a <= to
 }
+
+func inArc(x, y, to float64) bool { return onRing(x, y, arcX, arcY, arcR, arcHalf, arcFrom, to) }
 
 // inInner reports whether (x, y) is on the inner arc, round caps included.
 func inInner(x, y float64) bool {
-	dx, dy := x-innerX, y-innerY
-	if math.Abs(math.Hypot(dx, dy)-innerR) <= innerHalf {
-		a := math.Mod(math.Atan2(dy, dx)*180/math.Pi+360, 360)
-		if a >= innerFrom && a <= innerTo {
-			return true
-		}
-	}
 	for _, deg := range []float64{innerFrom, innerTo} {
 		r := deg * math.Pi / 180
 		if math.Hypot(x-innerX-innerR*math.Cos(r), y-innerY-innerR*math.Sin(r)) <= innerHalf {
 			return true
 		}
 	}
-	return false
+	return onRing(x, y, innerX, innerY, innerR, innerHalf, innerFrom, innerTo)
 }
 
 func inDot(x, y float64) bool {
