@@ -144,12 +144,17 @@ Cartographers end up on `PATH`.
 - POSIX installer (Linux, macOS without Homebrew): `install.sh update`, which runs
   `upgrade-repair` the same way.
 - Kubernetes: update the Cartographer image tag in the deployment manifest and push it, then
-  end on a **verified image**, not on a rollout:
+  end on a **verified image**, not on a rollout. With the Helm chart the tag is the chart's
+  version: install the new one with
+  `helm upgrade <release> oci://ghcr.io/beppetemp/charts/cartographer --version <version>`, or change
+  the version wherever the release is pinned, and the same three steps follow:
   1. Wait for the manifest to be applied to the cluster — immediately if you apply it yourself,
      otherwise by the GitOps controller that owns the manifests repo, if there is one, which may
      lag by its reconcile interval.
   2. Verify the Deployment carries the new tag —
-     `kubectl get deploy/cartographer -o jsonpath='{.spec.template.spec.containers[0].image}'` —
+     `kubectl get deploy/cartographer -o jsonpath='{.spec.template.spec.containers[0].image}'`
+     — for a chart release, whose Deployment is named after the release's full name, select it:
+     `kubectl get deploy -l app.kubernetes.io/instance=<release>,app.kubernetes.io/component=server -o jsonpath='{.items[0].spec.template.spec.containers[0].image}'` —
      **before** waiting for rollout. Until it does, `kubectl rollout status` returns success in
      under a second, truthfully, about the old ReplicaSet that has nothing left to roll out.
   3. Then wait for rollout, and confirm with the version the server reports: `cartographer status`

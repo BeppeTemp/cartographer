@@ -119,6 +119,9 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- fail (printf "surveyors[%d].existingSecret is required: the Secret whose keys become the environment (the token and the keys the config names with token_env and api_key_env)" $i) -}}
 {{- end -}}
 {{- range $f, $_ := ($sv.files | default dict) -}}
+{{- if eq $f "surveyor.yaml" -}}
+{{- fail (printf "surveyors[%d].files key \"surveyor.yaml\" collides with the Surveyor config the chart renders under that name: pick another file name" $i) -}}
+{{- end -}}
 {{- if contains "/" $f -}}
 {{- fail (printf "surveyors[%d].files key %q holds a /: a ConfigMap key cannot, and the config refers to the file by its plain name" $i $f) -}}
 {{- end -}}
@@ -151,7 +154,7 @@ imagePullSecrets:
 {{- if .cron }}
 restartPolicy: Never
 {{- end }}
-terminationGracePeriodSeconds: {{ default 30 $sv.terminationGracePeriodSeconds }}
+terminationGracePeriodSeconds: {{ ternary $sv.terminationGracePeriodSeconds 30 (hasKey $sv "terminationGracePeriodSeconds") }}
 securityContext:
   seccompProfile:
     type: RuntimeDefault
@@ -166,6 +169,7 @@ containers:
       {{- end }}
     securityContext:
       allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
       capabilities:
         drop: [ALL]
     envFrom:
