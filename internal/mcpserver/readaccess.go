@@ -46,6 +46,13 @@ type readAccessLog struct {
 	since     time.Time
 	dirty     bool
 	lastFlush time.Time
+	// snapSeq numbers the snapshots taken under mu; ioMu serialises the file
+	// writes and writtenSeq makes a stale snapshot, taken before a newer one
+	// but written after it, a no-op. The I/O happens outside mu (D1522): a
+	// slow disk must not stall every concept_read and search behind the lock.
+	snapSeq    uint64
+	ioMu       sync.Mutex
+	writtenSeq uint64
 }
 
 // readAccessFileV2 is the file's shape. The first one, a flat {"id": "RFC3339"}
@@ -74,7 +81,37 @@ func newReadAccessLog(k *kb.KB) *readAccessLog {
 		lastFlush:    now,
 	}
 	l.load()
+	l.prune(k.Root)
 	return l
+}
+
+// prune drops the ids of concepts that no longer exist (renamed, moved or
+// deleted since the file was written), so the log does not grow without bound
+// and tracked_concepts does not count pages that are gone.
+func (l *readAccessLog) prune(root string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, m := range []map[string]time.Time{l.lastRead, l.lastSurfaced} {
+		for id := range m {
+			if !conceptFileExists(root, id) {
+				delete(m, id)
+				l.dirty = true
+			}
+		}
+	}
+}
+
+func conceptFileExists(root, id string) bool {
+	if !filepath.IsLocal(id) {
+		return false
+	}
+	rel := filepath.FromSlash(id)
+	for _, p := range []string{rel + ".md", filepath.Join(rel, "index.md")} {
+		if info, err := os.Stat(filepath.Join(root, p)); err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
 }
 
 // record notes a read of ids by concept_read. A nil log (the UI path) records
@@ -101,14 +138,17 @@ func (l *readAccessLog) stamp(m map[string]time.Time, ids []string) {
 	}
 	now := readAccessNow()
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	for _, id := range ids {
 		m[id] = now
 	}
 	l.dirty = true
+	var snap []byte
+	var seq uint64
 	if now.Sub(l.lastFlush) >= readAccessFlushEvery {
-		l.saveLocked()
+		snap, seq = l.snapshotLocked()
 	}
+	l.mu.Unlock()
+	l.write(snap, seq)
 }
 
 // lastReadTime returns when id was last read.
@@ -162,22 +202,26 @@ func summarize(m map[string]time.Time) accessSummary {
 	return s
 }
 
-// save writes the file now.
+// save writes the file now. It is what the server calls at shutdown (D1522):
+// the five-minute flush of stamp bounds the loss of a crash, not of a clean
+// stop.
 func (l *readAccessLog) save() {
 	if l == nil {
 		return
 	}
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.saveLocked()
+	snap, seq := l.snapshotLocked()
+	l.mu.Unlock()
+	l.write(snap, seq)
 }
 
-// saveLocked writes the file atomically; a failure is dropped (the log is
-// telemetry) and retried at the next interval.
-func (l *readAccessLog) saveLocked() {
+// snapshotLocked serialises the log when there is something to write, and
+// marks it clean; write puts it back to dirty if the file write fails. The
+// copy happens under mu, the I/O does not.
+func (l *readAccessLog) snapshotLocked() ([]byte, uint64) {
 	l.lastFlush = readAccessNow()
 	if !l.dirty {
-		return
+		return nil, 0
 	}
 	data, err := json.Marshal(readAccessFileV2{
 		Since:    l.since.UTC().Format(time.RFC3339),
@@ -185,20 +229,46 @@ func (l *readAccessLog) saveLocked() {
 		Surfaced: formatTimes(l.lastSurfaced),
 	})
 	if err != nil {
+		return nil, 0
+	}
+	l.dirty = false
+	l.snapSeq++
+	return data, l.snapSeq
+}
+
+// write stores a snapshot atomically; a failure is dropped (the log is
+// telemetry) and retried at the next interval.
+func (l *readAccessLog) write(data []byte, seq uint64) {
+	if data == nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
+	l.ioMu.Lock()
+	defer l.ioMu.Unlock()
+	if seq < l.writtenSeq {
+		return // a newer snapshot is already on disk
+	}
+	if err := l.writeFile(data); err != nil {
+		l.mu.Lock()
+		l.dirty = true
+		l.mu.Unlock()
 		return
+	}
+	l.writtenSeq = seq
+}
+
+func (l *readAccessLog) writeFile(data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
+		return err
 	}
 	tmp := l.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return
+		return err
 	}
 	if err := os.Rename(tmp, l.path); err != nil {
 		_ = os.Remove(tmp)
-		return
+		return err
 	}
-	l.dirty = false
+	return nil
 }
 
 func formatTimes(m map[string]time.Time) map[string]string {

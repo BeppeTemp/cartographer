@@ -59,6 +59,9 @@ type Tool struct {
 // Server is the MCP stdio server.
 type Server struct {
 	version string
+	// reads is the KB's read-access log, set by RegisterKBTools; FlushReadAccess
+	// writes it at shutdown (D1522). Nil on a server with no KB tools.
+	reads *readAccessLog
 	// latestVersion reports a newer release when one is known (D254,
 	// latestrelease.go). Nil means never known.
 	latestVersion func() string
@@ -287,6 +290,11 @@ func (s *Server) Tools() map[string]Tool {
 	}
 	return out
 }
+
+// FlushReadAccess writes the read-access log now. The five-minute flush inside
+// the log bounds what a crash loses; a clean stop calls this so it loses
+// nothing (D1522).
+func (s *Server) FlushReadAccess() { s.reads.save() }
 
 // RegisterTool registers an MCP tool. Overwrites if the same name is already
 // registered.
