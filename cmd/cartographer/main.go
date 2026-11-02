@@ -44,6 +44,7 @@ var subcommands = []subcommand{
 	{"Server", "serve", "Run the MCP server"},
 	{"Server", "service", "Manage the native server service"},
 	{"Server", "upgrade-repair", "Repair the native service and provider sync after an upgrade"},
+	{"Server", "tray", "Run the status icon in the notification area / menu bar"},
 	{"Knowledge base", "kb", "Create or mount local knowledge bases"},
 	{"Knowledge base", "import", "Import an external markdown corpus"},
 	{"Knowledge base", "resolve", "Resolve a configured path placeholder"},
@@ -83,6 +84,7 @@ var (
 	setupFn         = cmdSetup
 	updateFn        = cmdUpdate
 	hookFn          = cmdHook
+	trayFn          = cmdTray
 )
 
 func main() {
@@ -159,6 +161,8 @@ func run(args []string) int {
 		return clientFn(rest)
 	case "workspace":
 		return workspaceFn(rest)
+	case "tray":
+		return trayFn(rest)
 	case "mcp":
 		return mcpFn(rest)
 	default:

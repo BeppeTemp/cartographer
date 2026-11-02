@@ -829,6 +829,24 @@ Operational details (generated paths, defaults, behavior with an existing config
 repair on `install.sh update` and Cask upgrade) in `deployment.md` §Example: native local service
 and §Upgrades, schema migration, and repo growth.
 
+### `cartographer tray [--log-file <path>] [--interval <duration>] [--config <path>]`
+
+A status icon for the local server, in its own process (not part of `serve`, so it stays visible
+when the server is down and can restart it). Windows (notification area) and macOS (menu bar) only;
+on Linux it prints an error and exits 2. Nothing starts it yet and the platform UIs are not in this
+build: today the command builds the health model and then reports that the UI is missing.
+
+The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
+address from the installed service definition on every tick (`--config` overrides the config path used
+only to read that address and the Atlas URL; Restart service calls the manager without it). It never writes server or KB state; it acts only through `service restart`'s
+code path and the system "open". The icon is a map pin whose **shape** tells the state, because a
+macOS template image is tinted by the system: filled = running, half-filled head = starting
+(`ready: false` or bootstrapping), outline with a slash = stopped, dimmed outline = service not
+installed. A newer release (`latest_version`) only adds "update available: vX" to the status line.
+Menu: status line (version, KB count), Open Atlas (greyed when the config has no web UI), Restart
+service (runs off the UI thread, disabled while in flight and when no service is installed), Open log, Quit (the tray only; the server
+keeps running). `--log-file` appends the tray's own log there, as for `serve`.
+
 ### `cartographer import`
 
 A mechanical import scaffold (D74 WP2), a sibling of the agentic `cartographer-kb-import` skill

@@ -30,10 +30,13 @@ func DefaultMenu() Menu {
 }
 
 // UI is one platform's notification-area or menu-bar implementation. Run blocks
-// until the user quits (or the UI fails), applies each snapshot received on
+// until the user quits, the UI fails, or updates is closed (the process was
+// asked to stop: Run must then tear its icon down and return), applies each snapshot received on
 // updates and calls onAction for each chosen entry. Every call into the OS
 // toolkit must stay on the thread that owns it: updates cross over through the
-// channel, never by calling the toolkit from the poll goroutine.
+// channel, never by calling the toolkit from the poll goroutine. onAction is
+// called on the UI thread and must return promptly; long work (a restart) runs
+// in its own goroutine.
 type UI interface {
 	Run(menu Menu, updates <-chan Snapshot, onAction func(Action)) error
 }

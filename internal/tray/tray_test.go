@@ -223,7 +223,7 @@ func TestRunReflectsBusy(t *testing.T) {
 }
 
 func TestLatestKeepsOnlyTheNewest(t *testing.T) {
-	ch, emit := Latest()
+	ch, emit, _ := Latest()
 	emit(Snapshot{Version: "1"})
 	emit(Snapshot{Version: "2"})
 	emit(Snapshot{Version: "3"})

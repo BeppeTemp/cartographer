@@ -148,8 +148,10 @@ func (d Deps) logf(format string, args ...any) {
 }
 
 // Latest returns a one-slot channel and an emit function for Run: a UI that is
-// slow to apply a snapshot only ever sees the newest one. Single producer.
-func Latest() (<-chan Snapshot, func(Snapshot)) {
+// slow to apply a snapshot only ever sees the newest one. Single producer; the
+// returned close function ends the stream and may only be called once emit
+// will not be called again.
+func Latest() (<-chan Snapshot, func(Snapshot), func()) {
 	ch := make(chan Snapshot, 1)
 	return ch, func(s Snapshot) {
 		for {
@@ -163,5 +165,5 @@ func Latest() (<-chan Snapshot, func(Snapshot)) {
 			default:
 			}
 		}
-	}
+	}, func() { close(ch) }
 }
