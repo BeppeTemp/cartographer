@@ -137,6 +137,23 @@ try {
     Check ((Installed-Version) -eq $tag) "replaces it with $tag"
     Check (-not (Test-Path "$dest.old")) 'leaves no .old binary when nothing held the old one'
 
+    Write-Host '--- update without git on the PATH'
+    # Warning only (#1467): the install succeeds and names the fix. The shell is
+    # resolved first, then git's directories are dropped from the child's PATH.
+    Copy-Fixture $OldBin $dest
+    $savedShell = $Shell
+    $savedPath = $env:PATH
+    $Shell = (Get-Command $savedShell).Source
+    $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'git.exe')) }) -join ';'
+    $r = Invoke-Installer 'valid' @('update')
+    $Shell = $savedShell
+    $env:PATH = $savedPath
+    Check ($r.rc -eq 0) 'a missing git does not fail the install'
+    Check ($r.out -match 'warning: git is not installed' -and $r.out -match 'winget install --id Git.Git -e') 'warns and names winget'
+    Copy-Fixture $OldBin $dest
+    $r = Invoke-Installer 'valid' @('update')
+    Check ($r.out -notmatch 'git is not installed') 'no warning when git is on the PATH'
+
     Write-Host '--- update while the old binary is running'
     # A running executable cannot be overwritten on Windows: this is the
     # native-service case, where the Scheduled Task runs this very file.

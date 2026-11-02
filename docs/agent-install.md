@@ -138,13 +138,16 @@ operations, diagnosis, upgrades, and synchronization after installation. From th
 KB's skills, subagents, hooks and MCP descriptors, and `cartographer-kb-create/references/secrets.md` for the
 SOPS encryption flow.
 
-## 5. Tell the user to restart their agent session
+## 5. Tell the user to restart their agent
 
 This is a step you cannot perform: the session that must restart is the one you are running in.
-State it to the user explicitly, as the last thing you say:
+State it to the user explicitly, as the last thing you say, in the form that fits their agent:
 
-> Restart your agent session now. The MCP tools and the provisioned skills are loaded at session
-> start, so until you do, Cartographer is installed but invisible to me.
+> Restart your agent now. If it runs in a terminal, end this session and start a new one. If it is
+> a desktop app (the Codex app, Kiro IDE), quit it completely — Cmd+Q on macOS, Quit from the
+> tray icon on Windows; closing the window can leave it running — and open it again. The MCP
+> tools and the provisioned skills are loaded at startup, so until you do, Cartographer is
+> installed but invisible to me.
 
 Omitting this is the single most common way a correct installation is reported as broken.
 
@@ -157,7 +160,7 @@ Omitting this is the single most common way a correct installation is reported a
 | `install.sh` says Windows is installed with `install.ps1` | Correct: run the `install.ps1` command it prints, from PowerShell. |
 | `install.ps1` fails with `running scripts is disabled on this system` | That is the file form under a restrictive execution policy; the `irm … \| iex` form in step 1 is not subject to it. Rerun that exact command rather than changing the policy. |
 | `cartographer` is not recognized right after `install.ps1` | The command ran in a different process than the shell you are typing in. Open a new PowerShell window — the directory is on the user `PATH` — or invoke `%LOCALAPPDATA%\Cartographer\bin\cartographer.exe` directly. |
-| The user's agent shows no Cartographer MCP tools after a successful `setup` | The session was not restarted. Repeat step 5 — this is not a failed install. |
+| The user's agent shows no Cartographer MCP tools after a successful `setup` | The agent was not restarted. Repeat step 5 — this is not a failed install. A terminal agent needs a new session; a desktop app must be quit (Cmd+Q, or Quit from the tray icon), not just have its window closed, and reopened. |
 | `cartographer status` exits non-zero immediately after setup | The service may still be starting: wait a few seconds and retry once before diagnosing. |
 | `setup` stops at the server step | Usually port 39273 is taken by another process: free it, or inspect `cartographer service status`, then rerun. |
 | `setup` says it `cannot reach <url> with this machine's git credentials — nothing was changed` | The line under it names the cause (unknown host, SSH key rejected, repository not found, credentials rejected, host key not in `known_hosts`). Configure ambient credentials — an SSH agent for SSH remotes, a git credential helper for HTTPS — or, for a host key, have the user run `ssh <host>` once to review and accept it (setup never accepts one for them, D173). Then rerun step 2. |

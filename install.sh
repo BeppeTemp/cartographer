@@ -93,6 +93,20 @@ latest_tag() {
         | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true
 }
 
+# warn_no_git prints one warning when git is not on the PATH, never fails: a
+# KB is a git repository, so the first `cartographer setup` stops without it,
+# and on macOS the first `git` call otherwise opens the Command Line Tools
+# dialog in the middle of setup.
+warn_no_git() {
+    command -v git >/dev/null 2>&1 && return 0
+    log ""
+    log "warning: git is not installed — Cartographer needs it for every KB."
+    case "$(uname -s)" in
+        Darwin) log "  xcode-select --install     (then run cartographer setup again)" ;;
+        *) log "  install git with your package manager (apt, dnf, pacman, apk...)." ;;
+    esac
+}
+
 do_install() {
     target=$(detect_target)
     if [ -n "${CARTOGRAPHER_INSTALL_TAG:-}" ]; then
@@ -180,6 +194,7 @@ do_install() {
         log ""
         log "Next: cartographer setup   (server, first knowledge base and agents, in one guided step)"
     fi
+    warn_no_git
 }
 
 # leftover_units lists the native units this machine still has installed, one
