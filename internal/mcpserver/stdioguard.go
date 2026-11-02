@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
@@ -17,17 +18,132 @@ import (
 // limit, so no real request reaches it.
 const maxStdioLine = 16 << 20
 
+// stdioDrainTimeout bounds how long the session outlives EOF on stdin while
+// requests read before it are still unanswered (#1448): a handler that hangs
+// cannot keep the process alive for ever.
+const stdioDrainTimeout = 30 * time.Second
+
 // lockedWriter serializes whole Write calls: the SDK writes each message in one
-// call, and the guard's error lines share the same stdout.
+// call, and the guard's error lines share the same stdout. Every message the
+// SDK writes that answers a pending request retires it, after the write.
 type lockedWriter struct {
 	mu sync.Mutex
 	w  io.Writer
+	p  *pendingIDs
 }
 
 func (l *lockedWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.w.Write(p)
+	n, err := l.w.Write(p)
+	l.mu.Unlock()
+	if l.p != nil {
+		l.p.answered(p)
+	}
+	return n, err
+}
+
+// pendingIDs is the set of request ids read from stdin and not yet answered.
+// The SDK cancels every in-flight request when its reader ends and then does
+// not write their responses, so the guard keeps the reader open until the set
+// is empty.
+type pendingIDs struct {
+	mu   sync.Mutex
+	ids  map[string]struct{}
+	wake chan struct{} // signalled (non-blocking) whenever the set shrinks
+}
+
+func newPendingIDs() *pendingIDs {
+	return &pendingIDs{ids: map[string]struct{}{}, wake: make(chan struct{}, 1)}
+}
+
+type wireMsg struct {
+	ID     json.RawMessage `json:"id"`
+	Method string          `json:"method"`
+	Params struct {
+		RequestID json.RawMessage `json:"requestId"`
+	} `json:"params"`
+}
+
+func wireMsgs(b []byte) []wireMsg {
+	b = bytes.TrimSpace(b)
+	var batch []wireMsg
+	if len(b) > 0 && b[0] == '[' {
+		_ = json.Unmarshal(b, &batch)
+		return batch
+	}
+	var m wireMsg
+	if json.Unmarshal(b, &m) == nil {
+		batch = append(batch, m)
+	}
+	return batch
+}
+
+// idKey keys a JSON-RPC id the way the SDK does (jsonrpc2.MakeID): a number is
+// truncated to int64 (so 1, 1.0 and 1e0 are one id), a string is its decoded
+// value, and the two kinds stay distinct (1 is not "1"). The SDK writes the id
+// back re-encoded, so keying by the raw text would never match a response.
+func idKey(id json.RawMessage) string {
+	var v any
+	if err := json.Unmarshal(bytes.TrimSpace(id), &v); err != nil {
+		return "raw:" + string(id)
+	}
+	switch x := v.(type) {
+	case float64:
+		return fmt.Sprintf("n:%d", int64(x))
+	case string:
+		return "s:" + x
+	}
+	return "raw:" + string(id)
+}
+
+// started records the requests of one valid inbound line; a client's
+// notifications/cancelled retires its target, which the SDK never answers.
+func (p *pendingIDs) started(line []byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, m := range wireMsgs(line) {
+		switch {
+		case m.Method == "notifications/cancelled" && len(m.Params.RequestID) > 0:
+			delete(p.ids, idKey(m.Params.RequestID))
+		case m.Method != "" && len(m.ID) > 0 && string(m.ID) != "null":
+			p.ids[idKey(m.ID)] = struct{}{}
+		}
+	}
+}
+
+// answered retires the ids a written message responds to: it has an id and no
+// method (one with a method is a server-to-client request).
+func (p *pendingIDs) answered(msg []byte) {
+	p.mu.Lock()
+	for _, m := range wireMsgs(msg) {
+		if m.Method == "" && len(m.ID) > 0 {
+			delete(p.ids, idKey(m.ID))
+		}
+	}
+	p.mu.Unlock()
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (p *pendingIDs) empty() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.ids) == 0
+}
+
+// drain waits until every pending request is answered or d passes.
+func (p *pendingIDs) drain(d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	for !p.empty() {
+		select {
+		case <-p.wake:
+		case <-t.C:
+			return
+		}
+	}
 }
 
 // guardStdio sits between stdin and the SDK. The SDK's stdio reader decodes a
@@ -38,11 +154,22 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // line. Only an I/O error on either side ends the session. Messages are one
 // per line, as docs/transport-auth.md says.
 //
+// EOF on stdin is held back until the requests read before it are answered, at
+// most stdioDrainTimeout (#1448): the SDK cancels every in-flight request the
+// moment its reader ends, and drops their responses.
+//
 // The caller closes the returned reader when the session ends, which releases
 // the goroutine if it is blocked handing a line over; done is closed when it
 // has returned. A goroutine blocked reading in itself returns when it closes.
+// One waiting for the drain (EOF already read) is not released by the close: it
+// lingers until the pending requests are answered or stdioDrainTimeout passes.
 func guardStdio(in io.Reader, out io.Writer) (r *io.PipeReader, w io.Writer, done <-chan struct{}) {
-	lw := &lockedWriter{w: out}
+	return guardStdioDrain(in, out, stdioDrainTimeout)
+}
+
+func guardStdioDrain(in io.Reader, out io.Writer, drain time.Duration) (r *io.PipeReader, w io.Writer, done <-chan struct{}) {
+	pend := newPendingIDs()
+	lw := &lockedWriter{w: out, p: pend}
 	pr, pw := io.Pipe()
 	fin := make(chan struct{})
 	go func() {
@@ -66,9 +193,13 @@ func guardStdio(in io.Reader, out io.Writer) (r *io.PipeReader, w io.Writer, don
 				}
 				continue
 			}
+			pend.started(line)
 			if _, err := pw.Write(append(append([]byte(nil), line...), '\n')); err != nil {
 				return
 			}
+		}
+		if err := sc.Err(); err == nil {
+			pend.drain(drain)
 		}
 		pw.CloseWithError(sc.Err()) // nil is io.EOF for the reader
 	}()
