@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -237,7 +239,28 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 // A check error is audited as a denial (D119/D132) and returned as the Go
 // error, which the SDK handler turns into a JSON-RPC protocol error; it is the
 // only Go error this path produces.
-func (s *Server) callToolChecked(ctx context.Context, name string, args json.RawMessage, check func(*Tool, json.RawMessage) error) (ToolResult, error) {
+//
+// A panic anywhere below (authorization, the handler, the doctor nudge, the
+// audit close) is turned into an "internal error" result (D-panic): the go-sdk
+// runs each request in its own goroutine with no recover, so one panic would
+// end the process and every KB and agent on it. The stack is logged and an
+// audit call already opened is closed with the internal-error outcome.
+func (s *Server) callToolChecked(ctx context.Context, name string, args json.RawMessage, check func(*Tool, json.RawMessage) error) (res ToolResult, resErr error) {
+	var open *auditCall // the audit call whose completion is still owed
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		log.Printf("cartographer: panic in tool %s: %v\n%s", name, r, debug.Stack())
+		res, resErr = errorResult(fmt.Sprintf("internal error: tool %s panicked", name)), nil
+		if open != nil {
+			func() {
+				defer func() { _ = recover() }() // the audit close must not re-panic
+				open.end(s, audit.OutcomeInternalErr, res)
+			}()
+		}
+	}()
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
@@ -294,7 +317,9 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 		return rejected, nil
 	}
 
+	open = &call
 	result, err := tool.Handler(ctx, args)
+	open = nil
 	call.end(s, classifyOutcome(result, err), result)
 	if err != nil {
 		return errorResult("internal error: " + err.Error()), nil

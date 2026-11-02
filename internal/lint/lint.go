@@ -512,9 +512,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	perConcept := make([][]Finding, len(ids))
 	var next atomic.Int64
 	var wg sync.WaitGroup
-	// A panic in a check is re-raised on the caller's goroutine, where the
-	// HTTP server's per-request recover catches it, as before the workers:
-	// in a worker it would take the whole process down.
+	// A panic in a check is re-raised on the caller's goroutine, as before the
+	// workers: in a worker it would take the whole process down. On the MCP
+	// path the recover that catches it is callToolChecked's; there is no
+	// per-request recover in the HTTP server.
 	var panicked atomic.Value
 	for w := 0; w < min(runtime.GOMAXPROCS(0), len(ids)); w++ {
 		wg.Add(1)

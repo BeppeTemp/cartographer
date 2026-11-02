@@ -400,3 +400,32 @@ func TestIsReserved(t *testing.T) {
 		t.Fatal("concept.md must not be reserved")
 	}
 }
+
+// A file of exactly "---" (or "---\r\n", "----", "---\n") opened a block it
+// never closed: every entry point returns without panicking.
+func TestSplitFrontmatter_Degenerate(t *testing.T) {
+	for _, content := range []string{"", "-", "--", "---", "----", "---\n", "---\r\n", "---\n---", "---\n---\n"} {
+		_, _, _ = SplitFrontmatter(content)
+		_ = ContentHash(content)
+		_ = SectionHashes(content)
+		_ = ListHeadings(content)
+		_ = Level2Sections(content)
+	}
+	fm, body, ok := SplitFrontmatter("---")
+	if fm != "" || body != "---" || ok {
+		t.Fatalf("SplitFrontmatter(\"---\") = %q, %q, %v", fm, body, ok)
+	}
+}
+
+func FuzzFrontmatterEntryPoints(f *testing.F) {
+	for _, seed := range []string{"", "---", "---\n", "---\r\n", "----", "---\na: b\n---", "---\na: b\n---\n# H\n## S\nx", "# H\n## S\n---\n"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, content string) {
+		_, _, _ = SplitFrontmatter(content)
+		_ = ContentHash(content)
+		_ = SectionHashes(content)
+		_ = ListHeadings(content)
+		_ = Level2Sections(content)
+	})
+}

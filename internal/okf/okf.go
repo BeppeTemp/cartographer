@@ -108,7 +108,9 @@ func IDToPath(id ConceptID) string {
 func SplitFrontmatter(content string) (frontmatterRaw string, body string, hasFrontmatter bool) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 
-	if !strings.HasPrefix(content, "---\n") && content != "---" {
+	// A file of exactly "---" opened a block it never closed: it has no
+	// frontmatter, and slicing past the delimiter below would panic on it.
+	if !strings.HasPrefix(content, "---\n") {
 		return "", content, false
 	}
 
