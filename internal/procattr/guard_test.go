@@ -14,7 +14,7 @@ import (
 
 // guardAllowlist names the non-test files that may start a child without Hide,
 // each with the reason. Everything else that starts a process on Windows goes
-// through Hide (D1516).
+// through Hide (D1518).
 var guardAllowlist = map[string]string{
 	// WP2 of the tray follow-ups hid the service manager and the taskkill
 	// call; the sites below are hidden by the next change and leave the list.

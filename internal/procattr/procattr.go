@@ -1,6 +1,6 @@
 // Package procattr sets the process attributes every child of Cartographer
 // shares. Today that is one: on Windows a child is created without a console
-// window (D1479 follow-up, D1516).
+// window (D1479 follow-up, D1518).
 //
 // A process that detached its own console (FreeConsole, D1479) gives every
 // console-subsystem child -- powershell.exe, git.exe, sops.exe, taskkill.exe --
