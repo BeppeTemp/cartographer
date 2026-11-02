@@ -417,7 +417,7 @@ runner's tool versions before the release candidate does. It is not a required c
 ### Packaging (`install.sh` and the generated Cask)
 
 `make test-install` runs the network-free suite under `test/install/` plus
-`test/install/goreleaser_guard.sh` (which also pins that the SBOMs are published and no asset name moved), and runs in CI after `make e2e`. The The scenarios never prefix `run_install` with an assignment (bash POSIX mode, macOS `/bin/sh`, keeps it after the call); `run.sh` refuses one.
+`test/install/goreleaser_guard.sh` (which also pins that the SBOMs are published and no asset name moved), and runs in CI after `make e2e`.
 scenarios drive `install.sh` against a fake `curl` and a **stateful fake
 installed binary** that records its invocations and returns a scripted exit
 code, so the D121 contract is asserted without downloading a release or
