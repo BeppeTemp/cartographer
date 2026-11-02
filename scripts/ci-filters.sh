@@ -44,8 +44,9 @@ any() { # any <ere> [<ere to drop>]
   [ -n "$hit" ] && echo true || echo false
 }
 
-# Go packages the binary cannot import (kept equal to `go list` by the test).
-not_in_binary='^internal/(changelog|gitx/gitxtest|kbtest|repodocs|testkbs|testtree|webui/gen)/'
+# Go packages the binary cannot import (kept equal to `go list` by the test). internal/tray
+# is here until a command imports it: drop it with that import.
+not_in_binary='^internal/(changelog|gitx/gitxtest|kbtest|repodocs|testkbs|testtree|tray|webui/gen)/'
 
 web_other=$(any '^(web/|test/lib/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')
 web_go=$(any '^(cmd|internal)/' '_test\.go$|'"$not_in_binary")
