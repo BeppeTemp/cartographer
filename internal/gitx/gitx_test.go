@@ -396,36 +396,12 @@ func TestClone_LocalBareRepo(t *testing.T) {
 	}
 }
 
-func TestProbeRemote(t *testing.T) {
+func TestProbeRemoteContent_MissingPathFails(t *testing.T) {
 	if !hasGit() {
 		t.Skip("git not in PATH")
 	}
-	ctx := context.Background()
-
-	empty := filepath.Join(t.TempDir(), "empty.git")
-	if out, err := exec.Command("git", "init", "--bare", empty).CombinedOutput(); err != nil {
-		t.Fatalf("git init --bare: %v: %s", err, out)
-	}
-	if has, err := ProbeRemote(ctx, empty); err != nil || has {
-		t.Errorf("ProbeRemote(empty bare repo) = (%v, %v), want (false, nil)", has, err)
-	}
-
-	src := t.TempDir()
-	if err := Init(src); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("a"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := Commit(src, "init", "t", "t@example.com"); err != nil {
-		t.Fatal(err)
-	}
-	if has, err := ProbeRemote(ctx, src); err != nil || !has {
-		t.Errorf("ProbeRemote(repo with a commit) = (%v, %v), want (true, nil)", has, err)
-	}
-
-	if _, err := ProbeRemote(ctx, filepath.Join(t.TempDir(), "missing.git")); err == nil {
-		t.Error("ProbeRemote(missing path) returned no error")
+	if _, err := ProbeRemoteContent(context.Background(), filepath.Join(t.TempDir(), "missing.git")); err == nil {
+		t.Error("ProbeRemoteContent(missing path) returned no error")
 	}
 }
 
@@ -1113,8 +1089,8 @@ func TestRemoteHelpersAreRefused(t *testing.T) {
 	if err := Clone(context.Background(), helper, filepath.Join(t.TempDir(), "c")); err == nil {
 		t.Error("Clone accepted a transport helper")
 	}
-	if _, err := ProbeRemote(context.Background(), helper); err == nil {
-		t.Error("ProbeRemote accepted a transport helper")
+	if _, err := ProbeRemoteContent(context.Background(), helper); err == nil {
+		t.Error("ProbeRemoteContent accepted a transport helper")
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("the transport helper ran")

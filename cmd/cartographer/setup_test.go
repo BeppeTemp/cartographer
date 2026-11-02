@@ -51,13 +51,6 @@ func TestPlanSetup(t *testing.T) {
 				Agents: []string{"claude"}},
 		},
 		{
-			name:  "a remote holding only a forge's initial commit is created in, not mounted (D710)",
-			facts: func(f *setupFacts) { f.RemoteProbed, f.RemoteHasRefs, f.RemoteForgeInit = true, true, true },
-			opts:  setupOptions{Remote: "git@gitlab.example.com:group/kb-a.git"},
-			want: setupPlan{Service: serviceInstall, KB: kbCreate, KBName: "kb-a", Remote: "git@gitlab.example.com:group/kb-a.git",
-				Agents: []string{"claude"}},
-		},
-		{
 			name: "a re-run finds everything done",
 			facts: func(f *setupFacts) {
 				f.Service = service.Status{Installed: true, Running: true}

@@ -236,22 +236,14 @@ func remoteRemedy(output string) string {
 	return ""
 }
 
-// ErrProbeTimeout reports that ProbeRemote was stopped by its context
+// ErrProbeTimeout reports that ProbeRemoteContent was stopped by its context
 // deadline: the remote did not answer in time.
 var ErrProbeTimeout = errors.New("git ls-remote timed out")
 
-// ProbeRemote asks remote which refs it has ("git ls-remote"), under the same
-// non-interactive environment as Clone, and reports whether it has any. It is
-// the read-only question `cartographer setup` asks before changing anything:
-// it proves the remote is reachable with this machine's credentials, and an
-// empty answer is what distinguishes a repository to create a KB in from one
-// that already holds something to clone.
-func ProbeRemote(ctx context.Context, remote string) (hasRefs bool, err error) {
-	refs, err := lsRemoteProbe(ctx, remote)
-	return refs.HasRefs, err
-}
-
-// lsRemoteProbe is the shared `git ls-remote --symref` of the probes.
+// lsRemoteProbe asks remote which refs it has ("git ls-remote --symref"),
+// under the same non-interactive environment as Clone. It is the read-only
+// question `cartographer setup` asks before changing anything: it proves the
+// remote is reachable with this machine's credentials.
 func lsRemoteProbe(ctx context.Context, remote string) (RemoteRefs, error) {
 	if err := ValidateRemote(remote); err != nil {
 		return RemoteRefs{}, err
@@ -283,9 +275,10 @@ type RemoteProbe struct {
 	ForgeInit bool
 }
 
-// ProbeRemoteContent is ProbeRemote that also looks at what the remote holds.
-// When ls-remote shows refs on exactly one branch it fetches that branch two
-// commits deep into a temporary repository (two, so a root commit is told
+// ProbeRemoteContent reports whether the remote has refs and what they hold:
+// the question that distinguishes a repository to create a KB in from one that
+// already holds something to clone. When ls-remote shows refs on exactly one branch it fetches that branch two
+// commits deep, without blobs, into a temporary repository (two, so a root commit is told
 // from a longer history) and applies ForgeInitialized to it. Anything else
 // with refs is content to mount.
 func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error) {
@@ -305,7 +298,7 @@ func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error)
 	if out, err := runGit(tmp, "init", "--quiet"); err != nil {
 		return probe, fmt.Errorf("git init: %w: %s", err, out)
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", tmp, "fetch", "--quiet", "--depth", "2", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0])
+	cmd := exec.CommandContext(ctx, "git", "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0])
 	cmd.Env = cloneEnv(remote, nil)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
