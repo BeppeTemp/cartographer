@@ -247,23 +247,9 @@ func isProcedureHeading(h string, headings []string) bool {
 	return false
 }
 
-// countOpenItems counts unchecked checkboxes outside the sections whose H2
-// matches the map's procedure_headings: a procedure's checklist is a reusable
-// template, not unclosed work (D313).
+// countOpenItems counts the unchecked items openItems reads (D313, D1476).
 func countOpenItems(masked string, contract *kb.MapContract) int {
-	headings := procedureHeadingsOf(contract)
-	n, inProcedure := 0, false
-	for _, line := range strings.Split(masked, "\n") {
-		switch {
-		case strings.HasPrefix(line, "## "):
-			inProcedure = isProcedureHeading(strings.TrimSpace(strings.TrimRight(strings.TrimPrefix(line, "## "), "#")), headings)
-		case strings.HasPrefix(line, "# "):
-			inProcedure = false
-		case !inProcedure && openCheckbox.MatchString(line+"\n"):
-			n++
-		}
-	}
-	return n
+	return len(openItems(masked, contract))
 }
 
 var struckRe = regexp.MustCompile(`~~[^~\n]+~~`)
