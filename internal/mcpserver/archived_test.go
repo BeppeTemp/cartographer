@@ -206,7 +206,7 @@ func TestMapUpdate_OpenField(t *testing.T) {
 func touchConcepts(t *testing.T, k *kb.KB, ids ...string) {
 	t.Helper()
 	for _, id := range ids {
-		p := filepath.Join(k.Root, filepath.FromSlash(id)+".md")
+		p := filepath.Join(k.DataRoot(), filepath.FromSlash(id)+".md")
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}

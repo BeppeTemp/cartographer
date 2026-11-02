@@ -86,7 +86,7 @@ func TestReadAccessPrunesIdsOfDeletedConcepts(t *testing.T) {
 	l.record("ops/a", "ops/gone")
 	l.recordSurfaced("ops/gone")
 	l.save()
-	if err := os.Remove(filepath.Join(k.Root, "ops", "gone.md")); err != nil {
+	if err := os.Remove(filepath.Join(k.DataRoot(), "ops", "gone.md")); err != nil {
 		t.Fatal(err)
 	}
 	again := newReadAccessLog(k)

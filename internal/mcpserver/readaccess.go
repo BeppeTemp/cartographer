@@ -81,7 +81,7 @@ func newReadAccessLog(k *kb.KB) *readAccessLog {
 		lastFlush:    now,
 	}
 	l.load()
-	l.prune(k.Root)
+	l.prune(k.DataRoot())
 	return l
 }
 
