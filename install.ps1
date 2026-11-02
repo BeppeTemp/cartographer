@@ -139,6 +139,17 @@ function Remove-CartographerStaleBinaries([string]$Dir) {
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
 }
 
+function Write-CartographerGitWarning {
+    # Warning only, never a failure: a KB is a git repository, and on Windows
+    # git is usually absent, so `cartographer setup` would stop on it after the
+    # user has already opened a new shell for the PATH change.
+    if (Get-Command git -ErrorAction SilentlyContinue) { return }
+    Write-Host ''
+    Write-Host 'warning: git is not installed - Cartographer needs it for every KB.'
+    Write-Host '  winget install --id Git.Git -e     (or the installer from https://git-scm.com)'
+    Write-Host '  then open a new PowerShell window.'
+}
+
 function Install-Cartographer {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'   # Windows PowerShell 5.1 downloads crawl with the progress bar on
@@ -167,6 +178,7 @@ function Install-Cartographer {
         if ($current -eq $tag) {
             Write-Host "cartographer $tag already installed at $dest"
             Add-CartographerToUserPath $dir
+            Write-CartographerGitWarning
             return
         }
         if ($current) { Write-Host "updating cartographer $current -> $tag" } else { Write-Host "installing cartographer $tag to $dest" }
@@ -241,6 +253,7 @@ function Install-Cartographer {
             Write-Host ''
             Write-Host 'Next: cartographer setup   (server, first knowledge base and agents, in one guided step)'
         }
+        Write-CartographerGitWarning
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }

@@ -5,7 +5,7 @@ as a native service, one KB, your agents (Claude Code in this walkthrough —
 OpenCode, Codex CLI, Kiro, Antigravity, Crush and GitHub Copilot CLI work the same way).
 Two commands: install the binary, then `cartographer setup`.
 
-You need **git**, and an empty git repository you own to be the first KB's
+You need **git** (the installers print a warning, without failing, when it is missing: `winget install --id Git.Git -e` on Windows, `xcode-select --install` on macOS), and an empty git repository you own to be the first KB's
 remote — a KB is a git repository, and that remote is what makes it durable and
 syncable (D134). `sops` is needed only if the KB will hold encrypted values, and
 Go 1.26+ only for the from-source install. What each installation method puts on
