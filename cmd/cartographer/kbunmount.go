@@ -355,25 +355,25 @@ func removeBindings(name string) error {
 		return err
 	}
 	return withClientConfig(dir, func(cfg *clientconfig.Config) error {
-	for p, b := range cfg.Clients {
-		if containsString(b.KBs, name) {
-			b.KBs = removeFromList(b.KBs, name)
-			b.KBsSet = true
-			cfg.Clients[p] = b
+		for p, b := range cfg.Clients {
+			if containsString(b.KBs, name) {
+				b.KBs = removeFromList(b.KBs, name)
+				b.KBsSet = true
+				cfg.Clients[p] = b
+			}
 		}
-	}
-	for p, ws := range cfg.Workspaces {
-		for i := range ws {
-			ws[i].KBs = removeFromList(ws[i].KBs, name)
+		for p, ws := range cfg.Workspaces {
+			for i := range ws {
+				ws[i].KBs = removeFromList(ws[i].KBs, name)
+			}
+			cfg.Workspaces[p] = ws
 		}
-		cfg.Workspaces[p] = ws
-	}
-	if cfg.RenameDerivedKB(name, "") {
-		if err := clientconfig.SaveDerived(dir, cfg.Derived()); err != nil {
-			return err
+		if cfg.RenameDerivedKB(name, "") {
+			if err := clientconfig.SaveDerived(dir, cfg.Derived()); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
+		return nil
 	})
 }
 
