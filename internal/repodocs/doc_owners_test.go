@@ -211,6 +211,28 @@ func TestDocOwnersScript(t *testing.T) {
 			}
 		}
 	})
+	// The rows are data: a size field that is not all digits is skipped before any
+	// arithmetic, so it neither runs a command nor lowers the sum.
+	t.Run("a size field that is not all digits is skipped", func(t *testing.T) {
+		marker := markerPath(t)
+		expr := "a[$(touch " + marker + ")]"
+		for _, bad := range []string{
+			fmt.Sprintf("production\t%s\t0\tsrc/a/y.go", expr),
+			fmt.Sprintf("production\t0\t%s\tsrc/a/y.go", expr),
+			fmt.Sprintf("production\t$(touch %s)\t0\tsrc/a/y.go", marker),
+			"production\t-10\t0\tsrc/a/y.go",
+			"production\t0\t-10\tsrc/a/y.go",
+			"production\t1+9\t0\tsrc/a/y.go",
+			"production\t1.5\t0\tsrc/a/y.go",
+			"production\t0x10\t0\tsrc/a/y.go",
+		} {
+			out, code := runDocOwners(t, tsv, "", prod(10, 0, "src/a/x.go"), bad)
+			if code != 0 || hits(out) != 1 || !strings.Contains(out, "(+10/-0 production lines)") {
+				t.Errorf("row %q: code %d, output %q; want the 10 real lines alone", bad, code, out)
+			}
+		}
+		noMarker(t, marker)
+	})
 	t.Run("a malformed map exits 2", func(t *testing.T) {
 		if _, code := runDocOwners(t, "src/a/*.go\tdocs/sync.md\n", "", prod(20, 0, "src/a/x.go")); code != 2 {
 			t.Errorf("exit code %d, want 2", code)
