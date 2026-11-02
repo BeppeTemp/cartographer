@@ -1,0 +1,13 @@
+# Kubernetes minimal: tokens from a Secret (source a), no credentials directory,
+# one HTTPS KB, the default kept claim.
+server:
+  tokens:
+    existingSecret:
+      name: cartographer-tokens
+  credentials:
+    enabled: false
+  config:
+    auth:
+      mode: "on"
+    kbs:
+      - remote: https://git.example.com/user/kb-a.git
