@@ -1326,7 +1326,13 @@ func TestSyncTimerFilesAreDistinctFromServerService(t *testing.T) {
 	syncTask, _ := SyncWindowsTaskPath()
 	serverLog, _ := WindowsLogPath()
 	syncLog, _ := SyncWindowsLogPath()
+	trayPlist, _ := TrayLaunchdPlistPath()
+	trayTask, _ := TrayWindowsTaskPath()
+	trayLog, _ := TrayWindowsLogPath()
 	for _, pair := range [][2]string{
+		{serverPlist, trayPlist}, {syncPlist, trayPlist},
+		{serverTask, trayTask}, {syncTask, trayTask},
+		{serverLog, trayLog}, {syncLog, trayLog},
 		{serverPlist, syncPlist},
 		{serverUnit, syncTimer},
 		{serverUnit, syncService},

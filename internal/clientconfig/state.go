@@ -30,6 +30,9 @@ type stateFile struct {
 	Agents *[]string `json:"agents,omitempty"`
 	// SyncTimerOptOut is the operator's `service sync-timer uninstall` (D325).
 	SyncTimerOptOut bool `json:"sync_timer_opt_out,omitempty"`
+	// TrayOptOut is the operator's `service tray uninstall` or `service install
+	// --no-tray` (D1482): upgrade-repair then does not bring the tray back.
+	TrayOptOut bool `json:"tray_opt_out,omitempty"`
 }
 
 // StatePath returns the full path to the state file inside dir.
@@ -61,7 +64,7 @@ func writeState(dir string, cfg *Config) error {
 
 // writeStateChanged is writeState and says whether it wrote anything.
 func writeStateChanged(dir string, cfg *Config) (bool, error) {
-	s := stateFile{KnownKBs: cfg.KnownKBs, ServerMountMode: cfg.ServerMountMode, ServerRoutedPath: cfg.ServerRoutedPath, SyncTimerOptOut: cfg.SyncTimerOptOut}
+	s := stateFile{KnownKBs: cfg.KnownKBs, ServerMountMode: cfg.ServerMountMode, ServerRoutedPath: cfg.ServerRoutedPath, SyncTimerOptOut: cfg.SyncTimerOptOut, TrayOptOut: cfg.TrayOptOut}
 	if cfg.Agents != nil {
 		agents := cfg.Agents
 		s.Agents = &agents
@@ -75,7 +78,7 @@ func writeStateChanged(dir string, cfg *Config) (bool, error) {
 	}
 	data = append(data, '\n')
 	old, readErr := os.ReadFile(StatePath(dir))
-	if readErr != nil && len(s.KnownKBs) == 0 && s.ServerMountMode == "" && s.ServerRoutedPath == "" && s.Agents == nil && !s.SyncTimerOptOut {
+	if readErr != nil && len(s.KnownKBs) == 0 && s.ServerMountMode == "" && s.ServerRoutedPath == "" && s.Agents == nil && !s.SyncTimerOptOut && !s.TrayOptOut {
 		return false, nil
 	}
 	if bytes.Equal(old, data) {

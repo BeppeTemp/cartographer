@@ -755,3 +755,31 @@ func TestConfigDirsRejectedOutsideClaude(t *testing.T) {
 		t.Fatalf("err = %v, want a config_dirs error", err)
 	}
 }
+
+// TrayOptOut (D1482) is a record of a command like SyncTimerOptOut: it lives
+// in the state file and survives a save and a load.
+func TestTrayOptOutRoundTripsThroughTheStateFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := clientconfig.Default()
+	cfg.TrayOptOut = true
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if state := readFile(t, clientconfig.StatePath(dir)); !strings.Contains(state, `"tray_opt_out": true`) {
+		t.Errorf("state file lacks the opt-out:\n%s", state)
+	}
+	if raw := readFile(t, clientconfig.Path(dir)); hasKey(raw, "tray_opt_out") {
+		t.Errorf("the YAML holds the opt-out:\n%s", raw)
+	}
+	again, err := clientconfig.Load(dir)
+	if err != nil || !again.TrayOptOut {
+		t.Fatalf("round trip: %+v, %v", again, err)
+	}
+	again.TrayOptOut = false
+	if err := clientconfig.Save(dir, again); err != nil {
+		t.Fatal(err)
+	}
+	if cleared, _ := clientconfig.Load(dir); cleared.TrayOptOut {
+		t.Error("clearing the opt-out did not stick")
+	}
+}

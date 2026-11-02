@@ -43,7 +43,7 @@ FAKE_TAG=v9.9.8 FAKE_NEW_BINARY=$OLD run_installer install >"$work/out.log" 2>&1
 mac_ok "installed binary reports v9.9.8"
 
 "$bin" kb create smoke --no-remote --local --data "$work/data" >/dev/null
-"$bin" service install --config "$work/server.yaml" --data "$work/data" --http "127.0.0.1:$port" >/dev/null
+"$bin" service install --no-tray --config "$work/server.yaml" --data "$work/data" --http "127.0.0.1:$port" >/dev/null
 mac_wait_ready "$port" 30 || mac_fail "service not ready"
 [ "$(mac_health_version "$port")" = v9.9.8 ] || mac_fail "/health reports $(mac_health_version "$port"), want v9.9.8"
 pid_before=$(mac_launchd_pid)
