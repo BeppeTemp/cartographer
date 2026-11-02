@@ -32,9 +32,9 @@ const procedurePreface = "This procedure was written for an agent that can also 
 func toolKBGuide(k *kb.KB, deps Deps) Tool {
 	return Tool{
 		Name: "kb_guide",
-		Description: "How to work in this KB: the operating guide, the procedures available and, if you may see them, the KB's own skills. " +
-			"Call it first if you were given no instructions. procedure (ingest, conflict-resolve, import) returns its steps; " +
-			"file reads a references/ file of that procedure. Read-only.",
+		Description: "The operating guide, the procedures and the KB's skills. " +
+			"procedure (ingest, conflict-resolve, import) returns its steps; file, one of its references/ files. " +
+			"No arguments: the guide again, for a host that hides the initialize instructions. Read-only.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"procedure":{"type":"string"},"file":{"type":"string"}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -100,25 +100,16 @@ func renderKBGuide(ctx requestContext, k *kb.KB, bundle fs.FS) string {
 	name := kbName(k)
 	var sb strings.Builder
 	if g, ok := GuideKB(ctx, k, name); ok {
+		// A connection that was sent the guide in `initialize` is told so; the
+		// text stays whole for every kind (the D1100 fallback, #1316).
+		if !isProvisioned(ctx) {
+			sb.WriteString("This is the text already sent in the `initialize` instructions.\n\n")
+		}
 		sb.WriteString(provisioning.RenderGuide([]provisioning.GuideKB{g}, provisioning.GuideOptions{
-			Routed:   len(routedSetFrom(ctx)) >= 2,
-			ReadOnly: !writesAnyKB(ctx, []string{name}),
+			Routed:     len(routedSetFrom(ctx)) >= 2,
+			ReadOnly:   !writesAnyKB(ctx, []string{name}),
+			Procedures: procedureLines(bundle),
 		}))
-	}
-	if bundle != nil {
-		var lines []string
-		for _, p := range skillbundle.Procedures() {
-			if _, err := p.Body(bundle); err != nil {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("- `%s` — use when %s. Call `kb_guide` with `procedure: %s`.\n", p.Short, p.UseWhen, p.Short))
-		}
-		if len(lines) > 0 {
-			sb.WriteString("\n## Procedures\n\n")
-			for _, l := range lines {
-				sb.WriteString(l)
-			}
-		}
 	}
 	if WholeVisible(ctx, k, false) {
 		if lines := kbSkillLines(k); len(lines) > 0 {

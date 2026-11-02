@@ -870,7 +870,7 @@ func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string)
 	var out []doctorFinding
 	for _, p := range providers {
 		bound, _ := cfg.BoundKBs(p)
-		for _, c := range collisionsForProvider(candidates.forKBs(bound), bound) {
+		for _, c := range collisionsForProvider(dropKBArtifacts(cfg, candidates.forKBs(bound)), bound) {
 			out = append(out, doctorFinding{
 				Check: "kb-collisions", Severity: doctorError, Path: configPath,
 				Message: fmt.Sprintf("%s: %s/%s is claimed by %s — sync refuses to run", p, c.Kind, c.Name, strings.Join(c.Sources, ", ")),
