@@ -70,6 +70,7 @@ func TestCIFiltersTable(t *testing.T) {
 		{"forge hook", "feat/x", []string{"test/forge/pre-receive.sh"}, false, true, false, false, false, true, false},
 		{"forge runner", "feat/x", []string{"test/forge/run.sh"}, false, false, false, false, false, true, false},
 		{"service package", "feat/x", []string{"internal/service/manager.go"}, true, true, false, false, false, false, true},
+		{"tray package", "feat/x", []string{"internal/tray/model.go"}, false, true, false, false, false, false, true},
 		{"service flags", "feat/x", []string{"cmd/cartographer/service.go"}, true, true, false, false, false, false, true},
 		{"upgrade-repair command", "feat/x", []string{"cmd/cartographer/upgraderepair.go"}, true, true, false, false, false, false, true},
 		{"another command", "feat/x", []string{"cmd/cartographer/serve.go"}, true, true, false, false, false, false, false},
