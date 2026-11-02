@@ -2,9 +2,9 @@ Closes #
 
 <!--
 Before opening: run `scripts/pr-triage.sh` on your branch
-and fix every BLOCK line (CONTRIBUTING.md §Pull requests). A change over 150
-production lines closes an issue labelled `plan` + `approved`; over 500, it is
-split by work package, or this body starts a line with `Size exception:` and why.
+and fix every BLOCK line (CONTRIBUTING.md §Pull requests). A change over 500
+production lines is split by work package, or this body starts a line with
+`Size exception:` and why.
 -->
 
 ## What
@@ -16,8 +16,9 @@ entry: write it as ONE unwrapped line, release-please keeps only its first line.
 
 ## Plan
 
-<!-- The plan's work packages this PR implements, and every deviation from the
-plan with its reason. "No plan: trivial fix" when there is none. -->
+<!-- Why this change is made, as a reader who saw nothing before this PR needs it.
+A maintainer's plan: its work packages and every deviation, with no private names.
+"No plan" otherwise. -->
 
 ## Invariants touched
 
