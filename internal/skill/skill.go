@@ -81,8 +81,16 @@ const (
 // loads into context, so its length is a budget rather than a style choice.
 const maxSkillBodyLines = 500
 
+// maxSkillFileBytes caps a SKILL.md read from disk: the same 256 KiB as
+// provisioning.ArtifactMaxFileSize and artifact_write, so a file committed
+// out of band cannot be read whole into the server's memory.
+const maxSkillFileBytes = 256 * 1024
+
 func LoadSkill(dirPath string) (*Skill, error) {
 	skillPath := filepath.Join(dirPath, "SKILL.md")
+	if info, statErr := os.Lstat(skillPath); statErr == nil && info.Size() > maxSkillFileBytes {
+		return nil, fmt.Errorf("skill: %s is %d bytes, over the %d bytes cap", skillPath, info.Size(), maxSkillFileBytes)
+	}
 	data, err := os.ReadFile(skillPath)
 	if err != nil {
 		return nil, fmt.Errorf("skill: read %s: %w", skillPath, err)
@@ -192,6 +200,10 @@ func LoadAllFromFS(fsys fs.FS, root string) ([]Skill, []error) {
 		}
 		dirPath := root + "/" + e.Name()
 		skillPath := dirPath + "/SKILL.md"
+		if info, statErr := fs.Stat(fsys, skillPath); statErr == nil && info.Size() > maxSkillFileBytes {
+			errs = append(errs, fmt.Errorf("skill: %s is %d bytes, over the %d bytes cap", skillPath, info.Size(), maxSkillFileBytes))
+			continue
+		}
 		data, readErr := fs.ReadFile(fsys, skillPath)
 		if readErr != nil {
 			errs = append(errs, fmt.Errorf("skill: read %s: %w", skillPath, readErr))

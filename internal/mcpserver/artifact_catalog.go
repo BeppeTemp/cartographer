@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"crypto/ed25519"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -70,7 +69,7 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 		a := m.Artifacts[i]
 		switch a.Kind {
 		case "skill", "agent", "hook", "mcp":
-			files, err := provisioning.ReadArtifactFiles(a, nil, kbRoots)
+			files, err := provisioning.ReadArtifactFilesCapped(a, nil, kbRoots)
 			if err != nil {
 				continue // best-effort: skip an artifact that fails to read
 			}
@@ -91,14 +90,16 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 			// templates and skills read here, and it runs per call with read
 			// access, not per handshake. The 64 KiB cap is on what reaches an
 			// agent's context (guide, managed block).
-			data, readErr := os.ReadFile(filepath.Join(k.Root, "instructions.md"))
+			// Unbounded in what the listing carries, bounded in what it reads:
+			// a file over the artifact file cap is listed oversized, unread.
+			data, oversized, readErr := provisioning.ReadFileCapped(filepath.Join(k.Root, "instructions.md"))
 			if readErr != nil {
 				continue // no curated instructions.md: nothing to list
 			}
 			out = append(out, kbArtifact{
 				Kind:  "instructions",
 				Name:  "instructions",
-				Files: []provisioning.ArtifactFile{{Path: "instructions.md", Content: data}},
+				Files: []provisioning.ArtifactFile{{Path: "instructions.md", Content: data, Oversized: oversized}},
 			})
 		}
 	}
@@ -107,13 +108,13 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 		return kbArtifactCatalog{}, err
 	}
 	for _, slug := range templates {
-		data, err := os.ReadFile(filepath.Join(k.Root, "templates", slug+".md"))
+		data, oversized, err := provisioning.ReadFileCapped(filepath.Join(k.Root, "templates", slug+".md"))
 		if err != nil {
 			return kbArtifactCatalog{}, err
 		}
 		out = append(out, kbArtifact{
 			Kind: "template", Name: slug,
-			Files: []provisioning.ArtifactFile{{Path: "templates/" + slug + ".md", Content: data}},
+			Files: []provisioning.ArtifactFile{{Path: "templates/" + slug + ".md", Content: data, Oversized: oversized}},
 		})
 	}
 

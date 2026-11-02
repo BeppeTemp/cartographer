@@ -215,8 +215,13 @@ func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]str
 	out.Clients = uiClientsFor(a.Kind, a.Name)
 	for _, f := range a.Files {
 		file := uiArtifactFile{Path: f.Path, SHA256: sha256Hex(f.Content), Size: len(f.Content), Executable: f.Executable}
+		if f.Oversized > 0 {
+			file.SHA256, file.Size = "", int(f.Oversized)
+		}
 		if withContent {
 			switch {
+			case f.Oversized > 0:
+				file.Truncated = true
 			case !utf8.Valid(f.Content):
 				file.Binary = true
 			case len(f.Content) > artifactMaxFileSize:

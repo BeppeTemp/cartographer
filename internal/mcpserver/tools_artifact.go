@@ -33,7 +33,9 @@ import (
 // artifact_write (D71): these files are injected as instructions/config that
 // client agents execute — a generous but bounded cap keeps a runaway write
 // from bloating the KB repo.
-const artifactMaxFileSize = 256 * 1024 // 256 KiB
+// It is also the cap on every read from disk (artifact_read, artifact_list,
+// sync_pull): a file over it is reported oversized, never read.
+const artifactMaxFileSize = provisioning.ArtifactMaxFileSize
 
 // artifactMaxPathLen caps the length of the "path" argument, defensive
 // against pathological inputs before any filesystem call is made.
@@ -218,12 +220,15 @@ func toolArtifactRead(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(err.Error()), nil
 			}
-			data, err := os.ReadFile(abs)
+			data, oversized, err := provisioning.ReadFileCapped(abs)
 			if err != nil {
 				if os.IsNotExist(err) {
 					return errorResult(fmt.Sprintf("not_found: %s", params.Path)), nil
 				}
 				return errorResult(fmt.Sprintf("artifact_read %q: %v", params.Path, err)), nil
+			}
+			if oversized > 0 {
+				return errorResult(fmt.Sprintf("oversized: %s is %d bytes, over the %d bytes cap of an artifact file; it is not read", params.Path, oversized, artifactMaxFileSize)), nil
 			}
 			if info.Kind == "mcp" {
 				if _, parseErr := provisioning.ParseMCPServerSpec(info.Name, data); parseErr != nil {
@@ -252,8 +257,11 @@ func toolArtifactRead(k *kb.KB) Tool {
 // artifactFileEntry/artifactEntry shape the artifact_list JSON output.
 type artifactFileEntry struct {
 	Path       string `json:"path"`
-	SHA256     string `json:"sha256"`
+	SHA256     string `json:"sha256,omitempty"`
 	Executable bool   `json:"executable"`
+	// Oversized is the size of a file over the artifact file cap: it has no
+	// sha256 and is not read.
+	Oversized int64 `json:"oversized,omitempty"`
 }
 
 type artifactEntry struct {
@@ -315,11 +323,11 @@ func toolArtifactList(k *kb.KB) Tool {
 			for _, a := range catalog.Artifacts {
 				entry := artifactEntry{Kind: a.Kind, Name: a.Name}
 				for _, f := range a.Files {
-					entry.Files = append(entry.Files, artifactFileEntry{
-						Path:       f.Path,
-						SHA256:     sha256Hex(f.Content),
-						Executable: f.Executable,
-					})
+					fe := artifactFileEntry{Path: f.Path, Executable: f.Executable, Oversized: f.Oversized}
+					if f.Oversized == 0 {
+						fe.SHA256 = sha256Hex(f.Content)
+					}
+					entry.Files = append(entry.Files, fe)
 				}
 				out = append(out, entry)
 			}
