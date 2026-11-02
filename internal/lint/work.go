@@ -91,7 +91,7 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 		}
 		contract := contracts[mapName]
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		e := WorkEntry{ID: string(id), Map: mapName, Items: workItems(body)}
+		e := WorkEntry{ID: string(id), Map: mapName, Items: workItems(body, contract)}
 		fm, perr := okf.ParseFrontmatter(fmRaw)
 		if perr != nil || fm == nil {
 			// Not work we can read: validate already reports the page, and
@@ -225,18 +225,28 @@ func holdsWork(contract *kb.MapContract) bool {
 }
 
 // workItems returns the unchecked items of a body outside code, each with the
-// nearest preceding heading and its 1-based line in the body.
-func workItems(body string) []WorkItem {
+// nearest preceding heading and its 1-based line in the body. Items under an
+// H2 that matches the map's procedure_headings are not work: a procedure's
+// checklist is a reusable template (D313), the rule countOpenItems applies to
+// closed_with_open_items, so a page and the Work view agree on what is open.
+func workItems(body string, contract *kb.MapContract) []WorkItem {
+	headings := procedureHeadingsOf(contract)
 	masked := strings.Split(kb.MaskCodeSpans(body), "\n")
 	orig := strings.Split(body, "\n")
 	items := []WorkItem{}
-	section := ""
+	section, inProcedure := "", false
 	for i, line := range masked {
 		if m := workHeading.FindStringSubmatch(line); m != nil {
-			section = m[1]
+			section = m[2]
+			switch len(m[1]) {
+			case 1:
+				inProcedure = false
+			case 2:
+				inProcedure = isProcedureHeading(section, headings)
+			}
 			continue
 		}
-		if !openCheckbox.MatchString(line) || i >= len(orig) {
+		if inProcedure || !openCheckbox.MatchString(line) || i >= len(orig) {
 			continue
 		}
 		_, after, _ := strings.Cut(orig[i], "[ ]")
@@ -245,7 +255,7 @@ func workItems(body string) []WorkItem {
 	return items
 }
 
-var workHeading = regexp.MustCompile(`^ {0,3}#{1,6}\s+(.*?)\s*#*\s*$`)
+var workHeading = regexp.MustCompile(`^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$`)
 
 // cutAtRune cuts s to at most n bytes at a rune boundary, without marker.
 func cutAtRune(s string, n int) string {

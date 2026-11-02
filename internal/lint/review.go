@@ -1002,7 +1002,7 @@ func scatteredWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapCo
 		if !ok || contract.WorkMap == "" || contract.WorkMap == c.mapName {
 			continue
 		}
-		items := workItems(c.body)
+		items := workItems(c.body, &contract)
 		open := openPhase(c.fm, &contract)
 		if len(items) == 0 && !open {
 			continue
