@@ -386,13 +386,14 @@ func applyPrefixReplacements(body *string, fixes []*lint.Fix, handled map[*lint.
 		return 0
 	}
 	sort.SliceStable(prefixes, func(i, j int) bool { return len(prefixes[i].Field) > len(prefixes[j].Field) })
-	pairs := make([]string, 0, 2*len(prefixes))
-	for _, fx := range prefixes {
-		pairs = append(pairs, fx.Field, fx.To)
+	from := make([]string, len(prefixes))
+	to := make([]string, len(prefixes))
+	for i, fx := range prefixes {
+		from[i], to[i] = fx.Field, fx.To
 	}
-	// strings.Replacer tries the pairs in argument order at each position and
-	// never rescans its own output: longest first, one pass.
-	*body = strings.NewReplacer(pairs...).Replace(*body)
+	// One pass over the code-masked body, longest prefix first, path
+	// occurrences only (#1503): the matcher is the one legacy_path detects with.
+	*body = lint.RewritePathPrefixes(*body, from, to)
 	return len(prefixes)
 }
 
