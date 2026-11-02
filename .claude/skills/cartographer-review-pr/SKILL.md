@@ -1,12 +1,12 @@
 ---
 name: cartographer-review-pr
-description: "Use when asked to review or check a pull request, especially a contributor's, or before opening your own PR — runs a scripted triage that sends a PR back without reading its code when it lacks an approved plan, is over the size cap or has red CI, then a review by `cartographer-contract-reviewer` (full tier: also `cartographer-security-reviewer`) on a cheaper model, whose findings the coordinator verifies line by line. `cartographer-implement-plan` and `cartographer-develop-live` run this same procedure on the PRs they open; merging is `cartographer-implement-plan` §4."
+description: "Use when asked to review or check a pull request, especially a contributor's, or before opening your own PR — runs a scripted triage that sends a PR back without reading its code when it is over the size cap or has red CI, then a review by `cartographer-contract-reviewer` (full tier: also `cartographer-security-reviewer`) on a cheaper model, whose findings the coordinator verifies line by line. `cartographer-implement-plan` and `cartographer-develop-live` run this same procedure on the PRs they open; merging is `cartographer-implement-plan` §4."
 ---
 
 # cartographer-review-pr — review a PR without reading all of it
 
 The rules a PR is held to are `CONTRIBUTING.md` §Pull requests (size cap,
-approved plan, template) and `docs/index.md` §Documentation maintenance rules;
+template) and `docs/index.md` §Documentation maintenance rules;
 this skill is only the procedure.
 
 ## Role
@@ -30,8 +30,9 @@ mode is the whole skill.
 A review costs the diff plus the context needed to trust it, and the second term
 is the larger one. So:
 
-- the **design** is reviewed once, in the plan issue (a few thousand tokens),
-  never rediscovered from a diff;
+- the **design** is reviewed once, in the plan when there is one (a few thousand
+  tokens), never rediscovered from a diff; a contributor's PR states it in its body,
+  and a wrong design is closed with the reason;
 - the coordinator, on the most expensive model, reads the triage, the plan's work
   packages, the reviewer's findings and **only the lines those findings cite** —
   never the whole diff of a standard or full-tier PR;
@@ -63,9 +64,6 @@ Any `BLOCK` line ends the review here, with one comment that names it:
 - **red CI** — nothing to review yet. On a contributor's PR that is the whole
   comment; on your own PR, spawn `cartographer-source-reader` with the PR number and fix from its
   digest instead of opening the log;
-- **no approved plan** for a contributor's non-trivial change — ask for a plan
-  issue (or promote the linked bug in place); the design discussion
-  happens there, and the maintainer approves it with the `approved` label;
 - **over the size cap** without a `Size exception:` line — ask for a split by
   work package, one PR each, landing in order.
 

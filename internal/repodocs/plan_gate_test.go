@@ -46,11 +46,6 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 			t.Errorf("plan-gate.yml: the `issues` trigger lacks %q: pr-milestone follows an issue moved to another version", want)
 		}
 	}
-	// A maintainer may assign the PR to its author in place of the plan (D955): GitHub
-	// refuses to assign an issue to someone who never commented on it.
-	if !strings.Contains(types("pull_request_target"), "assigned") {
-		t.Error("plan-gate.yml: the `pull_request_target` trigger lacks \"assigned\": a PR assigned to its author must re-run the gate")
-	}
 	if _, ok := wf.On["milestone"]; ok {
 		t.Error("plan-gate.yml: a `milestone` trigger brings back the next-train rule (D987, retired by D1384)")
 	}
@@ -99,8 +94,8 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	}
 	for name, job := range wf.Jobs {
 		for perm, level := range job.Permissions {
-			if level == "write" && !(name == "rerun" && perm == "actions") && !(name == "milestone" && perm == "pull-requests") {
-				t.Errorf("plan-gate.yml: job %s has %s: write; only the rerun job's actions: write and the milestone job's pull-requests: write are allowed", name, perm)
+			if level == "write" && !(name == "milestone" && perm == "pull-requests") {
+				t.Errorf("plan-gate.yml: job %s has %s: write; only the milestone job's pull-requests: write is allowed", name, perm)
 			}
 		}
 	}
