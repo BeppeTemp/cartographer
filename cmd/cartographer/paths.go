@@ -393,7 +393,11 @@ func cmdPathsSet(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error: empty key")
 		return 2
 	}
-	value := args[1]
+	value, err := absolutePathValue(args[1])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
 	dir, cfg, release, code := loadConfigForPaths()
 	if code != 0 {
 		return code
@@ -410,7 +414,7 @@ func cmdPathsSet(args []string) int {
 	}
 	cfg.Paths[key] = value
 	// An explicit mapping supersedes an earlier "absent here" (D282).
-	cfg.IgnoredPaths = withoutIgnored(cfg.IgnoredPaths, key)
+	cfg.IgnoredPaths = withoutIgnored(cfg.IgnoredPaths, key, kind)
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
@@ -424,19 +428,35 @@ func cmdPathsSet(args []string) int {
 	return 0
 }
 
+// absolutePathValue makes what `paths set` stores independent of the directory
+// it was typed in: resolution happens later, from a hook or the timer, in
+// another cwd, where a stored "." would mean something else (#1501). A value
+// that is absolute or starts with a tilde (expanded at resolution time) is kept
+// as typed; anything else is made absolute against the current directory.
+func absolutePathValue(v string) (string, error) {
+	if v == "~" || strings.HasPrefix(v, "~/") || strings.HasPrefix(v, `~\`) || filepath.IsAbs(v) {
+		return v, nil
+	}
+	abs, err := filepath.Abs(v)
+	if err != nil {
+		return "", fmt.Errorf("cannot make %q absolute: %w", v, err)
+	}
+	return abs, nil
+}
+
 func cmdPathsUnset(args []string) int {
 	if len(args) != 1 || args[0] == "" {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer paths unset <key>")
 		return 2
 	}
-	key, _ := pathsConfigKey(args[0])
+	key, kind := pathsConfigKey(args[0])
 	dir, cfg, release, code := loadConfigForPaths()
 	if code != 0 {
 		return code
 	}
 	defer release()
 	_, hadPath := cfg.Paths[key]
-	remaining := withoutIgnored(cfg.IgnoredPaths, key)
+	remaining := withoutIgnored(cfg.IgnoredPaths, key, kind)
 	hadIgnore := len(remaining) != len(cfg.IgnoredPaths)
 	if !hadPath && !hadIgnore {
 		fmt.Fprintf(os.Stderr, "Error: no %q entry under paths: and no ignored key of that name\n", key)
@@ -453,11 +473,20 @@ func cmdPathsUnset(args []string) int {
 	return 0
 }
 
-// withoutIgnored returns ignored minus the entries key names: "repo:<key>",
-// "path:<key>", or key itself (an unprefixed argument covers both kinds).
-func withoutIgnored(ignored []string, key string) []string {
+// withoutIgnored returns ignored minus the entries key names. With an explicit
+// kind only "<kind>:<key>" goes (D282: the same slug can be a repo in one KB
+// and a path in another, and `paths ignore` tells the user to unset the id it
+// printed); an unprefixed argument covers both kinds and the bare key.
+func withoutIgnored(ignored []string, key, kind string) []string {
 	var out []string
 	for _, id := range ignored {
+		if kind != "" {
+			if id == kind+":"+key {
+				continue
+			}
+			out = append(out, id)
+			continue
+		}
 		if id == key || id == "repo:"+key || id == "path:"+key {
 			continue
 		}

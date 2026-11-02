@@ -1041,7 +1041,7 @@ cartographer paths --help                   # the usage above, on stdout, exit 0
 - `set` writes `paths:` in `.cartographer.yaml` (`clientconfig.Save`: other keys survive). The key is
   accepted with or without its `repo:`/`path:` prefix and stored **without** it, which is how
   resolution looks it up — one map serves both kinds, `paths:` being checked before the repo cache
-  and scan. The path is stored as written (`~` kept, expanded at resolution time). A path that does
+  and scan. A path that is absolute or starts with `~` is stored as written (`~` kept, expanded at resolution time); any other (`.`, `../dotfiles`) is made absolute against the current directory first, because the sync that resolves it runs from a hook or the timer in another directory. The command prints the path it registered. A path that does
   not exist is recorded anyway with a warning (you may be about to clone it); for a `repo:` key, a
   path that is not a git clone is a warning too, never an error.
 - `ignore` marks a key as deliberately absent on this machine (D282), for a work repo on a personal
@@ -1052,7 +1052,7 @@ cartographer paths --help                   # the usage above, on stdout, exit 0
   reporting changes: the sync warning, `status` and the connect step stop naming it, and `list` shows
   it as `IGNORED` (`"ignored": true` in the JSON) instead of counting it unresolved. A key mapped under
   `paths:` cannot be ignored (exit `1`), and `set` on an ignored key lifts the ignore.
-- `unset` removes an entry or an ignore (exit `1` if there is neither).
+- `unset` removes an entry or an ignore (exit `1` if there is neither). With an explicit kind (`unset repo:x`) only the ignore of that kind goes, the one of `path:x` stays; without a prefix both kinds go.
 - `set`/`ignore`/`unset` print the one command that applies them — `cartographer sync` — and never sync
   implicitly. They need an existing `.cartographer.yaml` (exit `2`, run `connect` first).
 
