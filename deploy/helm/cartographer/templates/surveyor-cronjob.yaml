@@ -1,0 +1,41 @@
+{{- include "cartographer.validate" . -}}
+{{- $root := . -}}
+{{- $full := include "cartographer.fullname" . -}}
+{{- range .Values.surveyors }}
+{{- if eq .mode "cronjob" }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $full }}-surveyor-{{ .name }}
+  labels:
+    {{- include "cartographer.labels" (dict "root" $root "component" (printf "surveyor-%s" .name)) | nindent 4 }}
+spec:
+  schedule: {{ .schedule | quote }}
+  # Two overlapping runs would both run a due task: there is no lock.
+  concurrencyPolicy: Forbid
+  suspend: {{ default false .suspend }}
+  {{- with .startingDeadlineSeconds }}
+  startingDeadlineSeconds: {{ . }}
+  {{- end }}
+  successfulJobsHistoryLimit: {{ default 3 .successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ default 1 .failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      # The Surveyor retries an unreachable server itself; the next tick is the retry after that.
+      backoffLimit: 0
+      {{- with .activeDeadlineSeconds }}
+      activeDeadlineSeconds: {{ . }}
+      {{- end }}
+      template:
+        metadata:
+          labels:
+            {{- include "cartographer.labels" (dict "root" $root "component" (printf "surveyor-%s" .name)) | nindent 12 }}
+          {{- with .podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          {{- include "cartographer.surveyorPod" (dict "root" $root "sv" . "cron" true) | nindent 10 }}
+{{- end }}
+{{- end }}

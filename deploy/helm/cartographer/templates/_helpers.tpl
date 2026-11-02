@@ -40,6 +40,15 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- if and (kindIs "string" .) (regexMatch "^\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}$" .) -}}yes{{- end -}}
 {{- end -}}
 
+{{/* The Surveyor entries that take the injected server URL (they set none of their own). */}}
+{{- define "cartographer.injectsServerURL" -}}
+{{- $yes := false -}}
+{{- range .Values.surveyors -}}
+{{- if not (hasKey (default dict .config) "server_url") -}}{{- $yes = true -}}{{- end -}}
+{{- end -}}
+{{- if $yes -}}yes{{- end -}}
+{{- end -}}
+
 {{/* Every template-time refusal lives here; the output is empty. */}}
 {{- define "cartographer.validate" -}}
 {{- $s := .Values.server -}}
@@ -78,4 +87,116 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- if and $s.ingress.enabled (not $s.ingress.hosts) -}}
 {{- fail "server.ingress.enabled needs server.ingress.hosts: name at least one host" -}}
 {{- end -}}
+{{- $seen := dict -}}
+{{- range $i, $sv := .Values.surveyors -}}
+{{- $n := default "" $sv.name -}}
+{{- if not (regexMatch "^[a-z0-9-]{1,40}$" $n) -}}
+{{- fail (printf "surveyors[%d].name is required and must match [a-z0-9-], 1 to 40 characters" $i) -}}
+{{- end -}}
+{{- if hasKey $seen $n -}}
+{{- fail (printf "surveyors[%d].name %q is used twice: a name is unique in the list" $i $n) -}}
+{{- end -}}
+{{- $_ := set $seen $n true -}}
+{{- if gt (len (printf "%s-surveyor-%s" (include "cartographer.fullname" $) $n)) 52 -}}
+{{- fail (printf "surveyors[%d].name %q makes the object name longer than 52 characters (the CronJob limit): shorten it or set a shorter fullnameOverride" $i $n) -}}
+{{- end -}}
+{{- if not (has $sv.mode (list "deployment" "cronjob")) -}}
+{{- fail (printf "surveyors[%d].mode is required: deployment or cronjob" $i) -}}
+{{- end -}}
+{{- if eq $sv.mode "cronjob" -}}
+{{- if not $sv.schedule -}}{{- fail (printf "surveyors[%d] is a cronjob and needs a schedule (a cron expression)" $i) -}}{{- end -}}
+{{- if hasKey $sv "replicas" -}}{{- fail (printf "surveyors[%d].replicas applies to mode deployment only" $i) -}}{{- end -}}
+{{- else if $sv.schedule -}}
+{{- fail (printf "surveyors[%d].schedule applies to mode cronjob only" $i) -}}
+{{- end -}}
+{{- if not $sv.config -}}
+{{- fail (printf "surveyors[%d].config is required: the Surveyor YAML as a map" $i) -}}
+{{- end -}}
+{{- if hasKey $sv.config "name" -}}
+{{- fail (printf "surveyors[%d].config.name is owned by the chart: it is set from surveyors[%d].name" $i $i) -}}
+{{- end -}}
+{{- if not $sv.existingSecret -}}
+{{- fail (printf "surveyors[%d].existingSecret is required: the Secret whose keys become the environment (the token and the keys the config names with token_env and api_key_env)" $i) -}}
+{{- end -}}
+{{- range $f, $_ := ($sv.files | default dict) -}}
+{{- if contains "/" $f -}}
+{{- fail (printf "surveyors[%d].files key %q holds a /: a ConfigMap key cannot, and the config refers to the file by its plain name" $i $f) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The image of a Surveyor entry: surveyorImage, each field overridable by the entry's image. */}}
+{{- define "cartographer.surveyorImage" -}}
+{{- $d := .root.Values.surveyorImage -}}
+{{- $o := default dict .sv.image -}}
+{{- printf "%s:%s" (default $d.repository $o.repository) (default (default .root.Chart.AppVersion $d.tag) $o.tag) -}}
+{{- end -}}
+
+{{/* The pod template of a Surveyor entry, for a Deployment (cron false) or a CronJob (cron true).
+     No port, no probe, no persistent volume: the config and one emptyDir on /tmp (exec recipes
+     and git reads need a writable temp directory). */}}
+{{- define "cartographer.surveyorPod" -}}
+{{- $sv := .sv -}}
+{{- $root := .root -}}
+{{- $obj := printf "%s-surveyor-%s" (include "cartographer.fullname" $root) $sv.name -}}
+automountServiceAccountToken: {{ if $sv.serviceAccountName }}true{{ else }}false{{ end }}
+{{- with $sv.serviceAccountName }}
+serviceAccountName: {{ . | quote }}
+{{- end }}
+{{- with $root.Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- if .cron }}
+restartPolicy: Never
+{{- end }}
+terminationGracePeriodSeconds: {{ default 30 $sv.terminationGracePeriodSeconds }}
+securityContext:
+  seccompProfile:
+    type: RuntimeDefault
+containers:
+  - name: surveyor
+    image: {{ include "cartographer.surveyorImage" (dict "root" $root "sv" $sv) | quote }}
+    imagePullPolicy: {{ default $root.Values.surveyorImage.pullPolicy (default dict $sv.image).pullPolicy }}
+    args:
+      - --config=/etc/cartographer/surveyor.yaml
+      {{- if .cron }}
+      - --once
+      {{- end }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+    envFrom:
+      - secretRef:
+          name: {{ $sv.existingSecret | quote }}
+    {{- with $sv.resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    volumeMounts:
+      - name: config
+        mountPath: /etc/cartographer
+        readOnly: true
+      - name: tmp
+        mountPath: /tmp
+volumes:
+  - name: config
+    configMap:
+      name: {{ $obj }}
+  - name: tmp
+    emptyDir: {}
+{{- with $sv.nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $sv.affinity }}
+affinity:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $sv.tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- end -}}

@@ -38,3 +38,10 @@ WARNING: server.persistence.emptyDir is on. The data volume is lost with the pod
 The claim {{ $full }}-data is kept when the release is uninstalled. To install the
 release again on it, set server.persistence.existingClaim={{ $full }}-data.
 {{- end }}
+{{- if include "cartographer.injectsServerURL" . }}
+
+WARNING: a Surveyor entry has no server_url, so it reaches the server at
+http://{{ $full }}:{{ $s.service.port }}/mcp with allow_insecure_http set: its
+token crosses the pod network in clear. Set server_url to the Ingress's HTTPS
+URL when you do not trust the pod network.
+{{- end }}
