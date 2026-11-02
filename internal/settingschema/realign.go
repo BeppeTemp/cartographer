@@ -28,7 +28,7 @@ type Removed struct {
 	// Note is what to do instead when there is no single replacement key, and
 	// the clause after the replacement when there is one.
 	Note string
-	// Plan is the plan issue that removed it (a decision number, D672).
+	// Plan is the PR that removed it (a decision number, D672).
 	Plan int
 	// Env and Flag are the environment variable and the command-line flag that
 	// used to feed the key, "" if none.
@@ -65,7 +65,7 @@ type Off struct {
 	Path string
 	// Value is the YAML literal that switched the feature off ("false", "0").
 	Value string
-	// Plan is the plan issue that decided the feature is always on.
+	// Plan is the PR that decided the feature is always on.
 	Plan int
 }
 

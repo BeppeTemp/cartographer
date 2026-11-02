@@ -1,6 +1,6 @@
 ---
 name: cartographer-fix-implementer
-description: Use when one bounded fix needs writing in a prepared worktree without a plan issue — a `bug` issue whose design the maintainer settled in its comments, or the verified review findings of a branch whose implementer is gone — adds commits and stops. Spawned by a maintainer coordinator, one per fix.
+description: Use when one bounded fix needs writing in a prepared worktree without a plan — a `bug` issue whose design the maintainer settled in its comments, or the verified review findings of a branch whose implementer is gone — adds commits and stops. Spawned by a maintainer coordinator, one per fix.
 model: claude-sonnet-5-5
 ---
 

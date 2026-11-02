@@ -4,7 +4,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 
 ## Language
 
-- **Everything in English**: code (comments, error messages, identifiers, doc-comments), documentation (`docs/`, `README.md`, `AGENTS.md`), plan issues and D entries.
+- **Everything in English**: code (comments, error messages, identifiers, doc-comments), documentation (`docs/`, `README.md`, `AGENTS.md`), plans and D entries.
 - MCP tool `Description`s in English (consumed by LLM agents).
   They have a size budget (D285, `TestServer_ToolDescriptionBudget`): state what the tool does, when to use it instead of a neighbour and the rules needed to call it; no `D<n>` references, rationale or response-field listings; put the detail in `docs/control-plane.md` §Tool descriptions and their size budget.
 

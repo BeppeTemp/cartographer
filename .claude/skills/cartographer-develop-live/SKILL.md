@@ -1,6 +1,6 @@
 ---
 name: cartographer-develop-live
-description: Use when the outcome is found by trying rather than specified up front (Atlas UI, UX, CLI output, a behaviour to tune), or when the user asks to work live, with a live instance, or without a plan issue — changes Cartographer while the user tries it on a running instance, iterates on their feedback and lands one PR. Changes that can be specified first go through `cartographer-propose-plan` and `cartographer-implement-plan`.
+description: Use when the outcome is found by trying rather than specified up front (Atlas UI, UX, CLI output, a behaviour to tune), or when the user asks to work live, with a live instance, or without a plan — changes Cartographer while the user tries it on a running instance, iterates on their feedback and lands one PR. Changes that can be specified first go through `cartographer-propose-plan` and `cartographer-implement-plan`.
 ---
 
 # cartographer-develop-live — a running instance, the user's feedback, one PR
@@ -131,7 +131,7 @@ file; cite no `D<n>` in code or docs before the PR has its number.
 
 ## The record — every live session ends in the changelog
 
-A live session leaves no plan issue, so the PR is the whole record of what was
+A live session leaves no plan, so the PR is the whole record of what was
 done, and it is what the release changelog is built from. The repository squashes
 with the PR title as the commit subject and the PR body as its message;
 release-please reads both.

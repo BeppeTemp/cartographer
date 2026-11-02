@@ -31,18 +31,17 @@ them resolves.
 
 1. **Only for an architectural or contract choice** — an invariant, an
    interface, an alternative a reader would otherwise re-propose. Smaller
-   choices live in the plan issue and the PR that closes it. **The number is the
-   plan issue's**, or the PR's when there is no plan (D672): nothing to reserve,
-   and parallel sessions cannot collide. Records up to D371 were numbered
-   sequentially; the numbers between the last of them and the first issue-numbered
-   record are simply unused.
+   choices live in the PR. **The number is the PR's** (D672, D1458): nothing to
+   reserve, and parallel sessions cannot collide. Older records carry the number of
+   their plan issue; records up to D371 were numbered sequentially, and the numbers
+   between the last of them and the first issue-numbered record are simply unused.
 
-2. **Write it at the end of implementation, not before.** The plan issue is the
+2. **Write it at the end of implementation, not before.** The plan is the
    draft; the decision file records what was actually built, including any
    deviation from the plan.
 
    ```bash
-   make decisions-new N=<issue> SLUG=my-choice TOPIC=control-plane
+   make decisions-new N=<pr> SLUG=my-choice TOPIC=control-plane
    ```
 
 3. **Record the decision, the rationale, and the consequences** — including the
@@ -69,7 +68,7 @@ checks it (D208). Three states are legitimate, and only the first is a file:
 |---|---|---|
 | implemented | `docs/decisions/D<n>-<slug>.md` | the record |
 | **gap** | `repodocs.GapDecisions`, with a reason | deliberately never written; the number **must not be reused**, and a file claiming it fails the build |
-| **reserved** | `repodocs.ReservedDecisions`, with the plan issue | an open plan holds it; the record arrives with the implementation, and the entry is then removed |
+| **reserved** | `repodocs.ReservedDecisions`, with the PR | an open PR holds it; the record arrives with the implementation, and the entry is then removed |
 
 A plan abandoned without implementing does not stay reserved: either it gets a
 record saying it was not done — [D130](decisions/D130-the-handshake-era-is-not-retired-overtaken-by-d168.md)

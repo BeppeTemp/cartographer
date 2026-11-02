@@ -212,7 +212,7 @@ codemap: ## Regenerate the code map in AGENTS.md from the package doc comments
 settings-example: ## Regenerate config.example.yaml from the settings schema (internal/config/schema.go)
 	@SETTINGS_EXAMPLE_UPDATE=1 go test ./internal/config -run TestExampleIsUpToDate -count=1
 
-decisions-new: ## New decision from the template: make decisions-new N=<PR number, or the plan issue when there is one> SLUG=my-choice TOPIC=control-plane (D672)
+decisions-new: ## New decision from the template: make decisions-new N=<PR number> SLUG=my-choice TOPIC=control-plane (D672)
 	@test -n "$(N)" -a -n "$(SLUG)" -a -n "$(TOPIC)" || \
 		(echo "decisions-new: N, SLUG and TOPIC are all required" && exit 1)
 	@grep -q '{"$(TOPIC)",' internal/repodocs/repodocs.go || \
