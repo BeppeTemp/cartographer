@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -40,6 +41,13 @@ func TestPlanSetup(t *testing.T) {
 			facts: func(f *setupFacts) { f.RemoteProbed, f.RemoteHasRefs = true, true },
 			opts:  setupOptions{Remote: "https://git.example.com/team/kb"},
 			want: setupPlan{Service: serviceInstall, KB: kbClone, KBName: "kb", Remote: "https://git.example.com/team/kb",
+				Agents: []string{"claude"}},
+		},
+		{
+			name:  "a remote holding only a forge's initial commit is created in, not mounted (D710)",
+			facts: func(f *setupFacts) { f.RemoteProbed, f.RemoteHasRefs, f.RemoteForgeInit = true, true, true },
+			opts:  setupOptions{Remote: "git@gitlab.example.com:group/kb-a.git"},
+			want: setupPlan{Service: serviceInstall, KB: kbCreate, KBName: "kb-a", Remote: "git@gitlab.example.com:group/kb-a.git",
 				Agents: []string{"claude"}},
 		},
 		{
@@ -151,7 +159,7 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 	saved := []any{setupProbeRemote, setupLookGit, setupServiceStatus, setupInstallSvc, setupStartSvc,
 		setupKBCreate, setupKBClone, setupConnect, setupDetected, setupWaitReady, setupProbeAuth}
 	t.Cleanup(func() {
-		setupProbeRemote = saved[0].(func(context.Context, string) (bool, error))
+		setupProbeRemote = saved[0].(func(context.Context, string) (gitx.RemoteProbe, error))
 		setupLookGit = saved[1].(func() bool)
 		setupServiceStatus = saved[2].(func() (service.Status, error))
 		setupInstallSvc = saved[3].(func() error)
@@ -168,9 +176,9 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("APPDATA", t.TempDir())
 	t.Setenv("LOCALAPPDATA", t.TempDir())
-	setupProbeRemote = func(_ context.Context, remote string) (bool, error) {
+	setupProbeRemote = func(_ context.Context, remote string) (gitx.RemoteProbe, error) {
 		record("probe " + remote)
-		return facts.RemoteHasRefs, nil
+		return gitx.RemoteProbe{HasRefs: facts.RemoteHasRefs, ForgeInit: facts.RemoteForgeInit}, nil
 	}
 	setupLookGit = func() bool { return true }
 	setupServiceStatus = func() (service.Status, error) { return facts.Service, nil }
@@ -209,8 +217,8 @@ func TestRunSetup_FreshMachineRunsEveryStepInOrder(t *testing.T) {
 
 func TestRunSetup_UnreachableRemoteChangesNothing(t *testing.T) {
 	calls := stubSetup(t, setupFacts{})
-	setupProbeRemote = func(context.Context, string) (bool, error) {
-		return false, errors.New("the forge rejected this machine's SSH key")
+	setupProbeRemote = func(context.Context, string) (gitx.RemoteProbe, error) {
+		return gitx.RemoteProbe{}, errors.New("the forge rejected this machine's SSH key")
 	}
 	if code := runSetup(setupOptions{Remote: "git@h:me/wiki.git"}, false, true, false, noPrompt()); code != 2 {
 		t.Fatalf("runSetup = %d, want 2", code)
@@ -336,5 +344,14 @@ func TestRunSetup_ProceedPromptOnItsOwnLine(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "the server reports ready\n\nProceed? [Y/n]: ") {
 		t.Errorf("the prompt does not follow the plan on its own line:\n%s", out.String())
+	}
+}
+
+func TestRenderSetupPlan_ForgeInitialCommitIsAdoptedNotMounted(t *testing.T) {
+	var b strings.Builder
+	p := setupPlan{Service: serviceKeep, KB: kbCreate, KBName: "kb-a", Remote: "git@gitlab.example.com:group/kb-a.git", Agents: []string{"claude"}}
+	renderSetupPlan(&b, p, setupFacts{RemoteProbed: true, RemoteHasRefs: true, RemoteForgeInit: true})
+	if got := b.String(); !strings.Contains(got, `create "kb-a" and push it to git@gitlab.example.com:group/kb-a.git (the forge's initial commit is adopted`) || strings.Contains(got, `mount "`) {
+		t.Errorf("plan = %q", got)
 	}
 }
