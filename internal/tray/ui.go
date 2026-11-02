@@ -117,3 +117,15 @@ func truncateUTF16(s string, max int) string {
 	}
 	return s
 }
+
+// menuCommandBase offsets action ids so they are never 0 (a dismissed menu).
+const menuCommandBase = 100
+
+// CommandID is the id a popup menu reports for the row: 0 for the status line
+// and separators (they are not selectable and must not alias Action 0).
+func (it MenuItem) CommandID() int {
+	if it.Status || it.Separator {
+		return 0
+	}
+	return menuCommandBase + int(it.Action)
+}

@@ -63,3 +63,22 @@ func TestWindowSmoke(t *testing.T) {
 		t.Error("the icon handle was not released")
 	}
 }
+
+// Closing updates must end the message loop: feed posts WM_CLOSE (needs no shell).
+func TestFeedClosePostsQuit(t *testing.T) {
+	u := &winUI{done: make(chan struct{})}
+	updates := make(chan Snapshot, 1)
+	posted := make(chan uintptr, 4)
+	finished := make(chan struct{})
+	go func() { u.feed(updates, func(m uintptr) { posted <- m }); close(finished) }()
+
+	updates <- Snapshot{State: StateRunning}
+	if m := <-posted; m != wmUpdate {
+		t.Fatalf("snapshot posted %#x, want wmUpdate", m)
+	}
+	close(updates)
+	if m := <-posted; m != wmClose {
+		t.Fatalf("close posted %#x, want wmClose", m)
+	}
+	<-finished
+}

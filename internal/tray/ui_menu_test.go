@@ -60,3 +60,22 @@ func TestTruncateUTF16(t *testing.T) {
 		}
 	}
 }
+
+// The status row has Action 0 like Open Atlas: only a CommandID of 0 keeps
+// their menu command ids apart.
+func TestCommandIDsAreDistinct(t *testing.T) {
+	seen := map[int]bool{}
+	for _, it := range MenuItems(DefaultMenu(), Snapshot{}) {
+		id := it.CommandID()
+		if it.Status || it.Separator {
+			if id != 0 {
+				t.Errorf("%+v has command id %d, want 0", it, id)
+			}
+			continue
+		}
+		if id == 0 || seen[id] {
+			t.Errorf("%+v: command id %d is zero or duplicated", it, id)
+		}
+		seen[id] = true
+	}
+}

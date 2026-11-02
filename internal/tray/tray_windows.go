@@ -5,6 +5,7 @@ package tray
 import (
 	"errors"
 	"image/color"
+	"log"
 	"runtime"
 	"sync"
 	"syscall"
@@ -57,8 +58,7 @@ const (
 
 	smCxSmIcon = 49
 
-	iconUID      = 1   // fixed ID, never NIF_GUID: a GUID binds to the binary's path and breaks after an in-place update (install.ps1)
-	menuBase     = 100 // menu command id = menuBase + Action
+	iconUID      = 1 // fixed ID, never NIF_GUID: a GUID binds to the binary's path and breaks after an in-place update (install.ps1)
 	retryTimer   = 1
 	retryMillis  = 1000
 	retryMax     = 30 // a logon task can run before the shell has made the notification area
@@ -175,6 +175,7 @@ type winUI struct {
 	light          bool     // the taskbar is light: draw a black glyph
 	added          bool
 	retries        int
+	iconWarned     bool
 
 	mu      sync.Mutex
 	pending *Snapshot // written by the feeder goroutine, read on the UI thread
@@ -207,23 +208,27 @@ func (u *winUI) Run(menu Menu, updates <-chan Snapshot, onAction func(Action)) e
 	if err := u.init(); err != nil {
 		return err
 	}
-	go u.feed(updates)
+	go u.feed(updates, func(m uintptr) { call(procPostMessage, u.hwnd, m, 0, 0) })
 	u.loop()
 	return nil
 }
 
-// feed hands snapshots to the UI thread.
-func (u *winUI) feed(updates <-chan Snapshot) {
+// feed hands snapshots to the UI thread through post (PostMessageW on the
+// hidden window). A closed updates channel is the caller's request to stop
+// (cmdTray closes it on SIGINT/SIGTERM): it posts WM_CLOSE, whose handler
+// destroys the window, so WM_DESTROY deletes the icon and quits the loop.
+func (u *winUI) feed(updates <-chan Snapshot, post func(msg uintptr)) {
 	for {
 		select {
 		case s, ok := <-updates:
 			if !ok {
+				post(wmClose)
 				return
 			}
 			u.mu.Lock()
 			u.pending = &s
 			u.mu.Unlock()
-			call(procPostMessage, u.hwnd, wmUpdate, 0, 0)
+			post(wmUpdate)
 		case <-u.done:
 			return
 		}
@@ -254,11 +259,7 @@ func (u *winUI) init() error {
 	u.taskbarCreated = uint32(call(procRegisterWindowMsg, uintptr(unsafe.Pointer(tc))))
 
 	u.hicon = u.makeIcon()
-	if !u.notify(nimAdd) {
-		call(procSetTimer, u.hwnd, retryTimer, retryMillis, 0)
-	} else {
-		u.added = true
-	}
+	u.tryAdd()
 	return nil
 }
 
@@ -334,7 +335,7 @@ func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 	}
 	if u.taskbarCreated != 0 && uint32(message) == u.taskbarCreated {
 		// Explorer restarted: its notification area is empty again.
-		u.added = u.notify(nimAdd)
+		u.tryAdd()
 		return 0
 	}
 	return call(procDefWindowProc, hwnd, message, wParam, lParam)
@@ -343,13 +344,29 @@ func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 // refresh redraws the icon and tooltip from u.snap.
 func (u *winUI) refresh() {
 	old := u.hicon
-	u.hicon = u.makeIcon()
-	if !u.notify(nimModify) {
-		u.added = u.notify(nimAdd)
+	if h := u.makeIcon(); h != 0 {
+		u.hicon = h
+	} else if !u.iconWarned {
+		// Keep the working icon rather than modify the entry to none.
+		u.iconWarned = true
+		log.Printf("tray: CreateIcon failed, keeping the previous icon")
 	}
-	if old != 0 {
+	if !u.notify(nimModify) {
+		u.tryAdd()
+	}
+	if old != 0 && old != u.hicon {
 		call(procDestroyIcon, old)
 	}
+}
+
+// tryAdd adds the icon and, when the shell refuses (not ready at logon, just
+// restarted), re-arms the bounded retry timer.
+func (u *winUI) tryAdd() {
+	if u.added = u.notify(nimAdd); u.added {
+		return
+	}
+	u.retries = 0
+	call(procSetTimer, u.hwnd, retryTimer, retryMillis, 0)
 }
 
 func (u *winUI) notify(op uintptr) bool {
@@ -388,7 +405,8 @@ func (u *winUI) showMenu() {
 		case it.Separator:
 			call(procAppendMenu, h, mfSeparator, 0, 0)
 		default:
-			flags, id := uintptr(mfString), uintptr(menuBase+int(it.Action))
+			// The status line has command id 0: it would collide with Action 0.
+			flags, id := uintptr(mfString), uintptr(it.CommandID())
 			if !it.Enabled {
 				flags |= mfGrayed | mfDisabled
 			}
@@ -402,10 +420,10 @@ func (u *winUI) showMenu() {
 	call(procSetForegroundWin, u.hwnd)
 	cmd := call(procTrackPopupMenu, h, tpmReturnCmd|tpmRightButton, uintptr(p.x), uintptr(p.y), 0, u.hwnd, 0)
 	call(procPostMessage, u.hwnd, wmNull, 0, 0)
-	if cmd < menuBase {
+	if cmd < menuCommandBase {
 		return
 	}
-	a := Action(cmd - menuBase)
+	a := Action(cmd - menuCommandBase)
 	u.onAction(a)
 	if a == ActionQuit {
 		call(procDestroyWindow, u.hwnd)
