@@ -227,7 +227,7 @@ func holdsWork(contract *kb.MapContract) bool {
 // workItems returns the unchecked items of a body outside code, each with the
 // nearest preceding heading and its 1-based line in the body. Items under an
 // H2 that matches the map's procedure_headings are not work: a procedure's
-// checklist is a reusable template (D313), the rule countOpenItems applies to
+// checklist is a reusable template (D313, D1476), the rule countOpenItems applies to
 // closed_with_open_items, so a page and the Work view agree on what is open.
 func workItems(body string, contract *kb.MapContract) []WorkItem {
 	headings := procedureHeadingsOf(contract)
