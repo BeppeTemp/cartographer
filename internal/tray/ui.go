@@ -3,6 +3,7 @@ package tray
 import (
 	"fmt"
 	"strings"
+	"unicode/utf16"
 )
 
 // Action is a menu entry the user chose.
@@ -73,4 +74,46 @@ func StatusLine(s Snapshot) string {
 		parts = append(parts, "update available: "+v)
 	}
 	return strings.Join(parts, " — ")
+}
+
+// MenuItem is one row of the popup menu, in display order.
+type MenuItem struct {
+	Action    Action
+	Text      string
+	Enabled   bool
+	Separator bool
+	// Status marks the first, disabled line (it carries no action).
+	Status bool
+}
+
+// MenuItems is the menu a snapshot calls for: the status line, then the four
+// actions. Atlas needs a URL, Restart needs an installed service that is not
+// already restarting, Open log needs a path.
+func MenuItems(m Menu, s Snapshot) []MenuItem {
+	return []MenuItem{
+		{Text: StatusLine(s), Status: true},
+		{Separator: true},
+		{Action: ActionOpenAtlas, Text: m.OpenAtlas, Enabled: s.UIURL != ""},
+		{Action: ActionRestart, Text: m.Restart, Enabled: s.Installed && !s.Restarting},
+		{Action: ActionOpenLog, Text: m.OpenLog, Enabled: s.LogPath != ""},
+		{Separator: true},
+		{Action: ActionQuit, Text: m.Quit, Enabled: true},
+	}
+}
+
+// truncateUTF16 cuts s to at most max UTF-16 code units without splitting a
+// surrogate pair (the Windows tooltip holds 127 units).
+func truncateUTF16(s string, max int) string {
+	n := 0
+	for i, r := range s {
+		w := utf16.RuneLen(r)
+		if w < 0 {
+			w = 1 // an invalid rune encodes as U+FFFD, one unit
+		}
+		if n+w > max {
+			return s[:i]
+		}
+		n += w
+	}
+	return s
 }

@@ -1,12 +1,11 @@
-//go:build windows || darwin
+//go:build darwin
 
 package tray
 
 import "errors"
 
-// NewUI is a placeholder until the platform implementations land (the
-// notification-area UI for Windows, the menu-bar UI for macOS): each replaces
-// this file's build constraint. Nothing runs the tray yet.
+// NewUI is a placeholder until the macOS menu-bar UI lands (the Windows one is
+// tray_windows.go): it replaces this file. Nothing runs the tray on macOS yet.
 func NewUI() (UI, error) {
 	return nil, errors.New("the tray UI is not implemented yet on this build")
 }
