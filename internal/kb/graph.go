@@ -51,39 +51,65 @@ func MaskCodeSpans(body string) string {
 		return body
 	}
 	lines := strings.Split(body, "\n")
-	var fence string // the open fence's delimiter run, empty when outside
-	blank := func(i int) { lines[i] = strings.Repeat(" ", len(lines[i])) }
-
+	kinds := fenceKindsOf(lines)
 	for i, line := range lines {
-		// The regexps only on a line that can hold a fence or a span.
+		switch {
+		case kinds[i] != LineText:
+			// A fence line carries no link; neither does the block.
+			lines[i] = strings.Repeat(" ", len(line))
+		case strings.Contains(line, "`"):
+			lines[i] = inlineCodeRe.ReplaceAllStringFunc(line, func(s string) string {
+				return strings.Repeat(" ", len(s))
+			})
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// LineKind says what a body line is with respect to fenced code blocks.
+type LineKind uint8
+
+const (
+	LineText       LineKind = iota // outside any fence
+	LineFenceOpen                  // the opening fence line
+	LineFenceBody                  // inside a fence
+	LineFenceClose                 // the closing fence line
+)
+
+// FenceKinds classifies every line of body (split on "\n", so the index is
+// the one strings.Split gives) by the ONE fence rule of the package, the one
+// MaskCodeSpans masks with: a fence opens with three or more backticks or
+// tildes at the start of a line after optional indentation, and closes with a
+// run of the same character at least as long; an unclosed fence runs to the
+// end of the body. Every check that must know "is this line code" calls this
+// instead of parsing fences itself, so two checks cannot disagree about the
+// same block (a four-backtick fence holding a three-backtick line is one block).
+func FenceKinds(body string) []LineKind {
+	return fenceKindsOf(strings.Split(body, "\n"))
+}
+
+func fenceKindsOf(lines []string) []LineKind {
+	kinds := make([]LineKind, len(lines))
+	var fence string // the open fence's delimiter run, empty when outside
+	for i, line := range lines {
 		var m []string
 		if strings.ContainsAny(line, "`~") {
 			m = fenceRe.FindStringSubmatch(line)
 		}
 		if fence == "" {
-			if m == nil && !strings.Contains(line, "`") {
-				continue
-			}
 			if m != nil {
 				fence = m[1]
-				blank(i) // a fence line carries no link
-				continue
+				kinds[i] = LineFenceOpen
 			}
-			// Outside a fence: mask inline spans only.
-			lines[i] = inlineCodeRe.ReplaceAllStringFunc(line, func(s string) string {
-				return strings.Repeat(" ", len(s))
-			})
 			continue
 		}
-		// Inside a fence: everything is masked, and a closing fence of the same
-		// character and at least the same length ends the block.
-		closes := m != nil && m[1][0] == fence[0] && len(m[1]) >= len(fence)
-		blank(i)
-		if closes {
+		kinds[i] = LineFenceBody
+		if m != nil && m[1][0] == fence[0] && len(m[1]) >= len(fence) {
+			kinds[i] = LineFenceClose
 			fence = ""
 		}
 	}
-	return strings.Join(lines, "\n")
+	return kinds
 }
 
 // MaskLinks returns text with the link targets blanked: the href of every

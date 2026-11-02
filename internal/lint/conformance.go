@@ -814,18 +814,10 @@ var mangledPlaceholderRe = regexp.MustCompile("(?i)`(?:repo|path):[a-z][a-z0-9_-
 // the pattern is anchored on.
 func detectMangledPlaceholders(relPath, body string) (Finding, bool) {
 	var matches []string
-	fence := ""
-	for _, line := range strings.Split(body, "\n") {
-		t := strings.TrimSpace(line)
-		if fence == "" {
-			if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
-				fence = t[:3]
-				continue
-			}
-		} else {
-			if strings.HasPrefix(t, fence) {
-				fence = ""
-			}
+	lines := strings.Split(body, "\n")
+	kinds := kb.FenceKinds(body)
+	for i, line := range lines {
+		if kinds[i] != kb.LineText {
 			continue
 		}
 		if strings.Contains(line, "{{") {

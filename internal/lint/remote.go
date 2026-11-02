@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -57,8 +58,6 @@ func remoteFenceSpans(body string) [][]int {
 	var spans [][]int
 	var (
 		open     bool
-		fenceCh  byte
-		fenceLen int
 		start    int
 		remote   bool
 		sawFirst bool
@@ -70,37 +69,27 @@ func remoteFenceSpans(body string) [][]int {
 		}
 		open = false
 	}
+	kinds := kb.FenceKinds(body)
 	pos := 0
-	for pos <= len(body) {
-		nl := strings.IndexByte(body[pos:], '\n')
-		end := len(body)
-		if nl >= 0 {
-			end = pos + nl
-		}
-		line := body[pos:end]
-		trim := strings.TrimLeft(line, " ")
-		indentOK := len(line)-len(trim) <= 3
-		ch, n := fenceRun(trim)
-		switch {
-		case open:
-			if indentOK && ch == fenceCh && n >= fenceLen && strings.TrimSpace(trim[n:]) == "" {
-				closeAt(pos)
-			} else if !sawFirst && strings.TrimSpace(line) != "" {
-				sawFirst = true
-				remote = remote || remoteBlockStart(line)
-			}
-		case indentOK && n >= 3 && !(ch == '`' && strings.Contains(trim[n:], "`")):
-			open, fenceCh, fenceLen = true, ch, n
+	for i, line := range strings.Split(body, "\n") {
+		end := pos + len(line)
+		switch kinds[i] {
+		case kb.LineFenceClose:
+			closeAt(pos)
+		case kb.LineFenceOpen:
+			open = true
 			start, sawFirst = end, false
 			remote = namesSSHHost(last)
 			last = ""
+		case kb.LineFenceBody:
+			if !sawFirst && strings.TrimSpace(line) != "" {
+				sawFirst = true
+				remote = remote || remoteBlockStart(line)
+			}
 		default:
 			if strings.TrimSpace(line) != "" {
 				last = line
 			}
-		}
-		if nl < 0 {
-			break
 		}
 		pos = end + 1
 	}
@@ -108,16 +97,4 @@ func remoteFenceSpans(body string) [][]int {
 		closeAt(len(body))
 	}
 	return spans
-}
-
-// fenceRun is the fence character and run length at the start of s, 0 if none.
-func fenceRun(s string) (byte, int) {
-	if s == "" || (s[0] != '`' && s[0] != '~') {
-		return 0, 0
-	}
-	n := 0
-	for n < len(s) && s[n] == s[0] {
-		n++
-	}
-	return s[0], n
 }
