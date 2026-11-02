@@ -47,3 +47,6 @@ film/out/
 # Python bytecode of the example listers.
 __pycache__/
 *.pyc
+
+# helm package writes the archive into the working directory (D1441).
+/deploy/helm/**/*.tgz
