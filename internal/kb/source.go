@@ -9,12 +9,6 @@ import (
 // SourceIngestStatuses is the vocabulary of a Source's ingest_status.
 var SourceIngestStatuses = []string{"pending", "ingested", "skipped"}
 
-// SourceShapes is the vocabulary of a Source's optional source_shape (D1201);
-// absent reads as "document". It sits beside the free-string source_kind, which
-// says what the thing is. "system" is a live read-only system observed through
-// snapshots.
-var SourceShapes = []string{"document", "collection", "feed", "system"}
-
 // SourceTemplate is the text of templates/source.md, the template
 // source_register writes into a ledger journal that has none (D1072). It is
 // composed from the server's own shape of a Source, so a change to the
@@ -28,9 +22,8 @@ func SourceTemplate() string {
 	b.WriteString("title: \"{{title}}\"\n")
 	b.WriteString(TemplateMetaDescription + ": One primary source the knowledge base has absorbed, with its ingest status\n")
 	b.WriteString(TemplateMetaRequiredFields + ": [source_kind, ingest_status]\n")
-	b.WriteString(TemplateMetaOptionalFields + ": [locator, sha256, timestamp, ingested_at, source_shape, connector, recipe, feed_cursor, feed_checked_at, feed_interval, feed_include, feed_error]\n")
+	b.WriteString(TemplateMetaOptionalFields + ": [locator, sha256, timestamp, ingested_at]\n")
 	b.WriteString(TemplateMetaFieldValues + "ingest_status: [" + strings.Join(SourceIngestStatuses, ", ") + "]\n")
-	b.WriteString(TemplateMetaFieldValues + "source_shape: [" + strings.Join(SourceShapes, ", ") + "]\n")
 	b.WriteString(TemplateMetaOpenSections + ": true\n")
 	b.WriteString("---\n# {{title}}\n")
 	return b.String()

@@ -6359,18 +6359,3 @@ func TestChangesSinceRenameBackAndForth(t *testing.T) {
 		t.Fatal("changes_since did not return: the rename chain loops")
 	}
 }
-
-// The worker offers a connector's tools to the model as "<connector>__<tool>"
-// and routes a call by that prefix (internal/worker/connector, D1262). That is
-// unambiguous only while no tool of this server has "__" in its name.
-func TestNoToolNameContainsTheConnectorSeparator(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	for name := range s.Tools() {
-		if strings.Contains(name, "__") {
-			t.Errorf("tool %q contains \"__\", the separator of connector tool names", name)
-		}
-	}
-}

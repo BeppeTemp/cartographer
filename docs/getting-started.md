@@ -250,7 +250,7 @@ and removing `~/cartographer-data` is a deliberate, separate act.
   `references/secrets.md`
 - Importing an existing wiki or docs folder → the bundled `cartographer-kb-import` skill
 - Absorbing one new document, transcript, ticket or thread into existing pages → the bundled
-  `cartographer-kb-ingest` skill (a campaign of many sources: `cartographer-kb-ingest-plan`)
+  `cartographer-kb-ingest` skill
 - Giving a new or imported KB its first structure (Maps, Journals, concept
   boundaries) → worth doing with the strongest reasoning model you have; both
   skills suggest it once, before modeling starts, and a faster model is fine

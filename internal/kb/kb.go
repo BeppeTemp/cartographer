@@ -655,30 +655,6 @@ func ensureInfoExclude(kbDir, entry string) error {
 // name (see CreateMapWithContract).
 const ServicesNamespace = "services"
 
-// ReservedMapNames is the one set of map names map_create and ScaffoldMap
-// refuse (#1316); only ServicesNamespace today. The refusal text, the
-// map_create description and the cold-start section of the initialize guide
-// all read it, so the messages cannot drift. TRAP: `skills`, `agents`, `hooks`
-// are filtered out of the maps list but are not refused here, on purpose.
-var ReservedMapNames = []string{ServicesNamespace}
-
-// reservedMapError is the refusal for a reserved map name: it names the set,
-// says where documented services live and offers a name that passes the
-// kebab-case check, so the agent can act on it in one call.
-func reservedMapError(name string) error {
-	return fmt.Errorf("%w: map name %q is reserved for service descriptors (the KB-root %s/ namespace); reserved names: %s. Documented services are written as pages under %s/<id> (type Service), not in a map; for other notes choose another name, e.g. service-notes",
-		okf.ErrInvalidPath, name, ServicesNamespace, strings.Join(ReservedMapNames, ", "), ServicesNamespace)
-}
-
-func isReservedMapName(name string) bool {
-	for _, r := range ReservedMapNames {
-		if name == r {
-			return true
-		}
-	}
-	return false
-}
-
 // ResolvePath resolves a concept path relative to the KB data root, verifying:
 //   - no escape from the base (../)
 //   - no absolute path
@@ -1979,8 +1955,8 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 	// ResolvePath routes every services/ read to the KB-root descriptor
 	// namespace: the map would report success and then be unreadable (D269).
 	// Checked before any filesystem mutation, for every kind.
-	if isReservedMapName(name) {
-		return reservedMapError(name)
+	if name == ServicesNamespace {
+		return fmt.Errorf("%w: map name %q is reserved for service descriptors (the KB-root %s/ namespace); choose another name", okf.ErrInvalidPath, name, ServicesNamespace)
 	}
 
 	mapAbs := filepath.Join(kb.DataRoot(), name)
@@ -2007,8 +1983,8 @@ func (kb *KB) ScaffoldMap(name, title string) error {
 	if _, err := okf.PathToID(name + ".md"); err != nil {
 		return fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
 	}
-	if isReservedMapName(name) {
-		return reservedMapError(name)
+	if name == ServicesNamespace {
+		return fmt.Errorf("%w: map name %q is reserved for service descriptors", okf.ErrInvalidPath, name)
 	}
 	mapAbs := filepath.Join(kb.DataRoot(), name)
 	if fi, err := os.Stat(mapAbs); err != nil || !fi.IsDir() {

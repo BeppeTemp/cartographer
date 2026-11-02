@@ -184,7 +184,7 @@ func (cs candidateSet) forProjection(cfg *clientconfig.Config, p syncProjection)
 			out = append(out, a)
 		}
 	}
-	return dropKBArtifacts(cfg, out)
+	return out
 }
 
 // --- `cartographer workspace` ---
@@ -567,12 +567,8 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 		}
 		// Only a bridge entry carries the mode: an http entry is not narrowed
 		// by any binding, so it is not made read-only either.
-		if entry == "bridge" && scope.Unbound && scope.Err == nil {
-			if scope.ReadOnly {
-				fmt.Fprintf(&sb, "  access: read-only (%s)\n  no write tool and no KB artifact here; bind the folder to write, or set `unbound_access` to write\n", scope.AccessOrigin)
-			} else {
-				fmt.Fprintf(&sb, "  access: read-write (%s)\n  no KB artifact here; bind the folder for the KB's skills and agents\n", scope.AccessOrigin)
-			}
+		if entry == "bridge" && scope.ReadOnly && scope.Err == nil {
+			fmt.Fprintf(&sb, "  read-only: no write tool and no KB artifact here; bind the folder to write\n")
 		}
 		if entry == "bridge" && scope.Binding == nil && scope.Err == nil {
 			fmt.Fprintf(&sb, "  a client that declares MCP roots can still bind this session through them\n")
@@ -780,7 +776,6 @@ func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjec
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
-		verified = withoutOptedOutSkillsLines(cfg, verified)
 		// Set after verification, which copies only the signed catalogue.
 		verified.Placeholders = cs.placeholdersForProjection(cfg, p)
 		verified.PathRegistries = cs.pathRegistriesForProjection(cfg, p)

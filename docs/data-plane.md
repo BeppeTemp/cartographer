@@ -928,12 +928,6 @@ validate a nested per-type grammar.
   `commit_gate` or `gate_check`, whatever its `involves`, and `involves` is
   optional (a question may concern a page that does not exist yet). `kb_status`
   counts open gaps apart from open contradictions (`open_gaps`).
-  The worker's synthesis task (D1263) writes its hypotheses this way: `provenance`
-  lists the concepts the hypothesis rests on, `involves` the ones it is about, and three
-  optional keys that the server does not interpret mark it: `origin: synthesis`,
-  `confidence: low | medium | high` and, set by whoever closes it, `resolution_outcome:
-  confirmed | rejected` (`resolution` stays the prose). `work_list where origin=synthesis`
-  lists them; a rejected one is never proposed again.
 - **The source ledger (D278).** A `Source` records one primary source the KB has
   absorbed (document, transcript, ticket, thread, web page, dataset), so the KB
   can answer *already ingested?*, *what is pending?*, *where does this claim come
@@ -960,90 +954,6 @@ validate a nested per-type grammar.
   `ingested` Source nobody cites as `source_uncited`;
   `concept_delete` of a cited Source needs `force: true`; `kb_status` counts
   sources by status (`sources`).
-  **Shape and how to read it (D1201).** The optional `source_shape`
-  (`document`, the default when absent, `collection`, `feed` or `system`: a live
-  read-only system observed through snapshots) says what kind of space the
-  `locator` points to and sits beside `source_kind`, which stays free text.
-  `connector` and `recipe` are the **names** of a connector and a recipe in the
-  worker's configuration, never a path or a command. For a collection, feed or
-  system the `locator` is the URL or `{{path:<key>}}` placeholder of the space,
-  repository, feed or system. A `locator`, `connector` or `recipe` that is a URL
-  with a password, or with a username under http(s) (a token as username; `ssh://git@host/...` is fine), or a secret-named query parameter
-  (`token`, `password`, `api_key`...) is refused: credentials live in the connector's configuration or in sops, never in
-  the ledger. Dedup is unchanged: such a source normally has no `sha256`, so it
-  dedups by exact `locator`. An existing `templates/source.md` is not rewritten;
-  the new fields are optional and a KB with the old template keeps working.
-  **Feed fields (D1262).** A Source with `source_shape: feed` carries the state of
-  its polling in its own frontmatter, written by the worker only with `if_match`
-  (the stale write is the lease between replicas): `feed_cursor` (opaque string
-  owned by the recipe, at most 1024 bytes), `feed_checked_at` (RFC 3339),
-  `feed_interval` (a Go duration; absent means the poll task's default),
-  `feed_include` (a list of globs the recipe interprets) and `feed_error`
-  (`<code>: <detail>`, one line, removed on success). They are optional in the
-  template; `source_register` has no parameter for them on purpose (a feed is
-  registered once, the cursor is the worker's). Clearing `feed_cursor` makes the
-  next poll list everything again.
-  **System Sources (D1372).** A Source with `source_shape: system` is one Source per
-  system, its `locator` an opaque label (a group is not a Source). It carries the same
-  feed fields, but the state is a file: the asset `system-state.jsonl` of the Source
-  (a `{"version":1}` header, then one JSON line per group sorted by key: `key`, `title`,
-  `revision`, `observed_at`, `snapshot`), and `feed_cursor` holds the sha256 of its bytes.
-  The first state write expands the Source (same ID) and links the file from its body; the
-  extension is outside the list indexed into search (D277). A file that does not match
-  `feed_cursor` is untrusted and rebuilt, not repaired. The worker diffs a listing against
-  it and creates one `IngestUnit` per changed group with four optional fields:
-  `observed_group` (the key), `observed_revision` (16 hex, for a removal the group's
-  last revision), `observed_change` (`added` \| `modified` \| `removed`) and
-  `observed_at` (RFC 3339); its body holds the brief, `## Change` (a line diff), `## Observed`
-  (the snapshot) and for a removal `## Last observed`. A newer unit marks the group's
-  still-`open` ones `skipped` with `superseded_by`. A vanished group is information: its
-  owner page is marked "observed absent since <date>" and a gap is recorded, never a delete.
-  `feed_error` adds `identity_not_read_only`, `empty_listing`, `state_error` and
-  `groups_failed` (state saved, some groups owed). Cursor and state are written only after
-  the units exist, so a crash re-lists and creates only what is missing.
-- **Ingest plan and units (D1201).** An ingest campaign is concepts, so it can be
-  resumed, extended with new sources and executed by several agents at once.
-  `IngestPlan` (one per campaign) has required `status`
-  (`open` \| `in-progress` \| `done`) and optional `sources`, `maps`, `timestamp`;
-  its body holds the Map layout, the subject-ownership table and the extraction
-  rules. `IngestUnit` (one per unit of work) has required `source` (a Source
-  ID), `targets` (concept IDs to patch or create), `extract` and `verify`
-  (one-line strings), `executor` (`any` \| `large` \| `human`) and `status`
-  (`draft` \| `open` \| `in-progress` \| `done` \| `skipped` \| `blocked`), and optional
-  `plan`, `claimed_by`, `claimed_at` (RFC3339), `review_after` (`YYYY-MM-DD`, the
-  lease), `waiting_on`, `timestamp`, `content_asset` (the name of an asset of the
-  unit holding the Source's text, which the worker's poll stages for an entry a
-  recipe returned inline, #1262) and, for a system Source, `observed_group`,
-  `observed_revision`, `observed_change`, `observed_at`; its body is the self-contained brief. Both
-  are keyed types (D853), so lint never calls them unknown. `ingest_setup` writes
-  `templates/ingest-plan.md` and `templates/ingest-unit.md` when absent and
-  declares nothing on any map. **Claim protocol**, which uses no tool of its own:
-  1. *Queue:* `work_list(where: ["type=IngestUnit"], fields: [status, executor,
-     review_after, claimed_by, source, plan])`. Claimable is `status: open`, or
-     `status: in-progress` whose `review_after` is before today (UTC); the
-     executor filters on `executor` (`any` plus its own class, never `human`).
-     `draft`, `blocked`, `done` and `skipped` are not claimable. An `in-progress`
-     unit is open by its status, so a passed lease is not a `review` entry: the
-     claimer decides from the fields.
-  2. *Claim:* read the unit's `content_hash` (`concept_list` with the
-     `content_hash` field, or `concept_read`), then `concept_patch(id, if_match,
-     frontmatter: {status: in-progress, claimed_by, claimed_at, review_after})`.
-     Success is the claim. `stale_write` means someone wrote the unit first:
-     re-read, re-evaluate, take the next unit, never retry with the new hash
-     blindly.
-  3. *Re-claim:* an `in-progress` unit whose lease passed is claimed like an
-     `open` one; the hash is the guard, `claimed_by` / `claimed_at` are
-     overwritten and git history keeps who had it.
-  4. *Release:* `status: done` with `unset: [review_after]` (a closed unit with a
-     past date is not work); an unfixable failure is `status: blocked` with
-     `waiting_on` and `review_after`.
-  5. *Lease:* per **day**: a claim on day D with `review_after: D` expires at
-     00:00 UTC of D+1, and a shorter lease is not expressible (`claimed_at` is
-     informative). A longer job renews with a `concept_patch` of `review_after`
-     under its own `if_match`.
-
-  `claimed_by` is self-declared and a claim is not authorization: executors are
-  isolated by token scope, not by this field.
 
 Concept references are path-based. There is no separate immutable UID layer,
 so use `concept_move` with backlink rewriting when an ID changes.

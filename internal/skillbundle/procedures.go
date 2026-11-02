@@ -24,13 +24,13 @@ type Procedure struct {
 
 // served is the only place that knows which bundled skills are served, in the
 // order kb_guide lists them. cartographer-kb-create, cartographer-kb-doctor,
-// cartographer-kb-ingest-plan, cartographer-kb-source-author, cartographer-ops and cartographer-feedback are
-// deliberately absent: they run commands, scripts and subagents, configure the server's host, or (feedback)
+// cartographer-ops and cartographer-feedback are deliberately absent: they run
+// commands, scripts and subagents, configure the server's host, or (feedback)
 // target provisioned clients and build a URL.
 var served = []Procedure{
 	{
 		Short: "ingest", Skill: "cartographer-kb-ingest",
-		UseWhen: "one new primary source (document, transcript, thread, ticket, incident timeline, email, web page, dataset) must become KB knowledge, or an IngestUnit to execute",
+		UseWhen: "one new primary source (document, transcript, thread, ticket, incident timeline, email, web page, dataset) must become KB knowledge",
 		Note:    "Without a shell, skip the sha256 of step 1 and give a `locator` instead (the ledger then dedupes on it); for credentials found in a source (step 6), use `secret_set` for them, or leave them out of every page and tell the user.",
 	},
 	{

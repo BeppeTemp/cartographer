@@ -29,7 +29,7 @@ func goldenBlock(t *testing.T, setup func(root string)) provisioning.Artifact {
 
 func TestGolden_Block_RoutedNoArchive(t *testing.T) {
 	a := goldenBlock(t, func(string) {})
-	want := goldenRouting + " No maps yet.\n\n"
+	want := goldenRouting + " No archives detected yet.\n\n"
 	if got := string(a.Files[0].Content); got != want {
 		t.Errorf("block changed:\ngot:\n%s\nwant:\n%s", got, want)
 	}
@@ -43,11 +43,11 @@ func TestGolden_Block_BriefWithCuratedAndSkills(t *testing.T) {
 		writeBriefSkill(t, root, "zeta-skill")
 		writeBriefSkill(t, root, "alpha-skill")
 	})
-	want := goldenRouting + " Maps: entities/, journal/.\n\n" + "Skills: alpha-skill, zeta-skill.\n"
+	want := goldenRouting + " Archives: entities/, journal/.\n\n" + "Skills: alpha-skill, zeta-skill.\n"
 	if got := string(a.Files[0].Content); got != want {
 		t.Errorf("block changed:\ngot:\n%s\nwant:\n%s", got, want)
 	}
-	const wantHash = "bb13dd0bfb8127bdc89d87df40c2000a8e36b1da816b7add3fc14ae62f62d8d2"
+	const wantHash = "c317d1b57abd8a6f27249b970ba3690bd5e37b605e3fe9929869818cb7ebe707"
 	if a.ContentHash != wantHash {
 		t.Errorf("ContentHash = %s, want %s", a.ContentHash, wantHash)
 	}
@@ -58,7 +58,7 @@ func TestGolden_Block_FullKeepsCuratedBody(t *testing.T) {
 		writeFile(t, filepath.Join(root, "data", "entities", "b.md"), "# b\n")
 		writeFile(t, filepath.Join(root, "instructions.md"), "<!-- cartographer: block: full -->\nRead the index first.\n")
 	})
-	want := goldenRouting + " Maps: entities/.\n\n" + "\n" + goldenScope + "Read the index first.\n"
+	want := goldenRouting + " Archives: entities/.\n\n" + "\n" + goldenScope + "Read the index first.\n"
 	if got := string(a.Files[0].Content); got != want {
 		t.Errorf("block changed:\ngot:\n%s\nwant:\n%s", got, want)
 	}
@@ -69,7 +69,7 @@ func TestGolden_Block_PreambleNone(t *testing.T) {
 		writeFile(t, filepath.Join(root, "data", "entities", "b.md"), "# b\n")
 		writeFile(t, filepath.Join(root, "instructions.md"), "<!-- cartographer: preamble: none -->\n<!-- cartographer: block: full -->\nOnly this.\n")
 	})
-	want := "<!-- cartographer: preamble: none -->\n" + goldenRouting + " Maps: entities/.\n\n" + "\n" + goldenScope + "Only this.\n"
+	want := "<!-- cartographer: preamble: none -->\n" + goldenRouting + " Archives: entities/.\n\n" + "\n" + goldenScope + "Only this.\n"
 	if got := string(a.Files[0].Content); got != want {
 		t.Errorf("block changed:\ngot:\n%s\nwant:\n%s", got, want)
 	}

@@ -92,7 +92,7 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     // The page opens on the viewer's client; a tab names what it holds, no count.
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server", "Knowledge Base", "Worker"]);
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server", "Knowledge Base"]);
     expect(within(tabs).getByRole("tab", { name: "Client" })).toHaveAttribute("aria-selected", "true");
     await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
     const writes = screen.getByRole("list", { name: "KB kb-a Maintenance settings" });
@@ -174,65 +174,6 @@ describe("the Settings panel", () => {
     expect(within(picker).getByRole("button", { name: "kb-a" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("server_url: http://example.com/mcp");
-  });
-
-  it("lists a worker's reported settings with its replicas, or the template and a note when none reported", async () => {
-    const entries = [
-      { key: "name", value: "team-a", origin: "file", description: "Perimeter name.", default: '""' },
-      { key: "models[].api_key_env", value: "CLOUD_API_KEY", origin: "file", description: "Key variable.", default: '""' },
-    ];
-    stubApi({
-      "/settings": () =>
-        json({
-          ...SETTINGS,
-          workers: [
-            { perimeter: "team-a", version: "v9", replicas: 2, kbs: ["kb-a"], entries, received_at: "2026-10-16T10:00:00Z" },
-          ],
-          worker_template: { entries },
-        }),
-    });
-    const user = userEvent.setup();
-    const first = render(<App />);
-    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs).getByRole("tab", { name: "Worker" }));
-    expect(screen.getByRole("heading", { name: "team-a" })).toBeInTheDocument();
-    expect(screen.getByText(/Worker v9 · 2 replicas · kb-a · reported/)).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Worker name settings" })).toHaveTextContent("team-a");
-    expect(screen.getByRole("list", { name: "Worker models settings" })).toHaveTextContent("models[].api_key_env");
-    expect(screen.getByText(/Worker v9 · 2 replicas · kb-a · reported/)).toBeInTheDocument();
-    // No raw file reaches the page: the YAML view says so.
-    await user.click(screen.getByRole("button", { name: "YAML" }));
-    expect(screen.getByText(/there is no YAML to show/)).toBeInTheDocument();
-    first.unmount();
-
-    stubApi({
-      "/settings": () => json({ ...SETTINGS, workers: [], worker_template: { entries } }),
-    });
-    render(<App />);
-    const tabs2 = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs2).getByRole("tab", { name: "Worker" }));
-    expect(screen.getByText(/No worker has reported/)).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Worker name settings" })).toBeInTheDocument();
-  });
-
-  it("keeps two workers of the same perimeter name apart", async () => {
-    const row = (replicas: number, value: string) => ({
-      perimeter: "team-a",
-      replicas,
-      kbs: ["kb-a"],
-      entries: [{ key: "name", value, origin: "file", description: "Perimeter name.", default: '""' }],
-      received_at: "2026-10-16T10:00:00Z",
-    });
-    stubApi({ "/settings": () => json({ ...SETTINGS, workers: [row(1, "one-a"), row(3, "two-b")] }) });
-    const user = userEvent.setup();
-    render(<App />);
-    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    const workerTabs = within(tabs).getAllByRole("tab", { name: "Worker · team-a" });
-    expect(workerTabs).toHaveLength(2);
-    await user.click(workerTabs[1]!);
-    expect(screen.getByText(/^Worker · 3 replicas · kb-a · reported/)).toBeInTheDocument();
-    expect(within(tabs).getAllByRole("tab", { selected: true }).map((t) => t.id)).toHaveLength(1);
-    expect(screen.getByRole("list", { name: "Worker name settings" })).toHaveTextContent("two-b");
   });
 
   it("shows what a client can set before any client of the viewer has reported", async () => {

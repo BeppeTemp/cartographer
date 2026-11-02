@@ -23,9 +23,6 @@ import (
 const (
 	accessHeader = "Cartographer-Access"
 	accessRead   = "read"
-	// readonlyHeader mirrors mcpserver.ReadonlyHeader (#1409): the names of the
-	// request's readonly= the server applied; present even when empty.
-	readonlyHeader = "Cartographer-Readonly"
 	// provisionedParam and provisionedValue mirror mcpserver.ProvisionedParam
 	// and mcpserver.ProvisionedValue (D1097): a bridge runs under a client that
 	// has the managed instructions block, so it never needs the server's guide.
@@ -64,11 +61,8 @@ type Bridge struct {
 	// carried Cartographer-Access: read; serverTooOld once one did not.
 	accessConfirmed bool
 	serverTooOld    bool
-	// readonlyConfirmed is set once a response to a request that carried
-	// readonly= had Cartographer-Readonly (#1409), in any value.
-	readonlyConfirmed bool
-	protocol          string
-	sessionID         string
+	protocol        string
+	sessionID       string
 
 	authorMu       sync.Mutex // guards the fields below
 	gitAuthors     map[string]gitAuthor
@@ -192,11 +186,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 				// would put the instructions of another set (naming its KBs)
 				// into a session that ends up with a different one, so the
 				// handshake is answered here without naming any KB.
-				instr := rootsPendingInstructions
-				if sc := b.currentScope(); sc.Unbound && !sc.ReadOnly {
-					instr += rootsUnboundWriteNote
-				}
-				b.answerInitialize(m, instr)
+				b.answerInitialize(m, rootsPendingInstructions)
 				continue
 			}
 		case m.Method == "notifications/initialized":
@@ -353,21 +343,7 @@ func (b *Bridge) dispatch(ctx context.Context, wg *sync.WaitGroup, raw []byte, m
 func (b *Bridge) awaitingAccess(scope Scope) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return !b.confirmedLocked(scope)
-}
-
-// needsReadonlyCheck is true for a scope that sends readonly= (#1409): some KBs
-// read-only on a session that is not read-only as a whole (Query never sends it
-// with access=read).
-func needsReadonlyCheck(scope Scope) bool { return !scope.ReadOnly && len(scope.ReadOnlyKBs) > 0 }
-
-// confirmedLocked reports whether the server has confirmed every mode scope
-// asks for. b.mu must be held.
-func (b *Bridge) confirmedLocked(scope Scope) bool {
-	if scope.ReadOnly && !b.accessConfirmed {
-		return false
-	}
-	return !needsReadonlyCheck(scope) || b.readonlyConfirmed
+	return scope.ReadOnly && !b.accessConfirmed
 }
 
 // answerLocally serves a session whose folder is bound to no KB: the handshake
@@ -395,44 +371,6 @@ func (b *Bridge) answerLocally(scope Scope, m message) {
 // the set. It names no KB: the tool list that follows is the real answer.
 const rootsPendingInstructions = "Cartographer's KBs for this session are chosen from the workspace roots " +
 	"the client reports; list the tools to see them."
-
-// rootsUnboundWriteNote is appended to rootsPendingInstructions when the
-// unbound folder is read-write (#1356).
-const rootsUnboundWriteNote = " If none of the roots is bound to a KB, the session is unbound: " + unboundWriteNote
-
-// unboundWriteNote is the sentence the bridge adds to the initialize result of
-// an unbound read-write session (#1356). The server's own text for a bridge
-// session is empty (provisioned=1), so this is the only wording.
-const unboundWriteNote = "this session was started in a folder bound to no KB and has write access to the provider's KBs. " +
-	"No KB skills, agents or instructions are installed here: pass `kb` explicitly to every tool and read the KB's guide before writing. " +
-	"`cartographer workspace bind` gives the folder a KB's skills."
-
-// withUnboundNote returns body with unboundWriteNote appended to the
-// instructions of an initialize result; any other body comes back untouched.
-func withUnboundNote(body []byte) []byte {
-	var env map[string]json.RawMessage
-	if json.Unmarshal(body, &env) != nil || env["result"] == nil {
-		return body
-	}
-	var res map[string]json.RawMessage
-	if json.Unmarshal(env["result"], &res) != nil || res == nil {
-		return body
-	}
-	var cur string
-	if raw, ok := res["instructions"]; ok {
-		_ = json.Unmarshal(raw, &cur)
-	}
-	if cur != "" {
-		cur += "\n\n"
-	}
-	res["instructions"], _ = json.Marshal(cur + "This is an unbound session: " + unboundWriteNote)
-	env["result"], _ = json.Marshal(res)
-	out, err := json.Marshal(env)
-	if err != nil {
-		return body
-	}
-	return out
-}
 
 // answerInitialize answers the handshake locally.
 func (b *Bridge) answerInitialize(m message, instructions string) {
@@ -465,15 +403,7 @@ func orUnknown(v string) string {
 var errServerTooOld = errors.New("the Cartographer server must be upgraded to serve read-only sessions " +
 	"(this folder is bound to no KB, so the session must be read-only, and this server did not confirm it)")
 
-// errServerTooOldKBs is the same failure for kb_options access: read (#1409): an
-// older server ignores readonly= and would serve those KBs read-write.
-var errServerTooOldKBs = errors.New("this server cannot honour kb_options access: read; upgrade it " +
-	"(until then the session serves no KB rather than writing to one set read-only)")
-
 func serverTooOldScope(s Scope) Scope {
-	if needsReadonlyCheck(s) {
-		return Scope{Source: s.Source, Err: errServerTooOldKBs}
-	}
 	return Scope{Source: s.Source, ReadOnly: true, Err: errServerTooOld}
 }
 
@@ -487,37 +417,26 @@ func (b *Bridge) isServerTooOld() bool {
 // successful response. It returns false when the response must not be relayed.
 func (b *Bridge) checkAccess(scope Scope, resp *http.Response) bool {
 	b.mu.Lock()
-	confirmed := b.confirmedLocked(scope)
+	confirmed := b.accessConfirmed
 	b.mu.Unlock()
-	if confirmed || resp.StatusCode >= 300 {
+	if !scope.ReadOnly || confirmed || resp.StatusCode >= 300 {
+		return true
+	}
+	if resp.Header.Get(accessHeader) == accessRead {
+		b.mu.Lock()
+		b.accessConfirmed = true
+		b.mu.Unlock()
 		return true
 	}
 	b.mu.Lock()
-	if scope.ReadOnly && !b.accessConfirmed {
-		if resp.Header.Get(accessHeader) != accessRead {
-			b.serverTooOld = true
-			b.mu.Unlock()
-			b.logf("%s", errServerTooOld)
-			return false
-		}
-		b.accessConfirmed = true
-	}
-	if needsReadonlyCheck(scope) && !b.readonlyConfirmed {
-		// Present even when empty: an older server never sets it.
-		if _, ok := resp.Header[http.CanonicalHeaderKey(readonlyHeader)]; !ok {
-			b.serverTooOld = true
-			b.mu.Unlock()
-			b.logf("%s", errServerTooOldKBs)
-			return false
-		}
-		b.readonlyConfirmed = true
-	}
+	b.serverTooOld = true
 	b.mu.Unlock()
-	return true
+	b.logf("%s", errServerTooOld)
+	return false
 }
 
 func noKBInstructions(scope Scope) string {
-	if errors.Is(scope.Err, errServerTooOld) || errors.Is(scope.Err, errServerTooOldKBs) {
+	if errors.Is(scope.Err, errServerTooOld) {
 		return "Cartographer serves no KB in this session: " + scope.Err.Error() + "."
 	}
 	if scope.Err != nil {
@@ -595,9 +514,6 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		}
 	}
 
-	// The handshake of an unbound read-write session says it is unbound.
-	rewrite := m.Method == "initialize" && scope.Unbound && !scope.ReadOnly
-
 	resp, err := client.HTTPClient(b.HTTP, b.Cfg.InsecureHTTPAllowed()).Do(req)
 	if err != nil {
 		b.writeError(m.ID, -32000, client.UnreachableMessage(reqURL, err)+": "+err.Error())
@@ -624,12 +540,12 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		// A stream that carries no verdict (an error status) keeps the
 		// serialization until forward returns.
 		b.mu.Lock()
-		confirmed := b.confirmedLocked(scope)
+		confirmed := b.accessConfirmed
 		b.mu.Unlock()
 		if confirmed {
 			release()
 		}
-		b.relayEvents(resp.Body, rewrite)
+		b.relayEvents(resp.Body)
 	default:
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024))
 		if err != nil {
@@ -642,26 +558,19 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 			return
 		}
 		if len(body) > 0 {
-			if rewrite {
-				body = withUnboundNote(body)
-			}
 			b.write(body)
 		}
 	}
 }
 
 // relayEvents copies each `data:` event of an SSE response to stdout.
-func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool) {
+func (b *Bridge) relayEvents(r io.Reader) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), maxLine)
 	var data []string
 	flush := func() {
 		if len(data) > 0 {
-			ev := []byte(strings.Join(data, "\n"))
-			if rewriteInit {
-				ev = withUnboundNote(ev)
-			}
-			b.write(ev)
+			b.write([]byte(strings.Join(data, "\n")))
 			data = nil
 		}
 	}

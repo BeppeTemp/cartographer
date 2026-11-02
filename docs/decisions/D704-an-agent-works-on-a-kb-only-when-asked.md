@@ -4,8 +4,6 @@ topic: control-plane
 
 # D704 — An agent works on a KB only when the operator asks
 
-> **Amended by D1258**: a process started by `cartographer worker` with a config the operator wrote is the operator asking; nothing else changes.
-
 **Decision.** Cartographer never starts a `kb-doctor` session by itself. The scheduled headless
 doctor (D369, D690) is removed, and `connect`, `sync` and `upgrade-repair` delete the job 0.22
 and 0.23 installed (a Homebrew upgrade runs only the scheduled `sync`). The nudge always asks the agent to *propose* a session (the old `assisted` mode);

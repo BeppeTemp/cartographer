@@ -421,8 +421,6 @@ type MultiKBServer struct {
 	// clientReports are the client settings each principal's machines sent
 	// (D818), shown back to that principal only.
 	clientReports clientReports
-	// workers are the declarations of the workers' heartbeats (uiapi_workers.go).
-	workers workerStore
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON
@@ -483,7 +481,6 @@ func NewMultiKBServer(version string) *MultiKBServer {
 // server for it.
 func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 	srv := New(m.version)
-	srv.liveWorker = m.workers.hasLive
 	srv.SetPolicyKB(name)
 	setupFn(srv)
 	m.servers[name] = srv
@@ -702,8 +699,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, fmt.Sprintf("invalid provisioned %q: the only accepted value is %q (omit it for a client that has no Cartographer client side)", v, ProvisionedValue), http.StatusBadRequest)
 				return
 			}
-			q := r.URL.Query()
-			srv, unknown, renamed, ro, err := m.routedForReadOnly(r.Context(), q["kbs"], access, q[ReadonlyParam])
+			srv, unknown, renamed, err := m.routedFor(r.Context(), r.URL.Query()["kbs"], access)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -711,17 +707,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 			if access != "" {
 				w.Header().Set(AccessHeader, access)
 			}
-			// #1409: confirm the names applied (even none) to a request that
-			// carried the parameter; an older server never sends it.
-			if _, asked := q[ReadonlyParam]; asked {
-				w.Header().Set(ReadonlyHeader, strings.Join(ro, ","))
-			}
 			ctx := withRoutedRenamed(withRoutedUnknown(r.Context(), unknown), renamed)
-			// access= already makes the whole connection read-only and wins: the
-			// names are redundant there (decision 3), so they are not applied.
-			if access == "" {
-				ctx = withRoutedReadOnly(ctx, ro)
-			}
 			if provisioned {
 				ctx = withProvisioned(ctx)
 			}
@@ -761,17 +747,6 @@ func (m *MultiKBServer) Handler() http.Handler {
 		// being enabled — and inside the same auth chain as /mcp.
 		case r.URL.Path == UsagePath:
 			m.handleUsage(w, r)
-			return
-
-		// A worker's heartbeat: client-to-server metadata like usage, always
-		// routed and inside the same auth chain as /mcp.
-		case r.URL.Path == WorkersPath:
-			m.handleWorkers(w, r)
-			return
-
-		// A worker's configuration report (D22): its own route, not the beat.
-		case r.URL.Path == WorkerSettingsPath:
-			m.handleWorkerSettings(w, r)
 			return
 
 		// A client's own settings (D818): like usage, always routed.

@@ -379,46 +379,6 @@ export interface MaintenanceReview {
   items: ReviewItem[];
 }
 
-/** GET /kbs/{kb}/workers (design D22): a live `cartographer worker` that declared this KB. Read-only. */
-export type WorkerState = "idle" | "running" | "waiting" | "budget_exhausted" | "stopped";
-export interface WorkerBudget {
-  profile: string;
-  tier?: "small" | "large";
-  spent: number;
-  limit: number;
-}
-export interface WorkerRow {
-  worker: string;
-  perimeter: string;
-  version?: string;
-  state: WorkerState;
-  last_beat_at: string;
-  interval_seconds: number;
-  last_run?: { at: string; units_done: number; tokens_spent: number; commits: number };
-  budgets: WorkerBudget[];
-  next_window_at?: string;
-}
-
-/** GET /kbs/{kb}/feeds: Sources whose last poll failed (any shape that writes `feed_error`). */
-export interface FeedRow {
-  id: string;
-  title?: string;
-  source_shape?: string;
-  recipe?: string;
-  feed_checked_at?: string;
-  feed_error: string;
-}
-export interface FeedList {
-  feeds: FeedRow[];
-  total: number;
-}
-
-/** The two dates of GET /kbs/{kb}/maintenance/summary the Health line reads. */
-export interface MaintenanceSummary {
-  last_doctor?: string;
-  next_doctor?: string;
-}
-
 /** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
 export interface CheckCatalog {
   categories: string[];
@@ -666,20 +626,6 @@ export interface SettingsView {
   clients?: SettingsClient[];
   /** What a client can set, every key at its default: shown until a client reports. */
   client_template?: { entries: SettingEntry[]; yaml?: string };
-  /** The workers whose whole perimeter the viewer sees, as each last reported (D22). */
-  workers?: SettingsWorker[];
-  /** What a worker can set, every key at its default: shown until a worker reports. */
-  worker_template?: { entries: SettingEntry[] };
-}
-
-/** One worker perimeter's settings: a report shared by its replicas, no secret in it. */
-export interface SettingsWorker {
-  perimeter: string;
-  version?: string;
-  replicas: number;
-  kbs: string[];
-  entries: SettingEntry[];
-  received_at: string;
 }
 
 /** One machine's client settings, reported by its last sync (D818). */
@@ -770,8 +716,6 @@ export interface WhoamiRule {
   maps?: string[];
   journals?: string[];
   types?: string[];
-  /** "r": the rule reaches no skill, agent or hook write (a worker token). */
-  artifacts?: string;
 }
 
 /** GET /whoami: the principal behind the request and its scopes. */
