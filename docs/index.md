@@ -11,7 +11,7 @@ only the pages relevant to your task.
 | [faq.md](faq.md) | Questions about concurrent writes, `sync` and how Cartographer compares with an instruction file, Notion or Obsidian |
 | [agent-install.md](agent-install.md) | Command-by-command runbook for an agent to install Cartographer, mount a first KB, connect, and verify |
 | [mcp-clients.md](mcp-clients.md) | Using the server from a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop): connect, tokens with an `id`, what the model receives, limits |
-| [deployment.md](deployment.md) | Native/k8s topologies, server configuration, health, backup/DR, upgrades, CI/CD and the Surveyor (a third role) |
+| [deployment.md](deployment.md) | Deployment components, deployment scenarios and recipes (native, stdio, single VM, Kubernetes, several servers), server configuration, health, backup/DR, upgrades, CI/CD and the Surveyor (a third role) |
 | [surveyor-recipes.md](surveyor-recipes.md) | Surveyor exec recipes: the `recipes.<name>` keys, protocol v1 (stdin request, JSON-lines listing), failures, trust model, example script |
 | [configurator.md](configurator.md) | Multi-provider client and service subcommands (`cartographer setup/agents/connect/disconnect/reconnect/status/sync/doctor/update/kb/service/…` + TUI): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
 | [control-plane.md](control-plane.md) | Go server, complete MCP tool API (source of truth for the list), search index and validation |
@@ -54,6 +54,7 @@ Mutable state does not live in narrative documentation:
 | Debug concurrency / git conflicts | `concurrency.md` |
 | Add a skill or external service | `skills-services-secrets.md` |
 | Deploy / production operations | `deployment.md` |
+| Choose how to deploy | `deployment.md` §Components and §Deployment scenarios; the client side in `configurator.md` §Headless hosts, CI and agent containers |
 | Understand an architectural choice | `decisions.md` for the generated list, or `ls docs/decisions/D<n>-*` if you already have the number |
 | Connect a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop) | `mcp-clients.md` |
 | Configure an LLM provider | `interoperability.md` |
@@ -95,7 +96,7 @@ page that was not touched; the table and the file change together, and a test
 | The README's launch film (`film/`) or the story it tells | nothing to run: the release candidate (`preview.yml`, job `film`, `film.yml`) re-renders it when the hash of its inputs (`film/inputs.sh`) differs from the `Film-Tree:` trailer on `readme-film`, which the README embeds (D807, D1068); a render failure blocks the candidate and so the train, which is how a camera change in `web/src/lib/graph3d/scene.ts` that breaks it is caught; an import added to `film/src` goes in `film/inputs.sh`; preview locally with `film/README.md` |
 | `test/macos/` (the launchd, `install.sh` and Cask scripts of the `test-macos` job), `internal/service/`, `install.sh` or `.goreleaser.yaml` | `testing.md` §Real macOS; the `test-macos` job in `ci.yml` and the `macos` filter in `scripts/ci-filters.sh` (D997); the scripts refuse to run outside CI because they register a real launchd job |
 | `test/forge/` (the shared `pre-receive.sh` hook, `run.sh` against Forgejo and GitLab CE), `internal/gitx/gitxtest` or the git config `test/e2e/run.sh` and `test/smoke/http.sh` isolate | `testing.md` §Go tests (git write coverage) and §Real forges; the `forge` job in `ci.yml` and the `forge` filter in `scripts/ci-filters.sh` (D996); pin bumps of the container images live in `run.sh` |
-| `Dockerfile`, `.dockerignore`, `go.mod`/`go.sum` or `deploy/demo/` (what the image is built from) | `test/smoke/image.sh` still passes on the built image (`make docker-smoke`); `testing.md` §Image smoke, `deployment.md` §CI/CD (the `docker` job and the candidate smoke, D995); the `docker` filter in `scripts/ci-filters.sh` |
+| `Dockerfile`, `.dockerignore`, `go.mod`/`go.sum` or `deploy/demo/` (what the image is built from) | `test/smoke/image.sh` still passes on the built image (`make docker-smoke`); `testing.md` §Image smoke, the recipes of `deployment.md` §Example: single VM and §Example: a derived image for exec recipes (they assume the image's entrypoint and non-root user, which the smoke test asserts), `deployment.md` §CI/CD (the `docker` job and the candidate smoke, D995); the `docker` filter in `scripts/ci-filters.sh` |
 | Contributor workflow (PR flow, plans, build loop) | `CONTRIBUTING.md` |
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix **first** (`destinationMatrix` in `internal/provisioning/provisioning.go`, `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, provider descriptors in `internal/configurator/registry.go`), then `docs/harnesses.md` and `docs/interoperability.md`, which restate it |
 | A client re-audit (version bump, new sources, watch items) | `harnesses.md` (via the `cartographer-audit-clients` skill); the matrix and docs above only if a cell changes |

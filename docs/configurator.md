@@ -794,6 +794,30 @@ is no second source of truth. The log file is what makes a failing background sy
 there: a task's own history records exit codes only, and is disabled by default on many machines
 ([D217](decisions/D217-the-native-service-on-windows-is-a-per-user-scheduled-task.md)).
 
+### Headless hosts, CI and agent containers
+
+`connect` and `sync` run fully non-interactively; no flag is missing for an unattended host. The client is not a workload: the binary runs next to the agent and writes under that agent's `$HOME`. The two scenarios below are listed in [deployment](deployment.md) §Deployment scenarios.
+
+**Non-interactive `connect`.**
+
+```bash
+cartographer connect claude --no-input \
+  --server-url https://kb.example.com --auth --token-env CARTOGRAPHER_TOKENS --kb all
+```
+
+- A provider named positionally forces the non-interactive path. With none named and no agent detected the command exits 1 and writes nothing.
+- A server that mounts two or more KBs needs `--kb` on the first connect. `--kb all` reads the server's KB list, so a connect made where the server is unreachable (an image build) names the KBs instead.
+- The token is the variable `--token-env` names. `connect` copies it to `~/.cartographer-token` (`0600`) so a run without the variable still authenticates, but **the agent's own process must export the same variable**, because the MCP entry references it.
+- A plain `http://` URL on a non-loopback host is refused unless `--allow-insecure-http` (§Transport security).
+
+**One-shot `sync`.** `cartographer sync` is idempotent, exits 0 on success and 2 when a KB failed, and checks the token variable or file before any network call. It has no daemon, watch or interval flag: periodicity comes from `service sync-timer`, from the agent's session-start hook where one exists, or from the host's own scheduler.
+
+**Headless always-on host** (a VM, or a container with an init system). Install the binary with `install.sh` (`CARTOGRAPHER_INSTALL_DIR` for a path that is not root's; `CARTOGRAPHER_INSTALL_TAG` pins the tag of the Server and avoids version skew), run `connect` as above, then `cartographer service sync-timer install --interval 30m`. On Linux that is a systemd **user** timer, so the host also needs `loginctl enable-linger <user>` to survive logout, as for the Server's user service. Where there is no user manager, a scheduler or a loop runs `cartographer sync`.
+
+**CI, a devcontainer or an agent pod.** The binary goes **in the agent's image**: `COPY --from=ghcr.io/beppetemp/cartographer:<tag> /usr/local/bin/cartographer /usr/local/bin/cartographer` (a static build), or `install.sh`. No client image is built. Run `connect` at container start, or at build time with explicit `--kb` names; run one `sync` before the agent starts; keep `$HOME` writable; take the token from the platform's secret as an environment variable; set `CARTOGRAPHER_NO_UPDATE_CHECK=1`; and point `--server-url` at the HTTPS URL of the Server (for an agent pod, the Ingress URL).
+
+**What the recipes leave to a person.** A KB's hooks, executable files and MCP descriptors stay `needs_approval` on an unattended client until someone runs `cartographer approve` (§Approval of MCP descriptors, hooks and executable files). The recipes never pass `--yes` for it.
+
 ### `cartographer service <action>`
 
 Manages the **server** as a native user service on the machine (local mode, D73):

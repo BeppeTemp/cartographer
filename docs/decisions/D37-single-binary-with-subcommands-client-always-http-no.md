@@ -2,6 +2,8 @@
 topic: client-configurator
 ---
 
+> **Amended by [D1439](D1439-four-components-one-binary.md)**: The one binary is deployed as four components (Server, Surveyor, Atlas, Client), each a subcommand of it, never separate binaries.
+
 # D37 — Single binary with subcommands; client always HTTP (no stdio/`--check`/`--base-dir`)
 
 **Decision.** `cartographer-configure` is eliminated: `cmd/cartographer` becomes a binary with
