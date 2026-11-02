@@ -22,8 +22,8 @@ trap cleanup EXIT
 fail() { echo "smoke: $1" >&2; docker logs "$name" >&2 2>&1 || true; exit 1; }
 
 echo "→ tools in the image"
-docker run --rm --entrypoint sh "$image" -c 'git --version && sops --version && age --version && ssh -V' \
-  >/dev/null 2>&1 || fail "git, sops, age or ssh is missing from the image"
+docker run --rm --entrypoint sh "$image" -c 'git --version && sops --version && age --version && ssh -V && command -v wget' \
+  >/dev/null 2>&1 || fail "git, sops, age, ssh or wget is missing from the image (the Helm chart's readiness probe runs wget, D1441)"
 version=$(docker run --rm "$image" version) || fail "'version' failed"
 echo "  $version"
 if [ -n "$want_version" ]; then

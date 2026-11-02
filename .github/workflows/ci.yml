@@ -41,6 +41,7 @@ jobs:
       demo: ${{ steps.filter.outputs.demo }}
       tf: ${{ steps.filter.outputs.tf }}
       docker: ${{ steps.filter.outputs.docker }}
+      helm: ${{ steps.filter.outputs.helm }}
       forge: ${{ steps.filter.outputs.forge }}
       macos: ${{ steps.filter.outputs.macos }}
     steps:
@@ -287,6 +288,27 @@ jobs:
       - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
         run: make demo-tf-check
 
+  # The Helm chart (D1441): helm lint, helm template over deploy/helm/cartographer/ci and the
+  # assertions of test/helm/run.sh. Outside `make gate`, like the demo's Terraform: the gate
+  # stays Go-only. It is a single job named `helm`, so it can be a required check like `web`
+  # (a job skipped by its path condition reports as passed); the ruleset is a maintainer's
+  # to change, and until it adds `helm` main-status watches it.
+  helm:
+    name: helm
+    needs: changes
+    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.helm == 'true')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm
+        run: scripts/install-helm.sh "$RUNNER_TEMP/bin"
+      - name: make helm-check
+        env:
+          BIN: ${{ runner.temp }}/bin
+        run: PATH="$BIN:$PATH" make helm-check
+
   # The container's own test stage and a start of the server and Surveyor images
   # (D995, D1440): nothing else builds the Dockerfile before release day. Not a required check, main-status
   # watches it (the required set is the ruleset's, a maintainer's to change).
@@ -441,7 +463,7 @@ jobs:
   # first green push closes it.
   main-status:
     name: main-status
-    needs: [test, test-windows, web, demo-edge, docker, test-macos]
+    needs: [test, test-windows, web, demo-edge, docker, helm, test-macos]
     if: github.event_name == 'push' && !cancelled()
     runs-on: ubuntu-latest
     permissions:
