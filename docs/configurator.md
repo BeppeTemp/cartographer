@@ -859,7 +859,7 @@ the inner arc, below 32 px) and its **shape** tells the state, because a macOS t
 tinted by the system: the mark = running, the mark without its point = starting (`ready: false` or
 bootstrapping), the mark crossed by a slash = stopped, the mark dimmed = service not installed.
 
-Menu, top to bottom: "Cartographer" with the state at the right (Running, Starting…, Restarting…,
+Menu (D1495), top to bottom: "Cartographer" with the state at the right (Running, Starting…, Restarting…,
 Stopped, Not installed) over the version and the address; "Update available" with the newer
 release, when `/health` reports one; an **Agents** section, one row per connected agent client with
 "In sync", "Out of sync" or "Not checked" (the server could not be asked) at the right, read as

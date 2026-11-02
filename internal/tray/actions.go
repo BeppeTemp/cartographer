@@ -124,9 +124,8 @@ func (a *Actions) Handle(act Action) {
 		}
 		a.startRestart()
 	default:
-		// The menu was built from a snapshot at least as old as this one, so a
-		// KB list that changed in between can only have grown or shifted:
-		// out of range is ignored, never guessed.
+		// The index is into the newest snapshot (D1495): a KB list that
+		// changed while the menu was open may shift it; out of range is ignored.
 		kbs := snap.KBs()
 		i := int(act - ActionOpenKB)
 		if act < ActionOpenKB || i >= len(kbs) || snap.UIURL == "" {
