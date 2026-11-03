@@ -1,3 +1,5 @@
+import { beside } from "./physics";
+
 /** One step of the growth replay: a concept and when it entered the KB. */
 export interface GrowthStep {
   id: string;
@@ -203,3 +205,65 @@ export function shownAt(schedule: GrowthSchedule, tMs: number): number {
  *  fit: low enough to follow a KB as it grows, high enough that a handful of
  *  first concepts is not blown up. */
 export const GROWTH_MIN_ZOOM = 0.6;
+
+interface Seedable {
+  id: string;
+  x?: number;
+  y?: number;
+  z?: number;
+  vx?: number;
+  vy?: number;
+  vz?: number;
+}
+
+/**
+ * Where the concepts a replay step brings out start (shared by the visible
+ * replay and the video export). A concept sprouts beside a neighbour already
+ * out; one whose neighbour is itself new is seeded after it; one with no
+ * neighbour out at all (a loose concept) beside the middle of what is out --
+ * never at the origin, where many-body would throw it far out and the camera
+ * would chase it. `out` is the ids already out (not modified); `byId` holds
+ * their nodes too. The adjacency of the pending nodes is built once per pass.
+ */
+export function seedGrowth<N extends Seedable>(
+  pending: N[],
+  out: ReadonlySet<string>,
+  edges: GrowthEdge[],
+  byId: ReadonlyMap<string, N>,
+): void {
+  if (!pending.length) return;
+  const wanted = new Set(pending.map((n) => n.id));
+  const adjacent = new Map<string, string[]>();
+  for (const e of edges) {
+    if (wanted.has(e.source)) (adjacent.get(e.source) ?? adjacent.set(e.source, []).get(e.source)!).push(e.target);
+    if (wanted.has(e.target)) (adjacent.get(e.target) ?? adjacent.set(e.target, []).get(e.target)!).push(e.source);
+  }
+  const placed = new Set(out);
+  const seed = (node: N, from: { x?: number; y?: number; z?: number }) =>
+    Object.assign(node, beside(from, node.id), { vx: 0, vy: 0, vz: 0 });
+  let left = pending;
+  for (let progress = true; left.length && progress; ) {
+    progress = false;
+    const next: N[] = [];
+    for (const node of left) {
+      const anchor = (adjacent.get(node.id) ?? []).find((id) => placed.has(id) && byId.has(id));
+      if (anchor === undefined) {
+        next.push(node);
+        continue;
+      }
+      seed(node, byId.get(anchor)!);
+      placed.add(node.id);
+      progress = true;
+    }
+    left = next;
+  }
+  if (!left.length) return;
+  const centre = { x: 0, y: 0, z: 0 };
+  const inside = [...placed].flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+  for (const n of inside) {
+    centre.x += (n.x ?? 0) / inside.length;
+    centre.y += (n.y ?? 0) / inside.length;
+    centre.z += (n.z ?? 0) / inside.length;
+  }
+  for (const node of left) seed(node, centre);
+}

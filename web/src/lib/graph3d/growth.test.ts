@@ -1,4 +1,4 @@
-import { growthOrder } from "./growth";
+import { growthOrder, seedGrowth } from "./growth";
 
 describe("growthOrder", () => {
   it("brings concepts in by birth, and those without history last", () => {
@@ -34,5 +34,35 @@ describe("growthOrder", () => {
       { x: at, hub: at, y: at },
     );
     expect(order.map((s) => s.id)).toEqual(["hub", "x", "y"]);
+  });
+});
+
+describe("seedGrowth", () => {
+  const node = (id: string, x = 0, y = 0, z = 0) => ({ id, x, y, z });
+  it("seeds a concept with no placed neighbour beside the centre of those out, never at the origin", () => {
+    const a = node("a", 100, 100, 100);
+    const b = node("b", 120, 100, 100);
+    const loose = node("loose");
+    const byId = new Map([a, b, loose].map((n) => [n.id, n]));
+    seedGrowth([loose], new Set(["a", "b"]), [], byId);
+    expect(Math.hypot(loose.x - 110, loose.y - 100, loose.z - 100)).toBeLessThan(40);
+  });
+  it("chains through a new neighbour and reads the edges once per pass", () => {
+    const a = node("a", 50, 0, 0);
+    const b = node("b");
+    const c = node("c");
+    const byId = new Map([a, b, c].map((n) => [n.id, n]));
+    let reads = 0;
+    const edges = [{ source: "c", target: "b" }, { source: "b", target: "a" }];
+    const counted = new Proxy(edges, {
+      get(t, k, r) {
+        if (k === Symbol.iterator) reads++;
+        return Reflect.get(t, k, r);
+      },
+    });
+    seedGrowth([c, b], new Set(["a"]), counted, byId);
+    expect(reads).toBe(1);
+    expect(Math.hypot(b.x - 50, b.y, b.z)).toBeLessThan(40);
+    expect(Math.hypot(c.x - b.x, c.y - b.y, c.z - b.z)).toBeLessThan(40);
   });
 });
