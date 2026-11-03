@@ -366,3 +366,43 @@ func TestBlock_Budget(t *testing.T) {
 	budget("shared section", len(provisioning.SharedOperationalSection()), 2146, 2560)
 	budget("brief section", len(section), 357, 512)
 }
+
+// #1502: sync_apply expands nothing, so the shared operational section was never
+// folded into the recorded hash there: a release that edits it left the block
+// old until an instructions or agent artifact changed.
+func TestShared_NonExpandingApplyRewritesWhenTheSharedTextChanges(t *testing.T) {
+	m := sharedKBs(t, 2, nil)
+	base := t.TempDir()
+	apply := func(lock provisioning.Lock) (provisioning.AppliedResult, string) {
+		t.Helper()
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: lock})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(filepath.Join(base, ".claude", "CLAUDE.md"))
+		return res, string(data)
+	}
+	r1, content1 := apply(provisioning.Lock{})
+	if r1.NewLock.PathsSectionHash == "" {
+		t.Fatal("the hash of the shared section must be recorded without expansion too")
+	}
+	r2, content2 := apply(r1.NewLock)
+	if len(r2.Written) != 0 || content2 != content1 {
+		t.Fatalf("a second apply must write nothing: %v", r2.Written)
+	}
+
+	// What an older release wrote: other shared text on disk, another recorded hash.
+	old := strings.Replace(content1, "kb_guide", "kb_guide_old", 1)
+	if old == content1 {
+		t.Fatal("test text not found in the block")
+	}
+	if err := os.WriteFile(filepath.Join(base, ".claude", "CLAUDE.md"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale := r1.NewLock
+	stale.PathsSectionHash = "from-an-older-release"
+	r3, content3 := apply(stale)
+	if content3 != content1 || r3.NewLock.PathsSectionHash != r1.NewLock.PathsSectionHash {
+		t.Errorf("the block must be rewritten with the current text and the hash converge:\n%s", content3)
+	}
+}

@@ -30,6 +30,11 @@ func TestLockClientState_Serializes(t *testing.T) {
 	if !strings.Contains(err.Error(), provisioning.ClientLockFileName) {
 		t.Errorf("the error must name the lock file: %v", err)
 	}
+	// The kernel releases the lock when its holder dies, so a timeout means a
+	// live holder: advising to remove the file lets a second process in (#1502).
+	if strings.Contains(err.Error(), "remove") {
+		t.Errorf("the timeout must not advise removing the lock file: %v", err)
+	}
 
 	if err := release(); err != nil {
 		t.Fatalf("release: %v", err)
