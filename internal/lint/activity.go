@@ -68,7 +68,7 @@ func Inactive(k *kb.KB) map[string]string {
 	if !any(func(c kb.MapContract) bool { return len(c.ForbiddenFields) > 0 }) {
 		set("no map declares forbidden_fields", "forbidden_field")
 	}
-	if !any(func(c kb.MapContract) bool { return c.Index != kb.IndexGenerated }) {
+	if !any(func(c kb.MapContract) bool { return c.Index != kb.IndexGenerated }) && !anyExpanded(k, archives) {
 		set("no map keeps a curated index (every map has index: generated, which needs no entries)", "index_incomplete")
 	}
 	if !any(func(c kb.MapContract) bool { return c.Index == kb.IndexGenerated }) {
@@ -130,6 +130,17 @@ func hasJournal(k *kb.KB, archives []string) bool {
 					return true
 				}
 			}
+		}
+	}
+	return false
+}
+
+// anyExpanded reports whether some map holds an expanded concept: its index is
+// curated even in a map with `index: generated`, so index_incomplete still runs.
+func anyExpanded(k *kb.KB, archives []string) bool {
+	for _, a := range archives {
+		if dirs, err := k.ListExpanded(a); err == nil && len(dirs) > 0 {
+			return true
 		}
 	}
 	return false

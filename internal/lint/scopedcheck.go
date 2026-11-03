@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
@@ -68,8 +69,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		if _, ok := links.Exists[target]; ok {
 			return true
 		}
-		_, err := k.ReadConcept(target)
-		return err == nil
+		return conceptReadable(k, target)
 	}
 
 	// Provenance citations need every concept's frontmatter: read once, and
@@ -228,7 +228,18 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 	for _, folder := range folders {
 		mapName, _, _ := strings.Cut(folder, "/")
 		contract, ok := contractOf(mapName)
-		if !ok || contract.Index == kb.IndexGenerated {
+		if !ok {
+			continue
+		}
+		// A generated index lists the map's own concepts only. The folder of an
+		// expanded concept has a curated index whatever the map says, and Run
+		// checks it (D312); a folder without an index.md is no expanded concept
+		// (Run reports expanded_missing_index, not index_incomplete).
+		if folder == mapName {
+			if contract.Index == kb.IndexGenerated {
+				continue
+			}
+		} else if _, err := k.ReadIndex(folder); errors.Is(err, okf.ErrNotFound) {
 			continue
 		}
 		checkCuratedIndex(k, folder, folder+"/index.md", curated[folder], false, &findings, exists, retiredOf(lg))

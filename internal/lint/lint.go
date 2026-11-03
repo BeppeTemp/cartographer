@@ -230,6 +230,16 @@ func walkConceptsDirectWins(k *kb.KB, fn func(id okf.ConceptID, physicalPath, co
 	return nil
 }
 
+// conceptReadable is the one "does this link target exist" fallback of Run and
+// ScopedCheck (#1503): the resolver found it, or failed for a reason that says
+// nothing about the target (an unreadable file is not a broken link). An id
+// that cannot be a concept (a backslash, a symlink: ErrInvalidPath) or that is
+// not there (ErrNotFound) is broken.
+func conceptReadable(k *kb.KB, target okf.ConceptID) bool {
+	_, err := k.ReadConcept(target)
+	return err == nil || !(errors.Is(err, okf.ErrNotFound) || errors.Is(err, okf.ErrInvalidPath))
+}
+
 // runChecks is the whole of Run: no setting, no frontmatter field and no map
 // key silences a finding (D907).
 func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, error) {
@@ -255,8 +265,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		if _, ok := relPathOf[target]; ok {
 			return true
 		}
-		_, err := k.ReadConcept(target)
-		return err == nil || !errors.Is(err, okf.ErrNotFound)
+		return conceptReadable(k, target)
 	}
 
 	// Normalise scope to forward-slash form (OKF paths use /). Empty means
@@ -681,7 +690,9 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 						satellites = append(satellites, id)
 					}
 				}
-				if len(satellites) > 0 {
+				// A directory without index.md is expanded_missing_index below, not
+				// an incomplete index: ScopedCheck skips it the same way.
+				if _, e := k.ReadIndex(string(expandedID)); len(satellites) > 0 && !errors.Is(e, okf.ErrNotFound) {
 					// Expanded indexes are emitted by WalkConcepts, so their link
 					// targets are already covered by the general broken_link pass.
 					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings, exists, isRetired)
