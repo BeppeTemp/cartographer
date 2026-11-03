@@ -38,9 +38,16 @@ func NewLayout() *Layout {
 	return &Layout{order: map[uintptr][]string{}, indent: "  ", trailingNL: true}
 }
 
-// maxJSONDepth bounds decodeOrdered's recursion as json.Unmarshal bounds its
-// own: a repository's settings file is not trusted to fit the stack.
-const maxJSONDepth = 10000
+// maxJSONDepth bounds the nesting a file may have to be rewritten. A client
+// settings file is a few levels deep; the encoder indents every level, so output
+// grows with the square of the depth, and a hostile file in a repository (18 KB
+// of nested arrays became 162 MB) must be refused, never rewritten. Parse fails,
+// so the caller leaves the file untouched.
+const maxJSONDepth = 64
+
+// maxIndent bounds the indent unit taken from a file: a longer one, or one that is
+// not spaces and tabs, falls back to two spaces.
+const maxIndent = 16
 
 // Parse decodes data, a JSON object, into maps (numbers kept as json.Number)
 // and records its layout. An empty-null document is an empty object.
@@ -90,7 +97,7 @@ func Marshal(m map[string]interface{}, layout *Layout) ([]byte, error) {
 // object into layout.
 func decodeOrdered(dec *json.Decoder, layout *Layout, depth int) (interface{}, error) {
 	if depth > maxJSONDepth {
-		return nil, errors.New("nested too deeply")
+		return nil, fmt.Errorf("nested more than %d levels, not rewritten", maxJSONDepth)
 	}
 	tok, err := dec.Token()
 	if err != nil {
@@ -152,13 +159,20 @@ func detectIndent(data []byte) string {
 	for _, line := range strings.Split(string(data), "\n")[1:] {
 		trimmed := strings.TrimLeft(line, " \t")
 		if trimmed != "" && len(trimmed) < len(line) {
-			return line[:len(line)-len(trimmed)]
+			indent := line[:len(line)-len(trimmed)]
+			if len(indent) > maxIndent {
+				return "  "
+			}
+			return indent
 		}
 	}
 	return "  "
 }
 
 func encodeOrdered(buf *bytes.Buffer, v interface{}, layout *Layout, depth int) error {
+	if depth > maxJSONDepth {
+		return fmt.Errorf("nested more than %d levels, not written", maxJSONDepth)
+	}
 	newline := func(d int) {
 		buf.WriteByte('\n')
 		buf.WriteString(strings.Repeat(layout.indent, d))
