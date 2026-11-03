@@ -95,7 +95,11 @@ func toolValidate(k *kb.KB) Tool {
 			var params struct {
 				Scope string `json:"scope"`
 			}
-			json.Unmarshal(args, &params)
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 
 			errs, err := k.Validate(params.Scope)
 			if err != nil {
@@ -157,7 +161,11 @@ func toolLint(k *kb.KB) Tool {
 				Offset         int             `json:"offset"`
 				Digest         string          `json:"digest"`
 			}
-			json.Unmarshal(args, &params)
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 
 			switch params.Digest {
 			case "", "by_map", "paths", "compact":
@@ -953,7 +961,11 @@ func toolContradictionReport(k *kb.KB) Tool {
 				Status string `json:"status"`
 				Kind   string `json:"kind"`
 			}
-			json.Unmarshal(args, &params)
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 
 			matches, err := listContradictions(ctx, k, params.Scope, params.Status, params.Kind)
 			if err != nil {

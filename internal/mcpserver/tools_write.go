@@ -1654,7 +1654,11 @@ func toolSnapshot(k *kb.KB) Tool {
 			var params struct {
 				Message string `json:"message"`
 			}
-			json.Unmarshal(args, &params)
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 
 			msg := params.Message
 			if msg == "" {

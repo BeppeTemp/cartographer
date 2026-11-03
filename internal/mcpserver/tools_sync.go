@@ -71,7 +71,11 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 			var params struct {
 				AppliedRevision string `json:"applied_revision"`
 			}
-			json.Unmarshal(args, &params)
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 
 			// Use the basename of k.Root as the KB name in the manifest.
 			kbName := filepath.Base(k.Root)
