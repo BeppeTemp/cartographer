@@ -66,7 +66,7 @@ subcommand name exits 2. `tool_name` may be `mcp__<server>__<tool>`, `<server>_<
 
 Tells an agent, and its user, that a newer release exists
 ([D254](decisions/D254-agents-are-told-when-cartographer-is-out-of-date.md)). The source is the
-GitHub release list (`/releases?per_page=10`, which includes the pre-releases every 0.x tag is;
+GitHub release list (`/releases?per_page=100`, up to three pages, which includes the pre-releases every 0.x tag is;
 the newest one that is not a draft and has a version tag without a pre-release suffix wins: a
 release candidate `v<next>-rc.<YYYYMMDD>` is never offered, whatever its GitHub flag, D1192),
 cached for 24 h in `<user cache dir>/cartographer/update-check.json`. A lookup times out after 3 s

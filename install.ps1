@@ -63,12 +63,13 @@ function Get-CartographerLatestTag([string]$ApiUrl, [string]$TmpDir) {
     # 0.x release of this project is one (D82, D211). A release candidate (a tag
     # with a semver pre-release suffix, v0.28.0-rc.20261111, D1192) is skipped by
     # its tag, never by the `prerelease` flag, which stable 0.x releases carry:
-    # ten entries leave room for the week's candidates.
+    # a hundred entries (one page, GitHub's maximum) leave room for the candidates,
+    # which stay until their version ships (D1384).
     $headers = @{ 'User-Agent' = 'cartographer-install.ps1' }
     if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
     $out = Join-Path $TmpDir 'releases.json'
     try {
-        Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "$ApiUrl/releases?per_page=10" -OutFile $out
+        Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "$ApiUrl/releases?per_page=100" -OutFile $out
     } catch {
         throw "cannot determine the latest release (rate-limited? set GITHUB_TOKEN): $($_.Exception.Message)"
     }
@@ -80,7 +81,7 @@ function Get-CartographerLatestTag([string]$ApiUrl, [string]$TmpDir) {
     $releases = ConvertFrom-Json -InputObject (Get-Content -Raw -Path $out)
     $stable = @(foreach ($r in $releases) { if ([string]$r.tag_name -match '^v?[0-9]+\.[0-9]+\.[0-9]+$') { $r } })
     if ($stable.Count -eq 0) {
-        throw 'cannot determine the latest release: the release list has no release without a pre-release suffix'
+        throw 'no stable release among the newest 100 releases (only release candidates?): set CARTOGRAPHER_INSTALL_TAG'
     }
     return [string]$stable[0].tag_name
 }
@@ -192,8 +193,9 @@ function Install-Cartographer {
         }
 
         # Every release that carries Windows zips carries sha256sums.txt, so -
-        # stricter than install.sh, which still accepts pre-checksum tags - a
-        # missing file is an error too. A file with no line for this asset is
+        # the same rule as install.sh - a missing file is an error, never a
+        # pre-checksum tag. Like install.sh it checks a manifest from the same release
+        # (corruption, not a tampered release). A file with no line for this asset is
         # the shape a tampered or truncated manifest has.
         $sums = Join-Path $tmp 'sha256sums.txt'
         try {
