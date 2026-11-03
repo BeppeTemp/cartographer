@@ -58,14 +58,16 @@ func cmdImport(args []string) int {
 	}
 
 	if *dryRun {
-		// Opened without the process lock: the dry run only reads, to list what
-		// an import would collide with. A KB that cannot be opened is no reason
-		// to refuse the plan, which never needed it.
+		// Read-only: kb.Open writes .git/info/exclude entries, and a dry run
+		// writes nothing, so the KB is recognised the way kb rename does, by its
+		// data/index.md. A directory that is not a KB is no reason to refuse the
+		// plan, which never needed it.
 		var exists func(importFile) bool
-		if dk, openErr := kb.Open(*kbDir); openErr == nil {
-			exists = func(f importFile) bool { return importTargetExists(dk, f) }
+		dataRoot := filepath.Join(*kbDir, "data")
+		if _, statErr := os.Stat(filepath.Join(dataRoot, "index.md")); statErr == nil {
+			exists = func(f importFile) bool { return importTargetExists(dataRoot, f) }
 		} else {
-			fmt.Fprintf(os.Stderr, "note: %v; collisions with existing concepts are not checked\n", openErr)
+			fmt.Fprintf(os.Stderr, "note: %s is not an OKF KB (no data/index.md); collisions with existing concepts are not checked\n", *kbDir)
 		}
 		printImportPlan(plan, exists, *overwrite)
 		return 0
@@ -208,13 +210,13 @@ func importSameDir(a, b string) bool {
 
 // importTargetExists says whether the KB already holds the concept f would
 // write, as a flat file or as an expanded concept.
-func importTargetExists(k *kb.KB, f importFile) bool {
+func importTargetExists(dataRoot string, f importFile) bool {
 	// A reserved name (index.md, log.md…) is a KB service file, not a concept:
 	// the write path refuses it with its own error, which is the right message.
 	if okf.IsReserved(path.Base(f.destPath)) && !f.promoted {
 		return false
 	}
-	base := filepath.Join(k.DataRoot(), filepath.FromSlash(string(f.destID)))
+	base := filepath.Join(dataRoot, filepath.FromSlash(string(f.destID)))
 	for _, p := range []string{base + ".md", filepath.Join(base, "index.md")} {
 		if _, err := os.Lstat(p); err == nil {
 			return true
@@ -566,7 +568,7 @@ func applyImportPlan(k *kb.KB, plan *importPlan, source string, overwrite bool) 
 	}
 
 	for _, f := range plan.files {
-		if !overwrite && importTargetExists(k, f) {
+		if !overwrite && importTargetExists(k.DataRoot(), f) {
 			fmt.Fprintf(os.Stderr, "skipped %s: %s already exists (--overwrite replaces it)\n", f.srcRel, f.destID)
 			existing++
 			continue

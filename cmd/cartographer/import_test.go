@@ -631,8 +631,12 @@ func TestCmdImport_ExistingConceptIsKept(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	excludeBefore, _ := os.ReadFile(filepath.Join(kbDir, ".git", "info", "exclude"))
 	if out := run("--dry-run"); !strings.Contains(out, "exists") || !strings.Contains(out, "would import: 0, skipped: 1") {
 		t.Errorf("the dry run must list the collision: %q", out)
+	}
+	if after, _ := os.ReadFile(filepath.Join(kbDir, ".git", "info", "exclude")); string(after) != string(excludeBefore) {
+		t.Errorf("the dry run wrote into .git/info/exclude:\n%s", after)
 	}
 	if out := run(); !strings.Contains(out, "imported: 0, skipped: 1, errors: 0") {
 		t.Errorf("summary = %q, want one skipped", out)
