@@ -118,9 +118,8 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The one four-segment route family: maintenance/{summary,review}.
-	if len(segments) == 4 && segments[0] == "kbs" && segments[2] == "maintenance" {
-		segments = []string{segments[0], segments[1], "maintenance", segments[3]}
-	} else if len(segments) != 3 || segments[0] != "kbs" {
+	if !(len(segments) == 4 && segments[0] == "kbs" && segments[2] == "maintenance") &&
+		(len(segments) != 3 || segments[0] != "kbs") {
 		writeUINotFound(w)
 		return
 	}
@@ -170,8 +169,6 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiWork(w, r, srv)
 	case "placeholders":
 		m.uiPlaceholders(w, r, srv)
-	case "contradictions":
-		uiContradictions(w, r, k)
 	case "services":
 		uiServices(w, r, k)
 	case "conflicts":
@@ -354,16 +351,6 @@ func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *
 			"total":    len(findings),
 			"by_check": byCheck,
 		},
-	}
-	// Replication facts describe the KB as a whole, so they are for a caller
-	// that can already see the whole KB.
-	if WholeVisible(ctx, k, false) {
-		remoteURL, hasRemote := k.RemoteInfo()
-		git := map[string]interface{}{"has_remote": hasRemote}
-		if hasRemote {
-			git["remote_url"] = remoteURL
-		}
-		payload["git"] = git
 	}
 	writeUIJSON(w, http.StatusOK, payload)
 }

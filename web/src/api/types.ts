@@ -122,7 +122,6 @@ export interface Overview {
     total: number;
     by_check: Record<string, number>;
   };
-  git?: { has_remote: boolean; remote_url?: string };
 }
 
 export interface GraphNode {
@@ -593,25 +592,11 @@ export interface SettingEntry {
   secret?: boolean;
 }
 
-export interface SettingsKBGit {
-  has_remote: boolean;
-  sync: boolean;
-  push_state?: string;
-  push_last_error?: string;
-  unpushed_commits?: number;
-  behind_commits?: number;
-  last_push_at?: string;
-  last_sync_in_at?: string;
-  remote_url?: string;
-}
-
 export interface SettingsKB {
   name: string;
   entries: SettingEntry[];
   /** The KB's settings in force as its settings.yaml, commented by the schema (D818). */
   yaml?: string;
-  /** Absent for a caller that cannot see the whole KB. */
-  git?: SettingsKBGit;
 }
 
 export interface SettingsView {

@@ -204,30 +204,6 @@ func (m *MultiKBServer) attachPlaceholderConflicts(r *http.Request, self *Server
 	}
 }
 
-// --- contradictions ---
-
-// GET /kbs/{kb}/contradictions?status= — the Contradiction concepts that are
-// not knowledge gaps, as contradiction_report lists them. status defaults to
-// open; "all" lists every resolution status.
-func uiContradictions(w http.ResponseWriter, r *http.Request, k *kb.KB) {
-	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	switch status {
-	case "":
-		status = "open"
-	case "all":
-		status = "*"
-	}
-	list, err := listContradictions(r.Context(), k, "", status, "contradiction")
-	if err != nil {
-		writeUIInternal(w, "contradictions", err)
-		return
-	}
-	if list == nil {
-		list = []contradictionEntry{}
-	}
-	writeUIJSON(w, http.StatusOK, map[string]interface{}{"contradictions": list})
-}
-
 // --- maps ---
 
 // GET /kbs/{kb}/maps — map_list wrapped as {maps}: kind, ontology mode, types,

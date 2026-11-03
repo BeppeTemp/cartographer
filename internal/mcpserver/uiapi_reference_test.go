@@ -152,22 +152,12 @@ func TestUIAPI_PlaceholdersNarrowedTokenSeesOnlyItsOwnCitations(t *testing.T) {
 	}
 }
 
-func TestUIAPI_Contradictions(t *testing.T) {
+// The route had no client in the Atlas (orphan since 0.25) and is gone.
+func TestUIAPI_ContradictionsRouteIsGone(t *testing.T) {
 	t.Parallel()
 	h := referenceUIHandler(t)
-	for token, want := range map[string]int{"whole": 2, "narrow": 1} {
-		body := decodeUI(t, getUI(t, h, UIAPIPrefix+"/kbs/docs/contradictions", token))
-		list := body["contradictions"].([]interface{})
-		if len(list) != want {
-			t.Fatalf("%s: %d contradictions, want %d: %v", token, len(list), want, list)
-		}
-	}
-	e := decodeUI(t, getUI(t, h, UIAPIPrefix+"/kbs/docs/contradictions?status=all", "narrow"))["contradictions"].([]interface{})[0].(map[string]interface{})
-	if e["id"] != "visible/clash" || e["resolution_status"] != "open" || len(e["involves"].([]interface{})) != 2 {
-		t.Fatalf("entry = %v", e)
-	}
-	if body := decodeUI(t, getUI(t, h, UIAPIPrefix+"/kbs/docs/contradictions?status=resolved", "whole")); len(body["contradictions"].([]interface{})) != 0 {
-		t.Fatalf("resolved = %v", body)
+	if rr := getUI(t, h, UIAPIPrefix+"/kbs/docs/contradictions", "whole"); rr.Code != http.StatusNotFound {
+		t.Fatalf("status %d, want 404", rr.Code)
 	}
 }
 
