@@ -58,6 +58,11 @@ func locateLinksSection(body string) (linksExtent, bool) {
 		return linksExtent{}, false
 	}
 	x := linksExtent{headStart: loc[0], headEnd: loc[1], end: len(body), level: loc[3] - loc[2], heading: body[loc[4]:loc[5]]}
+	// The section starts on the line after the heading: the heading's own line
+	// break belongs to the heading, so a reader never sees a leading "\n".
+	if x.headEnd < len(body) && body[x.headEnd] == '\n' {
+		x.headEnd++
+	}
 	if m := anyHeading.FindStringSubmatchIndex(masked[x.headEnd:]); m != nil {
 		x.end = x.headEnd + m[0]
 		x.nextLevel = m[3] - m[2]
@@ -317,6 +322,7 @@ func ReplaceLinkItem(body, line, newLine string, required HeadingRequired) strin
 			removed = true
 			if newLine != "" {
 				kept = append(kept, newLine)
+				keptKinds = append(keptKinds, kb.LineText)
 			}
 			continue
 		}
