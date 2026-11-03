@@ -221,7 +221,7 @@ func (m connectFormModel) Values() connectOptions {
 	if name == "" {
 		name = "cartographer"
 	}
-	tokenEnv := m.tokenEnv.Value()
+	tokenEnv := strings.TrimSpace(m.tokenEnv.Value()) // trimmed once: the submit check validates the same text
 	if tokenEnv == "" {
 		tokenEnv = "CARTOGRAPHER_TOKENS"
 	}

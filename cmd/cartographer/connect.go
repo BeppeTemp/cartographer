@@ -1084,9 +1084,11 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the
-	// server manifest fetched in step 2 below — must be in place even when that
-	// fetch is deferred (server down at connect time), since it's exactly what
-	// lets a later session self-heal once the server comes back.
+	// server manifest fetched in step 2 above. It is installed only after that
+	// fetch has ruled out a signature failure and a rejected token (nothing is
+	// written on those), but still when the fetch is deferred (server down at
+	// connect time), since it is exactly what lets a later session self-heal once
+	// the server comes back.
 	hookWarnings, err := ensureBootstrapForProviders(opts.Providers, opts.Dir, opts.DryRun)
 	if err != nil {
 		return connectResult{}, fmt.Errorf("ensure bootstrap hook: %w", err)
