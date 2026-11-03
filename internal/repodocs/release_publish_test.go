@@ -30,6 +30,9 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 	// GoReleaser edits the release it finds with its own draft value (default
 	// false) and cannot find a draft by tag unless told to look for one.
 	var gr struct {
+		Casks []struct {
+			SkipUpload bool `yaml:"skip_upload"`
+		} `yaml:"homebrew_casks"`
 		Release struct {
 			Draft            bool `yaml:"draft"`
 			UseExistingDraft bool `yaml:"use_existing_draft"`
@@ -42,11 +45,25 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 		t.Error(".goreleaser.yaml: release.draft and release.use_existing_draft must be true (D1350): GoReleaser would publish the release, or create a second one")
 	}
 
+	// The cask is pushed to the tap by a job after `publish`, not by GoReleaser
+	// while the release is a draft (its URL would answer 404).
+	if len(gr.Casks) == 0 {
+		t.Error(".goreleaser.yaml: no homebrew_casks entry")
+	}
+	for _, c := range gr.Casks {
+		if !c.SkipUpload {
+			t.Error(".goreleaser.yaml: homebrew_casks must set skip_upload: true (D1350): the cask would reach the tap while the release is a draft")
+		}
+	}
+
 	var wf struct {
 		Jobs map[string]struct {
 			Needs yaml.Node `yaml:"needs"`
 			Steps []struct {
-				Run string `yaml:"run"`
+				Run  string `yaml:"run"`
+				With struct {
+					Tags string `yaml:"tags"`
+				} `yaml:"with"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
@@ -87,6 +104,19 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 	}
 	if n := strings.Count(workflow, `-f tag_name="$TAG"`); n != 2 {
 		t.Errorf("release.yml: %d writes set the tag name, want 2 (prerelease-flag and publish)", n)
+	}
+	// The cask on the tap and :latest are announced channels too (D1350 amended).
+	for _, j := range []string{"cask", "latest"} {
+		if _, ok := wf.Jobs[j]; !ok {
+			t.Errorf("release.yml: no %s job", j)
+		} else if !slices.Contains(needs(j), "publish") {
+			t.Errorf("release.yml: %s must need publish", j)
+		}
+	}
+	for _, s := range wf.Jobs["docker"].Steps {
+		if strings.Contains(s.With.Tags, ":latest") {
+			t.Error("release.yml: the docker job must not push :latest, the latest job retags it after publish")
+		}
 	}
 	if !slices.Contains(needs("mcp-registry"), "publish") {
 		t.Error("release.yml: mcp-registry announces the version and must need publish")

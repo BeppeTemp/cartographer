@@ -488,7 +488,7 @@ The same guard covers the Windows packaging shape: `windows` among the build
 targets, a `format_overrides` entry making its archive a **zip** — what
 `install.ps1` downloads and extracts — no override producing a raw binary, and no
 `winget:` block, which would start opening pull requests against
-`microsoft/winget-pkgs` again (D252). `internal/repodocs` `TestReleaseIsPublishedLast` pins the publish-last order (D1350): `draft` and `force-tag-creation` in `release-please-config.json`, `release.draft` and `use_existing_draft` in `.goreleaser.yaml`, and in `release.yml` a `publish` job that needs `goreleaser`, `prerelease-flag` and `docker` and reads `draft`/`prerelease` back, with `mcp-registry` after it. Its Ruby is not executed — that would need a real Homebrew and
+`microsoft/winget-pkgs` again (D252). `internal/repodocs` `TestReleaseIsPublishedLast` pins the publish-last order (D1350): `draft` and `force-tag-creation` in `release-please-config.json`, `release.draft` and `use_existing_draft` in `.goreleaser.yaml`, `skip_upload: true` on the cask, and in `release.yml` a `publish` job that needs `goreleaser`, `prerelease-flag` and `docker` and reads `draft`/`prerelease` back, with `mcp-registry`, `cask` (tap push) and `latest` (`:latest` retag) after it and no `:latest` in the `docker` job's tags. Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 
 ### Frontend (`make web-test`, `make web-check`)

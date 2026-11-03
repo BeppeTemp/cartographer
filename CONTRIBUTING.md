@@ -256,8 +256,8 @@ dispatched by hand with one of three actions.
 - **The release.** `action: rc` builds the candidate, `action: release` merges the open
   release PR with every check below, `action: discard` deletes the candidate(s) of the
   pending version. After the merge release-please cuts the tag and creates the release
-  as a draft: `release.yml` publishes it only after the binaries, the Homebrew cask and
-  the image exist, so no client is told of a version it cannot install (D1350).
+  as a draft: `release.yml` publishes it only after the binaries and the versioned image exist, then pushes the
+  Homebrew cask and moves `:latest`, so no client is told of a version it cannot install (D1350).
 - **Freeze, opened by the candidate.** It is open from the moment a candidate tag
   `vX.Y.Z-rc.<YYYYMMDD>` with `X.Y.Z` greater than the latest stable release exists, until
   that version is released (`release.yml` deletes its candidates) or the candidate is

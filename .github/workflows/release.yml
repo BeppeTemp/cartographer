@@ -12,7 +12,8 @@ permissions:
 
 jobs:
   # Binaries + SBOMs + checksums attached to the release-please release, plus
-  # the Homebrew formula pushed to BeppeTemp/homebrew-tap. Windows has no package
+  # the Homebrew cask generated (pushed to BeppeTemp/homebrew-tap by `cask`, after
+  # `publish`). Windows has no package
   # manager channel: install.ps1 reads the release assets directly (D252). Every
   # asset carries a keyless build-provenance attestation (D1022).
   goreleaser:
@@ -52,6 +53,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only rendered into the cask (the push is the `cask` job's).
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
       # The release must still be a draft here (D1350): if GoReleaser had published
       # it or created a second release, fail before anything announces it. Drafts
@@ -80,6 +82,14 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/sha256sums.txt
+      # The generated cask (skip_upload in .goreleaser.yaml) travels to the `cask`
+      # job, which pushes it only after `publish`.
+      - name: Keep the generated cask
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cask
+          path: dist/homebrew/Casks/cartographer.rb
+          if-no-files-found: error
 
   # The beta marker on the release itself (D82), which nothing was actually
   # setting: `"prerelease": true` in release-please-config.json does not put the
@@ -125,8 +135,9 @@ jobs:
 
   # The release-please release is created as a draft (D1350), so the update check
   # and every client skip it until this job: it runs only when the binaries and
-  # the Homebrew cask (goreleaser), the pre-release flag and the image (docker)
-  # all exist, and un-drafts the release. A failed or retried job above leaves
+  # the generated cask (goreleaser), the pre-release flag and the versioned image
+  # (docker) all exist, and un-drafts the release. The cask on the tap and the
+  # `:latest` image tag come after it (jobs `cask` and `latest`). A failed or retried job above leaves
   # the release a draft instead of announcing a version no channel can install.
   # Un-drafting keeps the pre-release flag; it is read back
   # because a 0.x release must stay a Pre-release (D82/D211).
@@ -192,15 +203,68 @@ jobs:
             VERSION=${{ github.ref_name }}
           tags: |
             ghcr.io/beppetemp/cartographer:${{ github.ref_name }}
-            ghcr.io/beppetemp/cartographer:latest
       # The digest is the one buildx pushed (the image index), so the signature
-      # holds for :<tag> and :latest alike (D1022).
+      # holds for :<tag> and for :latest, which `latest` retags from it (D1022).
       - name: Attest the image
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/beppetemp/cartographer
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+  # The Homebrew cask reaches the tap only once the release is public (D1350
+  # amended): a cask pushed while the release is a draft names a URL that answers
+  # 404. If this job fails the release stays public and the tap one version
+  # behind: re-run it.
+  cask:
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cask
+          path: cask
+      - name: Push the cask to the tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/BeppeTemp/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          cp cask/cartographer.rb tap/Casks/cartographer.rb
+          cd tap
+          if git diff --quiet && [ -z "$(git status --porcelain)" ]; then
+            echo "the tap already has this cask"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/cartographer.rb
+          git commit -m "Brew cask update for cartographer version ${TAG}"
+          git push
+
+  # `:latest` moves only after the release is public (D1350 amended), and is
+  # a retag of the pushed :<tag> index: same digest, so the provenance
+  # attestation of D1022 holds for both.
+  latest:
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Retag :latest from the release image
+        env:
+          TAG: ${{ github.ref_name }}
+        run: docker buildx imagetools create -t ghcr.io/beppetemp/cartographer:latest "ghcr.io/beppetemp/cartographer:${TAG}"
 
   # Live read-only MCP demo on Cloud Run (D751). Skipped until the repository
   # variables exist; nothing waits on it, so a demo failure never blocks the
