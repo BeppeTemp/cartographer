@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 func newPositionalFlagSet() (*flag.FlagSet, *string, *bool) {
@@ -203,5 +205,52 @@ func TestSyncDryRun_NamesTheConfigRewrite(t *testing.T) {
 	})
 	if !strings.Contains(out, "would rewrite "+clientconfig.Path(dir)) {
 		t.Errorf("dry run must name the .cartographer.yaml rewrite:\n%s", out)
+	}
+}
+
+// #1502: an explicit workspace that was deleted costs only its own provider:
+// claude is synced, the error names codex, and the sync ends with a partial
+// failure (exit 2) instead of "(no configuration was modified)" for everyone.
+func TestSync_GoneWorkspaceCostsOnlyItsProvider(t *testing.T) {
+	setHome(t, t.TempDir())
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude", "codex"}, KnownKBs: []string{"one"},
+	}
+	ws := t.TempDir()
+	if err := cfg.BindWorkspace("codex", ws, []string{"one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetWorkspaceScope("codex", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	withStdout(t, func() { _, err = runSync(dir, cfg, syncOptions{}) })
+	var partial partialSyncError
+	if !errors.As(err, &partial) || len(partial.Providers) != 1 || partial.Providers[0].Provider != "codex" {
+		t.Fatalf("err = %v, want a partial failure naming codex", err)
+	}
+	if !strings.Contains(err.Error(), "codex") || !strings.Contains(err.Error(), "is gone") {
+		t.Errorf("the error must name codex and the gone workspace: %v", err)
+	}
+	lf, rerr := provisioning.ReadLockFile(lockFilePath(dir))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if len(lf.ForProvider("claude").Managed) == 0 {
+		t.Error("claude was not synced")
 	}
 }

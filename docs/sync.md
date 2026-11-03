@@ -495,6 +495,7 @@ are the only thing the global catalogue of a workspace-scoped provider holds.
 all. "No KBs" and "several KBs" are distinct explicit states; neither is ever "every KB", and a
 bound path that is gone or whose git remote has changed is an **error**, never a fall-back — falling
 back is the exposure the scope exists to close.
+The error costs only its own provider (#1502): `sync` leaves that provider as it is, applies every other one, names it in the final error and exits 2, as it does for the providers bound to a KB that could not be pulled. A *derived* binding (D1019) that cannot be prepared for any reason (a repository git cannot read, a clash, an invalid name) is skipped with a warning.
 
 **Which KBs a session reaches: the stdio bridge (D737).** Skills are scoped by the projection; the
 tools are scoped by the global MCP entry. A provider with at least one workspace binding gets, as its

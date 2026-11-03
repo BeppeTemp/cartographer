@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -729,13 +728,13 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			return nil, err
 		}
 		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace), derivedLocalFiles(projections, p.Workspace)...); err != nil {
-			var collision *provisioning.TrackedCollisionError
-			var badName *provisioning.InvalidArtifactNameError
-			if p.Derived && (errors.As(err, &collision) || errors.As(err, &badName)) {
+			if p.Derived {
 				// Nobody asked for a derived binding on this machine (D1019):
 				// one repository's clash is no reason to stop the others
-				// (D1181), nor is one artifact name that cannot be projected.
-				// An explicit binding keeps the refusal.
+				// (D1181), nor is an artifact name that cannot be projected, nor
+				// a repository git cannot read (dubious ownership, a corrupt
+				// index, a lock): whatever the error, the binding is skipped with
+				// a warning (#1502). An explicit binding keeps the refusal.
 				fmt.Fprintf(os.Stderr, "warning: workspace %s: %s projection skipped: %v\n", p.Workspace, p.Provider, err)
 				skippedProjections[projectionKey(p)] = true
 				continue

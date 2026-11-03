@@ -294,3 +294,47 @@ func TestRenameAndUnmountRewriteTheDerivedList(t *testing.T) {
 		t.Errorf("after unmount: %+v", got)
 	}
 }
+
+// #1502: a derived binding whose repository git cannot read (a corrupt index
+// here; dubious ownership or a lock in the field) is skipped with a warning
+// naming the repository. It used to stop every projection of the run, the
+// global ones included, for a binding nobody asked for on this machine.
+func TestDerivedGitErrorSkipsOnlyThatBinding(t *testing.T) {
+	repo := cloneOf(t, "example.com/owner/worked-on", "CLAUDE.md")
+	if err := os.WriteFile(filepath.Join(repo, ".git", "index"), []byte("not an index"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := workspaceScoped("claude", "kb-a")
+	cfg.SetDerived(clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{
+		"claude": {{Path: repo, Remote: "example.com/owner/worked-on", KBs: []string{"kb-a"}, Sources: []clientconfig.DerivedSource{{KB: "kb-a", Key: "worked-on"}}}},
+	}})
+	target := t.TempDir()
+	projections, err := allProjections(cfg, []string{"claude"}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifests := map[string]provisioning.Manifest{}
+	for _, p := range projections {
+		if p.BundleOnly {
+			manifests[projectionKey(p)] = provisioning.Manifest{}
+		} else {
+			manifests[projectionKey(p)] = instructionsManifest("kb-a", "Rules of kb-a.\n")
+		}
+	}
+	var res map[string]provisioning.AppliedResult
+	stderr := withStderr(t, func() {
+		res, err = materializeForProviders(manifests, projections, target, "", false, false, portabilityOptions{}, nil)
+	})
+	if err != nil {
+		t.Fatalf("a derived git error must not stop the sync: %v", err)
+	}
+	if !strings.Contains(stderr, "projection skipped") || !strings.Contains(stderr, repo) {
+		t.Errorf("the warning must name the repository:\n%s", stderr)
+	}
+	if len(res) == 0 {
+		t.Error("the healthy global projection was not applied")
+	}
+	if _, statErr := os.Stat(filepath.Join(repo, ".claude")); statErr == nil {
+		t.Error("the unreadable repository was written into")
+	}
+}

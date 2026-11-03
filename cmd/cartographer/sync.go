@@ -240,9 +240,26 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
 	}
-	projections, err := allProjections(cfg, targets, dir)
-	if err != nil {
-		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
+	// A provider whose projections cannot be resolved (an explicit workspace that
+	// is gone) is left as it is and reported at the end, like one bound to a KB
+	// that could not be pulled; the others proceed (#1502, D257).
+	projections, providerFailures := allProjectionsPartial(cfg, targets, dir)
+	if len(providerFailures) > 0 {
+		failedProviders := map[string]bool{}
+		for _, f := range providerFailures {
+			failedProviders[f.Provider] = true
+			delete(entriesByProvider, f.Provider)
+		}
+		kept := targets[:0:0]
+		for _, t := range targets {
+			if !failedProviders[t] {
+				kept = append(kept, t)
+			}
+		}
+		targets = kept
+		if len(targets) == 0 {
+			return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Providers: providerFailures})
+		}
 	}
 	manifests, pullFailures, err := manifestsForProjectionsPartial(cfg, projections, pre)
 	if err != nil {
@@ -259,7 +276,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		delete(entriesByProvider, provider)
 	}
 	if len(targets) == 0 {
-		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Failures: pullFailures, Skipped: skipped})
+		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures})
 	}
 
 	if healthErr == nil {
@@ -364,8 +381,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		reportUsage(cfg, dir)
 		reportClientSettings(cfg, dir)
 	}
-	if len(pullFailures) > 0 {
-		return syncResult{Revision: commonRevision(results, targets)}, partialSyncError{Failures: pullFailures, Skipped: skipped}
+	if len(pullFailures) > 0 || len(providerFailures) > 0 {
+		return syncResult{Revision: commonRevision(results, targets)}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
 	}
 	return syncResult{Revision: commonRevision(results, targets)}, nil
 }
@@ -377,13 +394,17 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 type partialSyncError struct {
 	Failures []kbPullFailure
 	Skipped  []string
+	// Providers are the providers left untouched because their projections
+	// could not be resolved (#1502).
+	Providers []providerFailure
 }
 
 func (e partialSyncError) Error() string {
 	var b strings.Builder
-	if len(e.Failures) == 1 {
+	switch {
+	case len(e.Failures) == 1:
 		b.WriteString("1 KB could not be pulled:")
-	} else {
+	case len(e.Failures) > 1:
 		fmt.Fprintf(&b, "%d KBs could not be pulled:", len(e.Failures))
 	}
 	for _, f := range e.Failures {
@@ -391,6 +412,15 @@ func (e partialSyncError) Error() string {
 	}
 	if len(e.Skipped) > 0 {
 		fmt.Fprintf(&b, "\nproviders bound to it kept their previous state: %s", strings.Join(e.Skipped, ", "))
+	}
+	if len(e.Providers) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("providers whose workspaces could not be resolved kept their previous state:")
+		for _, f := range e.Providers {
+			fmt.Fprintf(&b, "\n  %s: %v", f.Provider, f.Err)
+		}
 	}
 	return b.String()
 }
