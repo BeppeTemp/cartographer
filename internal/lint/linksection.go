@@ -19,7 +19,7 @@ import (
 //     loose association.
 // Both are problems like any other finding (D947).
 
-var linksSectionHeading = regexp.MustCompile(`(?im)^(#{2,6})\s+(collegamenti|links|related|see also|vedi anche)\s*#*\s*$`)
+var linksSectionHeading = regexp.MustCompile(`(?im)^(#{2,6})[ \t]+(collegamenti|links|related|see also|vedi anche)[ \t]*#*[ \t\r]*$`)
 
 var (
 	wikiLinkRe = regexp.MustCompile(`\[\[[^\]]*\]\]`)
@@ -47,13 +47,23 @@ type linksExtent struct {
 // section ends. linksSection (the checks) and ReplaceLinkItem (the repair) both
 // read it: they share one boundary, so what a finding names is what the repair
 // edits.
+//
+// Headings are looked for on the code-masked body (offsets preserved): a
+// template example in a fence ("## Links" and an item) is code, not the
+// section, and a "# comment" in a bash block does not end it (#1503).
 func locateLinksSection(body string) (linksExtent, bool) {
-	loc := linksSectionHeading.FindStringSubmatchIndex(body)
+	masked := kb.MaskCodeSpans(body)
+	loc := linksSectionHeading.FindStringSubmatchIndex(masked)
 	if loc == nil {
 		return linksExtent{}, false
 	}
 	x := linksExtent{headStart: loc[0], headEnd: loc[1], end: len(body), level: loc[3] - loc[2], heading: body[loc[4]:loc[5]]}
-	if m := anyHeading.FindStringSubmatchIndex(body[x.headEnd:]); m != nil {
+	// The section starts on the line after the heading: the heading's own line
+	// break belongs to the heading, so a reader never sees a leading "\n".
+	if x.headEnd < len(body) && body[x.headEnd] == '\n' {
+		x.headEnd++
+	}
+	if m := anyHeading.FindStringSubmatchIndex(masked[x.headEnd:]); m != nil {
 		x.end = x.headEnd + m[0]
 		x.nextLevel = m[3] - m[2]
 	}
@@ -113,8 +123,9 @@ var itemSeparator = regexp.MustCompile(`\s*[·;|]\s*|,\s+`)
 // left alone: no cut keeps one without the other.
 func duplicateItemFixes(section, linkBase string, assetExists func(string) bool, inText map[okf.ConceptID]bool) map[okf.ConceptID]*Fix {
 	out := map[okf.ConceptID]*Fix{}
-	for _, line := range strings.Split(section, "\n") {
-		if !listMarkRe.MatchString(line) {
+	kinds := kb.FenceKinds(section)
+	for li, line := range strings.Split(section, "\n") {
+		if kinds[li] != kb.LineText || !listMarkRe.MatchString(line) {
 			continue
 		}
 		marker := listMarkRe.FindString(line)
@@ -250,8 +261,9 @@ func bodyLinksOutsideLinkSection(body, linkBase string, assetExists func(string)
 // the reason the link is there.
 func linkOnlyItems(section, linkBase string, assetExists func(string) bool) map[okf.ConceptID]string {
 	out := map[okf.ConceptID]string{}
-	for _, line := range strings.Split(section, "\n") {
-		if !listMarkRe.MatchString(line) {
+	kinds := kb.FenceKinds(section)
+	for li, line := range strings.Split(section, "\n") {
+		if kinds[li] != kb.LineText || !listMarkRe.MatchString(line) {
 			continue
 		}
 		stripped := strings.TrimSpace(listMarkRe.ReplaceAllString(line, ""))
@@ -301,25 +313,29 @@ func ReplaceLinkItem(body, line, newLine string, required HeadingRequired) strin
 	}
 	section := body[x.headEnd:x.end]
 	lines := strings.Split(section, "\n")
+	kinds := kb.FenceKinds(section)
 	kept := lines[:0]
+	keptKinds := make([]kb.LineKind, 0, len(lines))
 	removed := false
-	for _, l := range lines {
-		if !removed && l == line {
+	for li, l := range lines {
+		if !removed && kinds[li] == kb.LineText && l == line {
 			removed = true
 			if newLine != "" {
 				kept = append(kept, newLine)
+				keptKinds = append(keptKinds, kb.LineText)
 			}
 			continue
 		}
 		kept = append(kept, l)
+		keptKinds = append(keptKinds, kinds[li])
 	}
 	if !removed {
 		return body
 	}
 	newSection := strings.Join(kept, "\n")
 	hasItem := false
-	for _, l := range kept {
-		if listMarkRe.MatchString(l) && strings.TrimSpace(listMarkRe.ReplaceAllString(l, "")) != "" {
+	for i, l := range kept {
+		if keptKinds[i] == kb.LineText && listMarkRe.MatchString(l) && strings.TrimSpace(listMarkRe.ReplaceAllString(l, "")) != "" {
 			hasItem = true
 			break
 		}

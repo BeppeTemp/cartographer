@@ -206,3 +206,34 @@ func TestDemotedSubsectionYieldsNoDuplicateFix(t *testing.T) {
 		t.Fatalf("dups=%v fixable=%v", dups, fixable)
 	}
 }
+
+// TestLinksSectionStartsAfterTheHeadingLine pins that the section does not begin
+// with the heading's line break, and that a heading followed by blank lines
+// round-trips unchanged through ReplaceLinkItem (a replacement that is the
+// only item once panicked on the kinds bookkeeping).
+func TestLinksSectionStartsAfterTheHeadingLine(t *testing.T) {
+	t.Parallel()
+	for _, body := range []string{
+		"Text.\n\n## Links\n\n\n- [[a/b]] why\n- [[c/d]] why\n\n## After\nx\n",
+		"Text.\n\n## Links\r\n- [[a/b]] why\r\n",
+		"Text.\n\n## Links\n- [[a/b]] why",
+	} {
+		_, section, rest, ok := linksSection(body)
+		if !ok {
+			t.Fatalf("no section in %q", body)
+		}
+		if strings.HasPrefix(section, "\r") {
+			t.Errorf("section of %q starts inside the heading line: %q", body, section)
+		}
+		if !strings.Contains(rest, "Text.") {
+			t.Errorf("rest = %q", rest)
+		}
+		line := "- [[a/b]] why"
+		if strings.Contains(body, "\r\n") {
+			line += "\r"
+		}
+		if got := ReplaceLinkItem(body, line, line, nil); got != body {
+			t.Errorf("ReplaceLinkItem changed %q into %q", body, got)
+		}
+	}
+}
