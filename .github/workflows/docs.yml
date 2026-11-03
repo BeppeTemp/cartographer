@@ -31,8 +31,6 @@ on:
 
 # A newer push to a PR supersedes the older build. Never on push to main (it
 # deploys Pages) or workflow_dispatch: those get their own group per sha.
-# pr-title.yml is deliberately not treated like this: skipping a required check
-# reports it as passing.
 concurrency:
   group: docs-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

@@ -20,13 +20,16 @@ on:
   issue_comment:
     types: [created, edited]
 
-# Superseded PR runs are cancelled; push, issue and comment runs never are (own
-# group per run): a push scans the incremental range BEFORE..AFTER, so a
-# cancelled run would leave commits unscanned. `edited` has its own group so it
-# never cancels a running commit scan; within `code` a newer synchronize may
-# supersede an older one because the PR range BASE..HEAD is full.
+# Superseded PR runs are cancelled; push, issue and comment runs never are, so
+# they get a group per run: a push scans the incremental range BEFORE..AFTER (a
+# cancelled run would leave commits unscanned), and a group keeps only one
+# PENDING run, cancelling an older pending one even without cancel-in-progress
+# (two quick comments on one issue would leave one unscanned). On a PR, `edited`
+# has its own group so it never cancels a running commit scan; within `code` a
+# newer synchronize may supersede an older one because the range BASE..HEAD is
+# full.
 concurrency:
-  group: privacy-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}-${{ github.event.action == 'edited' && 'text' || 'code' }}
+  group: privacy-${{ github.event_name == 'pull_request' && format('pr-{0}-{1}', github.event.pull_request.number, github.event.action == 'edited' && 'text' || 'code') || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
