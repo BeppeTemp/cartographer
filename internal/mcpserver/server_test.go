@@ -2524,8 +2524,24 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"docs/architecture","frontmatter":{"type":"Note","title":"Architecture"},"body":"# Architecture\n\n[[manutenzione/test-runbook]]\n","index_entry":true}]}}}`,
 		// 4. ...and expand it into a directory so it can grow satellite concepts.
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"docs/architecture"}}}`,
-		// 5. Write a satellite concept under the expanded "docs/architecture"
-		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"docs/architecture/stack","frontmatter":{"type":"Reference","title":"Tech Stack","status":"active"},"body":"# Tech Stack\n\nPostgreSQL for persistence, Redis for caching.\n","index_entry":true},{"op":"write","id":"docs/overview","frontmatter":{"type":"Note","title":"Overview"},"body":"# Overview\n\nThe [[docs/architecture/stack]] and the [[manutenzione/test-runbook]].\n","index_entry":true}]}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+
+	// The index of an expanded concept is curated even in a generated map
+	// (D312): the hub lists the satellite in the batch that creates it.
+	read, err := s.Tools()["concept_read"].Handler(authLocalContext(), json.RawMessage(`{"id":"docs/architecture"}`))
+	if err != nil {
+		t.Fatalf("concept_read: %v", err)
+	}
+	var hub struct {
+		ContentHash string `json:"content_hash"`
+	}
+	if err := json.Unmarshal([]byte(read.Content[0].Text), &hub); err != nil {
+		t.Fatalf("concept_read: %v: %s", err, read.Content[0].Text)
+	}
+	msgs = []string{
+		// 5. Write a satellite concept under the expanded "docs/architecture", and list it in the hub
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"patch","id":"docs/architecture","if_match":"` + hub.ContentHash + `","old_string":"[[manutenzione/test-runbook]]","new_string":"[[manutenzione/test-runbook]]\n\n- [[docs/architecture/stack]]"},{"op":"write","id":"docs/architecture/stack","frontmatter":{"type":"Reference","title":"Tech Stack","status":"active"},"body":"# Tech Stack\n\nPostgreSQL for persistence, Redis for caching.\n"},{"op":"write","id":"docs/overview","frontmatter":{"type":"Note","title":"Overview"},"body":"# Overview\n\nThe [[docs/architecture/stack]] and the [[manutenzione/test-runbook]].\n","index_entry":true}]}}}`,
 		// 6. Rebuild index to include new concept
 		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
 		// 7. Search for the concept
@@ -2535,7 +2551,7 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 		// 9. Gate check
 		`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["docs/architecture/stack"]}}}`,
 	}
-	resps := runMCPSequence(t, s, msgs)
+	resps = append(resps, runMCPSequence(t, s, msgs)...)
 
 	if len(resps) != 10 {
 		t.Fatalf("expected 10 responses, received %d", len(resps))

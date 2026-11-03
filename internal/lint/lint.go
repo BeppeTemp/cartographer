@@ -690,7 +690,9 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 						satellites = append(satellites, id)
 					}
 				}
-				if len(satellites) > 0 {
+				// A directory without index.md is expanded_missing_index below, not
+				// an incomplete index: ScopedCheck skips it the same way.
+				if _, e := k.ReadIndex(string(expandedID)); len(satellites) > 0 && !errors.Is(e, okf.ErrNotFound) {
 					// Expanded indexes are emitted by WalkConcepts, so their link
 					// targets are already covered by the general broken_link pass.
 					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings, exists, isRetired)
