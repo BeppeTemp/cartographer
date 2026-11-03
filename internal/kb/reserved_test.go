@@ -556,3 +556,68 @@ func TestPullRebase_GeneratedIndexTakesTheRemoteSide(t *testing.T) {
 		t.Fatalf("generated index = %q, want the remote's version", got)
 	}
 }
+
+// An unreadable _map.md leaves "generated or curated" open: the safe answer is
+// the remote side, never a union of two generated blocks.
+func TestPullRebase_UnreadableMapContractTakesTheRemoteSide(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	got := resolveIndexConflict(t, "tags: [unclosed\n")
+	if !strings.Contains(got, "a.md") || strings.Contains(got, "b.md") {
+		t.Fatalf("index = %q, want the remote's version", got)
+	}
+}
+
+// A concurrent edit to an expanded concept's body is a conflict on a concept,
+// not a reserved file to resolve silently: the local version stays in the tree
+// and the error names the file.
+func TestPullRebase_ExpandedConceptBodyConflictIsNotAutoResolved(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := remoteWithDefault(t)
+	body := func(s string) string { return "---\ntype: Note\ntitle: R\n---\n" + s + "\n" }
+	write := func(dir, s string) {
+		abs := filepath.Join(dir, "data/ops/runbook/index.md")
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(body(s)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit := func(dir, msg string) {
+		gitIn(t, dir, "add", "-A")
+		gitIn(t, dir, "-c", "user.name=user", "-c", "user.email=user@example.com", "commit", "-q", "-m", msg)
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	gitIn(t, filepath.Dir(other), "clone", "-q", bare, other)
+	write(other, "base")
+	commit(other, "base")
+	gitIn(t, other, "push", "-q", "origin", "main")
+	if err := gitx.Fetch(k.Root, "origin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.pullRebase("origin", "main"); err != nil {
+		t.Fatal(err)
+	}
+	write(other, "remote edit")
+	commit(other, "remote")
+	gitIn(t, other, "push", "-q", "origin", "main")
+	write(k.Root, "local edit")
+	commit(k.Root, "local")
+	if err := gitx.Fetch(k.Root, "origin"); err != nil {
+		t.Fatal(err)
+	}
+	err := k.pullRebase("origin", "main")
+	var rce *gitx.RebaseConflictError
+	if !errors.As(err, &rce) || len(rce.Files) != 1 || rce.Files[0] != "data/ops/runbook/index.md" {
+		t.Fatalf("pullRebase = %v, want a conflict on the expanded concept body", err)
+	}
+	if b := readRel(t, k.Root, "data/ops/runbook/index.md"); !strings.Contains(b, "local edit") {
+		t.Fatalf("the local edit was dropped:\n%s", b)
+	}
+}

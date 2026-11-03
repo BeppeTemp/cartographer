@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // gitAttributesFile is the committed attributes file at the KB root, and
@@ -99,7 +100,14 @@ func (k *KB) isCuratedIndexPath(p string) bool {
 		return true
 	}
 	contract, err := k.ReadMapContract(name)
-	return err != nil || contract.Index != IndexGenerated
+	if err != nil {
+		// No descriptor means no contract: a curated index. Any other failure
+		// (an unparsable _map.md) leaves the question open, and the safe answer
+		// is "generated": the remote side plus the next regeneration, never a
+		// union that would glue both versions of a generated block together.
+		return errors.Is(err, os.ErrNotExist) || errors.Is(err, okf.ErrNotFound)
+	}
+	return contract.Index != IndexGenerated
 }
 
 // isLogPath reports whether p is a log.md, the one append-only reserved file:

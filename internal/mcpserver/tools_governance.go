@@ -1145,7 +1145,7 @@ func toolConflictsList(k *kb.KB) Tool {
 func toolGitConflictResolve(k *kb.KB) Tool {
 	return Tool{
 		Name:        "git_conflict_resolve",
-		Description: "Resolves a git conflict. strategy: ours (local), theirs (remote), edit (reconciled body), union (log.md only). Once every open conflict (conflicts_list) is resolved, Cartographer merges, commits, pushes and clears the degraded markers.",
+		Description: "Resolves a git conflict. strategy: ours (local), theirs (remote), edit (reconciled body), union (log.md, index.md). Once every open conflict (conflicts_list) is resolved, Cartographer merges, commits, pushes and clears the degraded markers.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["concept_id", "strategy"],
@@ -1225,7 +1225,7 @@ func reservedConflictGuidance(c kb.Conflict) string {
 	what := "Reserved file"
 	if c.Kind == kb.ConflictKindArtifact {
 		what = "Artifact or asset file"
-	} else if filepath.Base(c.Path) == "log.md" {
+	} else if b := filepath.Base(c.Path); b == "log.md" || b == "index.md" {
 		strategies = "union (keeps both sides' entries), theirs (remote) or ours (local)"
 	}
 	return what + ", not a concept: resolve it with git_conflict_resolve, concept_id " + c.Path +
@@ -1247,13 +1247,13 @@ func reservedStrategyError(k *kb.KB, conceptID, strategy string) string {
 		}
 		reserved := c.Kind == kb.ConflictKindReserved
 		switch {
-		case strategy == "union" && (!reserved || filepath.Base(c.Path) != "log.md"):
+		case strategy == "union" && (!reserved || (filepath.Base(c.Path) != "log.md" && filepath.Base(c.Path) != "index.md")):
 			if c.IsPathConflict() {
-				return "strategy 'union' applies only to a reserved log.md conflict (use ours|theirs)"
+				return "strategy 'union' applies only to a reserved log.md or index.md conflict (use ours|theirs)"
 			}
-			return "strategy 'union' applies only to a reserved log.md conflict (use ours|theirs|edit)"
+			return "strategy 'union' applies only to a reserved log.md or index.md conflict (use ours|theirs|edit)"
 		case strategy == "edit" && c.IsPathConflict():
-			return "strategy 'edit' does not apply to a reserved or artifact file (use union|ours|theirs for log.md, ours|theirs otherwise)"
+			return "strategy 'edit' does not apply to a reserved or artifact file (use union|ours|theirs for log.md and index.md, ours|theirs otherwise)"
 		}
 		return ""
 	}
