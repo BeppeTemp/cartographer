@@ -53,8 +53,8 @@ func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
 	if len(kbs) != 1 || kbs[0].(map[string]interface{})["name"] != "docs" {
 		t.Fatalf("kbs = %v", kbs)
 	}
-	if _, ok := kbs[0].(map[string]interface{})["git"]; !ok {
-		t.Error("per-KB git facts missing")
+	if _, ok := kbs[0].(map[string]interface{})["git"]; ok {
+		t.Error("the Atlas never read the per-KB git block: it must not be sent")
 	}
 	// The YAML views (D818): the server file with the env-set key and its
 	// origin, and the KB's settings.yaml, both documented by the schema.
