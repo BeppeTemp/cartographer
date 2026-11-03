@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // ErrNotLinear means the commits above the upstream hold a merge or a root
@@ -120,7 +122,7 @@ func rewriteLinear(dir, upstream, reflogMsg string, env []string,
 		if err != nil {
 			return nil, fmt.Errorf("git rev-parse %s^{tree}: %w", sha, err)
 		}
-		cmd := exec.Command("git", "-C", dir, "commit-tree", strings.TrimSpace(tree), "-p", newParent, "-F", "-")
+		cmd := procattr.Hide(exec.Command("git", "-C", dir, "commit-tree", strings.TrimSpace(tree), "-p", newParent, "-F", "-"))
 		cmd.Env = gitEnv(append(append([]string{}, env...),
 			"GIT_AUTHOR_NAME="+an, "GIT_AUTHOR_EMAIL="+ae, "GIT_AUTHOR_DATE="+ad,
 			"GIT_COMMITTER_NAME="+cn, "GIT_COMMITTER_EMAIL="+ce, "GIT_COMMITTER_DATE="+cd))
@@ -209,7 +211,7 @@ func UnpublishedCommitCount(dir, upstream string) (inRange, unpublished int, err
 // gitStdout runs git in dir and returns its stdout alone: a warning git
 // prints on stderr must not end up in a commit message or a parsed field.
 func gitStdout(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := procattr.Hide(exec.Command("git", append([]string{"-C", dir}, args...)...))
 	cmd.Env = gitEnv(nil)
 	out, err := cmd.Output()
 	return string(out), err

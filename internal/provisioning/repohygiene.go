@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // repohygiene.go (D193 WP5) — generated files must not dirty the repository.
@@ -44,7 +46,7 @@ func gitTrackedPaths(dir string) (map[string]bool, error) {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		return map[string]bool{}, nil
 	}
-	out, err := exec.Command("git", "-C", dir, "ls-files", "-z").Output()
+	out, err := procattr.Hide(exec.Command("git", "-C", dir, "ls-files", "-z")).Output()
 	if err != nil {
 		return nil, fmt.Errorf("provisioning: list tracked files in %s: %w", dir, err)
 	}
@@ -62,13 +64,13 @@ func gitTrackedPaths(dir string) (map[string]bool, error) {
 // which gitTrackedPaths reads as no repository. Outside any repository it is
 // false; when git cannot answer it errs, and the caller does not edit (D1198).
 func gitTracksFile(dir, rel string) (bool, error) {
-	out, err := exec.Command("git", "-C", dir, "ls-files", "-z", "--", filepath.FromSlash(rel)).Output()
+	out, err := procattr.Hide(exec.Command("git", "-C", dir, "ls-files", "-z", "--", filepath.FromSlash(rel))).Output()
 	if err == nil {
 		return len(out) > 0, nil
 	}
 	// Only git's own "not a git repository" means no repository: dubious
 	// ownership or a broken .git fail rev-parse too, and must not read as untracked.
-	rev := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
+	rev := procattr.Hide(exec.Command("git", "-C", dir, "rev-parse", "--git-dir"))
 	rev.Env = append(os.Environ(), "LC_ALL=C")
 	if msg, revErr := rev.CombinedOutput(); revErr != nil && strings.Contains(string(msg), "not a git repository") {
 		return false, nil

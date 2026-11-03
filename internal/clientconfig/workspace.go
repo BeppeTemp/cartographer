@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // workspace.go (D193) — the workspace↔KB↔provider binding.
@@ -65,7 +67,7 @@ var gitRemoteFn = gitRemoteOrigin
 // containing dir, or "" when dir is not in a git repository (which is a legal
 // workspace: a plain directory binds fine, it simply carries no guard).
 func gitRemoteOrigin(dir string) string {
-	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	cmd := procattr.Hide(exec.Command("git", "-C", dir, "remote", "get-url", "origin"))
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

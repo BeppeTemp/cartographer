@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // MaxIdentBytes bounds an identity: a name and an email, not a document.
@@ -71,7 +73,7 @@ func WorkTreeIdent(dir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), workTreeIdentTimeout)
 	defer cancel()
 	git := func(args ...string) (string, bool) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "user.useConfigOnly=true"}, args...)...)
+		cmd := procattr.Hide(exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "user.useConfigOnly=true"}, args...)...))
 		cmd.Env = identEnv()
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err == nil
@@ -104,7 +106,7 @@ func GlobalIdent() (ident string, perFolder bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), workTreeIdentTimeout)
 	defer cancel()
 	git := func(args ...string) (string, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"config", "--global", "--includes"}, args...)...)
+		cmd := procattr.Hide(exec.CommandContext(ctx, "git", append([]string{"config", "--global", "--includes"}, args...)...))
 		cmd.Env = identEnv()
 		cmd.Dir = os.TempDir()
 		out, err := cmd.Output()

@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // ErrNoConfig is returned by Create and RuleRecipients when the KB has no root
@@ -146,7 +148,7 @@ func PublicKeys(keyFile string) []string {
 		return keys
 	}
 	if bin, err := exec.LookPath("age-keygen"); err == nil {
-		if out, err := exec.Command(bin, "-y", keyFile).Output(); err == nil {
+		if out, err := procattr.Hide(exec.Command(bin, "-y", keyFile)).Output(); err == nil {
 			for _, l := range strings.Fields(string(out)) {
 				keys = append(keys, l)
 			}
@@ -254,7 +256,7 @@ func Create(kbRoot, relativePath, pointer, value, keyFile string, env ...string)
 	if err != nil {
 		return newError(nil, err, "cannot resolve the KB root")
 	}
-	cmd := exec.Command("sops", "--config", filepath.Join(realRoot, ".sops.yaml"), "encrypt", "--filename-override", filepath.ToSlash(relativePath), "--input-type", "yaml", "--output-type", "yaml")
+	cmd := procattr.Hide(exec.Command("sops", "--config", filepath.Join(realRoot, ".sops.yaml"), "encrypt", "--filename-override", filepath.ToSlash(relativePath), "--input-type", "yaml", "--output-type", "yaml"))
 	cmd.Dir = realRoot
 	cmd.Stdin = bytes.NewReader(plain)
 	cmd.Env = childEnv
