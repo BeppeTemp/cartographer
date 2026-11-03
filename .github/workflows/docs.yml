@@ -29,6 +29,12 @@ on:
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
+# A newer push to a PR supersedes the older build. Never on push to main (it
+# deploys Pages) or workflow_dispatch: those get their own group per sha.
+concurrency:
+  group: docs-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
