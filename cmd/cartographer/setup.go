@@ -9,10 +9,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -335,7 +337,11 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 	}
 	f.Detected = setupDetected()
 	if o.Remote != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), setupProbeTimeout)
+		// The probe's git runs in its own process group: Ctrl-C must cancel it
+		// through the context, or it would be left running.
+		sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		ctx, cancel := context.WithTimeout(sigCtx, setupProbeTimeout)
 		defer cancel()
 		probe, err := setupProbeRemote(ctx, o.Remote)
 		if err != nil {
