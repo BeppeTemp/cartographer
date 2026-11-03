@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 const remoteHTTPURL = "http://10.0.0.5:39273/mcp"
@@ -15,7 +16,9 @@ func dirEntries(t *testing.T, dir string) []string {
 	t.Helper()
 	var out []string
 	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() {
+		// The empty client lock file (D172) is where a refused connect waited,
+		// not something it wrote.
+		if err == nil && !info.IsDir() && info.Name() != provisioning.ClientLockFileName {
 			out = append(out, p)
 		}
 		return nil

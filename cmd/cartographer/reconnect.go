@@ -110,7 +110,17 @@ type reconnectResult struct {
 // name, auth mode, token env and trust — and, because doDisconnect never
 // deletes the file (D64) and doConnect reads it back, the pinned signing keys,
 // MCP approvals, search roots and paths as well.
+//
+// One client lock (D172) spans both halves, so no sync runs between the
+// disconnect and the connect; the halves are the Locked variants.
 func doReconnect(opts reconnectOptions) (reconnectResult, error) {
+	if !opts.DryRun {
+		release, err := lockClient(opts.Dir)
+		if err != nil {
+			return reconnectResult{}, err
+		}
+		defer release()
+	}
 	cfg, err := clientconfig.Load(opts.Dir)
 	if err != nil {
 		return reconnectResult{}, err
@@ -134,7 +144,7 @@ func doReconnect(opts reconnectOptions) (reconnectResult, error) {
 		}
 	}
 
-	disconnected, err := doDisconnect(disconnectOptions{Providers: providers, Dir: opts.Dir, DryRun: opts.DryRun, KeepToken: true})
+	disconnected, err := doDisconnectLocked(disconnectOptions{Providers: providers, Dir: opts.Dir, DryRun: opts.DryRun, KeepToken: true})
 	if err != nil {
 		return res, err
 	}
@@ -162,7 +172,7 @@ func doReconnect(opts reconnectOptions) (reconnectResult, error) {
 
 		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
 	}
-	connectRes, err := doConnect(res.ConnectOptions)
+	connectRes, err := doConnectLocked(res.ConnectOptions)
 	if err != nil {
 		// A dry run wrote nothing, so nothing was left disconnected either.
 		if !opts.DryRun {
