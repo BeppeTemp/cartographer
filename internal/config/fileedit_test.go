@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -72,11 +73,33 @@ func TestWriteYAML_KeepsLayoutAndMode(t *testing.T) {
 	if strings.Contains(string(got), "    - remote") {
 		t.Errorf("sequence was re-indented to 4 spaces:\n%s", got)
 	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0o640 {
+	// Windows reports 0666 for any writable file: the mode is not checkable there.
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 		t.Errorf("mode = %v, want 0640", info.Mode().Perm())
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(got, &doc); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A file indented with four spaces is normalized to two; comments and values stay.
+func TestWriteYAML_NormalizesIndent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	in := "# keep me\nkbs:\n    - remote: https://git.example.com/user/wiki.git\n      name: wiki\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(in), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteYAML(path, &doc); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	want := "# keep me\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n    name: wiki\n"
+	if string(got) != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

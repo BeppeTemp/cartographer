@@ -10,8 +10,8 @@ import (
 
 // WriteYAML writes doc to the server config at path the one way every edit of
 // that file does it (#1501): encoded with the two-space indent the file's own
-// examples use, so an edit does not re-indent every sequence of a hand-written
-// config (D177), then replaced atomically by WriteFileAtomic.
+// examples use (D177; a file indented differently is normalized to it, its
+// comments, key order and values kept), then replaced atomically by WriteFileAtomic.
 func WriteYAML(path string, doc *yaml.Node) error {
 	out, err := settingschema.Encode(doc)
 	if err != nil {

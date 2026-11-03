@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -170,8 +171,8 @@ func TestApplyKBRename_FailedWriteLeavesNoAlias(t *testing.T) {
 	if !hasGitBinary() {
 		t.Skip("git not available")
 	}
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores the file mode this test relies on")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root, and Windows for a directory, ignore the mode this test relies on")
 	}
 	dataDir := seedRenameKB(t, "wiki")
 	cfgPath := writeServerConfig(t, "data: "+dataDir+"\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n")
