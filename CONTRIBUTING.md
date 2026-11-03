@@ -211,9 +211,10 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
     reference (D1020); Dependabot keeps the pins current.
 - **What runs where** (D1592): a PR runs the light checks (`test`, `web` when the frontend
-  changed, `pr-title`, `plan-gate`). The heavy legs (Windows, macOS, docker, demo-edge) run in
-  GitHub's merge queue, once per group of queued PRs, so a PR that is green may still be
-  ejected from the queue by a Windows-only failure: read the queue run, fix, and re-queue.
+  changed, `pr-title`, `plan-gate`). The heavy legs (Windows, macOS, docker, demo-edge) run on
+  push to `main` (and on `merge_group` if a queue is ever enabled: it is not available on a
+  user-owned repository), so a Windows- or macOS-only break is caught on `main` and tracked
+  by the `ci-red` issue, to be fixed by a follow-up.
   `docs/testing.md` has the table.
 - PRs are **squash-merged** and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)

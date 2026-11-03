@@ -588,7 +588,7 @@ func Init(root string) (*KB, error) {
 // (#757). A pattern without a leading slash matches at every level. Excluding
 // never untracks a path already committed.
 var agentStateDirs = []string{
-	".omc/", ".claude/", ".codex/", ".kiro/", ".opencode/", ".crush/", ".gemini/", ".cursor/",
+	".omc/", ".claude/", ".codex/", ".kiro/", ".opencode/", ".crush/", ".gemini/", ".cursor/", ".pi/",
 }
 
 // excludeAgentStateDirs adds agentStateDirs to .git/info/exclude, best-effort

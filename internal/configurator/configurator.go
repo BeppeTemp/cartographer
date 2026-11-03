@@ -103,6 +103,8 @@ const (
 	// ProviderCopilot is the GitHub Copilot CLI (the `copilot` binary, D676), not
 	// Copilot in VS Code.
 	ProviderCopilot Provider = "copilot"
+	// ProviderPi is Pi, the `pi` binary of @earendil-works/pi-coding-agent.
+	ProviderPi Provider = "pi"
 )
 
 // EmitResult contains the generated config for a provider.

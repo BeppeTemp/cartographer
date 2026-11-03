@@ -92,6 +92,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// `copilot mcp list` does not list them in an untrusted folder, and a
 		// destination is declared, never invented (probed on 1.0.94, D676).
 		configurator.ProviderCopilot: unsupportedDest,
+		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
+		configurator.ProviderPi: unsupportedDest,
 	},
 	"instructions": {
 		// The project root's own CLAUDE.md is the file Claude Code reads for a
@@ -113,6 +115,9 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// copilot: AGENTS.md is read natively as "Repository instructions"
 		// (probed on 1.0.94, D676).
 		configurator.ProviderCopilot: at("AGENTS.md"),
+		// pi: AGENTS.md is read without trust, from every ancestor directory
+		// (probe 2 on Pi 1.5.0). CLAUDE.local.md is not read.
+		configurator.ProviderPi: at("AGENTS.md"),
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -127,6 +132,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// copilot: .github/agents is gated on folder trust (`copilot --help`),
 		// so nothing is observed working without it (D676).
 		configurator.ProviderCopilot: unsupportedDest,
+		// pi: no subagents.
+		configurator.ProviderPi: unsupportedDest,
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -145,6 +152,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCrush:       perName("", ".crush", "hooks"),
 		// copilot: .github/hooks is gated on folder trust (`copilot --help`) (D676).
 		configurator.ProviderCopilot: unsupportedDest,
+		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
+		configurator.ProviderPi: unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -162,6 +171,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// copilot: ".agents/skills/" is listed as "Project skills", shared with
 		// Codex and Antigravity (probed on 1.0.94, D676).
 		configurator.ProviderCopilot: perName("", ".agents", "skills"),
+		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
+		configurator.ProviderPi: unsupportedDest,
 	},
 }
 

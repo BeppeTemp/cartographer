@@ -116,6 +116,13 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"mcp", configurator.ProviderCopilot, ""},
 		{"agent", configurator.ProviderCopilot, ""},
 		{"hook", configurator.ProviderCopilot, ""},
+		// pi (1.5.0): AGENTS.md is read untrusted; project .pi/* and
+		// .agents/skills load only after trust, so they fail closed.
+		{"instructions", configurator.ProviderPi, "AGENTS.md"},
+		{"skill", configurator.ProviderPi, ""},
+		{"mcp", configurator.ProviderPi, ""},
+		{"agent", configurator.ProviderPi, ""},
+		{"hook", configurator.ProviderPi, ""},
 	}
 	for _, tc := range cases {
 		if got := destDirScoped(tc.kind, "demo", tc.provider, ScopeProject); got != tc.want {
@@ -132,7 +139,7 @@ func TestSupportsProjectScope_FailsClosed(t *testing.T) {
 		configurator.ProviderClaudeCode, configurator.ProviderCodex,
 		configurator.ProviderOpenCode, configurator.ProviderKiro,
 		configurator.ProviderCrush, configurator.ProviderAntigravity,
-		configurator.ProviderCopilot,
+		configurator.ProviderCopilot, configurator.ProviderPi,
 	} {
 		if !SupportsProjectScope(p) {
 			t.Errorf("%s should support a project scope", p)
