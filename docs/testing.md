@@ -36,6 +36,8 @@ Three tests in `internal/mcpserver` guard what a tool result costs (D1185). `Tes
 
 `TestFixedCallCostBudget` (`internal/mcpserver`) guards what an agent pays on every model call: the managed instructions block plus the `tools/list`, for 1 and 9 KBs on a routed mount, in the agent, `access=read` and `access=read-min` profiles, one byte budget per component and cell (`docs/control-plane.md` §Tool descriptions and their size budget); if it fails, a component grew: shrink it, do not raise the number without a decision.
 
+`TestWin32PointersStayAlive` (`internal/tray`, parse-only, every OS) pins that `call` in `tray_windows.go` carries `//go:uintptrescapes` and that every `uintptr(unsafe.Pointer(...))` of the file is an argument of `call` or `syscall.SyscallN`; the memory effect itself cannot be tested.
+
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
 There the git-backed packages are about 13 times slower (process creation), so

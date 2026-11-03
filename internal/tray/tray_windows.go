@@ -22,9 +22,12 @@ import (
 // goroutine reaches it only through a mutex-guarded slot plus PostMessageW;
 // it never calls a UI function itself.
 //
-// All procs go through syscall.SyscallN, not LazyProc.Call:
+// All procs go through call (syscall.SyscallN), not LazyProc.Call:
 // TestNoUnqualifiedProductionToolCalls reads any `.Call(` in cmd/cartographer
 // as an MCP call, and the same convention keeps this package out of it.
+// What LazyProc.Call gets from the compiler, call gets from the directive
+// below: a pointer converted with uintptr(unsafe.Pointer(x)) in its argument
+// list stays alive and unmoved until it returns (TestWin32PointersStayAlive).
 
 const (
 	wmDestroy       = 0x0002
@@ -99,6 +102,13 @@ var (
 
 func moduleHandle() uintptr { return call(procGetModuleHandle, 0) }
 
+// call keeps alive and pinned what a uintptr(unsafe.Pointer(...)) argument
+// points to for the duration of the call, as syscall.(*Proc).Call does: without
+// it the MSG on the stack of loop could move while GetMessageW fills it, and
+// the icon bitmaps be collected inside CreateIcon. The conversion must stay in
+// the call expression.
+//
+//go:uintptrescapes
 func call(p *windows.LazyProc, args ...uintptr) uintptr {
 	r, _, _ := syscall.SyscallN(p.Addr(), args...)
 	return r
