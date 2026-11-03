@@ -4,7 +4,9 @@ rules:
   dangerous-triggers:
     ignore:
       # Documented invariants and a test (docs/decisions): it reads the issue
-      # label and PR metadata only, and never checks out or runs PR code.
+      # label, PR metadata and the PR's file list, and never checks out or runs PR
+      # code. The file list is parsed strictly: one tab-separated row per file with
+      # the name escaped, and a size that is not all digits counts for nothing.
       - plan-gate.yml
       # Runs a guard scoped to actors with write access; no PR code is involved.
       - privacy.yml

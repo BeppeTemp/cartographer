@@ -275,6 +275,7 @@ otherwise silent — no client, compiler or linter reports any of them:
   allow-list for text about a retired key a reader can still meet, which is pruned both ways
   (D1128);
 - every row of `scripts/doc-owners.tsv` is well formed (three fields, no repeated glob, an existing page), its glob matches a file, its page is named in `docs/index.md` §Documentation maintenance rules, the script's matcher and the tests' agree, and `pr-triage.sh` calls `doc-owners.sh`; the signal itself is the advisory `WARN` of `pr-triage.sh`, silenced by `Docs: none - <reason>` in the PR body;
+- the triage scripts parse the PR file list strictly, with a stand-in `gh` on `PATH` that applies the real `--jq` expression: a file name holding a newline, a tab and a command substitution is one row, runs nothing and gives the report of the same PR with a plain name; a row faking a negative size cannot lower the production sum, so the size-cap `BLOCK` still fires and the tier stays above `light`; and rows whose size field is not all digits are skipped by `pr-triage.sh` and `doc-owners.sh` whatever reaches them (`internal/repodocs/pr_triage_scope_test.go`, `doc_owners_test.go`);
 - `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.

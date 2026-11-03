@@ -68,7 +68,9 @@ if [ $# -ge 1 ]; then
   meta=$(gh pr view "$PR" --json title,author,closingIssuesReferences,statusCheckRollup,body,headRefName,labels)
   # Not `gh pr view --json files`: it stops at 100 files, and every count below
   # (size, tier, supply chain, docs owners) would be taken on a truncated list.
-  files=$(gh api --paginate "repos/{owner}/{repo}/pulls/$PR/files" --jq '.[] | "\(.additions)\t\(.deletions)\t\(.filename)"')
+  # `@tsv` escapes a tab, a newline or a backslash in a file name, so one file is one
+  # row of three fields whatever its name holds; a string template would not.
+  files=$(gh api --paginate "repos/{owner}/{repo}/pulls/$PR/files" --jq '.[] | [.additions, .deletions, .filename] | @tsv')
   author=$(jq -r .author.login <<<"$meta")
   prinfo=$(gh api "repos/{owner}/{repo}/pulls/$PR" --jq '[.author_association, .user.type] | @tsv')
   assoc=${AUTHOR_ASSOCIATION:-${prinfo%%$'\t'*}}
@@ -106,7 +108,8 @@ echo "Role: $role"
 classified=$(while IFS=$'\t' read -r a d path; do
   if [ -n "$path" ]; then printf '%s\t%s\t%s\t%s\n' "$(kind "$path")" "$a" "$d" "$path"; fi
 done <<<"$files")
-sum() { awk -F'\t' -v k="$1" -v c="$2" '$1 == k { s += $c } END { print s + 0 }' <<<"$classified"; }
+# A size column counts only if it is all digits: a row that is not one adds nothing.
+sum() { awk -F'\t' -v k="$1" -v c="$2" '$1 == k && $c ~ /^[0-9]+$/ { s += $c } END { print s + 0 }' <<<"$classified"; }
 paths_of() { awk -F'\t' -v k="$1" '$1 == k { print $4 }' <<<"$classified"; }
 
 prod=$(sum production 2)

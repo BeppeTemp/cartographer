@@ -20,7 +20,10 @@ name: plan-gate
 #
 # TRAP: a `pull_request_target` workflow added or changed by a PR does not run
 # from that PR (it runs from the base branch): this file starts working on the
-# first PR opened after the one that adds it merges.
+# first PR opened after the one that adds it merges. The same holds for the
+# scripts it runs: a change to scripts/pr-triage.sh or scripts/doc-owners.sh
+# applies to a PR only once it is on the base branch, so the PR that carries it
+# is still checked by the previous copy.
 #
 # The ruleset requires the job name `plan-gate` once the maintainer adds it to
 # the required checks of `main-protection`.

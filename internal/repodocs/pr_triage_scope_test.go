@@ -2,6 +2,8 @@ package repodocs
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,4 +139,164 @@ esac
 	if !strings.Contains(out.String(), "supply-chain files changed") {
 		t.Errorf("the workflow file after 150 docs pages was not seen\n%s", out.String())
 	}
+}
+
+// prFile is one element of the array GitHub returns for pulls/<n>/files.
+type prFile struct {
+	Filename  string `json:"filename"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+}
+
+// The stand-in gh serves the PR's file list the way the API does and applies the
+// --jq expression it is given the way `gh api --jq` does (jq -r), so what the test
+// drives is the expression pr-triage.sh really passes. With RAW_ROWS set it prints
+// those bytes instead, whatever the expression: the rows a regressed expression
+// would hand the rest of the script.
+const fakeGHFileList = `#!/bin/sh
+case "$1 $2" in
+  "pr view") printf '{"title":"fix: rows","author":{"login":"u"},"closingIssuesReferences":[],"statusCheckRollup":[],"body":"","headRefName":"b","labels":[],"assignees":[]}' ;;
+  "api --paginate")
+    if [ -n "$RAW_ROWS" ]; then cat "$RAW_ROWS"; exit 0; fi
+    expr=; prev=
+    for a in "$@"; do if [ "$prev" = --jq ]; then expr=$a; fi; prev=$a; done
+    jq -r "$expr" "$FILES_JSON" ;;
+  "api repos/{owner}/{repo}/pulls/1") printf 'MEMBER\tUser\n' ;;
+  *) exit 1 ;;
+esac
+`
+
+// ownersMap watches internal/a/*.go, so a row for a path there reaches the
+// arithmetic of doc-owners.sh.
+const ownersMap = "internal/a/*.go\tdocs/sync.md\trow a\n"
+
+// gatePR runs `pr-triage.sh --gate 1` on a PR served by the stand-in gh: files as
+// the API would list them, or rawRows (exact bytes) in their place when not empty.
+// It returns the report and the exit code.
+func gatePR(t *testing.T, files []prFile, rawRows string) (string, int) {
+	t.Helper()
+	bash := bashOrSkip(t)
+	dir := t.TempDir()
+	write := func(name, content string, mode os.FileMode) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	js, err := json.Marshal(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("gh", fakeGHFileList, 0o755)
+	env := append(os.Environ(),
+		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"FILES_JSON="+write("files.json", string(js), 0o644),
+		"DOC_OWNERS_TSV="+write("owners.tsv", ownersMap, 0o644),
+		"RAW_ROWS=")
+	if rawRows != "" {
+		env = append(env, "RAW_ROWS="+write("rows.tsv", rawRows, 0o644))
+	}
+	cmd := exec.Command(bash, "scripts/pr-triage.sh", "--gate", "1")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = env
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	code := 0
+	if err := cmd.Run(); err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("pr-triage.sh: %v", err)
+		}
+		code = ee.ExitCode()
+	}
+	return out.String() + errb.String(), code
+}
+
+// markerPath is a file that exists only if a command substitution in a file name
+// or a size field was run.
+func markerPath(t *testing.T) string {
+	t.Helper()
+	m := filepath.Join(t.TempDir(), "marker")
+	if strings.ContainsAny(m, " \t'\"") {
+		t.Skipf("the temporary directory %q has a character the test's file name cannot carry", m)
+	}
+	return m
+}
+
+func noMarker(t *testing.T, marker string) {
+	t.Helper()
+	if _, err := os.Stat(marker); err == nil {
+		t.Errorf("%s exists: a command substitution from the PR file list was run", marker)
+	}
+}
+
+// A file name with control characters is one row of the file list, not several: the
+// tab-separated rows escape them, so the name never becomes a size field. The report
+// of a PR holding such a file equals the report of the same PR with a plain name.
+func TestPRTriageFileNameWithControlCharactersIsOneRow(t *testing.T) {
+	marker := markerPath(t)
+	crafted := "internal/a/b.go\na[$(touch " + marker + ")]\t0\tinternal/a/c.go"
+	base := prFile{"internal/a/real.go", 12, 0}
+
+	got, gotCode := gatePR(t, []prFile{base, {crafted, 7, 2}}, "")
+	want, wantCode := gatePR(t, []prFile{base, {"internal/a/b.go", 7, 2}}, "")
+
+	noMarker(t, marker)
+	if got != want || gotCode != wantCode {
+		t.Errorf("a file name with a newline, a tab and a substitution changes the report\n--- plain name (exit %d)\n%s--- crafted name (exit %d)\n%s", wantCode, want, gotCode, got)
+	}
+	// 12 + 7 added and 2 deleted: the file's own numbers, nothing taken from its name.
+	for _, s := range []string{"Size: production +19/-2 ", "internal/a/*.go changed (+19/-2 production lines)"} {
+		if !strings.Contains(got, s) {
+			t.Errorf("the report lacks %q\n%s", s, got)
+		}
+	}
+	if gotCode != 0 {
+		t.Errorf("exit code %d, want 0 (19 production lines are under the cap)", gotCode)
+	}
+}
+
+// A name that fakes a row with a negative size must not lower the production sum:
+// 900 real lines stay 900 + 1, over the cap, and the review tier does not drop.
+func TestPRTriageFileNameCannotLowerTheSizeSum(t *testing.T) {
+	crafted := "internal/h/b.go\n-900\t0\tinternal/h/c.go"
+	big := prFile{"internal/big/gen.go", 900, 0}
+
+	got, code := gatePR(t, []prFile{big, {crafted, 1, 0}}, "")
+	want, wantCode := gatePR(t, []prFile{big, {"internal/h/b.go", 1, 0}}, "")
+
+	if code != 1 || !strings.Contains(got, "BLOCK: over the size cap (901 > 500 production lines)") {
+		t.Errorf("exit code %d; the size-cap BLOCK did not fire\n%s", code, got)
+	}
+	if strings.Contains(got, "Tier: light") || !strings.Contains(got, "Tier: standard") {
+		t.Errorf("the review tier dropped\n%s", got)
+	}
+	if got != want || code != wantCode {
+		t.Errorf("a file name with a newline and a tab changes the report\n--- plain name (exit %d)\n%s--- crafted name (exit %d)\n%s", wantCode, want, code, got)
+	}
+}
+
+// The expression above is the first line of defence; the sums and doc-owners.sh are
+// the second: whatever rows reach them, a size field that is not all digits counts for
+// nothing and is never evaluated.
+func TestPRTriageSkipsRowsWithANonNumericSize(t *testing.T) {
+	t.Run("an expression in a size field is not evaluated", func(t *testing.T) {
+		marker := markerPath(t)
+		rows := fmt.Sprintf("12\t0\tinternal/a/real.go\na[$(touch %s)]\t0\tinternal/a/c.go\n0\ta[$(touch %s)]\tinternal/a/d.go\n", marker, marker)
+		out, code := gatePR(t, nil, rows)
+		noMarker(t, marker)
+		if code != 0 || !strings.Contains(out, "Size: production +12/-0 ") || !strings.Contains(out, "internal/a/*.go changed (+12/-0 production lines)") {
+			t.Errorf("exit code %d\n%s", code, out)
+		}
+	})
+	t.Run("a negative size does not lower the production sum", func(t *testing.T) {
+		out, code := gatePR(t, nil, "900\t0\tinternal/big/gen.go\n-900\t0\tinternal/h/c.go\n0\t-900\tinternal/h/d.go\n")
+		if code != 1 || !strings.Contains(out, "BLOCK: over the size cap (900 > 500 production lines)") || !strings.Contains(out, "Size: production +900/-0 ") {
+			t.Errorf("exit code %d\n%s", code, out)
+		}
+		if strings.Contains(out, "Tier: light") {
+			t.Errorf("the review tier dropped\n%s", out)
+		}
+	})
 }

@@ -9,7 +9,8 @@
 # A hit is a row whose glob has DOC_FLOOR or more production lines changed (added +
 # deleted) while its page is absent from the changed paths. Advisory: it prints, never
 # blocks. Exit 2 with a message on stderr when the map is unreadable or malformed.
-# It reads data only: nothing it reads is sourced, evaluated or executed.
+# It reads data only, strictly: nothing it reads is sourced, evaluated or executed, and a
+# row whose added or deleted field is not all digits is skipped before any arithmetic.
 set -euo pipefail
 
 # The floor is CONTRIBUTING.md §Pull requests; change it there and here together.
@@ -36,6 +37,9 @@ while IFS= read -r line || [ -n "$line" ]; do
     [ -n "$path" ] || continue
     [ "$path" = "$page" ] && touched=1
     [ "$kind" = production ] || continue
+    # The sizes go into bash arithmetic, which evaluates what it is given as an expression.
+    case $add in ''|*[!0-9]*) continue ;; esac
+    case $del in ''|*[!0-9]*) continue ;; esac
     # shellcheck disable=SC2254 # the glob is a pattern on purpose
     case "$path" in $glob) a=$((a + add)); d=$((d + del)) ;; esac
   done <<<"$rows"
