@@ -57,10 +57,18 @@ var (
 
 // runVersion runs `<path> --version` and returns its stdout. Indirected so
 // tests never execute a binary.
+//
+// Pi is the only provider whose detection spawns a binary: the first `pi` on
+// PATH is executed with --version, because the name alone is not evidence
+// (other tools ship a `pi` shim).
 var runVersion = func(path string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out, err := procattr.Hide(exec.CommandContext(ctx, path, "--version")).Output()
+	cmd := procattr.Hide(exec.CommandContext(ctx, path, "--version"))
+	// A shim can leave a grandchild holding stdout; without WaitDelay Output()
+	// would block past the timeout and hang `agents` and `connect`.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
 	return string(out), err
 }
 

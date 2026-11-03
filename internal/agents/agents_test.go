@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
@@ -503,5 +505,22 @@ func TestDetect_ProbeOnlyAppliesToPi(t *testing.T) {
 		if a.Provider == configurator.ProviderCodex && !a.Installed {
 			t.Error("codex must not go through a version probe")
 		}
+	}
+}
+
+// A `pi` that leaves a grandchild holding its stdout must not hang detection:
+// runVersion returns once WaitDelay expires.
+func TestRunVersion_GrandchildHoldingStdoutDoesNotHang(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture")
+	}
+	bin := filepath.Join(t.TempDir(), "pi")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nsleep 5 &\necho 1.5.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_, _ = runVersion(bin)
+	if d := time.Since(start); d > 4*time.Second {
+		t.Errorf("runVersion blocked for %v on a held stdout", d)
 	}
 }

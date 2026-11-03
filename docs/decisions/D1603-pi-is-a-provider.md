@@ -27,5 +27,5 @@ ship a `pi` on `PATH`, so the name alone is a false positive.
 - Encoding `${VAR}` like Crush D225: it breaks the token header Pi itself interpolates.
 
 **Consequences.** Pi-specific facts live in `docs/harnesses.md` §pi with the four probes. A user who
-changes an entry's exposure in `/mcp` has it rewritten to `direct` by the next sync. Plan 2 adds the
+changes an entry's exposure in `/mcp` has it rewritten to `direct` by the next sync. Detection now executes the first `pi` on `PATH` with `--version` (3 s timeout, 1 s `WaitDelay`): Pi is the only provider whose detection spawns a binary, because of the shims. Plan 2 adds the
 `hook` cell through a generated extension.
