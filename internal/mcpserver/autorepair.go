@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -100,7 +101,8 @@ func truncateFailure(s string) string {
 // readAutoRepairLines calls fn with each line of the log, in order. A line
 // longer than autoRepairLogMaxLine is skipped whole and reading goes on: one
 // oversize line must not freeze "last run" before it.
-func readAutoRepairLines(r io.Reader, fn func(line []byte)) {
+// It returns how many oversize lines it skipped.
+func readAutoRepairLines(r io.Reader, fn func(line []byte)) (skipped int) {
 	br := bufio.NewReaderSize(r, 64*1024)
 	var cur []byte
 	over := false
@@ -114,15 +116,19 @@ func readAutoRepairLines(r io.Reader, fn func(line []byte)) {
 			}
 		}
 		if err != nil {
-			if !over && len(cur) > 0 {
+			if over {
+				skipped++
+			} else if len(cur) > 0 {
 				fn(cur)
 			}
-			return
+			return skipped
 		}
 		if isPrefix {
 			continue
 		}
-		if !over {
+		if over {
+			skipped++
+		} else {
 			fn(cur)
 		}
 		cur, over = nil, false
@@ -139,6 +145,11 @@ func appendAutoRepairRun(k *kb.KB, run autoRepairRun) error {
 		return err
 	}
 	p := autoRepairLogPath(k)
+	// Prune-and-rename is read-modify-write: two writers of one log (the run's
+	// own entry and the skipped-run entry) must not interleave.
+	mu, _ := autoRepairLogLocks.LoadOrStore(p, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
@@ -164,6 +175,9 @@ func appendAutoRepairRun(k *kb.KB, run autoRepairRun) error {
 	return err
 }
 
+// autoRepairLogLocks serialises the writers of each log file, by path.
+var autoRepairLogLocks sync.Map
+
 // pruneAutoRepairLog returns the lines of the log at or after cutoff, and
 // whether any line had to go (older, unparseable or oversize).
 func pruneAutoRepairLog(p string, cutoff time.Time) (kept [][]byte, pruned bool) {
@@ -173,7 +187,15 @@ func pruneAutoRepairLog(p string, cutoff time.Time) (kept [][]byte, pruned bool)
 	}
 	defer f.Close()
 	total := 0
-	readAutoRepairLines(f, func(line []byte) {
+	// A line without its newline at the end (a crash, or an oversize last
+	// line) would glue the next append onto it: rewrite to repair it.
+	if fi, err := f.Stat(); err == nil && fi.Size() > 0 {
+		last := make([]byte, 1)
+		if _, err := f.ReadAt(last, fi.Size()-1); err == nil && last[0] != '\n' {
+			pruned = true
+		}
+	}
+	skipped := readAutoRepairLines(f, func(line []byte) {
 		total++
 		var run autoRepairRun
 		if json.Unmarshal(line, &run) != nil {
@@ -184,10 +206,17 @@ func pruneAutoRepairLog(p string, cutoff time.Time) (kept [][]byte, pruned bool)
 		}
 		kept = append(kept, append([]byte(nil), line...))
 	})
-	return kept, len(kept) != total
+	return kept, pruned || skipped > 0 || len(kept) != total
 }
 
 func rewriteAutoRepairLog(p string, lines [][]byte) error {
+	// A temporary file left by a crash is never read as the log: drop it (the
+	// caller holds the log's lock, so none is live).
+	if stale, _ := filepath.Glob(p + ".*"); len(stale) > 0 {
+		for _, f := range stale {
+			os.Remove(f)
+		}
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(p), autoRepairLogName+".*")
 	if err != nil {
 		return err
@@ -203,6 +232,10 @@ func rewriteAutoRepairLog(p string, lines [][]byte) error {
 		return err
 	}
 	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// CreateTemp makes 0600; the append path creates the log 0644.
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmp.Name(), p)
