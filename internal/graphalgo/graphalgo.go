@@ -91,7 +91,7 @@ func (g *Graph) adjacency(d Direction) [][]int {
 // on the undirected projection by forward push (Andersen, Chung, Lang 2006).
 // alpha is the restart probability; a node is pushed while its residual is at
 // least eps times its degree, so the cost is O(1/(alpha·eps)) whatever the
-// graph size. Seed weights are normalised to sum 1. An isolated node keeps the
+// graph size; the residue below the threshold is credited as alpha*r. Seed weights are normalised to sum 1. An isolated node keeps the
 // mass that reaches it, as a node with a self-loop would.
 //
 // The push queue is FIFO, started with the seeds in ascending order, which is
@@ -153,6 +153,13 @@ func PersonalizedPageRank(g *Graph, seeds map[int]float64, alpha, eps float64) [
 				queue = append(queue, v)
 			}
 		}
+	}
+	// The residue left below the push threshold is mass that belongs to the
+	// walk: a hub seed gives each neighbour less than eps*deg, and without it
+	// the neighbours would score 0 and be dropped. Adding alpha*r is the
+	// standard estimate of the unpushed mass.
+	for u := range p {
+		p[u] += alpha * r[u]
 	}
 	return p
 }

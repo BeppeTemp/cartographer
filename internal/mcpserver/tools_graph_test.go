@@ -581,3 +581,18 @@ func TestAtlasOverviewStructureWithBoilerplate(t *testing.T) {
 		t.Fatalf("the boilerplate hub names a community:\n%s", section)
 	}
 }
+
+// A community whose plurality sits at the KB root has no collection name: it
+// must read "the KB root", not "mostly in  (100%)".
+func TestAtlasStructureRootCommunityLabel(t *testing.T) {
+	t.Parallel()
+	s := graphToolKB(t, map[string]string{
+		"ra.md": "[b](rb.md) [c](rc.md).\n",
+		"rb.md": "[a](ra.md) [c](rc.md).\n",
+		"rc.md": "[a](ra.md) [b](rb.md).\n",
+	})
+	out := mustText(t, s, "atlas_overview", `{"structure":true}`)
+	if !strings.Contains(out, "3 concepts, mostly in the KB root (100%)") {
+		t.Fatalf("structure = %s", out[strings.Index(out, "## Structure"):])
+	}
+}
