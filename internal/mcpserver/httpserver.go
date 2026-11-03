@@ -18,7 +18,9 @@ import (
 
 // HTTPHandler returns an http.Handler that serves MCP over Streamable HTTP.
 // POST /mcp accepts a JSON-RPC 2.0 request and returns a JSON response.
-// GET /mcp opens an SSE stream (optional, not yet implemented).
+// GET /mcp is answered 405 on purpose: the transport is stateless and opens no
+// event stream. An MCP POST body is capped at 4 MiB by the SDK, which answers
+// a plain-text 413.
 // GET /health returns 200 OK with a JSON status body (liveness).
 // GET /ready returns readiness (single-KB server is always ready).
 func (s *Server) HTTPHandler() http.Handler {
@@ -189,10 +191,10 @@ func requestID(head []byte) json.RawMessage {
 }
 
 // notificationSniffLimit bounds how much of a body the notification sniff
-// reads. A notification is tiny — Antigravity's is 74 bytes — and this server
-// sets no MaxBytesReader anywhere, so reading the whole body to inspect two
-// top-level keys would make every POST from a modern client hold its entire
-// body in memory (D210).
+// reads. A notification is tiny — Antigravity's is 74 bytes — and the SDK
+// caps an MCP POST body at 4 MiB (a plain-text 413) only after this sniff, so
+// reading the whole body to inspect two top-level keys would make every POST
+// from a modern client hold its entire body in memory (D210).
 const notificationSniffLimit = 8 << 10
 
 // stripHeaderIfNotification removes Mcp-Protocol-Version from r when r's body
@@ -660,6 +662,11 @@ func (m *MultiKBServer) Handler() http.Handler {
 			sort.Strings(names)
 			var overflow int64
 			allRows := make([]ClientStat, 0)
+			// The routed views record the traffic of every synchronized client
+			// (their middleware, not the per-KB servers', sees it): one block
+			// of rows per view, the view's set as kb.
+			routedRows, routedOverflow := m.routedRoster(r.Context())
+			overflow += routedOverflow
 			for _, name := range names {
 				// Rows of a KB the token cannot read are skipped before
 				// ClientStats, so they add nothing to overflow either.
@@ -674,6 +681,17 @@ func (m *MultiKBServer) Handler() http.Handler {
 					allRows = append(allRows, st)
 				}
 			}
+			allRows = append(allRows, routedRows...)
+			sort.SliceStable(allRows, func(i, j int) bool {
+				x, y := allRows[i], allRows[j]
+				if x.KB != y.KB {
+					return x.KB < y.KB
+				}
+				if x.ClientName != y.ClientName {
+					return x.ClientName < y.ClientName
+				}
+				return x.ClientVersion < y.ClientVersion
+			})
 			result := map[string]interface{}{"clients": allRows}
 			if overflow > 0 {
 				result["overflow"] = overflow

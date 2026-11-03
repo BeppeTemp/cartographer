@@ -101,8 +101,11 @@ func (s *Server) buildSDKServer() *sdk.Server {
 		// defaults to advertising {"logging":{}} "for historical reasons", so
 		// an explicit empty value is what keeps the advertised set honest —
 		// D151's rule that a capability is advertised only where it is
-		// implemented.
-		Capabilities: &sdk.ServerCapabilities{},
+		// implemented. Tools is set (empty) because the SDK adds
+		// tools.listChanged to an absent one as soon as a tool exists, and the
+		// tool list is fixed per session: this server never sends
+		// notifications/tools/list_changed.
+		Capabilities: &sdk.ServerCapabilities{Tools: &sdk.ToolCapabilities{}},
 		// No Instructions here: the SDK server is memoised, so build-time text
 		// would be stale and the same for every caller. guideMiddleware sets
 		// them per handshake (D1097).
