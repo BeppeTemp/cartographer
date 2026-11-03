@@ -74,7 +74,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	settingsPath := filepath.Join(baseDir, r.FilePath)
 	_, statErr := os.Lstat(settingsPath)
 	createdFile := errors.Is(statErr, os.ErrNotExist)
-	settings, err := loadJSONObject(settingsPath)
+	settings, layout, err := loadOrderedJSONObject(settingsPath)
 	if err != nil {
 		return "", nil, err
 	}
@@ -108,7 +108,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 		}
 	}
 
-	if err := saveJSONObject(baseDir, settingsPath, settings); err != nil {
+	if err := saveOrderedJSONObject(baseDir, settingsPath, settings, layout); err != nil {
 		return "", nil, err
 	}
 	if d, ok := configurator.Lookup(provider); ok && d.DeleteOnlyIfCreated {
@@ -143,16 +143,12 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 		return err
 	}
 
-	data, err := os.ReadFile(fullPath)
-	if os.IsNotExist(err) {
+	if _, err := os.Lstat(fullPath); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
+	settings, layout, err := loadOrderedJSONObject(fullPath)
 	if err != nil {
-		return fmt.Errorf("provisioning: read %s: %w", fullPath, err)
-	}
-	var settings map[string]interface{}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return fmt.Errorf("provisioning: parse %s: %w", fullPath, err)
+		return err
 	}
 
 	key := mcpServerKey(provider)
@@ -180,7 +176,7 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 		pruneEmptyDirs(baseDir, filePath)
 		return nil
 	}
-	if err := saveJSONObject(baseDir, fullPath, settings); err != nil {
+	if err := saveOrderedJSONObject(baseDir, fullPath, settings, layout); err != nil {
 		return err
 	}
 	return configurator.DropOwner(baseDir, filePath, name)

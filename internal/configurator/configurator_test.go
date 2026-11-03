@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -962,5 +963,31 @@ func TestApply_ClaudeJSONStaleLedgerEntryIsDroppedOnReconnect(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("the user's own file must stay: %v", err)
+	}
+}
+
+// #1502: a client config that exists but cannot be read must not be replaced by
+// the sole Cartographer entry: $HOME/.claude.json holds the client's whole state.
+func TestApplyUnreadableConfigIsNotOverwritten(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs POSIX permissions and a non-root user")
+	}
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, ".claude.json")
+	orig := `{"projects":{"p":{}},"mcpServers":{"other":{"type":"http","url":"https://example.com"}}}`
+	if err := os.WriteFile(cfg, []byte(orig), 0o200); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(cfg, 0o644) })
+	r, err := configurator.Emit(&configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}, configurator.ProviderClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err == nil {
+		t.Fatal("Apply must return the read error")
+	}
+	_ = os.Chmod(cfg, 0o644)
+	if got, _ := os.ReadFile(cfg); string(got) != orig {
+		t.Errorf("file changed: %s", got)
 	}
 }

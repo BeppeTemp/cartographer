@@ -282,6 +282,11 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 				}
 			} else if os.IsNotExist(err) {
 				created = true
+			} else {
+				// EACCES, EIO, a lock held by an antivirus: replacing the file with
+				// our sole entry would cut $HOME/.claude.json down to nothing
+				// (#1502). Not read means not merged means not written.
+				return written, fmt.Errorf("read %s: %w", fullPath, err)
 			}
 		}
 
