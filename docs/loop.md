@@ -108,7 +108,7 @@ cheapest first:
    no agent: at every start (an upgrade or a config change can make untouched pages fixable), after
    a pull that moved HEAD, and once a day. The list and the period are fixed.
 3. **Doctor session**: what needs judgement. The server proposes one: the first tool result of an
-   MCP session that starts while debt exists and the last `kb-doctor` log entry is older than
+   MCP session that starts while debt exists and the last log entry whose body starts with `kb-doctor:` (the skill's closing line, nothing else counts) is older than
    `kb.DoctorSuggestionDays` days carries a notice (only on a connection that declared `provisioned=1`, D1101) asking the agent to propose a `cartographer-kb-doctor` session
    to the operator. The agent never starts it without their agreement. In the session the
    operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to

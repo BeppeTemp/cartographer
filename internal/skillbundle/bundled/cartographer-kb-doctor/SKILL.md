@@ -307,7 +307,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
 7. **Artifacts.** `artifact_read` the KB's `instructions.md` and `templates/`: update any rule or
    template this session made obsolete (a field renamed, a workaround a repair removed, a rule to add
    pages to a now-generated index or to add reverse links).
-8. **Close.** `log_append` whose text contains `kb-doctor` and the before/after counts per bucket,
+8. **Close.** `log_append` whose text starts with `kb-doctor:` (the first line of the entry; the server reads `last_doctor` from it only there, so call it without `path`, which would prefix the line) and the before/after counts per bucket,
    for example `kb-doctor: findings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
    158`. `kb_status` reads `last_doctor` from it, which also stops the proposal for one interval.
    Delegated, the entry is the transparency report the operator reads instead of being asked: list
