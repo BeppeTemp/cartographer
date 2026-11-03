@@ -3,10 +3,12 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
@@ -81,6 +83,26 @@ func TestDoctorNudgePanicIsAnErrorResult(t *testing.T) {
 	s, _ := nudgeKB(t)
 	s.now = func() time.Time { panic("clock") }
 	assertInternalError(t, s.callTool(provisionedLocal(), "search", json.RawMessage(`{"query":"N0"}`)))
+}
+
+// The audit of a call whose nudge panicked says internal_error, like the
+// client's result, not success (D1516).
+func TestDoctorNudgePanicIsAuditedAsInternalError(t *testing.T) {
+	t.Parallel()
+	s, _ := nudgeKB(t)
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	l, err := audit.OpenWithOptions(path, audit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	s.SetAuditLog(l)
+	s.now = func() time.Time { panic("clock") }
+	assertInternalError(t, s.callTool(provisionedLocal(), "search", json.RawMessage(`{"query":"N0"}`)))
+	entries := auditEntries(t, path)
+	if len(entries) != 2 || entries[1].Phase != audit.PhaseCompletion || entries[1].Outcome != audit.OutcomeInternalErr {
+		t.Fatalf("want attempt + completion/internal_error, got %+v", entries)
+	}
 }
 
 // A panicking write tool leaves the KB lock free for the next write.
