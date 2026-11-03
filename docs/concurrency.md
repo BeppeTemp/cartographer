@@ -125,7 +125,7 @@ the `branch` of the `settings.yaml` committed on the remote's default branch whe
 in the server's `kbs[]`, because it is a decision of the team that owns the KB, the same for every
 server that mounts it; and it is read **only from the default branch**: the working copy's file
 is ignored, so a change of `branch` committed on any other branch has no effect until it reaches
-the default one. Without the key, Cartographer asks the remote on every sync (`git ls-remote --symref`, and
+the default one. A failure to read that file is never read as "no `branch`": a git error is a sync error, and a file that does not parse but carries a top-level `branch:` key refuses writes until it is fixed on the default branch (a parse error without the key is ignored). Without the key, Cartographer asks the remote on every sync (`git ls-remote --symref`, and
 re-points `origin/HEAD` at the answer, since the one `git clone` wrote is never
 refreshed by a fetch); when the remote's `HEAD` names a branch it does not have —
 a self-hosted bare repository initialised with `master` and then pushed `main` —
