@@ -437,42 +437,25 @@ func codeSpans(body string) []string {
 	var spans []string
 	var fence []string
 	inFence := false
-	marker := ""
-	for _, line := range strings.Split(body, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if inFence {
-			if strings.HasPrefix(trimmed, marker) && strings.Trim(trimmed, marker[:1]) == "" {
-				spans = append(spans, strings.Join(fence, "\n"))
-				fence, inFence = nil, false
-				continue
-			}
+	lines := strings.Split(body, "\n")
+	kinds := kb.FenceKinds(body)
+	for i, line := range lines {
+		switch kinds[i] {
+		case kb.LineFenceOpen:
+			fence, inFence = nil, true
+		case kb.LineFenceBody:
 			fence = append(fence, line)
-			continue
+		case kb.LineFenceClose:
+			spans = append(spans, strings.Join(fence, "\n"))
+			fence, inFence = nil, false
+		default:
+			spans = append(spans, inlineCode(line)...)
 		}
-		if m := fenceMarker(trimmed); m != "" {
-			inFence, marker = true, m
-			continue
-		}
-		spans = append(spans, inlineCode(line)...)
 	}
 	if inFence {
 		spans = append(spans, strings.Join(fence, "\n"))
 	}
 	return spans
-}
-
-// fenceMarker returns the run of backticks or tildes that opens a fence.
-func fenceMarker(trimmed string) string {
-	for _, c := range []string{"`", "~"} {
-		n := 0
-		for n < len(trimmed) && trimmed[n] == c[0] {
-			n++
-		}
-		if n >= 3 {
-			return trimmed[:n]
-		}
-	}
-	return ""
 }
 
 // inlineCode returns the inline code spans of one line.

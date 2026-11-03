@@ -39,24 +39,18 @@ func paragraphLinks(body string) [][]linkOcc {
 		}
 		cur = nil
 	}
-	fence := ""
+	kinds := kb.FenceKinds(body)
 	off := 0
-	for _, line := range strings.SplitAfter(body, "\n") {
+	for i, line := range strings.SplitAfter(body, "\n") {
 		start := off
 		off += len(line)
-		t := strings.TrimSpace(line)
-		if fence == "" {
-			if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+		if kinds[i] != kb.LineText {
+			if kinds[i] == kb.LineFenceOpen {
 				flush()
-				fence = t[:3]
-				continue
-			}
-		} else {
-			if strings.HasPrefix(t, fence) {
-				fence = ""
 			}
 			continue
 		}
+		t := strings.TrimSpace(line)
 		if t == "" || strings.HasPrefix(t, "#") {
 			flush()
 			continue
