@@ -2856,6 +2856,15 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
+	} else if len(signed) > 0 {
+		// The server side (sync_apply) expands nothing and has no paths section,
+		// but the shared operational section is still client-owned text of the
+		// block: without its hash a release that edits it left the block old
+		// until an instructions or agent artifact changed (#1502).
+		*pathsHash = pathsSectionHash(sharedSection + "\x00")
+		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
+			triggered = true
+		}
 	}
 
 	// D293: does the AGENTS.md import state need to change? A project-scope

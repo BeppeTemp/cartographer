@@ -66,7 +66,7 @@ func LockClientState(dir string, timeout time.Duration) (func() error, error) {
 		}
 		if time.Now().After(deadline) {
 			f.Close()
-			return nil, fmt.Errorf("another cartographer operation is holding %s (waited %s): wait for it to finish, or remove the file if no cartographer process is running", path, timeout)
+			return nil, fmt.Errorf("another cartographer operation is holding %s (waited %s): wait for it to finish, or find the cartographer process that holds it and end it (the lock is released when that process dies; deleting the file would let a second one in)", path, timeout)
 		}
 		time.Sleep(clientLockPollInterval)
 	}
