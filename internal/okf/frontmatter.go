@@ -25,7 +25,7 @@ type entry struct {
 	value interface{} // string, []string or nil; valid only for entryKeyKind
 	raw   string      // original line; valid only for entryCommentKind
 
-	// comment is the trailing " # ..." of the key's line (D1573), written back
+	// comment is the trailing " # ..." of the key's line (D1558), written back
 	// verbatim while the value is unchanged. Valid only for entryKeyKind.
 	comment string
 	// block is the verbatim text of a block scalar ("|", ">" and variants:
@@ -35,6 +35,10 @@ type entry struct {
 	// page byte-identical.
 	block      string
 	blockValue string
+	// parsed marks an entry read from a file: Validate does not hold its key to
+	// CheckKey, so a page that already carries a key such as "a#b" stays
+	// writable (imported pages, D162); only keys a caller sets are checked.
+	parsed bool
 }
 
 // Block is the raw text of a nested block under a key whose value is empty:
@@ -166,7 +170,7 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 		if comment != "" && !strings.HasPrefix(comment, " ") {
 			comment = " " + comment
 		}
-		e := entry{kind: entryKeyKind, key: key, value: value, comment: comment, block: blockText, blockValue: blockValue}
+		e := entry{kind: entryKeyKind, key: key, value: value, comment: comment, block: blockText, blockValue: blockValue, parsed: true}
 		if idx, exists := fm.index[key]; exists {
 			e.kind = entryKeyKind
 			fm.entries[idx] = e
@@ -180,7 +184,7 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 }
 
 // splitInlineComment splits a scalar's text (already trimmed) from a trailing
-// YAML comment (D1573). A quoted scalar ends at its closing quote; an unquoted
+// YAML comment (D1558). A quoted scalar ends at its closing quote; an unquoted
 // one at the first "#" that starts the text or follows a space or tab. When
 // the text after a closing quote is not a comment the whole text is the value,
 // as before. The returned comment keeps its "#" and has no leading space.
@@ -345,7 +349,7 @@ func nestedBlockEnd(lines []string, start int) int {
 // skipped, so a "]" in a quoted element is not a terminator. Scanning stops at the
 // end of the frontmatter block: a "[" with no "]" before it is unclosed, not a
 // licence to consume the body. tail is what follows the closing bracket on its
-// line (a trailing comment, D1573).
+// line (a trailing comment, D1558).
 func collectFlowList(lines []string, start int) (inner string, consumed int, tail string, closed bool) {
 	var sb strings.Builder
 	depth := 0
@@ -487,13 +491,21 @@ func (fm *Frontmatter) Serialize() string {
 			sb.WriteByte('\n')
 		case entryKeyKind:
 			if v, ok := e.value.(string); ok && e.block != "" && v == e.blockValue {
-				sb.WriteString(e.key + ": " + e.block + "\n")
+				block := e.block
+				if e.comment != "" {
+					if nl := strings.IndexByte(block, '\n'); nl >= 0 {
+						block = block[:nl] + e.comment + block[nl:]
+					} else {
+						block += e.comment
+					}
+				}
+				sb.WriteString(e.key + ": " + block + "\n")
 				continue
 			}
 			line := mustSerializeEntry(e.key, e.value)
 			if e.comment != "" {
-				if nl := strings.IndexByte(line, '\n'); nl >= 0 && strings.Count(line, "\n") == 1 {
-					line = line[:nl] + e.comment + "\n"
+				if nl := strings.IndexByte(line, '\n'); nl >= 0 {
+					line = line[:nl] + e.comment + line[nl:]
 				}
 			}
 			sb.WriteString(line)
@@ -527,7 +539,7 @@ func CheckValue(key string, value interface{}) error {
 }
 
 // CheckKey reports whether key is one serializeEntry writes and ParseFrontmatter
-// reads back unchanged (D1573): serializeEntry emits "key: ", so a key holding
+// reads back unchanged (D1558): serializeEntry emits "key: ", so a key holding
 // ':', '#', a line break, edge whitespace or a "- " prefix reads back as another
 // key, a comment or a continuation, or writes keys the caller never passed.
 func CheckKey(key string) error {
@@ -551,8 +563,10 @@ func (fm *Frontmatter) Validate() error {
 		if e.kind != entryKeyKind {
 			continue
 		}
-		if err := CheckKey(e.key); err != nil {
-			return err
+		if !e.parsed {
+			if err := CheckKey(e.key); err != nil {
+				return err
+			}
 		}
 		if err := CheckValue(e.key, e.value); err != nil {
 			return err
@@ -713,6 +727,7 @@ func (fm *Frontmatter) Rename(oldKey, newKey string) bool {
 		return false
 	}
 	fm.entries[idx].key = newKey
+	fm.entries[idx].parsed = false
 	delete(fm.index, oldKey)
 	fm.index[newKey] = idx
 	return true

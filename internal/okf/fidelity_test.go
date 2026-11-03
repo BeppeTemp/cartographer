@@ -132,3 +132,24 @@ func TestSplitFrontmatterBOM(t *testing.T) {
 		t.Error("BOM changes the content hash")
 	}
 }
+
+func TestCommentsSurviveOnBlocks(t *testing.T) {
+	raw := "description: > # note\n  a\n  b\np: # c\n  codex: x\nt: x"
+	fm := mustParse(t, raw)
+	fm.Set("t", "y")
+	if got, want := fm.Serialize(), strings.Replace(raw, "t: x", "t: y", 1); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestParsedKeysStayWritable(t *testing.T) {
+	fm := mustParse(t, "type: T\na#b: v\n- name: a\ntitle: x")
+	fm.Set("title", "y")
+	if err := fm.Validate(); err != nil {
+		t.Fatalf("existing keys refused: %v", err)
+	}
+	fm.Set("c:d", "v")
+	if err := fm.Validate(); err == nil {
+		t.Fatal("a set key with ':' accepted")
+	}
+}

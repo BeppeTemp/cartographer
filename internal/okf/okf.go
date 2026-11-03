@@ -109,7 +109,7 @@ func SplitFrontmatter(content string) (frontmatterRaw string, body string, hasFr
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	// A UTF-8 byte order mark before the delimiter is not content: without
 	// this the whole block was taken for body and the next write prepended a
-	// second frontmatter (D1573).
+	// second frontmatter (D1558).
 	content = strings.TrimPrefix(content, "\ufeff")
 
 	// A file of exactly "---" opened a block it never closed: it has no

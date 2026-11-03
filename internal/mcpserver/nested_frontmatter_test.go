@@ -101,7 +101,7 @@ func TestConceptWrite_NullListItemRefusedAndScalarItemsFormatted(t *testing.T) {
 	}
 }
 
-// D1573: a frontmatter key the parser would read back as something else is
+// D1558: a frontmatter key the parser would read back as something else is
 // refused naming the key, and nothing is written.
 func TestConceptWrite_RefusesUnsafeFrontmatterKeys(t *testing.T) {
 	t.Parallel()

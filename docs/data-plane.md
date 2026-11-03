@@ -223,7 +223,7 @@ A key whose value is empty and whose following lines are **indented** holds a ne
 example an agent's `providers:` map. The parser keeps those lines verbatim as an `okf.Block` value under
 that key instead of flattening them into sibling keys; it does not interpret them, and the serializer writes them back unchanged.
 
-The frontmatter subset the parser reads (D1573):
+The frontmatter subset the parser reads (D1558):
 
 - **Keys** are the text before the first `:` on a line at column 0. An **indented** line outside an open block is never a key: it is a continuation or comment, kept verbatim and removed with its key when that key is overwritten or deleted. The write tools refuse a key that is empty, holds `:`, `#` or a line break, starts or ends with whitespace, or starts with `- `, with `invalid_frontmatter` naming the key.
 - **Block scalars** (`|`, `>`, with `-`, `+` or an indentation digit) read as their logical string (literal keeps the line breaks, folded joins with a space; `-` strips and `+` keeps the final newlines). The text is kept verbatim: a write that does not change that key leaves it byte-identical; overwriting it replaces the block with a plain scalar.
