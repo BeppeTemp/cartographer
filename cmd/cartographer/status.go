@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,6 +55,10 @@ func cmdStatus(args []string) int {
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "Error: the client config cannot be read (fix or remove %s): %v\n", clientconfig.Path(dir), err)
+			return 2
+		}
 		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)
 		return 2
 	}

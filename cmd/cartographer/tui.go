@@ -975,9 +975,10 @@ func (m Model) updateConfirmDisconnect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // The form itself lives in connectform.go (connectFormModel), shared with the
 // standalone `cartographer connect` interactive prompt.
 func (m Model) openConnectForm(row dashboardAgent) Model {
-	cfg, err := clientconfig.Load(m.dir)
+	cfg, err := loadConfigForWrite(m.dir)
 	if err != nil {
-		cfg = clientconfig.Default()
+		m.err = err
+		return m
 	}
 	prefill := connectOptions{Providers: []string{string(row.Provider)}, ServerURL: cfg.ServerURL, Name: cfg.ServerName, Token: cfg.Token, Auth: cfg.Auth}
 

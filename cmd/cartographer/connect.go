@@ -367,7 +367,10 @@ func cmdConnect(args []string) int {
 	fs.Visit(func(f *flag.Flag) { passed[f.Name] = true })
 
 	var existing *clientconfig.Config
-	if c, err := clientconfig.Load(dir); err == nil {
+	if c, err := loadConfigForWrite(dir); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	} else if _, statErr := os.Stat(clientconfig.Path(dir)); statErr == nil {
 		existing = c
 	}
 	settings := resolveConnectSettings(passed, *serverURL, *auth, *tokenEnv, existing)
@@ -394,9 +397,10 @@ func cmdConnect(args []string) int {
 	}
 
 	if interactive {
-		prefill, err := clientconfig.Load(dir)
+		prefill, err := loadConfigForWrite(dir)
 		if err != nil {
-			prefill = clientconfig.Default()
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
 		}
 		title := fmt.Sprintf("Connect %s", strings.Join(providers, ", "))
 		formPrefill := connectOptions{Providers: providers, ServerURL: prefill.ServerURL, Name: prefill.ServerName, Auth: prefill.Auth, Token: prefill.Token}
@@ -687,6 +691,22 @@ func removeLegacyDoctorTimer() {
 	}
 }
 
+// loadConfigForWrite loads the client config for a command that will save it.
+// Only a missing file means "first connect" and gives Default(); any other
+// error (malformed YAML, a rejected key, EACCES) stops the command before any
+// write, because Save from Default() would replace pins, identities and
+// approvals no default can rebuild (D1514).
+func loadConfigForWrite(dir string) (*clientconfig.Config, error) {
+	cfg, err := clientconfig.Load(dir)
+	if err == nil {
+		return cfg, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return clientconfig.Default(), nil
+	}
+	return nil, fmt.Errorf("the client config cannot be read, nothing was changed (fix or remove %s): %w", clientconfig.Path(dir), err)
+}
+
 // ensureSyncTimer installs the scheduled trigger when a provider being
 // configured has no reliable session-start hook and the timer is not already
 // there (D325, revising D140's opt-in): left to a hint, that client drifts
@@ -844,10 +864,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	// 1. Discover mounted KBs before generating MCP entries. A down server
 	// deliberately falls back to the historical bare entry, so connection can
 	// still be recorded and materialized later with `cartographer sync`.
-	existing, err := clientconfig.Load(opts.Dir)
+	existing, err := loadConfigForWrite(opts.Dir)
 	if err != nil {
-		existing = clientconfig.Default()
-	} else {
+		return connectResult{}, err
+	}
+	if _, statErr := os.Stat(clientconfig.Path(opts.Dir)); statErr == nil {
 		// connect saves the config itself, which drops the name; the lockfile
 		// section goes with the next sync (connect holds no client lock here).
 		handleUnsupportedProviders(opts.Dir, existing, false)

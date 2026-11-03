@@ -1,6 +1,7 @@
 package clientconfig
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -23,6 +24,10 @@ var droppedKeys = map[string]bool{
 	"token_env": true, "trust": true, "write_findings_hook": true, "search_depth": true,
 	"agents": true, "sync_timer_opt_out": true, "update": true,
 }
+
+// ErrUnparsable is what Save returns for an existing file that is not YAML: it
+// is never replaced (D1514).
+var ErrUnparsable = errors.New("unparsable client config")
 
 // yamlKeys lists the top-level YAML keys of yamlConfig, in field order.
 func yamlKeys() []string {
@@ -49,8 +54,9 @@ func buildDocument(existing []byte, y *yamlConfig, extra map[string]interface{})
 	var doc yaml.Node
 	if len(existing) > 0 {
 		if err := yaml.Unmarshal(existing, &doc); err != nil {
-			// A file that does not parse is replaced, as Save always has.
-			doc = yaml.Node{}
+			// Never replaced: the file holds pins, identities and approvals no
+			// default can rebuild (D1514). The operator fixes or removes it.
+			return nil, fmt.Errorf("%w: the file does not parse, not replacing it: %v", ErrUnparsable, err)
 		}
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
