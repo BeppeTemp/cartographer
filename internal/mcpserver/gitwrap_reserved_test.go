@@ -232,7 +232,7 @@ func TestHandleConflictError_ExpandedConceptBodyIsAConcept(t *testing.T) {
 	if err := os.WriteFile(k.Root+"/data/ops/runbook/index.md", []byte("---\ntype: Topic\ntitle: R\n---\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	n, reserved := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/ops/runbook/index.md", "data/ops/index.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	n, reserved, _ := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/ops/runbook/index.md", "data/ops/index.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
 	if n != 1 || len(reserved) != 1 || reserved[0] != "data/ops/index.md" {
 		t.Fatalf("n=%d reserved=%v", n, reserved)
 	}
