@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -109,6 +110,9 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 	}
 	for _, slug := range templates {
 		data, oversized, err := provisioning.ReadFileCapped(filepath.Join(k.Root, "templates", slug+".md"))
+		if errors.Is(err, provisioning.ErrNotRegular) {
+			continue // a symlinked template is left out, not the whole listing
+		}
 		if err != nil {
 			return kbArtifactCatalog{}, err
 		}

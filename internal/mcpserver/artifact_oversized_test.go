@@ -2,11 +2,14 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // oversizedKB has a skill "x" with a valid SKILL.md and a file one byte over
@@ -131,5 +134,79 @@ func pullShipped(t *testing.T, s *Server) {
 	}
 	if !found {
 		t.Fatalf("no issue line for the excluded skill: %v", pull.Issues)
+	}
+}
+
+// A skill of many small files is bounded by the directory budget, not only by
+// the per-file cap: it is excluded from sync_pull, nothing is read past it.
+func TestSyncPullExcludesSkillOverFileBudget(t *testing.T) {
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	dir := filepath.Join(k.Root, "skills", "many")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: many\ndescription: many\n---\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < provisioning.ArtifactMaxFiles+5; i++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%04d.txt", i)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commitFixtures(t, k.Root)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}})
+	text, isErr := callJSON(t, s, adminCtx, "sync_pull", `{}`)
+	if isErr {
+		t.Fatalf("sync_pull: %s", text)
+	}
+	if !strings.Contains(text, `skill \"many\" excluded from sync_pull`) {
+		t.Fatalf("no exclusion line: %.400s", text)
+	}
+}
+
+// A tracked symlink as an agent, an mcp descriptor or a template leaves out
+// that artifact, never the manifest of the whole KB. (artifact_list and
+// template_list refuse any symlink in the tree by design, before this.)
+func TestSymlinkedSingleFileArtifactsDoNotBreakTheKB(t *testing.T) {
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	outside := filepath.Join(t.TempDir(), "t.md")
+	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"agents/a.md", "mcp/m.json", "templates/t.md"} {
+		p := filepath.Join(k.Root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, p); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	commitFixtures(t, k.Root)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}})
+	for _, tool := range []string{"sync_check", "sync_pull"} {
+		if text, isErr := callJSON(t, s, adminCtx, tool, `{}`); isErr {
+			t.Errorf("%s: %s", tool, text)
+		}
+	}
+	text, _ := callJSON(t, s, adminCtx, "sync_pull", `{}`)
+	if !strings.Contains(text, "left out: not a regular file") {
+		t.Errorf("no issue for the symlinked artifacts: %.400s", text)
+	}
+}
+
+// artifact_write and artifact_delete never read or clobber an existing file
+// over the cap.
+func TestArtifactWriteDeleteRefuseOversizedExisting(t *testing.T) {
+	s := oversizedKB(t, false)
+	if text, isErr := callJSON(t, s, adminCtx, "artifact_write", `{"path":"skills/x/big.bin","content":"y","if_match":"deadbeef"}`); !isErr || !strings.HasPrefix(text, "oversized:") {
+		t.Errorf("artifact_write = %v %s", isErr, text)
+	}
+	if text, isErr := callJSON(t, s, adminCtx, "artifact_delete", `{"path":"skills/x/big.bin","if_match":"deadbeef"}`); !isErr || !strings.HasPrefix(text, "oversized:") {
+		t.Errorf("artifact_delete = %v %s", isErr, text)
 	}
 }

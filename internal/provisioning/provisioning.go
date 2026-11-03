@@ -480,6 +480,8 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, 
 
 	sort.Strings(paths)
 
+	var total int64
+	count := 0
 	for _, p := range paths {
 		// Compute the path relative to the root dir.
 		rel := p
@@ -510,6 +512,16 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, 
 		if maxFile > 0 && info.Size() > maxFile {
 			files = append(files, ArtifactFile{Path: rel, Content: oversizedMarker(info.Size()), Executable: exec})
 			continue
+		}
+		if maxFile > 0 {
+			// The directory budget of readDirFiles: past it nothing more is
+			// read, and the hash records the file that crossed it.
+			count++
+			if count > ArtifactMaxFiles || total+info.Size() > ArtifactMaxTotalSize {
+				files = append(files, ArtifactFile{Path: rel, Content: oversizedMarker(max(info.Size(), 1)), Executable: exec})
+				break
+			}
+			total += info.Size()
 		}
 		data, readErr := fs.ReadFile(fsys, p)
 		if readErr != nil {
@@ -836,6 +848,11 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					continue
 				}
 				hash, err := contentHashFile(filepath.Join(agentsDir, e.Name()))
+				if errors.Is(err, ErrNotRegular) {
+					// One tracked symlink leaves out that artifact, not the KB.
+					issues = append(issues, fmt.Sprintf("KB %q: agent %q left out: not a regular file", kbName, name))
+					continue
+				}
 				if err != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/agents/%s: %w", kbName, name, err)
 				}
@@ -903,6 +920,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				}
 				mcpPath := filepath.Join(mcpDir, e.Name())
 				data, mcpSize, readErr := ReadFileCapped(mcpPath)
+				if errors.Is(readErr, ErrNotRegular) {
+					issues = append(issues, fmt.Sprintf("KB %q: mcp %q left out: not a regular file", kbName, name))
+					continue
+				}
 				if readErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: read kb:%s/mcp/%s: %w", kbName, name, readErr)
 				}
@@ -1249,22 +1270,62 @@ func extractDirectives(content string) map[string]string {
 	return out
 }
 
+// ErrNotRegular is what ReadFileCapped wraps for a symlink, a device or any
+// other file that is not a regular one: a caller that answers per artifact
+// skips that artifact instead of failing the KB.
+var ErrNotRegular = errors.New("not a regular file")
+
+// ArtifactMaxTotalSize and ArtifactMaxFiles bound what one skill or hook
+// directory may make the server read: the per-file cap alone lets thousands of
+// just-under-cap files be read whole. Past either, the artifact is reported
+// oversized like a file over the cap.
+const (
+	ArtifactMaxTotalSize = 8 << 20
+	ArtifactMaxFiles     = 512
+)
+
 // ReadFileCapped reads a KB's own file without following a symlink and without
 // reading one over ArtifactMaxFileSize: for that, data is nil and size is the
-// file's size. A symlink is an error.
+// file's size. A file that is not regular is an ErrNotRegular. The read goes
+// through the opened handle and a LimitReader, so a file that grows or is
+// swapped after the Lstat is still read at most cap+1 bytes.
 func ReadFileCapped(path string) (data []byte, size int64, err error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, 0, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, 0, fmt.Errorf("%s is not a regular file", path)
+		return nil, 0, fmt.Errorf("%s: %w", path, ErrNotRegular)
 	}
 	if info.Size() > ArtifactMaxFileSize {
 		return nil, info.Size(), nil
 	}
-	data, err = os.ReadFile(path)
-	return data, 0, err
+	return readOpenedCapped(path, info)
+}
+
+// readOpenedCapped opens path, checks it is still the regular file lstat saw,
+// and reads at most ArtifactMaxFileSize+1 bytes of it.
+func readOpenedCapped(path string, lstat os.FileInfo) (data []byte, size int64, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if !fi.Mode().IsRegular() || !os.SameFile(lstat, fi) {
+		return nil, 0, fmt.Errorf("%s: %w", path, ErrNotRegular)
+	}
+	data, err = io.ReadAll(io.LimitReader(f, ArtifactMaxFileSize+1))
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(data) > ArtifactMaxFileSize {
+		return nil, int64(len(data)), nil
+	}
+	return data, 0, nil
 }
 
 // contentHashFile computes the versioned artifact hash of a single,
@@ -4793,6 +4854,8 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 // "directory with one or more files" schema.
 func readDirFiles(srcDir string, include func(rel string) bool) ([]ArtifactFile, error) {
 	var files []ArtifactFile
+	var total int64
+	count := 0
 	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -4807,25 +4870,42 @@ func readDirFiles(srcDir string, include func(rel string) bool) ([]ArtifactFile,
 		if include != nil && !include(filepath.ToSlash(rel)) {
 			return nil
 		}
-		// d.Info is an Lstat: a symlink is not followed, and a file over the cap
-		// is reported, never read.
+		// d.Info is an Lstat: a symlink is not followed, and a file over the
+		// cap is reported, never read.
 		fileInfo, infoErr := d.Info()
 		if infoErr != nil {
 			return infoErr
 		}
-		if fileInfo.Mode()&fs.ModeSymlink != 0 {
+		if !fileInfo.Mode().IsRegular() {
 			return nil
 		}
 		exec := execbit.IsExecutable(fileInfo.Mode())
+		relSlash := filepath.ToSlash(rel)
 		if fileInfo.Size() > ArtifactMaxFileSize {
-			files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Executable: exec, Oversized: fileInfo.Size()})
+			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: fileInfo.Size()})
 			return nil
 		}
-		data, readErr := os.ReadFile(path)
+		// A running budget on the whole directory: past it nothing more is
+		// read and the file that crossed it is reported oversized, which
+		// excludes the artifact like one big file does.
+		count++
+		if count > ArtifactMaxFiles || total+fileInfo.Size() > ArtifactMaxTotalSize {
+			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: max(fileInfo.Size(), 1)})
+			return fs.SkipAll
+		}
+		data, size, readErr := readOpenedCapped(path, fileInfo)
+		if errors.Is(readErr, ErrNotRegular) {
+			return nil // swapped for a link after the Lstat
+		}
 		if readErr != nil {
 			return readErr
 		}
-		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: exec})
+		if size > 0 {
+			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: size})
+			return nil
+		}
+		total += int64(len(data))
+		files = append(files, ArtifactFile{Path: relSlash, Content: data, Executable: exec})
 		return nil
 	})
 	if err != nil {

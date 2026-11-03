@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -382,7 +383,10 @@ func scanTemplates(k *kb.KB) ([]templateListEntry, error) {
 	}
 	out := make([]templateListEntry, 0, len(slugs))
 	for _, slug := range slugs {
-		data, err := os.ReadFile(filepath.Join(k.Root, "templates", slug+".md"))
+		data, oversized, err := provisioning.ReadFileCapped(filepath.Join(k.Root, "templates", slug+".md"))
+		if errors.Is(err, provisioning.ErrNotRegular) || oversized > 0 {
+			continue // a symlinked or oversized template is not listed, nor read
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -497,7 +501,10 @@ func toolArtifactWrite(k *kb.KB) Tool {
 				return errorResult(err.Error()), nil
 			}
 
-			existing, statErr := os.ReadFile(abs)
+			existing, existingSize, statErr := provisioning.ReadFileCapped(abs)
+			if existingSize > 0 {
+				return errorResult(fmt.Sprintf("oversized: %s is %d bytes, over the %d bytes cap of an artifact file; it is neither read nor overwritten (replace it through git)", params.Path, existingSize, artifactMaxFileSize)), nil
+			}
 			fileExists := statErr == nil
 			if statErr != nil && !os.IsNotExist(statErr) {
 				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, statErr)), nil
@@ -993,7 +1000,10 @@ func toolArtifactDelete(k *kb.KB) Tool {
 				return errorResult(err.Error()), nil
 			}
 
-			existing, readErr := os.ReadFile(abs)
+			existing, existingSize, readErr := provisioning.ReadFileCapped(abs)
+			if existingSize > 0 {
+				return errorResult(fmt.Sprintf("oversized: %s is %d bytes, over the %d bytes cap of an artifact file; it is not read, so it has no sha256 to match (remove it through git)", params.Path, existingSize, artifactMaxFileSize)), nil
+			}
 			if readErr != nil {
 				if os.IsNotExist(readErr) {
 					return errorResult(fmt.Sprintf("not_found: %s", params.Path)), nil

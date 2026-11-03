@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -291,6 +292,10 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 			var embedded int
 			for _, a := range m.Artifacts {
 				files, err := provisioning.ReadArtifactFilesCapped(a, bundleFS, kbRoots)
+				if errors.Is(err, provisioning.ErrNotRegular) {
+					excluded = append(excluded, fmt.Sprintf("%s %q excluded from sync_pull: not a regular file", a.Kind, a.Name))
+					continue
+				}
 				if err != nil {
 					return errorResult(fmt.Sprintf("sync_pull: read files of %s/%s: %v", a.Kind, a.Name, err)), nil
 				}
@@ -359,7 +364,7 @@ func pullExclusion(files []provisioning.ArtifactFile, embedded int) string {
 	total := 0
 	for _, f := range files {
 		if f.Oversized > 0 {
-			return fmt.Sprintf("%s is %d bytes, over the %d bytes cap of an artifact file", f.Path, f.Oversized, artifactMaxFileSize)
+			return fmt.Sprintf("%s is %d bytes, over the %d bytes cap of an artifact file (or the artifact is past %d files or %d bytes in all)", f.Path, f.Oversized, artifactMaxFileSize, provisioning.ArtifactMaxFiles, provisioning.ArtifactMaxTotalSize)
 		}
 		total += len(f.Content)
 	}
