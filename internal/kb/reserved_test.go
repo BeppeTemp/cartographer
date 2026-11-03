@@ -198,15 +198,15 @@ func TestSyncIn_StructuralReservedConflictTakesTheirs(t *testing.T) {
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
-	k, other, branch := reservedSyncKB(t, true, map[string]string{"data/ops/index.md": "# Ops\n"})
-	colleaguePush(t, other, branch, map[string]string{"data/ops/index.md": "# Ops\n\nremote\n"})
-	localCommit(t, k, map[string]string{"data/ops/index.md": "# Ops\n\nlocal\n"})
+	k, other, branch := reservedSyncKB(t, true, map[string]string{"data/ops/_map.md": "# Ops\n"})
+	colleaguePush(t, other, branch, map[string]string{"data/ops/_map.md": "# Ops\n\nremote\n"})
+	localCommit(t, k, map[string]string{"data/ops/_map.md": "# Ops\n\nlocal\n"})
 
 	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("SyncIn: %v", err)
 	}
-	if got := readRel(t, k.Root, "data/ops/index.md"); got != "# Ops\n\nremote\n" {
-		t.Fatalf("index.md = %q, want the remote version", got)
+	if got := readRel(t, k.Root, "data/ops/_map.md"); got != "# Ops\n\nremote\n" {
+		t.Fatalf("_map.md = %q, want the remote version", got)
 	}
 	if cs, _ := k.ListConflicts(); len(cs) != 0 {
 		t.Fatalf("registry = %+v, want empty", cs)
@@ -459,5 +459,100 @@ func TestPullRebase_NeedsNoNetworkAfterTheFetch(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(k.Root, "remote.md")); err != nil {
 		t.Fatalf("the fetched commit was not rebased onto: %v", err)
+	}
+}
+
+func TestIsReservedPath_ExpandedConceptBodyIsAConcept(t *testing.T) {
+	t.Parallel()
+	for p, want := range map[string]bool{
+		"data/log.md":               true,
+		"data/index.md":             true,
+		"data/ops/index.md":         true,
+		"data/ops/_map.md":          true,
+		"data/ops/runbook/index.md": false,
+		"data/ops/note.md":          false,
+	} {
+		if got := IsReservedPath(p); got != want {
+			t.Errorf("IsReservedPath(%q) = %v, want %v", p, got, want)
+		}
+	}
+	if id, ok := GitPathToExpandedConceptID("data/ops/runbook/index.md"); !ok || id != "ops/runbook" {
+		t.Errorf("expanded id = %q, %v", id, ok)
+	}
+	if _, ok := GitPathToExpandedConceptID("data/ops/index.md"); ok {
+		t.Error("a map index is not an expanded concept")
+	}
+}
+
+// resolveIndexConflict makes two clones edit data/m/index.md from the same base
+// and returns the index after k replays its local line onto the remote's.
+func resolveIndexConflict(t *testing.T, mapContract string) string {
+	t.Helper()
+	k, bare := remoteWithDefault(t)
+	commit := func(dir, msg string) {
+		gitIn(t, dir, "add", "-A")
+		gitIn(t, dir, "-c", "user.name=user", "-c", "user.email=user@example.com", "commit", "-q", "-m", msg)
+	}
+	write := func(dir, rel, content string) {
+		abs := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	gitIn(t, filepath.Dir(other), "clone", "-q", bare, other)
+	write(other, "data/m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n"+mapContract+"---\n# M\n")
+	write(other, "data/m/index.md", "---\ntype: Index\ntitle: M\n---\n# M\n\n")
+	commit(other, "base")
+	gitIn(t, other, "push", "-q", "origin", "main")
+	if err := gitx.Fetch(k.Root, "origin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.pullRebase("origin", "main"); err != nil {
+		t.Fatal(err)
+	}
+	write(other, "data/m/index.md", "---\ntype: Index\ntitle: M\n---\n# M\n\n- [a](a.md)\n")
+	commit(other, "remote entry")
+	gitIn(t, other, "push", "-q", "origin", "main")
+	write(k.Root, "data/m/index.md", "---\ntype: Index\ntitle: M\n---\n# M\n\n- [b](b.md)\n")
+	commit(k.Root, "local entry")
+	if err := gitx.Fetch(k.Root, "origin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.pullRebase("origin", "main"); err != nil {
+		t.Fatalf("pullRebase: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(k.Root, "data/m/index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// Two clones adding a concept to a curated index: both lines survive. The
+// remote side alone lost the local line silently (D1566).
+func TestPullRebase_CuratedIndexKeepsBothSides(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	got := resolveIndexConflict(t, "")
+	if !strings.Contains(got, "a.md") || !strings.Contains(got, "b.md") {
+		t.Fatalf("index lost a side:\n%s", got)
+	}
+}
+
+// A generated index is rewritten by every write, so the remote side is enough.
+func TestPullRebase_GeneratedIndexTakesTheRemoteSide(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	got := resolveIndexConflict(t, "index: generated\n")
+	if !strings.Contains(got, "a.md") || strings.Contains(got, "b.md") {
+		t.Fatalf("generated index = %q, want the remote's version", got)
 	}
 }

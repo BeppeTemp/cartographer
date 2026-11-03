@@ -489,7 +489,10 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 	var reserved, concepts, other []string
 	conceptIDs := map[string]string{}
 	for _, file := range rce.Files {
-		if conceptID, ok := kb.GitPathToConceptID(file); ok {
+		if conceptID, ok := kb.GitPathToConceptID(file); ok || expandedID(file) != "" {
+			if !ok {
+				conceptID = expandedID(file)
+			}
 			concepts = append(concepts, file)
 			conceptIDs[file] = conceptID
 		} else if kb.IsReservedPath(file) {
@@ -537,6 +540,12 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 		n++
 	}
 	return n, reserved, other
+}
+
+// expandedID is the concept an expanded concept's index.md holds, or "".
+func expandedID(file string) string {
+	id, _ := kb.GitPathToExpandedConceptID(file)
+	return id
 }
 
 // conflictMessage is the error a write returns when its SyncIn hit a rebase
