@@ -360,3 +360,53 @@ func TestSearchMiss_TopBoundsItsRechecks(t *testing.T) {
 		t.Fatalf("checker ran %d times, want %d", calls, searchMissMaxChecks)
 	}
 }
+
+// Queries past the re-check budget are flagged unchecked and sit between the
+// open ones and the resolved ones.
+func TestSearchMiss_UncheckedPastTheBudget(t *testing.T) {
+	t.Parallel()
+	_, _, l := missFixture(t)
+	for i := 0; i < searchMissMaxChecks+5; i++ {
+		l.record(fmt.Sprintf("query %03d", i))
+	}
+	// Every checked query is resolved except "query 000"; the rest is unreached.
+	l.SetChecker(func(q string) bool { return q != "query 000" })
+	top := l.top()
+	if len(top) != searchMissTop {
+		t.Fatalf("top has %d entries, want %d", len(top), searchMissTop)
+	}
+	if e := top[0]; e.Query != "query 000" || e.Resolved || e.Unchecked {
+		t.Fatalf("first must be the open query, got %+v", e)
+	}
+	// open, then unchecked, then resolved
+	phase := 0
+	sawUnchecked := false
+	for _, e := range top[1:] {
+		want := 2
+		if e.Unchecked {
+			want, sawUnchecked = 1, true
+			if e.Resolved {
+				t.Fatalf("unchecked and resolved: %+v", e)
+			}
+		}
+		if want < phase {
+			t.Fatalf("order must be open, unchecked, resolved: %+v", top)
+		}
+		phase = want
+	}
+	if !sawUnchecked {
+		t.Fatalf("no unchecked entry in %+v", top)
+	}
+}
+
+// include_archived: true looks at the whole KB, so its miss is recorded.
+func TestSearchMiss_IncludeArchivedTrueMissIsRecorded(t *testing.T) {
+	t.Parallel()
+	_, s, l := missFixture(t)
+	if tr := s.callTool(authLocalContext(), "search", json.RawMessage(`{"query":"zzarchivedtrue","include_archived":true}`)); tr.IsError {
+		t.Fatalf("%+v", tr.Content)
+	}
+	if got := missLines(t, l); len(got) != 1 || got[0].Query != "zzarchivedtrue" {
+		t.Fatalf("recorded = %+v, want the query", got)
+	}
+}

@@ -225,6 +225,9 @@ type searchMissSummary struct {
 	LastSeen string `json:"last_seen"`
 	// Resolved: the same query now returns results (D319).
 	Resolved bool `json:"resolved,omitempty"`
+	// Unchecked: the re-check budget ran out before this query, so it is
+	// neither known open nor resolved.
+	Unchecked bool `json:"unchecked,omitempty"`
 }
 
 // top aggregates the misses of the last searchMissWindow: the searchMissTop
@@ -286,6 +289,7 @@ func (l *searchMissLog) top() []searchMissSummary {
 				break
 			}
 			if checks == searchMissMaxChecks {
+				s.Unchecked = true
 				unchecked = append(unchecked, s)
 				continue
 			}
