@@ -32,7 +32,7 @@ as a request budget.
 
 The stdio bridge (`cartographer mcp`) mirrors that: its HTTP client has no overall
 timeout, and a call is bounded by the session (stdin closing, or the process being
-stopped). It sends `MCP-Protocol-Version` from the version the server answered in
+stopped); after stdin closes, calls still in flight get 30 seconds to finish before they are aborted. It sends `MCP-Protocol-Version` from the version the server answered in
 `initialize` (or, for the handshake it answers itself, a revision it knows), never
 from the client's request alone. It reads stdin up to 16 MiB per line without
 holding more, and a line over that ends the session with "message too large", also

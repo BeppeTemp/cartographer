@@ -37,6 +37,10 @@ const (
 // that declares roots and never answers must not hang the session.
 const rootsTimeout = 5 * time.Second
 
+// eofGrace is how long Run lets in-flight calls finish once the session is
+// over (stdin closed) before it aborts them. A variable so tests can shorten it.
+var eofGrace = 30 * time.Second
+
 // maxLine is the largest single JSON-RPC message accepted on stdin.
 const maxLine = 16 * 1024 * 1024
 
@@ -116,6 +120,8 @@ func (b *Bridge) logf(format string, args ...any) {
 
 // Run serves the session until stdin closes or ctx is done.
 func (b *Bridge) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if b.HTTP == nil {
 		// No overall Timeout: a response header only arrives when the tool
 		// finishes, so no per-phase timeout can tell a slow tool (a reindex, a
@@ -160,7 +166,19 @@ func (b *Bridge) Run(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 	defer b.closeSession()
-	defer wg.Wait()
+	defer func() {
+		// Requests read before EOF are answered (a piped smoke test relies on
+		// it), but not forever: with no client Timeout, a server that never
+		// answers would keep the process alive after its client is gone.
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(eofGrace):
+			cancel()
+			<-done
+		}
+	}()
 	var stash [][]byte
 	// pendingErr is a read error that askRoots consumed while waiting: it is
 	// handed back here so Run returns it instead of a clean EOF.
@@ -716,17 +734,22 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 	}
 }
 
-// relayEvents copies each `data:` event of an SSE response to stdout. When the
-// stream breaks before any event was forwarded, the request m gets a -32000
-// error like the JSON branch does, so the client is never left waiting for an id.
+// relayEvents copies each complete `data:` event of an SSE response to stdout.
+// When the stream ends (broken or cut) without m's own response having been
+// forwarded, m gets a -32000 error like the JSON branch does, so the client is
+// never left waiting for an id.
 func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool, m message) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), maxLine)
 	var data []string
-	forwarded := 0
+	answered := false // this request's response was forwarded
 	flush := func() {
 		if len(data) > 0 {
 			ev := []byte(strings.Join(data, "\n"))
+			var em message
+			if json.Unmarshal(ev, &em) == nil && em.isResponse() && string(em.ID) == string(m.ID) {
+				answered = true
+			}
 			if m.Method == "initialize" {
 				b.noteInitializeResult(ev)
 			}
@@ -734,7 +757,6 @@ func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool, m message) {
 				ev = withUnboundNote(ev)
 			}
 			b.write(ev)
-			forwarded++
 			data = nil
 		}
 	}
@@ -747,14 +769,17 @@ func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool, m message) {
 			data = append(data, strings.TrimPrefix(strings.TrimPrefix(t, "data:"), " "))
 		}
 	}
-	if err := sc.Err(); err != nil {
-		// What is pending is a truncated event: not forwarded.
-		if forwarded == 0 {
-			b.writeError(m.ID, -32000, "the response stream broke: "+err.Error())
+	// What is pending now is an event the stream never terminated (a broken
+	// stream, or an EOF mid-event): truncated JSON, never forwarded. Notifications
+	// relayed before do not answer the request, so it gets an error unless its
+	// own response went through.
+	if !answered && len(m.ID) > 0 {
+		reason := "the response stream ended without a response"
+		if err := sc.Err(); err != nil {
+			reason = "the response stream broke: " + err.Error()
 		}
-		return
+		b.writeError(m.ID, -32000, reason)
 	}
-	flush()
 }
 
 // metaProtocol reads the 2026-07-28 revision's per-request protocol version.

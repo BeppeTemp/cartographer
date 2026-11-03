@@ -293,3 +293,58 @@ func TestRelayEventsBrokenStreamAnswersTheRequest(t *testing.T) {
 		t.Fatalf("got %v, want a -32000 error for id 7", m)
 	}
 }
+
+// A notification relayed before the break does not answer the request: it still
+// gets its error, and the truncated event is not forwarded.
+func TestRelayEventsNotificationDoesNotAnswerTheRequest(t *testing.T) {
+	for name, r := range map[string]io.Reader{
+		"broken": io.MultiReader(strings.NewReader("data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"resu"), &failingReader{done: true}),
+		"eof":    strings.NewReader("data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"resu"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out bytes.Buffer
+			b := &Bridge{Out: &out, Log: io.Discard}
+			b.relayEvents(r, false, message{ID: json.RawMessage("7"), Method: "tools/call"})
+			lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+			if len(lines) != 2 || strings.Contains(out.String(), "resu\"") {
+				t.Fatalf("output %q, want the notification then one error", out.String())
+			}
+			var m map[string]any
+			_ = json.Unmarshal([]byte(lines[1]), &m)
+			if e, _ := m["error"].(map[string]any); e == nil || string(mustJSON(m["id"])) != "7" {
+				t.Fatalf("last line %v, want a -32000 error for id 7", m)
+			}
+		})
+	}
+}
+
+// Once stdin closes, a call the server never answers is aborted after the
+// grace instead of keeping the process alive.
+func TestBridgeEOFAbortsAPendingCall(t *testing.T) {
+	old := eofGrace
+	eofGrace = 200 * time.Millisecond
+	t.Cleanup(func() { eofGrace = old })
+	hang := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-hang:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(hang); ts.Close() })
+	cfg := bridgeConfig(&routedServer{Server: ts})
+	ws := mkdir(t, t.TempDir())
+	bind(t, cfg, ws, "kb-a")
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: ws, Token: testToken,
+		In: strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}` + "\n"), Out: io.Discard, Log: io.Discard}
+	done := make(chan error, 1)
+	go func() { done <- b.Run(context.Background()) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after stdin EOF with a pending call")
+	}
+}
