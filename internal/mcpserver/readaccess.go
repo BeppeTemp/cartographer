@@ -113,6 +113,10 @@ func (l *readAccessLog) prune(root string) {
 // hasAnyConcept reports whether root can be listed and holds at least one
 // markdown file outside the dot directories (.git, .cartographer).
 func hasAnyConcept(root string) bool {
+	// WalkDir does not follow a symlink root: resolve it (the root only).
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
 	if _, err := os.ReadDir(root); err != nil {
 		return false
 	}

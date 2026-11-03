@@ -167,3 +167,36 @@ func TestReadAccessSaveReportsAWriteFailure(t *testing.T) {
 		t.Fatalf("the retry must succeed: %v", err)
 	}
 }
+
+// A data root that is itself a symlink still counts as holding concepts, so
+// the prune runs.
+func TestReadAccessPruneRunsOnASymlinkedDataRoot(t *testing.T) {
+	real := t.TempDir()
+	for _, id := range []string{"ops/a", "ops/gone"} {
+		p := filepath.Join(real, filepath.FromSlash(id)+".md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "data")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Remove(filepath.Join(real, "ops", "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+	l := &readAccessLog{
+		lastRead:     map[string]time.Time{"ops/a": time.Now(), "ops/gone": time.Now()},
+		lastSurfaced: map[string]time.Time{},
+	}
+	l.prune(link)
+	if _, ok := l.lastRead["ops/gone"]; ok {
+		t.Fatal("deleted concept not pruned under a symlinked data root")
+	}
+	if _, ok := l.lastRead["ops/a"]; !ok {
+		t.Fatal("live concept pruned")
+	}
+}
