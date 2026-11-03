@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -291,10 +292,26 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 
 			arts := make([]pulledArtifactJSON, 0, len(m.Artifacts))
 			var artifactKeys []string
+			var excluded []string
+			var embedded int
 			for _, a := range m.Artifacts {
-				files, err := provisioning.ReadArtifactFiles(a, bundleFS, kbRoots)
+				files, err := provisioning.ReadArtifactFilesCapped(a, bundleFS, kbRoots)
+				if errors.Is(err, provisioning.ErrNotRegular) {
+					excluded = append(excluded, fmt.Sprintf("%s %q excluded from sync_pull: not a regular file", a.Kind, a.Name))
+					continue
+				}
 				if err != nil {
 					return errorResult(fmt.Sprintf("sync_pull: read files of %s/%s: %v", a.Kind, a.Name, err)), nil
+				}
+				// An artifact with a file over the cap is left out whole, not
+				// shipped without that file: a client must never materialize
+				// half a skill. The response as a whole is bounded too.
+				if why := pullExclusion(files, embedded); why != "" {
+					excluded = append(excluded, fmt.Sprintf("%s %q excluded from sync_pull: %s", a.Kind, a.Name, why))
+					continue
+				}
+				for _, f := range files {
+					embedded += len(f.Content)
 				}
 				fj := make([]pulledFileJSON, len(files))
 				for i, f := range files {
@@ -333,12 +350,32 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 			if registry != nil {
 				result["path_registry"] = registry
 			}
-			if issues := append(append([]string(nil), m.Issues...), registryIssues...); len(issues) > 0 {
+			if issues := append(append(append([]string(nil), m.Issues...), registryIssues...), excluded...); len(issues) > 0 {
 				result["issues"] = issues
 			}
 			return jsonResult(result), nil
 		},
 	}
+}
+
+// syncPullMaxBytes bounds the file bytes one sync_pull embeds (base64 adds a
+// third): 8 MiB is about 50 times the whole bundled skill set (148 KiB, the
+// largest skill 40 KiB), and 32 files at the per-file cap.
+const syncPullMaxBytes = 8 << 20
+
+// pullExclusion says why an artifact cannot go into the response, or "".
+func pullExclusion(files []provisioning.ArtifactFile, embedded int) string {
+	total := 0
+	for _, f := range files {
+		if f.Oversized > 0 {
+			return fmt.Sprintf("%s is %d bytes, over the %d bytes cap of an artifact file (or the artifact is past %d files or %d bytes in all)", f.Path, f.Oversized, artifactMaxFileSize, provisioning.ArtifactMaxFiles, provisioning.ArtifactMaxTotalSize)
+		}
+		total += len(f.Content)
+	}
+	if embedded+total > syncPullMaxBytes {
+		return fmt.Sprintf("the response would pass %d bytes of file content", syncPullMaxBytes)
+	}
+	return ""
 }
 
 // pulledPlaceholders lists the {{repo:…}}/{{path:…}} keys this KB cites, as

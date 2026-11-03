@@ -94,7 +94,19 @@ type ArtifactFile struct {
 	Path       string // path relative to the artifact's (skill) folder
 	Content    []byte
 	Executable bool
+	// Oversized is the size of a file over ArtifactMaxFileSize: its Content is
+	// then nil, the file was never read, and no consumer may write or ship it.
+	// Only ReadArtifactFilesCapped returns one; ReadArtifactFiles fails instead.
+	Oversized int64
 }
+
+// ArtifactMaxFileSize caps one file of a KB artifact read from disk (256 KiB,
+// the cap artifact_write enforces): a file over it is never read into memory.
+const ArtifactMaxFileSize = 256 * 1024
+
+// oversizedMarker stands for the bytes of an over-cap file in the content hash:
+// the hash must not need the file, and a changed size still changes it.
+func oversizedMarker(size int64) []byte { return []byte(fmt.Sprintf("oversized:%d", size)) }
 
 // Manifest is the server-side source of truth.
 // Revision changes if even a single artifact changes: O(1) drift detection.
@@ -442,10 +454,13 @@ const LockFileName = ".cartographer-sync.lock.json"
 //
 // Use this for Artifact.ContentHash: a skill is a folder, not just SKILL.md.
 func ContentHashDir(fsys fs.FS, dir string) (string, error) {
-	return contentHashDir(fsys, dir, nil, nil)
+	return contentHashDir(fsys, dir, nil, nil, 0)
 }
 
-func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, include func(rel string) bool) (string, error) {
+// contentHashDir hashes dir. With maxFile > 0 (a KB's own artifact on disk) a
+// symlink is skipped, not followed, and a file over maxFile is hashed by its
+// size without being read.
+func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, include func(rel string) bool, maxFile int64) (string, error) {
 	var files []ArtifactFile
 	var paths []string
 
@@ -465,6 +480,8 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, 
 
 	sort.Strings(paths)
 
+	var total int64
+	count := 0
 	for _, p := range paths {
 		// Compute the path relative to the root dir.
 		rel := p
@@ -477,17 +494,38 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, 
 			continue
 		}
 
-		data, readErr := fs.ReadFile(fsys, p)
-		if readErr != nil {
-			return "", fmt.Errorf("provisioning: read %s: %w", p, readErr)
+		stat := fs.Stat
+		if maxFile > 0 {
+			stat = fs.Lstat
 		}
-		info, statErr := fs.Stat(fsys, p)
+		info, statErr := stat(fsys, p)
 		if statErr != nil {
 			return "", fmt.Errorf("provisioning: stat %s: %w", p, statErr)
+		}
+		if maxFile > 0 && info.Mode()&fs.ModeSymlink != 0 {
+			continue
 		}
 		exec := execbit.IsExecutable(info.Mode())
 		if executable != nil {
 			exec = executable(rel, exec)
+		}
+		if maxFile > 0 && info.Size() > maxFile {
+			files = append(files, ArtifactFile{Path: rel, Content: oversizedMarker(info.Size()), Executable: exec})
+			continue
+		}
+		if maxFile > 0 {
+			// The directory budget of readDirFiles: past it nothing more is
+			// read, and the hash records the file that crossed it.
+			count++
+			if count > ArtifactMaxFiles || total+info.Size() > ArtifactMaxTotalSize {
+				files = append(files, ArtifactFile{Path: rel, Content: oversizedMarker(max(info.Size(), 1)), Executable: exec})
+				break
+			}
+			total += info.Size()
+		}
+		data, readErr := fs.ReadFile(fsys, p)
+		if readErr != nil {
+			return "", fmt.Errorf("provisioning: read %s: %w", p, readErr)
 		}
 		files = append(files, ArtifactFile{Path: rel, Content: data, Executable: exec})
 	}
@@ -666,7 +704,7 @@ func contentHashDirOS(dirPath, kind string) (string, error) {
 func contentHashDirTracked(dirPath, kind string, include func(rel string) bool) (string, error) {
 	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return effectiveExecutable(kind, path, executable)
-	}, include)
+	}, include, ArtifactMaxFileSize)
 }
 
 // contentHashDirManaged is contentHashDirOS for a directory that a lockfile
@@ -675,7 +713,7 @@ func contentHashDirTracked(dirPath, kind string, include func(rel string) bool) 
 func contentHashDirManaged(mf ManagedFile, dirPath string) (string, error) {
 	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return mf.executableOnDisk(path, executable)
-	}, nil)
+	}, nil, 0)
 }
 
 // --- Manifest ---
@@ -810,6 +848,11 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					continue
 				}
 				hash, err := contentHashFile(filepath.Join(agentsDir, e.Name()))
+				if errors.Is(err, ErrNotRegular) {
+					// One tracked symlink leaves out that artifact, not the KB.
+					issues = append(issues, fmt.Sprintf("KB %q: agent %q left out: not a regular file", kbName, name))
+					continue
+				}
 				if err != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/agents/%s: %w", kbName, name, err)
 				}
@@ -819,7 +862,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					Source:      "kb:" + kbName,
 					ContentHash: hash,
 				}
-				if raw, rerr := os.ReadFile(filepath.Join(agentsDir, e.Name())); rerr == nil {
+				if raw, size, rerr := ReadFileCapped(filepath.Join(agentsDir, e.Name())); rerr == nil && size == 0 {
 					agent.Restriction = ParseAgentRestriction(raw)
 				}
 				artifacts = append(artifacts, agent)
@@ -876,13 +919,18 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					continue
 				}
 				mcpPath := filepath.Join(mcpDir, e.Name())
-				data, readErr := os.ReadFile(mcpPath)
+				data, mcpSize, readErr := ReadFileCapped(mcpPath)
+				if errors.Is(readErr, ErrNotRegular) {
+					issues = append(issues, fmt.Sprintf("KB %q: mcp %q left out: not a regular file", kbName, name))
+					continue
+				}
 				if readErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: read kb:%s/mcp/%s: %w", kbName, name, readErr)
 				}
-				_, specErr := parseMCPServerSpec(name, data)
-				if specErr != nil {
-					return Manifest{}, fmt.Errorf("provisioning: %w", specErr)
+				if mcpSize == 0 { // an over-cap descriptor is never parsed; sync_pull leaves it out
+					if _, specErr := parseMCPServerSpec(name, data); specErr != nil {
+						return Manifest{}, fmt.Errorf("provisioning: %w", specErr)
+					}
 				}
 				hash, hashErr := contentHashFile(mcpPath)
 				if hashErr != nil {
@@ -1222,12 +1270,73 @@ func extractDirectives(content string) map[string]string {
 	return out
 }
 
+// ErrNotRegular is what ReadFileCapped wraps for a symlink, a device or any
+// other file that is not a regular one: a caller that answers per artifact
+// skips that artifact instead of failing the KB.
+var ErrNotRegular = errors.New("not a regular file")
+
+// ArtifactMaxTotalSize and ArtifactMaxFiles bound what one skill or hook
+// directory may make the server read: the per-file cap alone lets thousands of
+// just-under-cap files be read whole. Past either, the artifact is reported
+// oversized like a file over the cap.
+const (
+	ArtifactMaxTotalSize = 8 << 20
+	ArtifactMaxFiles     = 512
+)
+
+// ReadFileCapped reads a KB's own file without following a symlink and without
+// reading one over ArtifactMaxFileSize: for that, data is nil and size is the
+// file's size. A file that is not regular is an ErrNotRegular. The read goes
+// through the opened handle and a LimitReader, so a file that grows or is
+// swapped after the Lstat is still read at most cap+1 bytes.
+func ReadFileCapped(path string) (data []byte, size int64, err error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, 0, fmt.Errorf("%s: %w", path, ErrNotRegular)
+	}
+	if info.Size() > ArtifactMaxFileSize {
+		return nil, info.Size(), nil
+	}
+	return readOpenedCapped(path, info)
+}
+
+// readOpenedCapped opens path, checks it is still the regular file lstat saw,
+// and reads at most ArtifactMaxFileSize+1 bytes of it.
+func readOpenedCapped(path string, lstat os.FileInfo) (data []byte, size int64, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if !fi.Mode().IsRegular() || !os.SameFile(lstat, fi) {
+		return nil, 0, fmt.Errorf("%s: %w", path, ErrNotRegular)
+	}
+	data, err = io.ReadAll(io.LimitReader(f, ArtifactMaxFileSize+1))
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(data) > ArtifactMaxFileSize {
+		return nil, int64(len(data)), nil
+	}
+	return data, 0, nil
+}
+
 // contentHashFile computes the versioned artifact hash of a single,
 // non-executable file (agents and MCP descriptors).
 func contentHashFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, size, err := ReadFileCapped(path)
 	if err != nil {
 		return "", fmt.Errorf("provisioning: read %s: %w", path, err)
+	}
+	if size > 0 {
+		data = oversizedMarker(size)
 	}
 	return hashArtifactFiles([]ArtifactFile{{Path: filepath.Base(path), Content: data}}), nil
 }
@@ -4638,6 +4747,23 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 // for local deployment (same filesystem) and by the sync_pull MCP tool to
 // serialize artifacts to a remote HTTP client with no shared filesystem.
 func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([]ArtifactFile, error) {
+	files, err := ReadArtifactFilesCapped(a, bundleFS, kbRoots)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range files {
+		if f.Oversized > 0 {
+			return nil, fmt.Errorf("provisioning: %s %s: file %s is %d bytes, over the %d bytes cap of an artifact file", a.Kind, a.Name, f.Path, f.Oversized, ArtifactMaxFileSize)
+		}
+	}
+	return files, nil
+}
+
+// ReadArtifactFilesCapped is ReadArtifactFiles for a caller that answers for
+// an over-cap file itself (the server's artifact_list and sync_pull): such a
+// file comes back with Oversized set and no content, never read. A symlink in a
+// KB artifact is not followed and does not appear.
+func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([]ArtifactFile, error) {
 	// Content already in memory: use it directly instead of trying to read it from
 	// the filesystem. Two cases: (a) kind "instructions" (D56) — the content is
 	// GENERATED by BuildManifest, doesn't exist as a file on the KB, so there's
@@ -4693,21 +4819,21 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 			return nil, fmt.Errorf("provisioning: agent %s is not tracked by git in KB %q", a.Name, kbName)
 		}
 		agentPath := filepath.Join(kbRoot, "agents", a.Name+".md")
-		data, err := os.ReadFile(agentPath)
+		data, size, err := ReadFileCapped(agentPath)
 		if err != nil {
 			return nil, fmt.Errorf("provisioning: read agent %s: %w", agentPath, err)
 		}
-		return []ArtifactFile{{Path: a.Name + ".md", Content: data}}, nil
+		return []ArtifactFile{{Path: a.Name + ".md", Content: data, Oversized: size}}, nil
 	case "mcp":
 		if !tracked.has("mcp/" + a.Name + ".json") {
 			return nil, fmt.Errorf("provisioning: mcp %s is not tracked by git in KB %q", a.Name, kbName)
 		}
 		mcpPath := filepath.Join(kbRoot, "mcp", a.Name+".json")
-		data, err := os.ReadFile(mcpPath)
+		data, size, err := ReadFileCapped(mcpPath)
 		if err != nil {
 			return nil, fmt.Errorf("provisioning: read mcp %s: %w", mcpPath, err)
 		}
-		return []ArtifactFile{{Path: a.Name + ".json", Content: data}}, nil
+		return []ArtifactFile{{Path: a.Name + ".json", Content: data, Oversized: size}}, nil
 	case "hook":
 		files, err := readDirFiles(filepath.Join(kbRoot, "hooks", a.Name), tracked.under("hooks/"+a.Name))
 		if err != nil {
@@ -4728,6 +4854,8 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 // "directory with one or more files" schema.
 func readDirFiles(srcDir string, include func(rel string) bool) ([]ArtifactFile, error) {
 	var files []ArtifactFile
+	var total int64
+	count := 0
 	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -4742,15 +4870,42 @@ func readDirFiles(srcDir string, include func(rel string) bool) ([]ArtifactFile,
 		if include != nil && !include(filepath.ToSlash(rel)) {
 			return nil
 		}
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
+		// d.Info is an Lstat: a symlink is not followed, and a file over the
+		// cap is reported, never read.
 		fileInfo, infoErr := d.Info()
 		if infoErr != nil {
 			return infoErr
 		}
-		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: execbit.IsExecutable(fileInfo.Mode())})
+		if !fileInfo.Mode().IsRegular() {
+			return nil
+		}
+		exec := execbit.IsExecutable(fileInfo.Mode())
+		relSlash := filepath.ToSlash(rel)
+		if fileInfo.Size() > ArtifactMaxFileSize {
+			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: fileInfo.Size()})
+			return nil
+		}
+		// A running budget on the whole directory: past it nothing more is
+		// read and the file that crossed it is reported oversized, which
+		// excludes the artifact like one big file does.
+		count++
+		if count > ArtifactMaxFiles || total+fileInfo.Size() > ArtifactMaxTotalSize {
+			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: max(fileInfo.Size(), 1)})
+			return fs.SkipAll
+		}
+		data, size, readErr := readOpenedCapped(path, fileInfo)
+		if errors.Is(readErr, ErrNotRegular) {
+			return nil // swapped for a link after the Lstat
+		}
+		if readErr != nil {
+			return readErr
+		}
+		if size > 0 {
+			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: size})
+			return nil
+		}
+		total += int64(len(data))
+		files = append(files, ArtifactFile{Path: relSlash, Content: data, Executable: exec})
 		return nil
 	})
 	if err != nil {

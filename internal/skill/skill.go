@@ -6,6 +6,7 @@ package skill
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -81,9 +82,14 @@ const (
 // loads into context, so its length is a budget rather than a style choice.
 const maxSkillBodyLines = 500
 
+// maxSkillFileBytes caps a SKILL.md read from disk: the same 256 KiB as
+// provisioning.ArtifactMaxFileSize and artifact_write, so a file committed
+// out of band cannot be read whole into the server's memory.
+const maxSkillFileBytes = 256 * 1024
+
 func LoadSkill(dirPath string) (*Skill, error) {
 	skillPath := filepath.Join(dirPath, "SKILL.md")
-	data, err := os.ReadFile(skillPath)
+	data, err := readSkillFile(skillPath)
 	if err != nil {
 		return nil, fmt.Errorf("skill: read %s: %w", skillPath, err)
 	}
@@ -192,6 +198,10 @@ func LoadAllFromFS(fsys fs.FS, root string) ([]Skill, []error) {
 		}
 		dirPath := root + "/" + e.Name()
 		skillPath := dirPath + "/SKILL.md"
+		if info, statErr := fs.Stat(fsys, skillPath); statErr == nil && info.Size() > maxSkillFileBytes {
+			errs = append(errs, fmt.Errorf("skill: %s is %d bytes, over the %d bytes cap", skillPath, info.Size(), maxSkillFileBytes))
+			continue
+		}
 		data, readErr := fs.ReadFile(fsys, skillPath)
 		if readErr != nil {
 			errs = append(errs, fmt.Errorf("skill: read %s: %w", skillPath, readErr))
@@ -369,4 +379,33 @@ func FirstError(issues []Issue) *Issue {
 		}
 	}
 	return nil
+}
+
+// readSkillFile opens path, requires a regular file (a symlink would be read
+// through to its target, whatever the link's own size) and reads at most
+// maxSkillFileBytes+1 bytes of it.
+func readSkillFile(path string) ([]byte, error) {
+	lst, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !lst.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if fi, serr := f.Stat(); serr != nil || !fi.Mode().IsRegular() || !os.SameFile(lst, fi) {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxSkillFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxSkillFileBytes {
+		return nil, fmt.Errorf("%s is over the %d bytes cap", path, maxSkillFileBytes)
+	}
+	return data, nil
 }
