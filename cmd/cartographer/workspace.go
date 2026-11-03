@@ -694,6 +694,34 @@ func allProjections(cfg *clientconfig.Config, providers []string, clientBaseDir 
 	return out, nil
 }
 
+// providerFailure is a provider whose projections could not be resolved: an
+// explicit workspace binding whose directory is gone, a provider that cannot be
+// scoped to a workspace.
+type providerFailure struct {
+	Provider string
+	Err      error
+}
+
+// allProjectionsPartial is allProjections for sync (#1502): a provider whose
+// projections cannot be resolved costs only itself, as a KB that cannot be pulled
+// costs only the providers bound to it (D257). It is left out of the result and
+// reported; every other provider keeps its projections.
+func allProjectionsPartial(cfg *clientconfig.Config, providers []string, clientBaseDir string) ([]syncProjection, []providerFailure) {
+	var out []syncProjection
+	var failed []providerFailure
+	sorted := append([]string(nil), providers...)
+	sort.Strings(sorted)
+	for _, provider := range sorted {
+		ps, err := projectionsFor(cfg, provider, clientBaseDir)
+		if err != nil {
+			failed = append(failed, providerFailure{Provider: provider, Err: err})
+			continue
+		}
+		out = append(out, ps...)
+	}
+	return out, failed
+}
+
 // manifestsForProjections is manifestsForProviders with the workspace axis: one
 // manifest per projection, each merged strictly over **that projection's** KBs.
 //
