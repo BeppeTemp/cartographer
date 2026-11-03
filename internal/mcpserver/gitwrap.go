@@ -482,7 +482,7 @@ func formatTiming(op string, syncIn, handler, commit, push time.Duration, pushAs
 // path as concept_id so git_conflict_resolve can settle them. Every other file
 // is registered with kind "artifact" whatever else conflicted: nothing
 // reconciles it automatically, and an unregistered conflict blocked every
-// write with no tool-level way out (D1565).
+// write with no tool-level way out (D1563).
 func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string, []string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	n := 0
@@ -542,7 +542,7 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 // conflictMessage is the error a write returns when its SyncIn hit a rebase
 // conflict on n concepts, the given reserved files and the given other files.
 // It never suggests a git command: every way out is a tool (D311), and it
-// promises a tool only for what was registered (D1565).
+// promises a tool only for what was registered (D1563).
 func conflictMessage(n int, reserved, other []string) string {
 	pathHint := "resolve with git_conflict_resolve (concept_id: the file path, strategy: ours|theirs)"
 	switch {

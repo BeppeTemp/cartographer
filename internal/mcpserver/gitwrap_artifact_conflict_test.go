@@ -13,7 +13,7 @@ import (
 
 // A rebase conflict on a file that is neither a concept nor reserved (a skill)
 // used to be registered nowhere: every write failed with "0 concept(s)" and no
-// tool listed or resolved it (D1565).
+// tool listed or resolved it (D1563).
 func TestGitWrap_ConflictOnASkillFileIsRegisteredAndResolvable(t *testing.T) {
 	t.Parallel()
 	for _, strategy := range []string{"theirs", "ours"} {
