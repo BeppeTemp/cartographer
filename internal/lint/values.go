@@ -201,12 +201,20 @@ func proseValueFindings(in conceptInput) []Finding {
 		if !prose {
 			continue
 		}
-		f := newFinding("prose_value", Finding{Path: in.RelPath,
-			Message: fmt.Sprintf("field %q holds a sentence (%q): a vocabulary field is one token, so filters on it miss this concept", field, v)})
 		var allowed []string
 		if in.Contract != nil {
 			allowed, _ = in.Contract.AllowedValues(in.Parsed.Type(), field)
 		}
+		// A value the contract itself allows is not "a sentence" even with a
+		// separator in it ("Rome, Italy"): refusing it would contradict
+		// invalid_field_value, which accepts it. For status, a family member
+		// or an open_statuses entry is as good.
+		if trimmed := strings.TrimSpace(v); fieldValueAllowed(allowed, trimmed) ||
+			(field == "status" && statusValueKnown(in.Contract, fams, trimmed)) {
+			continue
+		}
+		f := newFinding("prose_value", Finding{Path: in.RelPath,
+			Message: fmt.Sprintf("field %q holds a sentence (%q): a vocabulary field is one token, so filters on it miss this concept", field, v)})
 		to := ""
 		if len(allowed) > 0 {
 			to, _ = fams.canonicalIn(token, allowed)
@@ -220,6 +228,22 @@ func proseValueFindings(in conceptInput) []Finding {
 		out = append(out, f)
 	}
 	return out
+}
+
+// statusValueKnown reports whether a whole status value is a member of a
+// synonym family or listed in the contract's open_statuses.
+func statusValueKnown(c *kb.MapContract, fams valueFamilies, v string) bool {
+	if _, ok := fams.member(v); ok {
+		return true
+	}
+	if c != nil {
+		for _, s := range c.OpenStatuses {
+			if s == v {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Proposal is the structured vocabulary a missing_value_contract finding

@@ -123,6 +123,9 @@ func TestStripDecoration_KeepsMeaningfulSymbols(t *testing.T) {
 		"C♯ minor and B♭ major",
 		"⌥ shortcuts",
 		"Sync ↔ async",
+		"✓ checked ✗ failed",
+		"❯ prompt ➜ arrow",
+		"Mahjong 🀫 tiles",
 	} {
 		if got := StripDecoration(title); got != title {
 			t.Errorf("StripDecoration(%q) = %q", title, got)
