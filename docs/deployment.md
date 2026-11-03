@@ -549,7 +549,10 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
 The static bundle is reachable without a bearer token, because it is the page
 that asks for one and it carries no server or KB data; `/api/ui/v1` is not, and
 is filtered with the caller's own principal. The shell is served `no-cache` and
-hashed assets are immutable, under a `default-src 'self'` CSP with no inline
+hashed assets are immutable; every bundle file carries an `ETag`, so the shell and the
+unhashed files (`theme-init.js`, `brand/*`) revalidate with a 304. A missing path under
+`assets/` is a 404, never the shell (a tab opened before an upgrade then fails its lazy
+import and the Atlas says "reload"); the shell answers client routes only. All under a `default-src 'self'` CSP with no inline
 script and no eval. `web.enabled: false` registers neither route.
 
 The bundle has two build-time inputs that only the public Pages build sets
