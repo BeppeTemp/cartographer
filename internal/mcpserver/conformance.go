@@ -292,16 +292,20 @@ var conformanceChecks = map[string]bool{
 	"legacy_archive_descriptor": true,
 }
 
-// doctorMarker is the text a log.md entry carries when the cartographer-kb-doctor skill
-// closed a session: kb_status reads the date of the newest one. It is a log
-// marker, not the skill name: existing KB logs carry "kb-doctor", so it stays
-// when the skill is renamed (D958), and it still matches the new name by substring.
-const doctorMarker = "kb-doctor"
+// doctorMarker opens the first line of the body of a log.md entry the
+// cartographer-kb-doctor skill wrote when it closed a session: kb_status reads
+// the date of the newest one. It is a log marker, not the skill name: existing
+// KB logs carry "kb-doctor:", so it stays when the skill is renamed (D958). It
+// is matched at the START of the entry body, never anywhere in the block, so a
+// write whose id or text only mentions the word (concept_write:
+// tools/kb-doctor-checklist, a note "kb-doctor tomorrow") is not a session
+// (D1557, amending D958's note).
+const doctorMarker = "kb-doctor:"
 
 var logDateRe = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
 
 // lastDoctorDate returns the date (YYYY-MM-DD) of the newest log.md entry whose
-// text contains doctorMarker, or "".
+// body starts with doctorMarker (isDoctorEntry), or "".
 func lastDoctorDate(k *kb.KB) string {
 	tail, err := k.LogTail("", 1<<20)
 	if err != nil {
@@ -311,7 +315,7 @@ func lastDoctorDate(k *kb.KB) string {
 	for _, block := range strings.Split("\n"+tail, "\n## ")[1:] {
 		heading, _, _ := strings.Cut(block, "\n")
 		m := logDateRe.FindStringSubmatch("## " + heading)
-		if m == nil || !strings.Contains(block, doctorMarker) {
+		if m == nil || !isDoctorEntry(block) {
 			continue
 		}
 		if m[1] > newest {
@@ -319,6 +323,18 @@ func lastDoctorDate(k *kb.KB) string {
 		}
 	}
 	return newest
+}
+
+// isDoctorEntry reports whether a log.md block (heading line and body) is a
+// doctor session: its first non-blank body line starts with doctorMarker.
+func isDoctorEntry(block string) bool {
+	_, body, _ := strings.Cut(block, "\n")
+	for _, line := range strings.Split(body, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return strings.HasPrefix(t, doctorMarker)
+		}
+	}
+	return false
 }
 
 // doctorDue says whether a cartographer-kb-doctor session is due (D299): the KB's interval

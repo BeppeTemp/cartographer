@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GROWTH_MIN_ZOOM, GROWTH_VIDEO_MS, growthOrder, growthSchedule, shownAt, type GrowthStep } from "../lib/graph3d/growth";
-import { beside } from "../lib/graph3d/physics";
+import { GROWTH_MIN_ZOOM, GROWTH_VIDEO_MS, growthOrder, growthSchedule, seedGrowth, shownAt, type GrowthStep } from "../lib/graph3d/growth";
 import {
   ASPECTS,
   END_CARD_MS,
@@ -136,11 +135,6 @@ async function render(job: Job): Promise<{ blob: Blob; ext: "mp4" | "webm" }> {
     const byId = new Map<string, SceneNode>(
       p.nodes.map((n) => [n.id, { id: n.id, weight: layout.weights.get(n.id) ?? 0 }]),
     );
-    const edgesOf = new Map<string, string[]>(p.nodes.map((n) => [n.id, []]));
-    for (const e of p.edges) {
-      edgesOf.get(e.source)?.push(e.target);
-      edgesOf.get(e.target)?.push(e.source);
-    }
     const link = (ids: Set<string>): SceneLink[] =>
       p.edges.filter((e) => ids.has(e.source) && ids.has(e.target)).map((e) => ({ source: e.source, target: e.target }));
     const colours = (nodes: SceneNode[]) => sc.setColours(nodes.map((n) => layout.colourOf(n.id)), layout.palette);
@@ -160,11 +154,7 @@ async function render(job: Job): Promise<{ blob: Blob; ext: "mp4" | "webm" }> {
       const ids = new Set(nodes.map((n) => n.id));
       // A concept born in the replay sprouts beside one already out, not
       // where the full layout had it, as in the visible replay.
-      for (const n of nodes) {
-        if (out.has(n.id)) continue;
-        const anchor = (edgesOf.get(n.id) ?? []).find((id) => out.has(id));
-        Object.assign(n, anchor ? beside(byId.get(anchor)!, n.id) : { x: 0, y: 0, z: 0 }, { vx: 0, vy: 0, vz: 0 });
-      }
+      seedGrowth(nodes.filter((n) => !out.has(n.id)), out, p.edges, byId);
       out = ids;
       sc.setData(nodes, link(ids), 0);
       colours(nodes);

@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -33,9 +36,12 @@ const (
 	// autoRepairReason is the Reason trailer of every commit the heartbeat
 	// makes; repair_revert and the Atlas recognise the commits by it.
 	autoRepairReason = repairCommitReasonPrefix + " (background)"
-	// autoRepairLimit bounds the concepts one run rewrites, all checks
-	// together (D355): the fixpoint writes a concept once whatever the number
-	// of checks that touched it, so the cost is bounded by concepts. A KB
+	// autoRepairLimit bounds the concepts each STAGE of one run rewrites (D355,
+	// restated per stage by D1554): the concept-local stage, every cross-concept,
+	// map and artifact check, and the second pass over the concepts the
+	// cross-concept stage touched each take at most this many, so one run can
+	// rewrite more than this in total. Within the local stage the fixpoint
+	// writes a concept once whatever the number of checks that touched it. A KB
 	// imported with thousands of findings is worked down over a few runs
 	// instead of in one enormous commit.
 	autoRepairLimit = 500
@@ -70,7 +76,71 @@ func autoRepairLogPath(k *kb.KB) string {
 	return filepath.Join(k.Root, ".cartographer", autoRepairLogName)
 }
 
-// appendAutoRepairRun appends one run to the log. A failure to write it is
+// autoRepairLogRetention is how long a run stays in the log: older lines are
+// dropped when a run is appended, as lint-history.jsonl does. Empty runs are
+// still written (the Atlas "last run" stays truthful); only age prunes.
+const autoRepairLogRetention = 90 * 24 * time.Hour
+
+// autoRepairLogMaxLine bounds a log line a reader will hold; a longer one is
+// skipped, and reading goes on after it.
+const autoRepairLogMaxLine = 1 << 20
+
+// autoRepairFailureMax bounds the failure text of a run: it can be a whole
+// write-gate refusal or a git error, and it is repeated on every check line.
+const autoRepairFailureMax = 4 << 10
+
+// truncateFailure cuts s to autoRepairFailureMax bytes on a rune boundary.
+func truncateFailure(s string) string {
+	if len(s) <= autoRepairFailureMax {
+		return s
+	}
+	cut := autoRepairFailureMax
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "... (truncated)"
+}
+
+// readAutoRepairLines calls fn with each line of the log, in order. A line
+// longer than autoRepairLogMaxLine is skipped whole and reading goes on: one
+// oversize line must not freeze "last run" before it.
+// It returns how many oversize lines it skipped.
+func readAutoRepairLines(r io.Reader, fn func(line []byte)) (skipped int) {
+	br := bufio.NewReaderSize(r, 64*1024)
+	var cur []byte
+	over := false
+	for {
+		chunk, isPrefix, err := br.ReadLine()
+		if len(chunk) > 0 && !over {
+			if len(cur)+len(chunk) > autoRepairLogMaxLine {
+				over, cur = true, nil
+			} else {
+				cur = append(cur, chunk...)
+			}
+		}
+		if err != nil {
+			if over {
+				skipped++
+			} else if len(cur) > 0 {
+				fn(cur)
+			}
+			return skipped
+		}
+		if isPrefix {
+			continue
+		}
+		if over {
+			skipped++
+		} else {
+			fn(cur)
+		}
+		cur, over = nil, false
+	}
+}
+
+// appendAutoRepairRun appends one run to the log and drops the lines older
+// than autoRepairLogRetention (the file is then rewritten through a temporary
+// file, so a crash never leaves half a log). A failure to write it is
 // reported, never fatal: the repair itself already happened.
 func appendAutoRepairRun(k *kb.KB, run autoRepairRun) error {
 	line, err := json.Marshal(run)
@@ -78,19 +148,100 @@ func appendAutoRepairRun(k *kb.KB, run autoRepairRun) error {
 		return err
 	}
 	p := autoRepairLogPath(k)
+	// Prune-and-rename is read-modify-write: two writers of one log (the run's
+	// own entry and the skipped-run entry) must not interleave.
+	mu, _ := autoRepairLogLocks.LoadOrStore(p, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
 	if fi, err := os.Lstat(p); err == nil && !fi.Mode().IsRegular() {
 		return fmt.Errorf("%s is not a regular file", p) // never write through a symlink (D148)
 	}
+	now, err := time.Parse(time.RFC3339, run.At)
+	if err != nil {
+		now = time.Now()
+	}
+	if kept, pruned := pruneAutoRepairLog(p, now.Add(-autoRepairLogRetention)); pruned {
+		return rewriteAutoRepairLog(p, append(kept, line))
+	}
 	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	_, err = f.Write(append(line, '\n'))
+	// On a network filesystem the write error can only show at close.
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
 	return err
+}
+
+// autoRepairLogLocks serialises the writers of each log file, by path.
+var autoRepairLogLocks sync.Map
+
+// pruneAutoRepairLog returns the lines of the log at or after cutoff, and
+// whether any line had to go (older, unparseable or oversize).
+func pruneAutoRepairLog(p string, cutoff time.Time) (kept [][]byte, pruned bool) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	total := 0
+	// A line without its newline at the end (a crash, or an oversize last
+	// line) would glue the next append onto it: rewrite to repair it.
+	if fi, err := f.Stat(); err == nil && fi.Size() > 0 {
+		last := make([]byte, 1)
+		if _, err := f.ReadAt(last, fi.Size()-1); err == nil && last[0] != '\n' {
+			pruned = true
+		}
+	}
+	skipped := readAutoRepairLines(f, func(line []byte) {
+		total++
+		var run autoRepairRun
+		if json.Unmarshal(line, &run) != nil {
+			return
+		}
+		if at, err := time.Parse(time.RFC3339, run.At); err != nil || at.Before(cutoff) {
+			return
+		}
+		kept = append(kept, append([]byte(nil), line...))
+	})
+	return kept, pruned || skipped > 0 || len(kept) != total
+}
+
+func rewriteAutoRepairLog(p string, lines [][]byte) error {
+	// A temporary file left by a crash is never read as the log: drop it (the
+	// caller holds the log's lock, so none is live).
+	if stale, _ := filepath.Glob(p + ".*"); len(stale) > 0 {
+		for _, f := range stale {
+			os.Remove(f)
+		}
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(p), autoRepairLogName+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	w := bufio.NewWriter(tmp)
+	for _, l := range lines {
+		w.Write(l)
+		w.WriteByte('\n')
+	}
+	if err := w.Flush(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// CreateTemp makes 0600; the append path creates the log 0644.
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), p)
 }
 
 // autoRepairRunsSince returns the runs logged at or after since, newest first,
@@ -102,18 +253,16 @@ func autoRepairRunsSince(k *kb.KB, since time.Time, limit int) []autoRepairRun {
 		return out
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for sc.Scan() {
+	readAutoRepairLines(f, func(line []byte) {
 		var run autoRepairRun
-		if json.Unmarshal(sc.Bytes(), &run) != nil || run.At == "" {
-			continue
+		if json.Unmarshal(line, &run) != nil || run.At == "" {
+			return
 		}
 		if at, err := time.Parse(time.RFC3339, run.At); err != nil || at.Before(since) {
-			continue
+			return
 		}
 		out = append(out, run)
-	}
+	})
 	// The log is appended in time order: newest first is the reverse.
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
@@ -133,14 +282,12 @@ func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 	defer f.Close()
 	var last autoRepairRun
 	found := false
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for sc.Scan() {
+	readAutoRepairLines(f, func(line []byte) {
 		var run autoRepairRun
-		if json.Unmarshal(sc.Bytes(), &run) == nil && run.At != "" {
+		if json.Unmarshal(line, &run) == nil && run.At != "" {
 			last, found = run, true
 		}
-	}
+	})
 	return last, found
 }
 
@@ -227,6 +374,40 @@ func (s *Server) autoRepairLoop(ctx context.Context, interval, delay time.Durati
 	}
 }
 
+// autoRepairQuotaOr is the per-stage quota: autoRepairLimit unless a test set
+// a smaller one.
+func (s *Server) autoRepairQuotaOr() int {
+	if s.autoRepairQuota > 0 {
+		return s.autoRepairQuota
+	}
+	return autoRepairLimit
+}
+
+// rotateIDs picks at most quota of the sorted ids, starting after *cursor and
+// wrapping around. When everything fits it returns the ids unchanged and
+// resets the cursor: there is nothing to rotate.
+func rotateIDs(ids []string, quota int, cursor *string) []string {
+	if len(ids) <= quota {
+		if cursor != nil {
+			*cursor = ""
+		}
+		return ids
+	}
+	start := 0
+	if cursor != nil && *cursor != "" {
+		start = sort.SearchStrings(ids, *cursor)
+		if start < len(ids) && ids[start] == *cursor {
+			start++
+		}
+		start %= len(ids)
+	}
+	out := make([]string, 0, quota)
+	for i := 0; i < quota; i++ {
+		out = append(out, ids[(start+i)%len(ids)])
+	}
+	return out
+}
+
 // stagedRepair is what one run did, per check.
 type stagedRepair struct {
 	applied map[string]int // concepts (or files) changed, per check
@@ -266,16 +447,25 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 	for _, c := range out.Stuck {
 		r.skipped[c]++
 	}
+	if out.Hash == "" && len(out.Stuck) == 0 {
+		// Nothing written and nothing reported stuck: the concept did not
+		// move, and the log must say so rather than show a quiet run.
+		for _, c := range seeded {
+			r.skipped[c]++
+		}
+	}
 	if len(out.Renames) > 0 {
 		r.renames = append(r.renames, repairTarget{ID: id, Path: okf.IDToPath(id), Fixes: out.Renames})
 	}
 	return out.Hash != ""
 }
 
-// stagedAutoRepair is the heartbeat's work (D355), in the order a KB needs:
+// stagedAutoRepair is the heartbeat's work (D355), in the order a KB needs; the
+// quota applies to each stage separately (D1554):
 //
 //  1. every concept with a concept-local finding of an allowed check is
-//     repaired to a fixpoint, at most quota concepts, one write each;
+//     repaired to a fixpoint, at most quota concepts (rotating, so concepts
+//     that stay stuck do not take the same slots every run), one write each;
 //  2. the cross-concept checks run one by one through the per-check applier,
 //     which keeps the mutual-pair guard and sees the state stage 1 left;
 //  3. if stage 2 changed anything, stage 1 runs once more on the concepts it
@@ -283,6 +473,15 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 //
 // Artifact checks run last. The caller holds the KB lock.
 func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int) *stagedRepair {
+	return stagedAutoRepairFrom(ctx, k, checks, quota, nil)
+}
+
+// stagedAutoRepairFrom is stagedAutoRepair with the rotation cursor of stage 1:
+// the concepts it picks when more than quota qualify start after *cursor (the
+// last concept the previous run processed), wrapping around, so concepts that
+// stay stuck do not take the same slots every run. A nil cursor starts at the
+// first. The cursor is in memory only: a restart starts over.
+func stagedAutoRepairFrom(ctx context.Context, k *kb.KB, checks []string, quota int, cursor *string) *stagedRepair {
 	r := newStagedRepair()
 	var local, cross, artifact, folders []string
 	for _, c := range checks {
@@ -311,7 +510,10 @@ func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int)
 		}
 		by := map[string][]lint.Finding{}
 		for _, f := range findings {
-			if f.Fix == nil || f.Artifact || !isLocal[f.Check] {
+			// unattendedFix is the filter repairWritten and the fixpoint apply:
+			// a finding whose only fix is a removal never moves in the
+			// background, so it must not take a slot.
+			if f.Fix == nil || f.Artifact || !isLocal[f.Check] || !unattendedFix(f) {
 				continue
 			}
 			if id := uiFindingConcept(f.Path); id != "" {
@@ -365,14 +567,15 @@ func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int)
 			r.errs = append(r.errs, "lint: "+err.Error())
 			return r
 		}
-		if len(ids) > quota {
-			ids = ids[:quota]
-		}
+		ids = rotateIDs(ids, quota, cursor)
 		for _, id := range ids {
 			if ctx.Err() != nil {
 				return r
 			}
 			r.fixpoint(k, okf.ConceptID(id), local, by[id], checksOf(by[id]))
+			if cursor != nil {
+				*cursor = id
+			}
 		}
 	}
 
@@ -464,12 +667,15 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	}
 	checks := lint.AutoRepairChecks()
 	var stats *stagedRepair
+	// The cursor moves with the run, and is kept only if the run's commit
+	// held: a rolled-back run must not make the next one skip its slots.
+	nextCursor := s.autoRepairCursor
 	// Named kb_repair so the commit, audit and authorization treat it as the
 	// repair it is; it is not registered, so tools/list does not change.
 	tool := gitWrap(k, Tool{
 		Name: "kb_repair",
 		Handler: func(requestContext, json.RawMessage) (ToolResult, error) {
-			stats = stagedAutoRepair(ctx, k, checks, autoRepairLimit)
+			stats = stagedAutoRepairFrom(ctx, k, checks, s.autoRepairQuotaOr(), &nextCursor)
 			res := ToolResult{Content: textResult("{}").Content}
 			if len(stats.renames) > 0 {
 				if _, err := renameInContracts(k, stats.renames); err != nil {
@@ -500,6 +706,7 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	case res.IsError:
 		failure = firstText(res)
 	}
+	failure = truncateFailure(failure)
 	for _, check := range checks {
 		entry := autoRepairCheck{Check: check, Error: failure}
 		if stats != nil {
@@ -516,6 +723,11 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		if entry.Applied > 0 {
 			fmt.Fprintf(os.Stderr, "cartographer: auto-repair %s on %s: %d concept(s) repaired (%s)\n", check, kbName(k), entry.Applied, shortSHA(entry.Commit))
 		}
+	}
+	// A run that rewrote concepts but produced no commit (the commit failed,
+	// which gitWrap logs without returning) did not hold either.
+	if failure == "" && (stats == nil || stats.total() == 0 || res.CommitSHA != "") {
+		s.autoRepairCursor = nextCursor
 	}
 	if failure != "" {
 		fmt.Fprintf(os.Stderr, "cartographer: auto-repair on %s: %s\n", kbName(k), failure)

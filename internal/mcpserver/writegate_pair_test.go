@@ -76,6 +76,11 @@ func TestWriteGate_UnrelatedSameNameCreateIsJudgedAsNew(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(root, "arch", "b"), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		// concept_move stubs the index.md of a directory it creates (D72 WP4):
+		// the write gate reports a satellite folder without one.
+		if err := os.WriteFile(filepath.Join(root, "arch", "b", "index.md"), []byte("---\ntype: Index\ntitle: B\n---\n- [Page](page.md)\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		// Different words per title, so git sees a delete plus an add, not a rename.
 		page := "---\ntype: Note\ntitle: " + title + "\n---\n# " + title + "\n\n" + strings.Repeat(title+" has its own words here. ", 8) + "\n\nSee [gone](../gone.md).\n"
 		if err := os.WriteFile(filepath.Join(root, "arch", "b", "page.md"), []byte(page), 0o644); err != nil {

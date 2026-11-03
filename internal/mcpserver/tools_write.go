@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	gopath "path"
 	"path/filepath"
@@ -56,7 +57,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				IfMatch     string                 `json:"if_match"`
 				IndexEntry  bool                   `json:"index_entry"`
 			}
-			if err := json.Unmarshal(args, &params); err != nil {
+			if err := unmarshalKeepNumbers(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if params.ID == "" {
@@ -473,6 +474,23 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) error {
 	return nil
 }
 
+// unmarshalKeepNumbers is json.Unmarshal with UseNumber: a number inside an
+// interface{} value (the frontmatter maps) arrives as the json.Number holding
+// the text as sent, not as a float64 that rounds 9007199254740993 and rewrites
+// 1.10 as 1.1. Typed fields of the same struct decode as before.
+func unmarshalKeepNumbers(data []byte, v interface{}) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	// Like json.Unmarshal: anything but whitespace after the value is an error.
+	if _, err := dec.Token(); err != io.EOF {
+		return errors.New("invalid character after top-level value")
+	}
+	return nil
+}
+
 // frontmatterScalar renders one JSON scalar (a value or a list item) as the
 // string okf stores. null, maps and lists are refused; no %v (D1313).
 func frontmatterScalar(key string, v interface{}) (string, error) {
@@ -613,7 +631,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 				FMRemove    map[string]interface{} `json:"frontmatter_remove"`
 				Unset       []string               `json:"unset"`
 			}
-			if err := json.Unmarshal(args, &params); err != nil {
+			if err := unmarshalKeepNumbers(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if params.ID == "" {
@@ -1989,6 +2007,37 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 		}
 	}
 
+	// A linker whose frontmatter does not parse cannot be rewritten, and the
+	// rewrite runs after the moves: finding it there left the batch half done.
+	// Refuse before any file moves, naming every such linker.
+	if rewriteLinks {
+		var olds []okf.ConceptID
+		allMoves := map[string]string{}
+		for _, vm := range valid {
+			for old, moved := range vm.mappings {
+				olds = append(olds, okf.ConceptID(old))
+				allMoves[old] = moved
+			}
+		}
+		var bad []string
+		if err := k.WalkConceptsLinkingTo(olds, nil, func(id okf.ConceptID, basePath, content string) error {
+			fmRaw, body, _ := okf.SplitFrontmatter(content)
+			if _, perr := okf.ParseFrontmatter(fmRaw); perr != nil {
+				// Only a linker with a link to rewrite fails the pass later
+				// (rewriteBacklinks skips one with nothing to do).
+				if _, n := kb.RewriteLinks(body, basePath, allMoves, k.AssetExists); n > 0 {
+					bad = append(bad, fmt.Sprintf("%s (%v)", id, perr))
+				}
+			}
+			return nil
+		}); err != nil {
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: list linkers: %v", err)))
+		}
+		if len(bad) > 0 {
+			return nil, errRes(errorResult("concept_move: nothing moved: these pages link to a moved concept but their frontmatter does not parse, so their links cannot be rewritten; fix them first: " + strings.Join(bad, "; ")))
+		}
+	}
+
 	// --- apply pass: all entries already validated above. ---
 	moveMap := make(map[string]string, len(valid))
 	applied := make([]conceptMoveEntry, 0, len(valid))
@@ -2984,7 +3033,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				label := fmt.Sprintf("operation %d of %d", i+1, len(params.Operations))
 
 				var op batchOperationRequest
-				if err := json.Unmarshal(raw, &op); err != nil {
+				if err := unmarshalKeepNumbers(raw, &op); err != nil {
 					return errorResult(fmt.Sprintf("%s: invalid params: %v", label, err)), nil
 				}
 				if op.ID == "" {

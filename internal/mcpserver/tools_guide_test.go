@@ -367,3 +367,22 @@ func TestKBGuide_RefusesOldAndNotServedNames(t *testing.T) {
 		}
 	}
 }
+
+// A description in a block scalar is valid YAML and what the clients load: the
+// guide shows its text, not the ">-" header.
+func TestKBGuide_BlockScalarSkillDescription(t *testing.T) {
+	t.Parallel()
+	s, k := guideServer(t, skillbundle.FS)
+	dir := filepath.Join(k.Root, "skills", "folded")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: folded\ndescription: >-\n  Use when the folded\n  text matters.\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	text := guideText(t, callTool(t, s, "kb_guide", `{}`))
+	if !strings.Contains(text, "`folded` — Use when the folded text matters.") {
+		t.Errorf("block scalar description not shown:\n%s", text)
+	}
+}

@@ -101,8 +101,11 @@ func (s *Server) buildSDKServer() *sdk.Server {
 		// defaults to advertising {"logging":{}} "for historical reasons", so
 		// an explicit empty value is what keeps the advertised set honest —
 		// D151's rule that a capability is advertised only where it is
-		// implemented.
-		Capabilities: &sdk.ServerCapabilities{},
+		// implemented. Tools is set (empty) because the SDK adds
+		// tools.listChanged to an absent one as soon as a tool exists, and the
+		// tool list is fixed per session: this server never sends
+		// notifications/tools/list_changed.
+		Capabilities: &sdk.ServerCapabilities{Tools: &sdk.ToolCapabilities{}},
 		// No Instructions here: the SDK server is memoised, so build-time text
 		// would be stale and the same for every caller. guideMiddleware sets
 		// them per handshake (D1097).
@@ -525,7 +528,18 @@ func (s *Server) sdkHTTPHandler() http.Handler {
 	s.sdkHTTPOnce.Do(func() {
 		s.sdkHTTP = sdk.NewStreamableHTTPHandler(
 			func(*http.Request) *sdk.Server { return s.SDKServer() },
-			&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
+			&sdk.StreamableHTTPOptions{
+				Stateless:    true,
+				JSONResponse: true,
+				// The SDK's DNS-rebinding guard answers a plain-text 403 to
+				// any loopback listener reached with a non-loopback Host, token
+				// or not, which breaks every same-host reverse proxy that keeps
+				// Host. The rule is owned elsewhere: OriginGuard (same-origin),
+				// and LoopbackHostGuard when a loopback listener has auth off;
+				// with auth on the token is the access control
+				// (docs/transport-auth.md §Origin).
+				DisableLocalhostProtection: true,
+			},
 		)
 	})
 	return s.sdkHTTP

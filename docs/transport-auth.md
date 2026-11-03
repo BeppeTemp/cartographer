@@ -30,6 +30,14 @@ call, such as a full reindex or a git sync, and those are bounded per operation
 instead. Read them as protection against connections that never complete, not
 as a request budget.
 
+The stdio bridge (`cartographer mcp`) mirrors that: its HTTP client has no overall
+timeout, and a call is bounded by the session (stdin closing, or the process being
+stopped); after stdin closes, calls still in flight get 30 seconds to finish before they are aborted. It sends `MCP-Protocol-Version` from the version the server answered in
+`initialize` (or, for the handshake it answers itself, a revision it knows), never
+from the client's request alone. It reads stdin up to 16 MiB per line without
+holding more, and a line over that ends the session with "message too large", also
+while it waits for the client's roots.
+
 `GET /health` reports service readiness; it stays public (never a 401, an invalid token is read as anonymous), but its body depends on the token (D1096): without a valid one it carries no `kbs`, with one it lists the KBs that token reads. `GET /ready` needs a valid token once auth is on, and its `503` body counts and names (`degraded`) only the KBs that token reads (#1109). `GET /.well-known/oauth-protected-resource`
 publishes RFC 9728 Protected Resource Metadata, unauthenticated, so clients can
 discover the protected resource; `resource` and `authorization_servers` both
@@ -204,7 +212,7 @@ request so the notification is served as 202 Accepted. Regular requests with
 
 ### Protocol errors on `POST /mcp`
 
-A body the server cannot take as a JSON-RPC request is HTTP 400 with a JSON-RPC error body, never plain text: `-32700` for a body that is not JSON (or empty), `-32600` for JSON that is not a valid request (empty batch, a `jsonrpc` other than `2.0`, an `id` that is not a string or a number, a body that is not an object), `-32601` for an unknown method (carrying the request's `id`). An unknown tool *argument* is refused as `-32602` (D1279), and so are `arguments` that is not an object and an unknown tool name (D1303).
+A body the server cannot take as a JSON-RPC request is HTTP 400 with a JSON-RPC error body, never plain text: `-32700` for a body that is not JSON (or empty), `-32600` for JSON that is not a valid request (empty batch, a `jsonrpc` other than `2.0`, an `id` that is not a string or a number, a body that is not an object), `-32601` for an unknown method (carrying the request's `id`). An unknown tool *argument* is refused as `-32602` (D1279), and so are `arguments` that is not an object and an unknown tool name (D1303). A body over 4 MiB is HTTP 413 with a plain-text body (the SDK's cap, applied to every MCP `POST`; the server sets no other).
 
 ### What a `2026-07-28` request must carry over HTTP
 
@@ -260,6 +268,12 @@ not it carries an `Origin`; any other `Host` gets HTTP 403. It is installed only
 under that condition: with authentication on, the token is the access control,
 and a listen address beyond loopback with authentication off refuses to start
 (§Enabling bearer authentication). An `Origin` that carries userinfo is refused.
+
+The MCP SDK ships a third guard of the same kind (a plain-text 403 to a loopback
+listener reached with a non-loopback `Host`). It is switched off: it fires with a
+valid token too, which broke every same-host reverse proxy that keeps the public
+`Host` (Caddy, nginx, an auth sidecar in the same pod). The rule above is the only
+one, and a refusal is always the one described here.
 
 ## Enabling bearer authentication
 
@@ -566,7 +580,10 @@ One row per distinct (KB, client name, client version, protocol version, era)
 combination, with a request count and a last-seen timestamp; rows are sorted by
 KB, then client name, then version, so consecutive polls are diffable. A
 multi-KB server answers with one flat array across every mounted KB, each row
-naming its `kb`. Rows are limited to the KBs the token can read (any read grant
+naming its `kb`. The traffic of the routed endpoint (`/mcp/routed`, which every
+synchronized client uses) is listed too, with the connection's KB set as `kb`
+(comma-joined, e.g. `kb-a,kb-b`; the read-only variants of one set are merged).
+A routed row is shown only when the token can read every KB of its set. Rows are limited to the KBs the token can read (any read grant
 on the KB, whatever its map, journal or type selectors; an admin sees all): a
 token with no grant on a KB gets neither its rows nor its activity, and an empty
 roster is a 200, not a 403, so the answer does not confirm the KB exists. An
@@ -594,8 +611,10 @@ Four properties bound what the roster is good for:
   clients ask of this server.
 - **It is bounded.** At most 64 distinct keys are tracked and each identity
   field is truncated to 64 bytes; further distinct keys increment `overflow`
-  rather than growing the map. Recording happens only after authorization
-  succeeds, and never affects the `/mcp` response.
+  rather than growing the map. Recording never affects the `/mcp` response. It
+  happens after the transport authentication and the metadata gate, but before
+  the per-tool check of a `tools/call`: a call a token is denied is still counted,
+  which is what an operator wants to see.
 
 The roster also tells an operator whether every client of a given deployment
 has moved to the current protocol era.

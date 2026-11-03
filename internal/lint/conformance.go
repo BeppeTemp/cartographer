@@ -929,8 +929,10 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 // characters; titleQualityFindings recognises the case by it.
 const decorativeTitleMsg = "title contains decorative characters"
 
-// isDecorative is true for emoji and pictographs only: Extended_Pictographic,
-// variation selectors, the zero-width joiner and the dingbats block. ASCII
+// isDecorative is true for emoji and pictographs only: the Unicode Emoji
+// property (including the dingbats that are emoji), regional indicators,
+// variation selectors and the zero-width joiner. The text dingbats ✓ ✗ ❯ ➜
+// are not emoji and stay (they appear in titles as marks and prompts). ASCII
 // symbols (^ ` ~), the degree sign and the registered, copyright and
 // trade-mark signs are part of a title's meaning, never decoration (#1503).
 func isDecorative(r rune) bool {
@@ -941,8 +943,6 @@ func isDecorative(r rune) bool {
 		return false
 	case r == '\u200D' || (r >= '\uFE00' && r <= '\uFE0F'):
 		return true
-	case r >= '\u2700' && r <= '\u27BF': // dingbats
-		return true
 	case r >= 0x1F1E6 && r <= 0x1F1FF: // regional indicators (flags)
 		return true
 	}
@@ -950,8 +950,7 @@ func isDecorative(r rune) bool {
 }
 
 // extendedPictographic holds the characters of the Unicode Emoji property that
-// titles meet, outside the dingbats block and the supplementary planes handled
-// by isDecorative. It is the emoji themselves, not the whole Extended_Pictographic
+// titles meet. It is the emoji themselves, not the whole Extended_Pictographic
 // property: that one also reserves the ranges around them (U+2669..U+267A holds
 // the music signs, U+2300..U+23FF the technical symbols), and "C♯ minor",
 // "♭ key" or "⌥ shortcuts" are part of a title's meaning. The arrows
@@ -970,11 +969,33 @@ var extendedPictographic = &unicode.RangeTable{
 		{0x269B, 0x269C, 1}, {0x26A0, 0x26A1, 1}, {0x26A7, 0x26A7, 1}, {0x26AA, 0x26AB, 1},
 		{0x26B0, 0x26B1, 1}, {0x26BD, 0x26BE, 1}, {0x26C4, 0x26C5, 1}, {0x26C8, 0x26C8, 1},
 		{0x26CE, 0x26CF, 1}, {0x26D1, 0x26D1, 1}, {0x26D3, 0x26D4, 1}, {0x26E9, 0x26EA, 1},
-		{0x26F0, 0x26F5, 1}, {0x26F7, 0x26FA, 1}, {0x26FD, 0x26FD, 1}, {0x2934, 0x2935, 1},
+		{0x26F0, 0x26F5, 1}, {0x26F7, 0x26FA, 1}, {0x26FD, 0x26FD, 1},
+		{0x2702, 0x2702, 1}, {0x2705, 0x2705, 1}, {0x2708, 0x270D, 1}, {0x270F, 0x270F, 1},
+		{0x2712, 0x2712, 1}, {0x2714, 0x2714, 1}, {0x2716, 0x2716, 1}, {0x271D, 0x271D, 1},
+		{0x2721, 0x2721, 1}, {0x2728, 0x2728, 1}, {0x2733, 0x2734, 1}, {0x2744, 0x2744, 1},
+		{0x2747, 0x2747, 1}, {0x274C, 0x274C, 1}, {0x274E, 0x274E, 1}, {0x2753, 0x2755, 1},
+		{0x2757, 0x2757, 1}, {0x2763, 0x2764, 1}, {0x2795, 0x2797, 1}, {0x27A1, 0x27A1, 1},
+		{0x27B0, 0x27B0, 1}, {0x27BF, 0x27BF, 1}, {0x2934, 0x2935, 1},
 		{0x2B05, 0x2B07, 1}, {0x2B1B, 0x2B1C, 1}, {0x2B50, 0x2B50, 1}, {0x2B55, 0x2B55, 1},
 		{0x3030, 0x3030, 1}, {0x303D, 0x303D, 1}, {0x3297, 0x3297, 1}, {0x3299, 0x3299, 1},
 	},
-	R32: []unicode.Range32{{0x1F000, 0x1FAFF, 1}},
+	R32: []unicode.Range32{
+		{0x1F004, 0x1F004, 1}, {0x1F0CF, 0x1F0CF, 1}, {0x1F170, 0x1F171, 1}, {0x1F17E, 0x1F17F, 1},
+		{0x1F18E, 0x1F18E, 1}, {0x1F191, 0x1F19A, 1}, {0x1F201, 0x1F202, 1}, {0x1F21A, 0x1F21A, 1},
+		{0x1F22F, 0x1F22F, 1}, {0x1F232, 0x1F23A, 1}, {0x1F250, 0x1F251, 1}, {0x1F300, 0x1F321, 1},
+		{0x1F324, 0x1F393, 1}, {0x1F396, 0x1F397, 1}, {0x1F399, 0x1F39B, 1}, {0x1F39E, 0x1F3F0, 1},
+		{0x1F3F3, 0x1F3F5, 1}, {0x1F3F7, 0x1F4FD, 1}, {0x1F4FF, 0x1F53D, 1}, {0x1F549, 0x1F54E, 1},
+		{0x1F550, 0x1F567, 1}, {0x1F56F, 0x1F570, 1}, {0x1F573, 0x1F57A, 1}, {0x1F587, 0x1F587, 1},
+		{0x1F58A, 0x1F58D, 1}, {0x1F590, 0x1F590, 1}, {0x1F595, 0x1F596, 1}, {0x1F5A4, 0x1F5A5, 1},
+		{0x1F5A8, 0x1F5A8, 1}, {0x1F5B1, 0x1F5B2, 1}, {0x1F5BC, 0x1F5BC, 1}, {0x1F5C2, 0x1F5C4, 1},
+		{0x1F5D1, 0x1F5D3, 1}, {0x1F5DC, 0x1F5DE, 1}, {0x1F5E1, 0x1F5E1, 1}, {0x1F5E3, 0x1F5E3, 1},
+		{0x1F5E8, 0x1F5E8, 1}, {0x1F5EF, 0x1F5EF, 1}, {0x1F5F3, 0x1F5F3, 1}, {0x1F5FA, 0x1F64F, 1},
+		{0x1F680, 0x1F6C5, 1}, {0x1F6CB, 0x1F6D2, 1}, {0x1F6D5, 0x1F6D7, 1}, {0x1F6DC, 0x1F6E5, 1},
+		{0x1F6E9, 0x1F6E9, 1}, {0x1F6EB, 0x1F6EC, 1}, {0x1F6F0, 0x1F6F0, 1}, {0x1F6F3, 0x1F6FC, 1},
+		{0x1F7E0, 0x1F7EB, 1}, {0x1F7F0, 0x1F7F0, 1}, {0x1F90C, 0x1F93A, 1}, {0x1F93C, 0x1F945, 1},
+		{0x1F947, 0x1F9FF, 1}, {0x1FA70, 0x1FA7C, 1}, {0x1FA80, 0x1FA89, 1}, {0x1FA8F, 0x1FAC6, 1},
+		{0x1FACE, 0x1FADC, 1}, {0x1FADF, 0x1FAE9, 1}, {0x1FAF0, 0x1FAF8, 1},
+	},
 }
 
 // StripDecoration removes the decorative characters title_quality reports

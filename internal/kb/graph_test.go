@@ -467,6 +467,7 @@ func TestRewriteLinks_MatchesExtractLinks(t *testing.T) {
 		"[a](a.md)", "[a](a)", "[a](a.md#s)", "[up](../other/x.md)", "[s](sibling)",
 		"[df](Dockerfile)", "[mk](Makefile)", "[r](report.csv)", "[u](https://e.com/a.md)",
 		"[h](#top)", "[m](mailto:x@y)", "[esc](../../../out.md)", "[c](c/index.md)",
+		"[r](/m/a.md)", "[r](/other/x#s)", "[r](/m/Makefile)", "[p](//example.com/m/a.md)", "[root](/)",
 		"[[m/a]]", "[[m/a#sec]]", "[[m/a|label]]", "[[m/a.md]]", "[[other/x#s|lbl]]", "[[m/c/sibling]]",
 		"`[a](a.md)`", "``[[m/a]]``", "plain text", "\n", "\n\n",
 		"\n```\n[a](a.md) [[m/a]]\n```\n", "\n~~~~\n[[other/x]]\n~~~~\n", "\n```mermaid\nN1[[\"x\"]]\n```\n",

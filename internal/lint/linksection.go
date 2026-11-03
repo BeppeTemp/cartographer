@@ -3,6 +3,7 @@ package lint
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -24,8 +25,15 @@ var linksSectionHeading = regexp.MustCompile(`(?im)^(#{2,6})[ \t]+(collegamenti|
 var (
 	wikiLinkRe = regexp.MustCompile(`\[\[[^\]]*\]\]`)
 	mdLinkRe   = regexp.MustCompile(`\[(?:[^\[\]]|\[[^\[\]]*\])*\]\([^)]*\)`)
-	listMarkRe = regexp.MustCompile(`(?m)^\s*(?:[-*+]|\d+[.)])\s*`)
 )
+
+// listMarker is the marker of a list item line with the whitespace after it
+// ("  - ", "1. "), so a rewrite of the item keeps its indentation exactly.
+func listMarker(line string) string {
+	m := listItemRe.FindString(line)
+	rest := line[len(m):]
+	return line[:len(m)+len(rest)-len(strings.TrimLeft(rest, " \t"))]
+}
 
 // anyHeading matches the start of an ATX heading line of any level.
 var anyHeading = regexp.MustCompile(`(?m)^(#{1,6})\s`)
@@ -103,9 +111,11 @@ func linksSectionIssues(body, linkBase string, assetExists func(string) bool) (h
 		}
 	}
 	fixable = duplicateItemFixes(section, linkBase, assetExists, inText)
-	words := listMarkRe.ReplaceAllString(mdLinkRe.ReplaceAllString(wikiLinkRe.ReplaceAllString(section, ""), ""), "")
+	words := listItemRe.ReplaceAllString(mdLinkRe.ReplaceAllString(wikiLinkRe.ReplaceAllString(section, ""), ""), "")
+	// A word is made of letters and digits; a separator such as "·", "→" or
+	// "—" between bare links is not one, whatever its code point.
 	bare = !strings.ContainsFunc(words, func(r rune) bool {
-		return r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r > 127
+		return unicode.IsLetter(r) || unicode.IsNumber(r)
 	})
 	return heading, duplicates, fixable, bare, len(listed)
 }
@@ -125,10 +135,10 @@ func duplicateItemFixes(section, linkBase string, assetExists func(string) bool,
 	out := map[okf.ConceptID]*Fix{}
 	kinds := kb.FenceKinds(section)
 	for li, line := range strings.Split(section, "\n") {
-		if kinds[li] != kb.LineText || !listMarkRe.MatchString(line) {
+		if kinds[li] != kb.LineText || !listItemRe.MatchString(line) {
 			continue
 		}
-		marker := listMarkRe.FindString(line)
+		marker := listMarker(line)
 		content := line[len(marker):]
 		// Separators inside a link ("[[x|Foo, bar]]") are not separators.
 		masked := content
@@ -263,10 +273,10 @@ func linkOnlyItems(section, linkBase string, assetExists func(string) bool) map[
 	out := map[okf.ConceptID]string{}
 	kinds := kb.FenceKinds(section)
 	for li, line := range strings.Split(section, "\n") {
-		if kinds[li] != kb.LineText || !listMarkRe.MatchString(line) {
+		if kinds[li] != kb.LineText || !listItemRe.MatchString(line) {
 			continue
 		}
-		stripped := strings.TrimSpace(listMarkRe.ReplaceAllString(line, ""))
+		stripped := strings.TrimSpace(listItemRe.ReplaceAllString(line, ""))
 		if stripped == "" {
 			continue
 		}
@@ -335,7 +345,7 @@ func ReplaceLinkItem(body, line, newLine string, required HeadingRequired) strin
 	newSection := strings.Join(kept, "\n")
 	hasItem := false
 	for i, l := range kept {
-		if keptKinds[i] == kb.LineText && listMarkRe.MatchString(l) && strings.TrimSpace(listMarkRe.ReplaceAllString(l, "")) != "" {
+		if keptKinds[i] == kb.LineText && listItemRe.MatchString(l) && strings.TrimSpace(listItemRe.ReplaceAllString(l, "")) != "" {
 			hasItem = true
 			break
 		}
