@@ -669,7 +669,7 @@ func TestWriteConcept_RejectsNonRoundTrippingFrontmatter(t *testing.T) {
 	kb := newTestKB(t)
 
 	fm, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Test")
-	fm.Set("broken: [", "x") // serialises as "broken: [: x", an unclosed flow list
+	fm.Set("k", okf.Block("bad: [")) // a "block" at column 0: serialises as an unclosed flow list
 	_, err := kb.WriteConcept(okf.ConceptID("concept"), fm, "# V1\n", "")
 	if err == nil || !strings.Contains(err.Error(), "frontmatter round-trip check failed") {
 		t.Fatalf("expected round-trip rejection, got: %v", err)
