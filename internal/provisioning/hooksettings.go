@@ -1148,12 +1148,15 @@ func saveJSONObject(baseDir, path string, m map[string]interface{}) error {
 	return writeJSONFile(baseDir, path, data)
 }
 
-// writeJSONFile writes data to path through the no-follow writers (D148).
+// writeJSONFile writes data to path through the no-follow writers (D148), in one
+// atomic step and not at all when the file already holds data: these are files
+// the client reads and watches (settings.json, hooks.json), and a sync used to
+// truncate and rewrite them at every session start (#1502).
 func writeJSONFile(baseDir, path string, data []byte) error {
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 	}
-	if err := writeFileNoFollow(path, data, 0o644); err != nil {
+	if err := writeFileAtomicNoFollow(baseDir, path, data, 0o644); err != nil {
 		return fmt.Errorf("provisioning: write %s: %w", path, err)
 	}
 	return nil

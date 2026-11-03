@@ -1640,7 +1640,7 @@ func WriteLock(path string, lock Lock) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir lock dir: %w", err)
 	}
-	if err := writeFileNoFollow(path, data, 0o644); err != nil {
+	if err := writeFileAtomicNoFollow(filepath.Dir(path), path, data, 0o644); err != nil {
 		return fmt.Errorf("provisioning: write lock %s: %w", path, err)
 	}
 	return nil
@@ -1711,7 +1711,7 @@ func WriteLockFile(path string, lf LockFile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir lockfile dir: %w", err)
 	}
-	if err := writeFileNoFollow(path, data, 0o644); err != nil {
+	if err := writeFileAtomicNoFollow(filepath.Dir(path), path, data, 0o644); err != nil {
 		return fmt.Errorf("provisioning: write lockfile %s: %w", path, err)
 	}
 	return nil
@@ -3541,7 +3541,7 @@ func writeInstructionsBlockChanged(baseDir, path, body string) (bool, error) {
 		if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 			return false, err
 		}
-		return true, writeFileNoFollow(path, []byte(block), 0o644)
+		return true, writeFileAtomicNoFollow(baseDir, path, []byte(block), 0o644)
 	}
 	if err != nil {
 		return false, err
@@ -3564,7 +3564,7 @@ func writeInstructionsBlockChanged(baseDir, path, body string) (bool, error) {
 	if next == content {
 		return false, nil
 	}
-	return true, writeFileNoFollow(path, []byte(next), 0o644)
+	return true, writeFileAtomicNoFollow(baseDir, path, []byte(next), 0o644)
 }
 
 // removeInstructionsBlock removes the managed block (markers included) from
@@ -3598,7 +3598,7 @@ func removeInstructionsBlock(baseDir, path string) error {
 	if strings.TrimSpace(stripped) == "" {
 		return os.Remove(path)
 	}
-	return writeFileNoFollow(path, []byte(stripped), 0o644)
+	return writeFileAtomicNoFollow(baseDir, path, []byte(stripped), 0o644)
 }
 
 // replaceBetweenMarkers returns content with the instructions block (markers

@@ -199,7 +199,7 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	if err := mkdirAllNoFollow(baseDir, infoDir, 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", infoDir, err)
 	}
-	return writeFileNoFollow(path, []byte(out), 0o644)
+	return writeFileAtomicNoFollow(baseDir, path, []byte(out), 0o644)
 }
 
 // RemoveWorkspaceExclusions drops Cartographer's block entirely, for an unbind

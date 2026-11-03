@@ -18,6 +18,7 @@ modifies files a user did not ask about.
   `internal/blocktext` does marker-delimited substring replacement and nothing
   format-aware, on purpose: comments, ordering and every other byte survive
   (D58). If you find yourself parsing the user's TOML or JSON to edit it, stop.
+- **A file the user shares with us is written atomically and only when it changed** (`safewrite.WriteFileAtomicNoFollow`: temp file, fsync, rename, mode kept, no write for identical bytes): the instructions block, `blocktext`, the lockfile and the client JSON configs. `os.WriteFile` truncates first, and a sync runs inside a session-start hook with a timeout (#1502). A file we own whole keeps `writeFileNoFollow`.
 - **One sanctioned exception: `TrustCodexProject` (D1074).** It appends a
   `[projects."<dir>"]` / `trust_level = "trusted"` table to the user's Codex
   `config.toml`, outside any managed block, only for `workspace bind codex --trust`
