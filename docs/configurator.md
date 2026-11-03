@@ -145,10 +145,19 @@ decides every step **before** running any:
   loopback address (D268). The error names the variable (saying whether it is set in the current shell,
   and `CARTOGRAPHER_AUTH` if that forces auth on), the config file to add `auth: {mode: "off"}`
   to, and `service restart`; exit 1, and the rerun resumes at the agents.
+- **Bindings and the server URL.** A KB this run adds is bound only to the agents that have no binding yet
+  (two `connect` runs: the unbound ones get `--kb <new>`, the bound ones are connected without `--kb`, so
+  `connect` does not reset what they have); the plan names what each agent receives. When the client has no
+  URL yet setup passes `--server-url` for the local service's own address (a service installed with
+  `--http` on another port included); a loopback client URL on a different port than the service is a
+  plan-time refusal (exit 2, nothing changed).
+- **Readiness.** Before the agents step setup waits (up to 5 minutes, a first clone of a large KB takes that
+  long) until `/health` stops reporting `bootstrapping` — a server answers 200 while it clones — and the
+  verify step uses the same condition, so "set up" is never printed over a server still loading its KBs.
 - **Interactive** (a TTY, no `--no-input`): asks for the remote when none is mounted — blank means
   a local-only KB, confirmed explicitly (D134) — then which of the detected agents to connect, prints
   the plan and asks `Proceed? [Y/n]` (skipped by `--yes`). `--dry-run` prints the plan and exits 0.
-- **Exit codes:** 0 set up; 1 a step failed or the operator cancelled; 2 usage, preflight or
+- **Exit codes:** 0 set up; 1 a step failed (whatever code the step itself returned: the service and the KB may exist by then) or the operator cancelled; 2 usage, preflight or
   choice error (nothing changed). A failed step prints `Setup stopped at …`; a rerun skips what is
   done. On Linux a freshly installed user unit without lingering gets the `loginctl enable-linger`
   hint. The run ends on the Atlas URL and on restarting the agent sessions.
