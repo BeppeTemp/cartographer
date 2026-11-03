@@ -2090,7 +2090,17 @@ func TestUninstall_Linux_FailedDisableOfAnEnabledUnitIsAnError(t *testing.T) {
 		t.Errorf("the unit file was removed although the unit is still enabled: %v", statErr)
 	}
 
-	s2 := &stubRunner{fail: map[string]bool{"disable --now": true, "is-enabled": true}}
+	// Disabled but not stopped: the file must stay while the service runs.
+	s3 := &stubRunner{fail: map[string]bool{"disable --now": true, "is-enabled": true}}
+	err = (&Manager{run: s3.run}).Uninstall()
+	if err == nil || !strings.Contains(err.Error(), "could not be stopped") {
+		t.Fatalf("Uninstall with a unit that stays active = %v, want an error", err)
+	}
+	if _, statErr := os.Stat(unitPath); statErr != nil {
+		t.Errorf("the unit file was removed while the service still runs: %v", statErr)
+	}
+
+	s2 := &stubRunner{fail: map[string]bool{"disable --now": true, "is-enabled": true, "is-active": true}}
 	if err := (&Manager{run: s2.run}).Uninstall(); err != nil {
 		t.Errorf("Uninstall of a unit systemd does not know = %v, want success", err)
 	}

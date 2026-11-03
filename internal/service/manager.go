@@ -311,7 +311,8 @@ func (m *Manager) uninstallServer() error {
 		// either — but it is reported, since it still holds those files.
 		stopErr := m.stopServeAndWait(m.serveHTTPAddr())
 		if err := m.unregisterWindowsTask(windowsServeTaskName); err != nil {
-			return err
+			// The survivor of the stop is still worth reporting beside it.
+			return errors.Join(err, stopErr)
 		}
 		if err := os.Remove(taskPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove task definition: %w", err)

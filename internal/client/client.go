@@ -427,10 +427,6 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("could not read response from %s", reqURL), Cause: err}
 	}
-	if len(respBody) > maxResponseBytes {
-		return nil, &RemoteError{State: RemoteFailed, Code: CodeHTTPFailed,
-			Message: fmt.Sprintf("response over 8 MiB from %s", reqURL)}
-	}
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
@@ -452,6 +448,12 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 			Cause:   fmt.Errorf("%s", bodyPrefix(respBody)), HTTPStatus: resp.StatusCode}
 	}
 
+	// Checked after the status switch: a 401 or a 5xx with a big body keeps
+	// its own classification instead of reading as "over 8 MiB".
+	if len(respBody) > maxResponseBytes {
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeHTTPFailed,
+			Message: fmt.Sprintf("response over 8 MiB from %s", reqURL)}
+	}
 	var rpcResp rpcResponse
 	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
 		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,

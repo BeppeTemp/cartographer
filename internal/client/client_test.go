@@ -702,3 +702,21 @@ func TestHealth_404HintsTheServerURLWhenGivenAnMCPSubpath(t *testing.T) {
 		t.Errorf("plain /mcp 404 must carry no hint, got %v", err)
 	}
 }
+
+// A 401 or a 5xx with a large body keeps its own classification: it must not
+// read as "response over 8 MiB".
+func TestCall_OversizedErrorBodyKeepsItsStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, strings.Repeat("x", 9*1024*1024), http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "").Call("ok_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want a *client.RemoteError", err)
+	}
+	if strings.Contains(re.Message, "8 MiB") || re.HTTPStatus != http.StatusInternalServerError {
+		t.Errorf("Message/HTTPStatus = %q/%d, want the HTTP 500 classification", re.Message, re.HTTPStatus)
+	}
+}

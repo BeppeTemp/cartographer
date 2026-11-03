@@ -185,16 +185,43 @@ func (m *Manager) stopWindowsTask(name string) error {
 // program at the next login while the caller reports "uninstalled".
 func (m *Manager) unregisterWindowsTask(name string) error {
 	_, err := m.powershell(fmt.Sprintf("Unregister-ScheduledTask %s -Confirm:$false", taskSelector(name)))
-	if err != nil && m.windowsTaskRegistered(name) {
+	if err == nil {
+		return nil
+	}
+	registered, probeErr := m.windowsTaskPresence(name)
+	if probeErr != nil {
+		return fmt.Errorf("service: could not unregister scheduled task %s and could not tell whether it is still registered: %w", name, errors.Join(err, probeErr))
+	}
+	if registered {
 		return fmt.Errorf("service: could not unregister scheduled task %s, it is still registered and would start again at the next login (run `Unregister-ScheduledTask -TaskName %s -TaskPath %s`): %w", name, name, windowsTaskPathArg(), err)
 	}
 	return nil
 }
 
+// taskNotFoundExit is the exit code windowsTaskPresence's script uses for "the
+// scheduler does not know this task", so that a PowerShell that failed for
+// another reason (no ScheduledTasks module, no permission) is not read as it.
+const taskNotFoundExit = 3
+
+// windowsTaskPresence says whether the scheduler knows the task, telling "not
+// registered" (the script's own exit code) from a probe that failed.
+func (m *Manager) windowsTaskPresence(name string) (registered bool, err error) {
+	script := fmt.Sprintf("if (Get-ScheduledTask %s -ErrorAction SilentlyContinue) { exit 0 } else { exit %d }", taskSelector(name), taskNotFoundExit)
+	_, err = m.powershell(script)
+	if err == nil {
+		return true, nil
+	}
+	var ex interface{ ExitCode() int }
+	if errors.As(err, &ex) && ex.ExitCode() == taskNotFoundExit {
+		return false, nil
+	}
+	return false, err
+}
+
 // disableUnitNow runs `systemctl --user disable --now` and, when it fails,
-// checks the unit is no longer enabled: a failure on a unit that is not
-// installed is fine, one on a unit that stays enabled is not, since the caller
-// is about to delete its file.
+// checks the unit is neither enabled nor active any more: a failure on a unit
+// that is not installed is fine, one on a unit that stays enabled, or that was
+// disabled but not stopped, is not, since the caller is about to delete its file.
 func (m *Manager) disableUnitNow(unit string) error {
 	_, err := m.run("systemctl", "--user", "disable", "--now", unit)
 	if err == nil {
@@ -202,6 +229,9 @@ func (m *Manager) disableUnitNow(unit string) error {
 	}
 	if _, enabled := m.run("systemctl", "--user", "is-enabled", unit); enabled == nil {
 		return fmt.Errorf("service: could not disable %s, it is still enabled: %w", unit, err)
+	}
+	if _, active := m.run("systemctl", "--user", "is-active", unit); active == nil {
+		return fmt.Errorf("service: %s was disabled but could not be stopped, it is still running: %w", unit, err)
 	}
 	return nil
 }

@@ -561,12 +561,14 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	// On Windows there is no CLI-deliverable SIGTERM, so the same shutdown is
 	// also reachable through a named event (D217). Off Windows the channel is
 	// nil and its select arm can never fire.
-	eventCh := watchShutdownEvent()
+	// Created only after the port is bound: a failed Listen returns before the
+	// named event (a Windows handle nothing here closes) exists.
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		signal.Stop(sigCh)
 		return err
 	}
+	eventCh := watchShutdownEvent()
 	serveErrCh := make(chan error, 1)
 	go func() {
 		log.Printf("HTTP server listening on %s", addr)

@@ -736,10 +736,40 @@ func TestUninstall_Windows_ReportsASurvivor(t *testing.T) {
 // is what has to go.
 func TestUninstall_Windows_UnknownTaskIsNotAFailure(t *testing.T) {
 	withTestHome(t, "windows")
-	s := &stubRunner{fail: map[string]bool{"Unregister-ScheduledTask": true, "Get-ScheduledTask": true}}
-	m := &Manager{run: s.run}
+	s := &stubRunner{fail: map[string]bool{"Unregister-ScheduledTask": true}}
+	run := func(name string, args ...string) (string, error) {
+		if strings.Contains(strings.Join(args, " "), "Get-ScheduledTask") {
+			s.calls = append(s.calls, append([]string{name}, args...))
+			return "", exitCodeErr(taskNotFoundExit) // the scheduler does not know the task
+		}
+		return s.run(name, args...)
+	}
+	m := &Manager{run: run}
 	if err := m.Uninstall(); err != nil {
 		t.Errorf("Uninstall with an unregistered task = %v, want success", err)
+	}
+}
+
+// exitCodeErr models the exit status of a PowerShell run.
+type exitCodeErr int
+
+func (e exitCodeErr) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+func (e exitCodeErr) ExitCode() int { return int(e) }
+
+// A probe that itself fails (no module, no permission) is not "not registered":
+// the uninstall cannot tell, and says so instead of reporting success.
+func TestUninstall_Windows_FailedProbeIsAnError(t *testing.T) {
+	withTestHome(t, "windows")
+	s := &stubRunner{fail: map[string]bool{"Unregister-ScheduledTask": true}}
+	run := func(name string, args ...string) (string, error) {
+		if strings.Contains(strings.Join(args, " "), "-ErrorAction SilentlyContinue") {
+			return "", exitCodeErr(1)
+		}
+		return s.run(name, args...)
+	}
+	err := (&Manager{run: run}).Uninstall()
+	if err == nil || !strings.Contains(err.Error(), "could not tell") {
+		t.Fatalf("Uninstall = %v, want an error saying the registration could not be checked", err)
 	}
 }
 
