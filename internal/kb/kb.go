@@ -3344,15 +3344,36 @@ func scanTemplate(body string) (sections, sample []string) {
 	return nil, nil
 }
 
+// H2Line is one level-2 heading outside fenced code.
+type H2Line struct {
+	Line int    // index into strings.Split(body, "\n")
+	Text string // as written, trimmed, inline code kept
+}
+
+// H2Lines lists a body's level-2 headings with their line index, ignoring
+// fenced code. The code-masked body only decides whether a line is a heading;
+// the text comes from the original line (same index, the mask keeps the line
+// structure), so "## Run `make gate` first" keeps its backticked words, as
+// scanTemplate keeps them for a template.
+func H2Lines(body string) []H2Line {
+	orig := strings.Split(body, "\n")
+	var out []H2Line
+	for i, line := range strings.Split(MaskCodeSpans(body), "\n") {
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		if h := strings.TrimSpace(strings.TrimRight(strings.TrimPrefix(orig[i], "## "), "#")); h != "" {
+			out = append(out, H2Line{Line: i, Text: h})
+		}
+	}
+	return out
+}
+
 // H2Headings lists a body's level-2 headings in order, ignoring fenced code.
 func H2Headings(body string) []string {
 	var out []string
-	for _, line := range strings.Split(MaskCodeSpans(body), "\n") {
-		if strings.HasPrefix(line, "## ") {
-			if h := strings.TrimSpace(strings.TrimRight(strings.TrimPrefix(line, "## "), "#")); h != "" {
-				out = append(out, h)
-			}
-		}
+	for _, h := range H2Lines(body) {
+		out = append(out, h.Text)
 	}
 	return out
 }

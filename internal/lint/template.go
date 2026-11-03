@@ -30,27 +30,13 @@ const (
 )
 
 // h2Line is one level-2 heading outside fenced code.
-type h2Line struct {
-	Line int    // index into strings.Split(body, "\n")
-	Text string // as written, trimmed (the form kb.H2Headings returns)
-}
+type h2Line = kb.H2Line
 
 // h2Lines lists a body's H2 headings with their line index, ignoring fenced
-// code and inline spans: the one scanner the section checks and the two
-// heading repairs share, so a heading inside a code block is never a section
-// and never moved.
-func h2Lines(body string) []h2Line {
-	var out []h2Line
-	for i, line := range strings.Split(kb.MaskCodeSpans(body), "\n") {
-		if !strings.HasPrefix(line, "## ") {
-			continue
-		}
-		if h := strings.TrimSpace(strings.TrimRight(strings.TrimPrefix(line, "## "), "#")); h != "" {
-			out = append(out, h2Line{Line: i, Text: h})
-		}
-	}
-	return out
-}
+// code: the one scanner the section checks and the two heading repairs share,
+// so a heading inside a code block is never a section and never moved. The text
+// is the heading as written, inline code included (kb.H2Lines).
+func h2Lines(body string) []h2Line { return kb.H2Lines(body) }
 
 // RenameHeading rewrites the first H2 whose text is from to to, keeping
 // everything else of the body (template_section_alias). It reports false when

@@ -233,13 +233,17 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		}
 		// A generated index lists the map's own concepts only. The folder of an
 		// expanded concept has a curated index whatever the map says, and Run
-		// checks it (D312); a folder without an index.md is no expanded concept
-		// (Run reports expanded_missing_index, not index_incomplete).
+		// checks it (D312); a folder without an index.md is reported as
+		// expanded_missing_index, as Run does, not as index_incomplete.
 		if folder == mapName {
 			if contract.Index == kb.IndexGenerated {
 				continue
 			}
 		} else if _, err := k.ReadIndex(folder); errors.Is(err, okf.ErrNotFound) {
+			findings = append(findings, newFinding("expanded_missing_index", Finding{
+				Path:    folder + "/index.md",
+				Message: "expanded concept missing index.md",
+			}))
 			continue
 		}
 		checkCuratedIndex(k, folder, folder+"/index.md", curated[folder], false, &findings, exists, retiredOf(lg))
