@@ -948,6 +948,19 @@ func TestRebaseHrefInBody_EmptyTargetKeepsTheLabel(t *testing.T) {
 	}
 }
 
+// #1503 WP4: only a real link is rebased: the same text in a fence or a code
+// span stays, and an image never loses its target or its mark.
+func TestRebaseHrefInBody_CodeAndImagesAreNotLinks(t *testing.T) {
+	t.Parallel()
+	body := "real [A](old.md) and `[B](old.md)`\n```\n[C](old.md)\n```\n![img](old.md) after\n"
+	if got, want := rebaseHrefInBody(body, "old.md", "new.md"), "real [A](new.md) and `[B](old.md)`\n```\n[C](old.md)\n```\n![img](old.md) after\n"; got != want {
+		t.Errorf("rebase:\n%q\nwant\n%q", got, want)
+	}
+	if got, want := rebaseHrefInBody(body, "old.md", ""), "real A and `[B](old.md)`\n```\n[C](old.md)\n```\n![img](old.md) after\n"; got != want {
+		t.Errorf("unwrap:\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestRewriteWikiLinkInBody(t *testing.T) {
 	t.Parallel()
 	got := rewriteWikiLinkInBody("[[a/b/index]] [[a/b/index#s|t]] `[[a/b/index]]` [[a/b/index2]]", "a/b/index", "a/b")

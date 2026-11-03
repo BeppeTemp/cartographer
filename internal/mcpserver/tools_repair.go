@@ -914,41 +914,51 @@ func replaceFirstH1(body, title string) (string, bool) {
 // its label (a link to the concept itself, D310). Idempotent: if the oldHref
 // is absent, the body is returned unchanged.
 func rebaseHrefInBody(body, oldHref, newHref string) string {
-	// Match markdown links whose href is exactly oldHref (possibly with a fragment).
-	var sb strings.Builder
-	remainder := body
+	// The search runs on the code-masked body, offsets preserved, and the
+	// edits are written from the original: a link shown as an example in a
+	// fence or a code span is not a link (#1503), and an image is not a link
+	// to rebase or to unwrap.
+	masked := kb.MaskCodeSpans(body)
 	needle := "](" + oldHref
+	var sb strings.Builder
+	pos := 0 // body[:pos] is already written
+	search := 0
 	for {
-		idx := strings.Index(remainder, needle)
-		if idx == -1 {
+		rel := strings.Index(masked[search:], needle)
+		if rel == -1 {
 			break
 		}
-		after := remainder[idx+len(needle):]
+		idx := search + rel
+		hrefEnd := idx + len(needle)
+		search = hrefEnd
 		// The character after the href must be ")" or "#" (fragment).
-		if len(after) > 0 && after[0] != ')' && after[0] != '#' {
-			sb.WriteString(remainder[:idx+len(needle)])
-			remainder = after
+		if hrefEnd < len(masked) && masked[hrefEnd] != ')' && masked[hrefEnd] != '#' {
 			continue
+		}
+		open := strings.LastIndex(masked[pos:idx], "[")
+		if open >= 0 {
+			open += pos
+		}
+		if open > 0 && masked[open-1] == '!' {
+			continue // an image
 		}
 		if newHref == "" {
-			open := strings.LastIndex(remainder[:idx], "[")
-			end := strings.Index(after, ")")
-			if open < 0 || end < 0 || strings.Contains(remainder[open:idx], "]") {
-				sb.WriteString(remainder[:idx+len(needle)])
-				remainder = after
+			end := strings.Index(masked[hrefEnd:], ")")
+			if open < 0 || end < 0 || strings.Contains(masked[open:idx], "]") {
 				continue
 			}
-			sb.WriteString(remainder[:open])
-			sb.WriteString(remainder[open+1 : idx])
-			remainder = after[end+1:]
+			sb.WriteString(body[pos:open])
+			sb.WriteString(body[open+1 : idx])
+			pos = hrefEnd + end + 1
+			search = pos
 			continue
 		}
-		sb.WriteString(remainder[:idx])
+		sb.WriteString(body[pos:idx])
 		sb.WriteString("](")
 		sb.WriteString(newHref)
-		remainder = after
+		pos = hrefEnd
 	}
-	sb.WriteString(remainder)
+	sb.WriteString(body[pos:])
 	return sb.String()
 }
 

@@ -2,6 +2,7 @@ package lint
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -106,5 +107,37 @@ func TestIndexListsRetired_FixNeedsALineOfItsOwn(t *testing.T) {
 	}
 	if len(fixes) != 2 || fixes[0] == nil || fixes[0].Kind != FixDropIndexEntry || fixes[0].Field != "ops/old" || fixes[1] != nil {
 		t.Fatalf("fixes = %+v", fixes)
+	}
+}
+
+// TestStripDecoration_KeepsMeaningfulSymbols pins #1503 WP4: a symbol that is
+// part of the title is not decoration, and no title_quality finding is raised.
+func TestStripDecoration_KeepsMeaningfulSymbols(t *testing.T) {
+	t.Parallel()
+	for _, title := range []string{
+		"Room kept at 20°C",
+		"x^2 scaling",
+		"Run `make gate` first",
+		"Acme® gateway",
+		"Acme™ and © notes",
+		"C♯ minor and B♭ major",
+		"⌥ shortcuts",
+		"Sync ↔ async",
+	} {
+		if got := StripDecoration(title); got != title {
+			t.Errorf("StripDecoration(%q) = %q", title, got)
+		}
+		got := findingsOf(nameFindings(t, "", "a", "title: \""+title+"\"\n", "# "+title+"\ntext"), "title_quality")
+		for _, f := range got {
+			if strings.HasPrefix(f.Message, decorativeTitleMsg) {
+				t.Errorf("%q flagged as decorative: %+v", title, f)
+			}
+		}
+	}
+	if got := StripDecoration("🚀 Launch ✔ day 🇮🇹"); got != "Launch day" {
+		t.Errorf("emoji not stripped: %q", got)
+	}
+	if got := StripDecoration("⚠ Heads ☀ up ⭐ ✅ ⌚"); got != "Heads up" {
+		t.Errorf("emoji not stripped: %q", got)
 	}
 }
