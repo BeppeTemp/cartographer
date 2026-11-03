@@ -74,7 +74,7 @@ func cmdSync(args []string) int {
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)
+		fmt.Fprintln(os.Stderr, "Error:", describeClientConfigError(dir, err))
 		return 2
 	}
 	for _, w := range cfg.Warnings {
