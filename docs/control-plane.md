@@ -236,7 +236,7 @@ Tool names, `required` lists, types and enums are untouched by the budget: only 
 
 What a description keeps: what the tool does, when to use it instead of its neighbour, and every
 rule needed to call it correctly (required preconditions such as `if_match`, refusal conditions,
-destructive effects, the enforced limits above). What it drops: `D1595` references, rationale, response
+destructive effects, the enforced limits above). What it drops: `D<n>` references, rationale, response
 field listings and anything another tool's description already says. The rest lives on this page,
 which stays the full reference. Hiding a tool is not a way to meet the budget: a descriptor-bound
 host cannot call a tool `tools/list` does not advertise (D123).

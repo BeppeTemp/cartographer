@@ -27,7 +27,6 @@ const SETTINGS = {
       name: "kb-a",
       entries: [{ key: "kbs[].usage_stale_days", value: 30, origin: "file", description: "Days before an unused skill is reported.", default: "42" }],
       yaml: "usage_stale_days: 30 # from the server's kbs[] entry\n\n# --- available settings ---\n",
-      git: { has_remote: true, sync: true, push_state: "idle" },
     },
   ],
   server_yaml: "git:\n  sync: false # from CARTOGRAPHER_GIT_SYNC\n  # --- available settings ---\n  # autocommit: true\n",
