@@ -261,6 +261,12 @@ under that condition: with authentication on, the token is the access control,
 and a listen address beyond loopback with authentication off refuses to start
 (§Enabling bearer authentication). An `Origin` that carries userinfo is refused.
 
+The MCP SDK ships a third guard of the same kind (a plain-text 403 to a loopback
+listener reached with a non-loopback `Host`). It is switched off: it fires with a
+valid token too, which broke every same-host reverse proxy that keeps the public
+`Host` (Caddy, nginx, an auth sidecar in the same pod). The rule above is the only
+one, and a refusal is always the one described here.
+
 ## Enabling bearer authentication
 
 Tokens can be configured through server YAML or
