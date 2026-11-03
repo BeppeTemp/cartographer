@@ -8,6 +8,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
 // D898: a client config and lockfile written while a provider was supported
@@ -21,6 +22,8 @@ func TestSyncSkipsAProviderTheRegistryNoLongerKnows(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
+	t.Setenv("HOME", t.TempDir()) // SaveDerived writes under the home directory
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	oldHome := t.TempDir() // where the removed client's files were delivered
 	oldFile := filepath.Join(oldHome, "skill-inbox", "demo", "cartographer", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(oldFile), 0o755); err != nil {
@@ -205,5 +208,26 @@ func TestDisconnectAllCleansARemovedProviderSection(t *testing.T) {
 	}
 	if b, err := os.ReadFile(oldFile); err != nil || len(b) == 0 {
 		t.Errorf("a delivered file was touched: %v", err)
+	}
+}
+
+// The package runs with a private HOME (TestMain): the derived bindings file
+// and the repo cache must resolve under it, never under the developer's real
+// home, where a sync test would overwrite the real bindings.
+func TestPackageHomeIsIsolated(t *testing.T) {
+	if testHome == "" || os.Getenv("HOME") != testHome {
+		t.Fatalf("HOME = %q, want the private test home %q TestMain installs", os.Getenv("HOME"), testHome)
+	}
+	for name, fn := range map[string]func() (string, error){
+		"DerivedPath": clientconfig.DerivedPath,
+		"CachePath":   repoindex.CachePath,
+	} {
+		p, err := fn()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(p, testHome+string(filepath.Separator)) {
+			t.Errorf("%s = %q, want a path under the test home %q", name, p, testHome)
+		}
 	}
 }
