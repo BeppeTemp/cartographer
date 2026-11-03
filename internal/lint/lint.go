@@ -201,7 +201,7 @@ func owningMap(path string) string {
 // once per id, in the order the ids were first met, with the file the read path
 // serves: for an id with both "<id>.md" and "<id>/index.md" the direct form wins,
 // as in kb.resolveConceptRelPath. Run, Work and Review read concepts through
-// it (ScopedCheck reads through k.ReadRaw, which resolves the same way), so
+// it (ScopedCheck reads through k.ReadConcept, which resolves the same way), so
 // they cannot answer differently about the same id
 // (the walk emits the directory's index first, so "first wins" picked the
 // expanded file while "last wins" kept the direct file's content, #1503).
