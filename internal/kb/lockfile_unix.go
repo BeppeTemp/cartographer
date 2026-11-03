@@ -23,9 +23,3 @@ func unlockFile(f *os.File) error {
 func isLockBusy(err error) bool {
 	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }
-
-// processAlive reports whether pid exists. Signal 0 performs the existence and
-// permission check without delivering anything.
-func processAlive(pid int) bool {
-	return syscall.Kill(pid, 0) == nil
-}

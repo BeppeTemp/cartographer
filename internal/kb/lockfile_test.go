@@ -58,16 +58,55 @@ func TestAcquireProcessLock(t *testing.T) {
 		release2()
 	})
 
-	t.Run("a lock whose pid is dead is reclaimed", func(t *testing.T) {
+	// The kernel lock is the truth: while it is busy the holder is alive by
+	// definition, whatever pid the file names. A waiter that trusted a "dead"
+	// pid used to os.Remove the file and both processes then held "the" lock.
+	for _, pid := range []string{"0", "2147483646", "1"} { // dead, unused, EPERM for a non-root caller
+		t.Run("a busy lock is never reclaimed, recorded pid "+pid, func(t *testing.T) {
+			k := mustInitKB(t)
+			release, err := k.AcquireProcessLock(time.Second, "holder")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			lockPath := filepath.Join(k.Root, LockFileName)
+			before, err := os.Stat(lockPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Same inode, so the holder's flock is untouched; only the record lies.
+			if err := os.WriteFile(lockPath, []byte(pid+"\n2020-01-01T00:00:00Z\nghost\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now()
+			rel2, err := k.AcquireProcessLock(500*time.Millisecond, "intruder")
+			if err == nil {
+				rel2()
+				t.Fatal("a second process acquired a lock whose flock is held")
+			}
+			var held *LockHeldError
+			if !errors.As(err, &held) {
+				t.Fatalf("err = %v, want LockHeldError", err)
+			}
+			if d := time.Since(start); d < 400*time.Millisecond {
+				t.Errorf("gave up after %s, the deadline was not honoured", d)
+			}
+			after, err := os.Stat(lockPath)
+			if err != nil || !os.SameFile(before, after) {
+				t.Errorf("the lock file was replaced while its flock was held (err=%v)", err)
+			}
+		})
+	}
+
+	t.Run("a record left by a dead process does not block", func(t *testing.T) {
 		k := mustInitKB(t)
-		// pid 0 is never a live process.
 		lockPath := filepath.Join(k.Root, LockFileName)
 		if err := os.WriteFile(lockPath, []byte("0\n2020-01-01T00:00:00Z\nghost\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		release, err := k.AcquireProcessLock(0, "live")
 		if err != nil {
-			t.Fatalf("a stale lock must not block a KB forever: %v", err)
+			t.Fatalf("an unlocked file must not block a KB: %v", err)
 		}
 		release()
 	})
@@ -178,21 +217,6 @@ func TestAcquireProcessLockFailsFastOnANonContentionError(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("waited %s before failing, which means the poll loop was entered", elapsed)
-	}
-}
-
-// processAlive decides whether a lock is stale and may be reclaimed, so it is
-// asserted on every platform: it must recognise this very process, and must not
-// claim a pid no process can have. The reason it gives is platform-specific and
-// deliberately not asserted.
-func TestProcessAlive(t *testing.T) {
-	t.Parallel()
-	if !processAlive(os.Getpid()) {
-		t.Error("this process is running, so its own pid must be alive")
-	}
-	// Far above any pid either kernel hands out.
-	if processAlive(1 << 30) {
-		t.Error("a pid that cannot exist must not hold a KB locked forever")
 	}
 }
 

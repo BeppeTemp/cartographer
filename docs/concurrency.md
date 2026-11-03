@@ -47,10 +47,13 @@ it, so both take an **advisory lock file** (D155), `.cartographer.lock` in the K
 root (dot-prefixed, so every walker already skips it, and excluded via `.git/info/exclude` so it can
 never dirty the working tree).
 
-Advisory, not mandatory, on purpose:
+The kernel lock is the only authority:
 
-- a lock whose recorded pid no longer exists is **reclaimed** with a note on stderr — a crash must
-  not block a KB forever;
+- **a busy lock is never reclaimed.** While the flock is held its holder is alive by definition; the
+  pid recorded in the file is only text for the `LockHeldError` message (it can be a pid from another
+  user or namespace, or not yet written). Nothing removes `.cartographer.lock`: a waiter that did so
+  created a second inode and both processes held "the" lock. A crash needs no reclaim — the kernel
+  drops the lock with its holder;
 - the **server waits** for a bounded window and then proceeds under its mutex alone, reporting the
   condition: a lock held by something else must not stop the server from writing;
 - **`import` fails fast**, naming the holder and how to stop it. An import is an operator action at a
@@ -67,9 +70,7 @@ The exclusive lock is `flock(2)` on Unix and `LockFileEx` on Windows
 (`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`). Windows byte-range locks are
 mandatory rather than advisory, so the Windows side locks a **single byte far past the end of the
 metadata**: the contending process must still be able to read the pid, timestamp and command line to
-name the holder. `processAlive` follows the same asymmetry — on Windows a pid that exists but cannot
-be opened counts as **alive**, because honouring a stale lock only costs a message while reclaiming a
-live one is the corruption this section exists to prevent.
+name the holder.
 
 **An in-progress rebase makes sync refuse.** When `.git/rebase-merge` or `.git/rebase-apply` exists
 (a real rebase, or an orphan autostash an aborted `pull --rebase --autostash` left behind), `SyncIn`/`SyncOut`
