@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -51,11 +52,12 @@ func TestPathsSetLoadsAfterTheLock(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
 	writeClientConfig(t, home, "")
-	out := holdLockThenEdit(t, home, func() { cmdPaths([]string{"set", "repo:mine", "/srv/mine"}) })
+	mine := filepath.Join(t.TempDir(), "mine") // absolute on every OS
+	out := holdLockThenEdit(t, home, func() { cmdPaths([]string{"set", "repo:mine", mine}) })
 	if out.Paths["repo:other"] != "/srv/other" && out.Paths["other"] != "/srv/other" {
 		t.Errorf("the edit made during the wait was lost: %v", out.Paths)
 	}
-	if out.Paths["mine"] != "/srv/mine" {
+	if out.Paths["mine"] != mine {
 		t.Errorf("paths set was not applied: %v", out.Paths)
 	}
 }
