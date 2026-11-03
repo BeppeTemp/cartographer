@@ -30,25 +30,38 @@ var (
 // already holds exactly data nothing is written, so its mtime and inode stay
 // (a client's file watcher is not woken at every sync). A failure removes the
 // temp file and leaves path as it was.
-func WriteFileAtomicNoFollow(baseDir, path string, data []byte, perm os.FileMode) (err error) {
+func WriteFileAtomicNoFollow(baseDir, path string, data []byte, perm os.FileMode) error {
+	_, err := WriteFileAtomicNoFollowChanged(baseDir, path, data, perm)
+	return err
+}
+
+// WriteFileAtomicNoFollowChanged is WriteFileAtomicNoFollow that also says
+// whether the file was written (false: it already held exactly data).
+//
+// What it does not keep, unlike an in-place write: it replaces a read-only (0444)
+// file that os.WriteFile would have refused, and a rename gives the file a new
+// inode, so the owner, ACLs, extended attributes and hard links of the original
+// are not carried over; only the permission bits are. It refuses nothing the
+// in-place writer accepted.
+func WriteFileAtomicNoFollowChanged(baseDir, path string, data []byte, perm os.FileMode) (changed bool, err error) {
 	if err := CheckPath(baseDir, path); err != nil {
-		return err
+		return false, err
 	}
 	mode := perm
 	if info, statErr := os.Lstat(path); statErr == nil {
 		if info.Mode().IsRegular() {
 			mode = info.Mode().Perm()
 			if existing, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(existing, data) {
-				return nil
+				return false, nil
 			}
 		}
 	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return statErr
+		return false, statErr
 	}
 
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".cartographer-tmp-*")
 	if err != nil {
-		return err
+		return false, err
 	}
 	tmpName := tmp.Name()
 	defer func() {
@@ -58,16 +71,19 @@ func WriteFileAtomicNoFollow(baseDir, path string, data []byte, perm os.FileMode
 		}
 	}()
 	if _, err = tmp.Write(data); err != nil {
-		return fmt.Errorf("write %s: %w", tmpName, err)
+		return false, fmt.Errorf("write %s: %w", tmpName, err)
 	}
 	if err = syncFile(tmp); err != nil {
-		return fmt.Errorf("sync %s: %w", tmpName, err)
+		return false, fmt.Errorf("sync %s: %w", tmpName, err)
 	}
 	if err = tmp.Close(); err != nil {
-		return err
+		return false, err
 	}
 	if err = os.Chmod(tmpName, mode); err != nil {
-		return err
+		return false, err
 	}
-	return renameFile(tmpName, path)
+	if err = renameFile(tmpName, path); err != nil {
+		return false, err
+	}
+	return true, nil
 }
