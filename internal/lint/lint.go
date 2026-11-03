@@ -200,8 +200,9 @@ func owningMap(path string) string {
 // walkConceptsDirectWins walks the concepts like k.WalkConceptPaths but calls fn
 // once per id, in the order the ids were first met, with the file the read path
 // serves: for an id with both "<id>.md" and "<id>/index.md" the direct form wins,
-// as in kb.resolveConceptRelPath. Run, ScopedCheck, Work and Review all read
-// concepts through it, so they cannot answer differently about the same id
+// as in kb.resolveConceptRelPath. Run, Work and Review read concepts through
+// it (ScopedCheck reads through k.ReadRaw, which resolves the same way), so
+// they cannot answer differently about the same id
 // (the walk emits the directory's index first, so "first wins" picked the
 // expanded file while "last wins" kept the direct file's content, #1503).
 func walkConceptsDirectWins(k *kb.KB, fn func(id okf.ConceptID, physicalPath, content string) error) error {
