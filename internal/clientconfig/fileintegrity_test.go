@@ -133,3 +133,46 @@ func TestLoadSaveDoesNotPersistTheDefaultsOfAbsentKeys(t *testing.T) {
 		}
 	}
 }
+
+// A key a command assigned is written even when it equals the default; the
+// untouched ones are still left out.
+func TestAssignedDefaultsArePersisted(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CARTOGRAPHER_SERVER_URL", "")
+	writeFile(t, Path(home), "auth: false\n", 0o644)
+	cfg, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	url := cfg.ServerURL
+	cfg.ServerURL = url // chosen on purpose, equal to the default
+	cfg.Assigned("server_url")
+	if err := Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(Path(home))
+	if !strings.Contains(string(got), "\nserver_url: "+url) && !strings.HasPrefix(string(got), "server_url: "+url) {
+		t.Errorf("explicit server_url not persisted:\n%s", got)
+	}
+	if strings.Contains(string(got), "\nserver_name:") || strings.Contains(string(got), "\ntoken:") {
+		t.Errorf("untouched defaults were written:\n%s", got)
+	}
+	// Changed and changed back, without Assigned: the value moved, so it is kept.
+	home2 := t.TempDir()
+	writeFile(t, Path(home2), "auth: false\n", 0o644)
+	cfg, _ = Load(home2)
+	cfg.ServerName = "other"
+	if err := Save(home2, cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ = Load(home2)
+	cfg.ServerName = "cartographer"
+	cfg.Assigned("server_name")
+	if err := Save(home2, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = os.ReadFile(Path(home2))
+	if !strings.Contains(string(got), "\nserver_name: cartographer") {
+		t.Errorf("change and change-back not persisted:\n%s", got)
+	}
+}

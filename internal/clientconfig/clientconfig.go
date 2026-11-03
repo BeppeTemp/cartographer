@@ -695,6 +695,16 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	return doc, nil
 }
 
+// Assigned records that a command set the named keys (server_url, server_name,
+// token) on purpose: Save then writes them even when the value equals the
+// default Load applied, since an explicit choice must survive a later change of
+// the default.
+func (c *Config) Assigned(keys ...string) {
+	for _, k := range keys {
+		delete(c.loadDefaulted, k)
+	}
+}
+
 // ApproveMCP records the exact descriptor hash for one source/name pair.
 func (c *Config) ApproveMCP(sourceKB, name, hash string, at time.Time) error {
 	if sourceKB == "" || name == "" || hash == "" {

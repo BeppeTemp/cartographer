@@ -584,3 +584,23 @@ func TestProbeErrorMessage_AnsweringServerIsNotUnreachable(t *testing.T) {
 		t.Errorf("refused connection is a transport error: %v", derr)
 	}
 }
+
+// connect --server-url <the default> on a file without server_url records it:
+// it was chosen, and a later change of the default must not repoint the client.
+func TestDoConnect_ExplicitDefaultURLIsPersisted(t *testing.T) {
+	if _, err := client.New(defaults.DefaultMCPURL, "").Health(time.Second); err == nil {
+		t.Skip("a local server answers on the default endpoint")
+	}
+	t.Setenv("CARTOGRAPHER_SERVER_URL", "")
+	dir := t.TempDir()
+	if err := os.WriteFile(clientconfig.Path(dir), []byte("auth: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: defaults.DefaultMCPURL, Name: "cartographer"}); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	data, _ := os.ReadFile(clientconfig.Path(dir))
+	if !strings.Contains(string(data), "\nserver_url: "+defaults.DefaultMCPURL) {
+		t.Errorf("the explicit server_url was not persisted:\n%s", data)
+	}
+}
