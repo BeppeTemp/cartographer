@@ -48,11 +48,10 @@ func (e *LockHeldError) Error() string {
 // untracked entries for the same paths, with HEAD and the working tree verified
 // byte-identical.
 //
-// Advisory, not mandatory: a stale lock from a killed process must never
-// permanently block a KB, so a lock whose recorded pid is gone is reclaimed with
-// a note on stderr. An exclusive file lock where the platform provides one —
-// flock(2) on Unix, LockFileEx on Windows — with the pid file alone as the
-// fallback, which is weaker but still catches the common case.
+// The exclusive file lock — flock(2) on Unix, LockFileEx on Windows — is the
+// only authority: the kernel drops it when its holder dies, so a killed process
+// never blocks a KB, and nothing here ever removes the lock file. The pid, time
+// and command written in it only name the holder in a LockHeldError.
 func (k *KB) AcquireProcessLock(timeout time.Duration, command string) (release func(), err error) {
 	path := filepath.Join(k.Root, LockFileName)
 	deadline := time.Now().Add(timeout)
@@ -88,12 +87,11 @@ func (k *KB) AcquireProcessLock(timeout time.Duration, command string) (release 
 		pid, cmd, since := readLockOwner(f)
 		f.Close()
 
-		// A recorded pid that no longer exists is a crash, not contention.
-		if pid > 0 && !processAlive(pid) {
-			fmt.Fprintf(os.Stderr, "cartographer: reclaiming stale KB lock from pid %d (%s)\n", pid, cmd)
-			_ = os.Remove(path)
-			continue
-		}
+		// The kernel lock is busy, so its holder is alive by definition. The
+		// recorded pid is only text for the error: it may be a pid from another
+		// namespace or user (kill(2) says EPERM), or not yet written by a holder
+		// that has just won the flock. Removing the file here would let the retry
+		// create a new inode and two processes would hold "the" lock.
 		if time.Now().After(deadline) {
 			return nil, &LockHeldError{Path: path, PID: pid, Command: cmd, Since: since}
 		}

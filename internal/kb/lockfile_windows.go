@@ -28,10 +28,6 @@ const (
 	lockByteLength     uint32 = 1
 )
 
-// stillActive is STILL_ACTIVE from the Windows headers: the exit code a process
-// reports while it is running. golang.org/x/sys/windows does not export it.
-const stillActive uint32 = 259
-
 func lockRange() *windows.Overlapped {
 	return &windows.Overlapped{Offset: lockByteOffsetLow, OffsetHigh: lockByteOffsetHigh}
 }
@@ -55,29 +51,4 @@ func unlockFile(f *os.File) error {
 // first is worth polling for.
 func isLockBusy(err error) bool {
 	return errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_IO_PENDING)
-}
-
-// processAlive reports whether pid exists. It is what decides whether a lock is
-// stale and may be reclaimed, so every uncertain answer is "alive": reclaiming a
-// lock that is genuinely held is the single outcome D155 exists to prevent, while
-// honouring a stale one only costs the operator a message naming a dead pid.
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		// ERROR_INVALID_PARAMETER is how Windows says "no process has that pid".
-		// ERROR_ACCESS_DENIED says the opposite: a process is there, it just is
-		// not ours — another user's or a service's cartographer holding the lock
-		// legitimately. Anything else is unexplained, and an unexplained failure
-		// is not evidence of death.
-		return !errors.Is(err, windows.ERROR_INVALID_PARAMETER)
-	}
-	defer windows.CloseHandle(h)
-	var code uint32
-	if err := windows.GetExitCodeProcess(h, &code); err != nil {
-		return true
-	}
-	return code == stillActive
 }
