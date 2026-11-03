@@ -2,8 +2,10 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -88,7 +90,14 @@ func newReadAccessLog(k *kb.KB) *readAccessLog {
 // prune drops the ids of concepts that no longer exist (renamed, moved or
 // deleted since the file was written), so the log does not grow without bound
 // and tracked_concepts does not count pages that are gone.
+//
+// It does nothing when the data root cannot be listed or holds no concept at
+// all: a volume not mounted yet or an emptied checkout at boot would otherwise
+// wipe the whole log, and the next flush would persist the loss.
 func (l *readAccessLog) prune(root string) {
+	if !hasAnyConcept(root) {
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, m := range []map[string]time.Time{l.lastRead, l.lastSurfaced} {
@@ -99,6 +108,32 @@ func (l *readAccessLog) prune(root string) {
 			}
 		}
 	}
+}
+
+// hasAnyConcept reports whether root can be listed and holds at least one
+// markdown file outside the dot directories (.git, .cartographer).
+func hasAnyConcept(root string) bool {
+	if _, err := os.ReadDir(root); err != nil {
+		return false
+	}
+	found := false
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // an unreadable subtree does not decide
+		}
+		if d.IsDir() {
+			if p != root && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".md") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func conceptFileExists(root, id string) bool {
@@ -205,14 +240,14 @@ func summarize(m map[string]time.Time) accessSummary {
 // save writes the file now. It is what the server calls at shutdown (D1529):
 // the five-minute flush of stamp bounds the loss of a crash, not of a clean
 // stop.
-func (l *readAccessLog) save() {
+func (l *readAccessLog) save() error {
 	if l == nil {
-		return
+		return nil
 	}
 	l.mu.Lock()
 	snap, seq := l.snapshotLocked()
 	l.mu.Unlock()
-	l.write(snap, seq)
+	return l.write(snap, seq)
 }
 
 // snapshotLocked serialises the log when there is something to write, and
@@ -236,24 +271,26 @@ func (l *readAccessLog) snapshotLocked() ([]byte, uint64) {
 	return data, l.snapSeq
 }
 
-// write stores a snapshot atomically; a failure is dropped (the log is
-// telemetry) and retried at the next interval.
-func (l *readAccessLog) write(data []byte, seq uint64) {
+// write stores a snapshot atomically; a failure is returned, the log is marked
+// dirty and the periodic flush (which drops the error: the log is telemetry)
+// retries at the next interval. The shutdown flush reports it.
+func (l *readAccessLog) write(data []byte, seq uint64) error {
 	if data == nil {
-		return
+		return nil
 	}
 	l.ioMu.Lock()
 	defer l.ioMu.Unlock()
 	if seq < l.writtenSeq {
-		return // a newer snapshot is already on disk
+		return nil // a newer snapshot is already on disk
 	}
 	if err := l.writeFile(data); err != nil {
 		l.mu.Lock()
 		l.dirty = true
 		l.mu.Unlock()
-		return
+		return err
 	}
 	l.writtenSeq = seq
+	return nil
 }
 
 func (l *readAccessLog) writeFile(data []byte) error {

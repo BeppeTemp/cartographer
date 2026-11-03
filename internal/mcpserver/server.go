@@ -10,9 +10,11 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -294,7 +296,11 @@ func (s *Server) Tools() map[string]Tool {
 // FlushReadAccess writes the read-access log now. The five-minute flush inside
 // the log bounds what a crash loses; a clean stop calls this so it loses
 // nothing (D1529).
-func (s *Server) FlushReadAccess() { s.reads.save() }
+func (s *Server) FlushReadAccess() {
+	if err := s.reads.save(); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: read-access log: shutdown flush failed: %v\n", err)
+	}
+}
 
 // RegisterTool registers an MCP tool. Overwrites if the same name is already
 // registered.
