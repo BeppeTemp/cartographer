@@ -3,8 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -101,5 +107,64 @@ func TestTrayAgentRow(t *testing.T) {
 		if got := trayAgentRow(providerStatus{Name: "claude", State: state}); got.Sync != want || got.Name != "Claude Code" {
 			t.Errorf("%s: got %+v, want sync %v as Claude Code", state, got, want)
 		}
+	}
+}
+
+// The tray's tick reads two files and probes /health once: no launchctl,
+// systemctl or powershell.exe start, whatever the platform. The scheduler
+// commands are replaced by scripts that record any call.
+func TestTrayStatusFnRunsNoSchedulerCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell stubs for the scheduler commands")
+	}
+	bin := t.TempDir()
+	calls := filepath.Join(t.TempDir(), "calls")
+	for _, name := range []string{"launchctl", "systemctl", "powershell.exe", "powershell", "schtasks"} {
+		script := "#!/bin/sh\necho " + name + " >> " + calls + "\nexit 1\n"
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var health atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		health.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","ready":true}`))
+	}))
+	defer srv.Close()
+	cfg := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(cfg, []byte("http: "+strconv.Quote(strings.TrimPrefix(srv.URL, "http://"))+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var statusCalls atomic.Int32
+	inner := trayStatusFn(service.NewManager(), cfg)
+	deps := tray.NewDeps(func() (service.Status, error) {
+		statusCalls.Add(1)
+		return inner()
+	}, "")
+	ticks := make(chan time.Time)
+	deps.NewTicker = func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tray.Run(ctx, deps, time.Second, func(tray.Snapshot) {})
+	}()
+	for range 4 {
+		ticks <- time.Now()
+	}
+	cancel()
+	<-done
+
+	if _, err := os.Stat(calls); err == nil {
+		b, _ := os.ReadFile(calls)
+		t.Errorf("the tick ran scheduler commands:\n%s", b)
+	}
+	if n, h := statusCalls.Load(), health.Load(); n < 4 || h != n {
+		t.Errorf("status reads = %d, /health requests = %d, want equal and at least 4", n, h)
 	}
 }

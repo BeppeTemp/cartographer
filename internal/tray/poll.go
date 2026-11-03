@@ -47,7 +47,7 @@ type Deps struct {
 }
 
 // NewDeps wires the production implementation: statusFn is
-// Manager.Status on the effective config path, the probe is
+// Manager.TrayView on the effective config path (no scheduler command), the probe is
 // client.MCPClient.Health.
 func NewDeps(statusFn func() (service.Status, error), logPath string) Deps {
 	return Deps{

@@ -1906,3 +1906,45 @@ func TestSystemdUnit_PathsWithSpacesRoundTrip(t *testing.T) {
 		t.Errorf("legacy config = %q", c)
 	}
 }
+
+// TrayView reads the definition file and the config; the stub runner fails the
+// test on any call, so a scheduler command in the tray's tick cannot return.
+func TestTrayView_RunsNoCommand(t *testing.T) {
+	for _, plat := range []string{"darwin", "linux", "windows"} {
+		t.Run(plat, func(t *testing.T) {
+			home := withTestHome(t, plat)
+			m := &Manager{run: func(name string, args ...string) (string, error) {
+				t.Fatalf("TrayView ran %s %v", name, args)
+				return "", nil
+			}}
+			cfg := filepath.Join(home, "server.yaml")
+			if err := os.WriteFile(cfg, []byte("http: \"127.0.0.1:39999\"\nweb:\n  enabled: true\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			st, err := m.TrayView(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Installed || st.HTTPAddr != "127.0.0.1:39999" || st.UIURL != "" || st.ConfigPath != cfg {
+				t.Errorf("not installed: %+v", st)
+			}
+			def, err := DefinitionPath()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(def), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(def, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			st, err = m.TrayView(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !st.Installed || st.UIURL == "" || st.Running || st.HealthChecked {
+				t.Errorf("installed: %+v", st)
+			}
+		})
+	}
+}

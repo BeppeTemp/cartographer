@@ -1147,6 +1147,37 @@ func (m *Manager) Status(configPath string) (Status, error) {
 	return st, nil
 }
 
+// TrayView is the light view of the service the tray reads on every tick
+// (D1482): the definition file's presence, the config path and the HTTP
+// address and UI URL the config declares. It runs no scheduler command
+// (launchctl, systemctl, PowerShell) and no /health probe -- the tray probes
+// /health itself -- so a 5 s poll costs two file reads. Only ConfigPath,
+// Installed, HTTPAddr and UIURL are set.
+func (m *Manager) TrayView(explicitConfig string) (Status, error) {
+	var st Status
+	cfgPath, err := m.EffectiveConfigPath(explicitConfig)
+	if err != nil {
+		return st, err
+	}
+	st.ConfigPath = cfgPath
+	defPath, err := DefinitionPath()
+	if err != nil {
+		return st, err
+	}
+	if _, err := os.Stat(defPath); err == nil {
+		st.Installed = true
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil || cfg.HTTP == "" {
+		return st, nil // nothing to probe, as in Status
+	}
+	st.HTTPAddr = cfg.HTTP
+	if st.Installed && cfg.Web.Enabled {
+		st.UIURL = uiURL(cfg.HTTP)
+	}
+	return st, nil
+}
+
 // uiURL builds the browser address of the embedded UI from a server http
 // address. Unlike healthURL it also rewrites a wildcard bind (0.0.0.0, ::) to
 // loopback: the probe can dial a wildcard, but a browser cannot open one.
