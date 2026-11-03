@@ -56,3 +56,16 @@ func TestFrontmatterNumbersKeepTheirText(t *testing.T) {
 	}
 	wantNumbers(t, raw)
 }
+
+func TestUnmarshalKeepNumbersRejectsTrailingData(t *testing.T) {
+	t.Parallel()
+	var v map[string]interface{}
+	for _, bad := range []string{`{"a":1}}`, `{"a":1} x`, `{"a":1}{"b":2}`} {
+		if err := unmarshalKeepNumbers([]byte(bad), &v); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if err := unmarshalKeepNumbers([]byte(" {\"a\":1}\n"), &v); err != nil {
+		t.Errorf("trailing whitespace refused: %v", err)
+	}
+}

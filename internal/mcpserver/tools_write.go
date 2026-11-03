@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	gopath "path"
 	"path/filepath"
@@ -483,7 +484,8 @@ func unmarshalKeepNumbers(data []byte, v interface{}) error {
 	if err := dec.Decode(v); err != nil {
 		return err
 	}
-	if dec.More() {
+	// Like json.Unmarshal: anything but whitespace after the value is an error.
+	if _, err := dec.Token(); err != io.EOF {
 		return errors.New("invalid character after top-level value")
 	}
 	return nil
