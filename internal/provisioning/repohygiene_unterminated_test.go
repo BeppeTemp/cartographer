@@ -90,3 +90,23 @@ func TestExcludeKeepsCRLF(t *testing.T) {
 		t.Errorf("after the round trip: %q, want %q", got, user)
 	}
 }
+
+// A CRLF file whose last line has no terminator gets CRLF before the block too.
+func TestExcludeKeepsCRLFWithoutFinalTerminator(t *testing.T) {
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	path := filepath.Join(repo, ".git", "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("# mine\r\nbuild/"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureWorkspaceExcluded(repo, []string{".claude/skills/x"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Contains(strings.ReplaceAll(string(got), "\r\n", ""), "\n") {
+		t.Errorf("mixed line endings:\n%q", got)
+	}
+}

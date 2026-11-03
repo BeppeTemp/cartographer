@@ -316,13 +316,14 @@ func renderExclude(kept string, lines []string, key string) string {
 	var b strings.Builder
 	b.WriteString(kept)
 	if len(lines) > 0 {
-		if kept != "" && !strings.HasSuffix(kept, "\n") {
-			b.WriteString("\n")
-		}
-		// A file the user keeps with CRLF stays CRLF: the block follows its endings.
+		// A file the user keeps with CRLF stays CRLF: the block follows its endings,
+		// the separator before it included.
 		eol := "\n"
 		if i := strings.Index(kept, "\n"); i > 0 && kept[i-1] == '\r' {
 			eol = "\r\n"
+		}
+		if kept != "" && !strings.HasSuffix(kept, "\n") {
+			b.WriteString(eol)
 		}
 		b.WriteString(begin + eol)
 		b.WriteString("# Written by `cartographer sync`. Paths this workspace's projection owns." + eol)
