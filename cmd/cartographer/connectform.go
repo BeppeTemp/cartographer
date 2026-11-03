@@ -301,6 +301,13 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.submitted {
 				return m, nil
 			}
+			if v := strings.TrimSpace(m.tokenEnv.Value()); v != "" {
+				if err := validateTokenEnvName(v); err != nil {
+					m.errMsg = "Token env var: " + err.Error()
+					m.setFormFocus(fieldTokenEnv)
+					return m, nil
+				}
+			}
 			m.submitted = true
 			// A retry is starting: drop the stale inline error. An embedding
 			// parent that needs the force-retry decision reads m.forceRetry
