@@ -423,24 +423,15 @@ var printPostUnmountGuidanceFn = printPostUnmountGuidance
 // the running server still serves the KB until it restarts.
 func printPostUnmountGuidance(configPath string, restart bool) {
 	base := serverBaseURL(configPath)
-	before, err := fetchHealth(base)
-	if err != nil {
+	if restart {
+		if restartLocalService(base, configPath) {
+			fmt.Println("On connected client machines, run: cartographer sync")
+		}
 		return
 	}
-	if !restart {
-		fmt.Println("The running service still serves the KB until it restarts: cartographer service restart")
-		fmt.Println("On connected client machines, run: cartographer sync")
+	if _, err := fetchHealth(base); err != nil {
 		return
 	}
-	fmt.Println("Restarting the service...")
-	if err := service.NewManager().Restart(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error: restart failed:", err)
-		return
-	}
-	if waitHealthy(base, before.StartedAt) {
-		fmt.Println("service healthy")
-	} else {
-		fmt.Fprintf(os.Stderr, "Warning: service did not report healthy within %s\n", restartWaitTimeout)
-	}
+	fmt.Println("The running service still serves the KB until it restarts: cartographer service restart")
 	fmt.Println("On connected client machines, run: cartographer sync")
 }

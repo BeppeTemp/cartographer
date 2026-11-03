@@ -1,0 +1,20 @@
+name: plan-gate-queue
+
+# The `plan-gate` required check, reported on merge_group (D1592), inert unless a merge queue is
+# enabled (not available on a user-owned repository). The rule
+# itself is plan-gate.yml's and ran on the pull request; a queued PR cannot change,
+# so here the check only has to exist. Nothing is checked out, nothing runs from
+# the PR, no secret: the invariants of plan-gate.yml, pinned by
+# internal/repodocs/plan_gate_test.go, hold here a fortiori.
+on:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  plan-gate:
+    name: plan-gate
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "the size rule ran on the pull request"

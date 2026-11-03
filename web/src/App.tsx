@@ -63,7 +63,15 @@ import { hasWebGL } from "./lib/webgl";
 import { useLiveRevision } from "./lib/live";
 import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
-import { ARTIFACT_PANELS, artifactPanel, pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
+import {
+  ARTIFACT_PANELS,
+  artifactPanel,
+  pushView,
+  readViewState,
+  replaceView,
+  viewStateToSearch,
+  type ViewState,
+} from "./lib/viewstate";
 import {
   inspectorDefault,
   INSPECTOR_MIN,
@@ -771,6 +779,7 @@ export function App() {
         navigate({ panel: artifactPanel(kind), artifact: kind === "instructions" ? null : `${kind}/${name}` })
       }
       onNavigate={selectConcept}
+      hrefOf={(id) => viewStateToSearch({ ...view, concept: id })}
       onPreview={setPreview}
       onClose={closeInspector}
     />

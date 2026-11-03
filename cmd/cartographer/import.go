@@ -12,8 +12,10 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
 // cmdImport is the D74 WP2 mechanical scaffold: it walks --source for .md
@@ -30,6 +32,7 @@ func cmdImport(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "Print the mapping plan without writing")
 	commit := fs.Bool("commit", false, "Commit all successfully written import paths once")
 	message := fs.String("message", "", "Commit message (implies --commit)")
+	overwrite := fs.Bool("overwrite", false, "Replace a concept that already exists in the KB (default: skip it and keep its content)")
 	dirAsConcept := fs.Bool("dir-as-concept", false, "Import a directory with index.md or README.md as one expanded concept")
 	var mapFlags stringSliceFlag
 	fs.Var(&mapFlags, "map", "Per-directory mapping <srcdir>=<map> (repeatable)")
@@ -55,7 +58,18 @@ func cmdImport(args []string) int {
 	}
 
 	if *dryRun {
-		printImportPlan(plan)
+		// Read-only: kb.Open writes .git/info/exclude entries, and a dry run
+		// writes nothing, so the KB is recognised the way kb rename does, by its
+		// data/index.md. A directory that is not a KB is no reason to refuse the
+		// plan, which never needed it.
+		var exists func(importFile) bool
+		dataRoot := filepath.Join(*kbDir, "data")
+		if _, statErr := os.Stat(filepath.Join(dataRoot, "index.md")); statErr == nil {
+			exists = func(f importFile) bool { return importTargetExists(dataRoot, f) }
+		} else {
+			fmt.Fprintf(os.Stderr, "note: %s is not an OKF KB (no data/index.md); collisions with existing concepts are not checked\n", *kbDir)
+		}
+		printImportPlan(plan, exists, *overwrite)
 		return 0
 	}
 
@@ -83,7 +97,7 @@ func cmdImport(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	imported, errored, writtenPaths := applyImportPlan(k, plan, *source)
+	imported, errored, existing, writtenPaths := applyImportPlan(k, plan, *source, *overwrite)
 	writtenPaths = append(scaffoldPaths, writtenPaths...)
 	if *commit || *message != "" {
 		commitMessage := *message
@@ -103,14 +117,17 @@ func cmdImport(args []string) int {
 			}
 		}
 	}
-	fmt.Printf("imported: %d, skipped: %d, errors: %d\n", imported, len(plan.skipped), errored)
+	if existing > 0 {
+		fmt.Printf("%d concept(s) already exist and were left untouched (--overwrite replaces them)\n", existing)
+	}
+	fmt.Printf("imported: %d, skipped: %d, errors: %d\n", imported, len(plan.skipped)+existing, errored)
 	if imported > 0 {
 		// This process writes through the KB write path but from outside the
 		// server, so the server's FTS index knows nothing about it: search
 		// returned zero results while concept_list saw everything, and the natural
 		// conclusion was that the import had failed (D155). reindex is in the
 		// advanced visibility profile, so an agent session does not see it either.
-		printReindexHint(imported)
+		printReindexHint(imported, k.Root)
 	}
 	if errored > 0 {
 		return 1
@@ -119,12 +136,12 @@ func cmdImport(args []string) int {
 }
 
 // printReindexHint tells the operator that the search index is stale, and
-// rebuilds it first when a server is reachable (D155). The instruction is the
-// mandatory half; the automatic call is convenience and degrades to the
-// instruction on any failure — the import itself succeeded, so it never changes
-// the exit code.
-func printReindexHint(imported int) {
-	if reindexAfterImportFn() {
+// rebuilds it first when the server that mounts this KB is reachable (D155). The
+// instruction is the mandatory half; the automatic call is convenience and
+// degrades to the instruction on any failure — the import itself succeeded, so
+// it never changes the exit code.
+func printReindexHint(imported int, kbRoot string) {
+	if reindexAfterImportFn(kbRoot) {
 		fmt.Println("search index rebuilt")
 		return
 	}
@@ -132,8 +149,11 @@ func printReindexHint(imported int) {
 }
 
 // reindexAfterImportFn is indirected so tests can describe the outcome instead of
-// needing a live server.
-var reindexAfterImportFn = func() bool {
+// needing a live server. It reindexes only the imported KB, and only when the
+// local server is the one that mounts it: an import into a clone the server does
+// not serve has no index of the server's to refresh, and a remote server's KBs
+// are not the operator's to reindex as a side effect of an import.
+var reindexAfterImportFn = func(kbRoot string) bool {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return false
@@ -142,7 +162,79 @@ var reindexAfterImportFn = func() bool {
 	if err != nil || cfg == nil || cfg.ServerURL == "" {
 		return false
 	}
-	return cmdReindex(nil) == 0
+	var svc *config.Config
+	if p, err := service.ConfigPath(); err == nil {
+		if loaded, err := config.Load(p); err == nil {
+			svc = loaded
+		}
+	}
+	name, ok := importReindexTarget(kbRoot, cfg.ServerURL, svc)
+	if !ok {
+		return false
+	}
+	return cmdReindex([]string{"--kb", name}) == 0
+}
+
+// importReindexTarget names the KB a reindex after an import should target: the
+// mount of the local server (svc, its config) whose directory is kbRoot. ok is
+// false for a non-loopback client server, no local service config, or a
+// directory the server does not mount.
+func importReindexTarget(kbRoot, serverURL string, svc *config.Config) (name string, ok bool) {
+	if svc == nil || !isLoopbackURL(serverURL) {
+		return "", false
+	}
+	for _, spec := range svc.KBs {
+		if spec.Path != "" && importSameDir(spec.Path, kbRoot) {
+			return resolveKBName(spec, spec.Path), true
+		}
+	}
+	if svc.Data != "" && importSameDir(svc.Data, filepath.Dir(kbRoot)) {
+		return filepath.Base(kbRoot), true
+	}
+	return "", false
+}
+
+// importSameDir compares two directories by their real path.
+func importSameDir(a, b string) bool {
+	canon := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			return real
+		}
+		return filepath.Clean(p)
+	}
+	return canon(a) == canon(b)
+}
+
+// importTargetExists says whether the KB already holds the concept f would
+// write, as a flat file or as an expanded concept.
+func importTargetExists(dataRoot string, f importFile) bool {
+	// A reserved name (index.md, log.md…) is a KB service file, not a concept:
+	// the write path refuses it with its own error, which is the right message.
+	if okf.IsReserved(path.Base(f.destPath)) && !f.promoted {
+		return false
+	}
+	base := filepath.Join(dataRoot, filepath.FromSlash(string(f.destID)))
+	for _, p := range []string{base + ".md", filepath.Join(base, "index.md")} {
+		if _, err := os.Lstat(p); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// hasMDExt and trimMDExt are the one place the ".md" suffix is read: the source
+// filter is case-insensitive, so every later step must be too (a file named
+// Upper.MD was imported with the slug "upper-md" and its links never resolved).
+func hasMDExt(name string) bool { return strings.HasSuffix(strings.ToLower(name), ".md") }
+
+func trimMDExt(name string) string {
+	if hasMDExt(name) {
+		return name[:len(name)-len(".md")]
+	}
+	return name
 }
 
 // stringSliceFlag implements flag.Value, accumulating one entry per
@@ -367,7 +459,8 @@ func buildImportPlanWithOptions(source string, mapping []importMapEntry, default
 
 	plan := &importPlan{skipped: skipped, attribution: attribution}
 	mapNames := map[string]bool{}
-	used := map[string]int{}
+	used := map[string]bool{}    // every destPath handed out so far, suffixed ones included
+	dupCount := map[string]int{} // base destPath -> last -N suffix tried for it
 	for _, rel := range mdFiles {
 		destDir := destDirFor[path.Dir(rel)]
 		mapNames[strings.Split(destDir, "/")[0]] = true
@@ -378,25 +471,36 @@ func buildImportPlanWithOptions(source string, mapping []importMapEntry, default
 			if rel == indexRel {
 				destID, destPath, promoted = concept, path.Join(concept, "index.md"), true
 			} else {
-				destID = path.Join(concept, slugify(strings.TrimSuffix(path.Base(rel), ".md")))
+				destID = path.Join(concept, slugify(trimMDExt(path.Base(rel))))
 				destPath = destID + ".md"
 			}
 		} else {
-			destID = path.Join(destDir, slugify(strings.TrimSuffix(path.Base(rel), ".md")))
+			destID = path.Join(destDir, slugify(trimMDExt(path.Base(rel))))
 			destPath = destID + ".md"
 		}
-		if n, ok := used[destPath]; ok {
-			n++
-			used[destPath] = n
-			destID = fmt.Sprintf("%s-%d", destID, n)
-			if promoted {
-				destPath = path.Join(destID, "index.md")
-			} else {
-				destPath = destID + ".md"
+		if used[destPath] {
+			// A source already named foo-bar-2.md owns that candidate: loop until
+			// one is free, so no two entries share a destination.
+			base := destPath
+			n := dupCount[base]
+			if n < 1 {
+				n = 1
 			}
-		} else {
-			used[destPath] = 1
+			for {
+				n++
+				candID := fmt.Sprintf("%s-%d", destID, n)
+				candPath := candID + ".md"
+				if promoted {
+					candPath = path.Join(candID, "index.md")
+				}
+				if !used[candPath] {
+					destID, destPath = candID, candPath
+					break
+				}
+			}
+			dupCount[base] = n
 		}
+		used[destPath] = true
 		plan.files = append(plan.files, importFile{srcRel: rel, destID: okf.ConceptID(destID), destPath: destPath, promoted: promoted})
 	}
 	for name := range mapNames {
@@ -415,12 +519,22 @@ func importSourceDirName(source, dir string) string {
 
 // printImportPlan renders the --dry-run output: one "source -> dest" line
 // per planned file plus a summary count.
-func printImportPlan(plan *importPlan) {
+func printImportPlan(plan *importPlan, exists func(importFile) bool, overwrite bool) {
+	collisions := 0
 	for _, f := range plan.files {
+		note := ""
+		if exists != nil && exists(f) {
+			if overwrite {
+				note = " (exists: would be overwritten)"
+			} else {
+				note = " (exists: would be skipped, --overwrite replaces it)"
+				collisions++
+			}
+		}
 		if f.promoted {
-			fmt.Printf("[dry-run] promote %s -> %s\n", f.srcRel, f.destPath)
+			fmt.Printf("[dry-run] promote %s -> %s%s\n", f.srcRel, f.destPath, note)
 		} else {
-			fmt.Printf("[dry-run] %s -> %s\n", f.srcRel, f.destPath)
+			fmt.Printf("[dry-run] %s -> %s%s\n", f.srcRel, f.destPath, note)
 		}
 	}
 	// Which flag produced each destination, so a dry run answers "why did this
@@ -436,22 +550,29 @@ func printImportPlan(plan *importPlan) {
 			fmt.Printf("[dry-run] %s/ ← %s\n", d, plan.attribution[d])
 		}
 	}
-	fmt.Printf("would import: %d, skipped: %d\n", len(plan.files), len(plan.skipped))
+	fmt.Printf("would import: %d, skipped: %d\n", len(plan.files)-collisions, len(plan.skipped)+collisions)
 }
 
 // applyImportPlan executes plan against k: for every planned file, it reads
 // the source content, completes its frontmatter (prepareFrontmatter),
 // rewrites relative markdown links to the new layout (rewriteMarkdownLinks —
 // wiki-links are left untouched, D72/D74), and writes it via
-// kb.WriteConcept. A per-file error is reported and counted, not fatal to the
-// rest of the batch.
-func applyImportPlan(k *kb.KB, plan *importPlan, source string) (imported, errored int, writtenPaths []string) {
+// kb.WriteConcept. A concept that already exists in the KB is left as it is
+// (counted in existing) unless overwrite: a second import after curation must
+// not destroy the curation. A per-file error is reported and counted, not fatal
+// to the rest of the batch.
+func applyImportPlan(k *kb.KB, plan *importPlan, source string, overwrite bool) (imported, errored, existing int, writtenPaths []string) {
 	moveMap := make(map[string]string, len(plan.files))
 	for _, f := range plan.files {
-		moveMap[strings.TrimSuffix(f.srcRel, ".md")] = f.destPath
+		moveMap[trimMDExt(f.srcRel)] = f.destPath
 	}
 
 	for _, f := range plan.files {
+		if !overwrite && importTargetExists(k.DataRoot(), f) {
+			fmt.Fprintf(os.Stderr, "skipped %s: %s already exists (--overwrite replaces it)\n", f.srcRel, f.destID)
+			existing++
+			continue
+		}
 		abs := filepath.Join(source, filepath.FromSlash(f.srcRel))
 		data, err := os.ReadFile(abs)
 		if err != nil {
@@ -461,7 +582,7 @@ func applyImportPlan(k *kb.KB, plan *importPlan, source string) (imported, error
 		}
 
 		fmRaw, body, hasFM := okf.SplitFrontmatter(string(data))
-		fallbackTitle := strings.TrimSuffix(path.Base(f.srcRel), ".md")
+		fallbackTitle := trimMDExt(path.Base(f.srcRel))
 		frontmatter, err := prepareFrontmatter(fmRaw, hasFM, body, fallbackTitle)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", f.srcRel, err)
@@ -486,7 +607,7 @@ func applyImportPlan(k *kb.KB, plan *importPlan, source string) (imported, error
 		imported++
 		writtenPaths = append(writtenPaths, filepath.ToSlash(filepath.Join("data", f.destPath)))
 	}
-	return imported, errored, writtenPaths
+	return imported, errored, existing, writtenPaths
 }
 
 // createImportMaps creates the standard scaffold for every destination map
@@ -584,7 +705,7 @@ func rewriteMarkdownLinks(body, srcRel, destPath string, moveMap map[string]stri
 		}
 
 		pathPartMd := pathPart
-		if !strings.HasSuffix(pathPartMd, ".md") {
+		if !hasMDExt(pathPartMd) {
 			pathPartMd += ".md"
 		}
 
@@ -593,7 +714,7 @@ func rewriteMarkdownLinks(body, srcRel, destPath string, moveMap map[string]stri
 			return match
 		}
 
-		targetKey := strings.TrimSuffix(resolved, ".md")
+		targetKey := trimMDExt(resolved)
 		newTarget, ok := moveMap[targetKey]
 		if !ok {
 			return match

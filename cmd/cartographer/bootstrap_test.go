@@ -548,3 +548,31 @@ func TestGitEnvForKB_TokenAuthenticatesAgainstHTTPRemote(t *testing.T) {
 		t.Fatalf("Clone with a wrong token: %v, want the rejected-credentials remedy", err)
 	}
 }
+
+// A cancelled bootstrap context (Ctrl-C on a stdio server) stops the clone and
+// leaves no .cloning directory behind: git runs in its own process group, so
+// only the context reaches it.
+func TestEnsureClonedKBStopsWithTheBootstrapContext(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	bareDir := filepath.Join(tmp, "wiki-kb.git")
+	mustRunGit(t, "", "init", "--bare", bareDir)
+	dataDir := filepath.Join(tmp, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	old := bootstrapContext
+	bootstrapContext = ctx
+	t.Cleanup(func() { bootstrapContext = old })
+
+	if _, err := ensureClonedKB(fileURL(bareDir), "wiki-kb", dataDir); err == nil {
+		t.Fatal("a cancelled bootstrap context did not stop the clone")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, ".wiki-kb.cloning")); !os.IsNotExist(err) {
+		t.Fatalf(".cloning left behind (err=%v)", err)
+	}
+}

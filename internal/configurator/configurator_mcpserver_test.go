@@ -266,7 +266,7 @@ func TestEmitServer_NoHeaders(t *testing.T) {
 	for _, provider := range []configurator.Provider{
 		configurator.ProviderAntigravity, configurator.ProviderClaudeCode,
 		configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode,
-		configurator.ProviderCrush, configurator.ProviderCopilot,
+		configurator.ProviderCrush, configurator.ProviderCopilot, configurator.ProviderPi,
 	} {
 		r, err := configurator.EmitServer("kb-server", spec, provider)
 		if err != nil {
@@ -293,8 +293,9 @@ func TestEmitServer_Stdio(t *testing.T) {
 		configurator.ProviderOpenCode:    "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"local\": {\n      \"command\": [\n        \"local-tool\",\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"enabled\": true,\n      \"environment\": {\n        \"TOKEN\": \"{env:LOCAL_TOKEN}\"\n      },\n      \"type\": \"local\"\n    }\n  }\n}",
 		configurator.ProviderCrush:       "{\n  \"$schema\": \"https://charm.land/crush.json\",\n  \"mcp\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"$LOCAL_TOKEN\"\n      },\n      \"type\": \"stdio\"\n    }\n  }\n}",
 		configurator.ProviderCopilot:     "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      },\n      \"tools\": [\n        \"*\"\n      ],\n      \"type\": \"stdio\"\n    }\n  }\n}",
+		configurator.ProviderPi:          "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      },\n      \"exposure\": \"direct\"\n    }\n  }\n}",
 	}
-	for _, provider := range []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode, configurator.ProviderCrush, configurator.ProviderCopilot} {
+	for _, provider := range []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode, configurator.ProviderCrush, configurator.ProviderCopilot, configurator.ProviderPi} {
 		t.Run(string(provider), func(t *testing.T) {
 			r, err := configurator.EmitServer("local", spec, provider)
 			if err != nil {
@@ -308,7 +309,7 @@ func TestEmitServer_Stdio(t *testing.T) {
 }
 
 func TestEmitServer_RejectsMixedTransportFieldsForEveryProvider(t *testing.T) {
-	providers := []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode, configurator.ProviderCrush, configurator.ProviderCopilot}
+	providers := []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode, configurator.ProviderCrush, configurator.ProviderCopilot, configurator.ProviderPi}
 	for _, spec := range []configurator.ServerSpec{
 		{Type: "stdio", Command: "tool", URL: "https://example.test/mcp"},
 		{Type: "stdio", Command: "tool", Headers: map[string]string{"X": "${TOKEN}"}},

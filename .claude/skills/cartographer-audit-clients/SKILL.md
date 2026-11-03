@@ -1,6 +1,6 @@
 ---
 name: cartographer-audit-clients
-description: "Use when the user asks to check, audit or re-verify an agent client (Claude Code, Codex, Kiro, OpenCode, Antigravity, Crush, Copilot CLI), to see what changed in a client release, or to refresh docs/harnesses.md — re-aligns Cartographer with the clients it supports: what changed since the last review and what to do about it."
+description: "Use when the user asks to check, audit or re-verify an agent client (Claude Code, Codex, Kiro, OpenCode, Antigravity, Crush, Copilot CLI, Pi), to see what changed in a client release, or to refresh docs/harnesses.md — re-aligns Cartographer with the clients it supports: what changed since the last review and what to do about it."
 ---
 
 # cartographer-audit-clients — what changed in the supported clients, and what to do

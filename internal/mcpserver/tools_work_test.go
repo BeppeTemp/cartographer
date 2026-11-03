@@ -225,7 +225,7 @@ func TestWorkList_Reason(t *testing.T) {
 func TestWorkListSkipsUnparseableFrontmatter(t *testing.T) {
 	t.Parallel()
 	s, k := workServer(t)
-	writeKBFile(t, k, "visible/broken.md", "---\ntype: Task\n  title: [unclosed\n\tstatus: open\n---\n# Broken\n\n- [ ] item\n")
+	writeKBFile(t, k, "visible/broken.md", "---\ntype: Task\ntitle: [unclosed\nstatus: open\n---\n# Broken\n\n- [ ] item\n")
 	all := workCall(t, s, `{"scope":"visible"}`)
 	if workIDs(all) != "visible/a,visible/b,visible/c" {
 		t.Fatalf("entries: %s", workIDs(all))

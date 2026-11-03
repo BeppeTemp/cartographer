@@ -16,12 +16,15 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -232,7 +235,7 @@ func cmdKBCreate(args []string) int {
 			if err := pushKBBranch(path, branch); err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)
 				printUnpushedScaffoldGuidance(path, originBranch, fallbackIdentity, dataDir)
-				fmt.Fprintf(os.Stderr, "The default branch %s is on the remote with settings.yaml; then create and push the KB's branch:\n  git -C %s checkout -b %s && git -C %s push -u origin %s\n", originBranch, path, branch, path, branch)
+				fmt.Fprintf(os.Stderr, "The default branch %s is on the remote with settings.yaml; then create and push the KB's branch:\n  git -C %s checkout -b %s && git -C %s push -u origin %s\n", originBranch, hintQuote(runtime.GOOS, path), hintQuote(runtime.GOOS, branch), hintQuote(runtime.GOOS, path), hintQuote(runtime.GOOS, branch))
 				return 1
 			}
 		}
@@ -316,9 +319,9 @@ func writeUnpushedScaffoldGuidance(w io.Writer, goos, path, branch string, fallb
 	fmt.Fprintf(w, "\nThe KB at %s is complete and valid; only the push failed. Finish it with:\n", path)
 	if fallbackIdentity {
 		fmt.Fprintln(w, "  git config --global user.email \"<an email of your forge account>\"   # or a per-folder identity")
-		fmt.Fprintf(w, "  git -C %s commit --amend --reset-author --no-edit   # if the forge rejected the author\n", path)
+		fmt.Fprintf(w, "  git -C %s commit --amend --reset-author --no-edit   # if the forge rejected the author\n", hintQuote(goos, path))
 	}
-	fmt.Fprintf(w, "  git -C %s push -u origin %s\n", path, branch)
+	fmt.Fprintf(w, "  git -C %s push -u origin %s\n", hintQuote(goos, path), hintQuote(goos, branch))
 	fmt.Fprintf(w, "Or remove it: %s   (a server started with data: %s would otherwise mount it)\n", removeDirCommand(goos, path), dataDir)
 }
 
@@ -328,7 +331,24 @@ func removeDirCommand(goos, dir string) string {
 	if goos == "windows" {
 		return "Remove-Item -Recurse -Force '" + strings.ReplaceAll(dir, "'", "''") + "'"
 	}
-	return "rm -rf " + dir
+	return "rm -rf " + hintQuote(goos, dir)
+}
+
+// hintQuote makes s one word of a paste-ready command on goos: untouched when
+// it is made only of characters no shell treats specially, single-quoted
+// otherwise (`'` becomes `'\”` in a POSIX shell, `”` in PowerShell). A data
+// directory such as "$HOME/My KBs" otherwise made the printed `rm -rf` delete
+// "My" and a relative "KBs/kb-a".
+func hintQuote(goos, s string) string {
+	if s != "" && !strings.ContainsFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_-./:@%+=,~", r))
+	}) {
+		return s
+	}
+	if goos == "windows" {
+		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // checkRemoteChoice validates the --remote/--no-remote pair, which is a
@@ -404,8 +424,12 @@ type originResult struct {
 // history it decides between the refusal and the orphan branch (D1412).
 func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string, fallbackIdentity bool, want, configFlag string) originResult {
 	if err := gitx.AddRemote(path, "origin", remote); err != nil {
+		// No origin exists, so "only the push failed" and its `git push` hint
+		// would name a remote that is not there: discard the scaffold like any
+		// other failure that precedes the first push, and say what failed.
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return originResult{code: 1}
+		fmt.Fprintf(os.Stderr, "Hint: git could not add %q as the origin of the new KB; check the URL and rerun the command (nothing was left behind).\n", remote)
+		return originResult{code: 1, discard: true}
 	}
 	branch, err := gitx.Branch(path)
 	if err != nil || branch == "" {
@@ -443,7 +467,7 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string, 
 		}
 		if strings.Contains(err.Error(), "src refspec") {
 			// Not an authentication problem: the branch has no commit yet.
-			fmt.Fprintf(os.Stderr, "Hint: the KB has no commit to push — git could not make the initial commit (often: committer identity unknown). Commit it, which also shows why it failed: git -C %s commit -m %q\n", path, "init: KB initialized")
+			fmt.Fprintf(os.Stderr, "Hint: the KB has no commit to push — git could not make the initial commit (often: committer identity unknown). Commit it, which also shows why it failed: git -C %s commit -m %q\n", hintQuote(runtime.GOOS, path), "init: KB initialized")
 			return originResult{code: 1, branch: branch}
 		}
 		writePushRefusalHints(os.Stderr, err.Error(), remote, authorName, authorEmail, fallbackIdentity)
@@ -653,7 +677,7 @@ func replaceForgeReadme(path, forgeRef, remote, kbName, readme string, forgePath
 func printNoRemoteWarning(path string) {
 	fmt.Fprintln(os.Stderr, "Warning: this KB has no origin — it is not backed up and will never sync.")
 	fmt.Fprintf(os.Stderr, "  Attach one later with: git -C %s remote add origin <url> && git -C %s push -u origin %s\n",
-		path, path, gitx.DefaultBranch)
+		hintQuote(runtime.GOOS, path), hintQuote(runtime.GOOS, path), gitx.DefaultBranch)
 }
 
 // cmdKBClone implements `cartographer kb clone <remote> [name] [--data <dir>]
@@ -742,7 +766,12 @@ func cmdKBClone(args []string) int {
 	stop := onInterrupt(cancel)
 	defer stop()
 
-	if err := gitx.Clone(ctx, remote, path); err != nil {
+	cloneErr := gitx.Clone(ctx, remote, path)
+	// The handler exists to stop git: the phases after the clone (branch
+	// checkout, the --restart wait) do not read ctx, so keeping it would turn
+	// Ctrl-C into a no-op there. From here the default behaviour applies.
+	stop()
+	if err := cloneErr; err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		if errors.Is(err, gitx.ErrCloneTimeout) {
 			fmt.Fprintf(os.Stderr, "Hint: the clone exceeded %s — raise the budget with --timeout, or check the remote is reachable.\n", *timeoutFlag)
@@ -1109,19 +1138,24 @@ func checkLocalTarget(dataFlag string, local bool) int {
 	return 2
 }
 
-// onInterrupt runs fn on SIGINT/SIGTERM and returns a stop function that
-// releases the handler. Registering it replaces Go's default of exiting
-// immediately, which is what left a half-written clone on disk: the deferred
-// cleanup never ran.
+// onInterrupt runs fn on the first SIGINT/SIGTERM and returns a stop function
+// that releases the handler; stop is idempotent. Registering it replaces Go's
+// default of exiting immediately, which is what left a half-written clone on
+// disk: the deferred cleanup never ran. After fn has run the handler is
+// released too, so a second Ctrl-C ends the process instead of being swallowed
+// by a channel nobody reads any more.
 func onInterrupt(fn func()) func() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	var once sync.Once
+	stop := func() { once.Do(func() { signal.Stop(ch); close(ch) }) }
 	go func() {
 		if _, ok := <-ch; ok {
 			fn()
+			signal.Stop(ch)
 		}
 	}()
-	return func() { signal.Stop(ch); close(ch) }
+	return stop
 }
 
 // healthInfo is the subset of the /health JSON body kb create's guidance
@@ -1168,8 +1202,10 @@ func (h *healthInfo) hasNoKBs(dataDir string) bool {
 // silent" rather than a hard failure: this guidance is always best-effort
 // and never blocks `kb create`/`service install`'s own success.
 func fetchHealth(baseURL string) (*healthInfo, error) {
-	client := http.Client{Timeout: healthCheckTimeout}
-	resp, err := client.Get(strings.TrimRight(baseURL, "/") + "/health")
+	// Through the shared redirect policy (D1023): a redirect off a loopback
+	// base must not take the request anywhere a plain client would follow.
+	hc := client.HTTPClient(&http.Client{Timeout: healthCheckTimeout}, false)
+	resp, err := hc.Get(strings.TrimRight(baseURL, "/") + "/health")
 	if err != nil {
 		return nil, err
 	}
@@ -1187,15 +1223,14 @@ func fetchHealth(baseURL string) (*healthInfo, error) {
 	return &h, nil
 }
 
-// serverBaseURL resolves the local server's base HTTP URL (no /mcp or
-// /health suffix). The authoritative source is the service config YAML's
-// `http:` field (service.ConfigPath, D85) — this is what `serve` actually
-// binds to, and is known even before `cartographer connect` has ever run.
-// If that config doesn't exist or has no http: set (stdio-only, or not
-// installed as a service yet), fall back to deriving it the way the client
-// does: .cartographer.yaml server_url, defaulting to
-// the local client default (clientconfig.Default), with the /mcp path
-// stripped.
+// serverBaseURL resolves the LOCAL server's base HTTP URL (no /mcp or /health
+// suffix): the `http:` field of the service config (service.ConfigPath, D85),
+// which is what `serve` actually binds to, else the local default listen
+// address. It never reads the client's server_url: the `kb` subcommands act on
+// this machine's data directory, and on a machine whose client points at a
+// remote server that URL made `kb list` fill MOUNTED from the remote and
+// `--restart` restart the local service while waiting on the remote's
+// started_at.
 func serverBaseURL(configPath string) string {
 	if configPath == "" {
 		if p, err := service.ConfigPath(); err == nil {
@@ -1209,14 +1244,7 @@ func serverBaseURL(configPath string) string {
 			}
 		}
 	}
-
-	serverURL := clientconfig.Default().ServerURL
-	if dir, err := clientconfig.TargetDir(); err == nil {
-		if cfg, err := clientconfig.Load(dir); err == nil {
-			serverURL = cfg.ServerURL
-		}
-	}
-	return strings.TrimSuffix(serverURL, "/mcp")
+	return httpAddrToBaseURL(defaults.DefaultListenAddress)
 }
 
 // httpAddrToBaseURL turns a server http listen address (e.g. ":39273" or
@@ -1234,37 +1262,69 @@ func httpAddrToBaseURL(addr string) string {
 	return "http://" + net.JoinHostPort(host, port)
 }
 
-// printPostCreateGuidance is WP2's post-create half: if a local server
-// answers /health, tell the user how to get the new KB mounted — either the
-// plain hint (`cartographer service restart`) or, with restart=true
-// (--restart), actually restart it and wait for it to become healthy again.
-// If no server answers at all, stay silent: there is nothing running to
-// restart, and the user is presumably still mid-setup (e.g. using the KB
-// with `serve --kb <path>` directly, no service involved).
-func printPostCreateGuidance(configPath string, restart bool) {
-	base := serverBaseURL(configPath)
-	before, err := fetchHealth(base)
-	if err != nil {
-		return
+// Test seams of the --restart path: the real ones ask the installed service.
+var (
+	restartServiceFn   = func() error { return service.NewManager().Restart() }
+	serviceInstalledFn = func(configPath string) bool {
+		st, err := service.NewManager().Status(configPath)
+		return err == nil && st.Installed
 	}
+)
 
-	if !restart {
-		fmt.Println("Restart the service to mount it: cartographer service restart")
-		fmt.Println("On connected client machines, run: cartographer sync")
-		fmt.Println(openSessionsLine)
-		return
+// restartLocalService is what `--restart` does after a KB was created, cloned,
+// renamed or unmounted: restart the local service and wait until a new process
+// answers. It runs whatever /health says first. A server that does not answer,
+// or still reports bootstrapping, used to make the command return before looking
+// at the flag, with no restart and no message, though the KB stays unmounted
+// until a manual one. Installed, the service is restarted anyway; not installed,
+// there is nothing to restart and the operator is told so. ok is false when the
+// caller should not go on to print the "run sync" guidance.
+func restartLocalService(base, configPath string) (ok bool) {
+	startedAt := ""
+	if before, err := fetchHealth(base); err == nil {
+		startedAt = before.StartedAt
+		fmt.Println("Restarting the service...")
+	} else {
+		if !serviceInstalledFn(configPath) {
+			fmt.Fprintf(os.Stderr, "Warning: --restart: nothing answers at %s and the service is not installed, so nothing was restarted. Start your server, or install the service (cartographer service install).\n", base)
+			return false
+		}
+		fmt.Printf("The service does not answer normally (%v): restarting it anyway, as --restart asks...\n", err)
 	}
-
-	fmt.Println("Restarting the service...")
-	if err := service.NewManager().Restart(); err != nil {
+	if err := restartServiceFn(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error: restart failed:", err)
-		return
+		return false
 	}
-	if waitHealthy(base, before.StartedAt) {
+	if waitHealthy(base, startedAt) {
 		fmt.Println("service healthy")
 	} else {
 		fmt.Fprintf(os.Stderr, "Warning: service did not report healthy within %s\n", restartWaitTimeout)
 	}
+	return true
+}
+
+// printPostCreateGuidance is WP2's post-create half: if a local server
+// answers /health, tell the user how to get the new KB mounted — either the
+// plain hint (`cartographer service restart`) or, with restart=true
+// (--restart), actually restart it and wait for it to become healthy again
+// (restartLocalService, which also acts when the server does not answer).
+// Without --restart and with no server answering, stay silent: there is
+// nothing running to restart, and the user is presumably still mid-setup (e.g.
+// using the KB with `serve --kb <path>` directly, no service involved).
+func printPostCreateGuidance(configPath string, restart bool) {
+	base := serverBaseURL(configPath)
+	if restart {
+		if !restartLocalService(base, configPath) {
+			return
+		}
+		fmt.Println("On connected client machines, run: cartographer sync")
+		fmt.Println(openSessionsLine)
+		return
+	}
+	if _, err := fetchHealth(base); err != nil {
+		return
+	}
+	fmt.Println("Restart the service to mount it: cartographer service restart")
 	fmt.Println("On connected client machines, run: cartographer sync")
 	fmt.Println(openSessionsLine)
 }
@@ -1281,7 +1341,15 @@ const openSessionsLine = "Agent sessions already open do not see the new KB: sta
 // about to be gone. An empty oldStartedAt (a server predating the field)
 // accepts any answer.
 func waitHealthy(baseURL, oldStartedAt string) bool {
-	deadline := time.Now().Add(restartWaitTimeout)
+	return waitHealthyFor(baseURL, oldStartedAt, restartWaitTimeout)
+}
+
+// waitHealthyFor is waitHealthy with the budget as a parameter: a caller that
+// waits for a large KB's first clone needs more than a restart does. A server
+// still bootstrapping is not healthy (fetchHealth reports it as an error), so
+// this is also the "ready" condition of a freshly started service.
+func waitHealthyFor(baseURL, oldStartedAt string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
 	for {
 		if h, err := fetchHealth(baseURL); err == nil && (oldStartedAt == "" || h.StartedAt != oldStartedAt) {
 			return true

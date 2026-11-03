@@ -100,3 +100,21 @@ func TestConceptWrite_NullListItemRefusedAndScalarItemsFormatted(t *testing.T) {
 		t.Fatalf("raw:\n%s", raw)
 	}
 }
+
+// D1558: a frontmatter key the parser would read back as something else is
+// refused naming the key, and nothing is written.
+func TestConceptWrite_RefusesUnsafeFrontmatterKeys(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"a:b", "x\nstatus", "# c", " sp"} {
+		k := setupTestKB(t)
+		s := New("test")
+		RegisterKBTools(s, k, Deps{})
+		text, isErr := callJSON(t, s, adminCtx, "concept_write", nestedArgs(t, "notes/badkey", map[string]any{key: "v"}))
+		if !isErr || !strings.Contains(text, "invalid_frontmatter") || !strings.Contains(text, "key") {
+			t.Fatalf("key %q: err=%v %s", key, isErr, text)
+		}
+		if _, err := k.ReadConcept("notes/badkey"); err == nil {
+			t.Fatalf("key %q: concept was written", key)
+		}
+	}
+}

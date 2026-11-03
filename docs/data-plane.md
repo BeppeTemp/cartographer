@@ -72,7 +72,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 `templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision. A template is also a closed page schema that a map's pages bind to (§Templates are page schemas).
 
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
-`*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
+`*.pyo`, `*~`, `*.swp`, `Thumbs.db`, `.tmp-wiki-*` — `kb.JunkPatterns`), only when it creates the KB: the root
 `.gitignore` stays absent (D62), and this one is content that travels with the KB (D316). `Init` and
 `Open` also write the same patterns into `.git/info/exclude`, local and never versioned, so they cover the
 whole tree (the KB root included) and no server commit, the external-changes one (D357) or a tool's,
@@ -222,6 +222,14 @@ Single-quoted YAML values decode a doubled apostrophe as one apostrophe (`'Don''
 A key whose value is empty and whose following lines are **indented** holds a nested block (D291), for
 example an agent's `providers:` map. The parser keeps those lines verbatim as an `okf.Block` value under
 that key instead of flattening them into sibling keys; it does not interpret them, and the serializer writes them back unchanged.
+
+The frontmatter subset the parser reads (D1558):
+
+- **Keys** are the text before the first `:` on a line at column 0. An **indented** line outside an open block is never a key: it is a continuation or comment, kept verbatim and removed with its key when that key is overwritten or deleted. The write tools refuse a key that is empty, holds `:`, `#` or a line break, starts or ends with whitespace, or starts with `- `, with `invalid_frontmatter` naming the key.
+- **Block scalars** (`|`, `>`, with `-`, `+` or an indentation digit) read as their logical string (literal keeps the line breaks, folded joins with a space; `-` strips and `+` keeps the final newlines). The text is kept verbatim: a write that does not change that key leaves it byte-identical; overwriting it replaces the block with a plain scalar.
+- **Inline comments**: an unquoted scalar ends at a `#` that starts the value or follows a space or tab, a quoted one at its closing quote, a flow list at its `]`. The comment is kept and written back while the value is unchanged; overwriting the key drops it. A hand-written `title: Fix bug #12` therefore reads `Fix bug`; the serializer quotes any value containing `#`.
+- A leading UTF-8 byte order mark is ignored (it disappears on the next write).
+- A scalar with Unicode whitespace at either edge (non-breaking space, `\v`, `\f`, U+2000…) is written quoted, so it reads back unchanged.
 
 The write tools (`concept_write`, `concept_batch`, `concept_patch` `frontmatter`) hold to the flat subset (D1313): a value that is a map, or a list holding a map or a list, is refused with `invalid_frontmatter` naming the key (flatten the keys or put the structure in the body); scalars and lists of scalars are unchanged. The serializer never renders an unknown type with `%v`. A JSON number in those frontmatter maps is written with the text it was sent with (`9007199254740993`, `1.10`, `1e21`), not through a float.
 
@@ -840,7 +848,7 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
   (D1093), and then the KB's `branch` is not read by that server. It is read **only from the
   `settings.yaml` committed on the remote's default branch** (the working copy's file is parsed
   and shown, but changes nothing until it reaches the default branch), the first push creates the
-  branch when the remote lacks it, and a name git would not accept is a finding.
+  branch when the remote lacks it, and a name git would not accept is a finding. A `settings.yaml` on the default branch that does not parse and carries a top-level `branch` key (quoted or not) refuses writes until it is fixed there; one without the key is ignored by this reading. A git failure while reading the file refuses writes too, never counts as "no `branch`".
 
 Two things are derived and have no key (D906). A KB **declares secrets** when at least one YAML
 file directly under `secrets/` carries sops metadata (read, never decrypted): a mount of such a KB
