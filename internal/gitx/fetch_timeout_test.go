@@ -1,10 +1,12 @@
 package gitx
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
@@ -131,5 +133,37 @@ func TestPush_SilentRemoteTimesOut(t *testing.T) {
 	}
 	if took := time.Since(start); took > 5*time.Second {
 		t.Fatalf("Push took %s, want it bounded by PushTimeout", took)
+	}
+}
+
+// Clone and the probes used exec.CommandContext alone: on a deadline only git
+// died, git-remote-http kept the pipe open and the call blocked until the
+// remote hung up. Every network command goes through netCommand now.
+func TestNetworkCommands_SilentRemoteHonourTheirContext(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	bound := 8 * time.Second
+	if runtime.GOOS == "windows" {
+		bound = 25 * time.Second
+	}
+	remote := silentRemote(t)
+	for name, run := range map[string]func(ctx context.Context) error{
+		"Clone": func(ctx context.Context) error { return Clone(ctx, remote, filepath.Join(removeWhenFree(t), "dest")) },
+		"ProbeRemoteContent": func(ctx context.Context) error {
+			_, err := ProbeRemoteContent(ctx, remote)
+			return err
+		},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		start := time.Now()
+		err := run(ctx)
+		cancel()
+		if err == nil {
+			t.Errorf("%s: no error against a silent remote", name)
+		}
+		if took := time.Since(start); took > bound {
+			t.Errorf("%s took %s, want it bounded by its context", name, took)
+		}
 	}
 }

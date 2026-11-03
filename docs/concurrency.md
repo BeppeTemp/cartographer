@@ -72,6 +72,8 @@ mandatory rather than advisory, so the Windows side locks a **single byte far pa
 metadata**: the contending process must still be able to read the pid, timestamp and command line to
 name the holder.
 
+**Network git commands are all bounded.** Every `internal/gitx` command that talks to a remote (clone, ls-remote, fetch, push, the probe's shallow fetch) is built by `netCommand`, which kills the whole process group on cancel and sets `WaitDelay`; hand-building one let a deadline kill only `git` while `git-remote-http` held the pipe open. After `Fetch`, `SyncIn` and the `SyncOut` retry rebase locally (`RebaseOntoAutostash`): one network round-trip, none under the KB git lock outside the fetch deadline.
+
 **An in-progress rebase makes sync refuse.** When `.git/rebase-merge` or `.git/rebase-apply` exists
 (a real rebase, or an orphan autostash an aborted `pull --rebase --autostash` left behind), `SyncIn`/`SyncOut`
 detect it first and return an error that names the remedy, where git's own *"there is already a
@@ -125,7 +127,7 @@ the `branch` of the `settings.yaml` committed on the remote's default branch whe
 in the server's `kbs[]`, because it is a decision of the team that owns the KB, the same for every
 server that mounts it; and it is read **only from the default branch**: the working copy's file
 is ignored, so a change of `branch` committed on any other branch has no effect until it reaches
-the default one. Without the key, Cartographer asks the remote on every sync (`git ls-remote --symref`, and
+the default one. A failure to read that file is never read as "no `branch`": a git error is a sync error, and a file that does not parse but carries a top-level `branch:` key refuses writes until it is fixed on the default branch (a parse error without the key is ignored). Without the key, Cartographer asks the remote on every sync (`git ls-remote --symref`, and
 re-points `origin/HEAD` at the answer, since the one `git clone` wrote is never
 refreshed by a fetch); when the remote's `HEAD` names a branch it does not have —
 a self-hosted bare repository initialised with `master` and then pushed `main` —
@@ -254,6 +256,11 @@ A rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
 - A reserved-only conflict the server could not settle is registered with
   `kind: reserved` and its path as `concept_id`; `git_conflict_resolve` accepts
   `union` (only `log.md`), `ours` or `theirs` for it, never `edit`.
+- Any other conflicting file (a skill, a template, an expanded concept's asset,
+  `instructions.md`, `settings.yaml`, `paths.yaml`) is registered with
+  `kind: artifact` and its path as `concept_id`, whether or not a concept also
+  conflicted, with `ours` or `theirs` (D1563). The write's error names the files
+  and never promises a tool for something that was not registered.
 
 No message hands the agent a git command. For conflicting concept files the
 server records local/remote SHAs in
@@ -313,7 +320,7 @@ writer boundary. It serialises validation — the stat walk and any re-parse —
 and the publication of a new view. A view is immutable once published: every
 graph reader takes the current one after validating and traverses it without
 the lock, so a concurrent write can only make the *next* read see a newer
-view. Writes are atomic renames, so a validation reads either the old file or
+view. Writes are atomic renames (`writeFileAtomic`: temp file in the same directory, `fsync`, rename, `fsync` of the directory, so a crash cannot leave a renamed but empty file; on Windows the rename retries with backoff while a reader holds the destination open without `FILE_SHARE_DELETE`, and the directory sync is a no-op). A temp file orphaned by a kill is junk (`.tmp-wiki-*` in `JunkPatterns`, so never committed) and the server's start-up (`SweepStaleTempFiles`, not every `Open`) removes the regular, untracked ones named exactly as `os.CreateTemp` names them that are older than the lock timeout, when it can take the KB lock without waiting. So a validation reads either the old file or
 the new one, never a torn one. The maps a view exposes (`Links`,
 `IncomingLinks`) are shared across readers and must never be mutated.
 

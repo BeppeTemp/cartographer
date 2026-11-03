@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 )
 
 // #1503 WP13: the run log survives an oversize line, is pruned at append, and
@@ -108,7 +110,7 @@ func TestAutoRepairLog_OversizeLineIsPrunedAndNoRunIsGlued(t *testing.T) {
 		if runs := autoRepairRunsSince(k, now.Add(-24*time.Hour), 10); len(runs) != 2 {
 			t.Errorf("%s: runs = %d, want 2", name, len(runs))
 		}
-		if fi, _ := os.Stat(autoRepairLogPath(k)); fi.Mode().Perm() != 0o644 {
+		if fi, _ := os.Stat(autoRepairLogPath(k)); execbit.Supported && fi.Mode().Perm() != 0o644 {
 			t.Errorf("%s: mode %v, want 0644", name, fi.Mode().Perm())
 		}
 	}

@@ -1146,8 +1146,11 @@ func TestApply_RifiutaPathTraversal(t *testing.T) {
 			BaseDir:  baseDir,
 			Lock:     provisioning.Lock{},
 		}
-		if _, err := provisioning.Apply(m, opts); err == nil {
-			t.Errorf("case %d: Apply should have rejected the artifact with the malicious path", i)
+		// The two path cases are fatal; a bad artifact name is a per-artifact
+		// refusal (#1502). Either way nothing is written.
+		res, err := provisioning.Apply(m, opts)
+		if err == nil && (len(res.Refused) != 1 || len(res.Written) != 0) {
+			t.Errorf("case %d: Apply should have rejected the artifact with the malicious path or name: refused=%v written=%v", i, res.Refused, res.Written)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(baseDir, "..", "escape.md")); err == nil {
