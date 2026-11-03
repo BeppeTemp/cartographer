@@ -837,7 +837,7 @@ not bring it back; `service tray install` clears it. `service uninstall` removes
 server. `upgrade-repair` re-renders and restarts the tray (also when the service is stopped, and for
 installs that predate it) so a tray running the previous binary picks up the new one; a tray failure
 there is a warning and never changes the exit code. `service tray status` exits 0 when installed, 4 when not. `--no-tray` over an installed tray also removes it. On Windows, `service tray uninstall`
-and `service install` stop a running tray and wait for it to exit; one that survives is an error and
+and `service install` stop a running tray and wait for it to exit (they first post `WM_CLOSE` to its window so the shell drops the notification icon, then use `Stop-ScheduledTask` if no window answers or the process stays); one that survives is an error and
 `tray.xml` is kept so the command can be retried. On Linux `service tray install` fails ("supported on Windows
 and macOS only"), `uninstall` only records the opt-out and `status` exits 4.
 

@@ -250,13 +250,33 @@ func (m *Manager) UninstallTray() error {
 	return nil
 }
 
+// closeTrayWindow is requestTrayClose behind a test seam: it asks the tray to
+// close its own window, nil when the request was posted.
+var closeTrayWindow = requestTrayClose
+
+// trayCloseTimeout bounds how long a tray gets to exit after the close request
+// before Stop-ScheduledTask is used, counted in polls like the other waits.
+var trayCloseTimeout = 3 * time.Second
+
 // stopTrayAndWait ends a running tray task and returns only once the process
 // is gone, as stopServeAndWait does for the server (the poll budget is
 // windowsKillTimeout, counted in slept intervals). A task that is not
 // registered or not running is already stopped, whatever the stop reported.
+//
+// The tray is asked to close its window first, so it removes its notification
+// icon (Stop-ScheduledTask would leave a ghost until the mouse passes over
+// it); the task is stopped only if no window answered or the process stayed.
 func (m *Manager) stopTrayAndWait() error {
 	if !m.windowsTaskRunning(windowsTrayTaskName) {
 		return nil
+	}
+	if closeTrayWindow() == nil {
+		for waited := time.Duration(0); waited <= trayCloseTimeout; waited += windowsDrainPoll {
+			if !m.windowsTaskRunning(windowsTrayTaskName) {
+				return nil
+			}
+			windowsSleep(windowsDrainPoll)
+		}
 	}
 	stopErr := m.stopWindowsTask(windowsTrayTaskName)
 	for waited := time.Duration(0); ; waited += windowsDrainPoll {
