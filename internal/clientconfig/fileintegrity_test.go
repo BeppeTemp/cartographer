@@ -110,3 +110,26 @@ func TestLoadAppliesSchemaDefaultsForAbsentKeys(t *testing.T) {
 		t.Errorf("an explicit empty server_name must stay, got %q", cfg.ServerName)
 	}
 }
+
+// The defaults of absent keys are load-time values: a Load+Save of a file that
+// never carried them does not write them back, and the bytes stay as they were.
+func TestLoadSaveDoesNotPersistTheDefaultsOfAbsentKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CARTOGRAPHER_SERVER_URL", "")
+	in := "auth: false\n"
+	writeFile(t, Path(home), in, 0o644)
+	cfg, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(Path(home))
+	for _, key := range []string{"token:", "server_name:", "server_url:"} {
+		// A commented example of the key is the schema documentation, not a value.
+		if strings.HasPrefix(string(got), key) || strings.Contains(string(got), "\n"+key) {
+			t.Errorf("Save wrote back %s the file never carried:\n%s", key, got)
+		}
+	}
+}

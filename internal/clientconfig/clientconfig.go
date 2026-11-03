@@ -164,6 +164,12 @@ type Config struct {
 	// AllowInsecureHTTP is the persisted opt-in to a non-loopback http://
 	// server_url (D1023). Use InsecureHTTPAllowed, which also honours the env var.
 	AllowInsecureHTTP bool `yaml:"-"`
+	// loadDefaulted holds the schema default Load applied to a key the file does
+	// not carry (server_url, server_name, token). Save leaves such a key out
+	// while its value is still that default: a default is a load-time value, and
+	// writing it back would pin it (#1501).
+	loadDefaulted map[string]string
+
 	// Extra retains unknown top-level YAML keys across approval updates.
 	Extra map[string]interface{} `yaml:"-"`
 	// Unsupported lists, sorted, the provider names Load found in the file and
@@ -504,14 +510,18 @@ func Load(dir string) (*Config, error) {
 	// absent key: an explicit empty one is the operator's.
 	root := documentMapping(&yamlDoc)
 	absent := func(key string) bool { return root == nil || pairIndex(root, key) < 0 }
+	cfg.loadDefaulted = map[string]string{}
 	if absent("server_url") {
 		cfg.ServerURL = defaultServerURL()
+		cfg.loadDefaulted["server_url"] = cfg.ServerURL
 	}
 	if absent("server_name") {
 		cfg.ServerName = "cartographer"
+		cfg.loadDefaulted["server_name"] = cfg.ServerName
 	}
 	if absent("token") && cfg.Token == "" {
 		cfg.Token = EnvRefToken(DefaultTokenEnv)
+		cfg.loadDefaulted["token"] = cfg.Token
 	}
 	if cfg.LiteralToken() != "" && !fileIsPrivate(Path(dir)) {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s holds a literal token and is readable by other users: run `chmod 600 %s`", Path(dir), Path(dir)))
@@ -664,7 +674,25 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	if errors.Is(err, ErrUnparsable) {
 		return nil, fmt.Errorf("clientconfig: %s: %w (fix or remove it)", Path(dir), err)
 	}
-	return doc, err
+	if err != nil {
+		return nil, err
+	}
+	// A key Load defaulted and nobody changed stays absent from the file.
+	var old yaml.Node
+	if yaml.Unmarshal(existing, &old) == nil {
+		oldRoot := documentMapping(&old)
+		root := documentMapping(doc)
+		current := map[string]string{"server_url": cfg.ServerURL, "server_name": cfg.ServerName, "token": cfg.Token}
+		for key, def := range cfg.loadDefaulted {
+			if current[key] != def || root == nil || (oldRoot != nil && pairIndex(oldRoot, key) >= 0) {
+				continue
+			}
+			if idx := pairIndex(root, key); idx >= 0 {
+				removePair(doc, root, idx)
+			}
+		}
+	}
+	return doc, nil
 }
 
 // ApproveMCP records the exact descriptor hash for one source/name pair.
