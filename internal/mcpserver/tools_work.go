@@ -149,6 +149,10 @@ func runWorkQuery(ctx requestContext, k *kb.KB, cc *conformanceCache, q workQuer
 		resp.ByMap[e.Map]++
 		resp.OpenItems += len(e.Items)
 	}
+	// Clamp first: an offset near the maximum int would overflow the sum.
+	if q.Offset > len(sel) {
+		q.Offset = len(sel)
+	}
 	end := q.Offset + q.Limit
 	if end > len(sel) {
 		end = len(sel)

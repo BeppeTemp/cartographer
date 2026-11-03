@@ -113,7 +113,11 @@ func toolIndexGet(k *kb.KB) Tool {
 				Outline  bool   `json:"outline"`
 				Full     bool   `json:"full"`
 			}
-			json.Unmarshal(args, &params)
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 
 			content, err := k.ReadIndex(params.Path)
 			if err != nil {
@@ -657,7 +661,11 @@ func toolLogTail(k *kb.KB) Tool {
 				Path string `json:"path"`
 				N    int    `json:"n"`
 			}
-			json.Unmarshal(args, &params)
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 
 			content, err := k.LogTail(params.Path, params.N)
 			if err != nil {
