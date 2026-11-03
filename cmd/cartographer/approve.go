@@ -67,8 +67,10 @@ func cmdApprove(args []string) int {
 			}
 			kbName = matches[0]
 		}
-		cfg.RevokeMCP(kbName, approvalEntryName(kind, name))
-		if err := clientconfig.Save(dir, cfg); err != nil {
+		if err := withClientConfig(dir, func(c *clientconfig.Config) error {
+			c.RevokeMCP(kbName, approvalEntryName(kind, name))
+			return nil
+		}); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 2
 		}
@@ -121,11 +123,11 @@ func cmdApprove(args []string) int {
 			return 0
 		}
 	}
-	if err := cfg.ApproveMCP(source, approvalEntryName(kind, name), a.ContentHash, time.Now()); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
-	}
-	if err := clientconfig.Save(dir, cfg); err != nil {
+	// Reloaded under the lock: the preview and the prompt above can take as
+	// long as the operator does, and a sync may have saved meanwhile (D172).
+	if err := withClientConfig(dir, func(c *clientconfig.Config) error {
+		return c.ApproveMCP(source, approvalEntryName(kind, name), a.ContentHash, time.Now())
+	}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -358,13 +360,14 @@ func cmdApprovePending(args []string) int {
 		}
 	}
 	now := time.Now()
-	for _, a := range pending {
-		if err := cfg.ApproveMCP(strings.TrimPrefix(a.Source, "kb:"), provisioning.ApprovalName(a), a.ContentHash, now); err != nil {
-			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 2
+	if err := withClientConfig(dir, func(c *clientconfig.Config) error {
+		for _, a := range pending {
+			if err := c.ApproveMCP(strings.TrimPrefix(a.Source, "kb:"), provisioning.ApprovalName(a), a.ContentHash, now); err != nil {
+				return err
+			}
 		}
-	}
-	if err := clientconfig.Save(dir, cfg); err != nil {
+		return nil
+	}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}

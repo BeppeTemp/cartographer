@@ -34,6 +34,16 @@ func cmdClient(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
+	// The subcommands that save hold the client lock from before the load to
+	// the end (D172); list and show only read.
+	if args[0] != "list" && args[0] != "show" {
+		release, err := lockClient(dir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		defer release()
+	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)

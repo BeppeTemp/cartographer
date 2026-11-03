@@ -234,6 +234,26 @@ func loadWorkspaceConfig() (string, *clientconfig.Config, error) {
 	return dir, cfg, nil
 }
 
+// loadWorkspaceConfigLocked is loadWorkspaceConfig for a command that saves: it
+// takes the client lock first and loads after it (D172); the caller defers the
+// release.
+func loadWorkspaceConfigLocked() (string, *clientconfig.Config, func(), error) {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return "", nil, nil, err
+	}
+	release, err := lockClient(dir)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		release()
+		return "", nil, nil, fmt.Errorf("no client config found in %s (run `cartographer connect` first): %w", dir, err)
+	}
+	return dir, cfg, release, nil
+}
+
 func cmdWorkspaceBind(args []string) int {
 	var provider, path string
 	var kbs []string
@@ -275,11 +295,12 @@ func cmdWorkspaceBind(args []string) int {
 		return 2
 	}
 
-	dir, cfg, err := loadWorkspaceConfig()
+	dir, cfg, release, err := loadWorkspaceConfigLocked()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
+	defer release()
 	p := configurator.Provider(provider)
 	if _, ok := configurator.Lookup(p); !ok {
 		fmt.Fprintf(os.Stderr, "Error: unknown provider %q\n", provider)
@@ -385,11 +406,12 @@ func cmdWorkspaceUnbind(args []string) int {
 		return 2
 	}
 	provider, path := args[0], args[1]
-	dir, cfg, err := loadWorkspaceConfig()
+	dir, cfg, release, err := loadWorkspaceConfigLocked()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
+	defer release()
 	// The same path UnbindWorkspace compares against: canonical, else absolute.
 	canonical, err := clientconfig.CanonicalWorkspacePath(path)
 	if err != nil {

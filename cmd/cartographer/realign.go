@@ -246,8 +246,8 @@ func realignKBSettings(k *kb.KB, name string) (refusal string) {
 
 // realignClientConfig brings ~/.cartographer.yaml up to date on a sync (D903):
 // the removed keys dropped, the schema's comments written, the original kept
-// beside it. Under the client-state lock, because connect and the paths
-// commands write the same file; a lock it cannot take, or a file it cannot
+// beside it. Under the client-state lock, because every command that writes
+// the same file takes it (D172); a lock it cannot take, or a file it cannot
 // write, is a warning and never stops the sync.
 func realignClientConfig(dir string) {
 	release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)

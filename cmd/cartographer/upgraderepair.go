@@ -248,6 +248,15 @@ func repairProviderSync(serviceHTTPAddr string) int {
 		return exitRepairSyncPending
 	}
 
+	// Lock before load, as cmdSync does (D172): runSync saves this copy.
+	release, err := lockClient(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		fmt.Println("native service verified; retry with: cartographer sync")
+		return exitRepairSyncPending
+	}
+	defer release()
+
 	cfg, err := repairLoadClientConfigFn(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -269,7 +278,7 @@ func repairProviderSync(serviceHTTPAddr string) int {
 		return exitRepairOK
 	}
 
-	if _, err := repairRunSyncFn(dir, cfg, syncOptions{}); err != nil {
+	if _, err := repairRunSyncFn(dir, cfg, syncOptions{Locked: true}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		fmt.Println("native service verified; provider sync pending — retry with: cartographer sync")
 		return exitRepairSyncPending
