@@ -180,7 +180,7 @@ func TestLinksSectionAndRepairShareOneBoundary(t *testing.T) {
 			t.Fatalf("no section in %q", body)
 		}
 		for _, line := range strings.Split(body, "\n") {
-			if !listMarkRe.MatchString(line) {
+			if !listItemRe.MatchString(line) {
 				continue
 			}
 			inSection := strings.Contains(section, line+"\n") || strings.HasSuffix(section, line)
