@@ -1401,7 +1401,9 @@ and leaves `.cartographer.yaml` byte-identical, mtime included. The state file i
 hand-edited. An installation from before keeps these keys in `.cartographer.yaml`; `Load` reads them
 from there while the state file is absent, and the next save moves them (the legacy `kbs` key, read
 since D169, goes the same way). An unreadable or corrupt state file is treated as absent, with one
-line on stderr: the caches in it are rebuilt by the next `sync`, the connected clients by `connect`. `clients` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
+line on stderr that names what to redo: the known KBs come back with the next `sync`, but the connected agents and the sync-timer and tray opt-outs do not (`connect`, `service sync-timer uninstall`, `service tray uninstall`); the next save keeps the unreadable bytes as `state.json.bak` before replacing the file. `clients` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
+
+`.cartographer.yaml` is written atomically (a temporary file beside it, `fsync`, rename) and the operator's own file keeps what they gave it: a **symlink** (stow, yadm) is followed and its target replaced, so the link survives; an existing **mode** is kept (a literal token only ever takes group and other access away, never gives it). This differs from the no-follow rule of the client directories (D148) because it is the operator's own file, written on their own command, not a path inside somebody else's checkout. A key the file does not carry (`server_url`, `server_name`, `token`) loads as the schema's default, as `Default()` does; an explicit empty value stays empty.
 
 ### `cartographer client`
 

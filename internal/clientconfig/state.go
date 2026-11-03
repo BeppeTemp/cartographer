@@ -50,7 +50,10 @@ func loadState(dir string) (s stateFile, ok bool) {
 		}
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(os.Stderr, "clientconfig: ignoring %s (%v); the next sync rebuilds it\n", StatePath(dir), err)
+		// Not "the next sync rebuilds it": since D906 the file holds the
+		// connected agents and the timer and tray opt-outs, which no sync can
+		// rebuild. The next save keeps a copy as .bak before replacing it.
+		fmt.Fprintf(os.Stderr, "clientconfig: ignoring %s (%v); the known KBs come back with the next sync, but the connected agents and the sync-timer and tray opt-outs it held do not: run `cartographer connect` again, and `cartographer service sync-timer uninstall` or `cartographer service tray uninstall` for an opt-out (a copy is kept as %s.bak)\n", StatePath(dir), err, StateFileName)
 	}
 	return stateFile{}, false
 }
@@ -84,17 +87,52 @@ func writeStateChanged(dir string, cfg *Config) (bool, error) {
 	if bytes.Equal(old, data) {
 		return false, nil
 	}
+	// An unreadable state is about to be replaced by what this save knows,
+	// which lacks what only it held: keep the bytes for the operator.
+	if readErr == nil && !json.Valid(old) {
+		if err := writeAtomic(dir, StateFileName+".bak", old); err != nil {
+			return false, err
+		}
+	}
 	return true, writeAtomic(dir, StateFileName, data)
 }
 
 // writeAtomic replaces dir/name with data through a temp file and a rename.
 func writeAtomic(dir, name string, data []byte) error {
-	return writeAtomicMode(dir, name, data, 0o644)
+	return writeAtomicMode(dir, name, data, 0o644, false)
 }
 
-// writeAtomicMode is writeAtomic with the file mode of the result.
-func writeAtomicMode(dir, name string, data []byte, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(dir, name+".tmp-*")
+// writeAtomicMode replaces dir/name through a temp file in the same directory
+// and a rename, after an fsync of the temp file, so a crash leaves the old file
+// or the new one and never an empty one.
+//
+// A dotfile manager (stow, yadm) keeps the file as a symlink into its
+// repository, and that is the documented case: the link is resolved and the
+// target replaced, so the link survives and the repository sees the change.
+// This is the operator's own file, written on their own command, unlike the
+// client directories of internal/provisioning, where a link is refused because
+// it can divert a write into somebody else's checkout (D148).
+//
+// The mode of an existing file is kept: a file the operator closed to 0600 is
+// never loosened. newMode is only for a file that does not exist yet. private
+// (the file carries a literal token) takes group and other access away, never
+// gives any.
+func writeAtomicMode(dir, name string, data []byte, newMode os.FileMode, private bool) error {
+	path := filepath.Join(dir, name)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	mode := newMode
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if private {
+		mode &^= 0o077
+		if mode == 0 {
+			mode = 0o600
+		}
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), name+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("clientconfig: create temp: %w", err)
 	}
@@ -108,11 +146,15 @@ func writeAtomicMode(dir, name string, data []byte, mode os.FileMode) error {
 		tmp.Close()
 		return fmt.Errorf("clientconfig: chmod temp: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("clientconfig: sync temp: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("clientconfig: close temp: %w", err)
 	}
-	if err := os.Rename(tmpName, filepath.Join(dir, name)); err != nil {
-		return fmt.Errorf("clientconfig: replace %s: %w", filepath.Join(dir, name), err)
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("clientconfig: replace %s: %w", path, err)
 	}
 	return nil
 }

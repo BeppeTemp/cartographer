@@ -210,11 +210,11 @@ func writeYAML(dir string, doc *yaml.Node, private bool) error {
 		}
 		return nil
 	}
-	mode := os.FileMode(0o644)
+	newMode := os.FileMode(0o644)
 	if private {
-		mode = 0o600
+		newMode = 0o600
 	}
-	return writeAtomicMode(dir, FileName, data, mode)
+	return writeAtomicMode(dir, FileName, data, newMode, private)
 }
 
 // fileIsPrivate reports whether path is closed to group and others. Always true

@@ -164,6 +164,12 @@ type Config struct {
 	// AllowInsecureHTTP is the persisted opt-in to a non-loopback http://
 	// server_url (D1023). Use InsecureHTTPAllowed, which also honours the env var.
 	AllowInsecureHTTP bool `yaml:"-"`
+	// loadDefaulted holds the schema default Load applied to a key the file does
+	// not carry (server_url, server_name, token). Save leaves such a key out
+	// while its value is still that default: a default is a load-time value, and
+	// writing it back would pin it (#1501).
+	loadDefaulted map[string]string
+
 	// Extra retains unknown top-level YAML keys across approval updates.
 	Extra map[string]interface{} `yaml:"-"`
 	// Unsupported lists, sorted, the provider names Load found in the file and
@@ -498,6 +504,25 @@ func Load(dir string) (*Config, error) {
 		// Never lost in silence: token wins, or the name cannot be a variable.
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("token_env is ignored: token is already %s (or its value is not an environment variable name); set token: ${NAME} to read a variable", tokenLabel(cfg.Token)))
 	}
+	// A key the file does not carry takes the schema's default, as Default()
+	// does: an empty ServerName would reach sync's MCP entry name and the Atlas
+	// report would show "default: cartographer" for an empty value. Only an
+	// absent key: an explicit empty one is the operator's.
+	root := documentMapping(&yamlDoc)
+	absent := func(key string) bool { return root == nil || pairIndex(root, key) < 0 }
+	cfg.loadDefaulted = map[string]string{}
+	if absent("server_url") {
+		cfg.ServerURL = defaultServerURL()
+		cfg.loadDefaulted["server_url"] = cfg.ServerURL
+	}
+	if absent("server_name") {
+		cfg.ServerName = "cartographer"
+		cfg.loadDefaulted["server_name"] = cfg.ServerName
+	}
+	if absent("token") && cfg.Token == "" {
+		cfg.Token = EnvRefToken(DefaultTokenEnv)
+		cfg.loadDefaulted["token"] = cfg.Token
+	}
 	if cfg.LiteralToken() != "" && !fileIsPrivate(Path(dir)) {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s holds a literal token and is readable by other users: run `chmod 600 %s`", Path(dir), Path(dir)))
 	}
@@ -553,6 +578,15 @@ func Load(dir string) (*Config, error) {
 	}
 	cfg.derived = LoadDerived(dir)
 	return &cfg, nil
+}
+
+// documentMapping is the top-level mapping of a parsed document, nil when the
+// file is empty or not a mapping.
+func documentMapping(doc *yaml.Node) *yaml.Node {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	return doc.Content[0]
 }
 
 // Save writes cfg to dir, creating the directory if necessary.
@@ -640,7 +674,35 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	if errors.Is(err, ErrUnparsable) {
 		return nil, fmt.Errorf("clientconfig: %s: %w (fix or remove it)", Path(dir), err)
 	}
-	return doc, err
+	if err != nil {
+		return nil, err
+	}
+	// A key Load defaulted and nobody changed stays absent from the file.
+	var old yaml.Node
+	if yaml.Unmarshal(existing, &old) == nil {
+		oldRoot := documentMapping(&old)
+		root := documentMapping(doc)
+		current := map[string]string{"server_url": cfg.ServerURL, "server_name": cfg.ServerName, "token": cfg.Token}
+		for key, def := range cfg.loadDefaulted {
+			if current[key] != def || root == nil || (oldRoot != nil && pairIndex(oldRoot, key) >= 0) {
+				continue
+			}
+			if idx := pairIndex(root, key); idx >= 0 {
+				removePair(doc, root, idx)
+			}
+		}
+	}
+	return doc, nil
+}
+
+// Assigned records that a command set the named keys (server_url, server_name,
+// token) on purpose: Save then writes them even when the value equals the
+// default Load applied, since an explicit choice must survive a later change of
+// the default.
+func (c *Config) Assigned(keys ...string) {
+	for _, k := range keys {
+		delete(c.loadDefaulted, k)
+	}
 }
 
 // ApproveMCP records the exact descriptor hash for one source/name pair.

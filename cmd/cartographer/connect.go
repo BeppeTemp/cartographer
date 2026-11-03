@@ -1085,6 +1085,8 @@ func doConnect(opts connectOptions) (connectResult, error) {
 
 	// 3. Persist .cartographer.yaml.
 	existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token
+	// Set on purpose, even when equal to the default Load applied.
+	existing.Assigned("server_url", "server_name", "token")
 	existing.AllowInsecureHTTP = opts.AllowInsecureHTTP
 	if healthErr == nil {
 		existing.KnownKBs = withRetainedKBs(kbs, retainedKBs)

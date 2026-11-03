@@ -108,7 +108,7 @@ func TestToken_EnvRefLiteralAndLegacy(t *testing.T) {
 		{"literal", "token: s3cr3t-literal\n", clientconfig.DefaultTokenEnv, "s3cr3t-literal"},
 		{"legacy token_env", "token_env: OLD_TOK\n", "OLD_TOK", ""},
 		{"token wins over token_env", "token: ${NEW_TOK}\ntoken_env: OLD_TOK\n", "NEW_TOK", ""},
-		{"absent", "server_url: http://x\n", "", ""},
+		{"absent (the schema default)", "server_url: http://x\n", clientconfig.DefaultTokenEnv, ""},
 	}
 	for _, c := range cases {
 		dir := t.TempDir()
