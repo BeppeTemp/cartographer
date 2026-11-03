@@ -67,7 +67,7 @@ func cmdKBReauthor(args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]")
 		return 2
 	}
-	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+	if code := checkLocalTarget("kb reauthor", *dataFlag, *localFlag); code != 0 {
 		return code
 	}
 	dataDir := *dataFlag

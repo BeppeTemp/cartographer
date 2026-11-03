@@ -41,7 +41,7 @@ func cmdReconnect(args []string) int {
 		return 2
 	}
 	if _, err := clientconfig.Load(dir); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)
+		fmt.Fprintln(os.Stderr, "Error:", describeClientConfigError(dir, err))
 		return 2
 	}
 

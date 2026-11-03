@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -229,7 +230,7 @@ func loadWorkspaceConfig() (string, *clientconfig.Config, error) {
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
-		return "", nil, fmt.Errorf("no client config found in %s (run `cartographer connect` first): %w", dir, err)
+		return "", nil, errors.New(describeClientConfigError(dir, err))
 	}
 	return dir, cfg, nil
 }
@@ -249,7 +250,7 @@ func loadWorkspaceConfigLocked() (string, *clientconfig.Config, func(), error) {
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		release()
-		return "", nil, nil, fmt.Errorf("no client config found in %s (run `cartographer connect` first): %w", dir, err)
+		return "", nil, nil, errors.New(describeClientConfigError(dir, err))
 	}
 	return dir, cfg, release, nil
 }

@@ -89,7 +89,7 @@ func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
 func reportOnly(dir, url string) int {
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: no client config found in %s: %v\n", dir, err)
+		fmt.Fprintln(os.Stderr, "Error:", describeClientConfigError(dir, err))
 		return 2
 	}
 	// The configured token goes with the reports: only a server on this
