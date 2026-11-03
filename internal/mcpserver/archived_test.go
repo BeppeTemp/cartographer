@@ -201,9 +201,25 @@ func TestMapUpdate_OpenField(t *testing.T) {
 
 // --- read-access log (D322) ---
 
+// touchConcepts creates a minimal file for each id: newReadAccessLog drops the
+// ids of concepts that do not exist (D1529).
+func touchConcepts(t *testing.T, k *kb.KB, ids ...string) {
+	t.Helper()
+	for _, id := range ids {
+		p := filepath.Join(k.DataRoot(), filepath.FromSlash(id)+".md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestReadAccessLogRoundTrip(t *testing.T) {
 	t.Parallel()
 	k := kbtest.New(t)
+	touchConcepts(t, k, "ops/a", "ops/b", "ops/c")
 	l := newReadAccessLog(k)
 	if r, s, since := l.summary(); r.TrackedConcepts != 0 || s.TrackedConcepts != 0 || since == "" {
 		t.Fatalf("fresh log = %+v %+v %q", r, s, since)
@@ -237,6 +253,7 @@ func TestReadAccessLogRoundTrip(t *testing.T) {
 
 func TestReadAccessLogFlushesAfterInterval(t *testing.T) {
 	k := kbtest.New(t)
+	touchConcepts(t, k, "ops/a", "ops/b")
 	now := time.Now()
 	prev := readAccessNow
 	readAccessNow = func() time.Time { return now }
@@ -267,6 +284,7 @@ func TestReadAccessLogFlushesAfterInterval(t *testing.T) {
 // counting from the upgrade.
 func TestReadAccessLogMigratesTheFlatFile(t *testing.T) {
 	k := kbtest.New(t)
+	touchConcepts(t, k, "ops/a", "ops/b")
 	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	prev := readAccessNow
 	readAccessNow = func() time.Time { return now }

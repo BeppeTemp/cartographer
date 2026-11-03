@@ -412,6 +412,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]
 	// shutdown point. Flush any pending async push (D76/WP4) before exiting
 	// so a debounced push is not lost when the process ends.
 	runErr := s.Run(os.Stdin, os.Stdout)
+	s.FlushReadAccess() // a session shorter than the log's flush interval would otherwise record nothing (D1529)
 	if fErr := k.FlushPush(shutdownPushFlushTimeout); fErr != nil {
 		log.Printf("flush pending push at shutdown: %v", fErr)
 	}
@@ -510,6 +511,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 
 	// published for the shutdown flush; nil until the bootstrap has finished.
 	var mounted atomic.Pointer[[]*kb.KB]
+	var multiMounted atomic.Pointer[mcpserver.MultiKBServer]
 	go func() {
 		bs := boot(gate.SetPhase)
 		kbs, names, artifactSigners, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.sqlIdxs
@@ -616,6 +618,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		// The handler is complete before the gate opens, so no request can
 		// reach a half-mounted server.
 		mounted.Store(&kbs)
+		multiMounted.Store(multi)
 		gate.Open(handler)
 		log.Printf("bootstrap complete: %d KB(s) ready", len(kbs))
 	}()
@@ -644,7 +647,11 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		shutdown()
 	}
 
-	// Nil while bootstrapping: nothing was mounted, so nothing to flush.
+	// Nil while bootstrapping: nothing was mounted, so nothing to flush. The
+	// listener has drained, so no request can stamp a read after this (D1529).
+	if m := multiMounted.Load(); m != nil {
+		m.FlushReadAccess()
+	}
 	if kbs := mounted.Load(); kbs != nil {
 		for _, k := range *kbs {
 			if err := k.FlushPush(shutdownPushFlushTimeout); err != nil {

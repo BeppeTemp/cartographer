@@ -10,9 +10,11 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -59,6 +61,9 @@ type Tool struct {
 // Server is the MCP stdio server.
 type Server struct {
 	version string
+	// reads is the KB's read-access log, set by RegisterKBTools; FlushReadAccess
+	// writes it at shutdown (D1529). Nil on a server with no KB tools.
+	reads *readAccessLog
 	// latestVersion reports a newer release when one is known (D254,
 	// latestrelease.go). Nil means never known.
 	latestVersion func() string
@@ -286,6 +291,15 @@ func (s *Server) Tools() map[string]Tool {
 		out[name] = *t
 	}
 	return out
+}
+
+// FlushReadAccess writes the read-access log now. The five-minute flush inside
+// the log bounds what a crash loses; a clean stop calls this so it loses
+// nothing (D1529).
+func (s *Server) FlushReadAccess() {
+	if err := s.reads.save(); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: read-access log: shutdown flush failed: %v\n", err)
+	}
 }
 
 // RegisterTool registers an MCP tool. Overwrites if the same name is already

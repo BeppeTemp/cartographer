@@ -487,6 +487,14 @@ func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal"})
 }
 
+// FlushReadAccess writes the read-access log of every mounted KB. serveHTTP
+// calls it once the listener has drained (D1529).
+func (m *MultiKBServer) FlushReadAccess() {
+	for _, srv := range m.servers {
+		srv.FlushReadAccess()
+	}
+}
+
 // maxToolNameLen is the conservative per-tool-name budget (D102) enforced
 // once a tool-name prefix is set: Kiro (and MCP clients generally) may
 // reject or exclude a tool whose name is too long, and some clients add

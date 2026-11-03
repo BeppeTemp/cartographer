@@ -79,6 +79,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	rec := newSearchReconciler(k, deps.SQLIndex)
 	misses := newSearchMissLog(k)
 	reads := newReadAccessLog(k)
+	s.reads = reads
 	// The miss re-check (D319) must come after newSearchReconciler, which it
 	// closes over, and must use the in-memory index only: FTS5 may be absent
 	// or failing, and the live index is always there. No auth filter — this is
