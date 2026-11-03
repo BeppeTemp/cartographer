@@ -131,6 +131,14 @@ type Model struct {
 	syncingAll   bool
 	syncProgress chan string
 
+	// busy is true from the moment a command that writes (a sync, a connect and
+	// its probe, a disconnect) is started until its done message arrives. The
+	// list ignores every key that would start another one meanwhile: two writers
+	// of the lockfile and .cartographer.yaml lose one another's entries (D172),
+	// and a second S would replace syncProgress and let the first done message
+	// clear syncingAll early.
+	busy bool
+
 	formProvider string
 	connectForm  connectFormModel
 	// probing is true while the pre-connect reachability probe (D64) is in
@@ -272,7 +280,7 @@ func buildRows(dir string) []dashboardAgent {
 				bound, explicit = loaded.BoundKBs(string(a.Provider))
 			}
 			row.BoundKBs, row.BindingExplicit = bound, explicit
-			row.MCPConfigState = mcpConfigStatus(dir, a.Provider, serverName, kbs, bound)
+			row.MCPConfigState = mcpConfigStatusFor(dir, a.Provider, loaded, serverName, kbs, bound)
 			row.SkillStatus = "checking…"
 		} else {
 			row.SkillStatus = "not connected"
@@ -291,10 +299,54 @@ func hasConnectedAgent(rows []dashboardAgent) bool {
 	return false
 }
 
+// mcpConfigStatusFor is mcpConfigStatus for a provider of the loaded client
+// config: the expected entries are the ones connect and sync write for it today
+// (D288, D737, D1184), not the pre-routing "one entry per KB" model. On a routed
+// server that is one entry named after the server whatever the number of KBs,
+// with a bridge entry of the same name for a provider that has a workspace
+// binding, and none for a provider bound to no KB. loaded may be nil (no client
+// config): the legacy shape is then assumed.
+//
+// A Claude entry written to the config_dirs of clients.claude is not looked for
+// there: the check reads the file under dir only.
+func mcpConfigStatusFor(dir string, provider configurator.Provider, loaded *clientconfig.Config, serverName string, mounted, bound []string) mcpConfigState {
+	if loaded == nil {
+		return mcpConfigStatus(dir, provider, serverName, mounted, bound)
+	}
+	expected := expectedMCPEntryNames(loaded, string(provider), serverName, mounted)
+	return mcpConfigPresence(dir, provider, serverName, expected)
+}
+
+// expectedMCPEntryNames mirrors entriesByProviderForKBs for one provider
+// without its stderr warnings (the dashboard owns the terminal). Nil when the
+// writer would write no entry or fail.
+func expectedMCPEntryNames(cfg *clientconfig.Config, provider, serverName string, mounted []string) []string {
+	routed := cfg.ServerRoutedPath
+	if cfg.UsesBridge(provider, routed) {
+		return []string{serverName}
+	}
+	bound, explicit := cfg.BoundKBs(provider)
+	if !explicit {
+		bound = mounted
+	}
+	if explicit && len(bound) == 0 && len(mounted) > 1 {
+		return nil
+	}
+	if explicit && routed != "" && len(mounted) > 0 && len(routedBinding(mounted, bound)) == 0 {
+		return nil
+	}
+	entries, err := entriesForKBsAccess(serverName, "http://placeholder", mounted, bound, routed, explicit, cfg.Clients[provider].Access, cfg.ReadOnlyKBs())
+	if err != nil {
+		return nil
+	}
+	return entryNames(entries)
+}
+
 // mcpConfigStatus reports whether provider's MCP config file under dir declares
-// every entry cartographer connect/sync currently write for kbs (D92/D120: a
-// zero/one-KB set is one bare serverName entry, a multi-KB set is one entry
-// per KB — see entriesForKBs). Dashboard-only presentation check: the actual
+// every entry cartographer connect/sync write for kbs in the pre-routing shape
+// (D92/D120: a zero/one-KB set is one bare serverName entry, a multi-KB set is
+// one entry per KB — see entriesForKBs); mcpConfigStatusFor is the one that
+// follows the routed topology. Dashboard-only presentation check: the actual
 // config generation/writing lives in configurator.Emit/Apply — this just reads
 // back what Emit would have written, to find the file path, and checks which
 // of the expected entry names are present in the on-disk content.
@@ -310,8 +362,15 @@ func mcpConfigStatus(dir string, provider configurator.Provider, serverName stri
 	if err != nil || len(entries) == 0 {
 		return mcpConfigMissing
 	}
-	expected := entryNames(entries)
+	return mcpConfigPresence(dir, provider, serverName, entryNames(entries))
+}
 
+// mcpConfigPresence counts which of the expected entry names the provider's
+// config file under dir declares.
+func mcpConfigPresence(dir string, provider configurator.Provider, serverName string, expected []string) mcpConfigState {
+	if len(expected) == 0 {
+		return mcpConfigMissing
+	}
 	r, err := configurator.Emit(&configurator.ServerConfig{Name: serverName, URL: "http://placeholder"}, provider)
 	if err != nil {
 		return mcpConfigMissing
@@ -737,6 +796,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case probeDoneMsg:
 		m.probing = false
 		if msg.err != nil || msg.state != probeReady {
+			m.busy = false
 			// Stay on screenConnect (never touched here) with the values just
 			// entered still in connectForm: withError resets submitted so
 			// Enter on Submit fires again, and forceRetry=true (D64) means
@@ -754,6 +814,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case connectDoneMsg:
 		m.submitting = false
+		m.busy = false
 		if msg.err != nil {
 			// Same idea as the probe failure above: redisplay screenConnect
 			// (untouched) with connectForm still populated, plus an inline
@@ -788,6 +849,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case syncDoneMsg:
 		m.loading = false
+		m.busy = false
 		if msg.err != nil {
 			m.err = msg.err
 			m.message = fmt.Sprintf("sync %s failed: %v", msg.provider, msg.err)
@@ -802,6 +864,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case syncAllDoneMsg:
 		m.loading = false
 		m.syncingAll = false
+		m.busy = false
 		m.rows = buildRows(m.dir)
 		if msg.err != nil {
 			m.err = msg.err
@@ -810,7 +873,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.message = fmt.Sprintf("sync %s failed: %v", msg.failed, msg.err)
 			}
-			return m, nil
+			// buildRows reset every card to "checking…": the status is read again
+			// whether or not the sync succeeded, or the cards would stay there.
+			m.loading = true
+			return m, loadRemoteStatusCmd(m.dir)
 		}
 		m.err = nil
 		m.message = fmt.Sprintf("synced %s", strings.Join(msg.done, ", "))
@@ -819,6 +885,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case disconnectDoneMsg:
 		m.disconnecting = false
+		m.busy = false
 		m.screen = screenList
 		if msg.err != nil {
 			m.err = msg.err
@@ -869,6 +936,12 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "S", "enter", "s", "d":
+		if m.busy {
+			return m, nil
+		}
+	}
+	switch msg.String() {
 	case "S":
 		var providers []string
 		for _, row := range m.rows {
@@ -880,6 +953,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = true
+		m.busy = true
 		m.syncingAll = true
 		m.message = fmt.Sprintf("syncing %d providers one at a time: %s", len(providers), strings.Join(providers, ", "))
 		m.err = nil
@@ -899,6 +973,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.openConnectForm(row), nil
 		}
 		m.loading = true
+		m.busy = true
 		m.err = nil
 		m.message = fmt.Sprintf("syncing %s…", row.Provider)
 		return m, syncCmd(string(row.Provider), m.dir)
@@ -940,6 +1015,7 @@ func (m Model) updateConfirmDisconnect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	confirm := func() (tea.Model, tea.Cmd) {
+		m.busy = true
 		m.disconnecting = true
 		m.message = fmt.Sprintf("disconnecting %s…", m.confirmProvider)
 		return m, disconnectCmd(m.confirmProvider, m.dir)
@@ -1029,10 +1105,12 @@ func (m Model) updateConnectForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if forceRetry {
 			// Second consecutive submit after a probe failure, no field
 			// touched in between: the user chose to force — skip the probe.
+			m.busy = true
 			m.submitting = true
 			m.message = fmt.Sprintf("connecting %s…", m.formProvider)
 			return m, connectCmd(m.formProvider, m.dir, opts.ServerURL, opts.Name, opts.Token, opts.Auth)
 		}
+		m.busy = true
 		m.probing = true
 		return m, probeCmd(m.formProvider, opts)
 	}
@@ -1362,28 +1440,71 @@ func joinWithCounter(names []string, width int) string {
 	return fmt.Sprintf("%d KBs", len(names))
 }
 
-// truncateForWidth shortens s to width columns with an ellipsis, for values
-// that must stay on one line. Width 0 (terminal size not yet known) means no
-// truncation.
+// truncateForWidth shortens s to width terminal columns with an ellipsis, for
+// values that must stay on one line. Width 0 (terminal size not yet known)
+// means no truncation. Columns, not bytes or runes: a CJK rune takes two, and
+// cutting by bytes split a rune.
 func truncateForWidth(s string, width int) string {
-	if width <= 0 || utf8.RuneCountInString(s) <= width {
+	if width <= 0 || lipgloss.Width(s) <= width {
 		return s
 	}
 	if width == 1 {
 		return "…"
 	}
-	return string([]rune(s)[:width-1]) + "…"
+	return takeColumns(s, width-1) + "…"
 }
 
+// takeColumns returns the longest prefix of s that is at most n columns wide,
+// at least one rune so a caller consuming s always progresses.
+func takeColumns(s string, n int) string {
+	cols := 0
+	for i, r := range s {
+		w := lipgloss.Width(string(r))
+		if cols+w > n {
+			if i == 0 {
+				return string(r)
+			}
+			return s[:i]
+		}
+		cols += w
+	}
+	return s
+}
+
+// takeLastColumns is takeColumns from the end of s.
+func takeLastColumns(s string, n int) string {
+	rs := []rune(s)
+	cols, start := 0, len(rs)
+	for start > 0 {
+		w := lipgloss.Width(string(rs[start-1]))
+		if cols+w > n {
+			break
+		}
+		cols += w
+		start--
+	}
+	return string(rs[start:])
+}
+
+// compactForWidth shortens a long path or URL in the middle for a narrow
+// terminal, to about half its width but never past the width itself, and never
+// to something longer than its input.
 func compactForWidth(s string, width int) string {
-	if width <= 0 || width >= 80 || len(s) <= width/2 {
+	if width <= 0 || width >= 80 || lipgloss.Width(s) <= width/2 {
 		return s
 	}
 	limit := width / 2
 	if limit < 12 {
 		limit = 12
 	}
-	return s[:limit/2] + "…" + s[len(s)-(limit-limit/2-1):]
+	if limit > width {
+		limit = width
+	}
+	if lipgloss.Width(s) <= limit {
+		return s
+	}
+	head := limit / 2
+	return takeColumns(s, head) + "…" + takeLastColumns(s, limit-head-1)
 }
 
 func readinessLabel(ready *bool) string {
@@ -1397,14 +1518,17 @@ func readinessLabel(ready *bool) string {
 }
 
 func wrapForWidth(s string, width int) string {
-	if width <= 0 || len(s) <= width {
+	if width <= 0 || lipgloss.Width(s) <= width {
 		return s
 	}
 	var lines []string
-	for len(s) > width {
-		cut := strings.LastIndex(s[:width+1], " ")
-		if cut <= 0 {
-			cut = width
+	for lipgloss.Width(s) > width {
+		head := takeColumns(s, width)
+		cut := len(head)
+		if rest := s[cut:]; !strings.HasPrefix(rest, " ") {
+			if sp := strings.LastIndex(head, " "); sp > 0 {
+				cut = sp
+			}
 		}
 		lines = append(lines, s[:cut])
 		s = strings.TrimSpace(s[cut:])
