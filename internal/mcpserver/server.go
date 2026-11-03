@@ -83,6 +83,10 @@ type Server struct {
 	// plane of a mounted KB. Nil for a server built without RegisterKBTools:
 	// an adapter then treats the KB as absent rather than assuming one.
 	kbRef *kb.KB
+	// autoRepairCursor is the last concept the background repair's concept
+	// stage processed while more than a quota qualified; the next run resumes
+	// after it. In memory only; touched under the KB lock.
+	autoRepairCursor string
 	// kbArtifacts is what the UI API's artifact routes need beside kbRef to
 	// list the KB's artifacts as artifact_list and sync do (D238): the
 	// artifact signer. Set with kbRef.

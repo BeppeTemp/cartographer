@@ -33,9 +33,12 @@ const (
 	// autoRepairReason is the Reason trailer of every commit the heartbeat
 	// makes; repair_revert and the Atlas recognise the commits by it.
 	autoRepairReason = repairCommitReasonPrefix + " (background)"
-	// autoRepairLimit bounds the concepts one run rewrites, all checks
-	// together (D355): the fixpoint writes a concept once whatever the number
-	// of checks that touched it, so the cost is bounded by concepts. A KB
+	// autoRepairLimit bounds the concepts each STAGE of one run rewrites (D355,
+	// restated per stage by D1554): the concept-local stage, every cross-concept,
+	// map and artifact check, and the second pass over the concepts the
+	// cross-concept stage touched each take at most this many, so one run can
+	// rewrite more than this in total. Within the local stage the fixpoint
+	// writes a concept once whatever the number of checks that touched it. A KB
 	// imported with thousands of findings is worked down over a few runs
 	// instead of in one enormous commit.
 	autoRepairLimit = 500
@@ -227,6 +230,31 @@ func (s *Server) autoRepairLoop(ctx context.Context, interval, delay time.Durati
 	}
 }
 
+// rotateIDs picks at most quota of the sorted ids, starting after *cursor and
+// wrapping around. When everything fits it returns the ids unchanged and
+// resets the cursor: there is nothing to rotate.
+func rotateIDs(ids []string, quota int, cursor *string) []string {
+	if len(ids) <= quota {
+		if cursor != nil {
+			*cursor = ""
+		}
+		return ids
+	}
+	start := 0
+	if cursor != nil && *cursor != "" {
+		start = sort.SearchStrings(ids, *cursor)
+		if start < len(ids) && ids[start] == *cursor {
+			start++
+		}
+		start %= len(ids)
+	}
+	out := make([]string, 0, quota)
+	for i := 0; i < quota; i++ {
+		out = append(out, ids[(start+i)%len(ids)])
+	}
+	return out
+}
+
 // stagedRepair is what one run did, per check.
 type stagedRepair struct {
 	applied map[string]int // concepts (or files) changed, per check
@@ -266,16 +294,25 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 	for _, c := range out.Stuck {
 		r.skipped[c]++
 	}
+	if out.Hash == "" && len(out.Stuck) == 0 {
+		// Nothing written and nothing reported stuck: the concept did not
+		// move, and the log must say so rather than show a quiet run.
+		for _, c := range seeded {
+			r.skipped[c]++
+		}
+	}
 	if len(out.Renames) > 0 {
 		r.renames = append(r.renames, repairTarget{ID: id, Path: okf.IDToPath(id), Fixes: out.Renames})
 	}
 	return out.Hash != ""
 }
 
-// stagedAutoRepair is the heartbeat's work (D355), in the order a KB needs:
+// stagedAutoRepair is the heartbeat's work (D355), in the order a KB needs; the
+// quota applies to each stage separately (D1554):
 //
 //  1. every concept with a concept-local finding of an allowed check is
-//     repaired to a fixpoint, at most quota concepts, one write each;
+//     repaired to a fixpoint, at most quota concepts (rotating, so concepts
+//     that stay stuck do not take the same slots every run), one write each;
 //  2. the cross-concept checks run one by one through the per-check applier,
 //     which keeps the mutual-pair guard and sees the state stage 1 left;
 //  3. if stage 2 changed anything, stage 1 runs once more on the concepts it
@@ -283,6 +320,15 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 //
 // Artifact checks run last. The caller holds the KB lock.
 func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int) *stagedRepair {
+	return stagedAutoRepairFrom(ctx, k, checks, quota, nil)
+}
+
+// stagedAutoRepairFrom is stagedAutoRepair with the rotation cursor of stage 1:
+// the concepts it picks when more than quota qualify start after *cursor (the
+// last concept the previous run processed), wrapping around, so concepts that
+// stay stuck do not take the same slots every run. A nil cursor starts at the
+// first. The cursor is in memory only: a restart starts over.
+func stagedAutoRepairFrom(ctx context.Context, k *kb.KB, checks []string, quota int, cursor *string) *stagedRepair {
 	r := newStagedRepair()
 	var local, cross, artifact, folders []string
 	for _, c := range checks {
@@ -311,7 +357,10 @@ func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int)
 		}
 		by := map[string][]lint.Finding{}
 		for _, f := range findings {
-			if f.Fix == nil || f.Artifact || !isLocal[f.Check] {
+			// unattendedFix is the filter repairWritten and the fixpoint apply:
+			// a finding whose only fix is a removal never moves in the
+			// background, so it must not take a slot.
+			if f.Fix == nil || f.Artifact || !isLocal[f.Check] || !unattendedFix(f) {
 				continue
 			}
 			if id := uiFindingConcept(f.Path); id != "" {
@@ -365,14 +414,15 @@ func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int)
 			r.errs = append(r.errs, "lint: "+err.Error())
 			return r
 		}
-		if len(ids) > quota {
-			ids = ids[:quota]
-		}
+		ids = rotateIDs(ids, quota, cursor)
 		for _, id := range ids {
 			if ctx.Err() != nil {
 				return r
 			}
 			r.fixpoint(k, okf.ConceptID(id), local, by[id], checksOf(by[id]))
+			if cursor != nil {
+				*cursor = id
+			}
 		}
 	}
 
@@ -469,7 +519,7 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	tool := gitWrap(k, Tool{
 		Name: "kb_repair",
 		Handler: func(requestContext, json.RawMessage) (ToolResult, error) {
-			stats = stagedAutoRepair(ctx, k, checks, autoRepairLimit)
+			stats = stagedAutoRepairFrom(ctx, k, checks, autoRepairLimit, &s.autoRepairCursor)
 			res := ToolResult{Content: textResult("{}").Content}
 			if len(stats.renames) > 0 {
 				if _, err := renameInContracts(k, stats.renames); err != nil {
