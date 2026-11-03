@@ -38,7 +38,7 @@ type Conflict struct {
 	Kind string `json:"kind,omitempty"`
 
 	// Step 4 — recorded resolution (empty until the agent calls git_conflict_resolve).
-	ResolutionStrategy string `json:"resolution_strategy,omitempty"` // "ours" | "theirs" | "edit" | "union" (reserved log.md only)
+	ResolutionStrategy string `json:"resolution_strategy,omitempty"` // "ours" | "theirs" | "edit" | "union" (reserved log.md or index.md only)
 	ResolutionBody     string `json:"resolution_body,omitempty"`     // full reconciled file content, used when strategy="edit"
 }
 

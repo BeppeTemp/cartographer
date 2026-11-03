@@ -220,3 +220,36 @@ func TestGitWrap_ConflictDegradedHasNoCommitHint(t *testing.T) {
 		}
 	}
 }
+
+// An expanded concept's body is registered as that concept (degraded), not
+// skipped as a reserved file; a map's own index stays reserved.
+func TestHandleConflictError_ExpandedConceptBodyIsAConcept(t *testing.T) {
+	t.Parallel()
+	k, sha := setupGitKB(t)
+	if err := os.MkdirAll(k.Root+"/data/ops/runbook", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(k.Root+"/data/ops/runbook/index.md", []byte("---\ntype: Topic\ntitle: R\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, reserved, _ := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/ops/runbook/index.md", "data/ops/index.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	if n != 1 || len(reserved) != 1 || reserved[0] != "data/ops/index.md" {
+		t.Fatalf("n=%d reserved=%v", n, reserved)
+	}
+	cs, _ := k.ListConflicts()
+	if len(cs) != 1 || cs[0].ConceptID != "ops/runbook" || cs[0].Kind != "" {
+		t.Fatalf("registry = %+v", cs)
+	}
+}
+
+func TestReservedStrategyError_UnionIsAllowedForALogAndAnIndex(t *testing.T) {
+	t.Parallel()
+	k, sha := setupGitKB(t)
+	handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/ops/index.md", "data/_map.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	if msg := reservedStrategyError(k, "data/ops/index.md", "union"); msg != "" {
+		t.Errorf("union refused for an index: %s", msg)
+	}
+	if msg := reservedStrategyError(k, "data/_map.md", "union"); msg == "" {
+		t.Error("union accepted for _map.md")
+	}
+}
