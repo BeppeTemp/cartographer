@@ -35,6 +35,7 @@ const (
 	fieldAgentAntigravity
 	fieldAgentCrush
 	fieldAgentCopilot
+	fieldAgentPi
 	fieldTokenEnv
 	fieldAuth
 	fieldSubmit
@@ -46,7 +47,7 @@ const (
 // The order is the order of the fieldAgent* constants: providerForField indexes
 // this slice by the field's offset, so a field without an entry here toggles
 // nothing (crush was missing until D676).
-var formProviders = []string{"claude", "opencode", "codex", "kiro", "antigravity", "crush", "copilot"}
+var formProviders = []string{"claude", "opencode", "codex", "kiro", "antigravity", "crush", "copilot", "pi"}
 
 func providerForField(f connectField) (string, bool) {
 	idx := int(f - fieldAgentClaude)
@@ -161,7 +162,7 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 func (m connectFormModel) focusOrder() []connectField {
 	fields := []connectField{fieldServerURL}
 	if m.selectAgents {
-		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot)
+		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi)
 	}
 	return append(fields, fieldTokenEnv, fieldAuth, fieldSubmit)
 }
@@ -221,7 +222,7 @@ func (m connectFormModel) Values() connectOptions {
 	if name == "" {
 		name = "cartographer"
 	}
-	tokenEnv := m.tokenEnv.Value()
+	tokenEnv := strings.TrimSpace(m.tokenEnv.Value()) // trimmed once: the submit check validates the same text
 	if tokenEnv == "" {
 		tokenEnv = "CARTOGRAPHER_TOKENS"
 	}
@@ -269,7 +270,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case " ":
 		switch m.focus {
-		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot:
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi:
 			if !m.selectAgents {
 				break
 			}
@@ -285,7 +286,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		switch m.focus {
-		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot:
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi:
 			if !m.selectAgents {
 				break
 			}
@@ -300,6 +301,13 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case fieldSubmit:
 			if m.submitted {
 				return m, nil
+			}
+			if v := strings.TrimSpace(m.tokenEnv.Value()); v != "" {
+				if err := validateTokenEnvName(v); err != nil {
+					m.errMsg = "Token env var: " + err.Error()
+					m.setFormFocus(fieldTokenEnv)
+					return m, nil
+				}
 			}
 			m.submitted = true
 			// A retry is starting: drop the stale inline error. An embedding
@@ -378,6 +386,7 @@ func (m connectFormModel) View() string {
 			formProviderLine("antigravity", m.providers["antigravity"], m.focus == fieldAgentAntigravity),
 			formProviderLine("crush", m.providers["crush"], m.focus == fieldAgentCrush),
 			formProviderLine("copilot", m.providers["copilot"], m.focus == fieldAgentCopilot),
+			formProviderLine("pi", m.providers["pi"], m.focus == fieldAgentPi),
 		)
 	}
 	fields = append(fields, tokenEnvLine, formFieldLine("Auth", auth, m.focus == fieldAuth))
@@ -433,7 +442,7 @@ func fieldHint(f connectField, authEnabled bool) string {
 	switch f {
 	case fieldServerURL:
 		return "MCP endpoint of the server, e.g. https://host/mcp"
-	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot:
+	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi:
 		return "space or enter toggles this agent; select one or more agents to connect"
 	case fieldTokenEnv:
 		if !authEnabled {

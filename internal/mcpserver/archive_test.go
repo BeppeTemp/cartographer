@@ -250,3 +250,65 @@ func TestConceptMove_KeepsALegacyStem(t *testing.T) {
 		t.Error("a move to a new non-slug name was accepted")
 	}
 }
+
+// A linker whose frontmatter does not parse used to abort concept_move after
+// the files had moved, leaving a half-done tree. It is refused up front.
+func TestConceptMove_RefusesAnUnparsableLinkerBeforeMovingAnything(t *testing.T) {
+	t.Parallel()
+	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
+	bad := "---\ntype: Note\ntitle: Bad\ntags: [a, b\n---\nSee [mover](mover.md).\n"
+	badPath := filepath.Join(k.DataRoot(), "src/bad.md")
+	if err := os.WriteFile(badPath, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, s, "concept_move", `{"source_id":"src/mover","target_id":"archive/mover"}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "src/bad") || !strings.Contains(res.Content[0].Text, "nothing moved") {
+		t.Fatalf("got %+v, want a refusal naming src/bad", res.Content)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "src/mover.md")); err != nil {
+		t.Errorf("the source moved anyway: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "archive/mover.md")); err == nil {
+		t.Error("the target was written")
+	}
+	if got, _ := os.ReadFile(badPath); string(got) != bad {
+		t.Errorf("the linker was touched:\n%s", got)
+	}
+	// A linker whose frontmatter is broken but which has no link to rewrite
+	// (it only names the id in prose) never blocked a move and still does not.
+	prose := "---\ntype: Note\ntitle: Prose\ntags: [a, b\n---\nMentions src/mover in prose only.\n"
+	prosePath := filepath.Join(k.DataRoot(), "src/prose.md")
+	if err := os.WriteFile(prosePath, []byte(prose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(badPath); err != nil {
+		t.Fatal(err)
+	}
+	if res := callTool(t, s, "concept_move", `{"source_id":"src/mover","target_id":"archive/mover"}`); res.IsError {
+		t.Errorf("a linker with nothing to rewrite blocked the move: %+v", res.Content)
+	}
+	if got, _ := os.ReadFile(prosePath); string(got) != prose {
+		t.Errorf("the prose-only page was touched:\n%s", got)
+	}
+}
+
+// rewrite_links=false never reads the linkers, so a broken one does not block.
+func TestConceptMove_RewriteLinksFalseIgnoresAnUnparsableLinker(t *testing.T) {
+	t.Parallel()
+	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
+	bad := "---\ntype: Note\ntitle: Bad\ntags: [a, b\n---\nSee [mover](mover.md).\n"
+	badPath := filepath.Join(k.DataRoot(), "src/bad.md")
+	if err := os.WriteFile(badPath, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, s, "concept_move", `{"source_id":"src/mover","target_id":"archive/mover","rewrite_links":false}`)
+	if strings.Contains(res.Content[0].Text, "nothing moved: these pages") {
+		t.Fatalf("blocked by a linker: %+v", res.Content)
+	}
+	if got, _ := os.ReadFile(badPath); string(got) != bad {
+		t.Errorf("the linker was touched:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "archive/mover.md")); err != nil && !res.IsError {
+		t.Errorf("a successful move left no target: %v", err)
+	}
+}

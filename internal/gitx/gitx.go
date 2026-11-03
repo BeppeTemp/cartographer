@@ -62,16 +62,28 @@ func netEnv(dir string, extra []string) []string {
 	return append(env, "GIT_SSH_COMMAND="+sshBatchCommand)
 }
 
+// netCommand builds every git command that talks to a remote. It is the one
+// constructor on purpose: a deadline kills only `git` unless the process group
+// goes with it (killGroupOnCancel), and without WaitDelay a surviving
+// git-remote-http or ssh keeps the output pipe open so Wait blocks until the
+// remote closes the connection. Hand-building these per function let Clone,
+// lsRemoteProbe and ProbeRemoteContent forget both. args are the full git
+// arguments (including any -C); env is the complete environment.
+func netCommand(ctx context.Context, env []string, args ...string) *exec.Cmd {
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", args...))
+	cmd.Env = env
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = time.Second
+	return cmd
+}
+
 // runGitNet runs a git command that talks to the remote, bounded by timeout
 // with a process-group kill (the way Fetch is), under netEnv. A deadline hit
 // comes back as a RemoteTimeoutError.
 func runGitNet(dir, remote string, timeout time.Duration, env []string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...))
-	cmd.Env = netEnv(dir, env)
-	killGroupOnCancel(cmd)
-	cmd.WaitDelay = time.Second
+	cmd := netCommand(ctx, netEnv(dir, env), append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return string(out), &RemoteTimeoutError{Remote: remote, After: timeout}
@@ -84,6 +96,21 @@ func IsRepo(dir string) bool {
 	cmd := procattr.Hide(exec.Command("git", "-C", dir, "rev-parse", "--git-dir"))
 	cmd.Env = gitEnv(nil)
 	return cmd.Run() == nil
+}
+
+// CheckRepo tells "this is not a repository" apart from "git refused to look":
+// IsRepo folds both into false, so a repository git declines to open (a changed
+// owner, "dubious ownership") reads as one that has nothing to commit. ok is
+// false with a nil error only when git says there is no repository.
+func CheckRepo(dir string) (ok bool, err error) {
+	out, runErr := runGit(dir, "rev-parse", "--git-dir")
+	if runErr == nil {
+		return true, nil
+	}
+	if strings.Contains(out, "not a git repository") {
+		return false, nil
+	}
+	return false, fmt.Errorf("git rev-parse --git-dir: %w: %s", runErr, strings.TrimSpace(out))
 }
 
 // ErrCloneTimeout reports that a clone was stopped by its context deadline
@@ -110,8 +137,7 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 	if err := ValidateRemote(remote); err != nil {
 		return err
 	}
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "clone", "--progress", "--", remote, dest))
-	cmd.Env = cloneEnv(remote, env)
+	cmd := netCommand(ctx, cloneEnv(remote, env), "clone", "--progress", "--", remote, dest)
 	var stderr strings.Builder
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 	out, err := cmd.Output()
@@ -250,8 +276,7 @@ func lsRemoteProbe(ctx context.Context, remote string) (RemoteRefs, error) {
 	if err := ValidateRemote(remote); err != nil {
 		return RemoteRefs{}, err
 	}
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", remote))
-	cmd.Env = cloneEnv(remote, nil)
+	cmd := netCommand(ctx, cloneEnv(remote, nil), "ls-remote", "--symref", "--", remote)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -300,8 +325,7 @@ func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error)
 	if out, err := runGit(tmp, "init", "--quiet"); err != nil {
 		return probe, fmt.Errorf("git init: %w: %s", err, out)
 	}
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0]))
-	cmd.Env = cloneEnv(remote, nil)
+	cmd := netCommand(ctx, cloneEnv(remote, nil), "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0])
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
 			return probe, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, remote, ctx.Err())
@@ -565,10 +589,7 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "ls-remote", "--symref", remote))
-	cmd.Env = netEnv(dir, env)
-	killGroupOnCancel(cmd)
-	cmd.WaitDelay = time.Second
+	cmd := netCommand(ctx, netEnv(dir, env), "-C", dir, "ls-remote", "--symref", remote)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -618,17 +639,24 @@ func parseLsRemoteSymref(out string) RemoteRefs {
 // dir) that the repository's ignore rules exclude, as git prints them
 // (relative to dir). Empty when there are none.
 func IgnoredFiles(dir, path string) ([]string, error) {
-	out, err := runGit(dir, "ls-files", "--others", "--ignored", "--exclude-standard", "--", path)
+	// -z: a name with a non-ASCII byte, a tab or a newline comes back intact
+	// instead of quoted ("citt\303\240.png").
+	out, errOut, err := runGitStdin(dir, "", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("git ls-files --ignored: %w: %s", err, errOut)
 	}
-	var files []string
-	for _, l := range strings.Split(out, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			files = append(files, l)
+	return splitNUL(out), nil
+}
+
+// splitNUL splits NUL-terminated git output, dropping empty fields.
+func splitNUL(out string) []string {
+	var items []string
+	for _, f := range strings.Split(out, "\x00") {
+		if f != "" {
+			items = append(items, f)
 		}
 	}
-	return files, nil
+	return items
 }
 
 // IgnoredPaths returns those of paths (relative to dir, which need not exist
@@ -728,6 +756,9 @@ func (e *RebaseConflictError) Is(target error) bool {
 }
 
 // PullRebaseAutostash runs "git pull --rebase --autostash <remote> <branch>".
+// It talks to the network without FetchTimeout or a process-group kill, so the
+// KB sync path does not use it: after Fetch it rebases locally with
+// RebaseOntoAutostash (one round-trip, bounded).
 // If the operation encounters a rebase conflict, it collects the list of unmerged
 // files and the relevant SHAs, runs "git rebase --abort" (best-effort), and returns
 // a *RebaseConflictError. errors.Is(err, ErrRebaseConflict) remains true for it.
@@ -751,14 +782,7 @@ func PullRebaseAutostash(dir, remote, branch string, env ...string) error {
 		strings.Contains(out, "error: could not") {
 
 		// Collect unmerged files before aborting.
-		var conflictFiles []string
-		if filesOut, ferr := runGit(dir, "diff", "--name-only", "--diff-filter=U"); ferr == nil {
-			for _, f := range strings.Split(strings.TrimSpace(filesOut), "\n") {
-				if f = strings.TrimSpace(f); f != "" {
-					conflictFiles = append(conflictFiles, f)
-				}
-			}
-		}
+		conflictFiles, _ := UnmergedFiles(dir)
 
 		// Capture remote SHA.
 		var remoteSHA string
@@ -809,10 +833,7 @@ func Fetch(dir, remote string, env ...string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "fetch", remote))
-	cmd.Env = netEnv(dir, env)
-	killGroupOnCancel(cmd)
-	cmd.WaitDelay = time.Second
+	cmd := netCommand(ctx, netEnv(dir, env), "-C", dir, "fetch", remote)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("git fetch %s: %w", remote, &RemoteTimeoutError{Remote: remote, After: FetchTimeout})
@@ -1211,6 +1232,24 @@ func ShowFile(dir, ref, path string) (string, error) {
 	return out, nil
 }
 
+// ShowFileIfExists is ShowFile that tells a path absent from ref (exists=false,
+// nil error) from every other failure (a bad ref, a damaged repository), which
+// is returned: an error must never be read as absence.
+func ShowFileIfExists(dir, ref, path string) (text string, exists bool, err error) {
+	out, err := runGit(dir, "ls-tree", "--name-only", "-z", ref, "--", path)
+	if err != nil {
+		return "", false, fmt.Errorf("git ls-tree %s -- %s: %w: %s", ref, path, err, out)
+	}
+	if out == "" {
+		return "", false, nil
+	}
+	text, err = ShowFile(dir, ref, path)
+	if err != nil {
+		return "", false, err
+	}
+	return text, true, nil
+}
+
 // MergeNoCommitNoFF runs "git merge --no-commit --no-ff <ref>" and reports whether the
 // merge produced conflicts. A clean merge (conflicted=false) is left staged but
 // uncommitted; a conflicting merge (conflicted=true) leaves the conflicting files
@@ -1249,17 +1288,11 @@ func MergeAbort(dir string) error {
 // UnmergedFiles returns the git-relative paths of files with unresolved conflicts
 // (git diff --name-only --diff-filter=U).
 func UnmergedFiles(dir string) ([]string, error) {
-	out, err := runGit(dir, "diff", "--name-only", "--diff-filter=U")
+	out, errOut, err := runGitStdin(dir, "", "diff", "--name-only", "--diff-filter=U", "-z")
 	if err != nil {
-		return nil, fmt.Errorf("git diff --diff-filter=U: %w: %s", err, out)
+		return nil, fmt.Errorf("git diff --diff-filter=U: %w: %s", err, errOut)
 	}
-	var files []string
-	for _, f := range strings.Split(strings.TrimSpace(out), "\n") {
-		if f = strings.TrimSpace(f); f != "" {
-			files = append(files, f)
-		}
-	}
-	return files, nil
+	return splitNUL(out), nil
 }
 
 // ListFiles returns the files git tracks in dir, plus the untracked ones it
@@ -1380,9 +1413,12 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 	// Reason must stay the LAST field (after Moved-To/Moved-From/Cartographer-Token): the name-status block is split off at the
 	// first newline after it.
 	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
-	out, err := runGitEnv(dir, nil, "log", "--since="+since.Format(time.RFC3339), "--name-status", "-M", "--pretty=format:"+format)
+	// -z: the name-status block is NUL-separated ("S\0path\0", a rename
+	// "R100\0old\0new\0", a "\0" after the commit), so a path is never quoted
+	// and may hold a tab or a newline.
+	out, errOut, err := runGitStdin(dir, "", "log", "-z", "--since="+since.Format(time.RFC3339), "--name-status", "-M", "--pretty=format:"+format)
 	if err != nil {
-		return nil, fmt.Errorf("git log --name-status: %w: %s", err, out)
+		return nil, fmt.Errorf("git log --name-status: %w: %s", err, errOut)
 	}
 
 	commits := []CommitChanges{}
@@ -1400,7 +1436,9 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 		}
 		// The trailers value ends with a newline that precedes the name-status
 		// block, so the block is whatever follows the first newline.
-		reasonAndFiles := strings.SplitN(head[9], "\n", 2)
+		// With -z a commit with no changed file (a merge, --allow-empty) ends
+		// with a lone NUL right after the trailers: not part of the reason.
+		reasonAndFiles := strings.SplitN(strings.TrimRight(head[9], "\x00"), "\n", 2)
 		accepted := splitTrailerValues(head[4])
 		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
 		agent, _, _ := strings.Cut(head[5], "\x1f")
@@ -1409,25 +1447,43 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 		token := lastTrailerValue(head[8])
 		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: head[3], Agent: strings.TrimSpace(agent), MovedTo: strings.TrimSpace(movedTo), MovedFrom: strings.TrimSpace(movedFrom), Token: token, Reason: strings.TrimSpace(reason), AcceptedFindings: accepted}
 		if len(reasonAndFiles) == 2 {
-			for _, line := range strings.Split(reasonAndFiles[1], "\n") {
-				if line == "" {
-					continue
-				}
-				parts := strings.Split(line, "\t")
-				if len(parts) < 2 {
-					continue
-				}
-				status := string(parts[0][0])
-				change := FileChange{Status: status, Path: parts[len(parts)-1]}
-				if status == "R" && len(parts) >= 3 {
-					change.OldPath = parts[len(parts)-2]
-				}
-				commit.Files = append(commit.Files, change)
-			}
+			commit.Files = parseNameStatusZ(reasonAndFiles[1])
 		}
 		commits = append(commits, commit)
 	}
 	return commits, nil
+}
+
+// parseNameStatusZ parses the "git log -z --name-status" block of one commit:
+// status, path (and, for a rename or copy, the destination), each NUL-ended.
+func parseNameStatusZ(block string) []FileChange {
+	var files []FileChange
+	f := strings.Split(block, "\x00")
+	for i := 0; i < len(f); {
+		status := f[i]
+		if status == "" {
+			break
+		}
+		switch status[0] {
+		case 'R', 'C':
+			if i+2 >= len(f) {
+				return files
+			}
+			c := FileChange{Status: string(status[0]), Path: f[i+2]}
+			if status[0] == 'R' {
+				c.OldPath = f[i+1]
+			}
+			files = append(files, c)
+			i += 3
+		default:
+			if i+1 >= len(f) {
+				return files
+			}
+			files = append(files, FileChange{Status: string(status[0]), Path: f[i+1]})
+			i += 2
+		}
+	}
+	return files
 }
 
 // FileRevision is one commit that touched a single file, as reported by

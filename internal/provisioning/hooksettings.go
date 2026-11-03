@@ -649,11 +649,14 @@ func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
 	path := codexConfigTOMLPath(baseDir)
 	// Each step refuses (D148) only when it has something to write or remove, so
 	// a config.toml with no registration of ours is a no-op under a link too.
+	begin, end := codexHookMarkers(hookName)
+	if err := blocktext.CheckFile(path, begin, end); err != nil {
+		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
+	}
 	adopted, err := configurator.AdoptCodexOrphanTablesUnder(baseDir, path, codexHookTableOwner(hookName, command))
 	if err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
 	}
-	begin, end := codexHookMarkers(hookName)
 	if _, err := configurator.EvictTablesFromBlockUnder(baseDir, path, begin, end, func(key []string) bool {
 		return len(key) >= 2 && key[0] == "hooks" && key[1] != "state"
 	}); err != nil {

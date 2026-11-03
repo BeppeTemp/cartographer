@@ -84,6 +84,10 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Casks
+    # Generated into dist/homebrew only: release.yml's `cask` job pushes the file
+    # to the tap after `publish` (D1350, amended by the cask order decision), so
+    # the tap never names a version whose release is still a draft (404).
+    skip_upload: true
     homepage: https://github.com/BeppeTemp/cartographer
     description: "MCP governance server for the Agentic Wiki — persistent, git-backed knowledge bases for LLM agents"
     # The macOS quarantine removal runs as a declarative `postflight_steps`

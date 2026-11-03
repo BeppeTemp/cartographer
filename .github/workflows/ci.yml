@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Ready for a merge queue (D1592), which is not available on a user-owned
+  # repository: inert today, the heavy legs run on push to main.
+  merge_group:
   # The real-forge job (`forge`) on demand, from the Actions tab or
   # `gh workflow run ci.yml --ref <branch>`; every other job runs too (D996).
   workflow_dispatch:
@@ -14,20 +17,26 @@ permissions:
 # A new push to a PR supersedes the run in flight. Runs on main are never
 # cancelled: each merge gets its own record, so on push the group is the commit.
 # A group keeps at most one pending run, and a shared `main` group dropped the
-# middle one of three quick merges.
+# middle one of three quick merges. A merge_group run is keyed by its own commit
+# too and is never cancelled: GitHub supersedes a stale group itself, and
+# cancelling one here would eject the PRs queued in it.
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # On main every job runs, and a red main opens (or updates) a `ci-red` issue.
-# On a feature PR `test-windows` runs only when the PR touches a package with
-# platform-specific code (D672): it is the slowest leg even split across
-# runners (D785), but leaving it off every PR let a Windows-only break sit on main for
-# two days. The release PR runs everything, so no release ships without it.
+# A PR runs the light checks only: `test`, `web` (when the frontend changed) and
+# the two PR-title workflows. The heavy legs (Windows, macOS, docker, demo-edge)
+# run on push to main, on workflow_dispatch and on `merge_group` (D1592): the
+# account runs about five jobs at a time and twenty per PR was the bottleneck.
+# A Windows- or macOS-only break is caught on main and tracked by `ci-red`.
 jobs:
-  # Which of the slower jobs this PR needs. A path filter at the workflow level
-  # would leave a required check that never reports, blocking the PR; a job
-  # skipped by `if:` reports as passed.
+  # Which of the slower jobs this PR needs: `web` and `forge` only, the other
+  # outputs stay in the table pinned by a test but no PR job reads them (the
+  # heavy legs do not run on a PR, D1592). On merge_group and push this job is
+  # skipped, and `result != success` means "run everything". A path filter at
+  # the workflow level would leave a required check that never reports,
+  # blocking the PR; a job skipped by `if:` reports as passed.
   changes:
     name: changes
     if: github.event_name == 'pull_request'
@@ -99,14 +108,11 @@ jobs:
   # vets with GOOS=windows. Minutes on standard runners are free for a public
   # repository, so the split costs nothing.
   #
-  # Push to main, the release PR, and a feature PR that touches
-  # platform-specific code (D672). On push `changes` is skipped, hence
-  # `result != success`; a failed `changes` runs it too rather than letting a PR
-  # through untested.
+  # Push to main, a manual run and merge_group, never on a PR (D1592): a
+  # Windows-only break is caught on main and tracked by `ci-red`.
   test-windows-shard:
     name: test-windows (${{ matrix.shard }}/4)
-    needs: changes
-    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.windows == 'true')"
+    if: "!cancelled() && github.event_name != 'pull_request'"
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -147,8 +153,7 @@ jobs:
   # on ubuntu.
   test-windows-install:
     name: test-windows (install.ps1)
-    needs: changes
-    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.windows == 'true')"
+    if: "!cancelled() && github.event_name != 'pull_request'"
     runs-on: windows-latest
     steps:
       - name: Disable Defender real-time scanning
@@ -173,7 +178,8 @@ jobs:
   # The required check. main's branch protection requires checks named
   # literally `test-windows` and `web`, and a matrix renames its legs, which
   # would silently un-protect the branch: one job per required name collects
-  # its legs. Skipped legs (a PR outside platform-specific code) pass it.
+  # its legs. Legs skipped by design (every PR, D1592) pass it; in the merge
+  # queue a skipped leg is a defect and fails it.
   test-windows:
     name: test-windows
     needs: [test-windows-shard, test-windows-install]
@@ -182,9 +188,13 @@ jobs:
     steps:
       - env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          EVENT: ${{ github.event_name }}
         run: |
           echo "legs: $RESULTS"
           case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1 ;; esac
+          if [ "$EVENT" = merge_group ]; then
+            case " $RESULTS " in *" skipped "*) exit 1 ;; esac
+          fi
 
   # The frontend, deliberately its own job rather than a step of `test`.
   #
@@ -260,17 +270,19 @@ jobs:
     steps:
       - env:
           RESULT: ${{ needs.web-leg.result }}
+          EVENT: ${{ github.event_name }}
         run: |
           echo "legs: $RESULT"
           case "$RESULT" in failure|cancelled) exit 1 ;; esac
+          # Skipped by `changes` on a PR is by design; on merge_group every leg runs.
+          if [ "$EVENT" = merge_group ] && [ "$RESULT" = skipped ]; then exit 1; fi
 
   # The demo Worker (Node only) and the demo's Terraform: a Worker change used
   # to ride the web video leg and a deploy/demo-only PR skipped it. Not a
   # required check, but main-status watches it.
   demo-edge:
     name: demo-edge
-    needs: changes
-    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.demo == 'true')"
+    if: "!cancelled() && github.event_name != 'pull_request'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -280,20 +292,17 @@ jobs:
         with:
           node-version-file: web/.nvmrc
       - run: make demo-worker-test
-      - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.9.8
-      - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
-        run: make demo-tf-check
+      - run: make demo-tf-check
 
   # The container's own test stage and a start of the image (D995): nothing else
   # builds the Dockerfile before release day. Not a required check, main-status
   # watches it (the required set is the ruleset's, a maintainer's to change).
   docker:
     name: docker
-    needs: changes
-    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docker == 'true')"
+    if: "!cancelled() && github.event_name != 'pull_request'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -377,13 +386,11 @@ jobs:
   # The macOS leg (D997): the launchd agent, install.sh against a real service
   # and the Cask GoReleaser renders, each on a real runner. It registers a real
   # job under the runner's own HOME (internal/service/homeguard.go refuses a
-  # sandbox HOME). Push to main, the release PR, a PR touching its inputs, and a
-  # manual run, through the same fail-open `changes` as the Windows legs. Not a
+  # sandbox HOME). Push to main, a manual run and merge_group (D1592). Not a
   # required check; main-status watches it.
   test-macos:
     name: test-macos
-    needs: changes
-    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.macos == 'true')"
+    if: "!cancelled() && github.event_name != 'pull_request'"
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
