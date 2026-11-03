@@ -221,7 +221,7 @@ func (m connectFormModel) Values() connectOptions {
 	if name == "" {
 		name = "cartographer"
 	}
-	tokenEnv := m.tokenEnv.Value()
+	tokenEnv := strings.TrimSpace(m.tokenEnv.Value()) // trimmed once: the submit check validates the same text
 	if tokenEnv == "" {
 		tokenEnv = "CARTOGRAPHER_TOKENS"
 	}
@@ -300,6 +300,13 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case fieldSubmit:
 			if m.submitted {
 				return m, nil
+			}
+			if v := strings.TrimSpace(m.tokenEnv.Value()); v != "" {
+				if err := validateTokenEnvName(v); err != nil {
+					m.errMsg = "Token env var: " + err.Error()
+					m.setFormFocus(fieldTokenEnv)
+					return m, nil
+				}
 			}
 			m.submitted = true
 			// A retry is starting: drop the stale inline error. An embedding
