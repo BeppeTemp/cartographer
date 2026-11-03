@@ -235,11 +235,12 @@ jobs:
           node-version-file: web/.nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - if: matrix.leg == 'video'
-        run: make web-check
-      - if: matrix.leg == 'video'
-        run: make web-test
+      # One install for the whole leg; the make targets skip theirs (NPM_CI=).
       - run: cd web && npm ci --silent
+      - if: matrix.leg == 'video'
+        run: make web-check NPM_CI=
+      - if: matrix.leg == 'video'
+        run: make web-test NPM_CI=
       # The browser suite (D228) drives bin/cartographer, which commits to the
       # fixture KBs it initialises, so git needs an identity here too.
       - name: Configure git for tests
@@ -260,7 +261,7 @@ jobs:
         run: cd web && npx playwright install --with-deps chromium
       - if: steps.pw-cache.outputs.cache-hit == 'true'
         run: cd web && npx playwright install-deps chromium
-      - run: make e2e-web E2E_WEB_ARGS="${{ matrix.grep }}"
+      - run: make e2e-web NPM_CI= E2E_WEB_ARGS="${{ matrix.grep }}"
 
   web:
     name: web

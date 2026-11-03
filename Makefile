@@ -65,12 +65,17 @@ smoke: build demo-kb ## Build + quick stdio test
 		./bin/cartographer serve --kb ./demo-kb 2>/dev/null | \
 		grep -q '"protocolVersion"' && echo "smoke: OK" || (echo "smoke: FAIL" && exit 1)
 
+# Every Node target reinstalls web/node_modules from the lockfile (`npm ci` wipes
+# it first). A CI leg that runs several targets installs once, explicitly, and
+# passes `NPM_CI=` (empty) to the targets so none repeats it.
+NPM_CI ?= npm ci --silent &&
+
 web: ## Build the embedded Atlas UI bundle into internal/webui/dist (needs Node, see web/.nvmrc)
-	@cd web && npm ci --silent && npm run build
+	@cd web && $(NPM_CI) npm run build
 	@go run ./internal/webui/gen ./web ./internal/webui/dist
 
 web-test: ## Run the frontend unit/component tests (needs Node)
-	@cd web && npm ci --silent && npm test
+	@cd web && $(NPM_CI) npm test
 
 # A clean locked build from the committed lockfile, plus one check on the
 # provenance manifest. It deliberately does NOT diff the rest of the bundle:
@@ -92,7 +97,7 @@ web-check: web ## Clean locked frontend build + provenance and size-budget check
 # Go-only (D227). The harness builds the binary itself and tests it serving
 # its embedded bundle, never Vite's dev server (D228).
 e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + `npx playwright install chromium`; E2E_WEB_ARGS passes Playwright flags)
-	@cd web && npm ci --silent
+	@cd web && $(NPM_CI) true
 	@web/e2e/run.sh $(E2E_WEB_ARGS)
 
 # Records the README animation (D330) into ./hero.webp, a gitignored preview:
@@ -100,7 +105,7 @@ e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + 
 # recorded by the `hero` workflow on each release that changes web/ and lives on
 # the readme-assets branch; hero.spec.ts itself runs in e2e-web.
 hero: ## Record the README's Atlas animation to ./hero.webp (needs Node, Chromium, ffmpeg, img2webp; no GPU)
-	@cd web && npm ci --silent
+	@cd web && $(NPM_CI) true
 	@web/scripts/record-hero.sh
 
 docker: ## Build the Docker image
@@ -110,7 +115,7 @@ docker-smoke: docker ## Build the image, then check its tools, user and a served
 	test/smoke/image.sh cartographer
 
 DEMO_IMAGE ?= cartographer-demo
-# Override with BASE=cartographer (after `make docker`) to test the working tree.
+# Override with DEMO_BASE=cartographer (after `make docker`) to test the working tree.
 DEMO_BASE ?= ghcr.io/beppetemp/cartographer:latest
 
 demo-image: ## Build the live-demo image (D751) on the released server image

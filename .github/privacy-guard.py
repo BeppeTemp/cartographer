@@ -8,9 +8,30 @@ lowercase word or of two adjacent words joined by a space. Usage:
   privacy-guard --add              read terms on stdin, print their digests
 Digests: $PRIVACY_GUARD_DIGESTS or ~/.config/privacy-guard/digests.
 """
-import hashlib, hmac, os, re, sys
+import hashlib, hmac, os, re, sys, unicodedata
 
-WORD = re.compile(r"[a-z0-9]+")
+def words(text):
+    """Return [(start, end, word)] of the lowercase ASCII words of text.
+
+    Folded one character at a time (NFKC, then lower), so the offsets stay those
+    of the ORIGINAL text: text.lower() can lengthen a character (U+0130) and shift
+    every later span, while a regex on the original misses a character that only
+    folds to a letter (U+212A, the Kelvin sign, is a k). Only the ASCII letters and
+    digits of a fold count; any other character separates words.
+    """
+    out, start, buf = [], None, []
+    for i, ch in enumerate(text):
+        f = "".join(c for c in unicodedata.normalize("NFKC", ch).lower() if c in "abcdefghijklmnopqrstuvwxyz0123456789")
+        if f:
+            if start is None:
+                start = i
+            buf.append(f)
+        elif start is not None:
+            out.append((start, i, "".join(buf)))
+            start, buf = None, []
+    if start is not None:
+        out.append((start, len(text), "".join(buf)))
+    return out
 
 def key():
     # The env var is the standard; ~/.zshrc.local (generated from chezmoi's
@@ -41,20 +62,19 @@ def load():
 
 def spans(text, k, ds):
     """Yield (start, end) of every matching word or word pair."""
-    low = text.lower()
-    words = [(m.start(), m.end(), m.group()) for m in WORD.finditer(low)]
-    for i, (s, e, w) in enumerate(words):
+    ws = words(text)
+    for i, (s, e, w) in enumerate(ws):
         if digest(k, w) in ds:
             yield s, e
-        if i + 1 < len(words) and words[i + 1][0] - e <= 1:
-            if digest(k, w + " " + words[i + 1][2]) in ds:
-                yield s, words[i + 1][1]
+        if i + 1 < len(ws) and ws[i + 1][0] - e <= 1:
+            if digest(k, w + " " + ws[i + 1][2]) in ds:
+                yield s, ws[i + 1][1]
 
 def main(argv):
     k = key()
     if argv[:1] == ["--add"]:
         for t in sys.stdin.read().split("\n"):
-            t = " ".join(WORD.findall(t.lower()))
+            t = " ".join(w for _, _, w in words(t))
             if t:
                 print(digest(k, t))
         return 0
