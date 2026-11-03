@@ -16,7 +16,11 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
-var day = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+// day is today, not a fixed date: lint judges staleness against the real
+// clock, so a fixed generation day turns open pages stale once enough days
+// pass and the profiled KBs stop opening clean. Computed once, so two
+// generations in one run still share it.
+var day = time.Now().UTC().Truncate(24 * time.Hour)
 
 // A generated KB opens, has a history, and plants the findings the Health
 // view is judged on: if a lint change stops one of them firing, the test KBs
