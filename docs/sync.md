@@ -348,13 +348,13 @@ Verification scope per kind, decided by what is verifiable:
 
 | Kind | Check |
 |---|---|
-| `skill`, `hook` | the artifact's own directory is re-hashed with the same helper that produced `materialized_hash` — an extra file left inside counts as modified, and a lost executable bit is part of the hash **where the filesystem has one** (see §Executable flag) |
+| `skill`, `hook` | the files the lockfile owns in the artifact's directory are re-hashed with the same helper that produced `materialized_hash` (content and mode). A file the lock does not own (a Finder `.DS_Store`, a `__pycache__` the skill's script creates) is a distinct finding, `foreign`: information for `doctor`, not healable, not drift for `status` ([D1555](decisions/D1555-verification-covers-the-files-the-lock-owns.md), replacing the D139 rule that an extra file counted as modified). A lost executable bit is part of the hash **where the filesystem has one** (see §Executable flag) |
 | `agent` | the single materialized file's bytes |
 | `mcp`, `instructions` | **presence only** of the managed key or marker block: the file is shared with the user, so its other content is never compared and never rewritten; a marker block that is not exactly one begin and one end is an `error` finding, not `unregistered` (a heal would append a second block) |
 | `hook` on claude | also: every `settings.json` command registered for it can run — not a backslash path on Windows, not an absolute path to a file that is not there. One that cannot is `unrunnable`, with the command and the reason in the finding's detail, and the next `sync` re-registers it (D267) |
 | `hook` on codex | also: no registration of it left in `.codex/config.toml` — one there is `unregistered`, so the next `sync` rewrites the hook and migrates the registration to `hooks.json` even when its content did not change (D236) |
 
-Findings are `missing`, `modified`, `unregistered`, `unrunnable`, or `unknown`. **Existence and content are
+Findings are `missing`, `modified`, `unregistered`, `unrunnable`, `unknown`, or `foreign`. **Existence and content are
 verified separately** ([D146](decisions/D146-existence-and-content-are-verified-with-different.md)), because they need different
 evidence: whether a path is still on disk needs no hash, whether its bytes changed does. So the
 destination is stat'd first, and `unknown` — the lockfile records no `materialized_hash`, having

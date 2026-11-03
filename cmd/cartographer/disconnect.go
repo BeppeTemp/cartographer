@@ -428,7 +428,7 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDi
 			// is gone, is safe to prune. Modified, unreadable and unknown
 			// (no recorded hash, pre-D138) content stays.
 			switch f.Reason {
-			case provisioning.DriftMissing, provisioning.DriftUnregistered, provisioning.DriftUnrunnable:
+			case provisioning.DriftMissing, provisioning.DriftUnregistered, provisioning.DriftUnrunnable, provisioning.DriftForeign:
 			default:
 				modified[f.Kind+"\x00"+f.Name] = filepath.ToSlash(f.Path)
 				why[f.Kind+"\x00"+f.Name] = f.Reason

@@ -183,7 +183,7 @@ func TestRecomputedHashMatchesTheWriterOnEitherPlatform(t *testing.T) {
 				mf := ManagedFile{Kind: c.kind, Name: "fixture", MaterializedHash: writerHash, ExecutablePaths: execPaths}
 
 				withExecBitSupport(t, supported)
-				onDisk, err := contentHashDirManaged(mf, dir)
+				onDisk, err := contentHashDirManaged(mf, dir, nil)
 				if err != nil {
 					t.Fatalf("contentHashDirManaged: %v", err)
 				}
@@ -222,13 +222,13 @@ func TestWithoutExecutablePathsASkillHelperDrifts(t *testing.T) {
 
 	withExecBitSupport(t, false)
 	blind := ManagedFile{Kind: "skill", Name: "fixture"}
-	if got, err := contentHashDirManaged(blind, dir); err != nil {
+	if got, err := contentHashDirManaged(blind, dir, nil); err != nil {
 		t.Fatal(err)
 	} else if got == writerHash {
 		t.Skip("the executable flag happens not to matter for this fixture; nothing is being asserted")
 	}
 	recorded := ManagedFile{Kind: "skill", Name: "fixture", ExecutablePaths: []string{"check.sh"}}
-	got, err := contentHashDirManaged(recorded, dir)
+	got, err := contentHashDirManaged(recorded, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
