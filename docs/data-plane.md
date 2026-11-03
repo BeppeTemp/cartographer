@@ -72,7 +72,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 `templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision. A template is also a closed page schema that a map's pages bind to (§Templates are page schemas).
 
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
-`*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
+`*.pyo`, `*~`, `*.swp`, `Thumbs.db`, `.tmp-wiki-*` — `kb.JunkPatterns`), only when it creates the KB: the root
 `.gitignore` stays absent (D62), and this one is content that travels with the KB (D316). `Init` and
 `Open` also write the same patterns into `.git/info/exclude`, local and never versioned, so they cover the
 whole tree (the KB root included) and no server commit, the external-changes one (D357) or a tool's,

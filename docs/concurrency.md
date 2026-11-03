@@ -320,7 +320,7 @@ writer boundary. It serialises validation — the stat walk and any re-parse —
 and the publication of a new view. A view is immutable once published: every
 graph reader takes the current one after validating and traverses it without
 the lock, so a concurrent write can only make the *next* read see a newer
-view. Writes are atomic renames, so a validation reads either the old file or
+view. Writes are atomic renames (`writeFileAtomic`: temp file in the same directory, `fsync`, rename, `fsync` of the directory, so a crash cannot leave a renamed but empty file; on Windows the rename retries with backoff while a reader holds the destination open without `FILE_SHARE_DELETE`, and the directory sync is a no-op). A temp file orphaned by a kill is junk (`.tmp-wiki-*` in `JunkPatterns`, so never committed) and the server's start-up (`SweepStaleTempFiles`, not every `Open`) removes the regular, untracked ones named exactly as `os.CreateTemp` names them that are older than the lock timeout, when it can take the KB lock without waiting. So a validation reads either the old file or
 the new one, never a torn one. The maps a view exposes (`Links`,
 `IncomingLinks`) are shared across readers and must never be mutated.
 
