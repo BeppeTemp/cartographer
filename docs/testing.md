@@ -517,9 +517,9 @@ built by `clientconfig.Save` and `Report`) after every server start, so Settings
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
 (`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
-(D337). Keep no local file under `web/`: every file there enters the bundle's
-provenance hash, so an untracked one makes `make web` record a hash CI cannot
-reproduce and `web-check` fails.
+(D337). The bundle's provenance hash covers the files git tracks under `web/` (a
+directory walk outside a repository), so an untracked `.DS_Store`, `*.tsbuildinfo` or
+`.env.local` does not move it; a new source file counts once it is `git add`ed.
 
 The static demo build (D745, `deployment.md` §The public static demo) has no test level of its own:
 the `docs` workflow runs `demo/build.sh` on every pull request that touches `demo/` or `web/`, so
