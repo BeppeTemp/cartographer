@@ -8,7 +8,8 @@
 # Not part of `make gate`, `make e2e` or an ordinary PR: CI runs it on the
 # release PR, on a PR that touches test/forge/ and on workflow_dispatch (job
 # `forge`); by hand, run it from the repository root. FORGE_KEEP=1 leaves the
-# container up. Pinned images, never `latest`; bump them here.
+# container up. Pinned images (forgejo by its major tag, gitlab by full version), never
+# `latest`; bump them here.
 set -euo pipefail
 
 FORGE=${1:-}

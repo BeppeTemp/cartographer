@@ -499,6 +499,8 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 
 ### Frontend (`make web-test`, `make web-check`)
 
+Each Node target runs `npm ci` first; `make <target> NPM_CI=` skips it, which the CI `web` legs use after one explicit install (`internal/repodocs` `TestNpmCIIsOverridable`).
+
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds

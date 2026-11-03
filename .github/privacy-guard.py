@@ -10,7 +10,7 @@ Digests: $PRIVACY_GUARD_DIGESTS or ~/.config/privacy-guard/digests.
 """
 import hashlib, hmac, os, re, sys
 
-WORD = re.compile(r"[a-z0-9]+")
+WORD = re.compile(r"[a-z0-9]+", re.I | re.A)
 
 def key():
     # The env var is the standard; ~/.zshrc.local (generated from chezmoi's
@@ -41,8 +41,10 @@ def load():
 
 def spans(text, k, ds):
     """Yield (start, end) of every matching word or word pair."""
-    low = text.lower()
-    words = [(m.start(), m.end(), m.group()) for m in WORD.finditer(low)]
+    # Words are found on the original text, never on text.lower(): lower() can
+    # lengthen a character (U+0130), which would shift every later span and
+    # leave part of a term in the text --redact writes back.
+    words = [(m.start(), m.end(), m.group().lower()) for m in WORD.finditer(text)]
     for i, (s, e, w) in enumerate(words):
         if digest(k, w) in ds:
             yield s, e
@@ -54,7 +56,7 @@ def main(argv):
     k = key()
     if argv[:1] == ["--add"]:
         for t in sys.stdin.read().split("\n"):
-            t = " ".join(WORD.findall(t.lower()))
+            t = " ".join(w.lower() for w in WORD.findall(t))
             if t:
                 print(digest(k, t))
         return 0
