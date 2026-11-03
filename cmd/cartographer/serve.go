@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -166,6 +167,38 @@ type kbMount struct {
 	Discovered bool
 }
 
+// mountRootKey is the identity of a mounted directory: absolute, symlinks
+// resolved when the path exists, so two spellings of one directory compare equal.
+func mountRootKey(path string) string {
+	abs := absPath(path)
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	return abs
+}
+
+// stdioMountsError refuses a stdio server asked to mount several KBs: stdio
+// serves exactly one, and silently serving the first would hide the rest.
+func stdioMountsError(mounts []kbMount) error {
+	if len(mounts) <= 1 {
+		return nil
+	}
+	seen := make(map[string]bool, len(mounts))
+	var names []string
+	for _, m := range mounts {
+		key := mountRootKey(m.Path)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		names = append(names, fmt.Sprintf("%s (%s)", m.Name, m.Path))
+	}
+	if len(names) <= 1 {
+		return nil
+	}
+	return fmt.Errorf("the stdio transport serves exactly one KB, but %d are configured: %s; pick one with --kb <path>, or serve over HTTP (--http)", len(names), strings.Join(names, ", "))
+}
+
 // kbBootstrap is what bootstrapKBs hands to the transport: the mounted KBs and
 // their per-KB wiring, index-aligned (D348).
 type kbBootstrap struct {
@@ -215,10 +248,10 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		// discarded downstream by the name dedup, with a spurious collision warning.
 		mounted := make(map[string]bool, len(mounts))
 		for _, m := range mounts {
-			mounted[filepath.Clean(m.Path)] = true
+			mounted[mountRootKey(m.Path)] = true
 		}
 		for _, p := range discovered {
-			if mounted[filepath.Clean(p)] {
+			if mounted[mountRootKey(p)] {
 				continue
 			}
 			mounts = append(mounts, kbMount{Path: p, Name: filepath.Base(p), Discovered: true})
@@ -238,12 +271,27 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		log.Printf("warning: data dir %s has no KBs yet — serving 0 KBs; create a subdirectory (or add kbs: entries) and restart", cfg.Data)
 	}
 
+	if cfg.HTTP == "" {
+		if err := stdioMountsError(mounts); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	phase("mounting")
 	seenNames := make(map[string]string) // name → first path seen
+	seenRoots := make(map[string]string) // effective root → name of the first mount
 	var kbs []*kb.KB
 	var kbNames []string                       // index-aligned with kbs
 	var kbArtifactSigners []ed25519.PrivateKey // index-aligned with kbs
 	for _, m := range mounts {
+		// The same directory spelled two ways (a relative path, a symlink) is one
+		// KB: mounting it twice would open its index.db twice and leave the first
+		// handle open in sqlIdxs.
+		if first, ok := seenRoots[mountRootKey(m.Path)]; ok {
+			log.Printf("warning: KB %q (%s) is the same directory as KB %q — mounting it once", m.Name, m.Path, first)
+			continue
+		}
 		var k *kb.KB
 		var err error
 		k, err = openMountedKB(m.Path)
@@ -285,6 +333,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			continue
 		}
 		seenNames[name] = m.Path
+		seenRoots[mountRootKey(m.Path)] = name
 		artifactSigner, signed, err := loadArtifactSigner(credDir, name)
 		if err != nil {
 			log.Fatalf("KB %q artifact signing seed invalid: %v", name, err)
@@ -391,7 +440,9 @@ func runServe(cfg *config.Config) {
 	if cfg.HTTP != "" {
 		// serveHTTP installs its own signal handler; the context only stops a
 		// bootstrap clone when the server is asked to end.
-		serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.Web.Enabled, auditLog, latestVersion, cfg)
+		if err := serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.Web.Enabled, auditLog, latestVersion, cfg); err != nil {
+			log.Fatalf("HTTP server error: %v", err)
+		}
 	} else {
 		bs := bootstrapKBs(cfg, func(string) {})
 		// Bootstrap is over: give Ctrl-C back its default effect.
@@ -431,8 +482,10 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]
 // (D348): until boot returns and the real handler is built, a BootGate answers
 // /health (live, bootstrapping) and /ready (503) and refuses everything else
 // with a retryable 503. A bad auth configuration still fails before the
-// listener starts; a failure inside boot stays fatal.
-func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config) {
+// listener starts; a failure inside boot stays fatal. The port is bound
+// synchronously, before boot is started: a second serve on a taken port returns
+// the error at once, without cloning, committing or indexing anything.
+func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config) error {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -509,10 +562,15 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	// also reachable through a named event (D217). Off Windows the channel is
 	// nil and its select arm can never fire.
 	eventCh := watchShutdownEvent()
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		signal.Stop(sigCh)
+		return err
+	}
 	serveErrCh := make(chan error, 1)
 	go func() {
 		log.Printf("HTTP server listening on %s", addr)
-		serveErrCh <- httpSrv.ListenAndServe()
+		serveErrCh <- httpSrv.Serve(ln)
 	}()
 
 	// published for the shutdown flush; nil until the bootstrap has finished.
@@ -665,6 +723,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 			}
 		}
 	}
+	return nil
 }
 
 // scopedTokensWithRoles additionally compiles the named roles of D118 into an

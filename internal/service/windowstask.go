@@ -154,8 +154,11 @@ func (m *Manager) registerWindowsTask(name, xmlPath string) error {
 
 func (m *Manager) startWindowsTask(name string) error {
 	// Enable first: Stop disables the task (see Stop), and starting a disabled
-	// task succeeds silently without running anything.
-	m.powershell(fmt.Sprintf("Enable-ScheduledTask %s | Out-Null", taskSelector(name)))
+	// task succeeds silently without running anything — so a failed Enable is
+	// an error, not something to start past.
+	if _, err := m.powershell(fmt.Sprintf("Enable-ScheduledTask %s | Out-Null", taskSelector(name))); err != nil {
+		return fmt.Errorf("service: enable scheduled task %s: %w", name, err)
+	}
 	if _, err := m.powershell(fmt.Sprintf("Start-ScheduledTask %s", taskSelector(name))); err != nil {
 		return fmt.Errorf("service: start scheduled task %s: %w", name, err)
 	}
@@ -175,12 +178,32 @@ func (m *Manager) stopWindowsTask(name string) error {
 	return nil
 }
 
-// unregisterWindowsTask removes the registration. Best-effort by contract: on
-// an uninstall the file on disk is what has to go, and a task that is not
-// registered is already in the state the caller wants — the same shape as the
-// `launchctl bootout` and `systemctl disable` calls whose errors are ignored.
-func (m *Manager) unregisterWindowsTask(name string) {
-	m.powershell(fmt.Sprintf("Unregister-ScheduledTask %s -Confirm:$false", taskSelector(name)))
+// unregisterWindowsTask removes the registration. A failure is an error only
+// while the task is still registered: "not registered" is already the state
+// the caller wants (the same shape as `launchctl bootout` on an unloaded job),
+// but a task that survives keeps its logon trigger and would restart the
+// program at the next login while the caller reports "uninstalled".
+func (m *Manager) unregisterWindowsTask(name string) error {
+	_, err := m.powershell(fmt.Sprintf("Unregister-ScheduledTask %s -Confirm:$false", taskSelector(name)))
+	if err != nil && m.windowsTaskRegistered(name) {
+		return fmt.Errorf("service: could not unregister scheduled task %s, it is still registered and would start again at the next login (run `Unregister-ScheduledTask -TaskName %s -TaskPath %s`): %w", name, name, windowsTaskPathArg(), err)
+	}
+	return nil
+}
+
+// disableUnitNow runs `systemctl --user disable --now` and, when it fails,
+// checks the unit is no longer enabled: a failure on a unit that is not
+// installed is fine, one on a unit that stays enabled is not, since the caller
+// is about to delete its file.
+func (m *Manager) disableUnitNow(unit string) error {
+	_, err := m.run("systemctl", "--user", "disable", "--now", unit)
+	if err == nil {
+		return nil
+	}
+	if _, enabled := m.run("systemctl", "--user", "is-enabled", unit); enabled == nil {
+		return fmt.Errorf("service: could not disable %s, it is still enabled: %w", unit, err)
+	}
+	return nil
 }
 
 // windowsTaskRegistered reports whether the scheduler knows the task, on the

@@ -289,7 +289,9 @@ func (m *Manager) uninstallServer() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve unit path: %w", err)
 		}
-		m.run("systemctl", "--user", "disable", "--now", systemdUnit)
+		if err := m.disableUnitNow(systemdUnit); err != nil {
+			return err
+		}
 		if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove unit: %w", err)
 		}
@@ -308,7 +310,9 @@ func (m *Manager) uninstallServer() error {
 		// means, and the scheduler could not stop that process a second time
 		// either — but it is reported, since it still holds those files.
 		stopErr := m.stopServeAndWait(m.serveHTTPAddr())
-		m.unregisterWindowsTask(windowsServeTaskName)
+		if err := m.unregisterWindowsTask(windowsServeTaskName); err != nil {
+			return err
+		}
 		if err := os.Remove(taskPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove task definition: %w", err)
 		}

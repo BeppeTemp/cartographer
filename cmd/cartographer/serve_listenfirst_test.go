@@ -145,3 +145,27 @@ func TestServeHTTPListensBeforeBootstrap(t *testing.T) {
 		t.Errorf("/health still carries bootstrapping after bootstrap: %v", health)
 	}
 }
+
+// A second serve on a taken port returns the bind error before the bootstrap
+// starts: nothing is cloned, committed or indexed first.
+func TestServeHTTPBindFailureBeforeBootstrap(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	booted := make(chan struct{}, 1)
+	boot := func(phase func(string)) kbBootstrap {
+		booted <- struct{}{}
+		return kbBootstrap{}
+	}
+	if err := serveHTTP(ln.Addr().String(), boot, config.AuthConfig{Mode: "off"}, false, nil, nil, nil); err == nil {
+		t.Fatal("serveHTTP on a taken port returned nil")
+	}
+	select {
+	case <-booted:
+		t.Error("the bootstrap ran although the port was taken")
+	case <-time.After(100 * time.Millisecond):
+	}
+}

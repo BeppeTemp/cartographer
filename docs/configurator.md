@@ -816,6 +816,8 @@ cartographer service status        # exit: 0 running, 3 installed but stopped, 4
 
 Re-running `service install` leaves the installed definition and the running process in agreement: on Linux a unit that was active is restarted after `enable --now` (which alone leaves a running unit alone), as launchd and the Scheduled Task already are. The launchd plists escape every path as XML, so `R&D` in a path is valid.
 
+An uninstall (the server, the sync and doctor timers, the tray) checks that the job is really gone before it deletes the definition: a Scheduled Task still registered, a launchd job still loaded or a systemd unit still enabled after the de-registration failed is an error, and the definition stays so the command can be run again. On Windows `service start` fails when `Enable-ScheduledTask` does, instead of reporting a start that did not happen.
+
 Plain `restart` restarts the unit and returns. `restart --wait` gracefully replaces the process
 (`SIGTERM`, so in-flight requests drain) and only prints success once `/health` proves the
 installed binary version is serving from a new process (its `started_at` differs from the one

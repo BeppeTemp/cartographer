@@ -1062,3 +1062,42 @@ func TestWaitServeExit_Windows_BudgetCountsPollsNotTime(t *testing.T) {
 		t.Fatalf("a process that exits within the poll budget was reported as a survivor (%d polls left)", f.lingerPolls)
 	}
 }
+
+// An unregister that fails while the task is still registered must not be
+// reported as an uninstall: the task keeps its logon trigger and would restart
+// the program at the next login. The definition stays, so a retry is possible.
+func TestUninstall_Windows_StillRegisteredIsAnError(t *testing.T) {
+	home := withTestHome(t, "windows")
+	taskPath := filepath.Join(home, "AppData", "Local", "cartographer", "tasks", "serve.xml")
+	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(taskPath, []byte("<Task/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Get-ScheduledTask keeps succeeding: the scheduler still knows the task.
+	s := &stubRunner{fail: map[string]bool{"Unregister-ScheduledTask": true, "State -eq 'Running'": true}}
+	m := &Manager{run: s.run}
+	err := m.Uninstall()
+	if err == nil || !strings.Contains(err.Error(), "still registered") {
+		t.Fatalf("Uninstall = %v, want an error saying the task is still registered", err)
+	}
+	if _, statErr := os.Stat(taskPath); statErr != nil {
+		t.Errorf("the definition was removed although the task is still registered: %v", statErr)
+	}
+}
+
+// Starting a disabled task succeeds without running anything, so a failed
+// Enable-ScheduledTask must fail the start instead of printing "started".
+func TestStart_Windows_FailedEnableFailsTheStart(t *testing.T) {
+	withTestHome(t, "windows")
+	s := &stubRunner{fail: map[string]bool{"Enable-ScheduledTask": true}}
+	m := &Manager{run: s.run}
+	err := m.Start()
+	if err == nil || !strings.Contains(err.Error(), "enable scheduled task") {
+		t.Fatalf("Start = %v, want the Enable failure", err)
+	}
+	if strings.Contains(joinedCalls(s.calls), "Start-ScheduledTask") {
+		t.Errorf("Start-ScheduledTask ran after a failed Enable:\n%s", joinedCalls(s.calls))
+	}
+}

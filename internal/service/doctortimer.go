@@ -77,7 +77,9 @@ func (m *Manager) UninstallDoctorTimer() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve doctor plist path: %w", err)
 		}
-		m.run("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", os.Getuid(), doctorLaunchdLabel))
+		if err := m.bootoutAndWait(doctorLaunchdLabel, plistPath); err != nil {
+			return err
+		}
 		if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove doctor plist: %w", err)
 		}
@@ -91,7 +93,9 @@ func (m *Manager) UninstallDoctorTimer() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve doctor timer path: %w", err)
 		}
-		m.run("systemctl", "--user", "disable", "--now", doctorSystemdTimer)
+		if err := m.disableUnitNow(doctorSystemdTimer); err != nil {
+			return err
+		}
 		for _, p := range []string{timerPath, servicePath} {
 			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("service: remove %s: %w", filepath.Base(p), err)
@@ -104,7 +108,9 @@ func (m *Manager) UninstallDoctorTimer() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve doctor task path: %w", err)
 		}
-		m.unregisterWindowsTask(windowsDoctorTask)
+		if err := m.unregisterWindowsTask(windowsDoctorTask); err != nil {
+			return err
+		}
 		if err := os.Remove(taskPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove doctor task definition: %w", err)
 		}

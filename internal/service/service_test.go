@@ -2067,3 +2067,31 @@ func TestLaunchdPlists_PassPlutil(t *testing.T) {
 		}
 	}
 }
+
+// A `systemctl disable --now` that fails on a unit that stays enabled must not
+// end in a deleted unit file and an "uninstalled" report; on a unit that is
+// simply not installed it still succeeds.
+func TestUninstall_Linux_FailedDisableOfAnEnabledUnitIsAnError(t *testing.T) {
+	home := withTestHome(t, "linux")
+	unitPath := filepath.Join(home, ".config", "systemd", "user", "cartographer.service")
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unitPath, []byte("[Unit]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &stubRunner{fail: map[string]bool{"disable --now": true}} // is-enabled still succeeds
+	m := &Manager{run: s.run}
+	err := m.Uninstall()
+	if err == nil || !strings.Contains(err.Error(), "still enabled") {
+		t.Fatalf("Uninstall = %v, want an error saying the unit is still enabled", err)
+	}
+	if _, statErr := os.Stat(unitPath); statErr != nil {
+		t.Errorf("the unit file was removed although the unit is still enabled: %v", statErr)
+	}
+
+	s2 := &stubRunner{fail: map[string]bool{"disable --now": true, "is-enabled": true}}
+	if err := (&Manager{run: s2.run}).Uninstall(); err != nil {
+		t.Errorf("Uninstall of a unit systemd does not know = %v, want success", err)
+	}
+}

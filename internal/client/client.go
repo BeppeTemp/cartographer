@@ -419,10 +419,17 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
+	// Read one byte past the cap so an oversized response is reported as such
+	// instead of surfacing as "unexpected end of JSON input" (sync_pull carries
+	// every artifact's content in one response).
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("could not read response from %s", reqURL), Cause: err}
+	}
+	if len(respBody) > maxResponseBytes {
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeHTTPFailed,
+			Message: fmt.Sprintf("response over 8 MiB from %s", reqURL)}
 	}
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
@@ -442,7 +449,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", reqURL, resp.StatusCode),
-			Cause:   fmt.Errorf("%s", respBody), HTTPStatus: resp.StatusCode}
+			Cause:   fmt.Errorf("%s", bodyPrefix(respBody)), HTTPStatus: resp.StatusCode}
 	}
 
 	var rpcResp rpcResponse
@@ -455,6 +462,20 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 			Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)}
 	}
 	return rpcResp.Result, nil
+}
+
+// maxResponseBytes caps one MCP response body.
+const maxResponseBytes = 8 * 1024 * 1024
+
+// maxCauseBytes bounds the body text carried in an HTTP error's Cause.
+const maxCauseBytes = 512
+
+// bodyPrefix returns at most maxCauseBytes of an error body, marked when cut.
+func bodyPrefix(b []byte) string {
+	if len(b) <= maxCauseBytes {
+		return string(b)
+	}
+	return string(b[:maxCauseBytes]) + "…"
 }
 
 // Ping performs a minimal round trip against the server to check reachability
