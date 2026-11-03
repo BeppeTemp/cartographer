@@ -30,6 +30,14 @@ call, such as a full reindex or a git sync, and those are bounded per operation
 instead. Read them as protection against connections that never complete, not
 as a request budget.
 
+The stdio bridge (`cartographer mcp`) mirrors that: its HTTP client has no overall
+timeout, and a call is bounded by the session (stdin closing, or the process being
+stopped); after stdin closes, calls still in flight get 30 seconds to finish before they are aborted. It sends `MCP-Protocol-Version` from the version the server answered in
+`initialize` (or, for the handshake it answers itself, a revision it knows), never
+from the client's request alone. It reads stdin up to 16 MiB per line without
+holding more, and a line over that ends the session with "message too large", also
+while it waits for the client's roots.
+
 `GET /health` reports service readiness; it stays public (never a 401, an invalid token is read as anonymous), but its body depends on the token (D1096): without a valid one it carries no `kbs`, with one it lists the KBs that token reads. `GET /ready` needs a valid token once auth is on, and its `503` body counts and names (`degraded`) only the KBs that token reads (#1109). `GET /.well-known/oauth-protected-resource`
 publishes RFC 9728 Protected Resource Metadata, unauthenticated, so clients can
 discover the protected resource; `resource` and `authorization_servers` both
