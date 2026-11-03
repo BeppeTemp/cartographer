@@ -65,3 +65,19 @@ func TestHygiene_WorkspaceInRepositorySubdirectory(t *testing.T) {
 		t.Errorf("unbinding sub must keep sub2:\n%s", data)
 	}
 }
+
+// A workspace directory that no longer exists is in no repository: neither the
+// tracked-files check nor the exclude writer may fail on it (a disconnect prunes
+// what was projected there).
+func TestHygiene_MissingWorkspaceIsNotARepository(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+	if tracked, err := gitTrackedPaths(gone); err != nil || len(tracked) != 0 {
+		t.Errorf("gitTrackedPaths = %v, %v", tracked, err)
+	}
+	if err := EnsureWorkspaceExcluded(gone, []string{".claude/skills/x"}); err != nil {
+		t.Errorf("EnsureWorkspaceExcluded: %v", err)
+	}
+	if err := RemoveWorkspaceExclusions(gone); err != nil {
+		t.Errorf("RemoveWorkspaceExclusions: %v", err)
+	}
+}

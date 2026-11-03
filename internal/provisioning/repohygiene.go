@@ -91,6 +91,12 @@ func withStderr(err error, stderr string) error {
 // installed: there is no repository to keep clean); any other failure of git
 // (dubious ownership, a broken .git) is an error, never "no repository".
 func enclosingRepo(dir string) (root, prefix string, inRepo bool, err error) {
+	// A workspace that is gone (rm -rf) is in no repository: git would fail with
+	// "cannot change to", and a prune or an unbind of what was projected there
+	// must not become fatal because of it.
+	if _, statErr := os.Stat(dir); errors.Is(statErr, os.ErrNotExist) {
+		return "", "", false, nil
+	}
 	cmd := procattr.Hide(exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel", "--show-prefix"))
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	var stderr strings.Builder
