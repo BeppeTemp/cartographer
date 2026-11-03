@@ -94,6 +94,15 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	} else if s.Error != nil {
 		fmt.Println(s.Error.Message)
 	}
+	// The server answered but a later step failed (the manifest pull, the local
+	// sync state): the header above says "reachable", so the reason is said here,
+	// on stderr, whatever the exit code that follows.
+	if s.Reachable && s.Error != nil && s.Error.Code != startingStatusCode {
+		fmt.Fprintln(os.Stderr, s.Error.Message)
+		if s.Error.Cause != "" && !strings.Contains(s.Error.Message, s.Error.Cause) {
+			fmt.Fprintln(os.Stderr, "  cause:", s.Error.Cause)
+		}
+	}
 	if s.State == "version_skew" {
 		fmt.Printf("version skew: client %s ≠ server %s\n", s.Client, s.Server)
 		if s.Service != nil && s.Service.Installed {
