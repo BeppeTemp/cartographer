@@ -1075,6 +1075,27 @@ func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, er
 	return sha, nil
 }
 
+// TreeClean reports whether the working tree and index equal HEAD, untracked
+// files included (ignored ones do not count). It is false when git does not
+// answer or the KB is not a repository: a caller deciding whether it may
+// discard changes must never read an error as "clean".
+func (k *KB) TreeClean() bool {
+	if !gitx.IsRepo(k.Root) {
+		return false
+	}
+	status, err := gitx.Status(k.Root)
+	return err == nil && strings.TrimSpace(status) == ""
+}
+
+// DiscardUncommitted returns the working tree and index to HEAD, untracked
+// files included and ignored ones kept. The caller holds the git lock and has
+// checked TreeClean before the write it undoes (gitWrap, D1549): on a tree that
+// held someone's unsaved work this would destroy it. Known window: an outside
+// edit written while the handler runs is discarded with the handler's residue.
+func (k *KB) DiscardUncommitted() error {
+	return gitx.DiscardChanges(k.Root)
+}
+
 // CommitPaths creates one commit containing changes to paths only, by
 // authorName/authorEmail as author and committer, or by the KB's default
 // identity when either is empty (D950). The per-KB lock serialises its

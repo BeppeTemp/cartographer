@@ -364,14 +364,16 @@ func TestBatchWriteError_RollbackFailureCarriesTheRecoveryHint(t *testing.T) {
 	}
 }
 
-func TestConceptMove_PartialFailureCarriesTheRecoveryHint(t *testing.T) {
+func TestConceptMove_PartialFailureIsDiscardedInAGitKB(t *testing.T) {
 	k, s := namespaceServer(t)
 	writeService(t, k, "services/sample", "svc\n")
 	failingFS(t, errors.New("injected remove failure"), nil)
 
 	res := callTool(t, s, "concept_move", `{"source_id":"services/sample","target_id":"application-services/sample"}`)
 	msg := res.Content[0].Text
-	if !res.IsError || !strings.Contains(msg, "already written") || !strings.Contains(msg, "concept_history(id)") || !strings.Contains(msg, "rev=<sha>") {
+	// The KB is clean and under git: gitWrap restores it (D1549), so the
+	// "inspect or undo" hint, which assumes the partial state stays, is dropped.
+	if !res.IsError || !strings.Contains(msg, "already written") || !strings.Contains(msg, "discarded") || strings.Contains(msg, "concept_history(id)") {
 		t.Errorf("got %q", msg)
 	}
 }

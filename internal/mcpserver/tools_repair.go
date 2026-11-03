@@ -1302,7 +1302,7 @@ type repairWrittenError struct {
 }
 
 func (e *repairWrittenError) Error() string {
-	return fmt.Sprintf("contract rewrite failed after %d concept(s) were written (uncommitted, revert or re-run): %v", e.Applied, e.Err)
+	return fmt.Sprintf("contract rewrite failed after %d concept(s) were written (uncommitted; discarded when the KB had no other uncommitted changes, otherwise re-run): %v", e.Applied, e.Err)
 }
 
 // repairOneCheck routes a check to its path.
@@ -1391,7 +1391,7 @@ func repairMany(k *kb.KB, checks []string, scope string, dryRun bool, limit int)
 		if err != nil {
 			msg := fmt.Sprintf("kb_repair: %s: %v", c, err)
 			if len(lines) > 0 {
-				msg += fmt.Sprintf("; already written and uncommitted: %s (revert or re-run)", strings.Join(lines, ", "))
+				msg += fmt.Sprintf("; already written and uncommitted: %s (discarded when the KB had no other uncommitted changes, otherwise re-run)", strings.Join(lines, ", "))
 			}
 			return errorResult(msg), nil
 		}
