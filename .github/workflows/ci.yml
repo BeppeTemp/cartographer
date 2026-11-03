@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-  # The merge queue (D1592): the heavy legs run here, once per group of PRs.
+  # Ready for a merge queue (D1592), which is not available on a user-owned
+  # repository: inert today, the heavy legs run on push to main.
   merge_group:
   # The real-forge job (`forge`) on demand, from the Actions tab or
   # `gh workflow run ci.yml --ref <branch>`; every other job runs too (D996).
@@ -26,9 +27,9 @@ concurrency:
 # On main every job runs, and a red main opens (or updates) a `ci-red` issue.
 # A PR runs the light checks only: `test`, `web` (when the frontend changed) and
 # the two PR-title workflows. The heavy legs (Windows, macOS, docker, demo-edge)
-# run on `merge_group`, on push to main and on workflow_dispatch (D1592): the
+# run on push to main, on workflow_dispatch and on `merge_group` (D1592): the
 # account runs about five jobs at a time and twenty per PR was the bottleneck.
-# The queue runs them once per group, so no change reaches main without them.
+# A Windows- or macOS-only break is caught on main and tracked by `ci-red`.
 jobs:
   # Which of the slower jobs this PR needs: `web` and `forge` only, the other
   # outputs stay in the table pinned by a test but no PR job reads them (the
@@ -107,8 +108,8 @@ jobs:
   # vets with GOOS=windows. Minutes on standard runners are free for a public
   # repository, so the split costs nothing.
   #
-  # Merge queue, push to main and a manual run, never on a PR (D1592): a
-  # Windows-only break is stopped in the queue instead of sitting on main.
+  # Push to main, a manual run and merge_group, never on a PR (D1592): a
+  # Windows-only break is caught on main and tracked by `ci-red`.
   test-windows-shard:
     name: test-windows (${{ matrix.shard }}/4)
     if: "!cancelled() && github.event_name != 'pull_request'"
@@ -273,7 +274,7 @@ jobs:
         run: |
           echo "legs: $RESULT"
           case "$RESULT" in failure|cancelled) exit 1 ;; esac
-          # Skipped by `changes` on a PR is by design; in the merge queue every leg runs.
+          # Skipped by `changes` on a PR is by design; on merge_group every leg runs.
           if [ "$EVENT" = merge_group ] && [ "$RESULT" = skipped ]; then exit 1; fi
 
   # The demo Worker (Node only) and the demo's Terraform: a Worker change used
@@ -385,7 +386,7 @@ jobs:
   # The macOS leg (D997): the launchd agent, install.sh against a real service
   # and the Cask GoReleaser renders, each on a real runner. It registers a real
   # job under the runner's own HOME (internal/service/homeguard.go refuses a
-  # sandbox HOME). Merge queue, push to main and a manual run (D1592). Not a
+  # sandbox HOME). Push to main, a manual run and merge_group (D1592). Not a
   # required check; main-status watches it.
   test-macos:
     name: test-macos
