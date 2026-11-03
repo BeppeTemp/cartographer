@@ -224,11 +224,57 @@ func (kb *KB) PageRankPercentiles(include func(id string) bool) (map[okf.Concept
 	if err != nil {
 		return nil, err
 	}
+	return kb.pageRankPercentilesOf(view, include), nil
+}
+
+// PageRankPercentilesOfLastView is PageRankPercentiles over the view the most
+// recent validation published, without validating again (see
+// LinkGraphOfLastView for when that is allowed), and false when there is none:
+// a request that has just reconciled its index ranks every query variant on
+// the one view instead of paying a validation per pass.
+func (kb *KB) PageRankPercentilesOfLastView(include func(id string) bool) (map[okf.ConceptID]float64, bool) {
+	view := kb.lastView()
+	if view == nil {
+		return nil, false
+	}
+	return kb.pageRankPercentilesOf(view, include), true
+}
+
+// ArchivedOfLastView returns the set of archived concept ids of the view the
+// most recent validation published, without validating again, and false when
+// there is none: one lookup table per request instead of a ConceptFacets
+// (Lstat plus the graph lock) per candidate.
+func (kb *KB) ArchivedOfLastView() (map[okf.ConceptID]struct{}, bool) {
+	view := kb.lastView()
+	if view == nil {
+		return nil, false
+	}
+	out := map[okf.ConceptID]struct{}{}
+	for id, f := range view.facets {
+		if f.Status == StatusArchived {
+			out[id] = struct{}{}
+		}
+	}
+	return out, true
+}
+
+// lastView is the published view, nil when nothing has validated yet or the
+// last validation failed (the snapshot left is then older than the files).
+func (kb *KB) lastView() *graphView {
+	kb.graphMu.Lock()
+	defer kb.graphMu.Unlock()
+	if kb.graph != nil && !kb.graph.stale {
+		return kb.graph.view
+	}
+	return nil
+}
+
+func (kb *KB) pageRankPercentilesOf(view *graphView, include func(id string) bool) map[okf.ConceptID]float64 {
 	if include == nil {
 		kb.prMu.Lock()
 		defer kb.prMu.Unlock()
 		if c := kb.prCache; c != nil && c.generation == view.generation {
-			return c.pct, nil
+			return c.pct
 		}
 	}
 	lg := linkGraphOf(view, include)
@@ -246,5 +292,5 @@ func (kb *KB) PageRankPercentiles(include func(id string) bool) (map[okf.Concept
 	if include == nil {
 		kb.prCache = &pageRankPercentiles{generation: view.generation, pct: pct}
 	}
-	return pct, nil
+	return pct
 }
