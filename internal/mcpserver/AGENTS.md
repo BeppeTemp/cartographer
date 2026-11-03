@@ -67,3 +67,8 @@ test or a decision record: none of them is a preference.
 - **`kb_guide {}` stays the whole guide**, whatever `initialize` carries (D1100, D1316): it
   is the only route for a host that drops `initialize.instructions`. Tell the agent it
   already holds the text; never empty the fallback.
+- **A request is one unit of work**: a read handler that runs several passes (search's
+  glossary variants and archived fallback) shares one `searchPass` — one reconcile, one
+  ranking view, one archived set. A helper that validates the graph or asks
+  `ConceptFacets` per pass or per candidate shows in `search_pass_test.go`, which counts
+  `k.GraphValidations()` and `k.GraphFacetLookups()`.
