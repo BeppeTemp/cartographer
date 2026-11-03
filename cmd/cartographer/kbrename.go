@@ -127,7 +127,7 @@ func cmdKBRename(args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}
-	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+	if code := checkLocalTarget("kb rename", *dataFlag, *localFlag); code != 0 {
 		return code
 	}
 	dataDir := *dataFlag

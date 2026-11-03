@@ -153,7 +153,7 @@ func cmdKBCreate(args []string) int {
 		}
 	}
 
-	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+	if code := checkLocalTarget("kb create", *dataFlag, *localFlag); code != 0 {
 		return code
 	}
 	dataDir := *dataFlag
@@ -714,7 +714,7 @@ func cmdKBClone(args []string) int {
 		return code
 	}
 
-	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+	if code := checkLocalTarget("kb clone", *dataFlag, *localFlag); code != 0 {
 		return code
 	}
 	dataDir := *dataFlag
@@ -1111,7 +1111,7 @@ func resolveServerDataDir(configPath string) string {
 // not an option, since the failure it produces is a silent hang (D173).
 const defaultCloneTimeout = 120 * time.Second
 
-// checkLocalTarget refuses a `kb create`/`kb clone` that would act on the
+// checkLocalTarget refuses a `kb` subcommand (command, e.g. "kb rename") that would act on the
 // local data dir while this machine's client points at a remote server.
 //
 // These commands mount a KB on the LOCAL server, which on such a machine is
@@ -1120,7 +1120,7 @@ const defaultCloneTimeout = 120 * time.Second
 // error, so it is an error — with --local as the explicit opt-out, and no
 // opinion at all when --data was passed (the caller named the target) or when
 // there is no client config to contradict.
-func checkLocalTarget(dataFlag string, local bool) int {
+func checkLocalTarget(command, dataFlag string, local bool) int {
 	if local || dataFlag != "" {
 		return 0
 	}
@@ -1132,7 +1132,7 @@ func checkLocalTarget(dataFlag string, local bool) int {
 	if err != nil || cfg.ServerURL == "" || isLoopbackURL(cfg.ServerURL) {
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "Error: `kb create`/`kb clone` act on the LOCAL server's data dir, but this machine's client points at %s\n", cfg.ServerURL)
+	fmt.Fprintf(os.Stderr, "Error: `%s` acts on the LOCAL server's data dir, but this machine's client points at %s\n", command, cfg.ServerURL)
 	fmt.Fprintln(os.Stderr, "  Mounting a KB on that server is an operation on its deployment, not something this command can do.")
 	fmt.Fprintln(os.Stderr, "  Use --local to act on the local data dir anyway, or --data <dir> to name the target explicitly.")
 	return 2

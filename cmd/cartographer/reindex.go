@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
-	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
@@ -39,11 +38,10 @@ func cmdReindex(args []string) int {
 		return 2
 	}
 
-	cfg := clientconfig.Default()
-	if dir, err := clientconfig.TargetDir(); err == nil {
-		if loaded, err := clientconfig.Load(dir); err == nil {
-			cfg = loaded
-		}
+	cfg, err := loadClientConfigOrDefault()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "reindex:", err)
+		return 1
 	}
 	selected := cfg.KnownKBs
 	if *kbFlag != "" {

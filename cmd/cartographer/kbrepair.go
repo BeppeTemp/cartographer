@@ -85,11 +85,10 @@ func cmdKBRepair(args []string) int {
 		return kbRepairExitError
 	}
 
-	cfg := clientconfig.Default()
-	if dir, err := clientconfig.TargetDir(); err == nil {
-		if loaded, err := clientconfig.Load(dir); err == nil {
-			cfg = loaded
-		}
+	cfg, err := loadClientConfigOrDefault()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kb repair:", err)
+		return kbRepairExitError
 	}
 	token := resolveToken(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(probeTimeout)

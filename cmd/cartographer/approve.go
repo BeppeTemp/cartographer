@@ -59,12 +59,20 @@ func cmdApprove(args []string) int {
 		return 2
 	}
 	if revoke {
-		if kbName == "" {
-			matches := approvalSources(cfg, approvalEntryName(kind, name))
-			if len(matches) != 1 {
-				fmt.Fprintln(os.Stderr, "Error: revoke is ambiguous; pass --kb <name>")
-				return 2
-			}
+		// "Nothing to revoke" and "ambiguous" are different answers, and a
+		// revoke of an approval that was never given must not claim success.
+		matches := approvalSources(cfg, approvalEntryName(kind, name))
+		switch {
+		case kbName != "" && !slices.Contains(matches, kbName):
+			fmt.Fprintf(os.Stderr, "Error: no approval for %s %s from KB %s to revoke\n", kind, name, kbName)
+			return 2
+		case kbName == "" && len(matches) == 0:
+			fmt.Fprintf(os.Stderr, "Error: no approval for %s %s to revoke\n", kind, name)
+			return 2
+		case kbName == "" && len(matches) > 1:
+			fmt.Fprintf(os.Stderr, "Error: revoke is ambiguous: %s %s is approved from %s; pass --kb <name>\n", kind, name, strings.Join(matches, ", "))
+			return 2
+		case kbName == "":
 			kbName = matches[0]
 		}
 		if err := withClientConfig(dir, func(c *clientconfig.Config) error {

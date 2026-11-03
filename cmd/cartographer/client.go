@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -46,7 +47,7 @@ func cmdClient(args []string) int {
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)
+		fmt.Fprintln(os.Stderr, "Error:", describeClientConfigError(dir, err))
 		return 2
 	}
 
@@ -485,4 +486,34 @@ func saveClientConfig(dir string, cfg *clientconfig.Config) int {
 		return 2
 	}
 	return 0
+}
+
+// describeClientConfigError is the message for a failed clientconfig.Load. Only
+// a missing file means "run connect first": a file that is there but cannot be
+// read or parsed used to be reported the same way, sending the operator to
+// connect, which refuses to replace it (D1514), instead of to the line to fix.
+func describeClientConfigError(dir string, err error) string {
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Sprintf("no client config found in %s (run `cartographer connect` first): %v", dir, err)
+	}
+	return fmt.Sprintf("the client config cannot be read (fix or remove %s): %v", clientconfig.Path(dir), err)
+}
+
+// loadClientConfigOrDefault is the client config for a command that works
+// without one (reindex, kb repair): the defaults when the file does not exist,
+// the real error when it exists and cannot be loaded, never a silent fallback
+// to 127.0.0.1 for a machine configured for another server.
+func loadClientConfigOrDefault() (*clientconfig.Config, error) {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return clientconfig.Default(), nil
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return clientconfig.Default(), nil
+		}
+		return nil, fmt.Errorf("%s", describeClientConfigError(dir, err))
+	}
+	return cfg, nil
 }

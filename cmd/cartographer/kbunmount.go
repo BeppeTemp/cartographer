@@ -79,7 +79,7 @@ func cmdKBUnmount(args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}
-	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+	if code := checkLocalTarget("kb unmount", *dataFlag, *localFlag); code != 0 {
 		return code
 	}
 	dataDir := *dataFlag
