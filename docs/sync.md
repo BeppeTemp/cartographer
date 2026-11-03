@@ -699,6 +699,7 @@ A projection writes into a directory the user version-controls, so two rules hol
   worktree's paths are also excluded in the main checkout and in its sibling worktrees. The blocks
   of worktrees that `git worktree remove` has deleted are dropped by the next ensure or removal
   from any of them. A submodule's git directory is its own, so it keeps the plain block.
+  A workspace that is a **subdirectory** of a repository (a monorepo's `services/x`, bound there) has no `.git` of its own and is still in one (#1502): the tracked-files check lists what git tracks under it (a tracked `.mcp.json` or skill directory is refused as anywhere else), and the block goes into the enclosing repository's `info/exclude` with root-anchored patterns (`/services/x/.claude/skills/<n>`), keyed by the subdirectory (`# >>> cartographer (managed:  @ services/x) >>>`) so two workspaces of one repository keep their own. A directory in no repository stays a no-op; when git cannot answer (dubious ownership, a broken `.git`) the check fails with git's own message instead of reading it as no repository.
   A `.git` file is the repository's content, not the user's, so its target is trusted only when it
   is this workspace's own git directory: a worktree's must hold `HEAD`, link back to this
   workspace's `.git` and sit at `<commondir>/worktrees/<name>`; a submodule's must hold `HEAD`,
