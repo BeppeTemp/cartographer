@@ -120,6 +120,9 @@ func TestStripDecoration_KeepsMeaningfulSymbols(t *testing.T) {
 		"Run `make gate` first",
 		"Acme® gateway",
 		"Acme™ and © notes",
+		"C♯ minor and B♭ major",
+		"⌥ shortcuts",
+		"Sync ↔ async",
 	} {
 		if got := StripDecoration(title); got != title {
 			t.Errorf("StripDecoration(%q) = %q", title, got)
@@ -132,6 +135,9 @@ func TestStripDecoration_KeepsMeaningfulSymbols(t *testing.T) {
 		}
 	}
 	if got := StripDecoration("🚀 Launch ✔ day 🇮🇹"); got != "Launch day" {
+		t.Errorf("emoji not stripped: %q", got)
+	}
+	if got := StripDecoration("⚠ Heads ☀ up ⭐ ✅ ⌚"); got != "Heads up" {
 		t.Errorf("emoji not stripped: %q", got)
 	}
 }
