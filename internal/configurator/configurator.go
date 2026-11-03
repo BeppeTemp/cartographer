@@ -290,7 +290,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			}
 		}
 
-		if err := safewrite.WriteFileNoFollow(fullPath, content, 0o644); err != nil {
+		if err := safewrite.WriteFileAtomicNoFollow(absoluteBaseDir, fullPath, content, 0o644); err != nil {
 			return written, fmt.Errorf("write %s: %w", fullPath, err)
 		}
 		if d, ok := Lookup(r.Provider); ok && d.DeleteOnlyIfCreated {
@@ -551,7 +551,7 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 	if err != nil {
 		return false, err
 	}
-	if err := safewrite.WriteFileNoFollow(fullPath, out, 0o644); err != nil {
+	if err := safewrite.WriteFileAtomicNoFollow(baseDir, fullPath, out, 0o644); err != nil {
 		return false, fmt.Errorf("write %s: %w", fullPath, err)
 	}
 	if err := DropOwner(baseDir, r.FilePath, cfg.Name); err != nil {

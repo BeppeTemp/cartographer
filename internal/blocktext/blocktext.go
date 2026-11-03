@@ -45,10 +45,10 @@ func Write(baseDir, path, begin, end, body string) error {
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := safewrite.MkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(path, []byte(block), 0o644)
+		return safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(block), 0o644)
 	}
 	if err != nil {
 		return err
@@ -60,9 +60,9 @@ func Write(baseDir, path, begin, end, body string) error {
 	case Corrupted:
 		return corruptedError(path)
 	case Found:
-		return os.WriteFile(path, []byte(replaced), 0o644)
+		return safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(replaced), 0o644)
 	}
-	return os.WriteFile(path, []byte(appendBlock(content, block)), 0o644)
+	return safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(appendBlock(content, block)), 0o644)
 }
 
 // Remove strips the block delimited by begin/end (markers included) from the
@@ -102,7 +102,7 @@ func Remove(baseDir, path, begin, end string, dryRun bool) (bool, error) {
 	if strings.TrimSpace(stripped) == "" {
 		return true, os.Remove(path)
 	}
-	return true, os.WriteFile(path, []byte(stripped), 0o644)
+	return true, safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(stripped), 0o644)
 }
 
 // ErrCorruptedBlock is returned (wrapped, naming the file) by Write and Remove
