@@ -188,3 +188,16 @@ unique token; ask the client to repeat it.
   `skills/`, `agents/<name>.agent.md`, `hooks/<file>.json`.
 - Watch for the project mcp, agent and hook cells working without folder trust
   (flips the three unsupported project cells) and for a hook matcher (D676).
+
+## Pi
+
+- Always set `PI_CODING_AGENT_DIR` to a scratch directory (copy only `auth.json` from
+  `$HOME/.pi/agent` when a model is needed); never touch `$HOME/.pi/agent`. Cartographer itself
+  ignores the variable, so a probe of a Cartographer-written cell reads from `$HOME`.
+- MCP needs no model: `pi mcp list` shows the entry, its exposure and its tool count.
+- Skills, instructions and extensions need a session:
+  `pi -p --no-session --model <provider/id> [-a|-na] "<prompt>"` (`-a` trusts the project, `-na`
+  does not). `pi --version` prints a bare `MAJOR.MINOR.PATCH`; detection relies on it.
+- Global cells under the agent dir: `mcp.json`, `AGENTS.md`, `skills/<name>/`, `extensions/*.ts`.
+- Watch for project `.pi/*` and `.agents/skills` loading without trust (flips the unsupported
+  project cells), the `exposure` default, and the `CLAUDE.md` global fallback order (unprobed).

@@ -3608,6 +3608,7 @@ var provisioningRootDirs = map[string]bool{
 	filepath.Join(".config", "crush"):    true,
 	".gemini":                            true,
 	".copilot":                           true,
+	".pi":                                true,
 	// Workspace scope only (projectDestinationMatrix).
 	".agents": true,
 	".crush":  true,
@@ -3944,6 +3945,9 @@ var unsupportedDest = destination{unsupported: true}
 //   - crush documents no user-level subagent directory, so that cell is
 //     unsupported (D225); its hook cell is supported since D363.
 //   - copilot fills all five cells (D676); its agent files end in ".agent.md".
+//   - pi fills mcp, instructions and skill; it has no subagents and its hook
+//     cell waits for the generated extension. Everything lives under
+//     $HOME/.pi/agent: PI_CODING_AGENT_DIR is not honoured (D676, D755).
 var destinationMatrix = map[string]map[configurator.Provider]destination{
 	"mcp": {
 		configurator.ProviderClaudeCode: at(".claude.json"),
@@ -3956,6 +3960,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCrush:       at(".config", "crush", "crush.json"),
 		// copilot: probed on 1.0.94, D676.
 		configurator.ProviderCopilot: at(".copilot", "mcp-config.json"),
+		// pi: global <agent-dir>/mcp.json, bridge connected with direct
+		// exposure (probe 1 on Pi 1.5.0, docs/harnesses.md).
+		configurator.ProviderPi: at(".pi", "agent", "mcp.json"),
 	},
 	"instructions": {
 		configurator.ProviderClaudeCode:  at(".claude", "CLAUDE.md"),
@@ -3972,6 +3979,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// copilot: `copilot instruction list` reports it as "Personal
 		// instructions" (probed on 1.0.94, D676).
 		configurator.ProviderCopilot: at(".copilot", "copilot-instructions.md"),
+		// pi: reads <agent-dir>/AGENTS.md globally (probe 2 on Pi 1.5.0); the
+		// cross-tool CLAUDE.md fallback belongs to the user.
+		configurator.ProviderPi: at(".pi", "agent", "AGENTS.md"),
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -3998,6 +4008,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// copilot: `~/.copilot/agents/<name>.agent.md`, frontmatter name and
 		// description; a session reported seeing the agent (probed on 1.0.94, D676).
 		configurator.ProviderCopilot: perName(".agent.md", ".copilot", "agents"),
+		// pi: has no subagents (vendor docs), so there is nothing to project.
+		configurator.ProviderPi: unsupportedDest,
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -4029,6 +4041,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// and only the registration, ~/.copilot/hooks/cartographer-<n>.json,
 		// sits in hooks/ (registerCopilotHook, D676).
 		configurator.ProviderCopilot: perName("", ".copilot", "cartographer-hooks"),
+		// pi: hooks need a generated TypeScript extension, which the provider
+		// does not have yet; declared unsupported until it does.
+		configurator.ProviderPi: unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -4052,6 +4067,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCrush: perName("", ".config", "crush", "skills"),
 		// copilot: "Personal skills" (probed on 1.0.94, D676).
 		configurator.ProviderCopilot: perName("", ".copilot", "skills"),
+		// pi: <agent-dir>/skills/, loaded without project trust (probe 3 on
+		// Pi 1.5.0).
+		configurator.ProviderPi: perName("", ".pi", "agent", "skills"),
 	},
 }
 

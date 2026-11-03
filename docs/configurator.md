@@ -343,7 +343,7 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (all detected agents) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
@@ -450,7 +450,7 @@ cartographer disconnect all --dry-run  # preview without writing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
@@ -612,7 +612,7 @@ cartographer reconnect --dry-run       # preview both halves, write nothing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset; cannot be combined with the positional provider |
 | `--dry-run` | `false` | Both halves simulate, nothing is written |
 
@@ -1104,12 +1104,14 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot CLI | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
+| Pi | `.pi/agent/mcp.json` | `mcpServers` (JSON) |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
 OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references;
 Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
 Copilot CLI uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
+Pi has no `type` key (it infers the transport) and every entry carries `"exposure": "direct"`.
 Cartographer only preflights the local executable before writing: it never runs it, and never resolves
 an environment reference into its value.
 
@@ -1278,6 +1280,33 @@ owns whole (the hook's own files sit in `~/.copilot/cartographer-hooks/<name>/`,
 KB hook that declares one is installed but not registered, with a warning. Cartographer reads
 `$HOME/.copilot` like every other provider and ignores `COPILOT_HOME`. The project-local MCP, agent and
 hook locations are gated on folder trust and are unsupported ([D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
+
+**Pi** (`pi`, npm `@earendil-works/pi-coding-agent`; probed on 1.5.0) — with auth. The file is
+`~/.pi/agent/mcp.json`, key `mcpServers`. Pi interpolates `${VAR}` in `env` and `headers`, so the
+header is written verbatim, as for Claude Code. `"exposure": "direct"` is on every entry: Pi's default,
+`codemode`, would not declare the tools to the model:
+```json
+{
+  "mcpServers": {
+    "cartographer": {
+      "url": "http://127.0.0.1:39273/mcp",
+      "headers": { "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}" },
+      "exposure": "direct"
+    }
+  }
+}
+```
+
+Pi's MCP tools are named `mcp__<server>__<tool>`, as in Claude Code. Its global cells are
+`~/.pi/agent/mcp.json`, `~/.pi/agent/AGENTS.md` (a managed block; an `AGENTS.override.md` beside it
+replaces it and is reported as shadowing) and `~/.pi/agent/skills/<name>/`; it has no subagents and its
+hook cell is unsupported. The only project cell is `AGENTS.md` (read without trust): project `.pi/*` and
+`.agents/skills` load only once the project is trusted. A value that is wholly `!command` in `env` or
+`headers` is refused (Pi would run it when it loads the file), and so is a server name outside letters,
+digits, `_` and `-` (Pi skips it silently). Cartographer reads `$HOME/.pi/agent` like every other
+provider and ignores `PI_CODING_AGENT_DIR`: to use another agent directory, symlink `~/.pi/agent`.
+A `pi` on `PATH` is reported as installed only when `pi --version` prints a bare version
+([D676](decisions/D676-github-copilot-cli-is-a-provider.md), [D755](decisions/D755-claude-config-dirs-declared-not-discovered.md)).
 
 The formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a

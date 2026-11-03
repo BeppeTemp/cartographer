@@ -210,7 +210,7 @@ func TestInit_ExcludesAgentStateDirs(t *testing.T) {
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	for _, p := range []string{".omc/state/s.json", "data/.omc/replay.jsonl", "data/m/.claude/x"} {
+	for _, p := range []string{".omc/state/s.json", "data/.omc/replay.jsonl", "data/m/.claude/x", "data/m/.pi/session.json"} {
 		abs := filepath.Join(dir, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			t.Fatal(err)

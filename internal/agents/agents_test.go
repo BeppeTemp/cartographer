@@ -338,6 +338,7 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderAntigravity: {{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
 		configurator.ProviderCrush:       {{".config", "crush"}},
 		configurator.ProviderCopilot:     {{".copilot"}},
+		configurator.ProviderPi:          {{".pi", "agent"}},
 	}
 	wantBinaries := map[configurator.Provider][]string{
 		configurator.ProviderClaudeCode:  {"claude"},
@@ -347,6 +348,7 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderAntigravity: {"agy"},
 		configurator.ProviderCrush:       {"crush"},
 		configurator.ProviderCopilot:     {"copilot"},
+		configurator.ProviderPi:          {"pi"},
 	}
 
 	for _, d := range configurator.Providers() {
@@ -430,5 +432,76 @@ func TestHeuristicsAreDistinct(t *testing.T) {
 			t.Errorf("duplicate heuristic value %q", h)
 		}
 		seen[h] = true
+	}
+}
+
+// stubVersion replaces runVersion for one test.
+func stubVersion(t *testing.T, out string, err error) {
+	t.Helper()
+	orig := runVersion
+	runVersion = func(string) (string, error) { return out, err }
+	t.Cleanup(func() { runVersion = orig })
+}
+
+func piAgent(t *testing.T) Agent {
+	t.Helper()
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderPi {
+			return a
+		}
+	}
+	t.Fatal("pi missing from Detect()")
+	return Agent{}
+}
+
+func TestDetect_PiBinaryMustReportABareVersion(t *testing.T) {
+	const bin = "/usr/local/bin/pi"
+	for _, tc := range []struct {
+		name string
+		out  string
+		err  error
+		want bool
+	}{
+		{"real version", "1.5.0\n", nil, true},
+		{"pre-release", "1.5.0-rc.1\n", nil, true},
+		{"garbage", "usage: pi [options]\n", nil, false},
+		{"version in a sentence", "pi 1.5.0\n", nil, false},
+		{"empty", "", nil, false},
+		{"error or timeout", "1.5.0\n", errors.New("signal: killed"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withStubs(t, t.TempDir(), map[string]string{"pi": bin}, "linux")
+			stubVersion(t, tc.out, tc.err)
+			a := piAgent(t)
+			if a.Installed != tc.want {
+				t.Fatalf("Installed = %v, want %v (%+v)", a.Installed, tc.want, a)
+			}
+			if tc.want && (a.DetectedBy != HeuristicBinary || a.Evidence != bin) {
+				t.Errorf("got %+v", a)
+			}
+		})
+	}
+}
+
+func TestDetect_PiRejectedBinaryStillDetectedByConfigDir(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".pi", "agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, map[string]string{"pi": "/usr/bin/pi"}, "linux")
+	stubVersion(t, "not pi\n", nil)
+	a := piAgent(t)
+	if !a.Installed || a.DetectedBy != HeuristicConfigDir || a.Evidence != filepath.Join(home, ".pi", "agent") {
+		t.Errorf("got %+v", a)
+	}
+}
+
+func TestDetect_ProbeOnlyAppliesToPi(t *testing.T) {
+	withStubs(t, t.TempDir(), map[string]string{"codex": "/usr/bin/codex"}, "linux")
+	stubVersion(t, "garbage", errors.New("must not run"))
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderCodex && !a.Installed {
+			t.Error("codex must not go through a version probe")
+		}
 	}
 }

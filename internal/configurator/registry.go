@@ -271,12 +271,39 @@ var descriptors = []Descriptor{
 		// reported as "Personal instructions" and nothing shadows it.
 		emit: emitCopilotServer,
 	},
+	{
+		Provider:           ProviderPi,
+		DisplayName:        "Pi",
+		MCPConfigPath:      PiConfigPath,
+		MCPFormat:          FormatJSON,
+		MCPServerKey:       "mcpServers",
+		DeletableWhenEmpty: true,
+		SupportsMCPHeaders: true,
+		// Not a flat tool namespace: the model sees mcp__<server>__<tool>
+		// (probed on Pi 1.5.0).
+		FlatToolNamespace: false,
+		Binaries:          []string{"pi"},
+		// PI_CODING_AGENT_DIR is deliberately not an EnvConfigDirs entry: every
+		// destination is relative to the user's home, and honouring one
+		// provider's home override would split the base-dir rule (D676, D755).
+		ConfigDirs: [][]string{{".pi", "agent"}},
+		// No AppDirs: a terminal program, `pi` on PATH is the detection (and
+		// internal/agents rejects a `pi` that is not Pi).
+		//
+		// AGENTS.override.md replaces AGENTS.md only in the same directory
+		// (docs/configuration.md of @earendil-works/pi-coding-agent).
+		InstructionsPrecedence: [][]string{
+			{".pi", "agent", "AGENTS.override.md"},
+			{".pi", "agent", "AGENTS.md"},
+		},
+		emit: emitPiServer,
+	},
 }
 
 // detectionOrder is the order `cartographer agents` and the TUI list agents
 // in. It differs from the registry order above and is equally user-visible:
 // both are preserved deliberately rather than unified (D137).
-var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderAntigravity, ProviderCrush, ProviderCopilot}
+var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderAntigravity, ProviderCrush, ProviderCopilot, ProviderPi}
 
 // Providers returns every supported provider's descriptor, in registry order.
 func Providers() []Descriptor {
