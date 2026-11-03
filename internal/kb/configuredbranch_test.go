@@ -13,12 +13,17 @@ import (
 // a teammate would: from a clone of their own.
 func commitBranchSetting(t *testing.T, bare, onBranch, value string) {
 	t.Helper()
+	commitRawSettings(t, bare, onBranch, "branch: "+value+"\n")
+}
+
+func commitRawSettings(t *testing.T, bare, onBranch, text string) {
+	t.Helper()
 	work := filepath.Join(t.TempDir(), "teammate")
 	gitIn(t, filepath.Dir(work), "clone", "-q", bare, work)
 	if onBranch != "main" {
 		gitIn(t, work, "checkout", "-q", "-b", onBranch, "origin/main")
 	}
-	if err := os.WriteFile(filepath.Join(work, SettingsFile), []byte("branch: "+value+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(work, SettingsFile), []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gitIn(t, work, "add", SettingsFile)
@@ -205,5 +210,70 @@ func TestConfiguredBranch_InvalidNameOnTheRemoteRefusesTheSync(t *testing.T) {
 	}
 	if got := k.ConfiguredBranch(); got != "" {
 		t.Fatalf("ConfiguredBranch = %q, want empty", got)
+	}
+}
+
+// A settings.yaml that does not parse but names a `branch` must refuse the
+// sync: reading it as "no setting" moved the KB to the default branch.
+func TestConfiguredBranch_UnparsableSettingsWithABranchKeyRefuseTheSync(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := remoteWithDefault(t)
+	commitRawSettings(t, bare, "main", "branch: kb-data\nsync: [unclosed\n")
+	_, err := k.SyncIn()
+	if err == nil || !strings.Contains(err.Error(), "not valid YAML") {
+		t.Fatalf("SyncIn error = %v, want a refusal for invalid YAML", err)
+	}
+	if got := k.BranchSource(); got == BranchSourceSettings {
+		t.Fatalf("branch source = %q", got)
+	}
+}
+
+// Without a `branch` key a typo elsewhere cannot name a branch and must not
+// block every write.
+func TestConfiguredBranch_UnparsableSettingsWithoutABranchKeyAreIgnored(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := remoteWithDefault(t)
+	commitRawSettings(t, bare, "main", "sync: [unclosed\n")
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
+	}
+}
+
+// A git that does not answer is an error, not an absent setting.
+func TestBranchSettingAt_ABadRefIsAnErrorAndAMissingFileIsNot(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, _ := remoteWithDefault(t)
+	if _, err := k.branchSettingAt("no-such-ref"); err == nil {
+		t.Fatal("an unknown ref was read as an absent setting")
+	}
+	if v, err := k.branchSettingAt("HEAD"); err != nil || v != "" {
+		t.Fatalf("missing settings.yaml: %q, %v", v, err)
+	}
+}
+
+// A write whose git status fails must say so, not report success without a SHA.
+func TestCommitOp_AGitFailureIsReported(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k := mustInitKB(t)
+	if err := os.WriteFile(filepath.Join(k.Root, ".git", "index"), []byte("garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.WriteFileAtomic("data/x.md", []byte("x\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.CommitOp("write x"); err == nil {
+		t.Fatal("CommitOp returned nil with a corrupt index")
 	}
 }

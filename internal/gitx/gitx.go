@@ -86,6 +86,21 @@ func IsRepo(dir string) bool {
 	return cmd.Run() == nil
 }
 
+// CheckRepo tells "this is not a repository" apart from "git refused to look":
+// IsRepo folds both into false, so a repository git declines to open (a changed
+// owner, "dubious ownership") reads as one that has nothing to commit. ok is
+// false with a nil error only when git says there is no repository.
+func CheckRepo(dir string) (ok bool, err error) {
+	out, runErr := runGit(dir, "rev-parse", "--git-dir")
+	if runErr == nil {
+		return true, nil
+	}
+	if strings.Contains(out, "not a git repository") {
+		return false, nil
+	}
+	return false, fmt.Errorf("git rev-parse --git-dir: %w: %s", runErr, strings.TrimSpace(out))
+}
+
 // ErrCloneTimeout reports that a clone was stopped by its context deadline
 // rather than failing on its own. The caller owns the remedy, since only it
 // knows the flag that changes the bound.
@@ -1209,6 +1224,24 @@ func ShowFile(dir, ref, path string) (string, error) {
 		return "", fmt.Errorf("git show %s:%s: %w: %s", ref, path, err, out)
 	}
 	return out, nil
+}
+
+// ShowFileIfExists is ShowFile that tells a path absent from ref (exists=false,
+// nil error) from every other failure (a bad ref, a damaged repository), which
+// is returned: an error must never be read as absence.
+func ShowFileIfExists(dir, ref, path string) (text string, exists bool, err error) {
+	out, err := runGit(dir, "ls-tree", "--name-only", "-z", ref, "--", path)
+	if err != nil {
+		return "", false, fmt.Errorf("git ls-tree %s -- %s: %w: %s", ref, path, err, out)
+	}
+	if out == "" {
+		return "", false, nil
+	}
+	text, err = ShowFile(dir, ref, path)
+	if err != nil {
+		return "", false, err
+	}
+	return text, true, nil
 }
 
 // MergeNoCommitNoFF runs "git merge --no-commit --no-ff <ref>" and reports whether the

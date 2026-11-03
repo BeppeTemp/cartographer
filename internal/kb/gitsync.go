@@ -183,21 +183,34 @@ func (k *KB) BranchSource() string {
 	return BranchSourceRemote
 }
 
+// topLevelBranchKey finds a `branch:` key at column 0 in a settings.yaml that
+// did not parse.
+var topLevelBranchKey = regexp.MustCompile(`(?m)^branch[ \t]*:`)
+
 // branchSettingAt reads the `branch` key of settings.yaml as committed on ref,
 // the remote's default branch. The working copy's file is ignored on purpose:
 // `branch` is a decision of the team, the same for every server that mounts the
 // KB, so a change made on another branch has no effect until it reaches the
-// default one. "" when the file, the key or the ref is absent or unreadable.
-// A `branch` that is present but not a valid branch name is an error, not "":
-// reading it as absent would send writes to the default branch the team meant
-// to keep clear of them.
+// default one. "" only when the file or the key is absent on ref. A failure to
+// read it is an error, never "absent" (a git that does not answer would send
+// writes to the default branch the team meant to keep clear of them), and so is
+// a `branch` that is present but not a valid branch name. A file that does not
+// parse is an error when its raw text carries a top-level `branch:` key (the
+// team set one, we cannot read it); otherwise it cannot name a branch, and a
+// typo in an unrelated key must not block every write.
 func (k *KB) branchSettingAt(ref string) (string, error) {
-	text, err := gitx.ShowFile(k.Root, ref, SettingsFile)
+	text, exists, err := gitx.ShowFileIfExists(k.Root, ref, SettingsFile)
 	if err != nil {
+		return "", fmt.Errorf("read %s on %s: %w", SettingsFile, ref, err)
+	}
+	if !exists {
 		return "", nil
 	}
 	s, bad, perr := ParseSettings([]byte(text))
 	if perr != nil {
+		if topLevelBranchKey.MatchString(text) {
+			return "", fmt.Errorf("%s on %s is not valid YAML (%v): writes are refused until it is fixed on the default branch", SettingsFile, ref, perr)
+		}
 		return "", nil
 	}
 	for _, m := range bad {
@@ -1020,12 +1033,22 @@ func (k *KB) CommitOp(message string) (sha string, err error) {
 // Empty values mean the KB's default identity (DefaultIdentity): the commit is
 // not a write, or the writer did not declare who it is.
 func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, err error) {
-	if !gitx.IsRepo(k.Root) {
+	// A repository git refuses to open (changed owner) is an error here, not
+	// "not a repo": the write would otherwise report success without a commit.
+	isRepo, repoErr := gitx.CheckRepo(k.Root)
+	if repoErr != nil {
+		return "", repoErr
+	}
+	if !isRepo {
 		return "", nil
 	}
 	status, err := gitx.Status(k.Root)
-	if err != nil || strings.TrimSpace(status) == "" {
-		// Either status check failed or working tree is clean — nothing to commit.
+	if err != nil {
+		// Never "nothing to commit": a git that does not answer leaves the
+		// write uncommitted, and gitWrap must say so (status failed + warning).
+		return "", err
+	}
+	if strings.TrimSpace(status) == "" {
 		return "", nil
 	}
 	if authorName == "" || authorEmail == "" {
