@@ -453,7 +453,7 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
     at load and is refused. A server name outside letters, digits, `_` and `-` is skipped by Pi
     and refused by the emitter.
   - `instructions` in `~/.pi/agent/AGENTS.md`; an `AGENTS.override.md` replaces `AGENTS.md` or
-    `CLAUDE.md` only in the same directory (`docs/configuration.md`), which is the declared
+    `CLAUDE.md` only in the same directory (the package's configuration page), which is the declared
     `InstructionsPrecedence`. Project: `AGENTS.md` (probe 2).
   - `skill` in `~/.pi/agent/skills/<name>/`.
   - `agent` unsupported (Pi has no subagents); `hook` unsupported until the generated extension
@@ -464,7 +464,7 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
     ship a `pi` (a shim forwarding to the real binary passes, an unrelated one does not).
 - **Probed on 1.5.0** (2026-11-03):
   1. A global `<agent-dir>/mcp.json` entry `{"command":"<cartographer>","args":["mcp","--provider","<id>"],"exposure":"direct"}`:
-     `pi mcp list` shows it connected with 49 tools (direct, global). In a session the tools are
+     `pi mcp list` shows it connected with its tools (direct, global). In a session the tools are
      `mcp__cartographer__<tool>` (the Claude Code form), a `search` call worked, and the bridge
      resolved the session folder's workspace binding (a KB bound only to that folder was
      reachable): the bridge is spawned in the session cwd.

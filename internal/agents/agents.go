@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // Heuristic names the probe that matched, so a caller can weigh the evidence
@@ -59,7 +60,7 @@ var (
 var runVersion = func(path string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	out, err := procattr.Hide(exec.CommandContext(ctx, path, "--version")).Output()
 	return string(out), err
 }
 

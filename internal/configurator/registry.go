@@ -291,7 +291,7 @@ var descriptors = []Descriptor{
 		// internal/agents rejects a `pi` that is not Pi).
 		//
 		// AGENTS.override.md replaces AGENTS.md only in the same directory
-		// (docs/configuration.md of @earendil-works/pi-coding-agent).
+		// (configuration page of the @earendil-works/pi-coding-agent docs).
 		InstructionsPrecedence: [][]string{
 			{".pi", "agent", "AGENTS.override.md"},
 			{".pi", "agent", "AGENTS.md"},

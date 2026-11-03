@@ -48,7 +48,8 @@ func TestApply_PiGlobalCells(t *testing.T) {
 		instructionsArtifact("kb-a", "KB content.\n"),
 		mcp, agent,
 	}}
-	opts := provisioning.ApplyOptions{Provider: configurator.ProviderPi, BaseDir: home, KBRoots: map[string]string{"kb": kbRoot}, SkipLockWrite: true}
+	opts := provisioning.ApplyOptions{Provider: configurator.ProviderPi, BaseDir: home, KBRoots: map[string]string{"kb": kbRoot}, SkipLockWrite: true,
+		ApprovedMCP: map[string]string{"kb:kb\x00wiki-tools": mcp.ContentHash}}
 	res, err := provisioning.Apply(m, opts)
 	if err != nil {
 		t.Fatal(err)
