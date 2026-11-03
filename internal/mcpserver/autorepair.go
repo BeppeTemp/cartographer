@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -70,7 +72,66 @@ func autoRepairLogPath(k *kb.KB) string {
 	return filepath.Join(k.Root, ".cartographer", autoRepairLogName)
 }
 
-// appendAutoRepairRun appends one run to the log. A failure to write it is
+// autoRepairLogRetention is how long a run stays in the log: older lines are
+// dropped when a run is appended, as lint-history.jsonl does. Empty runs are
+// still written (the Atlas "last run" stays truthful); only age prunes.
+const autoRepairLogRetention = 90 * 24 * time.Hour
+
+// autoRepairLogMaxLine bounds a log line a reader will hold; a longer one is
+// skipped, and reading goes on after it.
+const autoRepairLogMaxLine = 1 << 20
+
+// autoRepairFailureMax bounds the failure text of a run: it can be a whole
+// write-gate refusal or a git error, and it is repeated on every check line.
+const autoRepairFailureMax = 4 << 10
+
+// truncateFailure cuts s to autoRepairFailureMax bytes on a rune boundary.
+func truncateFailure(s string) string {
+	if len(s) <= autoRepairFailureMax {
+		return s
+	}
+	cut := autoRepairFailureMax
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "... (truncated)"
+}
+
+// readAutoRepairLines calls fn with each line of the log, in order. A line
+// longer than autoRepairLogMaxLine is skipped whole and reading goes on: one
+// oversize line must not freeze "last run" before it.
+func readAutoRepairLines(r io.Reader, fn func(line []byte)) {
+	br := bufio.NewReaderSize(r, 64*1024)
+	var cur []byte
+	over := false
+	for {
+		chunk, isPrefix, err := br.ReadLine()
+		if len(chunk) > 0 && !over {
+			if len(cur)+len(chunk) > autoRepairLogMaxLine {
+				over, cur = true, nil
+			} else {
+				cur = append(cur, chunk...)
+			}
+		}
+		if err != nil {
+			if !over && len(cur) > 0 {
+				fn(cur)
+			}
+			return
+		}
+		if isPrefix {
+			continue
+		}
+		if !over {
+			fn(cur)
+		}
+		cur, over = nil, false
+	}
+}
+
+// appendAutoRepairRun appends one run to the log and drops the lines older
+// than autoRepairLogRetention (the file is then rewritten through a temporary
+// file, so a crash never leaves half a log). A failure to write it is
 // reported, never fatal: the repair itself already happened.
 func appendAutoRepairRun(k *kb.KB, run autoRepairRun) error {
 	line, err := json.Marshal(run)
@@ -84,13 +145,67 @@ func appendAutoRepairRun(k *kb.KB, run autoRepairRun) error {
 	if fi, err := os.Lstat(p); err == nil && !fi.Mode().IsRegular() {
 		return fmt.Errorf("%s is not a regular file", p) // never write through a symlink (D148)
 	}
+	now, err := time.Parse(time.RFC3339, run.At)
+	if err != nil {
+		now = time.Now()
+	}
+	if kept, pruned := pruneAutoRepairLog(p, now.Add(-autoRepairLogRetention)); pruned {
+		return rewriteAutoRepairLog(p, append(kept, line))
+	}
 	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	_, err = f.Write(append(line, '\n'))
+	// On a network filesystem the write error can only show at close.
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
 	return err
+}
+
+// pruneAutoRepairLog returns the lines of the log at or after cutoff, and
+// whether any line had to go (older, unparseable or oversize).
+func pruneAutoRepairLog(p string, cutoff time.Time) (kept [][]byte, pruned bool) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	total := 0
+	readAutoRepairLines(f, func(line []byte) {
+		total++
+		var run autoRepairRun
+		if json.Unmarshal(line, &run) != nil {
+			return
+		}
+		if at, err := time.Parse(time.RFC3339, run.At); err != nil || at.Before(cutoff) {
+			return
+		}
+		kept = append(kept, append([]byte(nil), line...))
+	})
+	return kept, len(kept) != total
+}
+
+func rewriteAutoRepairLog(p string, lines [][]byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(p), autoRepairLogName+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	w := bufio.NewWriter(tmp)
+	for _, l := range lines {
+		w.Write(l)
+		w.WriteByte('\n')
+	}
+	if err := w.Flush(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), p)
 }
 
 // autoRepairRunsSince returns the runs logged at or after since, newest first,
@@ -102,18 +217,16 @@ func autoRepairRunsSince(k *kb.KB, since time.Time, limit int) []autoRepairRun {
 		return out
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for sc.Scan() {
+	readAutoRepairLines(f, func(line []byte) {
 		var run autoRepairRun
-		if json.Unmarshal(sc.Bytes(), &run) != nil || run.At == "" {
-			continue
+		if json.Unmarshal(line, &run) != nil || run.At == "" {
+			return
 		}
 		if at, err := time.Parse(time.RFC3339, run.At); err != nil || at.Before(since) {
-			continue
+			return
 		}
 		out = append(out, run)
-	}
+	})
 	// The log is appended in time order: newest first is the reverse.
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
@@ -133,14 +246,12 @@ func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 	defer f.Close()
 	var last autoRepairRun
 	found := false
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for sc.Scan() {
+	readAutoRepairLines(f, func(line []byte) {
 		var run autoRepairRun
-		if json.Unmarshal(sc.Bytes(), &run) == nil && run.At != "" {
+		if json.Unmarshal(line, &run) == nil && run.At != "" {
 			last, found = run, true
 		}
-	}
+	})
 	return last, found
 }
 
@@ -500,6 +611,7 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	case res.IsError:
 		failure = firstText(res)
 	}
+	failure = truncateFailure(failure)
 	for _, check := range checks {
 		entry := autoRepairCheck{Check: check, Error: failure}
 		if stats != nil {
