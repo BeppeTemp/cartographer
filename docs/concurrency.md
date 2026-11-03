@@ -250,7 +250,7 @@ A rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
   remote SHA with `log.md` and a curated `index.md` (the root's, or a map's without
   `index: generated`) set to the union of both sides, and the other structural
   files — a generated `index.md` included, which the next write regenerates — to
-  the remote's version (D1566). An expanded concept's `index.md` is its body, a
+  the remote's version (D311 amendment). An expanded concept's `index.md` is its body, a
   concept: its conflict is registered, never auto-resolved.
   The write goes on as if the pull had succeeded.
 - A reserved file that conflicts **alongside** a concept stays out of the

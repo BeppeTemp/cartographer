@@ -533,7 +533,7 @@ func resolveIndexConflict(t *testing.T, mapContract string) string {
 }
 
 // Two clones adding a concept to a curated index: both lines survive. The
-// remote side alone lost the local line silently (D1566).
+// remote side alone lost the local line silently (D311).
 func TestPullRebase_CuratedIndexKeepsBothSides(t *testing.T) {
 	t.Parallel()
 	if !haveGit() {
