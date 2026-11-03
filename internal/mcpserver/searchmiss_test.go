@@ -280,3 +280,133 @@ func TestSearchMiss_RecordMissTrueRecords(t *testing.T) {
 	t.Parallel()
 	assertRecorded(t, `{"query":"nothingmatches","record_miss":true}`, 1)
 }
+
+// A query far over the reader's line limit is cut when recorded: the log stays
+// readable and the earlier misses are still reported.
+func TestSearchMiss_LongQueryIsTruncated(t *testing.T) {
+	t.Parallel()
+	_, _, l := missFixture(t)
+	l.record("earlier miss")
+	l.record(strings.Repeat("è", 100*1024))
+	got := missLines(t, l)
+	if len(got) != 2 || got[0].Query != "earlier miss" {
+		t.Fatalf("entries = %d, want 2 with the earlier one first", len(got))
+	}
+	if n := len([]rune(got[1].Query)); n != searchMissQueryRunes {
+		t.Fatalf("stored query has %d runes, want %d", n, searchMissQueryRunes)
+	}
+	if top := l.top(); len(top) != 2 {
+		t.Fatalf("top = %+v", top)
+	}
+}
+
+// A file already poisoned by an over-long line is read past it, and accepts an
+// append after a restart.
+func TestSearchMiss_PoisonedLogHeals(t *testing.T) {
+	t.Parallel()
+	k, _, l := missFixture(t)
+	l.record("before")
+	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	huge, _ := json.Marshal(searchMiss{At: searchMissNow().UTC().Format(time.RFC3339), Query: strings.Repeat("x", 200*1024)})
+	f.Write(append(huge, '\n'))
+	f.Close()
+
+	restarted := newSearchMissLog(k)
+	restarted.record("after")
+	got := missLines(t, restarted)
+	if len(got) != 2 || got[0].Query != "before" || got[1].Query != "after" {
+		t.Fatalf("entries = %+v", got)
+	}
+	if top := restarted.top(); len(top) != 2 {
+		t.Fatalf("top = %+v", top)
+	}
+}
+
+// A miss of a search that did not look at the whole KB is not a gap of the KB.
+func TestSearchMiss_ScopedOrArchiveExcludedMissIsNotRecorded(t *testing.T) {
+	t.Parallel()
+	_, s, l := missFixture(t)
+	for _, a := range []string{
+		`{"query":"zzscopedmiss","scope":"manutenzione"}`,
+		`{"query":"zzarchivemiss","include_archived":false}`,
+	} {
+		if tr := s.callTool(authLocalContext(), "search", json.RawMessage(a)); tr.IsError {
+			t.Fatalf("%s: %+v", a, tr.Content)
+		}
+	}
+	if got := missLines(t, l); len(got) != 0 {
+		t.Fatalf("recorded = %+v, want none", got)
+	}
+	searchText(t, s, "zzwholemiss")
+	if got := missLines(t, l); len(got) != 1 {
+		t.Fatalf("a whole-KB miss must still be recorded, got %+v", got)
+	}
+}
+
+// top() re-checks a bounded number of queries even when all are resolved.
+func TestSearchMiss_TopBoundsItsRechecks(t *testing.T) {
+	t.Parallel()
+	_, _, l := missFixture(t)
+	for i := 0; i < 200; i++ {
+		l.record(fmt.Sprintf("query %d", i))
+	}
+	calls := 0
+	l.SetChecker(func(string) bool { calls++; return true })
+	l.top()
+	if calls != searchMissMaxChecks {
+		t.Fatalf("checker ran %d times, want %d", calls, searchMissMaxChecks)
+	}
+}
+
+// Queries past the re-check budget are flagged unchecked and sit between the
+// open ones and the resolved ones.
+func TestSearchMiss_UncheckedPastTheBudget(t *testing.T) {
+	t.Parallel()
+	_, _, l := missFixture(t)
+	for i := 0; i < searchMissMaxChecks+5; i++ {
+		l.record(fmt.Sprintf("query %03d", i))
+	}
+	// Every checked query is resolved except "query 000"; the rest is unreached.
+	l.SetChecker(func(q string) bool { return q != "query 000" })
+	top := l.top()
+	if len(top) != searchMissTop {
+		t.Fatalf("top has %d entries, want %d", len(top), searchMissTop)
+	}
+	if e := top[0]; e.Query != "query 000" || e.Resolved || e.Unchecked {
+		t.Fatalf("first must be the open query, got %+v", e)
+	}
+	// open, then unchecked, then resolved
+	phase := 0
+	sawUnchecked := false
+	for _, e := range top[1:] {
+		want := 2
+		if e.Unchecked {
+			want, sawUnchecked = 1, true
+			if e.Resolved {
+				t.Fatalf("unchecked and resolved: %+v", e)
+			}
+		}
+		if want < phase {
+			t.Fatalf("order must be open, unchecked, resolved: %+v", top)
+		}
+		phase = want
+	}
+	if !sawUnchecked {
+		t.Fatalf("no unchecked entry in %+v", top)
+	}
+}
+
+// include_archived: true looks at the whole KB, so its miss is recorded.
+func TestSearchMiss_IncludeArchivedTrueMissIsRecorded(t *testing.T) {
+	t.Parallel()
+	_, s, l := missFixture(t)
+	if tr := s.callTool(authLocalContext(), "search", json.RawMessage(`{"query":"zzarchivedtrue","include_archived":true}`)); tr.IsError {
+		t.Fatalf("%+v", tr.Content)
+	}
+	if got := missLines(t, l); len(got) != 1 || got[0].Query != "zzarchivedtrue" {
+		t.Fatalf("recorded = %+v, want the query", got)
+	}
+}

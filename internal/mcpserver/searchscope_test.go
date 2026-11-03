@@ -51,13 +51,14 @@ func TestSearchRefusesAScopeThatMatchesNothing(t *testing.T) {
 	if got := missLines(t, misses); len(got) != 0 {
 		t.Fatalf("an unmatched scope was recorded as a miss: %+v", got)
 	}
-	// A scope that matches concepts keeps today's answer, miss included.
+	// A scope that matches concepts keeps today's answer; its miss is not a gap
+	// of the KB and is not recorded.
 	out := decodeJSON(t, callOK(t, s, "search", `{"query":"zebrafish","scope":"manutenzione/"}`))
 	if out["count"].(float64) != 0 {
 		t.Fatalf("scoped empty search = %v", out)
 	}
-	if got := missLines(t, misses); len(got) != 1 {
-		t.Fatalf("a matched scope with no hit is a miss as before: %+v", got)
+	if got := missLines(t, misses); len(got) != 0 {
+		t.Fatalf("a scoped miss was recorded: %+v", got)
 	}
 	// A partial prefix is a prefix: it matches.
 	out = decodeJSON(t, callOK(t, s, "search", `{"query":"runbook","scope":"manut"}`))
