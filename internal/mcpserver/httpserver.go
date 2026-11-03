@@ -401,7 +401,9 @@ type MultiKBServer struct {
 	routedSetup   func(s *Server)
 	routedMu      sync.Mutex
 	routedViews   map[string]*Server
-	routedWarned  map[string]bool // "effective set|unknown" pairs already logged (D756)
+	routedWarned  map[string]bool // "effective set|unknown" pairs already logged (D756), at most routedWarnedMax
+	// routedWarnSuppressed counts the warnings dropped past that bound.
+	routedWarnSuppressed int
 	// routedAliases maps the old name of a renamed KB to its mounted target
 	// (kb_aliases, D772); see SetKBAliases.
 	routedAliases map[string]string
