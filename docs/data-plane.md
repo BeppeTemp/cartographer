@@ -223,6 +223,14 @@ A key whose value is empty and whose following lines are **indented** holds a ne
 example an agent's `providers:` map. The parser keeps those lines verbatim as an `okf.Block` value under
 that key instead of flattening them into sibling keys; it does not interpret them, and the serializer writes them back unchanged.
 
+The frontmatter subset the parser reads (D1573):
+
+- **Keys** are the text before the first `:` on a line at column 0. An **indented** line outside an open block is never a key: it is a continuation or comment, kept verbatim and removed with its key when that key is overwritten or deleted. The write tools refuse a key that is empty, holds `:`, `#` or a line break, starts or ends with whitespace, or starts with `- `, with `invalid_frontmatter` naming the key.
+- **Block scalars** (`|`, `>`, with `-`, `+` or an indentation digit) read as their logical string (literal keeps the line breaks, folded joins with a space; `-` strips and `+` keeps the final newlines). The text is kept verbatim: a write that does not change that key leaves it byte-identical; overwriting it replaces the block with a plain scalar.
+- **Inline comments**: an unquoted scalar ends at a `#` that starts the value or follows a space or tab, a quoted one at its closing quote, a flow list at its `]`. The comment is kept and written back while the value is unchanged; overwriting the key drops it. A hand-written `title: Fix bug #12` therefore reads `Fix bug`; the serializer quotes any value containing `#`.
+- A leading UTF-8 byte order mark is ignored (it disappears on the next write).
+- A scalar with Unicode whitespace at either edge (non-breaking space, `\v`, `\f`, U+2000…) is written quoted, so it reads back unchanged.
+
 The write tools (`concept_write`, `concept_batch`, `concept_patch` `frontmatter`) hold to the flat subset (D1313): a value that is a map, or a list holding a map or a list, is refused with `invalid_frontmatter` naming the key (flatten the keys or put the structure in the body); scalars and lists of scalars are unchanged. The serializer never renders an unknown type with `%v`. A JSON number in those frontmatter maps is written with the text it was sent with (`9007199254740993`, `1.10`, `1e21`), not through a float.
 
 ### Serialization guarantees
