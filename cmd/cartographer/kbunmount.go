@@ -281,7 +281,7 @@ func applyKBUnmount(p *unmountPlan) (backup string, err error) {
 			return cause
 		}
 		if data, rerr := os.ReadFile(backup); rerr == nil {
-			if werr := os.WriteFile(p.ConfigPath, data, 0o600); werr == nil {
+			if werr := config.WriteFileAtomic(p.ConfigPath, data); werr == nil {
 				return fmt.Errorf("%w (the server config was restored from %s)", cause, backup)
 			}
 		}
@@ -339,11 +339,7 @@ func editConfigForUnmount(path string, index int) error {
 	}
 	kbs := mapValue(doc.Content[0], "kbs")
 	kbs.Content = append(kbs.Content[:index], kbs.Content[index+1:]...)
-	out, err := yaml.Marshal(&doc)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, out, 0o600)
+	return config.WriteYAML(path, &doc)
 }
 
 // removeBindings drops name from every client and workspace binding of this

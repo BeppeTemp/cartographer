@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -149,44 +148,5 @@ func MigrateGitIdentity(configPath string) (bool, error) {
 	git.Content = append(git.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "identity"},
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name + " <" + email + ">", Style: yaml.DoubleQuotedStyle})
-	out, err := yaml.Marshal(&doc)
-	if err != nil {
-		return false, err
-	}
-	return true, writeFileAtomic(configPath, out)
-}
-
-// writeFileAtomic replaces the file at path (the file a symlink points to, when
-// it is one) with data through a temporary file in the same directory, keeping
-// its permission bits: a crash or a full disk leaves the old file, never a
-// truncated one that would turn authentication off.
-func writeFileAtomic(path string, data []byte) error {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
-	}
-	mode := os.FileMode(0o600)
-	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return true, WriteYAML(configPath, &doc)
 }

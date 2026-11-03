@@ -211,16 +211,7 @@ func DropKBAliasesKey(configPath string) error {
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		if root.Content[i].Value == "kb_aliases" {
 			root.Content = append(root.Content[:i], root.Content[i+2:]...)
-			out, err := yaml.Marshal(&doc)
-			if err != nil {
-				return err
-			}
-			info, serr := os.Stat(configPath)
-			mode := os.FileMode(0o600)
-			if serr == nil {
-				mode = info.Mode().Perm()
-			}
-			return os.WriteFile(configPath, out, mode)
+			return WriteYAML(configPath, &doc)
 		}
 	}
 	return nil

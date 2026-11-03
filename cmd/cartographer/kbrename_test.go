@@ -231,10 +231,12 @@ func TestApplyKBRename_RollsBackOnConfigFailure(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores the file mode this test relies on")
 	}
-	if err := os.Chmod(cfgPath, 0o400); err != nil {
+	// A read-only directory: the config is replaced through a temporary file
+	// beside it (#1501), so it is the directory that has to refuse the write.
+	if err := os.Chmod(cfgDir, 0o500); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(cfgPath, 0o600) })
+	t.Cleanup(func() { os.Chmod(cfgDir, 0o700) })
 
 	p := &renamePlan{
 		Old: "wiki", New: "atlas",
@@ -330,5 +332,24 @@ func TestRenameInList(t *testing.T) {
 		if got := renameInList(c.in, "wiki", "atlas"); !slices.Equal(got, c.want) {
 			t.Errorf("renameInList(%v) = %v, want %v", c.in, got, c.want)
 		}
+	}
+}
+
+// A rename edits the kbs[] entry without re-indenting the rest of a
+// hand-written config (D177, #1501).
+func TestRewriteServerConfig_KeepsTwoSpaceSequences(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	body := "auth:\n  tokens:\n    - name: a\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n    name: wiki\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := &renamePlan{Old: "wiki", New: "atlas", ConfigPath: path, EntryIndex: 0, NewPath: "/data/atlas"}
+	if err := rewriteServerConfig(p); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	want := "auth:\n  tokens:\n    - name: a\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n    name: atlas\n"
+	if string(got) != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

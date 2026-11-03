@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
@@ -181,15 +180,7 @@ func appendBranchEntry(configPath, remote, name, branch string) error {
 	default:
 		return fmt.Errorf("%s: kbs is not a list", configPath)
 	}
-	out, err := yaml.Marshal(doc)
-	if err != nil {
-		return err
-	}
-	mode := os.FileMode(0o600)
-	if fi, err := os.Stat(configPath); err == nil {
-		mode = fi.Mode().Perm()
-	}
-	return writeFileAtomic(configPath, out, mode)
+	return config.WriteYAML(configPath, doc)
 }
 
 // readFileMode returns the content and permission bits of path.
@@ -200,26 +191,4 @@ func readFileMode(path string) ([]byte, os.FileMode, error) {
 	}
 	b, err := os.ReadFile(path)
 	return b, fi.Mode().Perm(), err
-}
-
-// writeFileAtomic replaces path with data through a temporary file in the same
-// directory and a rename, so a crash never leaves the server file half written.
-func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }
