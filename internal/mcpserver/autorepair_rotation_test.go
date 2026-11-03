@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -83,5 +85,29 @@ func TestRotateIDs(t *testing.T) {
 	cur = "c"
 	if got = rotateIDs(ids, 9, &cur); len(got) != 5 || cur != "" {
 		t.Fatalf("everything fits: %v cursor %q", got, cur)
+	}
+}
+
+// A run whose commit fails does not move the cursor: the next run must not
+// skip the slots the failed one never committed.
+func TestAutoRepairCursorKeptOnlyWhenTheRunHolds(t *testing.T) {
+	t.Parallel()
+	k, s := repairKB(t, 3)
+	s.autoRepairQuota = 1
+	lock := filepath.Join(k.Root, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := s.runAutoRepairQuota(context.Background())
+	if len(run.Checks) == 0 || run.Checks[0].Commit != "" {
+		t.Fatalf("the injected failure did not stop the commit: %+v", run)
+	}
+	if s.autoRepairCursor != "" {
+		t.Fatalf("cursor moved to %q on a failed run", s.autoRepairCursor)
+	}
+	os.Remove(lock)
+	s.runAutoRepairQuota(context.Background())
+	if s.autoRepairCursor == "" {
+		t.Fatal("cursor not kept after a run that committed")
 	}
 }

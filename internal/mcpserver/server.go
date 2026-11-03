@@ -87,6 +87,8 @@ type Server struct {
 	// stage processed while more than a quota qualified; the next run resumes
 	// after it. In memory only; touched under the KB lock.
 	autoRepairCursor string
+	// autoRepairQuota overrides autoRepairLimit when positive (tests).
+	autoRepairQuota int
 	// kbArtifacts is what the UI API's artifact routes need beside kbRef to
 	// list the KB's artifacts as artifact_list and sync do (D238): the
 	// artifact signer. Set with kbRef.

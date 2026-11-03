@@ -230,6 +230,15 @@ func (s *Server) autoRepairLoop(ctx context.Context, interval, delay time.Durati
 	}
 }
 
+// autoRepairQuotaOr is the per-stage quota: autoRepairLimit unless a test set
+// a smaller one.
+func (s *Server) autoRepairQuotaOr() int {
+	if s.autoRepairQuota > 0 {
+		return s.autoRepairQuota
+	}
+	return autoRepairLimit
+}
+
 // rotateIDs picks at most quota of the sorted ids, starting after *cursor and
 // wrapping around. When everything fits it returns the ids unchanged and
 // resets the cursor: there is nothing to rotate.
@@ -514,12 +523,15 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	}
 	checks := lint.AutoRepairChecks()
 	var stats *stagedRepair
+	// The cursor moves with the run, and is kept only if the run's commit
+	// held: a rolled-back run must not make the next one skip its slots.
+	nextCursor := s.autoRepairCursor
 	// Named kb_repair so the commit, audit and authorization treat it as the
 	// repair it is; it is not registered, so tools/list does not change.
 	tool := gitWrap(k, Tool{
 		Name: "kb_repair",
 		Handler: func(requestContext, json.RawMessage) (ToolResult, error) {
-			stats = stagedAutoRepairFrom(ctx, k, checks, autoRepairLimit, &s.autoRepairCursor)
+			stats = stagedAutoRepairFrom(ctx, k, checks, s.autoRepairQuotaOr(), &nextCursor)
 			res := ToolResult{Content: textResult("{}").Content}
 			if len(stats.renames) > 0 {
 				if _, err := renameInContracts(k, stats.renames); err != nil {
@@ -566,6 +578,11 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		if entry.Applied > 0 {
 			fmt.Fprintf(os.Stderr, "cartographer: auto-repair %s on %s: %d concept(s) repaired (%s)\n", check, kbName(k), entry.Applied, shortSHA(entry.Commit))
 		}
+	}
+	// A run that rewrote concepts but produced no commit (the commit failed,
+	// which gitWrap logs without returning) did not hold either.
+	if failure == "" && (stats == nil || stats.total() == 0 || res.CommitSHA != "") {
+		s.autoRepairCursor = nextCursor
 	}
 	if failure != "" {
 		fmt.Fprintf(os.Stderr, "cartographer: auto-repair on %s: %s\n", kbName(k), failure)
