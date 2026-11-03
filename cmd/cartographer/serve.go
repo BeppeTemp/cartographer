@@ -386,10 +386,16 @@ func runServe(cfg *config.Config) {
 	}
 
 	latestVersion := startServerUpdateCheck(cfg, version)
+	bootCtx, stopBoot := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	bootstrapContext = bootCtx
 	if cfg.HTTP != "" {
+		// serveHTTP installs its own signal handler; the context only stops a
+		// bootstrap clone when the server is asked to end.
 		serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.Web.Enabled, auditLog, latestVersion, cfg)
 	} else {
 		bs := bootstrapKBs(cfg, func(string) {})
+		// Bootstrap is over: give Ctrl-C back its default effect.
+		stopBoot()
 		serveStdio(bs.kbs[0], bs.artifactSigners[0], bs.sqlIdxs, auditLog, latestVersion)
 	}
 }
