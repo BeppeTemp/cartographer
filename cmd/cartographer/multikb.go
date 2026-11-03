@@ -824,8 +824,8 @@ func isEntryUnchangedIn(provider string, d configurator.Descriptor, entries []mc
 			}
 		}
 		block := configurator.CodexMCPBlockBegin + "\n" + strings.TrimRight(strings.Join(parts, "\n"), "\n") + "\n" + configurator.CodexMCPBlockEnd + "\n"
-		rep, ok := blocktext.ReplaceBetween(string(data), configurator.CodexMCPBlockBegin, configurator.CodexMCPBlockEnd, block)
-		return ok && rep == string(data)
+		rep, outcome := blocktext.ReplaceBlock(string(data), configurator.CodexMCPBlockBegin, configurator.CodexMCPBlockEnd, block)
+		return outcome == blocktext.Found && rep == string(data)
 	}
 	r, _, err := emitMCPEntry(provider, e, auth, tokenEnv)
 	if err != nil || r == nil {

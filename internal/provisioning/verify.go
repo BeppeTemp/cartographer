@@ -19,9 +19,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 )
@@ -389,15 +389,23 @@ func managedEntryPresent(mf ManagedFile, provider configurator.Provider, baseDir
 	}
 
 	if mf.Kind == "instructions" {
-		content := string(data)
-		return strings.Contains(content, instructionsBlockBeginPrefix) && strings.Contains(content, instructionsBlockEnd), nil
+		// A corrupted block is not "unregistered": the heal would append a second
+		// one. It is reported as an error that points to doctor (#1502).
+		_, outcome := replaceBetweenMarkers(string(data), "")
+		if outcome == blocktext.Corrupted {
+			return false, fmt.Errorf("%s: %w; fix the markers by hand (`cartographer doctor` lists the file)", mf.Path, ErrCorruptedBlock)
+		}
+		return outcome == blocktext.Found, nil
 	}
 
 	// mcp: a TOML managed block, or a key in the provider's server map.
 	if filepath.Ext(full) == ".toml" {
 		begin, end := mcpServerMarkers(mf.Name)
-		content := string(data)
-		return strings.Contains(content, begin) && strings.Contains(content, end), nil
+		_, outcome := blocktext.ReplaceBlock(string(data), begin, end, "")
+		if outcome == blocktext.Corrupted {
+			return false, fmt.Errorf("%s: %w; fix the markers by hand (`cartographer doctor` lists the file)", mf.Path, ErrCorruptedBlock)
+		}
+		return outcome == blocktext.Found, nil
 	}
 	settings, err := loadJSONObject(full)
 	if err != nil {

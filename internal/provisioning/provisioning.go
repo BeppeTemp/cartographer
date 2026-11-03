@@ -32,6 +32,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
+	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -2675,8 +2676,24 @@ func kbSectionEnd(name string) string { return fmt.Sprintf("<!-- cartographer:kb
 // instructions.md may open with its own "#" heading, and nesting it under a
 // generated "##" would force Cartographer to demote it.
 func wrapKBSection(name, content string) string {
-	return kbSectionBegin(name) + "\n" + content + "\n" + kbSectionEnd(name)
+	return kbSectionBegin(name) + "\n" + neutralizeBlockMarkers(content) + "\n" + kbSectionEnd(name)
 }
+
+// neutralizeBlockMarkers rewrites every occurrence of a marker opener of the
+// instructions block (`<!-- cartographer:instructions:`) or of a KB section
+// (`<!-- cartographer:kb:`) in a KB's own text, so a KB that documents
+// Cartographer and quotes a marker line cannot forge a boundary: the block is
+// located by whole marker lines, and a quoted end would otherwise leave the old
+// tail outside the block on the next rewrite (#1502). Deterministic and
+// idempotent (the replacement matches neither opener), so the rewrite converges.
+func neutralizeBlockMarkers(content string) string {
+	return blockMarkerQuote.Replace(content)
+}
+
+var blockMarkerQuote = strings.NewReplacer(
+	"<!-- cartographer:instructions:", "<!-- cartographer-quoted:instructions:",
+	"<!-- cartographer:kb:", "<!-- cartographer-quoted:kb:",
+)
 
 // applyInstructionsGroup materializes the "instructions" kind (D56) as a
 // GROUP — unlike every other kind, which is materialized per-artifact.
@@ -2881,7 +2898,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// same file stays (D364): Codex, OpenCode and Antigravity share AGENTS.md.
 		if !opts.DryRun && !opts.CoOwnedPaths[filepath.ToSlash(destRel)] {
 			if err := removeInstructionsBlock(opts.BaseDir, fullPath); err != nil {
-				if !errors.Is(err, ErrSymlinkDestination) {
+				if !isRefusal(err) {
 					return fmt.Errorf("provisioning: remove instructions block %s: %w", destRel, err)
 				}
 				// Refused (D148): the sections stay in the lockfile and are
@@ -2946,7 +2963,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		changed, err := writeInstructionsBlockChanged(opts.BaseDir, fullPath, body)
 		unchanged = err == nil && !changed
 		if err != nil {
-			if !errors.Is(err, ErrSymlinkDestination) {
+			if !isRefusal(err) {
 				return fmt.Errorf("provisioning: write instructions block %s: %w", destRel, err)
 			}
 			// Refused (D148): per artifact, like a skill. None of the sections is
@@ -3054,8 +3071,8 @@ func fileImportsAgentsMDOutsideBlock(path string) bool {
 	}
 	content := string(data)
 	// Strip the managed block so only the user's own text is checked.
-	stripped, ok := replaceBetweenMarkers(content, "")
-	if !ok {
+	stripped, outcome := replaceBetweenMarkers(content, "")
+	if outcome != blocktext.Found {
 		stripped = content
 	}
 	return containsAgentsMDImport(stripped)
@@ -3504,8 +3521,11 @@ func writeInstructionsBlockChanged(baseDir, path, body string) (bool, error) {
 		return false, err
 	}
 	content := string(data)
-	next, ok := replaceBetweenMarkers(content, block)
-	if !ok {
+	next, outcome := replaceBetweenMarkers(content, block)
+	switch outcome {
+	case blocktext.Corrupted:
+		return false, fmt.Errorf("%s: %w; left untouched, fix the markers by hand (`cartographer doctor` lists the file)", path, ErrCorruptedBlock)
+	case blocktext.Absent:
 		next = appendBlock(content, block)
 	}
 	if next == content {
@@ -3532,8 +3552,11 @@ func removeInstructionsBlock(baseDir, path string) error {
 	}
 
 	content := string(data)
-	stripped, ok := replaceBetweenMarkers(content, "")
-	if !ok {
+	stripped, outcome := replaceBetweenMarkers(content, "")
+	if outcome == blocktext.Corrupted {
+		return fmt.Errorf("%s: %w; left untouched, fix the markers by hand (`cartographer doctor` lists the file)", path, ErrCorruptedBlock)
+	}
+	if outcome != blocktext.Found {
 		return nil
 	}
 	if err := safewrite.CheckPath(baseDir, path); err != nil {
@@ -3545,13 +3568,26 @@ func removeInstructionsBlock(baseDir, path string) error {
 	return writeFileNoFollow(path, []byte(stripped), 0o644)
 }
 
-// replaceBetweenMarkers returns content with the text between instructionsBlockBegin
-// and instructionsBlockEnd (markers included, plus a single trailing newline if
-// present) replaced by replacement, and true, if both markers appear in that
-// order; otherwise content unchanged and false. replacement == "" is equivalent
-// to removing the block.
-func replaceBetweenMarkers(content, replacement string) (string, bool) {
-	return replaceBlock(content, instructionsBlockBeginPrefix, instructionsBlockEnd, replacement)
+// replaceBetweenMarkers returns content with the instructions block (markers
+// included, plus a single trailing newline) replaced by replacement, and
+// blocktext.Found; blocktext.Absent when no marker line is there; and
+// blocktext.Corrupted, content unchanged, when the file does not hold exactly one
+// begin line followed by one end line (blocktext.ReplaceBlock: the one copy of the
+// locator, #1502). replacement == "" removes the block.
+func replaceBetweenMarkers(content, replacement string) (string, blocktext.Outcome) {
+	return blocktext.ReplaceBlock(content, instructionsBlockBegin, instructionsBlockEnd, replacement)
+}
+
+// ErrCorruptedBlock is the refusal for a managed block that is not exactly one
+// begin followed by one end: the file is left untouched and the artifact is
+// reported, never written (D214; `cartographer doctor` lists the file).
+var ErrCorruptedBlock = blocktext.ErrCorruptedBlock
+
+// isRefusal reports whether err is a per-artifact refusal the pass survives
+// (a symlinked destination, D148, or a corrupted marker block) rather than a
+// failure that stops it.
+func isRefusal(err error) bool {
+	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock)
 }
 
 // replaceBlock is replaceBetweenMarkers over an arbitrary marker pair: the
@@ -3699,7 +3735,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 	// whether the pass carries on with the next one. The file is left out of
 	// the returned list; anything else is a real error and stays fatal.
 	refused := func(mf ManagedFile, err error) bool {
-		if !errors.Is(err, ErrSymlinkDestination) {
+		if !isRefusal(err) {
 			return false
 		}
 		refusals = append(refusals, PruneRefusal{File: mf, Err: err})
@@ -3720,7 +3756,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 			err, seen := blockResult[fullPath]
 			if !seen {
 				err = removeInstructionsBlock(baseDir, fullPath)
-				if err == nil || errors.Is(err, ErrSymlinkDestination) {
+				if err == nil || isRefusal(err) {
 					blockResult[fullPath] = err
 				}
 				if err == nil {
@@ -3750,7 +3786,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 				if provider := mcpProviderFromPath(mf.Path); provider != "" {
 					err = removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path))
 				}
-				if err == nil || errors.Is(err, ErrSymlinkDestination) {
+				if err == nil || isRefusal(err) {
 					mcpResult[mcpKey] = err
 				}
 			}
@@ -3769,7 +3805,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 			err, seen := hookResult[mf.Name]
 			if !seen {
 				err = removeHookRegistration(baseDir, mf, claudeSettings)
-				if err == nil || errors.Is(err, ErrSymlinkDestination) {
+				if err == nil || isRefusal(err) {
 					hookResult[mf.Name] = err
 				}
 			}
@@ -3844,8 +3880,10 @@ func dryRunPruneCheck(baseDir string, mf ManagedFile) error {
 		if err != nil {
 			return nil
 		}
-		if _, ok := replaceBetweenMarkers(string(data), ""); !ok {
+		if _, outcome := replaceBetweenMarkers(string(data), ""); outcome == blocktext.Absent {
 			return nil
+		} else if outcome == blocktext.Corrupted {
+			return fmt.Errorf("%s: %w", mf.Path, ErrCorruptedBlock)
 		}
 	} else if _, err := os.Lstat(fullPath); err != nil {
 		return nil
