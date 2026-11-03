@@ -764,7 +764,10 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   description does not contain it (case-insensitive substring, so `ops` matches `DevOps`).
 - `legacy_path` (per concept, fix `replace_prefix`): a concept body contains
   a prefix declared in `instructions.md` `legacy_paths`. One finding per prefix found; the repair
-  rewrites every occurrence, all prefixes in one pass, longest first.
+  rewrites the occurrences that start a path, all prefixes in one pass, longest first. Code
+  (fenced blocks and code spans) and URLs are never touched, nor a word that merely contains the
+  prefix (`mywiki/`); a prefix without a trailing `/` must end a path segment (`/srv/app` is not
+  `/srv/application`). The finding and the repair use the same matcher, so a repaired page is clean.
 
 The Atlas Artifacts panel shows these findings beside each artifact (`docs/deployment.md`).
 

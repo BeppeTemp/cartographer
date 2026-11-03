@@ -632,7 +632,7 @@ func sopsFileArg(cmd string) string {
 func legacyPathFindings(body, path string, mapping []legacyPath) []Finding {
 	var findings []Finding
 	for _, lp := range mapping {
-		if !strings.Contains(body, lp.from) {
+		if len(FindPathPrefixes(body, []string{lp.from})) == 0 {
 			continue
 		}
 		findings = append(findings, newFinding("legacy_path", Finding{
