@@ -2012,16 +2012,22 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 	// Refuse before any file moves, naming every such linker.
 	if rewriteLinks {
 		var olds []okf.ConceptID
+		allMoves := map[string]string{}
 		for _, vm := range valid {
-			for old := range vm.mappings {
+			for old, moved := range vm.mappings {
 				olds = append(olds, okf.ConceptID(old))
+				allMoves[old] = moved
 			}
 		}
 		var bad []string
-		if err := k.WalkConceptsLinkingTo(olds, nil, func(id okf.ConceptID, _, content string) error {
-			fmRaw, _, _ := okf.SplitFrontmatter(content)
+		if err := k.WalkConceptsLinkingTo(olds, nil, func(id okf.ConceptID, basePath, content string) error {
+			fmRaw, body, _ := okf.SplitFrontmatter(content)
 			if _, perr := okf.ParseFrontmatter(fmRaw); perr != nil {
-				bad = append(bad, fmt.Sprintf("%s (%v)", id, perr))
+				// Only a linker with a link to rewrite fails the pass later
+				// (rewriteBacklinks skips one with nothing to do).
+				if _, n := kb.RewriteLinks(body, basePath, allMoves, k.AssetExists); n > 0 {
+					bad = append(bad, fmt.Sprintf("%s (%v)", id, perr))
+				}
 			}
 			return nil
 		}); err != nil {
