@@ -991,3 +991,49 @@ func TestApplyUnreadableConfigIsNotOverwritten(t *testing.T) {
 		t.Errorf("file changed: %s", got)
 	}
 }
+
+// #1502: connect then disconnect leaves a client config the user keeps in its own
+// layout byte for byte: key order, tab indent, CRLF, a big integer, `&&` and the
+// final newline. The merge and the removal used to round-trip through a sorted
+// map and MarshalIndent.
+func TestApplyThenRemoveKeepsTheUsersLayout(t *testing.T) {
+	for name, tc := range map[string]struct {
+		provider configurator.Provider
+		file     string
+	}{
+		"claude": {configurator.ProviderClaudeCode, ".claude.json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := filepath.Join(dir, tc.file)
+			if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			orig := "{\r\n\t\"zeta\": 12345678901234567890,\r\n\t\"alpha\": {\r\n\t\t\"cmd\": \"a && b > c\"\r\n\t}\r\n}\r\n"
+			if err := os.WriteFile(cfg, []byte(orig), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			sc := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+			r, err := configurator.Emit(sc, tc.provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
+				t.Fatal(err)
+			}
+			merged, _ := os.ReadFile(cfg)
+			if !strings.Contains(string(merged), "wiki") || !strings.Contains(string(merged), "12345678901234567890") || !strings.Contains(string(merged), "a && b > c") || strings.Contains(strings.ReplaceAll(string(merged), "\r\n", ""), "\n") {
+				t.Fatalf("the merge damaged the layout:\n%q", merged)
+			}
+			if strings.Index(string(merged), "zeta") > strings.Index(string(merged), "alpha") {
+				t.Errorf("key order changed:\n%q", merged)
+			}
+			if _, err := configurator.Remove(sc, tc.provider, dir, false); err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := os.ReadFile(cfg); string(got) != orig {
+				t.Errorf("after connect and disconnect:\n%q\nwant\n%q", got, orig)
+			}
+		})
+	}
+}

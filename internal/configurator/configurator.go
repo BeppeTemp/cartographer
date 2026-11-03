@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
+	"github.com/BeppeTemp/cartographer/internal/jsonorder"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -478,8 +479,10 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 		return false, fmt.Errorf("read %s: %w", fullPath, err)
 	}
 
-	var root map[string]any
-	if err := json.Unmarshal(data, &root); err != nil {
+	// Ordered: the file is shared state (.claude.json) or a user's config, and
+	// removing our entry must not reorder, reindent or re-escape the rest (#1502).
+	root, layout, err := jsonorder.Parse(data)
+	if err != nil {
 		return false, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, err)
 	}
 
@@ -547,7 +550,7 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 		return true, nil
 	}
 
-	out, err := json.MarshalIndent(root, "", "  ")
+	out, err := jsonorder.Marshal(root, layout)
 	if err != nil {
 		return false, err
 	}
@@ -633,8 +636,10 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 // Returns an error if existing is malformed JSON (user must fix or delete the file).
 // If incoming cannot be parsed, incoming bytes are returned as-is.
 func mergeJSON(existing, incoming []byte) ([]byte, error) {
-	var existMap map[string]any
-	if err := json.Unmarshal(existing, &existMap); err != nil {
+	// Ordered, in the file's own layout (#1502): key order, indent, CRLF, the
+	// final newline and number digits survive the merge.
+	existMap, layout, err := jsonorder.Parse(existing)
+	if err != nil {
 		return nil, err
 	}
 	var incomMap map[string]any
@@ -643,7 +648,7 @@ func mergeJSON(existing, incoming []byte) ([]byte, error) {
 	}
 	jsonDeepMerge(existMap, incomMap)
 	dropSupersededURLKeys(existMap, incomMap)
-	return json.MarshalIndent(existMap, "", "  ")
+	return jsonorder.Marshal(existMap, layout)
 }
 
 // dropSupersededURLKeys removes "serverUrl" from every server entry that the
