@@ -234,11 +234,21 @@ func (m *Manager) installLinux(binPath, configPath string) error {
 		return fmt.Errorf("service: write unit: %w", err)
 	}
 
+	// `enable --now` leaves a running unit alone: the old process, binary and
+	// config would stay in service under an "installed and started" message.
+	_, activeErr := m.run("systemctl", "--user", "is-active", systemdUnit)
+	wasActive := activeErr == nil
+
 	if _, err := m.run("systemctl", "--user", "daemon-reload"); err != nil {
 		return fmt.Errorf("service: systemctl daemon-reload: %w", err)
 	}
 	if _, err := m.run("systemctl", "--user", "enable", "--now", systemdUnit); err != nil {
 		return fmt.Errorf("service: systemctl enable --now: %w", err)
+	}
+	if wasActive {
+		if _, err := m.run("systemctl", "--user", "restart", systemdUnit); err != nil {
+			return fmt.Errorf("service: systemctl restart: %w", err)
+		}
 	}
 	return nil
 }
@@ -640,7 +650,7 @@ func extractPlistBinary(data []byte) (string, error) {
 	if first == nil || len(first[1]) == 0 {
 		return "", fmt.Errorf("ProgramArguments has no program")
 	}
-	return string(first[1]), nil
+	return xmlUnescape(string(first[1])), nil
 }
 
 func extractUnitBinary(data []byte) (string, error) {
@@ -669,18 +679,12 @@ func extractTaskBinary(data []byte) (string, error) {
 // SwitchBinary rewrites the installed service definition to run this
 // executable and reloads the job, keeping the config the definition names. It
 // is Install on that config, so the whole definition is re-rendered (hand edits
-// to it are replaced, directories and PATH are recreated as install does); on Linux, where `enable --now` leaves a running
-// unit alone, it also restarts it so the new program is the one serving.
+// to it are replaced, directories and PATH are recreated as install does); a
+// running unit is restarted by Install itself, so the new program is the one
+// serving.
 func (m *Manager) SwitchBinary(configPath string) error {
-	if _, err := m.Install(InstallOptions{ConfigPath: configPath}); err != nil {
-		return err
-	}
-	if goos == "linux" {
-		if _, err := m.run("systemctl", "--user", "restart", systemdUnit); err != nil {
-			return fmt.Errorf("service: systemctl restart: %w", err)
-		}
-	}
-	return nil
+	_, err := m.Install(InstallOptions{ConfigPath: configPath})
+	return err
 }
 
 var (
@@ -700,7 +704,7 @@ func extractPlistConfigPath(data []byte) (string, error) {
 	matches := plistStringRe.FindAllSubmatch(m[1], -1)
 	args := make([]string, len(matches))
 	for i, s := range matches {
-		args[i] = string(s[1])
+		args[i] = xmlUnescape(string(s[1]))
 	}
 	return configArgAfter(args)
 }

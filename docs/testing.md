@@ -39,6 +39,7 @@ Three tests in `internal/mcpserver` guard what a tool result costs (D1185). `Tes
 `TestWin32PointersStayAlive` (`internal/tray`, parse-only, every OS) pins that `call` in `tray_windows.go` carries `//go:uintptrescapes` and that every `uintptr(unsafe.Pointer(...))` of the file is an argument of `call` or `syscall.SyscallN`; the memory effect itself cannot be tested.
 
 `TestStopTray_ClosesTheWindowBeforeStoppingTheTask` (`internal/service`) pins that the tray is asked to close its window before `Stop-ScheduledTask`, and that the task is still stopped when no window answers; `TestRequestTrayClose` (Windows leg) checks a window of the tray's class receives `WM_CLOSE`.
+`TestLaunchdPlists_EscapeXML` (`internal/service`) renders both launchd plists with `&`, `<` and a space in the paths, parses them with `encoding/xml` and reads the paths back through the extractors; `TestLaunchdPlists_PassPlutil` runs `plutil -lint` on macOS. `TestInstall_Linux_RestartsAnActiveUnit` pins, on the stub runner, that a first install makes no `restart` call and a reinstall of an active unit restarts after `daemon-reload`.
 
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).

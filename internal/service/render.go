@@ -95,7 +95,7 @@ func RenderLaunchdPlist(binPath, configPath, logPath string) string {
 	<string>%s</string>
 </dict>
 </plist>
-`, binPath, configPath, servicePATH(binPath), logPath, logPath)
+`, xmlEscape(binPath), xmlEscape(configPath), xmlEscape(servicePATH(binPath)), xmlEscape(logPath), xmlEscape(logPath))
 }
 
 // RenderSystemdUnit renders the systemd user unit that runs
