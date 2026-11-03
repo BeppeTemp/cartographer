@@ -22,7 +22,7 @@ import (
 var trayGOOS = runtime.GOOS
 
 // cmdTray runs the status icon: a separate process from `serve` (D1482), so it
-// stays visible, red, when the server is down and can restart it. It reads
+// stays visible, shown stopped, when the server is down and can restart it. It reads
 // /health and acts only through service.Manager and the OS "open".
 func cmdTray(args []string) int {
 	// Before anything touches a file: there is no tray to run elsewhere.
@@ -40,6 +40,14 @@ func cmdTray(args []string) int {
 	if *interval < tray.MinInterval {
 		fmt.Fprintf(os.Stderr, "Error: --interval must be at least %s\n", tray.MinInterval)
 		return exitStatusError
+	}
+
+	// Before the log is opened and the first poll runs: a second tray on macOS
+	// exits 0 without a line in the shared log.
+	release, second := tray.SingleInstance()
+	defer release()
+	if second {
+		return 0
 	}
 
 	if *logFile != "" {

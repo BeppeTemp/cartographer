@@ -108,7 +108,8 @@ func pool(fn func()) {
 	fn()
 }
 
-// Run implements UI.
+// Run implements UI. The single-instance guard is SingleInstance, taken by
+// cmdTray before the first poll.
 func (u *macUI) Run(menu Menu, updates <-chan Snapshot, onAction func(Action)) error {
 	u.menu, u.onAction = menu, onAction
 	// AppKit (which pulls in Foundation) must be loaded before the first pool:

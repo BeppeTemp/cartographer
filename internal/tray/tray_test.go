@@ -398,3 +398,33 @@ func TestRunRefreshesAgentsSparingly(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// A permanent Status() error is logged once, not on every tick: again only
+// when the message changes or after a success.
+func TestSnapshotLogsARepeatedStatusErrorOnce(t *testing.T) {
+	var logged []string
+	f := &fakeEnv{sErr: errors.New("no usable --config"), ticks: make(chan time.Time)}
+	d := f.deps()
+	d.Logf = func(format string, args ...any) { logged = append(logged, format) }
+	var good *service.Status
+	var lastErr string
+
+	for range 101 {
+		d.snapshot(&good, &lastErr)
+	}
+	if len(logged) != 1 {
+		t.Fatalf("101 ticks with one error logged %d lines, want 1", len(logged))
+	}
+	f.set(func() { f.sErr = errors.New("another error") })
+	d.snapshot(&good, &lastErr)
+	if len(logged) != 2 {
+		t.Fatalf("a different error logged %d lines in total, want 2", len(logged))
+	}
+	f.set(func() { f.sErr = nil })
+	d.snapshot(&good, &lastErr)
+	f.set(func() { f.sErr = errors.New("another error") })
+	d.snapshot(&good, &lastErr)
+	if len(logged) != 3 {
+		t.Fatalf("the same error after a success logged %d lines in total, want 3", len(logged))
+	}
+}

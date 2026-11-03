@@ -82,3 +82,13 @@ func TestFeedClosePostsQuit(t *testing.T) {
 	}
 	<-finished
 }
+
+// Left-click opens the menu as on macOS; the double-click message has no
+// action, because the first click already opened the modal menu.
+func TestTrayMessageOpensMenu(t *testing.T) {
+	for msg, want := range map[uint32]bool{wmLButtonUp: true, wmRButtonUp: true, 0x0203: false, 0x0201: false} {
+		if got := trayMessageOpensMenu(msg); got != want {
+			t.Errorf("message %#x opens the menu = %v, want %v", msg, got, want)
+		}
+	}
+}
