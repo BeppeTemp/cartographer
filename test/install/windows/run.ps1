@@ -33,7 +33,10 @@ function Check([bool]$ok, [string]$m) { if ($ok) { Pass $m } else { Fail $m } }
 # --- fixture release server --------------------------------------------------
 $root = Join-Path ([IO.Path]::GetTempPath()) ("cg-install-test-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $root 'srv\api') -Force | Out-Null
-"[{`"tag_name`": `"$rcTag`", `"prerelease`": true}, {`"tag_name`": `"$tag`", `"prerelease`": true}]" | Set-Content -Path (Join-Path $root 'srv\api\releases') -NoNewline
+# Twelve candidates ahead of the stable tag: they stay until their version ships (D1384),
+# so a window of ten would not reach it.
+$rcEntries = @(1..11 | ForEach-Object { $day = '{0:D2}' -f $_; "{`"tag_name`": `"v9.9.10-rc.202611$day`", `"prerelease`": true}" }) + "{`"tag_name`": `"$rcTag`", `"prerelease`": true}"
+"[$($rcEntries -join ', '), {`"tag_name`": `"$tag`", `"prerelease`": true}]" | Set-Content -Path (Join-Path $root 'srv\api\releases') -NoNewline
 
 $stage = Join-Path $root 'stage'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null

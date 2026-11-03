@@ -443,6 +443,8 @@ code) fails visibly but only *after* the new binary is in place.
 
 The scenarios never prefix `run_install` with an assignment (bash POSIX mode, macOS `/bin/sh`, keeps it after the call); `run.sh` refuses one.
 
+It also pins the release window (a stable tag behind twelve candidates is found; candidates only give a distinct error, not the rate-limit one) and that a successful install leaves no temp file, the temp directory being created next to the destination.
+
 The suite also covers the checksum path — a matching digest installs
 and says `checksum OK`, a mismatch fails without leaving a binary behind, a
 `sha256sums.txt` that exists but does not cover the asset is an **error** rather
