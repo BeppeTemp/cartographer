@@ -525,7 +525,18 @@ func (s *Server) sdkHTTPHandler() http.Handler {
 	s.sdkHTTPOnce.Do(func() {
 		s.sdkHTTP = sdk.NewStreamableHTTPHandler(
 			func(*http.Request) *sdk.Server { return s.SDKServer() },
-			&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
+			&sdk.StreamableHTTPOptions{
+				Stateless:    true,
+				JSONResponse: true,
+				// The SDK's DNS-rebinding guard answers a plain-text 403 to
+				// any loopback listener reached with a non-loopback Host, token
+				// or not, which breaks every same-host reverse proxy that keeps
+				// Host. The rule is owned elsewhere: OriginGuard (same-origin),
+				// and LoopbackHostGuard when a loopback listener has auth off;
+				// with auth on the token is the access control
+				// (docs/transport-auth.md §Origin).
+				DisableLocalhostProtection: true,
+			},
 		)
 	})
 	return s.sdkHTTP
