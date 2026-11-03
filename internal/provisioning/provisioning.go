@@ -710,11 +710,17 @@ func contentHashDirTracked(dirPath, kind string, include func(rel string) bool) 
 
 // contentHashDirManaged is contentHashDirOS for a directory that a lockfile
 // entry describes: the executable flag is resolved through mf, so it survives a
-// filesystem that cannot report one (see ManagedFile.executableOnDisk).
-func contentHashDirManaged(mf ManagedFile, dirPath string) (string, error) {
+// filesystem that cannot report one (see ManagedFile.executableOnDisk). owned,
+// when not empty, restricts the hash to the files the lockfile records (the
+// materialized hash covers exactly those, so a foreign file must not change it).
+func contentHashDirManaged(mf ManagedFile, dirPath string, owned map[string]bool) (string, error) {
+	var include func(string) bool
+	if len(owned) > 0 {
+		include = func(rel string) bool { return owned[rel] }
+	}
 	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return mf.executableOnDisk(path, executable)
-	}, nil, 0)
+	}, include, 0)
 }
 
 // validArtifactName reports whether name can be the single directory or file

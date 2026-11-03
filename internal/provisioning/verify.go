@@ -19,6 +19,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
@@ -49,6 +51,12 @@ const (
 	// content: whether the path exists is checked without any hash, so a
 	// pre-D138 entry that vanished is DriftMissing, not unknown.
 	DriftUnknown = "unknown"
+	// DriftForeign: a file the lockfile does not own sits inside a managed skill
+	// or hook directory (a Finder .DS_Store, a __pycache__ the skill itself
+	// creates). Information only: neither healable (the heal rewrites the
+	// artifact's own files and rightly leaves the foreign one, so it could never
+	// converge) nor drift for `status`; `doctor` lists it (#1502).
+	DriftForeign = "foreign"
 	// DriftError: the artifact could not be verified (permissions, a path
 	// that became a directory). Reported, never fatal: one unreadable
 	// artifact must not abort the verification of the others.
@@ -65,8 +73,8 @@ type DriftFinding struct {
 	Detail string // free text for DriftError, empty otherwise
 }
 
-// Healable reports whether this finding is one Apply restores. DriftUnknown is
-// not, by design (see the constant).
+// Healable reports whether this finding is one Apply restores. DriftUnknown and
+// DriftForeign are not, by design (see the constants).
 func (f DriftFinding) Healable() bool {
 	return f.Reason == DriftMissing || f.Reason == DriftModified || f.Reason == DriftUnregistered || f.Reason == DriftUnrunnable
 }
@@ -76,8 +84,10 @@ func (f DriftFinding) Healable() bool {
 // a skill's several managed paths share one hash and one finding).
 //
 // Per-kind scope, decided by what is actually verifiable:
-//   - skill, hook — a dedicated directory Cartographer owns: the whole
-//     directory is re-hashed, so an extra file left inside counts as modified;
+//   - skill, hook — a dedicated directory: the files the lockfile owns are
+//     re-hashed (content and mode); a file it does not own is reported apart, as
+//     DriftForeign, and is not modified (#1502). A lockfile entry that lists no
+//     file of the directory (written by a dry run) hashes the whole directory;
 //   - agent — a single file: its bytes are hashed;
 //   - mcp, instructions — a key or marker block inside a file shared with the
 //     user: presence only. Content comparison would be meaningless there and
@@ -243,14 +253,14 @@ func VerifyManaged(lock Lock, provider configurator.Provider, baseDir string) []
 			continue
 		}
 		seen[key] = true
-		if f, ok := verifyArtifact(mf, provider, baseDir, lock.ScopeOf()); ok {
+		if f, ok := verifyArtifact(mf, provider, baseDir, lock.ScopeOf(), lock.Managed); ok {
 			findings = append(findings, f)
 		}
 	}
 	return findings
 }
 
-func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir string, scope Scope) (DriftFinding, bool) {
+func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir string, scope Scope, managed []ManagedFile) (DriftFinding, bool) {
 	finding := DriftFinding{Kind: mf.Kind, Name: mf.Name, Path: mf.Path}
 
 	switch mf.Kind {
@@ -331,6 +341,7 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 
 	var onDisk string
 	var err error
+	var owned map[string]bool
 	switch mf.Kind {
 	case "agent":
 		var data []byte
@@ -344,7 +355,8 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		// execute bit, only ManagedFile.ExecutablePaths can tell an executable
 		// skill helper from a plain one, and getting it wrong reports drift no
 		// repair clears (see executableOnDisk).
-		onDisk, err = contentHashDirManaged(mf, full)
+		owned = ownedPaths(managed, mf, destRel)
+		onDisk, err = contentHashDirManaged(mf, full, owned)
 	}
 
 	switch {
@@ -358,7 +370,54 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		finding.Reason = DriftModified
 		return finding, true
 	}
+	if len(owned) > 0 {
+		if extra := foreignFiles(full, owned); len(extra) > 0 {
+			finding.Reason, finding.Detail = DriftForeign, "not in the lockfile: "+strings.Join(extra, ", ")
+			return finding, true
+		}
+	}
 	return DriftFinding{}, false
+}
+
+// ownedPaths is the set of files, relative to the artifact directory destRel
+// and slash-separated, that the lockfile records for the artifact mf names. Nil
+// when the lock records none inside the directory.
+func ownedPaths(managed []ManagedFile, mf ManagedFile, destRel string) map[string]bool {
+	var owned map[string]bool
+	for _, o := range managed {
+		if o.Kind != mf.Kind || o.Name != mf.Name {
+			continue
+		}
+		rel, err := filepath.Rel(destRel, o.Path)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue // outside the directory: a generated plugin, a registration
+		}
+		if owned == nil {
+			owned = map[string]bool{}
+		}
+		owned[filepath.ToSlash(rel)] = true
+	}
+	return owned
+}
+
+// foreignFiles lists, sorted and capped, the files under dir that owned does
+// not name.
+func foreignFiles(dir string, owned map[string]bool) []string {
+	var extra []string
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if rel, relErr := filepath.Rel(dir, p); relErr == nil && !owned[filepath.ToSlash(rel)] {
+			extra = append(extra, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	sort.Strings(extra)
+	if len(extra) > 3 {
+		extra = append(extra[:3], fmt.Sprintf("and %d more", len(extra)-3))
+	}
+	return extra
 }
 
 // managedDest resolves where an artifact of this kind lives on disk, returning

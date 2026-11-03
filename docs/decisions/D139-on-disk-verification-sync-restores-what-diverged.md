@@ -18,7 +18,7 @@ expanded, stamped and provider-translated bytes, which never equal the source ha
 means unknown — a lockfile written before D138 — and is reported but never healed: treating it as
 drift would rewrite every artifact on every client at once on the first upgrade. Scope per kind:
 `skill`/`hook` re-hash their own directory (so an extra file inside, or a lost executable bit,
-counts as modified); `agent` hashes its single file; `mcp` and `instructions` live inside files
+counts as modified; the extra-file part is superseded by [D1556](D1556-verification-covers-the-files-the-lock-owns.md): only the files the lock owns are hashed and a foreign file is information); `agent` hashes its single file; `mcp` and `instructions` live inside files
 shared with the user and are checked for **presence** of their managed key or marker block only —
 their surrounding content is never compared and never rewritten. A read error is a finding, never
 fatal.

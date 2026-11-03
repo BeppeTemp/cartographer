@@ -376,6 +376,13 @@ func checkManagedFiles(dir string, providers []string, lockFile provisioning.Loc
 			switch f.Reason {
 			case provisioning.DriftUnknown:
 				unknown++
+			case provisioning.DriftForeign:
+				// Information only: the file is the user's or the skill's own, sync
+				// leaves it and verification does not count it as drift (#1502).
+				out = append(out, doctorFinding{
+					Check: "managed-files", Severity: doctorInfo, Path: full,
+					Message: fmt.Sprintf("[%s] %s %q holds a file the lockfile does not own (%s)", p, f.Kind, f.Name, f.Detail),
+				})
 			case provisioning.DriftError:
 				out = append(out, doctorFinding{
 					Check: "managed-files", Severity: doctorError, Path: full,

@@ -93,11 +93,12 @@ func TestVerifyManaged_DetectsModifiedAndMissing(t *testing.T) {
 		t.Errorf("an untouched agent must not be reported: %+v", findings)
 	}
 
-	// An extra file inside the artifact's own directory is drift too.
+	// An extra file inside the artifact's own directory is not the lockfile's:
+	// foreign, information only, and not healable (#1502, was "modified" in D139).
 	os.WriteFile(skillFile, data, 0o644)
 	os.WriteFile(filepath.Join(baseDir, ".claude", "skills", "runbooks", "stray.md"), []byte("x\n"), 0o644)
-	if f, ok := findingFor(VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks"); !ok || f.Reason != DriftModified {
-		t.Errorf("an extra file in the artifact directory must count as modified, got %+v", f)
+	if f, ok := findingFor(VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks"); !ok || f.Reason != DriftForeign || f.Healable() || !strings.Contains(f.Detail, "stray.md") {
+		t.Errorf("an extra file in the artifact directory must be foreign and not healable, got %+v", f)
 	}
 	os.Remove(filepath.Join(baseDir, ".claude", "skills", "runbooks", "stray.md"))
 
@@ -363,5 +364,44 @@ func TestBuildManifest_ExcludesBadAgentAndHookNames(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(m.Issues, "\n"), "not a valid artifact name") {
 		t.Errorf("no issue recorded: %v", m.Issues)
+	}
+}
+
+// #1502: a file the lock does not own (a Finder .DS_Store, a __pycache__) used
+// to make the whole-directory re-hash differ from the recorded one for good:
+// every run healed the artifact, reported it, and the next run did it again.
+func TestVerifyManaged_ForeignFileDoesNotHealForever(t *testing.T) {
+	baseDir, m, applied, kbRoot := driftKB(t)
+	skillDir := filepath.Join(baseDir, ".claude", "skills", "runbooks")
+	os.MkdirAll(filepath.Join(skillDir, "scripts", "__pycache__"), 0o755)
+	os.WriteFile(filepath.Join(skillDir, ".DS_Store"), []byte("junk"), 0o644)
+	os.WriteFile(filepath.Join(skillDir, "scripts", "__pycache__", "run.pyc"), []byte("junk"), 0o644)
+
+	lock := applied.NewLock
+	for i := 0; i < 3; i++ {
+		res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
+			KBRoots: map[string]string{"wiki": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: lock})
+		if err != nil {
+			t.Fatalf("Apply %d: %v", i, err)
+		}
+		if len(res.Healed) != 0 || len(res.Written) != 0 {
+			t.Fatalf("run %d healed or wrote for a foreign file: healed %v written %v", i, res.Healed, res.Written)
+		}
+		lock = res.NewLock
+	}
+	for _, f := range VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir) {
+		if f.Reason != DriftForeign || f.Healable() {
+			t.Errorf("only an informational foreign finding is expected, got %+v", f)
+		}
+	}
+	f, ok := findingFor(VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks")
+	if !ok || !strings.Contains(f.Detail, ".DS_Store") || !strings.Contains(f.Detail, "scripts/__pycache__/run.pyc") {
+		t.Errorf("doctor must be able to list the foreign files: %+v", f)
+	}
+
+	// An owned file edited next to a foreign one is still drift.
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("edited\n"), 0o644)
+	if f, ok := findingFor(VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks"); !ok || f.Reason != DriftModified {
+		t.Errorf("an owned file edited must stay modified, got %+v", f)
 	}
 }
