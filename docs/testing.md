@@ -84,7 +84,7 @@ The platform-specific code is the per-KB lock and the process-liveness check
 client-state lock beside it (`internal/provisioning/clientlock_*.go`), and the
 native service's shutdown event (`internal/service/shutdownevent_*.go`,
 `cmd/cartographer/shutdownevent_*.go`); the tests that assert their contract —
-the holder stays nameable, a busy lock is never reclaimed whatever pid it names, a non-contention error fails
+the holder stays nameable (the fsync order of `writeFileAtomic` is asserted through function seams, as a crash cannot be reproduced on CI; the Windows leg holds a read handle while it writes), a busy lock is never reclaimed whatever pid it names, a non-contention error fails
 fast, a second acquirer is refused — run on both legs. So does the rest of the
 suite: the Windows leg is the whole of `make gate`, not a subset.
 
