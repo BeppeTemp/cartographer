@@ -109,4 +109,20 @@ describe("App fetches", () => {
     expect(count("/overview")).toBe(1);
     expect(count("/artifacts")).toBe(1);
   });
+
+  it("a failed overview is fetched again on the next Map click", async () => {
+    const base = stubApi();
+    let overviews = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/overview") && overviews++ === 0) return json({ error: { code: "error", message: "boom" } }, 500);
+      return base(url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    const rail = await screen.findByRole("navigation", { name: "Atlas navigation" });
+    await waitFor(() => expect(overviews).toBe(1));
+    await user.click(within(rail).getByRole("button", { name: /^Atlas/ }));
+    await waitFor(() => expect(overviews).toBe(2));
+  });
 });

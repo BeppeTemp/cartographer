@@ -448,6 +448,11 @@ export function App() {
         setSnapshotKey(key);
         setGraphError(null);
         applyArtifacts(arts);
+        // Only a clean read of both is remembered: a failed overview or
+        // artifacts list is fetched again on the next Map click.
+        void overviewP.then((ov) => {
+          if (ov && !arts?.error && !controller.signal.aborted) sideFetched.current = sideKey;
+        });
         setOffline(false);
       })
       .catch(async (err) => {
@@ -461,7 +466,6 @@ export function App() {
         if (controller.signal.aborted) return;
         setGraphLoading(false);
         setArtifactsLoading(false);
-        sideFetched.current = sideKey;
         graphSettled = true;
         showOverview();
       });
