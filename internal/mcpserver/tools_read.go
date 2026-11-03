@@ -594,7 +594,7 @@ func toolConceptHistory(k *kb.KB) Tool {
 				result["note"] = "no git history"
 				return jsonResult(result), nil
 			}
-			revs, err := gitx.FileHistory(k.Root, path, limit)
+			revs, err := gitx.FileHistory(k.Root, path, limit+1) // one more than shown: tells a full page from a truncated one
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_history %q: %v", params.ID, err)), nil
 			}
@@ -602,6 +602,10 @@ func toolConceptHistory(k *kb.KB) Tool {
 				if _, statErr := k.ReadConcept(okf.ConceptID(params.ID)); statErr != nil {
 					return errorResult(fmt.Sprintf("concept_history %q: not found", params.ID)), nil
 				}
+			}
+			truncated := len(revs) > limit
+			if truncated {
+				revs = revs[:limit]
 			}
 			for _, r := range revs {
 				e := map[string]interface{}{
@@ -632,7 +636,7 @@ func toolConceptHistory(k *kb.KB) Tool {
 				revisions = append(revisions, e)
 			}
 			result["revisions"] = revisions
-			result["truncated"] = len(revs) == limit
+			result["truncated"] = truncated
 			return jsonResult(result), nil
 		},
 	}

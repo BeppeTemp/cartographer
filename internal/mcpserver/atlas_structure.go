@@ -84,7 +84,11 @@ func writeAtlasStructure(sb *strings.Builder, ctx requestContext, k *kb.KB) erro
 			anchor = string(lg.IDs[c.Anchor])
 		}
 		share := int(math.Round(100 * float64(count[top]) / float64(c.Size)))
-		fmt.Fprintf(sb, "- %s — %d concepts, mostly in %s (%d%%)\n", anchor, c.Size, top, share)
+		where := top
+		if where == "" {
+			where = "the KB root" // root pages have no collection
+		}
+		fmt.Fprintf(sb, "- %s — %d concepts, mostly in %s (%d%%)\n", anchor, c.Size, where, share)
 		written++
 	}
 	if written == 0 {
