@@ -43,9 +43,13 @@ import {
   LINK_DISTANCE,
   LIVE_ALPHA,
   VELOCITY_DECAY,
+  KNOCK,
+  KNOCK_ALPHA,
+  KNOCK_BULK_ALPHA,
   boundingRadius,
   configureForces,
   drift,
+  knockAll,
   sanitize,
   type DriftForce,
   type PhysicsNode,
@@ -161,12 +165,6 @@ const RESTORE_ALPHA = 0.04;
  *  until it is open. */
 const BLOOM_ALPHA = 0.3;
 const BLOOM_WARMTH = 0.12;
-/** The velocity a new node gives its neighbours (scene units per tick). */
-const KNOCK = 6;
-/** What is left of a knock after each link it travels through. */
-const KNOCK_FALLOFF = 0.55;
-/** How hot the simulation runs again after a knock, so it travels. */
-const KNOCK_ALPHA = 0.45;
 const LEAF_RADIUS = LINK_DISTANCE * 0.12;
 const HUB_RADIUS = LEAF_RADIUS * 2.36;
 /** A press that travels less than this is a click, not a drag or an orbit. */
@@ -451,8 +449,10 @@ export class LivingScene {
       }
       sim.alpha(this.sim?.alpha() ?? 0);
       if (origins.size) {
-        if (!this.reducedMotion) for (const [n, strength] of origins) this.knock(n, strength);
-        sim.alpha(Math.max(sim.alpha(), KNOCK_ALPHA));
+        // A bulk change (many origins) is one reheat, not a knock per origin;
+        // a few origins share the push (knockAll).
+        const bulk = this.reducedMotion ? false : knockAll(origins, this.neighbours) === "reheat";
+        sim.alpha(Math.max(sim.alpha(), bulk ? KNOCK_BULK_ALPHA : KNOCK_ALPHA));
       }
     }
     this.sim = sim;
@@ -542,35 +542,6 @@ export class LivingScene {
       this.settleFrom = 0;
       if (this.reducedMotion && replace) this.frameAll(0);
     } else this.radius = boundingRadius(this.linkedNodes());
-  }
-
-  /** Colours per node, in node order, and the scene's own colours. */
-  /** Pushes every node reachable from a new one away from it, weaker by
-   *  KNOCK_FALLOFF with each link in between. */
-  private knock(origin: SceneNode, initial: number): void {
-    const push = (n: SceneNode, strength: number) => {
-      const dx = (n.x ?? 0) - (origin.x ?? 0);
-      const dy = (n.y ?? 0) - (origin.y ?? 0);
-      const dz = (n.z ?? 0) - (origin.z ?? 0);
-      const d = Math.hypot(dx, dy, dz) || 1;
-      n.vx = (n.vx ?? 0) + (dx / d) * strength;
-      n.vy = (n.vy ?? 0) + (dy / d) * strength;
-      n.vz = (n.vz ?? 0) + (dz / d) * strength;
-    };
-    const seen = new Set<SceneNode>([origin]);
-    let ring = [origin];
-    for (let strength = initial; ring.length && strength > KNOCK * 0.05; strength *= KNOCK_FALLOFF) {
-      const next: SceneNode[] = [];
-      for (const n of ring) {
-        for (const m of this.neighbours.get(n.id) ?? []) {
-          if (seen.has(m)) continue;
-          seen.add(m);
-          push(m, strength);
-          next.push(m);
-        }
-      }
-      ring = next;
-    }
   }
 
   setColours(colours: string[], palette: ScenePalette): void {

@@ -5,7 +5,12 @@ import {
   VELOCITY_DECAY,
   boundingRadius,
   configureForces,
+  KNOCK,
+  KNOCK_MAX_ORIGINS,
+  KNOCK_VELOCITY_CAP,
   drift,
+  knock,
+  knockAll,
   sanitize,
   seedPosition,
   type ForceHost,
@@ -126,5 +131,45 @@ describe("the living 3D physics", () => {
     expect(at(broken)).toEqual({ x: 5, y: 10, z: 15 });
     expect(broken.vx).toBe(0);
     expect(broken.fx).toBeUndefined();
+  });
+});
+
+describe("knockAll", () => {
+  type N = PhysicsNode & { x: number; y: number; z: number; vx: number; vy: number; vz: number };
+  // A ring of 1000 nodes with chords, so every node reaches the others quickly.
+  const build = () => {
+    const nodes: N[] = Array.from({ length: 1000 }, (_, i) => ({ id: `n${i}`, x: Math.cos(i) * 400, y: Math.sin(i) * 400, z: i % 50, vx: 0, vy: 0, vz: 0 }));
+    const neighbours = new Map<string, N[]>(nodes.map((n) => [n.id, []]));
+    for (let i = 0; i < nodes.length; i++) {
+      for (const j of [(i + 1) % 1000, (i + 7) % 1000, (i + 31) % 1000]) {
+        neighbours.get(nodes[i]!.id)!.push(nodes[j]!);
+        neighbours.get(nodes[j]!.id)!.push(nodes[i]!);
+      }
+    }
+    return { nodes, neighbours };
+  };
+  const speed = (n: N) => Math.hypot(n.vx, n.vy, n.vz);
+
+  it("500 origins on 1000 nodes: no push at all, one reheat", () => {
+    const { nodes, neighbours } = build();
+    const origins = new Map(nodes.slice(0, 500).map((n) => [n, KNOCK] as const));
+    expect(500).toBeGreaterThan(KNOCK_MAX_ORIGINS);
+    expect(knockAll(origins, neighbours)).toBe("reheat");
+    expect(Math.max(...nodes.map(speed))).toBe(0);
+  });
+
+  it("a few origins never push a node past the cap", () => {
+    const { nodes, neighbours } = build();
+    const origins = new Map(nodes.slice(0, KNOCK_MAX_ORIGINS).map((n) => [n, KNOCK] as const));
+    expect(knockAll(origins, neighbours)).toBe("knock");
+    expect(Math.max(...nodes.map(speed))).toBeLessThanOrEqual(KNOCK_VELOCITY_CAP + 1e-9);
+  });
+
+  it("one origin is exactly the plain knock", () => {
+    const a = build();
+    const b = build();
+    expect(knockAll(new Map([[a.nodes[0]!, KNOCK]]), a.neighbours)).toBe("knock");
+    knock(b.nodes[0]!, KNOCK, b.neighbours);
+    expect(a.nodes.map((n) => [n.vx, n.vy, n.vz])).toEqual(b.nodes.map((n) => [n.vx, n.vy, n.vz]));
   });
 });

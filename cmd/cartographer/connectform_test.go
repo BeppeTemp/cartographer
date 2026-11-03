@@ -36,7 +36,7 @@ func TestConnectFormModel_Prefill(t *testing.T) {
 func TestConnectFormModel_TabCyclesFocus(t *testing.T) {
 	m := newConnectFormModel("Connect claude", connectOptions{}, false)
 
-	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldTokenEnv, fieldAuth, fieldSubmit, fieldServerURL}
+	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldTokenEnv, fieldAuth, fieldSubmit, fieldServerURL}
 	for i, want := range order {
 		tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 		m = tm.(connectFormModel)
@@ -287,7 +287,7 @@ func TestProviderForFieldCoversEveryAgentField(t *testing.T) {
 	want := map[connectField]string{
 		fieldAgentClaude: "claude", fieldAgentOpenCode: "opencode", fieldAgentCodex: "codex",
 		fieldAgentKiro: "kiro", fieldAgentAntigravity: "antigravity",
-		fieldAgentCrush: "crush", fieldAgentCopilot: "copilot",
+		fieldAgentCrush: "crush", fieldAgentCopilot: "copilot", fieldAgentPi: "pi",
 	}
 	for field, provider := range want {
 		if got, ok := providerForField(field); !ok || got != provider {

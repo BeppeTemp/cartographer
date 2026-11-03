@@ -20,7 +20,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
-	"github.com/BeppeTemp/cartographer/internal/safewrite"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -269,6 +268,18 @@ type connectSettings struct {
 	Name  string
 }
 
+// validateTokenEnvName refuses a --token-env or form value that is not the NAME
+// of an environment variable. It is stored as ${<value>}: `$MY_TOKEN`, `my-token`
+// or a pasted token became a literal bearer token (a 401), and a pasted token
+// was saved in clear text in the file. The value is never echoed: it may be the
+// token itself.
+func validateTokenEnvName(v string) error {
+	if clientconfig.IsEnvRef(clientconfig.EnvRefToken(v)) {
+		return nil
+	}
+	return fmt.Errorf("not an environment variable name (letters, digits and _, not starting with a digit): give the NAME of the variable that holds the token, without a leading $, never the token itself")
+}
+
 // resolveConnectSettings applies flag > config > default precedence for the
 // settings persisted in .cartographer.yaml. A form flag NOT passed explicitly
 // (absent from passed) inherits the value already in existing rather than the
@@ -286,6 +297,14 @@ func resolveConnectSettings(passed map[string]bool, flagURL string, flagAuth boo
 		Name:      "cartographer",
 	}
 	if existing == nil {
+		// A first connect with no --server-url honours CARTOGRAPHER_SERVER_URL,
+		// as the interactive form does through clientconfig.Default() and as
+		// docs/deployment.md promises: a scripted `connect --no-input` on a new
+		// machine otherwise targets the local default, defers the sync as
+		// "server unreachable" and exits 0. An explicit flag still wins.
+		if !passed["server-url"] {
+			s.ServerURL = clientconfig.Default().ServerURL
+		}
 		return s
 	}
 	if existing.ServerName != "" {
@@ -341,6 +360,10 @@ func cmdConnect(args []string) int {
 		return code
 	}
 	warnRemovedAutoTrust(*autoTrust)
+	if err := validateTokenEnvName(*tokenEnv); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: --token-env:", err)
+		return 2
+	}
 
 	interactive := wantsConnectForm(fs, *noInput)
 
@@ -997,10 +1020,38 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		return connectResult{}, err
 	}
 	claudeDirs, claudeDirWarnings := claudeConfigDirs(opts.Dir, existing)
+	// 2. Fetch and verify the manifest BEFORE anything is written (best-effort:
+	// a server that is down defers the sync and still lets connect write). A bad
+	// signature pin or a rejected token used to be found after the agents' MCP
+	// entries had been removed and rewritten and the bootstrap hook installed,
+	// leaving the agents on the new server while the config still named the old
+	// one, with the message saying only that .cartographer.yaml was not updated.
+	pullKBs := existing.KnownKBs
+	if healthErr == nil {
+		pullKBs = kbs
+	}
+	// Clients travels with it: connecting a provider must not pull or
+	// materialize a KB it is not bound to (D170).
+	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, Token: opts.Token, AllowInsecureHTTP: opts.AllowInsecureHTTP, KnownKBs: pullKBs, Clients: existing.Clients, SigningKeys: existing.SigningKeys}
+	projections, projErr := allProjections(pullCfg, opts.Providers, opts.Dir)
+	if projErr != nil {
+		return connectResult{}, projErr
+	}
+	manifests, pullErr := manifestsForProjections(pullCfg, projections)
+	if errors.Is(pullErr, provisioning.ErrSignature) {
+		// The server answered; what failed is a pin. Nothing was written, so the
+		// wrong key is not kept in .cartographer.yaml (#1282).
+		return connectResult{}, fmt.Errorf("skill signatures do not verify against the pinned keys (fix or remove the pin with --pin-key / --unpin-key <kb>; signing_keys in %s): %w; the server is reachable; nothing was written", clientconfig.FileName, pullErr)
+	} else if isRejectedCredential(pullErr) {
+		// The server answered and refused the credential: not "unreachable", and
+		// saving a config that cannot sync would hide it (#1299).
+		return connectResult{}, fmt.Errorf("the server rejected the token (%s); fix it (--token, or the variable it names) and run connect again: %w; the server is reachable; nothing was written", tokenSourceName(pullCfg), pullErr)
+	}
+
 	// A symlinked config file or directory is refused for its provider only
 	// (D148): the refusal is a warning, the other providers proceed.
 	var refusalNotes, retainedKBs []string
-	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); errors.Is(err, safewrite.ErrSymlinkDestination) {
+	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); provisioning.IsRefusal(err) {
 		refusalNotes = refusalWarnings(err)
 		// Their stale entries stay, so these KBs stay in known_kbs (as in sync).
 		retainedKBs = refusedEntryKBs(err, opts.Name, existing.KnownKBs)
@@ -1032,41 +1083,23 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the
-	// server manifest fetched in step 2 below — must be in place even when that
-	// fetch is deferred (server down at connect time), since it's exactly what
-	// lets a later session self-heal once the server comes back.
+	// server manifest fetched in step 2 above. It is installed only after that
+	// fetch has ruled out a signature failure and a rejected token (nothing is
+	// written on those), but still when the fetch is deferred (server down at
+	// connect time), since it is exactly what lets a later session self-heal once
+	// the server comes back.
 	hookWarnings, err := ensureBootstrapForProviders(opts.Providers, opts.Dir, opts.DryRun)
 	if err != nil {
 		return connectResult{}, fmt.Errorf("ensure bootstrap hook: %w", err)
 	}
 	configWarnings = appendUnique(configWarnings, hookWarnings...)
 
-	// 2. Materialize skills via sync_pull (best-effort: a deferred sync is not fatal).
-	pullKBs := existing.KnownKBs
-	if healthErr == nil {
-		pullKBs = kbs
-	}
-	// Clients travels with it: connecting a provider must not pull or
-	// materialize a KB it is not bound to (D170).
-	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, Token: opts.Token, AllowInsecureHTTP: opts.AllowInsecureHTTP, KnownKBs: pullKBs, Clients: existing.Clients, SigningKeys: existing.SigningKeys}
-
+	// 2b. Materialize what step 2 fetched (before any write, above).
 	mcpEntries := allEntryNames(entriesByProvider)
 	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: mcpEntries, Warnings: configWarnings}
-	projections, projErr := allProjections(pullCfg, opts.Providers, opts.Dir)
-	if projErr != nil {
-		return connectResult{}, projErr
-	}
-	if manifests, err := manifestsForProjections(pullCfg, projections); errors.Is(err, provisioning.ErrSignature) {
-		// The server answered; what failed is a pin. The file is not saved, so the
-		// wrong key is not kept in .cartographer.yaml (#1282).
-		return connectResult{}, fmt.Errorf("skill signatures do not verify against the pinned keys (fix or remove the pin with --pin-key / --unpin-key <kb>; signing_keys in %s): %w; the server is reachable; %s was not updated", clientconfig.FileName, err, clientconfig.FileName)
-	} else if isRejectedCredential(err) {
-		// The server answered and refused the credential: not "unreachable", and
-		// saving a config that cannot sync would hide it (#1299).
-		return connectResult{}, fmt.Errorf("the server rejected the token (%s); fix it (--token, or the variable it names) and run connect again: %w; the server is reachable; %s was not updated", tokenSourceName(pullCfg), err, clientconfig.FileName)
-	} else if err != nil {
+	if pullErr != nil {
 		res.Deferred = true
-		res.DeferredErr = err
+		res.DeferredErr = pullErr
 	} else {
 		materialize := func() (map[string]provisioning.AppliedResult, error) {
 			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.ScanRoots(), Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())

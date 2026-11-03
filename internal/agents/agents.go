@@ -1,15 +1,20 @@
 // Package agents detects which LLM agent CLIs/apps are installed on the local
-// machine (Claude Code, OpenCode, Codex CLI, Kiro, Antigravity), so `cartographer agents`
+// machine (Claude Code, OpenCode, Codex CLI, Kiro, Antigravity, Crush, Copilot CLI, Pi), so `cartographer agents`
 // and `cartographer connect all` know which providers to target.
 package agents
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // Heuristic names the probe that matched, so a caller can weigh the evidence
@@ -50,6 +55,44 @@ var (
 	goos        = runtime.GOOS
 )
 
+// runVersion runs `<path> --version` and returns its stdout. Indirected so
+// tests never execute a binary.
+//
+// Pi is the only provider whose detection spawns a binary: the first `pi` on
+// PATH is executed with --version, because the name alone is not evidence
+// (other tools ship a `pi` shim).
+var runVersion = func(path string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := procattr.Hide(exec.CommandContext(ctx, path, "--version"))
+	// A shim can leave a grandchild holding stdout; without WaitDelay Output()
+	// would block past the timeout and hang `agents` and `connect`.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	return string(out), err
+}
+
+// bareVersion matches the whole first line of `pi --version`: MAJOR.MINOR.PATCH
+// with an optional pre-release suffix.
+var bareVersion = regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+
+// binaryProbes confirm that a binary found on PATH is really the provider's.
+// Trap: other tools ship a `pi` on PATH (a terminal-multiplexer shim was seen
+// forwarding to the real Pi, which passes; an unrelated `pi` does not), and a
+// name match alone would report Pi as installed. A timeout, an error or any
+// other output means "not this provider's binary"; detection then continues
+// with the config directories.
+var binaryProbes = map[configurator.Provider]func(path string) bool{
+	configurator.ProviderPi: func(path string) bool {
+		out, err := runVersion(path)
+		if err != nil {
+			return false
+		}
+		first, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+		return bareVersion.MatchString(strings.TrimSpace(first))
+	},
+}
+
 // dirExists reports whether path exists and is a directory.
 func dirExists(path string) bool {
 	if path == "" {
@@ -82,6 +125,9 @@ func detect(d configurator.Descriptor, home string) Agent {
 	a := Agent{Provider: d.Provider, Name: d.DisplayName}
 	for _, binary := range d.Binaries {
 		if path, err := lookPath(binary); err == nil {
+			if probe := binaryProbes[d.Provider]; probe != nil && !probe(path) {
+				continue
+			}
 			return a.found(HeuristicBinary, path)
 		}
 	}

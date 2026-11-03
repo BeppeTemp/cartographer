@@ -127,6 +127,13 @@ func gitEnvForKB(name, credDir string) []string {
 	return env
 }
 
+// bootstrapContext bounds the server's bootstrap clones. It has no deadline (a
+// large KB must not be killed mid-way) but serve binds it to SIGINT/SIGTERM:
+// git runs in its own process group (gitx.netCommand), so a Ctrl-C that ends
+// the server no longer reaches it, and an unbound clone would outlive the
+// server as an orphan in .cloning.
+var bootstrapContext = context.Background()
+
 // ensureClonedKB clones remote into <dataDir>/<name> if not already present,
 // and returns the destination path. name is the resolved KB name
 // (resolveKBName) — it drives the clone destination so an explicit
@@ -173,7 +180,7 @@ func ensureClonedKBOn(remote, name, dataDir, override string, env ...string) (st
 		// No deadline here: a server bootstrapping a large KB must not have
 		// its clone killed mid-way. Clone's non-interactive environment is
 		// what keeps this from hanging on a prompt (D173).
-		if err := gitx.Clone(context.Background(), remote, tmp, env...); err != nil {
+		if err := gitx.Clone(bootstrapContext, remote, tmp, env...); err != nil {
 			_ = os.RemoveAll(tmp)
 			return "", fmt.Errorf("clone %s: %w", remote, err)
 		}

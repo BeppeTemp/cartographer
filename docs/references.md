@@ -37,3 +37,4 @@
 - Google Antigravity: https://antigravity.google/docs/rules
 - Crush: https://github.com/charmbracelet/crush
 - GitHub Copilot CLI: https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli
+- Pi: https://github.com/earendil-works/pi (docs in `packages/coding-agent/docs/`)

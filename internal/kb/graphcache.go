@@ -268,6 +268,10 @@ type graphCacheStats struct {
 	parsed      int
 	reused      int
 	facetReads  int
+	// facetLookups counts every ConceptFacets call that reached the cache,
+	// trusted hit or not, so a test can assert a hot path does not call it
+	// once per candidate.
+	facetLookups int
 	// reads counts every file read the cache makes, over its lifetime.
 	reads int
 }
@@ -282,6 +286,18 @@ func (kb *KB) GraphValidations() int {
 		return 0
 	}
 	return kb.graph.stats.validations
+}
+
+// GraphFacetLookups reports how many ConceptFacets calls reached the cache: a
+// test asserts that a read path answers from the view it already holds instead
+// of asking per concept (an Lstat plus the graph lock each).
+func (kb *KB) GraphFacetLookups() int {
+	kb.graphMu.Lock()
+	defer kb.graphMu.Unlock()
+	if kb.graph == nil {
+		return 0
+	}
+	return kb.graph.stats.facetLookups
 }
 
 // GraphFileReads reports how many concept files the link-graph cache has read
@@ -563,6 +579,7 @@ func (kb *KB) ConceptFacets(id okf.ConceptID) ConceptFacets {
 	kb.graphMu.Lock()
 	defer kb.graphMu.Unlock()
 	c := kb.graphCacheLocked()
+	c.stats.facetLookups++
 	if !symlink {
 		if e := c.entries[rel]; e != nil && e.trusted(sig) {
 			f := e.facets

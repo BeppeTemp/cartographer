@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
-	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // cmdSync re-fetches the manifest from the configured server (sync_pull) and
@@ -277,7 +275,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		// A symlinked config file or directory is refused for its provider
 		// only (D148): a warning, and the other providers proceed.
 		var refusalNotes []string
-		if errors.Is(err, safewrite.ErrSymlinkDestination) {
+		if provisioning.IsRefusal(err) {
 			refusalNotes = refusalWarnings(err)
 			retainedKBs = refusedEntryKBs(err, cfg.ServerName, previousKnownKBs)
 			err = nil

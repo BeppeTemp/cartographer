@@ -9,6 +9,7 @@
 #   FAKE_TAG          tag_name returned for the release-list API call
 #   FAKE_RC_TAGS      optional release candidates (space-separated) listed
 #                     before FAKE_TAG, newest first, as GitHub orders them (D1192)
+#   FAKE_NO_STABLE    when set, the list holds the candidates only (no FAKE_TAG entry)
 #   FAKE_NEW_BINARY   path to the fixture copied in as the "downloaded" asset
 #   FAKE_SHA_MODE     how to answer the sha256sums.txt request (D192):
 #                       absent   — 404: a release whose manifest cannot be fetched (D1022)
@@ -37,13 +38,17 @@ case "$url" in
     # Compact JSON on one line, as the API may send it: the installer must not
     # depend on one key per line. Every call is logged, so a scenario can
     # assert the list was not read.
-    *"/releases?per_page=10")
+    *"/releases?per_page=100")
         echo "$url" >> "${SCENARIO_TMP:-/tmp}/release-list-calls"
         list=""
         for rc in ${FAKE_RC_TAGS:-}; do
             list="${list}{\"tag_name\":\"${rc}\",\"prerelease\":true,\"body\":\"candidate, not \\\"tag_name\\\":\\\"v0.0.1\\\"\"},"
         done
-        printf '[%s{"tag_name":"%s","prerelease":true}]\n' "$list" "${FAKE_TAG:?FAKE_TAG not set}"
+        if [ -n "${FAKE_NO_STABLE:-}" ]; then
+            printf '[%s]\n' "${list%,}"
+        else
+            printf '[%s{"tag_name":"%s","prerelease":true}]\n' "$list" "${FAKE_TAG:?FAKE_TAG not set}"
+        fi
         ;;
     *"sha256sums.txt")
         # The asset request always precedes this one, and it recorded the
