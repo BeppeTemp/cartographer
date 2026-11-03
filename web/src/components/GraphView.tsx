@@ -8,6 +8,7 @@ import {
   GROWTH_TICK_MIN_MS,
   growthOrder,
   growthSchedule,
+  seedGrowth,
   shownAt,
   stepTime,
   type GrowthStep,
@@ -183,7 +184,16 @@ function View({
   // The growth replay: the concepts in birth order and how many are out. A
   // concept not yet born is hidden like a filtered one, so every effect below
   // draws the replay without knowing about it.
-  const [growth, setGrowth] = useState<{ order: GrowthStep[]; shown: number; playing: boolean } | null>(null);
+  // Keyed by the layout it was opened on and derived in render: another KB or
+  // Map shows no replay in the very commit that changes it, never one frame of
+  // the old order against the new snapshot.
+  const [growthState, setGrowth] = useState<{
+    key: string;
+    order: GrowthStep[];
+    shown: number;
+    playing: boolean;
+  } | null>(null);
+  const growth = growthState?.key === layoutKey ? growthState : null;
   // The fit of the whole graph, taken before the replay hides it: the replay
   // never comes closer than a share of it, so its first concepts start small
   // in the middle instead of filling the canvas.
@@ -231,12 +241,22 @@ function View({
   const startGrowth = () => {
     if (growth) return setGrowth(null);
     growthFloor.current = (sceneRef.current?.fitDistance(GROWTH_BAND_PX) ?? 0) * GROWTH_MIN_ZOOM;
+    const key = layoutKeyRef.current;
     void loadBirths?.()
-      .then((births) =>
-        setGrowth({ order: growthOrder(snapshot.nodes, snapshot.edges, births), shown: 1, playing: true }),
-      )
+      .then((births) => {
+        // Births that arrive after a KB switch, or an unmount, open nothing.
+        if (!alive.current || layoutKeyRef.current !== key) return;
+        setGrowth({ key, order: growthOrder(snapshot.nodes, snapshot.edges, births), shown: 1, playing: true });
+      })
       .catch((err) => console.warn("Atlas: the growth replay could not start", err));
   };
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const growthPlan = useMemo(() => (growth ? growthSchedule(growth.order) : null), [growth?.order]);
   // Play runs on a clock anchored where it starts, so a scrub or a pause
   // resumes from the position it left; null while paused.
@@ -512,43 +532,16 @@ function View({
     const ids = new Set(visible.map((n) => n.id));
     if (growth) {
       // A concept born in the replay sprouts beside one already out, not
-      // where the full layout had it, and the knock spreads it from there.
-      // A jump brings many at once: one whose neighbour is itself new is
-      // seeded after it, and one with no neighbour out at all (a loose
-      // concept) beside the middle of what is out -- never at a stale place
-      // or on top of the others at the origin, where they would be thrown far
-      // out and the camera, fitting every node, would zoom out after them.
-      const placed = new Set(lastVisible.current);
-      let pending = visible.filter((n) => !placed.has(n.id));
-      const seed = (node: (typeof visible)[number], from: { x?: number; y?: number; z?: number }) =>
-        Object.assign(node, beside(from, node.id), { vx: 0, vy: 0, vz: 0 });
-      for (let progress = true; pending.length && progress;) {
-        progress = false;
-        const left: typeof pending = [];
-        for (const node of pending) {
-          const anchor = snapshot.edges
-            .flatMap((e) => (e.source === node.id ? [e.target] : e.target === node.id ? [e.source] : []))
-            .find((id) => placed.has(id));
-          if (anchor === undefined) {
-            left.push(node);
-            continue;
-          }
-          seed(node, nodes.get(anchor)!);
-          placed.add(node.id);
-          progress = true;
-        }
-        pending = left;
-      }
-      if (pending.length) {
-        const out = [...placed].map((id) => nodes.get(id)!);
-        const centre = { x: 0, y: 0, z: 0 };
-        for (const n of out) {
-          centre.x += (n.x ?? 0) / out.length;
-          centre.y += (n.y ?? 0) / out.length;
-          centre.z += (n.z ?? 0) / out.length;
-        }
-        for (const node of pending) seed(node, centre);
-      }
+      // where the full layout had it, and the knock spreads it from there
+      // (seedGrowth). A replay of another layout, or a refresh that dropped a
+      // concept already out, must not seed against ids this snapshot lacks.
+      const out = new Set([...lastVisible.current].filter((id) => nodes.has(id)));
+      seedGrowth(
+        visible.filter((n) => !out.has(n.id)),
+        out,
+        snapshot.edges,
+        nodes,
+      );
     }
     lastVisible.current = ids;
     const closedReplay = !growth && wasGrowing.current;
