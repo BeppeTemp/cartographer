@@ -210,3 +210,22 @@ func TestApply_PlaceholderArtifact_NoDriftOnResync(t *testing.T) {
 		t.Errorf("placeholder not expanded:\n%s", after)
 	}
 }
+
+// #1502: a skill that explains D138 quotes the provenance block in a code
+// fence; the stamp used to cut from the quoted begin to the quoted end and drop
+// what was between them. Now the quote and the text after it survive, and a
+// second stamp is a fixed point.
+func TestStampArtifact_KeepsAQuotedProvenanceBlock(t *testing.T) {
+	a := Artifact{Kind: "skill", Name: "d138", Source: "kb:wiki", ContentHash: "h"}
+	src := "How the stamp looks:\n\n```\n" + provenanceBlockBegin + "\nKEEP-ME\n" + provenanceBlockEnd + "\n```\n\nKEEP-TOO\n"
+	once := string(stampArtifact([]byte(src), a))
+	if !strings.Contains(once, "KEEP-ME") || !strings.Contains(once, "KEEP-TOO") || !strings.HasPrefix(once, src) {
+		t.Fatalf("the quoted block or the text after it was lost:\n%s", once)
+	}
+	if got := string(stampArtifact([]byte(once), a)); got != once {
+		t.Errorf("not a fixed point:\n%s\nvs\n%s", got, once)
+	}
+	if got := string(stampArtifact([]byte(src), a)); got != once {
+		t.Error("the stamp of the same source differs between runs")
+	}
+}
