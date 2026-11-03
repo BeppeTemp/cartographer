@@ -1125,8 +1125,8 @@ func toolConflictsList(k *kb.KB) Tool {
 						"then record it with git_conflict_resolve (its concept_id, and strategy ours, theirs, or edit with the full file in body). " +
 						"See kb_guide, procedure conflict-resolve, for the full procedure.",
 				}
-				if c.Kind == kb.ConflictKindReserved {
-					results[i].Guidance = reservedConflictGuidance(c.Path)
+				if c.IsPathConflict() {
+					results[i].Guidance = reservedConflictGuidance(c)
 				}
 			}
 			return jsonResult(results), nil
@@ -1220,12 +1220,15 @@ func toolGitConflictResolve(k *kb.KB) Tool {
 
 // reservedConflictGuidance is the conflicts_list guidance for a reserved file
 // the server could not reconcile by itself (D311).
-func reservedConflictGuidance(path string) string {
+func reservedConflictGuidance(c kb.Conflict) string {
 	strategies := "theirs (remote) or ours (local)"
-	if filepath.Base(path) == "log.md" {
+	what := "Reserved file"
+	if c.Kind == kb.ConflictKindArtifact {
+		what = "Artifact or asset file"
+	} else if filepath.Base(c.Path) == "log.md" {
 		strategies = "union (keeps both sides' entries), theirs (remote) or ours (local)"
 	}
-	return "Reserved file, not a concept: resolve it with git_conflict_resolve, concept_id " + path +
+	return what + ", not a concept: resolve it with git_conflict_resolve, concept_id " + c.Path +
 		", strategy " + strategies + "."
 }
 
@@ -1246,8 +1249,8 @@ func reservedStrategyError(k *kb.KB, conceptID, strategy string) string {
 		switch {
 		case strategy == "union" && (!reserved || filepath.Base(c.Path) != "log.md"):
 			return "strategy 'union' applies only to a reserved log.md conflict (use ours|theirs|edit)"
-		case strategy == "edit" && reserved:
-			return "strategy 'edit' does not apply to a reserved file (use union|ours|theirs for log.md, ours|theirs otherwise)"
+		case strategy == "edit" && c.IsPathConflict():
+			return "strategy 'edit' does not apply to a reserved or artifact file (use union|ours|theirs for log.md, ours|theirs otherwise)"
 		}
 		return ""
 	}

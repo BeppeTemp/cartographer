@@ -254,6 +254,11 @@ A rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
 - A reserved-only conflict the server could not settle is registered with
   `kind: reserved` and its path as `concept_id`; `git_conflict_resolve` accepts
   `union` (only `log.md`), `ours` or `theirs` for it, never `edit`.
+- Any other conflicting file (a skill, a template, an expanded concept's asset,
+  `instructions.md`, `settings.yaml`, `paths.yaml`) is registered with
+  `kind: artifact` and its path as `concept_id`, whether or not a concept also
+  conflicted, with `ours` or `theirs` (D1565). The write's error names the files
+  and never promises a tool for something that was not registered.
 
 No message hands the agent a git command. For conflicting concept files the
 server records local/remote SHAs in
