@@ -7,6 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,6 +21,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
@@ -75,6 +79,9 @@ type setupFacts struct {
 	KBs            []kbRow // direct subdirectories of the data dir
 	Detected       []string
 	ProvidersBound bool // every target provider already carries an explicit KB binding
+	// BoundProviders are the providers of the client config that carry an
+	// explicit KB binding, whichever of them the run ends up connecting.
+	BoundProviders []string
 	TimerOptOut    bool // the operator uninstalled the sync timer on purpose (D325)
 	RemoteProbed   bool
 	RemoteHasRefs  bool
@@ -93,6 +100,15 @@ type setupPlan struct {
 	Agents    []string
 	KBs       []string // the --kb selection handed to connect; nil lets connect decide
 	Workspace string
+	// KeepAgents are the agents that already carry an explicit binding when the
+	// KB selection is implicit (the KB this run adds): they are connected
+	// without --kb, because connect resets the binding of every provider it is
+	// given a selection for, which silently dropped their earlier KBs.
+	KeepAgents []string
+	// ServerURL is the local service's MCP URL, passed to connect when the client
+	// has none yet: connect's own default is the standard port, and a service
+	// installed on another one left the agents pointed at nothing.
+	ServerURL string
 }
 
 // errSetupNeedsRemote is planSetup's answer when there is no KB and nothing
@@ -114,6 +130,12 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 	}
 	if o.Remote != "" && o.NoRemote {
 		return p, errors.New("--remote and --no-remote are mutually exclusive")
+	}
+	serviceAddr := serviceAddrOrDefault(f.Service)
+	if f.ClientURL == "" {
+		p.ServerURL = setupMCPURL(serviceAddr)
+	} else if cp, sp := urlPort(f.ClientURL), addrPort(serviceAddr); cp != sp {
+		return p, fmt.Errorf("this client points at %s, but the local service listens on %s: connect would configure the agents for a server that is not the one setup provisions — nothing was changed. Point the client at the service with `cartographer connect --server-url %s`, or remove %s", f.ClientURL, serviceAddr, setupMCPURL(serviceAddr), clientconfig.FileName)
 	}
 
 	switch {
@@ -205,8 +227,17 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 	case len(total) <= 1 || f.ProvidersBound:
 		// One KB binds itself; an existing binding stands (D190).
 	case p.KB == kbCreate || p.KB == kbClone:
-		// The narrowest choice that does the job: the KB this run adds.
+		// The narrowest choice that does the job: the KB this run adds, for the
+		// agents that have no binding yet; a bound agent keeps what it has.
 		p.KBs = []string{p.KBName}
+		for _, a := range p.Agents {
+			if slices.Contains(f.BoundProviders, a) {
+				p.KeepAgents = append(p.KeepAgents, a)
+			}
+		}
+		if len(p.KeepAgents) == len(p.Agents) {
+			p.KBs, p.KeepAgents = nil, nil
+		}
 	default:
 		return p, errSetupNeedsKBChoice
 	}
@@ -269,7 +300,16 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 	if p.Workspace != "" {
 		scope = "only inside " + p.Workspace
 	}
-	line("agents       connect %s — KBs: %s; visible in %s", strings.Join(p.Agents, ", "), kbs, scope)
+	if len(p.KeepAgents) > 0 {
+		receiving := slices.DeleteFunc(slices.Clone(p.Agents), func(a string) bool { return slices.Contains(p.KeepAgents, a) })
+		line("agents       connect %s — KBs: %s; visible in %s", strings.Join(receiving, ", "), kbs, scope)
+		line("             connect %s — they keep their existing KB binding", strings.Join(p.KeepAgents, ", "))
+	} else {
+		line("agents       connect %s — KBs: %s; visible in %s", strings.Join(p.Agents, ", "), kbs, scope)
+	}
+	if p.ServerURL != "" {
+		line("             server URL %s", p.ServerURL)
+	}
 	// D325: the timer is a background job connect installs on its own, so the
 	// plan is where the operator sees it before it runs.
 	if !f.TimerOptOut {
@@ -291,7 +331,40 @@ func serviceAddrOrDefault(st service.Status) string {
 	if st.HTTPAddr != "" {
 		return st.HTTPAddr
 	}
-	return "127.0.0.1:39273"
+	return defaults.DefaultListenAddress
+}
+
+// setupMCPURL is the client URL of a service listening on addr: a wildcard or
+// empty host is the loopback, which is where the client reaches it.
+func setupMCPURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return defaults.DefaultMCPURL
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/mcp"
+}
+
+func addrPort(addr string) string {
+	_, port, _ := net.SplitHostPort(addr)
+	return port
+}
+
+// urlPort is the port of a client URL, the scheme's default when it names none.
+func urlPort(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 // Indirections for tests: gathering touches the machine, and every step is a
@@ -307,10 +380,22 @@ var (
 	setupConnect       = cmdConnect
 	setupDetected      = func() []string { p, _ := resolveTargetProviders("", ""); return p }
 	setupWaitReady     = waitSetupReady
-	setupProbeAuth     = func(addr string) (bool, error) { return service.ProbeAuthRequired(addr, 5*time.Second) }
+	// setupWaitBootstrapped waits until the server has mounted its KBs: /health
+	// answers 200 while it is still cloning (D348), so "the service answers" is
+	// not "the KBs are there", and connect run against a bootstrapping server
+	// writes the bare entry and defers the sync.
+	setupWaitBootstrapped = func() bool {
+		return waitHealthyFor(serverBaseURL(""), "", setupReadyTimeout)
+	}
+	setupProbeAuth = func(addr string) (bool, error) { return service.ProbeAuthRequired(addr, 5*time.Second) }
 )
 
 const setupProbeTimeout = 30 * time.Second
+
+// setupReadyTimeout bounds the wait for a server to finish mounting its KBs: a
+// first clone of a large repository takes minutes, not the ten seconds of a
+// restart.
+const setupReadyTimeout = 5 * time.Minute
 
 func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 	f := setupFacts{GitFound: setupLookGit()}
@@ -326,6 +411,11 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 				agents = setupDetected()
 			}
 			f.ProvidersBound = len(agents) > 0 && allProvidersBound(cfg, agents)
+			for _, p := range slices.Sorted(maps.Keys(cfg.Clients)) {
+				if _, explicit := cfg.BoundKBs(p); explicit {
+					f.BoundProviders = append(f.BoundProviders, p)
+				}
+			}
 		}
 	}
 	if st, err := setupServiceStatus(); err == nil {
@@ -564,12 +654,12 @@ func runSetupPlan(p setupPlan) int {
 		}
 		if code := setupKBCreate(args); code != 0 {
 			fmt.Fprintln(os.Stderr, "Setup stopped at the KB step: fix the cause above, then rerun `cartographer setup`.")
-			return code
+			return 1
 		}
 	case kbClone:
 		if code := setupKBClone([]string{p.Remote, p.KBName, "--restart"}); code != 0 {
 			fmt.Fprintln(os.Stderr, "Setup stopped at the KB step: fix the cause above, then rerun `cartographer setup`.")
-			return code
+			return 1
 		}
 	case kbAlreadyThere:
 		fmt.Printf("%q is already mounted\n", p.KBName)
@@ -582,17 +672,42 @@ func runSetupPlan(p setupPlan) int {
 		return 1
 	}
 
+	// A server still cloning answers /health too: connect would see no KB list,
+	// write the bare entry and defer the sync, and the verify step would then
+	// call it set up.
+	if !setupWaitBootstrapped() {
+		fmt.Fprintf(os.Stderr, "Error: the server is still loading its KBs after %s — check `cartographer service status`, then rerun `cartographer setup` (finished steps are skipped).\n", setupReadyTimeout)
+		return 1
+	}
+
 	fmt.Println("==> agents")
-	args := []string{"--no-input", "--agents", strings.Join(p.Agents, ",")}
-	for _, kb := range p.KBs {
-		args = append(args, "--kb", kb)
+	connect := func(agents []string, kbs []string) int {
+		args := []string{"--no-input", "--agents", strings.Join(agents, ",")}
+		if p.ServerURL != "" {
+			args = append(args, "--server-url", p.ServerURL)
+		}
+		for _, kb := range kbs {
+			args = append(args, "--kb", kb)
+		}
+		if p.Workspace != "" {
+			args = append(args, "--workspace", p.Workspace)
+		}
+		return setupConnect(args)
 	}
-	if p.Workspace != "" {
-		args = append(args, "--workspace", p.Workspace)
+	receiving := slices.DeleteFunc(slices.Clone(p.Agents), func(a string) bool { return slices.Contains(p.KeepAgents, a) })
+	groups := [][]string{receiving}
+	if len(p.KeepAgents) > 0 {
+		groups = append(groups, p.KeepAgents)
 	}
-	if code := setupConnect(args); code != 0 {
-		fmt.Fprintln(os.Stderr, "Setup stopped at the connect step: fix the cause above, then rerun `cartographer setup`.")
-		return code
+	for i, agents := range groups {
+		kbs := p.KBs
+		if i == 1 {
+			kbs = nil // the agents that keep their binding
+		}
+		if code := connect(agents, kbs); code != 0 {
+			fmt.Fprintln(os.Stderr, "Setup stopped at the connect step: fix the cause above, then rerun `cartographer setup`.")
+			return 1 // not the step's own code: 2 means "nothing changed", and the service and the KB exist now
+		}
 	}
 
 	fmt.Println("==> verify")
@@ -662,17 +777,11 @@ func authMismatchMessage(addr, configPath string, inShell bool, authEnv string) 
 // waitSetupReady polls the service until its health probe passes, and returns
 // its last status (for the Atlas URL).
 func waitSetupReady() (service.Status, bool) {
-	deadline := time.Now().Add(restartWaitTimeout)
-	for {
-		st, err := setupServiceStatus()
-		if err == nil && st.Healthy {
-			return st, true
-		}
-		if time.Now().After(deadline) {
-			return st, false
-		}
-		time.Sleep(healthPollInterval)
-	}
+	// The same condition as before the agents step: answering AND done loading
+	// its KBs (waitHealthyFor), then the status for the Atlas URL.
+	ready := waitHealthyFor(serverBaseURL(""), "", restartWaitTimeout)
+	st, _ := setupServiceStatus()
+	return st, ready
 }
 
 // printLingerHint warns, on Linux only, when the user's systemd instance does
