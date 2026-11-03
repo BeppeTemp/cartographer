@@ -507,6 +507,12 @@ A server that answers `/health` but is still bootstrapping its KBs is not unreac
 snapshot says `reachable: true`, `ready: false` and `error: {code: "starting", message: "the
 server is starting and loading its KBs; retry shortly"}` (state `unavailable`, exit `2`), and the
 table prints that message instead of the endpoint advice (#1305).
+A server that answers `/health` but then fails the manifest pull is not unreachable either: the
+snapshot keeps `reachable: true` and carries `error.code` `signature_failed` (the manifest does not
+verify against the pinned keys), `unauthorized` (401 or 403) or `pull_failed` (any other failed
+`sync_pull`, the cause in the message), and the table prints the message and the cause on stderr
+(state `unavailable`, exit `2`). `request_failed`, `dns_failed` and `unreachable` stay for a server
+that cannot be reached.
 A managed artifact that diverged on disk is listed as `diverged on disk (<reason>)`; for an
 `unrunnable` hook — a Claude Code hook whose registered command cannot run, such as a backslash
 path on Windows or a file that is not there — the next line says which command and why (JSON
@@ -678,7 +684,7 @@ The checks:
 | `client-config` | `.cartographer.yaml` exists and loads (an existing file that does not load is reported with the real error and the fix `fix or remove <path>`, not `connect`); an agent is connected; every configured provider is still installed |
 | `lockfile` | present, readable, and in the v2 format — a v1 file on disk is migrated *in memory* by every read, but stays v1 until something rewrites it |
 | `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered`, `unrunnable` (a Claude Code hook whose registered command cannot run, with the reason — D267); `foreign` (an info line: a file inside a managed skill/hook directory that the lock does not own, which `sync` leaves and `status` does not count as drift, #1502); plus files sitting inside a managed skill/hook directory that no lock entry accounts for (D178) — reported only, since doctor cannot prove Cartographer wrote them |
-| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one |
+| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one. Only the names `disconnect`/`reconnect` manage count (the server name and `<server>-<kb>` for the recorded KBs): a user's own `cartographer-dev` is left alone |
 | `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts), **and** that the provider actually reads the file it was written into (D189) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite; for OpenCode, the plugin shape written against the installed major (D359) — a 1.x plugin on OpenCode 2.x is an error, an unsupported major a warning, an unreadable version a warning (the shape was guessed, D719) |
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |

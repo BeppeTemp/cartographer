@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -308,6 +309,29 @@ func classifyNetworkError(endpoint string, err error) statusError {
 	return statusError{Code: code, Message: fmt.Sprintf("could not reach %s; %s", endpoint, action), Cause: err.Error()}
 }
 
+// classifyManifestError classifies a failure of the manifest pull made after
+// /health answered. The server is reachable, so "could not reach" would be the
+// wrong sentence: a signature that does not match the pins, a rejected token and
+// any other failed sync_pull each get their own code and say what to look at.
+// A dial-level failure (the server went away between the two calls) still reads
+// as a network error.
+func classifyManifestError(endpoint string, err error) statusError {
+	var remote *client.RemoteError
+	asRemote := errors.As(err, &remote)
+	switch {
+	case errors.Is(err, provisioning.ErrSignature):
+		return statusError{Code: "signature_failed", Message: "the server answered but its manifest does not verify against the pinned signing keys: fix or remove the pin with `cartographer connect --pin-key / --unpin-key <kb>` (signing_keys in .cartographer.yaml)", Cause: err.Error()}
+	case errors.Is(err, client.ErrUnauthorized) || (asRemote && (remote.Code == client.CodeUnauthorized || remote.HTTPStatus == http.StatusForbidden)):
+		return statusError{Code: "unauthorized", Message: "the server answered but rejected the request for the manifest: check the bearer token and its scopes", Cause: err.Error()}
+	}
+	var dnsErr *net.DNSError
+	var opErr *net.OpError
+	if errors.As(err, &dnsErr) || errors.As(err, &opErr) || (asRemote && (remote.Code == client.CodeUnreachable || remote.Code == client.CodeDNSFailed)) {
+		return classifyNetworkError(endpoint, err)
+	}
+	return statusError{Code: "pull_failed", Message: "the server answered but sync_pull failed: " + err.Error(), Cause: err.Error()}
+}
+
 func outputFlag(args []string) (string, []string, error) {
 	output := "table"
 	remaining := make([]string, 0, len(args))
@@ -398,7 +422,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	}
 	if err != nil {
 		s.State = "unavailable"
-		e := classifyNetworkError(cfg.ServerURL, err)
+		e := classifyManifestError(cfg.ServerURL, err)
 		s.Error = &e
 		for i := range s.Providers {
 			if s.Providers[i].Connected {
