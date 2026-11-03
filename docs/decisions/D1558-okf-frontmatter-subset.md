@@ -27,6 +27,7 @@ Strengthening `VerifyRoundTrip` to compare keys and values: would refuse writes
 that succeed today and needs the original frontmatter passed in.
 
 **Consequences.** A hand-written plain scalar such as `title: Fix bug #12` now
-reads `Fix bug` (the write path already quoted any value with `#`). A comment on
-a key holding a nested block is not preserved. Edge Unicode whitespace is always
-quoted.
+reads `Fix bug` (the write path already quoted any value with `#`). A key
+already in the page is accepted as it is: `CheckKey` holds only the keys a caller
+sets, so re-setting an existing key such as `a#b` is not checked. Edge Unicode
+whitespace is always quoted.
