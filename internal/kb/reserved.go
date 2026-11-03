@@ -32,6 +32,18 @@ const (
 // of a reserved file rather than a concept ID.
 const ConflictKindReserved = "reserved"
 
+// ConflictKindArtifact marks a registry entry for a conflicting file that is
+// neither a concept nor a reserved one (a skill, a template, an expanded
+// concept's asset, instructions.md, settings.yaml, paths.yaml): ConceptID holds
+// its git path, and the strategies are ours|theirs (D1563).
+const ConflictKindArtifact = "artifact"
+
+// IsPathConflict reports whether the registry entry's ConceptID is a git path
+// (any kind but a concept).
+func (c Conflict) IsPathConflict() bool {
+	return c.Kind == ConflictKindReserved || c.Kind == ConflictKindArtifact
+}
+
 // IsReservedFile reports whether base (a file name, not a path) is one of the
 // KB's reserved files, which are never concepts.
 func IsReservedFile(base string) bool {
