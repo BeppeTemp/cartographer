@@ -16,15 +16,15 @@ import (
 // concept(s)" alone, nor suggests a git command.
 func TestConflictMessage(t *testing.T) {
 	t.Parallel()
-	only := conflictMessage(0, []string{"data/log.md"})
+	only := conflictMessage(0, []string{"data/log.md"}, nil)
 	if strings.Contains(only, "0 concept(s)") || !strings.Contains(only, "data/log.md") || !strings.Contains(only, "git_conflict_resolve") {
 		t.Fatalf("reserved-only message = %q", only)
 	}
-	mixed := conflictMessage(1, []string{"data/log.md"})
+	mixed := conflictMessage(1, []string{"data/log.md"}, nil)
 	if !strings.Contains(mixed, "1 concept(s)") || !strings.Contains(mixed, "1 reserved file(s)") || !strings.Contains(mixed, "data/log.md") {
 		t.Fatalf("mixed message = %q", mixed)
 	}
-	if plain := conflictMessage(2, nil); !strings.Contains(plain, "2 concept(s)") || strings.Contains(plain, "reserved") {
+	if plain := conflictMessage(2, nil, nil); !strings.Contains(plain, "2 concept(s)") || strings.Contains(plain, "reserved") {
 		t.Fatalf("concept-only message = %q", plain)
 	}
 	for _, m := range []string{only, mixed} {
@@ -37,7 +37,7 @@ func TestConflictMessage(t *testing.T) {
 func TestHandleConflictError_ReservedOnlyIsRegisteredWithKind(t *testing.T) {
 	t.Parallel()
 	k, sha := setupGitKB(t)
-	n, reserved := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	n, reserved, _ := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
 	if n != 0 || len(reserved) != 1 {
 		t.Fatalf("n=%d reserved=%v", n, reserved)
 	}
@@ -67,7 +67,7 @@ func TestHandleConflictError_ReservedWithConceptStaysOutOfRegistry(t *testing.T)
 	if err := os.WriteFile(k.Root+"/data/ops/runbook.md", []byte("---\ntype: Topic\ntitle: R\n---\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	n, reserved := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md", "data/ops/runbook.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	n, reserved, _ := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md", "data/ops/runbook.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
 	if n != 1 || len(reserved) != 1 || reserved[0] != "data/log.md" {
 		t.Fatalf("n=%d reserved=%v", n, reserved)
 	}

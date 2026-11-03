@@ -19,6 +19,8 @@ interface Props {
    *  name, with the id beneath. */
   titleOf?(id: string): string | undefined;
   onNavigate(id: string): void;
+  /** The Atlas address of a concept, for links that open in a new tab. */
+  hrefOf?(id: string): string;
   onPreview(id: string | null): void;
   /** Opens an artifact on the Artifacts panel. */
   onOpenArtifact?(kind: string, name: string): void;
@@ -45,6 +47,7 @@ export function Inspector({
   findings,
   titleOf = () => undefined,
   onNavigate,
+  hrefOf,
   onPreview,
   onOpenArtifact,
   onClose,
@@ -70,7 +73,11 @@ export function Inspector({
     }
   };
   const linkCount =
-    (concept?.outbound.length ?? 0) + (concept?.inbound.length ?? 0) + (concept?.used_by?.length ?? 0) + (concept?.superseded_by ? 1 : 0) + (concept?.supersedes?.length ?? 0);
+    (concept?.outbound.length ?? 0) +
+    (concept?.inbound.length ?? 0) +
+    (concept?.used_by?.length ?? 0) +
+    (concept?.superseded_by ? 1 : 0) +
+    (concept?.supersedes?.length ?? 0);
 
   // A new concept always opens on its content: carrying the previous tab over
   // means a user who opened "Links" once never sees a body again.
@@ -172,7 +179,7 @@ export function Inspector({
                 </details>
               )}
               {concept.body.trim() ? (
-                <Markdown onNavigate={onNavigate}>
+                <Markdown onNavigate={onNavigate} hrefOf={hrefOf} conceptId={concept.id} outbound={concept.outbound}>
                   {withoutRedundantLinksSection(withoutLeadingTitle(concept.body), concept.id, concept.outbound)}
                 </Markdown>
               ) : (
@@ -246,7 +253,9 @@ export function Inspector({
                           onClick={() => onOpenArtifact?.(a.kind, a.name)}
                           disabled={!onOpenArtifact}
                         >
-                          <span className="inspector__link-kind" aria-hidden="true">◆</span>
+                          <span className="inspector__link-kind" aria-hidden="true">
+                            ◆
+                          </span>
                           <span className="inspector__link-text">
                             <span className="inspector__link-title">{a.name}</span>
                             <span className="inspector__link-id">{a.kind}</span>
@@ -348,7 +357,11 @@ function LinkGroup({
                   onFocus={() => onPreview(id)}
                   onBlur={() => onPreview(null)}
                 >
-                  <span className="inspector__link-swatch" aria-hidden="true" style={{ background: collectionVar(collection) }} />
+                  <span
+                    className="inspector__link-swatch"
+                    aria-hidden="true"
+                    style={{ background: collectionVar(collection) }}
+                  />
                   <span className="inspector__link-text">
                     <span className="inspector__link-title">{title ?? shortName(id)}</span>
                     <span className="inspector__link-id">{id}</span>

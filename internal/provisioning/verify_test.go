@@ -310,3 +310,58 @@ func TestApply_HealsMissingAgentAndInstructionsBlock(t *testing.T) {
 		t.Errorf("drift survives the heal: %+v", findings)
 	}
 }
+
+// #1502: a manifest from a server can carry an agent or hook name that cannot be
+// a path segment. It costs that artifact only: the others are written and
+// locked, and the bad one is reported (it used to abort Apply after some
+// artifacts were already on disk without a lock entry).
+func TestApply_BadArtifactNameCostsOnlyItself(t *testing.T) {
+	_, m, _, kbRoot := driftKB(t)
+	for _, bad := range []Artifact{
+		{Kind: "agent", Name: "", Source: "kb:wiki", ContentHash: "x"},
+		{Kind: "hook", Name: `a\b`, Source: "kb:wiki", ContentHash: "x"},
+		{Kind: "agent", Name: "../escape", Source: "kb:wiki", ContentHash: "x"},
+	} {
+		m.Artifacts = append(m.Artifacts, bad)
+	}
+	baseDir := t.TempDir()
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m), KBRoots: map[string]string{"wiki": kbRoot},
+		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: Lock{}})
+	if err != nil {
+		t.Fatalf("Apply must not abort: %v", err)
+	}
+	if len(res.Refused) != 3 || !strings.Contains(strings.Join(res.Warnings, "\n"), "not a valid artifact name") {
+		t.Errorf("refused %v, warnings %v", res.Refused, res.Warnings)
+	}
+	if _, ok := findingFor(VerifyManaged(res.NewLock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks"); ok {
+		t.Error("the valid skill must be applied and clean")
+	}
+	if _, statErr := os.Stat(filepath.Join(baseDir, ".claude", "skills", "runbooks", "SKILL.md")); statErr != nil {
+		t.Errorf("the valid skill was not written: %v", statErr)
+	}
+}
+
+// BuildManifest leaves out a bad agent or hook name with an issue, as it does a
+// skill (D191).
+func TestBuildManifest_ExcludesBadAgentAndHookNames(t *testing.T) {
+	kbRoot := t.TempDir()
+	os.MkdirAll(filepath.Join(kbRoot, "agents"), 0o755)
+	os.WriteFile(filepath.Join(kbRoot, "agents", ".md"), []byte("x\n"), 0o644)
+	os.WriteFile(filepath.Join(kbRoot, "agents", "ok.md"), []byte("x\n"), 0o644)
+	m, err := BuildManifest(nil, map[string]string{"wiki": kbRoot}, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, a := range m.Artifacts {
+		if a.Kind == "agent" {
+			names = append(names, a.Name)
+		}
+	}
+	if len(names) != 1 || names[0] != "ok" {
+		t.Errorf("agents = %v, want only ok", names)
+	}
+	if !strings.Contains(strings.Join(m.Issues, "\n"), "not a valid artifact name") {
+		t.Errorf("no issue recorded: %v", m.Issues)
+	}
+}
