@@ -17,6 +17,14 @@ name: plan-gate
 #   - Every `uses:` is pinned to a full commit SHA: this is the only workflow that holds
 #     the base repository token on fork-triggered events, so a moved tag must not reach it.
 #   - Read-only permissions and no secrets.
+#   - A merge queue (D1592), if one is ever enabled, needs a `plan-gate` check on its own commit, and a
+#     `merge_group` event does not reach this file (it must not: its trigger set is
+#     `pull_request_target` only). plan-gate-queue.yml reports that name there: a
+#     trigger of `merge_group` alone, one job named `plan-gate` that runs a single
+#     `echo`, no checkout, no `uses:`, no secrets, read-only permissions. The size
+#     rule already ran on the PR, and a queued PR cannot change. It is a separate
+#     file so that no event ever skips a second job of the same name, which a
+#     required check could read as a failure. Pinned by the same test.
 #
 # TRAP: a `pull_request_target` workflow added or changed by a PR does not run
 # from that PR (it runs from the base branch): this file starts working on the

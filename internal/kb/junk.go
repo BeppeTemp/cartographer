@@ -12,7 +12,7 @@ import (
 // followed orphan_asset's "cite it" advice literally and cited a .pyc. A
 // pattern ending in "/" names a directory anywhere in the path; every other one
 // is a glob on the file's base name.
-var JunkPatterns = []string{".DS_Store", "__pycache__/", "*.pyc", "*.pyo", "*~", "*.swp", "Thumbs.db"}
+var JunkPatterns = []string{".DS_Store", "__pycache__/", "*.pyc", "*.pyo", "*~", "*.swp", "Thumbs.db", tempFilePattern}
 
 // IsJunkPath reports whether the slash-separated relative path matches one of
 // JunkPatterns.

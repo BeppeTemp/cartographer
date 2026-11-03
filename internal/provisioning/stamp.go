@@ -32,19 +32,41 @@ const (
 var stampedKinds = map[string]bool{"skill": true, "agent": true}
 
 // stampArtifact returns content with this artifact's provenance block, or
-// content unchanged for a kind that is not stamped. Any existing block is
-// replaced, never nested: the block is always rebuilt from the source content,
-// so re-materializing an already-stamped file is a fixed point.
+// content unchanged for a kind that is not stamped. A block that already ENDS the
+// content, as appendBlock writes it, is replaced rather than nested, so stamping
+// stamped bytes is a fixed point. Only the trailing block is touched: a skill
+// that documents D138 and quotes the block in a code fence keeps everything
+// between the quoted markers (#1502; the block was cut from the first begin
+// marker found anywhere to the first end after it).
 func stampArtifact(content []byte, a Artifact) []byte {
 	if !stampedKinds[a.Kind] {
 		return content
 	}
-	block := provenanceBlock(a)
-	body, replaced := replaceBlock(string(content), provenanceBlockBeginPrefix, provenanceBlockEnd, "")
-	if !replaced {
-		body = string(content)
+	return []byte(appendBlock(stripTrailingProvenance(string(content)), provenanceBlock(a)))
+}
+
+// stripTrailingProvenance removes the provenance block that ends s, if any: the
+// last begin line, when everything after it up to the end of s is that block.
+func stripTrailingProvenance(s string) string {
+	trimmed := strings.TrimRight(s, "\n")
+	if !strings.HasSuffix(trimmed, provenanceBlockEnd) {
+		return s
 	}
-	return []byte(appendBlock(body, block))
+	i := strings.LastIndex(trimmed, "\n"+provenanceBlockBeginPrefix)
+	switch {
+	case i >= 0:
+		i++ // keep the newline that ends the previous line
+	case strings.HasPrefix(trimmed, provenanceBlockBeginPrefix):
+		i = 0
+	default:
+		return s
+	}
+	// Anything between the begin and the end must be only the block itself: a
+	// second end marker would mean this "last begin" is not the block's own.
+	if strings.Count(trimmed[i:], provenanceBlockEnd) != 1 {
+		return s
+	}
+	return trimmed[:i]
 }
 
 // artifactSourcePath is where this artifact lives inside its KB — the path an

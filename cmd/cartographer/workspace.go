@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1283,7 +1282,7 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		// records (D364): .agents/skills/<n>/ is Codex's and Antigravity's.
 		keep := lockFile.CoOwnedPaths(key)
 		if _, err := provisioning.PruneManaged(provisioning.WithoutCoOwned(lock.Managed, keep), base, false); err != nil {
-			if errors.Is(err, provisioning.ErrSymlinkDestination) {
+			if provisioning.IsRefusal(err) {
 				// Refused (D148): the projection stays in the lockfile, so the
 				// next sync retries it; the other projections are still pruned.
 				fmt.Fprintf(os.Stderr, "warning: %s not pruned: %v\n", key.String(), err)

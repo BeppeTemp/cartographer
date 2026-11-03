@@ -24,6 +24,21 @@ type entry struct {
 	key   string      // valid only for entryKeyKind
 	value interface{} // string, []string or nil; valid only for entryKeyKind
 	raw   string      // original line; valid only for entryCommentKind
+
+	// comment is the trailing " # ..." of the key's line (D1558), written back
+	// verbatim while the value is unchanged. Valid only for entryKeyKind.
+	comment string
+	// block is the verbatim text of a block scalar ("|", ">" and variants:
+	// the header after "key:" and the indented lines), valid only for
+	// entryKeyKind. value holds the logical string; Serialize writes block
+	// back while value is still blockValue, so an unrelated write leaves the
+	// page byte-identical.
+	block      string
+	blockValue string
+	// parsed marks an entry read from a file: Validate does not hold its key to
+	// CheckKey, so a page that already carries a key such as "a#b" stays
+	// writable (imported pages, D162); only keys a caller sets are checked.
+	parsed bool
 }
 
 // Block is the raw text of a nested block under a key whose value is empty:
@@ -67,6 +82,17 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 			continue
 		}
 
+		// An indented line outside an open block (a continuation of a multi-line
+		// scalar, a stray item) is never a key: it is kept verbatim like a
+		// comment, and pruned with its key (pruneContinuations). Without this a
+		// "  Text with: colon" line became a top-level key and the next write
+		// rewrote it at column 0.
+		if line[0] == ' ' || line[0] == '\t' {
+			fm.entries = append(fm.entries, entry{kind: entryCommentKind, raw: line})
+			i++
+			continue
+		}
+
 		colonIdx := strings.Index(line, ":")
 		if colonIdx < 0 {
 			// Unrecognizable line: treated as a comment for tolerance.
@@ -79,6 +105,10 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 		valueRaw := strings.TrimSpace(line[colonIdx+1:])
 
 		var value interface{}
+		var comment, blockText, blockValue string
+		if !strings.HasPrefix(valueRaw, "[") {
+			valueRaw, comment = splitInlineComment(valueRaw)
+		}
 
 		switch {
 		case valueRaw == "":
@@ -106,17 +136,28 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 				i++
 			}
 
+		case isBlockScalarHeader(valueRaw):
+			end := nestedBlockEnd(lines, i+1)
+			blockLines := lines[i+1 : end]
+			value = decodeBlockScalar(valueRaw, blockLines)
+			blockValue = value.(string)
+			blockText = strings.Join(append([]string{valueRaw}, blockLines...), "\n")
+			i = end
+
 		case strings.HasPrefix(valueRaw, "["):
 			// Flow list, on one line or several (D162): the multi-line form is
 			// valid YAML and is what any editor produces for a long list, but the
 			// parser only ever looked at the current line — 63 files in one corpus
 			// used it and one of them aborted an import. The block-list branch
 			// above already had the lookahead; this branch simply did not use it.
-			inner, consumed, closed := collectFlowList(lines[i:], colonIdx+1)
+			inner, consumed, tail, closed := collectFlowList(lines[i:], colonIdx+1)
 			if !closed {
 				return nil, fmt.Errorf("frontmatter: unclosed flow list at key %q (line %d)", key, i+1)
 			}
 			value = parseFlowList(inner)
+			if t := strings.TrimSpace(tail); strings.HasPrefix(t, "#") {
+				comment = " " + t
+			}
 			i += consumed
 
 		default:
@@ -126,15 +167,156 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 		}
 
 		// Duplicate key: overwrite the existing value (standard YAML behavior).
+		if comment != "" && !strings.HasPrefix(comment, " ") {
+			comment = " " + comment
+		}
+		e := entry{kind: entryKeyKind, key: key, value: value, comment: comment, block: blockText, blockValue: blockValue, parsed: true}
 		if idx, exists := fm.index[key]; exists {
-			fm.entries[idx].value = value
+			e.kind = entryKeyKind
+			fm.entries[idx] = e
 		} else {
 			fm.index[key] = len(fm.entries)
-			fm.entries = append(fm.entries, entry{kind: entryKeyKind, key: key, value: value})
+			fm.entries = append(fm.entries, e)
 		}
 	}
 
 	return fm, nil
+}
+
+// splitInlineComment splits a scalar's text (already trimmed) from a trailing
+// YAML comment (D1558). A quoted scalar ends at its closing quote; an unquoted
+// one at the first "#" that starts the text or follows a space or tab. When
+// the text after a closing quote is not a comment the whole text is the value,
+// as before. The returned comment keeps its "#" and has no leading space.
+func splitInlineComment(v string) (value, comment string) {
+	if v == "" {
+		return v, ""
+	}
+	if v[0] == '"' || v[0] == '\'' {
+		q := v[0]
+		for i := 1; i < len(v); i++ {
+			switch {
+			case q == '"' && v[i] == '\\':
+				i++
+			case v[i] == q:
+				if q == '\'' && i+1 < len(v) && v[i+1] == '\'' {
+					i++
+					continue
+				}
+				rest := strings.TrimSpace(v[i+1:])
+				if strings.HasPrefix(rest, "#") && (v[i+1] == ' ' || v[i+1] == '\t') {
+					return v[:i+1], rest
+				}
+				return v, ""
+			}
+		}
+		return v, ""
+	}
+	if v[0] == '#' {
+		return "", v
+	}
+	for i := 1; i < len(v); i++ {
+		if v[i] == '#' && (v[i-1] == ' ' || v[i-1] == '\t') {
+			return strings.TrimSpace(v[:i]), v[i:]
+		}
+	}
+	return v, ""
+}
+
+// isBlockScalarHeader reports whether v is a YAML block scalar header: "|" or
+// ">" with an optional chomping sign and indentation digit, in either order.
+func isBlockScalarHeader(v string) bool {
+	if v == "" || (v[0] != '|' && v[0] != '>') {
+		return false
+	}
+	var sign, digit int
+	for _, c := range v[1:] {
+		switch {
+		case c == '+' || c == '-':
+			sign++
+		case c >= '1' && c <= '9':
+			digit++
+		default:
+			return false
+		}
+	}
+	return sign <= 1 && digit <= 1
+}
+
+// decodeBlockScalar returns the logical string of a block scalar: literal
+// ("|") keeps the line breaks, folded (">") joins consecutive lines with a
+// space and keeps the breaks of blank and more-indented lines; the chomping
+// sign decides the trailing newlines (clip, "-" strip, "+" keep).
+func decodeBlockScalar(header string, lines []string) string {
+	indent := -1
+	if d := strings.Trim(header[1:], "+-"); d != "" {
+		indent = int(d[0] - '0')
+		// An explicit indicator is relative to the parent (column 0).
+	}
+	if indent < 0 {
+		for _, l := range lines {
+			if strings.TrimSpace(l) != "" {
+				indent = len(l) - len(strings.TrimLeft(l, " \t"))
+				break
+			}
+		}
+	}
+	if indent < 0 {
+		indent = 0
+	}
+	text := make([]string, len(lines))
+	for n, l := range lines {
+		switch {
+		case strings.TrimSpace(l) == "" && len(l) <= indent:
+			text[n] = ""
+		case len(l) >= indent:
+			text[n] = l[indent:]
+		default:
+			text[n] = strings.TrimLeft(l, " \t")
+		}
+	}
+	// Trailing blank lines are the chomped part.
+	trail := 0
+	for len(text) > 0 && text[len(text)-1] == "" {
+		text = text[:len(text)-1]
+		trail++
+	}
+	var body string
+	if header[0] == '|' {
+		body = strings.Join(text, "\n")
+	} else {
+		var sb strings.Builder
+		for n, l := range text {
+			if n > 0 {
+				prev := text[n-1]
+				moreIndented := func(x string) bool { return x != "" && (x[0] == ' ' || x[0] == '\t') }
+				switch {
+				case l == "" || prev == "":
+					// a blank line is one break; the line before it adds none
+					if l == "" {
+						sb.WriteByte('\n')
+					}
+				case moreIndented(l) || moreIndented(prev):
+					sb.WriteByte('\n')
+				default:
+					sb.WriteByte(' ')
+				}
+			}
+			sb.WriteString(l)
+		}
+		body = sb.String()
+	}
+	if len(text) == 0 {
+		return ""
+	}
+	switch {
+	case strings.Contains(header, "-"):
+		return body
+	case strings.Contains(header, "+"):
+		return body + strings.Repeat("\n", trail+1)
+	default:
+		return body + "\n"
+	}
 }
 
 // nestedBlockEnd returns the index just past the indented block that starts at
@@ -166,8 +348,9 @@ func nestedBlockEnd(lines []string, start int) int {
 // Depth is tracked over [ and ], and bracket characters inside quoted scalars are
 // skipped, so a "]" in a quoted element is not a terminator. Scanning stops at the
 // end of the frontmatter block: a "[" with no "]" before it is unclosed, not a
-// licence to consume the body.
-func collectFlowList(lines []string, start int) (inner string, consumed int, closed bool) {
+// licence to consume the body. tail is what follows the closing bracket on its
+// line (a trailing comment, D1558).
+func collectFlowList(lines []string, start int) (inner string, consumed int, tail string, closed bool) {
 	var sb strings.Builder
 	depth := 0
 	var quote byte
@@ -208,13 +391,13 @@ func collectFlowList(lines []string, start int) (inner string, consumed int, clo
 			case ']':
 				depth--
 				if depth == 0 {
-					return sb.String(), n + 1, true
+					return sb.String(), n + 1, segment[i+1:], true
 				}
 			}
 			sb.WriteByte(c)
 		}
 	}
-	return sb.String(), len(lines), false
+	return sb.String(), len(lines), "", false
 }
 
 // parseFlowList parses the inner part of a YAML flow list (without the square brackets).
@@ -307,7 +490,25 @@ func (fm *Frontmatter) Serialize() string {
 			sb.WriteString(e.raw)
 			sb.WriteByte('\n')
 		case entryKeyKind:
-			sb.WriteString(mustSerializeEntry(e.key, e.value))
+			if v, ok := e.value.(string); ok && e.block != "" && v == e.blockValue {
+				block := e.block
+				if e.comment != "" {
+					if nl := strings.IndexByte(block, '\n'); nl >= 0 {
+						block = block[:nl] + e.comment + block[nl:]
+					} else {
+						block += e.comment
+					}
+				}
+				sb.WriteString(e.key + ": " + block + "\n")
+				continue
+			}
+			line := mustSerializeEntry(e.key, e.value)
+			if e.comment != "" {
+				if nl := strings.IndexByte(line, '\n'); nl >= 0 {
+					line = line[:nl] + e.comment + line[nl:]
+				}
+			}
+			sb.WriteString(line)
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
@@ -337,12 +538,35 @@ func CheckValue(key string, value interface{}) error {
 	return err
 }
 
-// Validate runs CheckValue over every key; the write path calls it before
-// serializing (D1313).
+// CheckKey reports whether key is one serializeEntry writes and ParseFrontmatter
+// reads back unchanged (D1558): serializeEntry emits "key: ", so a key holding
+// ':', '#', a line break, edge whitespace or a "- " prefix reads back as another
+// key, a comment or a continuation, or writes keys the caller never passed.
+func CheckKey(key string) error {
+	switch {
+	case key == "":
+		return fmt.Errorf("%w: empty frontmatter key", ErrNestedFrontmatter)
+	case strings.ContainsAny(key, ":#\n\r"):
+		return fmt.Errorf("%w: key %q: a frontmatter key cannot contain ':', '#' or a line break", ErrNestedFrontmatter, key)
+	case strings.TrimSpace(key) != key:
+		return fmt.Errorf("%w: key %q: a frontmatter key cannot start or end with whitespace", ErrNestedFrontmatter, key)
+	case strings.HasPrefix(key, "- ") || key == "-":
+		return fmt.Errorf("%w: key %q: a frontmatter key cannot start with \"- \"", ErrNestedFrontmatter, key)
+	}
+	return nil
+}
+
+// Validate runs CheckKey and CheckValue over every key; the write path calls it
+// before serializing (D1313).
 func (fm *Frontmatter) Validate() error {
 	for _, e := range fm.entries {
 		if e.kind != entryKeyKind {
 			continue
+		}
+		if !e.parsed {
+			if err := CheckKey(e.key); err != nil {
+				return err
+			}
 		}
 		if err := CheckValue(e.key, e.value); err != nil {
 			return err
@@ -409,7 +633,7 @@ func serializeEntry(key string, value interface{}) (string, error) {
 // is quoted here, or a flow-list item does not re-parse (D309: an unquoted
 // "dall'operatore" opened a single-quoted string that never closed).
 func serializeScalar(value string) string {
-	if value == "" || strings.ContainsAny(value, ":,[]{}#\n\r\t\\\"'") || strings.HasPrefix(value, "-") || strings.HasPrefix(value, " ") || strings.HasSuffix(value, " ") {
+	if value == "" || strings.ContainsAny(value, ":,[]{}#\n\r\t\\\"'") || strings.HasPrefix(value, "-") || strings.TrimSpace(value) != value {
 		return strconv.Quote(value)
 	}
 	return value
@@ -432,6 +656,7 @@ func (fm *Frontmatter) Get(key string) (interface{}, bool) {
 func (fm *Frontmatter) Set(key string, value interface{}) {
 	if idx, exists := fm.index[key]; exists {
 		fm.entries[idx].value = value
+		fm.entries[idx].comment = ""
 		fm.pruneContinuations(idx)
 		return
 	}
@@ -502,6 +727,7 @@ func (fm *Frontmatter) Rename(oldKey, newKey string) bool {
 		return false
 	}
 	fm.entries[idx].key = newKey
+	fm.entries[idx].parsed = false
 	delete(fm.index, oldKey)
 	fm.index[newKey] = idx
 	return true

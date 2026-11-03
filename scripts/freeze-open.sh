@@ -14,7 +14,10 @@
 # the freeze lasts until the release is installable.
 #
 # A release list that cannot be read counts as open (needs GH_TOKEN, GH_REPO,
-# contents: read).
+# contents: read) in the gate mode (no argument): exit 0. `--candidate` and
+# `--candidates` exit 3 instead, with nothing on stdout: an unreadable listing is
+# not "no candidate", and a caller that deletes candidates must fail on it
+# (release-train `discard`); the one that only waits (`freeze`) treats 3 as open.
 #
 # `--candidate` prints the oldest candidate tag of the pending version and exits
 # as above; nothing is printed when closed. `--candidates` prints every candidate
@@ -31,6 +34,7 @@ else
   releases=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
     --jq '.[] | "\(.tag_name) \(.draft)"') || {
     echo "freeze-open: cannot list the releases (needs GH_TOKEN, GH_REPO, contents: read): freeze counted as open" >&2
+    case "$mode" in --candidate|--candidates) exit 3 ;; esac
     exit 0
   }
 fi

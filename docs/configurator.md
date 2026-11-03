@@ -66,7 +66,7 @@ subcommand name exits 2. `tool_name` may be `mcp__<server>__<tool>`, `<server>_<
 
 Tells an agent, and its user, that a newer release exists
 ([D254](decisions/D254-agents-are-told-when-cartographer-is-out-of-date.md)). The source is the
-GitHub release list (`/releases?per_page=10`, which includes the pre-releases every 0.x tag is;
+GitHub release list (`/releases?per_page=100`, up to three pages, which includes the pre-releases every 0.x tag is;
 the newest one that is not a draft and has a version tag without a pre-release suffix wins: a
 release candidate `v<next>-rc.<YYYYMMDD>` is never offered, whatever its GitHub flag, D1192),
 cached for 24 h in `<user cache dir>/cartographer/update-check.json`. A lookup times out after 3 s
@@ -343,16 +343,16 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (all detected agents) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
-| `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}` |
+| `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}`. Anything that is not a variable name (`$NAME`, `my-token`, a pasted token) is refused (exit 2), here and in the form |
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
 | `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
-| `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, `.cartographer.yaml` untouched), not a "server unreachable" deferral |
+| `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, nothing written: the manifest is fetched and verified before the agents' MCP entries, the bootstrap hook or `.cartographer.yaml` are touched, and the same holds for a rejected token), not a "server unreachable" deferral; a server that is down still defers and writes |
 | `--no-input` | `false` | Never opens the interactive form, even in a TTY |
 | `--workspace` | *(unset)* | Projects the selected KBs into this repository instead of the global catalogue (D193) |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906) |
@@ -450,7 +450,7 @@ cartographer disconnect all --dry-run  # preview without writing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
@@ -612,7 +612,7 @@ cartographer reconnect --dry-run       # preview both halves, write nothing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset; cannot be combined with the positional provider |
 | `--dry-run` | `false` | Both halves simulate, nothing is written |
 
@@ -909,6 +909,7 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author and committer are the operator, the identity git resolves for the KB's folder, else the server (D904, D950) |
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
+| `--overwrite` | `false` | Replaces a concept that already exists in the KB. Without it an existing concept (curated frontmatter, body, `status`) is left untouched, counted in `skipped` and named on stderr; `--dry-run` marks it |
 
 **`--map` covers a subtree.** Resolution is longest matching prefix, then `--default-map`, then the
 unmapped error (D162): `--map a/b=m` covers `a/b`, `a/b/c` and below, a more specific `--map a/b/c=n`
@@ -924,6 +925,12 @@ one silently winning, and a `--map` that matches nothing warns — otherwise a t
 `--default-map` unnoticed. `--dry-run` names the flag behind every destination, which is how you check
 all of this.
 
+**An existing concept is never replaced silently.** A second import after curation would otherwise
+destroy the curation: the concept of the same id is skipped (stderr names it, the summary counts it as
+skipped) unless `--overwrite`, and `--dry-run` opens the KB read-only to mark every collision. Source
+names that slugify to the same id get distinct `-2`, `-3` suffixes even when one of them already reads
+`foo-bar-2.md`; `.md` is recognised whatever its case (`Upper.MD` imports as `upper`, its links rewritten).
+
 **`import` takes the KB's advisory lock** and fails fast when the server holds it (D155), naming the
 holder and the `service stop … && service start` sequence: it writes into the same directory the
 server's sync loop manages, and the two interleaving corrupted the git index. `--dry-run` writes
@@ -931,8 +938,7 @@ nothing and never contends for it.
 
 **The search index is not updated by this process.** `import` writes through the KB write path but
 from outside the server, so the server's FTS index knows nothing about it: until it is rebuilt `search` returns nothing
-while `concept_list` sees everything. On completion the command rebuilds the index when a configured server is reachable, and
-otherwise prints the `cartographer reindex` instruction. It never changes the exit code: the import
+while `concept_list` sees everything. On completion the command rebuilds the index of **that KB only**, and only when the local server (the service config's `data:` or a `kbs[]` path) mounts the directory given to `--kb` and the client points at a loopback server; for a clone the server does not serve, or a remote server, it prints the `cartographer reindex` instruction. It never changes the exit code: the import
 itself succeeded.
 
 **`import` rewrites markdown links.** Every `[text](path.md)` whose target is part of the same
@@ -1104,12 +1110,14 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot CLI | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
+| Pi | `.pi/agent/mcp.json` | `mcpServers` (JSON) |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
 OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references;
 Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
 Copilot CLI uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
+Pi has no `type` key (it infers the transport) and every entry carries `"exposure": "direct"`.
 Cartographer only preflights the local executable before writing: it never runs it, and never resolves
 an environment reference into its value.
 
@@ -1278,6 +1286,33 @@ owns whole (the hook's own files sit in `~/.copilot/cartographer-hooks/<name>/`,
 KB hook that declares one is installed but not registered, with a warning. Cartographer reads
 `$HOME/.copilot` like every other provider and ignores `COPILOT_HOME`. The project-local MCP, agent and
 hook locations are gated on folder trust and are unsupported ([D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
+
+**Pi** (`pi`, npm `@earendil-works/pi-coding-agent`; probed on 1.5.0) — with auth. The file is
+`~/.pi/agent/mcp.json`, key `mcpServers`. Pi interpolates `${VAR}` in `env` and `headers`, so the
+header is written verbatim, as for Claude Code. `"exposure": "direct"` is on every entry: Pi's default,
+`codemode`, would not declare the tools to the model:
+```json
+{
+  "mcpServers": {
+    "cartographer": {
+      "url": "http://127.0.0.1:39273/mcp",
+      "headers": { "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}" },
+      "exposure": "direct"
+    }
+  }
+}
+```
+
+Pi's MCP tools are named `mcp__<server>__<tool>`, as in Claude Code. Its global cells are
+`~/.pi/agent/mcp.json`, `~/.pi/agent/AGENTS.md` (a managed block; an `AGENTS.override.md` beside it
+replaces it and is reported as shadowing) and `~/.pi/agent/skills/<name>/`; it has no subagents and its
+hook cell is unsupported. The only project cell is `AGENTS.md` (read without trust): project `.pi/*` and
+`.agents/skills` load only once the project is trusted. A value that is wholly `!command` in `env` or
+`headers` is refused (Pi would run it when it loads the file), and so is a server name outside letters,
+digits, `_` and `-` (Pi skips it silently). Cartographer reads `$HOME/.pi/agent` like every other
+provider and ignores `PI_CODING_AGENT_DIR`: to use another agent directory, symlink `~/.pi/agent`.
+A `pi` on `PATH` is reported as installed only when `pi --version` prints a bare version
+([D676](decisions/D676-github-copilot-cli-is-a-provider.md), [D755](decisions/D755-claude-config-dirs-declared-not-discovered.md)).
 
 The formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a

@@ -78,6 +78,15 @@ reconciles their conflicts itself. If one appears in `conflicts_list` with
 entries), otherwise `theirs` (remote) or `ours` (local). Never run git in the
 KB clone.
 
+## Other files (skills, templates, assets, settings)
+
+A conflict on any file that is neither a concept nor reserved (a skill's `SKILL.md`, a
+template, an image of an expanded concept, `instructions.md`, `settings.yaml`,
+`paths.yaml`) appears in `conflicts_list` with `kind: artifact`, its `concept_id` being the
+file path. Resolve it with `git_conflict_resolve`: `strategy: theirs` (remote) or `ours`
+(local), nothing else (no `edit`, no `union`): read both versions first if you need to
+choose. Once every conflict is resolved the last call finalizes the merge.
+
 ## Reference
 
 - Tool: `conflicts_list` — list open conflicts (read-only)
