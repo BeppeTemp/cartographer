@@ -1248,6 +1248,9 @@ func reservedStrategyError(k *kb.KB, conceptID, strategy string) string {
 		reserved := c.Kind == kb.ConflictKindReserved
 		switch {
 		case strategy == "union" && (!reserved || filepath.Base(c.Path) != "log.md"):
+			if c.IsPathConflict() {
+				return "strategy 'union' applies only to a reserved log.md conflict (use ours|theirs)"
+			}
 			return "strategy 'union' applies only to a reserved log.md conflict (use ours|theirs|edit)"
 		case strategy == "edit" && c.IsPathConflict():
 			return "strategy 'edit' does not apply to a reserved or artifact file (use union|ours|theirs for log.md, ours|theirs otherwise)"

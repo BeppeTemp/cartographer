@@ -75,3 +75,14 @@ func TestConflictMessage_NeverPromisesAToolForNothing(t *testing.T) {
 		t.Fatalf("message = %q", m)
 	}
 }
+
+// An artifact conflict is never offered edit, which it refuses too.
+func TestReservedStrategyError_ArtifactHintOmitsEdit(t *testing.T) {
+	t.Parallel()
+	k, sha := setupGitKB(t)
+	handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"skills/x/SKILL.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	msg := reservedStrategyError(k, "skills/x/SKILL.md", "union")
+	if msg == "" || strings.Contains(msg, "edit") {
+		t.Fatalf("hint = %q", msg)
+	}
+}
