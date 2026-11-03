@@ -209,6 +209,19 @@ func mdLinkTarget(baseDir, href string, isAsset func(string) bool) (string, bool
 		return "", false
 	}
 
+	// A leading "/" is a bundle-relative link: the path is from the KB root,
+	// not from the page's folder (docs/conventions.md, docs/data-plane.md).
+	// "//host/x" is a protocol-relative URL, not a concept link.
+	if rooted(href) {
+		if strings.HasPrefix(href, "//") {
+			return "", false
+		}
+		baseDir, href = ".", href[1:]
+		if href == "" {
+			return "", false
+		}
+	}
+
 	// A path with a non-Markdown extension is a file/asset link, not a
 	// shorthand ConceptID. In particular, report.csv must not become the
 	// false graph target report.csv.md.
@@ -236,6 +249,9 @@ func mdLinkTarget(baseDir, href string, isAsset func(string) bool) (string, bool
 	id := strings.TrimSuffix(resolved, ".md")
 	return id, id != ""
 }
+
+// rooted reports a bundle-relative href (it starts with "/").
+func rooted(href string) bool { return strings.HasPrefix(href, "/") }
 
 // wikiLinkTarget resolves the ID group of a wiki-link match (root-relative).
 func wikiLinkTarget(raw string) (string, bool) {
@@ -351,7 +367,13 @@ func RewriteLinks(body string, basePath string, moveMap map[string]string, asset
 		if idx := strings.Index(href, "#"); idx >= 0 {
 			frag = href[idx:]
 		}
-		edits = append(edits, spanEdit{hrefStart, hrefEnd, relLink(baseDir, newID+".md") + frag})
+		// A bundle-relative link stays bundle-relative: its form is the stable
+		// one and does not depend on where the page sits.
+		newHref := relLink(baseDir, newID+".md")
+		if rooted(href) {
+			newHref = "/" + newID + ".md"
+		}
+		edits = append(edits, spanEdit{hrefStart, hrefEnd, newHref + frag})
 	}
 
 	for _, m := range wikiLinkRe.FindAllStringSubmatchIndex(masked, -1) {
