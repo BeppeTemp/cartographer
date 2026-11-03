@@ -7,7 +7,7 @@ name: pr-title
 # rewrite release-please does to its PR. The ruleset requires the job name
 # `pr-title`, not a workflow.
 #
-# It also runs on `merge_group` (D1590): the merge queue waits for every required
+# It also runs on `merge_group` (D1592): the merge queue waits for every required
 # check on its own commit, and a check that never reports there blocks the queue.
 # The title was linted when the PR was open and a queued PR cannot be edited, so
 # on merge_group every other step is skipped and the job reports success.

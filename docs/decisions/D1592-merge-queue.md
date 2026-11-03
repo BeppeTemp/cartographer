@@ -2,7 +2,7 @@
 topic: project-governance
 ---
 
-# D1590 — Required checks run on a PR, the heavy legs only in the merge queue
+# D1592 — Required checks run on a PR, the heavy legs only in the merge queue
 
 **Decision.** A pull request runs the light checks: `test`, `web` (path-filtered), `pr-title` and `plan-gate`. The Windows shards and `install.ps1`, `test-macos`, `docker` and `demo-edge` run on `merge_group`, on push to `main` and on `workflow_dispatch`, never on a PR. The five required checks (`test`, `test-windows`, `web`, `pr-title`, `plan-gate`) all report on `merge_group` too.
 

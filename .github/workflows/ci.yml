@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  # The merge queue (D1590): the heavy legs run here, once per group of PRs.
+  # The merge queue (D1592): the heavy legs run here, once per group of PRs.
   merge_group:
   # The real-forge job (`forge`) on demand, from the Actions tab or
   # `gh workflow run ci.yml --ref <branch>`; every other job runs too (D996).
@@ -26,13 +26,13 @@ concurrency:
 # On main every job runs, and a red main opens (or updates) a `ci-red` issue.
 # A PR runs the light checks only: `test`, `web` (when the frontend changed) and
 # the two PR-title workflows. The heavy legs (Windows, macOS, docker, demo-edge)
-# run on `merge_group`, on push to main and on workflow_dispatch (D1590): the
+# run on `merge_group`, on push to main and on workflow_dispatch (D1592): the
 # account runs about five jobs at a time and twenty per PR was the bottleneck.
 # The queue runs them once per group, so no change reaches main without them.
 jobs:
   # Which of the slower jobs this PR needs: `web` and `forge` only, the other
   # outputs stay in the table pinned by a test but no PR job reads them (the
-  # heavy legs do not run on a PR, D1590). On merge_group and push this job is
+  # heavy legs do not run on a PR, D1592). On merge_group and push this job is
   # skipped, and `result != success` means "run everything". A path filter at
   # the workflow level would leave a required check that never reports,
   # blocking the PR; a job skipped by `if:` reports as passed.
@@ -107,7 +107,7 @@ jobs:
   # vets with GOOS=windows. Minutes on standard runners are free for a public
   # repository, so the split costs nothing.
   #
-  # Merge queue, push to main and a manual run, never on a PR (D1590): a
+  # Merge queue, push to main and a manual run, never on a PR (D1592): a
   # Windows-only break is stopped in the queue instead of sitting on main.
   test-windows-shard:
     name: test-windows (${{ matrix.shard }}/4)
@@ -177,7 +177,7 @@ jobs:
   # The required check. main's branch protection requires checks named
   # literally `test-windows` and `web`, and a matrix renames its legs, which
   # would silently un-protect the branch: one job per required name collects
-  # its legs. Legs skipped by design (every PR, D1590) pass it; in the merge
+  # its legs. Legs skipped by design (every PR, D1592) pass it; in the merge
   # queue a skipped leg is a defect and fails it.
   test-windows:
     name: test-windows
@@ -385,7 +385,7 @@ jobs:
   # The macOS leg (D997): the launchd agent, install.sh against a real service
   # and the Cask GoReleaser renders, each on a real runner. It registers a real
   # job under the runner's own HOME (internal/service/homeguard.go refuses a
-  # sandbox HOME). Merge queue, push to main and a manual run (D1590). Not a
+  # sandbox HOME). Merge queue, push to main and a manual run (D1592). Not a
   # required check; main-status watches it.
   test-macos:
     name: test-macos

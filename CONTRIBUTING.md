@@ -210,7 +210,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     trailing comment (`uses: owner/repo@<40 hex> # v1.2.3`; resolve it with
     `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
     reference (D1020); Dependabot keeps the pins current.
-- **What runs where** (D1590): a PR runs the light checks (`test`, `web` when the frontend
+- **What runs where** (D1592): a PR runs the light checks (`test`, `web` when the frontend
   changed, `pr-title`, `plan-gate`). The heavy legs (Windows, macOS, docker, demo-edge) run in
   GitHub's merge queue, once per group of queued PRs, so a PR that is green may still be
   ejected from the queue by a Windows-only failure: read the queue run, fix, and re-queue.

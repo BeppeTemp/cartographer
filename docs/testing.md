@@ -60,7 +60,7 @@ with the unit tests and bundle checks, and the rest of the browser suite.
 `make e2e-web E2E_WEB_ARGS=...` passes the filter to Playwright. A PR runs `test`, the `web` legs when the
 frontend (or what `bin/cartographer` imports) changed, `pr-title` and `plan-gate`; the heavy legs
 (the Windows shards and `install.ps1`, `test-macos`, `docker`, `demo-edge`) run on `merge_group`, on
-every push to `main` and on `workflow_dispatch`, never on a PR (D1590). GitHub's merge queue
+every push to `main` and on `workflow_dispatch`, never on a PR (D1592). GitHub's merge queue
 builds a temporary commit of the PR on top of the queue and runs the whole suite on it, once per
 group, so a Windows-only break is stopped before `main` instead of after it. The `web` legs run
 after every push to `main`, in the queue, and on a PR that touches the frontend, `test/lib/`, the build files, or a

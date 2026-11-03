@@ -93,7 +93,7 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	}
 }
 
-// The merge queue (D1590) requires a `plan-gate` check on the queue's own commit.
+// The merge queue (D1592) requires a `plan-gate` check on the queue's own commit.
 // plan-gate.yml cannot report it (its trigger set is pull_request_target only), so
 // plan-gate-queue.yml does, and it may do nothing: the trigger is exactly
 // `merge_group`, the one job is named `plan-gate`, it checks out nothing, uses no
