@@ -1,6 +1,7 @@
 name: plan-gate-queue
 
-# The `plan-gate` required check, reported in the merge queue (D1592). The rule
+# The `plan-gate` required check, reported on merge_group (D1592), inert unless a merge queue is
+# enabled (not available on a user-owned repository). The rule
 # itself is plan-gate.yml's and ran on the pull request; a queued PR cannot change,
 # so here the check only has to exist. Nothing is checked out, nothing runs from
 # the PR, no secret: the invariants of plan-gate.yml, pinned by

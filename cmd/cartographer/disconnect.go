@@ -11,7 +11,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
-	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // cmdDisconnect removes the requested agent provider(s) — default "all" = every
@@ -210,7 +209,7 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 		pr := disconnectProviderResult{Provider: p}
 
 		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
-		if errors.Is(err, safewrite.ErrSymlinkDestination) {
+		if provisioning.IsRefusal(err) {
 			// One provider's symlinked config does not stop the others.
 			pr.Refused = refusalWarnings(err)
 			res.Providers = append(res.Providers, pr)
@@ -455,7 +454,7 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDi
 
 		pruned, err := provisioning.PruneManaged(toPrune, base, dryRun)
 		var pruneRefused *provisioning.PruneRefusedError
-		if errors.As(err, &pruneRefused) || errors.Is(err, provisioning.ErrSymlinkDestination) {
+		if errors.As(err, &pruneRefused) || provisioning.IsRefusal(err) {
 			pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned, Kept: kept})
 			refused = append(refused, fmt.Sprintf("workspace %s: %v", key.Workspace, err))
 			continue

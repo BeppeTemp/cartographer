@@ -154,14 +154,15 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	if !WholeVisible(ctx, k, false) {
 		ctx = withVisibilityMemo(ctx, k)
 	}
-	hits, mode, expandedTo := expandedKeywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit, skipArchived)
+	pass := &searchPass{} // one reconcile, one ranking view, one archived set for the whole request
+	hits, mode, expandedTo := expandedKeywordHitsPass(ctx, k, rec, deps, pass, params.Query, params.Scope, limit, skipArchived)
 	// Archived fallback (D322): when nothing live matches and the caller did
 	// not say include_archived, search again with archived concepts in, so
 	// "the KB knows nothing" is never concluded from pages that are only
 	// archived. An explicit false disables it (verification searches).
 	archivedFallback := false
 	if len(hits) == 0 && params.IncludeArchived == nil {
-		if ah, _, ex := expandedKeywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit, false); len(ah) > 0 {
+		if ah, _, ex := expandedKeywordHitsPass(ctx, k, rec, deps, pass, params.Query, params.Scope, limit, false); len(ah) > 0 {
 			hits, expandedTo, archivedFallback = ah, ex, true
 		}
 	}
@@ -405,23 +406,83 @@ const glossaryMaxVariants = 8
 // that is only a two-letter alias finds pages through its longer variants
 // but never pages that use only the two-letter form.
 func expandedKeywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived bool) ([]searchHit, string, []string) {
+	return expandedKeywordHitsPass(ctx, k, rec, deps, &searchPass{}, query, scope, limit, skipArchived)
+}
+
+// searchPass is the work one request shares between its passes (the original
+// query, each glossary variant, the archived fallback): the reconcile with the
+// files (D245), the PageRank percentiles of the view it validated, and the set
+// of archived ids. Each used to be paid per pass, a graph validation among
+// them. A pass is not safe for concurrent use: it belongs to one request.
+type searchPass struct {
+	reconciled   bool
+	pctDone      bool
+	pct          map[okf.ConceptID]float64
+	archivedDone bool
+	archived     map[okf.ConceptID]struct{} // nil when no view could be read
+}
+
+// reconcile brings the indexes in line with the files, once per request.
+func (p *searchPass) reconcile(rec *searchReconciler) {
+	if p.reconciled {
+		return
+	}
+	p.reconciled = true
+	if _, err := rec.reconcile(); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: search: %v\n", err)
+	}
+}
+
+// percentiles are the centrality prior's input (D251), computed on the view
+// the request's reconcile validated, and once whatever the number of passes.
+func (p *searchPass) percentiles(k *kb.KB, include func(string) bool) map[okf.ConceptID]float64 {
+	if p.pctDone {
+		return p.pct
+	}
+	p.pctDone = true
+	if pct, ok := k.PageRankPercentilesOfLastView(include); ok {
+		p.pct = pct
+		return pct
+	}
+	pct, err := k.PageRankPercentiles(include)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: search centrality: %v\n", err)
+		return nil
+	}
+	p.pct = pct
+	return pct
+}
+
+// archivedSet is the archived ids of the same view, nil when there is none.
+func (p *searchPass) archivedSet(k *kb.KB) map[okf.ConceptID]struct{} {
+	if !p.archivedDone {
+		p.archivedDone = true
+		p.archived, _ = k.ArchivedOfLastView()
+	}
+	return p.archived
+}
+
+// expandedKeywordHitsPass is expandedKeywordHits on a request's shared pass:
+// it reconciles once, then runs every variant through keywordHitsPass.
+func expandedKeywordHitsPass(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, pass *searchPass, query, scope string, limit int, skipArchived bool) ([]searchHit, string, []string) {
+	pass.reconcile(rec)
 	var variants []string
 	if st, err := k.ReadGlossary(); err == nil {
 		variants = st.Glossary.Variants(search.Fold(query), glossaryMaxVariants)
 	}
 	if len(variants) <= 1 {
-		hits, mode := keywordHits(ctx, k, rec, deps, query, scope, limit, skipArchived)
+		hits, mode := keywordHitsPass(ctx, k, rec, deps, pass, query, scope, limit, skipArchived, true)
 		return hits, mode, nil
 	}
 	// variants[0] is the folded query: run the query as typed instead, so the
 	// original pass is byte-for-byte today's search.
-	hits, mode := keywordHits(ctx, k, rec, deps, query, scope, limit, skipArchived)
+	hits, mode := keywordHitsPass(ctx, k, rec, deps, pass, query, scope, limit, skipArchived, true)
 	best := map[string]searchHit{}
 	for _, h := range hits {
 		best[h.ID] = h
 	}
 	for _, v := range variants[1:] {
-		vh, _ := keywordHits(ctx, k, rec, deps, v, scope, limit, skipArchived)
+		vh, _ := keywordHitsPass(ctx, k, rec, deps, pass, v, scope, limit, skipArchived, true)
 		for _, h := range vh {
 			if cur, ok := best[h.ID]; !ok || (cur.Partial && !h.Partial) || (cur.Partial == h.Partial && h.Score > cur.Score) {
 				best[h.ID] = h
@@ -439,26 +500,21 @@ func expandedKeywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, de
 	return merged, mode, variants[1:]
 }
 
-// keywordHits is search's ranking, shared with graph_context's seeding (D242)
-// so the two cannot disagree about which concepts match a query: the backend
-// choice, FTS5 with its in-memory fallback, visibility filtering, merge and
-// sort. It returns the hits and the mode search reports.
+// keywordHitsReconciled is search's ranking, shared with graph_context's
+// seeding (D242) so the two cannot disagree about which concepts match a
+// query: the backend choice, FTS5 with its in-memory fallback, visibility
+// filtering, merge and sort. It returns the hits and the mode search reports.
 //
-// It reconciles the indexes with the files first (D245), so every reader
-// sees every change however it was made. That is the only freshness
-// mechanism: no write path updates an index directly any more.
-func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived bool) ([]searchHit, string) {
-	if _, err := rec.reconcile(); err != nil {
-		fmt.Fprintf(os.Stderr, "cartographer: search: %v\n", err)
-	}
-	return keywordHitsReconciled(ctx, k, rec, deps, query, scope, limit, skipArchived, true)
+// The caller has reconciled the indexes with the files (D245) — the only
+// freshness mechanism, no write path updates an index directly — and runs
+// several queries in a row (the write-time repeated_fact lookups, D351), so
+// that walk is paid once per call. snippets false skips the excerpts (#1276):
+// the caller reads only the ids.
+func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived, snippets bool) ([]searchHit, string) {
+	return keywordHitsPass(ctx, k, rec, deps, &searchPass{reconciled: true}, query, scope, limit, skipArchived, snippets)
 }
 
-// keywordHitsReconciled is keywordHits for a caller that has just reconciled
-// and runs several queries in a row (the write-time repeated_fact lookups,
-// D351): the reconcile walks every file, so it is paid once per call.
-// snippets false skips the excerpts (#1276): the caller reads only the ids.
-func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived, snippets bool) ([]searchHit, string) {
+func keywordHitsPass(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, pass *searchPass, query, scope string, limit int, skipArchived, snippets bool) ([]searchHit, string) {
 	live := rec.live
 	visible := visiblePredicate(ctx, k)
 	// skipArchived (D322) drops archived concepts inside the backend's own
@@ -468,8 +524,16 @@ func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, 
 	// concept still links, it just is not offered.
 	pick := visible
 	if skipArchived {
+		archived := pass.archivedSet(k)
 		pick = func(id string) bool {
-			return visible(id) && k.ConceptFacets(okf.ConceptID(id)).Status != kb.StatusArchived
+			if !visible(id) {
+				return false
+			}
+			if archived != nil {
+				_, gone := archived[okf.ConceptID(id)]
+				return !gone
+			}
+			return k.ConceptFacets(okf.ConceptID(id)).Status != kb.StatusArchived
 		}
 	}
 
@@ -513,12 +577,10 @@ func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, 
 	if !WholeVisible(ctx, k, false) {
 		include = visible
 	}
-	if pct, err := k.PageRankPercentiles(include); err == nil {
+	if pct := pass.percentiles(k, include); pct != nil {
 		for i := range kwHits {
 			kwHits[i].Score *= 1 + searchCentralityBeta*pct[okf.ConceptID(kwHits[i].ID)]
 		}
-	} else {
-		fmt.Fprintf(os.Stderr, "cartographer: search centrality: %v\n", err)
 	}
 
 	// Trap: the partial-last order must be applied after the prior, which

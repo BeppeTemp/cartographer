@@ -39,8 +39,11 @@ jobs:
         run: |
           failed=0
           if scripts/freeze-open.sh; then
-            for n in $(gh pr list --state open --author 'app/dependabot' --json number,isCrossRepository,autoMergeRequest \
-              --jq '.[] | select((.isCrossRepository | not) and .autoMergeRequest != null) | .number'); do
+            # Assigned first: a failed listing fails the step under -e, a `$(gh ...)` in
+            # the `for` word list would not.
+            prs=$(gh pr list --state open --author 'app/dependabot' --json number,isCrossRepository,autoMergeRequest \
+              --jq '.[] | select((.isCrossRepository | not) and .autoMergeRequest != null) | .number')
+            for n in $prs; do
               if gh pr merge --disable-auto "$n"; then
                 echo "- #$n: auto-merge disarmed" >> "$GITHUB_STEP_SUMMARY"
               else
@@ -50,7 +53,10 @@ jobs:
             done
             exit "$failed"
           fi
+          prs=$(gh pr list --state open --author 'app/dependabot' --json number,headRefName,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | "\(.number) \(.headRefName)"')
           while read -r n branch; do
+            [ -n "$n" ] || continue # an empty listing is one empty line
             # dependabot/<ecosystem>/<path>: the ecosystem is docker, go_modules, github_actions...
             eco=$(cut -d/ -f2 <<<"$branch")
             # The commit message carries `update-type:` for each updated dependency.
@@ -69,6 +75,5 @@ jobs:
               echo "- #$n: FAILED to arm" >> "$GITHUB_STEP_SUMMARY"
               failed=1
             fi
-          done < <(gh pr list --state open --author 'app/dependabot' --json number,headRefName,isCrossRepository \
-            --jq '.[] | select(.isCrossRepository | not) | "\(.number) \(.headRefName)"')
+          done <<<"$prs"
           exit "$failed"

@@ -96,7 +96,7 @@ func TestGenericConnectionIsNeverToldToRunACLICommand(t *testing.T) {
 		strings.Contains(res.Content[0].Text, "cartographer-kb-conflict-resolve") {
 		t.Errorf("conflicts_list guidance = %s", res.Content[0].Text)
 	}
-	for _, msg := range []string{conflictMessage(1, nil), conflictMessage(0, []string{"data/log.md"}), conflictMessage(1, []string{"data/log.md"})} {
+	for _, msg := range []string{conflictMessage(1, nil, nil), conflictMessage(0, []string{"data/log.md"}, nil), conflictMessage(1, []string{"data/log.md"}, nil)} {
 		assertNoCLICommand(t, "conflict error", msg)
 		if strings.Contains(msg, "-kb-conflict-resolve") {
 			t.Errorf("conflict error names the skill: %q", msg)

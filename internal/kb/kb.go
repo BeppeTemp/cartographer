@@ -581,7 +581,7 @@ func Init(root string) (*KB, error) {
 // (#757). A pattern without a leading slash matches at every level. Excluding
 // never untracks a path already committed.
 var agentStateDirs = []string{
-	".omc/", ".claude/", ".codex/", ".kiro/", ".opencode/", ".crush/", ".gemini/", ".cursor/",
+	".omc/", ".claude/", ".codex/", ".kiro/", ".opencode/", ".crush/", ".gemini/", ".cursor/", ".pi/",
 }
 
 // excludeAgentStateDirs adds agentStateDirs to .git/info/exclude, best-effort
@@ -1131,32 +1131,6 @@ func (kb *KB) WriteFileAtomic(relPath string, data []byte) error {
 		return fmt.Errorf("WriteFileAtomic: mkdir: %w", err)
 	}
 	return writeFileAtomic(abs, data)
-}
-
-// writeFileAtomic is the internal implementation: writes to a temp file in the same
-// directory then renames atomically.
-func writeFileAtomic(dest string, data []byte) error {
-	dir := filepath.Dir(dest)
-	tmp, err := os.CreateTemp(dir, ".tmp-wiki-")
-	if err != nil {
-		return fmt.Errorf("writeFileAtomic: create temp: %w", err)
-	}
-	tmpName := tmp.Name()
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return fmt.Errorf("writeFileAtomic: write: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("writeFileAtomic: close: %w", err)
-	}
-	if err := os.Rename(tmpName, dest); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("writeFileAtomic: rename: %w", err)
-	}
-	return nil
 }
 
 // AppendLog prepends an entry to log.md (newest-on-top).

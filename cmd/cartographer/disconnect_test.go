@@ -954,3 +954,37 @@ func TestDoDisconnect_WorkspacePruneKeepsWhatItCannotVerify(t *testing.T) {
 		t.Errorf("summary does not say why it was kept:\n%s", out)
 	}
 }
+
+// #1502: a Codex config.toml whose MCP block lost its end marker is a refusal
+// for that provider only, like a symlinked config: disconnect reports it, leaves
+// the file untouched and still removes the other provider's entry.
+func TestDoDisconnect_ACorruptedCodexBlockIsARefusalNotFatal(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "codex")
+	cfgPath := filepath.Join(dir, ".codex", "config.toml")
+	orphan := "model = \"x\"\n" + configurator.CodexMCPBlockBegin + "\n[mcp_servers.x]\nurl = \"u\"\n\n[profiles.mine]\nk = 1\n"
+	if err := os.WriteFile(cfgPath, []byte(orphan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude", "codex"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect = %v, want the refusal reported per provider, not fatal", err)
+	}
+	var codex, claude *disconnectProviderResult
+	for i := range res.Providers {
+		switch res.Providers[i].Provider {
+		case "codex":
+			codex = &res.Providers[i]
+		case "claude":
+			claude = &res.Providers[i]
+		}
+	}
+	if codex == nil || len(codex.Refused) == 0 || codex.ConfigRemoved {
+		t.Fatalf("codex result = %+v, want a refusal", codex)
+	}
+	if claude == nil || !claude.ConfigRemoved {
+		t.Fatalf("claude result = %+v, want its entry removed", claude)
+	}
+	if got, _ := os.ReadFile(cfgPath); string(got) != orphan {
+		t.Errorf("config.toml changed:\n%s", got)
+	}
+}

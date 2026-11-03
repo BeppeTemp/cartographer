@@ -435,3 +435,55 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
 - **Probe notes**: `COPILOT_HOME=<scratch> copilot instruction list | skill list |
   mcp list` show the cells without a model; hooks need `copilot -p … -s
   --allow-all-tools`. Never point the probe at `$HOME/.copilot`.
+
+## pi
+
+- **Aligned with**: `1.5.0` — 2026-11-03, probed. Pi (`pi`), npm
+  `@earendil-works/pi-coding-agent`.
+- **Sources**: repository <https://github.com/earendil-works/pi>; docs
+  `packages/coding-agent/docs/{configuration,mcp,extensions,skills,cli}.md` of the installed
+  package; npm `@earendil-works/pi-coding-agent`.
+- **Depends on**:
+  - Stdio bridge (D737): spawned in the session's folder (probe 1 below). The token variable
+    reaches the bridge: Pi does not filter the environment of an MCP server (probed with a stub
+    server that recorded a variable exported to `pi mcp list`), so no `PassEnv` is emitted.
+  - `mcp` in `~/.pi/agent/mcp.json` (`mcpServers`), every entry `"exposure": "direct"`: the
+    default, `codemode`, would not declare the tools to the model. `${VAR}` in `env` and
+    `headers` is Pi's own interpolation, written verbatim; a value that is wholly `!command` runs
+    at load and is refused. A server name outside letters, digits, `_` and `-` is skipped by Pi
+    and refused by the emitter.
+  - `instructions` in `~/.pi/agent/AGENTS.md`; an `AGENTS.override.md` replaces `AGENTS.md` or
+    `CLAUDE.md` only in the same directory (the package's configuration page), which is the declared
+    `InstructionsPrecedence`. Project: `AGENTS.md` (probe 2).
+  - `skill` in `~/.pi/agent/skills/<name>/`.
+  - `agent` unsupported (Pi has no subagents); `hook` unsupported until the generated extension
+    lands (probe 4 shows the extension API fires); no project `.pi/*` cell (trust-gated).
+  - `PI_CODING_AGENT_DIR` is not honoured: paths are `$HOME/.pi/agent`, like every provider
+    (D676, D755); symlink `~/.pi/agent` to use another directory. Detection does not read it either.
+  - Detection: `pi` on `PATH` counts only when `pi --version` prints a bare version; other tools
+    ship a `pi` (a shim forwarding to the real binary passes, an unrelated one does not).
+- **Probed on 1.5.0** (2026-11-03):
+  1. A global `<agent-dir>/mcp.json` entry `{"command":"<cartographer>","args":["mcp","--provider","<id>"],"exposure":"direct"}`:
+     `pi mcp list` shows it connected with its tools (direct, global). In a session the tools are
+     `mcp__cartographer__<tool>` (the Claude Code form), a `search` call worked, and the bridge
+     resolved the session folder's workspace binding (a KB bound only to that folder was
+     reachable): the bridge is spawned in the session cwd.
+  2. Instructions, untrusted, from `W/repo/` (git repository inside non-git `W`): read global
+     `<agent-dir>/AGENTS.md`, `W/AGENTS.md` (above the git root: the ancestor walk does not stop
+     at the root) and `W/repo/CLAUDE.md`; `W/repo/CLAUDE.local.md` NOT read.
+  3. Skills, untrusted (`-na`): only global `<agent-dir>/skills/`; project `.agents/skills/` NOT
+     loaded. Trusted (`-a`) from `W/repo/sub`: `W/repo/.agents/skills/probe-dup` loaded and WON
+     over a same-named global `<agent-dir>/skills/probe-dup` (no warning in `-p` output);
+     `W/.agents/skills/` above the root NOT loaded.
+  4. A global extension `<agent-dir>/extensions/*.ts` loads without trust; `session_start` fires
+     with `reason: "startup"` and `ctx.cwd` = the session folder; `before_agent_start` fires;
+     `tool_call` fires and returning `{block:true, reason}` blocked a `bash` call with the reason
+     reaching the model verbatim; `tool_result` fires after an MCP call.
+- **Watch items**: a trusted project `.agents/skills/<x>` shadows the global copy (Cartographer
+  also projects `.agents/skills` for codex, copilot and antigravity: same content, benign
+  duplication, not suppressed); the `CLAUDE.md` global fallback order is unprobed; the Windows
+  path `%USERPROFILE%\.pi\agent` is unverified; `pi` shims on `PATH`; an exposure changed by the
+  user in `/mcp` is rewritten to `direct` by the next sync.
+- **Probe notes**: `pi -p --no-session --model <provider/id> [-a|-na] "<prompt>"`, `pi mcp list`;
+  a scratch `PI_CODING_AGENT_DIR` for probes only (copy `auth.json` when a model is needed),
+  never `$HOME/.pi/agent`.

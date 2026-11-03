@@ -896,7 +896,7 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 	for _, p := range providers {
 		lock := lockFile.ForProvider(p)
 		newLock, err := provisioning.EnsureBootstrapHook(targetDir, configurator.Provider(p), lock, dryRun)
-		if errors.Is(err, provisioning.ErrSymlinkDestination) {
+		if provisioning.IsRefusal(err) {
 			warnings = append(warnings, fmt.Sprintf("%s: bootstrap hook not installed: %v", p, err))
 			continue
 		}
@@ -904,7 +904,7 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 			return nil, fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
 		}
 		withFindings, err := provisioning.EnsureWriteFindingsHook(targetDir, configurator.Provider(p), newLock, true, dryRun)
-		if errors.Is(err, provisioning.ErrSymlinkDestination) {
+		if provisioning.IsRefusal(err) {
 			warnings = append(warnings, fmt.Sprintf("%s: write-findings hook not installed: %v", p, err))
 		} else if err != nil {
 			return nil, fmt.Errorf("ensure write-findings hook (%s): %w", p, err)

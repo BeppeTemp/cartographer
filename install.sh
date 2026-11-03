@@ -85,12 +85,19 @@ latest_tag() {
     # does. The list endpoint is ordered newest-first and includes pre-releases;
     # drafts are not published here. A release candidate (a tag with a semver
     # pre-release suffix, v0.28.0-rc.20261111, D1192) is skipped by its tag,
-    # never by the `prerelease` flag, which stable 0.x releases carry: ten
-    # entries leave room for the week's candidates. One key per line first, so
-    # compact and pretty-printed JSON read the same.
-    auth_curl "${API_URL}/releases?per_page=10" | tr ',{' '\n\n' \
+    # never by the `prerelease` flag, which stable 0.x releases carry: a hundred
+    # entries (one page, GitHub's maximum) leave room for the candidates, which
+    # stay until their version ships (D1384). The read is not paginated: with a
+    # hundred newer candidates, no stable tag is found and the message says so,
+    # distinct from a failed request. One key per line first, so compact and
+    # pretty-printed JSON read the same.
+    list=$(auth_curl "${API_URL}/releases?per_page=100") \
+        || fail "cannot determine latest release (rate-limited? set GITHUB_TOKEN)"
+    tag=$(printf '%s\n' "$list" | tr ',{' '\n\n' \
         | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
-        | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true
+        | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+    [ -n "$tag" ] || fail "no stable release among the newest 100 releases (only release candidates?): set CARTOGRAPHER_INSTALL_TAG"
+    printf '%s' "$tag"
 }
 
 # warn_no_git prints one warning when git is unusable, never fails: a KB is a
@@ -144,19 +151,25 @@ do_install() {
 
     asset="cartographer-${target}"
     url="${DOWNLOAD_URL}/${tag}/${asset}"
-    tmp=$(mktemp)
-    trap 'rm -f "$tmp" "$tmp.sha"' EXIT
+    # Next to the destination, so the final mv is a rename on one filesystem (an
+    # interrupt never leaves a truncated executable), and removed on every exit.
+    tmpdir=$(mktemp -d "${dir}/.cartographer-install.XXXXXX") || fail "cannot create a temporary directory in ${dir}"
+    trap 'rm -rf "$tmpdir"' EXIT
+    tmp="${tmpdir}/${BIN_NAME}"
     auth_curl -o "$tmp" "$url" || fail "download failed: $url"
 
     # Every release since v0.1.0 publishes sha256sums.txt, so a manifest that
     # cannot be fetched (404, network error) is never "an old tag": it is the
     # shape of an attack that drops that one request to skip verification, or of
-    # a broken release. Either way nothing is installed unverified (D1022, as
-    # install.ps1 does). A manifest that exists but does not cover this asset is
+    # a broken release. Either way nothing is installed without that check
+    # (D1022, as install.ps1 does). It covers corruption and a truncated or
+    # swapped download, not a tampered release: the manifest comes from the same
+    # release as the binary. The signed attestation (D1022) is verified with
+    # `gh attestation verify`, by no installer. A manifest that exists but does not cover this asset is
     # the same error.
-    auth_curl -o "$tmp.sha" "${DOWNLOAD_URL}/${tag}/sha256sums.txt" 2>/dev/null \
+    auth_curl -o "$tmpdir/sha256sums.txt" "${DOWNLOAD_URL}/${tag}/sha256sums.txt" 2>/dev/null \
         || fail "cannot download sha256sums.txt for ${tag}: refusing to install unverified"
-    expected=$(grep " ${asset}\$" "$tmp.sha" | cut -d' ' -f1)
+    expected=$(grep " ${asset}\$" "$tmpdir/sha256sums.txt" | cut -d' ' -f1)
     [ -n "$expected" ] || fail "sha256sums.txt has no entry for ${asset}: refusing to install unverified"
     actual=$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)
     [ "$actual" = "$expected" ] || fail "checksum mismatch for ${asset}"
@@ -164,7 +177,6 @@ do_install() {
 
     chmod +x "$tmp"
     mv "$tmp" "$dest"
-    trap - EXIT
     log "installed: $("$dest" version) -> ${dest}"
     case ":$PATH:" in
         *":${dir}:"*) ;;

@@ -1,7 +1,6 @@
 package provisioning
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -16,7 +15,7 @@ import (
 // lockfile, while Apply's refuseArtifact keeps the previous entry of a refused
 // update, so the next sync retries and reports again either way.
 func refuse(result *AppliedResult, a Artifact, err error) bool {
-	if !errors.Is(err, ErrSymlinkDestination) {
+	if !IsRefusal(err) {
 		return false
 	}
 	result.Refused = append(result.Refused, a)

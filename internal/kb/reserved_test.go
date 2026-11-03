@@ -427,3 +427,37 @@ func TestSyncIn_RebaseReCommitsAServerCommitAsTheConfiguredIdentity(t *testing.T
 		t.Errorf("HEAD~1 = %q, want the colleague's commit under the rewritten one", parent)
 	}
 }
+
+// The pull before a write is a local rebase onto what Fetch just brought: a
+// remote that has gone away between the two must not be asked again (the second
+// round-trip ran outside the fetch deadline, with the KB git lock held).
+func TestPullRebase_NeedsNoNetworkAfterTheFetch(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := remoteWithDefault(t)
+	other := filepath.Join(t.TempDir(), "other")
+	gitIn(t, filepath.Dir(other), "clone", "-q", bare, other)
+	if err := os.WriteFile(filepath.Join(other, "remote.md"), []byte("r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, other, "add", "remote.md")
+	gitIn(t, other, "-c", "user.name=user", "-c", "user.email=user@example.com", "commit", "-q", "-m", "remote")
+	gitIn(t, other, "push", "-q", "origin", "main")
+	if err := os.WriteFile(filepath.Join(k.Root, "local.md"), []byte("l\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, k.Root, "add", "local.md")
+	gitIn(t, k.Root, "-c", "user.name=user", "-c", "user.email=user@example.com", "commit", "-q", "-m", "local")
+	if err := gitx.Fetch(k.Root, "origin"); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, k.Root, "remote", "set-url", "origin", "http://127.0.0.1:1/gone.git")
+	if err := k.pullRebase("origin", "main"); err != nil {
+		t.Fatalf("pullRebase after the fetch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "remote.md")); err != nil {
+		t.Fatalf("the fetched commit was not rebased onto: %v", err)
+	}
+}

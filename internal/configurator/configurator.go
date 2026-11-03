@@ -103,6 +103,8 @@ const (
 	// ProviderCopilot is the GitHub Copilot CLI (the `copilot` binary, D676), not
 	// Copilot in VS Code.
 	ProviderCopilot Provider = "copilot"
+	// ProviderPi is Pi, the `pi` binary of @earendil-works/pi-coding-agent.
+	ProviderPi Provider = "pi"
 )
 
 // EmitResult contains the generated config for a provider.
@@ -230,6 +232,11 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// instead of parsing/re-serializing the user's hand-curated config.toml
 		// (D58) — see EmitResult.Content's doc comment.
 		if filepath.Ext(fullPath) == ".toml" {
+			// A corrupted block is refused before the reconcile steps below edit
+			// the file around it: blocktext.Write would refuse it anyway (#1502).
+			if err := blocktext.CheckFile(fullPath, codexMCPBlockBegin, codexMCPBlockEnd); err != nil {
+				return written, fmt.Errorf("write %s: %w", fullPath, err)
+			}
 			// Codex may have written its own tables (e.g. [hooks.state.*]
 			// trusted-hash bookkeeping) inside the managed block, positionally
 			// after the last table it found in the file: relocate them out of
