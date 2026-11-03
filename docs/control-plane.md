@@ -315,7 +315,7 @@ Parameter details not repeated in the schema:
   shortly after a git pull that moved `HEAD` (at least 10 minutes after the previous run, so edits that
   bypass MCP are repaired within minutes), the server repairs the KB in two stages (`docs/data-plane.md`
   §Check registry): every concept with a concept-local finding of a check safe to run unattended is repaired to
-  a fixpoint and written once (at most 500 concepts per run, all checks together), then the
+  a fixpoint and written once (at most 500 concepts per stage, rotating after the last one processed when more qualify, and a concept whose only fix is a removal takes no slot, D1554), then the
   cross-concept checks run, then the concepts they touched run through stage 1 again. It goes through
   the same write path as an agent: the KB lock, **one commit per run** (subject `auto-repair
   (background)`, one body line `<check>: <n>` per check that changed something, trailer `Reason:
