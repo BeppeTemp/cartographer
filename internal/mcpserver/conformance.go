@@ -299,7 +299,7 @@ var conformanceChecks = map[string]bool{
 // is matched at the START of the entry body, never anywhere in the block, so a
 // write whose id or text only mentions the word (concept_write:
 // tools/kb-doctor-checklist, a note "kb-doctor tomorrow") is not a session
-// (D1555, amending D958's note).
+// (D1557, amending D958's note).
 const doctorMarker = "kb-doctor:"
 
 var logDateRe = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
