@@ -89,6 +89,8 @@ jobs:
         with:
           name: cask
           path: dist/homebrew/Casks/cartographer.rb
+          # "Re-run all jobs" uploads it again: without this the second upload is a 409.
+          overwrite: true
           if-no-files-found: error
 
   # The beta marker on the release itself (D82), which nothing was actually

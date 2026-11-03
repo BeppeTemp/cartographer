@@ -61,8 +61,11 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 			Needs yaml.Node `yaml:"needs"`
 			Steps []struct {
 				Run  string `yaml:"run"`
+				Name string `yaml:"name"`
 				With struct {
-					Tags string `yaml:"tags"`
+					Tags      string `yaml:"tags"`
+					Name      string `yaml:"name"`
+					Overwrite bool   `yaml:"overwrite"`
 				} `yaml:"with"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
@@ -111,6 +114,13 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 			t.Errorf("release.yml: no %s job", j)
 		} else if !slices.Contains(needs(j), "publish") {
 			t.Errorf("release.yml: %s must need publish", j)
+		}
+	}
+	// A re-run of the whole workflow uploads the cask artifact again: without
+	// overwrite the second upload fails with a 409.
+	for _, s := range wf.Jobs["goreleaser"].Steps {
+		if s.With.Name == "cask" && !s.With.Overwrite {
+			t.Error("release.yml: the cask upload-artifact step needs overwrite: true, a re-run would fail with a 409")
 		}
 	}
 	for _, s := range wf.Jobs["docker"].Steps {
