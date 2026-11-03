@@ -71,6 +71,25 @@ func TestSubcommands_ExtraPositionalIsUsageError(t *testing.T) {
 	}
 }
 
+// #1502: `sync claude --dry-run` used to ignore everything from `claude` on and
+// run a real sync of every provider; a positional is now a usage error naming
+// it, in the three commands that take flags only.
+func TestSync_PositionalIsUsageErrorNamingIt(t *testing.T) {
+	setHome(t, t.TempDir())
+	for name, run := range map[string]func() int{
+		"sync":           func() int { return cmdSync([]string{"claude", "--dry-run"}) },
+		"sync no-heal":   func() int { return cmdSync([]string{"claude", "--no-heal"}) },
+		"upgrade-repair": func() int { return cmdUpgradeRepair([]string{"claude"}) },
+		"import":         func() int { return cmdImport([]string{"claude", "--source", "x", "--kb", "y"}) },
+	} {
+		var code int
+		stderr := withStderr(t, func() { code = run() })
+		if code != 2 || !strings.Contains(stderr, `"claude"`) {
+			t.Errorf("%s: exit %d, stderr %q; want 2 naming claude", name, code, stderr)
+		}
+	}
+}
+
 // #1267: a codex block that lacks a name's table is not announced as removing it.
 func TestRemoveMCPEntries_CodexListsOnlyEntriesPresent(t *testing.T) {
 	dir := t.TempDir()
