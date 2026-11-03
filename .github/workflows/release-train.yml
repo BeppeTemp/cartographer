@@ -59,8 +59,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # Closed (exit 1) prints nothing: no candidate. An unreadable listing counts as open
-          # and prints nothing either, and the release gate then skips.
+          # Closed (exit 1) prints nothing: no candidate. An unreadable listing (exit 3)
+          # counts as open and prints nothing either, and the release gate then skips.
           tag=$(scripts/freeze-open.sh --candidate || true)
           echo "candidate: ${tag:-none}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -83,7 +83,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          tags=$(scripts/freeze-open.sh --candidates || true)
+          # Exit 1 = closed, nothing to discard; exit 3 = the listing cannot be read,
+          # which is not "nothing to discard": fail.
+          rc=0
+          tags=$(scripts/freeze-open.sh --candidates) || rc=$?
+          if [ "$rc" = 3 ]; then
+            echo "::error::cannot list the releases: the candidates were not discarded" >&2
+            exit 1
+          fi
           if [ -z "$tags" ]; then
             echo "no release candidate newer than the latest release: nothing to discard"
             exit 0

@@ -263,7 +263,8 @@ dispatched by hand with one of three actions.
   that version is released (`release.yml` deletes its candidates) or the candidate is
   discarded. `scripts/freeze-open.sh` answers it from the releases listing (never
   `releases/latest`, which hides a 0.x pre-release; a draft is not released yet; an
-  unreadable listing counts as open). While it is open nothing that adds or breaks
+  unreadable listing counts as open, and `--candidate(s)` then exit 3, which `discard`
+  fails on instead of reporting nothing to discard). While it is open nothing that adds or breaks
   behaviour lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the
   title or a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore`
   may land, so Dependabot keeps working, but its auto-merge is not armed while the freeze
