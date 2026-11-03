@@ -644,13 +644,14 @@ func TestApply_RifiutaPathTraversal_AgentHook(t *testing.T) {
 	}
 	for i, a := range cases {
 		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
-		_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
+		// Refused per artifact (#1502): reported, nothing written, no abort.
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 			Provider: configurator.ProviderClaudeCode,
 			BaseDir:  baseDir,
 			Lock:     provisioning.Lock{},
 		})
-		if err == nil {
-			t.Errorf("case %d (kind=%s name=%q): Apply should have rejected the malicious name", i, a.Kind, a.Name)
+		if err != nil || len(res.Refused) != 1 || len(res.Written) != 0 {
+			t.Errorf("case %d (kind=%s name=%q): err=%v refused=%v written=%v, want the name refused", i, a.Kind, a.Name, err, res.Refused, res.Written)
 		}
 	}
 	// No write outside baseDir.

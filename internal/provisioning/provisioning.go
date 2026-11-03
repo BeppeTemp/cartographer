@@ -717,6 +717,19 @@ func contentHashDirManaged(mf ManagedFile, dirPath string) (string, error) {
 	}, nil, 0)
 }
 
+// validArtifactName reports whether name can be the single directory or file
+// segment an agent or hook is materialized under: not empty, one local segment
+// (no separator of either kind, no "..", no Windows reserved name where
+// filepath.IsLocal knows them), no control character, no surrounding blanks.
+// BuildManifest excludes an artifact with a bad name (D191 for skills) and Apply
+// refuses one per artifact, since a manifest can come from a remote server.
+func validArtifactName(name string) bool {
+	if name == "" || name != filepath.Base(name) || !filepath.IsLocal(name) {
+		return false
+	}
+	return !strings.ContainsAny(name, "\\/\x00\n\r\t") && strings.TrimSpace(name) == name
+}
+
 // --- Manifest ---
 
 // BuildManifest collects the artifacts from the bundle and the given KBs,
@@ -848,6 +861,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				if !tracked.has("agents/" + e.Name()) {
 					continue
 				}
+				if !validArtifactName(name) {
+					issues = append(issues, fmt.Sprintf("KB %q: agent %q excluded: not a valid artifact name", kbName, e.Name()))
+					continue
+				}
 				hash, err := contentHashFile(filepath.Join(agentsDir, e.Name()))
 				if errors.Is(err, ErrNotRegular) {
 					// One tracked symlink leaves out that artifact, not the KB.
@@ -886,6 +903,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				}
 				name := e.Name()
 				if !tracked.hasAny("hooks/" + name + "/") {
+					continue
+				}
+				if !validArtifactName(name) {
+					issues = append(issues, fmt.Sprintf("KB %q: hook %q excluded: not a valid artifact name", kbName, name))
 					continue
 				}
 				hash, err := contentHashDirTracked(filepath.Join(hooksDir, name), "hook", tracked.under("hooks/"+name))
@@ -2146,8 +2167,20 @@ hookLoop:
 		// The name determines the destination directory: it must be a single
 		// local segment (no separators, "..", absolute paths) — artifacts
 		// can arrive from a remote server via sync_pull.
-		if a.Name != filepath.Base(a.Name) || !filepath.IsLocal(a.Name) {
-			return AppliedResult{}, fmt.Errorf("provisioning: invalid artifact name %q", a.Name)
+		// A name that cannot be one (an empty agent name, a Windows reserved name
+		// on a Windows client, a backslash) costs this artifact only: it is
+		// reported and nothing is written, so the artifacts already written in
+		// this round keep their lock entries and the following providers run
+		// (#1502).
+		if !validArtifactName(a.Name) {
+			result.Refused = append(result.Refused, a)
+			result.Warnings = append(result.Warnings, fmt.Sprintf("%s/%q not installed: not a valid artifact name", a.Kind, a.Name))
+			for _, mf := range opts.Lock.Managed {
+				if mf.Kind == a.Kind && mf.Name == a.Name {
+					newManaged = append(newManaged, mf)
+				}
+			}
+			continue
 		}
 
 		// Provider/kind with no known destination (destRel == ""): the provider
