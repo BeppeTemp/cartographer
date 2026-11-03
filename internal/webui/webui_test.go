@@ -292,6 +292,9 @@ func TestHandlerAnswersNotFoundForAMissingAsset(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("a missing bundle asset: status %d, want 404 (an HTML shell here breaks a stale tab's lazy import)", rr.Code)
 	}
+	if rr.Header().Get("Content-Security-Policy") == "" {
+		t.Errorf("the 404 for a missing asset carries no Content-Security-Policy")
+	}
 	rr = httptest.NewRecorder()
 	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, MountPath+"some/route", nil))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "<div id=\"root\">") {

@@ -260,6 +260,7 @@ func Handler() (http.Handler, error) {
 		// longer exists, and the shell answering 200 made the import fail with
 		// an HTML body, indistinguishable from a broken browser.
 		if strings.HasPrefix(rel, "assets/") {
+			writeSecurityHeaders(w)
 			http.NotFound(w, r)
 			return
 		}
