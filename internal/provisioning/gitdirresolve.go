@@ -30,9 +30,10 @@ var ErrGitDirUnresolvable = errors.New("provisioning: the .git file does not lea
 
 // ExcludeWarning reports whether err from EnsureWorkspaceExcluded or
 // RemoveWorkspaceExclusions is one the sync survives with a warning: the exclude
-// file sits behind a link (D148) or cannot be resolved.
+// file sits behind a link (D148), cannot be resolved, or holds a block that is
+// not exactly one begin and one end (#1502).
 func ExcludeWarning(err error) bool {
-	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrGitDirUnresolvable)
+	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrGitDirUnresolvable) || errors.Is(err, ErrExcludeBlockCorrupted)
 }
 
 // excludeTarget is where the exclude block of one workspace lives.

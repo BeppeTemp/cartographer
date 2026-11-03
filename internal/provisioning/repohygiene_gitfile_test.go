@@ -468,10 +468,10 @@ func TestStripExcludeBlock_OnlyItsOwnKey(t *testing.T) {
 	ba, ea := blockMarkers("a")
 	bb, eb := blockMarkers("b")
 	content := "mine\n" + excludeMarkerBegin + "\n/m\n" + excludeMarkerEnd + "\n" + ba + "\n/a\n" + ea + "\n" + bb + "\n/b\n" + eb + "\n"
-	if got, want := stripExcludeBlock(content, "a"), "mine\n"+excludeMarkerBegin+"\n/m\n"+excludeMarkerEnd+"\n"+bb+"\n/b\n"+eb+"\n"; got != want {
+	if got, want := stripExcludeBlockT(t, content, "a"), "mine\n"+excludeMarkerBegin+"\n/m\n"+excludeMarkerEnd+"\n"+bb+"\n/b\n"+eb+"\n"; got != want {
 		t.Errorf("strip a = %q, want %q", got, want)
 	}
-	if got, want := stripExcludeBlock(content, ""), "mine\n"+ba+"\n/a\n"+ea+"\n"+bb+"\n/b\n"+eb+"\n"; got != want {
+	if got, want := stripExcludeBlockT(t, content, ""), "mine\n"+ba+"\n/a\n"+ea+"\n"+bb+"\n/b\n"+eb+"\n"; got != want {
 		t.Errorf("strip main = %q, want %q", got, want)
 	}
 }

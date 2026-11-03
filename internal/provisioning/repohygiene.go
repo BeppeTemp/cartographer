@@ -1,7 +1,6 @@
 package provisioning
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -248,7 +247,11 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("provisioning: read %s: %w", path, err)
 	}
-	kept := stripStaleBlocks(stripExcludeBlock(string(existing), key), target.commonDir)
+	stripped, stripErr := stripExcludeBlock(string(existing), key)
+	if stripErr != nil {
+		return fmt.Errorf("%w (%s)", stripErr, path)
+	}
+	kept := stripStaleBlocks(stripped, target.commonDir)
 
 	var lines []string
 	if len(ownedPaths) > 0 {
@@ -316,45 +319,63 @@ func renderExclude(kept string, lines []string, key string) string {
 		if kept != "" && !strings.HasSuffix(kept, "\n") {
 			b.WriteString("\n")
 		}
-		b.WriteString(begin + "\n")
-		b.WriteString("# Written by `cartographer sync`. Paths this workspace's projection owns.\n")
-		b.WriteString("# Remove the block, not the file: `cartographer workspace unbind` does it for you.\n")
-		for _, l := range lines {
-			b.WriteString(l + "\n")
+		// A file the user keeps with CRLF stays CRLF: the block follows its endings.
+		eol := "\n"
+		if i := strings.Index(kept, "\n"); i > 0 && kept[i-1] == '\r' {
+			eol = "\r\n"
 		}
-		b.WriteString(end + "\n")
+		b.WriteString(begin + eol)
+		b.WriteString("# Written by `cartographer sync`. Paths this workspace's projection owns." + eol)
+		b.WriteString("# Remove the block, not the file: `cartographer workspace unbind` does it for you." + eol)
+		for _, l := range lines {
+			b.WriteString(l + eol)
+		}
+		b.WriteString(end + eol)
 	}
 	return b.String()
 }
 
+// ErrExcludeBlockCorrupted is the refusal for an info/exclude whose managed block
+// is not exactly one begin line followed by one end line (a hand edit, a
+// truncated file). The file is left as it is: removing "until the end" of an
+// unterminated block would drop every line the user wrote after it. Callers
+// report it as a warning (ExcludeWarning); #1502.
+var ErrExcludeBlockCorrupted = errors.New("provisioning: the managed block in info/exclude is not exactly one begin line followed by one end line; left untouched")
+
 // stripExcludeBlock returns content with Cartographer's block of key removed, and
-// everything else byte-identical, the blocks of other keys included.
-func stripExcludeBlock(content, key string) string {
+// everything else byte-identical, the blocks of other keys and every line
+// terminator (CRLF included) kept. A block that is not exactly one begin line
+// followed by one end line is ErrExcludeBlockCorrupted and content comes back
+// unchanged (markers are whole lines, compared without surrounding blanks).
+func stripExcludeBlock(content, key string) (string, error) {
 	begin, end := blockMarkers(key)
-	if !strings.Contains(content, begin) {
-		return content
-	}
-	var out []string
-	inBlock := false
-	sc := bufio.NewScanner(strings.NewReader(content))
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for sc.Scan() {
-		line := sc.Text()
-		switch {
-		case strings.TrimSpace(line) == begin:
-			inBlock = true
-		case strings.TrimSpace(line) == end:
-			inBlock = false
-		case !inBlock:
-			out = append(out, line)
+	lines := strings.SplitAfter(content, "\n")
+	first, last, begins, ends := -1, -1, 0, 0
+	for i, l := range lines {
+		switch strings.TrimSpace(l) {
+		case begin:
+			begins++
+			if first < 0 {
+				first = i
+			}
+		case end:
+			ends++
+			if last < 0 {
+				last = i
+			}
 		}
 	}
-	joined := strings.Join(out, "\n")
-	joined = strings.TrimRight(joined, "\n")
-	if joined == "" {
-		return ""
+	if begins == 0 && ends == 0 {
+		return content, nil
 	}
-	return joined + "\n"
+	if begins != 1 || ends != 1 || last < first {
+		return content, ErrExcludeBlockCorrupted
+	}
+	out := strings.Join(lines[:first], "") + strings.Join(lines[last+1:], "")
+	if strings.TrimSpace(out) == "" {
+		return "", nil
+	}
+	return out, nil
 }
 
 func dedupe(in []string) []string {
@@ -393,10 +414,11 @@ func stripStaleBlocks(content, commonDir string) string {
 	if commonDir == "" || !strings.Contains(content, "# >>> cartographer (managed: ") {
 		return content
 	}
+	lines := strings.SplitAfter(content, "\n")
 	var out []string
 	dropEnd := ""
 	dropped := false
-	for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
+	for i, line := range lines {
 		switch {
 		case dropEnd != "":
 			if strings.TrimSpace(line) == dropEnd {
@@ -413,9 +435,13 @@ func stripStaleBlocks(content, commonDir string) string {
 					continue
 				}
 				if _, err := os.Lstat(filepath.Join(commonDir, "worktrees", wt)); os.IsNotExist(err) {
-					_, dropEnd = blockMarkers(key)
-					dropped = true
-					continue
+					// Only a block that ends is dropped: without its end line the
+					// rest of the file would go with it (#1502).
+					if _, end := blockMarkers(key); hasLine(lines[i+1:], end) {
+						dropEnd = end
+						dropped = true
+						continue
+					}
 				}
 			}
 		}
@@ -424,8 +450,18 @@ func stripStaleBlocks(content, commonDir string) string {
 	if !dropped {
 		return content
 	}
-	if len(out) == 0 {
-		return ""
+	if joined := strings.Join(out, ""); strings.TrimSpace(joined) != "" {
+		return joined
 	}
-	return strings.Join(out, "\n") + "\n"
+	return ""
+}
+
+// hasLine reports whether one of lines is want, ignoring surrounding blanks.
+func hasLine(lines []string, want string) bool {
+	for _, l := range lines {
+		if strings.TrimSpace(l) == want {
+			return true
+		}
+	}
+	return false
 }
