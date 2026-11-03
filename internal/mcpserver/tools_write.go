@@ -2007,6 +2007,31 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 		}
 	}
 
+	// A linker whose frontmatter does not parse cannot be rewritten, and the
+	// rewrite runs after the moves: finding it there left the batch half done.
+	// Refuse before any file moves, naming every such linker.
+	if rewriteLinks {
+		var olds []okf.ConceptID
+		for _, vm := range valid {
+			for old := range vm.mappings {
+				olds = append(olds, okf.ConceptID(old))
+			}
+		}
+		var bad []string
+		if err := k.WalkConceptsLinkingTo(olds, nil, func(id okf.ConceptID, _, content string) error {
+			fmRaw, _, _ := okf.SplitFrontmatter(content)
+			if _, perr := okf.ParseFrontmatter(fmRaw); perr != nil {
+				bad = append(bad, fmt.Sprintf("%s (%v)", id, perr))
+			}
+			return nil
+		}); err != nil {
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: list linkers: %v", err)))
+		}
+		if len(bad) > 0 {
+			return nil, errRes(errorResult("concept_move: nothing moved: these pages link to a moved concept but their frontmatter does not parse, so their links cannot be rewritten; fix them first: " + strings.Join(bad, "; ")))
+		}
+	}
+
 	// --- apply pass: all entries already validated above. ---
 	moveMap := make(map[string]string, len(valid))
 	applied := make([]conceptMoveEntry, 0, len(valid))
