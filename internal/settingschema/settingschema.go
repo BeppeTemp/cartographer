@@ -7,6 +7,14 @@
 // internal/clientconfig) and a test there keeps the table and the structs in
 // sync. Everything that shows a key to a human (the comments in the file, the
 // generated config.example.yaml, later the config view) reads the same table.
+//
+// A comment the schema wrote is told from a person's by its text, so the table
+// remembers the text a key has had. Editing a Description means appending the old
+// one to Key.Previous; taking a key out means recording its last Description (and
+// its Previous) in the Removed entry that retires it. Without them a file written
+// by an earlier release keeps that release's comment for good, and the comment of
+// a retired key lands on the next key. TestDescriptionsAreRecordedWhenTheyChange
+// fails, with the line to add, when either is forgotten.
 package settingschema
 
 import (
@@ -68,6 +76,15 @@ type Key struct {
 	// or a list is only ever shown commented, so that file never configures what
 	// would change behaviour (a token, a role).
 	Example string
+	// Previous lists the descriptions the key had in earlier releases, oldest
+	// first. A comment the schema wrote above the key is recognised, and rewritten
+	// to the current one, by any of them: without the old text a file keeps the
+	// comment of the release that wrote it for good, because a comment that is not
+	// the current one is taken for a person's. Changing Description therefore
+	// means appending the old text here (the guard test names the fix). The notes
+	// line under the description (Values, Default, Env, ...) is not part of it:
+	// it is recognised whatever it said.
+	Previous []string
 }
 
 // Schema is the ordered key table of one settings file. The order is the order
@@ -216,11 +233,13 @@ func legacyMeta(k Key) []string {
 }
 
 // isGenerated reports whether c, a head comment as the parser hands it over,
-// is the one the schema writes for k, in the current wording or the previous one.
+// is the one the schema writes for k, in the current wording or an earlier one.
 // A leading blank line is not part of it (Render adds one; the parser drops it).
-// The old wording is recognised whatever its Values line said then: that text
-// is the one the schema edits most, and a comment that differs only there is
-// still the schema's.
+// The previous layout of the current description is recognised whatever its
+// Values line said then: that text is the one the schema edits most, and a
+// comment that differs only there is still the schema's. A description the key
+// had in an earlier release (Previous) is recognised in either layout with
+// whatever notes line it carried (wroteEarlier).
 func isGenerated(c string, k Key) bool {
 	c = strings.TrimLeft(c, "\n")
 	if c == strings.Join(Comment(k), "\n") || c == strings.Join(legacyComment(k), "\n") {
@@ -228,18 +247,83 @@ func isGenerated(c string, k Key) bool {
 	}
 	lines := strings.Split(c, "\n")
 	desc := prefixed(wrap(k.Description, wrapWidth))
-	if len(lines) < len(desc) || !slices.Equal(lines[:len(desc)], desc) {
-		return false
+	if len(lines) >= len(desc) && slices.Equal(lines[:len(desc)], desc) {
+		rest := lines[len(desc):]
+		if len(rest) > 0 && strings.HasPrefix(rest[0], "# Values: ") {
+			i := 1
+			for i < len(rest) && !strings.HasPrefix(rest[i], "# Default: ") {
+				i++
+			}
+			if slices.Equal(rest[i:], prefixed(legacyMeta(k))) {
+				return true
+			}
+		}
 	}
-	rest := lines[len(desc):]
-	if len(rest) == 0 || !strings.HasPrefix(rest[0], "# Values: ") {
-		return false
+	return wroteEarlier(lines, k.Previous)
+}
+
+// wording is the lines a description is written as above a key.
+func wording(description string) []string { return prefixed(wrap(description, wrapWidth)) }
+
+// wroteEarlier reports whether lines, a whole head comment, is what the schema
+// wrote for a key that had one of descs as its description: those lines, then
+// the notes line in either layout, as it was at the time. The notes are not
+// compared with the key's current ones, because Values, Default, Env and flag
+// change with the description (a default moves with the text that explains it);
+// they only have to be notes: a line a person added is not.
+func wroteEarlier(lines, descs []string) bool {
+	for _, d := range descs {
+		w := wording(d)
+		if len(w) > 0 && len(lines) >= len(w) && slices.Equal(lines[:len(w)], w) && isNotes(lines[len(w):]) {
+			return true
+		}
 	}
-	i := 1
-	for i < len(rest) && !strings.HasPrefix(rest[i], "# Default: ") {
-		i++
+	return false
+}
+
+// valueExpr is a Default as the schema prints it: a YAML literal, which holds a
+// space only between quotes or brackets.
+const valueExpr = `(?:"[^"]*"|\[[^\]]*\]|\{[^}]*\}|\S+)`
+
+var (
+	// notesRe is one note of the compact layout (describe), the first one
+	// capitalised when no Values precede it.
+	notesRe = regexp.MustCompile(`^(?:[Dd]efault: ` + valueExpr + `|[Ee]nv \S+(?:, \S+)*|[Ff]lag \S+|[Nn]eeds a restart|[Ss]ecret: keep it out of version control)$`)
+	// legacyNotesRe is the whole notes text of the first layout (legacyComment):
+	// Values, then one sentence for each of default, variable, flag and notes.
+	legacyNotesRe = regexp.MustCompile(`^(?:Values: \S.*? )?Default: ` + valueExpr + `\.(?: Env: \S+(?:, \S+)*\.)?(?: Flag: \S+\.)?(?: Needs a restart\.)?(?: Secret: keep it out of version control\.)?$`)
+)
+
+// isNotes reports whether lines, comment lines with their "# ", are what the
+// schema writes under a description: nothing, the notes line of the current
+// layout (Values, then notes joined by " · ") or the sentences of the first one.
+// The lines are joined first: the wrapping only ever breaks at a space.
+func isNotes(lines []string) bool {
+	if len(lines) == 0 {
+		return true
 	}
-	return slices.Equal(rest[i:], prefixed(legacyMeta(k)))
+	words := make([]string, len(lines))
+	for i, l := range lines {
+		w, ok := strings.CutPrefix(l, "# ")
+		if !ok || strings.TrimSpace(w) == "" {
+			return false
+		}
+		words[i] = strings.TrimSpace(w)
+	}
+	text := strings.Join(words, " ")
+	if legacyNotesRe.MatchString(text) {
+		return true
+	}
+	parts := strings.Split(text, " · ")
+	for i, p := range parts {
+		if i == 0 && strings.HasPrefix(p, "Values: ") && len(p) > len("Values: ") {
+			continue
+		}
+		if !notesRe.MatchString(p) {
+			return false
+		}
+	}
+	return true
 }
 
 func wrap(text string, width int) []string {
@@ -312,6 +396,39 @@ func (s Schema) Render(doc *yaml.Node) {
 	}
 	s.homeBlocks(doc)
 	s.walk(doc, root, s.tree(), true)
+	adoptTrailingNote(doc, root)
+}
+
+// adoptTrailingNote moves a note that ends the file, right after a mapping that
+// carries a block of unset settings, to the end of the document, where the next
+// parse reads it. The parser hangs the note on the key of that mapping; the
+// emitter writes it under the block with no blank line, and the next parse takes
+// it for the text at the end of the document, which the emitter sets apart: the
+// file changed on the second pass and was stable from the third.
+func adoptTrailingNote(doc, root *yaml.Node) {
+	n := len(root.Content)
+	if n < 2 || doc.Kind != yaml.DocumentNode {
+		return
+	}
+	key, val := root.Content[n-2], root.Content[n-1]
+	note := strings.Trim(key.FootComment, "\n")
+	if note == "" {
+		return
+	}
+	held := false
+	for _, t := range tailNodes(val) {
+		_, _, ok := splitBlock(t.FootComment)
+		held = held || ok
+	}
+	if !held {
+		return
+	}
+	key.FootComment = ""
+	if doc.FootComment == "" {
+		doc.FootComment = note
+		return
+	}
+	doc.FootComment = joinComments(note, doc.FootComment)
 }
 
 func docMapping(doc *yaml.Node) *yaml.Node {
@@ -863,6 +980,10 @@ func settleDesc(c *node, desc []string) []string {
 	return desc
 }
 
+// maxNotesLines bounds the lines generatedRun reads after an earlier
+// description: the notes of a key are a few lines, never a paragraph.
+const maxNotesLines = 12
+
 // generatedRun finds the longest run desc[b:e] that isGeneratedBlock accepts,
 // the earliest of equal length. It tries only the runs a generated description
 // can form, from each line it can start at, never every run: settleDesc formats
@@ -891,6 +1012,18 @@ func generatedRun(desc []string, k Key) (b, e int, ok bool) {
 			if len(f) > 0 && s+len(f) <= len(desc) && slices.Equal(desc[s:s+len(f)], f) {
 				consider(above, s+len(f))
 				consider(s, s+len(f))
+			}
+		}
+		// A description the key had in an earlier release, with the notes it
+		// carried: the longest run the notes grammar accepts after it.
+		for _, p := range k.Previous {
+			w := wording(p)
+			if len(w) == 0 || s+len(w) > len(desc) || !slices.Equal(desc[s:s+len(w)], w) {
+				continue
+			}
+			for e := s + len(w); e <= len(desc) && e <= s+len(w)+maxNotesLines; e++ {
+				consider(above, e)
+				consider(s, e)
 			}
 		}
 		// The older layout: the description, "# Values: " and its lines, then

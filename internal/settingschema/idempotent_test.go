@@ -1,6 +1,8 @@
 package settingschema
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -46,6 +48,13 @@ var shapeInputs = []string{
 	"auth:\n  tokens:\n    - a\n    - b\n  # trailing note\n\n# root footer\n",
 	"auth:\n  mode: x\n  tokens:\n    - id: a\n      token: b\n\n# end of file note\n",
 	"git:\n  hooks:\n    pre: a\n    custom:\n      - one\n\n  # mine\n",
+	// A note at the end of the file, under a mapping that gains a block of unset
+	// settings: it hangs on the mapping's key until it is written out (#1496).
+	"auth:\n  extra: 1\n# my note\n",
+	"auth:\n  mode: x\n# a\n\n# b\n",
+	"auth:\n  tokens:\n    - a\n# my note\n",
+	"name: a\nauth:\n  mode: x\n  # a\n# b\n",
+	"git:\n  hooks:\n    pre: a\n    custom:\n      - one\n# my note\n",
 }
 
 // A file the schema has rendered is a fixed point: rendering it again changes
@@ -143,5 +152,26 @@ func TestEachMappingKeepsItsOwnBlock(t *testing.T) {
 	}
 	if twice := layoutFormat(t, shapeSchema, once); twice != once {
 		t.Errorf("not idempotent:\n%s\n---\n%s", once, twice)
+	}
+}
+
+// The file the reproduction of #1496 names: a note after a mapping that holds an
+// unknown key. It is rewritten once, with one backup; realigning again changes
+// nothing and writes no second backup.
+func TestRealignFileOfANoteAfterAMappingWritesOneBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.yaml")
+	if err := os.WriteFile(path, []byte("auth:\n  extra: 1\n# my note\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, _, err := shapeSchema.RealignFile(path, Registry{}, "v1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if baks, _ := filepath.Glob(path + ".bak-*"); len(baks) != 1 {
+		t.Errorf("want one backup, got %v", baks)
+	}
+	if got, _ := os.ReadFile(path); !strings.Contains(string(got), "# my note") {
+		t.Errorf("the note was lost:\n%s", got)
 	}
 }

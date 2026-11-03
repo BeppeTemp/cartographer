@@ -21,14 +21,22 @@ import (
 // sync_timer_opt_out) is carried over by the Prepare step of RealignFile before
 // this registry drops what is left of it.
 var Retired = settingschema.Registry{Removed: []settingschema.Removed{
-	{Path: "token_env", Plan: 906, Replacement: "token", Note: "token: ${NAME} reads the variable NAME; the realignment rewrites it"},
-	{Path: "trust", Plan: 906, Note: "everything a KB ships is installed, and a KB's MCP descriptors still need `cartographer approve`; the signing_keys pins and the path checks stay"},
-	{Path: "write_findings_hook", Plan: 906, Note: "the hook that returns a write's findings to the agent is always installed"},
-	{Path: "search_depth", Plan: 906, Note: "it is a constant, 4; add a closer root to search_roots"},
-	{Path: "update.check", Plan: 906, Replacement: "update_check"},
-	{Path: "update.policy", Plan: 906, Replacement: "update_check", Note: "a client never replaces itself: auto-patch is gone and the notice remains"},
-	{Path: "agents", Plan: 906, Note: "the connected clients are a record of the connect commands, kept in the client state file (.cartographer-state.json)"},
-	{Path: "sync_timer_opt_out", Plan: 906, Note: "it is a record of `service sync-timer uninstall`, kept in the client state file (.cartographer-state.json)"},
+	{Path: "token_env", Plan: 906, Replacement: "token", Note: "token: ${NAME} reads the variable NAME; the realignment rewrites it",
+		Description: "Name of the environment variable that holds the bearer token."},
+	{Path: "trust", Plan: 906, Note: "everything a KB ships is installed, and a KB's MCP descriptors still need `cartographer approve`; the signing_keys pins and the path checks stay",
+		Description: "Treat the skills, agents, hooks and instructions a KB provides as trusted at every sync, without the one-time --auto-trust flag."},
+	{Path: "write_findings_hook", Plan: 906, Note: "the hook that returns a write's findings to the agent is always installed",
+		Description: "Install the hook that returns a write's findings to the agent as feedback (Claude Code, Codex). false makes the next sync remove it."},
+	{Path: "search_depth", Plan: 906, Note: "it is a constant, 4; add a closer root to search_roots",
+		Description: "How many directory levels the scan descends from each root. A value above 8 is clamped with a warning."},
+	{Path: "update.check", Plan: 906, Replacement: "update_check",
+		Description: "Look up the latest release once a day and tell when a newer one exists. false makes no lookup at all."},
+	{Path: "update.policy", Plan: 906, Replacement: "update_check", Note: "a client never replaces itself: auto-patch is gone and the notice remains",
+		Description: "What to do about a newer release: notify says so; auto-patch installs patch releases by itself when installed with Homebrew, install.sh or install.ps1."},
+	{Path: "agents", Plan: 906, Note: "the connected clients are a record of the connect commands, kept in the client state file (.cartographer-state.json)",
+		Description: "The agent clients connected to the server, for example claude or opencode. connect and disconnect maintain it."},
+	{Path: "sync_timer_opt_out", Plan: 906, Note: "it is a record of `service sync-timer uninstall`, kept in the client state file (.cartographer-state.json)",
+		Description: "Set by `service sync-timer uninstall`: connect and setup then stop installing the sync timer themselves."},
 }}
 
 // RealignFile brings the client config in dir up to date (D903): the removed
