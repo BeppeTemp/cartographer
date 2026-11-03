@@ -117,34 +117,44 @@ func (b *Bridge) logf(format string, args ...any) {
 // Run serves the session until stdin closes or ctx is done.
 func (b *Bridge) Run(ctx context.Context) error {
 	if b.HTTP == nil {
-		b.HTTP = &http.Client{Timeout: 5 * time.Minute}
+		// No overall Timeout: a response header only arrives when the tool
+		// finishes, so no per-phase timeout can tell a slow tool (a reindex, a
+		// sync on a large KB) from a dead server, and the server deliberately
+		// has no write deadline. A call is bounded by the session context.
+		b.HTTP = &http.Client{}
 	}
 	lines := make(chan line)
+	// send hands one item to Run, or gives up when the session is over: a send
+	// that ignored ctx would block this goroutine forever once Run returned.
+	send := func(l line) bool {
+		select {
+		case lines <- l:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
 	go func() {
 		defer close(lines)
-		r := bufio.NewReaderSize(b.In, 64*1024)
-		for {
-			raw, err := r.ReadBytes('\n')
-			if len(raw) > maxLine {
-				lines <- line{err: errors.New("message too large")}
-				return
-			}
+		// The scanner stops at maxLine bytes without a newline; reading the
+		// whole line first would let a peer make this process hold any amount.
+		sc := bufio.NewScanner(b.In)
+		sc.Buffer(make([]byte, 0, 64*1024), maxLine)
+		for sc.Scan() {
 			// \r\n is tolerated: Windows clients and shells write it.
-			raw = bytes.TrimSpace(raw)
-			if len(raw) > 0 {
-				cp := append([]byte(nil), raw...)
-				select {
-				case lines <- line{raw: cp}:
-				case <-ctx.Done():
-					return
-				}
+			raw := bytes.TrimSpace(sc.Bytes())
+			if len(raw) == 0 {
+				continue
 			}
-			if err != nil {
-				if !errors.Is(err, io.EOF) {
-					lines <- line{err: err}
-				}
+			if !send(line{raw: append([]byte(nil), raw...)}) {
 				return
 			}
+		}
+		if err := sc.Err(); err != nil {
+			if errors.Is(err, bufio.ErrTooLong) {
+				err = errors.New("message too large")
+			}
+			send(line{err: err})
 		}
 	}()
 
@@ -152,11 +162,19 @@ func (b *Bridge) Run(ctx context.Context) error {
 	defer b.closeSession()
 	defer wg.Wait()
 	var stash [][]byte
+	// pendingErr is a read error that askRoots consumed while waiting: it is
+	// handed back here so Run returns it instead of a clean EOF.
+	var pendingErr error
 	next := func() (line, bool) {
 		if len(stash) > 0 {
 			l := line{raw: stash[0]}
 			stash = stash[1:]
 			return l, true
+		}
+		if pendingErr != nil {
+			err := pendingErr
+			pendingErr = nil
+			return line{err: err}, true
 		}
 		select {
 		case l, ok := <-lines:
@@ -201,7 +219,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 			}
 		case m.Method == "notifications/initialized":
 			if b.wantsRoots() {
-				stash = b.askRoots(ctx, lines, stash)
+				stash = b.askRoots(ctx, lines, stash, &pendingErr)
 			}
 		}
 		b.dispatch(ctx, &wg, l.raw, m)
@@ -211,15 +229,16 @@ func (b *Bridge) Run(ctx context.Context) error {
 // noteInitialize records what the handshake says about the client.
 func (b *Bridge) noteInitialize(params json.RawMessage) {
 	var p struct {
-		ProtocolVersion string `json:"protocolVersion"`
-		Capabilities    struct {
+		Capabilities struct {
 			Roots json.RawMessage `json:"roots"`
 		} `json:"capabilities"`
 	}
 	_ = json.Unmarshal(params, &p)
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.protocol = p.ProtocolVersion
+	// b.protocol is not set from p.ProtocolVersion: it is what the client asked
+	// for, and the server may negotiate another. It is the answer's version
+	// (noteNegotiated), whether the server's or the bridge's own.
 	b.rootsAware = len(p.Capabilities.Roots) > 0 && string(p.Capabilities.Roots) != "null"
 }
 
@@ -240,7 +259,7 @@ func (b *Bridge) wantsRoots() bool {
 // scope to them. It runs once, between `initialized` and the first request, so
 // the scope is fixed before any tool is listed. Messages that arrive while it
 // waits are stashed and processed afterwards, in order.
-func (b *Bridge) askRoots(ctx context.Context, lines <-chan line, stash [][]byte) [][]byte {
+func (b *Bridge) askRoots(ctx context.Context, lines <-chan line, stash [][]byte, pendingErr *error) [][]byte {
 	const id = "cartographer-roots-1"
 	req, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": "roots/list"})
 	b.write(req)
@@ -248,7 +267,11 @@ func (b *Bridge) askRoots(ctx context.Context, lines <-chan line, stash [][]byte
 	for {
 		select {
 		case l, ok := <-lines:
-			if !ok || l.err != nil {
+			if !ok {
+				return stash
+			}
+			if l.err != nil {
+				*pendingErr = l.err
 				return stash
 			}
 			var m message
@@ -434,17 +457,57 @@ func withUnboundNote(body []byte) []byte {
 	return out
 }
 
+// knownProtocols are the MCP revisions the bridge can speak, newest first. It
+// is a copy of the server's list, and a test pins the two together so they
+// cannot drift (the bridge does not import the SDK).
+var knownProtocols = []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
+
+// negotiate returns the client's version when the bridge knows it, otherwise
+// the newest it knows.
+func negotiate(requested string) string {
+	for _, v := range knownProtocols {
+		if v == requested {
+			return v
+		}
+	}
+	return knownProtocols[0]
+}
+
+// noteNegotiated stores the protocol version of the session: the one a header
+// is built from.
+func (b *Bridge) noteNegotiated(v string) {
+	if v == "" {
+		return
+	}
+	b.mu.Lock()
+	b.protocol = v
+	b.mu.Unlock()
+}
+
+// noteInitializeResult reads result.protocolVersion of an initialize response.
+func (b *Bridge) noteInitializeResult(raw []byte) {
+	var r struct {
+		Result struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(raw, &r) == nil {
+		b.noteNegotiated(r.Result.ProtocolVersion)
+	}
+}
+
 // answerInitialize answers the handshake locally.
 func (b *Bridge) answerInitialize(m message, instructions string) {
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
 	_ = json.Unmarshal(m.Params, &p)
-	if p.ProtocolVersion == "" {
-		p.ProtocolVersion = "2025-06-18"
-	}
+	// Answer the client's version only when the bridge knows it; the header of
+	// every later request carries what was answered here.
+	version := negotiate(p.ProtocolVersion)
+	b.noteNegotiated(version)
 	b.writeResult(m.ID, map[string]any{
-		"protocolVersion": p.ProtocolVersion,
+		"protocolVersion": version,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
 		"serverInfo":      map[string]any{"name": "cartographer", "version": orUnknown(b.Version)},
 		"instructions":    instructions,
@@ -629,7 +692,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		if confirmed {
 			release()
 		}
-		b.relayEvents(resp.Body, rewrite)
+		b.relayEvents(resp.Body, rewrite, m)
 	default:
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024))
 		if err != nil {
@@ -642,6 +705,9 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 			return
 		}
 		if len(body) > 0 {
+			if m.Method == "initialize" && resp.StatusCode == http.StatusOK {
+				b.noteInitializeResult(body)
+			}
 			if rewrite {
 				body = withUnboundNote(body)
 			}
@@ -650,18 +716,25 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 	}
 }
 
-// relayEvents copies each `data:` event of an SSE response to stdout.
-func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool) {
+// relayEvents copies each `data:` event of an SSE response to stdout. When the
+// stream breaks before any event was forwarded, the request m gets a -32000
+// error like the JSON branch does, so the client is never left waiting for an id.
+func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool, m message) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), maxLine)
 	var data []string
+	forwarded := 0
 	flush := func() {
 		if len(data) > 0 {
 			ev := []byte(strings.Join(data, "\n"))
+			if m.Method == "initialize" {
+				b.noteInitializeResult(ev)
+			}
 			if rewriteInit {
 				ev = withUnboundNote(ev)
 			}
 			b.write(ev)
+			forwarded++
 			data = nil
 		}
 	}
@@ -673,6 +746,13 @@ func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool) {
 		case strings.HasPrefix(t, "data:"):
 			data = append(data, strings.TrimPrefix(strings.TrimPrefix(t, "data:"), " "))
 		}
+	}
+	if err := sc.Err(); err != nil {
+		// What is pending is a truncated event: not forwarded.
+		if forwarded == 0 {
+			b.writeError(m.ID, -32000, "the response stream broke: "+err.Error())
+		}
+		return
 	}
 	flush()
 }
