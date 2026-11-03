@@ -28,6 +28,14 @@ the files and log are rolled back. It does
 not open a nested git commit; a rolled-back call also leaves no commit,
 since `gitWrap` only commits after the handler returns success.
 
+**A handler that fails after writing leaves nothing behind** (D<PR>). When a wrapped write returns an
+error (a Go error or an application error) and the working tree was verifiably clean before the handler
+ran, `gitWrap` restores the tree to HEAD under the lock it already holds: tracked changes reset,
+untracked files the handler created removed, ignored files kept. Without it, the half-done state (applied
+moves, rewritten concepts) was committed by the next write as `external changes`, outside the write gate.
+If the pre-commit of external changes failed, or a conflict is open, the tree is not provably clean and
+nothing is discarded. A handler whose work succeeded and whose commit failed is not discarded either.
+
 `concept_transfer` (D760) and `artifact_move` (D782) are the two writes that hold **two** KB locks, and with
 `git_conflict_resolve` (one KB: it takes the KB lock itself and finalizes merge, commit and push of the
 conflicts it settles) the only write tools that do not go through `gitWrap`; the first two run the one transaction in `twokbmove.go`: it takes the git lock of the

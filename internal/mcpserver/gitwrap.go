@@ -29,7 +29,8 @@ const pushFlushTimeout = 5 * time.Second
 //
 // Semantics:
 //   - If the original handler returns a Go error or an application error
-//     (res.IsError), no commit is attempted.
+//     (res.IsError), no commit is attempted, and when the working tree was clean
+//     before the handler ran, it is restored to HEAD (discardFailedWrite, D1560).
 //   - If the commit itself fails, the error is logged to stderr but is NOT
 //     propagated to the MCP client: a commit failure never turns a successful
 //     operation into an error.
@@ -72,6 +73,10 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				return nil
 			}
 			commitExternalChanges(k, orig.Name)
+			// Only a tree that is verifiably at HEAD here may be restored to it
+			// if the handler fails: otherwise the diff would hold unsaved work
+			// of someone else (an open conflict, a failed pre-commit).
+			cleanBefore := k.TreeClean()
 			// A settings.yaml edited in place (D746) takes effect for this
 			// write, as one that arrived by pull does.
 			k.RefreshSettings()
@@ -79,6 +84,9 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			handlerStart := time.Now()
 			res, handlerErr = orig.Handler(ctx, args)
 			handlerDur = time.Since(handlerStart)
+			if (handlerErr != nil || res.IsError) && cleanBefore {
+				discardFailedWrite(k, orig.Name, &res)
+			}
 			if handlerErr == nil && !res.IsError {
 				// Generated map indexes (D301) follow the write in the same
 				// commit. A failure is logged, never fatal: lint reports a
@@ -138,6 +146,31 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 		return res, handlerErr
 	}
 	return t
+}
+
+// discardFailedWrite restores the tree to HEAD after a handler failed, so the
+// half-done state (applied moves, rewritten concepts, a status edit) is not left
+// for the next write to commit as "external changes", outside the write gate and
+// under the server's name. The caller holds the git lock and has checked the tree
+// was clean before the handler; ignored files are kept. A handler that succeeded
+// and whose commit failed is not discarded: the work is valid and the next
+// commit retries. A rollback failure is logged and the result is unchanged.
+func discardFailedWrite(k *kb.KB, tool string, res *ToolResult) {
+	if k.TreeClean() {
+		return // the handler failed before touching the disk
+	}
+	if err := k.DiscardUncommitted(); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: rollback of a failed %s failed: %v\n", tool, err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "cartographer: %s failed after writing: the tree was restored to the last commit\n", tool)
+	if !res.IsError || len(res.Content) == 0 {
+		return
+	}
+	// The handler worded its error for a tree that keeps the partial state.
+	last := &res.Content[len(res.Content)-1]
+	last.Text = strings.ReplaceAll(last.Text, "; "+recoveryHint, "")
+	last.Text += "; the changes this call had already written were discarded, the KB is back at its last commit"
 }
 
 // syncInForWrite is gitWrap's step 2/3: fetch + pull --rebase before a write.

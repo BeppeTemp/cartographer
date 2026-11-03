@@ -45,3 +45,7 @@ checks are `AutoRepairSafe` and so join `DefaultAutoRepair`
 (D350), which skipped a dirty tree, now sees a clean one. Any future check that
 changes how a title is judged goes through `titleTextIssues`, which both title
 checks share.
+
+`external changes` are edits made outside MCP, never the residue of a server
+write: a handler that fails after writing is rolled back by `gitWrap` before it
+returns (D<PR>).
