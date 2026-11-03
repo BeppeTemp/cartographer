@@ -34,6 +34,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 //go:embed all:dist
@@ -132,7 +134,7 @@ func SourceHash(root string) (string, int, error) {
 // the directories skipDir names. ok is false when root is not inside a git
 // work tree, git is missing, or it tracks nothing there.
 func trackedFiles(root string) ([]string, bool) {
-	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--", ".").Output()
+	out, err := procattr.Hide(exec.Command("git", "-C", root, "ls-files", "-z", "--", ".")).Output()
 	if err != nil || len(out) == 0 {
 		return nil, false
 	}
