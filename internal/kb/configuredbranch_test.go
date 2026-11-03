@@ -277,3 +277,31 @@ func TestCommitOp_AGitFailureIsReported(t *testing.T) {
 		t.Fatal("CommitOp returned nil with a corrupt index")
 	}
 }
+
+// A quoted `branch` key is still a `branch` key.
+func TestConfiguredBranch_QuotedBranchKeyInUnparsableSettingsRefuses(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	for _, key := range []string{`"branch"`, `'branch'`} {
+		k, bare := remoteWithDefault(t)
+		commitRawSettings(t, bare, "main", key+": kb-data\nsync: [unclosed\n")
+		if _, err := k.SyncIn(); err == nil || !strings.Contains(err.Error(), "not valid YAML") {
+			t.Fatalf("key %s: SyncIn error = %v", key, err)
+		}
+	}
+}
+
+// The error a caller sees names no server path and no raw git output.
+func TestBranchSettingAt_ErrorCarriesNoRawGitOutput(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, _ := remoteWithDefault(t)
+	_, err := k.branchSettingAt("no-such-ref")
+	if err == nil || strings.Contains(err.Error(), k.Root) || strings.Contains(err.Error(), "fatal") {
+		t.Fatalf("err = %v", err)
+	}
+}

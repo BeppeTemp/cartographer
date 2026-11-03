@@ -185,7 +185,7 @@ func (k *KB) BranchSource() string {
 
 // topLevelBranchKey finds a `branch:` key at column 0 in a settings.yaml that
 // did not parse.
-var topLevelBranchKey = regexp.MustCompile(`(?m)^branch[ \t]*:`)
+var topLevelBranchKey = regexp.MustCompile(`(?m)^["']?branch["']?[ \t]*:`)
 
 // branchSettingAt reads the `branch` key of settings.yaml as committed on ref,
 // the remote's default branch. The working copy's file is ignored on purpose:
@@ -201,7 +201,10 @@ var topLevelBranchKey = regexp.MustCompile(`(?m)^branch[ \t]*:`)
 func (k *KB) branchSettingAt(ref string) (string, error) {
 	text, exists, err := gitx.ShowFileIfExists(k.Root, ref, SettingsFile)
 	if err != nil {
-		return "", fmt.Errorf("read %s on %s: %w", SettingsFile, ref, err)
+		// The raw git output can carry absolute server paths and reaches the
+		// caller through the sync status: it goes to the log only.
+		fmt.Fprintf(os.Stderr, "cartographer: read %s on %s: %v\n", SettingsFile, ref, err)
+		return "", fmt.Errorf("could not read %s on %s: git did not answer (details in the server log); writes are refused until it does", SettingsFile, ref)
 	}
 	if !exists {
 		return "", nil
@@ -1037,7 +1040,8 @@ func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, er
 	// "not a repo": the write would otherwise report success without a commit.
 	isRepo, repoErr := gitx.CheckRepo(k.Root)
 	if repoErr != nil {
-		return "", repoErr
+		fmt.Fprintf(os.Stderr, "cartographer: git refused to open the KB repository: %v\n", repoErr)
+		return "", errors.New("git refused to open the KB repository (details in the server log); nothing was committed")
 	}
 	if !isRepo {
 		return "", nil
@@ -1046,7 +1050,9 @@ func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, er
 	if err != nil {
 		// Never "nothing to commit": a git that does not answer leaves the
 		// write uncommitted, and gitWrap must say so (status failed + warning).
-		return "", err
+		// The raw output stays in the log: it can carry server paths.
+		fmt.Fprintf(os.Stderr, "cartographer: git status failed in the KB: %v\n", err)
+		return "", errors.New("git status failed (details in the server log); nothing was committed")
 	}
 	if strings.TrimSpace(status) == "" {
 		return "", nil

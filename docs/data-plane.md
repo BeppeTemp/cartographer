@@ -840,7 +840,7 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
   (D1093), and then the KB's `branch` is not read by that server. It is read **only from the
   `settings.yaml` committed on the remote's default branch** (the working copy's file is parsed
   and shown, but changes nothing until it reaches the default branch), the first push creates the
-  branch when the remote lacks it, and a name git would not accept is a finding.
+  branch when the remote lacks it, and a name git would not accept is a finding. A `settings.yaml` on the default branch that does not parse and carries a top-level `branch` key (quoted or not) refuses writes until it is fixed there; one without the key is ignored by this reading. A git failure while reading the file refuses writes too, never counts as "no `branch`".
 
 Two things are derived and have no key (D906). A KB **declares secrets** when at least one YAML
 file directly under `secrets/` carries sops metadata (read, never decrypted): a mount of such a KB
