@@ -245,9 +245,11 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 }
 
 // applyKBUnmount edits the server config (after a backup), the client
-// bindings, then moves or deletes the clone. A failure after the config edit
-// restores the config from the backup; the bindings removal is reported, not
-// undone (a sync realigns a binding to a KB that is mounted again).
+// bindings, then moves or deletes the clone. A failure at any step after the
+// aliases were written (the backup and the edit included) puts the aliases
+// back, and one after the backup also restores the config from it; the bindings
+// removal is reported, not undone (a sync realigns a binding to a KB that is
+// mounted again).
 func applyKBUnmount(p *unmountPlan) (backup string, err error) {
 	var prevAliases []config.KBAlias
 	aliasesChanged := false
@@ -261,15 +263,6 @@ func applyKBUnmount(p *unmountPlan) (backup string, err error) {
 			return "", fmt.Errorf("remove the aliases: %w", err)
 		}
 		aliasesChanged = true
-	}
-	if p.EntryIndex >= 0 {
-		backup, err = backupServerConfig(p.ConfigPath)
-		if err != nil {
-			return "", err
-		}
-		if err := editConfigForUnmount(p.ConfigPath, p.EntryIndex); err != nil {
-			return backup, err
-		}
 	}
 	restore := func(cause error) error {
 		if aliasesChanged {
@@ -286,6 +279,15 @@ func applyKBUnmount(p *unmountPlan) (backup string, err error) {
 			}
 		}
 		return fmt.Errorf("%w (and %s could not be restored: copy %s over it)", cause, p.ConfigPath, backup)
+	}
+	if p.EntryIndex >= 0 {
+		backup, err = backupServerConfig(p.ConfigPath)
+		if err != nil {
+			return "", restore(fmt.Errorf("back up the server config: %w", err))
+		}
+		if err := editConfigForUnmount(p.ConfigPath, p.EntryIndex); err != nil {
+			return backup, restore(fmt.Errorf("edit the server config: %w", err))
+		}
 	}
 	if len(p.Bindings) > 0 {
 		if err := removeBindings(p.Name); err != nil {
