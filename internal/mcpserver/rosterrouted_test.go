@@ -92,7 +92,7 @@ func TestInitializeDoesNotAdvertiseListChanged(t *testing.T) {
 }
 
 // The SDK caps an MCP POST body at 4 MiB and answers 413; this pins the limit
-// docs/transport-auth.md §Protocol errors states.
+// docs/transport-auth.md §Protocol errors on `POST /mcp`, which states.
 func TestMCPPostOver4MiBIs413(t *testing.T) {
 	t.Parallel()
 	h := newRoutedTestHandler(t, "kb-one", "kb-two")
