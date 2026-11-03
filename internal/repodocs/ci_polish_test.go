@@ -26,7 +26,7 @@ func TestPrivacyGuardRedactKeepsOffsets(t *testing.T) {
 
 	add := exec.Command(py, "-I", guard, "--add")
 	add.Env = env
-	add.Stdin = strings.NewReader("zebratestterm\n")
+	add.Stdin = strings.NewReader("zebratestterm\nzebratestterk\n")
 	out, err := add.Output()
 	if err != nil {
 		t.Fatalf("--add: %v", err)
@@ -36,7 +36,7 @@ func TestPrivacyGuardRedactKeepsOffsets(t *testing.T) {
 	}
 
 	f := filepath.Join(dir, "body.txt")
-	if err := os.WriteFile(f, []byte("İİİ ZebraTestTerm ok, İ zebratestterm end"), 0o600); err != nil {
+	if err := os.WriteFile(f, []byte("İİİ ZebraTestTerm ok, İ zebratestterm end, Zebratestter\u212a"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	red := exec.Command(py, "-I", guard, "--redact", f)
@@ -45,7 +45,7 @@ func TestPrivacyGuardRedactKeepsOffsets(t *testing.T) {
 		t.Fatalf("--redact: %v\n%s", err, b)
 	}
 	got, _ := os.ReadFile(f)
-	if want := "İİİ [redacted] ok, İ [redacted] end"; string(got) != want {
+	if want := "İİİ [redacted] ok, İ [redacted] end, [redacted]"; string(got) != want {
 		t.Errorf("redacted text %q, want %q", got, want)
 	}
 }
