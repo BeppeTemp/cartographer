@@ -232,3 +232,81 @@ export function beside(anchor: { x?: number; y?: number; z?: number }, id: strin
   const p = seedPosition(id, 1, 3);
   return { x: (anchor.x ?? 0) + p.x * 0.5, y: (anchor.y ?? 0) + p.y * 0.5, z: (anchor.z ?? 0) + p.z * 0.5 };
 }
+
+/** The velocity a new node gives its neighbours (scene units per tick). */
+export const KNOCK = 6;
+/** What is left of a knock after each link it travels through. */
+export const KNOCK_FALLOFF = 0.55;
+/** How hot the simulation runs again after a knock, so it travels. */
+export const KNOCK_ALPHA = 0.45;
+/** More origins than this and a change is a bulk change: one reheat instead of
+ *  a knock per origin, which would sum unbounded impulses (a KB un-hidden by
+ *  half opens up and the camera chases it). */
+export const KNOCK_MAX_ORIGINS = 20;
+/** The reheat of a bulk change: the simulation re-settles without a push. */
+export const KNOCK_BULK_ALPHA = 0.3;
+/** The most speed any node gets from all the knocks of one change, per tick. */
+export const KNOCK_VELOCITY_CAP = KNOCK;
+
+type Moving = PhysicsNode & { x?: number; y?: number; z?: number; vx?: number; vy?: number; vz?: number };
+
+/** Pushes every node reachable from `origin` away from it, weaker by
+ *  KNOCK_FALLOFF with each link in between, until the push falls under
+ *  `floor`. Returns the nodes it pushed. */
+export function knock<N extends Moving>(
+  origin: N,
+  initial: number,
+  neighbours: Map<string, N[]>,
+  floor = KNOCK * 0.05,
+): Set<N> {
+  const seen = new Set<N>([origin]);
+  let ring = [origin];
+  for (let strength = initial; ring.length && strength > floor; strength *= KNOCK_FALLOFF) {
+    const next: N[] = [];
+    for (const n of ring) {
+      for (const m of neighbours.get(n.id) ?? []) {
+        if (seen.has(m)) continue;
+        seen.add(m);
+        const dx = (m.x ?? 0) - (origin.x ?? 0);
+        const dy = (m.y ?? 0) - (origin.y ?? 0);
+        const dz = (m.z ?? 0) - (origin.z ?? 0);
+        const d = Math.hypot(dx, dy, dz) || 1;
+        m.vx = (m.vx ?? 0) + (dx / d) * strength;
+        m.vy = (m.vy ?? 0) + (dy / d) * strength;
+        m.vz = (m.vz ?? 0) + (dz / d) * strength;
+        next.push(m);
+      }
+    }
+    ring = next;
+  }
+  seen.delete(origin);
+  return seen;
+}
+
+/**
+ * The knock of one setData: every origin pushes the network away from itself.
+ * A single origin is exactly `knock`. Several share the push (each at 1/k of
+ * its strength) and no node ends faster than KNOCK_VELOCITY_CAP; past
+ * KNOCK_MAX_ORIGINS nothing is pushed and the caller reheats instead (the
+ * BFS never runs). Returns which of the two happened.
+ */
+export function knockAll<N extends Moving>(origins: Map<N, number>, neighbours: Map<string, N[]>): "knock" | "reheat" {
+  const k = origins.size;
+  if (k > KNOCK_MAX_ORIGINS) return "reheat";
+  const touched = new Set<N>();
+  for (const [origin, strength] of origins) {
+    for (const n of knock(origin, strength / k, neighbours, (KNOCK * 0.05) / k)) touched.add(n);
+  }
+  if (k > 1) {
+    for (const n of touched) {
+      const v = Math.hypot(n.vx ?? 0, n.vy ?? 0, n.vz ?? 0);
+      if (v > KNOCK_VELOCITY_CAP) {
+        const f = KNOCK_VELOCITY_CAP / v;
+        n.vx = (n.vx ?? 0) * f;
+        n.vy = (n.vy ?? 0) * f;
+        n.vz = (n.vz ?? 0) * f;
+      }
+    }
+  }
+  return "knock";
+}

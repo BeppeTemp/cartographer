@@ -92,3 +92,65 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 		}
 	}
 }
+
+// The merge queue (D1592) requires a `plan-gate` check on the queue's own commit.
+// plan-gate.yml cannot report it (its trigger set is pull_request_target only), so
+// plan-gate-queue.yml does, and it may do nothing: the trigger is exactly
+// `merge_group`, the one job is named `plan-gate`, it checks out nothing, uses no
+// action or secret and holds read-only permissions.
+func TestPlanGateQueueWorkflowDoesNothing(t *testing.T) {
+	root := repoRoot(t)
+	raw := readFile(t, root, ".github/workflows/plan-gate-queue.yml")
+
+	var wf struct {
+		On          map[string]any `yaml:"on"`
+		Permissions map[string]string
+		Jobs        map[string]struct {
+			Name        string            `yaml:"name"`
+			Permissions map[string]string `yaml:"permissions"`
+			Steps       []map[string]any  `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
+		t.Fatalf("plan-gate-queue.yml: %v", err)
+	}
+	if _, ok := wf.On["merge_group"]; !ok || len(wf.On) != 1 {
+		t.Errorf("plan-gate-queue.yml: the only trigger must be `merge_group`, got %v", wf.On)
+	}
+	for perm, level := range wf.Permissions {
+		if level != "read" {
+			t.Errorf("plan-gate-queue.yml: top-level permission %s: %s, want read", perm, level)
+		}
+	}
+	job, ok := wf.Jobs["plan-gate"]
+	if len(wf.Jobs) != 1 || !ok || job.Name != "plan-gate" {
+		t.Fatalf("plan-gate-queue.yml: want exactly one job `plan-gate` named `plan-gate`, got %v", wf.Jobs)
+	}
+	for perm, level := range job.Permissions {
+		if level != "read" {
+			t.Errorf("plan-gate-queue.yml: job permission %s: %s, want read", perm, level)
+		}
+	}
+	if len(job.Steps) == 0 {
+		t.Error("plan-gate-queue.yml: the job has no step")
+	}
+	for _, st := range job.Steps {
+		for k := range st {
+			if k != "run" && k != "name" {
+				t.Errorf("plan-gate-queue.yml: a step uses `%s`: only `run: echo` is allowed", k)
+			}
+		}
+		if cmd, _ := st["run"].(string); !strings.HasPrefix(strings.TrimSpace(cmd), "echo ") || strings.ContainsAny(cmd, ";&|`$\n") {
+			t.Errorf("plan-gate-queue.yml: step %q must be a single echo", cmd)
+		}
+	}
+	// Comments name the forbidden words: judge code lines only.
+	for _, l := range strings.Split(raw, "\n") {
+		if i := strings.Index(l, "#"); i >= 0 && strings.TrimSpace(l[:i]) == "" {
+			continue
+		}
+		if regexp.MustCompile(`secrets\.|uses:|checkout`).MatchString(l) {
+			t.Errorf("plan-gate-queue.yml: %q: no secret, no action, no checkout", l)
+		}
+	}
+}
