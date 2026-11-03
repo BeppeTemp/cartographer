@@ -369,6 +369,10 @@ func TestSearchMiss_UncheckedPastTheBudget(t *testing.T) {
 	for i := 0; i < searchMissMaxChecks+5; i++ {
 		l.record(fmt.Sprintf("query %03d", i))
 	}
+	// A second miss makes "query 000" rank first by count: by last-seen time
+	// alone it is the oldest, and on a slow runner the records span seconds,
+	// so it would fall past the re-check budget and come back unchecked.
+	l.record("query 000")
 	// Every checked query is resolved except "query 000"; the rest is unreached.
 	l.SetChecker(func(q string) bool { return q != "query 000" })
 	top := l.top()
