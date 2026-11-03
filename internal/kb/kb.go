@@ -396,9 +396,7 @@ func Open(root string) (*KB, error) {
 	_ = ensureInfoExclude(abs, LockFileName)
 	excludeAgentStateDirs(abs)
 	excludeJunk(abs)
-	k := &KB{Root: abs}
-	k.sweepStaleTempFiles()
-	return k, nil
+	return &KB{Root: abs}, nil
 }
 
 // Init initializes a new KB by creating the minimal skeleton:

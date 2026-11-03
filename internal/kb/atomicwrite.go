@@ -5,8 +5,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
 
 // tempFilePrefix names the temporary file writeFileAtomic creates next to its
@@ -62,25 +64,35 @@ func writeFileAtomic(dest string, data []byte) error {
 	return nil
 }
 
-// sweepStaleTempFiles removes the temporary files of writes that were killed
-// before their rename. A file younger than the lock timeout may belong to a
-// write in progress in another process, so only older ones go, and only when the
-// advisory KB lock is free. Best effort and silent: a KB that cannot be swept
-// is still usable.
-func (k *KB) sweepStaleTempFiles() {
-	// A KB whose lock file does not exist has never had a writer: take the lock
-	// only when it is there, so that opening a KB creates no file of its own.
-	if _, err := os.Stat(filepath.Join(k.Root, LockFileName)); err == nil {
-		release, err := k.AcquireProcessLock(0, "sweep temporary files")
-		if err != nil {
-			return
-		}
-		defer release()
+// tempNameRe is exactly what os.CreateTemp(dir, tempFilePrefix) produces: the
+// prefix and a decimal number. Anything else with the prefix is somebody's file.
+var tempNameRe = regexp.MustCompile(`^\.tmp-wiki-[0-9]+$`)
+
+// sweepMaxEntries caps the walk so a huge tree cannot stall the server start.
+const sweepMaxEntries = 200000
+
+// SweepStaleTempFiles removes the temporary files of writes that were killed
+// before their rename: a regular file named exactly as os.CreateTemp names them,
+// older than the lock timeout (a younger one may be a write in progress), and
+// not tracked by git. It runs only when the advisory KB lock can be taken
+// without waiting, and is meant for the server's own start-up, not for every
+// Open (a CLI command opening a KB briefly would hold the lock and walk the
+// tree). Best effort and silent: a KB that cannot be swept is still usable.
+func (k *KB) SweepStaleTempFiles() {
+	release, err := k.AcquireProcessLock(0, "sweep temporary files")
+	if err != nil {
+		return
 	}
+	defer release()
 	cutoff := time.Now().Add(-processLockTimeout)
+	var stale []string
+	visited := 0
 	_ = filepath.WalkDir(k.Root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
+		}
+		if visited++; visited > sweepMaxEntries {
+			return filepath.SkipAll
 		}
 		if d.IsDir() {
 			switch d.Name() {
@@ -89,12 +101,31 @@ func (k *KB) sweepStaleTempFiles() {
 			}
 			return nil
 		}
-		if !strings.HasPrefix(d.Name(), tempFilePrefix) {
+		if !tempNameRe.MatchString(d.Name()) || !d.Type().IsRegular() {
 			return nil
 		}
 		if info, ierr := d.Info(); ierr == nil && info.ModTime().Before(cutoff) {
-			_ = os.Remove(p)
+			stale = append(stale, p)
 		}
 		return nil
 	})
+	if len(stale) == 0 {
+		return
+	}
+	rels := make([]string, 0, len(stale))
+	for _, p := range stale {
+		if rel, rerr := filepath.Rel(k.Root, p); rerr == nil {
+			rels = append(rels, filepath.ToSlash(rel))
+		}
+	}
+	tracked, terr := gitx.TrackedPaths(k.Root, rels...)
+	if terr != nil && gitx.IsRepo(k.Root) {
+		return // cannot tell what is tracked: remove nothing
+	}
+	for i, p := range stale {
+		if i < len(rels) && tracked[rels[i]] {
+			continue
+		}
+		_ = os.Remove(p)
+	}
 }

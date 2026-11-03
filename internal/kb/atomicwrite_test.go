@@ -59,27 +59,56 @@ func TestTempFileIsJunkAndNeverShowsInGitStatus(t *testing.T) {
 	}
 }
 
-func TestOpen_SweepsStaleTempFilesOnly(t *testing.T) {
+func TestSweepStaleTempFiles_RemovesOnlyOurStaleOrphans(t *testing.T) {
 	t.Parallel()
 	k := mustInitKB(t)
-	stale := filepath.Join(k.Root, "data", ".tmp-wiki-old")
-	fresh := filepath.Join(k.Root, "data", ".tmp-wiki-new")
-	for _, p := range []string{stale, fresh} {
+	old := time.Now().Add(-2 * processLockTimeout)
+	mk := func(rel string, age bool) string {
+		p := filepath.Join(k.Root, rel)
 		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		if age {
+			if err := os.Chtimes(p, old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return p
 	}
-	old := time.Now().Add(-2 * processLockTimeout)
-	if err := os.Chtimes(stale, old, old); err != nil {
+	stale := mk("data/.tmp-wiki-123456", true)
+	fresh := mk("data/.tmp-wiki-654321", false)
+	notOurs := mk("data/.tmp-wiki-notes.md", true) // prefix, but not CreateTemp's name
+	tracked := mk("data/.tmp-wiki-777", true)
+	gitIn(t, k.Root, "add", "-f", "data/.tmp-wiki-777")
+	gitIn(t, k.Root, "-c", "user.name=user", "-c", "user.email=user@example.com", "commit", "-q", "-m", "tracked")
+
+	k.SweepStaleTempFiles()
+
+	for p, wantGone := range map[string]bool{stale: true, fresh: false, notOurs: false, tracked: false} {
+		_, err := os.Stat(p)
+		if gone := os.IsNotExist(err); gone != wantGone {
+			t.Errorf("%s: removed=%v, want %v", filepath.Base(p), gone, wantGone)
+		}
+	}
+}
+
+func TestOpen_DoesNotSweepOrCreateTheLockFile(t *testing.T) {
+	t.Parallel()
+	k := mustInitKB(t)
+	stale := filepath.Join(k.Root, "data", ".tmp-wiki-1")
+	if err := os.WriteFile(stale, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	old := time.Now().Add(-2 * processLockTimeout)
+	_ = os.Chtimes(stale, old, old)
+	_ = os.Remove(filepath.Join(k.Root, LockFileName))
 	if _, err := Open(k.Root); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Errorf("stale temp file kept (err=%v)", err)
+	if _, err := os.Stat(stale); err != nil {
+		t.Errorf("Open swept: %v", err)
 	}
-	if _, err := os.Stat(fresh); err != nil {
-		t.Errorf("a fresh temp file, possibly a write in progress, was removed: %v", err)
+	if _, err := os.Stat(filepath.Join(k.Root, LockFileName)); err == nil {
+		t.Error("Open created the lock file")
 	}
 }

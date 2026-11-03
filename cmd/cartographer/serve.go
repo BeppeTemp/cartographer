@@ -730,6 +730,9 @@ func openMountedKB(path string) (*kb.KB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("KB open %q failed: %v\n(a KB that does not exist is created with `cartographer kb create`)", path, err)
 	}
+	// The one place that sweeps temp files orphaned by a killed write: a CLI
+	// command that opens a KB for a moment must not walk it or take its lock.
+	k.SweepStaleTempFiles()
 	return k, nil
 }
 
