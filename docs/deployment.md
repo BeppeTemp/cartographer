@@ -644,7 +644,9 @@ refetches the open view in place — graph, concept, findings and lists — with
 a reload or a blank frame. The graph keeps every node it already has: new
 concepts appear beside a neighbour, removed ones go, and every change —
 nodes or links — gives the whole network a small knock that fades with
-distance, while the camera and its slow turn carry on undisturbed. A hidden tab does not poll and checks once on
+distance (a few changes share one knock, no node moves faster than a single
+knock would move it, and a bulk change of more than 20 origins reheats the
+simulation instead of pushing), while the camera and its slow turn carry on undisturbed. A hidden tab does not poll and checks once on
 return. A caller that cannot see the whole KB gets no revision, so its Atlas
 does not refresh by itself.
 
