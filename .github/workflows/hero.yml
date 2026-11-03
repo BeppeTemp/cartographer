@@ -100,7 +100,7 @@ jobs:
         run: sudo apt-get install -y ffmpeg webp
       - if: steps.needed.outputs.record == 'true'
         name: Record
-        run: make hero
+        run: make hero NPM_CI=
       - if: steps.needed.outputs.record == 'true'
         name: Publish to readme-assets
         env:
