@@ -2044,8 +2044,8 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 	logLines := make([]string, 0, len(valid)+1)
 
 	// A failure from here on is late: earlier entries (and, for a flat
-	// move, this entry's target) are already on disk and are not rolled
-	// back. It must still be an explicit application error — gitWrap
+	// move, this entry's target) are already on disk; gitWrap restores the
+	// tree when it was clean before the call (D1549). It must still be an explicit application error — gitWrap
 	// then neither commits nor logs success — and say what is where.
 	// entryWritten: this entry already changed the tree, so the recovery hint
 	// applies even when no earlier move did.

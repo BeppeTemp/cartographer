@@ -14,3 +14,5 @@ topic: control-plane
 - Discard also on a tree that was not clean: destroys an editor's unsaved work.
 
 **Consequences.** The "clean before" test is `kb.TreeClean` after `commitExternalChanges`, so a git that does not answer discards nothing. A new write tool needs no code for this. D357's "external changes" now means edits made outside MCP only.
+
+Known window: "clean before" is checked once, at the start of the call, so an outside edit written while the handler runs (the lock does not stop an editor) is discarded with the handler's residue. The window is the handler's duration; restricting the restore to the handler's own paths was rejected as it needs per-handler accounting (generated indexes touch paths no handler returns).

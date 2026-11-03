@@ -29,8 +29,12 @@ func TestGitWrap_FailedHandlerLeavesTheTreeAtHEAD(t *testing.T) {
 	for _, goErr := range []bool{false, true} {
 		k, _ := setupGitKB(t)
 		head := gitOut(t, k, "rev-parse", "HEAD")
-		res, _ := failingWrite(k, goErr).Handler(authLocalContext(), json.RawMessage(`{}`))
-		if !goErr {
+		res, err := failingWrite(k, goErr).Handler(authLocalContext(), json.RawMessage(`{}`))
+		if goErr {
+			if err == nil || !strings.Contains(err.Error(), "boom") || !strings.Contains(err.Error(), "discarded") {
+				t.Fatalf("err = %v, want the handler error plus the discarded note", err)
+			}
+		} else {
 			if !res.IsError || strings.Contains(res.Content[0].Text, "concept_history") || !strings.Contains(res.Content[0].Text, "discarded") {
 				t.Fatalf("result = %+v, want the error to say the changes were discarded", res)
 			}

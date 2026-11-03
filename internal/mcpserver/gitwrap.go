@@ -85,7 +85,9 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			res, handlerErr = orig.Handler(ctx, args)
 			handlerDur = time.Since(handlerStart)
 			if (handlerErr != nil || res.IsError) && cleanBefore {
-				discardFailedWrite(k, orig.Name, &res)
+				if discardFailedWrite(k, orig.Name, &res) && handlerErr != nil {
+					handlerErr = fmt.Errorf("%w; "+discardedNote, handlerErr)
+				}
 			}
 			if handlerErr == nil && !res.IsError {
 				// Generated map indexes (D301) follow the write in the same
@@ -155,23 +157,32 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 // was clean before the handler; ignored files are kept. A handler that succeeded
 // and whose commit failed is not discarded: the work is valid and the next
 // commit retries. A rollback failure is logged and the result is unchanged.
-func discardFailedWrite(k *kb.KB, tool string, res *ToolResult) {
+//
+// Known window: "clean before" is proven at the start of the call, so an edit
+// an outside process writes to the KB while the handler runs is discarded too.
+// The lock does not stop an editor; the window is the handler's duration.
+// It reports whether the tree was restored.
+func discardFailedWrite(k *kb.KB, tool string, res *ToolResult) bool {
 	if k.TreeClean() {
-		return // the handler failed before touching the disk
+		return false // the handler failed before touching the disk
 	}
 	if err := k.DiscardUncommitted(); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: rollback of a failed %s failed: %v\n", tool, err)
-		return
+		return false
 	}
 	fmt.Fprintf(os.Stderr, "cartographer: %s failed after writing: the tree was restored to the last commit\n", tool)
 	if !res.IsError || len(res.Content) == 0 {
-		return
+		return true
 	}
 	// The handler worded its error for a tree that keeps the partial state.
 	last := &res.Content[len(res.Content)-1]
 	last.Text = strings.ReplaceAll(last.Text, "; "+recoveryHint, "")
-	last.Text += "; the changes this call had already written were discarded, the KB is back at its last commit"
+	last.Text += "; " + discardedNote
+	return true
 }
+
+// discardedNote ends the error of a write gitWrap rolled back.
+const discardedNote = "the changes this call had already written were discarded, the KB is back at its last commit"
 
 // syncInForWrite is gitWrap's step 2/3: fetch + pull --rebase before a write.
 // It returns a refusal result (and true) when the write must not go on: a
