@@ -730,6 +730,21 @@ func (kb *KB) WalkConcepts(fn func(id okf.ConceptID, content string) error) erro
 	})
 }
 
+// ConceptIDs lists the id of every concept of the cached link graph (D241), in
+// no particular order: what a counter needs, without reading a file that the
+// graph already holds.
+func (kb *KB) ConceptIDs() ([]okf.ConceptID, error) {
+	view, err := kb.graphView()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]okf.ConceptID, 0, len(view.exists))
+	for id := range view.exists {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // WalkConceptPaths is WalkConcepts' physical-path-aware variant: fn also
 // receives the actual KB-relative Markdown path holding the concept, which is
 // what tells an expanded concept ("map/concept/index.md") from a flat one
@@ -778,6 +793,33 @@ func (kb *KB) WalkConceptsLinkingTo(targets, also []okf.ConceptID, fn func(id ok
 	}
 	for _, e := range view.entries {
 		if !isCandidate(e) {
+			continue
+		}
+		content, err := kb.ReadRaw(e.rel)
+		if err != nil {
+			continue
+		}
+		if err := fn(e.id, e.rel, content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WalkConceptPathsUnder is WalkConceptPaths restricted to the concept scope
+// itself and the ones under it (id prefix scope + "/"). The candidates come from
+// the cached link graph (D241) and only they are read, so a scoped listing
+// costs its scope, not the KB. An empty scope walks everything.
+func (kb *KB) WalkConceptPathsUnder(scope string, fn func(id okf.ConceptID, physicalPath, content string) error) error {
+	if scope == "" {
+		return kb.walkConceptPaths(fn)
+	}
+	view, err := kb.graphView()
+	if err != nil {
+		return err
+	}
+	for _, e := range view.entries {
+		if id := string(e.id); id != scope && !strings.HasPrefix(id, scope+"/") {
 			continue
 		}
 		content, err := kb.ReadRaw(e.rel)

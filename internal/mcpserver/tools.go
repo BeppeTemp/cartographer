@@ -60,6 +60,9 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		if t.ReadOnly {
 			t = readSyncWrap(k, t)
 		}
+		if t.ResourceClass == resourceCollection {
+			t = visibilityMemoWrap(k, t)
+		}
 		s.RegisterTool(t)
 	}
 

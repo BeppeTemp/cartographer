@@ -51,6 +51,7 @@ func toolAtlasOverview(k *kb.KB) Tool {
 			if len(archives) == 0 {
 				sb.WriteString("No maps found.\n")
 			} else {
+				counts := visibleMapCounts(ctx, k)
 				for _, a := range archives {
 					kind := "map"
 					if meta, err := k.ReadArchiveMeta(a); err == nil {
@@ -61,7 +62,7 @@ func toolAtlasOverview(k *kb.KB) Tool {
 					if !VisibleCollection(ctx, k, a, kind) {
 						continue
 					}
-					conceptCount, expandedCount := visibleCounts(ctx, k, a)
+					conceptCount, expandedCount := counts[a], 0
 					if WholeVisible(ctx, k, false) {
 						expandedCount, _ = k.ExpandedCount(a)
 					}
@@ -861,6 +862,7 @@ func toolChangesSince(k *kb.KB) Tool {
 				}
 				return id
 			}
+			visibleConcept := visiblePredicate(ctx, k)
 			otherChanges := 0
 			for _, commit := range commits {
 				for _, file := range commit.Files {
@@ -887,7 +889,7 @@ func toolChangesSince(k *kb.KB) Tool {
 						}
 					}
 					id = resolveMovedID(id)
-					if !Visible(ctx, k, id) {
+					if !visibleConcept(id) {
 						continue
 					}
 					info, exists := conceptByID[id]
@@ -999,19 +1001,27 @@ func toolChangesSince(k *kb.KB) Tool {
 	}
 }
 
-// visibleCounts computes overview counters from the caller's view, before any
-// aggregation. ExpandedCount is intentionally limited to visible concepts so
-// a type-restricted principal cannot infer hidden satellites.
-func visibleCounts(ctx requestContext, k *kb.KB, archive string) (concepts, expanded int) {
-	_ = k.WalkConcepts(func(id okf.ConceptID, _ string) error {
+// visibleMapCounts counts, per top-level map, the concepts the caller can
+// see, in one pass over the ids of the cached graph (D241): no file is read
+// once the graph is warm, whatever the number of maps. The count of expanded
+// concepts is not here: it is the whole KB's (k.ExpandedCount) and only a
+// whole-KB principal is shown it, so a type-restricted principal cannot infer
+// hidden satellites.
+func visibleMapCounts(ctx requestContext, k *kb.KB) map[string]int {
+	counts := map[string]int{}
+	ids, err := k.ConceptIDs()
+	if err != nil {
+		return counts
+	}
+	visible := visiblePredicate(ctx, k)
+	for _, id := range ids {
 		idString := string(id)
-		if !strings.HasPrefix(idString, archive+"/") || !Visible(ctx, k, idString) {
-			return nil
+		top, _, nested := strings.Cut(idString, "/")
+		if nested && visible(idString) {
+			counts[top]++
 		}
-		concepts++
-		return nil
-	})
-	return concepts, expanded
+	}
+	return counts
 }
 
 // --- map_list ---
@@ -1380,7 +1390,7 @@ func toolConceptList(k *kb.KB) Tool {
 				Filters:         filters,
 				Before:          before,
 				After:           after,
-				Include:         func(id string) bool { return Visible(ctx, k, id) },
+				Include:         visiblePredicate(ctx, k),
 			})
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_list: %v", err)), nil
@@ -1475,7 +1485,8 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			// the walk runs on the visible-induced graph, where a hidden
 			// concept is neither a result nor a transit node. For a whole-KB
 			// principal every node is visible and the result is unchanged.
-			visible := func(id okf.ConceptID) bool { return Visible(ctx, k, string(id)) }
+			visibleID := visiblePredicate(ctx, k)
+			visible := func(id okf.ConceptID) bool { return visibleID(string(id)) }
 			neighbors, err := graph.NeighborsWithin(okf.ConceptID(params.ID), depth, direction, visible)
 			if err != nil {
 				return errorResult(fmt.Sprintf("graph_neighbors %q: %v", params.ID, err)), nil

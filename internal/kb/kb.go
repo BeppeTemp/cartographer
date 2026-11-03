@@ -71,6 +71,13 @@ type KB struct {
 	// set by the transport at mount time and never contains a bearer secret.
 	AuthName string
 
+	// archiveMetaReads counts ReadArchiveMeta calls, for tests that assert a
+	// read path does not parse a map descriptor more often than it must.
+	archiveMetaReads atomic.Int64
+	// rawReads counts ReadRaw calls, for tests that assert a listing reads
+	// only the files it needs.
+	rawReads atomic.Int64
+
 	// SyncInWindow is the freshness window for SyncIn (D76/WP3): if the last
 	// successful SyncIn happened less than SyncInWindow ago, SyncIn is a
 	// no-op — avoids a redundant fetch+pull on every write during a burst.
@@ -764,6 +771,7 @@ var readRawHook func(relPath string)
 
 // ReadRaw reads the text of a file by its path relative to the KB root.
 func (kb *KB) ReadRaw(relPath string) (string, error) {
+	kb.rawReads.Add(1)
 	if readRawHook != nil {
 		readRawHook(relPath)
 	}
@@ -2704,6 +2712,7 @@ func CapList(items []string, n int) []string {
 // "kind" field is treated as kind: map, so callers never see a Map without a
 // kind.
 func (kb *KB) ReadArchiveMeta(archive string) (*okf.Frontmatter, error) {
+	kb.archiveMetaReads.Add(1)
 	relPath, err := kb.mapDescriptorRelPath(archive)
 	if err != nil {
 		return nil, fmt.Errorf("ReadArchiveMeta %s: %w", archive, err)
@@ -2725,6 +2734,14 @@ func (kb *KB) ReadArchiveMeta(archive string) (*okf.Frontmatter, error) {
 	}
 	return parsed, nil
 }
+
+// RawReads reports how many files ReadRaw has been asked for, over this KB's
+// lifetime (test seam).
+func (kb *KB) RawReads() int { return int(kb.rawReads.Load()) }
+
+// ArchiveMetaReads reports how many map descriptors this KB has read and
+// parsed, over its lifetime (test seam, like GraphValidations).
+func (kb *KB) ArchiveMetaReads() int { return int(kb.archiveMetaReads.Load()) }
 
 // AllTypes is the type key of required_fields.<type|*> and
 // field_values.<type|*>.<field> that stands for every concept type (D907).

@@ -24,8 +24,9 @@ const (
 // in that graph: closed entries must not dominate the ranking or form
 // communities of their own; the other graph tools still show them.
 func writeAtlasStructure(sb *strings.Builder, ctx requestContext, k *kb.KB) error {
+	visible := visiblePredicate(ctx, k)
 	lg, err := k.LinkGraph(func(id string) bool {
-		return Visible(ctx, k, id) && k.ConceptFacets(okf.ConceptID(id)).Status != kb.StatusArchived
+		return visible(id) && k.ConceptFacets(okf.ConceptID(id)).Status != kb.StatusArchived
 	})
 	if err != nil {
 		return err
