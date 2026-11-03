@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kbtest"
 )
 
@@ -449,12 +450,12 @@ func TestCmdImport_TellsTheOperatorToReindex(t *testing.T) {
 		})
 	}
 
-	reindexAfterImportFn = func() bool { return false }
+	reindexAfterImportFn = func(string) bool { return false }
 	if out := run(); !strings.Contains(out, "cartographer reindex") {
 		t.Errorf("with no reachable server the instruction must be printed: %q", out)
 	}
 
-	reindexAfterImportFn = func() bool { return true }
+	reindexAfterImportFn = func(string) bool { return true }
 	out := run()
 	if !strings.Contains(out, "search index rebuilt") {
 		t.Errorf("with a reachable server the index should be rebuilt: %q", out)
@@ -582,5 +583,118 @@ func TestImportMDLinkRe_BracketedLabel(t *testing.T) {
 	m := importMDLinkRe.FindStringSubmatch("see [Issue [RFC] x](old/x.md).")
 	if m == nil || m[1] != "Issue [RFC] x" || m[2] != "old/x.md" {
 		t.Fatalf("match = %q", m)
+	}
+}
+
+// A source already named foo-bar-2.md owns that slug: the later duplicates of
+// foo-bar must not land on it (the second used to overwrite the first, with the
+// count and the link map both claiming success).
+func TestBuildImportPlan_SuffixedSourceNameDoesNotCollide(t *testing.T) {
+	src := t.TempDir()
+	for _, rel := range []string{"foo bar.md", "foo-bar-2.md", "foo_bar.md"} {
+		writeSourceFile(t, src, rel, "# X\n")
+	}
+	plan, err := buildImportPlanWithOptions(src, nil, "notes", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, f := range plan.files {
+		if prev, dup := seen[f.destPath]; dup {
+			t.Errorf("%s and %s share the destination %s", prev, f.srcRel, f.destPath)
+		}
+		seen[f.destPath] = f.srcRel
+	}
+	if len(seen) != 3 {
+		t.Errorf("destinations = %v, want three distinct", seen)
+	}
+}
+
+// A second import after curation must not destroy the curation: an existing
+// concept is skipped and counted, the dry run lists it, --overwrite replaces it.
+func TestCmdImport_ExistingConceptIsKept(t *testing.T) {
+	src := t.TempDir()
+	writeSourceFile(t, src, "page.md", "# Page\n\nsource body\n")
+	kbDir := kbtest.New(t).Root
+
+	run := func(extra ...string) string {
+		return withStdout(t, func() {
+			args := append([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}, extra...)
+			if code := cmdImport(args); code != 0 {
+				t.Errorf("cmdImport %v = %d, want 0", extra, code)
+			}
+		})
+	}
+	run()
+	curated := filepath.Join(kbDir, "data", "notes", "page.md")
+	if err := os.WriteFile(curated, []byte("---\ntitle: Page\ntype: Note\nstatus: active\n---\n\ncurated body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := run("--dry-run"); !strings.Contains(out, "exists") || !strings.Contains(out, "would import: 0, skipped: 1") {
+		t.Errorf("the dry run must list the collision: %q", out)
+	}
+	if out := run(); !strings.Contains(out, "imported: 0, skipped: 1, errors: 0") {
+		t.Errorf("summary = %q, want one skipped", out)
+	}
+	if got := mustReadConcept(t, kbDir, "notes/page.md"); !strings.Contains(got, "curated body") || !strings.Contains(got, "status: active") {
+		t.Errorf("the curated concept was replaced:\n%s", got)
+	}
+
+	if out := run("--overwrite"); !strings.Contains(out, "imported: 1, skipped: 0, errors: 0") {
+		t.Errorf("--overwrite summary = %q", out)
+	}
+	if got := mustReadConcept(t, kbDir, "notes/page.md"); !strings.Contains(got, "source body") {
+		t.Errorf("--overwrite did not replace the concept:\n%s", got)
+	}
+}
+
+// A reindex after an import targets only the KB the local server mounts.
+func TestImportReindexTarget(t *testing.T) {
+	data := t.TempDir()
+	kbDir := filepath.Join(data, "kb-a")
+	if err := os.MkdirAll(kbDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := t.TempDir()
+	svc := &config.Config{Data: data}
+
+	if name, ok := importReindexTarget(kbDir, "http://127.0.0.1:39273/mcp", svc); !ok || name != "kb-a" {
+		t.Errorf("a KB under the server's data dir = %q, %v, want kb-a", name, ok)
+	}
+	if _, ok := importReindexTarget(elsewhere, "http://127.0.0.1:39273/mcp", svc); ok {
+		t.Error("a clone the server does not mount must not be reindexed")
+	}
+	if _, ok := importReindexTarget(kbDir, "https://kb.example.com/mcp", svc); ok {
+		t.Error("a remote server's KBs must never be reindexed by an import")
+	}
+	if _, ok := importReindexTarget(kbDir, "http://127.0.0.1:39273/mcp", nil); ok {
+		t.Error("with no local service config there is nothing to reindex")
+	}
+	byPath := &config.Config{KBs: []config.KBSpec{{Path: elsewhere, Name: "named"}}}
+	if name, ok := importReindexTarget(elsewhere, "http://127.0.0.1:39273/mcp", byPath); !ok || name != "named" {
+		t.Errorf("a kbs[] path = %q, %v, want its configured name", name, ok)
+	}
+}
+
+// The source filter is case-insensitive, so the suffix handling must be too.
+func TestCmdImport_UpperCaseMDExtension(t *testing.T) {
+	src := t.TempDir()
+	writeSourceFile(t, src, "Upper.MD", "# Upper\n")
+	writeSourceFile(t, src, "other.md", "See [u](Upper.MD) and [v](Upper).\n")
+	kbDir := kbtest.New(t).Root
+
+	withStdout(t, func() {
+		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
+			t.Errorf("cmdImport = %d, want 0", code)
+		}
+	})
+	got := mustReadConcept(t, kbDir, "notes/upper.md")
+	if !strings.Contains(got, "title: Upper") || strings.Contains(got, "Upper.MD") {
+		t.Errorf("Upper.MD must import as notes/upper with a trimmed title:\n%s", got)
+	}
+	other := mustReadConcept(t, kbDir, "notes/other.md")
+	if strings.Count(other, "(upper.md)") != 2 {
+		t.Errorf("both links to Upper.MD must be rewritten to upper.md:\n%s", other)
 	}
 }

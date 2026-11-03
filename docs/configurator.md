@@ -909,6 +909,7 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author and committer are the operator, the identity git resolves for the KB's folder, else the server (D904, D950) |
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
+| `--overwrite` | `false` | Replaces a concept that already exists in the KB. Without it an existing concept (curated frontmatter, body, `status`) is left untouched, counted in `skipped` and named on stderr; `--dry-run` marks it |
 
 **`--map` covers a subtree.** Resolution is longest matching prefix, then `--default-map`, then the
 unmapped error (D162): `--map a/b=m` covers `a/b`, `a/b/c` and below, a more specific `--map a/b/c=n`
@@ -924,6 +925,12 @@ one silently winning, and a `--map` that matches nothing warns — otherwise a t
 `--default-map` unnoticed. `--dry-run` names the flag behind every destination, which is how you check
 all of this.
 
+**An existing concept is never replaced silently.** A second import after curation would otherwise
+destroy the curation: the concept of the same id is skipped (stderr names it, the summary counts it as
+skipped) unless `--overwrite`, and `--dry-run` opens the KB read-only to mark every collision. Source
+names that slugify to the same id get distinct `-2`, `-3` suffixes even when one of them already reads
+`foo-bar-2.md`; `.md` is recognised whatever its case (`Upper.MD` imports as `upper`, its links rewritten).
+
 **`import` takes the KB's advisory lock** and fails fast when the server holds it (D155), naming the
 holder and the `service stop … && service start` sequence: it writes into the same directory the
 server's sync loop manages, and the two interleaving corrupted the git index. `--dry-run` writes
@@ -931,8 +938,7 @@ nothing and never contends for it.
 
 **The search index is not updated by this process.** `import` writes through the KB write path but
 from outside the server, so the server's FTS index knows nothing about it: until it is rebuilt `search` returns nothing
-while `concept_list` sees everything. On completion the command rebuilds the index when a configured server is reachable, and
-otherwise prints the `cartographer reindex` instruction. It never changes the exit code: the import
+while `concept_list` sees everything. On completion the command rebuilds the index of **that KB only**, and only when the local server (the service config's `data:` or a `kbs[]` path) mounts the directory given to `--kb` and the client points at a loopback server; for a clone the server does not serve, or a remote server, it prints the `cartographer reindex` instruction. It never changes the exit code: the import
 itself succeeded.
 
 **`import` rewrites markdown links.** Every `[text](path.md)` whose target is part of the same
