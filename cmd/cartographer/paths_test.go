@@ -440,3 +440,54 @@ func TestRepoCandidates(t *testing.T) {
 		t.Errorf("repoCandidates = %v, want %v", got, want)
 	}
 }
+
+// `paths set repo:x .` stores the directory it was typed in: the sync that
+// resolves it runs from a hook or the timer, in another cwd (#1501).
+func TestCmdPathsSet_StoresAnAbsolutePath(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "")
+	work := t.TempDir()
+	t.Chdir(work)
+
+	out := withStdout(t, func() {
+		if code := cmdPaths([]string{"set", "repo:x", "."}); code != 0 {
+			t.Fatalf("paths set = %d", code)
+		}
+	})
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.Abs(".")
+	if cfg.Paths["x"] != want || !filepath.IsAbs(cfg.Paths["x"]) {
+		t.Errorf("stored %q, want the absolute %q", cfg.Paths["x"], want)
+	}
+	if !strings.Contains(out, want) {
+		t.Errorf("the registered path is not printed: %q", out)
+	}
+	if code := cmdPaths([]string{"set", "repo:t", "~/tool"}); code != 0 {
+		t.Fatalf("paths set tilde = %d", code)
+	}
+	cfg, _ = clientconfig.Load(home)
+	if cfg.Paths["t"] != "~/tool" {
+		t.Errorf("a tilde path must stay as typed, got %q", cfg.Paths["t"])
+	}
+}
+
+// `paths unset repo:x` keeps the ignore of path:x, and the reverse (D282).
+func TestCmdPathsUnset_KindOnlyRemovesThatIgnore(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "ignored_paths: [repo:x, path:x]\n")
+	if code := cmdPaths([]string{"unset", "repo:x"}); code != 0 {
+		t.Fatalf("paths unset = %d", code)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.IgnoredPaths) != 1 || cfg.IgnoredPaths[0] != "path:x" {
+		t.Errorf("ignores = %v, want [path:x]", cfg.IgnoredPaths)
+	}
+}
