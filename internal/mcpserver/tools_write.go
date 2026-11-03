@@ -56,7 +56,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				IfMatch     string                 `json:"if_match"`
 				IndexEntry  bool                   `json:"index_entry"`
 			}
-			if err := json.Unmarshal(args, &params); err != nil {
+			if err := unmarshalKeepNumbers(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if params.ID == "" {
@@ -473,6 +473,22 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) error {
 	return nil
 }
 
+// unmarshalKeepNumbers is json.Unmarshal with UseNumber: a number inside an
+// interface{} value (the frontmatter maps) arrives as the json.Number holding
+// the text as sent, not as a float64 that rounds 9007199254740993 and rewrites
+// 1.10 as 1.1. Typed fields of the same struct decode as before.
+func unmarshalKeepNumbers(data []byte, v interface{}) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if dec.More() {
+		return errors.New("invalid character after top-level value")
+	}
+	return nil
+}
+
 // frontmatterScalar renders one JSON scalar (a value or a list item) as the
 // string okf stores. null, maps and lists are refused; no %v (D1313).
 func frontmatterScalar(key string, v interface{}) (string, error) {
@@ -613,7 +629,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 				FMRemove    map[string]interface{} `json:"frontmatter_remove"`
 				Unset       []string               `json:"unset"`
 			}
-			if err := json.Unmarshal(args, &params); err != nil {
+			if err := unmarshalKeepNumbers(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if params.ID == "" {
@@ -2984,7 +3000,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				label := fmt.Sprintf("operation %d of %d", i+1, len(params.Operations))
 
 				var op batchOperationRequest
-				if err := json.Unmarshal(raw, &op); err != nil {
+				if err := unmarshalKeepNumbers(raw, &op); err != nil {
 					return errorResult(fmt.Sprintf("%s: invalid params: %v", label, err)), nil
 				}
 				if op.ID == "" {

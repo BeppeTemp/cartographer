@@ -88,7 +88,12 @@ func handlerJSONKeys(t *testing.T) map[string]map[string]bool {
 				if !ok || len(call.Args) != 2 {
 					return true
 				}
-				if sel, ok := call.Fun.(*ast.SelectorExpr); !ok || sel.Sel.Name != "Unmarshal" {
+				// json.Unmarshal, or unmarshalKeepNumbers (same decode, UseNumber).
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+					if sel.Sel.Name != "Unmarshal" {
+						return true
+					}
+				} else if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "unmarshalKeepNumbers" {
 					return true
 				}
 				if a0, ok := call.Args[0].(*ast.Ident); !ok || a0.Name != "args" {
