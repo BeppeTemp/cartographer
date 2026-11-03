@@ -356,6 +356,7 @@ func unmatchedScope(ctx requestContext, k *kb.KB, scope string) string {
 		return ""
 	}
 	whole := WholeVisible(ctx, k, false)
+	visible := visiblePredicate(ctx, k)
 	ids := make([]string, 0, len(links.Exists))
 	for id := range links.Exists {
 		ids = append(ids, string(id))
@@ -364,7 +365,7 @@ func unmatchedScope(ctx requestContext, k *kb.KB, scope string) string {
 	prefixes := []string{}
 	seen := map[string]bool{}
 	for _, id := range ids {
-		if !whole && !Visible(ctx, k, id) {
+		if !whole && !visible(id) {
 			continue
 		}
 		if strings.HasPrefix(id, scope) {

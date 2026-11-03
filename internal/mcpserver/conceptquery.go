@@ -79,7 +79,7 @@ func queryConcepts(k *kb.KB, q ConceptQuery) (ConceptQueryResult, error) {
 
 	var res ConceptQueryResult
 	res.Entries = []ConceptEntry{}
-	err := k.WalkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
+	err := k.WalkConceptPathsUnder(q.Scope, func(id okf.ConceptID, physicalPath, content string) error {
 		idStr := string(id)
 		if q.Scope != "" && idStr != q.Scope && !hasPathPrefix(idStr, q.Scope) {
 			return nil
