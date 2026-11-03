@@ -392,7 +392,9 @@ func (m *Manager) UninstallSyncTimer() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve sync plist path: %w", err)
 		}
-		m.run("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", os.Getuid(), syncLaunchdLabel))
+		if err := m.bootoutAndWait(syncLaunchdLabel, plistPath); err != nil {
+			return err
+		}
 		if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove sync plist: %w", err)
 		}
@@ -406,7 +408,9 @@ func (m *Manager) UninstallSyncTimer() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve sync timer path: %w", err)
 		}
-		m.run("systemctl", "--user", "disable", "--now", syncSystemdTimer)
+		if err := m.disableUnitNow(syncSystemdTimer); err != nil {
+			return err
+		}
 		for _, p := range []string{timerPath, servicePath} {
 			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("service: remove %s: %w", filepath.Base(p), err)
@@ -419,7 +423,9 @@ func (m *Manager) UninstallSyncTimer() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve sync task path: %w", err)
 		}
-		m.unregisterWindowsTask(windowsSyncTaskName)
+		if err := m.unregisterWindowsTask(windowsSyncTaskName); err != nil {
+			return err
+		}
 		if err := os.Remove(taskPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove sync task definition: %w", err)
 		}
