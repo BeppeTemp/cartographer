@@ -552,3 +552,52 @@ func TestBundledSkillsHaveClientParseableFrontmatter(t *testing.T) {
 		}
 	}
 }
+
+// A description in a block scalar is valid YAML, so the clients load it: the
+// fields come from the strict map, not from the lenient reader's view of ">-".
+func TestLoadSkillBlockScalarDescription(t *testing.T) {
+	for header, want := range map[string]string{
+		">-": "Use when folding text.",
+		"|":  "Use when\nfolding text.",
+	} {
+		dir := filepath.Join(t.TempDir(), "my-skill")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeSkillMD(t, dir, "---\nname: my-skill\ndescription: "+header+"\n  Use when\n  folding text.\nmetadata:\n  version: 2.0.1\n---\nbody\n")
+		s, err := LoadSkill(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(header, ">") && s.Description != want {
+			t.Errorf("%s: Description = %q, want %q", header, s.Description, want)
+		}
+		if strings.HasPrefix(header, "|") && s.Description != want {
+			t.Errorf("%s: Description = %q, want %q", header, s.Description, want)
+		}
+		if s.Version != "2.0.1" {
+			t.Errorf("%s: Version = %q", header, s.Version)
+		}
+		for _, is := range Validate(s) {
+			if is.Rule == "description_required" || is.Rule == "description_too_long" {
+				t.Errorf("%s: unexpected %s", header, is.Rule)
+			}
+		}
+	}
+}
+
+// Broken strict YAML still falls back to the lenient reader.
+func TestLoadSkillStrictFailureFallsBack(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "my-skill")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillMD(t, dir, "---\nname: my-skill\ndescription: Use when: a colon\n---\nbody\n")
+	s, err := LoadSkill(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Name != "my-skill" || s.Description != "Use when: a colon" {
+		t.Errorf("fallback lost fields: %q %q", s.Name, s.Description)
+	}
+}
