@@ -17,7 +17,11 @@ import (
 // image, 2 the label, 3 the href.
 var inlineLinkRe = regexp.MustCompile(`(!?)\[([^\[\]]*)\]\(([^()\s]+)(?:\s+"[^"]*")?\)`)
 
-var listItemRe = regexp.MustCompile(`^\s*(?:[-*+]|\d+[.)])\s`)
+// listItemRe is the marker of a list item ("- ", "* ", "+ ", "1. ", "1) "): the
+// marker must be followed by whitespace, so "**bold** prose" and "---" are not
+// items. The one list-item regex of the package; (?m) lets a whole section be
+// scanned at once.
+var listItemRe = regexp.MustCompile(`(?m)^\s*(?:[-*+]|\d+[.)])\s`)
 
 // linkOcc is one inline link of a paragraph: its byte span in the body, label
 // and href.

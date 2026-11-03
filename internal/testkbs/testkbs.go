@@ -337,7 +337,7 @@ func (g *kbgen) scaffoldRoot(c int) {
 		at := g.day.Add(-time.Duration(i*180*24/entries) * time.Hour).Add(10 * time.Hour)
 		text := fmt.Sprintf("Session: filed %d new concepts and reviewed the open work.", 3+g.r.n(20))
 		if i%9 == 0 {
-			text = "kb-doctor session: worked through the review list, fixed the index and two broken links."
+			text = "kb-doctor: worked through the review list, fixed the index and two broken links."
 		}
 		fmt.Fprintf(&log, "\n## %s\n\n%s\n", at.Format(time.RFC3339), text)
 	}

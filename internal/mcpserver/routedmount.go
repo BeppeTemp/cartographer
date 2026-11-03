@@ -948,3 +948,73 @@ func (m *MultiKBServer) warnRoutedOnceLocked(key, format string, args ...any) {
 	m.routedWarned[key] = true
 	log.Printf(format, args...)
 }
+
+// routedRoster returns the roster rows of the routed views the caller may see,
+// each with the view's KB set as kb, and the overflow they add up. A view is
+// visible when the token can read every KB of its set: the set is the row's
+// name, so a partly readable one would name a KB the token cannot see
+// (kbRosterVisible). Views that differ only by mode (read-only variants) of one
+// set are merged into one row per client identity.
+func (m *MultiKBServer) routedRoster(ctx context.Context) ([]ClientStat, int64) {
+	m.routedMu.Lock()
+	views := make(map[string]*Server, len(m.routedViews))
+	for key, srv := range m.routedViews {
+		views[key] = srv
+	}
+	m.routedMu.Unlock()
+
+	type rowKey struct{ kb, name, version, protocol, era string }
+	merged := map[rowKey]*ClientStat{}
+	var overflow int64
+	keys := make([]string, 0, len(views))
+	for key := range views {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		set, _, _ := strings.Cut(key, "|")
+		if set == "" { // the denied view
+			continue
+		}
+		visible := true
+		for _, name := range strings.Split(set, ",") {
+			if !kbRosterVisible(ctx, name) {
+				visible = false
+				break
+			}
+		}
+		if !visible {
+			continue
+		}
+		stats, o := views[key].ClientStats()
+		overflow += o
+		for _, st := range stats {
+			st.KB = set
+			k := rowKey{st.KB, st.ClientName, st.ClientVersion, st.ProtocolVersion, st.Era}
+			if cur, ok := merged[k]; ok {
+				cur.Count += st.Count
+				if st.LastSeen.After(cur.LastSeen) {
+					cur.LastSeen = st.LastSeen
+				}
+				continue
+			}
+			c := st
+			merged[k] = &c
+		}
+	}
+	rows := make([]ClientStat, 0, len(merged))
+	for _, st := range merged {
+		rows = append(rows, *st)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.KB != b.KB {
+			return a.KB < b.KB
+		}
+		if a.ClientName != b.ClientName {
+			return a.ClientName < b.ClientName
+		}
+		return a.ClientVersion < b.ClientVersion
+	})
+	return rows, overflow
+}

@@ -112,20 +112,47 @@ func LoadSkill(dirPath string) (*Skill, error) {
 			// (D212).
 			s.FrontmatterErr = err.Error()
 		} else {
-			s.Name = getString(fm, "name")
-			s.Description = getString(fm, "description")
-			s.License = getString(fm, "license")
-			s.ServiceRef = getString(fm, "service_ref")
-
-			// version: prefer metadata.version (nested stored flat), then version
-			s.Version = getString(fm, "metadata.version")
-			if s.Version == "" {
-				s.Version = getString(fm, "version")
-			}
+			fillFields(s, fm)
 		}
 	}
 
 	return s, nil
+}
+
+// fillFields sets the fields of s from the frontmatter. The strict YAML map
+// (the one the clients read) wins when the block is valid YAML, so a
+// `description: >-` block scalar gives its real text instead of the lenient
+// reader's view of the header; the lenient okf reading is the fallback when
+// strict parsing fails or the key is not a string there.
+func fillFields(s *Skill, fm *okf.Frontmatter) {
+	var doc map[string]any
+	if s.Frontmatter == "" || yaml.Unmarshal([]byte(s.Frontmatter), &doc) != nil {
+		doc = nil
+	}
+	str := func(m map[string]any, key string) (string, bool) {
+		v, ok := m[key].(string)
+		return strings.TrimSpace(v), ok
+	}
+	get := func(key string) string {
+		if v, ok := str(doc, key); ok {
+			return v
+		}
+		return getString(fm, key)
+	}
+	s.Name = get("name")
+	s.Description = get("description")
+	s.License = get("license")
+	s.ServiceRef = get("service_ref")
+	// version: prefer metadata.version, then version
+	if md, ok := doc["metadata"].(map[string]any); ok {
+		s.Version, _ = str(md, "version")
+	}
+	if s.Version == "" {
+		s.Version = getString(fm, "metadata.version")
+	}
+	if s.Version == "" {
+		s.Version = get("version")
+	}
 }
 
 // getString retrieves a string value from frontmatter, returning "" if absent or not a string.
@@ -219,14 +246,7 @@ func LoadAllFromFS(fsys fs.FS, root string) ([]Skill, []error) {
 			if parseErr != nil {
 				s.FrontmatterErr = parseErr.Error()
 			} else {
-				s.Name = getString(fm, "name")
-				s.Description = getString(fm, "description")
-				s.License = getString(fm, "license")
-				s.ServiceRef = getString(fm, "service_ref")
-				s.Version = getString(fm, "metadata.version")
-				if s.Version == "" {
-					s.Version = getString(fm, "version")
-				}
+				fillFields(s, fm)
 			}
 		}
 		skills = append(skills, *s)

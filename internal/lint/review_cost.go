@@ -73,8 +73,8 @@ func factEntries(body string, boilerplate map[string]bool) []factEntry {
 				o, _ := tableCells(key)
 				key = "| " + strings.Join(o, " | ") + " |"
 			}
-		} else if listMarkRe.MatchString(line) {
-			rest := listMarkRe.ReplaceAllString(line, "")
+		} else if listItemRe.MatchString(line) {
+			rest := listItemRe.ReplaceAllString(line, "")
 			if strings.TrimSpace(mdLinkRe.ReplaceAllString(wikiLinkRe.ReplaceAllString(rest, ""), "")) == "" {
 				continue // a link-only item is a link, not a fact
 			}
