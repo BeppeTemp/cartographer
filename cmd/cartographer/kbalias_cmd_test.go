@@ -274,3 +274,52 @@ func seedAliases(t *testing.T, dataDir string, aliases ...config.KBAlias) {
 		t.Fatal(err)
 	}
 }
+
+// A failure of the backup or of the config edit, both after the aliases were
+// pruned, puts the aliases back: the KB stays mounted, so its old names must
+// keep routing (#1501).
+func TestApplyKBUnmount_FailedBackupOrEditRestoresTheAliases(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root, and Windows for a directory, ignore the mode this test relies on")
+	}
+	aliases := []config.KBAlias{{From: "kb-old", To: "kb-a"}, {From: "kb-x", To: "kb-y"}}
+	body := "kbs:\n  - remote: https://git.example.com/user/kb-a.git\n"
+
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, cfgPath string) (entryIndex int)
+	}{
+		{"backup", func(t *testing.T, cfgPath string) int {
+			dir := filepath.Dir(cfgPath)
+			if err := os.Chmod(dir, 0o500); err != nil { // the backup cannot be created beside the config
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(dir, 0o700) })
+			return 0
+		}},
+		{"edit", func(t *testing.T, cfgPath string) int { return 7 }}, // no such kbs[] entry
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			cfgPath := writeServerConfig(t, body)
+			seedAliases(t, dataDir, aliases...)
+			entry := tc.setup(t, cfgPath)
+
+			_, err := applyKBUnmount(&unmountPlan{
+				Name: "kb-a", DataDir: dataDir, ConfigPath: cfgPath, EntryIndex: entry,
+				Aliases: []string{"kb-old → kb-a"}, KBPath: filepath.Join(dataDir, "kb-a"),
+			})
+			if err == nil {
+				t.Fatal("the failure was not reported")
+			}
+			st, rerr := config.ReadServerState(dataDir)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			wantAliases(t, st.KBAliases, aliases...)
+			if got, _ := os.ReadFile(cfgPath); string(got) != body {
+				t.Errorf("config changed:\n%s", got)
+			}
+		})
+	}
+}
