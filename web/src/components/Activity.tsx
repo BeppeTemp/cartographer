@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { fetchAudit, fetchChanges, fetchJournal, fetchRetired } from "../api/client";
+import { fetchAudit, fetchChanges, fetchJournal, fetchRetired, optional } from "../api/client";
 import type {
   AuditLog,
   ChangesResponse,
@@ -124,10 +124,11 @@ export function Activity({
       // is replaced, so the page never shows the notice without them.
       .then(async (res) => {
         const quiet = since !== "all" && (res.concepts ?? []).every((c) => changeKind(c) === "maintenance");
-        const before = quiet ? await fetchChanges(kb, SINCE.all, controller.signal).catch(() => null) : null;
+        const before = quiet ? await optional(fetchChanges(kb, SINCE.all, controller.signal)) : null;
         return { res, before };
       })
       .then(({ res, before }) => {
+        if (controller.signal.aborted) return;
         setData(res);
         setEarlier(
           before

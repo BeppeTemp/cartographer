@@ -187,6 +187,17 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * An optional leg of a fetch: a failure is `null`, except an abort, which is
+ * rethrown so the caller never writes the result of a request it cancelled.
+ */
+export function optional<T>(p: Promise<T>): Promise<T | null> {
+  return p.catch((err: unknown) => {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    return null;
+  });
+}
+
 export function fetchKBs(signal?: AbortSignal): Promise<{ kbs: KBSummary[] }> {
   return get<{ kbs: KBSummary[] }>("/kbs", signal);
 }

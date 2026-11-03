@@ -36,8 +36,7 @@ export function templateShape(text: string): TemplateShape {
     ...required.filter((f) => !COMMON_KEYS.has(f)),
   ].filter((f, i, all) => all.indexOf(f) === i);
   const body = fm ? text.slice(fm[0].length) : text;
-  const brief =
-    /^>\s*(.+)$/m.exec(body)?.[1]?.trim() ?? (meta.get("description")?.replace(/^"|"$/g, "") || null);
+  const brief = /^>\s*(.+)$/m.exec(body)?.[1]?.trim() ?? (meta.get("description")?.replace(/^"|"$/g, "") || null);
   const sections = [...body.matchAll(/^##\s+(.+?)\s*$/gm)].map((m) => m[1]!);
   return { fields, brief, sections };
 }
@@ -71,24 +70,26 @@ export function TemplateCards({
       fetchArtifact(kb, "template", name, controller.signal)
         .then((a) => {
           const text = a.files.find((f) => f.path.endsWith(".md"))?.content ?? "";
-          setShapes((s) => ({ ...s, [name]: templateShape(text) }));
+          setShapes((s) => ({ ...s, [`${kb}:${name}`]: templateShape(text) }));
         })
         .catch(() => {
           // The card keeps its name and count and says it could not read the
           // rest, instead of loading forever; the detail says what failed.
-          if (!controller.signal.aborted) setShapes((s) => ({ ...s, [name]: null }));
+          if (!controller.signal.aborted) setShapes((s) => ({ ...s, [`${kb}:${name}`]: null }));
         });
     }
     return () => controller.abort();
   }, [kb, names]);
 
-  const counted = items.map((a) => ({ a, n: typeCount(a.name) })).sort((x, y) => y.n - x.n || x.a.name.localeCompare(y.a.name));
+  const counted = items
+    .map((a) => ({ a, n: typeCount(a.name) }))
+    .sort((x, y) => y.n - x.n || x.a.name.localeCompare(y.a.name));
   const max = Math.max(1, ...counted.map((c) => c.n));
   return (
     <ul className="tpl-cards">
       {counted.map(({ a, n }) => {
         const id = `${a.kind}/${a.name}`;
-        const shape = shapes[a.name];
+        const shape = shapes[`${kb}:${a.name}`];
         return (
           <li key={id}>
             <article

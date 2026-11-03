@@ -168,6 +168,13 @@ export function Artifacts({
     if (sl === "flagged") return !!a.findings?.length;
     return true;
   };
+  // A slice with nothing in it is no chip any more (another KB, a live
+  // refresh): the filter clears instead of leaving "no match" with nothing to unpress.
+  useEffect(() => {
+    if (slice === null) return;
+    const live = (slice === "used" || slice === "idle" ? anyUse : true) && all.some((a) => inSlice(a, slice));
+    if (!live) setSlice(null);
+  }, [slice, all, anyUse]);
   // The server lists every kind a KB can hold (D864); a server that predates
   // it sends none, and the panel lists only the kinds that have an artifact.
   const kinds = useMemo(
@@ -193,7 +200,11 @@ export function Artifacts({
   if (loading && !list)
     return (
       <Page label="Artifact catalog" busy className="catalog">
-        <PageHeader eyebrow={eyebrow} title={<TitleBone label="Loading artifacts" />} subtitle={<SubtitleBone w="16ch" />} />
+        <PageHeader
+          eyebrow={eyebrow}
+          title={<TitleBone label="Loading artifacts" />}
+          subtitle={<SubtitleBone w="16ch" />}
+        />
         {tabs}
         {section === "templates" ? (
           <TemplatesSkeleton label="Loading templates" />
