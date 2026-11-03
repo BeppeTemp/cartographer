@@ -28,7 +28,7 @@ the files and log are rolled back. It does
 not open a nested git commit; a rolled-back call also leaves no commit,
 since `gitWrap` only commits after the handler returns success.
 
-**A handler that fails after writing leaves nothing behind** (D<PR>). When a wrapped write returns an
+**A handler that fails after writing leaves nothing behind** (D1549). When a wrapped write returns an
 error (a Go error or an application error) and the working tree was verifiably clean before the handler
 ran, `gitWrap` restores the tree to HEAD under the lock it already holds: tracked changes reset,
 untracked files the handler created removed, ignored files kept. Without it, the half-done state (applied

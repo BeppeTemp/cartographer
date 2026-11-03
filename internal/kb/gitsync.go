@@ -1060,7 +1060,7 @@ func (k *KB) TreeClean() bool {
 
 // DiscardUncommitted returns the working tree and index to HEAD, untracked
 // files included and ignored ones kept. The caller holds the git lock and has
-// checked TreeClean before the write it undoes (gitWrap, D1560): on a tree that
+// checked TreeClean before the write it undoes (gitWrap, D1549): on a tree that
 // held someone's unsaved work this would destroy it.
 func (k *KB) DiscardUncommitted() error {
 	return gitx.DiscardChanges(k.Root)

@@ -48,4 +48,4 @@ checks share.
 
 `external changes` are edits made outside MCP, never the residue of a server
 write: a handler that fails after writing is rolled back by `gitWrap` before it
-returns (D<PR>).
+returns (D1549).

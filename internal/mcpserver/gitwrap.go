@@ -30,7 +30,7 @@ const pushFlushTimeout = 5 * time.Second
 // Semantics:
 //   - If the original handler returns a Go error or an application error
 //     (res.IsError), no commit is attempted, and when the working tree was clean
-//     before the handler ran, it is restored to HEAD (discardFailedWrite, D1560).
+//     before the handler ran, it is restored to HEAD (discardFailedWrite, D1549).
 //   - If the commit itself fails, the error is logged to stderr but is NOT
 //     propagated to the MCP client: a commit failure never turns a successful
 //     operation into an error.
