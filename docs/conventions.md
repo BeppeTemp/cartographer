@@ -21,7 +21,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 - **Permissive consumption**: tolerate unknown fields, unrecognized types and broken links (stubs are legitimate, not errors).
 - **Reserved files**: `index.md`, `log.md`, `_map.md`, `_archive.md` (legacy, read-compat), `AGENTS.md` (see `okf.IsReserved`).
 - **kebab-case file names** (validated by `okf.PathToID`).
-- **Bundle-relative links** starting with `/`, internal to the single KB.
+- **Bundle-relative links** starting with `/`, internal to the single KB: the path is from the KB root (`/ops/b.md` is `ops/b`), whatever folder the page sits in; the graph, lint and `concept_move` resolve them like any link, and a move rewrites them keeping the form. `//host/x` is a URL, not a link.
 
 ## Data-plane security
 
