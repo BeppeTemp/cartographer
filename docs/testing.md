@@ -20,7 +20,7 @@ is non-deterministic, costly and dependent on external providers.
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
-`make vet` runs `go vet ./...` three times, natively, with `GOOS=windows` and with `GOOS=darwin` (the `test-windows` and `test-macos` jobs are skipped on feature PRs outside platform-specific code, so a file or test that does not compile there would otherwise reach `main`; the darwin leg is what compiles the purego menu-bar UI on the Linux gate, with cgo off), and `make fmt-check` fails on anything not
+`make vet` runs `go vet ./...` three times, natively, with `GOOS=windows` and with `GOOS=darwin` (the `test-windows` and `test-macos` jobs do not run on a PR, only in the merge queue, so a file or test that does not compile there would otherwise reach `main`; the darwin leg is what compiles the purego menu-bar UI on the Linux gate, with cgo off), and `make fmt-check` fails on anything not
 gofmt-clean. `make race` runs, under the race detector, the tests whose name
 contains `Race` or `Concurrent`: a data race seldom fails an assertion, so a test
 that drives readers and writers concurrently only proves something under `-race`,
@@ -57,22 +57,25 @@ matrix renames its legs, so a small job named `test-windows` collects the legs
 and is what branch protection requires; `web` does the same for its two legs —
 the `@video`-tagged browser test (about two minutes of software rendering)
 with the unit tests and bundle checks, and the rest of the browser suite.
-`make e2e-web E2E_WEB_ARGS=...` passes the filter to Playwright. The Windows legs
-run on every push to `main`, on the release-please PR, and on a feature PR that
-touches a package with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,mcpbridge,agents,execbit,gitx,kb,repoindex,defaults}`,
-the installers, any `*_windows.go` (D672). A regression elsewhere still shows
-on `main` right after the merge. The `web` legs run after every push to `main`
-and on a PR that touches the frontend, `test/lib/`, the build files, or a
+`make e2e-web E2E_WEB_ARGS=...` passes the filter to Playwright. A PR runs `test`, the `web` legs when the
+frontend (or what `bin/cartographer` imports) changed, `pr-title` and `plan-gate`; the heavy legs
+(the Windows shards and `install.ps1`, `test-macos`, `docker`, `demo-edge`) run on `merge_group`, on
+every push to `main` and on `workflow_dispatch`, never on a PR (D1590). GitHub's merge queue
+builds a temporary commit of the PR on top of the queue and runs the whole suite on it, once per
+group, so a Windows-only break is stopped before `main` instead of after it. The `web` legs run
+after every push to `main`, in the queue, and on a PR that touches the frontend, `test/lib/`, the build files, or a
 non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen}`
 and every `_test.go` cannot change what the browser sees, so they do not trigger it (D672, D255, D994); the
-Playwright browser is cached by version. A `demo-edge` job runs the demo
-Worker's tests (`make demo-worker-test`) and, for Terraform changes, `make demo-tf-check`
-when `deploy/demo/` changes. A `changes` job decides all of these with
+Playwright browser is cached by version. The `demo-edge` job runs the demo
+Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. On a PR a `changes` job decides `web` and `forge` with
 `scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
-which also compares the excluded packages with `go list -deps`), failing open, and the
-release-please PR always runs everything. `test`, `test-windows`, `web` and
-`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are required checks; a job skipped by its path condition reports as
-passed. On `main` every push gets its own run (the concurrency group is the
+which also compares the excluded packages with `go list -deps`), failing open; where it is
+skipped (queue, push) everything runs. `test`, `test-windows`, `web` and
+`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are required checks; a job skipped by design reports as
+passed, so `test-windows` is green on a PR, and fails in the queue if a leg was skipped or failed.
+In the queue `pr-title` (the same job, every step skipped) and `plan-gate` (`plan-gate-queue.yml`,
+one `echo`, pinned by `TestPlanGateQueueWorkflowDoesNothing`) report success because the PR
+already passed them. The ruleset's merge queue is a maintainer setting, not a file here. On `main` every push gets its own run (the concurrency group is the
 commit), and the `main-status` job opens a `ci-red` issue on the first
 failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
 generated index is checked only on the release PR, which regenerates it. The working tree is LF on both
