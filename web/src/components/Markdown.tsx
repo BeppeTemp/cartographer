@@ -107,7 +107,7 @@ const CONCEPT_HREF = "concept-link/";
  * label defaults to the id, which is what the KB author wrote.
  */
 export function linkWikiLinks(body: string): string {
-  return body.replace(CODE_OR_WIKILINK, (m, _ticks, id: string | undefined, _section, label: string | undefined) => {
+  return body.replace(CODE_OR_WIKILINK, (m, _fence, _fenceChar, _ticks, id: string | undefined, _section, label: string | undefined) => {
     if (id === undefined) return m;
     const text = (label ?? id).trim().replace(/[[\]]/g, "");
     return `[${text}](${CONCEPT_HREF}${encodeURIComponent(id.trim())})`;
@@ -119,8 +119,11 @@ export function linkWikiLinks(body: string): string {
  *  the first two are matched only to be left alone, as the server's graph sees
  *  no link inside code (D150). */
 const CODE_OR_WIKILINK = new RegExp(
-  "^ {0,3}(?:`{3,}|~{3,})[^\\n]*\\n(?:[\\s\\S]*?\\n {0,3}(?:`{3,}|~{3,})[ \\t]*(?=\\n|$)|[\\s\\S]*)" +
-    "|(`+)(?!`)[\\s\\S]*?(?<!`)\\1(?!`)" +
+  // The closing fence repeats the opener's character at least as long (CommonMark): \\2 is the
+    // character, \\1 the whole opener, and `\\2*` lets the closer run longer.
+  "^ {0,3}((`|~)\\2{2,})[^\\n]*\\n(?:[\\s\\S]*?\\n {0,3}\\1\\2*[ \\t]*(?=\\n|$)|[\\s\\S]*)" +
+    // An inline span never crosses a blank line: a paragraph break ends it unclosed.
+    "|(`+)(?!`)(?:(?!\\n[ \\t]*\\n)[\\s\\S])*?(?<!`)\\3(?!`)" +
     "|\\[\\[([^\\]|#\\n]+)(#[^\\]|\\n]*)?(?:\\|([^\\]\\n]+))?\\]\\]",
   "gm",
 );
@@ -135,7 +138,12 @@ const CODE_OR_WIKILINK = new RegExp(
  */
 export function resolveConceptHref(href: string, id: string, outbound: readonly string[] = []): string | null {
   if (/^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href)) return null;
-  const path = href.replace(/[?#].*$/, "");
+  let path = href.replace(/[?#].*$/, "");
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // a malformed % stays as written
+  }
   if (!path.endsWith(".md")) return null;
   const join = (base: string[]) => {
     const parts = path.startsWith("/") ? [] : base;

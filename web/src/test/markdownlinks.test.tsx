@@ -17,6 +17,11 @@ describe("resolveConceptHref", () => {
     "leaves %s alone",
     (href) => expect(resolveConceptHref(href, "area/a")).toBeNull(),
   );
+  it("decodes the path, and keeps a malformed escape as written", () => {
+    expect(resolveConceptHref("my%20page.md", "area/a")).toBe("area/my page");
+    expect(resolveConceptHref("bad%E0%A4%A.md", "area/a")).toBe("area/bad%E0%A4%A");
+  });
+
   it("an expanded concept resolves against the base the server resolved", () => {
     expect(resolveConceptHref("s.md", "map/c", ["map/c/s"])).toBe("map/c/s");
     expect(resolveConceptHref("s.md", "map/c", ["map/s"])).toBe("map/s");
@@ -46,6 +51,17 @@ describe("links in a concept body", () => {
     expect(linkWikiLinks("see ``[[a/b]] ` x`` and [[c/d]]")).toBe(
       "see ``[[a/b]] ` x`` and [c/d](concept-link/c%2Fd)",
     );
+  });
+
+  it("a fence closes on the opener's character and length, not on any run", () => {
+    expect(linkWikiLinks("````\n```\n[[a]]\n```\n[[b]]\n````\n[[c]]")).toBe(
+      "````\n```\n[[a]]\n```\n[[b]]\n````\n[c](concept-link/c)",
+    );
+    expect(linkWikiLinks("~~~\n```\n[[a]]\n~~~\n[[b]]")).toBe("~~~\n```\n[[a]]\n~~~\n[b](concept-link/b)");
+  });
+
+  it("an inline span does not cross a paragraph break", () => {
+    expect(linkWikiLinks("a `x\n\n[[a/b]] and `y`")).toBe("a `x\n\n[a/b](concept-link/a%2Fb) and `y`");
   });
 
   it("no node attribute reaches the DOM", () => {
