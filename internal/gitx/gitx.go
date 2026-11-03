@@ -62,16 +62,28 @@ func netEnv(dir string, extra []string) []string {
 	return append(env, "GIT_SSH_COMMAND="+sshBatchCommand)
 }
 
+// netCommand builds every git command that talks to a remote. It is the one
+// constructor on purpose: a deadline kills only `git` unless the process group
+// goes with it (killGroupOnCancel), and without WaitDelay a surviving
+// git-remote-http or ssh keeps the output pipe open so Wait blocks until the
+// remote closes the connection. Hand-building these per function let Clone,
+// lsRemoteProbe and ProbeRemoteContent forget both. args are the full git
+// arguments (including any -C); env is the complete environment.
+func netCommand(ctx context.Context, env []string, args ...string) *exec.Cmd {
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", args...))
+	cmd.Env = env
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = time.Second
+	return cmd
+}
+
 // runGitNet runs a git command that talks to the remote, bounded by timeout
 // with a process-group kill (the way Fetch is), under netEnv. A deadline hit
 // comes back as a RemoteTimeoutError.
 func runGitNet(dir, remote string, timeout time.Duration, env []string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...))
-	cmd.Env = netEnv(dir, env)
-	killGroupOnCancel(cmd)
-	cmd.WaitDelay = time.Second
+	cmd := netCommand(ctx, netEnv(dir, env), append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return string(out), &RemoteTimeoutError{Remote: remote, After: timeout}
@@ -110,8 +122,7 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 	if err := ValidateRemote(remote); err != nil {
 		return err
 	}
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "clone", "--progress", "--", remote, dest))
-	cmd.Env = cloneEnv(remote, env)
+	cmd := netCommand(ctx, cloneEnv(remote, env), "clone", "--progress", "--", remote, dest)
 	var stderr strings.Builder
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 	out, err := cmd.Output()
@@ -250,8 +261,7 @@ func lsRemoteProbe(ctx context.Context, remote string) (RemoteRefs, error) {
 	if err := ValidateRemote(remote); err != nil {
 		return RemoteRefs{}, err
 	}
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", remote))
-	cmd.Env = cloneEnv(remote, nil)
+	cmd := netCommand(ctx, cloneEnv(remote, nil), "ls-remote", "--symref", "--", remote)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -300,8 +310,7 @@ func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error)
 	if out, err := runGit(tmp, "init", "--quiet"); err != nil {
 		return probe, fmt.Errorf("git init: %w: %s", err, out)
 	}
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0]))
-	cmd.Env = cloneEnv(remote, nil)
+	cmd := netCommand(ctx, cloneEnv(remote, nil), "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0])
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
 			return probe, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, remote, ctx.Err())
@@ -565,10 +574,7 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "ls-remote", "--symref", remote))
-	cmd.Env = netEnv(dir, env)
-	killGroupOnCancel(cmd)
-	cmd.WaitDelay = time.Second
+	cmd := netCommand(ctx, netEnv(dir, env), "-C", dir, "ls-remote", "--symref", remote)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -728,6 +734,9 @@ func (e *RebaseConflictError) Is(target error) bool {
 }
 
 // PullRebaseAutostash runs "git pull --rebase --autostash <remote> <branch>".
+// It talks to the network without FetchTimeout or a process-group kill, so the
+// KB sync path does not use it: after Fetch it rebases locally with
+// RebaseOntoAutostash (one round-trip, bounded).
 // If the operation encounters a rebase conflict, it collects the list of unmerged
 // files and the relevant SHAs, runs "git rebase --abort" (best-effort), and returns
 // a *RebaseConflictError. errors.Is(err, ErrRebaseConflict) remains true for it.
@@ -809,10 +818,7 @@ func Fetch(dir, remote string, env ...string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
-	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "fetch", remote))
-	cmd.Env = netEnv(dir, env)
-	killGroupOnCancel(cmd)
-	cmd.WaitDelay = time.Second
+	cmd := netCommand(ctx, netEnv(dir, env), "-C", dir, "fetch", remote)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("git fetch %s: %w", remote, &RemoteTimeoutError{Remote: remote, After: FetchTimeout})

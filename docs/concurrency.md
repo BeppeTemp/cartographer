@@ -72,6 +72,8 @@ mandatory rather than advisory, so the Windows side locks a **single byte far pa
 metadata**: the contending process must still be able to read the pid, timestamp and command line to
 name the holder.
 
+**Network git commands are all bounded.** Every `internal/gitx` command that talks to a remote (clone, ls-remote, fetch, push, the probe's shallow fetch) is built by `netCommand`, which kills the whole process group on cancel and sets `WaitDelay`; hand-building one let a deadline kill only `git` while `git-remote-http` held the pipe open. After `Fetch`, `SyncIn` and the `SyncOut` retry rebase locally (`RebaseOntoAutostash`): one network round-trip, none under the KB git lock outside the fetch deadline.
+
 **An in-progress rebase makes sync refuse.** When `.git/rebase-merge` or `.git/rebase-apply` exists
 (a real rebase, or an orphan autostash an aborted `pull --rebase --autostash` left behind), `SyncIn`/`SyncOut`
 detect it first and return an error that names the remedy, where git's own *"there is already a
