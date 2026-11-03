@@ -32,6 +32,8 @@ Three tests in `internal/mcpserver` guard what a tool result costs (D1185). `Tes
 
 `TestTrayView_RunsNoCommand` (`internal/service`) and `TestTrayStatusFnRunsNoSchedulerCommand` (`cmd/cartographer`) pin that the tray's tick runs no `launchctl`, `systemctl` or PowerShell.
 
+`TestEveryChildProcessIsHidden` (`internal/procattr`, parse-only, every OS) fails when a function of a non-test file calls `exec.Command` or `exec.CommandContext` without `procattr.Hide`, unless its file is on the allowlist in that test: after `FreeConsole` (D1479) a child without `CREATE_NO_WINDOW` opens a visible console on Windows (D1518). An allowlist entry that no longer needs it fails the test too.
+
 `TestFixedCallCostBudget` (`internal/mcpserver`) guards what an agent pays on every model call: the managed instructions block plus the `tools/list`, for 1 and 9 KBs on a routed mount, in the agent, `access=read` and `access=read-min` profiles, one byte budget per component and cell (`docs/control-plane.md` §Tool descriptions and their size budget); if it fails, a component grew: shrink it, do not raise the number without a decision.
 
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows

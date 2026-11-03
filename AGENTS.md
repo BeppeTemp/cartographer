@@ -84,6 +84,7 @@ internal/lint           implements deterministic lint checks on a KB scope
 internal/mcpbridge      is the local stdio MCP server that scopes one agent session to the KBs of the folder it was started in…
 internal/mcpserver      implements the control plane
 internal/okf            parser/serializer for the YAML subset used in OKF frontmatter
+internal/procattr       sets the process attributes every child of Cartographer shares
 internal/provisioning   manages the synchronization of artifacts (skill, agent, hook — D48
 internal/repodocs       holds the deterministic checks that keep this repository navigable by a coding agent, plus the…
 internal/repoindex      resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
