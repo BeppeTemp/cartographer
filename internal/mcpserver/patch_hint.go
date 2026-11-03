@@ -56,12 +56,20 @@ func closestLineHint(body, oldString string) string {
 	if first == "" {
 		return ""
 	}
+	// The distance is quadratic and runs under the KB write lock: a first
+	// line over the limit gets no hint.
+	if utf8.RuneCountInString(first) > hintMaxLineRunes {
+		return ""
+	}
 	want := foldForHint(strings.TrimRight(first, "\r"))
 	limit := max(3, len(want)/5)
 	bestLine, bestDist := 0, limit+1
 	var bestText string
 	for i, line := range strings.Split(body, "\n") {
-		if utf8.RuneCountInString(line) > hintMaxLineRunes {
+		n := utf8.RuneCountInString(line)
+		// A line whose length differs by more than the limit cannot be
+		// within it: skip it without the distance.
+		if n > hintMaxLineRunes || n-len(want) > limit || len(want)-n > limit {
 			continue
 		}
 		if d := editDistance(want, foldForHint(line)); d < bestDist {

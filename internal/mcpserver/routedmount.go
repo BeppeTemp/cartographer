@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -485,26 +487,14 @@ func (m *MultiKBServer) routedForReadOnly(ctx context.Context, rawKBs []string, 
 	key := strings.Join(set, ",")
 	m.routedMu.Lock()
 	if len(renamed) > 0 {
-		warn := key + "|renamed|" + renamedKey(renamed)
-		if !m.routedWarned[warn] {
-			if m.routedWarned == nil {
-				m.routedWarned = map[string]bool{}
-			}
-			m.routedWarned[warn] = true
-			log.Printf("routed mount: kbs names %s resolved through kb_aliases; serving %s (the client URL is stale: run cartographer sync on the client)",
-				renamedKey(renamed), key)
-		}
+		m.warnRoutedOnceLocked(key+"|renamed|"+renamedKey(renamed),
+			"routed mount: kbs names %s resolved through kb_aliases; serving %s (the client URL is stale: run cartographer sync on the client)",
+			cutBytes(renamedKey(renamed), routedWarnNameMax), cutBytes(key, routedWarnNameMax))
 	}
 	if len(unknown) > 0 {
-		warn := key + "|" + strings.Join(unknown, ",")
-		if !m.routedWarned[warn] {
-			if m.routedWarned == nil {
-				m.routedWarned = map[string]bool{}
-			}
-			m.routedWarned[warn] = true
-			log.Printf("routed mount: kbs names %s not mounted or not readable by the token; serving %s (renamed or removed? run cartographer sync on the client)",
-				quoteJoin(unknown), key)
-		}
+		m.warnRoutedOnceLocked(key+"|"+strings.Join(unknown, ","),
+			"routed mount: kbs names %s not mounted or not readable by the token; serving %s (renamed or removed? run cartographer sync on the client)",
+			cutBytes(quoteJoin(unknown), routedWarnNameMax), cutBytes(key, routedWarnNameMax))
 	}
 	m.routedMu.Unlock()
 	if len(renamed) == 0 {
@@ -922,4 +912,39 @@ func withKBProperty(schema json.RawMessage, several bool) json.RawMessage {
 		return schema
 	}
 	return out
+}
+
+// routedWarnedMax bounds the warn-once map: the names of ?kbs= come from the
+// client, so every distinct unknown set is a new key. Past the bound nothing
+// more is stored and one counter stands in for the lines (the first line past
+// the bound says so). Names are cut in the log line; a long key is stored as
+// its hash.
+const (
+	routedWarnedMax   = 256
+	routedWarnKeyMax  = 128
+	routedWarnNameMax = 200
+)
+
+// warnRoutedOnceLocked logs format once per distinct key, within the bound.
+// The caller holds routedMu.
+func (m *MultiKBServer) warnRoutedOnceLocked(key, format string, args ...any) {
+	if len(key) > routedWarnKeyMax {
+		sum := sha256.Sum256([]byte(key))
+		key = hex.EncodeToString(sum[:])
+	}
+	if m.routedWarned[key] {
+		return
+	}
+	if len(m.routedWarned) >= routedWarnedMax {
+		if m.routedWarnSuppressed == 0 {
+			log.Printf("routed mount: %d distinct kbs warnings already logged; further ones are counted, not logged", routedWarnedMax)
+		}
+		m.routedWarnSuppressed++
+		return
+	}
+	if m.routedWarned == nil {
+		m.routedWarned = map[string]bool{}
+	}
+	m.routedWarned[key] = true
+	log.Printf(format, args...)
 }
