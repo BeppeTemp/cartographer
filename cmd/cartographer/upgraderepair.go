@@ -59,7 +59,9 @@ var (
 func cmdUpgradeRepair(args []string) int {
 	fs := flag.NewFlagSet("upgrade-repair", flag.ExitOnError)
 	configFlag := fs.String("config", "", "Server config YAML used to verify the native service (default: discovered from the installed service definition, else the standard path)")
-	fs.Parse(args)
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
 	removeLegacyDoctorTimer()
 
 	configPath, err := repairEffectiveConfigFn(*configFlag)

@@ -535,6 +535,8 @@ add/update, prunes obsolete artifacts, updates the lockfile. Idempotent.
 cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--log-file <path>] [--report-to <url>]
 ```
 
+`sync`, `upgrade-repair` and `import` take flags only: a positional (`sync claude --dry-run`) is a usage error naming it, exit 2, never a silent full sync (#1502). Use `--client`.
+
 | Flag | Default | Effect |
 |---|---|---|
 | `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |

@@ -31,7 +31,9 @@ func cmdSync(args []string) int {
 	noHeal := fs.Bool("no-heal", false, "Report locally modified managed artifacts instead of restoring them from the server")
 	logFile := fs.String("log-file", "", "Append this run's output to this file instead of stdout/stderr (created if absent; never rotated)")
 	reportTo := fs.String("report-to", "", "Only send this machine's usage and settings reports to this MCP endpoint (a live development instance), and change nothing")
-	fs.Parse(args)
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
 	warnRemovedAutoTrust(*autoTrust)
 
 	// A scheduled sync has no console to report to: on Windows the task's own

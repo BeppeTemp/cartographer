@@ -33,7 +33,9 @@ func cmdImport(args []string) int {
 	dirAsConcept := fs.Bool("dir-as-concept", false, "Import a directory with index.md or README.md as one expanded concept")
 	var mapFlags stringSliceFlag
 	fs.Var(&mapFlags, "map", "Per-directory mapping <srcdir>=<map> (repeatable)")
-	fs.Parse(args)
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
 
 	if *source == "" || *kbDir == "" {
 		fmt.Fprintln(os.Stderr, "Error: --source and --kb are required")
