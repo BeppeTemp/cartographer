@@ -98,6 +98,7 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 | Antigravity | `.agents/skills`, `.agents/agents`, `.agents/hooks`, `.agents/hooks.json`, `.agents/mcp_config.json`, `AGENTS.md` | probed on the real client (D364) |
 | Crush | `.crush/skills`, `.crush/hooks`, `.crush.json` (mcp, hooks) | agents and instructions unsupported (D363) |
 | Copilot CLI | `AGENTS.md`, `.agents/skills` | the project mcp, agent and hook locations are gated on folder trust (D676) |
+| Pi | `AGENTS.md` | project `.pi/*` and `.agents/skills` load only after project trust |
 
 A subagent's `tools` allow-list is enforced by Claude Code only. The other
 clients receive the agent without it, and therefore with every tool that client

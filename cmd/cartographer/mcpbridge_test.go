@@ -79,7 +79,7 @@ func TestEntriesSwitchBetweenHTTPAndBridge(t *testing.T) {
 
 func TestApplyMCPEntriesWritesStdioBridgePerProvider(t *testing.T) {
 	stubBridgeCommand(t)
-	providers := []string{"claude", "codex", "kiro", "opencode", "antigravity", "crush", "copilot"}
+	providers := []string{"claude", "codex", "kiro", "opencode", "antigravity", "crush", "copilot", "pi"}
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			dir := t.TempDir()

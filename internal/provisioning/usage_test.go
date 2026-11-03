@@ -255,7 +255,7 @@ func TestScanUsage_UnsupportedProvidersContributeNothing(t *testing.T) {
 		}
 	}
 	_, _, unsupported := provisioning.UsageProviders()
-	if len(unsupported) != 3 {
+	if len(unsupported) != 4 {
 		t.Errorf("unsupported = %v", unsupported)
 	}
 }
