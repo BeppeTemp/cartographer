@@ -258,7 +258,7 @@ A rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
   resolution when the concept conflicts are finalized.
 - A reserved-only conflict the server could not settle is registered with
   `kind: reserved` and its path as `concept_id`; `git_conflict_resolve` accepts
-  `union` (only `log.md`), `ours` or `theirs` for it, never `edit`.
+  `union` (only `log.md` or `index.md`), `ours` or `theirs` for it, never `edit`.
 - Any other conflicting file (a skill, a template, an expanded concept's asset,
   `instructions.md`, `settings.yaml`, `paths.yaml`) is registered with
   `kind: artifact` and its path as `concept_id`, whether or not a concept also
@@ -278,7 +278,7 @@ registry and `sync_check` reports `open_conflicts`.
 - `ours` — retain the local version;
 - `theirs` — retain the remote version;
 - `edit` — use the supplied complete reconciled file;
-- `union` — both sides' lines, for a reserved `log.md` entry only.
+- `union` — both sides' lines, for a reserved `log.md` or `index.md` entry only.
 
 After every registered conflict has a resolution, one merge
 transaction materializes the selected contents, commits and attempts the push.
