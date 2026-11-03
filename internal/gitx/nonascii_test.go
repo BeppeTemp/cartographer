@@ -95,3 +95,34 @@ func TestUnmergedAndIgnoredFiles_NonASCII(t *testing.T) {
 		t.Fatalf("IgnoredFiles = %q, %v", ignored, err)
 	}
 }
+
+// With -z a commit with no changed file ends in a lone NUL: it must not leak
+// into the commit's Reason (or its files).
+func TestLogNameStatus_EmptyCommitHasCleanFields(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	cfgIdentity(t, dir)
+	writeFileT(t, dir, "a.md", "x")
+	runGit(dir, "add", "-A")
+	runGit(dir, "commit", "-m", "first")
+	runGit(dir, "commit", "--allow-empty", "-m", "empty with reason\n\nReason: because")
+	runGit(dir, "commit", "--allow-empty", "-m", "empty no reason")
+	commits, err := LogNameStatus(dir, time.Now().Add(-time.Hour))
+	if err != nil || len(commits) != 3 {
+		t.Fatalf("LogNameStatus: %v, %d commits", err, len(commits))
+	}
+	if c := commits[0]; c.Reason != "" || len(c.Files) != 0 {
+		t.Errorf("empty commit without reason = %q, files %v", c.Reason, c.Files)
+	}
+	if c := commits[1]; c.Reason != "because" || len(c.Files) != 0 {
+		t.Errorf("empty commit with reason = %q, files %v", c.Reason, c.Files)
+	}
+	if c := commits[2]; len(c.Files) != 1 || c.Files[0].Path != "a.md" || c.Reason != "" {
+		t.Errorf("first commit = %#v", c)
+	}
+}

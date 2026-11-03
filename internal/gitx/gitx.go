@@ -1397,7 +1397,9 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 		}
 		// The trailers value ends with a newline that precedes the name-status
 		// block, so the block is whatever follows the first newline.
-		reasonAndFiles := strings.SplitN(head[9], "\n", 2)
+		// With -z a commit with no changed file (a merge, --allow-empty) ends
+		// with a lone NUL right after the trailers: not part of the reason.
+		reasonAndFiles := strings.SplitN(strings.TrimRight(head[9], "\x00"), "\n", 2)
 		accepted := splitTrailerValues(head[4])
 		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
 		agent, _, _ := strings.Cut(head[5], "\x1f")
