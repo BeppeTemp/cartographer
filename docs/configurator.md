@@ -1512,6 +1512,14 @@ KBs        kb-uno (2 bound) · kb-due (1) · kb-tre (0) · kb-quattro (0)
 `binary` and `kbs` are local data and are in the first frame; `artifacts` and `kinds` are
 fetched asynchronously against the configured server.
 
+`mcp-config` expects what `connect` and `sync` write today: on a routed server one entry named after
+the server whatever the number of KBs (the stdio bridge entry for a provider with a workspace binding,
+none for one bound to no KB), one per KB on a per-KB server. A Claude entry written to the
+`clients.claude.config_dirs` is not looked for. While a sync, a connect or a disconnect is running the
+list ignores `s`, `S`, `d` and `enter` (a second writer would lose the first one's lockfile entries);
+a failed `S` still reads the status again, so no card stays on `checking…`. Widths are counted in
+terminal columns, so footers and non-ASCII paths wrap where they should.
+
 - **`kbs`** is the provider's own binding (D169): the declared names with `(explicit)`,
   `all known (default)` when nothing was declared, and `none (explicit)` for a binding
   deliberately emptied. A list too long for the row is truncated with a counter

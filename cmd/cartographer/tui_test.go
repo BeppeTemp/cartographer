@@ -1343,3 +1343,116 @@ func TestFormatDiffStatus_CountsWhatApplyHolds(t *testing.T) {
 		t.Errorf("an approved hook must not count: %q", got)
 	}
 }
+
+// A failed S rebuilds the rows (every card back on "checking…") and must read
+// the status again, as the success path does: the cards, including those of
+// providers that synced before the failure, used to stay there forever.
+func TestSyncAllFailureReloadsTheStatus(t *testing.T) {
+	m := testModel()
+	m.syncingAll, m.busy = true, true
+	next, cmd := m.Update(syncAllDoneMsg{done: []string{"claude"}, failed: "opencode", err: errors.New("boom")})
+	m = next.(Model)
+	if cmd == nil || !m.loading {
+		t.Fatal("a failed sync must start the status reload, with loading set")
+	}
+	if m.err == nil || !strings.Contains(m.message, "failed") {
+		t.Errorf("the failure must stay visible: err=%v message=%q", m.err, m.message)
+	}
+	if m.busy || m.syncingAll {
+		t.Error("the failure must release the busy state")
+	}
+	next, _ = m.Update(remoteStatusMsg{statuses: map[string]string{}})
+	m = next.(Model)
+	if m.loading {
+		t.Error("loading must end when the status arrives")
+	}
+}
+
+// While a write command is in flight the list starts no other: two writers of
+// the lockfile and .cartographer.yaml lose each other's entries (D172).
+func TestListIgnoresWriteKeysWhileBusy(t *testing.T) {
+	m := testModel()
+	m.rows[0].Connected = true
+	next, cmd := m.Update(keyMsg("S"))
+	m = next.(Model)
+	if cmd == nil || !m.busy {
+		t.Fatal("S must set busy and start the run")
+	}
+	for _, k := range []string{"S", "s", "d", "enter"} {
+		next, cmd := m.Update(keyMsg(k))
+		if cmd != nil {
+			t.Errorf("key %q returned a command while a sync is in flight", k)
+		}
+		if next.(Model).screen != screenList {
+			t.Errorf("key %q left the list while busy", k)
+		}
+	}
+	next, _ = m.Update(syncAllDoneMsg{done: []string{"claude", "opencode"}})
+	if next.(Model).busy {
+		t.Error("the done message must release busy")
+	}
+	after := next.(Model)
+	after.rows = testModel().rows // the done message rebuilt them from the real machine
+	after.cursor = 1
+	if _, cmd := after.Update(keyMsg("s")); cmd == nil {
+		t.Error("after the run, s must sync again")
+	}
+}
+
+// Width helpers count columns: valid UTF-8, never wider than asked, whatever the
+// script, and a long unbroken token is cut between runes.
+func TestWidthHelpersCountColumns(t *testing.T) {
+	inputs := []string{
+		"plain ascii footer text that is longer than the width",
+		"↑/↓ move · enter connect · r refresh · q quit",
+		"日本語のパスとフッターの文字列がここに続きます",
+		strings.Repeat("x", 80),
+		"/home/user/プロジェクト/very/long/path/to/the/client/config",
+	}
+	for _, width := range []int{10, 23} {
+		for _, in := range inputs {
+			outs := map[string]string{
+				"truncate": truncateForWidth(in, width),
+				"compact":  compactForWidth(in, width),
+			}
+			for name, out := range outs {
+				if !utf8.ValidString(out) || lipgloss.Width(out) > width {
+					t.Errorf("%s(%q, %d) = %q: invalid or %d columns", name, in, width, out, lipgloss.Width(out))
+				}
+			}
+			for _, line := range strings.Split(wrapForWidth(in, width), "\n") {
+				if !utf8.ValidString(line) || lipgloss.Width(line) > width {
+					t.Errorf("wrap(%q, %d) line %q: invalid or %d columns", in, width, line, lipgloss.Width(line))
+				}
+			}
+		}
+	}
+	if got := compactForWidth("short", 10); got != "short" {
+		t.Errorf("compactForWidth must not lengthen a short string, got %q", got)
+	}
+}
+
+// A client connected to a routed server with two KBs has one entry named after
+// the server (D288): the badge must expect that one, not one per KB.
+func TestMCPConfigStatusFollowsTheRoutedTopology(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "[mcp_servers.cartographer]\nurl = \"http://x/mcp/routed\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := clientconfig.Default()
+	cfg.ServerName = "cartographer"
+	cfg.KnownKBs = []string{"kb-a", "kb-b"}
+	cfg.ServerRoutedPath = "/mcp/routed"
+	if got := mcpConfigStatusFor(dir, configurator.ProviderCodex, cfg, "cartographer", cfg.KnownKBs, cfg.KnownKBs); got != mcpConfigInSync {
+		t.Errorf("routed two-KB server: state = %v, want in-sync", got)
+	}
+	// The same two KBs on a per-KB server need two entries, so one is partial.
+	cfg.ServerRoutedPath = ""
+	if got := mcpConfigStatusFor(dir, configurator.ProviderCodex, cfg, "cartographer", cfg.KnownKBs, cfg.KnownKBs); got == mcpConfigInSync {
+		t.Errorf("per-KB server with one entry: state = %v, want not in-sync", got)
+	}
+}
