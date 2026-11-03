@@ -364,6 +364,8 @@ func TestBuildManifest_ExcludesBadAgentAndHookNames(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(m.Issues, "\n"), "not a valid artifact name") {
 		t.Errorf("no issue recorded: %v", m.Issues)
+	}
+}
 
 // #1502: a file the lock does not own (a Finder .DS_Store, a __pycache__) used
 // to make the whole-directory re-hash differ from the recorded one for good:
