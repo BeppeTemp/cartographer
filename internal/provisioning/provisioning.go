@@ -2898,7 +2898,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// same file stays (D364): Codex, OpenCode and Antigravity share AGENTS.md.
 		if !opts.DryRun && !opts.CoOwnedPaths[filepath.ToSlash(destRel)] {
 			if err := removeInstructionsBlock(opts.BaseDir, fullPath); err != nil {
-				if !isRefusal(err) {
+				if !IsRefusal(err) {
 					return fmt.Errorf("provisioning: remove instructions block %s: %w", destRel, err)
 				}
 				// Refused (D148): the sections stay in the lockfile and are
@@ -2963,7 +2963,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		changed, err := writeInstructionsBlockChanged(opts.BaseDir, fullPath, body)
 		unchanged = err == nil && !changed
 		if err != nil {
-			if !isRefusal(err) {
+			if !IsRefusal(err) {
 				return fmt.Errorf("provisioning: write instructions block %s: %w", destRel, err)
 			}
 			// Refused (D148): per artifact, like a skill. None of the sections is
@@ -3583,10 +3583,10 @@ func replaceBetweenMarkers(content, replacement string) (string, blocktext.Outco
 // reported, never written (D214; `cartographer doctor` lists the file).
 var ErrCorruptedBlock = blocktext.ErrCorruptedBlock
 
-// isRefusal reports whether err is a per-artifact refusal the pass survives
+// IsRefusal reports whether err is a per-artifact refusal the pass survives
 // (a symlinked destination, D148, or a corrupted marker block) rather than a
 // failure that stops it.
-func isRefusal(err error) bool {
+func IsRefusal(err error) bool {
 	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock)
 }
 
@@ -3735,7 +3735,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 	// whether the pass carries on with the next one. The file is left out of
 	// the returned list; anything else is a real error and stays fatal.
 	refused := func(mf ManagedFile, err error) bool {
-		if !isRefusal(err) {
+		if !IsRefusal(err) {
 			return false
 		}
 		refusals = append(refusals, PruneRefusal{File: mf, Err: err})
@@ -3756,7 +3756,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 			err, seen := blockResult[fullPath]
 			if !seen {
 				err = removeInstructionsBlock(baseDir, fullPath)
-				if err == nil || isRefusal(err) {
+				if err == nil || IsRefusal(err) {
 					blockResult[fullPath] = err
 				}
 				if err == nil {
@@ -3786,7 +3786,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 				if provider := mcpProviderFromPath(mf.Path); provider != "" {
 					err = removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path))
 				}
-				if err == nil || isRefusal(err) {
+				if err == nil || IsRefusal(err) {
 					mcpResult[mcpKey] = err
 				}
 			}
@@ -3805,7 +3805,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 			err, seen := hookResult[mf.Name]
 			if !seen {
 				err = removeHookRegistration(baseDir, mf, claudeSettings)
-				if err == nil || isRefusal(err) {
+				if err == nil || IsRefusal(err) {
 					hookResult[mf.Name] = err
 				}
 			}

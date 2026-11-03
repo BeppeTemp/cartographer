@@ -498,3 +498,32 @@ func TestUpdateCheckNotInstallableLine(t *testing.T) {
 		t.Fatalf("output = %q", out)
 	}
 }
+
+// #1502: a Codex config.toml whose legacy hook block lost its end marker is a
+// per-provider refusal (a warning, file untouched), not a fatal error that stops
+// every other provider and the lockfile write.
+func TestEnsureBootstrap_CorruptedCodexHookBlockIsAWarning(t *testing.T) {
+	setHome(t, t.TempDir())
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orphan := "model = \"x\"\n# cartographer:hook:cartographer-bootstrap:begin\n[profiles.mine]\nk = 1\n"
+	if err := os.WriteFile(cfg, []byte(orphan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	warnings, err := ensureBootstrapForProviders([]string{string(configurator.ProviderCodex), string(configurator.ProviderClaudeCode)}, dir, false)
+	if err != nil {
+		t.Fatalf("a corrupted block must not be fatal: %v", err)
+	}
+	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, "\n"), "doctor") {
+		t.Errorf("want a warning pointing to doctor, got %v", warnings)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != orphan {
+		t.Errorf("config.toml changed:\n%s", got)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".claude", "hooks", "cartographer-bootstrap")); statErr != nil {
+		t.Errorf("the other provider must still get its hook: %v", statErr)
+	}
+}

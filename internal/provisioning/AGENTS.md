@@ -37,7 +37,7 @@ modifies files a user did not ask about.
   `destinationMatrix` and `workspacescope.go` (D193) are what `docs/sync.md` and
   `docs/interoperability.md` restate for a human, and a restatement drifts (D207):
   if you re-audit a client, change the matrix and those pages in the same PR.
-- **A marker block that is not exactly one begin line then one end line is refused, never edited** (`blocktext.ReplaceBlock`, `Corrupted`): no append, no cut, a per-artifact refusal pointing to `doctor`. A new writer of a marker block uses `blocktext`, not its own `strings.Index` (#1502).
+- **A marker block that is not exactly one begin line then one end line is refused, never edited** (`blocktext.ReplaceBlock`, `Corrupted`): no append, no cut, a per-artifact refusal (`IsRefusal`) pointing to `doctor`. The instructions block and the `blocktext` writers follow it; the provenance stamp, `internal/kb/genindex.go` and the `info/exclude` writer do not yet. A new marker-block writer uses `blocktext`, not its own `strings.Index` (#1502).
 - **Prune is as dangerous as write.** It removes what the lockfile says we own;
   anything outside it is someone else's. Deleting an empty directory has
   boundaries for the same reason (D63).

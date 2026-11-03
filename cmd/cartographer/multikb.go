@@ -22,7 +22,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
-	"github.com/BeppeTemp/cartographer/internal/safewrite"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // mcpEntry is one Cartographer-owned MCP entry emitted for a provider.
@@ -888,7 +888,7 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 		}
 		for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
 			paths, err := configurator.Apply(results, base, dryRun)
-			if errors.Is(err, safewrite.ErrSymlinkDestination) {
+			if provisioning.IsRefusal(err) {
 				// A symlinked config file or directory is refused for this
 				// provider only (D148): the others are still written, and the
 				// operator is told which path to replace with a real one.
@@ -936,7 +936,7 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 			nameRemoved := false
 			for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
 				ok, err := configurator.Remove(&configurator.ServerConfig{Name: name, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider), base, dryRun)
-				if errors.Is(err, safewrite.ErrSymlinkDestination) {
+				if provisioning.IsRefusal(err) {
 					refused = append(refused, &entryRefusal{Name: name, Err: err})
 					continue
 				}
