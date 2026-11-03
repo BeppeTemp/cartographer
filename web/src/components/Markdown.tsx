@@ -19,10 +19,21 @@ import remarkGfm from "remark-gfm";
 export function Markdown({
   children,
   onNavigate,
+  hrefOf,
+  conceptId,
+  outbound,
 }: {
   children: string;
-  /** Called with a concept id when a [[wiki-link]] in the body is followed. */
+  /** Called with a concept id when a [[wiki-link]] or a relative `.md` link is followed. */
   onNavigate?(id: string): void;
+  /** The address of a concept in this Atlas (kb and Map included), for
+   *  open-in-new-tab and copy-link; without it the href carries the concept only. */
+  hrefOf?(id: string): string;
+  /** The concept the body belongs to: relative `.md` links resolve against it. */
+  conceptId?: string;
+  /** The ids the server resolved this body's links to; picks between the two
+   *  bases an expanded concept's relative link can have (D149). */
+  outbound?: readonly string[];
 }) {
   return (
     <div className="markdown">
@@ -30,13 +41,17 @@ export function Markdown({
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeSanitize]}
         components={{
-          a({ href, children: text, ...props }) {
-            const target = href?.startsWith(CONCEPT_HREF) ? decodeURIComponent(href.slice(CONCEPT_HREF.length)) : null;
+          a({ node: _node, href, children: text, ...props }) {
+            const target = href?.startsWith(CONCEPT_HREF)
+              ? decodeURIComponent(href.slice(CONCEPT_HREF.length))
+              : conceptId !== undefined && href
+                ? resolveConceptHref(href, conceptId, outbound)
+                : null;
             if (target !== null) {
               return (
                 <a
                   {...props}
-                  href={`?concept=${encodeURIComponent(target)}`}
+                  href={hrefOf ? hrefOf(target) : `?concept=${encodeURIComponent(target)}`}
                   className="markdown__wikilink"
                   onClick={(event) => {
                     if (!onNavigate) return;
@@ -51,11 +66,7 @@ export function Markdown({
             // A protocol-relative "//host" leaves the origin as surely as a scheme does.
             const external = !!href && /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href);
             return (
-              <a
-                {...props}
-                href={href}
-                {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-              >
+              <a {...props} href={href} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
                 {text}
                 {external && (
                   <span aria-label=" (opens in a new tab)" className="markdown__external">
@@ -65,7 +76,7 @@ export function Markdown({
               </a>
             );
           },
-          img({ alt, src }) {
+          img({ node: _node, alt, src }) {
             return (
               <span className="markdown__image" role="img" aria-label={alt || "image"}>
                 <span aria-hidden="true">image</span>
@@ -89,8 +100,6 @@ export function Markdown({
  *  URL: the renderer turns it into in-atlas navigation. */
 const CONCEPT_HREF = "concept-link/";
 
-const WIKILINK = /\[\[([^\]|#\n]+)(#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g;
-
 /**
  * linkWikiLinks turns the KB's [[id]], [[id#section]] and [[id|label]] links
  * into Markdown links the renderer can make clickable. Code is left alone --
@@ -98,15 +107,50 @@ const WIKILINK = /\[\[([^\]|#\n]+)(#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g;
  * label defaults to the id, which is what the KB author wrote.
  */
 export function linkWikiLinks(body: string): string {
-  return body
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
-    .map((part, i) =>
-      i % 2 === 1
-        ? part
-        : part.replace(WIKILINK, (_m, id: string, _section: string | undefined, label: string | undefined) => {
-            const text = (label ?? id).trim().replace(/[[\]]/g, "");
-            return `[${text}](${CONCEPT_HREF}${encodeURIComponent(id.trim())})`;
-          }),
-    )
-    .join("");
+  return body.replace(CODE_OR_WIKILINK, (m, _ticks, id: string | undefined, _section, label: string | undefined) => {
+    if (id === undefined) return m;
+    const text = (label ?? id).trim().replace(/[[\]]/g, "");
+    return `[${text}](${CONCEPT_HREF}${encodeURIComponent(id.trim())})`;
+  });
+}
+
+/** A fenced block (``` or ~~~, closed by the same fence or the end), an inline
+ *  span (a backtick run closed by a run of the same length), or a wiki-link:
+ *  the first two are matched only to be left alone, as the server's graph sees
+ *  no link inside code (D150). */
+const CODE_OR_WIKILINK = new RegExp(
+  "^ {0,3}(?:`{3,}|~{3,})[^\\n]*\\n(?:[\\s\\S]*?\\n {0,3}(?:`{3,}|~{3,})[ \\t]*(?=\\n|$)|[\\s\\S]*)" +
+    "|(`+)(?!`)[\\s\\S]*?(?<!`)\\1(?!`)" +
+    "|\\[\\[([^\\]|#\\n]+)(#[^\\]|\\n]*)?(?:\\|([^\\]\\n]+))?\\]\\]",
+  "gm",
+);
+
+/**
+ * The concept a relative Markdown link points at, or null when it is not one:
+ * a scheme, a `//host`, a `#fragment` or anything that does not end in `.md`
+ * stays a plain link. `/x.md` is root-relative; the others resolve against
+ * the directory of the file holding the link. An expanded concept `m/c` lives
+ * in `m/c/index.md`, so its links have two possible bases; the one the server
+ * resolved (`outbound`) wins, else the id's directory.
+ */
+export function resolveConceptHref(href: string, id: string, outbound: readonly string[] = []): string | null {
+  if (/^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href)) return null;
+  const path = href.replace(/[?#].*$/, "");
+  if (!path.endsWith(".md")) return null;
+  const join = (base: string[]) => {
+    const parts = path.startsWith("/") ? [] : base;
+    const out = [...parts];
+    for (const seg of path.split("/")) {
+      if (seg === "" || seg === ".") continue;
+      if (seg === "..") out.pop();
+      else out.push(seg);
+    }
+    const last = out.at(-1)!;
+    out[out.length - 1] = last.slice(0, -3);
+    if (out.at(-1) === "index" && out.length > 1) out.pop();
+    return out.join("/");
+  };
+  const dir = id.split("/").slice(0, -1);
+  const candidates = [join(dir), join(id.split("/"))];
+  return candidates.find((c) => outbound.includes(c)) ?? candidates[0]!;
 }
