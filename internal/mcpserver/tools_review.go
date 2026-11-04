@@ -167,6 +167,12 @@ func (sf *similarFinder) find(ctx requestContext, id, title string) []similarHit
 	if sf == nil || strings.TrimSpace(title) == "" {
 		return nil
 	}
+	// Advice from stored text, so a title above the query caps is shortened to
+	// its first terms and compared on those, never refused: the write it
+	// follows has already been judged.
+	if title = boundedQuery(title); title == "" {
+		return nil
+	}
 	want := lint.TitleTokens(title)
 	if len(want) == 0 {
 		return nil

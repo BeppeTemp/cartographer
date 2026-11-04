@@ -141,6 +141,9 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	if params.Query == "" {
 		return errorResult("'query' is required"), nil
 	}
+	if err := checkQuerySize("search", params.Query); err != nil {
+		return errorResult(err.Error()), nil
+	}
 
 	limit := params.Limit
 	if limit <= 0 {
@@ -467,6 +470,17 @@ func (p *searchPass) archivedSet(k *kb.KB) map[okf.ConceptID]struct{} {
 // it reconciles once, then runs every variant through keywordHitsPass.
 func expandedKeywordHitsPass(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, pass *searchPass, query, scope string, limit int, skipArchived bool) ([]searchHit, string, []string) {
 	pass.reconcile(rec)
+	// The one entry point of the keyword searches the server runs for a text
+	// it did not receive as a tool argument (a stored title): a query above the
+	// caps of argcaps.go is shortened here, and one with no word inside them
+	// finds nothing. A tool's own query is refused above the caps before it
+	// gets here, so for it this is the identity.
+	if bounded := boundedQuery(query); bounded != query {
+		if strings.TrimSpace(bounded) == "" {
+			return nil, "keyword", nil
+		}
+		query = bounded
+	}
 	var variants []string
 	if st, err := k.ReadGlossary(); err == nil {
 		variants = st.Glossary.Variants(search.Fold(query), glossaryMaxVariants)
@@ -483,7 +497,12 @@ func expandedKeywordHitsPass(ctx requestContext, k *kb.KB, rec *searchReconciler
 		best[h.ID] = h
 	}
 	for _, v := range variants[1:] {
-		vh, _ := keywordHitsPass(ctx, k, rec, deps, pass, v, scope, limit, skipArchived, true)
+		// A glossary alias can make a variant longer than the query it comes from.
+		bv := boundedQuery(v)
+		if strings.TrimSpace(bv) == "" {
+			continue
+		}
+		vh, _ := keywordHitsPass(ctx, k, rec, deps, pass, bv, scope, limit, skipArchived, true)
 		for _, h := range vh {
 			if cur, ok := best[h.ID]; !ok || (cur.Partial && !h.Partial) || (cur.Partial == h.Partial && h.Score > cur.Score) {
 				best[h.ID] = h
@@ -516,6 +535,9 @@ func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, 
 }
 
 func keywordHitsPass(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, pass *searchPass, query, scope string, limit int, skipArchived, snippets bool) ([]searchHit, string) {
+	if rec.onSearch != nil {
+		rec.onSearch(query)
+	}
 	live := rec.live
 	visible := visiblePredicate(ctx, k)
 	// skipArchived (D322) drops archived concepts inside the backend's own

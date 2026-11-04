@@ -156,6 +156,9 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 			if len(params.IDs) > 10 {
 				return errorResult("'ids' takes at most 10 concepts"), nil
 			}
+			if err := checkQuerySize("graph_context", params.Query); err != nil {
+				return errorResult(err.Error()), nil
+			}
 			limit := clampInt(params.Limit, 10, 1, 30)
 
 			// Hidden concepts removed before computing: see the file comment.
@@ -329,6 +332,10 @@ func toolLinkSuggest(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	}
 }
 
+// titleTermSearches bounds the searches link_suggest's orphan fallback runs on
+// single terms of a title (titleMatches), each a full search.
+const titleTermSearches = 8
+
 // titleMatches returns up to limit visible concepts the keyword search ranks
 // for u's title (its id's last segment when untitled), u itself and retired
 // concepts excluded: link_suggest's fallback for an orphan (D317).
@@ -342,6 +349,11 @@ func titleMatches(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps
 	if query == "" {
 		query = path.Base(string(lg.IDs[u]))
 		query = strings.NewReplacer("-", " ", "_", " ").Replace(query)
+	}
+	// Advice from stored text: a title above the query caps is shortened to its
+	// first terms, and nothing is searched when no word fits.
+	if query = boundedQuery(query); query == "" {
+		return nil
 	}
 	best := map[int]float64{}
 	collect := func(q string) {
@@ -361,8 +373,17 @@ func titleMatches(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps
 	}
 	collect(query)
 	if terms := strings.Fields(query); len(best) == 0 && len(terms) > 1 {
+		// Each term is a full search: only the first titleTermSearches distinct
+		// ones run.
+		searched := map[string]bool{}
 		for _, term := range terms {
-			collect(term)
+			if len(searched) == titleTermSearches {
+				break
+			}
+			if key := strings.ToLower(term); !searched[key] {
+				searched[key] = true
+				collect(term)
+			}
 		}
 	}
 	ids := make([]int, 0, len(best))
