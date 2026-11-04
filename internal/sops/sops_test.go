@@ -86,7 +86,7 @@ func TestDecrypt_WithEnv_FakeSops(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "secrets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "secrets", "test.sops.yaml"), []byte("x"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "secrets", "test.sops.yaml"), []byte("sops: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	sf, err := Decrypt(root, "secrets/test.sops.yaml", AgeKeyEnv("/tmp/age-key.txt")...)
@@ -109,7 +109,7 @@ func TestDecrypt_NoEnv_FakeSops(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "secrets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "secrets", "test.sops.yaml"), []byte("x"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "secrets", "test.sops.yaml"), []byte("sops: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	sf, err := Decrypt(root, "secrets/test.sops.yaml")

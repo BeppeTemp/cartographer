@@ -194,7 +194,14 @@ in a hermetic environment (D260): it inherits only `PATH`, `TMPDIR`, `TMP`,
 removed after the call, plus `SOPS_AGE_KEY_FILE`. An ambient `SOPS_AGE_KEY` or
 `SOPS_AGE_KEY_CMD`, the default `sops/age/keys.txt`, SSH keys under `~/.ssh` and
 cloud KMS / Vault credentials (`AWS_*`, `GOOGLE_*`, `AZURE_*`, `VAULT_*`) are
-ignored — without an age key for the KB in the credentials directory nothing
+ignored, and the cloud instance-metadata endpoints are switched off for the child
+(`AWS_EC2_METADATA_DISABLED`, `GCE_METADATA_HOST`, `AZURE_POD_IDENTITY_AUTHORITY_HOST`).
+Only `.yaml`, `.yml` and `.json` files are read (sops picks its store from the extension, so a dotenv or ini file could carry master keys the check does not see): any other extension is refused. Before sops runs, `Decrypt` and `secret_set` read the clear `sops:` block of the
+file and refuse one that lists any master key other than age (kms, gcp_kms,
+azure_kv, hc_vault, pgp, or a key type unknown to Cartographer; empty entries
+are fine): a committed file cannot be opened with the host's own cloud identity,
+and a KB that deliberately mixes age and cloud keys must keep an age-only copy. The bytes checked are the ones decrypted (they reach sops on stdin).
+Without an age key for the KB in the credentials directory nothing
 decrypts, and a KB cannot be opened with another KB's own key or the
 operator's personal one. Only
 `sops` stdout is parsed as the decrypted document; stderr surfaces only in the
@@ -238,7 +245,7 @@ creation rule matching the path and the server's age key is one of the rule's
 recipients (D1191): the recipients are the rule's, sops applies them, the caller
 chooses none, and the new file starts as mappings (a list is the operator's).
 Cartographer names the root `.sops.yaml` to sops (a nested one is ignored) and refuses a
-matching rule that also names a kms, pgp or vault recipient. With no `.sops.yaml`, no
+matching rule that names any recipient other than age, `merge` groups included (an allow-list of rule keys). With no `.sops.yaml`, no
 matching rule or a key that is not a recipient it refuses: bootstrapping encryption stays an operator action. `secret_set`,
 `secret_resolve` and `service_get` are in the agent `tools/list`; the first two
 need `rw` scope.

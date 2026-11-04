@@ -132,7 +132,7 @@ func TestSetFailureNamesTheStepWithoutSOPSOutput(t *testing.T) {
 // not touched, and an undeclared name is "unknown name".
 func TestResolveNamedRestrictsToTheNamedRefs(t *testing.T) {
 	fakeSOPS(t, "echo 'pw: hunter2'\n")
-	root := kbWithSecret(t, "x")
+	root := kbWithSecret(t, "sops: {}\n")
 	refs := []SecretRef{
 		{Name: "PW", SOPSFile: "secrets/app.sops.yaml", SOPSKey: "/pw"},
 		{Name: "X", SOPSFile: "secrets/missing.sops.yaml", SOPSKey: "/x"},
@@ -157,7 +157,7 @@ func TestResolveNamedRestrictsToTheNamedRefs(t *testing.T) {
 
 func TestDecryptFailureCarriesNoServerPath(t *testing.T) {
 	fakeSOPS(t, "echo \"Failed to get the data key: $HOME/.config/sops/age/keys.txt\" >&2; exit 128\n")
-	root := kbWithSecret(t, "x")
+	root := kbWithSecret(t, "sops: {}\n")
 	_, err := Decrypt(root, "secrets/app.sops.yaml")
 	if !errors.Is(err, ErrDecrypt) {
 		t.Fatalf("err = %v", err)
@@ -173,7 +173,7 @@ func TestDecryptFailureCarriesNoServerPath(t *testing.T) {
 // A name asked twice is resolved once, not reported as unknown.
 func TestResolveNamedRepeatedNameIsResolvedOnce(t *testing.T) {
 	fakeSOPS(t, "echo 'pw: hunter2'\n")
-	root := kbWithSecret(t, "x")
+	root := kbWithSecret(t, "sops: {}\n")
 	refs := []SecretRef{{Name: "PW", SOPSFile: "secrets/app.sops.yaml", SOPSKey: "/pw"}}
 	got, err := ResolveNamed(root, refs, []string{"PW", "PW"})
 	if err != nil || got["PW"] != "hunter2" {

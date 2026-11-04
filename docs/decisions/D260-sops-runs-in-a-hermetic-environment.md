@@ -44,3 +44,19 @@ to the child environment explicitly, never re-inheriting the server's. Test
 fakes of `sops` cannot receive knobs through the test process environment —
 bake them into the script. `secret_set` still never surfaces sops diagnostics;
 `Decrypt` errors keep `sops decrypt <path>: <err>: <stderr>`.
+
+**Amendment: the file must be age-only too.** The environment cannot stop sops
+from reaching an identity the host has by other means (a cloud instance
+metadata endpoint), and the master keys of a file are chosen by whoever commits
+it. `Decrypt` and `Set` therefore read the clear `sops:` block first and refuse
+any master key other than age (allow-list; empty entries accepted), the
+creation-rule check of `Create` is the same allow-list over the generic rule
+including `merge` groups, and the child environment disables the cloud metadata
+endpoints. A KB that mixes age and cloud master keys no longer decrypts.
+
+Only `.yaml`, `.yml` and `.json` files are read, with the exact, case-sensitive
+extension sops uses to pick its store: a dotenv or ini file can be valid YAML
+with an age-only `sops:` block while its real metadata, read by the dotenv
+store, names another master key. `Decrypt` hands sops the bytes it checked on
+stdin (`--filename-override` names the file), so a file replaced after the check
+is not the one decrypted.
