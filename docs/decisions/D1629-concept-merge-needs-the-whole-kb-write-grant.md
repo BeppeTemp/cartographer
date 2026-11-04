@@ -2,7 +2,7 @@
 topic: transport-auth
 ---
 
-# D1612 — concept_merge needs the whole-KB write grant
+# D1629 — concept_merge needs the whole-KB write grant
 
 **Decision.** `concept_merge` is authorized like `concept_move` with link rewriting: only a token with a whole-KB write grant may call it. A role bounded by map, journal or type is refused with `needs_whole_kb`; a token with no grant on the KB still gets `not found`. The `rewritten` list in the response is filtered with the caller's view.
 
