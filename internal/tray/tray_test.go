@@ -33,26 +33,28 @@ func TestClassify(t *testing.T) {
 		want   Snapshot
 	}{
 		{"healthy", &client.Health{Version: "1.2.3", Ready: boolp(true), KBs: &two}, nil, installed,
-			Snapshot{State: StateRunning, Version: "1.2.3", KBCount: 2, KBNames: "kb-a\nwork-kb", UIURL: installed.UIURL, Installed: true}},
+			Snapshot{Checked: true, State: StateRunning, Version: "1.2.3", KBCount: 2, KBNames: "kb-a\nwork-kb", UIURL: installed.UIURL, Installed: true}},
 		{"older server without kbs", &client.Health{Version: "1.0.0"}, nil, installed,
-			Snapshot{State: StateRunning, Version: "1.0.0", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{Checked: true, State: StateRunning, Version: "1.0.0", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"ready false", &client.Health{Version: "1", Ready: boolp(false)}, nil, installed,
-			Snapshot{State: StateStarting, Version: "1", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{Checked: true, State: StateRunning, NotReady: true, Version: "1", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+		{"ready false, no KB mounted", &client.Health{Version: "1", Ready: boolp(false), KBs: &[]client.HealthKB{}}, nil, installed,
+			Snapshot{Checked: true, State: StateRunning, NotReady: true, Version: "1", KBCount: 0, UIURL: installed.UIURL, Installed: true}},
 		{"bootstrapping", nil, starting, installed,
-			Snapshot{State: StateStarting, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{Checked: true, State: StateStarting, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"connection refused", nil, refused, installed,
-			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
-		{"404", nil, notFound, installed, Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{Checked: true, State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+		{"404", nil, notFound, installed, Snapshot{Checked: true, State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"401 cannot happen, is stopped", nil, unauth, installed,
-			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{Checked: true, State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"plain error", nil, errors.New("boom"), installed,
-			Snapshot{State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{Checked: true, State: StateStopped, KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 		{"not installed and silent", nil, refused, service.Status{},
-			Snapshot{State: StateNotInstalled, KBCount: -1}},
+			Snapshot{Checked: true, State: StateNotInstalled, KBCount: -1}},
 		{"answers but not installed: a hand-run server is running", &client.Health{Version: "1", Ready: boolp(true)}, nil, service.Status{},
-			Snapshot{State: StateRunning, Version: "1", KBCount: -1}},
+			Snapshot{Checked: true, State: StateRunning, Version: "1", KBCount: -1}},
 		{"latest_version rides along", &client.Health{Version: "1", LatestVersion: "2.0.0", Ready: boolp(true)}, nil, installed,
-			Snapshot{State: StateRunning, Version: "1", LatestVersion: "2.0.0", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
+			Snapshot{Checked: true, State: StateRunning, Version: "1", LatestVersion: "2.0.0", KBCount: -1, UIURL: installed.UIURL, Installed: true}},
 	}
 	for _, c := range cases {
 		if got := Classify(c.health, c.err, c.status); got != c.want {
@@ -66,15 +68,18 @@ func TestStatusLine(t *testing.T) {
 		s    Snapshot
 		want string
 	}{
-		{Snapshot{State: StateRunning, Version: "0.9.1", KBCount: 3}, "Cartographer 0.9.1 — 3 KBs"},
-		{Snapshot{State: StateRunning, Version: "0.9.1", KBCount: 1}, "Cartographer 0.9.1 — 1 KB"},
-		{Snapshot{State: StateRunning, Version: "0.9.1", KBCount: -1}, "Cartographer 0.9.1"},
-		{Snapshot{State: StateRunning, Version: "0.9.1", KBCount: 0, LatestVersion: "1.0.0"}, "Cartographer 0.9.1 — 0 KBs — update available: v1.0.0"},
-		{Snapshot{State: StateRunning, Version: "0.9.1", KBCount: -1, LatestVersion: "v1.0.0"}, "Cartographer 0.9.1 — update available: v1.0.0"},
-		{Snapshot{State: StateStopped, KBCount: -1}, "stopped"},
-		{Snapshot{State: StateStarting, KBCount: -1}, "starting…"},
-		{Snapshot{State: StateNotInstalled, KBCount: -1}, "not installed"},
-		{Snapshot{State: StateRunning, Version: "1", Restarting: true}, "restarting…"},
+		{Snapshot{Checked: true, State: StateRunning, Version: "0.9.1", KBCount: 3}, "Cartographer 0.9.1 — 3 KBs"},
+		{Snapshot{Checked: true, State: StateRunning, Version: "0.9.1", KBCount: 1}, "Cartographer 0.9.1 — 1 KB"},
+		{Snapshot{Checked: true, State: StateRunning, Version: "0.9.1", KBCount: -1}, "Cartographer 0.9.1"},
+		{Snapshot{Checked: true, State: StateRunning, Version: "0.9.1", KBCount: 0, LatestVersion: "1.0.0"}, "Cartographer 0.9.1 — 0 KBs — update available: v1.0.0"},
+		{Snapshot{Checked: true, State: StateRunning, Version: "0.9.1", KBCount: -1, LatestVersion: "v1.0.0"}, "Cartographer 0.9.1 — update available: v1.0.0"},
+		{Snapshot{Checked: true, State: StateStopped, KBCount: -1}, "stopped"},
+		{Snapshot{Checked: true, State: StateStarting, KBCount: -1}, "starting…"},
+		{Snapshot{Checked: true, State: StateNotInstalled, KBCount: -1}, "not installed"},
+		{Snapshot{Checked: true, State: StateRunning, Version: "0.9.1", KBCount: 0, NotReady: true}, "Cartographer 0.9.1 · no KB mounted"},
+		{Snapshot{Checked: true, State: StateRunning, Version: "0.9.1", KBCount: 2, NotReady: true}, "Cartographer 0.9.1 · 2 KBs · not ready"},
+		{Snapshot{}, "checking…"},
+		{Snapshot{Checked: true, State: StateRunning, Version: "1", Restarting: true}, "restarting…"},
 	}
 	for _, c := range cases {
 		if got := StatusLine(c.s); got != c.want {
@@ -426,5 +431,12 @@ func TestSnapshotLogsARepeatedStatusErrorOnce(t *testing.T) {
 	d.snapshot(&good, &lastErr)
 	if len(logged) != 3 {
 		t.Fatalf("the same error after a success logged %d lines in total, want 3", len(logged))
+	}
+}
+
+func TestInfoItemsNotReady(t *testing.T) {
+	head := InfoItems(Snapshot{Checked: true, State: StateRunning, NotReady: true, KBCount: 0})[0]
+	if head.Badge != "Not ready" || head.Tone != ToneBusy {
+		t.Errorf("header = %q/%v, want Not ready/busy", head.Badge, head.Tone)
 	}
 }
