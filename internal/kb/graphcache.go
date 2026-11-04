@@ -183,6 +183,10 @@ type ConceptFacets struct {
 	Title          string
 	Status         string
 	SupersededBy   string
+	// Provenance are the entries of the `provenance` frontmatter list
+	// (ProvenanceEntries): what lets a move find the pages that cite a moved
+	// Source without reading every file (#1510).
+	Provenance []string
 	// Placeholders are the {{repo:…}}/{{path:…}} keys the body cites, plus
 	// those of a Source's frontmatter `locator` (D278), as sorted, unique
 	// "kind:key" strings (okf.Placeholders: escaped ones and metasyntax
@@ -214,6 +218,7 @@ func facetsOf(content string) ConceptFacets {
 	if v, ok := fm.Get("superseded_by"); ok {
 		f.SupersededBy, _ = v.(string)
 	}
+	f.Provenance = ProvenanceEntries(fm)
 	if v, ok := fm.Get("locator"); ok {
 		if loc, _ := v.(string); loc != "" {
 			f.Placeholders = okf.Placeholders(loc + "\n" + body)

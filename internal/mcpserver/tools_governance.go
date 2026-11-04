@@ -610,6 +610,15 @@ func toolConflictResolve(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("conflict_resolve: %q has type %q, expected Contradiction", params.ContradictionID, fm.Type())), nil
 			}
 
+			// A decision already recorded is not overwritten in silence: the
+			// previous resolution would survive only in git history (#1510).
+			if v, _ := fm.Get("resolution_status"); v != nil {
+				if st, _ := v.(string); st != "" && st != "open" {
+					return errorResult(fmt.Sprintf("conflict_resolve: %q is already %s (resolution_date %s); its resolution is kept. To decide again, set resolution_status back to open with concept_patch first",
+						params.ContradictionID, st, frontmatterString(fm, "resolution_date"))), nil
+				}
+			}
+
 			fm.Set("resolution_status", "resolved")
 			fm.Set("resolution", params.Resolution)
 			fm.Set("resolution_date", time.Now().UTC().Format("2006-01-02"))

@@ -2059,55 +2059,66 @@ func (kb *KB) ScaffoldMap(name, title string) error {
 // map map_create would have made). onlyMissing keeps an index.md or log.md
 // that is already there.
 func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, contract MapContract, onlyMissing bool) error {
-	if err := os.MkdirAll(mapAbs, 0o755); err != nil {
-		return fmt.Errorf("CreateMap: mkdir: %w", err)
-	}
-
-	var mapFM strings.Builder
-	mapFM.WriteString("type: Map\n")
-	mapFM.WriteString("title: " + title + "\n")
-	mapFM.WriteString("kind: " + kind + "\n")
-	if len(conceptTypes) > 0 {
-		mapFM.WriteString("concept_types: [" + strings.Join(conceptTypes, ", ") + "]\n")
-	}
-	if len(contract.RequiredFields) > 0 {
-		mapFM.WriteString("required_fields.*: [" + strings.Join(sortedUnique(contract.RequiredFields), ", ") + "]\n")
-	}
-	types := make([]string, 0, len(contract.RequiredFieldsByType))
-	for typ := range contract.RequiredFieldsByType {
-		types = append(types, typ)
-	}
-	sort.Strings(types)
-	for _, typ := range types {
-		fields := sortedUnique(contract.RequiredFieldsByType[typ])
-		if len(fields) > 0 {
-			mapFM.WriteString("required_fields." + typ + ": [" + strings.Join(fields, ", ") + "]\n")
-		}
-	}
-	for _, key := range fieldValueKeys(contract.FieldValues, contract.FieldValuesByType) {
-		mapFM.WriteString(key.name + ": [" + strings.Join(key.values, ", ") + "]\n")
-	}
-	if len(contract.ForbiddenFields) > 0 {
-		mapFM.WriteString("forbidden_fields: [" + strings.Join(sortedUnique(contract.ForbiddenFields), ", ") + "]\n")
-	}
-	if len(contract.Templates) > 0 {
-		mapFM.WriteString("templates: [" + strings.Join(sortedUnique(contract.Templates), ", ") + "]\n")
-		if contract.DefaultTemplate != "" {
-			mapFM.WriteString("default_template: " + contract.DefaultTemplate + "\n")
-		}
-	}
-	if len(contract.ReadWhole) > 0 {
-		mapFM.WriteString("read_whole: [" + strings.Join(sortedUnique(contract.ReadWhole), ", ") + "]\n")
+	// Everything the descriptor is built from is judged before the first
+	// write: a refusal leaves no directory behind (#1510).
+	if err := checkMapDescriptorInputs(title, conceptTypes); err != nil {
+		return err
 	}
 	// A journal declares what "open" means (D321): the server default is the
 	// minimum every work journal uses; map_update changes it.
 	if kind == "journal" && len(contract.OpenStatuses) == 0 {
 		contract.OpenStatuses = DefaultJournalOpenStatuses
 	}
-	if len(contract.OpenStatuses) > 0 {
-		mapFM.WriteString("open_statuses: [" + strings.Join(contract.OpenStatuses, ", ") + "]\n")
+
+	// The descriptor is built with Frontmatter.Set and Serialize, never by
+	// string concatenation, so a value that needs quoting is quoted.
+	mapFM, _ := okf.ParseFrontmatter("")
+	mapFM.Set("type", "Map")
+	mapFM.Set("title", title)
+	mapFM.Set("kind", kind)
+	setList := func(key string, values []string, dedupe bool) {
+		if dedupe {
+			values = sortedUnique(values)
+		}
+		if len(values) > 0 {
+			mapFM.Set(key, values)
+		}
 	}
-	mapMD := "---\n" + strings.TrimRight(mapFM.String(), "\n") + "\n---\n# " + title + "\n"
+	setList("concept_types", conceptTypes, false)
+	setList("required_fields.*", contract.RequiredFields, true)
+	types := make([]string, 0, len(contract.RequiredFieldsByType))
+	for typ := range contract.RequiredFieldsByType {
+		types = append(types, typ)
+	}
+	sort.Strings(types)
+	for _, typ := range types {
+		setList("required_fields."+typ, contract.RequiredFieldsByType[typ], true)
+	}
+	for _, key := range fieldValueKeys(contract.FieldValues, contract.FieldValuesByType) {
+		mapFM.Set(key.name, key.values)
+	}
+	setList("forbidden_fields", contract.ForbiddenFields, true)
+	if len(contract.Templates) > 0 {
+		setList("templates", contract.Templates, true)
+		if contract.DefaultTemplate != "" {
+			mapFM.Set("default_template", contract.DefaultTemplate)
+		}
+	}
+	setList("read_whole", contract.ReadWhole, true)
+	setList("open_statuses", contract.OpenStatuses, false)
+	if err := mapFM.Validate(); err != nil {
+		return fmt.Errorf("CreateMap: %w", err)
+	}
+	mapMD := "---\n" + mapFM.Serialize() + "\n---\n# " + title + "\n"
+
+	indexFM, _ := okf.ParseFrontmatter("")
+	indexFM.Set("type", "Index")
+	indexFM.Set("title", title)
+	indexMD := "---\n" + indexFM.Serialize() + "\n---\n# " + title + "\n"
+
+	if err := os.MkdirAll(mapAbs, 0o755); err != nil {
+		return fmt.Errorf("CreateMap: mkdir: %w", err)
+	}
 	if err := writeFileAtomic(filepath.Join(mapAbs, "_map.md"), []byte(mapMD)); err != nil {
 		return fmt.Errorf("CreateMap: write _map.md: %w", err)
 	}
@@ -2116,7 +2127,6 @@ func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, c
 		_, err := os.Stat(filepath.Join(mapAbs, name))
 		return onlyMissing && err == nil
 	}
-	indexMD := "---\ntype: Index\ntitle: " + title + "\n---\n# " + title + "\n"
 	if !present("index.md") {
 		if err := writeFileAtomic(filepath.Join(mapAbs, "index.md"), []byte(indexMD)); err != nil {
 			return fmt.Errorf("CreateMap: write index.md: %w", err)
@@ -2769,6 +2779,22 @@ func (kb *KB) ReadArchiveMeta(archive string) (*okf.Frontmatter, error) {
 		parsed.Set("kind", "map")
 	}
 	return parsed, nil
+}
+
+// ReadArchiveMetaStrict is ReadArchiveMeta for a write that a map's contract
+// judges: a map with no descriptor is no constraint (nil, nil), but a
+// descriptor that exists and cannot be read refuses the write instead of
+// switching the contract off silently (#1510). The error names the
+// descriptor.
+func (kb *KB) ReadArchiveMetaStrict(archive string) (*okf.Frontmatter, error) {
+	meta, err := kb.ReadArchiveMeta(archive)
+	if err == nil {
+		return meta, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, okf.ErrNotFound) {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("the descriptor of map %s is unreadable, so its contract cannot be checked: %v. Fix the frontmatter of %s/_map.md first", archive, err, archive)
 }
 
 // RawReads reports how many files ReadRaw has been asked for, over this KB's
@@ -3442,3 +3468,19 @@ const defaultInstructionsContent = "# How to use this KB\n\n" +
 	"- Act on every finding a write returns: fix or acknowledge it before moving on.\n" +
 	"- Run `gate_check` at the end of a session and resolve what it reports.\n" +
 	"- Every write is a git commit, revertible. Close sessions with `log_append`.\n"
+
+// checkMapDescriptorInputs refuses a title or a concept type that cannot be
+// written into a descriptor and read back as itself: a title with a line break
+// would add keys, an empty type or one holding ',' or ']' would read back as
+// several types or corrupt the list (#1510).
+func checkMapDescriptorInputs(title string, conceptTypes []string) error {
+	if strings.TrimSpace(title) == "" || strings.ContainsAny(title, "\n\r") {
+		return fmt.Errorf("CreateMap: title must be one non-empty line")
+	}
+	for _, t := range conceptTypes {
+		if strings.TrimSpace(t) == "" || strings.ContainsAny(t, ",[]\n\r") {
+			return fmt.Errorf("CreateMap: concept type %q must be non-empty and contain no ',', '[' or ']'", t)
+		}
+	}
+	return nil
+}

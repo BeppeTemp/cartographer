@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	gopath "path"
 	"path/filepath"
@@ -2243,20 +2244,19 @@ func moveTypeViolation(k *kb.KB, m conceptMoveEntry, fm *okf.Frontmatter) error 
 	srcMap, _ := conceptMapName(m.SourceID)
 	dstMap, ok := conceptMapName(m.TargetID)
 	conceptType := fm.Type()
-	if !ok || dstMap == srcMap || conceptType == "" {
+	if !ok || dstMap == srcMap {
 		return nil
 	}
-	meta, err := k.ReadArchiveMeta(dstMap)
+	meta, err := k.ReadArchiveMetaStrict(dstMap)
 	if err != nil {
+		return fmt.Errorf("concept_move: %w. Nothing was moved", err)
+	}
+	if meta == nil || conceptType == "" || strictTypeViolation(meta, dstMap, conceptType) == nil {
 		return nil
 	}
-	if strictTypeViolation(meta, dstMap, conceptType) == nil {
-		return nil
-	}
-	admitted, _ := meta.Get("concept_types")
 	return fmt.Errorf("concept_move: %q has type %q, which map %s (strict) does not admit; admitted types: %s. "+
 		"Nothing was moved — extend the map's concept_types with map_update, or pick a map that admits the type",
-		m.SourceID, conceptType, dstMap, strings.Join(admitted.([]string), ", "))
+		m.SourceID, conceptType, dstMap, strings.Join(admittedTypes(meta), ", "))
 }
 
 func errRes(r ToolResult) *ToolResult { return &r }
@@ -2904,7 +2904,7 @@ func rewriteBacklinks(k *kb.KB, moveMap map[string]string) ([]rewrittenConcept, 
 		// superseded_by is a relation, not a link (D243), but it names a
 		// concept all the same: a moved successor must not leave it dangling.
 		// The frontmatter is parsed only when there is something to rewrite.
-		if count == 0 && !strings.Contains(fmRaw, "superseded_by") {
+		if count == 0 && !strings.Contains(fmRaw, "superseded_by") && !strings.Contains(fmRaw, "provenance") {
 			return nil
 		}
 
@@ -2921,6 +2921,23 @@ func rewriteBacklinks(k *kb.KB, moveMap map[string]string) ([]rewrittenConcept, 
 					fm.Set("superseded_by", moved)
 					count++
 				}
+			}
+		}
+		// A source citation is a relation too (D278): the provenance entry
+		// that names a moved concept follows it, so the Source does not
+		// become source_uncited (#1510).
+		if entries := kb.ProvenanceEntries(fm); len(entries) > 0 {
+			rewritten, changed := make([]string, len(entries)), 0
+			for i, e := range entries {
+				rewritten[i] = e
+				if moved, ok := moveMap[e]; ok {
+					rewritten[i] = moved
+					changed++
+				}
+			}
+			if changed > 0 {
+				fm.Set("provenance", rewritten)
+				count += changed
 			}
 		}
 		if count == 0 {
@@ -3432,8 +3449,11 @@ func introducedTypeViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 	if len(parts) < 2 {
 		return nil
 	}
-	meta, err := k.ReadArchiveMeta(parts[0])
+	meta, err := k.ReadArchiveMetaStrict(parts[0])
 	if err != nil {
+		return err
+	}
+	if meta == nil {
 		return nil
 	}
 	conceptType := fm.Type()
@@ -3446,10 +3466,17 @@ func introducedTypeViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 			return nil
 		}
 	}
-	declared, _ := meta.Get("concept_types")
-	list, _ := declared.([]string)
 	return fmt.Errorf("%w; declared types: %s. Use one of them; to fix an existing page of another type, change its type (or run kb_repair)",
-		violation, strings.Join(list, ", "))
+		violation, strings.Join(admittedTypes(meta), ", "))
+}
+
+// admittedTypes is the concept_types list of a descriptor, empty when the key
+// is absent or not a list. The one reader of the three refusal messages, so
+// none of them can panic on a shape strictTypeViolation stops refusing.
+func admittedTypes(meta *okf.Frontmatter) []string {
+	v, _ := meta.Get("concept_types")
+	list, _ := v.([]string)
+	return list
 }
 
 // mapContractViolation checks a proposed concept id/frontmatter against its
@@ -3471,7 +3498,10 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 	}
 	contract, err := k.ReadMapContract(archiveName)
 	if err != nil {
-		return nil
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, okf.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("the descriptor of map %s is unreadable, so its contract cannot be checked: %v", archiveName, err)
 	}
 	for _, field := range contract.RequiredFor(conceptType) {
 		if _, ok := fm.Get(field); !ok {
