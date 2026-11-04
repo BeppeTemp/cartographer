@@ -5,6 +5,7 @@ import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { Sheet } from "./Sheet";
 import { EntriesSkeleton } from "./Page";
+import { ContentBoundary } from "./ErrorBoundary";
 import { ErrorState } from "./States";
 
 /** Versions are shown with their v, whichever way the server spelled them. */
@@ -183,7 +184,9 @@ function ReleaseSection({
         )}
       </header>
       {name && <p className="releases__name">{name}</p>}
-      <Markdown>{withoutTitleLine(release)}</Markdown>
+      <ContentBoundary resetKey={release.version}>
+        <Markdown>{withoutTitleLine(release)}</Markdown>
+      </ContentBoundary>
       {release.truncated && (
         <p className="releases__truncated">
           Truncated —{" "}

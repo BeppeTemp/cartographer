@@ -19,6 +19,7 @@ import {
 } from "./Page";
 import { FindingBadge } from "./FindingBadge";
 import { TemplateCards } from "./TemplateCards";
+import { ContentBoundary } from "./ErrorBoundary";
 import { EmptyState, ErrorState } from "./States";
 
 /** What each kind is, said once where the overview introduces it. */
@@ -793,7 +794,9 @@ function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<
           </tbody>
         </table>
       )}
-      <Markdown>{split ? split.body : text}</Markdown>
+      <ContentBoundary resetKey={file.path}>
+        <Markdown>{split ? split.body : text}</Markdown>
+      </ContentBoundary>
     </>
   );
 }

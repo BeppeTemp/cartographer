@@ -564,7 +564,9 @@ toolchain (D227). What they hold:
   concept, and the list is shown only when there is no WebGL to draw with; `[[wiki-links]]` in a
   concept body become in-atlas links, code spans left alone;
 - Markdown from a concept body renders inert — a raw `<script>` and an
-  `onerror` attribute must not survive;
+  `onerror` attribute must not survive, and a link target that cannot be decoded renders as plain
+  text, while a render error inside a body shows a notice in place of that content and leaves the
+  shell mounted (`ContentBoundary`);
 - the bearer token reaches neither `localStorage` nor a URL;
 - the live refresh bumps only when the KB revision changes, stops for good on a
   `404` (a narrowed principal has no revision) and never polls while disabled

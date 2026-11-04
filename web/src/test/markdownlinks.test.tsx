@@ -69,3 +69,15 @@ describe("links in a concept body", () => {
     expect(container.querySelector("[node]")).toBeNull();
   });
 });
+
+describe("a malformed wiki-link target", () => {
+  it.each(["%FF", "%C3", "a%C3", "%E0%A4%A"])("%s renders as plain text without throwing", (esc) => {
+    const { container } = render(<Markdown conceptId="a/b">{`see [label](concept-link/${esc}) end`}</Markdown>);
+    expect(container.textContent).toContain("label");
+    expect(container.querySelector("a")).toBeNull();
+  });
+  it("a valid escape still navigates", () => {
+    const { container } = render(<Markdown onNavigate={() => {}}>{"[[a b/c]]"}</Markdown>);
+    expect(container.querySelector("a.markdown__wikilink")).not.toBeNull();
+  });
+});
