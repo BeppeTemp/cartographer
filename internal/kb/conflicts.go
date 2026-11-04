@@ -351,12 +351,15 @@ func (k *KB) FinalizeConflicts() ([]string, error) {
 
 // GitPathToConceptID converts a git-relative file path to a ConceptID.
 // Only paths of the form "data/<...>.md" are converted; all others return ("", false).
-// Reserved files (index.md, log.md, _map.md, _archive.md) are excluded — note
-// this means an expanded concept's "index.md" (D77 WP2) is not reported here;
-// callers needing that mapping should go through WalkConcepts instead.
+// Reserved files (index.md, log.md, _map.md, _archive.md) are excluded, except
+// the body of an expanded concept ("data/<map>/<concept>/index.md", D77), which
+// maps to its concept ID (GitPathToExpandedConceptID).
 func GitPathToConceptID(path string) (string, bool) {
 	// Normalize to forward slashes regardless of OS.
 	path = filepath.ToSlash(path)
+	if id, ok := GitPathToExpandedConceptID(path); ok {
+		return id, true
+	}
 	const prefix = "data/"
 	if !strings.HasPrefix(path, prefix) {
 		return "", false

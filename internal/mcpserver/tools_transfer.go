@@ -10,6 +10,7 @@ import (
 	"os"
 	gopath "path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -426,6 +427,10 @@ func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult
 			if ferr != nil {
 				return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: %q: %v", m.SourceID, ferr)))
 			}
+			// Editor junk (a Finder .DS_Store) is no part of the concept: never
+			// carried, never a reason to refuse; the source directory is removed
+			// whole, so it goes with it (#1377, as artifact_move).
+			files = slices.DeleteFunc(files, func(f transferFile) bool { return kb.IsJunkPath(f.rel) })
 			// TRAP: a gitignored file (a decrypted secret, a local .env) would be
 			// committed and pushed by the target, whose ignore rules may differ,
 			// and deleted from the source beyond git's reach: refuse instead.
@@ -433,6 +438,7 @@ func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult
 			if ierr != nil {
 				return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: %q: list ignored files: %v", m.SourceID, ierr)))
 			}
+			ignored = slices.DeleteFunc(ignored, kb.IsJunkPath)
 			if len(ignored) > 0 {
 				return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: %q holds files the source KB's .gitignore excludes (%s): move or delete them first", m.SourceID, strings.Join(kb.CapList(ignored, 10), ", "))))
 			}

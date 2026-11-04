@@ -2001,7 +2001,11 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 			}
 			if strings.HasPrefix(right.sourceID+"/", left.sourceID+"/") || strings.HasPrefix(left.sourceID+"/", right.sourceID+"/") ||
 				strings.HasPrefix(right.targetID+"/", left.sourceID+"/") || strings.HasPrefix(left.targetID+"/", right.sourceID+"/") ||
-				strings.HasPrefix(right.sourceID+"/", left.targetID+"/") || strings.HasPrefix(left.sourceID+"/", right.targetID+"/") {
+				strings.HasPrefix(right.sourceID+"/", left.targetID+"/") || strings.HasPrefix(left.sourceID+"/", right.targetID+"/") ||
+				// target/target: a flat move into "m/y/child" creates the directory an
+				// expanded move to "m/y" then fails to rename onto, after the first
+				// move was applied.
+				strings.HasPrefix(right.targetID+"/", left.targetID+"/") || strings.HasPrefix(left.targetID+"/", right.targetID+"/") {
 				return nil, errRes(errorResult("expanded concept moves cannot overlap, swap, or use ancestor/descendant paths in one batch"))
 			}
 		}
@@ -2442,15 +2446,26 @@ func toolConceptCollapse(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
 			}
-			var leftover []string
+			var leftover, junk []string
 			for _, e := range entries {
-				if e.Name() != "index.md" {
+				switch {
+				case e.Name() == "index.md":
+				case kb.IsJunkPath(e.Name()) || (e.IsDir() && kb.IsJunkPath(e.Name()+"/x")):
+					// Editor junk (a Finder .DS_Store) is no tool's to delete and
+					// no content: it goes with the directory (#1377).
+					junk = append(junk, e.Name())
+				default:
 					leftover = append(leftover, e.Name())
 				}
 			}
 			if len(leftover) > 0 {
 				return errorResult(fmt.Sprintf("concept_collapse %q: the directory still holds %s, which would have no home after the collapse — remove it first",
 					params.ID, strings.Join(leftover, ", "))), nil
+			}
+			for _, name := range junk {
+				if err := os.RemoveAll(filepath.Join(dirAbs, name)); err != nil {
+					return errorResult(fmt.Sprintf("concept_collapse %q: remove %s: %v", params.ID, name, err)), nil
+				}
 			}
 			if err := os.Rename(filepath.Join(dirAbs, "index.md"), flatAbs); err != nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: move index.md: %v", params.ID, err)), nil
@@ -2669,13 +2684,64 @@ func appendCuratedEntries(k *kb.KB, mapName, heading string, ids []okf.ConceptID
 		entries[i] = curatedEntryLine(k, mapName, id)
 	}
 	block := strings.Join(entries, "\n")
-	if strings.Contains(body, heading) {
-		body = strings.TrimRight(body, "\n") + "\n" + block + "\n"
+	if nb, found := insertUnderHeading(body, heading, block); found {
+		body = nb
 	} else {
 		body = strings.TrimRight(body, "\n") + "\n\n" + heading + "\n\n" + block + "\n"
 	}
 	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, body))
 	return content, err
+}
+
+// insertUnderHeading puts block at the end of heading's section: after the
+// last non-blank line before the next heading of level 2 or lower (D714). The
+// heading is a whole-line match outside code fences, so prose that mentions it
+// does not count; found is false when no such line exists.
+func insertUnderHeading(body, heading, block string) (string, bool) {
+	lines := strings.Split(body, "\n")
+	inFence := false
+	start, end := -1, len(lines)
+	for i, line := range lines {
+		t := strings.TrimRight(line, " \t\r")
+		if strings.HasPrefix(strings.TrimLeft(t, " "), "```") || strings.HasPrefix(strings.TrimLeft(t, " "), "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if start < 0 {
+			if t == heading {
+				start = i
+			}
+			continue
+		}
+		if strings.HasPrefix(t, "# ") || strings.HasPrefix(t, "## ") || t == "#" || t == "##" {
+			end = i
+			break
+		}
+	}
+	if start < 0 {
+		return body, false
+	}
+	last := start
+	for i := start + 1; i < end; i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			last = i
+		}
+	}
+	out := append([]string{}, lines[:last+1]...)
+	if last == start {
+		out = append(out, "")
+	}
+	out = append(out, strings.Split(block, "\n")...)
+	if end < len(lines) {
+		out = append(out, "")
+		out = append(out, lines[end:]...)
+	} else {
+		out = append(out, "")
+	}
+	return strings.Join(out, "\n"), true
 }
 
 // pendingIndexEntry is one concept that asked for an index_entry.

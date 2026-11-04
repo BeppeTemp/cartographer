@@ -1,7 +1,7 @@
 package kb
 
 // Reserved-file conflicts (D311). log.md, index.md, _map.md and _archive.md are
-// not concepts: GitPathToConceptID maps none of them, so a rebase conflict that
+// not concepts: GitPathToConceptID maps none of them (an expanded concept's body is not one of these files), so a rebase conflict that
 // touches only these files used to register nothing and freeze the KB — no
 // conflicts_list entry, nothing git_conflict_resolve could act on. The server
 // now reconciles them itself; the conflict registry is the fallback when it

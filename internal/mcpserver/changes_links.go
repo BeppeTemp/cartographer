@@ -34,9 +34,8 @@ type changesLinks struct {
 }
 
 // linkSourceFromGitPath maps a repository path to the concept it holds and
-// its KB-relative physical path. Unlike kb.GitPathToConceptID it keeps an
-// expanded concept's index.md ("data/<map>/<concept>/index.md"), because that
-// file is where the expanded concept's links live.
+// its KB-relative physical path, including an expanded concept's index.md
+// ("data/<map>/<concept>/index.md"), because that file is where its links live.
 func linkSourceFromGitPath(gitPath string) (id, rel string, ok bool) {
 	if id, ok := kb.GitPathToConceptID(gitPath); ok {
 		return id, strings.TrimPrefix(gitPath, "data/"), true

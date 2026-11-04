@@ -15,6 +15,26 @@ import (
 // The label may hold one level of balanced brackets ("[RFC] foo"); groups stay (label, href).
 var mdLinkRe = regexp.MustCompile(`\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]+)\)`)
 
+// linkDest returns the bounds of the destination inside the parenthesised part
+// of a markdown link, which may carry a title after it: `a.md "T"`, `a.md 'T'`,
+// `a.md (T)`, or `<a b.md> "T"` (CommonMark). Everything that reads or rewrites
+// a destination goes through it, so a titled link is a link and a rewrite keeps
+// the title.
+func linkDest(raw string) (start, end int) {
+	start = len(raw) - len(strings.TrimLeft(raw, " \t\n"))
+	rest := raw[start:]
+	if strings.HasPrefix(rest, "<") {
+		if i := strings.Index(rest, ">"); i > 0 {
+			return start + 1, start + i
+		}
+	}
+	end = start + len(rest)
+	if i := strings.IndexAny(rest, " \t\n"); i >= 0 {
+		end = start + i
+	}
+	return start, end
+}
+
 // wikiLinkRe matches wiki-links [[id]], [[id#section]] and the alias forms
 // [[id|text]] / [[id#section|text]] (D150). The ID is capture group 1: whatever
 // precedes the first "|" or "#". The label is deliberately not returned —
@@ -173,7 +193,8 @@ func ExtractLinks(body string, basePath string, assetResolver ...func(relPath st
 	// this function never reported or rewrites one it does not know about.
 	// Pinned by TestRewriteLinks_MatchesExtractLinks.
 	for _, m := range mdLinkRe.FindAllStringSubmatch(body, -1) {
-		if id, ok := mdLinkTarget(baseDir, m[2], isAsset); ok {
+		ds, de := linkDest(m[2])
+		if id, ok := mdLinkTarget(baseDir, m[2][ds:de], isAsset); ok {
 			addID(id)
 		}
 	}
@@ -275,7 +296,8 @@ func ExtractAssetLinks(body string, basePath string, assetResolver ...func(relPa
 	seen := map[string]bool{}
 	var links []string
 	for _, m := range mdLinkRe.FindAllStringSubmatch(body, -1) {
-		raw := m[2]
+		ds, de := linkDest(m[2])
+		raw := m[2][ds:de]
 		if strings.Contains(raw, "://") || strings.HasPrefix(raw, "#") || strings.HasPrefix(raw, "mailto:") || strings.HasPrefix(raw, "/") {
 			continue
 		}
@@ -353,7 +375,8 @@ func RewriteLinks(body string, basePath string, moveMap map[string]string, asset
 	var edits []spanEdit
 
 	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
-		hrefStart, hrefEnd := m[4], m[5]
+		ds, de := linkDest(masked[m[4]:m[5]])
+		hrefStart, hrefEnd := m[4]+ds, m[4]+de
 		href := masked[hrefStart:hrefEnd]
 		targetID, ok := mdLinkTarget(baseDir, href, isAsset)
 		if !ok {
@@ -417,7 +440,8 @@ func UnlinkTargets(body string, basePath string, targets map[string]bool, assetR
 	var edits []spanEdit
 
 	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
-		targetID, ok := mdLinkTarget(baseDir, masked[m[4]:m[5]], isAsset)
+		ds, de := linkDest(masked[m[4]:m[5]])
+		targetID, ok := mdLinkTarget(baseDir, masked[m[4]+ds:m[4]+de], isAsset)
 		if !ok || !targets[targetID] {
 			continue
 		}
@@ -506,7 +530,8 @@ func rewriteOutboundLinks(body, oldBase, newBase string, moveMap map[string]stri
 	masked := MaskCodeSpans(body)
 	var edits []spanEdit
 	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
-		hrefStart, hrefEnd := m[4], m[5]
+		ds, de := linkDest(masked[m[4]:m[5]])
+		hrefStart, hrefEnd := m[4]+ds, m[4]+de
 		href := masked[hrefStart:hrefEnd]
 		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "/") {
 			continue
