@@ -101,3 +101,27 @@ func TestBuildManifest_UntrackedVariantIsIgnored(t *testing.T) {
 		t.Fatalf("an untracked descriptor was served: %+v", got)
 	}
 }
+
+// A symlinked variants/ directory is a link the manifest reports, and no
+// descriptor behind it is read (ReadArtifactFilesCapped checks variants/, not skills/).
+func TestReadArtifactFilesCapped_SymlinkedVariantsDir(t *testing.T) {
+	root := variantKB(t, map[string]string{"variants/fork-cli.yaml": variantGood}, true)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "fork-cli.yaml"), []byte(variantGood), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": root}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := variantArtifacts(m)["fork-cli"]
+	if err := os.RemoveAll(filepath.Join(root, "variants")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "variants")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if files, err := provisioning.ReadArtifactFilesCapped(a, nil, map[string]string{"kb-a": root}); err == nil {
+		t.Fatalf("read through a symlinked variants/: %v", files)
+	}
+}

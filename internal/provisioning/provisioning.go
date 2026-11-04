@@ -1138,10 +1138,8 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					issues = append(issues, fmt.Sprintf("KB %q: variant %q left out: %v", kbName, name, parseErr))
 					continue
 				}
-				hash, hashErr := contentHashFile(varPath)
-				if hashErr != nil {
-					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/variants/%s: %w", kbName, name, hashErr)
-				}
+				// The bytes parsed above are the bytes hashed: no second read.
+				hash := hashArtifactFiles([]ArtifactFile{{Path: e.Name(), Content: data}})
 				artifacts = append(artifacts, Artifact{Kind: "variant", Name: name, Source: "kb:" + kbName, ContentHash: hash})
 			}
 		}
@@ -5124,6 +5122,8 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 		artifactRel = "agents/" + a.Name + ".md"
 	case "mcp":
 		artifactRel = "mcp/" + a.Name + ".json"
+	case "variant":
+		artifactRel = "variants/" + a.Name + ".yaml"
 	case "hook":
 		artifactRel = "hooks/" + a.Name
 	default:

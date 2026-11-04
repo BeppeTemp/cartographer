@@ -505,11 +505,11 @@ func toolTemplateList(k *kb.KB) Tool {
 func toolArtifactWrite(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_write",
-		Description: "Creates or updates a KB-root artifact (skills/<slug>/**, agents/<slug>.md, " +
-			"hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). " +
+		Description: "Writes a KB-root artifact (skills/<slug>/**, agents/<slug>.md, " +
+			"hooks/**, mcp/<slug>.json, variants/<slug>.yaml, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). " +
 			"On an existing file, if_match (sha256 from artifact_read/artifact_list) is required: " +
-			"stale_write if missing or different. On a new file omit it: already_exists if it exists. " +
-			"Validates structured artifacts before writing: template frontmatter and variables, " +
+			"stale_write if missing or different. New file: omit it, already_exists if present. " +
+			"Validates before writing: template frontmatter and variables, " +
 			"the paths.yaml schema (paths:/repos: key -> {description, default: ~/…, remote}) and the glossary.yaml schema " +
 			"(terms: list of {canonical, aliases: [..], forbidden: [..]}).",
 		InputSchema: json.RawMessage(`{
@@ -1039,8 +1039,8 @@ func validateAgentArtifact(slug string, data []byte) error {
 func toolArtifactDelete(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_delete",
-		Description: "Deletes a KB-root artifact file (skills/<slug>/**, agents/<slug>.md, hooks/**, " +
-			"mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml), and its now-empty containing artifact " +
+		Description: "Deletes an artifact file (skills/<slug>/**, agents/<slug>.md, hooks/**, " +
+			"mcp/<slug>.json, variants/<slug>.yaml, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml), and its now-empty containing artifact " +
 			"directory for skills/hooks. if_match (sha256 of the current content, from " +
 			"artifact_read/artifact_list) is required.",
 		InputSchema: json.RawMessage(`{
