@@ -199,7 +199,7 @@ func runDoctor(dir, only string) doctorReport {
 
 	cfg, cfgErr := clientconfig.Load(dir)
 	if cfgErr == nil {
-		handleUnsupportedProviders(dir, cfg, false)
+		handleUnsupportedProviders(os.Stderr, dir, cfg, false)
 	}
 	findings := checkClientConfig(dir, cfg, cfgErr, only)
 	if cfgErr == nil {

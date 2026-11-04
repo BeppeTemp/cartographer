@@ -152,7 +152,7 @@ func TestDryRunReportsAnUnsupportedProviderWithoutWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stderr := withStderr(t, func() { handleUnsupportedProviders(dir, loaded, false) })
+	stderr := withStderr(t, func() { handleUnsupportedProviders(os.Stderr, dir, loaded, false) })
 	if !strings.Contains(stderr, "hermes: this agent client is no longer supported") {
 		t.Errorf("no notice:\n%s", stderr)
 	}

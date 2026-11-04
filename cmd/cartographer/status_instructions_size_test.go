@@ -89,17 +89,17 @@ func TestSync_InstructionsSizeWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	results := map[string]provisioning.AppliedResult{"codex": {}}
-	if out := withStdout(t, func() { printInstructionsSizeWarnings(home, results, false) }); !strings.Contains(out, "[codex] instructions block") {
+	if out := withStdout(t, func() { printInstructionsSizeWarnings(os.Stdout, home, results, false) }); !strings.Contains(out, "[codex] instructions block") {
 		t.Errorf("sync must print the line when over: %q", out)
 	}
-	if out := withStdout(t, func() { printInstructionsSizeWarnings(home, results, true) }); out != "" {
+	if out := withStdout(t, func() { printInstructionsSizeWarnings(os.Stdout, home, results, true) }); out != "" {
 		t.Errorf("a dry run prints nothing: %q", out)
 	}
 	lf = blockFile(t, home, map[string]int{"kb-a": 500}, true)
 	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
 		t.Fatal(err)
 	}
-	if out := withStdout(t, func() { printInstructionsSizeWarnings(home, results, false) }); out != "" {
+	if out := withStdout(t, func() { printInstructionsSizeWarnings(os.Stdout, home, results, false) }); out != "" {
 		t.Errorf("no line when under: %q", out)
 	}
 }

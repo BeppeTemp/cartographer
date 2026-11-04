@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -1175,77 +1176,31 @@ func TestViewServerPanel_ReadableAtReducedWidth(t *testing.T) {
 
 // --- D175 WP4: actions consistent with the bindings ------------------------
 
-// TestUpdate_SyncAllIsSequentialAndNamesTheProviderInFlight
-func TestUpdate_SyncAllIsSequentialAndNamesTheProviderInFlight(t *testing.T) {
+// TestUpdate_SyncAllIsOneRunAndKeepsItsOutcome: S starts a single runSync over
+// every connected provider, and its outcome is shown whatever else is queued.
+func TestUpdate_SyncAllIsOneRunAndKeepsItsOutcome(t *testing.T) {
 	m := testModel()
 	m.rows[0].Connected = true // both rows connected
 
 	next, cmd := m.Update(keyMsg("S"))
 	m = next.(Model)
-	if !m.syncingAll || cmd == nil {
+	if !m.busy || cmd == nil {
 		t.Fatal("S must start a sync-all run")
 	}
-	if !strings.Contains(m.message, "one at a time") {
-		t.Errorf("the message must say the run is sequential, got %q", m.message)
-	}
 
-	next, cmd = m.Update(syncProgressMsg{provider: "opencode"})
+	next, cmd = m.Update(syncAllDoneMsg{providers: []string{"claude", "opencode"}})
 	m = next.(Model)
-	if m.message != "syncing opencode…" {
-		t.Errorf("progress message = %q, want the provider in flight", m.message)
+	if m.busy || !m.loading || cmd == nil {
+		t.Errorf("the outcome must free the list and reread the status: busy=%v loading=%v", m.busy, m.loading)
 	}
-	if cmd == nil {
-		t.Error("the progress listener must re-arm itself")
+	if !strings.Contains(m.message, "synced claude, opencode") {
+		t.Errorf("message = %q", m.message)
 	}
 
-	// The outcome must survive a progress message still in flight behind it.
-	next, _ = m.Update(syncAllDoneMsg{done: []string{"claude", "opencode"}})
-	m = next.(Model)
-	if m.syncingAll {
-		t.Error("syncingAll must be cleared by the outcome")
-	}
-	outcome := m.message
-	next, cmd = m.Update(syncProgressMsg{provider: "opencode"})
-	if got := next.(Model).message; got != outcome {
-		t.Errorf("a late progress message overwrote the outcome: %q", got)
-	}
-	if cmd != nil {
-		t.Error("a late progress message must not re-arm the listener")
-	}
-}
-
-// TestWaitForSyncProgressCmd: one announcement per call, nil once the run has
-// closed the channel.
-func TestWaitForSyncProgressCmd(t *testing.T) {
-	ch := make(chan string, 2)
-	ch <- "claude"
-	close(ch)
-
-	if msg := waitForSyncProgressCmd(ch)(); msg != (syncProgressMsg{provider: "claude"}) {
-		t.Errorf("first read = %#v, want the announced provider", msg)
-	}
-	if msg := waitForSyncProgressCmd(ch)(); msg != nil {
-		t.Errorf("a closed channel must end the chain, got %#v", msg)
-	}
-}
-
-// TestSyncAllCmdAnnouncesEveryProviderInOrder: sequential, and reported as
-// such. The sync itself fails here (no config in the temp dir) — the point is
-// that the announcement precedes the work and the run is ordered.
-func TestSyncAllCmdAnnouncesEveryProviderInOrder(t *testing.T) {
-	dir := t.TempDir()
-	progress := make(chan string, 3)
-	msg := syncAllCmd([]string{"claude", "codex", "kiro"}, dir, progress)()
-
-	if _, ok := msg.(syncAllDoneMsg); !ok {
-		t.Fatalf("syncAllCmd returned %#v, want syncAllDoneMsg", msg)
-	}
-	var got []string
-	for p := range progress { // closed by syncAllCmd: this must terminate
-		got = append(got, p)
-	}
-	if len(got) == 0 || got[0] != "claude" {
-		t.Errorf("announcements = %v, want them to start at the first provider", got)
+	// A stderr note of the run reaches the message instead of the terminal.
+	next, _ = m.Update(syncAllDoneMsg{providers: []string{"claude"}, notes: "warning: one\nwarning: two"})
+	if got := next.(Model).message; !strings.Contains(got, "warning: one (…)") {
+		t.Errorf("the run's notes must reach the message, got %q", got)
 	}
 }
 
@@ -1259,9 +1214,6 @@ func TestUpdate_EnterSyncsOnlyTheSelectedProvider(t *testing.T) {
 	m = next.(Model)
 	if cmd == nil || !strings.Contains(m.message, "opencode") {
 		t.Errorf("s must sync the selected provider, message = %q", m.message)
-	}
-	if m.syncingAll {
-		t.Error("a single-provider sync must not enter the sync-all run")
 	}
 }
 
@@ -1349,8 +1301,8 @@ func TestFormatDiffStatus_CountsWhatApplyHolds(t *testing.T) {
 // providers that synced before the failure, used to stay there forever.
 func TestSyncAllFailureReloadsTheStatus(t *testing.T) {
 	m := testModel()
-	m.syncingAll, m.busy = true, true
-	next, cmd := m.Update(syncAllDoneMsg{done: []string{"claude"}, failed: "opencode", err: errors.New("boom")})
+	m.busy = true
+	next, cmd := m.Update(syncAllDoneMsg{providers: []string{"claude", "opencode"}, err: errors.New("boom")})
 	m = next.(Model)
 	if cmd == nil || !m.loading {
 		t.Fatal("a failed sync must start the status reload, with loading set")
@@ -1358,7 +1310,7 @@ func TestSyncAllFailureReloadsTheStatus(t *testing.T) {
 	if m.err == nil || !strings.Contains(m.message, "failed") {
 		t.Errorf("the failure must stay visible: err=%v message=%q", m.err, m.message)
 	}
-	if m.busy || m.syncingAll {
+	if m.busy {
 		t.Error("the failure must release the busy state")
 	}
 	next, _ = m.Update(remoteStatusMsg{statuses: map[string]string{}})
@@ -1387,7 +1339,7 @@ func TestListIgnoresWriteKeysWhileBusy(t *testing.T) {
 			t.Errorf("key %q left the list while busy", k)
 		}
 	}
-	next, _ = m.Update(syncAllDoneMsg{done: []string{"claude", "opencode"}})
+	next, _ = m.Update(syncAllDoneMsg{providers: []string{"claude", "opencode"}})
 	if next.(Model).busy {
 		t.Error("the done message must release busy")
 	}
@@ -1454,5 +1406,142 @@ func TestMCPConfigStatusFollowsTheRoutedTopology(t *testing.T) {
 	cfg.ServerRoutedPath = ""
 	if got := mcpConfigStatusFor(dir, configurator.ProviderCodex, cfg, "cartographer", cfg.KnownKBs, cfg.KnownKBs); got == mcpConfigInSync {
 		t.Errorf("per-KB server with one entry: state = %v, want not in-sync", got)
+	}
+}
+
+// The dashboard sync is runSync: what the CLI heals around the manifest happens
+// here too, and nothing it prints reaches the process streams under the
+// dashboard's inline frame. A client the registry dropped is both: the CLI
+// cleans it with a notice on stderr.
+func TestDashboardSyncIsRunSyncAndWritesNothingToTheTerminal(t *testing.T) {
+	srv := syncPullServer(t, func(kb string) (string, bool) {
+		return syncPullPayload(t, kb, "skill-"+kb), false
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude", "hermes"}, KnownKBs: []string{"one", "gone"},
+		Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"one"}}, "hermes": {KBs: []string{"one"}}},
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var res syncResult
+	var notes string
+	var runErr error
+	stdout := withStdout(t, func() {
+		stderr := withStderr(t, func() { res, notes, runErr = dashboardSync(dir, []string{"claude"}) })
+		if stderr != "" {
+			t.Errorf("the dashboard sync wrote to stderr: %q", stderr)
+		}
+	})
+	if stdout != "" {
+		t.Errorf("the dashboard sync wrote to stdout: %q", stdout)
+	}
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	if len(res.Applied["claude"].Written) == 0 {
+		t.Errorf("claude was not synced: %+v", res.Applied)
+	}
+	// The CLI's reconciliation ran: the vanished KB left known_kbs.
+	after, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(after.KnownKBs, "gone") {
+		t.Errorf("known_kbs kept a KB the server no longer mounts: %v", after.KnownKBs)
+	}
+	if !strings.Contains(notes, "hermes") {
+		t.Errorf("the dropped client's notice must reach the message, got %q", notes)
+	}
+}
+
+// A ready probe on a server with two KBs and an unbound provider opens the KB
+// choice (D190) instead of failing forever; the selection reaches the connect.
+// One KB connects directly.
+func TestConnectOnAMultiKBServerAsksWhichKBs(t *testing.T) {
+	m := testModel()
+	m.formProvider = "claude"
+	m.screen = screenConnect
+	m.busy, m.submitting = true, true
+	opts := connectOptions{Providers: []string{"claude"}}
+
+	next, cmd := m.Update(kbChoiceMsg{provider: "claude", opts: opts, names: []string{"kb-a", "kb-b"}})
+	m = next.(Model)
+	if m.screen != screenKBSelect || cmd != nil || m.submitting {
+		t.Fatalf("want the KB choice screen: screen=%v submitting=%v", m.screen, m.submitting)
+	}
+	// Enter with nothing ticked asks again; space then enter connects.
+	next, cmd = m.Update(keyMsg("enter"))
+	m = next.(Model)
+	if cmd != nil || m.screen != screenKBSelect {
+		t.Fatal("an empty selection must not connect")
+	}
+	next, _ = m.Update(keyMsg(" "))
+	m = next.(Model)
+	next, cmd = m.Update(keyMsg("enter"))
+	m = next.(Model)
+	if cmd == nil || !m.submitting || strings.Join(m.kbSelect.chosen(), ",") != "kb-a" {
+		t.Fatalf("the selection must start the connect: submitting=%v chosen=%v", m.submitting, m.kbSelect.chosen())
+	}
+
+	// A failed connect returns to the form, not to the KB choice.
+	next, _ = m.Update(connectDoneMsg{provider: "claude", err: errors.New("boom")})
+	if got := next.(Model).screen; got != screenConnect {
+		t.Errorf("after a failed connect screen = %v, want the form", got)
+	}
+
+	// Esc goes back to the form without connecting.
+	m.screen, m.submitting = screenKBSelect, false
+	m.kbSelect = newKBSelectModel([]string{"kb-a", "kb-b"})
+	next, cmd = m.Update(keyMsg("esc"))
+	if got := next.(Model); got.screen != screenConnect || cmd != nil {
+		t.Errorf("esc: screen=%v cmd=%v", got.screen, cmd)
+	}
+
+	// One KB: straight to the connect.
+	next, cmd = testModel().Update(kbChoiceMsg{provider: "claude", opts: opts})
+	if next.(Model).screen == screenKBSelect || cmd == nil {
+		t.Error("a server with one KB must connect directly")
+	}
+}
+
+// kbChoiceCmd asks only when there is a choice to make: two KBs listed and a
+// provider without a binding; a binding already there, or --kb, skips it.
+func TestKBChoiceCmdAsksOnlyForAnUnboundProviderOnAMultiKBServer(t *testing.T) {
+	srv := syncPullServer(t, func(kb string) (string, bool) { return syncPullPayload(t, kb, "s-"+kb), false })
+	defer srv.Close()
+	dir := t.TempDir()
+	opts := connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer"}
+
+	msg := kbChoiceCmd("claude", opts)().(kbChoiceMsg)
+	if len(msg.names) != 2 {
+		t.Fatalf("an unbound provider on a two-KB server must be asked, got %v", msg.names)
+	}
+	opts.KBs = []string{"one"}
+	if msg := kbChoiceCmd("claude", opts)().(kbChoiceMsg); len(msg.names) != 0 {
+		t.Errorf("--kb given: no choice expected, got %v", msg.names)
+	}
+}
+
+// The recorded opt-in to a cleartext server is carried into the dashboard's
+// connect, so the probe and doConnect do not refuse what the CLI accepts and
+// the saved value stays true.
+func TestDashboardConnectCarriesTheRecordedInsecureHTTPOptIn(t *testing.T) {
+	dir := t.TempDir()
+	if err := clientconfig.Save(dir, &clientconfig.Config{ServerURL: "http://example.com:39273/mcp", ServerName: "cartographer", AllowInsecureHTTP: true}); err != nil {
+		t.Fatal(err)
+	}
+	m := testModel()
+	m.dir = dir
+	m = m.openConnectForm(m.rows[0])
+	if !m.allowInsecureHTTP {
+		t.Fatal("the form must remember the recorded opt-in")
 	}
 }

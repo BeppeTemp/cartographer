@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -588,7 +589,7 @@ func deferralReason(err error) string {
 // factored out so both the non-interactive path and the interactive retry
 // loop in cmdConnect (D64) share exactly one rendering of a successful result.
 func printConnectResult(dir string, providers []string, opts connectOptions, res connectResult) {
-	printMCPEntryLines(providers, res.MCPEntries, opts.DryRun)
+	printMCPEntryLines(os.Stdout, providers, res.MCPEntries, opts.DryRun)
 	for _, p := range res.ConfigsWritten {
 		if opts.DryRun {
 			fmt.Printf("[dry-run] would write %s\n", p)
@@ -603,7 +604,7 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	if res.Deferred {
 		fmt.Fprintf(os.Stderr, "Warning: skill sync deferred, %s: %v\n", deferralReason(res.DeferredErr), res.DeferredErr)
 	} else {
-		printApplySummary(dir, res.Applied, opts.DryRun)
+		printApplySummary(os.Stdout, dir, res.Applied, opts.DryRun)
 	}
 
 	for _, p := range providers {
@@ -917,7 +918,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	if _, statErr := os.Stat(clientconfig.Path(opts.Dir)); statErr == nil {
 		// connect saves the config itself, which drops the name; the lockfile
 		// section goes with the next sync.
-		handleUnsupportedProviders(opts.Dir, existing, false)
+		handleUnsupportedProviders(os.Stderr, opts.Dir, existing, false)
 	}
 	// A client that installed nothing yet has no pre-approval install for the
 	// first sync to migrate: connect writes the marker itself, so that sync
@@ -1204,12 +1205,12 @@ func (o connectOptions) tokenEnvName() string {
 // entries from the client config alone: without scoping to the providers that
 // actually have an emitter, either would announce a write into a file it does
 // not name and cannot have touched (D147).
-func printMCPEntryLines(providers, entries []string, dryRun bool) {
+func printMCPEntryLines(w io.Writer, providers, entries []string, dryRun bool) {
 	for _, entry := range entries {
 		if dryRun {
-			fmt.Printf("[dry-run] would write MCP entry %s\n", entry)
+			fmt.Fprintf(w, "[dry-run] would write MCP entry %s\n", entry)
 		} else {
-			fmt.Printf("wrote MCP entry %s\n", entry)
+			fmt.Fprintf(w, "wrote MCP entry %s\n", entry)
 		}
 	}
 }
@@ -1220,7 +1221,7 @@ func printMCPEntryLines(providers, entries []string, dryRun bool) {
 // rewrite, and printing it as a removal would make a no-op sync look
 // destructive. Under --dry-run this is the half of the plan that was missing
 // entirely (D172 WP4).
-func printMCPEntryRemovals(providers []string, removed map[string][]string, applied []string, dryRun bool) {
+func printMCPEntryRemovals(w io.Writer, providers []string, removed map[string][]string, applied []string, dryRun bool) {
 	keep := make(map[string]bool, len(applied))
 	for _, name := range applied {
 		keep[name] = true
@@ -1239,9 +1240,9 @@ func printMCPEntryRemovals(providers []string, removed map[string][]string, appl
 	sort.Strings(gone)
 	for _, name := range gone {
 		if dryRun {
-			fmt.Printf("[dry-run] would remove MCP entry %s\n", name)
+			fmt.Fprintf(w, "[dry-run] would remove MCP entry %s\n", name)
 		} else {
-			fmt.Printf("removed MCP entry %s\n", name)
+			fmt.Fprintf(w, "removed MCP entry %s\n", name)
 		}
 	}
 }
@@ -1250,7 +1251,7 @@ func printMCPEntryRemovals(providers []string, removed map[string][]string, appl
 // A dry run that showed every artifact and every MCP entry but not this was
 // an incomplete plan: the persisted KB list is what the next run reconciles
 // against (D172 WP4).
-func printKnownKBsChange(previous, current []string, dryRun bool) {
+func printKnownKBsChange(w io.Writer, previous, current []string, dryRun bool) {
 	if sameStringSet(previous, current) {
 		return
 	}
@@ -1258,7 +1259,7 @@ func printKnownKBsChange(previous, current []string, dryRun bool) {
 	if dryRun {
 		verb = "[dry-run] would update"
 	}
-	fmt.Printf("%s known_kbs: %s → %s\n", verb, kbListLabel(previous), kbListLabel(current))
+	fmt.Fprintf(w, "%s known_kbs: %s → %s\n", verb, kbListLabel(previous), kbListLabel(current))
 }
 
 // kbListLabel renders a KB list for a one-line diff, sorted so the two sides

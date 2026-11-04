@@ -271,6 +271,9 @@ func cmdWorkspaceBind(args []string) int {
 			kbs = append(kbs, splitCommaList([]string{args[i]})...)
 		case strings.HasPrefix(args[i], "--kb="):
 			kbs = append(kbs, splitCommaList([]string{strings.TrimPrefix(args[i], "--kb=")})...)
+		case args[i] == "--kb": // the one with no value left (the case above takes the others)
+			fmt.Fprintln(os.Stderr, "Error: --kb needs a value: a KB name, comma-separated names, or --no-kb for none")
+			return 2
 		case strings.HasPrefix(args[i], "-"):
 			fmt.Fprintf(os.Stderr, "Error: unknown flag %q\n%s\n", args[i], workspaceUsage)
 			return 2
@@ -430,13 +433,16 @@ func cmdWorkspaceUnbind(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: %s has no workspace binding for %s (see `cartographer workspace list %s`)\n", provider, path, provider)
 		return 1
 	}
+	if derivedHere {
+		// Nothing is removed, so nothing is saved and no success line follows:
+		// the binding stays and a sync would remove nothing.
+		fmt.Fprintf(os.Stderr, "note: %s is bound by a KB's paths.yaml, not by a `workspace bind`, so there is nothing to unbind; "+
+			"`cartographer workspace bind %s %s --no-kb` opts it out on this machine, `bind: false` in the KB's paths.yaml for everyone\n", path, provider, path)
+		return 1
+	}
 	if err := cfg.UnbindWorkspace(provider, path); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
-	}
-	if derivedHere {
-		fmt.Fprintf(os.Stderr, "note: %s is bound by a KB's paths.yaml, not by a `workspace bind`, so there is nothing to unbind; "+
-			"`cartographer workspace bind %s %s --no-kb` opts it out on this machine, `bind: false` in the KB's paths.yaml for everyone\n", path, provider, path)
 	}
 	if len(cfg.WorkspaceBindings(provider)) == 0 {
 		// The last workspace: the provider goes back to the global catalogue,
@@ -469,6 +475,10 @@ func cmdWorkspaceList(args []string) int {
 	}
 	providers := cfg.Agents
 	if len(args) == 1 {
+		if _, ok := configurator.Lookup(configurator.Provider(args[0])); !ok {
+			fmt.Fprintf(os.Stderr, "Error: unknown provider %q\n", args[0])
+			return 2
+		}
 		providers = []string{args[0]}
 	}
 	sort.Strings(providers)
@@ -546,6 +556,10 @@ func cmdWorkspaceResolve(args []string) int {
 	}
 	providers := append([]string(nil), cfg.Agents...)
 	if provider != "" {
+		if _, ok := configurator.Lookup(configurator.Provider(provider)); !ok {
+			fmt.Fprintf(os.Stderr, "Error: unknown provider %q\n", provider)
+			return 2
+		}
 		providers = []string{provider}
 	}
 	sort.Strings(providers)
@@ -732,7 +746,7 @@ func allProjectionsPartial(cfg *clientconfig.Config, providers []string, clientB
 // workspaces is legal and must stay legal, while the same two bound to one
 // workspace is still refused.
 func manifestsForProjections(cfg *clientconfig.Config, projections []syncProjection) (map[string]provisioning.Manifest, error) {
-	out, _, err := buildProjectionManifests(cfg, projections, false, nil)
+	out, _, err := buildProjectionManifests(syncStreams{}, cfg, projections, false, nil)
 	return out, err
 }
 
@@ -742,14 +756,14 @@ func manifestsForProjections(cfg *clientconfig.Config, projections []syncProject
 // keeps its previous state — and the failures come back in KB order for the
 // caller to report. A projection that needs no failed KB is built exactly as
 // manifestsForProjections builds it.
-func manifestsForProjectionsPartial(cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
-	return buildProjectionManifests(cfg, projections, true, pre)
+func manifestsForProjectionsPartial(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
+	return buildProjectionManifests(st, cfg, projections, true, pre)
 }
 
 // buildProjectionManifests builds one manifest per projection. pre, when it
 // covers every KB the projections ask for, replaces the pulls (D1019: the
 // derivation already made them); nil pulls here.
-func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
+func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
 	out := make(map[string]provisioning.Manifest, len(projections))
 
 	// Every KB any projection asks for, pulled once.
@@ -813,7 +827,7 @@ func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjec
 		unavailable[f.KB] = true
 	}
 	if cs.HasBare {
-		fmt.Fprintln(os.Stderr, "warning: the server does not identify its KBs by name, so per-client KB bindings cannot be applied; every connected client receives everything it serves")
+		fmt.Fprintln(st.err(), "warning: the server does not identify its KBs by name, so per-client KB bindings cannot be applied; every connected client receives everything it serves")
 	}
 	pins, err := pinnedPublicKeys(cfg)
 	if err != nil {
@@ -854,7 +868,7 @@ func needsAny(kbs []string, unavailable map[string]bool) bool {
 // prepareWorkspace runs the repository-hygiene checks and exclusions for one
 // project-scoped projection, before anything is written there (WP5). A refusal
 // here costs nothing: no file has been touched yet.
-func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned ownedPathsFunc, local ...string) error {
+func prepareWorkspace(st syncStreams, p syncProjection, providers []string, dryRun bool, owned ownedPathsFunc, local ...string) error {
 	if p.Scope != provisioning.ScopeProject {
 		return nil
 	}
@@ -874,7 +888,7 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned o
 			// The exclude block is a convenience, not what the sync is for: a
 			// linked .git (D148) costs a warning and a dirty working tree, not
 			// the projection.
-			fmt.Fprintf(os.Stderr, "warning: workspace %s: git exclude left unchanged: %v\n", p.Workspace, err)
+			fmt.Fprintf(st.err(), "warning: workspace %s: git exclude left unchanged: %v\n", p.Workspace, err)
 			return nil
 		}
 		return err
@@ -1062,8 +1076,14 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 		}
 		if w.Derived {
 			if _, skipped := derivedInstructions(provider, w.Path); skipped != "" {
-				st.Detail = fmt.Sprintf("instructions not written: %s is tracked by git and a derived binding never edits a tracked file — `cartographer workspace bind %s %s --kb %s` writes the block there",
+				// Appended: for a Codex binding that is not trusted the detail
+				// already says why it is inactive, and the fix points at it.
+				note := fmt.Sprintf("instructions not written: %s is tracked by git and a derived binding never edits a tracked file — `cartographer workspace bind %s %s --kb %s` writes the block there",
 					skipped, provider, w.Path, strings.Join(w.KBs, ","))
+				if st.Detail != "" {
+					note = st.Detail + "; " + note
+				}
+				st.Detail = note
 			}
 		}
 		if w.Derived {
@@ -1286,7 +1306,7 @@ func joinCapped(items []string, max int) string {
 // removed by `disconnect`, which owns that decision — reaching it from here
 // would delete a connected provider's catalogue because it was absent from one
 // `sync --client` invocation.
-func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProjection, manifests map[string]provisioning.Manifest, clientBaseDir string) ([]string, error) {
+func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, declared []syncProjection, manifests map[string]provisioning.Manifest, clientBaseDir string) ([]string, error) {
 	wanted := map[string]bool{}
 	providersInPlay := map[string]bool{}
 	for _, p := range declared {
@@ -1314,7 +1334,7 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 			if provisioning.IsRefusal(err) {
 				// Refused (D148): the projection stays in the lockfile, so the
 				// next sync retries it; the other projections are still pruned.
-				fmt.Fprintf(os.Stderr, "warning: %s not pruned: %v\n", key.String(), err)
+				fmt.Fprintf(st.err(), "warning: %s not pruned: %v\n", key.String(), err)
 				continue
 			}
 			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
@@ -1326,10 +1346,10 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 			if !provisioning.ExcludeWarning(err) {
 				return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 			}
-			fmt.Fprintf(os.Stderr, "warning: workspace %s: git exclude left unchanged: %v\n", key.Workspace, err)
+			fmt.Fprintf(st.err(), "warning: workspace %s: git exclude left unchanged: %v\n", key.Workspace, err)
 		}
 		pruned = append(pruned, key.String())
-		fmt.Printf("[%s] pruned the projection in %s\n", key.Provider, key.Workspace)
+		fmt.Fprintf(st.out(), "[%s] pruned the projection in %s\n", key.Provider, key.Workspace)
 	}
 	return pruned, nil
 }

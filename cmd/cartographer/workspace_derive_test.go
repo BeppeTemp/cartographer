@@ -253,6 +253,11 @@ func TestDerivedProjection_NeverEditsATrackedFile(t *testing.T) {
 		if len(ws) == 0 || !strings.Contains(ws[0].Detail, "AGENTS.md is tracked by git") || !strings.Contains(ws[0].Detail, "workspace bind") {
 			t.Errorf("status must name the tracked file and the explicit-bind alternative: %+v", ws)
 		}
+		// The Codex project is not trusted either: the instructions note is added
+		// to the reason it is inactive, not written over it.
+		if ws[0].State != "inactive" || !strings.Contains(ws[0].Detail, "trust_level") {
+			t.Errorf("the untrusted reason was lost: %+v", ws[0])
+		}
 	})
 	t.Run("nothing tracked behaves as an explicit bind", func(t *testing.T) {
 		repo := materializeDerived(t, "claude")

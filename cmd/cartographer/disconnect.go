@@ -195,7 +195,7 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 		// Before the lockfile is read: a removed client's section would
 		// otherwise keep len(lockFile.Providers) above zero, and the lockfile
 		// and token file of a fully disconnected client would stay (D898).
-		handleUnsupportedProviders(opts.Dir, cfg, !opts.DryRun)
+		handleUnsupportedProviders(os.Stderr, opts.Dir, cfg, !opts.DryRun)
 	}
 	lockPath := lockFilePath(opts.Dir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)

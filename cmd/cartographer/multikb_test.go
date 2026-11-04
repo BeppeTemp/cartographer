@@ -1179,7 +1179,7 @@ func TestPrepareWorkspace_ALinkedGitDirIsAWarning(t *testing.T) {
 	exclude := filepath.Join(real, ".git", "info", "exclude")
 	before, _ := os.ReadFile(exclude)
 	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
-	if err := prepareWorkspace(p, []string{"claude"}, false, rootsOwned); err != nil {
+	if err := prepareWorkspace(syncStreams{}, p, []string{"claude"}, false, rootsOwned); err != nil {
 		t.Fatalf("prepareWorkspace = %v, want the refusal as a warning", err)
 	}
 	if after, _ := os.ReadFile(exclude); string(after) != string(before) {
@@ -1361,5 +1361,21 @@ func TestEntriesByProvider_ReadOnlyKBsPerProviderAndNonRouted(t *testing.T) {
 	got, err = entriesByProviderForKBs(plain, []string{"kiro"}, "wiki", cfg.ServerURL, mounted, "/mcp/routed")
 	if err != nil || got["kiro"][0].URL != "https://example.test/mcp/routed?provisioned=1" {
 		t.Errorf("default = %+v %v", got["kiro"], err)
+	}
+}
+
+// A provider explicitly bound to no KBs gets no entry whatever the server
+// mounts: a bare entry on an empty or one-KB server would be open and route to
+// the next KB mounted.
+func TestExplicitEmptyBindingGetsNoEntryOnAnySmallServer(t *testing.T) {
+	cfg := &clientconfig.Config{Clients: map[string]clientconfig.ClientBinding{"codex": {KBsSet: true}}}
+	for _, mounted := range [][]string{nil, {"a"}, {"a", "b"}} {
+		got, err := entriesByProviderForKBs(cfg, []string{"codex"}, "wiki", "https://example.test/mcp", mounted, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got["codex"]) != 0 {
+			t.Errorf("mounted %v: entries = %+v, want none", mounted, got["codex"])
+		}
 	}
 }

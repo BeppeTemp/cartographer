@@ -280,7 +280,7 @@ func TestCmdPaths_IgnoreListUnsetAndSyncWarning(t *testing.T) {
 	}
 	results := map[string]provisioning.AppliedResult{"claude": {NewLock: lf.Providers["claude"]}}
 	warn := func() string {
-		return withStdout(t, func() { printApplySummary(home, results, false) })
+		return withStdout(t, func() { printApplySummary(os.Stdout, home, results, false) })
 	}
 
 	// Unprefixed and unknown to the lock is refused; prefixed or known is fine.

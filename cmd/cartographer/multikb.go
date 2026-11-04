@@ -570,7 +570,9 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			// never refreshes it at all.
 			bound = mounted
 		}
-		if explicit && len(bound) == 0 && len(mounted) > 1 {
+		if explicit && len(bound) == 0 {
+			// Whatever the server mounts now: with 0 or 1 KB the bare entry would
+			// be open, and route to the next KB mounted until the next sync.
 			out[p] = nil
 			continue
 		}

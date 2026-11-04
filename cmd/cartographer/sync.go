@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"sort"
@@ -83,7 +84,7 @@ func cmdSync(args []string) int {
 	if len(cfg.Agents) == 0 {
 		// Nothing left to sync, but a config that listed only a client the
 		// registry dropped (D898) must still be cleaned and say why.
-		handleUnsupportedProviders(dir, cfg, !*dryRun)
+		handleUnsupportedProviders(os.Stderr, dir, cfg, !*dryRun)
 		fmt.Println("no agent connected (run `cartographer connect`)")
 		return 0
 	}
@@ -122,12 +123,39 @@ type syncOptions struct {
 	// taking it (D172): runSync takes none, because a second descriptor on the
 	// lock file in the same process would block.
 	Locked bool
+	// Streams is where the run reports; the zero value is the process's own
+	// stdout and stderr. The dashboard passes buffers so that nothing a sync
+	// prints lands in the middle of its inline frame.
+	Streams syncStreams
+}
+
+// syncStreams are the two writers a sync reports to. A nil one is the
+// process stream, so every caller outside the dashboard leaves it zero.
+type syncStreams struct {
+	Out, Err io.Writer
+}
+
+func (s syncStreams) out() io.Writer {
+	if s.Out == nil {
+		return os.Stdout
+	}
+	return s.Out
+}
+
+func (s syncStreams) err() io.Writer {
+	if s.Err == nil {
+		return os.Stderr
+	}
+	return s.Err
 }
 
 // syncResult is the subset of a completed sync a caller may need beyond the
 // printed progress (e.g. upgrade-repair's success message).
 type syncResult struct {
 	Revision string
+	// Applied is the outcome per projection key, as materializeForProviders
+	// returned it.
+	Applied map[string]provisioning.AppliedResult
 }
 
 // runSync is the single in-process sync implementation: reconcile the
@@ -143,6 +171,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if err != nil {
 		return syncResult{}, err
 	}
+	out, errw := opts.Streams.out(), opts.Streams.err()
 
 	// Before the lock, so a run that cannot succeed takes none, and before the
 	// first network call, so --dry-run is diagnosed exactly like a real sync.
@@ -169,13 +198,13 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 	// Under the lock: it rewrites the config and the lockfile (D898).
-	handleUnsupportedProviders(dir, cfg, !opts.DryRun)
+	handleUnsupportedProviders(errw, dir, cfg, !opts.DryRun)
 
 	// A plan restricted to some providers must say so: read without the
 	// command line that produced it, a partial plan looks like a complete one
 	// (D170 WP2, D172 WP4).
 	if opts.DryRun && len(opts.Clients) > 0 {
-		fmt.Printf("[dry-run] plan for %s only; other connected providers are untouched\n", strings.Join(targets, ", "))
+		fmt.Fprintf(out, "[dry-run] plan for %s only; other connected providers are untouched\n", strings.Join(targets, ", "))
 	}
 
 	// The KB list as it was persisted: what this client may own MCP entries
@@ -196,14 +225,14 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	kbs := facts.Names
 	var entriesByProvider map[string][]mcpEntry
 	if healthErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: MCP entry reconciliation skipped, server unreachable: %v\n", healthErr)
+		fmt.Fprintf(errw, "Warning: MCP entry reconciliation skipped, server unreachable: %v\n", healthErr)
 	} else {
 		// The server that answers now may not be the one this client's state
 		// was materialized against (D142): say so once, then sync normally.
 		// The sync wording, not the status/doctor one: this run is the repair
 		// (D220).
 		if notice := syncServerChangeNotice(dir, targets, facts.Version); notice != "" {
-			fmt.Println(notice)
+			fmt.Fprintln(out, notice)
 		}
 		entryKBs := kbs
 		if !facts.Listed {
@@ -261,7 +290,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Providers: providerFailures})
 		}
 	}
-	manifests, pullFailures, err := manifestsForProjectionsPartial(cfg, projections, pre)
+	manifests, pullFailures, err := manifestsForProjectionsPartial(opts.Streams, cfg, projections, pre)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
 	}
@@ -319,11 +348,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			warnings = append(warnings, w)
 		}
 		for _, w := range warnings {
-			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+			fmt.Fprintf(errw, "warning: %s\n", w)
 		}
-		printMCPEntryRemovals(targets, removedNames, allEntryNames(entriesByProvider), opts.DryRun)
+		printMCPEntryRemovals(out, targets, removedNames, allEntryNames(entriesByProvider), opts.DryRun)
 		writtenEntries := changedMCPEntries(targets, entriesByProvider, beforeSnap, dir, claudeDirs, cfg.Auth, cfg.TokenEnv())
-		printMCPEntryLines(targets, writtenEntries, opts.DryRun)
+		printMCPEntryLines(out, targets, writtenEntries, opts.DryRun)
 	}
 
 	// Do not write even the local bootstrap hook until the complete remote
@@ -333,7 +362,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 	for _, w := range hookWarnings {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		fmt.Fprintf(errw, "warning: %s\n", w)
 	}
 
 	if err := commitDerived(); err != nil {
@@ -342,13 +371,13 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 
 	approvals := cfg.ApprovedMCPHashes()
 	if healthErr == nil {
-		printKnownKBsChange(previousKnownKBs, kbs, opts.DryRun)
+		printKnownKBsChange(out, previousKnownKBs, kbs, opts.DryRun)
 		if opts.DryRun {
 			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
-				approvals = previewPreApprovalInstalls(os.Stdout, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
+				approvals = previewPreApprovalInstalls(out, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
 			}
 			if changed, serr := clientconfig.SaveWouldRewrite(dir, cfg); serr == nil && changed {
-				fmt.Printf("[dry-run] would rewrite %s\n", clientconfig.Path(dir))
+				fmt.Fprintf(out, "[dry-run] would rewrite %s\n", clientconfig.Path(dir))
 			}
 		} else {
 			mounted := cfg.KnownKBs
@@ -356,7 +385,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			// D1166: before the apply, so what a pre-D1141 client installed is
 			// approved by this very run instead of frozen by it.
 			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
-				migratePreApprovalInstalls(os.Stdout, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
+				migratePreApprovalInstalls(out, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
 			}
 			approvals = cfg.ApprovedMCPHashes()
 			err := clientconfig.Save(dir, cfg)
@@ -367,13 +396,13 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths}, kbOrderForProviders(cfg, targets), approvals)
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
 	}
-	printApplySummary(dir, results, opts.DryRun)
-	printInstructionsSizeWarnings(dir, results, opts.DryRun)
-	printSyncRevisions(results, targets, opts.DryRun)
+	printApplySummary(out, dir, results, opts.DryRun)
+	printInstructionsSizeWarnings(out, dir, results, opts.DryRun)
+	printSyncRevisions(out, results, targets, opts.DryRun)
 	// D326: after the apply, so the lockfile names what was just materialised.
 	// A dry run changes nothing and neither does it report, and an unreachable
 	// server has nobody to report to.
@@ -382,9 +411,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		reportClientSettings(cfg, dir)
 	}
 	if len(pullFailures) > 0 || len(providerFailures) > 0 {
-		return syncResult{Revision: commonRevision(results, targets)}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
+		return syncResult{Revision: commonRevision(results, targets), Applied: results}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
 	}
-	return syncResult{Revision: commonRevision(results, targets)}, nil
+	return syncResult{Revision: commonRevision(results, targets), Applied: results}, nil
 }
 
 // partialSyncError reports a sync that went ahead without some KBs (#350):
@@ -572,18 +601,18 @@ func commonRevision(results map[string]provisioning.AppliedResult, providers []s
 // ordinary case — and one line per projection when bindings, or unsupported-kind
 // filtering (D184), made them diverge, so the output never implies an
 // agreement that does not exist.
-func printSyncRevisions(results map[string]provisioning.AppliedResult, providers []string, dryRun bool) {
+func printSyncRevisions(w io.Writer, results map[string]provisioning.AppliedResult, providers []string, dryRun bool) {
 	verb := "synced to"
 	if dryRun {
 		verb = "would sync to"
 	}
 	keys := revisionKeys(results, providers)
 	if rev := commonRevision(results, providers); rev != "" || len(keys) <= 1 {
-		fmt.Printf("%s revision %s\n", verb, rev)
+		fmt.Fprintf(w, "%s revision %s\n", verb, rev)
 		return
 	}
 	for _, key := range keys {
-		fmt.Printf("[%s] %s revision %s\n", projectionLabel(key), verb, results[key].NewLock.AppliedRevision)
+		fmt.Fprintf(w, "[%s] %s revision %s\n", projectionLabel(key), verb, results[key].NewLock.AppliedRevision)
 	}
 }
 

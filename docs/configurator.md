@@ -283,7 +283,7 @@ written into the workspace: `sync` writes the provider's global MCP entry as a l
 (deepest binding wins; an unbound folder, `$HOME` included, gets the provider's default set
 **read-only** and no KB artifact (D1018), or read-write when `unbound_access` says `write` (#1356, still no artifact); `--no-kb` means no KB, never every KB). `kb_options.<kb>.access: read` holds in every folder: the bridge carries it (D1409). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
 token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>] [--provider <p>]` shows which
-binding wins for a folder (for one provider, or each), says when it is derived from a KB's `paths.yaml` (D1019), and, for one that no binding covers, prints `access: read-only (default)`, `access: read-only (unbound_access)` or `access: read-write (unbound_access)`. `workspace list` shows the bindings, with `[gone]` next to a
+binding wins for a folder (for one provider, or each), says when it is derived from a KB's `paths.yaml` (D1019), and, for one that no binding covers, prints `access: read-only (default)`, `access: read-only (unbound_access)` or `access: read-write (unbound_access)`. `workspace unbind` on a binding derived from a KB's `paths.yaml` only prints the note and exits 1: it saves nothing. `workspace bind --kb` with no value, and a provider name `list` or `resolve --provider` does not know, are usage errors (exit 2). `workspace list` shows the bindings, with `[gone]` next to a
 directory that is not there any more and `[derived: paths.yaml of kb-a]` next to one a KB's declared repository implies, then the declared repositories with no local clone (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
 server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
 entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
@@ -533,13 +533,17 @@ installed, and the KB inventory with, per KB, how many connected providers are
 **bound** to it (a count of bindings: not sessions, and not a confirmation that
 a sync has run, so `kb-tre (0)` means the server serves it and nothing consumes
 it). `Enter` connects a disconnected provider or syncs a connected one; `s`
-syncs the selected provider, `S` syncs every connected provider one at a time
-and names the one in flight, `d` opens the disconnect confirmation — which
+syncs the selected provider, `S` syncs every connected provider in one run, `d` opens the disconnect confirmation — which
 names the KBs whose artifacts will be removed — and `r` refreshes. Unavailable
 actions are omitted from the contextual key map. At 60 columns it uses compact
 labels and shortened endpoints; 80 is the normal layout and 120 retains full
 endpoint and artifact detail. Failures keep the current selection and entered
-connect-form values.
+connect-form values. Both syncs are `cartographer sync --client <provider>` (the same `runSync`, so
+the known-KB refresh, the MCP entry reconciliation and the partial sync come with them), and what the
+run would print goes into the dashboard's message, never to the terminal. Connecting from the
+dashboard asks the same KB choice as `cartographer connect` (D190) after a successful probe, when the
+server mounts several KBs and the provider has no binding yet (`esc` goes back to the form), and keeps a
+recorded `allow_insecure_http`.
 
 ### `cartographer sync`
 
@@ -1588,7 +1592,7 @@ Main keys:
 |---|---|
 | `enter` | Connect (if not connected) or resync the **selected** provider |
 | `s` | Resync the **selected** connected provider (no-op on a disconnected one) |
-| `S` | Sync every connected provider, one at a time under a single client lock (D172) |
+| `S` | Sync every connected provider in one run, under the client lock (D172) |
 | `d` | Disconnect (if connected) — opens an inline `y`/`n` confirmation naming its KBs |
 | `r` | Refresh status |
 | `q` / `ctrl+c` | Quit |

@@ -119,7 +119,7 @@ func TestPrepareWorkspace_OwnsArtifactsNotDirectories(t *testing.T) {
 		return string(b)
 	}
 
-	if err := prepareWorkspace(p, []string{"codex"}, false, owner("kb-skill")); err != nil {
+	if err := prepareWorkspace(syncStreams{}, p, []string{"codex"}, false, owner("kb-skill")); err != nil {
 		t.Fatalf("a repository's own skill next to a projected one was refused: %v", err)
 	}
 	got := exclude()
@@ -130,7 +130,7 @@ func TestPrepareWorkspace_OwnsArtifactsNotDirectories(t *testing.T) {
 		t.Errorf("the directory or the repository's own skill is excluded:\n%s", got)
 	}
 
-	err := prepareWorkspace(p, []string{"codex"}, false, owner("own"))
+	err := prepareWorkspace(syncStreams{}, p, []string{"codex"}, false, owner("own"))
 	var collision *provisioning.TrackedCollisionError
 	if !errors.As(err, &collision) || !strings.Contains(err.Error(), ".agents/skills/own/SKILL.md") {
 		t.Errorf("a projected skill named like a tracked one = %v, want a collision naming it", err)
