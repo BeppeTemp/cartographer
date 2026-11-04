@@ -47,6 +47,13 @@ export function Splitter({
     onCommit(next);
   };
 
+  // Restoring the default drops the preference (commits 0): the panel keeps
+  // following the window instead of freezing today's default width.
+  const restore = () => {
+    onChange(clamp(defaultValue));
+    onCommit(0);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = e.shiftKey ? BIG_STEP : STEP;
     // Home/End move the handle to the far left/right.
@@ -67,8 +74,9 @@ export function Splitter({
         next = rightmost;
         break;
       case "Enter":
-        next = defaultValue;
-        break;
+        e.preventDefault();
+        restore();
+        return;
       default:
         return;
     }
@@ -115,7 +123,7 @@ export function Splitter({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
-      onDoubleClick={() => commit(defaultValue)}
+      onDoubleClick={restore}
     />
   );
 }

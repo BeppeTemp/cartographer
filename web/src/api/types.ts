@@ -701,6 +701,8 @@ export interface WhoamiRule {
   maps?: string[];
   journals?: string[];
   types?: string[];
+  /** "r" for a rule that withholds the artifact write tools. */
+  artifacts?: string;
 }
 
 /** GET /whoami: the principal behind the request and its scopes. */

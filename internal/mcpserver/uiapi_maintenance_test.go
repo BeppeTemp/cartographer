@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
-	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -125,7 +124,7 @@ func TestUIAPI_MaintenanceSummaryNeedsAWholeKBView(t *testing.T) {
 // D365: every finding says who acts on it, the summary says who runs the doctor.
 func TestUIAPI_FindingHandler(t *testing.T) {
 	t.Parallel()
-	auto := uiAutoChecks(&kb.KB{})
+	auto := uiAutoChecks()
 	fix := &lint.Fix{}
 	for _, tc := range []struct {
 		f    lint.Finding

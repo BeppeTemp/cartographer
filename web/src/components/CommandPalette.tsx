@@ -196,14 +196,14 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Pr
           placeholder="Search concepts — titles, ids and full text"
           aria-label="Search concepts by title, id or text"
           aria-controls="palette-results"
-          aria-activedescendant={cursor < rows ? `palette-option-${cursor}` : undefined}
+          aria-activedescendant={rows > 0 && cursor < rows ? `palette-option-${cursor}` : undefined}
           autoComplete="off"
           spellCheck={false}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
               event.preventDefault();
-              setCursor((c) => Math.min(c + 1, rows - 1));
+              setCursor((c) => Math.max(0, Math.min(c + 1, rows - 1)));
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
               setCursor((c) => Math.max(c - 1, 0));

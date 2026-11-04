@@ -518,7 +518,7 @@ func uiLint(w http.ResponseWriter, r *http.Request, srv *Server) {
 		Message string `json:"message"`
 		Handler string `json:"handler"`
 	}
-	auto := uiAutoChecks(k)
+	auto := uiAutoChecks()
 	rows := make([]findingRow, 0, len(kept))
 	for _, f := range kept {
 		rows = append(rows, findingRow{
@@ -545,9 +545,9 @@ const (
 	findingHandlerDoctor = "doctor"
 )
 
-// uiAutoChecks is the set of checks the background repair runs on this KB:
+// uiAutoChecks is the set of checks the background repair runs:
 // every check whose fix is safe to run unattended (D907).
-func uiAutoChecks(_ *kb.KB) map[string]bool {
+func uiAutoChecks() map[string]bool {
 	out := map[string]bool{}
 	for _, c := range lint.AutoRepairChecks() {
 		out[c] = true
@@ -572,7 +572,7 @@ func uiChecks(w http.ResponseWriter, k *kb.KB) {
 		Active bool   `json:"active"`
 		Reason string `json:"reason,omitempty"`
 	}
-	auto := uiAutoChecks(k)
+	auto := uiAutoChecks()
 	inactive := lint.Inactive(k)
 	rows := []checkRow{}
 	for _, s := range lint.Checks() {

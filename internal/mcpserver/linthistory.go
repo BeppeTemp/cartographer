@@ -44,7 +44,7 @@ func newLintSample(k *kb.KB, findings []lint.Finding, now time.Time) lintSample 
 		At: now.UTC().Format(time.RFC3339), Total: len(findings),
 		ByHandler: map[string]int{},
 	}
-	auto := uiAutoChecks(k)
+	auto := uiAutoChecks()
 	for _, f := range findings {
 		s.ByHandler[findingHandler(f, auto)]++
 	}
