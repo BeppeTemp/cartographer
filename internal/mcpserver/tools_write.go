@@ -2339,7 +2339,7 @@ func toolConceptMerge(k *kb.KB) Tool {
 			out, _ := json.Marshal(map[string]interface{}{
 				"merged_into":  string(parentID),
 				"heading":      heading,
-				"rewritten":    emptyIfNil(touched),
+				"rewritten":    newCallerView(ctx, k).filterRewritten(touched),
 				"replacements": replacements,
 			})
 			return textResult(string(out)), nil

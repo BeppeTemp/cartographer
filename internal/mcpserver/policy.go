@@ -362,12 +362,20 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 
 	// Exact concept operations share the conventional id/concept_id/service_id
 	// fields. Missing or forbidden resources intentionally collapse to not found.
-	// concept_merge acts on a satellite and on its parent: both must be
-	// writable, and an extra, differing "id" is refused.
+	// concept_merge redirects every inbound link of the satellite across the
+	// whole KB (pages and curated indexes), so it needs the whole-KB write
+	// grant, as concept_move with link rewriting does. A caller with no
+	// access to the KB at all is told not found, as every exact site does.
 	if tool == "concept_merge" {
 		sat := stringField(raw, "satellite_id")
 		if v := stringField(raw, "id"); v != "" && v != sat {
 			return errors.New(genericNotFound)
+		}
+		if !policy.HasKBAccess(name, false) {
+			return errors.New(genericNotFound)
+		}
+		if !policy.AllowsWholeKB(name, true) {
+			return deny(denyNeedsWholeKB)
 		}
 		parts := strings.Split(sat, "/")
 		if len(parts) < 2 || !allowedID(policy, k, name, sat, true, "") || !allowedID(policy, k, name, strings.Join(parts[:2], "/"), true, "") {
