@@ -11,6 +11,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -832,7 +833,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		if msg.err != nil {
 			m.err = msg.err
-			m.message = withNotes(fmt.Sprintf("sync failed: %v", msg.err), msg.notes)
+			text := fmt.Sprintf("sync failed: %v", msg.err)
+			var partial partialSyncError
+			if errors.As(msg.err, &partial) && len(msg.applied) > 0 {
+				// A partial sync still applied the providers it did not skip.
+				keys := make([]string, 0, len(msg.applied))
+				for k := range msg.applied {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				text = fmt.Sprintf("synced %s, but %v", strings.Join(keys, ", "), msg.err)
+			}
+			m.message = withNotes(text, msg.notes)
 			return m, loadRemoteStatusCmd(m.dir)
 		}
 		m.err = nil

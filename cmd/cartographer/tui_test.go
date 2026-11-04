@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1543,5 +1544,22 @@ func TestDashboardConnectCarriesTheRecordedInsecureHTTPOptIn(t *testing.T) {
 	m = m.openConnectForm(m.rows[0])
 	if !m.allowInsecureHTTP {
 		t.Fatal("the form must remember the recorded opt-in")
+	}
+}
+
+// A partial sync returns the providers it applied together with the error:
+// the dashboard names them instead of reporting a bare failure.
+func TestSyncAllPartialFailureNamesAppliedProviders(t *testing.T) {
+	m := testModel()
+	m.busy = true
+	err := fmt.Errorf("%w (done)", partialSyncError{Skipped: []string{"opencode"}})
+	next, _ := m.Update(syncAllDoneMsg{
+		providers: []string{"claude", "opencode"},
+		applied:   map[string]provisioning.AppliedResult{"claude": {}},
+		err:       err,
+	})
+	m = next.(Model)
+	if m.err == nil || !strings.Contains(m.message, "synced claude") {
+		t.Errorf("the applied provider must be named: err=%v message=%q", m.err, m.message)
 	}
 }
