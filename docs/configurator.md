@@ -485,7 +485,7 @@ prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verif
 `approved`, `approval_stale` or `needs_approval` — see [D115](decisions/D115-mcp-allow-list-and-hash-bound-local-approval.md)
 for the MCP-specific approval states; an unsigned KB artifact that is not an MCP descriptor, a hook or an executable file is `trusted`: it is installed,
 D906). Artifacts in `needs_approval`/`approval_stale` get their own
-`cartographer approve <kind> <name> --kb <kb>` hint. A pending hook also names the file the sync registers it in, resolved by the function the sync prints with (a derived workspace binding: `.claude/settings.local.json`, #1300). Before the artifact report it prints the
+`cartographer approve <kind> <name> --kb <kb>` hint. The dashboard (TUI) summarises the same states per provider, for every artifact kind and not only MCP descriptors, e.g. `drift (needs-approval 2, verified 1)`. A pending hook also names the file the sync registers it in, resolved by the function the sync prints with (a derived workspace binding: `.claude/settings.local.json`, #1300). Before the artifact report it prints the
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
 code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
 (D121: it replaces the running service **and** re-syncs the providers in place, where the former

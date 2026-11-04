@@ -975,7 +975,7 @@ func symlinkedDestinationFindings(provider string, roots []string) []doctorFindi
 		out = append(out, doctorFinding{
 			Check: "symlink", Severity: doctorWarning, Path: path,
 			Message: fmt.Sprintf("[%s] %s is a symlink: provisioning writes would land in %s, so Cartographer refuses them", provider, path, target),
-			Fix:     "replace the symlink with a real directory, or point the client base dir at the real location",
+			Fix:     "replace the symlink with the real directory or file",
 		})
 	}
 	return out
