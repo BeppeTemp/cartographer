@@ -16,15 +16,15 @@ import (
 // concept(s)" alone, nor suggests a git command.
 func TestConflictMessage(t *testing.T) {
 	t.Parallel()
-	only := conflictMessage(0, []string{"data/log.md"})
+	only := conflictMessage(0, []string{"data/log.md"}, nil)
 	if strings.Contains(only, "0 concept(s)") || !strings.Contains(only, "data/log.md") || !strings.Contains(only, "git_conflict_resolve") {
 		t.Fatalf("reserved-only message = %q", only)
 	}
-	mixed := conflictMessage(1, []string{"data/log.md"})
+	mixed := conflictMessage(1, []string{"data/log.md"}, nil)
 	if !strings.Contains(mixed, "1 concept(s)") || !strings.Contains(mixed, "1 reserved file(s)") || !strings.Contains(mixed, "data/log.md") {
 		t.Fatalf("mixed message = %q", mixed)
 	}
-	if plain := conflictMessage(2, nil); !strings.Contains(plain, "2 concept(s)") || strings.Contains(plain, "reserved") {
+	if plain := conflictMessage(2, nil, nil); !strings.Contains(plain, "2 concept(s)") || strings.Contains(plain, "reserved") {
 		t.Fatalf("concept-only message = %q", plain)
 	}
 	for _, m := range []string{only, mixed} {
@@ -37,7 +37,7 @@ func TestConflictMessage(t *testing.T) {
 func TestHandleConflictError_ReservedOnlyIsRegisteredWithKind(t *testing.T) {
 	t.Parallel()
 	k, sha := setupGitKB(t)
-	n, reserved := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	n, reserved, _ := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
 	if n != 0 || len(reserved) != 1 {
 		t.Fatalf("n=%d reserved=%v", n, reserved)
 	}
@@ -67,7 +67,7 @@ func TestHandleConflictError_ReservedWithConceptStaysOutOfRegistry(t *testing.T)
 	if err := os.WriteFile(k.Root+"/data/ops/runbook.md", []byte("---\ntype: Topic\ntitle: R\n---\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	n, reserved := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md", "data/ops/runbook.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	n, reserved, _ := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md", "data/ops/runbook.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
 	if n != 1 || len(reserved) != 1 || reserved[0] != "data/log.md" {
 		t.Fatalf("n=%d reserved=%v", n, reserved)
 	}
@@ -218,5 +218,38 @@ func TestGitWrap_ConflictDegradedHasNoCommitHint(t *testing.T) {
 		if _, ok := w[key]; ok {
 			t.Fatalf("conflict-degraded warning carries %q: %+v", key, w)
 		}
+	}
+}
+
+// An expanded concept's body is registered as that concept (degraded), not
+// skipped as a reserved file; a map's own index stays reserved.
+func TestHandleConflictError_ExpandedConceptBodyIsAConcept(t *testing.T) {
+	t.Parallel()
+	k, sha := setupGitKB(t)
+	if err := os.MkdirAll(k.Root+"/data/ops/runbook", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(k.Root+"/data/ops/runbook/index.md", []byte("---\ntype: Topic\ntitle: R\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, reserved, _ := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/ops/runbook/index.md", "data/ops/index.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	if n != 1 || len(reserved) != 1 || reserved[0] != "data/ops/index.md" {
+		t.Fatalf("n=%d reserved=%v", n, reserved)
+	}
+	cs, _ := k.ListConflicts()
+	if len(cs) != 1 || cs[0].ConceptID != "ops/runbook" || cs[0].Kind != "" {
+		t.Fatalf("registry = %+v", cs)
+	}
+}
+
+func TestReservedStrategyError_UnionIsAllowedForALogAndAnIndex(t *testing.T) {
+	t.Parallel()
+	k, sha := setupGitKB(t)
+	handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/ops/index.md", "data/_map.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
+	if msg := reservedStrategyError(k, "data/ops/index.md", "union"); msg != "" {
+		t.Errorf("union refused for an index: %s", msg)
+	}
+	if msg := reservedStrategyError(k, "data/_map.md", "union"); msg == "" {
+		t.Error("union accepted for _map.md")
 	}
 }

@@ -28,8 +28,25 @@ import (
 // stubbed to "nothing known", the cache lives in a temporary directory, and
 // the opt-out is set as a second line of defence for anything that reaches
 // the real updatecheck.Check.
+//
+// The home directory is isolated too, for the whole run: DerivedPath and
+// repoindex.CachePath resolve under $HOME/.config/cartographer, so a sync test
+// that does not set HOME itself would overwrite the developer's real
+// workspace-derived.json with an empty state naming a test temp dir, and every
+// derived workspace binding (D1019) would be gone until the next real sync.
+// testHome is the package-wide HOME TestMain installs.
+var testHome string
+
 func TestMain(m *testing.M) {
 	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
+	home, err := os.MkdirTemp("", "cartographer-test-home-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", home)
+	os.Setenv("USERPROFILE", home)
+	os.Unsetenv("XDG_CONFIG_HOME")
+	testHome = home
 	os.Setenv(updatecheck.EnvDisable, "1")
 	cache, err := os.MkdirTemp("", "cartographer-update-cache-")
 	if err != nil {
@@ -55,6 +72,7 @@ func TestMain(m *testing.M) {
 	globalIdentFn = func() (string, bool) { return "", false }
 	code := m.Run()
 	os.RemoveAll(cache)
+	os.RemoveAll(home)
 	os.Exit(code)
 }
 
@@ -496,5 +514,34 @@ func TestUpdateCheckNotInstallableLine(t *testing.T) {
 	out := withStdout(t, func() { cmdUpdate([]string{"check"}) })
 	if !strings.Contains(out, "latest    v0.17.0 (not yet installable through homebrew)") {
 		t.Fatalf("output = %q", out)
+	}
+}
+
+// #1502: a Codex config.toml whose legacy hook block lost its end marker is a
+// per-provider refusal (a warning, file untouched), not a fatal error that stops
+// every other provider and the lockfile write.
+func TestEnsureBootstrap_CorruptedCodexHookBlockIsAWarning(t *testing.T) {
+	setHome(t, t.TempDir())
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orphan := "model = \"x\"\n# cartographer:hook:cartographer-bootstrap:begin\n[profiles.mine]\nk = 1\n"
+	if err := os.WriteFile(cfg, []byte(orphan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	warnings, err := ensureBootstrapForProviders([]string{string(configurator.ProviderCodex), string(configurator.ProviderClaudeCode)}, dir, false)
+	if err != nil {
+		t.Fatalf("a corrupted block must not be fatal: %v", err)
+	}
+	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, "\n"), "doctor") {
+		t.Errorf("want a warning pointing to doctor, got %v", warnings)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != orphan {
+		t.Errorf("config.toml changed:\n%s", got)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".claude", "hooks", "cartographer-bootstrap")); statErr != nil {
+		t.Errorf("the other provider must still get its hook: %v", statErr)
 	}
 }

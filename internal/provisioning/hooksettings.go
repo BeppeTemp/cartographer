@@ -649,11 +649,14 @@ func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
 	path := codexConfigTOMLPath(baseDir)
 	// Each step refuses (D148) only when it has something to write or remove, so
 	// a config.toml with no registration of ours is a no-op under a link too.
+	begin, end := codexHookMarkers(hookName)
+	if err := blocktext.CheckFile(path, begin, end); err != nil {
+		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
+	}
 	adopted, err := configurator.AdoptCodexOrphanTablesUnder(baseDir, path, codexHookTableOwner(hookName, command))
 	if err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
 	}
-	begin, end := codexHookMarkers(hookName)
 	if _, err := configurator.EvictTablesFromBlockUnder(baseDir, path, begin, end, func(key []string) bool {
 		return len(key) >= 2 && key[0] == "hooks" && key[1] != "state"
 	}); err != nil {
@@ -1147,12 +1150,15 @@ func saveJSONObject(baseDir, path string, m map[string]interface{}) error {
 	return writeJSONFile(baseDir, path, data)
 }
 
-// writeJSONFile writes data to path through the no-follow writers (D148).
+// writeJSONFile writes data to path through the no-follow writers (D148), in one
+// atomic step and not at all when the file already holds data: these are files
+// the client reads and watches (settings.json, hooks.json), and a sync used to
+// truncate and rewrite them at every session start (#1502).
 func writeJSONFile(baseDir, path string, data []byte) error {
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 	}
-	if err := writeFileNoFollow(path, data, 0o644); err != nil {
+	if err := writeFileAtomicNoFollow(baseDir, path, data, 0o644); err != nil {
 		return fmt.Errorf("provisioning: write %s: %w", path, err)
 	}
 	return nil

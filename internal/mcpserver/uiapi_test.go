@@ -342,9 +342,9 @@ func TestUIAPI_NarrowedTokenSeesNoHiddenConceptAnywhere(t *testing.T) {
 	if got, ok := byType["Runbook"]; ok && int(got.(float64)) != 1 {
 		t.Errorf("by_type must exclude the hidden Runbook: got %v", got)
 	}
-	// Replication facts are for a caller that can see the whole KB.
+	// The Atlas never read the overview's git block: it is not sent, to anyone.
 	if _, ok := overview["git"]; ok {
-		t.Error("a narrowed token must not receive the KB's replication facts")
+		t.Error("the overview must carry no git block")
 	}
 
 	// Not in a lint finding.

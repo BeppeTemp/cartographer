@@ -242,7 +242,9 @@ func (m *Manager) UninstallTray() error {
 		if err := m.stopTrayAndWait(); err != nil {
 			return err
 		}
-		m.unregisterWindowsTask(windowsTrayTaskName)
+		if err := m.unregisterWindowsTask(windowsTrayTaskName); err != nil {
+			return err
+		}
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove tray task definition: %w", err)
 		}

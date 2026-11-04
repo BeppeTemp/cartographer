@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -376,6 +377,13 @@ func checkManagedFiles(dir string, providers []string, lockFile provisioning.Loc
 			switch f.Reason {
 			case provisioning.DriftUnknown:
 				unknown++
+			case provisioning.DriftForeign:
+				// Information only: the file is the user's or the skill's own, sync
+				// leaves it and verification does not count it as drift (#1502).
+				out = append(out, doctorFinding{
+					Check: "managed-files", Severity: doctorInfo, Path: full,
+					Message: fmt.Sprintf("[%s] %s %q holds a file the lockfile does not own (%s)", p, f.Kind, f.Name, f.Detail),
+				})
 			case provisioning.DriftError:
 				out = append(out, doctorFinding{
 					Check: "managed-files", Severity: doctorError, Path: full,
@@ -457,7 +465,7 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 		for _, name := range declared {
 			// Only the names this client owns: everything else in that file is
 			// someone else's MCP server and none of doctor's business.
-			if ownsMCPEntryName(cfg.ServerName, name) {
+			if ownsMCPEntryName(cfg.ServerName, cfg.KnownKBs, name) {
 				present[name] = true
 			}
 		}
@@ -484,10 +492,12 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 }
 
 // ownsMCPEntryName reports whether an MCP server entry belongs to this client:
-// the configured server name itself, or one of its per-KB `<name>-<kb>` forms —
-// the same namespace `disconnect` claims (managedEntryNames).
-func ownsMCPEntryName(serverName, entry string) bool {
-	return entry == serverName || strings.HasPrefix(entry, serverName+"-")
+// a name `disconnect` and `reconnect` would remove, which is exactly
+// managedEntryNames for the persisted KB set. The wider "<server>-*" namespace
+// claimed a user's own `cartographer-dev` and an orphaned per-KB entry, which
+// no fix of ours clears: a permanent error with a Fix that does nothing.
+func ownsMCPEntryName(serverName string, knownKBs []string, entry string) bool {
+	return slices.Contains(managedEntryNames(serverName, knownKBs), entry)
 }
 
 // checkInstructionsBlock: exactly one well-formed managed block per provider

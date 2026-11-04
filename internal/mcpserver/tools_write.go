@@ -1799,7 +1799,7 @@ type rewrittenConcept struct {
 func toolConceptMove(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_move",
-		Description: "Moves concepts to new IDs in one commit: one source_id/target_id pair or a moves array (exclusive). All entries are validated first (source exists, target free, no traversal or duplicate source); an invalid one aborts the batch. Unless rewrite_links=false, inbound links KB-wide are rewritten; in a git KB rewrite_links=false is refused by the write gate when the page has linkers. Works across maps and services/. An expanded concept moves with assets and satellites. A mid-batch filesystem failure names both IDs, no rollback. Returns findings on moved concepts and their linkers.",
+		Description: "Moves concepts to new IDs in one commit: one source_id/target_id pair or a moves array (exclusive). All entries are validated first (source exists, target free, no traversal or duplicate source); an invalid one aborts the batch. Unless rewrite_links=false, inbound links KB-wide are rewritten; in a git KB rewrite_links=false is refused by the write gate when the page has linkers. Works across maps and services/. An expanded concept moves with assets and satellites. A mid-batch failure names both IDs. Returns findings on moved concepts and their linkers.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -2044,15 +2044,15 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 	logLines := make([]string, 0, len(valid)+1)
 
 	// A failure from here on is late: earlier entries (and, for a flat
-	// move, this entry's target) are already on disk and are not rolled
-	// back. It must still be an explicit application error — gitWrap
+	// move, this entry's target) are already on disk; gitWrap restores the
+	// tree when it was clean before the call (D1549). It must still be an explicit application error — gitWrap
 	// then neither commits nor logs success — and say what is where.
 	// entryWritten: this entry already changed the tree, so the recovery hint
 	// applies even when no earlier move did.
 	appliedNote := func(entryWritten bool) string {
 		note := ""
 		if len(applied) > 0 {
-			note = fmt.Sprintf("; %d earlier move(s) in this batch were already applied and are not rolled back", len(applied))
+			note = fmt.Sprintf("; %d earlier move(s) in this batch were already applied", len(applied))
 		}
 		if len(applied) > 0 || entryWritten {
 			note += "; " + recoveryHint
@@ -2080,7 +2080,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 			// not-found here is a failure: ignoring it is how the move
 			// used to report success with the source still in place.
 			if err := conceptMoveRemove(mv.source.File); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v; both now exist and nothing was rolled back — delete one of them%s", mv.targetID, mv.sourceID, err, appliedNote(true))))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v%s", mv.targetID, mv.sourceID, err, appliedNote(true))))
 			}
 		}
 

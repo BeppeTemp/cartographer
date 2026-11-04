@@ -1,7 +1,7 @@
 package provisioning
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -39,16 +39,23 @@ const (
 // temp dir without constructing a real repository for every case.
 var gitTrackedFn = gitTrackedPaths
 
-// gitTrackedPaths returns the set of repository-relative paths git tracks under
-// dir. A directory that is not a git repository returns an empty set and no
+// gitTrackedPaths returns the set of paths git tracks under dir, relative to
+// dir (git ls-files run in dir already lists a subdirectory of a repository that
+// way). A directory that is in no git repository returns an empty set and no
 // error: binding a plain directory is legal, it simply has no hygiene to keep.
+// A subdirectory of a repository is a workspace like any other (#1502): its
+// tracked files count, or `services/x/.mcp.json` would be overwritten.
 func gitTrackedPaths(dir string) (map[string]bool, error) {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-		return map[string]bool{}, nil
+		if _, _, inRepo, rerr := enclosingRepo(dir); rerr != nil {
+			return nil, rerr
+		} else if !inRepo {
+			return map[string]bool{}, nil
+		}
 	}
 	out, err := procattr.Hide(exec.Command("git", "-C", dir, "ls-files", "-z")).Output()
 	if err != nil {
-		return nil, fmt.Errorf("provisioning: list tracked files in %s: %w", dir, err)
+		return nil, fmt.Errorf("provisioning: list tracked files in %s: %w", dir, gitErr(err))
 	}
 	tracked := map[string]bool{}
 	for _, p := range strings.Split(string(out), "\x00") {
@@ -57,6 +64,58 @@ func gitTrackedPaths(dir string) (map[string]bool, error) {
 		}
 	}
 	return tracked, nil
+}
+
+// gitErr adds git's stderr to an exec error: "exit status 128" alone says
+// nothing to the operator who has to fix a repository (dubious ownership, a
+// corrupt index).
+func gitErr(err error) error {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return withStderr(err, string(ee.Stderr))
+	}
+	return err
+}
+
+func withStderr(err error, stderr string) error {
+	if msg := strings.TrimSpace(stderr); msg != "" {
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return err
+}
+
+// enclosingRepo finds the repository dir belongs to when dir has no `.git` of
+// its own: its top level and dir's slash prefix below it ("" at the root, else
+// "services/x"). inRepo is false outside any repository (and when git is not
+// installed: there is no repository to keep clean); any other failure of git
+// (dubious ownership, a broken .git) is an error, never "no repository".
+func enclosingRepo(dir string) (root, prefix string, inRepo bool, err error) {
+	// A workspace that is gone (rm -rf) is in no repository: git would fail with
+	// "cannot change to", and a prune or an unbind of what was projected there
+	// must not become fatal because of it.
+	if _, statErr := os.Stat(dir); errors.Is(statErr, os.ErrNotExist) {
+		return "", "", false, nil
+	}
+	cmd := procattr.Hide(exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel", "--show-prefix"))
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, runErr := cmd.Output()
+	if runErr != nil {
+		if errors.Is(runErr, exec.ErrNotFound) || strings.Contains(stderr.String(), "not a git repository") {
+			return "", "", false, nil
+		}
+		return "", "", false, fmt.Errorf("provisioning: find the repository of %s: %w", dir, withStderr(runErr, stderr.String()))
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\r\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return "", "", false, nil
+	}
+	root = filepath.FromSlash(strings.TrimSpace(lines[0]))
+	if len(lines) > 1 {
+		prefix = strings.Trim(strings.TrimSpace(lines[1]), "/")
+	}
+	return root, prefix, true, nil
 }
 
 // gitTracksFile reports whether git tracks rel (a slash path relative to dir)
@@ -157,8 +216,29 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	if err != nil {
 		return err
 	}
+	// subdir is the workspace's path inside the repository it is a subdirectory
+	// of (#1502): the patterns are anchored to the repository root, so they carry
+	// it, and the block is keyed by it so two workspaces of one repository do not
+	// overwrite each other's.
+	subdir := ""
 	if !isRepo {
-		return nil
+		root, prefix, inRepo, rerr := enclosingRepo(workspaceDir)
+		if rerr != nil {
+			return fmt.Errorf("%w: %v", ErrGitDirUnresolvable, rerr)
+		}
+		if !inRepo {
+			return nil
+		}
+		if target, isRepo, err = excludeFile(root); err != nil {
+			return err
+		}
+		if !isRepo {
+			return nil
+		}
+		subdir = prefix
+		if subdir != "" {
+			target.key += subdirKeySep + subdir
+		}
 	}
 	baseDir, path, key := target.baseDir, target.path, target.key
 	infoDir := filepath.Dir(path)
@@ -167,7 +247,11 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("provisioning: read %s: %w", path, err)
 	}
-	kept := stripStaleBlocks(stripExcludeBlock(string(existing), key), target.commonDir)
+	stripped, stripErr := stripExcludeBlock(string(existing), key)
+	if stripErr != nil {
+		return fmt.Errorf("%w (%s)", stripErr, path)
+	}
+	kept := stripStaleBlocks(stripped, target.commonDir)
 
 	var lines []string
 	if len(ownedPaths) > 0 {
@@ -177,6 +261,9 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 			// would only look like the root being excluded (#1199).
 			if p = strings.Trim(filepath.ToSlash(p), "/"); p == "" || p == "." {
 				continue
+			}
+			if subdir != "" {
+				p = subdir + "/" + p
 			}
 			lines = append(lines, "/"+p)
 		}
@@ -199,7 +286,7 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	if err := mkdirAllNoFollow(baseDir, infoDir, 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", infoDir, err)
 	}
-	return writeFileNoFollow(path, []byte(out), 0o644)
+	return writeFileAtomicNoFollow(baseDir, path, []byte(out), 0o644)
 }
 
 // RemoveWorkspaceExclusions drops Cartographer's block entirely, for an unbind
@@ -207,6 +294,10 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 func RemoveWorkspaceExclusions(workspaceDir string) error {
 	return EnsureWorkspaceExcluded(workspaceDir, nil)
 }
+
+// subdirKeySep separates the worktree name from the workspace's subdirectory in
+// the key of an exclude block (a subdirectory of a repository, #1502).
+const subdirKeySep = " @ "
 
 // blockMarkers returns the lines delimiting the block of key. The main checkout
 // and a submodule, whose git directory is their own, have no key and keep the
@@ -225,48 +316,67 @@ func renderExclude(kept string, lines []string, key string) string {
 	var b strings.Builder
 	b.WriteString(kept)
 	if len(lines) > 0 {
+		// A file the user keeps with CRLF stays CRLF: the block follows its endings,
+		// the separator before it included.
+		eol := "\n"
+		if i := strings.Index(kept, "\n"); i > 0 && kept[i-1] == '\r' {
+			eol = "\r\n"
+		}
 		if kept != "" && !strings.HasSuffix(kept, "\n") {
-			b.WriteString("\n")
+			b.WriteString(eol)
 		}
-		b.WriteString(begin + "\n")
-		b.WriteString("# Written by `cartographer sync`. Paths this workspace's projection owns.\n")
-		b.WriteString("# Remove the block, not the file: `cartographer workspace unbind` does it for you.\n")
+		b.WriteString(begin + eol)
+		b.WriteString("# Written by `cartographer sync`. Paths this workspace's projection owns." + eol)
+		b.WriteString("# Remove the block, not the file: `cartographer workspace unbind` does it for you." + eol)
 		for _, l := range lines {
-			b.WriteString(l + "\n")
+			b.WriteString(l + eol)
 		}
-		b.WriteString(end + "\n")
+		b.WriteString(end + eol)
 	}
 	return b.String()
 }
 
+// ErrExcludeBlockCorrupted is the refusal for an info/exclude whose managed block
+// is not exactly one begin line followed by one end line (a hand edit, a
+// truncated file). The file is left as it is: removing "until the end" of an
+// unterminated block would drop every line the user wrote after it. Callers
+// report it as a warning (ExcludeWarning); #1502.
+var ErrExcludeBlockCorrupted = errors.New("provisioning: the managed block in info/exclude is not exactly one begin line followed by one end line; left untouched")
+
 // stripExcludeBlock returns content with Cartographer's block of key removed, and
-// everything else byte-identical, the blocks of other keys included.
-func stripExcludeBlock(content, key string) string {
+// everything else byte-identical, the blocks of other keys and every line
+// terminator (CRLF included) kept. A block that is not exactly one begin line
+// followed by one end line is ErrExcludeBlockCorrupted and content comes back
+// unchanged (markers are whole lines, compared without surrounding blanks).
+func stripExcludeBlock(content, key string) (string, error) {
 	begin, end := blockMarkers(key)
-	if !strings.Contains(content, begin) {
-		return content
-	}
-	var out []string
-	inBlock := false
-	sc := bufio.NewScanner(strings.NewReader(content))
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for sc.Scan() {
-		line := sc.Text()
-		switch {
-		case strings.TrimSpace(line) == begin:
-			inBlock = true
-		case strings.TrimSpace(line) == end:
-			inBlock = false
-		case !inBlock:
-			out = append(out, line)
+	lines := strings.SplitAfter(content, "\n")
+	first, last, begins, ends := -1, -1, 0, 0
+	for i, l := range lines {
+		switch strings.TrimSpace(l) {
+		case begin:
+			begins++
+			if first < 0 {
+				first = i
+			}
+		case end:
+			ends++
+			if last < 0 {
+				last = i
+			}
 		}
 	}
-	joined := strings.Join(out, "\n")
-	joined = strings.TrimRight(joined, "\n")
-	if joined == "" {
-		return ""
+	if begins == 0 && ends == 0 {
+		return content, nil
 	}
-	return joined + "\n"
+	if begins != 1 || ends != 1 || last < first {
+		return content, ErrExcludeBlockCorrupted
+	}
+	out := strings.Join(lines[:first], "") + strings.Join(lines[last+1:], "")
+	if strings.TrimSpace(out) == "" {
+		return "", nil
+	}
+	return out, nil
 }
 
 func dedupe(in []string) []string {
@@ -305,10 +415,11 @@ func stripStaleBlocks(content, commonDir string) string {
 	if commonDir == "" || !strings.Contains(content, "# >>> cartographer (managed: ") {
 		return content
 	}
+	lines := strings.SplitAfter(content, "\n")
 	var out []string
 	dropEnd := ""
 	dropped := false
-	for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
+	for i, line := range lines {
 		switch {
 		case dropEnd != "":
 			if strings.TrimSpace(line) == dropEnd {
@@ -317,10 +428,21 @@ func stripStaleBlocks(content, commonDir string) string {
 			continue
 		default:
 			if key, ok := keyedBlockKey(line); ok {
-				if _, err := os.Lstat(filepath.Join(commonDir, "worktrees", key)); os.IsNotExist(err) {
-					_, dropEnd = blockMarkers(key)
-					dropped = true
+				// A subdirectory workspace's key is "<worktree> @ <path>" (or
+				// " @ <path>" in the main checkout): only the worktree part can go stale.
+				wt, _, _ := strings.Cut(key, subdirKeySep)
+				if wt == "" {
+					out = append(out, line)
 					continue
+				}
+				if _, err := os.Lstat(filepath.Join(commonDir, "worktrees", wt)); os.IsNotExist(err) {
+					// Only a block that ends is dropped: without its end line the
+					// rest of the file would go with it (#1502).
+					if _, end := blockMarkers(key); hasLine(lines[i+1:], end) {
+						dropEnd = end
+						dropped = true
+						continue
+					}
 				}
 			}
 		}
@@ -329,8 +451,18 @@ func stripStaleBlocks(content, commonDir string) string {
 	if !dropped {
 		return content
 	}
-	if len(out) == 0 {
-		return ""
+	if joined := strings.Join(out, ""); strings.TrimSpace(joined) != "" {
+		return joined
 	}
-	return strings.Join(out, "\n") + "\n"
+	return ""
+}
+
+// hasLine reports whether one of lines is want, ignoring surrounding blanks.
+func hasLine(lines []string, want string) bool {
+	for _, l := range lines {
+		if strings.TrimSpace(l) == want {
+			return true
+		}
+	}
+	return false
 }

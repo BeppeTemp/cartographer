@@ -93,11 +93,12 @@ func TestVerifyManaged_DetectsModifiedAndMissing(t *testing.T) {
 		t.Errorf("an untouched agent must not be reported: %+v", findings)
 	}
 
-	// An extra file inside the artifact's own directory is drift too.
+	// An extra file inside the artifact's own directory is not the lockfile's:
+	// foreign, information only, and not healable (#1502, was "modified" in D139).
 	os.WriteFile(skillFile, data, 0o644)
 	os.WriteFile(filepath.Join(baseDir, ".claude", "skills", "runbooks", "stray.md"), []byte("x\n"), 0o644)
-	if f, ok := findingFor(VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks"); !ok || f.Reason != DriftModified {
-		t.Errorf("an extra file in the artifact directory must count as modified, got %+v", f)
+	if f, ok := findingFor(VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks"); !ok || f.Reason != DriftForeign || f.Healable() || !strings.Contains(f.Detail, "stray.md") {
+		t.Errorf("an extra file in the artifact directory must be foreign and not healable, got %+v", f)
 	}
 	os.Remove(filepath.Join(baseDir, ".claude", "skills", "runbooks", "stray.md"))
 
@@ -308,5 +309,99 @@ func TestApply_HealsMissingAgentAndInstructionsBlock(t *testing.T) {
 	}
 	if findings := VerifyManaged(res.NewLock, configurator.ProviderClaudeCode, baseDir); len(findings) != 0 {
 		t.Errorf("drift survives the heal: %+v", findings)
+	}
+}
+
+// #1502: a manifest from a server can carry an agent or hook name that cannot be
+// a path segment. It costs that artifact only: the others are written and
+// locked, and the bad one is reported (it used to abort Apply after some
+// artifacts were already on disk without a lock entry).
+func TestApply_BadArtifactNameCostsOnlyItself(t *testing.T) {
+	_, m, _, kbRoot := driftKB(t)
+	for _, bad := range []Artifact{
+		{Kind: "agent", Name: "", Source: "kb:wiki", ContentHash: "x"},
+		{Kind: "hook", Name: `a\b`, Source: "kb:wiki", ContentHash: "x"},
+		{Kind: "agent", Name: "../escape", Source: "kb:wiki", ContentHash: "x"},
+	} {
+		m.Artifacts = append(m.Artifacts, bad)
+	}
+	baseDir := t.TempDir()
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m), KBRoots: map[string]string{"wiki": kbRoot},
+		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: Lock{}})
+	if err != nil {
+		t.Fatalf("Apply must not abort: %v", err)
+	}
+	if len(res.Refused) != 3 || !strings.Contains(strings.Join(res.Warnings, "\n"), "not a valid artifact name") {
+		t.Errorf("refused %v, warnings %v", res.Refused, res.Warnings)
+	}
+	if _, ok := findingFor(VerifyManaged(res.NewLock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks"); ok {
+		t.Error("the valid skill must be applied and clean")
+	}
+	if _, statErr := os.Stat(filepath.Join(baseDir, ".claude", "skills", "runbooks", "SKILL.md")); statErr != nil {
+		t.Errorf("the valid skill was not written: %v", statErr)
+	}
+}
+
+// BuildManifest leaves out a bad agent or hook name with an issue, as it does a
+// skill (D191).
+func TestBuildManifest_ExcludesBadAgentAndHookNames(t *testing.T) {
+	kbRoot := t.TempDir()
+	os.MkdirAll(filepath.Join(kbRoot, "agents"), 0o755)
+	os.WriteFile(filepath.Join(kbRoot, "agents", ".md"), []byte("x\n"), 0o644)
+	os.WriteFile(filepath.Join(kbRoot, "agents", "ok.md"), []byte("x\n"), 0o644)
+	m, err := BuildManifest(nil, map[string]string{"wiki": kbRoot}, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, a := range m.Artifacts {
+		if a.Kind == "agent" {
+			names = append(names, a.Name)
+		}
+	}
+	if len(names) != 1 || names[0] != "ok" {
+		t.Errorf("agents = %v, want only ok", names)
+	}
+	if !strings.Contains(strings.Join(m.Issues, "\n"), "not a valid artifact name") {
+		t.Errorf("no issue recorded: %v", m.Issues)
+	}
+}
+
+// #1502: a file the lock does not own (a Finder .DS_Store, a __pycache__) used
+// to make the whole-directory re-hash differ from the recorded one for good:
+// every run healed the artifact, reported it, and the next run did it again.
+func TestVerifyManaged_ForeignFileDoesNotHealForever(t *testing.T) {
+	baseDir, m, applied, kbRoot := driftKB(t)
+	skillDir := filepath.Join(baseDir, ".claude", "skills", "runbooks")
+	os.MkdirAll(filepath.Join(skillDir, "scripts", "__pycache__"), 0o755)
+	os.WriteFile(filepath.Join(skillDir, ".DS_Store"), []byte("junk"), 0o644)
+	os.WriteFile(filepath.Join(skillDir, "scripts", "__pycache__", "run.pyc"), []byte("junk"), 0o644)
+
+	lock := applied.NewLock
+	for i := 0; i < 3; i++ {
+		res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
+			KBRoots: map[string]string{"wiki": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: lock})
+		if err != nil {
+			t.Fatalf("Apply %d: %v", i, err)
+		}
+		if len(res.Healed) != 0 || len(res.Written) != 0 {
+			t.Fatalf("run %d healed or wrote for a foreign file: healed %v written %v", i, res.Healed, res.Written)
+		}
+		lock = res.NewLock
+	}
+	for _, f := range VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir) {
+		if f.Reason != DriftForeign || f.Healable() {
+			t.Errorf("only an informational foreign finding is expected, got %+v", f)
+		}
+	}
+	f, ok := findingFor(VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks")
+	if !ok || !strings.Contains(f.Detail, ".DS_Store") || !strings.Contains(f.Detail, "scripts/__pycache__/run.pyc") {
+		t.Errorf("doctor must be able to list the foreign files: %+v", f)
+	}
+
+	// An owned file edited next to a foreign one is still drift.
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("edited\n"), 0o644)
+	if f, ok := findingFor(VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir), "skill", "runbooks"); !ok || f.Reason != DriftModified {
+		t.Errorf("an owned file edited must stay modified, got %+v", f)
 	}
 }

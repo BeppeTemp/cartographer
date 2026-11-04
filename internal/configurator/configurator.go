@@ -104,6 +104,8 @@ const (
 	// ProviderCopilot is the GitHub Copilot CLI (the `copilot` binary, D676), not
 	// Copilot in VS Code.
 	ProviderCopilot Provider = "copilot"
+	// ProviderPi is Pi, the `pi` binary of @earendil-works/pi-coding-agent.
+	ProviderPi Provider = "pi"
 )
 
 // EmitResult contains the generated config for a provider.
@@ -231,6 +233,11 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// instead of parsing/re-serializing the user's hand-curated config.toml
 		// (D58) — see EmitResult.Content's doc comment.
 		if filepath.Ext(fullPath) == ".toml" {
+			// A corrupted block is refused before the reconcile steps below edit
+			// the file around it: blocktext.Write would refuse it anyway (#1502).
+			if err := blocktext.CheckFile(fullPath, codexMCPBlockBegin, codexMCPBlockEnd); err != nil {
+				return written, fmt.Errorf("write %s: %w", fullPath, err)
+			}
 			// Codex may have written its own tables (e.g. [hooks.state.*]
 			// trusted-hash bookkeeping) inside the managed block, positionally
 			// after the last table it found in the file: relocate them out of
@@ -291,7 +298,8 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			}
 		}
 
-		if err := safewrite.WriteFileNoFollow(fullPath, content, 0o644); err != nil {
+		wrote, err := safewrite.WriteFileAtomicNoFollowChanged(absoluteBaseDir, fullPath, content, 0o644)
+		if err != nil {
 			return written, fmt.Errorf("write %s: %w", fullPath, err)
 		}
 		if d, ok := Lookup(r.Provider); ok && d.DeleteOnlyIfCreated {
@@ -299,7 +307,11 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 				return written, fmt.Errorf("record %s: %w", fullPath, err)
 			}
 		}
-		written = append(written, r.AbsolutePath)
+		// Only a real write is reported: a config that already held these bytes
+		// was not touched (#1502).
+		if wrote {
+			written = append(written, r.AbsolutePath)
+		}
 		migrateLegacyOpenCode(r, absoluteBaseDir, false)
 	}
 	return written, errors.Join(refused...)
@@ -395,7 +407,7 @@ func removeLegacyOpenCodeEntry(name, baseDir string, dryRun bool) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	if err := safewrite.WriteFileNoFollow(legacyPath, out, 0o644); err != nil {
+	if err := safewrite.WriteFileAtomicNoFollow(baseDir, legacyPath, out, 0o644); err != nil {
 		return false, fmt.Errorf("write %s: %w", legacyPath, err)
 	}
 	return true, nil
@@ -554,7 +566,7 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 	if err != nil {
 		return false, err
 	}
-	if err := safewrite.WriteFileNoFollow(fullPath, out, 0o644); err != nil {
+	if err := safewrite.WriteFileAtomicNoFollow(baseDir, fullPath, out, 0o644); err != nil {
 		return false, fmt.Errorf("write %s: %w", fullPath, err)
 	}
 	if err := DropOwner(baseDir, r.FilePath, cfg.Name); err != nil {
@@ -626,7 +638,7 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := safewrite.WriteFileNoFollow(legacyPath, out, 0o644); err != nil {
+	if err := safewrite.WriteFileAtomicNoFollow(baseDir, legacyPath, out, 0o644); err != nil {
 		return false, err
 	}
 	return true, nil

@@ -122,8 +122,8 @@ func toolConceptArchive(k *kb.KB) Tool {
 			}
 
 			// The status is written before the move, in the same gitWrap commit:
-			// an application error from here on leaves it uncommitted, with the
-			// same no-rollback contract as concept_move.
+			// an application error from here on is rolled back by gitWrap when the
+			// tree was clean before the call (D1549), as for concept_move.
 			if cur, _ := fm.Get("status"); cur != status {
 				fm.Set("status", status)
 				if _, err := k.WriteConcept(okf.ConceptID(params.ID), fm, data.Body, params.IfMatch); err != nil {

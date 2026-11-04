@@ -173,6 +173,10 @@ function View({
   const sceneRef = useRef<LivingScene | null>(null);
   const [ready, setReady] = useState(0);
   const [failed, setFailed] = useState(false);
+  // The scene chunk could not be fetched (a tab opened before an upgrade asks
+  // for a hashed file the new build no longer has): reloading fixes it, which
+  // is not what a lost WebGL context needs.
+  const [stale, setStale] = useState(false);
   // False from a new snapshot until its first frame is on screen: the import of
   // the renderer and the synchronous warm-up take seconds on a large KB, and a
   // cover keeps that from reading as a blank canvas.
@@ -440,44 +444,50 @@ function View({
     setReady(0);
     focusedId.current = null;
     void import("../lib/graph3d/scene")
-      .then(({ LivingScene }) => {
-        if (disposed) return;
-        const scene = new LivingScene(
-          container,
-          {
-            onSelect: (id) => {
-              if (id?.startsWith(ARTIFACT_PREFIX)) {
-                const ref = id.slice(ARTIFACT_PREFIX.length);
-                const slash = ref.indexOf("/");
-                onOpenArtifactRef.current?.(ref.slice(0, slash), ref.slice(slash + 1));
-                return;
-              }
-              onSelectRef.current(id);
+      .then(
+        ({ LivingScene }) => {
+          if (disposed) return;
+          const scene = new LivingScene(
+            container,
+            {
+              onSelect: (id) => {
+                if (id?.startsWith(ARTIFACT_PREFIX)) {
+                  const ref = id.slice(ARTIFACT_PREFIX.length);
+                  const slash = ref.indexOf("/");
+                  onOpenArtifactRef.current?.(ref.slice(0, slash), ref.slice(slash + 1));
+                  return;
+                }
+                onSelectRef.current(id);
+              },
+              onExpand: (id) => {
+                if (!id.startsWith(ARTIFACT_PREFIX)) onExpandRef.current?.(id);
+              },
+              onHover: (id, x, y) => {
+                const tip = tooltipRef.current;
+                if (!tip) return;
+                tip.hidden = !id;
+                if (id) {
+                  tip.textContent = artifactLabels.current.get(id) ?? nameOf(byIdRef.current.get(id) ?? { id });
+                  tip.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y + 14)}px)`;
+                }
+              },
+              onLost: () => {
+                setFailed(true);
+                onUnavailableRef.current?.();
+              },
             },
-            onExpand: (id) => {
-              if (!id.startsWith(ARTIFACT_PREFIX)) onExpandRef.current?.(id);
-            },
-            onHover: (id, x, y) => {
-              const tip = tooltipRef.current;
-              if (!tip) return;
-              tip.hidden = !id;
-              if (id) {
-                tip.textContent = artifactLabels.current.get(id) ?? nameOf(byIdRef.current.get(id) ?? { id });
-                tip.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y + 14)}px)`;
-              }
-            },
-            onLost: () => {
-              setFailed(true);
-              onUnavailableRef.current?.();
-            },
-          },
-          { live: liveRef.current, reducedMotion },
-        );
-        sceneRef.current = scene;
-        const memory = recallLayout(layoutKeyRef.current);
-        restoreNext.current = memory;
-        setReady((n) => n + 1);
-      })
+            { live: liveRef.current, reducedMotion },
+          );
+          sceneRef.current = scene;
+          const memory = recallLayout(layoutKeyRef.current);
+          restoreNext.current = memory;
+          setReady((n) => n + 1);
+        },
+        (err: unknown) => {
+          console.warn("Atlas: the 3D view chunk could not be loaded", err);
+          if (!disposed) setStale(true);
+        },
+      )
       .catch((err) => {
         console.warn("Atlas: the 3D view could not start", err);
         if (!disposed) {
@@ -596,7 +606,8 @@ function View({
     }
     const drawn = snapshot.nodes.filter((n) => !hiddenIds.has(n.id));
     const colours = drawn.map((n) => {
-      const base = slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
+      const base =
+        slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
       return !focal || near.has(n.id) ? base : fade(base, RECEDED, canvas);
     });
     // Diamonds wear the signal colour: an artifact is not in any community
@@ -710,6 +721,16 @@ function View({
     };
   }, [ready, highlighted, byId]);
 
+  if (stale) {
+    return (
+      <div className="state">
+        <p className="state__title">The graph could not be loaded</p>
+        <p className="state__detail">
+          This page is older than the server&apos;s Atlas. Reload the page to get the current one.
+        </p>
+      </div>
+    );
+  }
   if (failed) {
     return (
       <div className="state">

@@ -772,12 +772,15 @@ func TestCheckLocalTarget(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			withClientServerURL(t, tc.serverURL)
 			var code int
-			out := withStderr(t, func() { code = checkLocalTarget(tc.dataFlag, tc.local) })
+			out := withStderr(t, func() { code = checkLocalTarget("kb rename", tc.dataFlag, tc.local) })
 			if code != tc.want {
 				t.Fatalf("checkLocalTarget = %d, want %d (stderr: %s)", code, tc.want, out)
 			}
 			if tc.want != 0 && !strings.Contains(out, "--local") {
 				t.Errorf("the error must name its opt-out: %s", out)
+			}
+			if tc.want != 0 && !strings.Contains(out, "`kb rename`") {
+				t.Errorf("the error must name the command that was run: %s", out)
 			}
 		})
 	}

@@ -79,8 +79,8 @@ func TestEmitAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 7 {
-		t.Fatalf("expected 7 results, got %d", len(results))
+	if len(results) != 8 {
+		t.Fatalf("expected 8 results, got %d", len(results))
 	}
 	seen := map[string]bool{}
 	for _, r := range results {
@@ -592,7 +592,7 @@ func TestApplyWrite(t *testing.T) {
 // one produces a false "not active" finding, which is the same class of defect
 // the check exists to remove.
 func TestInstructionsPrecedence_DeclaredOnlyWhereDocumented(t *testing.T) {
-	want := map[configurator.Provider]bool{configurator.ProviderCodex: true}
+	want := map[configurator.Provider]bool{configurator.ProviderCodex: true, configurator.ProviderPi: true}
 	for _, d := range configurator.Providers() {
 		declared := len(d.InstructionsPrecedence) > 0
 		if declared != want[d.Provider] {
@@ -615,6 +615,8 @@ func TestShadowedInstructions(t *testing.T) {
 		{"only the managed file", configurator.ProviderCodex,
 			[]string{".codex/AGENTS.md"}, ""},
 		{"nothing on disk", configurator.ProviderCodex, nil, ""},
+		{"pi override shadows the managed file", configurator.ProviderPi,
+			[]string{".pi/agent/AGENTS.override.md", ".pi/agent/AGENTS.md"}, ".pi/agent/AGENTS.override.md"},
 		{"provider without a chain", configurator.ProviderClaudeCode,
 			[]string{".claude/CLAUDE.override.md", ".claude/CLAUDE.md"}, ""},
 	} {
@@ -661,6 +663,7 @@ func TestEmit_AuthorHeader(t *testing.T) {
 		configurator.ProviderOpenCode,
 		configurator.ProviderAntigravity,
 		configurator.ProviderCrush,
+		configurator.ProviderPi,
 	}
 	for _, withAuthor := range []bool{true, false} {
 		cfg := &configurator.ServerConfig{

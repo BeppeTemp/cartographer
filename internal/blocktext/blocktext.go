@@ -12,6 +12,7 @@ package blocktext
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,20 +45,24 @@ func Write(baseDir, path, begin, end, body string) error {
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := safewrite.MkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(path, []byte(block), 0o644)
+		return safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(block), 0o644)
 	}
 	if err != nil {
 		return err
 	}
 
 	content := string(data)
-	if replaced, ok := ReplaceBetween(content, begin, end, block); ok {
-		return os.WriteFile(path, []byte(replaced), 0o644)
+	replaced, outcome := ReplaceBlock(content, begin, end, block)
+	switch outcome {
+	case Corrupted:
+		return corruptedError(path)
+	case Found:
+		return safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(replaced), 0o644)
 	}
-	return os.WriteFile(path, []byte(appendBlock(content, block)), 0o644)
+	return safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(appendBlock(content, block)), 0o644)
 }
 
 // Remove strips the block delimited by begin/end (markers included) from the
@@ -81,8 +86,11 @@ func Remove(baseDir, path, begin, end string, dryRun bool) (bool, error) {
 	}
 
 	content := string(data)
-	stripped, ok := ReplaceBetween(content, begin, end, "")
-	if !ok {
+	stripped, outcome := ReplaceBlock(content, begin, end, "")
+	if outcome == Corrupted {
+		return false, corruptedError(path)
+	}
+	if outcome != Found {
 		return false, nil
 	}
 	if err := safewrite.CheckPath(baseDir, path); err != nil {
@@ -94,10 +102,107 @@ func Remove(baseDir, path, begin, end string, dryRun bool) (bool, error) {
 	if strings.TrimSpace(stripped) == "" {
 		return true, os.Remove(path)
 	}
-	return true, os.WriteFile(path, []byte(stripped), 0o644)
+	return true, safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(stripped), 0o644)
 }
 
-// ReplaceBetween returns content with the text between begin and end (markers
+// ErrCorruptedBlock is returned (wrapped, naming the file) by Write and Remove
+// when the file does not hold exactly one begin line followed by one end line:
+// a begin whose end was lost, a second begin before the end, an end before the
+// begin. The file is left untouched: cutting from the first begin to the next
+// end would delete the user's text in between, and appending a second block
+// would duplicate the entries. `cartographer doctor` reports the malformed block.
+var ErrCorruptedBlock = errors.New("marker block is corrupted (not exactly one begin followed by one end)")
+
+func corruptedError(path string) error {
+	return fmt.Errorf("%s: %w; left untouched, fix the markers by hand (`cartographer doctor` lists the file)", path, ErrCorruptedBlock)
+}
+
+// Outcome says what ReplaceBlock found.
+type Outcome int
+
+const (
+	// Absent: neither marker appears on a line of its own.
+	Absent Outcome = iota
+	// Found: exactly one begin line followed by exactly one end line.
+	Found
+	// Corrupted: any other combination of marker lines.
+	Corrupted
+)
+
+// BeginStable is the part of a begin marker that identifies it: everything up
+// to the first " — " (em dash). The tail is display text, older versions wrote
+// it in a different language.
+func BeginStable(begin string) string {
+	if i := strings.Index(begin, " — "); i != -1 {
+		return begin[:i]
+	}
+	return begin
+}
+
+// ReplaceBlock is the integrity-checked form of ReplaceBetween (#1502). Markers
+// are whole lines: a begin line starts (at column 0) with the stable prefix of
+// begin, an end line is end, both ignoring trailing blanks and "\r". A marker
+// quoted in the middle of a line is text. Exactly one begin followed by exactly
+// one end is Found and the text from the begin line through the end line (plus
+// its terminator) is replaced; no marker line at all is Absent; every other
+// shape is Corrupted and content comes back unchanged.
+func ReplaceBlock(content, begin, end, replacement string) (string, Outcome) {
+	stable := BeginStable(begin)
+	var beginAt, endStop = -1, -1
+	begins, ends := 0, 0
+	endBeforeBegin := false
+	for off := 0; off < len(content); {
+		nl := strings.IndexByte(content[off:], '\n')
+		lineEnd := len(content)
+		next := len(content)
+		if nl >= 0 {
+			lineEnd = off + nl
+			next = lineEnd + 1
+		}
+		line := strings.TrimRight(content[off:lineEnd], " \t\r")
+		switch {
+		case strings.HasPrefix(line, stable):
+			begins++
+			if begins == 1 {
+				beginAt = off
+			}
+		case line == end:
+			ends++
+			if begins == 0 {
+				endBeforeBegin = true
+			}
+			if ends == 1 {
+				endStop = next
+			}
+		}
+		off = next
+	}
+	switch {
+	case begins == 0 && ends == 0:
+		return content, Absent
+	case begins != 1 || ends != 1 || endBeforeBegin:
+		return content, Corrupted
+	}
+	return content[:beginAt] + replacement + content[endStop:], Found
+}
+
+// CheckFile reports ErrCorruptedBlock (wrapped) when the file at path holds a
+// corrupted block, and nil when it is absent, unreadable, or sound. For a
+// caller that must not edit the file before Write would refuse it anyway.
+func CheckFile(path, begin, end string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	if _, o := ReplaceBlock(string(data), begin, end, ""); o == Corrupted {
+		return corruptedError(path)
+	}
+	return nil
+}
+
+// ReplaceBetween is the legacy locator with no integrity check (first begin,
+// first end after it, anywhere in a line); new writers use ReplaceBlock. It
+// returns content with the text between begin and end (markers
 // included, plus one trailing newline if present right after end) replaced by
 // replacement, and true — or content unchanged and false if begin/end don't
 // both appear, in order.

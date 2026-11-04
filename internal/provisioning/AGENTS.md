@@ -18,6 +18,7 @@ modifies files a user did not ask about.
   `internal/blocktext` does marker-delimited substring replacement and nothing
   format-aware, on purpose: comments, ordering and every other byte survive
   (D58). If you find yourself parsing the user's TOML or JSON to edit it, stop.
+- **A file the user shares with us is written atomically and only when it changed** (`safewrite.WriteFileAtomicNoFollow`: temp file, fsync, rename, mode kept, no write for identical bytes): the instructions block, `blocktext`, the lockfile and the client JSON configs. `os.WriteFile` truncates first, and a sync runs inside a session-start hook with a timeout (#1502). A file we own whole keeps `writeFileNoFollow`.
 - **One sanctioned exception: `TrustCodexProject` (D1074).** It appends a
   `[projects."<dir>"]` / `trust_level = "trusted"` table to the user's Codex
   `config.toml`, outside any managed block, only for `workspace bind codex --trust`
@@ -37,6 +38,7 @@ modifies files a user did not ask about.
   `destinationMatrix` and `workspacescope.go` (D193) are what `docs/sync.md` and
   `docs/interoperability.md` restate for a human, and a restatement drifts (D207):
   if you re-audit a client, change the matrix and those pages in the same PR.
+- **A marker block that is not exactly one begin line then one end line is refused, never edited** (`blocktext.ReplaceBlock`, `Corrupted`): no append, no cut, a per-artifact refusal (`IsRefusal`) pointing to `doctor`. The instructions block and the `blocktext` writers follow it; the provenance stamp, `internal/kb/genindex.go` and the `info/exclude` writer do not yet. A new marker-block writer uses `blocktext`, not its own `strings.Index` (#1502).
 - **Prune is as dangerous as write.** It removes what the lockfile says we own;
   anything outside it is someone else's. Deleting an empty directory has
   boundaries for the same reason (D63).

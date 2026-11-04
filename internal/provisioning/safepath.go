@@ -1,7 +1,6 @@
 package provisioning
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -16,7 +15,7 @@ import (
 // lockfile, while Apply's refuseArtifact keeps the previous entry of a refused
 // update, so the next sync retries and reports again either way.
 func refuse(result *AppliedResult, a Artifact, err error) bool {
-	if !errors.Is(err, ErrSymlinkDestination) {
+	if !IsRefusal(err) {
 		return false
 	}
 	result.Refused = append(result.Refused, a)
@@ -41,6 +40,14 @@ func ensureSafeDir(baseDir, relDir string) error { return safewrite.EnsureSafeDi
 
 func writeFileNoFollow(path string, data []byte, perm os.FileMode) error {
 	return safewrite.WriteFileNoFollow(path, data, perm)
+}
+
+// writeFileAtomicNoFollow is safewrite.WriteFileAtomicNoFollow: the writer of the
+// files the user shares with Cartographer (the instructions block's file, the
+// lockfile, a client's JSON config). A file of Cartographer's own, written whole,
+// keeps writeFileNoFollow.
+func writeFileAtomicNoFollow(baseDir, path string, data []byte, perm os.FileMode) error {
+	return safewrite.WriteFileAtomicNoFollow(baseDir, path, data, perm)
 }
 
 func mkdirAllNoFollow(baseDir, dir string, perm os.FileMode) error {

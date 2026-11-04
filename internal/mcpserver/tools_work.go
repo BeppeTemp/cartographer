@@ -93,8 +93,9 @@ func visibleWork(ctx requestContext, k *kb.KB, cc *conformanceCache) ([]lint.Wor
 		return nil, err
 	}
 	out := make([]lint.WorkEntry, 0, len(all))
+	visible := visiblePredicate(ctx, k)
 	for _, e := range all {
-		if Visible(ctx, k, e.ID) {
+		if visible(e.ID) {
 			out = append(out, e)
 		}
 	}

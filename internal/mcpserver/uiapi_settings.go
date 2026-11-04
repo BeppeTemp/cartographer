@@ -23,8 +23,7 @@ type uiSettingsKB struct {
 	Entries []config.Entry `json:"entries"`
 	// YAML is the KB's effective settings as the settings.yaml they amount
 	// to, commented by the schema (D818).
-	YAML string         `json:"yaml"`
-	Git  map[string]any `json:"git,omitempty"`
+	YAML string `json:"yaml"`
 }
 
 // GET /settings — every setting with its effective value and origin, plus the
@@ -75,26 +74,6 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		row := uiSettingsKB{Name: section.Name, Entries: section.Entries}
 		if out, ok, err := view.KBYAML(section.Name); ok && err == nil {
 			row.YAML = string(out)
-		}
-		// Replication facts describe the KB as a whole, so they are for a
-		// caller that can already see the whole KB (as in the overview).
-		if k := m.servers[section.Name].kbRef; WholeVisible(ctx, k, false) {
-			remoteURL, hasRemote := k.RemoteInfo()
-			st := k.GitStatusSnapshot()
-			git := map[string]any{
-				"has_remote":       hasRemote,
-				"sync":             hasRemote,
-				"push_state":       st.State,
-				"push_last_error":  st.LastError,
-				"unpushed_commits": st.UnpushedCommits,
-				"behind_commits":   st.BehindCommits,
-				"last_push_at":     st.LastPushAt,
-				"last_sync_in_at":  st.LastSyncInAt,
-			}
-			if hasRemote {
-				git["remote_url"] = remoteURL
-			}
-			row.Git = git
 		}
 		kbs = append(kbs, row)
 	}

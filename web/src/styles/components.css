@@ -842,6 +842,21 @@
 
 /* Clearing filters is a quiet line of text above them, not a boxed button:
    it says how many are on and disappears with them. */
+.graph-filter-notice {
+  position: absolute;
+  inset-block-start: var(--space-4);
+  inset-inline: 0;
+  margin-inline: auto;
+  width: max-content;
+  max-width: 90%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  border-radius: var(--radius-2, 6px);
+  z-index: 2;
+}
+
 .rail__clear {
   display: inline-flex;
   align-items: center;

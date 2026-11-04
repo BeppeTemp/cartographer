@@ -574,9 +574,12 @@ function ClientKBs({
   names.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
   const q = query.trim().toLowerCase();
   const shown = names.filter((kb) => !q || kb.toLowerCase().includes(q));
-  const [picked, setPicked] = useState<string | undefined>(activeKB);
+  // The pick follows the top bar: it is dropped when the active KB changes.
+  const [picked, setPicked] = useState<string | null>(null);
+  useEffect(() => setPicked(null), [activeKB]);
   if (shown.length === 0) return null;
-  const kb = picked && shown.includes(picked) ? picked : shown[0]!;
+  const preferred = picked ?? activeKB;
+  const kb = preferred && shown.includes(preferred) ? preferred : shown[0]!;
 
   const settingsOf = (kb: string) => {
     const own = identities[kb];
@@ -829,7 +832,8 @@ function MapTable({ entries, label }: { entries: [string, unknown][]; label: str
   const folded = !all && entries.length > MAP_FOLD;
   const cell = (v: unknown) => {
     const map = asMap(v);
-    const kbs = map && map.length === 1 && map[0]![0] === "kbs" && Array.isArray(map[0]![1]) ? (map[0]![1] as unknown[]) : null;
+    const kbs =
+      map && map.length === 1 && map[0]![0] === "kbs" && Array.isArray(map[0]![1]) ? (map[0]![1] as unknown[]) : null;
     const list = kbs ?? (Array.isArray(v) ? v : null);
     if (list)
       return list.length === 0 ? (
@@ -921,7 +925,12 @@ function Value({ entry: e }: { entry: SettingEntry }) {
   const bytes = /_bytes$/.test(e.key) && /^\d+$/.test(String(e.value)) ? Number(e.value) : null;
   const text = bytes !== null ? humanBytes(bytes) : formatValue(e.value);
   return (
-    <span className="settings__value" data-empty={text.startsWith("(") || undefined} aria-label={label} title={bytes !== null ? `${bytes} bytes` : undefined}>
+    <span
+      className="settings__value"
+      data-empty={text.startsWith("(") || undefined}
+      aria-label={label}
+      title={bytes !== null ? `${bytes} bytes` : undefined}
+    >
       {home(text)}
     </span>
   );

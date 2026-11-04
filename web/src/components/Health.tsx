@@ -1,11 +1,5 @@
 import { useMemo, useState } from "react";
-import type {
-  CheckCatalog,
-  CollectionSummary,
-  GitConflict,
-  LintFinding,
-  LintReport,
-} from "../api/types";
+import type { CheckCatalog, CollectionSummary, GitConflict, LintFinding, LintReport } from "../api/types";
 import {
   categoryHue,
   categoryOrder,
@@ -81,6 +75,8 @@ export function Health({
 }) {
   // The agenda is the page; what the checks look for is a tab beside it (D365).
   const [tab, setTab] = useState<"agenda" | "checks">("agenda");
+  // Another KB may have no catalogue: the tab it had no longer exists.
+  const effectiveTab = checks ? tab : "agenda";
   // The pages of the agenda row under the pointer, and its category: the field
   // lights only those pages, in that category's colour.
   const [focus, setFocusRaw] = useState<Focus | null>(null);
@@ -130,7 +126,7 @@ export function Health({
         title={
           !settled ? (
             <TitleBone label="Reading the KB's health" />
-          ) : tab === "checks" ? (
+          ) : effectiveTab === "checks" ? (
             <>What Cartographer checks</>
           ) : allClear ? (
             <>
@@ -149,7 +145,7 @@ export function Health({
           (checks && settled) || !settled ? (
             <Segmented<"agenda" | "checks">
               label="Health view"
-              value={tab}
+              value={effectiveTab}
               options={[
                 ["agenda", "Issues"],
                 ["checks", "What it checks"],
@@ -175,7 +171,7 @@ export function Health({
       )}
       {settled && (
         <p className="health__lede">
-          {tab === "checks"
+          {effectiveTab === "checks"
             ? "Every page is read against fixed rules. This is what they look for, and what they found here."
             : allClear
               ? clearLede(scopePages, rules)
@@ -185,7 +181,7 @@ export function Health({
         </p>
       )}
 
-      {tab === "checks" && checks && settled ? (
+      {effectiveTab === "checks" && checks && settled ? (
         <Coverage catalog={checks} report={report} />
       ) : (
         <>
@@ -251,7 +247,6 @@ export function Health({
               ))}
             </div>
           )}
-
 
           {!!conflicts?.length && <GitConflicts items={conflicts} onReveal={onReveal} />}
         </>

@@ -20,7 +20,7 @@ is non-deterministic, costly and dependent on external providers.
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
-`make vet` runs `go vet ./...` three times, natively, with `GOOS=windows` and with `GOOS=darwin` (the `test-windows` and `test-macos` jobs do not run on a PR, only in the merge queue, so a file or test that does not compile there would otherwise reach `main`; the darwin leg is what compiles the purego menu-bar UI on the Linux gate, with cgo off), and `make fmt-check` fails on anything not
+`make vet` runs `go vet ./...` three times, natively, with `GOOS=windows` and with `GOOS=darwin` (the `test-windows` and `test-macos` jobs do not run on a PR, only on `main`, so a file or test that does not compile there would otherwise reach `main`; the darwin leg is what compiles the purego menu-bar UI on the Linux gate, with cgo off), and `make fmt-check` fails on anything not
 gofmt-clean. `make race` runs, under the race detector, the tests whose name
 contains `Race` or `Concurrent`: a data race seldom fails an assertion, so a test
 that drives readers and writers concurrently only proves something under `-race`,
@@ -60,22 +60,23 @@ with the unit tests and bundle checks, and the rest of the browser suite.
 `make e2e-web E2E_WEB_ARGS=...` passes the filter to Playwright. A PR runs `test`, the `web` legs when the
 frontend (or what `bin/cartographer` imports) changed, `pr-title` and `plan-gate`; the heavy legs
 (the Windows shards and `install.ps1`, `test-macos`, `docker`, `demo-edge`) run on `merge_group`, on
-every push to `main` and on `workflow_dispatch`, never on a PR (D1592). GitHub's merge queue
-builds a temporary commit of the PR on top of the queue and runs the whole suite on it, once per
-group, so a Windows-only break is stopped before `main` instead of after it. The `web` legs run
-after every push to `main`, in the queue, and on a PR that touches the frontend, `test/lib/`, the build files, or a
+every push to `main` and on `workflow_dispatch`, never on a PR (D1592). A merge queue is not
+available here (it needs an organization-owned repository), so the heavy legs run after the merge:
+a Windows- or macOS-only break is caught on `main` and tracked by the `ci-red` issue, fixed by a
+follow-up. The `merge_group` triggers stay, inert, for a repository that moves to an organization. The `web` legs run
+after every push to `main` (and on `merge_group`) and on a PR that touches the frontend, `test/lib/`, the build files, or a
 non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen}`
 and every `_test.go` cannot change what the browser sees, so they do not trigger it (D672, D255, D994); the
 Playwright browser is cached by version. The `demo-edge` job runs the demo
 Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. On a PR a `changes` job decides `web` and `forge` with
 `scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
 which also compares the excluded packages with `go list -deps`), failing open; where it is
-skipped (queue, push) everything runs. `test`, `test-windows`, `web` and
+skipped (push, `merge_group`) everything runs. `test`, `test-windows`, `web` and
 `pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are required checks; a job skipped by design reports as
-passed, so `test-windows` is green on a PR, and fails in the queue if a leg was skipped or failed.
-In the queue `pr-title` (the same job, every step skipped) and `plan-gate` (`plan-gate-queue.yml`,
+passed, so `test-windows` is green on a PR, and fails on `merge_group` if a leg was skipped or failed.
+On `merge_group` `pr-title` (the same job, every step skipped) and `plan-gate` (`plan-gate-queue.yml`,
 one `echo`, pinned by `TestPlanGateQueueWorkflowDoesNothing`) report success because the PR
-already passed them. The ruleset's merge queue is a maintainer setting, not a file here. On `main` every push gets its own run (the concurrency group is the
+already passed them. Both only matter if a queue is ever enabled. On `main` every push gets its own run (the concurrency group is the
 commit), and the `main-status` job opens a `ci-red` issue on the first
 failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
 generated index is checked only on the release PR, which regenerates it. The working tree is LF on both
@@ -87,7 +88,7 @@ The platform-specific code is the per-KB lock and the process-liveness check
 client-state lock beside it (`internal/provisioning/clientlock_*.go`), and the
 native service's shutdown event (`internal/service/shutdownevent_*.go`,
 `cmd/cartographer/shutdownevent_*.go`); the tests that assert their contract —
-the holder stays nameable, a busy lock is never reclaimed whatever pid it names, a non-contention error fails
+the holder stays nameable (the fsync order of `writeFileAtomic` is asserted through function seams, as a crash cannot be reproduced on CI; the Windows leg holds a read handle while it writes), a busy lock is never reclaimed whatever pid it names, a non-contention error fails
 fast, a second acquirer is refused — run on both legs. So does the rest of the
 suite: the Windows leg is the whole of `make gate`, not a subset.
 
@@ -443,6 +444,8 @@ code) fails visibly but only *after* the new binary is in place.
 
 The scenarios never prefix `run_install` with an assignment (bash POSIX mode, macOS `/bin/sh`, keeps it after the call); `run.sh` refuses one.
 
+It also pins the release window (a stable tag behind twelve candidates is found; candidates only give a distinct error, not the rate-limit one) and that a successful install leaves no temp file, the temp directory being created next to the destination.
+
 The suite also covers the checksum path — a matching digest installs
 and says `checksum OK`, a mismatch fails without leaving a binary behind, a
 `sha256sums.txt` that exists but does not cover the asset is an **error** rather
@@ -491,10 +494,12 @@ The same guard covers the Windows packaging shape: `windows` among the build
 targets, a `format_overrides` entry making its archive a **zip** — what
 `install.ps1` downloads and extracts — no override producing a raw binary, and no
 `winget:` block, which would start opening pull requests against
-`microsoft/winget-pkgs` again (D252). `internal/repodocs` `TestReleaseIsPublishedLast` pins the publish-last order (D1350): `draft` and `force-tag-creation` in `release-please-config.json`, `release.draft` and `use_existing_draft` in `.goreleaser.yaml`, and in `release.yml` a `publish` job that needs `goreleaser`, `prerelease-flag` and `docker` and reads `draft`/`prerelease` back, with `mcp-registry` after it. Its Ruby is not executed — that would need a real Homebrew and
+`microsoft/winget-pkgs` again (D252). `internal/repodocs` `TestReleaseIsPublishedLast` pins the publish-last order (D1350): `draft` and `force-tag-creation` in `release-please-config.json`, `release.draft` and `use_existing_draft` in `.goreleaser.yaml`, `skip_upload: true` on the cask, and in `release.yml` a `publish` job that needs `goreleaser`, `prerelease-flag` and `docker` and reads `draft`/`prerelease` back, with `mcp-registry`, `cask` (tap push) and `latest` (`:latest` retag) after it and no `:latest` in the `docker` job's tags. Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 
 ### Frontend (`make web-test`, `make web-check`)
+
+Each Node target runs `npm ci` first; `make <target> NPM_CI=` skips it, which the CI `web` legs use after one explicit install (`internal/repodocs` `TestNpmCIIsOverridable`).
 
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
@@ -512,9 +517,9 @@ built by `clientconfig.Save` and `Report`) after every server start, so Settings
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
 (`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
-(D337). Keep no local file under `web/`: every file there enters the bundle's
-provenance hash, so an untracked one makes `make web` record a hash CI cannot
-reproduce and `web-check` fails.
+(D337). The bundle's provenance hash covers the files git tracks under `web/` (a
+directory walk outside a repository), so an untracked `.DS_Store`, `*.tsbuildinfo` or
+`.env.local` does not move it; a new source file counts once it is `git add`ed.
 
 The static demo build (D745, `deployment.md` §The public static demo) has no test level of its own:
 the `docs` workflow runs `demo/build.sh` on every pull request that touches `demo/` or `web/`, so

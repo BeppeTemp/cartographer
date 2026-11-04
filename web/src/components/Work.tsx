@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { fetchMaintenanceReview, fetchPendingSources, fetchStatus, fetchWork } from "../api/client";
+import { fetchMaintenanceReview, fetchPendingSources, fetchStatus, fetchWork, optional } from "../api/client";
 import type { CollectionSummary, KBStatus, ReviewItem, SourceEntry, WorkEntry, WorkResponse } from "../api/types";
 import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
@@ -125,11 +125,12 @@ export function Work({
     // is the work list alone.
     Promise.all([
       fetchWork(kb, controller.signal),
-      fetchPendingSources(kb, controller.signal).catch(() => null),
-      fetchStatus(kb, controller.signal).catch(() => null),
-      fetchMaintenanceReview(kb, controller.signal).catch(() => null),
+      optional(fetchPendingSources(kb, controller.signal)),
+      optional(fetchStatus(kb, controller.signal)),
+      optional(fetchMaintenanceReview(kb, controller.signal)),
     ])
       .then(([res, pending, status, review]) => {
+        if (controller.signal.aborted) return;
         setData(withPendingSources(res, pending?.sources ?? []));
         setExtra(extraWork(status?.search_misses ?? [], review?.items ?? []));
         setError(null);
@@ -171,6 +172,14 @@ export function Work({
     () => count(all.map(groupOf)).sort((a, b) => rankStatus(a[0]) - rankStatus(b[0]) || a[0].localeCompare(b[0])),
     [all],
   );
+  // A filter whose chip left the data (another KB, a live refresh) is not a
+  // filter any more: nothing would be left to unpress.
+  useEffect(() => {
+    if (map !== null && !maps.some(([m]) => m === map)) setMap(null);
+  }, [map, maps]);
+  useEffect(() => {
+    if (status !== null && !statuses.some(([s]) => s === status)) setStatus(null);
+  }, [status, statuses]);
   const stale = all.filter((e) => e.stale).length;
   const misses = extra.entries.filter((e) => e.pseudo?.kind === "miss").length;
   const decisions = extra.entries.length - misses;
@@ -263,13 +272,7 @@ export function Work({
               <ColumnCards
                 list={list}
                 render={(e) => (
-                  <WorkCard
-                    entry={e}
-                    mapTitle={titleOfMap(e.map ?? "")}
-                    showMap
-                    showStatus={false}
-                    onOpen={onOpen}
-                  />
+                  <WorkCard entry={e} mapTitle={titleOfMap(e.map ?? "")} showMap showStatus={false} onOpen={onOpen} />
                 )}
               />
             </section>

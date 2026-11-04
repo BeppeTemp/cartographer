@@ -245,7 +245,7 @@ func TestApplyKBRename_RollsBackOnConfigFailure(t *testing.T) {
 		ConfigPath: cfgPath,
 		EntryIndex: 0,
 	}
-	if err := applyKBRename(p); err == nil {
+	if err := applyKBRename(p, nil); err == nil {
 		t.Fatal("a config that cannot be written should fail the rename")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "wiki", "data", "index.md")); err != nil {

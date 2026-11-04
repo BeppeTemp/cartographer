@@ -152,6 +152,16 @@ func TestRunDoctor_Checks(t *testing.T) {
 				if err := os.WriteFile(path, out, 0o644); err != nil {
 					t.Fatal(err)
 				}
+				// The KB is one this client recorded (known_kbs): that is what
+				// makes the entry its own, and what `reconnect` removes.
+				cfg, err := clientconfig.Load(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				cfg.KnownKBs = []string{"ghost"}
+				if err := clientconfig.Save(dir, cfg); err != nil {
+					t.Fatal(err)
+				}
 			},
 			check: "mcp-entries", severity: doctorError, wantFix: "cartographer reconnect",
 		},
@@ -861,5 +871,31 @@ func TestCheckOpenCodePluginShape(t *testing.T) {
 	writePlugin("2")
 	if f := run(2); len(f) != 0 {
 		t.Errorf("2.x plugin on 2.x: %+v", f)
+	}
+}
+
+// An entry named like ours that `disconnect` and `reconnect` would never remove
+// (a user's own cartographer-dev, an orphan of a KB this client never recorded)
+// is not doctor's business: reporting it gave a permanent error whose Fix did
+// not clear it.
+func TestRunDoctor_MCPEntriesIgnoresNamesItDoesNotManage(t *testing.T) {
+	doctorStubs(t, []string{"claude"}, false)
+	dir := doctorFixture(t, "claude")
+	path := filepath.Join(dir, ".claude.json")
+	var root map[string]any
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	root["mcpServers"].(map[string]any)["cartographer-dev"] = map[string]any{"type": "http", "url": "http://x/mcp"}
+	out, _ := json.Marshal(root)
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f := findingsFor(runDoctor(dir, ""), "mcp-entries"); len(f) != 0 {
+		t.Errorf("an entry outside the managed names produced findings: %+v", f)
 	}
 }

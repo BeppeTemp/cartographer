@@ -211,9 +211,10 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
     reference (D1020); Dependabot keeps the pins current.
 - **What runs where** (D1592): a PR runs the light checks (`test`, `web` when the frontend
-  changed, `pr-title`, `plan-gate`). The heavy legs (Windows, macOS, docker, demo-edge) run in
-  GitHub's merge queue, once per group of queued PRs, so a PR that is green may still be
-  ejected from the queue by a Windows-only failure: read the queue run, fix, and re-queue.
+  changed, `pr-title`, `plan-gate`). The heavy legs (Windows, macOS, docker, demo-edge) run on
+  push to `main` (and on `merge_group` if a queue is ever enabled: it is not available on a
+  user-owned repository), so a Windows- or macOS-only break is caught on `main` and tracked
+  by the `ci-red` issue, to be fixed by a follow-up.
   `docs/testing.md` has the table.
 - PRs are **squash-merged** and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
@@ -261,14 +262,15 @@ dispatched by hand with one of three actions.
 - **The release.** `action: rc` builds the candidate, `action: release` merges the open
   release PR with every check below, `action: discard` deletes the candidate(s) of the
   pending version. After the merge release-please cuts the tag and creates the release
-  as a draft: `release.yml` publishes it only after the binaries, the Homebrew cask and
-  the image exist, so no client is told of a version it cannot install (D1350).
+  as a draft: `release.yml` publishes it only after the binaries and the versioned image exist, then pushes the
+  Homebrew cask and moves `:latest`, so no client is told of a version it cannot install (D1350).
 - **Freeze, opened by the candidate.** It is open from the moment a candidate tag
   `vX.Y.Z-rc.<YYYYMMDD>` with `X.Y.Z` greater than the latest stable release exists, until
   that version is released (`release.yml` deletes its candidates) or the candidate is
   discarded. `scripts/freeze-open.sh` answers it from the releases listing (never
   `releases/latest`, which hides a 0.x pre-release; a draft is not released yet; an
-  unreadable listing counts as open). While it is open nothing that adds or breaks
+  unreadable listing counts as open, and `--candidate(s)` then exit 3, which `discard`
+  fails on instead of reporting nothing to discard). While it is open nothing that adds or breaks
   behaviour lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the
   title or a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore`
   may land, so Dependabot keeps working, but its auto-merge is not armed while the freeze

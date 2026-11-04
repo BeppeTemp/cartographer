@@ -36,7 +36,7 @@ const (
 
 // visibleGraph is the one way these tools obtain a graph.
 func visibleGraph(ctx requestContext, k *kb.KB) (*kb.LinkGraph, error) {
-	return k.LinkGraph(func(id string) bool { return Visible(ctx, k, id) })
+	return k.LinkGraph(visiblePredicate(ctx, k))
 }
 
 // notFound is the one error for a missing and for a hidden concept: two texts

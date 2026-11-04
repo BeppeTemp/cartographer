@@ -24,8 +24,9 @@ const (
 // in that graph: closed entries must not dominate the ranking or form
 // communities of their own; the other graph tools still show them.
 func writeAtlasStructure(sb *strings.Builder, ctx requestContext, k *kb.KB) error {
+	visible := visiblePredicate(ctx, k)
 	lg, err := k.LinkGraph(func(id string) bool {
-		return Visible(ctx, k, id) && k.ConceptFacets(okf.ConceptID(id)).Status != kb.StatusArchived
+		return visible(id) && k.ConceptFacets(okf.ConceptID(id)).Status != kb.StatusArchived
 	})
 	if err != nil {
 		return err
@@ -84,7 +85,11 @@ func writeAtlasStructure(sb *strings.Builder, ctx requestContext, k *kb.KB) erro
 			anchor = string(lg.IDs[c.Anchor])
 		}
 		share := int(math.Round(100 * float64(count[top]) / float64(c.Size)))
-		fmt.Fprintf(sb, "- %s — %d concepts, mostly in %s (%d%%)\n", anchor, c.Size, top, share)
+		where := top
+		if where == "" {
+			where = "the KB root" // root pages have no collection
+		}
+		fmt.Fprintf(sb, "- %s — %d concepts, mostly in %s (%d%%)\n", anchor, c.Size, where, share)
 		written++
 	}
 	if written == 0 {

@@ -32,12 +32,13 @@ type Conflict struct {
 	Files      []string `json:"files"`       // all conflicting git paths in the same rebase
 	DetectedAt string   `json:"detected_at"` // RFC3339 UTC
 	// Kind is ConflictKindReserved for a reserved file the server could not
-	// reconcile by itself (D311): ConceptID then holds its git path. Empty for
-	// a concept.
+	// reconcile by itself (D311), or ConflictKindArtifact for any other
+	// non-concept file (a skill, template, asset, settings file, D1563):
+	// ConceptID then holds its git path. Empty for a concept.
 	Kind string `json:"kind,omitempty"`
 
 	// Step 4 — recorded resolution (empty until the agent calls git_conflict_resolve).
-	ResolutionStrategy string `json:"resolution_strategy,omitempty"` // "ours" | "theirs" | "edit" | "union" (reserved log.md only)
+	ResolutionStrategy string `json:"resolution_strategy,omitempty"` // "ours" | "theirs" | "edit" | "union" (reserved log.md or index.md only)
 	ResolutionBody     string `json:"resolution_body,omitempty"`     // full reconciled file content, used when strategy="edit"
 }
 

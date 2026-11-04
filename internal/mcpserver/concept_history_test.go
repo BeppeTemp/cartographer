@@ -168,3 +168,27 @@ func TestConceptHistoryNotFoundAndNoGit(t *testing.T) {
 		t.Fatalf("no repository = %+v %+v, want empty revisions and a note", h, res)
 	}
 }
+
+// truncated means "more revisions exist": a page that holds exactly limit
+// commits is complete.
+func TestConceptHistoryTruncatedOnlyWhenMoreExist(t *testing.T) {
+	t.Parallel()
+	c := newChangesLinksKB(t)
+	for _, v := range []string{"one", "two", "three"} {
+		c.write("ops/page", "version "+v+"\n")
+		c.commit(true)
+	}
+	for _, tc := range []struct {
+		limit     string
+		revs      int
+		truncated bool
+	}{{"3", 3, false}, {"2", 2, true}, {"4", 3, false}} {
+		h, res := c.history(`{"id":"ops/page","limit":` + tc.limit + `}`)
+		if res.IsError {
+			t.Fatalf("limit %s: %+v", tc.limit, res)
+		}
+		if len(h.Revisions) != tc.revs || h.Truncated != tc.truncated {
+			t.Fatalf("limit %s: %d revisions, truncated=%v; want %d, %v", tc.limit, len(h.Revisions), h.Truncated, tc.revs, tc.truncated)
+		}
+	}
+}

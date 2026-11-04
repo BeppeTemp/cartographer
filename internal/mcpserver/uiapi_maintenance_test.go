@@ -189,6 +189,37 @@ func TestUIAPI_Births(t *testing.T) {
 	}
 }
 
+// Births change only with a commit: two reads at one HEAD walk the history
+// once, a new commit walks it again, and the caller's visibility is applied
+// after the cache.
+func TestUIAPI_BirthsAreCachedByHead(t *testing.T) {
+	t.Parallel()
+	k, _ := repairKB(t, 2)
+	k.AuthName = "docs"
+	multi := NewMultiKBServer("test")
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	multi.EnableWeb(nil)
+	handler := auth.NewTokenStore(nil).Middleware(multi.Handler())
+	runs := func() int {
+		birthsCache.Lock()
+		defer birthsCache.Unlock()
+		return birthsCache.runs[k.Root]
+	}
+	for i := 0; i < 2; i++ {
+		if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/births", ""); rr.Code != http.StatusOK {
+			t.Fatalf("status %d", rr.Code)
+		}
+	}
+	if got := runs(); got != 1 {
+		t.Fatalf("two reads at one HEAD walked the history %d times, want 1", got)
+	}
+	gitOut(t, k, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "test: new head")
+	getUI(t, handler, UIAPIPrefix+"/kbs/docs/births", "")
+	if got := runs(); got != 2 {
+		t.Fatalf("a new commit must invalidate the cache: %d walks, want 2", got)
+	}
+}
+
 // D365: the catalogue lists every lint check by category, and says which ones
 // this KB's background repair runs by itself; the summary lists its runs.
 func TestUIAPI_ChecksAndRuns(t *testing.T) {

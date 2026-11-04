@@ -189,7 +189,7 @@ func TestApplyKBRename_FailedWriteLeavesNoAlias(t *testing.T) {
 		OldPath: filepath.Join(dataDir, "wiki"), NewPath: filepath.Join(dataDir, "atlas"),
 		DataDir: dataDir, ConfigPath: cfgPath, EntryIndex: 0,
 	}
-	if err := applyKBRename(p); err == nil {
+	if err := applyKBRename(p, nil); err == nil {
 		t.Fatal("an unwritable config should fail the rename")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "wiki", "data", "index.md")); err != nil {
@@ -308,7 +308,7 @@ func TestApplyKBUnmount_FailedBackupOrEditRestoresTheAliases(t *testing.T) {
 			_, err := applyKBUnmount(&unmountPlan{
 				Name: "kb-a", DataDir: dataDir, ConfigPath: cfgPath, EntryIndex: entry,
 				Aliases: []string{"kb-old → kb-a"}, KBPath: filepath.Join(dataDir, "kb-a"),
-			})
+			}, nil)
 			if err == nil {
 				t.Fatal("the failure was not reported")
 			}

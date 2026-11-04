@@ -106,7 +106,8 @@ func changesSinceLinks(ctx requestContext, k *kb.KB, commits []gitx.CommitChange
 	if err != nil {
 		return nil, "", err
 	}
-	visible := func(id okf.ConceptID) bool { return Visible(ctx, k, string(id)) }
+	visibleID := visiblePredicate(ctx, k)
+	visible := func(id okf.ConceptID) bool { return visibleID(string(id)) }
 
 	var added, removed []changesLinkEdge
 	delta := map[okf.ConceptID]int{} // inbound(now) − inbound(then), visible edges only

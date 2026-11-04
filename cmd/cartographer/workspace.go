@@ -230,7 +230,7 @@ func loadWorkspaceConfig() (string, *clientconfig.Config, error) {
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
-		return "", nil, fmt.Errorf("no client config found in %s (run `cartographer connect` first): %w", dir, err)
+		return "", nil, errors.New(describeClientConfigError(dir, err))
 	}
 	return dir, cfg, nil
 }
@@ -250,7 +250,7 @@ func loadWorkspaceConfigLocked() (string, *clientconfig.Config, func(), error) {
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		release()
-		return "", nil, nil, fmt.Errorf("no client config found in %s (run `cartographer connect` first): %w", dir, err)
+		return "", nil, nil, errors.New(describeClientConfigError(dir, err))
 	}
 	return dir, cfg, release, nil
 }
@@ -693,6 +693,34 @@ func allProjections(cfg *clientconfig.Config, providers []string, clientBaseDir 
 		out = append(out, ps...)
 	}
 	return out, nil
+}
+
+// providerFailure is a provider whose projections could not be resolved: an
+// explicit workspace binding whose directory is gone, a provider that cannot be
+// scoped to a workspace.
+type providerFailure struct {
+	Provider string
+	Err      error
+}
+
+// allProjectionsPartial is allProjections for sync (#1502): a provider whose
+// projections cannot be resolved costs only itself, as a KB that cannot be pulled
+// costs only the providers bound to it (D257). It is left out of the result and
+// reported; every other provider keeps its projections.
+func allProjectionsPartial(cfg *clientconfig.Config, providers []string, clientBaseDir string) ([]syncProjection, []providerFailure) {
+	var out []syncProjection
+	var failed []providerFailure
+	sorted := append([]string(nil), providers...)
+	sort.Strings(sorted)
+	for _, provider := range sorted {
+		ps, err := projectionsFor(cfg, provider, clientBaseDir)
+		if err != nil {
+			failed = append(failed, providerFailure{Provider: provider, Err: err})
+			continue
+		}
+		out = append(out, ps...)
+	}
+	return out, failed
 }
 
 // manifestsForProjections is manifestsForProviders with the workspace axis: one
@@ -1283,7 +1311,7 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		// records (D364): .agents/skills/<n>/ is Codex's and Antigravity's.
 		keep := lockFile.CoOwnedPaths(key)
 		if _, err := provisioning.PruneManaged(provisioning.WithoutCoOwned(lock.Managed, keep), base, false); err != nil {
-			if errors.Is(err, provisioning.ErrSymlinkDestination) {
+			if provisioning.IsRefusal(err) {
 				// Refused (D148): the projection stays in the lockfile, so the
 				// next sync retries it; the other projections are still pruned.
 				fmt.Fprintf(os.Stderr, "warning: %s not pruned: %v\n", key.String(), err)

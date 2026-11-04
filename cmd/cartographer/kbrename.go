@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"gopkg.in/yaml.v3"
 )
@@ -48,6 +49,57 @@ type renamePlan struct {
 	// make every sync fail (D754). Empty when the client points at another
 	// server, whose KBs this rename does not touch.
 	Bindings []string
+
+	// Credentials are the KB's own files of the credentials directory
+	// (<old>.ssh, .token, .age, .signing, D905), moved to <new>.<kind> with the
+	// directory: they are looked up by KB name, so left behind the renamed KB
+	// would lose its key, its decryption and the signature of its manifest.
+	Credentials []credMove
+}
+
+// credMove is one credential file to rename.
+type credMove struct{ From, To string }
+
+// credentialKinds are the per-KB credential kinds of the credentials directory.
+var credentialKinds = []string{config.CredentialSSH, config.CredentialToken, config.CredentialAge, config.CredentialSigning}
+
+// kbCredentialDir is the credentials directory in effect for a data dir and an
+// optional loaded server config.
+func kbCredentialDir(dataDir string, cfg *config.Config) string {
+	c := &config.Config{Data: dataDir}
+	if cfg != nil {
+		c.CredentialsDir = cfg.CredentialsDir
+	}
+	return c.CredentialsPath()
+}
+
+// kbCredentialFiles lists the KB's own credential files that exist, one per kind.
+func kbCredentialFiles(credDir, name string) []string {
+	var out []string
+	for _, kind := range credentialKinds {
+		if p, ok := config.KBCredentialFile(credDir, name, kind); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// lockKBForChange opens the KB at root and takes its advisory process lock
+// without waiting, as import and reauthor do (D155): rename and unmount edit a
+// clone the running service may be committing to, and a commit landing between
+// the "pushed" check and the move or delete would be lost. The lock is held from
+// the preflight and released by the caller just before the destructive step
+// (Windows cannot move a directory that holds an open lock file).
+func lockKBForChange(root, command string) (release func(), err error) {
+	k, err := kb.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	release, err = k.AcquireProcessLock(0, command)
+	if err != nil {
+		return nil, fmt.Errorf("%w\n  The KB is in use: stop the service (cartographer service stop), run this again, then start it", err)
+	}
+	return release, nil
 }
 
 // cmdKBRename implements `cartographer kb rename <old> <new> [--data <dir>]
@@ -75,7 +127,7 @@ func cmdKBRename(args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}
-	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+	if code := checkLocalTarget("kb rename", *dataFlag, *localFlag); code != 0 {
 		return code
 	}
 	dataDir := *dataFlag
@@ -90,7 +142,14 @@ func cmdKBRename(args []string) int {
 	}
 	printRenamePreflight(os.Stdout, plan)
 
-	if err := applyKBRename(plan); err != nil {
+	release, err := lockKBForChange(plan.OldPath, "cartographer kb rename")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	defer release()
+	// Released by applyKBRename right before the directory moves.
+	if err := applyKBRename(plan, release); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -150,16 +209,19 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 		}
 	}
 	if configPath == "" {
-		return p, nil
+		return p, planCredentialMoves(p, nil)
 	}
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		return p, nil
+		return p, planCredentialMoves(p, nil)
 	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("server config %s cannot be read, refusing to rewrite it: %w", configPath, err)
 	}
 	p.ConfigPath = configPath
+	if err := planCredentialMoves(p, cfg); err != nil {
+		return nil, err
+	}
 
 	if err := locateKBEntry(p, cfg); err != nil {
 		return nil, err
@@ -168,6 +230,24 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 	p.ClientKeys = clientRefs(old)
 	p.Bindings = bindingRefs(old)
 	return p, nil
+}
+
+// planCredentialMoves lists the KB's credential files to rename. A file already
+// named for the new KB is a refusal: overwriting a credential is not a rename.
+func planCredentialMoves(p *renamePlan, cfg *config.Config) error {
+	credDir := kbCredentialDir(p.DataDir, cfg)
+	for _, kind := range credentialKinds {
+		from, ok := config.KBCredentialFile(credDir, p.Old, kind)
+		if !ok {
+			continue
+		}
+		to := filepath.Join(credDir, p.New+"."+kind)
+		if _, err := os.Lstat(to); err == nil {
+			return fmt.Errorf("%s already exists: it would be replaced by %s; move one of them away first", to, from)
+		}
+		p.Credentials = append(p.Credentials, credMove{From: from, To: to})
+	}
+	return nil
 }
 
 // locateKBEntry finds the kbs[] entry that mounts the KB, by resolved name or
@@ -362,6 +442,9 @@ func printRenamePreflight(w io.Writer, p *renamePlan) {
 	for _, b := range p.Bindings {
 		fmt.Fprintf(w, "this machine's .cartographer.yaml: rewriting the %s binding\n", b)
 	}
+	for _, c := range p.Credentials {
+		fmt.Fprintf(w, "credentials: renaming %s → %s\n", c.From, c.To)
+	}
 	if len(p.Scopes) == 0 && len(p.ClientKeys) == 0 {
 		return
 	}
@@ -380,18 +463,34 @@ func printRenamePreflight(w io.Writer, p *renamePlan) {
 // (permissions, a different filesystem); a failure after it is undone by
 // renaming it back and restoring the state file, which is the only rollback
 // this command claims.
-func applyKBRename(p *renamePlan) error {
+func applyKBRename(p *renamePlan, release func()) error {
+	if release != nil {
+		release()
+	}
 	if err := os.Rename(p.OldPath, p.NewPath); err != nil {
 		if errors.Is(err, syscall.EXDEV) {
 			return fmt.Errorf("%s and %s are on different filesystems: move the KB yourself (a recursive copy would silently change the ownership and timestamps of a git repository), then rerun with the directory already in place", p.OldPath, p.NewPath)
 		}
 		return err
 	}
+	var movedCreds []credMove
 	undo := func(cause error) error {
+		for i := len(movedCreds) - 1; i >= 0; i-- {
+			c := movedCreds[i]
+			if back := os.Rename(c.To, c.From); back != nil {
+				cause = fmt.Errorf("%w (and the credential file could not be renamed back: %v — it is now at %s)", cause, back, c.To)
+			}
+		}
 		if back := os.Rename(p.NewPath, p.OldPath); back != nil {
 			return fmt.Errorf("%w (and the directory could not be renamed back: %v — it is now at %s)", cause, back, p.NewPath)
 		}
 		return cause
+	}
+	for _, c := range p.Credentials {
+		if err := os.Rename(c.From, c.To); err != nil {
+			return undo(fmt.Errorf("rename the credential file %s: %w", c.From, err))
+		}
+		movedCreds = append(movedCreds, c)
 	}
 	prev, err := settleAliases(p.DataDir, p.ConfigPath)
 	if err != nil {

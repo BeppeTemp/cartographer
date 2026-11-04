@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -731,5 +733,53 @@ func TestStatus_StaleBridgeEntryIsDrift(t *testing.T) {
 	out = withStdout(t, func() { code = cmdStatus(nil) })
 	if code != 0 {
 		t.Errorf("cmdStatus with the current bridge command = %d, want 0: %s", code, out)
+	}
+}
+
+// /health answers but the manifest pull then fails: the table said nothing at
+// all and the JSON called it "could not reach". Each cause now has its own
+// code, the message names the failure and the exit code stays 2.
+func TestStatus_ManifestFailureAfterHealthyServer(t *testing.T) {
+	cases := []struct {
+		name     string
+		err      error
+		wantCode string
+	}{
+		{"signature", fmt.Errorf("provisioning: verify skill/x: bad: %w", provisioning.ErrSignature), "signature_failed"},
+		{"unauthorized", client.ErrUnauthorized, "unauthorized"},
+		{"forbidden", &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeHTTPFailed, HTTPStatus: 403, Message: "x returned HTTP 403"}, "unauthorized"},
+		{"server error", &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeHTTPFailed, HTTPStatus: 500, Message: "x returned HTTP 500", Cause: errors.New("boom")}, "pull_failed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			setHome(t, home)
+			if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "http://127.0.0.1:39273/mcp", Agents: []string{"claude"}}); err != nil {
+				t.Fatal(err)
+			}
+			oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+			version = "v1.0.0"
+			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+			statusManifestsFn = func(*clientconfig.Config, []syncProjection) (map[string]provisioning.Manifest, error) {
+				return nil, tc.err
+			}
+			statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+			t.Cleanup(func() {
+				version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+			})
+
+			var code int
+			stderr := withStderr(t, func() { withStdout(t, func() { code = cmdStatus(nil) }) })
+			if code != 2 {
+				t.Errorf("exit = %d, want 2", code)
+			}
+			if !strings.Contains(stderr, "the server answered") {
+				t.Errorf("table output says nothing about the failure; stderr = %q", stderr)
+			}
+			js := withStdout(t, func() { cmdStatus([]string{"--output", "json"}) })
+			if !strings.Contains(js, `"code":"`+tc.wantCode+`"`) {
+				t.Errorf("JSON error code: want %s in %s", tc.wantCode, js)
+			}
+		})
 	}
 }

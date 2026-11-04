@@ -49,7 +49,9 @@ FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2
 LABEL io.modelcontextprotocol.server.name="io.github.BeppeTemp/cartographer"
 RUN apk add --no-cache git sops age openssh-client
 COPY --from=builder /cartographer /usr/local/bin/cartographer
-RUN adduser -D -h /home/cartographer cartographer
-USER cartographer
+# A numeric USER: a pod with runAsNonRoot: true and no runAsUser is refused for a
+# name it cannot map to a uid (kubelet cannot verify a non-numeric user).
+RUN adduser -D -u 1000 -h /home/cartographer cartographer
+USER 1000:1000
 WORKDIR /home/cartographer
 ENTRYPOINT ["cartographer"]

@@ -29,7 +29,8 @@ const pushFlushTimeout = 5 * time.Second
 //
 // Semantics:
 //   - If the original handler returns a Go error or an application error
-//     (res.IsError), no commit is attempted.
+//     (res.IsError), no commit is attempted, and when the working tree was clean
+//     before the handler ran, it is restored to HEAD (discardFailedWrite, D1549).
 //   - If the commit itself fails, the error is logged to stderr but is NOT
 //     propagated to the MCP client: a commit failure never turns a successful
 //     operation into an error.
@@ -72,6 +73,10 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				return nil
 			}
 			commitExternalChanges(k, orig.Name)
+			// Only a tree that is verifiably at HEAD here may be restored to it
+			// if the handler fails: otherwise the diff would hold unsaved work
+			// of someone else (an open conflict, a failed pre-commit).
+			cleanBefore := k.TreeClean()
 			// A settings.yaml edited in place (D746) takes effect for this
 			// write, as one that arrived by pull does.
 			k.RefreshSettings()
@@ -79,6 +84,11 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			handlerStart := time.Now()
 			res, handlerErr = orig.Handler(ctx, args)
 			handlerDur = time.Since(handlerStart)
+			if (handlerErr != nil || res.IsError) && cleanBefore {
+				if discardFailedWrite(k, orig.Name, &res) && handlerErr != nil {
+					handlerErr = fmt.Errorf("%w; "+discardedNote, handlerErr)
+				}
+			}
 			if handlerErr == nil && !res.IsError {
 				// Generated map indexes (D301) follow the write in the same
 				// commit. A failure is logged, never fatal: lint reports a
@@ -139,6 +149,40 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 	}
 	return t
 }
+
+// discardFailedWrite restores the tree to HEAD after a handler failed, so the
+// half-done state (applied moves, rewritten concepts, a status edit) is not left
+// for the next write to commit as "external changes", outside the write gate and
+// under the server's name. The caller holds the git lock and has checked the tree
+// was clean before the handler; ignored files are kept. A handler that succeeded
+// and whose commit failed is not discarded: the work is valid and the next
+// commit retries. A rollback failure is logged and the result is unchanged.
+//
+// Known window: "clean before" is proven at the start of the call, so an edit
+// an outside process writes to the KB while the handler runs is discarded too.
+// The lock does not stop an editor; the window is the handler's duration.
+// It reports whether the tree was restored.
+func discardFailedWrite(k *kb.KB, tool string, res *ToolResult) bool {
+	if k.TreeClean() {
+		return false // the handler failed before touching the disk
+	}
+	if err := k.DiscardUncommitted(); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: rollback of a failed %s failed: %v\n", tool, err)
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "cartographer: %s failed after writing: the tree was restored to the last commit\n", tool)
+	if !res.IsError || len(res.Content) == 0 {
+		return true
+	}
+	// The handler worded its error for a tree that keeps the partial state.
+	last := &res.Content[len(res.Content)-1]
+	last.Text = strings.ReplaceAll(last.Text, "; "+recoveryHint, "")
+	last.Text += "; " + discardedNote
+	return true
+}
+
+// discardedNote ends the error of a write gitWrap rolled back.
+const discardedNote = "the changes this call had already written were discarded, the KB is back at its last commit"
 
 // syncInForWrite is gitWrap's step 2/3: fetch + pull --rebase before a write.
 // It returns a refusal result (and true) when the write must not go on: a
@@ -205,7 +249,7 @@ func pushAfterCommit(ctx context.Context, k *kb.KB, tool string, res *ToolResult
 	if syncErr != nil {
 		var rce *gitx.RebaseConflictError
 		if errors.As(syncErr, &rce) {
-			n, _ := handleConflictError(k, rce)
+			n, _, _ := handleConflictError(k, rce)
 			fmt.Fprintf(os.Stderr,
 				"cartographer: git conflict during push (%s): registered %d concept(s) as degraded\n",
 				tool, n)
@@ -435,7 +479,7 @@ func startReadRefresh(k *kb.KB, op string) {
 			if syncErr != nil {
 				var rce *gitx.RebaseConflictError
 				if errors.As(syncErr, &rce) {
-					n, _ := handleConflictError(k, rce)
+					n, _, _ := handleConflictError(k, rce)
 					fmt.Fprintf(os.Stderr,
 						"cartographer: git conflict during read sync (%s): registered %d concept(s) as degraded\n",
 						op, n)
@@ -469,38 +513,54 @@ func formatTiming(op string, syncIn, handler, commit, push time.Duration, pushAs
 	)
 }
 
-// handleConflictError registers each conflicting concept in the KB conflict registry
-// and marks it as degraded. Best-effort: errors are logged to stderr.
-// Returns the number of concept IDs successfully identified in the conflict,
-// and the reserved files (log.md, index.md, _map.md, _archive.md) in it.
+// handleConflictError registers each conflicting file in the KB conflict
+// registry and marks conflicting concepts as degraded. Best-effort: errors are
+// logged to stderr. It returns the number of concepts identified, the reserved
+// files (log.md, index.md, _map.md, _archive.md) in the conflict, and the other
+// files (skills, templates, assets, instructions.md, settings.yaml...).
 //
 // Reserved files are not concepts (D311). Alongside a concept they stay out of
 // the registry: FinalizeConflicts resolves them automatically with the
 // concepts. Alone, they reach here only when the server's own reconciliation
 // (kb.pullRebase) failed, and are registered with kind "reserved" and their
-// path as concept_id so git_conflict_resolve can settle them — registering
-// nothing would leave the KB with no tool-level way out.
-func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string) {
+// path as concept_id so git_conflict_resolve can settle them. Every other file
+// is registered with kind "artifact" whatever else conflicted: nothing
+// reconciles it automatically, and an unregistered conflict blocked every
+// write with no tool-level way out (D1563).
+func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string, []string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	n := 0
-	var reserved, concepts []string
+	var reserved, concepts, other []string
 	conceptIDs := map[string]string{}
 	for _, file := range rce.Files {
-		if conceptID, ok := kb.GitPathToConceptID(file); ok {
+		if conceptID, ok := kb.GitPathToConceptID(file); ok || expandedID(file) != "" {
+			if !ok {
+				conceptID = expandedID(file)
+			}
 			concepts = append(concepts, file)
 			conceptIDs[file] = conceptID
 		} else if kb.IsReservedPath(file) {
 			reserved = append(reserved, file)
+		} else {
+			other = append(other, file)
 		}
 	}
-	register := concepts
+	register := append([]string{}, concepts...)
 	if len(concepts) == 0 {
-		register = reserved
+		register = append(register, reserved...)
+	}
+	register = append(register, other...)
+	otherSet := map[string]bool{}
+	for _, f := range other {
+		otherSet[f] = true
 	}
 	for _, file := range register {
 		conceptID, kind := conceptIDs[file], ""
 		if conceptID == "" {
 			conceptID, kind = file, kb.ConflictKindReserved
+			if otherSet[file] {
+				kind = kb.ConflictKindArtifact
+			}
 		}
 		c := kb.Conflict{
 			ConceptID:  conceptID,
@@ -515,7 +575,7 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 		if err := k.RegisterConflict(c); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: register conflict %q: %v\n", conceptID, err)
 		}
-		if kind == kb.ConflictKindReserved {
+		if kind != "" {
 			continue
 		}
 		if err := k.MarkDegraded(conceptID); err != nil {
@@ -523,25 +583,43 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 		}
 		n++
 	}
-	return n, reserved
+	return n, reserved, other
+}
+
+// expandedID is the concept an expanded concept's index.md holds, or "".
+func expandedID(file string) string {
+	id, _ := kb.GitPathToExpandedConceptID(file)
+	return id
 }
 
 // conflictMessage is the error a write returns when its SyncIn hit a rebase
-// conflict on n concepts and the given reserved files. It never suggests a
-// git command: every way out is a tool (D311).
-func conflictMessage(n int, reserved []string) string {
-	if len(reserved) == 0 {
-		return fmt.Sprintf("git conflict detected and registered on %d concept(s); "+
-			"use the conflicts_list tool and kb_guide (procedure conflict-resolve) to resolve", n)
+// conflict on n concepts, the given reserved files and the given other files.
+// It never suggests a git command: every way out is a tool (D311), and it
+// promises a tool only for what was registered (D1563).
+func conflictMessage(n int, reserved, other []string) string {
+	pathHint := "resolve with git_conflict_resolve (concept_id: the file path, strategy: ours|theirs)"
+	switch {
+	case n == 0 && len(reserved) == 0 && len(other) == 0:
+		return "git conflict detected but the conflicting files could not be identified, so nothing was registered; " +
+			"retry the write, and report it to the operator if it persists"
+	case n == 0 && len(reserved) > 0:
+		msg := fmt.Sprintf("git conflict on reserved file(s) only (%s); auto-resolution failed — "+
+			"resolve with git_conflict_resolve (concept_id: the file path, strategy: union|ours|theirs; union only for log.md)", strings.Join(reserved, ", "))
+		if len(other) > 0 {
+			msg += fmt.Sprintf("; non-concept file(s) also in conflict (%s) — %s", strings.Join(other, ", "), pathHint)
+		}
+		return msg
+	case n == 0:
+		return fmt.Sprintf("git conflict on non-concept file(s) (%s) registered; %s", strings.Join(other, ", "), pathHint)
 	}
-	files := strings.Join(reserved, ", ")
-	if n == 0 {
-		return fmt.Sprintf("git conflict on reserved file(s) only (%s); auto-resolution failed — "+
-			"resolve with git_conflict_resolve (concept_id: the file path, strategy: union|ours|theirs; union only for log.md)", files)
+	msg := fmt.Sprintf("git conflict detected and registered on %d concept(s); ", n)
+	if len(reserved) > 0 {
+		msg += fmt.Sprintf("%d reserved file(s) also in conflict (%s) — these are auto-resolved when the concept conflicts are resolved; ", len(reserved), strings.Join(reserved, ", "))
 	}
-	return fmt.Sprintf("git conflict detected and registered on %d concept(s); "+
-		"%d reserved file(s) also in conflict (%s) — these are auto-resolved when the concept conflicts are resolved; "+
-		"use the conflicts_list tool and kb_guide (procedure conflict-resolve) to resolve the concept conflicts", n, len(reserved), files)
+	if len(other) > 0 {
+		msg += fmt.Sprintf("non-concept file(s) also registered (%s) — %s; ", strings.Join(other, ", "), pathHint)
+	}
+	return msg + "use the conflicts_list tool and kb_guide (procedure conflict-resolve) to resolve the concept conflicts"
 }
 
 // byteBudget renders a byte limit the way an operator reads it, so a tool

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -204,17 +205,38 @@ func uiRevision(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 	writeUIJSON(w, http.StatusOK, map[string]string{"revision": uiRevisionBoot + "-" + strconv.FormatUint(gen, 10)})
 }
 
-// GET /kbs/{kb}/births — when each concept the principal can see first
-// entered the KB: the commit that added its file, carried across moves. The
-// Atlas replays the KB growing in that order (D367). A concept deleted and written
-// again is born again; one with no history (a KB that is not a repository, a
-// file not yet committed) is absent, and the replay places it last.
-func uiBirths(w http.ResponseWriter, r *http.Request, k *kb.KB) {
-	ctx := r.Context()
-	commits, err := gitx.LogNameStatus(k.Root, time.Unix(0, 0))
+// birthsCache keeps, per KB root, the births computed at one HEAD. They change
+// only with a new commit, and reading them walks the whole history, so a
+// Replay click or an export must not repeat that for every reader. The
+// per-caller visibility filter runs outside the cache.
+var birthsCache = struct {
+	sync.Mutex
+	byRoot map[string]cachedBirths
+	// runs counts the history walks per root; a test reads it.
+	runs map[string]int
+}{byRoot: map[string]cachedBirths{}, runs: map[string]int{}}
+
+type cachedBirths struct {
+	head string
+	born map[string]time.Time
+}
+
+func uiBirthsOf(root string) (map[string]time.Time, error) {
+	head, headErr := gitx.HeadSHA(root)
+	if headErr == nil {
+		birthsCache.Lock()
+		hit, ok := birthsCache.byRoot[root]
+		birthsCache.Unlock()
+		if ok && hit.head == head {
+			return hit.born, nil
+		}
+	}
+	birthsCache.Lock()
+	birthsCache.runs[root]++
+	birthsCache.Unlock()
+	commits, err := gitx.LogNameStatus(root, time.Unix(0, 0))
 	if err != nil {
-		writeUIInternal(w, "births: git log", err)
-		return
+		return nil, err
 	}
 	born := gitx.Births(commits, func(path string) (string, bool) {
 		if isCartographerPath(path) {
@@ -222,6 +244,26 @@ func uiBirths(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		}
 		return kb.GitPathToConceptID(path)
 	})
+	if headErr == nil {
+		birthsCache.Lock()
+		birthsCache.byRoot[root] = cachedBirths{head: head, born: born}
+		birthsCache.Unlock()
+	}
+	return born, nil
+}
+
+// GET /kbs/{kb}/births — when each concept the principal can see first
+// entered the KB: the commit that added its file, carried across moves. The
+// Atlas replays the KB growing in that order (D367). A concept deleted and written
+// again is born again; one with no history (a KB that is not a repository, a
+// file not yet committed) is absent, and the replay places it last.
+func uiBirths(w http.ResponseWriter, r *http.Request, k *kb.KB) {
+	ctx := r.Context()
+	born, err := uiBirthsOf(k.Root)
+	if err != nil {
+		writeUIInternal(w, "births: git log", err)
+		return
+	}
 	out := make(map[string]string, len(born))
 	for id, at := range born {
 		if Visible(ctx, k, id) {

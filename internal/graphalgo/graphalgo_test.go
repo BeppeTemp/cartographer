@@ -313,3 +313,27 @@ func TestEmptyAndSingleNode(t *testing.T) {
 		}
 	}
 }
+
+// A seed hub spreads its mass thin: each neighbour's residue stays below the
+// push threshold eps*deg, and without crediting that residue the neighbours
+// would score 0 and be dropped by the ranking.
+func TestPersonalizedPageRankHubSeedReachesItsNeighbours(t *testing.T) {
+	const hubDegree, leaves = 2000, 4
+	n := 1 + hubDegree*(1+leaves)
+	edges := make([][2]int, 0, hubDegree*(1+leaves))
+	next := 1 + hubDegree
+	for v := 1; v <= hubDegree; v++ {
+		edges = append(edges, [2]int{0, v})
+		for l := 0; l < leaves; l++ {
+			edges = append(edges, [2]int{v, next})
+			next++
+		}
+	}
+	g := build(n, edges)
+	p := PersonalizedPageRank(g, map[int]float64{0: 1}, 0.15, 1e-4)
+	for v := 1; v <= hubDegree; v++ {
+		if p[v] <= 0 {
+			t.Fatalf("neighbour %d of degree %d scores %v: the residue was dropped", v, leaves+1, p[v])
+		}
+	}
+}

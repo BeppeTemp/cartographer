@@ -305,3 +305,50 @@ func TestRemove_NothingToRemoveNeverRefuses(t *testing.T) {
 		}
 	}
 }
+
+// #1502: a begin whose end was lost (hand edit, or Codex rewriting config.toml)
+// must neither get a second block appended nor have the user's table between the
+// orphan and the next end cut away. The file stays byte-identical.
+func TestCorruptedBlock_IsRefusedAndUntouched(t *testing.T) {
+	for name, initial := range map[string]string{
+		"orphan begin":     "model = \"x\"\n# begin\n[mcp_servers.x]\nurl = \"u\"\n\n[profiles.mine]\nk = 1\n",
+		"two begins":       "# begin\na\n# begin\nb\n# end\n[profiles.mine]\n",
+		"end before begin": "# end\n[profiles.mine]\n# begin\nb\n",
+		"two ends":         "# begin\na\n# end\nmine\n# end\n",
+		"orphan end":       "[profiles.mine]\n# end\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 2; i++ {
+				if err := blocktext.Write(filepath.Dir(path), path, begin, end, "new"); !errors.Is(err, blocktext.ErrCorruptedBlock) {
+					t.Fatalf("Write %d: err = %v, want ErrCorruptedBlock", i, err)
+				}
+			}
+			if found, err := blocktext.Remove(filepath.Dir(path), path, begin, end, false); found || !errors.Is(err, blocktext.ErrCorruptedBlock) {
+				t.Fatalf("Remove = (%v, %v), want (false, ErrCorruptedBlock)", found, err)
+			}
+			if err := blocktext.CheckFile(path, begin, end); !errors.Is(err, blocktext.ErrCorruptedBlock) {
+				t.Errorf("CheckFile = %v", err)
+			}
+			if got, _ := os.ReadFile(path); string(got) != initial {
+				t.Errorf("file changed:\n%q\nwant\n%q", got, initial)
+			}
+		})
+	}
+}
+
+// Markers are whole lines: the same text quoted inside a line is not one.
+func TestReplaceBlock_MarkersAreWholeLines(t *testing.T) {
+	quoted := "note: write # begin ... # end around it\n"
+	if _, o := blocktext.ReplaceBlock(quoted, begin, end, "x"); o != blocktext.Absent {
+		t.Errorf("a marker quoted mid-line gave outcome %v, want Absent", o)
+	}
+	crlf := "a\r\n# begin\r\nold\r\n# end\r\nz\r\n"
+	got, o := blocktext.ReplaceBlock(crlf, begin, end, "# begin\nnew\n# end\n")
+	if o != blocktext.Found || got != "a\r\n# begin\nnew\n# end\nz\r\n" {
+		t.Errorf("CRLF markers: %q %v", got, o)
+	}
+}

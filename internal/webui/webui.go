@@ -29,10 +29,13 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 //go:embed all:dist
@@ -95,8 +98,66 @@ func skipDir(name string) bool {
 // in sorted order. Paths are included, not only contents, so renaming a file
 // changes the hash — a rename is a change to what the bundle was built from
 // even when no byte of source moved.
+//
+// Inside a git repository the files are the ones git tracks: a .DS_Store, a
+// *.tsbuildinfo or a .env.local a machine happens to hold is not a source, and
+// hashing it would make `make web` record a provenance CI cannot reproduce.
+// Outside one (a source tarball, a temp copy) the tree is walked.
 func SourceHash(root string) (string, int, error) {
+	paths, ok := trackedFiles(root)
+	if !ok {
+		var err error
+		if paths, err = walkFiles(root); err != nil {
+			return "", 0, err
+		}
+	}
+	sort.Strings(paths)
+
 	digest := sha256.New()
+	for _, rel := range paths {
+		fmt.Fprintf(digest, "%s\x00", rel)
+		file, err := os.Open(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			return "", 0, err
+		}
+		if _, err := io.Copy(digest, file); err != nil {
+			file.Close()
+			return "", 0, err
+		}
+		file.Close()
+		fmt.Fprint(digest, "\x00")
+	}
+	return hex.EncodeToString(digest.Sum(nil)), len(paths), nil
+}
+
+// trackedFiles lists the files git tracks under root, relative to it, minus
+// the directories skipDir names. ok is false when root is not inside a git
+// work tree, git is missing, or it tracks nothing there.
+func trackedFiles(root string) ([]string, bool) {
+	out, err := procattr.Hide(exec.Command("git", "-C", root, "ls-files", "-z", "--", ".")).Output()
+	if err != nil || len(out) == 0 {
+		return nil, false
+	}
+	var paths []string
+	for _, name := range strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00") {
+		rel := name // relative to root: git runs there
+		skip := false
+		for _, seg := range strings.Split(path.Dir(rel), "/") {
+			if skipDir(seg) {
+				skip = true
+			}
+		}
+		if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); statErr != nil {
+			skip = true // tracked but deleted in the work tree
+		}
+		if !skip {
+			paths = append(paths, rel)
+		}
+	}
+	return paths, len(paths) > 0
+}
+
+func walkFiles(root string) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -116,24 +177,9 @@ func SourceHash(root string) (string, int, error) {
 		return nil
 	})
 	if err != nil {
-		return "", 0, fmt.Errorf("webui: walking %s: %w", root, err)
+		return nil, fmt.Errorf("webui: walking %s: %w", root, err)
 	}
-	sort.Strings(paths)
-
-	for _, rel := range paths {
-		fmt.Fprintf(digest, "%s\x00", rel)
-		file, err := os.Open(filepath.Join(root, filepath.FromSlash(rel)))
-		if err != nil {
-			return "", 0, err
-		}
-		if _, err := io.Copy(digest, file); err != nil {
-			file.Close()
-			return "", 0, err
-		}
-		file.Close()
-		fmt.Fprint(digest, "\x00")
-	}
-	return hex.EncodeToString(digest.Sum(nil)), len(paths), nil
+	return paths, nil
 }
 
 // Handler serves the embedded UI under MountPath.
@@ -154,6 +200,21 @@ func Handler() (http.Handler, error) {
 		return nil, fmt.Errorf("webui: the embedded bundle has no index.html: %w", err)
 	}
 	files := http.FileServer(http.FS(assets))
+	// The bundle is embedded with a zero modification time, so the file server
+	// sends no Last-Modified: without an ETag a browser would download the
+	// shell and the unhashed files in full on every load. Computed once.
+	etags := map[string]string{}
+	_ = fs.WalkDir(assets, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if raw, readErr := fs.ReadFile(assets, p); readErr == nil {
+			sum := sha256.Sum256(raw)
+			etags[p] = `"` + hex.EncodeToString(sum[:16]) + `"`
+		}
+		return nil
+	})
+	shellTag := etags["index.html"]
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -180,6 +241,9 @@ func Handler() (http.Handler, error) {
 					} else {
 						w.Header().Set("Cache-Control", "no-cache")
 					}
+					if tag := etags[rel]; tag != "" {
+						w.Header().Set("ETag", tag)
+					}
 					r2 := r.Clone(r.Context())
 					r2.URL.Path = "/" + rel
 					files.ServeHTTP(w, r2)
@@ -191,9 +255,26 @@ func Handler() (http.Handler, error) {
 			}
 		}
 
+		// The SPA fallback is for client routes only: a missing bundle file is a
+		// 404. A tab opened before an upgrade asks for a hashed chunk that no
+		// longer exists, and the shell answering 200 made the import fail with
+		// an HTML body, indistinguishable from a broken browser.
+		if strings.HasPrefix(rel, "assets/") {
+			writeSecurityHeaders(w)
+			http.NotFound(w, r)
+			return
+		}
+
 		writeSecurityHeaders(w)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
+		if shellTag != "" {
+			w.Header().Set("ETag", shellTag)
+			if r.Header.Get("If-None-Match") == shellTag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodHead {
 			return

@@ -63,7 +63,15 @@ import { hasWebGL } from "./lib/webgl";
 import { useLiveRevision } from "./lib/live";
 import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
-import { ARTIFACT_PANELS, artifactPanel, pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
+import {
+  ARTIFACT_PANELS,
+  artifactPanel,
+  pushView,
+  readViewState,
+  replaceView,
+  viewStateToSearch,
+  type ViewState,
+} from "./lib/viewstate";
 import {
   inspectorDefault,
   INSPECTOR_MIN,
@@ -356,17 +364,29 @@ export function App() {
   );
   // Which KB the overview on screen belongs to.
   const overviewKB = useRef<string | null>(null);
+  // The overview and the artifacts depend on the KB (and a live tick or a
+  // reload), not on the Map: choosing a Map refetches only the graph. This
+  // names what they were last fetched for, and the latest values.
+  const sideFetched = useRef("");
+  const overviewNow = useRef<Overview | null>(null);
+  overviewNow.current = overview;
+  const artifactsNow = useRef<ArtifactList | null>(null);
+  artifactsNow.current = artifacts;
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
     const key = `${activeKB}\u0000${view.scope ?? ""}`;
+    const sideKey = `${activeKB}\u0000${artifactsAllowed}\u0000${reloadKey}\u0000${live}`;
+    const sideKnown = sideFetched.current === sideKey && overviewKB.current === activeKB;
     const cached = viewCache.current.get(key);
     if (cached) {
       setSnapshot(cached.graph);
       setSnapshotKey(key);
-      setOverview(cached.overview);
-      overviewKB.current = activeKB;
-      if (artifactsAllowed) setArtifacts(cached.artifacts);
+      if (!sideKnown) {
+        setOverview(cached.overview);
+        overviewKB.current = activeKB;
+        if (artifactsAllowed) setArtifacts(cached.artifacts);
+      }
       setGraphError(null);
     } else if (overviewKB.current !== activeKB) {
       // Another KB's Maps must not sit in the rail beside this KB's graph.
@@ -376,10 +396,12 @@ export function App() {
     // Only a view with nothing to show waits dimmed (`switching`).
     setGraphLoading(!cached);
     if (artifactsAllowed && !cached) setArtifactsLoading(true);
-    const overviewP = fetchOverview(activeKB, controller.signal).catch((err) => {
-      if (!controller.signal.aborted) handleFailure(err);
-      return null;
-    });
+    const overviewP = sideKnown
+      ? Promise.resolve(overviewNow.current)
+      : fetchOverview(activeKB, controller.signal).catch((err) => {
+          if (!controller.signal.aborted) handleFailure(err);
+          return null;
+        });
     // The overview is shown when it lands, except during a switch: while the
     // canvas still holds another KB, this KB's Maps wait for its graph.
     let landedOverview: { ov: Overview | null } | null = null;
@@ -395,12 +417,14 @@ export function App() {
       landedOverview = { ov };
       if (graphSettled || overviewKB.current === activeKB) showOverview();
     });
-    const artifactsP = artifactsAllowed
-      ? fetchArtifacts(activeKB, controller.signal).then(
-          (data) => ({ data, error: null as unknown }),
-          (err: unknown) => ({ data: null, error: err }),
-        )
-      : Promise.resolve(null);
+    const artifactsP = sideKnown
+      ? Promise.resolve(artifactsAllowed ? { data: artifactsNow.current, error: null as unknown } : null)
+      : artifactsAllowed
+        ? fetchArtifacts(activeKB, controller.signal).then(
+            (data) => ({ data, error: null as unknown }),
+            (err: unknown) => ({ data: null, error: err }),
+          )
+        : Promise.resolve(null);
     // The artifacts do not depend on the graph: a graph that fails still
     // leaves them to show (the error stays in the graph panel).
     const applyArtifacts = (arts: Awaited<typeof artifactsP>) => {
@@ -424,6 +448,11 @@ export function App() {
         setSnapshotKey(key);
         setGraphError(null);
         applyArtifacts(arts);
+        // Only a clean read of both is remembered: a failed overview or
+        // artifacts list is fetched again on the next Map click.
+        void overviewP.then((ov) => {
+          if (ov && !arts?.error && !controller.signal.aborted) sideFetched.current = sideKey;
+        });
         setOffline(false);
       })
       .catch(async (err) => {
@@ -578,6 +607,13 @@ export function App() {
     }
     return map;
   }, [lint]);
+
+  // The Type and Status filters describe one KB's concepts: another KB starts
+  // unfiltered (a Type it lacks would hide every node with its chip gone).
+  useEffect(() => {
+    setTypeFilter(new Set());
+    setStatusFilter(new Set());
+  }, [activeKB]);
 
   const hiddenIds = useMemo(() => {
     const hidden = new Set<string>();
@@ -771,6 +807,7 @@ export function App() {
         navigate({ panel: artifactPanel(kind), artifact: kind === "instructions" ? null : `${kind}/${name}` })
       }
       onNavigate={selectConcept}
+      hrefOf={(id) => viewStateToSearch({ ...view, concept: id })}
       onPreview={setPreview}
       onClose={closeInspector}
     />
@@ -978,6 +1015,21 @@ export function App() {
                   {/* A small floating card over the canvas: the legend on the
                       whole KB, never beside an open concept; a Map's contract
                       has its own strip instead. */}
+                  {snapshot.nodes.length > 0 && visibleNodes.length === 0 && (
+                    <div className="graph-filter-notice" role="status">
+                      {snapshot.nodes.length} concepts hidden by filters.{" "}
+                      <button
+                        type="button"
+                        className="rail__clear"
+                        onClick={() => {
+                          setTypeFilter(new Set());
+                          setStatusFilter(new Set());
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
                   {!readingOpen && !scopedMap && (
                     <Legend snapshot={snapshot} communities={communities} colorBy={colorBy} onColorBy={setColorBy} />
                   )}

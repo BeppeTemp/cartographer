@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -45,5 +46,18 @@ func TestNetEnv_SSHBatchMode(t *testing.T) {
 	runIn(t, dir, "config", "core.sshCommand", "ssh -J jump")
 	if _, ok := envValue(netEnv(dir, nil), "GIT_SSH_COMMAND"); ok {
 		t.Error("core.sshCommand set: GIT_SSH_COMMAND injected over it")
+	}
+}
+
+func TestCheckRepo_TellsNotARepoFromARefusal(t *testing.T) {
+	t.Parallel()
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	if ok, err := CheckRepo(t.TempDir()); ok || err != nil {
+		t.Fatalf("plain directory: ok=%v err=%v, want false, nil", ok, err)
+	}
+	if ok, err := CheckRepo(filepath.Join(t.TempDir(), "missing")); ok || err == nil {
+		t.Fatalf("missing directory: ok=%v err=%v, want an error", ok, err)
 	}
 }

@@ -66,7 +66,7 @@ subcommand name exits 2. `tool_name` may be `mcp__<server>__<tool>`, `<server>_<
 
 Tells an agent, and its user, that a newer release exists
 ([D254](decisions/D254-agents-are-told-when-cartographer-is-out-of-date.md)). The source is the
-GitHub release list (`/releases?per_page=10`, which includes the pre-releases every 0.x tag is;
+GitHub release list (`/releases?per_page=100`, up to three pages, which includes the pre-releases every 0.x tag is;
 the newest one that is not a draft and has a version tag without a pre-release suffix wins: a
 release candidate `v<next>-rc.<YYYYMMDD>` is never offered, whatever its GitHub flag, D1192),
 cached for 24 h in `<user cache dir>/cartographer/update-check.json`. A lookup times out after 3 s
@@ -145,10 +145,19 @@ decides every step **before** running any:
   loopback address (D268). The error names the variable (saying whether it is set in the current shell,
   and `CARTOGRAPHER_AUTH` if that forces auth on), the config file to add `auth: {mode: "off"}`
   to, and `service restart`; exit 1, and the rerun resumes at the agents.
+- **Bindings and the server URL.** A KB this run adds is bound only to the agents that have no binding yet
+  (two `connect` runs: the unbound ones get `--kb <new>`, the bound ones are connected without `--kb`, so
+  `connect` does not reset what they have); the plan names what each agent receives. When the client has no
+  URL yet setup passes `--server-url` for the local service's own address (a service installed with
+  `--http` on another port included); a loopback client URL on a different port than the service is a
+  plan-time refusal (exit 2, nothing changed).
+- **Readiness.** Before the agents step setup waits (up to 5 minutes, a first clone of a large KB takes that
+  long) until `/health` stops reporting `bootstrapping` — a server answers 200 while it clones — and the
+  verify step uses the same condition, so "set up" is never printed over a server still loading its KBs.
 - **Interactive** (a TTY, no `--no-input`): asks for the remote when none is mounted — blank means
   a local-only KB, confirmed explicitly (D134) — then which of the detected agents to connect, prints
   the plan and asks `Proceed? [Y/n]` (skipped by `--yes`). `--dry-run` prints the plan and exits 0.
-- **Exit codes:** 0 set up; 1 a step failed or the operator cancelled; 2 usage, preflight or
+- **Exit codes:** 0 set up; 1 a step failed (whatever code the step itself returned: the service and the KB may exist by then) or the operator cancelled; 2 usage, preflight or
   choice error (nothing changed). A failed step prints `Setup stopped at …`; a rerun skips what is
   done. On Linux a freshly installed user unit without lingering gets the `loginctl enable-linger`
   hint. The run ends on the Atlas URL and on restarting the agent sessions.
@@ -343,21 +352,21 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (all detected agents) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
-| `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}` |
+| `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}`. Anything that is not a variable name (`$NAME`, `my-token`, a pasted token) is refused (exit 2), here and in the form |
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
 | `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
-| `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, `.cartographer.yaml` untouched), not a "server unreachable" deferral |
+| `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, nothing written: the manifest is fetched and verified before the agents' MCP entries, the bootstrap hook or `.cartographer.yaml` are touched, and the same holds for a rejected token), not a "server unreachable" deferral; a server that is down still defers and writes |
 | `--no-input` | `false` | Never opens the interactive form, even in a TTY |
 | `--workspace` | *(unset)* | Projects the selected KBs into this repository instead of the global catalogue (D193) |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906) |
 
-**An unloadable `.cartographer.yaml` is never replaced** (D1514). `connect`, `disconnect` and the dashboard's connect form fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `clients.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
+**An unloadable `.cartographer.yaml` is never replaced** (D1514). `reindex`, `kb repair`, `reconnect`, `client` and `usage` print that error too, instead of "no client config found" or a silent fallback to the local default server. `connect`, `disconnect` and the dashboard's connect form fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `clients.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
 
 ### Transport security (D1023)
 
@@ -450,7 +459,7 @@ cartographer disconnect all --dry-run  # preview without writing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
@@ -498,6 +507,12 @@ A server that answers `/health` but is still bootstrapping its KBs is not unreac
 snapshot says `reachable: true`, `ready: false` and `error: {code: "starting", message: "the
 server is starting and loading its KBs; retry shortly"}` (state `unavailable`, exit `2`), and the
 table prints that message instead of the endpoint advice (#1305).
+A server that answers `/health` but then fails the manifest pull is not unreachable either: the
+snapshot keeps `reachable: true` and carries `error.code` `signature_failed` (the manifest does not
+verify against the pinned keys), `unauthorized` (401 or 403) or `pull_failed` (any other failed
+`sync_pull`, the cause in the message), and the table prints the message and the cause on stderr
+(state `unavailable`, exit `2`). `request_failed`, `dns_failed` and `unreachable` stay for a server
+that cannot be reached.
 A managed artifact that diverged on disk is listed as `diverged on disk (<reason>)`; for an
 `unrunnable` hook — a Claude Code hook whose registered command cannot run, such as a backslash
 path on Windows or a file that is not there — the next line says which command and why (JSON
@@ -612,7 +627,7 @@ cartographer reconnect --dry-run       # preview both halves, write nothing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset; cannot be combined with the positional provider |
 | `--dry-run` | `false` | Both halves simulate, nothing is written |
 
@@ -668,8 +683,8 @@ The checks:
 |---|---|
 | `client-config` | `.cartographer.yaml` exists and loads (an existing file that does not load is reported with the real error and the fix `fix or remove <path>`, not `connect`); an agent is connected; every configured provider is still installed |
 | `lockfile` | present, readable, and in the v2 format — a v1 file on disk is migrated *in memory* by every read, but stays v1 until something rewrites it |
-| `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered`, `unrunnable` (a Claude Code hook whose registered command cannot run, with the reason — D267); plus files sitting inside a managed skill/hook directory that no lock entry accounts for (D178) — reported only, since doctor cannot prove Cartographer wrote them |
-| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one |
+| `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered`, `unrunnable` (a Claude Code hook whose registered command cannot run, with the reason — D267); `foreign` (an info line: a file inside a managed skill/hook directory that the lock does not own, which `sync` leaves and `status` does not count as drift, #1502); plus files sitting inside a managed skill/hook directory that no lock entry accounts for (D178) — reported only, since doctor cannot prove Cartographer wrote them |
+| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one. Only the names `disconnect`/`reconnect` manage count (the server name and `<server>-<kb>` for the recorded KBs): a user's own `cartographer-dev` is left alone |
 | `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts), **and** that the provider actually reads the file it was written into (D189) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite; for OpenCode, the plugin shape written against the installed major (D359) — a 1.x plugin on OpenCode 2.x is an error, an unsupported major a warning, an unreadable version a warning (the shape was guessed, D719) |
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |
@@ -816,6 +831,8 @@ cartographer service status        # exit: 0 running, 3 installed but stopped, 4
 
 Re-running `service install` leaves the installed definition and the running process in agreement: on Linux a unit that was active is restarted after `enable --now` (which alone leaves a running unit alone), as launchd and the Scheduled Task already are. The launchd plists escape every path as XML, so `R&D` in a path is valid.
 
+An uninstall (the server, the sync and doctor timers, the tray) checks that the job is really gone before it deletes the definition: a Scheduled Task still registered, a launchd job still loaded or a systemd unit still enabled after the de-registration failed is an error, and the definition stays so the command can be run again. On Windows `service start` fails when `Enable-ScheduledTask` does, instead of reporting a start that did not happen.
+
 Plain `restart` restarts the unit and returns. `restart --wait` gracefully replaces the process
 (`SIGTERM`, so in-flight requests drain) and only prints success once `/health` proves the
 installed binary version is serving from a new process (its `started_at` differs from the one
@@ -909,6 +926,7 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author and committer are the operator, the identity git resolves for the KB's folder, else the server (D904, D950) |
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
+| `--overwrite` | `false` | Replaces a concept that already exists in the KB. Without it an existing concept (curated frontmatter, body, `status`) is left untouched, counted in `skipped` and named on stderr; `--dry-run` marks it |
 
 **`--map` covers a subtree.** Resolution is longest matching prefix, then `--default-map`, then the
 unmapped error (D162): `--map a/b=m` covers `a/b`, `a/b/c` and below, a more specific `--map a/b/c=n`
@@ -924,6 +942,12 @@ one silently winning, and a `--map` that matches nothing warns — otherwise a t
 `--default-map` unnoticed. `--dry-run` names the flag behind every destination, which is how you check
 all of this.
 
+**An existing concept is never replaced silently.** A second import after curation would otherwise
+destroy the curation: the concept of the same id is skipped (stderr names it, the summary counts it as
+skipped) unless `--overwrite`, and `--dry-run` opens the KB read-only to mark every collision. Source
+names that slugify to the same id get distinct `-2`, `-3` suffixes even when one of them already reads
+`foo-bar-2.md`; `.md` is recognised whatever its case (`Upper.MD` imports as `upper`, its links rewritten).
+
 **`import` takes the KB's advisory lock** and fails fast when the server holds it (D155), naming the
 holder and the `service stop … && service start` sequence: it writes into the same directory the
 server's sync loop manages, and the two interleaving corrupted the git index. `--dry-run` writes
@@ -931,8 +955,7 @@ nothing and never contends for it.
 
 **The search index is not updated by this process.** `import` writes through the KB write path but
 from outside the server, so the server's FTS index knows nothing about it: until it is rebuilt `search` returns nothing
-while `concept_list` sees everything. On completion the command rebuilds the index when a configured server is reachable, and
-otherwise prints the `cartographer reindex` instruction. It never changes the exit code: the import
+while `concept_list` sees everything. On completion the command rebuilds the index of **that KB only**, and only when the local server (the service config's `data:` or a `kbs[]` path) mounts the directory given to `--kb` and the client points at a loopback server; for a clone the server does not serve, or a remote server, it prints the `cartographer reindex` instruction. It never changes the exit code: the import
 itself succeeded.
 
 **`import` rewrites markdown links.** Every `[text](path.md)` whose target is part of the same
@@ -1104,12 +1127,14 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot CLI | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
+| Pi | `.pi/agent/mcp.json` | `mcpServers` (JSON) |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
 OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references;
 Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
 Copilot CLI uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
+Pi has no `type` key (it infers the transport) and every entry carries `"exposure": "direct"`.
 Cartographer only preflights the local executable before writing: it never runs it, and never resolves
 an environment reference into its value.
 
@@ -1279,6 +1304,33 @@ KB hook that declares one is installed but not registered, with a warning. Carto
 `$HOME/.copilot` like every other provider and ignores `COPILOT_HOME`. The project-local MCP, agent and
 hook locations are gated on folder trust and are unsupported ([D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
 
+**Pi** (`pi`, npm `@earendil-works/pi-coding-agent`; probed on 1.5.0) — with auth. The file is
+`~/.pi/agent/mcp.json`, key `mcpServers`. Pi interpolates `${VAR}` in `env` and `headers`, so the
+header is written verbatim, as for Claude Code. `"exposure": "direct"` is on every entry: Pi's default,
+`codemode`, would not declare the tools to the model:
+```json
+{
+  "mcpServers": {
+    "cartographer": {
+      "url": "http://127.0.0.1:39273/mcp",
+      "headers": { "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}" },
+      "exposure": "direct"
+    }
+  }
+}
+```
+
+Pi's MCP tools are named `mcp__<server>__<tool>`, as in Claude Code. Its global cells are
+`~/.pi/agent/mcp.json`, `~/.pi/agent/AGENTS.md` (a managed block; an `AGENTS.override.md` beside it
+replaces it and is reported as shadowing) and `~/.pi/agent/skills/<name>/`; it has no subagents and its
+hook cell is unsupported. The only project cell is `AGENTS.md` (read without trust): project `.pi/*` and
+`.agents/skills` load only once the project is trusted. A value that is wholly `!command` in `env` or
+`headers` is refused (Pi would run it when it loads the file), and so is a server name outside letters,
+digits, `_` and `-` (Pi skips it silently). Cartographer reads `$HOME/.pi/agent` like every other
+provider and ignores `PI_CODING_AGENT_DIR`: to use another agent directory, symlink `~/.pi/agent`.
+A `pi` on `PATH` is reported as installed only when `pi --version` prints a bare version
+([D676](decisions/D676-github-copilot-cli-is-a-provider.md), [D755](decisions/D755-claude-config-dirs-declared-not-discovered.md)).
+
 The formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a
 thin wrapper around `EmitServer(cfg.Name, cfg.toSpec(), provider)`. The same `EmitServer` is
@@ -1303,7 +1355,7 @@ Inspect and record the current content with `cartographer approve <kind> <name> 
 non-MCP kind the command lists the files and prints the `hook.json` and the content of the executable files). Approval records the source KB,
 artifact name (`<kind>/<name>` for everything but an MCP descriptor), content hash and timestamp in
 `.cartographer.yaml`; a content change requires reapproval. `cartographer approve revoke <kind> <name> --kb <kb>`
-is idempotent and takes effect on the next `cartographer sync`: for an MCP descriptor it prunes the managed
+takes effect on the next `cartographer sync` (revoking an approval that was never given is an error, exit 2, and without `--kb` it says whether there is nothing to revoke or the name is approved from several KBs): for an MCP descriptor it prunes the managed
 provider config; for a hook or an executable file it stops refreshing what is installed, which is left in
 place, registered and running (the command says how to remove it). A hook or executable file that is waiting is reported as pending on every sync and is not
 refreshed, registered anew or removed until approved.
@@ -1511,6 +1563,14 @@ KBs        kb-uno (2 bound) · kb-due (1) · kb-tre (0) · kb-quattro (0)
 
 `binary` and `kbs` are local data and are in the first frame; `artifacts` and `kinds` are
 fetched asynchronously against the configured server.
+
+`mcp-config` expects what `connect` and `sync` write today: on a routed server one entry named after
+the server whatever the number of KBs (the stdio bridge entry for a provider with a workspace binding,
+none for one bound to no KB), one per KB on a per-KB server. A Claude entry written to the
+`clients.claude.config_dirs` is not looked for. While a sync, a connect or a disconnect is running the
+list ignores `s`, `S`, `d` and `enter` (a second writer would lose the first one's lockfile entries);
+a failed `S` still reads the status again, so no card stays on `checking…`. Widths are counted in
+terminal columns, so footers and non-ASCII paths wrap where they should.
 
 - **`kbs`** is the provider's own binding (D169): the declared names with `(explicit)`,
   `all known (default)` when nothing was declared, and `none (explicit)` for a binding

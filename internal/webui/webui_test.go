@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -281,5 +282,81 @@ func TestRedirectRootOnlyTouchesTheRoot(t *testing.T) {
 	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/", nil))
 	if reached != "/" {
 		t.Errorf("POST / was redirected instead of passed through")
+	}
+}
+
+func TestHandlerAnswersNotFoundForAMissingAsset(t *testing.T) {
+	handler := newUIServer(t)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, MountPath+"assets/scene-missing.js", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("a missing bundle asset: status %d, want 404 (an HTML shell here breaks a stale tab's lazy import)", rr.Code)
+	}
+	if rr.Header().Get("Content-Security-Policy") == "" {
+		t.Errorf("the 404 for a missing asset carries no Content-Security-Policy")
+	}
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, MountPath+"some/route", nil))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "<div id=\"root\">") {
+		t.Fatalf("a client route must still get the shell, got %d", rr.Code)
+	}
+}
+
+func TestHandlerRevalidatesWithAnETag(t *testing.T) {
+	handler := newUIServer(t)
+	for _, p := range []string{MountPath, MountPath + "theme-init.js", MountPath + "some/route"} {
+		first := httptest.NewRecorder()
+		handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, p, nil))
+		tag := first.Header().Get("ETag")
+		if first.Code != http.StatusOK || tag == "" {
+			t.Fatalf("%s: status %d, ETag %q: want 200 with a validator", p, first.Code, tag)
+		}
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		req.Header.Set("If-None-Match", tag)
+		second := httptest.NewRecorder()
+		handler.ServeHTTP(second, req)
+		if second.Code != http.StatusNotModified {
+			t.Errorf("%s: a second GET with the ETag is %d, want 304", p, second.Code)
+		}
+	}
+}
+
+// A file git does not track (a .DS_Store Finder writes, a *.tsbuildinfo) is not
+// a source: it must not move the hash a bundle is recorded with.
+func TestSourceHashIgnoresUntrackedFilesInARepository(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	repo := t.TempDir()
+	root := filepath.Join(repo, "web")
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for rel, body := range map[string]string{"src/app.ts": "const a = 1;", "package.json": "{}"} {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"add", "web"}} {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	base, files, err := SourceHash(root)
+	if err != nil || files != 2 {
+		t.Fatalf("hash: %v (%d files, want 2)", err, files)
+	}
+	for _, rel := range []string{".DS_Store", "tsconfig.tsbuildinfo", ".env.local"} {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, files, err := SourceHash(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != base || files != 2 {
+		t.Fatalf("untracked files moved the source hash (%d files)", files)
 	}
 }

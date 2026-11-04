@@ -42,6 +42,11 @@ type unmountPlan struct {
 	ClientKeys []string
 	Bindings   []string
 
+	// Credentials are the KB's own files of the credentials directory. They
+	// are left in place (listed), as a clone's remote stays the source of truth:
+	// the operator may want the key back when the KB is mounted again.
+	Credentials []string
+
 	// ParkPath is where the clone moves without --delete-clone, "" when it
 	// stays where it is (a clone outside the data dir).
 	ParkPath string
@@ -74,7 +79,7 @@ func cmdKBUnmount(args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}
-	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+	if code := checkLocalTarget("kb unmount", *dataFlag, *localFlag); code != 0 {
 		return code
 	}
 	dataDir := *dataFlag
@@ -88,16 +93,33 @@ func cmdKBUnmount(args []string) int {
 		return 2
 	}
 	printUnmountPreflight(os.Stdout, plan)
-	if len(plan.Unsafe) > 0 && !*forceFlag {
+	refuse := func() int {
 		fmt.Fprintf(os.Stderr, "Error: refusing to unmount %q: %s — push or commit first, or pass --force\n", name, strings.Join(plan.Unsafe, "; "))
 		return 1
+	}
+	if len(plan.Unsafe) > 0 && !*forceFlag {
+		return refuse()
 	}
 	if *dryRunFlag {
 		fmt.Println("dry run: nothing changed")
 		return 0
 	}
 
-	backup, err := applyKBUnmount(plan)
+	// Held from here to just before the clone is moved or deleted, and the
+	// "pushed" check is redone under it: a commit the service made since the
+	// preflight must not be lost to the delete.
+	release, err := lockKBForChange(plan.KBPath, "cartographer kb unmount")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	defer release()
+	plan.Unsafe = unpushedReasons(plan.KBPath, plan.Origin)
+	if len(plan.Unsafe) > 0 && !*forceFlag {
+		return refuse()
+	}
+
+	backup, err := applyKBUnmount(plan, release)
 	if backup != "" {
 		fmt.Printf("server config backup: %s\n", backup)
 	}
@@ -136,6 +158,7 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 			configPath = resolved
 		}
 	}
+	var credCfg *config.Config
 	if configPath != "" {
 		if _, err := os.Stat(configPath); err == nil {
 			cfg, err := config.Load(configPath)
@@ -149,6 +172,7 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 			}
 			p.EntryIndex = i
 			p.Scopes = scopeRefs(cfg, name)
+			credCfg = cfg
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -163,6 +187,7 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 	p.Aliases = aliasesPointingAt(aliases, name)
 	p.ClientKeys = clientRefs(name)
 	p.Bindings = bindingRefs(name)
+	p.Credentials = kbCredentialFiles(kbCredentialDir(dataDir, credCfg), name)
 
 	// TRAP: a clone left in the data dir is mounted again by discovery at the
 	// next start, kbs[] entry or not (serve.go discoverKBPaths): it must leave
@@ -232,10 +257,13 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 	case p.ParkPath != "":
 		fmt.Fprintf(w, "parking the local clone in %s\n", p.ParkPath)
 	}
-	if len(p.Scopes) == 0 && len(p.ClientKeys) == 0 {
+	if len(p.Scopes) == 0 && len(p.ClientKeys) == 0 && len(p.Credentials) == 0 {
 		return
 	}
 	fmt.Fprintf(w, "\nNOT removed by this command — update them yourself:\n")
+	for _, c := range p.Credentials {
+		fmt.Fprintf(w, "  credential file %s (a KB mounted later under the name %q would inherit it)\n", c, p.Name)
+	}
 	for _, s := range p.Scopes {
 		fmt.Fprintf(w, "  auth scope in %s → %s\n", p.ConfigPath, s)
 	}
@@ -250,7 +278,7 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 // back, and one after the backup also restores the config from it; the bindings
 // removal is reported, not undone (a sync realigns a binding to a KB that is
 // mounted again).
-func applyKBUnmount(p *unmountPlan) (backup string, err error) {
+func applyKBUnmount(p *unmountPlan, release func()) (backup string, err error) {
 	var prevAliases []config.KBAlias
 	aliasesChanged := false
 	if len(p.Aliases) > 0 {
@@ -293,6 +321,10 @@ func applyKBUnmount(p *unmountPlan) (backup string, err error) {
 		if err := removeBindings(p.Name); err != nil {
 			return backup, restore(fmt.Errorf("remove the client bindings: %w", err))
 		}
+	}
+	// The lock file lives in the clone: release it before the clone goes.
+	if release != nil {
+		release()
 	}
 	switch {
 	case p.Delete:
@@ -391,24 +423,15 @@ var printPostUnmountGuidanceFn = printPostUnmountGuidance
 // the running server still serves the KB until it restarts.
 func printPostUnmountGuidance(configPath string, restart bool) {
 	base := serverBaseURL(configPath)
-	before, err := fetchHealth(base)
-	if err != nil {
+	if restart {
+		if restartLocalService(base, configPath) {
+			fmt.Println("On connected client machines, run: cartographer sync")
+		}
 		return
 	}
-	if !restart {
-		fmt.Println("The running service still serves the KB until it restarts: cartographer service restart")
-		fmt.Println("On connected client machines, run: cartographer sync")
+	if _, err := fetchHealth(base); err != nil {
 		return
 	}
-	fmt.Println("Restarting the service...")
-	if err := service.NewManager().Restart(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error: restart failed:", err)
-		return
-	}
-	if waitHealthy(base, before.StartedAt) {
-		fmt.Println("service healthy")
-	} else {
-		fmt.Fprintf(os.Stderr, "Warning: service did not report healthy within %s\n", restartWaitTimeout)
-	}
+	fmt.Println("The running service still serves the KB until it restarts: cartographer service restart")
 	fmt.Println("On connected client machines, run: cartographer sync")
 }

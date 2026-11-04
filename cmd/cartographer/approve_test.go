@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -103,5 +104,76 @@ func TestCmdApprove_NonInteractiveWithoutYesDoesNotApprove(t *testing.T) {
 	cfg, _ := clientconfig.Load(home)
 	if len(cfg.MCPApprovals) != 0 {
 		t.Errorf("approved without --yes: %+v", cfg.MCPApprovals)
+	}
+}
+
+// A revoke of an approval that was never given says so, with or without --kb;
+// with several sources it is ambiguous and names them.
+func TestCmdApprove_RevokeOfAMissingApprovalSaysSo(t *testing.T) {
+	approveFixture(t, false)
+	for _, args := range [][]string{
+		{"revoke", "hook", "guard", "--kb", "kb-a"},
+		{"revoke", "hook", "guard"},
+	} {
+		var code int
+		stderr := withStderr(t, func() { withStdout(t, func() { code = cmdApprove(args) }) })
+		if code != 2 || !strings.Contains(stderr, "no approval for hook guard") {
+			t.Errorf("%v: exit %d, stderr %q, want exit 2 and 'no approval ... to revoke'", args, code, stderr)
+		}
+		if strings.Contains(stderr, "ambiguous") {
+			t.Errorf("%v: zero approvals reported as ambiguous: %q", args, stderr)
+		}
+	}
+}
+
+// reindex and kb repair used to turn a Load error into the defaults and talk to
+// 127.0.0.1; an invalid config must be named instead.
+func TestLoadClientConfigOrDefault(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if cfg, err := loadClientConfigOrDefault(); err != nil || cfg == nil {
+		t.Fatalf("no file: cfg=%v err=%v, want the defaults", cfg, err)
+	}
+	if err := os.WriteFile(clientconfig.Path(home), []byte("server_url: [unterminated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadClientConfigOrDefault()
+	if err == nil || !strings.Contains(err.Error(), clientconfig.FileName) {
+		t.Errorf("an invalid config must be reported with its file name, got %v", err)
+	}
+	var code int
+	stderr := withStderr(t, func() { code = cmdReindex(nil) })
+	if code == 0 || !strings.Contains(stderr, "cannot be read") {
+		t.Errorf("reindex = %d, stderr %q, want the parse failure named", code, stderr)
+	}
+}
+
+// A client config that is there but invalid is named, not reported as missing:
+// sync and the workspace commands used to send the operator to `connect`, which
+// refuses to replace the file.
+func TestInvalidClientConfigIsNamedBySyncAndWorkspace(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if err := os.WriteFile(clientconfig.Path(home), []byte("server_url: [unterminated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	stderr := withStderr(t, func() { withStdout(t, func() { code = cmdSync(nil) }) })
+	if code != 2 || !strings.Contains(stderr, "cannot be read") || strings.Contains(stderr, "no client config found") {
+		t.Errorf("sync = %d, stderr %q, want the unreadable file named", code, stderr)
+	}
+	if _, _, err := loadWorkspaceConfig(); err == nil || !strings.Contains(err.Error(), "cannot be read") {
+		t.Errorf("loadWorkspaceConfig = %v, want the unreadable file named", err)
+	}
+	if _, _, release, err := loadWorkspaceConfigLocked(); err == nil || !strings.Contains(err.Error(), "cannot be read") {
+		t.Errorf("loadWorkspaceConfigLocked = %v, want the unreadable file named", err)
+	} else if release != nil {
+		release()
+	}
+	// Missing file keeps the old advice.
+	missing := t.TempDir()
+	setHome(t, missing)
+	if _, _, err := loadWorkspaceConfig(); err == nil || !strings.Contains(err.Error(), "cartographer connect") {
+		t.Errorf("missing config: %v, want the connect advice", err)
 	}
 }
