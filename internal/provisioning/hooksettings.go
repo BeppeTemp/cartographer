@@ -299,7 +299,7 @@ func resolveHookCommand(command, hookDirAbs string) string {
 
 // quoteHookBin quotes the executable token of a hook command. On a POSIX host
 // the token is single-quoted (an apostrophe becomes '\”) whenever it holds a
-// character outside [A-Za-z0-9_./:@%+=,-] (or a backslash, a Windows spelling kept as declared): inside double quotes `$`, a
+// shell-syntax character (whitespace, quotes, `$`, backtick, `&`, `;`, `|`, redirections, brackets, globs, `#`, a leading `~`): inside double quotes `$`, a
 // backtick and `\` still expand, and an unquoted `&` or apostrophe breaks the
 // line. A `$VAR`-led token is the shell's to expand and is only double-quoted
 // when it holds a space. On Windows the host's shells take double quotes, and
@@ -312,16 +312,10 @@ func quoteHookBin(bin string, windows bool) string {
 		}
 		return bin
 	}
-	for _, r := range bin {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		case strings.ContainsRune("_./:@%+=,-", r):
-		case r == '\\':
-			// A Windows-spelled path declared in hook.json: left as it was
-			// registered before this rule, so it does not churn.
-		default:
-			return `'` + strings.ReplaceAll(bin, `'`, `'\''`) + `'`
-		}
+	// Quote only what the shell would read as syntax; a non-ASCII letter or an
+	// inner `~` stays bare, as registered before this rule (no churn).
+	if strings.HasPrefix(bin, "~") || strings.ContainsAny(bin, " \t\r\n'\"`$&;|<>(){}[]*?!#^") {
+		return `'` + strings.ReplaceAll(bin, `'`, `'\''`) + `'`
 	}
 	return bin
 }

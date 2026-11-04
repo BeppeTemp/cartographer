@@ -5,6 +5,7 @@ package provisioning
 // registrars build text for a target syntax, so each value is encoded for it).
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -175,5 +176,79 @@ func TestRegisterHook_UnknownEventReturnsTheWarning(t *testing.T) {
 		if err != nil || !ok || !strings.Contains(w, "not a known hook event") {
 			t.Errorf("%s: warning %q registered %v err %v", name, w, ok, err)
 		}
+	}
+}
+
+func TestResolveHookCommand_NonSyntaxCharactersStayBare(t *testing.T) {
+	if hookHostWindows {
+		t.Skip("POSIX hosts only")
+	}
+	for _, dir := range []string{"/home/user/caffè/h", "/home/user/a~b/h", `/tmp/x\y/h`} {
+		if got := resolveHookCommand("./run.sh", dir); got != filepath.Join(dir, "run.sh") && !strings.Contains(dir, `\`) {
+			t.Errorf("%q changed form: %q", dir, got)
+		}
+	}
+}
+
+func TestRegisterCopilotHook_PowerShellQuoting(t *testing.T) {
+	if hookHostWindows {
+		t.Skip("POSIX hosts only")
+	}
+	dest := filepath.Join(t.TempDir(), "it's a dir")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "hook.json"), []byte(`{"event":"SessionStart","command":"./h.sh --flag"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	rel, _, ok, err := registerCopilotHook(base, "h", dest)
+	if err != nil || !ok {
+		t.Fatalf("register: %v %v", ok, err)
+	}
+	data, _ := os.ReadFile(filepath.Join(base, filepath.FromSlash(rel)))
+	var doc struct {
+		Hooks map[string][]struct{ Bash, Powershell string } `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	e := doc.Hooks["sessionStart"][0]
+	want := "& '" + strings.ReplaceAll(filepath.Join(dest, "h.sh"), "'", "''") + "' --flag"
+	if e.Powershell != want {
+		t.Errorf("powershell = %q, want %q", e.Powershell, want)
+	}
+	if !strings.HasPrefix(e.Bash, "'") || !strings.Contains(e.Bash, `'\''`) {
+		t.Errorf("bash = %q, want the POSIX single-quote form", e.Bash)
+	}
+}
+
+func TestOpenCodeWriteFindings_ProbeAnswering2ThenFailingKeepsTheShape(t *testing.T) {
+	calls := 0
+	prev := openCodeVersionProbe
+	openCodeVersionProbe = func() (string, error) {
+		calls++
+		if calls == 1 {
+			return "2.0.25", nil
+		}
+		return "", os.ErrNotExist
+	}
+	defer func() { openCodeVersionProbe = prev }()
+
+	if !SupportsWriteFindingsHook(configurator.ProviderOpenCode) {
+		t.Fatal("first probe says 2.x: supported")
+	}
+	dest := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dest, "hook.json"), []byte(`{"event":"PostToolUse","command":"./h.sh"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	rel, _, ok, err := registerOpenCodePlugin(base, WriteFindingsHookName, dest)
+	if err != nil || !ok {
+		t.Fatalf("register: %v %v", ok, err)
+	}
+	data, _ := os.ReadFile(filepath.Join(base, filepath.FromSlash(rel)))
+	if !strings.Contains(string(data), "execute.after") || !strings.Contains(string(data), "writeTools") {
+		t.Errorf("the generic plugin was written instead of the write-findings one:\n%s", data)
 	}
 }
