@@ -1045,3 +1045,29 @@ func TestKBRepairSupersededTargetRetired(t *testing.T) {
 		t.Fatalf("second run must plan nothing: %v", out)
 	}
 }
+
+// kb_repair leaves a BOM page alone: its frontmatter is parsed, so no
+// add_frontmatter block is prepended above it (WP11).
+func TestKBRepairBOMFileUntouched(t *testing.T) {
+	t.Parallel()
+	k, s := repairKB(t, 2)
+	const content = "\ufeff---\ntype: Note\ntitle: C\nstatus: active\n---\n# C\n"
+	abs := filepath.Join(k.DataRoot(), "ops", "c.md")
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.CommitOp("test: bom page"); err != nil {
+		t.Fatal(err)
+	}
+	out := repairCall(t, s, `{"check":"missing_frontmatter","dry_run":false}`)
+	if out["applied"].(float64) != 0 {
+		t.Fatalf("applied = %v (%v)", out["applied"], out)
+	}
+	got, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("BOM file rewritten: %q", got)
+	}
+}
