@@ -5,6 +5,7 @@ import { collectionVar } from "../lib/palette";
 import { ConceptHistory } from "./ConceptHistory";
 import { Markdown } from "./Markdown";
 import { TextSkeleton } from "./Page";
+import { ContentBoundary } from "./ErrorBoundary";
 import { ErrorState } from "./States";
 
 interface Props {
@@ -179,9 +180,11 @@ export function Inspector({
                 </details>
               )}
               {concept.body.trim() ? (
-                <Markdown onNavigate={onNavigate} hrefOf={hrefOf} conceptId={concept.id} outbound={concept.outbound}>
-                  {withoutRedundantLinksSection(withoutLeadingTitle(concept.body), concept.id, concept.outbound)}
-                </Markdown>
+                <ContentBoundary resetKey={concept.id}>
+                  <Markdown onNavigate={onNavigate} hrefOf={hrefOf} conceptId={concept.id} outbound={concept.outbound}>
+                    {withoutRedundantLinksSection(withoutLeadingTitle(concept.body), concept.id, concept.outbound)}
+                  </Markdown>
+                </ContentBoundary>
               ) : (
                 <p className="inspector__hint">This concept has no body.</p>
               )}

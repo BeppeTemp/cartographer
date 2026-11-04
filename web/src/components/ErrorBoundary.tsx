@@ -44,3 +44,42 @@ export class ErrorBoundary extends Component<
     );
   }
 }
+
+/**
+ * A local boundary around content the KB's authors wrote (a concept body, a
+ * skill or release rendered as Markdown). A render error in it replaces that
+ * content with a notice and leaves the shell mounted: the URL still carries
+ * the selection, so a crash of the whole tree would repeat on every reload.
+ * `resetKey` (the concept or release shown) clears the failure when the
+ * reader moves to something else.
+ */
+export class ContentBoundary extends Component<
+  { children: ReactNode; resetKey?: string },
+  { error: Error | null; key: string | undefined }
+> {
+  state: { error: Error | null; key: string | undefined } = { error: null, key: this.props.resetKey };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  static getDerivedStateFromProps(
+    props: { resetKey?: string },
+    state: { error: Error | null; key: string | undefined },
+  ) {
+    return props.resetKey === state.key ? null : { error: null, key: props.resetKey };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Atlas UI could not render this content:", error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <p className="inspector__hint" role="alert">
+        This content could not be displayed.
+      </p>
+    );
+  }
+}

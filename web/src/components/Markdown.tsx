@@ -43,10 +43,13 @@ export function Markdown({
         components={{
           a({ node: _node, href, children: text, ...props }) {
             const target = href?.startsWith(CONCEPT_HREF)
-              ? decodeURIComponent(href.slice(CONCEPT_HREF.length))
+              ? decodeConceptTarget(href.slice(CONCEPT_HREF.length))
               : conceptId !== undefined && href
                 ? resolveConceptHref(href, conceptId, outbound)
                 : null;
+            // An undecodable wiki-link target is plain text: the rewritten href is
+            // not a URL anyone can follow.
+            if (target === null && href?.startsWith(CONCEPT_HREF)) return <span>{text}</span>;
             if (target !== null) {
               return (
                 <a
@@ -90,6 +93,18 @@ export function Markdown({
       </ReactMarkdown>
     </div>
   );
+}
+
+/** The id a rewritten wiki-link carries. A body is author-written text, so the
+ *  percent-escapes may be malformed or not UTF-8 (`%FF`, a lone `%C3`):
+ *  decoding must never throw during render. Such a link is not a concept link,
+ *  and falls back to the plain link text (null). */
+function decodeConceptTarget(encoded: string): string | null {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
 }
 
 /** The href a [[wiki-link]] is rewritten to before rendering, and recognised
