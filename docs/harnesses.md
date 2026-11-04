@@ -822,12 +822,12 @@ project hook.UserPromptSubmit absent
     0755) or Windows `<Event>.ps1` (UTF-8 with BOM, ASCII otherwise: Windows PowerShell 5.1 reads BOM-less UTF-8 as ANSI),
     both fail-open (a missing binary prints `{}` and exits 0) and exiting 0 whatever `cartographer` returned; the
     payload reaches it by stdin inheritance. Ownership is the token `cartographer:cline-hook-dispatcher <Event>` in the
-    first 512 bytes, never a lock entry. A file at the path without it (the user's own hook) is never read further,
+    first 512 bytes, never a lock entry (a foreign `TaskStart` fails the bootstrap hook with the warning). A file at the path without it (the user's own hook) is never read further,
     rewritten or merged: the hooks are installed, not wired, and the sync warns. An owned file is rewritten with its
     mode kept (a user's `chmod 644` stays), and removed, only while it carries the marker, when no hook of its event
     is left on disk. The set of dispatchers is derived from the hooks on disk, so the bootstrap, write-findings and KB
     hooks are one code path in any order. `Documents` is the Windows known folder when the base dir is the real home
-    (a OneDrive-redirected folder included), `<home>/Documents` otherwise; `xdg-user-dir` is not replicated, so a
+    (a OneDrive-redirected folder included), `<home>/Documents` otherwise, and is the root of the symlink walk (a linked Documents folder works, a link at `Cline` or `Cline/Hooks` is refused, and a link at the dispatcher path is reported as a `safewrite` refusal); `xdg-user-dir` is not replicated, so a
     relocated Linux folder leaves the hooks silently unwired. A dispatcher is machine-wide and client-agnostic: any
     other build reading that folder runs it too.
   - Probes, **not run** (the dispatcher is built for either answer): **P1** whether `TaskStart` fires once per task

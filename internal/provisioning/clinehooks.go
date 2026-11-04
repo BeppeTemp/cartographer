@@ -62,7 +62,7 @@ func generateClineDispatcher(event, bin string, windows bool) []byte {
 	if windows {
 		// UTF-8 with BOM: Windows PowerShell 5.1 reads BOM-less UTF-8 as ANSI and
 		// would corrupt a non-ASCII user name in the path. No `&&`, no ternary.
-		q := "'" + strings.ReplaceAll(bin, "'", "''") + "'"
+		q := "'" + psSingleQuoteDoubler.Replace(bin) + "'"
 		return []byte("\xef\xbb\xbf" + head +
 			"$cartographer = " + q + "\n" +
 			"if (-not (Test-Path -LiteralPath $cartographer)) { '{}'; exit 0 }\n" +
@@ -75,6 +75,11 @@ func generateClineDispatcher(event, bin string, windows bool) []byte {
 		q + " hook dispatch --provider cline --event " + event + "\n" +
 		"exit 0\n")
 }
+
+// psSingleQuoteDoubler escapes a PowerShell single-quoted string: besides the
+// ASCII quote, PowerShell treats U+2018, U+2019, U+201A and U+201B as quotes
+// too, and each is doubled the same way.
+var psSingleQuoteDoubler = strings.NewReplacer("'", "''", "\u2018", "\u2018\u2018", "\u2019", "\u2019\u2019", "\u201a", "\u201a\u201a", "\u201b", "\u201b\u201b")
 
 // clineOwnership classifies what is at a dispatcher path.
 type clineOwnership int
@@ -119,6 +124,10 @@ func reconcileClineDispatchers(baseDir, exclude string) (warnings map[string]str
 		needed[h.clineEvent] = true
 	}
 	warnings = map[string]string{}
+	// The Documents folder is the root of every write below, not the base dir: it
+	// may be a redirected Windows folder outside it, or a link of the user's own
+	// (exempt as a root), while a link at Cline or Cline/Hooks is refused.
+	docs := clineDocumentsDir(baseDir)
 	var bin string
 	var binErr error
 	if len(needed) > 0 {
@@ -134,22 +143,25 @@ func reconcileClineDispatchers(baseDir, exclude string) (warnings map[string]str
 			if owner != clineOwned {
 				continue
 			}
-			if err := safewrite.Remove(baseDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := safewrite.Remove(docs, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return warnings, fmt.Errorf("provisioning: remove Cline dispatcher %s: %w", path, err)
 			}
-			pruneEmptyDirs(clineDocumentsDir(baseDir), filepath.Join("Cline", "Hooks", event))
+			pruneEmptyDirs(docs, filepath.Join("Cline", "Hooks", event))
 			continue
 		}
 		switch {
 		case binErr != nil:
 			warnings[event] = fmt.Sprintf("cline: the %s hooks need cartographer on PATH to be wired (%v)", event, binErr)
+		case owner == clineForeign && safewrite.CheckPath(docs, path) != nil:
+			// A link (or another non-plain path) is a safewrite refusal, in its words.
+			warnings[event] = fmt.Sprintf("cline: the %s hooks of this KB were installed but not wired: %v", event, safewrite.CheckPath(docs, path))
 		case owner == clineForeign:
 			warnings[event] = fmt.Sprintf("cline: %s already exists and is not Cartographer's; the %s hooks of this KB were installed but not wired (rename or move that file, then sync)", path, event)
 		default:
-			if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
+			if err := mkdirAllNoFollow(docs, filepath.Dir(path), 0o755); err != nil {
 				return warnings, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 			}
-			if err := writeFileAtomicNoFollow(baseDir, path, generateClineDispatcher(event, bin, hookHostWindows), 0o755); err != nil {
+			if err := writeFileAtomicNoFollow(docs, path, generateClineDispatcher(event, bin, hookHostWindows), 0o755); err != nil {
 				return warnings, fmt.Errorf("provisioning: write Cline dispatcher %s: %w", path, err)
 			}
 		}

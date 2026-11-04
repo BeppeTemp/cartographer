@@ -2,6 +2,7 @@ package provisioning
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,6 +69,11 @@ func TestClineDispatcherGolden(t *testing.T) {
 		if want := readFile(t, path); got != want {
 			t.Errorf("%s differs:\n%s", tc.file, got)
 		}
+	}
+	// PowerShell also reads the typographic single quotes as quotes: doubled too.
+	ps := string(generateClineDispatcher("PostToolUse", "C:\\a\u2018b\u2019c\u201ad\u201be'f\\x.exe", true))
+	if !strings.Contains(ps, "'C:\\a\u2018\u2018b\u2019\u2019c\u201a\u201ad\u201b\u201be''f\\x.exe'") {
+		t.Errorf("typographic quotes not doubled:\n%s", ps)
 	}
 	// The Windows form is the only file the loader runs there: <Event>.ps1.
 	base, _ := clineStubBase(t)
@@ -166,7 +172,11 @@ func TestClineDispatcherIsNeverAUsersFile(t *testing.T) {
 	}
 	for _, event := range []string{"PreToolUse", "PostToolUse", "UserPromptSubmit"} {
 		w, reg := addClineHook(t, base, "h-"+event, event, "", "#!/bin/sh\n")
-		if reg || !strings.Contains(w, "already exists and is not Cartographer's") || !strings.Contains(w, event) {
+		want := "already exists and is not Cartographer's"
+		if event == "UserPromptSubmit" {
+			want = "refusing to write through symlink" // safewrite's wording, TestClineSymlinkedDispatcherIsReportedAsARefusal
+		}
+		if reg || !strings.Contains(w, want) || !strings.Contains(w, event) {
 			t.Errorf("%s: warning %q registered %v", event, w, reg)
 		}
 	}
@@ -304,5 +314,77 @@ func TestClineDispatcherRuns(t *testing.T) {
 	out, err = exec.Command(d).Output()
 	if err != nil || strings.TrimSpace(string(out)) != "{}" {
 		t.Errorf("missing binary: %q %v", out, err)
+	}
+}
+
+// A user's own TaskStart file means the bootstrap hook will never run: the
+// bootstrap fails with the warning instead of recording the hook as installed.
+func TestClineBootstrapFailsWhenTaskStartIsTheUsers(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("posix path")
+	}
+	base, _ := clineStubBase(t)
+	hooks := clineHooksDir(base)
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	user := "#!/bin/sh\necho mine\n"
+	if err := os.WriteFile(filepath.Join(hooks, "TaskStart"), []byte(user), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := EnsureBootstrapHook(base, configurator.ProviderCline, Lock{}, false)
+	if err == nil || !strings.Contains(err.Error(), "not Cartographer's") {
+		t.Fatalf("err = %v, want the not-wired warning", err)
+	}
+	if got := readFile(t, filepath.Join(hooks, "TaskStart")); got != user {
+		t.Errorf("the user's file was touched: %q", got)
+	}
+}
+
+// A symlink at the dispatcher path is a safewrite refusal, in its words.
+func TestClineSymlinkedDispatcherIsReportedAsARefusal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	base, _ := clineStubBase(t)
+	hooks := clineHooksDir(base)
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(base, "elsewhere"), filepath.Join(hooks, "PreToolUse")); err != nil {
+		t.Fatal(err)
+	}
+	w, reg := addClineHook(t, base, "g", "PreToolUse", "", "#!/bin/sh\n")
+	if reg || !strings.Contains(w, "refusing to write through symlink") || strings.Contains(w, "already exists and is not Cartographer's") {
+		t.Errorf("warning %q registered %v", w, reg)
+	}
+}
+
+// The walk is rooted at the Documents folder: a Documents folder that is itself
+// a link (a user's own arrangement) is exempt, a link below it is refused.
+func TestClineDocumentsRootMayBeALinkButNothingBelowIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	base, _ := clineStubBase(t)
+	real := t.TempDir()
+	if err := os.Symlink(real, filepath.Join(base, "Documents")); err != nil {
+		t.Fatal(err)
+	}
+	if w, reg := addClineHook(t, base, "g", "PreToolUse", "", "#!/bin/sh\n"); !reg {
+		t.Fatalf("a symlinked Documents folder must work: %q", w)
+	}
+	if _, err := os.Stat(filepath.Join(real, "Cline", "Hooks", "PreToolUse")); err != nil {
+		t.Errorf("dispatcher not written through the Documents link: %v", err)
+	}
+	// A link at Documents/Cline is refused before any write.
+	if err := os.RemoveAll(filepath.Join(real, "Cline")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(real, "Cline")); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g"); err == nil || !errors.Is(err, ErrSymlinkDestination) {
+		t.Errorf("a link at Documents/Cline must be refused, got %v", err)
 	}
 }
