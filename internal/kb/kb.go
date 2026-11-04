@@ -1158,17 +1158,19 @@ func (kb *KB) AppendLog(entry string, ts time.Time) error {
 	tsStr := ts.UTC().Format(time.RFC3339)
 	entryBlock := fmt.Sprintf("## %s\n\n%s\n\n", tsStr, entry)
 
-	// Insert after the first line (# Log header) if present.
+	// Insert after the first line (# Log header) if present. A CRLF log (a
+	// Windows clone with core.autocrlf) keeps its line endings: the entry is
+	// written in them and the header is recognised with them.
 	var newContent string
-	if strings.HasPrefix(existing, "# Log\n") {
-		rest := existing[6:] // skip "# Log\n"
-		rest = strings.TrimLeft(rest, "\n")
-		if rest == "" {
-			newContent = "# Log\n\n" + entryBlock
-		} else {
-			newContent = "# Log\n\n" + entryBlock + rest
-		}
-	} else {
+	switch {
+	case strings.HasPrefix(existing, "# Log\r\n"):
+		block := strings.ReplaceAll(entryBlock, "\n", "\r\n")
+		rest := strings.TrimLeft(existing[len("# Log\r\n"):], "\r\n")
+		newContent = "# Log\r\n\r\n" + block + rest
+	case strings.HasPrefix(existing, "# Log\n"):
+		rest := strings.TrimLeft(existing[6:], "\n") // skip "# Log\n"
+		newContent = "# Log\n\n" + entryBlock + rest
+	default:
 		newContent = entryBlock + existing
 	}
 
@@ -1740,15 +1742,17 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 		return fmt.Errorf("%w: concept %s", okf.ErrNotFound, id)
 	}
 
-	if err := os.MkdirAll(dirAbs, 0o755); err != nil {
-		return fmt.Errorf("ExpandConcept: mkdir: %w", err)
-	}
-
-	// Rebase relative markdown links before moving the file one directory
+	// Read and rebase first, so nothing is created until the content is known.
+	//
+	// Relative markdown links are rebased before the file moves one directory
 	// deeper: a link written as "other.md" or "../m2/z.md" relative to
 	// "<map>/<c>.md" must be rewritten for "<map>/<c>/index.md", otherwise
 	// every outbound link silently breaks. Wiki-links are root-relative and
 	// untouched. A test pins this (D295 WP1).
+	info, statErr := os.Stat(directAbs)
+	if statErr != nil {
+		return fmt.Errorf("ExpandConcept: stat %s: %w", id, statErr)
+	}
 	raw, readErr := os.ReadFile(directAbs)
 	if readErr != nil {
 		return fmt.Errorf("ExpandConcept: read %s: %w", id, readErr)
@@ -1756,23 +1760,56 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 	oldBase := string(id) + ".md"
 	newBase := string(id) + "/index.md"
 	content := string(raw)
-	_, body, _ := okf.SplitFrontmatter(content)
+	// SplitFrontmatter normalises CRLF, so its body is not a suffix of CRLF
+	// content (a Windows clone with core.autocrlf): the rebase is computed on
+	// the LF form and the line endings are restored afterwards.
+	crlf := strings.Contains(content, "\r\n")
+	norm := strings.ReplaceAll(content, "\r\n", "\n")
+	_, body, _ := okf.SplitFrontmatter(norm)
 	out := content
-	if rebased, n := rewriteOutboundLinks(body, oldBase, newBase, nil, kb.danglingAssetLink); n > 0 && strings.HasSuffix(content, body) {
+	if rebased, n := rewriteOutboundLinks(body, oldBase, newBase, nil, kb.danglingAssetLink); n > 0 && strings.HasSuffix(norm, body) {
 		// Splice the body back so the frontmatter keeps its exact bytes.
-		out = content[:len(content)-len(body)] + rebased
-	}
-	if out != content {
-		if err := os.WriteFile(directAbs, []byte(out), 0o644); err != nil {
-			return fmt.Errorf("ExpandConcept: rebase write %s: %w", id, err)
+		out = norm[:len(norm)-len(body)] + rebased
+		if crlf {
+			out = strings.ReplaceAll(out, "\n", "\r\n")
 		}
 	}
 
-	if err := os.Rename(directAbs, filepath.Join(dirAbs, "index.md")); err != nil {
+	// Write the final file first, then remove the source: an error at any
+	// step leaves "<id>.md" as it was and no "<id>/" behind, so the retry
+	// does not answer already_expanded for a concept that is still flat.
+	if err := os.MkdirAll(dirAbs, 0o755); err != nil {
+		return fmt.Errorf("ExpandConcept: mkdir: %w", err)
+	}
+	indexAbs := filepath.Join(dirAbs, "index.md")
+	undo := func() {
+		_ = os.Remove(indexAbs)
+		_ = os.Remove(dirAbs)
+	}
+	if err := expandWriteFile(indexAbs, []byte(out)); err != nil {
+		undo()
+		return fmt.Errorf("ExpandConcept: write %s: %w", id, err)
+	}
+	// writeFileAtomic leaves the temp file's 0600: restore the source's mode,
+	// as the rename this replaces did.
+	if err := os.Chmod(indexAbs, info.Mode().Perm()); err != nil {
+		undo()
+		return fmt.Errorf("ExpandConcept: chmod %s: %w", id, err)
+	}
+	if err := expandRemoveFile(directAbs); err != nil {
+		undo()
 		return fmt.Errorf("ExpandConcept: move %s: %w", id, err)
 	}
 	return nil
 }
+
+// expandWriteFile and expandRemoveFile are the two disk steps of
+// ExpandConcept that can fail after the content is known; variables only so a
+// test can fail each one.
+var (
+	expandWriteFile  = writeFileAtomic
+	expandRemoveFile = os.Remove
+)
 
 // danglingAssetLink reports whether a link of a concept being expanded names a
 // non-Markdown file that does not exist yet. Expand leaves such a link as
@@ -2464,12 +2501,26 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
 	}
 	out := "---\n" + fm.Serialize() + "\n---\n" + body
+	// The index.md is computed before _map.md is written: whatever can be
+	// refused from the inputs is refused while nothing has changed.
+	var indexAbs string
+	var indexOut []byte
+	if upd.Title != nil {
+		indexAbs, indexOut, err = kb.planRetitleIndex(name, oldTitle, newTitle)
+		if err != nil {
+			return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
+		}
+	}
+	prev, prevErr := os.ReadFile(abs)
 	if err := writeFileAtomic(abs, []byte(out)); err != nil {
 		return MapContract{}, fmt.Errorf("UpdateMapContract %s: write _map.md: %w", name, err)
 	}
-	if upd.Title != nil {
-		if err := kb.retitleIndex(name, oldTitle, newTitle); err != nil {
-			return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
+	if indexAbs != "" {
+		if err := writeFileAtomic(indexAbs, indexOut); err != nil {
+			if prevErr == nil {
+				_ = writeFileAtomic(abs, prev) // do not leave a map renamed without its index
+			}
+			return MapContract{}, fmt.Errorf("UpdateMapContract %s: write index.md: %w", name, err)
 		}
 	}
 	return kb.ReadMapContract(name)
@@ -2510,25 +2561,27 @@ func uniqueKeepOrder(in []string) []string {
 	return out
 }
 
-// retitleIndex carries a map's new title into its index.md, which repeats it
-// in its own frontmatter and H1: a map renamed in _map.md alone would show
-// two names. A map without an index.md has nothing to carry.
-func (kb *KB) retitleIndex(name, oldTitle, newTitle string) error {
+// planRetitleIndex computes a map's new index.md, which repeats the title in
+// its own frontmatter and H1: a map renamed in _map.md alone would show two
+// names. It writes nothing, so UpdateMapContract can refuse before touching
+// _map.md. A map without an index.md has nothing to carry: the path is "".
+func (kb *KB) planRetitleIndex(name, oldTitle, newTitle string) (string, []byte, error) {
 	relPath := name + "/index.md"
 	content, err := kb.ReadRaw(relPath)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+		// ReadRaw reports a missing file as okf.ErrNotFound, not fs.ErrNotExist.
+		if errors.Is(err, okf.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
+			return "", nil, nil
 		}
-		return fmt.Errorf("read index.md: %w", err)
+		return "", nil, fmt.Errorf("read index.md: %w", err)
 	}
 	fmRaw, body, ok := okf.SplitFrontmatter(content)
 	if !ok {
-		return nil
+		return "", nil, nil
 	}
 	fm, err := okf.ParseFrontmatter(fmRaw)
 	if err != nil {
-		return fmt.Errorf("index.md: %w", err)
+		return "", nil, fmt.Errorf("index.md: %w", err)
 	}
 	if v, ok := fm.Get("title"); ok {
 		if s, _ := v.(string); s == oldTitle || oldTitle == "" {
@@ -2537,13 +2590,9 @@ func (kb *KB) retitleIndex(name, oldTitle, newTitle string) error {
 	}
 	abs, err := kb.ResolvePath(relPath, false)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
-	out := "---\n" + fm.Serialize() + "\n---\n" + retitleH1(body, oldTitle, newTitle)
-	if err := writeFileAtomic(abs, []byte(out)); err != nil {
-		return fmt.Errorf("write index.md: %w", err)
-	}
-	return nil
+	return abs, []byte("---\n" + fm.Serialize() + "\n---\n" + retitleH1(body, oldTitle, newTitle)), nil
 }
 
 // retitleH1 replaces the body's first H1 when it repeats the old title; an H1
@@ -3191,15 +3240,11 @@ func (kb *KB) listMDFiles(relDir string) ([]string, error) {
 		return nil, err
 	}
 	var files []string
-	err = filepath.WalkDir(absDir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+	err = walkVisibleDirs(absDir, func(p string, d fs.DirEntry) {
 		if !d.IsDir() && strings.HasSuffix(p, ".md") {
 			rel, _ := filepath.Rel(kb.DataRoot(), p)
 			files = append(files, filepath.ToSlash(rel))
 		}
-		return nil
 	})
 	return files, err
 }

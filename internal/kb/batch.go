@@ -202,8 +202,13 @@ func (kb *KB) WriteConceptBatch(ops []BatchWriteOp, logMessage string, afterFile
 		if err := snapshotOnce(plan.absPath); err != nil {
 			return nil, fmt.Errorf("batch: %w", err)
 		}
-		if err := snapshotOnce(plan.newExpandedDir); err != nil {
-			return nil, fmt.Errorf("batch: %w", err)
+		if plan.newExpandedDir != "" {
+			// The stub FILE is what the commit creates: snapshotting the
+			// directory would make the rollback try os.Remove on a directory
+			// that still holds the stub and the concept ("not empty").
+			if err := snapshotOnce(filepath.Join(plan.newExpandedDir, "index.md")); err != nil {
+				return nil, fmt.Errorf("batch: %w", err)
+			}
 		}
 	}
 	if err := snapshotOnce(logAbs); err != nil {

@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -43,6 +44,29 @@ type conceptFile struct {
 	entry fs.DirEntry
 }
 
+// walkVisibleDirs walks root and calls visit for every entry outside a hidden
+// directory (a name starting with "."), as ListArchives, ListExpanded and
+// ListAssets already do: data/.trash/old.md is not a concept. A subdirectory
+// that cannot be read is skipped with one stderr line, so a single bad
+// directory does not fail the graph, search, lint or the index regeneration
+// that follows every write; only the root's own error is returned.
+func walkVisibleDirs(root string, visit func(p string, d fs.DirEntry)) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if p == root || d == nil || !d.IsDir() {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "cartographer: skipping unreadable directory %s: %v\n", p, err)
+			return filepath.SkipDir
+		}
+		if p != root && d.IsDir() && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		visit(p, d)
+		return nil
+	})
+}
+
 // conceptFiles enumerates exactly the files walkConceptPaths emits, in its
 // order, without reading them. It is the one place the walk's rules live:
 // data/ plus services/, only map/concept/index.md among index files (as
@@ -55,30 +79,22 @@ func (kb *KB) conceptFiles() ([]conceptFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = filepath.WalkDir(dataRoot, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+	err = walkVisibleDirs(dataRoot, func(p string, d fs.DirEntry) {
 		if !d.IsDir() && d.Type()&fs.ModeSymlink == 0 && strings.HasSuffix(p, ".md") {
 			rel, _ := filepath.Rel(kb.DataRoot(), p)
 			files = append(files, conceptFile{rel: filepath.ToSlash(rel), entry: d})
 		}
-		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	servicesDir := filepath.Join(kb.Root, "services")
 	if _, statErr := os.Stat(servicesDir); !os.IsNotExist(statErr) {
-		err = filepath.WalkDir(servicesDir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
+		err = walkVisibleDirs(servicesDir, func(p string, d fs.DirEntry) {
 			if !d.IsDir() && d.Type()&fs.ModeSymlink == 0 && strings.HasSuffix(p, ".md") {
 				rel, _ := filepath.Rel(kb.Root, p)
 				files = append(files, conceptFile{rel: filepath.ToSlash(rel), entry: d})
 			}
-			return nil
 		})
 		if err != nil {
 			return nil, err
@@ -125,6 +141,12 @@ func ConceptIDOfPath(rel string) (okf.ConceptID, bool) {
 	case strings.HasPrefix(rel, "services/"):
 	default:
 		return "", false
+	}
+	segs := strings.Split(rel, "/")
+	for _, seg := range segs[:len(segs)-1] { // directories only, as walkVisibleDirs
+		if strings.HasPrefix(seg, ".") {
+			return "", false // a hidden directory holds no concepts (walkVisibleDirs)
+		}
 	}
 	base := path.Base(rel)
 	if base == "index.md" {

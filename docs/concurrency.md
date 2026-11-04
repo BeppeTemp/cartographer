@@ -17,11 +17,11 @@ is validated and its content materialized in memory before the first byte is
 written; if a write or the summary `log.md` entry then fails partway, every file the call already wrote (including any
 implicit expanded-index stub a new directory triggered) and `log.md` are
 restored to their exact pre-call bytes and mode before the error is
-returned. Unlike `concept_move` — which documents that a `rewrite_links`
+returned (the stub file is what is snapshotted, so the new directory is pruned with it). Unlike `concept_move` — which documents that a `rewrite_links`
 failure leaves the already-applied moves in place — `concept_batch` never
 leaves a partially-applied batch on disk (and the search indexes follow the
 files, D245, so they never see one either): callers
-observe either the complete batch or the exact pre-call KB state. The curated
+observe either the complete batch or the exact pre-call KB state. `concept_expand` follows the same rule on a smaller scale: it reads and rebases the concept first (CRLF content included), writes `<id>/index.md`, then removes `<id>.md`, and removes the directory it created on any error, so a retry never answers `already_expanded` for a concept that is still flat. `map_update` computes the retitled `index.md` before it writes `_map.md`. The curated
 index entries a batch asks for (`index_entry`, D714) are part of that: they
 are written last, and a failure restores the indexes already patched before
 the files and log are rolled back. It does

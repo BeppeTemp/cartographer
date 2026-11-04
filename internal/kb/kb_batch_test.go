@@ -188,14 +188,17 @@ func TestWriteConceptBatch_NewExpandedStubRolledBackAndPruned(t *testing.T) {
 	ops := []BatchWriteOp{
 		// A brand-new 3-segment child implicitly stubs entities/smart-home/index.md.
 		{ID: okf.ConceptID("entities/smart-home/foo"), FM: fm1, Body: "# Foo\n"},
-		// This op fails after the first has already been committed (and its
-		// implicit stub with it).
-		{ID: okf.ConceptID("no-type"), FM: mustEmptyType(t), Body: "# Bad\n"},
 	}
 
-	_, err := kb.WriteConceptBatch(ops, "concept_batch: 2 op(s)", nil)
-	if !errors.Is(err, okf.ErrInvalidConcept) {
-		t.Fatalf("expected ErrInvalidConcept from the second op, got: %v", err)
+	// The failure comes after the commit (an index-sync step), so the stub and
+	// the concept really exist when the rollback runs.
+	boom := errors.New("index sync failed")
+	_, err := kb.WriteConceptBatch(ops, "concept_batch: 1 op(s)", func([]BatchWriteResult) error { return boom })
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected the afterFiles error, got: %v", err)
+	}
+	if strings.Contains(err.Error(), RollbackFailedMarker) {
+		t.Errorf("rollback must not fail: %v", err)
 	}
 
 	if _, statErr := os.Stat(filepath.Join(kb.DataRoot(), "entities", "smart-home")); !os.IsNotExist(statErr) {
