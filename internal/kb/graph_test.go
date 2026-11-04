@@ -626,17 +626,3 @@ func TestLinks_TitleWithParenthesis(t *testing.T) {
 		t.Errorf("ExtractLinks = %v", got)
 	}
 }
-
-func TestGitPathToConceptID_ExpandedConcept(t *testing.T) {
-	t.Parallel()
-	for path, want := range map[string]string{"data/m/c/index.md": "m/c", "data/m/c.md": "m/c"} {
-		if id, ok := GitPathToConceptID(path); !ok || id != want {
-			t.Errorf("%s = %q %v", path, id, ok)
-		}
-	}
-	for _, path := range []string{"data/m/index.md", "data/index.md", "data/m/log.md", "data/m/_map.md"} {
-		if id, ok := GitPathToConceptID(path); ok {
-			t.Errorf("%s mapped to %q", path, id)
-		}
-	}
-}

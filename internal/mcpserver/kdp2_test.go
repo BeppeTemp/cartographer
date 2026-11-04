@@ -150,3 +150,17 @@ func TestConceptTransfer_IgnoresEditorJunk(t *testing.T) {
 	xferClean(t, f.a)
 	xferClean(t, f.b)
 }
+
+func TestConceptIDFromGitPath(t *testing.T) {
+	t.Parallel()
+	for path, want := range map[string]string{"data/m/c/index.md": "m/c", "data/m/c.md": "m/c"} {
+		if id, ok := conceptIDFromGitPath(path); !ok || id != want {
+			t.Errorf("%s = %q %v", path, id, ok)
+		}
+	}
+	for _, path := range []string{"data/m/index.md", "data/index.md", "data/m/log.md", "data/m/_map.md"} {
+		if id, ok := conceptIDFromGitPath(path); ok {
+			t.Errorf("%s mapped to %q", path, id)
+		}
+	}
+}

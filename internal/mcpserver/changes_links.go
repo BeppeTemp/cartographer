@@ -33,6 +33,16 @@ type changesLinks struct {
 	Truncated      bool              `json:"truncated,omitempty"`
 }
 
+// conceptIDFromGitPath maps a repository path to the concept it holds,
+// including an expanded concept's body "data/<map>/<concept>/index.md" (which
+// kb.GitPathToConceptID rejects as reserved), D1613.
+func conceptIDFromGitPath(p string) (string, bool) {
+	if id, ok := kb.GitPathToConceptID(p); ok {
+		return id, true
+	}
+	return kb.GitPathToExpandedConceptID(p)
+}
+
 // linkSourceFromGitPath maps a repository path to the concept it holds and
 // its KB-relative physical path, including an expanded concept's index.md
 // ("data/<map>/<concept>/index.md"), because that file is where its links live.

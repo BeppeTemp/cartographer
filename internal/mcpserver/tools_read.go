@@ -873,13 +873,13 @@ func toolChangesSince(k *kb.KB) Tool {
 					if isCartographerPath(file.Path) {
 						continue
 					}
-					id, ok := kb.GitPathToConceptID(file.Path)
+					id, ok := conceptIDFromGitPath(file.Path)
 					if !ok {
 						otherChanges++
 						continue
 					}
 					if file.Status == "R" {
-						if oldID, oldOK := kb.GitPathToConceptID(file.OldPath); oldOK {
+						if oldID, oldOK := conceptIDFromGitPath(file.OldPath); oldOK {
 							if final := resolveMovedID(id); final != oldID {
 								movedTo[oldID] = final
 								for k, v := range movedTo {

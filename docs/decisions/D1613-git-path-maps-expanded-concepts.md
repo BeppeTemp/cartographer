@@ -2,13 +2,13 @@
 topic: control-plane
 ---
 
-# D1613 — `GitPathToConceptID` maps an expanded concept's `index.md`
+# D1613 — `changes_since` maps an expanded concept's `index.md` to its concept
 
-**Decision.** `kb.GitPathToConceptID` maps `data/<map>/<concept>/index.md`, the body of an expanded concept (D77), to the concept ID `<map>/<concept>`, for every caller. A map's own `index.md`, the root `index.md`, `log.md`, `_map.md` and `_archive.md` stay unmapped. `changes_since` therefore reports an expanded concept's edits as concept changes and no longer counts them in `other_changes`.
+**Decision.** `changes_since` maps `data/<map>/<concept>/index.md`, the body of an expanded concept (D77), to the concept ID `<map>/<concept>` (`conceptIDFromGitPath`, which adds `kb.GitPathToExpandedConceptID` to `kb.GitPathToConceptID`), for a changed path and for the old path of a rename. Its edits are concept changes and no longer count in `other_changes`. A map's own `index.md`, the root `index.md`, `log.md`, `_map.md` and `_archive.md` stay unmapped. `kb.GitPathToConceptID` itself is unchanged.
 
-**Why.** The function rejected every `index.md` as reserved, so `changes_since` (and the Atlas changes API, which reuses it) lost the creates, edits and deletes of expanded concepts, and a restricted token saw nothing of them. `linkSourceFromGitPath` already handled the case by itself, so the two mappings had drifted.
+**Why.** `changes_since` (and the Atlas changes API, which reuses it) lost the creates, edits and deletes of expanded concepts, and a restricted token saw nothing of them. `linkSourceFromGitPath` already handled the case by itself.
 
 **Alternatives rejected.**
-- A separate `conceptIDFromGitPath` used only by `changes_since`: a smaller blast radius, but two mappings that can drift again.
+- Making `kb.GitPathToConceptID` expansion-aware for every caller: it also feeds the Atlas births map, and giving an expanded concept a birth breaks the 3D growth replay (the `graph3d` e2e suite fails, the view crashes). The birth of an expanded concept is a separate gap, not fixed here.
 
-**Consequences.** The callers that already handled the expanded form on their own (conflict registration in `gitwrap.go`, which checks `expandedID` as well, and `IsReservedPath`) behave as before. The births map of the Atlas home now includes expanded concepts. A new path-to-concept mapping must go through this function.
+**Consequences.** Conflict registration keeps its own `expandedID` handling. A new path-to-concept mapping for history digests should go through `conceptIDFromGitPath`; the births feed stays on the narrower function until the growth replay accepts expanded concepts.
