@@ -157,6 +157,10 @@ func TestApply_PiWriteFindingsGolden(t *testing.T) {
 func TestApply_PiHookBadMatcherOrEventIsNotRegistered(t *testing.T) {
 	for _, tc := range []struct{ event, matcher, warn string }{
 		{"PreToolUse", "(unclosed", "regular expression"},
+		{"PreToolUse", "(?i)bash", "inline flag"},
+		{"PreToolUse", "(?P<t>bash)", "(?P<name>"},
+		{"PostToolUse", "[[:alpha:]]+", "POSIX class"},
+		{"PreToolUse", `bash\z`, `\z`},
 		{"Stop", "", "not fired by this client"},
 	} {
 		baseDir := t.TempDir()

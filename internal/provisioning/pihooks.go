@@ -59,6 +59,9 @@ func registerPiHook(baseDir, hookName, fullDestDir string) (relPath, warning str
 		if _, rerr := regexp.Compile(m); rerr != nil {
 			return "", fmt.Sprintf("hook %q: pi: matcher %q is not a valid regular expression (%v); files were installed but the hook was not registered", hookName, spec.Matcher, rerr), false, nil
 		}
+		if what := piMatcherRE2Only(m); what != "" {
+			return "", fmt.Sprintf("hook %q: pi: matcher %q uses %s, which only Go's regular expressions understand and Pi would run as JavaScript (it would never match, silently disabling the hook); files were installed but the hook was not registered", hookName, spec.Matcher, what), false, nil
+		}
 	}
 
 	command := posixShellHookCommand(resolveHookCommand(spec.Command, fullDestDir), hookHostWindows)
@@ -73,6 +76,41 @@ func registerPiHook(baseDir, hookName, fullDestDir string) (relPath, warning str
 		return "", "", false, fmt.Errorf("provisioning: write pi extension %s: %w", fullPath, err)
 	}
 	return rel, "", true, nil
+}
+
+// piMatcherRE2Only names the first construct of a matcher that Go's RE2 accepts
+// and a JavaScript RegExp does not read the same way, or "". The matcher is
+// validated with regexp.Compile but run by Pi as a JS RegExp: a PreToolUse
+// block must never silently stop blocking because of a dialect difference.
+// The scan skips escaped characters, so `\\(?i)` is not flagged.
+func piMatcherRE2Only(m string) string {
+	inClass := false
+	for i := 0; i < len(m); i++ {
+		switch c := m[i]; {
+		case c == '\\' && i+1 < len(m):
+			switch m[i+1] {
+			case 'A', 'z', 'Z', 'Q', 'E':
+				return `\` + string(m[i+1])
+			}
+			i++
+		case c == '[' && !inClass:
+			inClass = true
+			if strings.HasPrefix(m[i:], "[[:") || strings.HasPrefix(m[i:], "[^[:") {
+				return "a POSIX class"
+			}
+		case c == ']':
+			inClass = false
+		case !inClass && strings.HasPrefix(m[i:], "(?"):
+			rest := m[i+2:]
+			if strings.HasPrefix(rest, "P<") {
+				return "(?P<name>"
+			}
+			if len(rest) > 0 && (rest[0] == '-' || rest[0] >= 'a' && rest[0] <= 'z' || rest[0] >= 'A' && rest[0] <= 'Z') {
+				return "an inline flag group"
+			}
+		}
+	}
+	return ""
 }
 
 // removePiHook deletes hookName's extension; absent is fine (an unregistered

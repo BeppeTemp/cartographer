@@ -489,7 +489,7 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   (the write-findings text reaching the model, the `PreToolUse` block repeated by the model, the
   bootstrap hook in `pi -p`): probe it before relying on it; `Stop`/`UserPromptSubmit` unmapped;
   `SessionStart` stdout (the update notice) is not delivered; jiti and the extension API may change;
-  `/reload` re-fires `session_start`, so the sync runs again (harmless); a trusted project `.agents/skills/<x>` `.agents/skills/<x>` shadows the global copy (Cartographer
+  `/reload` re-fires `session_start`, so the sync runs again (harmless); a trusted project `.agents/skills/<x>` shadows the global copy (Cartographer
   also projects `.agents/skills` for codex, copilot and antigravity: same content, benign
   duplication, not suppressed); the `CLAUDE.md` global fallback order is unprobed; the Windows
   path `%USERPROFILE%\.pi\agent` is unverified; `pi` shims on `PATH`; an exposure changed by the
