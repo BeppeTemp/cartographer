@@ -375,7 +375,7 @@ func (s *structure) supersessionEnd(start string) (string, bool) {
 // timestamp form an "undated" group. Coverage is judged on the whole graph;
 // with inScope set, only in-scope entries are counted and anchor the finding,
 // so a narrow scope neither loses nor over-counts a group.
-func (s *structure) digestMissing(k *kb.KB, inScope func(okf.ConceptID) bool) []Finding {
+func (s *structure) digestMissing(contents map[okf.ConceptID]string, inScope func(okf.ConceptID) bool) []Finding {
 	type group struct {
 		journal, quarter string
 		first            okf.ConceptID
@@ -403,8 +403,10 @@ func (s *structure) digestMissing(k *kb.KB, inScope func(okf.ConceptID) bool) []
 			continue
 		}
 		quarter := "undated"
-		if c, err := k.ReadConcept(id); err == nil {
-			if fm, perr := okf.ParseFrontmatter(c.FrontmatterRaw); perr == nil {
+		// The walk already holds the entry: reading it again per archived
+		// entry is the I/O that grows with the journal.
+		if fmRaw, _, ok := okf.SplitFrontmatter(contents[id]); ok {
+			if fm, perr := okf.ParseFrontmatter(fmRaw); perr == nil {
 				if ts, ok := frontmatterValue(fm, "timestamp").(string); ok && len(ts) >= 10 {
 					if t, err := time.Parse("2006-01-02", ts[:10]); err == nil {
 						quarter = fmt.Sprintf("%d-q%d", t.Year(), (int(t.Month())-1)/3+1)

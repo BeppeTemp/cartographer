@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -189,11 +191,10 @@ type artifactText struct {
 	content string
 }
 
-// checkArtifacts runs every artifact check of an unscoped lint. The skills are
-// loaded once and handed to each check that needs them: LoadAllSkills walks
-// the filesystem.
-func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool) []Finding {
-	skills, missing := loadSkills(k)
+// checkArtifacts runs every artifact check of an unscoped lint. The caller
+// loads the skills once (loadSkills) and they are handed to each check that
+// needs them: LoadAllSkills walks the filesystem.
+func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool, skills []skill.Skill, missing []string) []Finding {
 	files := artifactTextFiles(k)
 
 	var findings []Finding
@@ -237,9 +238,13 @@ func legacyAcceptFinding() Finding {
 
 func skillFile(s skill.Skill) string { return s.DirPath + "/SKILL.md" }
 
+// loadSkillsCalls counts the loads, for the test that pins one per lint run.
+var loadSkillsCalls atomic.Int64
+
 // loadSkills returns the KB's loadable skills and the skill directories that
 // have no SKILL.md, KB-root-relative. A KB with no skills/ has neither.
 func loadSkills(k *kb.KB) (skills []skill.Skill, missing []string) {
+	loadSkillsCalls.Add(1)
 	entries, err := os.ReadDir(filepath.Join(k.Root, "skills"))
 	if err != nil {
 		return nil, nil
@@ -897,10 +902,46 @@ func checkArtifactsUnused(k *kb.KB, skills []skill.Skill) []Finding {
 
 // artifactBirths is when each file of the KB first entered its repository, one
 // git call for all of them. A KB that is not a repository has none.
+//
+// `git log --name-status` from the epoch grows with the history, and a KB
+// where each write is a commit reads it on every lint run that finds an
+// artifact never used. The births of a repository only change when HEAD does
+// (history is append-only; a rewrite moves HEAD), so the answer is kept per
+// root and HEAD sha. The map is shared and read-only.
 func artifactBirths(k *kb.KB) map[string]time.Time {
-	commits, err := gitx.LogNameStatus(k.Root, time.Unix(0, 0))
+	// Never nil: the caller treats nil as "not computed yet" and would run
+	// this again for every unused artifact of a KB with no history.
+	head, err := gitx.HeadSHA(k.Root)
 	if err != nil {
-		return nil
+		return map[string]time.Time{}
 	}
-	return gitx.Births(commits, func(path string) (string, bool) { return path, true })
+	birthsMu.Lock()
+	e, ok := birthsMemo[k.Root]
+	birthsMu.Unlock()
+	if ok && e.head == head {
+		return e.births
+	}
+	commits, err := logNameStatus(k.Root, time.Unix(0, 0))
+	if err != nil {
+		return map[string]time.Time{}
+	}
+	births := gitx.Births(commits, func(path string) (string, bool) { return path, true })
+	birthsMu.Lock()
+	birthsMemo[k.Root] = birthsEntry{head: head, births: births}
+	birthsMu.Unlock()
+	return births
 }
+
+type birthsEntry struct {
+	head   string
+	births map[string]time.Time
+}
+
+var (
+	// birthsMemo keeps one entry per root (a new HEAD replaces it), so it is
+	// bounded by the number of KB roots the process has served: a handful.
+	birthsMu   sync.Mutex
+	birthsMemo = map[string]birthsEntry{}
+	// logNameStatus is gitx.LogNameStatus; a test swaps it to count the runs.
+	logNameStatus = gitx.LogNameStatus
+)

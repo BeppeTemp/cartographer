@@ -433,20 +433,12 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 
 // valueContractFindings reports, per map, the scalar fields that look like a
 // vocabulary and have no field_values contract (the missing_value_contract observation, D947).
-func valueContractFindings(mapName string, contract kb.MapContract, concepts map[okf.ConceptID]string) []Finding {
+func valueContractFindings(mapName string, contract kb.MapContract, fms map[okf.ConceptID]*okf.Frontmatter) []Finding {
 	type carrier struct{ typ, value string }
 	byField := map[string][]carrier{}
 	prefix := mapName + "/"
-	for id, content := range concepts {
+	for id, parsed := range fms {
 		if !strings.HasPrefix(string(id), prefix) {
-			continue
-		}
-		fmRaw, _, ok := okf.SplitFrontmatter(content)
-		if !ok {
-			continue
-		}
-		parsed, _ := okf.ParseFrontmatter(fmRaw)
-		if parsed == nil {
 			continue
 		}
 		for _, key := range parsed.Keys() {

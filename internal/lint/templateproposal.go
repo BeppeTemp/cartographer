@@ -430,7 +430,7 @@ func followsTemplate(p *reviewConcept, mapName string, contract kb.MapContract, 
 // package (source_register, D1072): same checks, no second implementation.
 func FollowsTemplate(mapName string, id okf.ConceptID, content string, contract kb.MapContract, catalog kb.TemplateCatalog, slug string) bool {
 	fmRaw, body, _ := okf.SplitFrontmatter(content)
-	p := &reviewConcept{id: id, mapName: mapName, body: body, path: string(id) + ".md", content: content}
+	p := &reviewConcept{id: id, mapName: mapName, body: body, path: string(id) + ".md"}
 	if parsed, _ := okf.ParseFrontmatter(fmRaw); parsed != nil {
 		p.fm = parsed
 		p.typ = parsed.Type()

@@ -18,8 +18,9 @@ func observed(t *testing.T, k *kb.KB) []Finding {
 	t.Helper()
 	var concepts []*reviewConcept
 	if err := k.WalkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
-		_, body, _ := okf.SplitFrontmatter(content)
-		concepts = append(concepts, &reviewConcept{id: id, body: body, content: content, path: physicalPath})
+		fmRaw, body, _ := okf.SplitFrontmatter(content)
+		fm, _ := okf.ParseFrontmatter(fmRaw)
+		concepts = append(concepts, &reviewConcept{id: id, body: body, path: physicalPath, fm: fm})
 		return nil
 	}); err != nil {
 		t.Fatal(err)

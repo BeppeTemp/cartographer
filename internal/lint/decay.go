@@ -305,19 +305,11 @@ func markerRegexp(markers []string) *regexp.Regexp {
 // being one (D297, an observation since D947, directory-level): at least 30 distinct values and at
 // least half of them used once. Unless the contract already declares the tags'
 // values, it carries the closed vocabulary that converges them (D1197).
-func facetSprawlFindings(mapName string, contract kb.MapContract, concepts map[okf.ConceptID]string) []Finding {
+func facetSprawlFindings(mapName string, contract kb.MapContract, fms map[okf.ConceptID]*okf.Frontmatter) []Finding {
 	counts := map[string]int{}
 	prefix := mapName + "/"
-	for id, content := range concepts {
+	for id, parsed := range fms {
 		if !strings.HasPrefix(string(id), prefix) {
-			continue
-		}
-		fmRaw, _, ok := okf.SplitFrontmatter(content)
-		if !ok {
-			continue
-		}
-		parsed, _ := okf.ParseFrontmatter(fmRaw)
-		if parsed == nil {
 			continue
 		}
 		if tags, ok := frontmatterValue(parsed, "tags").([]string); ok {
