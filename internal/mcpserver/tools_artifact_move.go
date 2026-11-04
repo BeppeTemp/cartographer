@@ -295,7 +295,7 @@ func parseArtifactUnit(raw string) (artifactUnit, error) {
 			return artifactUnit{}, err
 		}
 		switch info.Kind {
-		case "agent", "mcp", "template":
+		case "agent", "mcp", "variant", "template":
 			return artifactUnit{rel: clean, info: info}, nil
 		case "instructions", "paths", "glossary":
 			return artifactUnit{}, fmt.Errorf("%s describes the KB it is in and is not moved between KBs", clean)

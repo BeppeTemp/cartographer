@@ -311,6 +311,8 @@ func TestClassifyArtifactPath(t *testing.T) {
 		{"agents/my-agent.md", true, "agent", "my-agent"},
 		{"hooks/my-hook/hook.json", true, "hook", "my-hook"},
 		{"mcp/my-server.json", true, "mcp", "my-server"},
+		{"variants/fork-cli.yaml", true, "variant", "fork-cli"},
+		{"variants/fork-cli.yml", false, "", ""},
 		{"instructions.md", true, "instructions", ""},
 		{"paths.yaml", true, "paths", ""},
 		// Only the canonical spelling is accepted: the form a join resolves is

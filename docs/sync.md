@@ -919,6 +919,18 @@ is not persisted and the executable is never launched. Claude Code, Codex and Ki
 with `${VAR}` translated to `{env:VAR}`. A field a provider cannot represent fails instead of being
 silently dropped, so no provider ever runs a command different from the approved one.
 
+## Client variants
+
+A KB can declare a **client variant**: a fork of a supported client, as data in `variants/<name>.yaml`
+(one file per variant, `<name>` is the provider id and the file stem; the format is
+`internal/clientvariant`). `BuildManifest` serves each valid descriptor as an artifact of kind
+`variant` (hashed and signed like the others); an invalid one is left out of the manifest with a
+named entry in `Manifest.Issues`, so one typo does not stop the KB's skills, and `artifact_write`
+refuses it and the `variant_invalid` lint check reports one that arrived by git. The kind is
+**declarative**: it has no row in the destination matrix, `unsupportedKindWarnings` skips it, and
+a client that does not know it ignores it. Nothing applies a descriptor yet; registration and
+approval come in later changes. Why: [D1656](decisions/D1656-variant-artifact-kind.md).
+
 ## Implementation choices
 
 - **Dedup by `kind`+`name`**: a skill present both in the bundle and in a KB is materialized only once, with the KB winning. The manifest holds exactly one artifact per `kind`+`name`.

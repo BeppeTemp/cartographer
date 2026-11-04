@@ -69,7 +69,7 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 	for i := range m.Artifacts {
 		a := m.Artifacts[i]
 		switch a.Kind {
-		case "skill", "agent", "hook", "mcp":
+		case "skill", "agent", "hook", "mcp", "variant":
 			files, err := provisioning.ReadArtifactFilesCapped(a, nil, kbRoots)
 			if err != nil {
 				continue // best-effort: skip an artifact that fails to read
