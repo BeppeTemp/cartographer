@@ -878,7 +878,7 @@ on Linux it prints an error and exits 2. `cartographer service install` register
 (next section); a hand-typed `cartographer tray` works too. On Windows 11 a new notification-area icon
 sits in the overflow (^) menu until the user pins it to the taskbar.
 
-The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
+Before the first probe the tooltip reads `checking…`, not `stopped`. The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
 address from the installed service definition on every tick (`--config` overrides the config path used
 only to read that address and the Atlas URL; Restart service calls the manager without it). A tick reads the definition file's presence and the config and probes `/health` once: it runs no scheduler command (`launchctl`, `systemctl`, PowerShell). For the
 Agents rows it also runs what `cartographer status` runs, off the poll loop: it reads the client
@@ -886,10 +886,10 @@ config, the lockfile and the agents' files and asks the client's server (authent
 `status`), which may refresh the repository-path cache as `status` does. It never writes server or KB
 state; it acts only through `service restart`'s code path and the system "open". The icon is the brand mark (Coordinate; the micro variant, without
 the inner arc, below 32 px) and its **shape** tells the state, because a macOS template image is
-tinted by the system: the mark = running, the mark without its point = starting (`ready: false` or
-bootstrapping), the mark crossed by a slash = stopped, the mark dimmed = service not installed.
+tinted by the system: the mark = running (also a server that answers `ready: false` without bootstrapping, e.g. no KB
+mounted: the menu badge reads "Not ready" and the line says `no KB mounted` or `not ready`, #1491), the mark without its point = starting (bootstrapping only), the mark crossed by a slash = stopped, the mark dimmed = service not installed.
 
-Menu (D1495), top to bottom: "Cartographer" with the state at the right (Running, Starting…, Restarting…,
+Menu (D1495), top to bottom: "Cartographer" with the state at the right (Running, Not ready, Starting…, Restarting…,
 Stopped, Not installed) over the version and the address; "Update available" with the newer
 release, when `/health` reports one; an **Agents** section, one row per connected agent client with
 "In sync", "Out of sync" or "Not checked" (anything `status` could not judge) at the right, or "None

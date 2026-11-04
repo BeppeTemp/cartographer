@@ -49,8 +49,14 @@ func (s State) String() string {
 // Snapshot is everything the UI shows. It is comparable on purpose: the poll
 // loop pushes a snapshot only when it differs from the previous one.
 type Snapshot struct {
-	State   State
-	Version string
+	State State
+	// Checked is true once a probe produced this snapshot; the zero Snapshot,
+	// shown before the first probe, reads "checking…" rather than "stopped".
+	Checked bool
+	// NotReady: the server answers /health with ready:false yet is not
+	// bootstrapping (State is StateRunning), e.g. no KB mounted.
+	NotReady bool
+	Version  string
 	// KBCount is the number of KBs the server reported, -1 when it did not
 	// send the list (an older or single-KB server).
 	KBCount int
@@ -117,7 +123,7 @@ type Agents struct {
 // nothing answering". Any other failure (refused connection, a non-200 answer,
 // a 401 that /health cannot produce) is Stopped.
 func Classify(health *client.Health, err error, status service.Status) Snapshot {
-	snap := Snapshot{KBCount: -1, UIURL: status.UIURL, Installed: status.Installed}
+	snap := Snapshot{Checked: true, KBCount: -1, UIURL: status.UIURL, Installed: status.Installed}
 	var remote *client.RemoteError
 	starting := errors.As(err, &remote) && remote.Code == client.CodeStarting
 	switch {
@@ -128,10 +134,11 @@ func Classify(health *client.Health, err error, status service.Status) Snapshot 
 		if !status.Installed {
 			snap.State = StateNotInstalled
 		}
-	case health.Ready != nil && !*health.Ready:
-		snap.State = StateStarting
 	default:
+		// A bootstrapping server is the CodeStarting error above; ready:false
+		// without it is a running server that is not ready (#1491).
 		snap.State = StateRunning
+		snap.NotReady = health.Ready != nil && !*health.Ready
 	}
 	if err == nil && health != nil {
 		snap.Version = health.Version

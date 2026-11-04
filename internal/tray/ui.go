@@ -52,6 +52,9 @@ func StatusLine(s Snapshot) string {
 	if s.Restarting {
 		return "restarting…"
 	}
+	if !s.Checked {
+		return "checking…"
+	}
 	switch s.State {
 	case StateStopped:
 		return "stopped"
@@ -64,7 +67,9 @@ func StatusLine(s Snapshot) string {
 	if s.Version != "" {
 		parts[0] += " " + s.Version
 	}
-	if s.KBCount >= 0 {
+	if s.NotReady && s.KBCount == 0 {
+		parts = append(parts, "no KB mounted")
+	} else if s.KBCount >= 0 {
 		noun := "KBs"
 		if s.KBCount == 1 {
 			noun = "KB"
@@ -73,6 +78,12 @@ func StatusLine(s Snapshot) string {
 	}
 	if s.LatestVersion != "" {
 		parts = append(parts, "update available: "+withV(s.LatestVersion))
+	}
+	if s.NotReady && s.KBCount != 0 {
+		parts = append(parts, "not ready")
+	}
+	if s.NotReady {
+		return strings.Join(parts, " · ")
 	}
 	return strings.Join(parts, " — ")
 }
@@ -128,6 +139,8 @@ func InfoItems(s Snapshot) []MenuItem {
 		head.Badge, head.Tone = "Restarting…", ToneBusy
 	case s.State == StateStarting:
 		head.Badge, head.Tone = "Starting…", ToneBusy
+	case s.NotReady:
+		head.Badge, head.Tone = "Not ready", ToneBusy
 	case s.State == StateStopped:
 		head.Badge, head.Tone = "Stopped", ToneDown
 	case s.State == StateNotInstalled:
