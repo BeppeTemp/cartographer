@@ -31,13 +31,24 @@ func linkDest(raw string) (start, end int) {
 	// A destination may hold spaces ("Raw file v1.xlsx", written without
 	// angle brackets by hand): only a trailing quoted or parenthesised part is
 	// a title. mdLinkRe stops at the first ")", so a "(title)" arrives unclosed.
-	if loc := linkTitleRe.FindStringIndex(rest); loc != nil {
-		return start, start + loc[0]
+	// A quoted title wins over a parenthesised one: mdLinkRe stops at the first
+	// ")", so a title like "see (b)" arrives as `a.md "see (b`, an unterminated
+	// quote that would otherwise match the "(b" alternative.
+	for _, re := range []*regexp.Regexp{linkQuotedTitleRe, linkOpenQuoteRe, linkParenTitleRe} {
+		if loc := re.FindStringIndex(rest); loc != nil {
+			return start, start + loc[0]
+		}
 	}
 	return start, start + len(strings.TrimRight(rest, " \t\n"))
 }
 
-var linkTitleRe = regexp.MustCompile(`[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*)[ \t]*$`)
+// linkOpenQuoteRe is a quoted title cut short by a ")" inside it.
+var linkOpenQuoteRe = regexp.MustCompile(`[ \t]+["'][^"']*$`)
+
+var (
+	linkQuotedTitleRe = regexp.MustCompile(`[ \t]+(?:"[^"]*"|'[^']*')[ \t]*$`)
+	linkParenTitleRe  = regexp.MustCompile(`[ \t]+\([^)]*[ \t]*$`)
+)
 
 // wikiLinkRe matches wiki-links [[id]], [[id#section]] and the alias forms
 // [[id|text]] / [[id#section|text]] (D150). The ID is capture group 1: whatever

@@ -119,6 +119,12 @@ func TestInsertUnderHeading(t *testing.T) {
 	if strings.Contains(got, "\r") {
 		t.Error("unexpected CR")
 	}
+	// CRLF index: every inserted line keeps the file's line ending.
+	crlf := strings.ReplaceAll(body, "\n", "\r\n")
+	got, ok = insertUnderHeading(crlf, "## New pages", "- [b](b.md)")
+	if !ok || got != strings.ReplaceAll(want, "\n", "\r\n") {
+		t.Errorf("CRLF: got %q", got)
+	}
 }
 
 // Editor junk inside an expanded concept neither blocks concept_transfer nor

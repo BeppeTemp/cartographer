@@ -2698,6 +2698,12 @@ func appendCuratedEntries(k *kb.KB, mapName, heading string, ids []okf.ConceptID
 // heading is a whole-line match outside code fences, so prose that mentions it
 // does not count; found is false when no such line exists.
 func insertUnderHeading(body, heading, block string) (string, bool) {
+	// A CRLF index keeps its line ending: split on "\n", the "\r" stays on each
+	// line, and the inserted lines carry it too.
+	eol := ""
+	if strings.Contains(body, "\r\n") {
+		eol = "\r"
+	}
 	lines := strings.Split(body, "\n")
 	inFence := false
 	start, end := -1, len(lines)
@@ -2732,11 +2738,13 @@ func insertUnderHeading(body, heading, block string) (string, bool) {
 	}
 	out := append([]string{}, lines[:last+1]...)
 	if last == start {
-		out = append(out, "")
+		out = append(out, eol)
 	}
-	out = append(out, strings.Split(block, "\n")...)
+	for _, bl := range strings.Split(block, "\n") {
+		out = append(out, bl+eol)
+	}
 	if end < len(lines) {
-		out = append(out, "")
+		out = append(out, eol)
 		out = append(out, lines[end:]...)
 	} else {
 		out = append(out, "")

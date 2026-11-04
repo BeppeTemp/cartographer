@@ -587,3 +587,56 @@ func TestUnlinkTargets(t *testing.T) {
 		}
 	}
 }
+
+// A markdown link may carry a title after its destination: it is a link, a
+// rewrite changes the destination only, and an unlink keeps the label.
+func TestLinks_TitledDestination(t *testing.T) {
+	t.Parallel()
+	body := "See [other](other.md \"The other page\"), [b](b.md), [c](<c.md> 'T') and [d](d.md (T)).\n"
+	got := ExtractLinks(body, "m/p.md")
+	if len(got) != 4 || got[0] != "m/other" || got[1] != "m/b" || got[2] != "m/c" || got[3] != "m/d" {
+		t.Fatalf("ExtractLinks = %v", got)
+	}
+	out, n := RewriteLinks(body, "m/p.md", map[string]string{"m/other": "n/other", "m/c": "n/c"})
+	want := "See [other](../n/other.md \"The other page\"), [b](b.md), [c](<../n/c.md> 'T') and [d](d.md (T)).\n"
+	if n != 2 || out != want {
+		t.Errorf("RewriteLinks = %q (%d), want %q", out, n, want)
+	}
+	out, n = UnlinkTargets(body, "m/p.md", map[string]bool{"m/other": true})
+	if n != 1 || !strings.HasPrefix(out, "See other, [b](b.md)") {
+		t.Errorf("UnlinkTargets = %q (%d)", out, n)
+	}
+}
+
+// A destination with spaces and no title stays whole.
+func TestLinks_SpacedDestinationIsNotATitle(t *testing.T) {
+	t.Parallel()
+	got := ExtractLinks("[x](My page.md) [y](My page.md \"T\")", "m/p.md")
+	if len(got) != 1 || got[0] != "m/My page" {
+		t.Errorf("ExtractLinks = %v", got)
+	}
+}
+
+// mdLinkRe stops at the first ")", so a title holding one arrives cut short.
+func TestLinks_TitleWithParenthesis(t *testing.T) {
+	t.Parallel()
+	body := "[x](a.md \"see (b)\") and [y](c.md 'it (d)')\n"
+	got := ExtractLinks(body, "m/p.md")
+	if len(got) != 2 || got[0] != "m/a" || got[1] != "m/c" {
+		t.Errorf("ExtractLinks = %v", got)
+	}
+}
+
+func TestGitPathToConceptID_ExpandedConcept(t *testing.T) {
+	t.Parallel()
+	for path, want := range map[string]string{"data/m/c/index.md": "m/c", "data/m/c.md": "m/c"} {
+		if id, ok := GitPathToConceptID(path); !ok || id != want {
+			t.Errorf("%s = %q %v", path, id, ok)
+		}
+	}
+	for _, path := range []string{"data/m/index.md", "data/index.md", "data/m/log.md", "data/m/_map.md"} {
+		if id, ok := GitPathToConceptID(path); ok {
+			t.Errorf("%s mapped to %q", path, id)
+		}
+	}
+}
