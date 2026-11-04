@@ -69,7 +69,7 @@ func registerCrushHook(baseDir, hookName, fullDestDir string) (string, bool, err
 	}
 
 	path := crushSettingsPath(baseDir, crushHookRel(baseDir, fullDestDir))
-	settings, err := loadJSONObject(path)
+	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return "", false, err
 	}
@@ -89,7 +89,7 @@ func registerCrushHook(baseDir, hookName, fullDestDir string) (string, bool, err
 	list = withoutCrushHook(list, crushHookName(hookName))
 	hooks[spec.Event] = append(list, entry)
 	settings["hooks"] = hooks
-	err = saveJSONObject(baseDir, path, settings)
+	err = saveOrderedJSONObject(baseDir, path, settings, layout)
 	return "", err == nil, err
 }
 
@@ -99,7 +99,7 @@ func registerCrushHook(baseDir, hookName, fullDestDir string) (string, bool, err
 // configuration.
 func removeCrushHook(baseDir, hookName, hookRel string) error {
 	path := crushSettingsPath(baseDir, hookRel)
-	settings, err := loadJSONObject(path)
+	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func removeCrushHook(baseDir, hookName, hookRel string) error {
 	if len(hooks) == 0 {
 		delete(settings, "hooks")
 	}
-	return saveJSONObject(baseDir, path, settings)
+	return saveOrderedJSONObject(baseDir, path, settings, layout)
 }
 
 func withoutCrushHook(list []interface{}, name string) []interface{} {

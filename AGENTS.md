@@ -78,6 +78,7 @@ internal/execbit        reports whether the host filesystem carries the POSIX ex
 internal/gitx           provides a git wrapper via os/exec for the Agentic Wiki
 internal/gitx/gitxtest  is a git smart-HTTP server for tests (D996)
 internal/graphalgo      holds the graph algorithms behind the retrieval tools (D242)
+internal/jsonorder      reads and writes a JSON object without reformatting what the edit did not touch (#1198, #1502)
 internal/kb             implements the data plane of the OKF knowledge base
 internal/kbtest         copies a pre-built KB into a test directory
 internal/lint           implements deterministic lint checks on a KB scope

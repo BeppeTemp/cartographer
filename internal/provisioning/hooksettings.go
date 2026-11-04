@@ -584,12 +584,12 @@ func registerCodexHook(baseDir, hookName, fullDestDir string) (string, bool, err
 	}
 
 	path := codexHooksPath(baseDir)
-	settings, err := loadJSONObject(path)
+	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return "", false, err
 	}
 	upsertHookEntry(settings, marker, codexHookEvent(spec.Event), spec.Matcher, command)
-	if err := saveJSONObject(baseDir, path, settings); err != nil {
+	if err := saveOrderedJSONObject(baseDir, path, settings, layout); err != nil {
 		return "", false, err
 	}
 	if migrated == 0 {
@@ -613,7 +613,7 @@ func removeCodexHook(baseDir, hookName string) error {
 		return err
 	}
 	path := codexHooksPath(baseDir)
-	settings, err := loadJSONObject(path)
+	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return err
 	}
@@ -629,7 +629,7 @@ func removeCodexHook(baseDir, hookName string) error {
 		}
 		return nil
 	}
-	return saveJSONObject(baseDir, path, settings)
+	return saveOrderedJSONObject(baseDir, path, settings, layout)
 }
 
 // removeLegacyCodexHookTOML removes a D58 registration of hookName from
@@ -717,7 +717,7 @@ func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, boo
 	}
 
 	path := antigravityHooksPath(baseDir, crushHookRel(baseDir, fullDestDir))
-	settings, err := loadJSONObject(path)
+	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return "", false, err
 	}
@@ -736,7 +736,7 @@ func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, boo
 		definition[spec.Event] = []interface{}{handler}
 	}
 	settings[antigravityHookKey(hookName)] = definition
-	err = saveJSONObject(baseDir, path, settings)
+	err = saveOrderedJSONObject(baseDir, path, settings, layout)
 	return "", err == nil, err
 }
 
@@ -778,7 +778,7 @@ func antigravityHooksPath(baseDir, hookRel string) string {
 // anybody's. One that still holds another entry is only rewritten.
 func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 	path := antigravityHooksPath(baseDir, hookRel)
-	settings, err := loadJSONObject(path)
+	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return err
 	}
@@ -799,7 +799,7 @@ func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 			return nil
 		}
 	}
-	return saveJSONObject(baseDir, path, settings)
+	return saveOrderedJSONObject(baseDir, path, settings, layout)
 }
 
 // --- OpenCode (D59) ---
@@ -1112,8 +1112,10 @@ func mustJSONKey(s string) string {
 }
 
 // loadJSONObject reads and parses path as a generic JSON object, returning an empty
-// (non-nil) map if the file doesn't exist. Used for settings.json, which Cartographer
-// must only ever partially edit (D57) — decoding into map[string]interface{} instead
+// (non-nil) map if the file doesn't exist. For files Cartographer reads only, or
+// owns whole (the Kiro cartographer.json): a file shared with the user or with
+// other tools goes through loadOrderedJSONObject (#1198, #1502). It was written for
+// settings.json, which Cartographer must only ever partially edit (D57) — decoding into map[string]interface{} instead
 // of a fixed struct preserves every key it doesn't know about (e.g. "model", other
 // hooks) across the read-modify-write round trip; key ordering is not preserved
 // (re-marshaled with json.MarshalIndent, which sorts map keys). Claude Code's
