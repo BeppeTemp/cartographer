@@ -615,3 +615,65 @@ func TestDetect_ClineHomeWithGlobCharacters(t *testing.T) {
 	}
 	t.Fatal("cline missing")
 }
+
+func TestDetect_Variants(t *testing.T) {
+	configurator.ResetVariants()
+	t.Cleanup(configurator.ResetVariants)
+	for _, name := range []string{"fork-bin", "fork-dir", "fork-glob", "fork-none"} {
+		spec := configurator.VariantSpec{Name: name, Base: string(configurator.ProviderCrush)}
+		switch name {
+		case "fork-bin":
+			spec.Binaries = []string{"forkbin"}
+		case "fork-dir":
+			spec.DetectDirs = [][]string{{".forkdir"}}
+		case "fork-glob":
+			spec.DetectDirs = [][]string{{".ext", "acme.fork-*"}}
+		}
+		if err := configurator.RegisterVariant(spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := t.TempDir()
+	for _, d := range []string{".forkdir", filepath.Join(".ext", "acme.fork-1.2.3")} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withStubs(t, home, map[string]string{"forkbin": "/bin/forkbin"}, "linux")
+
+	got := Detect()
+	builtins := len(configurator.DetectionOrder())
+	if len(got) != builtins+4 {
+		t.Fatalf("got %d agents", len(got))
+	}
+	want := map[string]Heuristic{"fork-bin": HeuristicBinary, "fork-dir": HeuristicConfigDir, "fork-glob": HeuristicConfigDir, "fork-none": ""}
+	for _, a := range got[builtins:] {
+		if !a.Variant || a.Base != configurator.ProviderCrush || a.DetectedBy != want[string(a.Provider)] {
+			t.Errorf("%s: %+v", a.Provider, a)
+		}
+	}
+	for _, a := range got[:builtins] {
+		if a.Variant || a.Base != "" {
+			t.Errorf("built-in %s marked as variant", a.Provider)
+		}
+	}
+}
+
+// A fork of Pi is probed as Pi: a `pi` shim that fails --version is not the fork.
+func TestDetect_VariantBinaryProbedAsBase(t *testing.T) {
+	configurator.ResetVariants()
+	t.Cleanup(configurator.ResetVariants)
+	if err := configurator.RegisterVariant(configurator.VariantSpec{Name: "fork-pi", Base: string(configurator.ProviderPi), Binaries: []string{"forkpi"}}); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, t.TempDir(), map[string]string{"forkpi": "/bin/forkpi"}, "linux")
+	orig := runVersion
+	t.Cleanup(func() { runVersion = orig })
+	for out, want := range map[string]bool{"1.2.3\n": true, "not a version": false} {
+		runVersion = func(string) (string, error) { return out, nil }
+		got := Detect()
+		if a := got[len(got)-1]; a.Installed != want {
+			t.Errorf("version %q: Installed=%v, want %v", out, a.Installed, want)
+		}
+	}
+}
