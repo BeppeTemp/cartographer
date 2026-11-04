@@ -160,7 +160,7 @@ func TestFlattenAndResolveRefsSafety(t *testing.T) {
 	}
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, "secrets"), 0o755)
-	os.WriteFile(filepath.Join(root, "secrets", "a.sops.yaml"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(root, "secrets", "a.sops.yaml"), []byte("sops: {}\n"), 0o600)
 	log := recordingSOPS(t, "one: value-one\ntwo: value-two\n", "", 0)
 	got, err := ResolveRefs(root, []SecretRef{{Name: "ONE", SOPSFile: "secrets/a.sops.yaml", SOPSKey: "one"}, {Name: "TWO", SOPSFile: "secrets/a.sops.yaml", SOPSKey: "two"}})
 	if err != nil || len(got) != 2 {
@@ -299,7 +299,7 @@ func TestDecryptParsesStdoutOnly(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, "secrets"), 0o755)
-	os.WriteFile(filepath.Join(root, "secrets", "a.sops.yaml"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(root, "secrets", "a.sops.yaml"), []byte("sops: {}\n"), 0o600)
 	sf, err := Decrypt(root, "secrets/a.sops.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -322,7 +322,7 @@ func TestDecryptFailureKeepsStderr(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, "secrets"), 0o755)
-	os.WriteFile(filepath.Join(root, "secrets", "a.sops.yaml"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(root, "secrets", "a.sops.yaml"), []byte("sops: {}\n"), 0o600)
 	_, err := Decrypt(root, "secrets/a.sops.yaml")
 	// The caller's text carries no sops output (#1278); the log detail keeps it.
 	if err == nil || !strings.Contains(err.Error(), "secrets/a.sops.yaml") || strings.Contains(err.Error(), "no identity matched") || !strings.Contains(Detail(err), "no identity matched") {

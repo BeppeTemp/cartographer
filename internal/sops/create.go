@@ -23,48 +23,6 @@ var ErrNoConfig = errors.New("the KB has no .sops.yaml")
 // maxConfigSize bounds what is read of a .sops.yaml.
 const maxConfigSize = 1 << 20
 
-// otherKeys are the key types of a creation rule besides age. Cartographer checks
-// that the server holds an age recipient; a data key also sent to a KMS, PGP or
-// Vault recipient would go to one it never inspected, so such a rule is refused.
-type otherKeys struct {
-	KMS               any `yaml:"kms"`
-	PGP               any `yaml:"pgp"`
-	GCPKMS            any `yaml:"gcp_kms"`
-	AzureKV           any `yaml:"azure_kv"`
-	HCVault           any `yaml:"hc_vault"`
-	HCVaultURI        any `yaml:"hc_vault_uri"`
-	HCVaultTransitURI any `yaml:"hc_vault_transit_uri"`
-}
-
-func (o otherKeys) any() bool {
-	for _, v := range []any{o.KMS, o.PGP, o.GCPKMS, o.AzureKV, o.HCVault, o.HCVaultURI, o.HCVaultTransitURI} {
-		switch x := v.(type) {
-		case nil:
-		case string:
-			if strings.TrimSpace(x) != "" {
-				return true
-			}
-		case []any:
-			if len(x) > 0 {
-				return true
-			}
-		default:
-			return true
-		}
-	}
-	return false
-}
-
-type creationRule struct {
-	otherKeys `yaml:",inline"`
-	PathRegex string `yaml:"path_regex"`
-	Age       string `yaml:"age"`
-	KeyGroups []struct {
-		otherKeys `yaml:",inline"`
-		Age       []string `yaml:"age"`
-	} `yaml:"key_groups"`
-}
-
 // RuleRecipients returns the age recipients of the first creation rule of the
 // KB's root .sops.yaml that matches relativePath, the rule sops itself would
 // pick (an empty path_regex matches every path). matched is false when no rule
@@ -87,12 +45,26 @@ func RuleRecipients(kbRoot, relativePath string) (recipients []string, matched b
 		return nil, false, err
 	}
 	var cfg struct {
-		CreationRules []creationRule `yaml:"creation_rules"`
+		CreationRules []yaml.Node `yaml:"creation_rules"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, false, fmt.Errorf("parse .sops.yaml: %w", err)
 	}
-	for _, r := range cfg.CreationRules {
+	for i := range cfg.CreationRules {
+		rule := &cfg.CreationRules[i]
+		var r struct {
+			PathRegex string `yaml:"path_regex"`
+			Age       string `yaml:"age"`
+			KeyGroups []struct {
+				Age   []string `yaml:"age"`
+				Merge []struct {
+					Age []string `yaml:"age"`
+				} `yaml:"merge"`
+			} `yaml:"key_groups"`
+		}
+		if err := rule.Decode(&r); err != nil {
+			return nil, false, fmt.Errorf("parse .sops.yaml creation rule: %w", err)
+		}
 		if r.PathRegex != "" {
 			re, err := regexp.Compile(r.PathRegex)
 			if err != nil {
@@ -102,23 +74,23 @@ func RuleRecipients(kbRoot, relativePath string) (recipients []string, matched b
 				continue
 			}
 		}
-		nonAge := r.otherKeys.any()
-		for _, g := range r.KeyGroups {
-			nonAge = nonAge || g.otherKeys.any()
+		// Allow-list over the generic mapping, merge groups included: the next
+		// key type sops adds is refused, not silently passed.
+		if err := checkMapping(rule, ruleKeys); err != nil {
+			return nil, true, fmt.Errorf(".sops.yaml rule %q names a recipient that is not an age key (%v); Cartographer creates files only under age-only rules", r.PathRegex, err)
 		}
-		if nonAge {
-			return nil, true, fmt.Errorf(".sops.yaml rule %q names a recipient that is not an age key (kms, pgp, vault...); Cartographer creates files only under age-only rules", r.PathRegex)
-		}
-		for _, a := range strings.Split(r.Age, ",") {
-			if a = strings.TrimSpace(a); a != "" {
-				recipients = append(recipients, a)
-			}
-		}
-		for _, g := range r.KeyGroups {
-			for _, a := range g.Age {
+		add := func(list ...string) {
+			for _, a := range list {
 				if a = strings.TrimSpace(a); a != "" {
 					recipients = append(recipients, a)
 				}
+			}
+		}
+		add(strings.Split(r.Age, ",")...)
+		for _, g := range r.KeyGroups {
+			add(g.Age...)
+			for _, m := range g.Merge {
+				add(m.Age...)
 			}
 		}
 		return recipients, true, nil

@@ -27,7 +27,7 @@ func setupServiceTestKB(t *testing.T, sopsAgeKeyFile string) *kb.KB {
 	if err := os.MkdirAll(filepath.Join(k.Root, "secrets"), 0o755); err != nil {
 		t.Fatalf("mkdir secrets: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "test.sops.yaml"), []byte("placeholder"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "test.sops.yaml"), []byte("sops: {}\n"), 0o600); err != nil {
 		t.Fatalf("write secret: %v", err)
 	}
 	return k
@@ -195,7 +195,7 @@ func writeSourceService(t *testing.T, k *kb.KB, sourceField string, files ...str
 		t.Fatal(err)
 	}
 	for _, f := range files {
-		if err := os.WriteFile(filepath.Join(k.Root, f), []byte("placeholder"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(k.Root, f), []byte("sops: {}\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -218,7 +218,7 @@ func TestServiceGet_SecretsSource_OneElementList(t *testing.T) {
 // naming both, with no server path.
 func TestServiceGet_SecretsSource_TwoFiles(t *testing.T) {
 	k := setupServiceTestKB(t, "/tmp/age-key.txt")
-	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "b.sops.yaml"), []byte("placeholder"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "b.sops.yaml"), []byte("sops: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fakeSopsPerFile(t, map[string]string{"secrets/test.sops.yaml": "alpha: one", "secrets/b.sops.yaml": "beta: two"})
@@ -270,7 +270,7 @@ func secretRefsKB(t *testing.T) *kb.KB {
 	if err := os.MkdirAll(filepath.Join(k.Root, "secrets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "app.sops.yaml"), []byte("placeholder"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "app.sops.yaml"), []byte("sops: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return k

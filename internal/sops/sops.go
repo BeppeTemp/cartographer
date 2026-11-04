@@ -70,8 +70,56 @@ func Detail(err error) string {
 
 func Available() bool { _, err := exec.LookPath("sops"); return err == nil }
 
+// inputTypeFor returns the sops store used for relativePath, "yaml" or "json",
+// and refuses every other extension. sops chooses its store from the extension
+// (exact, case-sensitive: .env and .ini are dotenv and ini, anything else is
+// binary) and this package checks the sops block as YAML, so a file read by
+// another store could carry master keys the check never saw (a dotenv polyglot
+// that is also valid YAML).
+func inputTypeFor(relativePath string) (string, error) {
+	switch filepath.Ext(relativePath) {
+	case ".yaml", ".yml":
+		return "yaml", nil
+	case ".json":
+		return "json", nil
+	}
+	return "", newError(nil, nil, "%s: only .yaml, .yml and .json secret files are supported", relativePath)
+}
+
+// readAgeOnly reads relativePath once and refuses a file that names a master key
+// other than age. It returns the bytes it checked and the sops input type: sops
+// must be given those bytes, not the path, or a concurrent change of the file
+// would be decrypted unchecked.
+func readAgeOnly(kbRoot, relativePath string) (raw []byte, inputType string, err error) {
+	if inputType, err = inputTypeFor(relativePath); err != nil {
+		return nil, "", err
+	}
+	f, err := os.Open(filepath.Join(kbRoot, relativePath))
+	if err != nil {
+		return nil, "", newError(nil, err, "cannot read %s", relativePath)
+	}
+	defer f.Close()
+	raw, err = io.ReadAll(io.LimitReader(f, maxDeclaredFileSize+1))
+	if err != nil {
+		return nil, "", newError(nil, err, "cannot read %s", relativePath)
+	}
+	if len(raw) > maxDeclaredFileSize {
+		return nil, "", newError(nil, nil, "%s is too large to be a secret file", relativePath)
+	}
+	root, err := yamlDocument(raw)
+	if err != nil {
+		return nil, "", newError(nil, err, "%s is not a SOPS file Cartographer can check", relativePath)
+	}
+	if err := requireAgeOnlyFile(root, relativePath); err != nil {
+		return nil, "", err
+	}
+	return raw, inputType, nil
+}
+
 // Decrypt decrypts relativePath from kbRoot. SOPS always runs from kbRoot so
-// repository-relative creation rules have deterministic semantics.
+// repository-relative creation rules have deterministic semantics. The bytes
+// that were checked for age-only master keys are the ones sops decrypts: they
+// travel on stdin, the path only names the file to sops.
 func Decrypt(kbRoot, relativePath string, env ...string) (*SecretFile, error) {
 	if !Available() {
 		return nil, fmt.Errorf("sops binary not found in PATH")
@@ -79,14 +127,19 @@ func Decrypt(kbRoot, relativePath string, env ...string) (*SecretFile, error) {
 	if err := validatePath(kbRoot, relativePath, false); err != nil {
 		return nil, err
 	}
+	raw, inputType, err := readAgeOnly(kbRoot, relativePath)
+	if err != nil {
+		return nil, err
+	}
 	childEnv, cleanup, err := hermeticEnv(env)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
-	cmd := procattr.Hide(exec.Command("sops", "decrypt", "--output-type", "yaml", relativePath))
+	cmd := procattr.Hide(exec.Command("sops", "decrypt", "--input-type", inputType, "--output-type", "yaml", "--filename-override", filepath.ToSlash(relativePath)))
 	cmd.Dir = kbRoot
 	cmd.Env = childEnv
+	cmd.Stdin = bytes.NewReader(raw)
 	// Only stdout is the document: a warning sops prints on stderr during a
 	// successful decrypt must never enter the YAML parse.
 	var stdout, stderr bytes.Buffer
@@ -125,6 +178,10 @@ func hermeticEnv(extra []string) (env []string, cleanup func(), err error) {
 		}
 	}
 	env = append(env, "HOME="+home, "XDG_CONFIG_HOME="+home)
+	// Defence in depth: no cloud instance-metadata endpoint is reachable, so a
+	// node identity cannot stand in for the age key (the sops block is checked
+	// first, requireAgeOnlyFile).
+	env = append(env, "AWS_EC2_METADATA_DISABLED=true", "GCE_METADATA_HOST=invalid.invalid", "AZURE_POD_IDENTITY_AUTHORITY_HOST=http://invalid.invalid")
 	if runtime.GOOS == "windows" {
 		env = append(env, "USERPROFILE="+home, "APPDATA="+home)
 	}
@@ -229,6 +286,9 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 	if !strings.HasPrefix(pointer, "/") {
 		return fmt.Errorf("key must be a JSON Pointer starting with /")
 	}
+	if _, err := inputTypeFor(relativePath); err != nil {
+		return err
+	}
 	original := filepath.Join(kbRoot, relativePath)
 	raw, err := os.ReadFile(original)
 	if err != nil {
@@ -240,6 +300,9 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 	}
 	if !hasSOPSMetadata(originalNode) {
 		return fmt.Errorf("%s is not SOPS-encrypted (missing sops metadata)", relativePath)
+	}
+	if err := requireAgeOnlyFile(originalNode, relativePath); err != nil {
+		return err
 	}
 	mode := os.FileMode(0o600)
 	if info, err := os.Stat(original); err == nil {
@@ -313,6 +376,9 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 func RefProblem(kbRoot, file, pointer string) string {
 	if err := validatePath(kbRoot, file, false); err != nil {
 		return err.Error()
+	}
+	if _, err := inputTypeFor(file); err != nil {
+		return "" // another store: not judged here, and never decrypted
 	}
 	f, err := os.Open(filepath.Join(kbRoot, file))
 	if err != nil {
