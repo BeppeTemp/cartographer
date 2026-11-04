@@ -1,10 +1,7 @@
 // Package clientvariant defines the descriptor of a client variant: a fork of
 // a supported client that a KB declares as data (variants/<name>.yaml), and the
-// pure functions that validate it and resolve it for one operating system.
-//
-// Nothing here touches the disk or the process environment: Resolve reads an
-// Env the caller supplies, so every OS block is testable on any host. A
-// descriptor only names paths, which Resolve keeps under the home directory.
+// pure functions that validate it and resolve it for one operating system. Nothing
+// here touches the disk or the environment: Resolve reads an Env the caller supplies.
 package clientvariant
 
 import (
@@ -14,6 +11,8 @@ import (
 	"io"
 	"regexp"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -27,13 +26,6 @@ import (
 // which this package must not import; a test pins the two together.
 const MaxSize = 256 * 1024
 
-// MCP modes of a variant.
-const (
-	MCPFile = "file"
-	MCPCLI  = "cli"
-	MCPSeed = "seed"
-)
-
 var (
 	nameRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 	capabilityRe = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
@@ -42,6 +34,8 @@ var (
 	allowCallBases = []string{"crush"}
 	osKeys         = []string{"darwin", "linux", "windows", "default"}
 )
+
+const maxList = 16 // entries of a descriptor list
 
 // perOS is a value given once for every OS or as a map keyed by OS (osKeys).
 type perOS[T any] struct{ byOS map[string]T }
@@ -59,7 +53,7 @@ func (p *perOS[T]) UnmarshalYAML(n *yaml.Node) error {
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		k := n.Content[i].Value
 		if !slices.Contains(osKeys, k) {
-			return fmt.Errorf("line %d: unknown OS key %q (want darwin, linux, windows or default)", n.Content[i].Line, k)
+			return fmt.Errorf("line %d: unknown OS key %s (want darwin, linux, windows or default)", n.Content[i].Line, q(k))
 		}
 		var v T
 		if err := n.Content[i+1].Decode(&v); err != nil {
@@ -176,17 +170,26 @@ func Parse(name string, data []byte) (Spec, error) {
 	if len(data) > MaxSize {
 		return s, fmt.Errorf("descriptor is %d bytes, over the %d cap", len(data), MaxSize)
 	}
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&s); err != nil {
+	// Aliases are refused before the strict decode: a custom UnmarshalYAML resets
+	// yaml.v3's alias accounting, so one anchored scalar could be repeated at will.
+	scan := yaml.NewDecoder(bytes.NewReader(data))
+	var root yaml.Node
+	if err := scan.Decode(&root); err != nil {
 		if errors.Is(err, io.EOF) {
-			return Spec{}, errors.New("descriptor is empty")
+			err = errors.New("the descriptor is empty")
 		}
 		return Spec{}, fmt.Errorf("descriptor: %w", err)
 	}
-	var extra yaml.Node
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+	if hasAlias(&root) {
+		return Spec{}, errors.New("descriptor: YAML aliases are not allowed")
+	}
+	if err := scan.Decode(&yaml.Node{}); !errors.Is(err, io.EOF) {
 		return Spec{}, errors.New("descriptor holds more than one YAML document")
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&s); err != nil {
+		return Spec{}, fmt.Errorf("descriptor: %w", err)
 	}
 	if err := s.validate(name); err != nil {
 		return Spec{}, err
@@ -194,91 +197,93 @@ func Parse(name string, data []byte) (Spec, error) {
 	return s, nil
 }
 
+func hasAlias(n *yaml.Node) bool {
+	return n.Kind == yaml.AliasNode || slices.ContainsFunc(n.Content, func(c *yaml.Node) bool { return hasAlias(c) })
+}
+
+// q quotes a value for an error message, cut so a hostile descriptor cannot inflate it.
+func q(s string) string {
+	if len(s) > 48 {
+		s = s[:48] + "..."
+	}
+	return strconv.Quote(s)
+}
+
+type adder func(cond bool, format string, a ...any)
+
+// validate collects every problem and reports them sorted, so the text is stable.
 func (s *Spec) validate(stem string) error {
-	switch {
-	case s.Schema != 1:
-		return fmt.Errorf("schema: %d is not supported (want 1)", s.Schema)
-	case !nameRe.MatchString(s.Name):
-		return fmt.Errorf("name: %q does not match %s", s.Name, nameRe)
-	case s.Name != stem:
-		return fmt.Errorf("name: %q differs from the file name %q", s.Name, stem)
-	case s.Name == "all" || isBuiltin(s.Name):
-		return fmt.Errorf("name: %q is a built-in provider id or reserved", s.Name)
-	case !isBuiltin(s.Base):
-		return fmt.Errorf("base: %q is not a built-in provider", s.Base)
-	case len(s.Detect.Binaries) == 0 && !s.Detect.Dirs.isSet():
-		return fmt.Errorf("detect: needs binaries or dirs")
-	}
-	if err := printable("display_name", s.DisplayName, 40); err != nil {
-		return err
-	}
-	for i, b := range s.Detect.Binaries {
-		if b == "" || strings.ContainsAny(b, `/\`) || hasControl(b) {
-			return fmt.Errorf("detect.binaries[%d]: %q is not a bare binary name", i, b)
+	var errs []string
+	add := func(cond bool, f string, a ...any) {
+		if cond {
+			errs = append(errs, fmt.Sprintf(f, a...))
 		}
 	}
-	var errs []error
+	addErr := func(err error) { add(err != nil, "%v", err) }
+	dirs := 0
+	s.Detect.Dirs.each(func(_ string, l []string) { dirs += len(l) })
+	add(s.Schema != 1, "schema: %d is not supported (want 1)", s.Schema)
+	add(!nameRe.MatchString(s.Name), "name: %s does not match %s", q(s.Name), nameRe)
+	add(s.Name != stem, "name: %s differs from the file name %s", q(s.Name), q(stem))
+	add(s.Name == "all" || isBuiltin(s.Name), "name: %s is a built-in provider id or reserved", q(s.Name))
+	add(!isBuiltin(s.Base), "base: %s is not a built-in provider", q(s.Base))
+	add(len(s.Detect.Binaries) == 0 && dirs == 0, "detect: needs a binary or a dir")
+	addErr(printable("display_name", s.DisplayName, 40))
+	add(len(s.Detect.Binaries) > maxList, "detect.binaries: more than %d entries", maxList)
+	for i, b := range s.Detect.Binaries[:min(len(s.Detect.Binaries), maxList)] {
+		add(b == "" || b == "." || b == ".." || b[0] == '-' || strings.ContainsAny(b, `/\`) || hasControl(b), "detect.binaries[%d]: %s is not a bare binary name", i, q(b))
+	}
 	s.Detect.Dirs.each(func(os string, l []string) {
-		for i, p := range l {
-			errs = append(errs, checkPath(fmt.Sprintf("detect.dirs.%s[%d]", os, i), p, false, shDetect))
+		add(len(l) > maxList, "detect.dirs.%s: more than %d entries", os, maxList)
+		for i, p := range l[:min(len(l), maxList)] {
+			addErr(checkPath(fmt.Sprintf("detect.dirs.%s[%d]", os, i), p, false, shDetect))
 		}
 	})
 	s.walk(func(key string, p perOS[string], project bool, sh shape) {
-		p.each(func(os, v string) { errs = append(errs, checkPath(key+"."+os, v, project, sh)) })
+		add(!p.isSet(), "%s: required", key)
+		p.each(func(os, v string) { addErr(checkPath(key+"."+os, v, project, sh)) })
 	})
-	errs = append(errs, s.validateMCP(), s.validateCells())
+	s.validateMCP(add)
+	s.validateCells(add)
+	add(len(s.Capabilities) > 64, "capabilities: more than 64 entries")
 	for id, v := range s.Capabilities {
-		if !capabilityRe.MatchString(id) || !slices.Contains([]string{"verified", "unverified", "absent"}, v) {
-			errs = append(errs, fmt.Errorf("capabilities.%s: %q is not verified, unverified or absent (or the id is malformed)", id, v))
-		}
+		add(!capabilityRe.MatchString(id) || !slices.Contains([]string{"verified", "unverified", "absent"}, v), "capabilities.%s: %s is not verified, unverified or absent (or the id is malformed)", q(id), q(v))
 	}
 	if s.InvokeHint != "" {
-		errs = append(errs, printable("invoke_hint", s.InvokeHint, 200))
+		addErr(printable("invoke_hint", s.InvokeHint, 200))
 	}
-	return errors.Join(errs...)
+	if len(errs) == 0 {
+		return nil
+	}
+	sort.Strings(errs)
+	return errors.New(strings.Join(errs, "\n"))
 }
 
-func (s *Spec) validateMCP() error {
-	m, g := &s.MCP, &s.Paths.Global
+func (s *Spec) validateMCP(add adder) {
+	m := &s.MCP
 	if m.Mode == "" {
-		m.Mode = MCPFile
+		m.Mode = "file"
 	}
-	switch {
-	case !slices.Contains([]string{MCPFile, MCPCLI, MCPSeed}, m.Mode):
-		return fmt.Errorf("mcp.mode: %q (want file, cli or seed)", m.Mode)
-	case m.AllowCall && (m.Mode != MCPCLI || !slices.Contains(allowCallBases, s.Base)):
-		return fmt.Errorf("mcp.allow_call: only a cli variant of %v has a known permission syntax", allowCallBases)
-	case (m.Mode == MCPSeed) != (m.Seed != nil):
-		return errors.New("mcp.seed: required by mode seed and refused by any other")
-	case m.Seed != nil && (!m.Seed.TemplateGlob.isSet() || !m.Seed.DerivedGlob.isSet()):
-		return errors.New("mcp.seed: needs template_glob and derived_glob")
-	}
+	add(!slices.Contains([]string{"file", "cli", "seed"}, m.Mode), "mcp.mode: %s (want file, cli or seed)", q(m.Mode))
+	add(m.AllowCall && (m.Mode != "cli" || !slices.Contains(allowCallBases, s.Base)), "mcp.allow_call: only a cli variant of %v has a known permission syntax", allowCallBases)
+	add((m.Mode == "seed") != (m.Seed != nil), "mcp.seed: required by mode seed and refused by any other")
 	// The MCP file is the target of mode file and the permission file of allow_call.
-	if has := g.MCP != nil && g.MCP.File.isSet(); has != (m.Mode == MCPFile || m.AllowCall) {
-		return errors.New("paths.global.mcp.file: required by mode file and by allow_call, refused otherwise")
-	}
-	return nil
+	add((s.Paths.Global.MCP != nil) != (m.Mode == "file" || m.AllowCall), "paths.global.mcp.file: required by mode file and by allow_call, refused otherwise")
 }
 
-func (s *Spec) validateCells() error {
-	var errs []error
-	for name, c := range map[string]*cellsSpec{"global": &s.Paths.Global, "project": &s.Paths.Project} {
+func (s *Spec) validateCells(add adder) {
+	for _, c := range []*cellsSpec{&s.Paths.Global, &s.Paths.Project} {
 		if a := c.Agent; a != nil {
 			if a.Format == "" {
 				a.Format = "claude"
 			}
-			if !slices.Contains(agentFormats, a.Format) {
-				errs = append(errs, fmt.Errorf("paths.%s.agent.format: unknown %q (want one of %v)", name, a.Format, agentFormats))
-			}
+			add(!slices.Contains(agentFormats, a.Format), "agent.format: unknown %s (want one of %v)", q(a.Format), agentFormats)
 		}
 	}
-	if p := s.Paths.Project; p.MCP != nil || p.Hook != nil {
-		errs = append(errs, errors.New("paths.project: mcp and hook cells are global only"))
+	add(s.Paths.Project.MCP != nil || s.Paths.Project.Hook != nil, "paths.project: mcp and hook cells are global only")
+	if h := s.Paths.Global.Hook; h != nil {
+		add(h.Scan != "base", "paths.global.hook.scan: %s is not supported, only \"base\": a fork reading another hooks directory needs the base's shared dispatcher to take a directory argument, which it does not", q(h.Scan))
 	}
-	if h := s.Paths.Global.Hook; h != nil && (h.Scan != "base" || !h.Dir.isSet()) {
-		errs = append(errs, fmt.Errorf("paths.global.hook: needs dir and scan \"base\" (got %q): a fork reading another hooks directory needs the base's shared dispatcher to take a directory argument, which it does not", h.Scan))
-	}
-	return errors.Join(errs...)
 }
 
 func isBuiltin(id string) bool {

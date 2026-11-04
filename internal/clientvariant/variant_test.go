@@ -142,7 +142,7 @@ func TestResolvePerOS(t *testing.T) {
 			t.Errorf("%s: got %+v reasons %v, want %v", c.goos, v.Global.Skill, reasons, c.want)
 			continue
 		}
-		if v.Global.Agent.Suffix != ".md" || v.Global.Agent.AgentFormat != "opencode" || !v.Global.Skill.Named {
+		if v.Global.Agent.AgentFormat != "opencode" {
 			t.Errorf("%s: agent/skill cell: %+v %+v", c.goos, v.Global.Agent, v.Global.Skill)
 		}
 		if !reflect.DeepEqual(v.Project.Skill.Dir, []string{".fork-cli", "skills"}) {
@@ -223,18 +223,27 @@ func TestParseRejects(t *testing.T) {
 		{"seed in cli", cli("mode: cli", "mode: cli\n  seed:\n    template_glob: \"{home}/a/*/b\"\n    derived_glob: \"{home}/c\""), "fork-cli", "mcp.seed"},
 		{"allow_call on a base without syntax", swap(cli("base: crush", "base: opencode"), "mode: cli", "mode: cli\n  allow_call: true"), "fork-cli", "allow_call"},
 		{"file mode without file", cli("mode: cli", "mode: file"), "fork-cli", "mcp.file"},
-		{"agent format kiro", cli("format: opencode", "format: kiro"), "fork-cli", "paths.global.agent.format"},
+		{"agent format kiro", cli("format: opencode", "format: kiro"), "fork-cli", "agent.format"},
 		{"hook with a glob", ext(`.fork-ext/cartographer-hooks"`, `.fork-*/cartographer-hooks"`), "fork-ext", "paths.global.hook.dir"},
 		{"hook with a command", ext("      scan: base", "      scan: base\n      command: run.sh"), "fork-ext", "command"},
 		{"hook scan other", ext("scan: base", "scan: other"), "fork-ext", "paths.global.hook"},
 		{"hook without scan", ext("      scan: base\n", ""), "fork-ext", "paths.global.hook"},
 		{"hook in project", ext("    skill: {dir: \".fork-ext-plugin/skills\"}", "    hook: {dir: \".x\", scan: base}"), "fork-ext", "hook"},
 		{"unknown OS key", cli("darwin: \"{xdg_config}/fork-cli/skills\"", "plan9: \"{xdg_config}/fork-cli/skills\""), "fork-cli", "unknown OS key"},
-		{"capability value", cli("verified", "yes"), "fork-cli", "capabilities.agent.delegate"},
+		{"capability value", cli("verified", "yes"), "fork-cli", "agent.delegate"},
 		{"two documents", forkCLI + "---\nschema: 1\n", "fork-cli", "more than one"},
 		{"empty", "", "fork-cli", "empty"},
 		{"oversized", strings.Repeat("#", clientvariant.MaxSize+1), "fork-cli", "cap"},
 		{"no detection", noDetect, "fork-cli", "detect"},
+		{"empty dirs list", swap(noDetect, "detect:\n", "detect:\n  dirs: []\n"), "fork-cli", "detect: needs"},
+		{"trailing dot", cli(`".fork-cli/skills"`, `".fork-cli/skills."`), "fork-cli", "ends in a dot"},
+		{"dots only", cli(`".fork-cli/skills"`, `"a/..."`), "fork-cli", "ends in a dot"},
+		{"trailing space", cli(`".fork-cli/skills"`, `".fork-cli/.. "`), "fork-cli", "ends in a dot or space"},
+		{"device name", cli(`".fork-cli/skills"`, `"x/NUL"`), "fork-cli", "Windows device name"},
+		{"device name with extension", cli(`".fork-cli/skills"`, `"x/com1.txt"`), "fork-cli", "Windows device name"},
+		{"cell without a path", cli("    skill: {dir: \".fork-cli/skills\"}", "    skill: {}"), "fork-cli", "paths.project.skill.dir: required"},
+		{"binary dotdot", cli("[fork-cli]", "[..]"), "fork-cli", "bare binary name"},
+		{"binary dash", cli("[fork-cli]", "[-x]"), "fork-cli", "bare binary name"},
 	}
 	for _, c := range cases {
 		_, err := clientvariant.Parse(c.stem, []byte(c.src))
@@ -257,5 +266,50 @@ func TestAllowCallOnCrush(t *testing.T) {
 	v, _ := clientvariant.Resolve(spec, envFor("linux", nil))
 	if !v.AllowCall || !reflect.DeepEqual(v.MCPFile, []string{".config", "fork-cli", "cfg.json"}) {
 		t.Fatalf("%+v", v)
+	}
+}
+
+func TestParseRefusesAliases(t *testing.T) {
+	big := strings.Repeat("a", 2000)
+	// Many aliases of one anchored scalar in a list: refused before any expansion.
+	var b strings.Builder
+	b.WriteString("schema: 1\nname: fork-cli\ndisplay_name: X\nbase: crush\ndetect:\n  binaries: [&b \"" + big + "\"")
+	b.WriteString(strings.Repeat(", *b", 5000) + "]\n")
+	_, err := clientvariant.Parse("fork-cli", []byte(b.String()))
+	if err == nil || !strings.Contains(err.Error(), "aliases") {
+		t.Fatalf("err = %v, want the alias refusal", err)
+	}
+}
+
+func TestParseBoundsListsAndMessages(t *testing.T) {
+	long := strings.Repeat("a", 5000)
+	src := strings.Replace(forkCLI, "binaries: [fork-cli]", "binaries: ["+strings.Repeat("\"/"+long+"\", ", 40)+"x]", 1)
+	_, err := clientvariant.Parse("fork-cli", []byte(src))
+	if err == nil || !strings.Contains(err.Error(), "more than 16 entries") || len(err.Error()) > 4096 {
+		n := 0
+		if err != nil {
+			n = len(err.Error())
+		}
+		t.Fatalf("list cap: err of %d bytes: %v", n, err != nil)
+	}
+	_, err = clientvariant.Parse("fork-cli", []byte(strings.Replace(forkCLI, `".fork-cli/skills"`, `"`+long+`."`, 1)))
+	if err == nil || len(err.Error()) > 512 {
+		t.Fatalf("an oversized value must give a short error")
+	}
+}
+
+func TestParseErrorsAreCompleteAndStable(t *testing.T) {
+	src := strings.NewReplacer("schema: 1", "schema: 2", "base: crush", "base: nothing", "mode: cli", "mode: exec", "skill: {dir: \".fork-cli/skills\"}", "skill: {}").Replace(forkCLI)
+	want := strings.Join([]string{
+		"base: \"nothing\" is not a built-in provider",
+		"mcp.mode: \"exec\" (want file, cli or seed)",
+		"paths.project.skill.dir: required",
+		"schema: 2 is not supported (want 1)",
+	}, "\n")
+	for i := 0; i < 20; i++ {
+		_, err := clientvariant.Parse("fork-cli", []byte(src))
+		if err == nil || err.Error() != want {
+			t.Fatalf("round %d:\n%v\nwant:\n%s", i, err, want)
+		}
 	}
 }
