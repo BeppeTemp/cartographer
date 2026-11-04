@@ -29,10 +29,10 @@ var hookEventReach = map[string][]configurator.Provider{
 	// cells, verified to fire under `kiro-cli chat --v3 --tui` (D300). Its
 	// PreToolUse/PostToolUse were never exercised and its SessionEnd is not in
 	// this vocabulary, so neither is claimed.
-	"SessionStart":     {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderKiro, configurator.ProviderCopilot, configurator.ProviderPi},
-	"UserPromptSubmit": {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro},
-	"PreToolUse":       {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderCrush, configurator.ProviderCopilot, configurator.ProviderPi},
-	"PostToolUse":      {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderCopilot, configurator.ProviderPi},
+	"SessionStart":     {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderKiro, configurator.ProviderCopilot, configurator.ProviderPi, configurator.ProviderCline},
+	"UserPromptSubmit": {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderCline},
+	"PreToolUse":       {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderCrush, configurator.ProviderCopilot, configurator.ProviderPi, configurator.ProviderCline},
+	"PostToolUse":      {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderCopilot, configurator.ProviderPi, configurator.ProviderCline},
 	"Stop":             {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderKiro},
 	"SubagentStop":     {configurator.ProviderClaudeCode, configurator.ProviderCodex},
 	"PreCompact":       {configurator.ProviderClaudeCode, configurator.ProviderCodex},
@@ -53,6 +53,7 @@ var hookCapableProviders = []configurator.Provider{
 	configurator.ProviderCrush,
 	configurator.ProviderCopilot,
 	configurator.ProviderPi,
+	configurator.ProviderCline,
 }
 
 // HookEventNames returns the declared event vocabulary, sorted.

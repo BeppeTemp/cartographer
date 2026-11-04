@@ -261,6 +261,12 @@ func findingsFromText(s string, depth int) []hookFinding {
 	return fs
 }
 
+func init() {
+	// The Cline dispatchers call cartographer by the absolute path the bridge
+	// entry uses; the closure keeps bridgeCommand the one seam tests override.
+	provisioning.ClineDispatcherCommand = func() (string, error) { return bridgeCommand() }
+}
+
 // cmdHookDispatch is `cartographer hook dispatch --provider cline --event
 // <Event>`: the logic behind the dispatcher files Cartographer writes in
 // Cline's hooks folder (provisioning.DispatchClineHooks). Internal. It always

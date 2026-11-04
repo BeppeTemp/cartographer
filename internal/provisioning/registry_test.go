@@ -103,12 +103,11 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderPi, ".pi/agent/skills/demo"},
 		{"agent", configurator.ProviderPi, ""},
 		{"hook", configurator.ProviderPi, ".pi/agent/cartographer-hooks/demo"},
-		// cline: the hook cell is wired by the hooks slice.
 		{"mcp", configurator.ProviderCline, ".cline/data/settings/cline_mcp_settings.json"},
 		{"instructions", configurator.ProviderCline, ".cline/rules/cartographer.md"},
 		{"skill", configurator.ProviderCline, ".cline/skills/demo"},
 		{"agent", configurator.ProviderCline, ".cline/agents/demo.yaml"},
-		{"hook", configurator.ProviderCline, ""},
+		{"hook", configurator.ProviderCline, ".cline/cartographer-hooks/demo"},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},

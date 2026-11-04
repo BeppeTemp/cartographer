@@ -23,6 +23,9 @@ func clineAgent(name, content string) provisioning.Artifact {
 
 func TestApply_ClineGlobalCells(t *testing.T) {
 	home := t.TempDir()
+	old := provisioning.ClineDispatcherCommand
+	provisioning.ClineDispatcherCommand = func() (string, error) { return filepath.Join(home, "bin", "cartographer"), nil }
+	t.Cleanup(func() { provisioning.ClineDispatcherCommand = old })
 	cl := filepath.Join(home, ".cline")
 	// What Cline and the user keep next to what Cartographer writes.
 	userRule := filepath.Join(cl, "rules", "mine.md")
@@ -49,8 +52,14 @@ func TestApply_ClineGlobalCells(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Unsupported) != 1 || res.Unsupported[0].Kind != "hook" {
-		t.Errorf("Unsupported = %+v, want the hook only", res.Unsupported)
+	if len(res.Unsupported) != 0 {
+		t.Errorf("Unsupported = %+v, want none", res.Unsupported)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Documents", "Cline", "Hooks", "PreToolUse")); err != nil {
+		t.Errorf("dispatcher not wired: %v (warnings %v)", err, res.Warnings)
+	}
+	if _, err := os.Stat(filepath.Join(cl, "cartographer-hooks", "guard", "hook.json")); err != nil {
+		t.Errorf("hook files not at .cline/cartographer-hooks/guard: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cl, "skills", "alpha", "SKILL.md")); err != nil {
 		t.Errorf("skill not at .cline/skills/alpha: %v", err)

@@ -784,8 +784,10 @@ project hook.UserPromptSubmit absent
   - `agent` in `~/.cline/agents/<name>.yaml`: only `.yml`/`.yaml` load; frontmatter `name` and `description`
     (required), `tools`, `skills`, `providerId`, `modelId`, `maxIterations`; the body is the system prompt and an
     empty one skips the file silently. Exposed to the model as `subagent_<name>`, capped at 64 characters.
-  - `hook` unsupported in this slice: the command that will run the hooks exists (below), the file that calls it
-    is the next one. Every project cell is unsupported (no roots).
+  - `hook` in `~/.cline/cartographer-hooks/<name>/` (the hook's own files) plus one Cartographer-owned dispatcher per
+    needed event in `Documents/Cline/Hooks` (`TaskStart` for `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
+    `PostToolUse`; `Stop`, `SubagentStop` and `PreCompact` are not claimed: nothing fires them in a way that could
+    continue the run). Every project cell is unsupported (no roots).
   - Hooks, read from the bundle (4.1.26; none of it run live). It carries two loaders. The one the VS Code
     extension runs reads the global `Documents/Cline/Hooks` and `<workspace>/.clinerules/hooks` only
     (`$HOME/.cline/hooks` and `<workspace>/.cline/hooks` belong to the SDK loader, which the VS Code host switches
@@ -805,7 +807,7 @@ project hook.UserPromptSubmit absent
     `overrideInput` are read by the SDK loader alone); **`cancel` stops the whole task**, there is no per-call skip.
     **Nothing in the payload or the environment names the invoking client**, so a second build that reads
     `Documents/Cline/Hooks` runs the very same files.
-  - `cartographer hook dispatch --provider cline --event <Event>` (internal) is the logic a dispatcher file will
+  - `cartographer hook dispatch --provider cline --event <Event>` (internal) is the logic the dispatcher files
     call: it reads Cline's payload and runs the Cartographer hooks of the event, materialized under
     `~/.cline/cartographer-hooks/<name>/` (a Claude-style `hook.json` and command, run as `sh -c`, payload on stdin,
     25 s in total, kill grace included; each stream capped at 1 MiB). `TaskStart` runs the `SessionStart` hooks (once per task: a 12 h marker in a private per-user directory of the temp dir),
@@ -816,6 +818,18 @@ project hook.UserPromptSubmit absent
     Cline built-in (`run_commands`, `editor`) is not translated to Claude's `Bash`. Output is one line of ASCII
     JSON, exit 0 in every case. The write-findings hook is not installed for Cline until probe P2 shows what
     `postToolUse.result` is for an MCP response.
+  - The dispatcher (`internal/provisioning/clinehooks.go`, D1663) is a three-line shim: POSIX `<Event>` (`#!/bin/sh`, mode
+    0755) or Windows `<Event>.ps1` (UTF-8 with BOM, ASCII otherwise: Windows PowerShell 5.1 reads BOM-less UTF-8 as ANSI),
+    both fail-open (a missing binary prints `{}` and exits 0) and exiting 0 whatever `cartographer` returned; the
+    payload reaches it by stdin inheritance. Ownership is the token `cartographer:cline-hook-dispatcher <Event>` in the
+    first 512 bytes, never a lock entry (a foreign `TaskStart` fails the bootstrap hook with the warning). A file at the path without it (the user's own hook) is never read further,
+    rewritten or merged: the hooks are installed, not wired, and the sync warns. An owned file is rewritten with its
+    mode kept (a user's `chmod 644` stays), and removed, only while it carries the marker, when no hook of its event
+    is left on disk. The set of dispatchers is derived from the hooks on disk, so the bootstrap, write-findings and KB
+    hooks are one code path in any order. `Documents` is the Windows known folder when the base dir is the real home
+    (a OneDrive-redirected folder included), `<home>/Documents` otherwise, and is the root of the symlink walk (a linked Documents folder works, a link at `Cline` or `Cline/Hooks` is refused, and a link at the dispatcher path is reported as a `safewrite` refusal); `xdg-user-dir` is not replicated, so a
+    relocated Linux folder leaves the hooks silently unwired. A dispatcher is machine-wide and client-agnostic: any
+    other build reading that folder runs it too.
   - Probes, **not run** (the dispatcher is built for either answer): **P1** whether `TaskStart` fires once per task
     or per turn (the 12 h dedupe covers both); **P2** the `toolName` and `result` of a `concept_write` response;
     **P3** that a `PreToolUse` `{"cancel":true,"errorMessage":"x"}` stops the task and shows the message.
@@ -840,14 +854,14 @@ global mcp unverified
 global agent.delegate unverified
 global agent.invoke unverified
 global hook.PostInvocation absent
-global hook.PostToolUse absent
+global hook.PostToolUse unverified
 global hook.PreCompact absent
 global hook.PreInvocation absent
-global hook.PreToolUse absent
-global hook.SessionStart absent
+global hook.PreToolUse unverified
+global hook.SessionStart unverified
 global hook.Stop absent
 global hook.SubagentStop absent
-global hook.UserPromptSubmit absent
+global hook.UserPromptSubmit unverified
 project skill absent
 project mcp absent
 project agent.delegate absent

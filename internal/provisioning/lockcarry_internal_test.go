@@ -73,6 +73,12 @@ func TestApply_DroppedHookFileKeepsTheRegistration(t *testing.T) {
 	}
 	for _, p := range providers {
 		t.Run(string(p), func(t *testing.T) {
+			if p == configurator.ProviderCline {
+				// The dispatcher is derived from the hooks on disk and owned by its
+				// marker, not by the hook's name: TestClineDispatcherOwnership and
+				// TestClineEventChangeMovesTheDispatcher pin its lifecycle.
+				t.Skip("cline has no per-hook registration")
+			}
 			if _, ok := hookMechanisms[p]; !ok {
 				t.Fatalf("%s has a hook cell and no registration mechanism", p)
 			}
@@ -295,6 +301,9 @@ func registrationText(base string, rels []string) string {
 // update that the registrar skips strips the old entry, and the warning stays.
 func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T) {
 	for _, p := range Destinations("hook", "guard") {
+		if p == configurator.ProviderCline {
+			continue // no per-hook registration: see TestApply_DroppedHookFileKeepsTheRegistration
+		}
 		unreached := ""
 		for _, ev := range HookEventNames() {
 			if !hookEventReaches(ev, p) {

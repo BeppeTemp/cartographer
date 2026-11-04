@@ -4107,6 +4107,10 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 		if err = removePiHook(baseDir, mf.Name); err != nil {
 			err = fmt.Errorf("provisioning: prune Pi extension %s: %w", mf.Name, err)
 		}
+	case "cline":
+		if err = removeClineHook(baseDir, mf.Name); err != nil {
+			err = fmt.Errorf("provisioning: prune Cline dispatchers of hook %s: %w", mf.Name, err)
+		}
 	case "crush":
 		if err = removeCrushHook(baseDir, mf.Name, mf.Path); err != nil {
 			err = fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
@@ -4346,9 +4350,10 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// index.ts, so the hook's own files must not live under extensions/:
 		// they go to ~/.pi/agent/cartographer-hooks/<n>/.
 		configurator.ProviderPi: perName("", ".pi", "agent", "cartographer-hooks"),
-		// cline: wired by the hooks slice of the same lane (a per-event dispatcher
-		// in the Cline hooks folder).
-		configurator.ProviderCline: unsupportedDest,
+		// cline: the hook's own files are Cartographer's, here; the only thing
+		// in Documents/Cline/Hooks, the one global directory the VS Code
+		// extension reads, is a dispatcher per event (registerClineHook).
+		configurator.ProviderCline: perName("", ".cline", "cartographer-hooks"),
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),

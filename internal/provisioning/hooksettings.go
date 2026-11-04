@@ -756,6 +756,8 @@ func hookProviderFromPath(path string) string {
 		return "copilot"
 	case strings.HasPrefix(slash, piExtensionsPrefix), strings.HasPrefix(slash, piHookFilesPrefix):
 		return "pi"
+	case strings.HasPrefix(slash, clineHookFilesPrefix):
+		return "cline"
 	default:
 		return ""
 	}

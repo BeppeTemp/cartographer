@@ -409,6 +409,25 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			return rel, warning, registered, nil
 		},
 	},
+	configurator.ProviderCline: {
+		warningBlocksBootstrap: true,
+		// No generated file per hook and no shared settings file: the
+		// registration is the per-event dispatcher in Documents/Cline/Hooks,
+		// derived from the hooks on disk (registerClineHook), so there is no
+		// pluginPath and no settingsFile. warningBlocksBootstrap is true: SessionStart
+		// is always mapped, so a warning for the bootstrap hook (a user's own
+		// TaskStart file, cartographer not on PATH) means it will never run, and
+		// the bootstrap must fail instead of recording it as installed.
+		// writeFindingsHook stays false until probe P2 shows that
+		// postToolUse.result carries the response text.
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			rel, warning, registered, err := registerClineHook(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", false, fmt.Errorf("provisioning: register hook %s as a Cline dispatcher: %w", name, err)
+			}
+			return rel, warning, registered, nil
+		},
+	},
 	configurator.ProviderKiro: {
 		settingsFile: kiroHooksRelPath,
 		// Probed on 2.26.1 and 2.27.0: the standalone hook files load only
@@ -447,6 +466,16 @@ func checkHookRegistrationTarget(baseDir string, provider configurator.Provider,
 		targets = append(targets, crushSettingsPath(baseDir, destRel))
 	case len(m.settingsFile) > 0:
 		targets = append(targets, filepath.Join(baseDir, filepath.Join(m.settingsFile...)))
+	}
+	if provider == configurator.ProviderCline {
+		// The dispatchers live in the Documents folder, which may sit outside the
+		// base dir (a redirected Windows folder) or be a link of the user's own:
+		// the walk is rooted there, so Documents itself is exempt and a link at
+		// Cline or Cline/Hooks is refused before any hook file is written.
+		docs := clineDocumentsDir(baseDir)
+		if err := safewrite.CheckPath(docs, clineHooksDir(baseDir)); err != nil {
+			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
+		}
 	}
 	if m.pluginPath != nil {
 		targets = append(targets, filepath.Join(baseDir, filepath.FromSlash(m.pluginPath(name))))
