@@ -33,6 +33,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
+	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -1114,6 +1115,44 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					ContentHash: hash,
 					Signed:      false,
 				})
+			}
+		}
+		// 5b. Client variants (kind "variant", declarative): variants/<name>.yaml.
+		// Unlike mcp, an invalid descriptor is left out with a named issue, so
+		// one typo does not stop the KB's skills (WP2). Inert until a client
+		// registers it.
+		varDir := filepath.Join(kbRoot, "variants")
+		varEntries, verr := os.ReadDir(varDir)
+		if verr == nil && !kindDirLinked("variants") {
+			for _, e := range varEntries {
+				if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") || !tracked.has("variants/"+e.Name()) {
+					continue
+				}
+				name := strings.TrimSuffix(e.Name(), ".yaml")
+				if e.Type()&fs.ModeSymlink != 0 {
+					linkOut("variant variants/"+e.Name(), "variants/"+e.Name())
+					continue
+				}
+				varPath := filepath.Join(varDir, e.Name())
+				data, varSize, readErr := ReadFileCapped(varPath)
+				if errors.Is(readErr, ErrNotRegular) {
+					issues = append(issues, fmt.Sprintf("KB %q: variant %q left out: not a regular file", kbName, name))
+					continue
+				}
+				if readErr != nil {
+					return Manifest{}, fmt.Errorf("provisioning: read kb:%s/variants/%s: %w", kbName, name, readErr)
+				}
+				if varSize != 0 {
+					issues = append(issues, fmt.Sprintf("KB %q: variant %q left out: over the size cap", kbName, name))
+					continue
+				}
+				if _, parseErr := clientvariant.Parse(name, data); parseErr != nil {
+					issues = append(issues, fmt.Sprintf("KB %q: variant %q left out: %v", kbName, name, parseErr))
+					continue
+				}
+				// The bytes parsed above are the bytes hashed: no second read.
+				hash := hashArtifactFiles([]ArtifactFile{{Path: e.Name(), Content: data}})
+				artifacts = append(artifacts, Artifact{Kind: "variant", Name: name, Source: "kb:" + kbName, ContentHash: hash})
 			}
 		}
 		// 6. Instructions (kind "instructions", D56): an "imprinting" artifact
@@ -3432,7 +3471,7 @@ func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []strin
 	type key struct{ kb, kind string }
 	counts := map[key]int{}
 	for _, a := range m.Artifacts {
-		if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "instructions" {
+		if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "instructions" || a.Kind == "variant" {
 			continue
 		}
 		if destDir(a.Kind, a.Name, provider) != "" {
@@ -4368,6 +4407,9 @@ type KindInfo struct {
 	// KBOnly marks a kind that never leaves the KB: it has no row in the
 	// destination matrix and no client receives it.
 	KBOnly bool
+	// Declarative marks a kind that travels in the manifest and is consumed by
+	// the client itself: it has no destination row and is not KBOnly (variant).
+	Declarative bool
 }
 
 // kindInfos is the list behind Kinds. The layout is what BuildManifest scans
@@ -4382,6 +4424,7 @@ var kindInfos = []KindInfo{
 	{Kind: "hook", Title: "Hooks", KBPath: "hooks/<name>/hook.json", Doc: "docs/sync.md#agents-and-hooks"},
 	{Kind: "mcp", Title: "MCP servers", KBPath: "mcp/<name>.json", Doc: "docs/sync.md#mcp-servers-d69-d116"},
 	{Kind: "instructions", Title: "Instructions", KBPath: "instructions.md", Doc: "docs/sync.md#instructions-imprinting"},
+	{Kind: "variant", Title: "Client variants", KBPath: "variants/<name>.yaml", Doc: "docs/sync.md#client-variants", Declarative: true},
 	{Kind: "template", Title: "Templates", KBPath: "templates/<slug>.md", Doc: "docs/data-plane.md#templates-are-page-schemas-d352", KBOnly: true},
 	{Kind: "secret", Title: "Secrets", KBPath: "secrets/<name>.sops.yaml", Doc: "docs/skills-services-secrets.md#sops-files", KBOnly: true},
 }
@@ -5121,6 +5164,8 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 		artifactRel = "agents/" + a.Name + ".md"
 	case "mcp":
 		artifactRel = "mcp/" + a.Name + ".json"
+	case "variant":
+		artifactRel = "variants/" + a.Name + ".yaml"
 	case "hook":
 		artifactRel = "hooks/" + a.Name
 	default:
@@ -5155,6 +5200,16 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 			return nil, fmt.Errorf("provisioning: read mcp %s: %w", mcpPath, err)
 		}
 		return []ArtifactFile{{Path: a.Name + ".json", Content: data, Oversized: size}}, nil
+	case "variant":
+		if !tracked.has("variants/" + a.Name + ".yaml") {
+			return nil, fmt.Errorf("provisioning: variant %s is not tracked by git in KB %q", a.Name, kbName)
+		}
+		varPath := filepath.Join(kbRoot, "variants", a.Name+".yaml")
+		data, size, err := ReadFileCapped(varPath)
+		if err != nil {
+			return nil, fmt.Errorf("provisioning: read variant %s: %w", varPath, err)
+		}
+		return []ArtifactFile{{Path: a.Name + ".yaml", Content: data, Oversized: size}}, nil
 	case "hook":
 		files, err := readDirFiles(filepath.Join(kbRoot, "hooks", a.Name), tracked.under("hooks/"+a.Name))
 		if err != nil {

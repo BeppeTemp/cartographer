@@ -427,6 +427,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// reports a broken hook.json (D284).
 	if scopeNorm == "" {
 		findings = append(findings, checkHooks(k)...)
+		findings = append(findings, checkVariants(k)...)
 	}
 
 	// The other KB-root artifacts (D316): skills, agents, instructions.md.

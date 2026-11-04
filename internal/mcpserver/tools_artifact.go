@@ -23,6 +23,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -168,6 +169,13 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 				return artifactPathInfo{Kind: "mcp", Name: slug}, nil
 			}
 		}
+	case "variants":
+		if len(segs) == 2 && strings.HasSuffix(segs[1], ".yaml") {
+			slug := strings.TrimSuffix(segs[1], ".yaml")
+			if artifactSlugPattern.MatchString(slug) {
+				return artifactPathInfo{Kind: "variant", Name: slug}, nil
+			}
+		}
 	case "templates":
 		if len(segs) == 2 && strings.HasSuffix(segs[1], ".md") {
 			slug := strings.TrimSuffix(segs[1], ".md")
@@ -186,7 +194,7 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	}
 
 	return artifactPathInfo{}, fmt.Errorf(
-		"path %q is not a whitelisted artifact path (skills/<slug>/**, agents/<slug>.md, hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml)",
+		"path %q is not a whitelisted artifact path (skills/<slug>/**, agents/<slug>.md, hooks/**, mcp/<slug>.json, variants/<slug>.yaml, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml)",
 		relPath)
 }
 
@@ -227,7 +235,7 @@ func rejectArtifactSymlinks(root, relPath string) error {
 }
 
 func rejectArtifactTreeSymlinks(root string) error {
-	for _, rel := range []string{"skills", "agents", "hooks", "mcp", "instructions.md", "templates", kb.PathRegistryFile, kb.GlossaryFile} {
+	for _, rel := range []string{"skills", "agents", "hooks", "mcp", "variants", "instructions.md", "templates", kb.PathRegistryFile, kb.GlossaryFile} {
 		if err := rejectArtifactSymlinks(root, rel); err != nil {
 			return err
 		}
@@ -370,6 +378,8 @@ func artifactFilePrefix(kind, name string) string {
 		return "agents/"
 	case "mcp":
 		return "mcp/"
+	case "variant":
+		return "variants/"
 	case "template":
 		return "templates/"
 	}
@@ -495,11 +505,11 @@ func toolTemplateList(k *kb.KB) Tool {
 func toolArtifactWrite(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_write",
-		Description: "Creates or updates a KB-root artifact (skills/<slug>/**, agents/<slug>.md, " +
-			"hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). " +
+		Description: "Writes a KB-root artifact (skills/<slug>/**, agents/<slug>.md, " +
+			"hooks/**, mcp/<slug>.json, variants/<slug>.yaml, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). " +
 			"On an existing file, if_match (sha256 from artifact_read/artifact_list) is required: " +
-			"stale_write if missing or different. On a new file omit it: already_exists if it exists. " +
-			"Validates structured artifacts before writing: template frontmatter and variables, " +
+			"stale_write if missing or different. New file: omit it, already_exists if present. " +
+			"Validates before writing: template frontmatter and variables, " +
 			"the paths.yaml schema (paths:/repos: key -> {description, default: ~/…, remote}) and the glossary.yaml schema " +
 			"(terms: list of {canonical, aliases: [..], forbidden: [..]}).",
 		InputSchema: json.RawMessage(`{
@@ -654,6 +664,9 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 			return err
 		}
 		return nil
+	case "variant":
+		_, err := clientvariant.Parse(info.Name, data)
+		return err
 	case "template":
 		_, _, _, err := validateTemplateArtifact(data)
 		return err
@@ -693,7 +706,7 @@ func hookClientWarnings(info artifactPathInfo, relPath string, data []byte) []st
 }
 
 func isStructuredArtifact(info artifactPathInfo, relPath string) bool {
-	return (info.Kind == "skill" && filepath.Base(relPath) == "SKILL.md") || info.Kind == "agent" || info.Kind == "mcp" || info.Kind == "template" || info.Kind == "instructions" || info.Kind == "paths" || info.Kind == "glossary" || (info.Kind == "hook" && filepath.Base(relPath) == "hook.json")
+	return (info.Kind == "skill" && filepath.Base(relPath) == "SKILL.md") || info.Kind == "agent" || info.Kind == "mcp" || info.Kind == "variant" || info.Kind == "template" || info.Kind == "instructions" || info.Kind == "paths" || info.Kind == "glossary" || (info.Kind == "hook" && filepath.Base(relPath) == "hook.json")
 }
 
 var templateVariablePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -1026,8 +1039,8 @@ func validateAgentArtifact(slug string, data []byte) error {
 func toolArtifactDelete(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_delete",
-		Description: "Deletes a KB-root artifact file (skills/<slug>/**, agents/<slug>.md, hooks/**, " +
-			"mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml), and its now-empty containing artifact " +
+		Description: "Deletes an artifact file (skills/<slug>/**, agents/<slug>.md, hooks/**, " +
+			"mcp/<slug>.json, variants/<slug>.yaml, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml), and its now-empty containing artifact " +
 			"directory for skills/hooks. if_match (sha256 of the current content, from " +
 			"artifact_read/artifact_list) is required.",
 		InputSchema: json.RawMessage(`{

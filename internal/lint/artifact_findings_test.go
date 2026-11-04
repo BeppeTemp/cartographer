@@ -46,7 +46,7 @@ func TestArtifactFindings_SameArtifactChecksAsRun(t *testing.T) {
 	var want []Finding
 	for _, f := range all {
 		switch f.Check {
-		case "junk_file", "junk_asset", "hook_invalid", "missing_instructions":
+		case "junk_file", "junk_asset", "hook_invalid", "variant_invalid", "missing_instructions":
 			continue
 		}
 		if f.Artifact {

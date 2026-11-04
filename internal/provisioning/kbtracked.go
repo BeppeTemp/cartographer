@@ -39,7 +39,7 @@ func kbTrackedFilter(kbRoot string) (kbTracked, error) {
 			return kbTracked{set: e.set}, nil
 		}
 	}
-	out, err := procattr.Hide(exec.Command("git", "-C", kbRoot, "ls-files", "-z", "--", "skills", "agents", "hooks", "mcp")).Output()
+	out, err := procattr.Hide(exec.Command("git", "-C", kbRoot, "ls-files", "-z", "--", "skills", "agents", "hooks", "mcp", "variants")).Output()
 	if err != nil {
 		return kbTracked{}, fmt.Errorf("provisioning: list tracked files in %s: %w", kbRoot, err)
 	}

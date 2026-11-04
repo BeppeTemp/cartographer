@@ -42,6 +42,8 @@ func TestKinds_PathsAreWhatTheScannerFinds(t *testing.T) {
 				writeFile(t, filepath.Join(filepath.Dir(path), "run.sh"), "#!/bin/sh\necho ok\n")
 			case "mcp":
 				writeFile(t, path, `{"type":"http","url":"https://tools.example.com/mcp"}`)
+			case "variant":
+				writeFile(t, path, "schema: 1\nname: "+name+"\ndisplay_name: Sample\nbase: crush\ndetect:\n  binaries: [sample]\nmcp:\n  mode: cli\n")
 			case "instructions":
 				// The artifact is generated for every KB, named after it; the
 				// file at KBPath is what the generated text carries.

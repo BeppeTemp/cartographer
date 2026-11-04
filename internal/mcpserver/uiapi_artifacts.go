@@ -20,7 +20,7 @@ import (
 // secret references are shown as written, as artifact_read returns them.
 
 var uiArtifactKinds = map[string]bool{
-	"skill": true, "agent": true, "hook": true, "mcp": true, "instructions": true, "template": true,
+	"skill": true, "agent": true, "hook": true, "mcp": true, "variant": true, "instructions": true, "template": true,
 }
 
 type uiArtifactClient struct {

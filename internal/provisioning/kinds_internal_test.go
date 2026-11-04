@@ -18,13 +18,17 @@ func TestKindsMatchTheMatrix(t *testing.T) {
 		if k.Title == "" || k.KBPath == "" || k.Doc == "" {
 			t.Errorf("kind %q has an empty field: %+v", k.Kind, k)
 		}
-		if inMatrix := slices.Contains(artifactKinds, k.Kind); inMatrix == k.KBOnly {
-			t.Errorf("kind %q: KBOnly=%v but in artifactKinds=%v", k.Kind, k.KBOnly, inMatrix)
+		inMatrix := slices.Contains(artifactKinds, k.Kind)
+		if n := countTrue(inMatrix, k.KBOnly, k.Declarative); n != 1 {
+			t.Errorf("kind %q: want exactly one of in-matrix/KBOnly/Declarative, got matrix=%v KBOnly=%v Declarative=%v", k.Kind, inMatrix, k.KBOnly, k.Declarative)
 		}
 		if k.KBOnly && len(Destinations(k.Kind, "")) != 0 {
 			t.Errorf("kind %q is KB-only yet the matrix delivers it to %v", k.Kind, Destinations(k.Kind, ""))
 		}
-		if !k.KBOnly && len(Destinations(k.Kind, "")) == 0 {
+		if k.Declarative && len(Destinations(k.Kind, "")) != 0 {
+			t.Errorf("kind %q is declarative yet the matrix delivers it", k.Kind)
+		}
+		if !k.KBOnly && !k.Declarative && len(Destinations(k.Kind, "")) == 0 {
 			t.Errorf("kind %q is synced yet no client receives it", k.Kind)
 		}
 	}
@@ -43,4 +47,14 @@ func TestKindsReturnsACopy(t *testing.T) {
 	if Kinds()[0].Title == "changed" {
 		t.Fatal("Kinds() shares its backing array with the caller")
 	}
+}
+
+func countTrue(bs ...bool) int {
+	n := 0
+	for _, b := range bs {
+		if b {
+			n++
+		}
+	}
+	return n
 }
