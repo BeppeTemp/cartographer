@@ -519,16 +519,18 @@ func readConceptAtRev(k *kb.KB, guard *historyGuard, id, rev string) (*kb.Concep
 	if err != nil {
 		return nil, fmt.Sprintf("concept_read %q: %v", id, err)
 	}
+	// One rev-list answers the ancestry of every revision (a process per
+	// revision, up to conceptHistoryScan, before). An unknown rev is reported
+	// by git as an error; to the caller it is the same as a revision without
+	// the file.
+	ancestors, err := gitx.Ancestors(k.Root, rev)
+	if err != nil {
+		return nil, notFound
+	}
 	// A caller limited to a perimeter reads only the revisions that lay
 	// inside it: a page moved in from outside has no past behind the move.
 	for _, r := range guard.revisions(revs) {
-		ok, err := gitx.IsAncestor(k.Root, r.SHA, rev)
-		if err != nil {
-			// An unknown rev is reported by git as an error; to the caller
-			// it is the same as a revision without the file.
-			return nil, notFound
-		}
-		if !ok {
+		if !ancestors[r.SHA] {
 			continue
 		}
 		if r.Status == "D" {

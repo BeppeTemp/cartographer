@@ -32,13 +32,16 @@ type ReadCost struct {
 // numbers. Only archived: deprecated and superseded concepts have always
 // counted and stay, being few and still meaningful.
 func (kb *KB) ReadCost(include func(id string) bool) (ReadCost, error) {
-	live := func(id string) bool {
-		return (include == nil || include(id)) && kb.ConceptFacets(okf.ConceptID(id)).Status != StatusArchived
-	}
-	lg, err := kb.LinkGraph(live)
+	// The status comes from the view just validated, not from a ConceptFacets
+	// per concept (which re-resolves and stats the file under the graph lock).
+	view, err := kb.graphView()
 	if err != nil {
 		return ReadCost{}, err
 	}
+	live := func(id string) bool {
+		return (include == nil || include(id)) && view.facets[okf.ConceptID(id)].Status != StatusArchived
+	}
+	lg := linkGraphOf(view, live)
 	n := len(lg.IDs)
 	own := make([]int64, n)
 	hood := make([]int64, n)

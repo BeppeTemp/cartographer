@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -452,7 +454,7 @@ type conformanceCache struct {
 // workEntries returns the whole-KB work view (D302), unfiltered, on the lint
 // cache key: the open statuses come from map contracts, which the stamp
 // covers. Visibility is the caller's (visibleWork).
-func (cc *conformanceCache) workEntries(k *kb.KB) ([]lint.WorkEntry, error) {
+func (cc *conformanceCache) workEntries(ctx requestContext, k *kb.KB) ([]lint.WorkEntry, error) {
 	gen, err := k.GraphGeneration()
 	if err != nil {
 		return nil, err
@@ -460,7 +462,7 @@ func (cc *conformanceCache) workEntries(k *kb.KB) ([]lint.WorkEntry, error) {
 	// Age and staleness move with the calendar, not with the files: the day
 	// is part of the key, so an idle KB does not serve yesterday's ages.
 	day := lint.Now().UTC().Format("2006-01-02")
-	stamp := lintInputsStamp(k) + "|" + day
+	stamp := lintStampOf(ctx, k) + "|" + day
 	cc.mu.Lock()
 	if cc.workCached && gen == cc.workGen && stamp == cc.workStamp {
 		out := cc.work
@@ -517,12 +519,12 @@ func (cc *conformanceCache) readCostFor(k *kb.KB, include func(string) bool, who
 // reviewItems returns the whole-KB review work list (D298), unfiltered, on the
 // same cache key as lintFindings: kb_status and kb_review share one
 // computation per generation. Visibility is the caller's (lint.FilterReview).
-func (cc *conformanceCache) reviewItems(k *kb.KB) ([]lint.ReviewItem, error) {
+func (cc *conformanceCache) reviewItems(ctx requestContext, k *kb.KB) ([]lint.ReviewItem, error) {
 	gen, err := k.GraphGeneration()
 	if err != nil {
 		return nil, err
 	}
-	stamp := lintInputsStamp(k)
+	stamp := lintStampOf(ctx, k)
 	cc.mu.Lock()
 	if cc.reviewCached && gen == cc.reviewGen && stamp == cc.reviewStamp {
 		out := cc.review
@@ -531,7 +533,7 @@ func (cc *conformanceCache) reviewItems(k *kb.KB) ([]lint.ReviewItem, error) {
 	}
 	cc.mu.Unlock()
 	v, err, _ := cc.flight.Do(fmt.Sprintf("review|%d|%s", gen, stamp), func() (interface{}, error) {
-		return cc.computeReview(k, gen, stamp)
+		return cc.computeReview(ctx, k, gen, stamp)
 	})
 	if err != nil {
 		return nil, err
@@ -540,8 +542,8 @@ func (cc *conformanceCache) reviewItems(k *kb.KB) ([]lint.ReviewItem, error) {
 }
 
 // computeReview is reviewItems' cache miss, run once per key (flight).
-func (cc *conformanceCache) computeReview(k *kb.KB, gen uint64, stamp string) ([]lint.ReviewItem, error) {
-	findings, err := cc.lintFindings(k)
+func (cc *conformanceCache) computeReview(ctx requestContext, k *kb.KB, gen uint64, stamp string) ([]lint.ReviewItem, error) {
+	findings, err := cc.lintFindingsCtx(ctx, k)
 	if err != nil {
 		return nil, err
 	}
@@ -568,11 +570,17 @@ func (cc *conformanceCache) computeReview(k *kb.KB, gen uint64, stamp string) ([
 // serve stale findings. The result is never nil, so callers can tell "cached,
 // no findings" from "not computed".
 func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
+	return cc.lintFindingsCtx(context.Background(), k)
+}
+
+// lintFindingsCtx is lintFindings reading the lint-inputs stamp through the
+// request's memo (withLintStamp).
+func (cc *conformanceCache) lintFindingsCtx(ctx requestContext, k *kb.KB) ([]lint.Finding, error) {
 	gen, err := k.GraphGeneration()
 	if err != nil {
 		return nil, err
 	}
-	stamp := lintInputsStamp(k)
+	stamp := lintStampOf(ctx, k)
 	cc.mu.Lock()
 	if cc.cached && gen == cc.gen && stamp == cc.stamp {
 		out := cc.findings
@@ -622,12 +630,49 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]l
 	return findings, nil
 }
 
+// lintStampWalks counts the walks lintInputsStamp does (tests only: it is how
+// a test proves a kb_status computes one stamp, not one per getter).
+var lintStampWalks atomic.Int64
+
+// lintStampMemo holds the lint-inputs stamp of one request, computed on first
+// use. A request asks for it from the lint, review and work getters (kb_status
+// asks three times), and each ask was a full walk of the KB root. It lives in
+// the request's context and dies with it, so the next call sees any file that
+// changed; the re-checks after a recomputation (computeLint, computeReview,
+// workEntries) deliberately stay fresh walks.
+type lintStampMemo struct {
+	once  sync.Once
+	k     *kb.KB
+	stamp string
+}
+
+type lintStampKey struct{}
+
+// withLintStamp returns ctx carrying a stamp memo for k.
+func withLintStamp(ctx requestContext, k *kb.KB) requestContext {
+	if m, _ := ctx.Value(lintStampKey{}).(*lintStampMemo); m != nil && m.k == k {
+		return ctx
+	}
+	return context.WithValue(ctx, lintStampKey{}, &lintStampMemo{k: k})
+}
+
+// lintStampOf is the request's stamp when ctx carries a memo for k, a fresh
+// walk otherwise.
+func lintStampOf(ctx requestContext, k *kb.KB) string {
+	if m, _ := ctx.Value(lintStampKey{}).(*lintStampMemo); m != nil && m.k == k {
+		m.once.Do(func() { m.stamp = lintInputsStamp(k) })
+		return m.stamp
+	}
+	return lintInputsStamp(k)
+}
+
 // lintInputsStamp fingerprints (path, size, mtime) of every regular file in
 // the KB root that is not a concept body and not under .git. Concept bodies
 // are covered by the graph generation; everything else lint reads is here.
 // A stat walk, no reads.
 func lintInputsStamp(k *kb.KB) string {
 	root := filepath.Dir(k.DataRoot())
+	lintStampWalks.Add(1)
 	h := sha256.New()
 	// artifact_unused ages with the clock: a finding can appear with no file
 	// changing, so the UTC date is an input (D1043).
@@ -637,21 +682,19 @@ func lintInputsStamp(k *kb.KB) string {
 			return nil
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			// .cartographer holds local state the server rewrites as it serves:
+			// the search index, the read and search-miss telemetry, the lint
+			// history (D370), the usage reports and the repair log. Counting
+			// them made every concept_read or search invalidate the whole-KB
+			// lint (D736). It is never entered; the one input in it, usage.json
+			// (artifact_unused reads it, D1043), is added after the walk.
+			if d.Name() == ".git" || (d.Name() == ".cartographer" && filepath.Dir(path) == root) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
 		name := d.Name()
-		// .cartographer holds local state the server rewrites as it serves:
-		// the search index, the read and search-miss telemetry, the lint
-		// history (D370), the usage reports and the repair log. Counting them
-		// made every concept_read or search invalidate the whole-KB lint (D736).
-		// The one exception is usage.json, which artifact_unused reads (D1043).
-		if strings.HasPrefix(filepath.ToSlash(rel), ".cartographer/") && filepath.ToSlash(rel) != ".cartographer/usage.json" {
-			return nil
-		}
 		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {
 			return nil
 		}
@@ -662,6 +705,9 @@ func lintInputsStamp(k *kb.KB) string {
 		fmt.Fprintf(h, "%s\x00%d\x00%d\n", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano())
 		return nil
 	})
+	if info, err := os.Stat(filepath.Join(root, ".cartographer", "usage.json")); err == nil && info.Mode().IsRegular() {
+		fmt.Fprintf(h, "%s\x00%d\x00%d\n", ".cartographer/usage.json", info.Size(), info.ModTime().UnixNano())
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 

@@ -716,3 +716,37 @@ func TestBatchFailedDeleteIsCounted(t *testing.T) {
 		t.Fatalf("hashes %v", hs)
 	}
 }
+
+func TestIDsContaining(t *testing.T) {
+	t.Parallel()
+	ix := openTest(t)
+	for id, body := range map[string]string{
+		"a": "see ops/net here",
+		"b": "nothing",
+		"c": "OPS/NET shouted, and dev/ops/net-old",
+		"d": "ops/network",
+	} {
+		if err := ix.Upsert(id, "h"+id, body, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := ix.IDsContaining([]string{"ops/net", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"a": true, "c": true, "d": true} // substring, case-sensitive
+	if len(got) != len(want) {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+	for id := range want {
+		if !got[id] {
+			t.Fatalf("ids = %v, want %v", got, want)
+		}
+	}
+	if err := ix.Delete("a"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ix.IDsContaining([]string{"ops/net"}); got["a"] {
+		t.Error("a deleted concept is still a candidate")
+	}
+}

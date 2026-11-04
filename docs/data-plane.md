@@ -260,6 +260,8 @@ concepts the link graph says link to a moved id, plus those whose `superseded_by
 pages' own relative links** — and **both curated indexes** (D907: every curated index must list its map's concepts, so every one is maintained; a `generated` index is the server's, §Generated indexes), removing the source entry and
 appending one to the destination under a `## Moved here` heading as the plain entry `- [title](path)`, with no suffix (D720).
 
+The plain-text `mentions` report (D1070) reads no more of the KB than that: with the SQLite search index it asks the index, after bringing it in line with the files, which stored contents hold an old ID as a substring and reads only those concepts (the artifact text files are few and always read); without the index, or if either step fails, it scans every concept. Both give the same report.
+
 The own links are arithmetic, since the directory delta is known. An expanded concept's ID has two segments, so a move
 changes the directory it sits in, never its depth, and a satellite's `../x.md` names a sibling of the old parent just
 as `index.md`'s does: `index.md` and every satellite (nested ones included) are rebased from their old path to their

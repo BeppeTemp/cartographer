@@ -91,7 +91,7 @@ func newWorkQuery(scope, include string, where []string, stale bool, fields, ord
 // may see (D226). The filter runs outside the cache, so a restricted caller
 // never sees a hidden concept's entry or counts from a warm cache.
 func visibleWork(ctx requestContext, k *kb.KB, cc *conformanceCache) ([]lint.WorkEntry, error) {
-	all, err := cc.workEntries(k)
+	all, err := cc.workEntries(ctx, k)
 	if err != nil {
 		return nil, err
 	}

@@ -31,8 +31,11 @@ func mentionConceptID(p string) string {
 // attachMentions sets result["mentions"] and result["mentions_omitted"].
 // It only reads: it runs on the final state, after the links, the indexes and
 // the log line are written, and nothing is written after it.
-func attachMentions(k *kb.KB, result map[string]interface{}, moveMap map[string]string, view *callerView) {
-	all := view.filterMentions(scanMentions(k, moveMap))
+//
+// candidates, when set, narrows the concept files read to the ones that can
+// hold an old ID (nil means "unknown": every concept is read).
+func attachMentions(k *kb.KB, result map[string]interface{}, moveMap map[string]string, view *callerView, candidates func(oldIDs []string) map[string]bool) {
+	all := view.filterMentions(scanMentions(k, moveMap, candidates))
 	if len(all) == 0 {
 		return
 	}
@@ -62,7 +65,7 @@ func isIDByte(c byte) bool {
 //     (rewrite_links=false) is in `findings`, not here.
 //   - log.md, index.md and _map.md are not scanned (the log records the move,
 //     indexes had their links rewritten, descriptors name maps).
-func scanMentions(k *kb.KB, moveMap map[string]string) []mentionOut {
+func scanMentions(k *kb.KB, moveMap map[string]string, candidates func(oldIDs []string) map[string]bool) []mentionOut {
 	oldIDs := make([]string, 0, len(moveMap))
 	for o := range moveMap {
 		oldIDs = append(oldIDs, o)
@@ -95,6 +98,9 @@ func scanMentions(k *kb.KB, moveMap map[string]string) []mentionOut {
 		for _, o := range oldIDs {
 			newID := moveMap[o]
 			seen := map[int]bool{}
+			// Line numbers in one incremental pass: occurrences come in
+			// increasing offset, so only the bytes since the last one are counted.
+			line, counted := 1, 0
 			for from := 0; ; {
 				i := strings.Index(masked[from:], o)
 				if i < 0 {
@@ -112,7 +118,8 @@ func scanMentions(k *kb.KB, moveMap map[string]string) []mentionOut {
 				if strings.HasPrefix(masked[i:], newID) { // the new ID, which contains the old
 					continue
 				}
-				line := strings.Count(masked[:i], "\n") + 1
+				line += strings.Count(masked[counted:i], "\n")
+				counted = i
 				if seen[line] {
 					continue
 				}
@@ -129,7 +136,15 @@ func scanMentions(k *kb.KB, moveMap map[string]string) []mentionOut {
 		}
 	}
 
-	_ = k.WalkConceptPaths(func(_ okf.ConceptID, physicalPath, content string) error {
+	walk := k.WalkConceptPaths
+	if candidates != nil {
+		if set := candidates(oldIDs); set != nil {
+			walk = func(fn func(okf.ConceptID, string, string) error) error {
+				return k.WalkConceptPathsIn(set, fn)
+			}
+		}
+	}
+	_ = walk(func(_ okf.ConceptID, physicalPath, content string) error {
 		scan(physicalPath, content, false)
 		return nil
 	})
@@ -148,4 +163,24 @@ func scanMentions(k *kb.KB, moveMap map[string]string) []mentionOut {
 		return a.ID < b.ID
 	})
 	return out
+}
+
+// mentionCandidates answers the mentions scan of concept_move without reading
+// the KB: after bringing the SQLite index in line with the files it asks it
+// which stored contents hold an old ID as a substring (a superset of the
+// whole-token matches the scan then confirms in those files). nil, meaning
+// "scan everything", when there is no SQLite index or either step fails: the
+// index is a derived cache and never decides what the report omits.
+func (r *searchReconciler) mentionCandidates(oldIDs []string) map[string]bool {
+	if r == nil || r.sql == nil {
+		return nil
+	}
+	if _, err := r.reconcile(); err != nil {
+		return nil
+	}
+	set, err := r.sql.IDsContaining(oldIDs)
+	if err != nil {
+		return nil
+	}
+	return set
 }

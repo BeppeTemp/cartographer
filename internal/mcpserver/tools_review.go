@@ -119,7 +119,7 @@ func reviewInScope(it lint.ReviewItem, scope string) bool {
 
 // visibleReview is the cached work list filtered for this caller (D226).
 func visibleReview(ctx requestContext, k *kb.KB, cc *conformanceCache) ([]lint.ReviewItem, error) {
-	items, err := cc.reviewItems(k)
+	items, err := cc.reviewItems(ctx, k)
 	if err != nil {
 		return nil, err
 	}

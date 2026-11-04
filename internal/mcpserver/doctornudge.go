@@ -116,7 +116,8 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	s.nudgedAt[sid] = now
 	s.mu.Unlock()
 
-	all, err := cc.lintFindings(k)
+	ctx = withLintStamp(ctx, k)
+	all, err := cc.lintFindingsCtx(ctx, k)
 	if err != nil {
 		return res
 	}
