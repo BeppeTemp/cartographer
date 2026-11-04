@@ -109,16 +109,19 @@ func hookRequires(data []byte) ([]string, bool, error) {
 	if !ok {
 		return nil, false, nil
 	}
+	// null is refused like a bare `requires:` in frontmatter: both carriers
+	// treat an empty value as a mistake, and an empty list is spelled [].
 	var list []string
-	if err := json.Unmarshal(r, &list); err != nil {
+	if string(r) == "null" || json.Unmarshal(r, &list) != nil {
 		return nil, true, fmt.Errorf("requires must be an array of strings, e.g. [\"skill:name\"]")
 	}
 	return list, true, nil
 }
 
 // ValidateHookRequires checks the `requires` array of a hook.json (name "" skips
-// the self-reference check). Called by ValidateHookJSON, so the write gate and
-// lint report the same error.
+// the self-reference check). Not part of ValidateHookJSON: a bad `requires`
+// never stops a hook from registering, so the write gate and lint call it on
+// its own and word it as such.
 func ValidateHookRequires(name string, data []byte) error {
 	list, _, err := hookRequires(data)
 	if err != nil {

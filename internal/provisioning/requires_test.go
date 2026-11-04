@@ -102,23 +102,30 @@ func TestValidateFrontmatterRequires_Forms(t *testing.T) {
 	}
 }
 
-func TestValidateHookJSON_Requires(t *testing.T) {
+func TestValidateHookRequires(t *testing.T) {
 	good := `{"event":"PostToolUse","command":"run.sh","requires":["skill:a","hook.PostToolUse"]}`
-	if _, err := ValidateHookJSON([]byte(good)); err != nil {
+	if err := ValidateHookRequires("me", []byte(good)); err != nil {
 		t.Fatalf("good: %v", err)
 	}
 	for _, bad := range []string{
 		`{"event":"Stop","command":"x","requires":"skill:a"}`,
 		`{"event":"Stop","command":"x","requires":[1]}`,
+		`{"event":"Stop","command":"x","requires":null}`,
 		`{"event":"Stop","command":"x","requires":["mcp:a"]}`,
 		`{"event":"Stop","command":"x","requires":["!skill:a"]}`,
+		`{"event":"Stop","command":"x","requires":["hook:me"]}`,
 	} {
-		if _, err := ValidateHookJSON([]byte(bad)); err == nil {
+		if err := ValidateHookRequires("me", []byte(bad)); err == nil {
 			t.Errorf("accepted %s", bad)
 		}
 	}
-	if err := ValidateHookRequires("me", []byte(`{"event":"Stop","command":"x","requires":["hook:me"]}`)); err == nil {
-		t.Error("self-reference accepted")
+	// An empty list is the spelling of "nothing"; null and a bare key are not.
+	if err := ValidateHookRequires("me", []byte(`{"event":"Stop","command":"x","requires":[]}`)); err != nil {
+		t.Errorf("empty list: %v", err)
+	}
+	// ValidateHookJSON stays about what stops a hook registering.
+	if _, err := ValidateHookJSON([]byte(`{"event":"Stop","command":"x","requires":"oops"}`)); err != nil {
+		t.Errorf("ValidateHookJSON must not judge requires: %v", err)
 	}
 }
 
@@ -177,5 +184,15 @@ func TestRequiresOf(t *testing.T) {
 	broken := Artifact{Kind: "skill", Name: "z", Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: z\nrequires: oops\n---\n")}}}
 	if got, err := RequiresOf(broken, nil, nil); err == nil || got != nil {
 		t.Errorf("broken: %v, %v", got, err)
+	}
+}
+
+// Both carriers refuse an empty value the same way (D1661).
+func TestRequires_EmptyValueSameOnBothCarriers(t *testing.T) {
+	if err := ValidateFrontmatterRequires("skill", "a", fmOf(t, "name: a\nrequires:")); err == nil {
+		t.Error("a bare requires: in frontmatter was accepted")
+	}
+	if err := ValidateHookRequires("a", []byte(`{"event":"Stop","command":"x","requires":null}`)); err == nil {
+		t.Error("requires: null in hook.json was accepted")
 	}
 }
