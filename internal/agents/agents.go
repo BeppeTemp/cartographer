@@ -37,6 +37,10 @@ type Agent struct {
 	Installed  bool
 	Evidence   string    // what triggered detection (binary path or config dir), empty if not installed
 	DetectedBy Heuristic // which probe produced Evidence, empty if not installed
+	// Variant is true for a client variant a KB declared (D1655), Base is the
+	// built-in provider it forks; both are zero for a built-in.
+	Variant bool
+	Base    configurator.Provider
 }
 
 // found records a positive detection: the three fields move together, and this
@@ -118,14 +122,27 @@ func Detect() []Agent {
 	for _, d := range configurator.DetectionOrder() {
 		out = append(out, detect(d, home))
 	}
+	// Variants come after the built-ins and are detected by the same probes:
+	// their binaries, and their directories (plain or glob) in the descriptor.
+	for _, v := range configurator.RegisteredVariants() {
+		a := detectAs(v.Descriptor, home, configurator.Provider(v.Spec.Base))
+		a.Variant, a.Base = true, configurator.Provider(v.Spec.Base)
+		out = append(out, a)
+	}
 	return out
 }
 
 func detect(d configurator.Descriptor, home string) Agent {
+	return detectAs(d, home, d.Provider)
+}
+
+// detectAs probes d; its binary is checked with probeFor's probe, the base's for
+// a variant: a name match alone is no more evidence for a fork than for its base.
+func detectAs(d configurator.Descriptor, home string, probeFor configurator.Provider) Agent {
 	a := Agent{Provider: d.Provider, Name: d.DisplayName}
 	for _, binary := range d.Binaries {
 		if path, err := lookPath(binary); err == nil {
-			if probe := binaryProbes[d.Provider]; probe != nil && !probe(path) {
+			if probe := binaryProbes[probeFor]; probe != nil && !probe(path) {
 				continue
 			}
 			return a.found(HeuristicBinary, path)
