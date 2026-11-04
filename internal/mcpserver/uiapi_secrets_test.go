@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -155,5 +156,41 @@ func TestUISecretRefs_SourceAsList(t *testing.T) {
 	}
 	if got := sources["secrets/db.sops.yaml"]; len(got) != 1 {
 		t.Fatalf("a list secrets_source must count: %v", sources)
+	}
+}
+
+// nestedSecretDoc is a flow-style document nested depth levels deep (8000 levels
+// fit in 40 KB, well under the file cap).
+func nestedSecretDoc(depth int) []byte {
+	return []byte("a: " + strings.Repeat("{k: ", depth) + `"ENC[AES256_GCM,data:x,iv:y,tag:z,type:str]"` +
+		strings.Repeat("}", depth) + "\nsops:\n  lastmodified: \"2026-01-01T00:00:00Z\"\n")
+}
+
+func TestParseSecretFile_DepthIsBounded(t *testing.T) {
+	var f uiSecretFile
+	err := parseSecretFile(nestedSecretDoc(8000), &f, nil)
+	if err == nil || !strings.Contains(err.Error(), "nested deeper") {
+		t.Fatalf("want a depth error, got %v", err)
+	}
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	data := nestedSecretDoc(8000)
+	var g uiSecretFile
+	_ = parseSecretFile(data, &g, nil)
+	runtime.ReadMemStats(&after)
+	if got := after.TotalAlloc - before.TotalAlloc; got > 16<<20 {
+		t.Fatalf("parsing a 8000-deep file allocated %d bytes", got)
+	}
+}
+
+func TestParseSecretFile_NestingWithinLimitKeepsEntries(t *testing.T) {
+	var f uiSecretFile
+	if err := parseSecretFile(nestedSecretDoc(10), &f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Entries) != 1 || f.Entries[0].AADPath != "a:"+strings.Repeat("k:", 10) ||
+		f.Entries[0].Pointer != "/a"+strings.Repeat("/k", 10) {
+		t.Fatalf("entries = %+v", f.Entries)
 	}
 }
