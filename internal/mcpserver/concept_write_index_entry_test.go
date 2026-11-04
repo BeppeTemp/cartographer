@@ -28,7 +28,7 @@ func TestConceptWrite_IndexEntry_AddsEntryInOneCommit(t *testing.T) {
 	k, _ := setupGitKB(t)
 	seedIndexMaps(t, k, mapFiles("pages", ""))
 	forwardLinks(t, k, "pages/fresh", "pages/plain")
-	if _, err := k.CommitOp("test: seed"); err != nil {
+	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")

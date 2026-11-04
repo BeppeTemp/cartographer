@@ -199,7 +199,7 @@ func TestConceptReadAtRev_ConstantGitProcesses(t *testing.T) {
 func TestRepair_LegacyToolNameCompilesOncePerField(t *testing.T) {
 	k, s := repairKB(t, 0)
 	seedLegacyFixes(t, k)
-	if _, err := k.CommitOp("test: seed legacy"); err != nil {
+	if _, err := k.CommitOpAs("test: seed legacy", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	before := fieldReCompiles.Load()

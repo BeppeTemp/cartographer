@@ -35,7 +35,7 @@ func TestSyncOut_ProtectedBranchRejectionIsReportedAsSuch(t *testing.T) {
 			if err := k.WriteFileAtomic("data/a.md", []byte("a\n")); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := k.CommitOp("write a"); err != nil {
+			if _, err := k.CommitOpAs("write a", "", ""); err != nil {
 				t.Fatalf("CommitOp: %v", err)
 			}
 

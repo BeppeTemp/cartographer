@@ -148,7 +148,7 @@ func repairManagedHashes(dir, only string) int {
 		if _, known := configurator.Lookup(configurator.Provider(providerName)); !known {
 			continue // a client the registry dropped (D898): its record is not ours to repair
 		}
-		repaired, skipped, repairErr := provisioning.RepairManagedHashes(lock, configurator.Provider(providerName), dir, false)
+		repaired, skipped, repairErr := provisioning.RepairManagedHashes(lock, configurator.Provider(providerName), dir)
 		if repairErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: repair %s: %v\n", providerName, repairErr)
 			return 2

@@ -26,7 +26,7 @@ func TestSyncOut_MemberCheckRemoteAcceptsTheConfiguredIdentity(t *testing.T) {
 		if err := k.WriteFileAtomic(rel, []byte(subject+"\n")); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := k.CommitOp(subject); err != nil {
+		if _, err := k.CommitOpAs(subject, "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}

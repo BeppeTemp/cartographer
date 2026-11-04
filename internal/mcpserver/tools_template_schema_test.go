@@ -224,7 +224,7 @@ func TestFixpointRepairsTemplateShape(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "infra", "box.md"), []byte(page), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("test: seed"); err != nil {
+	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	out, skip := repairConceptFixpoint(k, "infra/box", lint.AutoRepairChecks(), nil)

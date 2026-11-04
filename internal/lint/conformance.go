@@ -1052,13 +1052,6 @@ func containsWord(s, word string) bool {
 	}
 }
 
-// TitleTextIssues exports titleTextIssues for the write-time warnings
-// (source_register): every title_quality problem of a title under a map
-// contract, one message each. hasStatus: the concept carries a status field.
-func TitleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []string {
-	return titleTextIssues(contract, hasStatus, title)
-}
-
 // AutoRepairOrder is the checks the server repairs by itself (D323,
 // D355, D907): every check whose registered fix may run with no person
 // (AutoRepairSafe, D354). Each is mechanical and already guarded; leaving one

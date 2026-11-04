@@ -2,32 +2,33 @@ package search
 
 import "unicode"
 
-// foldTable maps each accented letter of Latin-1 Supplement and Latin
-// Extended-A to its base letter, one rune to one rune (D246). Letters with no
+// foldTable maps each lowercase accented letter of Latin-1 Supplement and Latin
+// Extended-A to its base letter (FoldRune lowercases first, so an uppercase key
+// would never be reached), one rune to one rune (D246). Letters with no
 // single-letter base — ß, æ, œ, ĳ, þ, ŋ, ĸ, ŉ — are absent and left alone.
 // One rune for one rune is what lets a caller search a folded copy of a text
 // and cut the match out of the original at the same rune offsets.
 var foldTable = func() map[rune]rune {
 	groups := map[rune]string{
-		'A': "ÀÁÂÃÄÅĀĂĄ", 'a': "àáâãäåāăą",
-		'C': "ÇĆĈĊČ", 'c': "çćĉċč",
-		'D': "ÐĎĐ", 'd': "ðďđ",
-		'E': "ÈÉÊËĒĔĖĘĚ", 'e': "èéêëēĕėęě",
-		'G': "ĜĞĠĢ", 'g': "ĝğġģ",
-		'H': "ĤĦ", 'h': "ĥħ",
-		'I': "ÌÍÎÏĨĪĬĮİ", 'i': "ìíîïĩīĭįı",
-		'J': "Ĵ", 'j': "ĵ",
-		'K': "Ķ", 'k': "ķ",
-		'L': "ĹĻĽĿŁ", 'l': "ĺļľŀł",
-		'N': "ÑŃŅŇ", 'n': "ñńņň",
-		'O': "ÒÓÔÕÖØŌŎŐ", 'o': "òóôõöøōŏő",
-		'R': "ŔŖŘ", 'r': "ŕŗř",
-		'S': "ŚŜŞŠ", 's': "śŝşšſ",
-		'T': "ŢŤŦ", 't': "ţťŧ",
-		'U': "ÙÚÛÜŨŪŬŮŰŲ", 'u': "ùúûüũūŭůűų",
-		'W': "Ŵ", 'w': "ŵ",
-		'Y': "ÝŶŸ", 'y': "ýÿŷ",
-		'Z': "ŹŻŽ", 'z': "źżž",
+		'a': "àáâãäåāăą",
+		'c': "çćĉċč",
+		'd': "ðďđ",
+		'e': "èéêëēĕėęě",
+		'g': "ĝğġģ",
+		'h': "ĥħ",
+		'i': "ìíîïĩīĭįı",
+		'j': "ĵ",
+		'k': "ķ",
+		'l': "ĺļľŀł",
+		'n': "ñńņň",
+		'o': "òóôõöøōŏő",
+		'r': "ŕŗř",
+		's': "śŝşšſ",
+		't': "ţťŧ",
+		'u': "ùúûüũūŭůűų",
+		'w': "ŵ",
+		'y': "ýÿŷ",
+		'z': "źżž",
 	}
 	t := make(map[rune]rune)
 	for base, letters := range groups {

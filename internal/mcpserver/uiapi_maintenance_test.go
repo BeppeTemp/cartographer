@@ -35,7 +35,7 @@ func maintenanceHandler(t *testing.T, ts *auth.TokenStore) http.Handler {
 	if _, err := k.WriteConcept(okf.ConceptID("ops/q2"), done, "# Q\n", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("test: questions"); err != nil {
+	if _, err := k.CommitOpAs("test: questions", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	multi := NewMultiKBServer("test")
@@ -276,7 +276,7 @@ func TestUIAPI_MaintenanceReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := k.CommitOp("test: near duplicates"); err != nil {
+	if _, err := k.CommitOpAs("test: near duplicates", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	multi := NewMultiKBServer("test")
