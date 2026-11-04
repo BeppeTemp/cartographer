@@ -46,24 +46,27 @@ type pushFlusher interface {
 	FlushPush(timeout time.Duration) error
 }
 
+// namedFlusher carries the KB name with its flusher, so the log always names it.
+type namedFlusher struct {
+	name string
+	f    pushFlusher
+}
+
 // flushPushes flushes every KB's pending push in parallel under ONE overall
-// budget: each flusher gets the time left until the shared deadline, so N KBs
-// behind a slow remote cost one budget, not N (a sequential loop could outlast
-// the k8s grace period or the service stop timeout and lose the very pushes
-// D76/WP4 meant to save). It returns when every flusher has.
-func flushPushes(flushers []pushFlusher, budget time.Duration) {
-	deadline := time.Now().Add(budget)
+// budget: all flushers start together and share it, so N KBs behind a slow
+// remote cost one budget, not N (a sequential loop could outlast the k8s grace
+// period or the service stop timeout and lose the very pushes D76/WP4 meant to
+// save). The timeout is computed once, before any goroutine starts, so a late
+// scheduled one never gets zero. It returns when every flusher has.
+func flushPushes(flushers []namedFlusher, budget time.Duration) {
+	remaining := budget
 	var wg sync.WaitGroup
-	for _, f := range flushers {
+	for _, nf := range flushers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := f.FlushPush(time.Until(deadline)); err != nil {
-				name := "?"
-				if k, ok := f.(*kb.KB); ok {
-					name = k.Root
-				}
-				log.Printf("flush pending push for KB %s: %v", name, err)
+			if err := nf.f.FlushPush(remaining); err != nil {
+				log.Printf("flush pending push for KB %s: %v", nf.name, err)
 			}
 		}()
 	}
@@ -751,9 +754,9 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		m.FlushReadAccess()
 	}
 	if kbs := mounted.Load(); kbs != nil {
-		flushers := make([]pushFlusher, len(*kbs))
+		flushers := make([]namedFlusher, len(*kbs))
 		for i, k := range *kbs {
-			flushers[i] = k
+			flushers[i] = namedFlusher{name: k.Root, f: k}
 		}
 		flushPushes(flushers, shutdownPushFlushTimeout)
 	}

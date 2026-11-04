@@ -26,9 +26,9 @@ func TestFlushPushes_ParallelUnderOneBudget(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(n)
 	timeouts := make(chan time.Duration, n)
-	flushers := make([]pushFlusher, n)
+	flushers := make([]namedFlusher, n)
 	for i := range flushers {
-		flushers[i] = barrierFlusher{wg: &wg, timeout: timeouts}
+		flushers[i] = namedFlusher{name: "kb", f: barrierFlusher{wg: &wg, timeout: timeouts}}
 	}
 	done := make(chan struct{})
 	go func() { flushPushes(flushers, budget); close(done) }()

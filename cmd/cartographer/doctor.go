@@ -220,7 +220,9 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 		findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
-		if healthErr == nil {
+		// facts.health is set whenever /health answered, even when the listing
+		// is malformed (enumerateKBs then returns facts with an error).
+		if facts.health != nil {
 			findings = append(findings, checkKBCollisions(dir, cfg, providers, facts)...)
 		}
 		findings = append(findings, checkWorkspaceProjections(dir, cfg, providers)...)

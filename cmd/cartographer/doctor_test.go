@@ -949,3 +949,32 @@ func TestCheckKBCollisions_NotRunWhenServerUnreachable(t *testing.T) {
 	// With facts.health nil, pulling would panic: runDoctor must skip it.
 	runDoctor(dir, "")
 }
+
+// A /health with a nameless KB entry makes enumerateKBs return facts together
+// with an error; the collision check still runs on that response (it did
+// before the single probe), so it pulls from the server.
+func TestRunDoctor_CollisionCheckRunsOnPartialFacts(t *testing.T) {
+	doctorStubs(t, []string{"claude"}, false)
+	dir := doctorFixture(t, "claude")
+	var pulls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			pulls.Add(1)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok","version":"0.8.3","kbs":[{"name":"alpha"},{"name":""}]}`)
+	}))
+	defer srv.Close()
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ServerURL = srv.URL
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	runDoctor(dir, "")
+	if pulls.Load() == 0 {
+		t.Error("the collision check did not reach the server")
+	}
+}
