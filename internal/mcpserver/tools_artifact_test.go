@@ -885,9 +885,10 @@ func TestArtifactWrite_HookJSONIsValidated(t *testing.T) {
 	}
 	// A valid hook.json is accepted; Stop is fired by every client but Crush,
 	// which fires only PreToolUse (D363), and Copilot, which fires only
-	// SessionStart, PreToolUse and PostToolUse (D676); the warning names those...
+	// SessionStart, PreToolUse and PostToolUse (D676), like Pi and Cline (which
+	// has no Stop: TaskComplete cannot continue the run); the warning names those...
 	tr := write("hooks/guard/hook.json", `{"event":"Stop","command":"./run.sh"}`)
-	if tr.IsError || !strings.Contains(tr.Content[0].Text, "not fired by: crush, copilot, pi (") {
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, "not fired by: crush, copilot, pi, cline (") {
 		t.Fatalf("valid hook: %+v", tr.Content)
 	}
 	// An event outside the vocabulary is accepted with a warning: a client may

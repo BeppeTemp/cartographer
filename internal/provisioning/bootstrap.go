@@ -409,6 +409,22 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			return rel, warning, registered, nil
 		},
 	},
+	configurator.ProviderCline: {
+		// No generated file per hook and no shared settings file: the
+		// registration is the per-event dispatcher in Documents/Cline/Hooks,
+		// derived from the hooks on disk (registerClineHook), so there is no
+		// pluginPath and no settingsFile. warningBlocksBootstrap stays false: a
+		// user's own TaskStart file is a warning to report, never a reason to
+		// fail the bootstrap. writeFindingsHook stays false until probe P2
+		// shows that postToolUse.result carries the response text.
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			rel, warning, registered, err := registerClineHook(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", false, fmt.Errorf("provisioning: register hook %s as a Cline dispatcher: %w", name, err)
+			}
+			return rel, warning, registered, nil
+		},
+	},
 	configurator.ProviderKiro: {
 		settingsFile: kiroHooksRelPath,
 		// Probed on 2.26.1 and 2.27.0: the standalone hook files load only
@@ -447,6 +463,11 @@ func checkHookRegistrationTarget(baseDir string, provider configurator.Provider,
 		targets = append(targets, crushSettingsPath(baseDir, destRel))
 	case len(m.settingsFile) > 0:
 		targets = append(targets, filepath.Join(baseDir, filepath.Join(m.settingsFile...)))
+	}
+	if provider == configurator.ProviderCline {
+		// The dispatchers live outside the base dir's own layout: a symlinked
+		// Documents/Cline/Hooks is refused before any hook file is written.
+		targets = append(targets, clineHooksDir(baseDir))
 	}
 	if m.pluginPath != nil {
 		targets = append(targets, filepath.Join(baseDir, filepath.FromSlash(m.pluginPath(name))))

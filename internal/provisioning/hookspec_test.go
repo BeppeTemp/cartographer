@@ -44,13 +44,13 @@ func TestValidateHookJSON_ReportsClientsThatWillNotFire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(misses, ","); got != "claude,codex,opencode,kiro,crush,copilot,pi" {
-		t.Errorf("PreInvocation misses = %q, want claude,codex,opencode,kiro,crush,copilot,pi", got)
+	if got := strings.Join(misses, ","); got != "claude,codex,opencode,kiro,crush,copilot,pi,cline" {
+		t.Errorf("PreInvocation misses = %q, want claude,codex,opencode,kiro,crush,copilot,pi,cline", got)
 	}
 	misses, _ = ValidateHookJSON([]byte(`{"event":"Stop","command":"./x.sh"}`))
 	// Crush fires only PreToolUse (probed on v0.98.0, D363).
-	if got := strings.Join(misses, ","); got != "crush,copilot,pi" {
-		t.Errorf("Stop misses = %q, want crush,copilot,pi", got)
+	if got := strings.Join(misses, ","); got != "crush,copilot,pi,cline" {
+		t.Errorf("Stop misses = %q, want crush,copilot,pi,cline", got)
 	}
 	// Copilot fires only SessionStart, PreToolUse and PostToolUse (probed on
 	// 1.0.94, D676); so does Pi (probed on 1.5.0).
@@ -77,6 +77,10 @@ func TestHookEventVocabularyAgreesWithRegistrars(t *testing.T) {
 	for event, providers := range hookEventReach {
 		for _, p := range providers {
 			switch p {
+			case configurator.ProviderCline:
+				if _, ok := clineHookEvents[event]; !ok {
+					t.Errorf("vocabulary sends %q to cline, which has no dispatcher event for it", event)
+				}
 			case configurator.ProviderOpenCode:
 				if _, ok := openCodeHookEvents[event]; !ok {
 					t.Errorf("vocabulary sends %q to opencode, which has no mapping for it", event)

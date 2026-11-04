@@ -1379,8 +1379,11 @@ bridge in the extension host's folder, so every session is unbound and gets the 
 one folder sets `cwd` by hand, Cartographer never writes it. Its global cells are the MCP file,
 `~/.cline/rules/cartographer.md` (the managed block, a file Cartographer owns whole: Cline reads every `.md` there as an
 always-on global rule), `~/.cline/skills/<name>/` and `~/.cline/agents/<name>.yaml` (a translated subagent; `tools` and
-`model` are dropped and an empty prompt falls back to the description, since Cline skips an agent without one). The hook cell
-and every project cell are unsupported. `CLINE_DIR` is ignored like every provider-specific home override. Detection is the
+`model` are dropped and an empty prompt falls back to the description, since Cline skips an agent without one). Hooks are `~/.cline/cartographer-hooks/<name>/` plus an owned dispatcher
+per event in `Documents/Cline/Hooks` (`TaskStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`), which calls the internal
+`cartographer hook dispatch --provider cline --event <Event>`: it reads Cline's payload, runs the Cartographer hooks of the event
+and answers `{cancel, contextModification, errorMessage}` as one line of ASCII JSON, always with exit 0 (a `PreToolUse` block stops
+the whole Cline task). Every project cell is unsupported. `CLINE_DIR` is ignored like every provider-specific home override. Detection is the
 `cline` binary, `~/.cline`, or the extension directory `saoudrizwan.claude-dev-*` under an editor's `extensions` folder.
 
 The formats above are generated from the same provider-neutral core,

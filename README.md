@@ -148,7 +148,7 @@ My first knowledge base is at: `<git remote URL>`
 | Instructions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Subagents | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — | ✓ |
-| Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | — |
+| Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ |
 
 Subagents and hooks are **translated**, not copied. Every `—` is a gap declared for a stated reason,
 never a silent omission. Cartographer re-syncs at session start (or on a timer where a client has
