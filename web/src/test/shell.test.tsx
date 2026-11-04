@@ -280,7 +280,8 @@ describe("the reading panel splitter", () => {
 
     await user.keyboard("{Enter}");
     expect(handle).toHaveAttribute("aria-valuenow", "668");
-    expect(localStorage.getItem("cartographer.inspector.width")).toBe("668");
+    // Restoring drops the preference (WP14): 0 is stored, so the panel follows the window again.
+    expect(localStorage.getItem("cartographer.inspector.width")).toBe("0");
   });
 
   it("restores the stored width, clamped to the window without rewriting it", async () => {
