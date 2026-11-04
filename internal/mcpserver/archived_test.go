@@ -441,7 +441,7 @@ func TestConceptMove_RefusesATypeTheStrictTargetDoesNotAdmit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := k.CommitOp("test: seed"); err != nil {
+	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 

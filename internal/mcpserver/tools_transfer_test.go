@@ -48,7 +48,7 @@ func xferWrite(t *testing.T, k *kb.KB, rel, content string) {
 
 func xferCommit(t *testing.T, k *kb.KB) {
 	t.Helper()
-	if _, err := k.CommitOp("fixture"); err != nil {
+	if _, err := k.CommitOpAs("fixture", "", ""); err != nil {
 		t.Fatal(err)
 	}
 }

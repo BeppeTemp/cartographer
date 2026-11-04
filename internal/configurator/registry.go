@@ -101,8 +101,8 @@ type Descriptor struct {
 	// purely additive.
 	EnvConfigDirs []EnvAnchoredDir
 	// AppDirs are absolute application-installation directories keyed by GOOS,
-	// probed last — after PATH, the config directories and the provider's own
-	// root. A GOOS with no entry simply has none: exec.LookPath already covers a
+	// probed last — after PATH, the config directories and the environment-
+	// anchored directories. A GOOS with no entry simply has none: exec.LookPath already covers a
 	// CLI on PATH (and honours PATHEXT on Windows), so an application directory
 	// is extra evidence, never the mechanism. Only a location that could be
 	// confirmed is listed here, because an invented one is a false positive,

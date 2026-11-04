@@ -24,7 +24,7 @@ func strictRuleKB(t *testing.T) (*Server, *kb.KB) {
 	if _, err := k.WriteConcept("jr/bad", fm, "# Bad\n\nold text\n", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("test: seed"); err != nil {
+	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	return s, k

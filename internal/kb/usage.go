@@ -28,7 +28,8 @@ const maxUsageFile = 4 << 20
 var ErrUsageTooLarge = errors.New("usage store too large")
 
 // usageMu serialises usage merges (read-modify-write on one small file). One
-// package-level lock rather than a field: KB is copied by value in places.
+// package-level lock rather than a field, so it also serialises two KB values
+// opened on the same root.
 var usageMu sync.Mutex
 
 // UsageEntry is the usage of one artifact by one provider. The JSON tags are

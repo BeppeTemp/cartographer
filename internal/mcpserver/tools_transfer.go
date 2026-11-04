@@ -73,7 +73,7 @@ func toolConceptTransfer(src *kb.KB, deps Deps) Tool {
 	t := Tool{
 		Name: "concept_transfer",
 		Description: "Moves concepts with their assets to another KB on this server, in one commit per KB. " +
-			"moves: [{source_id, target_id}], validated first; target slots must be free. Bytes copied verbatim. " +
+			"moves: [{source_id, target_id}], validated first; target slots must be free. A page is rewritten through the write path (its links rebased, safe repairs applied); assets are copied verbatim. " +
 			"Links to moved pages in this KB become plain text. Reports undeclared placeholders and sops warnings.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
