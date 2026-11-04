@@ -2,7 +2,7 @@
 topic: client-configurator
 ---
 
-# DXXXX — The usage scan is throttled and runs off the client lock, and `server_name` is a plain identifier
+# D1623 — The usage scan is throttled and runs off the client lock, and `server_name` is a plain identifier
 
 **Decision.** `sync` scans the session transcripts at most once every 6 hours,
 with the time of the last scan kept as the mtime of `.cartographer-usage-scan`
