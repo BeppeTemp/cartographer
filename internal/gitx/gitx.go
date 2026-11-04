@@ -1620,6 +1620,18 @@ func FileHistory(dir, path string, limit int) ([]FileRevision, error) {
 	return all, nil
 }
 
+// CommitFiles is the files commit sha changed, renames detected (OldPath holds
+// the source), the same shape LogNameStatus reports. A root commit lists all
+// its files. It reads the whole commit: a visibility filter needs every path a
+// commit touched, not only the one a history was asked for.
+func CommitFiles(dir, sha string) ([]FileChange, error) {
+	out, errOut, err := runGitStdin(dir, "", "diff-tree", "--root", "-r", "-M", "-z", "--name-status", "--no-commit-id", sha)
+	if err != nil {
+		return nil, fmt.Errorf("git diff-tree %s: %w: %s", sha, err, errOut)
+	}
+	return parseNameStatusZ(out), nil
+}
+
 // movedFrom is the path that commit renamed to dest, "" when it renamed none
 // to it. It reads the whole commit: a pathspec that leaves the old path out
 // cannot show the rename.

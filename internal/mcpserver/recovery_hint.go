@@ -23,12 +23,12 @@ var batchOpPrefix = regexp.MustCompile(`^batch op (\d+) \(`)
 // carries the current hash like the other writes do, and a rollback that
 // itself failed carries the recovery hint, because the tree may hold part of
 // the batch.
-func batchWriteError(k *kb.KB, ops []kb.BatchWriteOp, err error) string {
+func batchWriteError(ctx requestContext, k *kb.KB, ops []kb.BatchWriteOp, err error) string {
 	if errors.Is(err, okf.ErrStaleWrite) {
 		msg := "stale_write: " + err.Error()
 		if m := batchOpPrefix.FindStringSubmatch(err.Error()); m != nil {
 			if i, convErr := strconv.Atoi(m[1]); convErr == nil && i < len(ops) {
-				msg += staleConceptSuffix(k, string(ops[i].ID))
+				msg += staleConceptSuffix(ctx, k, string(ops[i].ID))
 			}
 		}
 		return msg

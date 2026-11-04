@@ -21,7 +21,7 @@ func staleRetryHint(what, tool string) string {
 // under gitWrap's): a failed lookup, or a concept that does not exist (the
 // "file not found" stale_write has no current hash), degrades to "", the
 // text the error had before.
-func staleConceptSuffix(k *kb.KB, id string) string {
+func staleConceptSuffix(ctx requestContext, k *kb.KB, id string) string {
 	data, err := k.ReadConcept(okf.ConceptID(id))
 	if err != nil {
 		return ""
@@ -30,9 +30,12 @@ func staleConceptSuffix(k *kb.KB, id string) string {
 	if gitx.IsRepo(k.Root) {
 		if path, err := conceptGitPath(k, id); err == nil {
 			if revs, err := gitx.FileHistory(k.Root, path, 1); err == nil && len(revs) == 1 {
-				out += fmt.Sprintf("; last changed by %s %q", shortSHA(revs[0].SHA), revs[0].Subject)
-				if revs[0].Reason != "" {
-					out += ", reason: " + revs[0].Reason
+				// The text of a commit that also touched pages outside the
+				// caller's perimeter is cut down to the tool name.
+				subject, reason, _ := newHistoryGuard(ctx, k).redact(revs[0].SHA, revs[0].Subject, revs[0].Reason)
+				out += fmt.Sprintf("; last changed by %s %q", shortSHA(revs[0].SHA), subject)
+				if reason != "" {
+					out += ", reason: " + reason
 				}
 			}
 		}

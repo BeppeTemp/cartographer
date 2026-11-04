@@ -78,3 +78,9 @@ test or a decision record: none of them is a preference.
   ranking view, one archived set. A helper that validates the graph or asks
   `ConceptFacets` per pass or per candidate shows in `search_pass_test.go`, which counts
   `k.GraphValidations()` and `k.GraphFacetLookups()`.
+- **Anything read out of git for a caller is filtered by `historyGuard`
+  (`history_visibility.go`).** A revision list, a file at a past `rev`, a commit
+  subject or reason: the policy gate checked only the page's current id, but
+  history follows renames and a commit touches several files. A new tool or hint
+  that returns commit data builds `newHistoryGuard(ctx, k)` and uses
+  `revisions`, `pathVisible` and `redact`; a nil guard is a whole-KB caller.
