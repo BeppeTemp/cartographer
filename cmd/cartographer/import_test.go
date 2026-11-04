@@ -1,13 +1,17 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kbtest"
 )
@@ -465,6 +469,33 @@ func TestCmdImport_TellsTheOperatorToReindex(t *testing.T) {
 	}
 }
 
+// An import in the test run never reaches the server of the client config
+// found under $HOME: TestMain stubs the reindex, only the test above names it.
+func TestCmdImport_DoesNotTouchTheConfiguredServer(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: srv.URL + "/mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kbDir := kbtest.New(t).Root
+	withStdout(t, func() {
+		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
+			t.Errorf("cmdImport = %d, want 0", code)
+		}
+	})
+	if n := hits.Load(); n != 0 {
+		t.Errorf("the import sent %d request(s) to the configured server", n)
+	}
+}
+
 // --- D162 WP5: --map covers a subtree ---
 
 // A corpus with 58 source directories needed 58 flags, because the lookup was
@@ -731,4 +762,9 @@ func TestCmdImport_SkipsLinksAndOversizedFiles(t *testing.T) {
 			t.Errorf("%s was imported", name)
 		}
 	}
+}
+
+// buildImportPlan is buildImportPlanWithOptions without --dir-as-concept.
+func buildImportPlan(source string, mapping []importMapEntry, defaultMap string) (*importPlan, error) {
+	return buildImportPlanWithOptions(source, mapping, defaultMap, false)
 }

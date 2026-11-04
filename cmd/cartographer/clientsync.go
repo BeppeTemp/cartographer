@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -339,61 +340,6 @@ func kbOrderForProviders(cfg *clientconfig.Config, providers []string) map[strin
 	return out
 }
 
-// manifestsForProviders returns, per provider, the manifest it may receive:
-// the candidates of its bound KBs, selected by source, merged strictly (so a
-// cross-KB collision inside THAT provider's set stops the sync, D171) and
-// signature-verified.
-//
-// Every KB is pulled once for all providers; the split happens afterwards.
-// Verification pins are applied per provider only because VerifiedManifest
-// takes a manifest — the work is over the same artifacts either way, and an
-// artifact's verification result cannot differ between providers.
-//
-// It returns the GLOBAL projection of each provider, keyed by provider name —
-// the view `status` and the TUI have always shown. A workspace-scoped provider
-// has more projections than this one; `status` reports them separately (D193),
-// and the sync path goes through manifestsForProjections instead, which is the
-// only caller that materializes.
-func manifestsForProviders(cfg *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
-	out := make(map[string]provisioning.Manifest, len(providers))
-
-	union, requiredBy, anyDefault := boundKBUnion(cfg, providers)
-	if len(union) == 0 && !anyDefault {
-		// Every provider is explicitly bound to no KBs: there is nothing to
-		// pull, and asking the server would only invite an error about a
-		// selection nobody made.
-		for _, p := range providers {
-			out[p] = provisioning.MergeArtifacts(nil)
-		}
-		return out, nil
-	}
-
-	cs, err := fetchCandidates(cfg, union)
-	if err != nil {
-		return nil, annotateStaleBinding(err, requiredBy)
-	}
-	if cs.HasBare {
-		fmt.Fprintln(os.Stderr, "warning: the server does not identify its KBs by name, so per-client KB bindings cannot be applied; every connected client receives everything it serves")
-	}
-
-	pins, err := pinnedPublicKeys(cfg)
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range providers {
-		merged, err := provisioning.MergeArtifactsStrict(cs.forProvider(cfg, p))
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", p, err)
-		}
-		verified, err := provisioning.VerifiedManifest(merged, pins)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", p, err)
-		}
-		out[p] = withoutOptedOutSkillsLines(cfg, verified)
-	}
-	return out, nil
-}
-
 // annotateStaleBinding appends the providers that require a KB the server no
 // longer advertises. resolveKBTargets already names the KB; without this the
 // operator still has to guess which client's binding to fix.
@@ -678,19 +624,6 @@ func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey,
 	return pins, nil
 }
 
-// uniformManifests is the pre-D170 shape — every provider receiving the same
-// manifest — kept for callers that legitimately have one: `reconnect`, which
-// rebuilds from what the client already holds, and tests that do not exercise
-// bindings. Production sync/connect paths build the map from the bindings via
-// manifestsForProviders instead.
-func uniformManifests(m provisioning.Manifest, providers []string) map[string]provisioning.Manifest {
-	out := make(map[string]provisioning.Manifest, len(providers))
-	for _, p := range providers {
-		out[p] = m
-	}
-	return out
-}
-
 // materializeForProviders applies each provider's own manifest (D170),
 // persisting a single v2 LockFile at <targetDir>/.cartographer-sync.lock.json (one
 // Lock entry per provider), stamped with serverVersion — the version of the
@@ -870,7 +803,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		if serverVersion != "" {
 			applied.NewLock.ServerVersion = serverVersion
 		}
-		lockFile.SetProjection(p.Key(), applied.NewLock, p.Remote)
+		lockFile.SetProjection(p.Key(), applied.NewLock)
 		results[projectionKey(p)] = applied
 
 		// Checkpoint after every provider, not once at the end (D172). With a
@@ -1157,16 +1090,7 @@ func hookRegistrationTarget(p configurator.Provider, hook, managedPath, settings
 // sortedKeys returns the keys of a map[string]provisioning.AppliedResult sorted,
 // so command output is deterministic across runs.
 func sortedKeys(m map[string]provisioning.AppliedResult) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j-1] > keys[j]; j-- {
-			keys[j-1], keys[j] = keys[j], keys[j-1]
-		}
-	}
-	return keys
+	return slices.Sorted(maps.Keys(m))
 }
 
 // resolveTargetProviders resolves connect's positional target and --agents CSV:

@@ -30,7 +30,7 @@ func TestWorkspaceExclusionsAreTheUnionOfBoundProviders(t *testing.T) {
 		return string(b)
 	}
 	has := func(content string, provider configurator.Provider) bool {
-		for _, p := range provisioning.ProjectOwnedPaths(provider) {
+		for _, p := range projectOwnedPaths(provider) {
 			if !strings.Contains(content, "/"+filepath.ToSlash(p)+"\n") {
 				return false
 			}
@@ -67,7 +67,7 @@ func TestWorkspaceProvidersKeepsUntouchedAndDropsLeaving(t *testing.T) {
 	ws := "/ws"
 	var lf provisioning.LockFile
 	for _, p := range []string{"claude", "kiro", "codex"} {
-		lf.SetProjection(provisioning.Projection{Provider: p, Workspace: ws}, provisioning.Lock{}, "")
+		lf.SetProjection(provisioning.Projection{Provider: p, Workspace: ws}, provisioning.Lock{})
 	}
 	declared := []syncProjection{
 		{Provider: "claude", Workspace: ws, Scope: provisioning.ScopeProject},
@@ -82,7 +82,7 @@ func TestWorkspaceProvidersKeepsUntouchedAndDropsLeaving(t *testing.T) {
 // rootsOwned owns every directory root of a provider, the pre-D1181 answer: the
 // tests that are about which providers share the block do not care which paths.
 func rootsOwned(provider configurator.Provider) ([]string, error) {
-	return provisioning.ProjectOwnedPaths(provider), nil
+	return projectOwnedPaths(provider), nil
 }
 
 // #1181: a projection owns the artifacts it writes, not the directory. A
@@ -135,4 +135,19 @@ func TestPrepareWorkspace_OwnsArtifactsNotDirectories(t *testing.T) {
 	if !errors.As(err, &collision) || !strings.Contains(err.Error(), ".agents/skills/own/SKILL.md") {
 		t.Errorf("a projected skill named like a tracked one = %v, want a collision naming it", err)
 	}
+}
+
+// projectOwnedPaths is the workspace-relative roots a projection of provider
+// can write under, from the roots the doctor check walks.
+func projectOwnedPaths(provider configurator.Provider) []string {
+	const ws = "ws"
+	var out []string
+	for _, abs := range provisioning.ManagedProjectRoots(provider, ws) {
+		rel, err := filepath.Rel(ws, abs)
+		if err != nil {
+			panic(err)
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return out
 }

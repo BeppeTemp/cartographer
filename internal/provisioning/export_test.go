@@ -2,8 +2,11 @@ package provisioning
 
 import (
 	"os"
+	"path"
+	"sort"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 )
 
@@ -50,3 +53,33 @@ func SetOpenCodeVersionForTest(out string) func() {
 }
 
 var errOpenCodeAbsent = os.ErrNotExist
+
+// ProjectOwnedPaths is the workspace-relative roots a projection can write
+// under for provider: the per-kind directories and the exact file of a
+// shared-file destination. A root is not ownership (the repository-hygiene
+// pass uses ProjectOwnedArtifactPaths, D1181): tests use it as the expected
+// value of where a projection may write.
+func ProjectOwnedPaths(provider configurator.Provider) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, kind := range artifactKinds {
+		cell, ok := projectDestinationMatrix[kind][provider]
+		if !ok || cell.unsupported {
+			continue
+		}
+		rel := path.Join(cell.dir...)
+		if rel == "" || rel == "." || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, rel)
+	}
+	for _, rel := range projectRegistrationFiles[provider] {
+		if !seen[rel] {
+			seen[rel] = true
+			out = append(out, rel)
+		}
+	}
+	sort.Strings(out)
+	return out
+}

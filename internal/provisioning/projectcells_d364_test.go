@@ -138,7 +138,7 @@ func TestApply_CoOwnedSkillSurvivesTheOtherProvidersPrune(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		lf.SetProjection(provisioning.Projection{Provider: string(p), Workspace: ws}, res.NewLock, "")
+		lf.SetProjection(provisioning.Projection{Provider: string(p), Workspace: ws}, res.NewLock)
 	}
 	skill := filepath.Join(ws, ".agents", "skills", "demo", "SKILL.md")
 	codex := provisioning.Projection{Provider: "codex", Workspace: ws}

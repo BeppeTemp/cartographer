@@ -69,7 +69,7 @@ type dashboardAgent struct {
 	// is present on disk (see mcpConfigStatus).
 	MCPConfigState mcpConfigState
 	// SkillStatus is one of: "not connected", "checking…", "in-sync",
-	// "drift ..." (see formatDiffStatus), "server unreachable", or "error: ...".
+	// "drift ..." (see formatTUIProviderStatus), "server unreachable", or "error: ...".
 	SkillStatus string
 	// BoundKBs is the set of KBs this provider receives and BindingExplicit
 	// whether the user declared it or it was defaulted (D169/D175 WP1).
@@ -452,12 +452,14 @@ func loadRemoteStatusCmd(dir string) tea.Cmd {
 }
 
 // formatTUIProviderStatus retains the compact dashboard state while making
-// the MCP approval outcome visible and only an MCP descriptor waits for it.
+// the trust outcome of every pending artifact visible: an MCP descriptor, a
+// hook and a skill or agent with an executable file all wait for an approval
+// (D906, D1141), and snapshotArtifacts assigns each its Trust state.
 func formatTUIProviderStatus(p providerStatus) string {
 	base := strings.ReplaceAll(p.State, "_", "-")
 	counts := map[string]int{}
 	for _, a := range append(append([]statusArtifact{}, p.Added...), p.Updated...) {
-		if a.Kind == "mcp" && a.Trust != "" {
+		if a.Trust != "" {
 			counts[a.Trust]++
 		}
 	}
@@ -568,26 +570,6 @@ func disconnectCmd(provider, dir string) tea.Cmd {
 	}
 }
 
-// formatDiffStatus renders a provisioning.Diff as a short status string, used by
-// both loadRemoteStatusCmd (dashboard) and mirrors cmdStatus's own reasoning.
-func formatDiffStatus(d provisioning.Diff, approved map[string]string) string {
-	if d.InSync {
-		return "in-sync"
-	}
-	needsApproval := 0
-	opts := provisioning.ApplyOptions{ApprovedMCP: approved}
-	for _, a := range append(append([]provisioning.Artifact(nil), d.Added...), d.Updated...) {
-		if !provisioning.ArtifactAuthorized(a, opts) { // the predicate Apply uses (D906, D1141)
-			needsApproval++
-		}
-	}
-	base := fmt.Sprintf("drift +%d ~%d -%d", len(d.Added), len(d.Updated), len(d.Removed))
-	if needsApproval > 0 {
-		return fmt.Sprintf("%s (%d needs approval, use CLI `cartographer approve`)", base, needsApproval)
-	}
-	return base
-}
-
 // knownProvisioningKinds fixes the display order of formatKindStatus: the kinds
 // provisioning supports today (skill, agent, hook — D48; instructions — D56; mcp
 // — D69), in the order the mandate example uses. Kinds outside this list (future
@@ -603,8 +585,7 @@ var knownProvisioningKinds = []string{"skill", "agent", "hook", "instructions", 
 //
 // The single caller is snapshotForConfig (status_snapshot.go): both
 // `cartographer status` and the dashboard read the result off the snapshot, so
-// the two cannot report different breakdowns for the same provider. It stands
-// alongside — not in place of — formatDiffStatus.
+// the two cannot report different breakdowns for the same provider.
 //
 // hookLimit is provisioning.SessionHookLimit for the provider: when set, the
 // installed hooks fire only in those sessions, and the hook figure says so

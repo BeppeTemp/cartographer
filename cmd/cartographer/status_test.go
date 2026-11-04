@@ -282,10 +282,10 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 	var lf provisioning.LockFile
 	lf.SetProjection(provisioning.Projection{Provider: "claude"}, provisioning.Lock{AppliedRevision: globalM.Revision, Managed: []provisioning.ManagedFile{
 		{Kind: "skill", Name: "cartographer-ops", Path: ".claude/skills/cartographer-ops/SKILL.md", ContentHash: "bundle-hash"},
-	}}, "")
+	}})
 	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{AppliedRevision: wsM.Revision, Managed: []provisioning.ManagedFile{
 		{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md", ContentHash: "kb-hash"},
-	}}, "")
+	}})
 	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
 		t.Fatalf("write lockfile: %v", err)
 	}

@@ -132,10 +132,8 @@ func cmdKBUnmount(args []string) int {
 	switch {
 	case plan.Delete:
 		fmt.Printf("deleted the local clone %s\n", plan.KBPath)
-	case plan.ParkPath != "":
+	default: // ParkPath is set whenever the clone is not deleted (D903: it is always dataDir/name)
 		fmt.Printf("parked the local clone in %s\n", plan.ParkPath)
-	default:
-		fmt.Printf("left the local clone in %s (outside the data dir, never discovered)\n", plan.KBPath)
 	}
 	if plan.Origin != "" {
 		fmt.Printf("the remote stays the source of truth: `cartographer kb clone %s %s` brings it back\n", gitx.RedactRemoteURL(plan.Origin), name)
@@ -192,7 +190,7 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 	// TRAP: a clone left in the data dir is mounted again by discovery at the
 	// next start, kbs[] entry or not (serve.go discoverKBPaths): it must leave
 	// the data dir, or the unmount is undone by the next restart.
-	if !deleteClone && sameDir(filepath.Dir(filepath.Clean(p.KBPath)), dataDir) {
+	if !deleteClone {
 		p.ParkPath = filepath.Join(dataDir, unmountedDir, filepath.Base(p.KBPath))
 		if _, err := os.Lstat(p.ParkPath); err == nil {
 			return nil, fmt.Errorf("%s already exists: remove it, or pass --delete-clone", p.ParkPath)

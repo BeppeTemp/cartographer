@@ -608,19 +608,6 @@ func TestUpdate_DisconnectDoneMsgError(t *testing.T) {
 	}
 }
 
-func TestFormatDiffStatus(t *testing.T) {
-	if got := formatDiffStatus(provisioning.Diff{InSync: true}, nil); got != "in-sync" {
-		t.Errorf("in-sync diff: got %q", got)
-	}
-
-	d := provisioning.Diff{
-		Added: []provisioning.Artifact{{Kind: "skill", Name: "a", Signed: false}},
-	}
-	if got := formatDiffStatus(d, nil); got == "in-sync" || got == "" {
-		t.Errorf("drift diff should not report in-sync/empty, got %q", got)
-	}
-}
-
 func TestFormatTUIProviderStatusShowsMCPApprovalStates(t *testing.T) {
 	p := providerStatus{Name: "claude", Connected: true, State: "drift", Added: []statusArtifact{{Kind: "mcp", Trust: "approved"}, {Kind: "mcp", Trust: "approval_stale"}, {Kind: "mcp", Trust: "needs_approval"}}, Updated: []statusArtifact{{Kind: "mcp", Trust: "verified"}}}
 	got := formatTUIProviderStatus(p)
@@ -1280,20 +1267,28 @@ func TestSetupHint(t *testing.T) {
 	}
 }
 
-func TestFormatDiffStatus_CountsWhatApplyHolds(t *testing.T) {
+// The dashboard counts the trust state snapshotArtifacts assigns to every
+// kind: a hook and an executable skill wait for an approval like an MCP
+// descriptor does (D906, D1141), and a plain skill does not.
+func TestFormatTUIProviderStatus_CountsWhatApplyHolds(t *testing.T) {
 	hook := provisioning.Artifact{Kind: "hook", Name: "g", Source: "kb:kb-a", ContentHash: "h",
 		Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte("{}")}}}
 	script := provisioning.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "s1",
 		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("x")}, {Path: "run.sh", Content: []byte("x"), Executable: true}}}
 	plain := provisioning.Artifact{Kind: "skill", Name: "p", Source: "kb:kb-a", ContentHash: "p1",
 		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("x")}}}
-	d := provisioning.Diff{Added: []provisioning.Artifact{hook, script, plain}}
-	if got := formatDiffStatus(d, nil); !strings.Contains(got, "2 needs approval") {
+	arts := []provisioning.Artifact{hook, script, plain}
+	p := providerStatus{State: "drift", Added: snapshotArtifacts(arts, &clientconfig.Config{})}
+	if got := formatTUIProviderStatus(p); !strings.Contains(got, "(needs-approval 2)") {
 		t.Errorf("hook and executable skill must count, plain must not: %q", got)
 	}
-	approved := map[string]string{"kb:kb-a\x00hook/g": "h"}
-	if got := formatDiffStatus(d, approved); !strings.Contains(got, "1 needs approval") {
-		t.Errorf("an approved hook must not count: %q", got)
+	cfg := &clientconfig.Config{MCPApprovals: map[string]map[string]clientconfig.MCPApproval{
+		"kb-a": {provisioning.ApprovalName(hook): {ContentHash: "h"}},
+	}}
+	p = providerStatus{State: "drift", Added: snapshotArtifacts(arts, cfg)}
+	got := formatTUIProviderStatus(p)
+	if !strings.Contains(got, "needs-approval 1") || !strings.Contains(got, "approved 1") {
+		t.Errorf("an approved hook must not count as pending: %q", got)
 	}
 }
 

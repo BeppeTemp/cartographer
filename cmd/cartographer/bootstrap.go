@@ -141,7 +141,7 @@ func gitEnvForKB(name, credDir string) []string {
 // server as an orphan in .cloning.
 var bootstrapContext = context.Background()
 
-// ensureClonedKB clones remote into <dataDir>/<name> if not already present,
+// ensureClonedKBOn clones remote into <dataDir>/<name> if not already present,
 // and returns the destination path. name is the resolved KB name
 // (resolveKBName) — it drives the clone destination so an explicit
 // KBSpec.Name (D53) also determines where the KB is cloned. If the
@@ -158,12 +158,9 @@ var bootstrapContext = context.Background()
 // left unborn: serve cannot mount it and says to create the KB with `kb create`
 // (D906). This function never switches an existing clone: the first SyncIn does,
 // when that loses nothing (D1093), and refuses its writes otherwise.
-func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error) {
-	return ensureClonedKBOn(remote, name, dataDir, "", env...)
-}
-
-// ensureClonedKBOn is ensureClonedKB with the server's branch override: a fresh
-// clone is checked out on it instead of on the committed `branch` setting.
+//
+// override is the server's branch override: a fresh clone is checked out on it
+// instead of on the committed `branch` setting.
 func ensureClonedKBOn(remote, name, dataDir, override string, env ...string) (string, error) {
 	// Every message below names the remote: it may carry credentials, and the
 	// text reaches the server log and agent transcripts.

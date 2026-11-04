@@ -753,7 +753,7 @@ func TestDoDisconnect_CleansTheWorkspaceProjections(t *testing.T) {
 	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
 		{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md", ContentHash: sh, MaterializedHash: sh},
 		{Kind: "agent", Name: "ops", Path: ".claude/agents/ops.md", ContentHash: ah, MaterializedHash: ah},
-	}}, "")
+	}})
 	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 		t.Fatal(err)
 	}
@@ -849,7 +849,7 @@ func TestDoDisconnect_WorkspacePruneKeepsEditedFilesAndStaysInside(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: managed}, "")
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: managed})
 	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 		t.Fatal(err)
 	}
@@ -893,7 +893,7 @@ func TestDoDisconnect_DryRunSimulatesTheFirstProvidersRemoval(t *testing.T) {
 	for _, p := range []string{"codex", "antigravity"} {
 		lf.SetProjection(provisioning.Projection{Provider: p, Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
 			{Kind: "skill", Name: "s", Path: ".agents/skills/s/SKILL.md", ContentHash: "x"},
-		}}, "")
+		}})
 	}
 	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 		t.Fatal(err)
@@ -938,7 +938,7 @@ func TestDoDisconnect_WorkspacePruneKeepsWhatItCannotVerify(t *testing.T) {
 	lf, _ := provisioning.ReadLockFile(lockFilePath(dir))
 	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
 		{Kind: "skill", Name: "old", Path: ".claude/skills/old/SKILL.md"},
-	}}, "")
+	}})
 	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 		t.Fatal(err)
 	}
