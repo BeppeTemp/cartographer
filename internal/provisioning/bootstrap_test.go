@@ -272,7 +272,7 @@ func TestSupportsSessionHook(t *testing.T) {
 		{configurator.ProviderAntigravity, true},
 		{configurator.ProviderCrush, false},
 		{configurator.ProviderCopilot, true},
-		{configurator.ProviderPi, false},
+		{configurator.ProviderPi, true},
 	} {
 		if got := provisioning.SupportsSessionHook(tc.provider); got != tc.want {
 			t.Errorf("SupportsSessionHook(%s) = %v; want %v", tc.provider, got, tc.want)

@@ -393,6 +393,22 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			return rel, warning, registered, nil
 		},
 	},
+	configurator.ProviderPi: {
+		// A generated extension of our own per hook, returned as a managed
+		// file so it is pruned (probed on Pi 1.5.0: session_start fires in
+		// every session, -p included, so no timer is advised). SessionStart is
+		// always mapped: a warning for the bootstrap hook would be a regression.
+		pluginPath:             piExtensionRelPath,
+		writeFindingsHook:      true,
+		warningBlocksBootstrap: true,
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			rel, warning, registered, err := registerPiHook(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", false, fmt.Errorf("provisioning: register hook %s as a Pi extension: %w", name, err)
+			}
+			return rel, warning, registered, nil
+		},
+	},
 	configurator.ProviderKiro: {
 		settingsFile: kiroHooksRelPath,
 		// Probed on 2.26.1 and 2.27.0: the standalone hook files load only

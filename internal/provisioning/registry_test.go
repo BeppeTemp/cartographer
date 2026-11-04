@@ -97,12 +97,12 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderCopilot, ".copilot/skills/demo"},
 		{"agent", configurator.ProviderCopilot, ".copilot/agents/demo.agent.md"},
 		{"hook", configurator.ProviderCopilot, ".copilot/cartographer-hooks/demo"},
-		// pi: MCP, instructions and skills; no subagents, hooks not yet.
+		// pi: MCP, instructions, skills and hooks (a generated extension); no subagents.
 		{"mcp", configurator.ProviderPi, ".pi/agent/mcp.json"},
 		{"instructions", configurator.ProviderPi, ".pi/agent/AGENTS.md"},
 		{"skill", configurator.ProviderPi, ".pi/agent/skills/demo"},
 		{"agent", configurator.ProviderPi, ""},
-		{"hook", configurator.ProviderPi, ""},
+		{"hook", configurator.ProviderPi, ".pi/agent/cartographer-hooks/demo"},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},

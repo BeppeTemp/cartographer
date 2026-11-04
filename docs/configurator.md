@@ -48,7 +48,7 @@ is not measured. `service status` retains 0 running, 3 stopped (on every platfor
 ### `cartographer hook write-findings [--channel stderr|context|copilot]` (internal)
 
 Not in the usage text. The logic of the client-generated `cartographer-write-findings` hook
-([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code, Codex, Copilot CLI or OpenCode 2.x
+([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code, Codex, Copilot CLI, Pi or OpenCode 2.x
 `PostToolUse` payload on stdin and looks in `tool_response` (the result object, a content-block
 array, or JSON in a `text` block, or a string of several JSON values as OpenCode joins them; `supersede` appends `findings:` as plain text) for a `findings`
 array or `results[].findings` (`concept_batch`). With at least one finding it writes a fixed English
@@ -1323,7 +1323,7 @@ header is written verbatim, as for Claude Code. `"exposure": "direct"` is on eve
 Pi's MCP tools are named `mcp__<server>__<tool>`, as in Claude Code. Its global cells are
 `~/.pi/agent/mcp.json`, `~/.pi/agent/AGENTS.md` (a managed block; an `AGENTS.override.md` beside it
 replaces it and is reported as shadowing) and `~/.pi/agent/skills/<name>/`; it has no subagents and its
-hook cell is unsupported. The only project cell is `AGENTS.md` (read without trust): project `.pi/*` and
+hooks are a generated extension per hook, `~/.pi/agent/extensions/cartographer-<name>.ts`, with the hook's own files in `~/.pi/agent/cartographer-hooks/<name>/` (`SessionStart`, `PreToolUse`, `PostToolUse`; `docs/sync.md` §Agents and hooks). The only project cell is `AGENTS.md` (read without trust): project `.pi/*` and
 `.agents/skills` load only once the project is trusted. A value that is wholly `!command` in `env` or
 `headers` is refused (Pi would run it when it loads the file), and so is a server name outside letters,
 digits, `_` and `-` (Pi skips it silently). Cartographer reads `$HOME/.pi/agent` like every other
@@ -1614,7 +1614,7 @@ Every write, mkdir and remove under a client directory goes through `internal/sa
 guard that protects the provisioned artifacts (`sync.md` §Security): the provider's MCP config file
 and the Codex `config.toml` blocks `connect`, `sync` and `disconnect` edit (`internal/blocktext`),
 the instructions block, the hook registrations (`settings.json`, `hooks.json`, the Kiro, Copilot,
-Crush and OpenCode files), the files `disconnect` and a sync prune, and the workspace's
+Crush, Pi and OpenCode files), the files `disconnect` and a sync prune, and the workspace's
 `.git/info/exclude`. `os.WriteFile` on a symlink opens the link's *target*, and `os.Remove` or
 `os.MkdirAll` under a linked directory act in the target too, so a config file that is a link, or a
 directory above it under the client base dir that is one (a dotfile manager, a shared checkout), would send the
