@@ -511,6 +511,26 @@ unchanged.
 Entries form a JSONL hash chain signed with Ed25519: altering one recorded
 entry invalidates every entry after it.
 
+Verification reads the bytes on disk, not the values a JSON decoder extracts
+from them: every line must be exactly the line the writer produced (the
+canonical encoding of the entry, in the layout of the release that wrote it),
+so a field the hash does not cover (`args`, `agent_id` on a version-2 event),
+a case-variant, duplicate or unknown key, or a different spelling of the same
+values makes `audit verify` and `audit export` fail, and a version-2 event with
+a non-empty `args` or `agent_id` is malformed. Logs written by earlier releases
+still verify.
+
+On the routed mount (`/mcp/routed`) the routed view records the calls it
+refuses itself, before any KB server sees them: the argument checks (`bad_arguments`
+and the unknown-argument `-32602`), `unbound_folder`, `read_only_profile`,
+`read_only_kb`, a missing `kb`, a `kb` outside the connection's set and a tool
+the named KB lacks. Each is one denied attempt+completion pair with outcome
+`unauthorized` (a tool missing from the target KB included); the `kb` field is
+set only when the call resolved to a KB in the set, never to a name the caller
+typed (an allow-listed resource such as `target_kb` of `concept_transfer` is
+recorded as the caller sent it). A call the view dispatches is audited once, by
+the target KB's server ([D1627](decisions/D1627-audit-verifies-the-written-form-and-the-routed-view-audits-refusals.md)).
+
 The log is `<data>/audit/audit.log` unless `audit.log` moves it, and its key is
 `audit.key` in the credentials directory, which the first start generates when
 it is missing; the start logs the path and the public key `audit verify`

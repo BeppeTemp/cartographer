@@ -776,7 +776,70 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-func readEntries(path string) ([]Entry, error) {
+func readEntries(path string) ([]Entry, error) { return readEntriesMode(path, false) }
+
+// readVerifiedEntries is readEntries for the verification paths: every line
+// must be exactly the bytes the writer produced (see canonicalLine).
+func readVerifiedEntries(path string) ([]Entry, error) { return readEntriesMode(path, true) }
+
+// legacyV0Entry is the line layout of the first release (before D119): no
+// omitempty on args, agent_id and duration_ms. Lines it wrote still verify.
+type legacyV0Entry struct {
+	Timestamp  time.Time `json:"timestamp"`
+	Tool       string    `json:"tool"`
+	Args       string    `json:"args"`
+	AgentID    string    `json:"agent_id"`
+	Outcome    string    `json:"outcome"`
+	DurationMs int64     `json:"duration_ms"`
+	CommitSHA  string    `json:"commit_sha,omitempty"`
+	PrevHash   string    `json:"prev_hash"`
+	Hash       string    `json:"hash"`
+	Sig        string    `json:"sig,omitempty"`
+}
+
+// canonicalLine reports whether raw is byte-identical to what a writer
+// produces for e. The hash covers a fixed subset of the fields, so parsing a
+// line and hashing the parsed values would accept a line carrying unhashed
+// fields, case-variant or duplicate keys, or any other spelling that decodes
+// to the same values: the line on disk must be the line the writer wrote.
+// A legacy (version 0) line may be in the layout of either era.
+func canonicalLine(e Entry, raw []byte) bool {
+	if _, off := e.Timestamp.Zone(); off != 0 || bytes.IndexByte(raw, '\r') >= 0 {
+		return false // writers stamp UTC and end a line with a bare \n
+	}
+	if e.Version != 0 {
+		b, err := json.Marshal(e)
+		return err == nil && bytes.Equal(b, raw)
+	}
+	// A legacy line: the hash covers only timestamp, tool, args, agent_id,
+	// outcome and prev_hash, so no field of the later eras may ride along.
+	if e.ID != "" || e.Phase != "" || e.RequestID != "" || e.PrincipalID != "" || e.Transport != "" ||
+		e.KB != "" || e.ExternalTool != "" || e.ReadOnly || e.Resources != nil || e.ResultBytes != 0 {
+		return false
+	}
+	if b, err := json.Marshal(e); err == nil && bytes.Equal(b, raw) {
+		return true
+	}
+	b, err := json.Marshal(legacyV0Entry{e.Timestamp, e.Tool, e.Args, e.AgentID, e.Outcome, e.DurationMs, e.CommitSHA, e.PrevHash, e.Hash, e.Sig})
+	return err == nil && bytes.Equal(b, raw)
+}
+
+// scanLF splits on '\n' only: bufio.ScanLines also drops a trailing '\r',
+// which would hide a byte of the line from the canonical comparison.
+func scanLF(data []byte, atEOF bool) (int, []byte, error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		return i + 1, data[:i], nil
+	}
+	if atEOF {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
+}
+
+func readEntriesMode(path string, canonical bool) ([]Entry, error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -787,6 +850,7 @@ func readEntries(path string) ([]Entry, error) {
 	defer f.Close()
 
 	s := bufio.NewScanner(f)
+	s.Split(scanLF)
 	s.Buffer(make([]byte, 64*1024), 2*1024*1024)
 	var out []Entry
 	for line := 1; s.Scan(); line++ {
@@ -796,6 +860,9 @@ func readEntries(path string) ([]Entry, error) {
 		var e Entry
 		if err := json.Unmarshal(s.Bytes(), &e); err != nil {
 			return nil, fmt.Errorf("audit: parse %s line %d: %w", path, line, err)
+		}
+		if canonical && !canonicalLine(e, s.Bytes()) {
+			return nil, fmt.Errorf("audit: %s line %d is not in the form the writer produces", path, line)
 		}
 		out = append(out, e)
 	}
@@ -907,7 +974,7 @@ func VerifyFile(path string, public ed25519.PublicKey) (Summary, error) {
 func VerifyFiles(paths []string, public ed25519.PublicKey) (Summary, error) {
 	var es []Entry
 	for _, path := range paths {
-		part, err := readEntries(path)
+		part, err := readVerifiedEntries(path)
 		if err != nil {
 			return Summary{}, err
 		}
@@ -972,6 +1039,9 @@ func VerifyFiles(paths []string, public ed25519.PublicKey) (Summary, error) {
 // attempt phase must carry no outcome, a completion phase must carry a valid
 // one.
 func validV2Outcome(e Entry) bool {
+	if e.Args != "" || e.AgentID != "" {
+		return false // legacy-only fields, outside the v2 hash
+	}
 	if e.Phase == PhaseCompletion {
 		return validOutcome(e.Outcome)
 	}
@@ -1017,7 +1087,7 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey, opts 
 		}
 	}
 
-	active, err := readEntries(path)
+	active, err := readVerifiedEntries(path)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -1048,7 +1118,7 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey, opts 
 		}
 		segmentPath := filepath.Join(archiveDir(path, configuredArchive), cp.Name)
 		if _, statErr := os.Stat(segmentPath); statErr == nil {
-			es, readErr := readEntries(segmentPath)
+			es, readErr := readVerifiedEntries(segmentPath)
 			if readErr != nil {
 				return Summary{}, readErr
 			}
@@ -1179,7 +1249,7 @@ func (l *Log) Verify() (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	entries, err := l.readAll()
+	entries, err := readVerifiedEntries(l.path)
 	if err != nil {
 		return -1, err
 	}
