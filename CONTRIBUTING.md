@@ -13,6 +13,7 @@ response-time SLA.
 
 ```bash
 make gate     # gofmt + vet + test + race — everything that must be green before a PR
+make signoff  # maintainers only: gate (+ web legs), push the branch, attest the sha for CI
 make build    # → bin/cartographer
 make test     # go test ./...
 make vet      # go vet ./..., also GOOS=windows
@@ -22,9 +23,10 @@ make smoke    # quick stdio smoke test
 
 The deterministic E2E suite (`make e2e`) exercises the built HTTP server, CLI
 client and temporary git remotes without model credentials; see
-[`test/e2e/README.md`](test/e2e/README.md). CI runs `make gate` — the same
+[`test/e2e/README.md`](test/e2e/README.md). CI runs `make gate` on a contributor's PR — the same
 command, so there is one answer to "what must be green" — followed by
-`make smoke-http`, `make smoke`, `make e2e` and `make test-install`.
+`make smoke-http`, `make smoke`, `make e2e` and `make test-install`; a maintainer's PR is
+attested by `make signoff` instead (§Pull requests).
 
 The Atlas UI has its own loop (Node, outside `make gate`): `make web-test` for
 the frontend tests, `make web` to rebuild the committed bundle, `make e2e-web`
@@ -210,12 +212,22 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     trailing comment (`uses: owner/repo@<40 hex> # v1.2.3`; resolve it with
     `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
     reference (D1020); Dependabot keeps the pins current.
-- **What runs where** (D1592): a PR runs the light checks (`test`, `web` when the frontend
-  changed, `pr-title`, `plan-gate`). The heavy legs (Windows, macOS, docker, demo-edge) run on
-  push to `main` (and on `merge_group` if a queue is ever enabled: it is not available on a
-  user-owned repository), so a Windows- or macOS-only break is caught on `main` and tracked
-  by the `ci-red` issue, to be fixed by a follow-up.
+- **What runs where** (D1592, D1610): a contributor's PR runs `test`, the web legs when the
+  frontend changed, `pr-title` and `plan-gate`, all collected by `gate`. **A maintainer's PR
+  is pushed with `make signoff`** and CI runs only `changes`, `gate` (which looks for the
+  `signoff` status of a maintainer on the head sha), `pr-title` and `plan-gate`. The heavy
+  legs (Windows, macOS, docker, demo-edge) and `smoke-http`, `e2e` and `test-install` run on
+  push to `main`, whose runs coalesce (one running, the newest pending; the `ci-red` issue
+  names the range since the last green commit), so a Windows- or macOS-only break is caught
+  on `main` and fixed by a follow-up. The required checks are `gate`, `pr-title` and
+  `plan-gate`. `SIGNOFF_MAKE` points `make signoff` at a wrapper that runs the make targets
+  on another machine; the push is `--force-with-lease` and names its remote and branch.
   `docs/testing.md` has the table.
+- **At most 4 open maintainer PRs at a time, across all sessions** (check
+  `gh pr list --author @me --state open --json number,headRefName` before opening, ignoring
+  the heads named `release-please--*`, which the same identity owns; drafts count).
+- **No open PR depends on another open PR**: dependent work goes in the same PR, or waits for
+  the merge.
 - PRs are **squash-merged** and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are
@@ -425,6 +437,11 @@ only the plan and the repo must be able to implement without asking questions.
   KB names, hosts and users — what a plan says ends up in a public PR (D259).
 - **No code in the plan**: exact semantics plus real `file:line` pointers,
   derived from the code before writing — not paraphrases of it.
+- A plan has a `## PRs` section that groups its work packages into the fewest PRs the size
+  cap allows, by file-set and dependency, with for each PR its title, its WPs and the
+  estimated production lines; each WP is a body line `type(scope): ...` (one unwrapped
+  line, §Pull requests body-line rule) so the changelog keeps one entry per WP;
+  `cartographer-plan-writer` reports it.
 - A single analysis may yield **several plans**: each one states the
   cross-plan execution order and which sibling plans touch the same files
   (those land sequentially, never in parallel).
