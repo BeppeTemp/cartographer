@@ -161,7 +161,10 @@ func parseSecretFile(data []byte, f *uiSecretFile, refs map[string][]string) err
 			continue
 		}
 		k := root.Content[i].Value
-		walkSecretNode(root.Content[i+1], []string{k}, []string{escapePointerToken(k)}, f, refs)
+		w := secretWalk{keys: []string{k}, tokens: []string{escapePointerToken(k)}, f: f, refs: refs}
+		if err := w.walk(root.Content[i+1]); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -185,31 +188,60 @@ func escapePointerToken(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "~", "~0"), "/", "~1")
 }
 
-// walkSecretNode follows sops' own walk: a map key extends both the AAD path
-// and the pointer, a list item only the pointer (sops authenticates a list
-// item under the path of the key that holds the list).
-func walkSecretNode(n *yaml.Node, keys, tokens []string, f *uiSecretFile, refs map[string][]string) {
+// uiSecretsMaxDepth bounds the nesting the panel follows; a real sops document
+// stays within a few levels.
+const uiSecretsMaxDepth = 64
+
+// secretWalk follows sops' own walk: a map key extends both the AAD path and the
+// pointer, a list item only the pointer (sops authenticates a list item under
+// the path of the key that holds the list). keys and tokens are one pair of
+// slices pushed and popped along the walk and copied only when an entry is
+// emitted, so memory does not grow with the depth.
+type secretWalk struct {
+	keys, tokens []string
+	f            *uiSecretFile
+	refs         map[string][]string
+}
+
+func (w *secretWalk) walk(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.MappingNode, yaml.SequenceNode:
+		if len(w.tokens) > uiSecretsMaxDepth {
+			return fmt.Errorf("nested deeper than %d levels", uiSecretsMaxDepth)
+		}
+	}
 	switch n.Kind {
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k := n.Content[i].Value
-			walkSecretNode(n.Content[i+1], append(append([]string{}, keys...), k), append(append([]string{}, tokens...), escapePointerToken(k)), f, refs)
+			w.keys, w.tokens = append(w.keys, k), append(w.tokens, escapePointerToken(k))
+			err := w.walk(n.Content[i+1])
+			w.keys, w.tokens = w.keys[:len(w.keys)-1], w.tokens[:len(w.tokens)-1]
+			if err != nil {
+				return err
+			}
 		}
 	case yaml.SequenceNode:
 		for i, c := range n.Content {
-			walkSecretNode(c, keys, append(append([]string{}, tokens...), strconv.Itoa(i)), f, refs)
+			w.tokens = append(w.tokens, strconv.Itoa(i))
+			err := w.walk(c)
+			w.tokens = w.tokens[:len(w.tokens)-1]
+			if err != nil {
+				return err
+			}
 		}
 	case yaml.ScalarNode:
 		if !strings.HasPrefix(n.Value, "ENC[AES256_GCM,") {
-			return
+			return nil
 		}
-		pointer := "/" + strings.Join(tokens, "/")
-		by := refs[f.Path+"#"+pointer]
+		pointer := "/" + strings.Join(w.tokens, "/")
+		by := w.refs[w.f.Path+"#"+pointer]
 		if by == nil {
 			by = []string{}
 		}
-		f.Entries = append(f.Entries, uiSecretEntry{Pointer: pointer, AADPath: strings.Join(keys, ":") + ":", Enc: n.Value, ReferencedBy: by})
+		w.f.Entries = append(w.f.Entries, uiSecretEntry{Pointer: pointer, AADPath: strings.Join(w.keys, ":") + ":", Enc: n.Value, ReferencedBy: by})
 	}
+	return nil
 }
 
 // uiSecretRefs reads every concept's secret_refs (NAME=file#pointer, as
