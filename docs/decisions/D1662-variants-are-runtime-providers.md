@@ -1,5 +1,5 @@
 ---
-topic: control-plane
+topic: client-configurator
 ---
 
 # D1662 — A client variant is a runtime provider registered beside the built-ins, never inside their lists
