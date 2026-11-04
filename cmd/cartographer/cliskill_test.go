@@ -1,10 +1,14 @@
 package main
 
 import (
+	"io/fs"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 func TestWithoutCLISkill(t *testing.T) {
@@ -30,5 +34,53 @@ func TestWithoutCLISkill(t *testing.T) {
 	t.Cleanup(func() { usesCLI = old })
 	if got := names(withoutCLISkill("cli-variant", m)); len(got) != 3 {
 		t.Errorf("a CLI provider keeps the skill, got %v", got)
+	}
+}
+
+// The skill is in the bundle manifest every client receives, and the predicate
+// drops it for every built-in provider: the whole point of shipping it unset.
+func TestCLISkillIsBundledAndFilteredForBuiltIns(t *testing.T) {
+	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(m provisioning.Manifest) bool {
+		for _, a := range m.Artifacts {
+			if a.Kind == "skill" && a.Name == cliSkillName && a.Source == "bundle" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(m) {
+		t.Fatalf("%s is not in the bundle manifest", cliSkillName)
+	}
+	for _, p := range configurator.ProviderList() {
+		if has(withoutCLISkill(string(p), m)) {
+			t.Errorf("%s: the built-in provider would receive %s", p, cliSkillName)
+		}
+	}
+}
+
+// The skill's text teaches flags the command has and commands main dispatches.
+func TestCLISkillTextMatchesTheCommand(t *testing.T) {
+	data, err := fs.ReadFile(skillbundle.FS, "bundled/"+cliSkillName+"/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, flag := range []string{"--list", "--describe", "--json", "--provider", "--output"} {
+		if !strings.Contains(text, flag) {
+			t.Errorf("skill does not mention %s", flag)
+		}
+	}
+	dispatched := map[string]bool{}
+	for _, n := range dispatchedCommands(t) {
+		dispatched[n] = true
+	}
+	for _, m := range regexp.MustCompile("cartographer ([a-z][a-z-]*)").FindAllStringSubmatch(text, -1) {
+		if !dispatched[m[1]] {
+			t.Errorf("skill cites `cartographer %s`, which is not a command", m[1])
+		}
 	}
 }

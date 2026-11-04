@@ -39,7 +39,7 @@ For each mounted KB, the server keeps only a **rebuildable derived index** and a
 
 ## MCP API
 
-This list is the **source of truth** for the active tools (do not duplicate counts elsewhere).
+This list is the **source of truth** for the active tools (do not duplicate counts elsewhere). Every tool is also reachable from a shell through `cartographer call` (`configurator.md`).
 
 A tool that answers with JSON answers with **compact JSON** (no indentation, D1185): every result is built by `jsonResult` (`internal/mcpserver/protocol.go`), and text a tool returns verbatim (a stored index, artifact or asset) is never re-encoded. A list in a result is `[]` when empty, never `null` (D1327): `search` with no hit (the Atlas search relays it), `concept_move`'s and `concept_merge`'s `rewritten`, `blockers` and `validation_errors` (`gate_check` and the checks that report them) and `graph_neighbors`' `neighbors` are built non-nil; a field that is *absent* when empty (`omitempty`, as documented per tool) stays absent, and the scalars that are `null` by contract (`kb_status`'s `behind_commits`, `unpushed_commits`, `last_push_at`, `last_sync_in_at`) are not lists.
 
