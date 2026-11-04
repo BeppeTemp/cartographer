@@ -7,13 +7,16 @@ import (
 
 // cliSkillName is the bundled skill that teaches an agent to reach the KB
 // through `cartographer call`.
-const cliSkillName = "cartographer-cli"
+const cliSkillName = provisioning.CLISkillName
 
 // usesCLI is the provider predicate, a variable so a test can inject one.
 var usesCLI = configurator.UsesCLI
 
 // withoutCLISkill drops the cartographer-cli bundle skill from a provider's
 // manifest unless the provider reaches Cartographer through the command.
+//
+// Defense in depth: the server's BuildManifest already leaves the skill out
+// (BuildOptions.IncludeCLISkill), so this only matters for a server that sets it.
 //
 // Trap: BuildManifest lists every directory of the bundle and the server serves
 // it to every client, so a new bundled skill reaches every manifest. The

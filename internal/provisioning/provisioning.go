@@ -88,7 +88,16 @@ type BuildOptions struct {
 	// the rest of the KB syncing; saying so is what keeps the exclusion from
 	// being silent.
 	SkillDiagnostic func(string)
+	// IncludeCLISkill lists the bundled CLISkillName skill. False for every
+	// built-in caller: no built-in provider reaches Cartographer through
+	// `cartographer call`, so the server leaves the skill out of sync_check,
+	// sync_apply and sync_pull and an older client, which has no client-side
+	// filter, never receives it. The variants work sets it per client.
+	IncludeCLISkill bool
 }
+
+// CLISkillName is the bundled skill that teaches `cartographer call`.
+const CLISkillName = "cartographer-cli"
 
 // ArtifactFile is a single file of an Artifact, with content in memory.
 type ArtifactFile struct {
@@ -846,6 +855,9 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				continue
 			}
 			name := e.Name()
+			if name == CLISkillName && !opts.IncludeCLISkill {
+				continue
+			}
 			hash, err := ContentHashDir(bundleFS, "bundled/"+name)
 			if err != nil {
 				return Manifest{}, fmt.Errorf("provisioning: hash bundle/%s: %w", name, err)
