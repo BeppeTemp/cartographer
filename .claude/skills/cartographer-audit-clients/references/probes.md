@@ -201,3 +201,15 @@ unique token; ask the client to repeat it.
 - Global cells under the agent dir: `mcp.json`, `AGENTS.md`, `skills/<name>/`, `extensions/*.ts`.
 - Watch for project `.pi/*` and `.agents/skills` loading without trust (flips the unsupported
   project cells), the `exposure` default, and the `CLAUDE.md` global fallback order (unprobed).
+
+## Cline
+
+- Probe with a scratch `CLINE_DIR` and `CLINE_MCP_SETTINGS_PATH`; never touch `$HOME/.cline`.
+  Cartographer ignores both variables, so a probe of a Cartographer-written cell reads from `$HOME`.
+- The cells come from the extension bundle (`saoudrizwan.claude-dev`, `dist/extension.js`), not from
+  vendor docs: re-read the MCP settings parsing, the rules loader (single loader for `.cline/rules` and
+  `Documents/Cline/Rules`, no conditional frontmatter), the agent loader (`.yaml`/`.yml`, non-empty body)
+  and the skills directories.
+- Watch for MCP `roots` (flips every unsupported project cell), a per-workspace MCP file, `${VAR}`
+  expansion in `headers` (flips `SupportsMCPHeaders`), a rename of the extension id (detection), and
+  whether the `cline` CLI shares `$HOME/.cline`.

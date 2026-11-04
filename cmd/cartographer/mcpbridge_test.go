@@ -79,7 +79,7 @@ func TestEntriesSwitchBetweenHTTPAndBridge(t *testing.T) {
 
 func TestApplyMCPEntriesWritesStdioBridgePerProvider(t *testing.T) {
 	stubBridgeCommand(t)
-	providers := []string{"claude", "codex", "kiro", "opencode", "antigravity", "crush", "copilot", "pi"}
+	providers := []string{"claude", "codex", "kiro", "opencode", "antigravity", "crush", "copilot", "pi", "cline"}
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			dir := t.TempDir()
@@ -489,5 +489,32 @@ func TestStaleBridgeEntriesLeaveUserOwnedEntriesAlone(t *testing.T) {
 		if stale := staleBridgeEntries(provider, entries, dir, nil); len(stale) != 0 {
 			t.Errorf("%s: a user-owned entry was reported as stale: %+v", provider, stale)
 		}
+	}
+}
+
+// Cline's settings file is Cline's own: another server and an unknown key
+// survive connecting, and only Cartographer's entry goes on disconnect.
+func TestApplyMCPEntriesKeepsClineSettings(t *testing.T) {
+	stubBridgeCommand(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".cline", "data", "settings", "cline_mcp_settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"mcpServers":{"mine":{"type":"stdio","command":"x","disabled":true}},"other":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries := map[string][]mcpEntry{"cline": {{Name: "cartographer", Bridge: true}}}
+	if _, _, err := applyMCPEntries(entries, []string{"cline"}, dir, nil, true, "CARTOGRAPHER_TOKEN", false); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	for _, want := range []string{`"mine"`, `"disabled": true`, `"other"`, `"type": "stdio"`, `"cline"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("settings miss %s:\n%s", want, data)
+		}
+	}
+	if strings.Contains(string(data), `"cwd"`) {
+		t.Errorf("a global entry must not pin a cwd:\n%s", data)
 	}
 }

@@ -352,7 +352,7 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (all detected agents) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `cline` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
@@ -459,7 +459,7 @@ cartographer disconnect all --dry-run  # preview without writing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `cline` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
@@ -631,7 +631,7 @@ cartographer reconnect --dry-run       # preview both halves, write nothing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `cline` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset; cannot be combined with the positional provider |
 | `--dry-run` | `false` | Both halves simulate, nothing is written |
 
@@ -1133,6 +1133,7 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot CLI | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
 | Pi | `.pi/agent/mcp.json` | `mcpServers` (JSON) |
+| Cline | `.cline/data/settings/cline_mcp_settings.json` | `mcpServers` (JSON) |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
@@ -1140,6 +1141,7 @@ OpenCode uses `type: "local"`, an ordered command array and `environment` with `
 Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
 Copilot CLI uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
 Pi has no `type` key (it infers the transport) and every entry carries `"exposure": "direct"`.
+Cline uses `type: "stdio"` (or `"streamableHttp"`) and never gets a `cwd`, `disabled`, `autoApprove` or `timeout`.
 Cartographer only preflights the local executable before writing: it never runs it, and never resolves
 an environment reference into its value.
 
@@ -1335,6 +1337,17 @@ digits, `_` and `-` (Pi skips it silently). Cartographer reads `$HOME/.pi/agent`
 provider and ignores `PI_CODING_AGENT_DIR`: to use another agent directory, symlink `~/.pi/agent`.
 A `pi` on `PATH` is reported as installed only when `pi --version` prints a bare version
 ([D676](decisions/D676-github-copilot-cli-is-a-provider.md), [D755](decisions/D755-claude-config-dirs-declared-not-discovered.md)).
+
+**Cline** (the VS Code extension `saoudrizwan.claude-dev` and the `cline` CLI; read from the extension bundle 4.1.26) — the bridge only. The file is
+`~/.cline/data/settings/cline_mcp_settings.json`, key `mcpServers`, which Cline owns (it keeps a `.bak` beside it and
+recreates it): other servers and keys survive, and the file is never deleted. Cline declares no MCP roots and starts the
+bridge in the extension host's folder, so every session is unbound and gets the provider-default access; a user who wants
+one folder sets `cwd` by hand, Cartographer never writes it. Its global cells are the MCP file,
+`~/.cline/rules/cartographer.md` (the managed block, a file Cartographer owns whole: Cline reads every `.md` there as an
+always-on global rule), `~/.cline/skills/<name>/` and `~/.cline/agents/<name>.yaml` (a translated subagent; `tools` and
+`model` are dropped and an empty prompt falls back to the description, since Cline skips an agent without one). The hook cell
+and every project cell are unsupported. `CLINE_DIR` is ignored like every provider-specific home override. Detection is the
+`cline` binary, `~/.cline`, or the extension directory `saoudrizwan.claude-dev-*` under an editor's `extensions` folder.
 
 The formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a

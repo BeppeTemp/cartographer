@@ -3829,6 +3829,9 @@ var provisioningRootDirs = map[string]bool{
 	".gemini":                            true,
 	".copilot":                           true,
 	".pi":                                true,
+	// .cline also holds Cline's own data/ (settings, sessions): the boundary
+	// keeps it, and only the levels created underneath are pruned.
+	".cline": true,
 	// Workspace scope only (projectDestinationMatrix).
 	".agents": true,
 	".crush":  true,
@@ -4189,6 +4192,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// pi: global <agent-dir>/mcp.json, bridge connected with direct
 		// exposure (probe 1 on Pi 1.5.0, docs/harnesses.md).
 		configurator.ProviderPi: at(".pi", "agent", "mcp.json"),
+		// cline: type "stdio"|"streamableHttp"|"sse" under mcpServers; the file
+		// is Cline's own and hot-reloaded (bundle 4.1.26, docs/harnesses.md).
+		configurator.ProviderCline: at(".cline", "data", "settings", "cline_mcp_settings.json"),
 	},
 	"instructions": {
 		configurator.ProviderClaudeCode:  at(".claude", "CLAUDE.md"),
@@ -4208,6 +4214,12 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// pi: reads <agent-dir>/AGENTS.md globally (probe 2 on Pi 1.5.0); the
 		// cross-tool CLAUDE.md fallback belongs to the user.
 		configurator.ProviderPi: at(".pi", "agent", "AGENTS.md"),
+		// cline: a file Cartographer owns whole in the first entry of Cline's
+		// global rules list. Always-on only because that loader has no
+		// path-conditional frontmatter in 4.1.26 (watch item in
+		// docs/harnesses.md): a plain .md there is a global rule. The user's own
+		// rules stay in their own files.
+		configurator.ProviderCline: at(".cline", "rules", "cartographer.md"),
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -4236,6 +4248,10 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCopilot: perName(".agent.md", ".copilot", "agents"),
 		// pi: has no subagents (vendor docs), so there is nothing to project.
 		configurator.ProviderPi: unsupportedDest,
+		// cline: ~/.cline/agents/<name>.yaml, a YAML frontmatter block plus a
+		// non-empty Markdown body as the system prompt; only .yml/.yaml are
+		// loaded (bundle 4.1.26, translateAgentForCline).
+		configurator.ProviderCline: perName(".yaml", ".cline", "agents"),
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -4273,6 +4289,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// index.ts, so the hook's own files must not live under extensions/:
 		// they go to ~/.pi/agent/cartographer-hooks/<n>/.
 		configurator.ProviderPi: perName("", ".pi", "agent", "cartographer-hooks"),
+		// cline: wired by the hooks slice of the same lane (a per-event dispatcher
+		// in the Cline hooks folder).
+		configurator.ProviderCline: unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -4299,6 +4318,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// pi: <agent-dir>/skills/, loaded without project trust (probe 3 on
 		// Pi 1.5.0).
 		configurator.ProviderPi: perName("", ".pi", "agent", "skills"),
+		// cline: the global skills directory under CLINE_DIR's default root
+		// (.cline); $HOME/.claude/skills is read only at project level.
+		configurator.ProviderCline: perName("", ".cline", "skills"),
 	},
 }
 
@@ -4465,6 +4487,8 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 		return translateAgentForCopilot(name, content)
 	case configurator.ProviderKiro:
 		return translateAgentForKiro(name, content)
+	case configurator.ProviderCline:
+		return translateAgentForCline(name, content)
 	default:
 		return content, nil
 	}

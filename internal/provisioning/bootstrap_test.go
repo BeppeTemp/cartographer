@@ -273,6 +273,8 @@ func TestSupportsSessionHook(t *testing.T) {
 		{configurator.ProviderCrush, false},
 		{configurator.ProviderCopilot, true},
 		{configurator.ProviderPi, true},
+		// cline: hooks arrive with the dispatcher slice.
+		{configurator.ProviderCline, false},
 	} {
 		if got := provisioning.SupportsSessionHook(tc.provider); got != tc.want {
 			t.Errorf("SupportsSessionHook(%s) = %v; want %v", tc.provider, got, tc.want)

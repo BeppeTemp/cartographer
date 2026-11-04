@@ -55,6 +55,7 @@ var nativeProviders = []configurator.Provider{
 	configurator.ProviderKiro,
 	configurator.ProviderAntigravity,
 	configurator.ProviderCopilot,
+	configurator.ProviderCline,
 }
 
 // reservedNativeKeys are the fields Cartographer writes itself for each client.
@@ -66,6 +67,7 @@ var reservedNativeKeys = map[configurator.Provider][]string{
 	configurator.ProviderKiro:        {"name", "description", "prompt"},
 	configurator.ProviderAntigravity: {"name", "description", "mainAgent", "subagent"},
 	configurator.ProviderCopilot:     {"name", "description"},
+	configurator.ProviderCline:       {"name", "description"},
 }
 
 // nativeField is one key of a `providers.<client>` entry, with its YAML node kept

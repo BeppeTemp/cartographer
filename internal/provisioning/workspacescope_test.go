@@ -123,6 +123,12 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"mcp", configurator.ProviderPi, ""},
 		{"agent", configurator.ProviderPi, ""},
 		{"hook", configurator.ProviderPi, ""},
+		// cline: no roots and an unbound cwd, so every cell fails closed.
+		{"instructions", configurator.ProviderCline, ""},
+		{"skill", configurator.ProviderCline, ""},
+		{"mcp", configurator.ProviderCline, ""},
+		{"agent", configurator.ProviderCline, ""},
+		{"hook", configurator.ProviderCline, ""},
 	}
 	for _, tc := range cases {
 		if got := destDirScoped(tc.kind, "demo", tc.provider, ScopeProject); got != tc.want {
@@ -148,8 +154,9 @@ func TestSupportsProjectScope_FailsClosed(t *testing.T) {
 			t.Errorf("%s reports an unsupported reason while supporting the scope: %s", p, r)
 		}
 	}
-	// A provider the matrix does not know projects nothing, and says why.
-	for _, p := range []configurator.Provider{"unknown-client"} {
+	// A provider the matrix does not know projects nothing, and says why;
+	// Cline declares every cell unsupported.
+	for _, p := range []configurator.Provider{"unknown-client", configurator.ProviderCline} {
 		if SupportsProjectScope(p) {
 			t.Errorf("%s claims a project scope it has no cell for", p)
 		}

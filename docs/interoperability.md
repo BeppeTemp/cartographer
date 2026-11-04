@@ -99,6 +99,7 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 | Crush | `.crush/skills`, `.crush/hooks`, `.crush.json` (mcp, hooks) | agents and instructions unsupported (D363) |
 | Copilot CLI | `AGENTS.md`, `.agents/skills` | the project mcp, agent and hook locations are gated on folder trust (D676) |
 | Pi | `AGENTS.md` | project `.pi/*` and `.agents/skills` load only after project trust |
+| Cline | none | every project cell is unsupported: Cline declares no MCP roots, so its sessions are unbound |
 
 A subagent's `tools` allow-list is enforced by Claude Code only. The other
 clients receive the agent without it, and therefore with every tool that client
