@@ -3907,6 +3907,10 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 		if err = removeCopilotHook(baseDir, mf.Name); err != nil {
 			err = fmt.Errorf("provisioning: prune Copilot hook file %s: %w", mf.Name, err)
 		}
+	case "pi":
+		if err = removePiHook(baseDir, mf.Name); err != nil {
+			err = fmt.Errorf("provisioning: prune Pi extension %s: %w", mf.Name, err)
+		}
 	case "crush":
 		if err = removeCrushHook(baseDir, mf.Name, mf.Path); err != nil {
 			err = fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
@@ -4127,9 +4131,12 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// and only the registration, ~/.copilot/hooks/cartographer-<n>.json,
 		// sits in hooks/ (registerCopilotHook, D676).
 		configurator.ProviderCopilot: perName("", ".copilot", "cartographer-hooks"),
-		// pi: hooks need a generated TypeScript extension, which the provider
-		// does not have yet; declared unsupported until it does.
-		configurator.ProviderPi: unsupportedDest,
+		// pi: Pi has no hook file; each hook is a generated extension
+		// ~/.pi/agent/extensions/cartographer-<n>.ts (registerPiHook). Pi also
+		// loads extensions/*/index.ts and a KB hook directory may carry an
+		// index.ts, so the hook's own files must not live under extensions/:
+		// they go to ~/.pi/agent/cartographer-hooks/<n>/.
+		configurator.ProviderPi: perName("", ".pi", "agent", "cartographer-hooks"),
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),

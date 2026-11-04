@@ -456,8 +456,13 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
     `CLAUDE.md` only in the same directory (the package's configuration page), which is the declared
     `InstructionsPrecedence`. Project: `AGENTS.md` (probe 2).
   - `skill` in `~/.pi/agent/skills/<name>/`.
-  - `agent` unsupported (Pi has no subagents); `hook` unsupported until the generated extension
-    lands (probe 4 shows the extension API fires); no project `.pi/*` cell (trust-gated).
+  - `agent` unsupported (Pi has no subagents); no project `.pi/*` cell (trust-gated).
+  - `hook`: one generated extension per hook, `~/.pi/agent/extensions/cartographer-<name>.ts`
+    (loaded without trust, probe 4), the hook's own files in `~/.pi/agent/cartographer-hooks/<name>/`
+    (Pi also autoloads `extensions/*/index.ts`). Events `session_start` (every reason), `tool_call`,
+    `tool_result`; payload fields `toolName`, `input`, `toolCallId`, `content`, `isError`; exit 2
+    blocks (`{block, reason}`) or appends a text block to `content` (`structuredContent` returned
+    too); stdout ignored. `Stop`/`UserPromptSubmit` are not mapped (not probed).
   - `PI_CODING_AGENT_DIR` is not honoured: paths are `$HOME/.pi/agent`, like every provider
     (D676, D755); symlink `~/.pi/agent` to use another directory. Detection does not read it either.
   - Detection: `pi` on `PATH` counts only when `pi --version` prints a bare version; other tools
@@ -479,7 +484,12 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
      with `reason: "startup"` and `ctx.cwd` = the session folder; `before_agent_start` fires;
      `tool_call` fires and returning `{block:true, reason}` blocked a `bash` call with the reason
      reaching the model verbatim; `tool_result` fires after an MCP call.
-- **Watch items**: a trusted project `.agents/skills/<x>` shadows the global copy (Cartographer
+- **Watch items**: the `tool_result` return contract (a partial patch; replacing `content` drops
+  `structuredContent`) comes from the vendor docs and is not yet exercised end to end on a real Pi
+  (the write-findings text reaching the model, the `PreToolUse` block repeated by the model, the
+  bootstrap hook in `pi -p`): probe it before relying on it; `Stop`/`UserPromptSubmit` unmapped;
+  `SessionStart` stdout (the update notice) is not delivered; jiti and the extension API may change;
+  `/reload` re-fires `session_start`, so the sync runs again (harmless); a trusted project `.agents/skills/<x>` shadows the global copy (Cartographer
   also projects `.agents/skills` for codex, copilot and antigravity: same content, benign
   duplication, not suppressed); the `CLAUDE.md` global fallback order is unprobed; the Windows
   path `%USERPROFILE%\.pi\agent` is unverified; `pi` shims on `PATH`; an exposure changed by the
