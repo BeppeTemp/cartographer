@@ -1,33 +1,10 @@
 package main
 
-import (
-	"errors"
-
-	"github.com/BeppeTemp/cartographer/internal/config"
-	"gopkg.in/yaml.v3"
-)
+import "github.com/BeppeTemp/cartographer/internal/config"
 
 // The list of renamed KBs' old names lives in the server state file under the
 // data dir (D906, config.ServerState), not in the server YAML: it is written
 // by `kb rename` and `kb unmount`, and read by the server at start.
-
-// rootMapping returns the top-level mapping of the document, creating it for
-// an empty file.
-func rootMapping(doc *yaml.Node) (*yaml.Node, error) {
-	if doc.Kind == 0 {
-		doc.Kind = yaml.DocumentNode
-	}
-	if doc.Kind != yaml.DocumentNode {
-		return nil, errors.New("not a YAML document")
-	}
-	if len(doc.Content) == 0 {
-		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
-	}
-	if doc.Content[0].Kind != yaml.MappingNode {
-		return nil, errors.New("the top level is not a mapping")
-	}
-	return doc.Content[0], nil
-}
 
 // readAliases is the alias list the server of dataDir will resolve, for a
 // preflight: the state file's, plus the ones the server YAML at configPath ("" for

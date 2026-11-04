@@ -29,7 +29,7 @@ func migrationFixture(lockHash, serveHash string) (*clientconfig.Config, provisi
 		lf.SetProjection(proj.Key(), provisioning.Lock{Provider: "claude", Managed: []provisioning.ManagedFile{
 			{Kind: "hook", Name: "guard", Path: "hooks/guard/run.sh", ContentHash: lockHash, Source: "kb:kb-a"},
 			{Kind: "hook", Name: "guard", Path: "hooks/guard/hook.json", ContentHash: lockHash, Source: "kb:kb-a"},
-		}}, "")
+		}})
 	}
 	manifests := map[string]provisioning.Manifest{projectionKey(proj): {Artifacts: []provisioning.Artifact{migrationHook(serveHash)}}}
 	return &clientconfig.Config{}, lf, manifests, []syncProjection{proj}

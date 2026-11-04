@@ -613,3 +613,8 @@ func TestGitTokenCredentialEnv_ResetsOtherHelpers(t *testing.T) {
 		t.Fatalf("helper list = %q, want the global entry, an empty reset, then the injected helper", lines)
 	}
 }
+
+// ensureClonedKB is ensureClonedKBOn without a branch override.
+func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error) {
+	return ensureClonedKBOn(remote, name, dataDir, "", env...)
+}

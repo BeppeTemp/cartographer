@@ -432,16 +432,18 @@ func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 	if d.Added[0].Signed {
 		t.Error("the absence of a trust switch must not change the verification state")
 	}
-	if got := formatDiffStatus(d, nil); got != "drift +1 ~0 -0" {
-		t.Errorf("formatDiffStatus = %q", got)
+	p := providerStatus{State: "drift", Added: snapshotArtifacts(d.Added, &clientconfig.Config{})}
+	if got := formatTUIProviderStatus(p); got != "drift" {
+		t.Errorf("formatTUIProviderStatus = %q", got)
 	}
 }
 
 // An MCP descriptor is the one artifact that still waits for an approval.
 func TestDiffMCPDescriptorNeedsApproval(t *testing.T) {
 	d := provisioning.Diff{Added: []provisioning.Artifact{{Kind: "mcp", Name: "tools", Source: "kb:x", Signed: true}}}
-	if got := formatDiffStatus(d, nil); !strings.Contains(got, "1 needs approval") || strings.Contains(got, "--auto-trust") {
-		t.Errorf("formatDiffStatus = %q", got)
+	p := providerStatus{State: "drift", Added: snapshotArtifacts(d.Added, &clientconfig.Config{})}
+	if got := formatTUIProviderStatus(p); !strings.Contains(got, "needs-approval 1") || strings.Contains(got, "--auto-trust") {
+		t.Errorf("formatTUIProviderStatus = %q", got)
 	}
 }
 
@@ -780,9 +782,9 @@ func TestManifestsForProvidersIsolatesBoundKBs(t *testing.T) {
 			"codex":  {KBs: []string{"two"}},
 		},
 	}
-	manifests, err := manifestsForProviders(cfg, cfg.Agents)
+	manifests, err := manifestsForAgents(cfg)
 	if err != nil {
-		t.Fatalf("manifestsForProviders: %v", err)
+		t.Fatalf("manifestsForAgents: %v", err)
 	}
 
 	names := func(p string) []string {
@@ -815,9 +817,9 @@ func TestManifestsForProvidersDefaultIsEveryKnownKB(t *testing.T) {
 	cfg := &clientconfig.Config{
 		ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one", "two"}, Agents: []string{"claude"},
 	}
-	manifests, err := manifestsForProviders(cfg, cfg.Agents)
+	manifests, err := manifestsForAgents(cfg)
 	if err != nil {
-		t.Fatalf("manifestsForProviders: %v", err)
+		t.Fatalf("manifestsForAgents: %v", err)
 	}
 	if len(manifests["claude"].Artifacts) != 2 {
 		t.Errorf("claude received %d artifacts, want both KBs", len(manifests["claude"].Artifacts))
@@ -832,9 +834,9 @@ func TestManifestsForProvidersEmptyBindingPullsNothing(t *testing.T) {
 		KnownKBs:  []string{"one"}, Agents: []string{"claude"},
 		Clients: map[string]clientconfig.ClientBinding{"claude": {KBsSet: true}},
 	}
-	manifests, err := manifestsForProviders(cfg, cfg.Agents)
+	manifests, err := manifestsForAgents(cfg)
 	if err != nil {
-		t.Fatalf("manifestsForProviders: %v", err)
+		t.Fatalf("manifestsForAgents: %v", err)
 	}
 	if len(manifests["claude"].Artifacts) != 0 {
 		t.Errorf("claude received %d artifacts, want none", len(manifests["claude"].Artifacts))
@@ -853,7 +855,7 @@ func TestManifestsForProvidersNamesTheStaleBinding(t *testing.T) {
 		ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one"}, Agents: []string{"claude"},
 		Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"gone"}}},
 	}
-	_, err := manifestsForProviders(cfg, cfg.Agents)
+	_, err := manifestsForAgents(cfg)
 	if err == nil {
 		t.Fatal("a binding to an unadvertised KB was accepted")
 	}
@@ -878,9 +880,9 @@ func TestUnbindingRemovesItsArtifacts(t *testing.T) {
 		Agents: []string{"claude"},
 	}
 
-	both, err := manifestsForProviders(cfg, cfg.Agents)
+	both, err := manifestsForAgents(cfg)
 	if err != nil {
-		t.Fatalf("manifestsForProviders: %v", err)
+		t.Fatalf("manifestsForAgents: %v", err)
 	}
 	if _, err := materializeForProviders(both, globalProjections(cfg.Agents, dir), dir, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materialize: %v", err)
@@ -894,9 +896,9 @@ func TestUnbindingRemovesItsArtifacts(t *testing.T) {
 	if err := cfg.Bind("claude", "one"); err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
-	narrowed, err := manifestsForProviders(cfg, cfg.Agents)
+	narrowed, err := manifestsForAgents(cfg)
 	if err != nil {
-		t.Fatalf("manifestsForProviders (narrowed): %v", err)
+		t.Fatalf("manifestsForAgents (narrowed): %v", err)
 	}
 	if _, err := materializeForProviders(narrowed, globalProjections(cfg.Agents, dir), dir, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materialize (narrowed): %v", err)
@@ -1271,6 +1273,26 @@ func globalProjections(providers []string, baseDir string) []syncProjection {
 	out := make([]syncProjection, 0, len(providers))
 	for _, p := range providers {
 		out = append(out, globalProjection(p, baseDir, nil))
+	}
+	return out
+}
+
+// manifestsForAgents is the manifest of every global projection of cfg.Agents,
+// built the way sync, connect and status build it.
+func manifestsForAgents(cfg *clientconfig.Config) (map[string]provisioning.Manifest, error) {
+	ps, err := allProjections(cfg, cfg.Agents, "")
+	if err != nil {
+		return nil, err
+	}
+	return manifestsForProjections(cfg, ps)
+}
+
+// uniformManifests gives every provider the same manifest, for tests that do
+// not exercise bindings.
+func uniformManifests(m provisioning.Manifest, providers []string) map[string]provisioning.Manifest {
+	out := make(map[string]provisioning.Manifest, len(providers))
+	for _, p := range providers {
+		out[p] = m
 	}
 	return out
 }

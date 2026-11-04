@@ -242,3 +242,29 @@ func TestWorkspaceArgumentErrorsAndDerivedUnbind(t *testing.T) {
 		t.Errorf("derived unbind: code=%d out=%q err=%q changed=%v", code, out, errOut, string(before) != string(after))
 	}
 }
+
+// A workspace projection directory that is a symlink is refused by apply
+// (D148): doctor names it, as it does for the global roots.
+func TestDoctorFlagsSymlinkedWorkspaceProjectionRoot(t *testing.T) {
+	home := t.TempDir()
+	ws := t.TempDir()
+	elsewhere := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(ws, ".claude", "skills")
+	if err := os.Symlink(elsewhere, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	cfg := workspaceScoped("claude", "kb-a")
+	cfg.SetDerived(clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{"claude": {{Path: ws, KBs: []string{"kb-a"}}}}})
+	var found bool
+	for _, f := range checkWorkspaceProjections(home, cfg, []string{"claude"}) {
+		if f.Check == "symlink" && f.Path == link {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no symlink finding naming %s", link)
+	}
+}

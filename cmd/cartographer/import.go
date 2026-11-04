@@ -329,18 +329,15 @@ type importPlan struct {
 	maps        []string // destination map names, one per map touched by the plan
 }
 
-// buildImportPlan walks source for .md files (skipping hidden directories),
-// resolves each file's destination map via mapping (falling back to
-// defaultMap), and derives a destination concept ID per file,
+// buildImportPlanWithOptions walks source for .md files (skipping hidden
+// directories), resolves each file's destination map via mapping (falling back
+// to defaultMap), and derives a destination concept ID per file,
 // de-duplicating slug collisions within the same destination directory.
 // Returns an explicit error if any source directory containing .md files has
 // neither a --map entry nor a --default-map to fall back to.
-func buildImportPlan(source string, mapping []importMapEntry, defaultMap string) (*importPlan, error) {
-	return buildImportPlanWithOptions(source, mapping, defaultMap, false)
-}
-
-// buildImportPlanWithOptions also promotes source directories containing an
-// index.md (or, when absent, README.md) into expanded concepts when requested.
+//
+// With dirAsConcept it also promotes source directories containing an
+// index.md (or, when absent, README.md) into expanded concepts.
 func buildImportPlanWithOptions(source string, mapping []importMapEntry, defaultMap string, dirAsConcept bool) (*importPlan, error) {
 	source = filepath.Clean(source)
 

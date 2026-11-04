@@ -50,7 +50,7 @@ func TestWorkspaceSyncPrunesD717Entry(t *testing.T) {
 	lf := provisioning.LockFile{}
 	lf.SetProjection(projs[1].Key(), provisioning.Lock{Managed: []provisioning.ManagedFile{
 		{Kind: "mcp", Name: "cartographer", Path: ".mcp.json", Source: provisioning.SourceClient},
-	}}, projs[1].Remote)
+	}})
 	if err := provisioning.WriteLockFile(lockFilePath(target), lf); err != nil {
 		t.Fatal(err)
 	}

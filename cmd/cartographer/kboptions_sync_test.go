@@ -47,9 +47,9 @@ func kbFullPayload(t *testing.T, kb, skill string) string {
 // syncOnce runs the real manifest build + materialize for claude under dir.
 func syncOnce(t *testing.T, cfg *clientconfig.Config, dir string) {
 	t.Helper()
-	ms, err := manifestsForProviders(cfg, cfg.Agents)
+	ms, err := manifestsForAgents(cfg)
 	if err != nil {
-		t.Fatalf("manifestsForProviders: %v", err)
+		t.Fatalf("manifestsForAgents: %v", err)
 	}
 	approved := map[string]string{}
 	for _, m := range ms {
@@ -165,11 +165,11 @@ func TestKBArtifactsOptOutAvoidsCollision(t *testing.T) {
 	})
 	defer srv.Close()
 	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"kb-a", "kb-b"}, Agents: []string{"claude"}}
-	if _, err := manifestsForProviders(cfg, cfg.Agents); err == nil {
+	if _, err := manifestsForAgents(cfg); err == nil {
 		t.Fatal("expected a collision without the option")
 	}
 	cfg.SetKBArtifacts("kb-a", false)
-	ms, err := manifestsForProviders(cfg, cfg.Agents)
+	ms, err := manifestsForAgents(cfg)
 	if err != nil {
 		t.Fatalf("opted-out KB still collides: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestKBArtifactsOptOutDryRunWritesNothing(t *testing.T) {
 	before, _ := os.ReadFile(filepath.Join(dir, ".claude", "CLAUDE.md"))
 
 	cfg.SetKBArtifacts("kb-a", false)
-	ms, err := manifestsForProviders(cfg, cfg.Agents)
+	ms, err := manifestsForAgents(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

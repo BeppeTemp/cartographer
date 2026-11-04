@@ -299,38 +299,6 @@ func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []
 	return out
 }
 
-// ProjectOwnedPaths returns the workspace-relative roots a projection can
-// write under for provider: the per-kind directories and the exact file for a
-// shared-file destination. A root is not ownership: a repository may keep its
-// own artifacts in the same directory (.agents/skills/<own>/), so the
-// repository-hygiene pass (collision check, git exclude) uses
-// ProjectOwnedArtifactPaths instead (D1181). This is for whatever needs only
-// where a projection may write.
-func ProjectOwnedPaths(provider configurator.Provider) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, kind := range artifactKinds {
-		cell, ok := projectDestinationMatrix[kind][provider]
-		if !ok || cell.unsupported {
-			continue
-		}
-		rel := path.Join(cell.dir...)
-		if rel == "" || rel == "." || seen[rel] {
-			continue
-		}
-		seen[rel] = true
-		out = append(out, rel)
-	}
-	for _, rel := range projectRegistrationFiles[provider] {
-		if !seen[rel] {
-			seen[rel] = true
-			out = append(out, rel)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // ProjectOwnedArtifactPaths returns the workspace-relative paths a projection
 // of provider owns: what it writes, not the directories it writes into (D1181).
 //
@@ -500,11 +468,11 @@ func validateProjectMatrix() error {
 
 // WorkspaceLocks is one workspace's applied state, per provider.
 type WorkspaceLocks struct {
-	// Remote is the normalized git remote recorded when the workspace was
-	// bound, carried here so a prune can refuse a directory that has become a
-	// different repository since — the same guard the binding holds, checked
-	// where the deletion actually happens.
-	Remote string `json:"remote,omitempty"`
+	// A lockfile written by an older client may carry a "remote" key here: it
+	// is ignored on read and dropped on the next write. The guard against a
+	// directory that became another repository is the binding's remote
+	// (clientconfig.CheckWorkspaceRemote) and the hash verification in
+	// disconnect.
 	// Providers is keyed by provider name, exactly as LockFile.Providers is,
 	// and every Lock in it carries BaseDir = this workspace's path.
 	Providers map[string]Lock `json:"providers"`
@@ -545,7 +513,7 @@ func (lf LockFile) ForProjection(p Projection) Lock {
 // records BaseDir: pruning or verifying against the wrong base dir deletes the
 // wrong files, and for a workspace the base dir is never the lockfile's own
 // directory.
-func (lf *LockFile) SetProjection(p Projection, lock Lock, remote string) {
+func (lf *LockFile) SetProjection(p Projection, lock Lock) {
 	if p.Global() {
 		lf.SetProvider(p.Provider, lock)
 		return
@@ -559,9 +527,6 @@ func (lf *LockFile) SetProjection(p Projection, lock Lock, remote string) {
 	}
 	if ws.Providers == nil {
 		ws.Providers = map[string]Lock{}
-	}
-	if remote != "" {
-		ws.Remote = remote
 	}
 	lock.Provider = p.Provider
 	lock.BaseDir = p.Workspace
@@ -666,12 +631,6 @@ func WithoutCoOwned(managed []ManagedFile, coOwned map[string]bool) []ManagedFil
 		}
 	}
 	return out
-}
-
-// WorkspaceRemote returns the git remote recorded for a workspace's applied
-// state, empty when there is none.
-func (lf LockFile) WorkspaceRemote(workspace string) string {
-	return lf.Workspaces[workspace].Remote
 }
 
 // ProjectDestination is destDirScoped's project half, exported for the client,

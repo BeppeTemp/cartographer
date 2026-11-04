@@ -953,21 +953,30 @@ func checkCapabilities(dir string, cfg *clientconfig.Config, facts serverFacts, 
 func checkSymlinkedDestinations(dir string, providers []string) []doctorFinding {
 	var out []doctorFinding
 	for _, p := range providers {
-		for _, path := range provisioning.ManagedDestinationRoots(configurator.Provider(p), dir) {
-			info, err := os.Lstat(path)
-			if err != nil || info.Mode()&os.ModeSymlink == 0 {
-				continue
-			}
-			target, readErr := os.Readlink(path)
-			if readErr != nil {
-				target = "(unreadable)"
-			}
-			out = append(out, doctorFinding{
-				Check: "symlink", Severity: doctorWarning, Path: path,
-				Message: fmt.Sprintf("[%s] %s is a symlink: provisioning writes would land in %s, so Cartographer refuses them", p, path, target),
-				Fix:     "replace the symlink with a real directory, or point the client base dir at the real location",
-			})
+		out = append(out, symlinkedDestinationFindings(p, provisioning.ManagedDestinationRoots(configurator.Provider(p), dir))...)
+	}
+	return out
+}
+
+// symlinkedDestinationFindings reports each of roots (the managed destinations
+// of provider, global or under a workspace) that is a symlink. A root that
+// does not exist is not a finding.
+func symlinkedDestinationFindings(provider string, roots []string) []doctorFinding {
+	var out []doctorFinding
+	for _, path := range roots {
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
 		}
+		target, readErr := os.Readlink(path)
+		if readErr != nil {
+			target = "(unreadable)"
+		}
+		out = append(out, doctorFinding{
+			Check: "symlink", Severity: doctorWarning, Path: path,
+			Message: fmt.Sprintf("[%s] %s is a symlink: provisioning writes would land in %s, so Cartographer refuses them", provider, path, target),
+			Fix:     "replace the symlink with a real directory, or point the client base dir at the real location",
+		})
 	}
 	return out
 }

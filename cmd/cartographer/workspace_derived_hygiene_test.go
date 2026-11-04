@@ -126,7 +126,7 @@ func TestDerivedWorkspace_TrackedMCPFileKeepsItsLockEntries(t *testing.T) {
 	lf.SetProjection(p.Key(), provisioning.Lock{Provider: "kiro", BaseDir: ws, ProjectScope: true, Managed: []provisioning.ManagedFile{
 		{Kind: "mcp", Name: "tools", Path: ".kiro/settings/mcp.json", ContentHash: "h-mcp"},
 		{Kind: "mcp", Name: "bridge", Path: ".kiro/settings/mcp.json", Source: provisioning.SourceClient},
-	}}, "")
+	}})
 	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 		t.Fatal(err)
 	}

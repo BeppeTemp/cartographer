@@ -70,6 +70,9 @@ func TestMain(m *testing.M) {
 	// Nor the developer's global git identity, which connect and sync would
 	// write into HTTP entries (D904).
 	globalIdentFn = func() (string, bool) { return "", false }
+	// Nor the server of the developer's client config, which an import would
+	// ask to reindex; the dedicated import test overrides it.
+	reindexAfterImportFn = func(string) bool { return false }
 	code := m.Run()
 	os.RemoveAll(cache)
 	os.RemoveAll(home)

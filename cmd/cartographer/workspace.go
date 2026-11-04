@@ -748,8 +748,8 @@ func allProjectionsPartial(cfg *clientconfig.Config, providers []string, clientB
 	return out, failed
 }
 
-// manifestsForProjections is manifestsForProviders with the workspace axis: one
-// manifest per projection, each merged strictly over **that projection's** KBs.
+// manifestsForProjections builds one manifest per projection, each merged
+// strictly over **that projection's** KBs.
 //
 // That narrowing is WP4's whole content. The strict merge (D171) then answers
 // "do two KBs collide here", which is the only place a collision can actually
@@ -1163,6 +1163,7 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 			continue
 		}
 		for _, w := range workspaceStatuses(cfg, provider, dir) {
+			out = append(out, symlinkedDestinationFindings(provider, provisioning.ManagedProjectRoots(configurator.Provider(provider), w.Path))...)
 			if w.Derived && w.State == "ok" {
 				out = append(out, trackedClaudeHookSettings(provider, w.Path, lockFile)...)
 			}

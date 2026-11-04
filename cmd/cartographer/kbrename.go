@@ -289,13 +289,6 @@ func findKBEntry(name, configPath string, cfg *config.Config) (int, error) {
 	return -1, nil
 }
 
-// sameDir compares two directory paths after cleaning, tolerating a trailing
-// separator. Symlinks are not resolved: the config's own spelling is what the
-// server uses.
-func sameDir(a, b string) bool {
-	return filepath.Clean(a) == filepath.Clean(b)
-}
-
 // scopeRefs lists the configured tokens whose scopes name the old KB. They
 // are reported, never rewritten: a token is a credential, and editing one on
 // an operator's behalf is not this command's business.
@@ -535,10 +528,7 @@ func rewriteServerConfig(p *renamePlan) error {
 }
 
 func rewriteEntryNode(entry *yaml.Node, p *renamePlan) {
-	if path := mapValue(entry, "path"); path != nil {
-		path.Value = p.NewPath
-		path.Tag = "!!str"
-	}
+	// No `path` key: it is retired (D903) and the loader ignores it.
 	if name := mapValue(entry, "name"); name != nil {
 		name.Value = p.New
 		name.Tag = "!!str"

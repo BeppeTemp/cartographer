@@ -1,7 +1,9 @@
 package provisioning
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -21,8 +23,8 @@ func lockWith(paths ...string) Lock {
 func TestProjections_GlobalAndWorkspacesAreSeparate(t *testing.T) {
 	var lf LockFile
 	lf.SetProvider("claude", lockWith("global-skill/SKILL.md"))
-	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/work"}, lockWith("work-skill/SKILL.md"), "git.example.com/team/work")
-	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/homelab"}, lockWith("homelab-skill/SKILL.md"), "")
+	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/work"}, lockWith("work-skill/SKILL.md"))
+	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/homelab"}, lockWith("homelab-skill/SKILL.md"))
 
 	global := lf.ForProjection(Projection{Provider: "claude"})
 	if len(global.Managed) != 1 || global.Managed[0].Path != "global-skill/SKILL.md" {
@@ -44,9 +46,6 @@ func TestProjections_GlobalAndWorkspacesAreSeparate(t *testing.T) {
 	if got := lf.ForProjection(Projection{Provider: "claude", Workspace: "/w/nope"}); len(got.Managed) != 0 {
 		t.Errorf("an unknown workspace resolved to %+v", got.Managed)
 	}
-	if got := lf.WorkspaceRemote("/w/work"); got != "git.example.com/team/work" {
-		t.Errorf("workspace remote = %q", got)
-	}
 }
 
 // TestRemoveProjection_LeavesSiblingsAlone: unbinding one workspace must not
@@ -54,9 +53,9 @@ func TestProjections_GlobalAndWorkspacesAreSeparate(t *testing.T) {
 func TestRemoveProjection_LeavesSiblingsAlone(t *testing.T) {
 	var lf LockFile
 	lf.SetProvider("claude", lockWith("global/SKILL.md"))
-	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/a"}, lockWith("a/SKILL.md"), "")
-	lf.SetProjection(Projection{Provider: "codex", Workspace: "/w/a"}, lockWith("a-codex/SKILL.md"), "")
-	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/b"}, lockWith("b/SKILL.md"), "")
+	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/a"}, lockWith("a/SKILL.md"))
+	lf.SetProjection(Projection{Provider: "codex", Workspace: "/w/a"}, lockWith("a-codex/SKILL.md"))
+	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/b"}, lockWith("b/SKILL.md"))
 
 	lf.RemoveProjection(Projection{Provider: "claude", Workspace: "/w/a"})
 
@@ -83,8 +82,8 @@ func TestProjections_Deterministic(t *testing.T) {
 	var lf LockFile
 	lf.SetProvider("codex", lockWith("x"))
 	lf.SetProvider("claude", lockWith("y"))
-	lf.SetProjection(Projection{Provider: "codex", Workspace: "/w/b"}, lockWith("z"), "")
-	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/a"}, lockWith("w"), "")
+	lf.SetProjection(Projection{Provider: "codex", Workspace: "/w/b"}, lockWith("z"))
+	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/a"}, lockWith("w"))
 
 	want := []string{"claude (global)", "codex (global)", "claude in /w/a", "codex in /w/b"}
 	for i := 0; i < 20; i++ {
@@ -117,7 +116,7 @@ func TestLockFileRoundTrip_WorkspacesSurvive(t *testing.T) {
 
 	var lf LockFile
 	lf.SetProvider("claude", lockWith("global/SKILL.md"))
-	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/work"}, lockWith("work/SKILL.md"), "git.example.com/team/work")
+	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/work"}, lockWith("work/SKILL.md"))
 	if err := WriteLockFile(path, lf); err != nil {
 		t.Fatal(err)
 	}
@@ -130,9 +129,6 @@ func TestLockFileRoundTrip_WorkspacesSurvive(t *testing.T) {
 	}
 	if got := back.ForProjection(Projection{Provider: "claude"}); len(got.Managed) != 1 {
 		t.Errorf("global projection did not survive a round trip: %+v", got)
-	}
-	if back.WorkspaceRemote("/w/work") != "git.example.com/team/work" {
-		t.Error("the workspace remote guard did not survive a round trip")
 	}
 
 	// A lockfile written before D193 has no workspaces key at all, and must
@@ -150,5 +146,35 @@ func TestLockFileRoundTrip_WorkspacesSurvive(t *testing.T) {
 	}
 	if len(old.Projections()) != 1 || !old.Projections()[0].Global() {
 		t.Errorf("a pre-D193 lockfile did not read as global-only: %+v", old.Projections())
+	}
+}
+
+// A lockfile written when workspaces recorded a "remote" still loads, keeps its
+// projections, and re-saves without the key.
+func TestLockFile_LegacyWorkspaceRemoteStillLoads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock.json")
+	legacy := `{"version":2,"workspaces":{"/w/work":{"remote":"git.example.com/team/work","providers":{"claude":{"provider":"claude","base_dir":"/w/work","project_scope":true,"managed":[{"kind":"skill","name":"s","path":"work/SKILL.md"}]}}}}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lf, err := ReadLockFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lf.ForProjection(Projection{Provider: "claude", Workspace: "/w/work"}); len(got.Managed) != 1 || got.BaseDir != "/w/work" {
+		t.Fatalf("legacy workspace projection did not load: %+v", got)
+	}
+	if err := WriteLockFile(path, lf); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "remote") {
+		t.Errorf("the retired key was written back: %s", b)
+	}
+	if back, err := ReadLockFile(path); err != nil || len(back.ForProjection(Projection{Provider: "claude", Workspace: "/w/work"}).Managed) != 1 {
+		t.Errorf("re-saved lockfile did not reload: %v", err)
 	}
 }
