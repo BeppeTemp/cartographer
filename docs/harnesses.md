@@ -808,11 +808,11 @@ project hook.UserPromptSubmit absent
   - `cartographer hook dispatch --provider cline --event <Event>` (internal) is the logic a dispatcher file will
     call: it reads Cline's payload and runs the Cartographer hooks of the event, materialized under
     `~/.cline/cartographer-hooks/<name>/` (a Claude-style `hook.json` and command, run as `sh -c`, payload on stdin,
-    25 s in total). `TaskStart` runs the `SessionStart` hooks (once per task: a marker in the temp directory, 12 h),
+    25 s in total, kill grace included; each stream capped at 1 MiB). `TaskStart` runs the `SessionStart` hooks (once per task: a 12 h marker in a private per-user directory of the temp dir),
     `UserPromptSubmit`, `PreToolUse` and `PostToolUse` run their own. `PreToolUse` exit 2 returns `cancel`, which
     stops the task; `PostToolUse` exit 2 with stderr is context, never `cancel`, and only a successful tool fires it;
     `SessionStart` and `UserPromptSubmit` stdout is context; anything else has no effect. A tool `<server>__<tool>`
-    is presented as `mcp__<server>__<tool>` and the matcher (unanchored, case-insensitive) is tried on both names; a
+    is presented as `mcp__<server>__<tool>` and the matcher (unanchored, case-insensitive, honoured on `PreToolUse` and `PostToolUse` only) is tried on both names; a
     Cline built-in (`run_commands`, `editor`) is not translated to Claude's `Bash`. Output is one line of ASCII
     JSON, exit 0 in every case. The write-findings hook is not installed for Cline until probe P2 shows what
     `postToolUse.result` is for an MCP response.

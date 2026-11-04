@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
@@ -53,12 +55,14 @@ var clineHookRoots = []string{strings.TrimSuffix(clineHookFilesPrefix, "/")}
 // markers live.
 var (
 	clineHookBudget = 25 * time.Second
+	clineWaitDelay  = time.Second // a grandchild holding the pipes must not outlive the budget
 	clineTempDir    = os.TempDir
 )
 
 const (
 	clineMarkerTTL    = 12 * time.Hour
-	clineMaxContext   = 50000 // Cline caps contextModification at this many characters
+	clineMaxOutput    = 1 << 20 // per stream of one hook; the rest is read and dropped
+	clineMaxContext   = 50000   // Cline caps contextModification at this many characters
 	clineMarkerPrefix = "cartographer-cline-"
 )
 
@@ -171,7 +175,8 @@ func DispatchClineHooks(baseDir, event string, stdin []byte) ClineDispatchResult
 		if h.clineEvent != event {
 			continue
 		}
-		if h.matcher != nil && event != "TaskStart" && !h.matcher.MatchString(toolName) && !h.matcher.MatchString(mcpName) {
+		// Only a tool event has a tool name: a matcher on any other event is not applied.
+		if h.matcher != nil && (event == "PreToolUse" || event == "PostToolUse") && !h.matcher.MatchString(toolName) && !h.matcher.MatchString(mcpName) {
 			continue
 		}
 		selected = append(selected, h)
@@ -183,20 +188,25 @@ func DispatchClineHooks(baseDir, event string, stdin []byte) ClineDispatchResult
 	if len(p.WorkspaceRoots) > 0 {
 		cwd = p.WorkspaceRoots[0]
 	}
-	// TaskStart may fire once per turn (probe P1 is open): the bootstrap hook
-	// runs `cartographer sync`, so it runs once per task.
-	if event == "TaskStart" && p.TaskID != "" && !clineFirstTaskStart(p.TaskID) {
-		return ClineDispatchResult{}
-	}
+	// sh first: a missing sh must not take the once-per-task marker, or it would
+	// silence TaskStart for the whole TTL.
 	sh := clineShell()
 	if sh == "" {
 		fmt.Fprintln(os.Stderr, "cartographer: no sh found to run the Cline hooks (Git for Windows provides one)")
 		return ClineDispatchResult{}
 	}
+	// TaskStart may fire once per turn (probe P1 is open): the bootstrap hook
+	// runs `cartographer sync`, so it runs once per task.
+	if event == "TaskStart" && p.TaskID != "" && !clineFirstTaskStart(p.TaskID) {
+		return ClineDispatchResult{}
+	}
 
 	var res ClineDispatchResult
 	var ctxs, errs []string
-	perHook := clineHookBudget / time.Duration(len(selected))
+	// Each hook may also spend clineWaitDelay after its kill, so the total stays
+	// under the budget: (budget - n*WaitDelay) / n each, never under 100 ms.
+	perHook := (clineHookBudget - time.Duration(len(selected))*clineWaitDelay) / time.Duration(len(selected))
+	perHook = max(perHook, 100*time.Millisecond)
 	for _, h := range selected {
 		payload := map[string]any{"hook_event_name": h.spec.Event, "cwd": cwd, "session_id": p.TaskID}
 		switch event {
@@ -272,9 +282,9 @@ func runClineHook(sh, command, hookDir, cwd string, payload []byte, timeout time
 		cmd.Dir = cwd
 	}
 	cmd.Stdin = bytes.NewReader(payload)
-	var so, se bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &so, &se
-	cmd.WaitDelay = time.Second // a grandchild holding the pipes must not outlive the budget
+	so, se := &capWriter{max: clineMaxOutput}, &capWriter{max: clineMaxOutput}
+	cmd.Stdout, cmd.Stderr = so, se
+	cmd.WaitDelay = clineWaitDelay
 	err := cmd.Run()
 	if ctx.Err() != nil {
 		return 0, "", "", false
@@ -311,13 +321,33 @@ func clineShell() string {
 	return ""
 }
 
+// clineMarkerDir is the per-user directory of the TaskStart markers, mode 0700
+// inside the shared temp dir: a predictable name there could be pre-created by
+// another local user to silence the sync. It must be a real directory (never a
+// link), private and ours; "" when it cannot be had.
+func clineMarkerDir() string {
+	dir := filepath.Join(clineTempDir(), clineMarkerPrefix+strconv.Itoa(os.Getuid()))
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return ""
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil || !fi.IsDir() || !ownedByCurrentUser(fi) || (execbit.Supported && fi.Mode().Perm()&0o077 != 0) {
+		return ""
+	}
+	return dir
+}
+
 // clineFirstTaskStart reports whether this is the first TaskStart of taskID
-// within clineMarkerTTL: it creates a marker file in the temp dir (O_EXCL, so a
-// planted link is never followed) and removes the stale ones. A temp dir that
-// cannot be written answers true: the sync runs, it never silently does not.
+// within clineMarkerTTL: it creates a marker file in clineMarkerDir (O_EXCL, so
+// a planted link is never followed) and removes the stale ones. When the
+// directory cannot be trusted or written it answers true: the sync runs, it
+// never silently does not.
 func clineFirstTaskStart(taskID string) bool {
-	dir := clineTempDir()
-	if old, _ := filepath.Glob(filepath.Join(dir, clineMarkerPrefix+"*")); old != nil {
+	dir := clineMarkerDir()
+	if dir == "" {
+		return true
+	}
+	if old, _ := filepath.Glob(filepath.Join(dir, "*")); old != nil {
 		for _, m := range old {
 			if fi, err := os.Lstat(m); err == nil && time.Since(fi.ModTime()) > clineMarkerTTL {
 				_ = os.Remove(m)
@@ -325,13 +355,29 @@ func clineFirstTaskStart(taskID string) bool {
 		}
 	}
 	sum := sha256.Sum256([]byte(taskID))
-	f, err := os.OpenFile(filepath.Join(dir, clineMarkerPrefix+hex.EncodeToString(sum[:])[:16]), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, hex.EncodeToString(sum[:])[:16]), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return !errors.Is(err, os.ErrExist)
 	}
 	_ = f.Close()
 	return true
 }
+
+// capWriter keeps the first max bytes and discards the rest while still
+// reporting every byte written, so a chatty hook neither fills memory nor blocks.
+type capWriter struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if room := w.max - w.buf.Len(); room > 0 {
+		w.buf.Write(p[:min(room, len(p))])
+	}
+	return len(p), nil
+}
+
+func (w *capWriter) String() string { return w.buf.String() }
 
 func capRunes(s string, n int) string {
 	if utf8.RuneCountInString(s) <= n {

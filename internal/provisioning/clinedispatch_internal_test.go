@@ -113,7 +113,7 @@ func TestDispatchClineHooksMergesAndStaysInBudget(t *testing.T) {
 	writeClineHook(t, base, "b", "PostToolUse", "", "#!/bin/sh\necho two >&2\nexit 2\n")
 	writeClineHook(t, base, "c", "PostToolUse", "", "#!/bin/sh\nsleep 30\n")
 	old := clineHookBudget
-	clineHookBudget = 1500 * time.Millisecond
+	clineHookBudget = 6 * time.Second
 	t.Cleanup(func() { clineHookBudget = old })
 	start := time.Now()
 	res := dispatch(base, "PostToolUse", `{"postToolUse":{"toolName":"x","success":true}}`)
@@ -157,5 +157,84 @@ func TestClineHookCommandUsesForwardSlashesOnWindows(t *testing.T) {
 	pretendWindows(t, true)
 	if got, want := clineHookCommand(h), `C:/Users/user/.cline/cartographer-hooks/g/run.sh --flag`; got != want {
 		t.Errorf("command = %s, want %s", got, want)
+	}
+}
+
+func TestDispatchClineMatcherIsForToolEventsOnly(t *testing.T) {
+	base := clineBase(t)
+	writeClineHook(t, base, "ask", "UserPromptSubmit", "^never$", "#!/bin/sh\necho 'be brief'\n")
+	if res := dispatch(base, "UserPromptSubmit", `{"userPromptSubmit":{"prompt":"hi"}}`); res.ContextModification != "be brief" {
+		t.Errorf("a matcher on UserPromptSubmit must not stop the hook: %+v", res)
+	}
+}
+
+func TestDispatchClineTotalStaysInBudget(t *testing.T) {
+	base := clineBase(t)
+	for _, n := range []string{"a", "b", "c"} {
+		// the grandchild keeps the pipes open, so the WaitDelay is spent too
+		writeClineHook(t, base, n, "PostToolUse", "", "#!/bin/sh\nsleep 30 &\nwait\n")
+	}
+	ob, od := clineHookBudget, clineWaitDelay
+	clineHookBudget, clineWaitDelay = 3*time.Second, 300*time.Millisecond
+	t.Cleanup(func() { clineHookBudget, clineWaitDelay = ob, od })
+	start := time.Now()
+	dispatch(base, "PostToolUse", `{"postToolUse":{"toolName":"x","success":true}}`)
+	if d := time.Since(start); d > clineHookBudget+300*time.Millisecond {
+		t.Errorf("took %v, over the %v budget", d, clineHookBudget)
+	}
+}
+
+func TestClineMissingShellKeepsTheTaskStartMarker(t *testing.T) {
+	base := clineBase(t)
+	writeClineHook(t, base, "boot", "SessionStart", "", "#!/bin/sh\necho hi\n")
+	t.Setenv("PATH", "")
+	if res := dispatch(base, "TaskStart", `{"taskId":"t"}`); res != (ClineDispatchResult{}) {
+		t.Fatalf("no sh: %+v", res)
+	}
+	t.Setenv("PATH", "/bin:/usr/bin")
+	if res := dispatch(base, "TaskStart", `{"taskId":"t"}`); res.ContextModification != "hi" {
+		t.Errorf("a missing sh took the marker: %+v", res)
+	}
+}
+
+func TestClineMarkerDirIsPrivateAndNeverALink(t *testing.T) {
+	_ = clineBase(t)
+	dir := clineMarkerDir()
+	if dir == "" {
+		t.Fatal("no marker dir")
+	}
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Errorf("mode = %v", fi.Mode().Perm())
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if clineMarkerDir() != "" {
+		t.Error("a group-readable marker dir was trusted")
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if clineMarkerDir() != "" {
+		t.Error("a symlinked marker dir was trusted")
+	}
+	if !clineFirstTaskStart("x") || !clineFirstTaskStart("x") {
+		t.Error("an untrusted dir must fail open: the sync runs")
+	}
+}
+
+func TestDispatchClineCapsChildOutput(t *testing.T) {
+	base := clineBase(t)
+	writeClineHook(t, base, "loud", "SessionStart", "", "#!/bin/sh\nhead -c 3000000 /dev/zero | tr '\\0' x\n")
+	res := dispatch(base, "TaskStart", `{"taskId":"big"}`)
+	if n := len(res.ContextModification); n == 0 || n > clineMaxContext {
+		t.Errorf("context = %d bytes", n)
+	}
+	w := &capWriter{max: 4}
+	if n, _ := w.Write([]byte("abcdefgh")); n != 8 || w.String() != "abcd" {
+		t.Errorf("capWriter kept %q, reported %d", w.String(), n)
 	}
 }
