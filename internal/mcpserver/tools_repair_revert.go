@@ -57,7 +57,11 @@ func toolRepairRevert(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult("repair_revert: " + err.Error()), nil
 			}
-			if onHead, err := gitx.IsAncestor(k.Root, full, "HEAD"); err != nil || !onHead {
+			onHead, err := gitx.IsAncestor(k.Root, full, "HEAD")
+			if err != nil {
+				return errorResult("repair_revert: cannot tell whether that commit is in this KB's history: " + err.Error()), nil
+			}
+			if !onHead {
 				return errorResult("repair_revert: that commit is not in this KB's current history"), nil
 			}
 			c, err := gitx.ShowCommit(k.Root, full)
@@ -70,7 +74,11 @@ func toolRepairRevert(k *kb.KB) Tool {
 			if !isRepairCommit(c) {
 				return errorResult(fmt.Sprintf("repair_revert: %.7s is not a kb_repair or auto-repair commit (subject %q); only those can be reverted here", full, c.Subject)), nil
 			}
-			if status, err := gitx.Status(k.Root); err != nil || strings.TrimSpace(status) != "" {
+			status, err := gitx.Status(k.Root)
+			if err != nil {
+				return errorResult("repair_revert: cannot read the KB's git status: " + err.Error()), nil
+			}
+			if strings.TrimSpace(status) != "" {
 				return errorResult("repair_revert: the KB has uncommitted changes; retry once they are committed"), nil
 			}
 			if err := gitx.RevertNoCommit(k.Root, full, k.GitEnv...); err != nil {

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -613,7 +614,10 @@ func toolConceptHistory(k *kb.KB) Tool {
 			}
 			if len(revs) == 0 {
 				if _, statErr := k.ReadConcept(okf.ConceptID(params.ID)); statErr != nil {
-					return errorResult(fmt.Sprintf("concept_history %q: not found", params.ID)), nil
+					if errors.Is(statErr, okf.ErrNotFound) {
+						return errorResult(fmt.Sprintf("concept_history %q: not found", params.ID)), nil
+					}
+					return errorResult(fmt.Sprintf("concept_history %q: %v", params.ID, relPathErr(statErr, k.Root))), nil
 				}
 			}
 			truncated := len(revs) > limit

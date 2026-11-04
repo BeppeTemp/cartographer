@@ -441,7 +441,7 @@ func TestConceptMove_RefusesATypeTheStrictTargetDoesNotAdmit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -570,5 +570,24 @@ func TestMapUpdate_NoShadowNoWarnings(t *testing.T) {
 	out := callOK(t, s, "map_update", `{"map":"ops","field_values":{"Incident":{"status":["active"]}}}`)
 	if strings.Contains(out, "warnings") {
 		t.Fatalf("no map-wide list, yet warned: %s", out)
+	}
+}
+
+// map_update tells a Map whose descriptor cannot be read from a Map that does
+// not exist: the first is an error to fix, the second is "not found", and the
+// agent must not create a duplicate of a Map that is only broken.
+func TestMapUpdate_BrokenDescriptorIsNotNotFound(t *testing.T) {
+	t.Parallel()
+	s, k := strictMapServer(t)
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "jr", "_map.md"), []byte("no frontmatter here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, s, "map_update", `{"map":"jr","harvest_after":90,"reason":"x"}`)
+	if !res.IsError || strings.Contains(res.Content[0].Text, "not found") || !strings.Contains(res.Content[0].Text, "missing frontmatter") {
+		t.Fatalf("broken descriptor: %+v", res)
+	}
+	res = callTool(t, s, "map_update", `{"map":"nowhere","harvest_after":90,"reason":"x"}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "not found") {
+		t.Fatalf("missing map: %+v", res)
 	}
 }

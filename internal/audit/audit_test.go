@@ -1,10 +1,12 @@
 package audit
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,34 +25,46 @@ func tempLog(t *testing.T) (*Log, string) {
 	f.Close()
 	path := f.Name()
 	t.Cleanup(func() { os.Remove(path) })
-	l, err := Open(path)
+	l, err := OpenWithOptions(path, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return l, path
 }
 
-func makeEntry(tool string) Entry {
-	return Entry{
-		Timestamp:  time.Now(),
-		Tool:       tool,
-		Args:       `{"key":"value"}`,
-		AgentID:    "test-agent",
-		Outcome:    "ok",
-		DurationMs: 10,
+// appendOne writes one tool call (attempt and completion) with a fresh
+// request ID.
+func appendOne(l *Log, tool string) error {
+	id := newID()
+	if _, err := l.AppendEvent(Entry{RequestID: id, Phase: PhaseAttempt, Tool: tool}); err != nil {
+		return err
 	}
+	_, err := l.AppendEvent(Entry{RequestID: id, Phase: PhaseCompletion, Tool: tool, Outcome: OutcomeSuccess})
+	return err
+}
+
+// countEntries is the number of entries of the active segment.
+func countEntries(l *Log) (int, error) {
+	es, err := l.TailFunc(math.MaxInt32, nil)
+	return len(es), err
+}
+
+// verifyLog is the production verifier on one active file, the way the
+// offline command runs it without an archive.
+func verifyLog(path string, public ed25519.PublicKey) (Summary, error) {
+	return VerifyAudit(path, "", public, VerifyOptions{})
 }
 
 func TestAppendAndTail(t *testing.T) {
 	l, _ := tempLog(t)
 
 	for _, tool := range []string{"t1", "t2", "t3"} {
-		if err := l.Append(makeEntry(tool)); err != nil {
+		if err := appendOne(l, tool); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	tail, err := l.Tail(3)
+	tail, err := l.TailFunc(3, func(e Entry) bool { return e.Phase == PhaseCompletion })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,13 +83,13 @@ func TestTailFuncAcrossChunks(t *testing.T) {
 	l, path := tempLog(t)
 	// Lines of ~300 bytes: 600 of them span several 64 KiB chunks.
 	for i := 0; i < 600; i++ {
-		e := makeEntry(fmt.Sprintf("t%03d", i))
+		e := Entry{RequestID: newID(), Phase: PhaseAttempt, Tool: fmt.Sprintf("t%03d", i)}
 		e.KB = "busy"
 		if i%50 == 0 {
 			e.KB = "quiet"
 		}
-		e.Args = strings.Repeat("x", 200)
-		if err := l.Append(e); err != nil {
+		e.Resources = map[string]string{"note": strings.Repeat("x", 200)}
+		if _, err := l.AppendEvent(e); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -93,7 +107,7 @@ func TestTailFuncAcrossChunks(t *testing.T) {
 	if want := "t550 t500 t450 t400 t350"; strings.Join(got, " ") != want {
 		t.Fatalf("quiet page = %v, want %s", got, want)
 	}
-	all, err := l.Tail(1000)
+	all, err := l.TailFunc(1000, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,16 +117,16 @@ func TestTailFuncAcrossChunks(t *testing.T) {
 }
 
 func TestHashChain(t *testing.T) {
-	l, _ := tempLog(t)
+	l, path := tempLog(t)
 
 	for i := 0; i < 5; i++ {
-		if err := l.Append(makeEntry("tool")); err != nil {
+		if err := appendOne(l, "tool"); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	// Verify first entry has PrevHash = "genesis"
-	tail, err := l.Tail(5)
+	tail, err := l.TailFunc(100, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,19 +137,15 @@ func TestHashChain(t *testing.T) {
 	}
 
 	// Full chain must be valid
-	idx, err := l.Verify()
-	if err != nil {
+	if _, err := verifyLog(path, nil); err != nil {
 		t.Fatal(err)
-	}
-	if idx != -1 {
-		t.Errorf("expected valid chain, got broken at index %d", idx)
 	}
 }
 
 func TestVerifyTampered(t *testing.T) {
 	l, path := tempLog(t)
 
-	if err := l.Append(makeEntry("tool")); err != nil {
+	if err := appendOne(l, "tool"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,7 +154,7 @@ func TestVerifyTampered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := strings.ReplaceAll(string(data), `"outcome":"ok"`, `"outcome":"tampered"`)
+	tampered := strings.ReplaceAll(string(data), `"outcome":"success"`, `"outcome":"tampered"`)
 	if tampered == string(data) {
 		t.Fatal("tamper replacement had no effect")
 	}
@@ -152,48 +162,8 @@ func TestVerifyTampered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	idx, err := l.Verify()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if idx != 0 {
-		t.Errorf("expected tamper detected at index 0, got %d", idx)
-	}
-}
-
-func TestCount(t *testing.T) {
-	l, _ := tempLog(t)
-
-	for i := 0; i < 5; i++ {
-		if err := l.Append(makeEntry("tool")); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	n, err := l.Count()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 5 {
-		t.Errorf("want 5, got %d", n)
-	}
-}
-
-func TestArgsTruncation(t *testing.T) {
-	l, _ := tempLog(t)
-
-	e := makeEntry("tool")
-	e.Args = strings.Repeat("a", 2048)
-	if err := l.Append(e); err != nil {
-		t.Fatal(err)
-	}
-
-	tail, err := l.Tail(1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tail[0].Args) != maxArgsLen {
-		t.Errorf("expected args truncated to %d, got %d", maxArgsLen, len(tail[0].Args))
+	if _, err := verifyLog(path, nil); err == nil || !strings.Contains(err.Error(), "chain broken at entry 1") {
+		t.Errorf("expected the tamper detected at entry 1, got %v", err)
 	}
 }
 
@@ -208,7 +178,7 @@ func tempLogWithKey(t *testing.T, kp KeyPair) (*Log, string) {
 	f.Close()
 	path := f.Name()
 	t.Cleanup(func() { os.Remove(path) })
-	l, err := OpenWithKey(path, kp)
+	l, err := OpenWithKeyAndOptions(path, kp, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,13 +217,13 @@ func TestAppendWithSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l, _ := tempLogWithKey(t, kp)
+	l, path := tempLogWithKey(t, kp)
 
-	if err := l.Append(makeEntry("signed-tool")); err != nil {
+	if err := appendOne(l, "signed-tool"); err != nil {
 		t.Fatal(err)
 	}
 
-	tail, err := l.Tail(1)
+	tail, err := l.TailFunc(1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,12 +232,8 @@ func TestAppendWithSignature(t *testing.T) {
 	}
 
 	// Chain and signature must be valid.
-	idx, err := l.Verify()
-	if err != nil {
-		t.Fatalf("Verify returned error: %v", err)
-	}
-	if idx != -1 {
-		t.Errorf("expected valid chain, got broken at index %d", idx)
+	if _, err := verifyLog(path, kp.Public); err != nil {
+		t.Fatalf("verify returned error: %v", err)
 	}
 }
 
@@ -278,7 +244,7 @@ func TestVerifyInvalidSignature(t *testing.T) {
 	}
 	l, path := tempLogWithKey(t, kp)
 
-	if err := l.Append(makeEntry("tool")); err != nil {
+	if err := appendOne(l, "tool"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -297,16 +263,9 @@ func TestVerifyInvalidSignature(t *testing.T) {
 	}
 
 	// Re-open with key to trigger signature verification.
-	l2, err := OpenWithKey(path, kp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	idx, err := l2.Verify()
-	if err == nil {
-		t.Fatal("expected Verify to return error for invalid signature")
-	}
-	if idx != 0 {
-		t.Errorf("expected broken entry at index 0, got %d", idx)
+	_, err = verifyLog(path, kp.Public)
+	if err == nil || !strings.Contains(err.Error(), "invalid signature at entry 0") {
+		t.Fatalf("expected an invalid signature at entry 0, got %v", err)
 	}
 }
 
@@ -320,12 +279,12 @@ func TestVerifyFullDistinguishesUnsigned(t *testing.T) {
 	path := f.Name()
 	defer os.Remove(path)
 
-	lPlain, err := Open(path)
+	lPlain, err := OpenWithOptions(path, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := lPlain.Append(makeEntry("unsigned")); err != nil {
+		if err := appendOne(lPlain, "unsigned"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -335,25 +294,25 @@ func TestVerifyFullDistinguishesUnsigned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lSigned, err := OpenWithKey(path, kp)
+	lSigned, err := OpenWithKeyAndOptions(path, kp, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
-		if err := lSigned.Append(makeEntry("signed")); err != nil {
+		if err := appendOne(lSigned, "signed"); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	count, unsigned, err := lSigned.VerifyFull()
+	sum, err := verifyLog(path, kp.Public)
 	if err != nil {
-		t.Fatalf("VerifyFull error: %v", err)
+		t.Fatalf("verify error: %v", err)
 	}
-	if count != 3 {
-		t.Errorf("expected 3 signed entries, got %d", count)
+	if signed := sum.Valid - sum.Unsigned; signed != 6 {
+		t.Errorf("expected 6 signed entries (3 calls), got %d", signed)
 	}
-	if unsigned != 2 {
-		t.Errorf("expected 2 unsigned entries, got %d", unsigned)
+	if sum.Unsigned != 4 {
+		t.Errorf("expected 4 unsigned entries (2 calls), got %d", sum.Unsigned)
 	}
 }
 
@@ -398,7 +357,7 @@ func TestVersionedEventsPairAndVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sum, err := VerifyFile(path, nil)
+	sum, err := verifyLog(path, nil)
 	if err != nil {
 		t.Fatalf("VerifyFile: %v", err)
 	}
@@ -422,7 +381,7 @@ func TestVersionedIncompleteAttemptFailsVerify(t *testing.T) {
 	if _, err := l.AppendEvent(Entry{RequestID: "req-2", Phase: PhaseAttempt, Tool: "concept_read"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyFile(path, nil); err == nil {
+	if _, err := verifyLog(path, nil); err == nil {
 		t.Fatal("expected verification to fail for an attempt with no matching completion")
 	}
 }
@@ -437,7 +396,7 @@ func TestRotationCheckpointAndCheckpointOnlyVerification(t *testing.T) {
 	}
 
 	for i := 0; i < 3; i++ {
-		if err := l.Append(makeEntry("tool")); err != nil {
+		if err := appendOne(l, "tool"); err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
 	}
@@ -452,22 +411,22 @@ func TestRotationCheckpointAndCheckpointOnlyVerification(t *testing.T) {
 			jsonlCount++
 		}
 	}
-	if jsonlCount != 2 {
-		t.Fatalf("want 2 archived segments, got %d", jsonlCount)
+	if jsonlCount != 5 { // MaxBytes 1: every event after the first rotates
+		t.Fatalf("want 5 archived segments, got %d", jsonlCount)
 	}
 
 	sum, err := VerifyAudit(path, archive, nil, VerifyOptions{})
 	if err != nil {
 		t.Fatalf("VerifyAudit: %v", err)
 	}
-	if sum.Retained != 2 {
-		t.Errorf("want 2 retained segments, got %d", sum.Retained)
+	if sum.Retained != 5 {
+		t.Errorf("want 5 retained segments, got %d", sum.Retained)
 	}
 	if sum.CheckpointOnly != 0 {
 		t.Errorf("want 0 checkpoint-only segments, got %d", sum.CheckpointOnly)
 	}
-	if sum.Valid != 3 {
-		t.Errorf("want 3 valid entries total, got %d", sum.Valid)
+	if sum.Valid != 6 {
+		t.Errorf("want 6 valid entries total, got %d", sum.Valid)
 	}
 
 	// Simulate retention having deleted the oldest segment: its chain
@@ -476,8 +435,8 @@ func TestRotationCheckpointAndCheckpointOnlyVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(idxBefore.Segments) != 2 {
-		t.Fatalf("want 2 checkpoints, got %d", len(idxBefore.Segments))
+	if len(idxBefore.Segments) != 5 {
+		t.Fatalf("want 5 checkpoints, got %d", len(idxBefore.Segments))
 	}
 	if err := os.Remove(filepath.Join(archive, idxBefore.Segments[0].Name)); err != nil {
 		t.Fatal(err)
@@ -490,8 +449,8 @@ func TestRotationCheckpointAndCheckpointOnlyVerification(t *testing.T) {
 	if sum2.CheckpointOnly != 1 {
 		t.Errorf("want 1 checkpoint-only segment, got %d", sum2.CheckpointOnly)
 	}
-	if sum2.Retained != 1 {
-		t.Errorf("want 1 still-retained segment, got %d", sum2.Retained)
+	if sum2.Retained != 4 {
+		t.Errorf("want 4 still-retained segment, got %d", sum2.Retained)
 	}
 }
 
@@ -508,7 +467,7 @@ func TestVerifyAuditRequiresKeyWhenCheckpointSigned(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := l.Append(makeEntry("tool")); err != nil {
+		if err := appendOne(l, "tool"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -689,7 +648,7 @@ func TestRotationCheckpointFailurePreservesActiveSegment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := l.Append(makeEntry("first")); err != nil {
+	if _, err := l.AppendEvent(Entry{RequestID: "r1", Phase: PhaseAttempt, Tool: "first"}); err != nil {
 		t.Fatal(err) // no rotation yet: the active file starts empty
 	}
 
@@ -700,11 +659,11 @@ func TestRotationCheckpointFailurePreservesActiveSegment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := l.Append(makeEntry("second")); err == nil {
+	if _, err := l.AppendEvent(Entry{RequestID: "r2", Phase: PhaseAttempt, Tool: "second"}); err == nil {
 		t.Fatal("expected rotation to fail because the checkpoint index path is a directory")
 	}
 
-	n, err := l.Count()
+	n, err := countEntries(l)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -760,7 +719,7 @@ func TestRetentionOnlyDeletesCheckpointedSegments(t *testing.T) {
 // pre-append size (rollback), leaving the chain valid and appendable.
 func TestAppendPartialWriteRollback(t *testing.T) {
 	l, path := tempLog(t)
-	if err := l.Append(makeEntry("first")); err != nil {
+	if err := appendOne(l, "first"); err != nil {
 		t.Fatal(err)
 	}
 	sizeBefore, err := os.Stat(path)
@@ -775,7 +734,7 @@ func TestAppendPartialWriteRollback(t *testing.T) {
 		}
 		return errors.New("injected partial write failure")
 	}
-	if err := l.Append(makeEntry("second")); err == nil {
+	if err := appendOne(l, "second"); err == nil {
 		t.Fatal("expected the injected write failure to surface as an error")
 	}
 	writeAllFunc = orig
@@ -788,12 +747,11 @@ func TestAppendPartialWriteRollback(t *testing.T) {
 		t.Errorf("expected rollback to truncate back to %d bytes, file is %d bytes", sizeBefore.Size(), fi.Size())
 	}
 
-	if err := l.Append(makeEntry("third")); err != nil {
+	if err := appendOne(l, "third"); err != nil {
 		t.Fatalf("append after rollback should succeed: %v", err)
 	}
-	idx, err := l.Verify()
-	if err != nil || idx != -1 {
-		t.Fatalf("expected a valid chain after rollback, got idx=%d err=%v", idx, err)
+	if _, err := verifyLog(path, nil); err != nil {
+		t.Fatalf("expected a valid chain after rollback, got %v", err)
 	}
 }
 
@@ -819,41 +777,18 @@ func TestAppendRetrySucceedsAfterTransientFailure(t *testing.T) {
 	}
 	defer func() { writeAllFunc = orig }()
 
-	if err := l.Append(makeEntry("retried")); err != nil {
+	if err := appendOne(l, "retried"); err != nil {
 		t.Fatalf("expected append to succeed after retries, got %v", err)
 	}
-	n, err := l.Count()
+	n, err := countEntries(l)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Errorf("want 1 entry after successful retry, got %d", n)
+	if n != 2 {
+		t.Errorf("want 2 entries (attempt, completion) after successful retry, got %d", n)
 	}
 	if !l.State().Healthy {
 		t.Error("expected log to be healthy after a retry that ultimately succeeded")
-	}
-}
-
-// TestQueueCapacityRejectsOverflow is a white-box test of the bounded
-// admission counter: once queueDepth reaches QueueCapacity, an append is
-// rejected outright (visible overload) rather than growing unbounded.
-func TestQueueCapacityRejectsOverflow(t *testing.T) {
-	l, _ := tempLog(t)
-
-	l.mu.Lock()
-	l.queueDepth = l.opts.QueueCapacity
-	l.mu.Unlock()
-
-	if err := l.Append(makeEntry("overflow")); err == nil || !strings.Contains(err.Error(), "queue full") {
-		t.Fatalf("expected a queue-full error, got %v", err)
-	}
-
-	l.mu.Lock()
-	l.queueDepth = 0
-	l.mu.Unlock()
-
-	if err := l.Append(makeEntry("after-recovery")); err != nil {
-		t.Fatalf("expected append to succeed once the queue has room again: %v", err)
 	}
 }
 
@@ -867,7 +802,7 @@ func TestBestEffortModeDoesNotBlockOnFailure(t *testing.T) {
 	writeAllFunc = func(f *os.File, b []byte) error { return errors.New("disk full") }
 	defer func() { writeAllFunc = orig }()
 
-	if err := l.Append(makeEntry("x")); err == nil {
+	if err := appendOne(l, "x"); err == nil {
 		t.Fatal("expected the append to fail")
 	}
 	st := l.State()
@@ -890,7 +825,7 @@ func TestRequiredModeBlocksAndRecoversAutomatically(t *testing.T) {
 
 	orig := writeAllFunc
 	writeAllFunc = func(f *os.File, b []byte) error { return errors.New("disk full") }
-	if err := l.Append(makeEntry("x")); err == nil {
+	if err := appendOne(l, "x"); err == nil {
 		t.Fatal("expected the append to fail")
 	}
 	writeAllFunc = orig
@@ -900,43 +835,12 @@ func TestRequiredModeBlocksAndRecoversAutomatically(t *testing.T) {
 		t.Error("required mode must report not-ready while unhealthy")
 	}
 
-	if err := l.Append(makeEntry("y")); err != nil {
+	if err := appendOne(l, "y"); err != nil {
 		t.Fatalf("expected the recovery append to succeed: %v", err)
 	}
 	st = l.State()
 	if !st.Ready || !st.Healthy {
 		t.Error("expected automatic recovery after a successful append")
-	}
-}
-
-func TestSegmentsListsArchiveThenActive(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "audit.jsonl")
-	archive := filepath.Join(dir, "archive")
-	if err := os.MkdirAll(archive, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, nil, 0o640); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"b.jsonl", "a.jsonl"} {
-		if err := os.WriteFile(filepath.Join(archive, name), nil, 0o640); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	segs, err := Segments(path, archive)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{filepath.Join(archive, "a.jsonl"), filepath.Join(archive, "b.jsonl"), path}
-	if len(segs) != len(want) {
-		t.Fatalf("want %v, got %v", want, segs)
-	}
-	for i := range want {
-		if segs[i] != want[i] {
-			t.Errorf("segment %d = %q, want %q", i, segs[i], want[i])
-		}
 	}
 }
 
@@ -962,7 +866,7 @@ func TestResultBytesKeepsOldHashesAndIsCovered(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if s, err := VerifyFile(path, nil); err != nil || s.Valid != 4 {
+	if s, err := verifyLog(path, nil); err != nil || s.Valid != 4 {
 		t.Fatalf("mixed log: %+v %v", s, err)
 	}
 	data, _ := os.ReadFile(path)
@@ -972,7 +876,7 @@ func TestResultBytesKeepsOldHashesAndIsCovered(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strings.Replace(string(data), `"result_bytes":42`, `"result_bytes":7`, 1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if s, err := VerifyFile(path, nil); err == nil && s.Valid == 4 {
+	if s, err := verifyLog(path, nil); err == nil && s.Valid == 4 {
 		t.Fatal("tampered result_bytes still verifies")
 	}
 }
@@ -1182,7 +1086,7 @@ func TestVerifyRefusesALineThatIsNotTheWrittenForm(t *testing.T) {
 		t.Helper()
 		kp, _ := GenerateKeyPair()
 		path := filepath.Join(t.TempDir(), "audit.jsonl")
-		l, err := OpenWithKey(path, kp)
+		l, err := OpenWithKeyAndOptions(path, kp, Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1209,7 +1113,7 @@ func TestVerifyRefusesALineThatIsNotTheWrittenForm(t *testing.T) {
 		if _, err := VerifyAudit(path, "", kp.Public, VerifyOptions{}); err == nil {
 			t.Error("VerifyAudit accepts a forged line")
 		}
-		if _, err := VerifyFile(path, kp.Public); err == nil {
+		if _, err := verifyLog(path, kp.Public); err == nil {
 			t.Error("VerifyFile accepts a forged line")
 		}
 	}
@@ -1254,18 +1158,11 @@ func TestVerifyAcceptsLinesOfEarlierReleases(t *testing.T) {
 	if err := os.WriteFile(path, []byte(old1+"\n"+old2+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if s, err := VerifyFile(path, nil); err != nil || s.Valid != 2 {
+	if s, err := verifyLog(path, nil); err != nil || s.Valid != 2 {
 		t.Fatalf("first-release layout: %+v %v", s, err)
 	}
 	if s, err := VerifyAudit(path, "", nil, VerifyOptions{}); err != nil || s.Valid != 2 {
 		t.Fatalf("first-release layout, VerifyAudit: %+v %v", s, err)
-	}
-	l, p2 := tempLog(t)
-	if err := l.Append(makeEntry("tool")); err != nil {
-		t.Fatal(err)
-	}
-	if s, err := VerifyFile(p2, nil); err != nil || s.Valid != 1 {
-		t.Fatalf("legacy Append: %+v %v", s, err)
 	}
 }
 
@@ -1291,7 +1188,7 @@ func TestVerifyRefusesAnnotatedLegacyLines(t *testing.T) {
 		if err := os.WriteFile(path, []byte(l+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_, err := VerifyFile(path, nil)
+		_, err := verifyLog(path, nil)
 		if (err == nil) != wantOK {
 			t.Fatalf("%s: err=%v, want ok=%v", l, err, wantOK)
 		}

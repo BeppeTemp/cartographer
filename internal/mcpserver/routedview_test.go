@@ -454,3 +454,10 @@ func TestRoutedView_TransferTargetUnreadableAnswersLikeUnmounted(t *testing.T) {
 		}
 	}
 }
+
+// routedFor is routedForReadOnly without ?readonly=: the view and the names a
+// request with only ?kbs= and ?access= resolves to.
+func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, access string) (*Server, []string, map[string]string, error) {
+	srv, unknown, renamed, _, err := m.routedForReadOnly(ctx, rawKBs, access, nil)
+	return srv, unknown, renamed, err
+}

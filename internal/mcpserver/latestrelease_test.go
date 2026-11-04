@@ -22,29 +22,27 @@ func healthBody(t *testing.T, h http.Handler) map[string]interface{} {
 	return body
 }
 
-// D254: latest_version is additive on both /health shapes — present only when
+// D254: latest_version is additive on /health — present only when
 // a newer release is known, absent otherwise, so a probe sees the same keys.
 func TestHealth_LatestVersionOnlyWhenKnown(t *testing.T) {
 	t.Parallel()
 	latest := ""
 	source := func() string { return latest }
 
-	single := New("v0.16.1")
 	multi := newMultiKBTestHandler(t, "kbx")
-	for name, h := range map[string]http.Handler{"single": single.HTTPHandler(), "multi": multi.Handler()} {
+	for name, h := range map[string]http.Handler{"multi": multi.Handler()} {
 		if _, ok := healthBody(t, h)["latest_version"]; ok {
 			t.Errorf("%s: latest_version present with no source", name)
 		}
 	}
-	single.SetLatestVersionSource(source)
 	multi.SetLatestVersionSource(source)
-	for name, h := range map[string]http.Handler{"single": single.HTTPHandler(), "multi": multi.Handler()} {
+	for name, h := range map[string]http.Handler{"multi": multi.Handler()} {
 		if _, ok := healthBody(t, h)["latest_version"]; ok {
 			t.Errorf("%s: latest_version present while nothing newer is known", name)
 		}
 	}
 	latest = "v0.17.0"
-	for name, h := range map[string]http.Handler{"single": single.HTTPHandler(), "multi": multi.Handler()} {
+	for name, h := range map[string]http.Handler{"multi": multi.Handler()} {
 		body := healthBody(t, h)
 		if body["latest_version"] != "v0.17.0" || body["status"] != "ok" {
 			t.Errorf("%s: /health = %v", name, body)

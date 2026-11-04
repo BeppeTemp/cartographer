@@ -32,7 +32,7 @@ func TestGitWrap_ConflictOnASkillFileIsRegisteredAndResolvable(t *testing.T) {
 		if err := os.WriteFile(abs, []byte("---\nname: x\n---\nlocal\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := k.CommitOpAs("local skill", "", ""); err != nil {
+		if _, err := k.CommitOp("local skill"); err != nil {
 			t.Fatal(err)
 		}
 

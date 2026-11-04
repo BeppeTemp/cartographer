@@ -37,7 +37,7 @@ func repairKB(t *testing.T, n int) (*kb.KB, *Server) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")
@@ -448,7 +448,7 @@ func TestObservationsDoNotSuggestTheDoctor(t *testing.T) {
 			t.Fatal(err)
 		}
 		writeKBFile(t, k, "ops/index.md", "---\ntype: Index\ntitle: ops\n---\n# ops\n\n- [Big](big.md)\n")
-		if _, err := k.CommitOpAs("test: an oversize concept", "", ""); err != nil {
+		if _, err := k.CommitOp("test: an oversize concept"); err != nil {
 			t.Fatal(err)
 		}
 		if withFinding {
@@ -792,7 +792,7 @@ func TestRepair_LegacyPath(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
 	seedLegacyFixes(t, k)
-	if _, err := k.CommitOpAs("test: seed legacy", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed legacy"); err != nil {
 		t.Fatal(err)
 	}
 	plan := repairCall(t, s, `{"check":"legacy_path"}`)
@@ -818,7 +818,7 @@ func TestRepair_LegacyToolName(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
 	seedLegacyFixes(t, k)
-	if _, err := k.CommitOpAs("test: seed legacy", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed legacy"); err != nil {
 		t.Fatal(err)
 	}
 	plan := repairCall(t, s, `{"check":"legacy_tool_name"}`)
@@ -1056,7 +1056,7 @@ func TestKBRepairBOMFileUntouched(t *testing.T) {
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("test: bom page", "", ""); err != nil {
+	if _, err := k.CommitOp("test: bom page"); err != nil {
 		t.Fatal(err)
 	}
 	out := repairCall(t, s, `{"check":"missing_frontmatter","dry_run":false}`)

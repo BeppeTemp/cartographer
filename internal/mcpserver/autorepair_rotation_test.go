@@ -37,7 +37,7 @@ func TestAutoRepairQuotaSkipsRemovalsAndRotates(t *testing.T) {
 	// ops/b, ops/c: a rename the heartbeat applies.
 	write("b", map[string]any{"updated": "2026-01-02"})
 	write("c", map[string]any{"updated": "2026-01-03"})
-	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
 

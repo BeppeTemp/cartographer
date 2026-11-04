@@ -36,7 +36,7 @@ func TestCommitOp_ConfiguredIdentityIsTheDefault(t *testing.T) {
 	if err := k.WriteFileAtomic("data/a.md", []byte("x\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("test: default identity", "", ""); err != nil {
+	if _, err := k.CommitOp("test: default identity"); err != nil {
 		t.Fatal(err)
 	}
 	want := "Ada Example <ada@example.test> | Ada Example <ada@example.test>"

@@ -190,9 +190,8 @@ func TestWriteConceptBatch_NewExpandedStubRolledBackAndPruned(t *testing.T) {
 		{ID: okf.ConceptID("entities/smart-home/foo"), FM: fm1, Body: "# Foo\n"},
 	}
 
-	// The failure comes after every file and the log entry are written (an
-	// index-sync step; there is no git commit yet), so the stub and the concept
-	// really exist on disk when the rollback runs.
+	// The failure comes after the commit (an index-sync step), so the stub and
+	// the concept really exist when the rollback runs.
 	boom := errors.New("index sync failed")
 	_, err := kb.WriteConceptBatch(ops, "concept_batch: 1 op(s)", func([]BatchWriteResult) error { return boom })
 	if !errors.Is(err, boom) {

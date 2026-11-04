@@ -287,7 +287,7 @@ func TestStaleWrite_AutoRepairCommitShowsAsSuch(t *testing.T) {
 	if _, err := k.WriteConcept("test/stale", fm, d.Body+"repaired\n", d.ContentHash); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("auto-repair (background)", "", ""); err != nil {
+	if _, err := k.CommitOp("auto-repair (background)"); err != nil {
 		t.Fatal(err)
 	}
 	res := callTool(t, s, "concept_patch", mustJSON(t, map[string]any{

@@ -25,17 +25,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	// maxArgsLen bounds the legacy (pre-D119) free-form Args field. Retained
-	// only for the deprecated Append/Entry.Args compatibility path.
-	maxArgsLen = 1024
-
 	// VersionV2 marks a redacted, versioned event (D119). Version 0 (the zero
 	// value, omitted from JSON) marks a legacy pre-D119 entry.
 	VersionV2 = 2
@@ -73,8 +68,7 @@ type Entry struct {
 	// values, secret names/values, or raw request JSON. See
 	// internal/mcpserver/audit.go's auditResourceFields.
 	Resources map[string]string `json:"resources,omitempty"`
-	// Args and AgentID are populated only by legacy (pre-D119) callers of
-	// Append. They remain exported so offline consumers of old logs still see
+	// Args and AgentID are populated only by legacy (pre-D119) entries. They remain exported so offline consumers of old logs still see
 	// them; a D119 event always leaves both empty.
 	Args       string `json:"args,omitempty"`
 	AgentID    string `json:"agent_id,omitempty"`
@@ -139,12 +133,6 @@ type Options struct {
 	// ArchiveDir overrides the default "<log-dir>/audit-archive" directory
 	// that holds rotated segments and the checkpoint index.
 	ArchiveDir string
-	// QueueCapacity bounds concurrent append admission (overload becomes
-	// visible rather than an unbounded goroutine/memory growth). Appends are
-	// deliberately serialized and drained synchronously (never reordered);
-	// the bound simply makes overload observable and, in required mode, fail
-	// closed.
-	QueueCapacity int
 	// RetryAttempts/RetryBackoff bound the bounded retry-with-backoff loop
 	// around each durable append, absorbing a transient write failure
 	// (e.g. a momentary EBUSY/EINTR) without reordering queued events.
@@ -165,13 +153,11 @@ var ErrLocked = errors.New("audit: the log is written by another process")
 // State reports the sink's current operational health, exposed via /health,
 // /ready, and `cartographer status`.
 type State struct {
-	Mode          string `json:"mode"`
-	Healthy       bool   `json:"healthy"`
-	Ready         bool   `json:"ready"` // false only when Mode=="required" and unhealthy
-	Dropped       uint64 `json:"dropped_events"`
-	QueueDepth    int    `json:"queue_depth"`
-	QueueCapacity int    `json:"queue_capacity"`
-	Error         string `json:"error,omitempty"`
+	Mode    string `json:"mode"`
+	Healthy bool   `json:"healthy"`
+	Ready   bool   `json:"ready"` // false only when Mode=="required" and unhealthy
+	Dropped uint64 `json:"dropped_events"`
+	Error   string `json:"error,omitempty"`
 }
 
 // Checkpoint is durable evidence of one closed (rotated) segment, written
@@ -302,7 +288,6 @@ type Log struct {
 	dropped        uint64
 	lastErr        error
 	sequence       uint64
-	queueDepth     int
 	index          checkpointIndex
 	lock           *os.File // the SingleWriter lock, held for the life of the Log
 }
@@ -368,9 +353,6 @@ func normalizeOptions(o Options) Options {
 	if o.Mode != "best_effort" && o.Mode != "required" {
 		o.Mode = "required" // fail closed on an unrecognized mode rather than silently degrading
 	}
-	if o.QueueCapacity <= 0 {
-		o.QueueCapacity = 256
-	}
 	if o.RetryAttempts <= 0 {
 		o.RetryAttempts = 3
 	}
@@ -380,18 +362,8 @@ func normalizeOptions(o Options) Options {
 	return o
 }
 
-// Open opens or creates an audit log at the given file path, with default
-// Options (one file, best-effort, no rotation) — byte-identical to the
-// pre-D119 behaviour.
-func Open(path string) (*Log, error) { return OpenWithOptions(path, Options{}) }
-
-// OpenWithKey opens an audit log and enables Ed25519 signing of each entry.
-func OpenWithKey(path string, kp KeyPair) (*Log, error) {
-	return OpenWithKeyAndOptions(path, kp, Options{})
-}
-
 // OpenWithOptions opens (or creates) an audit log with explicit rotation/
-// retention/queue/retry Options and no signing.
+// retention/retry Options and no signing.
 func OpenWithOptions(path string, opts Options) (*Log, error) { return open(path, nil, opts) }
 
 // OpenWithKeyAndOptions opens (or creates) a signed audit log with explicit
@@ -507,22 +479,6 @@ func validOutcome(v string) bool {
 	return false
 }
 
-// Append adds a legacy (pre-D119, unversioned) entry to the log. Retained for
-// offline/compatibility use; new server code must call AppendEvent, which
-// emits a redacted, versioned (D119) event instead. Args longer than 1024
-// characters are truncated (legacy behaviour).
-func (l *Log) Append(e Entry) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if len(e.Args) > maxArgsLen {
-		e.Args = e.Args[:maxArgsLen]
-	}
-	if e.Timestamp.IsZero() {
-		e.Timestamp = time.Now()
-	}
-	return l.appendLocked(&e)
-}
-
 // AppendEvent appends a D119 versioned, redacted event: an attempt or
 // completion phase of one tool call, correlated by RequestID. It validates
 // the event shape (phase/outcome/tool/request ID) before ever touching disk,
@@ -563,12 +519,6 @@ func (l *Log) AppendEvent(e Entry) (Entry, error) {
 }
 
 func (l *Log) appendLocked(e *Entry) error {
-	if l.queueDepth >= l.opts.QueueCapacity {
-		return l.failedLocked(errors.New("audit: queue full"))
-	}
-	l.queueDepth++
-	defer func() { l.queueDepth-- }()
-
 	if err := l.rotateLocked(); err != nil {
 		return l.failedLocked(err)
 	}
@@ -872,11 +822,6 @@ func readEntriesMode(path string, canonical bool) ([]Entry, error) {
 	return out, nil
 }
 
-func (l *Log) readAll() ([]Entry, error) { return readEntries(l.path) }
-
-// Tail returns the last n entries in reverse chronological order (newest first).
-func (l *Log) Tail(n int) ([]Entry, error) { return l.TailFunc(n, nil) }
-
 // TailFunc returns, newest first, the last n entries of the active segment
 // that keep accepts (every one with a nil keep). It reads the file backwards
 // from its end and stops once it has n: the cost is the page asked for, not
@@ -943,14 +888,6 @@ func tailEntries(path string, n int, keep func(Entry) bool) ([]Entry, error) {
 	return out, nil
 }
 
-// Count returns the total number of entries in the active segment.
-func (l *Log) Count() (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	entries, err := l.readAll()
-	return len(entries), err
-}
-
 // Summary is the result of an offline chain/signature verification pass.
 type Summary struct {
 	Valid          int // entries whose hash chain (and signature, if checked) validated
@@ -960,79 +897,6 @@ type Summary struct {
 	CheckpointOnly int // rotated segments known only via the checkpoint index (file deleted by retention)
 	Corrupt        int // entries/segments that failed validation
 	Events         []Entry
-}
-
-// VerifyFile validates one file (legacy or v2 entries, or a mix — a log can
-// be upgraded in place).
-func VerifyFile(path string, public ed25519.PublicKey) (Summary, error) {
-	return VerifyFiles([]string{path}, public)
-}
-
-// VerifyFiles validates ordered segments as one continuous hash chain. A
-// rotated segment's first entry deliberately points at the preceding
-// segment's final hash, so segments must be verified together, in order.
-func VerifyFiles(paths []string, public ed25519.PublicKey) (Summary, error) {
-	var es []Entry
-	for _, path := range paths {
-		part, err := readVerifiedEntries(path)
-		if err != nil {
-			return Summary{}, err
-		}
-		es = append(es, part...)
-	}
-	sum := Summary{Events: es}
-	prev := "genesis"
-	ids := map[string]bool{}
-	attempts := map[string]bool{}
-	for i, e := range es {
-		if e.Timestamp.IsZero() {
-			sum.Corrupt++
-			return sum, fmt.Errorf("audit: entry %d: malformed timestamp", i)
-		}
-		if e.PrevHash != prev || e.Hash != computeHash(e) {
-			sum.Corrupt++
-			return sum, fmt.Errorf("audit: hash chain broken at entry %d", i)
-		}
-		if e.Version != 0 && e.Version != VersionV2 {
-			sum.Corrupt++
-			return sum, fmt.Errorf("audit: unknown version %d at entry %d", e.Version, i)
-		}
-		if e.Version == VersionV2 {
-			if e.ID == "" || ids[e.ID] || !validPhase(e.Phase) || !validV2Outcome(e) {
-				sum.Corrupt++
-				return sum, fmt.Errorf("audit: malformed v2 event at entry %d", i)
-			}
-			ids[e.ID] = true
-			if e.Phase == PhaseAttempt {
-				if attempts[e.RequestID] {
-					sum.Corrupt++
-					return sum, fmt.Errorf("audit: duplicate attempt at entry %d", i)
-				}
-				attempts[e.RequestID] = true
-			} else if !attempts[e.RequestID] {
-				sum.Corrupt++
-				return sum, fmt.Errorf("audit: completion without attempt at entry %d", i)
-			} else {
-				delete(attempts, e.RequestID)
-			}
-		}
-		if e.Sig == "" {
-			sum.Unsigned++
-		} else if public != nil {
-			b, err := hex.DecodeString(e.Sig)
-			if err != nil || !ed25519.Verify(public, []byte(e.Hash), b) {
-				sum.Corrupt++
-				return sum, fmt.Errorf("audit: invalid signature at entry %d", i)
-			}
-		}
-		sum.Valid++
-		prev = e.Hash
-	}
-	sum.Incomplete = len(attempts)
-	if sum.Incomplete > 0 {
-		return sum, fmt.Errorf("audit: %d attempt(s) without completion", sum.Incomplete)
-	}
-	return sum, nil
 }
 
 // validV2Outcome mirrors the phase-aware rule enforced at append time: an
@@ -1242,56 +1106,12 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey, opts 
 	return sum, nil
 }
 
-// Verify checks the hash-chain integrity of the active segment only.
-// Returns the index of the first broken entry, or -1 if the chain is valid.
-// For the full picture across rotation/retention, use VerifyAudit.
-func (l *Log) Verify() (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	entries, err := readVerifiedEntries(l.path)
-	if err != nil {
-		return -1, err
-	}
-	prevHash := "genesis"
-	for i, e := range entries {
-		if e.PrevHash != prevHash {
-			return i, nil
-		}
-		if e.Hash != computeHash(e) {
-			return i, nil
-		}
-		if e.Sig != "" && l.kp != nil {
-			sigBytes, err := hex.DecodeString(e.Sig)
-			if err != nil || !ed25519.Verify(l.kp.Public, []byte(e.Hash), sigBytes) {
-				return i, fmt.Errorf("audit: entry %d: invalid signature", i)
-			}
-		}
-		prevHash = e.Hash
-	}
-	return -1, nil
-}
-
-// VerifyFull checks hash-chain integrity and Ed25519 signatures of the active
-// segment. Returns the count of signed-and-valid entries, the count of
-// unsigned entries, and the first chain/signature error (nil if all pass).
-func (l *Log) VerifyFull() (count int, unsigned int, err error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	var public ed25519.PublicKey
-	if l.kp != nil {
-		public = l.kp.Public
-	}
-	sum, sumErr := VerifyFile(l.path, public)
-	return sum.Valid - sum.Unsigned, sum.Unsigned, sumErr
-}
-
 // State returns the sink's current operational health.
 func (l *Log) State() State {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	ready := l.opts.Mode != "required" || l.healthy
-	st := State{Mode: l.opts.Mode, Healthy: l.healthy, Ready: ready, Dropped: l.dropped, QueueDepth: l.queueDepth, QueueCapacity: l.opts.QueueCapacity}
+	st := State{Mode: l.opts.Mode, Healthy: l.healthy, Ready: ready, Dropped: l.dropped}
 	if l.lastErr != nil {
 		st.Error = l.lastErr.Error()
 	}
@@ -1303,38 +1123,13 @@ func (l *Log) Required() bool { l.mu.Lock(); defer l.mu.Unlock(); return l.opts.
 
 // Close is the graceful-shutdown flush point. Every append is already
 // synchronously durable (fsync'd before returning), so there is never a
-// pending write to flush; Close only guards the invariant that the bounded
-// admission counter is back at zero.
+// pending write to flush; Close only releases the single-writer lock.
 func (l *Log) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.queueDepth != 0 {
-		return errors.New("audit: queue not drained")
-	}
 	releaseWriter(l.lock)
 	l.lock = nil
 	return nil
-}
-
-// Segments returns every archived (rotated, still-present) segment file path
-// in chronological order, followed by the active file path. Used by the
-// offline verify/export commands; it never mutates anything.
-func Segments(path, archiveDir string) ([]string, error) {
-	if archiveDir == "" {
-		archiveDir = filepath.Join(filepath.Dir(path), "audit-archive")
-	}
-	var out []string
-	entries, err := os.ReadDir(archiveDir)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	for _, e := range entries {
-		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".jsonl") {
-			out = append(out, filepath.Join(archiveDir, e.Name()))
-		}
-	}
-	sort.Strings(out)
-	return append(out, path), nil
 }
 
 // ModeName reports the configured failure mode ("best_effort" or "required"),

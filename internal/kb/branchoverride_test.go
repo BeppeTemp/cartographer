@@ -16,7 +16,7 @@ func writeAndCommit(t *testing.T, k *KB, rel string) {
 	if err := k.WriteFileAtomic(rel, []byte("x\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("write "+rel, "", ""); err != nil {
+	if _, err := k.CommitOp("write " + rel); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 }

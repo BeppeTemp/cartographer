@@ -38,9 +38,9 @@ func repairTestKB(t *testing.T) (toolCaller, string) {
 		t.Fatal(err)
 	}
 	concept := filepath.Join(k.DataRoot(), "ops", "first.md")
-	s := mcpserver.New("test")
-	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{})
-	h := s.HTTPHandler()
+	multi := mcpserver.NewMultiKBServer("test")
+	multi.MountKB("kb-a", func(s *mcpserver.Server) { mcpserver.RegisterKBTools(s, k, mcpserver.Deps{}) })
+	h := multi.Handler() // one KB mounted: bare /mcp routes to it
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := auth.ContextWithPrincipal(r.Context(), auth.Principal{ID: "test", Policy: auth.Policy{Admin: true}})
 		h.ServeHTTP(w, r.WithContext(ctx))

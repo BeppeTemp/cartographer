@@ -1336,11 +1336,19 @@ func ShowFileIfExists(dir, ref, path string) (text string, exists bool, err erro
 	return text, true, nil
 }
 
-// MergeNoCommitNoFFEnv runs "git merge --no-commit --no-ff <ref>" and reports
-// whether the merge produced conflicts. A clean merge (conflicted=false) is left
-// staged but uncommitted; a conflicting merge (conflicted=true) leaves the
-// conflicting files unmerged for the caller to resolve. Any other failure is
-// returned as err. env is layered on the git process environment. A merge needs a committer identity even with
+// MergeNoCommitNoFF runs "git merge --no-commit --no-ff <ref>" and reports whether the
+// merge produced conflicts. A clean merge (conflicted=false) is left staged but
+// uncommitted; a conflicting merge (conflicted=true) leaves the conflicting files
+// unmerged for the caller to resolve. Any other failure is returned as err.
+// A caller working inside a KB must use MergeNoCommitNoFFEnv with
+// kb.ServerGitEnv(), because this plain form needs a host git identity and
+// fails with "empty ident name" without one.
+func MergeNoCommitNoFF(dir, ref string) (conflicted bool, err error) {
+	return MergeNoCommitNoFFEnv(dir, ref)
+}
+
+// MergeNoCommitNoFFEnv is MergeNoCommitNoFF with env layered on the git
+// process environment. A merge needs a committer identity even with
 // --no-commit, so a caller inside a KB passes kb.ServerGitEnv() or it fails
 // with "empty ident name" on a host with no git identity.
 func MergeNoCommitNoFFEnv(dir, ref string, env ...string) (conflicted bool, err error) {
@@ -1755,6 +1763,34 @@ func otherConceptForm(path string) string {
 	return ""
 }
 
+// DiffNameStatus returns changed files between two refs as a list of FileChange.
+// Example: DiffNameStatus(dir, "HEAD~1", "HEAD") → [{"M", "a/foo.md"}, {"A", "new.md"}]
+func DiffNameStatus(dir, from, to string) ([]FileChange, error) {
+	out, err := runGit(dir, "diff", "--name-status", "--end-of-options", from, to)
+	if err != nil {
+		return nil, fmt.Errorf("git diff --name-status %s %s: %w: %s", from, to, err, out)
+	}
+	var changes []FileChange
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		// For renames, format is: R<score>\t<old>\t<new>; take last field as path.
+		status := string(parts[0][0])
+		path := parts[len(parts)-1]
+		change := FileChange{Status: status, Path: path}
+		if status == "R" && len(parts) >= 3 {
+			change.OldPath = parts[len(parts)-2]
+		}
+		changes = append(changes, change)
+	}
+	return changes, nil
+}
+
 // Status returns the working tree status (short format).
 func Status(dir string) (string, error) {
 	out, err := runGit(dir, "status", "--short")
@@ -1805,10 +1841,17 @@ func BranchExists(dir, branch string) bool {
 // write the gate stashed and restored came back rewritten.
 var noEOL = []string{"-c", "core.autocrlf=false"}
 
-// StashPushEnv stashes uncommitted changes, with env layered on the git process
-// environment. git stash creates commits, so a host with no git identity needs
-// the caller to pass one (kb.ServerGitEnv) or the stash fails with "Committer
-// identity unknown".
+// StashPush stashes uncommitted changes. A caller working inside a KB must use
+// StashPushEnv with kb.ServerGitEnv(), because this plain form needs a host git
+// identity and fails with "Committer identity unknown" without one.
+func StashPush(dir string) error {
+	return StashPushEnv(dir)
+}
+
+// StashPushEnv is StashPush with env layered on the git process environment.
+// git stash creates commits, so a host with no git identity needs the caller
+// to pass one (kb.ServerGitEnv) or the stash fails with "Committer identity
+// unknown".
 func StashPushEnv(dir string, env ...string) error {
 	out, err := runGitEnv(dir, env, append(noEOL, "stash", "push")...)
 	if err != nil {
@@ -1920,8 +1963,9 @@ func RevertNoCommit(dir, sha string, env ...string) error {
 // StagedChanges stages every change of the working tree (stageAll: git add -A,
 // leaving a gitlink out, a *GitlinkError for a new nested repository) and
 // returns what differs from HEAD, renames detected (-M), parsed from the
-// NUL-separated form so a path with spaces or unusual bytes survives (D350).
-// The index is left staged; DiscardChanges or a commit clears it.
+// NUL-separated form so a path with spaces or unusual bytes survives. The
+// existing DiffNameStatus splits on whitespace and is not safe for that
+// (D350). The index is left staged; DiscardChanges or a commit clears it.
 func StagedChanges(dir string) ([]FileChange, error) {
 	if err := stageAll(dir, nil); err != nil {
 		return nil, err
@@ -1969,10 +2013,17 @@ func DiscardChanges(dir string) error {
 	return nil
 }
 
-// StashPushAllEnv stashes every uncommitted change including untracked files, so
-// the tree is at HEAD until StashPop (StashPushEnv leaves untracked files
-// behind). env is layered on the git process environment; see StashPushEnv for
-// why a caller passes the server identity.
+// StashPushAll stashes every uncommitted change including untracked files, so
+// the tree is at HEAD until StashPop (StashPush leaves untracked files behind).
+// A caller working inside a KB must use StashPushAllEnv with kb.ServerGitEnv(),
+// because this plain form needs a host git identity and fails with "Committer
+// identity unknown" without one; StashPushEnv explains why.
+func StashPushAll(dir string) error {
+	return StashPushAllEnv(dir)
+}
+
+// StashPushAllEnv is StashPushAll with env layered on the git process
+// environment. See StashPushEnv for why a caller passes the server identity.
 func StashPushAllEnv(dir string, env ...string) error {
 	out, err := runGitEnv(dir, env, append(noEOL, "stash", "push", "--include-untracked")...)
 	if err != nil {

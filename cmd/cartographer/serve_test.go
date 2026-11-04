@@ -27,8 +27,13 @@ func auditTestConfig(t *testing.T, mode string) *config.Config {
 
 func appendAuditTestEntry(t *testing.T, l *audit.Log) {
 	t.Helper()
-	if err := l.Append(audit.Entry{Timestamp: time.Now(), Tool: "search", AgentID: "test", Outcome: "ok"}); err != nil {
-		t.Fatal(err)
+	for _, e := range []audit.Entry{
+		{RequestID: "test", Phase: audit.PhaseAttempt, Tool: "search"},
+		{RequestID: "test", Phase: audit.PhaseCompletion, Tool: "search", Outcome: audit.OutcomeSuccess},
+	} {
+		if _, err := l.AppendEvent(e); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -60,8 +65,8 @@ func TestOpenAuditLogGeneratesTheKeyAndSigns(t *testing.T) {
 		t.Fatalf("second load: generated=%v err=%v, want the key already there", generated, err)
 	}
 	sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", kp.Public, audit.VerifyOptions{})
-	if err != nil || sum.Valid != 1 || sum.Unsigned != 0 {
-		t.Errorf("verify = %+v, %v; want one signed entry", sum, err)
+	if err != nil || sum.Valid != 2 || sum.Unsigned != 0 {
+		t.Errorf("verify = %+v, %v; want one signed call (two events)", sum, err)
 	}
 	out := logs.String()
 	if strings.Contains(out, kp.SeedToHex()) {
@@ -103,8 +108,8 @@ func TestOpenAuditLogWithoutAWritableCredentialsDir(t *testing.T) {
 			if err := l.Close(); err != nil {
 				t.Fatal(err)
 			}
-			if sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", nil, audit.VerifyOptions{}); err != nil || sum.Unsigned != 1 {
-				t.Errorf("verify = %+v, %v; want one unsigned entry", sum, err)
+			if sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", nil, audit.VerifyOptions{}); err != nil || sum.Unsigned != 2 {
+				t.Errorf("verify = %+v, %v; want one unsigned call (two events)", sum, err)
 			}
 			if out := logs.String(); !strings.Contains(out, "NOT signed") || !strings.Contains(out, keyPath) {
 				t.Errorf("log lacks the warning naming %s:\n%s", keyPath, out)

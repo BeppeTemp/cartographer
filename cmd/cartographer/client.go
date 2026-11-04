@@ -16,10 +16,9 @@ import (
 )
 
 // cmdClient manages the per-provider KB binding (D169): which Knowledge Bases
-// each connected agent client may receive. Every subcommand here works without
-// a network — it reads and writes .cartographer.yaml, and only bind asks the
-// server for its KB list when it is reachable — so configuring a machine does
-// not require one.
+// each connected agent client may receive. Every subcommand here works
+// offline — it reads and writes .cartographer.yaml only and never contacts the
+// server, so configuring a machine does not require the network.
 func cmdClient(args []string) int {
 	if len(args) == 0 {
 		printClientUsage(os.Stderr)

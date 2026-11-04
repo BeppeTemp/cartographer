@@ -23,7 +23,7 @@ func driftWrite(t *testing.T, k *kb.KB, rel, content string) {
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("test: "+rel, "", ""); err != nil {
+	if _, err := k.CommitOp("test: " + rel); err != nil {
 		t.Fatal(err)
 	}
 }

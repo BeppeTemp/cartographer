@@ -25,7 +25,7 @@ func TestStashRoundTripKeepsLFUnderAutocrlf(t *testing.T) {
 	if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := StashPushAllEnv(dir); err != nil {
+	if err := StashPushAll(dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := StashPop(dir); err != nil {

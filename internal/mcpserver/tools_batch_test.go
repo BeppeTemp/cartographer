@@ -184,7 +184,7 @@ func TestConceptBatch_HappyPath_OneCommitOneLogEntryOrderedResults(t *testing.T)
 	if _, err := k.WriteConcept(okf.ConceptID("batch/seed"), fm, "# Seed\n\nOriginal body.\n", ""); err != nil {
 		t.Fatalf("seed write: %v", err)
 	}
-	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
 	seedHash := readHash(t, k, "batch/seed")

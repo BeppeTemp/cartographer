@@ -974,9 +974,8 @@ For every file: if it already has YAML frontmatter it's preserved, only adding m
 otherwise it synthesizes the minimum — `title` from the body's first H1 (fallback: file name), `type: Note` if absent
 (`WriteConcept` always requires it — a deviation from the original spec, see
 [D74](decisions/D74-import-of-external-non-okf-wikis-kbs-kb-import-skill.md)) — and
-in both cases it adds `status: imported` only when `status` is absent (an existing status is never
-overwritten, so a file that already has one stays out of the `imported_draft` lint, a warning that
-keeps the curation backlog visible across sessions). Relative markdown links `[text](path.md)`
+in both cases it ensures `status: imported`, hooking into the `imported_draft` lint (warning) that
+keeps the curation backlog visible across sessions. Relative markdown links `[text](path.md)`
 are rewritten best-effort against the new layout; wiki-links `[[...]]` are left as-is
 (D72). A source directory with neither `--map` nor `--default-map` fails the command
 (no write) with the list of unmapped directories. Final output: counts of files
@@ -1469,10 +1468,9 @@ line on stderr that names what to redo: the known KBs come back with the next `s
 ### `cartographer client`
 
 Declares which Knowledge Bases each connected provider may receive. Every
-subcommand works without a network: it reads and writes `.cartographer.yaml`,
-and only `client bind` asks the server for its KB list when it is reachable
-(table below), so a KB name that is not currently advertised is a warning, not
-a failure.
+subcommand works offline: it reads and writes `.cartographer.yaml` only and
+never contacts the server, so a KB name that is not currently advertised is a
+warning, not a failure.
 
 | Command | Effect |
 |---|---|

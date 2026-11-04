@@ -116,7 +116,7 @@ func TestRepairContractLegacyKey_DropsLintAccept(t *testing.T) {
 	if err := os.Chmod(path, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("test: instructions.md", "", ""); err != nil {
+	if _, err := k.CommitOp("test: instructions.md"); err != nil {
 		t.Fatal(err)
 	}
 

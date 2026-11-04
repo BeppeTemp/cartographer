@@ -1329,7 +1329,13 @@ func toolMapUpdate(k *kb.KB) Tool {
 				return errorResult(msg), nil
 			}
 			if _, err := k.ReadArchiveMeta(params.Map); err != nil {
-				return errorResult(fmt.Sprintf("map_update %q: not found", params.Map)), nil
+				// Only a missing descriptor is "not found": an unparsable one
+				// is a Map that exists, and saying otherwise sends the agent
+				// to create a duplicate.
+				if errors.Is(err, okf.ErrNotFound) {
+					return errorResult(fmt.Sprintf("map_update %q: not found", params.Map)), nil
+				}
+				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil
 			}
 			if params.Templates != nil {
 				def := ""

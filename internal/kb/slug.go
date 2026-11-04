@@ -12,7 +12,7 @@ import (
 )
 
 // SlugPattern is the concept file-name pattern, the same as an artifact slug.
-// The write path (checkConceptName) and the nonslug_file_name repair apply
+// The write path (checkNewConceptID) and the nonslug_file_name repair apply
 // this one rule, so an ID a caller was handed never changes later (#1280).
 var SlugPattern = regexp.MustCompile(`^[a-z0-9]+(-{1,2}[a-z0-9]+)*$`)
 

@@ -20,8 +20,8 @@ import (
 
 // cmdImport is the D74 WP2 mechanical scaffold: it walks --source for .md
 // files, maps their source directories onto KB Map/expanded-concept
-// destinations, synthesizes/completes OKF frontmatter (adding
-// status: imported, D74 WP1's lint anchor, only when status is absent) and writes the result into --kb
+// destinations, synthesizes/completes OKF frontmatter (always ensuring
+// status: imported, D74 WP1's lint anchor) and writes the result into --kb
 // via kb.WriteConcept. By default it leaves the changes for the operator to
 // review; --commit opts into one explicit final commit for the whole plan.
 func cmdImport(args []string) int {
@@ -663,9 +663,8 @@ var firstH1Re = regexp.MustCompile(`(?m)^#[ \t]+(.+?)[ \t]*$`)
 // fallbackTitle (the source filename without extension). type has no
 // equivalent in the source spec text but is required by kb.WriteConcept, so
 // a generic "Note" default is synthesized when absent (documented deviation,
-// see D74). status defaults to "imported" (the D74 WP1 lint anchor) only when
-// absent: a source that already has a status keeps it and stays out of the
-// imported_draft lint.
+// see D74). status defaults to "imported" — the D74 WP1
+// lint anchor.
 func prepareFrontmatter(fmRaw string, hasFM bool, body string, fallbackTitle string) (*okf.Frontmatter, error) {
 	raw := ""
 	if hasFM {

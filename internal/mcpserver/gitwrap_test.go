@@ -200,7 +200,7 @@ func seedAnchor(t *testing.T, k *kb.KB) {
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "anchor.md"), []byte(anchor), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("test: seed the anchor page", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed the anchor page"); err != nil {
 		t.Fatalf("seed commit: %v", err)
 	}
 }
@@ -265,7 +265,7 @@ func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
 	}
 	// Seed commit: a template left uncommitted would be
 	// committed as "external changes" first (D357), a second commit.
-	if _, err := k.CommitOpAs("test: add template", "", ""); err != nil {
+	if _, err := k.CommitOp("test: add template"); err != nil {
 		t.Fatal(err)
 	}
 	count := func() int {
@@ -301,7 +301,7 @@ func TestGitWrap_AssetWriteAndDeleteCreateOneCommitEach(t *testing.T) {
 	if err := k.ExpandConcept("assets/owner"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("test: set up asset owner", "", ""); err != nil {
+	if _, err := k.CommitOp("test: set up asset owner"); err != nil {
 		t.Fatal(err)
 	}
 	commitCount := func() int {
@@ -386,7 +386,7 @@ func TestGitWrap_MapCreate_ReservedServices_NoCommit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(legacy, "_map.md"), []byte("not: [closed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	seed, err := k.CommitOpAs("seed legacy data/services", "", "")
+	seed, err := k.CommitOp("seed legacy data/services")
 	if err != nil {
 		t.Fatalf("seed commit: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestGitWrap_MapCreate_ReservedServices_NoCommit(t *testing.T) {
 func TestGitWrap_ConceptMove_SourceRemovalFailure_NoCommit(t *testing.T) {
 	k, _ := setupGitKB(t)
 	writeService(t, k, "services/sample", "svc\n")
-	seed, err := k.CommitOpAs("seed service", "", "")
+	seed, err := k.CommitOp("seed service")
 	if err != nil {
 		t.Fatalf("seed commit: %v", err)
 	}
@@ -813,7 +813,7 @@ func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
 	if _, err := k.WriteConcept("manutenzione/reauth", fm, "body", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("seed RBAC fixture", "", ""); err != nil {
+	if _, err := k.CommitOp("seed RBAC fixture"); err != nil {
 		t.Fatal(err)
 	}
 	if err := k.SyncOut(); err != nil {
@@ -1041,7 +1041,7 @@ func TestGitWrap_AssetWriteCommitSubjectNamesConceptAndPath(t *testing.T) {
 	if err := k.ExpandConcept("assets/owner"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("test: set up asset owner", "", ""); err != nil {
+	if _, err := k.CommitOp("test: set up asset owner"); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")

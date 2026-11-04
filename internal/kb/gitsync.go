@@ -904,7 +904,7 @@ func (k *KB) RemoteInfo() (url string, ok bool) {
 	return gitx.RedactRemoteURL(strings.TrimSpace(raw)), true
 }
 
-// CommitOpAs creates a git commit if the KB root is a git repository and the
+// CommitOp creates a git commit if the KB root is a git repository and the
 // working tree is dirty (every write is a commit, whatever the configuration,
 // D903). It is a no-op in every other case.
 // If git commit itself fails, the error is returned to the caller; the wrapper in
@@ -918,11 +918,14 @@ func (k *KB) RemoteInfo() (url string, ok bool) {
 // records this SHA on the write's completion event instead of a later,
 // racier HEAD query). sha is empty when no commit was made (not a repo, clean
 // tree, or "nothing to commit").
-//
-// A non-empty authorName and authorEmail are the author and the committer of this
-// one commit (D950). Empty values mean the KB's default identity
-// (DefaultIdentity): the commit is not a write, or the writer did not declare
-// who it is.
+func (k *KB) CommitOp(message string) (sha string, err error) {
+	return k.CommitOpAs(message, "", "")
+}
+
+// CommitOpAs is CommitOp with an explicit writer: a non-empty authorName and
+// authorEmail are the author and the committer of this one commit (D950).
+// Empty values mean the KB's default identity (DefaultIdentity): the commit is
+// not a write, or the writer did not declare who it is.
 func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, err error) {
 	// A repository git refuses to open (changed owner) is an error here, not
 	// "not a repo": the write would otherwise report success without a commit.

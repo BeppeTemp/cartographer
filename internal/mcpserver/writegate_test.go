@@ -41,7 +41,7 @@ func gateSeed(t *testing.T, k *kb.KB, files map[string]string) *Server {
 			t.Fatal(err)
 		}
 	}
-	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")
@@ -365,7 +365,7 @@ func TestWriteGate_HistorySurfacesAcceptedFindings(t *testing.T) {
 	if err := os.WriteFile(p, []byte(draftPage+"\nMore.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("concept_write: ops/p\n\nReason: restructure\nAccepted-Finding: invalid_field_value: legacy status", "", ""); err != nil {
+	if _, err := k.CommitOp("concept_write: ops/p\n\nReason: restructure\nAccepted-Finding: invalid_field_value: legacy status"); err != nil {
 		t.Fatal(err)
 	}
 	hist := decodeJSON(t, mustText(t, s, "concept_history", `{"id":"ops/p"}`))

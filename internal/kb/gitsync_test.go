@@ -34,7 +34,7 @@ func TestCommitOp_DirtyTreeCommits(t *testing.T) {
 		t.Fatalf("WriteFileAtomic: %v", err)
 	}
 
-	if _, err := k.CommitOpAs("test: gitsync dirty tree", "", ""); err != nil {
+	if _, err := k.CommitOp("test: gitsync dirty tree"); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 
@@ -59,7 +59,7 @@ func TestCommitOp_NotARepository_NoOp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sha, err := k.CommitOpAs("test: not a repo", "", ""); sha != "" || err != nil {
+	if sha, err := k.CommitOp("test: not a repo"); sha != "" || err != nil {
 		t.Fatalf("CommitOp on a non-repository = (%q, %v), want a silent no-op", sha, err)
 	}
 }
@@ -86,7 +86,7 @@ func TestCommitOp_WriterIsAuthorAndCommitter(t *testing.T) {
 			t.Fatalf("commit: %v", err)
 		}
 	}
-	commit("data/no-author.md", func() error { _, err := k.CommitOpAs("test: no author", "", ""); return err })
+	commit("data/no-author.md", func() error { _, err := k.CommitOp("test: no author"); return err })
 	if got, err := gitLogFormat(t, k.Root, "%an <%ae> | %cn <%ce>"); err != nil || got != server+" | "+server {
 		t.Fatalf("no author: %q, %v, want the server for both", got, err)
 	}
@@ -98,7 +98,7 @@ func TestCommitOp_WriterIsAuthorAndCommitter(t *testing.T) {
 		t.Fatalf("with author: %q, %v", got, err)
 	}
 	k.SetDefaultIdentity("Configured One", "conf@example.test")
-	commit("data/configured.md", func() error { _, err := k.CommitOpAs("test: configured", "", ""); return err })
+	commit("data/configured.md", func() error { _, err := k.CommitOp("test: configured"); return err })
 	if got, err := gitLogFormat(t, k.Root, "%an <%ae> | %cn <%ce>"); err != nil || got != "Configured One <conf@example.test> | Configured One <conf@example.test>" {
 		t.Fatalf("configured identity: %q, %v", got, err)
 	}
@@ -147,7 +147,7 @@ func TestCommitOp_CleanTree_NoCommit(t *testing.T) {
 	k, sha1 := initGitKB(t)
 
 	// Working tree is clean after Init — CommitOp should be a no-op.
-	if _, err := k.CommitOpAs("test: gitsync clean tree", "", ""); err != nil {
+	if _, err := k.CommitOp("test: gitsync clean tree"); err != nil {
 		t.Fatalf("CommitOp unexpected error: %v", err)
 	}
 

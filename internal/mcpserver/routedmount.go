@@ -55,7 +55,7 @@ const routedKBArgument = "kb"
 // ones.
 //
 // D288: the routed mount is the one agent-facing topology. The connection
-// chooses its KB set (`?kbs=`, see routedFor): with the default binding the
+// chooses its KB set (`?kbs=`, see routedForReadOnly): with the default binding the
 // schemas carry a required `kb` enum, with a single KB they carry no `kb` at
 // all. The caller (serve.go) skips a KB named like the endpoint's own path
 // before mounting it, so no name can shadow the route here.
@@ -167,7 +167,7 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 	// authorizer still has to answer is the metadata gate (initialize, ping,
 	// tools/list): a caller with no resolvable principal must be denied rather
 	// than implicitly treated as having full access. The set is already the
-	// KBs the principal reads (routedFor), so this is defence in depth (D1096).
+	// KBs the principal reads (routedForReadOnly), so this is defence in depth (D1096).
 	routed.SetAuthorizer(func(ctx context.Context, tool string, args json.RawMessage) error {
 		if tool != "" {
 			// Fail-closed: an unknown name requires write (ToolRequiresWrite).
@@ -363,44 +363,6 @@ func (m *MultiKBServer) SetKBAliases(aliases []config.KBAlias) {
 const routedScopeHint = "If the client has a workspace binding, this connection's KB set comes from the folder " +
 	"the session was started in: run `cartographer workspace resolve` there to see which binding applies."
 
-// routedFor resolves the `kbs` query parameter of a routed request to the
-// server that answers it (D288). The effective set is what the principal can
-// read, narrowed by `kbs` (D1096): absent or empty means every mounted KB it
-// reads. The binding only narrows: the effective set is the requested names
-// that are mounted and readable (D756). A name that is not mounted but is the
-// old name of a renamed KB (kb_aliases, D772) selects that KB, if the target is
-// readable too; the pair is returned so the caller reports it, and a mounted
-// name always wins over an alias. Names that are neither (a KB removed since
-// the client was synced, or one the principal cannot read: the two are
-// indistinguishable by design, D1096) are returned sorted, not dropped
-// silently: the caller reports them to the agent. Duplicates are ignored and
-// per-KB authorization still runs at the target, by the name the KB has now:
-// an alias selects a KB, it never grants access.
-//
-// An empty effective set stays an error naming every unknown name and the
-// readable KBs. It must not become "every mounted KB": that would widen the
-// binding, which only narrows, and an empty set would be a server with no
-// tools. A principal that reads no mounted KB at all gets the denied view (a
-// Server with an empty set: D118 has no HTTP 403 from the gate).
-//
-// One Server is built per distinct (effective set, mode) and cached: the set
-// is part of the URL, so tools/list differs per connection and cannot come
-// from a single shared registry. The number of views is bounded by the subsets
-// of the mounted KBs times the modes; stale URLs with different unknown or
-// renamed names share a view.
-//
-// TRAP: the cache key is the set and the mode and nothing else. A cached Server
-// never carries the principal or the request's names (unknown, renamed): those
-// come from the request context, as routedHandler reads them.
-//
-// access (?access=, "", AccessReadValue or AccessReadMinValue) wins over the
-// token's own read-only view: the client asked for it and checks the response
-// header.
-func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, access string) (*Server, []string, map[string]string, error) {
-	srv, unknown, renamed, _, err := m.routedForReadOnly(ctx, rawKBs, access, nil)
-	return srv, unknown, renamed, err
-}
-
 // splitNames splits comma-joined query values into trimmed, non-empty names.
 func splitNames(raws []string) map[string]bool {
 	seen := map[string]bool{}
@@ -435,7 +397,41 @@ func (m *MultiKBServer) readOnlyIn(set []string, rawRO []string) []string {
 	return out
 }
 
-// routedForReadOnly is routedFor plus the ?readonly= names: it also returns the
+// routedForReadOnly resolves the `kbs` query parameter of a routed request to the
+// server that answers it (D288). The effective set is what the principal can
+// read, narrowed by `kbs` (D1096): absent or empty means every mounted KB it
+// reads. The binding only narrows: the effective set is the requested names
+// that are mounted and readable (D756). A name that is not mounted but is the
+// old name of a renamed KB (kb_aliases, D772) selects that KB, if the target is
+// readable too; the pair is returned so the caller reports it, and a mounted
+// name always wins over an alias. Names that are neither (a KB removed since
+// the client was synced, or one the principal cannot read: the two are
+// indistinguishable by design, D1096) are returned sorted, not dropped
+// silently: the caller reports them to the agent. Duplicates are ignored and
+// per-KB authorization still runs at the target, by the name the KB has now:
+// an alias selects a KB, it never grants access.
+//
+// An empty effective set stays an error naming every unknown name and the
+// readable KBs. It must not become "every mounted KB": that would widen the
+// binding, which only narrows, and an empty set would be a server with no
+// tools. A principal that reads no mounted KB at all gets the denied view (a
+// Server with an empty set: D118 has no HTTP 403 from the gate).
+//
+// One Server is built per distinct (effective set, mode) and cached: the set
+// is part of the URL, so tools/list differs per connection and cannot come
+// from a single shared registry. The number of views is bounded by the subsets
+// of the mounted KBs times the modes; stale URLs with different unknown or
+// renamed names share a view.
+//
+// TRAP: the cache key is the set and the mode and nothing else. A cached Server
+// never carries the principal or the request's names (unknown, renamed): those
+// come from the request context, as routedHandler reads them.
+//
+// access (?access=, "", AccessReadValue or AccessReadMinValue) wins over the
+// token's own read-only view: the client asked for it and checks the response
+// header.
+//
+// It also takes the ?readonly= names and returns the
 // ones applied, the subset of the effective set the client set read-only
 // (#1409). When they are the whole set (and the connection is not already
 // read-only through access=) the view is the routedKBsReadOnly one; a strict
@@ -505,7 +501,7 @@ func (m *MultiKBServer) routedForReadOnly(ctx context.Context, rawKBs []string, 
 	return m.routedView(set, m.routedModeFor(ctx, set, access, len(ro) == len(set))), unknown, renamed, ro, nil
 }
 
-// routedModeFor picks the view mode of a connection over set (see routedFor).
+// routedModeFor picks the view mode of a connection over set (see routedForReadOnly).
 // allReadOnly says the client set every KB of set read-only (#1409). TRAP: the
 // read-only names ride the request context and only this all-KBs case enters the
 // cache key (routedViewKey), because it changes the tool list.

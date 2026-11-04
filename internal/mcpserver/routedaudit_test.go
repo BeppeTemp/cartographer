@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"math"
 	"path/filepath"
 	"testing"
 
@@ -45,11 +46,11 @@ func TestRoutedMountAuditsItsOwnRefusals(t *testing.T) {
 		routedPost(t, h, p, string(body))
 	}
 	count := func() int {
-		n, err := l.Count()
+		es, err := l.TailFunc(math.MaxInt32, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return n
+		return len(es)
 	}
 
 	before := count()
@@ -80,7 +81,7 @@ func TestRoutedMountAuditsItsOwnRefusals(t *testing.T) {
 		}
 	}
 
-	events, err := l.Tail(100)
+	events, err := l.TailFunc(100, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestRoutedMountAuditsAToolMissingFromTheTargetKB(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("the call succeeded")
 	}
-	events, err := l.Tail(10)
+	events, err := l.TailFunc(10, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

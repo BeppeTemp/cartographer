@@ -44,17 +44,23 @@ func (p Policy) UsageStale() int {
 }
 
 // Policy returns the current snapshot; the zero Policy when none was set.
-// Policy holds no slice or map, so the returned value is the caller's own.
+// Slices are copies, so the caller may keep or modify them.
 func (k *KB) Policy() Policy {
 	if p := k.policy.Load(); p != nil {
-		return *p
+		return p.clone()
 	}
 	return Policy{}
 }
 
-// SetPolicy replaces the snapshot whole. It stores a copy of the value.
+// SetPolicy replaces the snapshot whole. It stores a copy: the caller's slices
+// stay its own.
 func (k *KB) SetPolicy(p Policy) {
+	p = p.clone()
 	k.policy.Store(&p)
+}
+
+func (p Policy) clone() Policy {
+	return p
 }
 
 // KB represents an open knowledge base identified by its root on the filesystem.
@@ -1297,6 +1303,39 @@ func (kb *KB) ExpandedCount(archive string) (int, error) {
 		return 0, err
 	}
 	return len(dossiers), nil
+}
+
+// ConceptCount recursively counts the non-reserved .md files (concepts) inside an
+// archive, regardless of nesting depth (for atlas_overview).
+func (kb *KB) ConceptCount(archive string) (int, error) {
+	archiveAbs, err := kb.ResolvePath(archive, false)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	err = filepath.WalkDir(archiveAbs, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(d.Name()) != ".md" {
+			return nil
+		}
+		if okf.IsReserved(filepath.Base(path)) {
+			return nil
+		}
+		count++
+		return nil
+	})
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, fmt.Errorf("%w: archive %s", okf.ErrNotFound, archive)
+		}
+		return 0, fmt.Errorf("ConceptCount: %w", err)
+	}
+	return count, nil
 }
 
 // ValidationError describes a single OKF validation error.
@@ -2593,6 +2632,19 @@ func retitleH1(body, oldTitle, newTitle string) string {
 		break
 	}
 	return strings.Join(lines, "\n")
+}
+
+// isWindowsDriveAbsolute reports whether s starts with a drive letter
+// followed by ":" and a path separator (e.g. "C:\" or "C:/"). A Windows path
+// without a drive letter is relative or root-relative and therefore not
+// accepted as an absolute allow-prefix.
+func isWindowsDriveAbsolute(s string) bool {
+	if len(s) < 3 {
+		return false
+	}
+	c := s[0]
+	isLetter := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	return isLetter && s[1] == ':' && (s[2] == '\\' || s[2] == '/')
 }
 
 func sortedUnique(values []string) []string {

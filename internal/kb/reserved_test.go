@@ -409,7 +409,7 @@ func TestSyncIn_RebaseReCommitsAServerCommitAsTheConfiguredIdentity(t *testing.T
 	k, other, branch := reservedSyncKB(t, true, nil)
 	colleaguePush(t, other, branch, map[string]string{"data/remote.md": "remote\n"})
 	writeRel(t, k.Root, "data/local.md", "local\n")
-	if _, err := k.CommitOpAs("local by the server", "", ""); err != nil {
+	if _, err := k.CommitOp("local by the server"); err != nil {
 		t.Fatal(err)
 	}
 	k.SetDefaultIdentity("Ada Example", "ada@example.test")

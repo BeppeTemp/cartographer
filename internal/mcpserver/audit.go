@@ -210,7 +210,7 @@ func classifyOutcome(result ToolResult, err error) string {
 // no audit sink is attached, or the attempt itself failed to append in
 // best_effort mode (see beginAuditCall) — in which case end is a no-op: a
 // completion event with no corresponding on-disk attempt would otherwise be
-// reported as chain corruption by audit.VerifyFiles/VerifyAudit.
+// reported as chain corruption by audit.VerifyAudit.
 type auditCall struct {
 	requestID string
 	principal string

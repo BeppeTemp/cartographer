@@ -27,12 +27,19 @@ const SettingsFile = "settings.yaml"
 type settingKind int
 
 const (
-	kindStaleDays settingKind = iota // integer >= 1; below MinUsageStaleDays it is raised at resolution
-	kindBranch                       // a git branch name
+	kindBool settingKind = iota
+	kindString
+	kindEnum
+	kindDays      // "<n>d", "<n>" or an integer; 0 disables
+	kindStaleDays // integer >= 1; below MinUsageStaleDays it is raised at resolution
+	kindInt1      // integer >= 1
+	kindStringSeq // sequence of scalars; empty allowed
+	kindBranch    // a git branch name
 )
 
 type settingSpec struct {
-	kind settingKind
+	kind   settingKind
+	values []string // kindEnum
 }
 
 // settingsKeys are the keys a KB carries.
@@ -276,6 +283,31 @@ func ParseSettings(data []byte) (Settings, []SettingsMalformed, error) {
 func checkSetting(spec settingSpec, v *yaml.Node) string {
 	scalar := v.Kind == yaml.ScalarNode && v.Tag != "!!null"
 	switch spec.kind {
+	case kindBool:
+		var b bool
+		if v.Kind != yaml.ScalarNode || v.Decode(&b) != nil {
+			return "must be true or false"
+		}
+	case kindString:
+		if !scalar {
+			return "must be a string"
+		}
+	case kindEnum:
+		if !scalar || !inList(spec.values, v.Value) {
+			return "must be one of " + strings.Join(spec.values, ", ")
+		}
+	case kindDays:
+		if !scalar {
+			return `must be a number of days ("14d", "14", or 0 to disable)`
+		}
+		if n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(v.Value), "d")); err != nil || n < 0 {
+			return fmt.Sprintf(`%q is not a number of days ("14d", "14", or 0 to disable)`, v.Value)
+		}
+	case kindInt1:
+		n, err := strconv.Atoi(v.Value)
+		if !scalar || err != nil || n < 1 {
+			return "must be an integer, 1 or more"
+		}
 	case kindStaleDays:
 		n, err := strconv.Atoi(v.Value)
 		if !scalar || err != nil || n < 1 {
@@ -288,8 +320,26 @@ func checkSetting(spec settingSpec, v *yaml.Node) string {
 		if err := ValidateBranchName(v.Value); err != nil {
 			return err.Error()
 		}
+	case kindStringSeq:
+		if v.Kind != yaml.SequenceNode {
+			return "must be a list of names"
+		}
+		for _, it := range v.Content {
+			if it.Kind != yaml.ScalarNode || it.Tag == "!!null" {
+				return "must be a list of names"
+			}
+		}
 	}
 	return ""
+}
+
+func inList(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // SettingsState is what ReadSettings found at the KB root.

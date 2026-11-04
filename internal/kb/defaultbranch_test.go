@@ -101,7 +101,7 @@ func TestSync_OnDefaultBranchWrites(t *testing.T) {
 	if err := k.WriteFileAtomic("data/a.md", []byte("a\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("write a", "", ""); err != nil {
+	if _, err := k.CommitOp("write a"); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 	if err := k.SyncOut(); err != nil {
@@ -227,7 +227,7 @@ func TestSyncOut_NeverCreatesRemoteBranch(t *testing.T) {
 	if err := k.WriteFileAtomic("data/b.md", []byte("b\n")); err != nil {
 		t.Fatal(err)
 	}
-	sha, err := k.CommitOpAs("write b", "", "")
+	sha, err := k.CommitOp("write b")
 	if err != nil || sha == "" {
 		t.Fatalf("CommitOp = (%q, %v)", sha, err)
 	}

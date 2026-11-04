@@ -424,7 +424,7 @@ func TestRepairManagedHashes_AgentHashedUnderApplyName(t *testing.T) {
 			if !found {
 				t.Skipf("%s materialised no agent", p)
 			}
-			repaired, skipped, err := RepairManagedHashes(lock, p, baseDir)
+			repaired, skipped, err := RepairManagedHashes(lock, p, baseDir, false)
 			if err != nil || len(skipped) != 0 || len(repaired) == 0 {
 				t.Fatalf("repair: repaired=%v skipped=%v err=%v", repaired, skipped, err)
 			}

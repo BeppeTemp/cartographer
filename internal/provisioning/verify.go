@@ -112,11 +112,7 @@ func (f DriftFinding) Healable() bool {
 //
 // Entries whose file is missing are left alone: that is DriftMissing, a real
 // finding for `sync` to fix, not something to paper over.
-//
-// The function writes no file: it updates lock.Managed in place (the slice is
-// shared with the caller) and returns the entries, and the caller decides
-// whether to persist the lock.
-func RepairManagedHashes(lock Lock, provider configurator.Provider, baseDir string) (repaired []ManagedFile, skipped []DriftFinding, err error) {
+func RepairManagedHashes(lock Lock, provider configurator.Provider, baseDir string, dryRun bool) (repaired []ManagedFile, skipped []DriftFinding, err error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for i := range lock.Managed {
 		mf := lock.Managed[i]
@@ -152,6 +148,9 @@ func RepairManagedHashes(lock Lock, provider configurator.Provider, baseDir stri
 		lock.Managed[i].MaterializedHash = hashArtifactFiles(files)
 		lock.Managed[i].AdoptedAt = now
 		repaired = append(repaired, lock.Managed[i])
+	}
+	if dryRun {
+		return repaired, skipped, nil
 	}
 	return repaired, skipped, nil
 }

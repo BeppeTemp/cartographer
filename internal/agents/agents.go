@@ -108,8 +108,8 @@ func dirExists(path string) bool {
 // An agent is Installed if at least one heuristic matches: any of its binaries in PATH,
 // then its config directories in descriptor order, then any directory it anchors at an
 // environment variable (%APPDATA% and friends, which no home-relative path can name),
-// then its application directory for this GOOS if the registry knows one. (A
-// provider's own root directory is no longer a probe: D898 removed it.) Which one matched is
+// then its own root directory if it declares one (D141), then its application
+// directory for this GOOS if the registry knows one. Which one matched is
 // recorded in DetectedBy (D224): the heuristics do not carry the same weight,
 // and only the caller knows whether that matters.
 func Detect() []Agent {

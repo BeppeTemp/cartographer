@@ -21,7 +21,7 @@ func multiKB(t *testing.T) (*kb.KB, *Server) {
 	k, s := repairKB(t, 3)
 	seedLegacyFixes(t, k)
 	driftWrite(t, k, "loose-notes/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n")
-	if _, err := k.CommitOpAs("test: seed multi", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed multi"); err != nil {
 		t.Fatal(err)
 	}
 	return k, s
@@ -198,7 +198,7 @@ func TestKBRepairMultiLimitScopeRemovals(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		writeTagged(t, k, fmt.Sprintf("ops/a%d", i), "Foo_Bar", "junk")
 	}
-	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
 	out := repairCall(t, s, `{"check":["invalid_field_value","nonstandard_field"],"limit":2}`)
@@ -299,7 +299,7 @@ func TestKBRepairMultiErrorListsEarlierWrites(t *testing.T) {
 	if _, err := k.WriteConcept("ops/d0", fm, "# T\n", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
+	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
