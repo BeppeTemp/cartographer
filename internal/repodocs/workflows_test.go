@@ -115,6 +115,8 @@ func loadWorkflows(t *testing.T) map[string]wfFile {
 	return out
 }
 
+var setupAction = regexp.MustCompile(`^actions/setup-(go|node|python|java)@`)
+
 // A job that holds a write token restores no cache a past run, or a run of another
 // ref, left behind, and builds from none (D1020): no `cache:` input other than off,
 // no actions/cache step, and a `type=gha` image cache only when scoped to the run.
@@ -133,10 +135,15 @@ func TestWriteTokenJobsRestoreNoSharedCache(t *testing.T) {
 				if strings.HasPrefix(st.Uses, "actions/cache") {
 					t.Errorf("%s: a job with a write token restores a cache", where)
 				}
-				if v, ok := st.With["cache"]; ok {
+				v, has := st.With["cache"]
+				if has {
 					if s := fmt.Sprint(v); s != "false" && s != "" {
 						t.Errorf("%s: cache: %v on a job with a write token", where, v)
 					}
+				}
+				// The setup actions cache by default: the input must be there, and off.
+				if setupAction.MatchString(st.Uses) && !has {
+					t.Errorf("%s: a setup action with a write token needs an explicit cache: false", where)
 				}
 				for _, k := range []string{"cache-from", "cache-to"} {
 					if v, ok := st.With[k].(string); ok && strings.Contains(v, "type=gha") && !strings.Contains(v, "scope=${{ github.run_id }}") {
@@ -192,8 +199,8 @@ func TestPipInstallsRequireHashes(t *testing.T) {
 			if strings.HasPrefix(l, "#") || !install.MatchString(l) {
 				continue
 			}
-			if !strings.Contains(l, "--require-hashes") || !strings.Contains(l, " -r ") {
-				t.Errorf("%s:%d: %q installs without --require-hashes -r <lock>", filepath.Base(f), i+1, l)
+			if !strings.Contains(l, "--require-hashes") || !strings.Contains(l, "--only-binary=:all:") || !strings.Contains(l, " -r ") {
+				t.Errorf("%s:%d: %q installs without --require-hashes --only-binary=:all: -r <lock>", filepath.Base(f), i+1, l)
 			}
 		}
 	}

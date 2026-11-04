@@ -828,7 +828,7 @@ scripts against a scratch bare repository.
 
 `security.yml` is the one workflow that tests nothing of ours: `make vulncheck`
 (govulncheck) and `npm audit` over the `web/` production dependencies,
-`make lint-workflows` (actionlint and zizmor, the latter installed from the hash lock `.github/pip/zizmor.txt`); CodeQL is `codeql.yml`, which runs on push to `main`, weekly and on demand, never on a PR, and skips the generated bundle `internal/webui/dist` (`.github/codeql/codeql-config.yml`). `security.yml` runs on push to
+`make lint-workflows` (actionlint and zizmor, the latter installed from the hash lock `.github/pip/zizmor.txt`); `internal/repodocs/workflows_test.go` pins the token rules: `TestWriteTokenJobsRestoreNoSharedCache` (a job with a write token restores no cache, setup actions say `cache: false`, an image cache is scoped to the run), `TestReleasePATStepsRunNoRepositoryCode` (no step with the release PAT runs `make`, `go` or a repository script) and `TestPipInstallsRequireHashes` (Python installs are `--require-hashes --only-binary=:all:` from a lock); CodeQL is `codeql.yml`, which runs on push to `main`, weekly and on demand, never on a PR, and skips the generated bundle `internal/webui/dist` (`.github/codeql/codeql-config.yml`). `security.yml` runs on push to
 `main`, on a PR touching dependencies or workflows, and weekly, and **none
 of it is a required check**: an advisory published against an old dependency must
 not block an unrelated PR. A red scan on `main` opens a `vuln-scan` issue with

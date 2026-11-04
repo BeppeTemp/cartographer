@@ -53,7 +53,7 @@ jobs:
         with:
           python-version: "3.12"
       # Every file installed is checked against the hash in the lock (.github/pip/README).
-      - run: pip install --require-hashes -r .github/pip/docs.txt
+      - run: pip install --require-hashes "--only-binary=:all:" -r .github/pip/docs.txt
       # --strict turns broken internal links and nav typos into build failures,
       # so a PR that moves a page can't silently break the published site.
       - run: mkdocs build --strict

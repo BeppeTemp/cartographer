@@ -330,7 +330,9 @@ esac
 		{"COLLABORATOR", "write", "maintainer", true},
 		{"COLLABORATOR", "maintain", "maintainer", true},
 		{"COLLABORATOR", "admin", "maintainer", true},
-		{"MEMBER", "", "maintainer", true},
+		{"MEMBER", "", "contributor", false},
+		{"MEMBER", "read", "contributor", false},
+		{"MEMBER", "write", "maintainer", true},
 		{"OWNER", "", "maintainer", true},
 		{"CONTRIBUTOR", "write", "contributor", false},
 	}

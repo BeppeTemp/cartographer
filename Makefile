@@ -149,7 +149,7 @@ vulncheck: ## Known-vulnerability scan of the Go module graph (govulncheck; need
 lint-workflows: ## Lint .github/workflows with actionlint and zizmor (needs network and python3)
 	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -shellcheck=
 	python3 -m venv $(ZIZMOR_VENV)
-	$(ZIZMOR_VENV)/bin/pip install -q --require-hashes -r .github/pip/zizmor.txt
+	$(ZIZMOR_VENV)/bin/pip install -q --require-hashes --only-binary=:all: -r .github/pip/zizmor.txt
 	$(ZIZMOR_VENV)/bin/zizmor --min-severity low .github/workflows
 
 clean: ## Remove bin/ and demo-kb/

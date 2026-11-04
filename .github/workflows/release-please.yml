@@ -81,6 +81,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "docs: regenerate the decision index and group the changelog by area" docs/decisions.md CHANGELOG.md
           echo "committed=true" >> "$GITHUB_OUTPUT"
+      # Limit: a step that runs the branch's code can still write $GITHUB_ENV or $GITHUB_PATH for
+      # the steps after it, so the later steps that hold the PAT are only as sound as the branch is.
       # The PR body is read and grouped before the token is used for the push: the
       # step that runs the branch's own code (`go run`) holds no secret.
       - if: steps.branch.outputs.name != ''
