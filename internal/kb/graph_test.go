@@ -626,3 +626,81 @@ func TestLinks_TitleWithParenthesis(t *testing.T) {
 		t.Errorf("ExtractLinks = %v", got)
 	}
 }
+
+// The walk expands a level only while the previous one reached a node it had
+// not seen: its cost is bounded by the graph, never by depth.
+func TestNeighborsWithinStopsOnAnEmptyFrontier(t *testing.T) {
+	t.Parallel()
+	edges := func(pairs ...[2]okf.ConceptID) Links {
+		g := Links{
+			Out:    map[okf.ConceptID]map[okf.ConceptID]struct{}{},
+			In:     map[okf.ConceptID]map[okf.ConceptID]struct{}{},
+			Exists: map[okf.ConceptID]struct{}{},
+		}
+		add := func(m map[okf.ConceptID]map[okf.ConceptID]struct{}, from, to okf.ConceptID) {
+			if m[from] == nil {
+				m[from] = map[okf.ConceptID]struct{}{}
+			}
+			m[from][to] = struct{}{}
+		}
+		for _, e := range pairs {
+			add(g.Out, e[0], e[1])
+			add(g.In, e[1], e[0])
+			g.Exists[e[0]], g.Exists[e[1]] = struct{}{}, struct{}{}
+		}
+		return g
+	}
+	chain := edges([2]okf.ConceptID{"m/a", "m/b"}, [2]okf.ConceptID{"m/b", "m/c"})
+	cycle := edges([2]okf.ConceptID{"m/a", "m/b"}, [2]okf.ConceptID{"m/b", "m/c"}, [2]okf.ConceptID{"m/c", "m/a"})
+
+	for _, tc := range []struct {
+		name       string
+		g          Links
+		start      okf.ConceptID
+		direction  string
+		depth      int
+		wantLevels int
+		wantFound  int
+	}{
+		{"chain, depth far past its end", chain, "m/a", "out", 1_000_000, 3, 2},
+		{"cycle returns to the start", cycle, "m/a", "both", 1_000_000, 2, 2},
+		{"a node with no edge", chain, "m/z", "both", 1_000_000, 1, 0},
+		{"depth still bounds a long walk", chain, "m/a", "out", 1, 1, 1},
+	} {
+		got, levels, err := tc.g.neighborsWithin(tc.start, tc.depth, tc.direction, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if levels != tc.wantLevels || len(got) != tc.wantFound {
+			t.Errorf("%s: expanded %d levels (want %d), found %d (want %d): %v", tc.name, levels, tc.wantLevels, len(got), tc.wantFound, got)
+		}
+	}
+}
+
+// The largest depth ends with the graph, not with the counter.
+func TestNeighborsWithinLargestDepthReturns(t *testing.T) {
+	t.Parallel()
+	g := Links{
+		Out: map[okf.ConceptID]map[okf.ConceptID]struct{}{
+			"m/a": {"m/b": {}},
+			"m/b": {"m/a": {}},
+		},
+		In: map[okf.ConceptID]map[okf.ConceptID]struct{}{
+			"m/a": {"m/b": {}},
+			"m/b": {"m/a": {}},
+		},
+	}
+	done := make(chan map[string]int, 1)
+	go func() {
+		got, _ := g.NeighborsWithin("m/a", int(^uint(0)>>1), "both", nil)
+		done <- got
+	}()
+	select {
+	case got := <-done:
+		if len(got) != 1 || got["m/b"] != 1 {
+			t.Fatalf("neighbors = %v", got)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("NeighborsWithin(largest depth) did not return")
+	}
+}

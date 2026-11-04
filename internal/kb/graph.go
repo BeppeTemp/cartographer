@@ -709,6 +709,15 @@ func (g Links) Neighbors(id okf.ConceptID, depth int, directions ...string) (map
 // excluded start id keeps only its in-edges, as if its file were deleted. A
 // nil include accepts every node, so the result is exactly Neighbors'.
 func (g Links) NeighborsWithin(id okf.ConceptID, depth int, direction string, include func(okf.ConceptID) bool) (map[string]int, error) {
+	result, _, err := g.neighborsWithin(id, depth, direction, include)
+	return result, err
+}
+
+// neighborsWithin is NeighborsWithin plus the number of levels it expanded.
+// The walk stops at the first empty frontier, so its cost is bounded by the
+// size of the graph whatever depth is: a level is expanded only when the
+// previous one reached a node it had not seen.
+func (g Links) neighborsWithin(id okf.ConceptID, depth int, direction string, include func(okf.ConceptID) bool) (map[string]int, int, error) {
 	if depth <= 0 {
 		depth = 1
 	}
@@ -716,14 +725,16 @@ func (g Links) NeighborsWithin(id okf.ConceptID, depth int, direction string, in
 		direction = "out"
 	}
 	if direction != "out" && direction != "in" && direction != "both" {
-		return nil, fmt.Errorf("invalid graph direction %q", direction)
+		return nil, 0, fmt.Errorf("invalid graph direction %q", direction)
 	}
 	keep := func(n okf.ConceptID) bool { return include == nil || include(n) }
 
 	result := map[string]int{}
 	frontier := []okf.ConceptID{id}
+	levels := 0
 
-	for d := 1; d <= depth; d++ {
+	for d := 1; d <= depth && len(frontier) > 0; d++ {
+		levels++
 		var next []okf.ConceptID
 		for _, cur := range frontier {
 			neighbors := make(map[okf.ConceptID]struct{})
@@ -750,7 +761,7 @@ func (g Links) NeighborsWithin(id okf.ConceptID, depth int, direction string, in
 		frontier = next
 	}
 
-	return result, nil
+	return result, levels, nil
 }
 
 // WalkConcepts calls fn for every non-reserved .md file in the KB, plus every

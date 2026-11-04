@@ -1326,6 +1326,9 @@ func toolConceptList(k *kb.KB) Tool {
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
+			if err := checkWhereClauses("concept_list", params.Where); err != nil {
+				return errorResult(err.Error()), nil
+			}
 			// content_hash is a pseudo-field (#835): not a frontmatter key but
 			// the concept's hash, so an agent that lists then patches gets each
 			// if_match without a read apiece. Pulled out of fields before the
@@ -1474,10 +1477,9 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			if direction != "out" && direction != "in" && direction != "both" {
 				return errorResult(fmt.Sprintf("invalid direction %q: expected out, in, or both", direction)), nil
 			}
-			depth := params.Depth
-			if depth <= 0 {
-				depth = 1
-			}
+			// Clamped to 1-12 like graph_path's max_hops; the response reports
+			// the depth used.
+			depth := clampInt(params.Depth, minGraphDepth, minGraphDepth, maxGraphDepth)
 
 			graph, err := k.Links()
 			if err != nil {

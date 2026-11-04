@@ -49,6 +49,9 @@ type workResponse struct {
 
 // newWorkQuery validates the raw arguments both surfaces receive.
 func newWorkQuery(scope, include string, where []string, stale bool, fields, orderBy []string, limit, offset int) (workQuery, error) {
+	if err := checkWorkListArgs(where, orderBy, fields); err != nil {
+		return workQuery{}, err
+	}
 	q := workQuery{
 		Scope:     strings.Trim(strings.ReplaceAll(scope, "\\", "/"), "/"),
 		Include:   include,

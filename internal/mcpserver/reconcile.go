@@ -126,6 +126,10 @@ type searchReconciler struct {
 	// assetSigs is, per owner concept, the asset signature the indexes were
 	// last built from (D277); nil until the first reconciliation.
 	assetSigs map[okf.ConceptID]string
+	// onSearch, when set, sees the query of every keyword search that runs on
+	// this reconciler. Tests only: it is how they count the searches an
+	// advice lookup makes and read the queries.
+	onSearch func(query string)
 }
 
 // assetContentHash is the hash persisted for a concept: its content hash when
