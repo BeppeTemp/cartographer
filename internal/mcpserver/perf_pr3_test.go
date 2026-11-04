@@ -212,3 +212,33 @@ func TestRepair_LegacyToolNameCompilesOncePerField(t *testing.T) {
 		t.Fatalf("compiled %d regexps, want 2 (one per field)", n)
 	}
 }
+
+// A rebuild that fails leaves the index untrusted: the flag stays set and the
+// mentions scan falls back to every concept.
+func TestRebuild_FailureKeepsIndexUntrusted(t *testing.T) {
+	k := setupTestKB(t)
+	ix, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Skipf("sqlindex.Open: %v", err)
+	}
+	rec := newSearchReconciler(k, ix)
+	if _, err := rec.reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := rec.rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if rec.sqlStale || rec.mentionCandidates([]string{"x"}) == nil {
+		t.Fatal("a clean rebuild must leave the index trusted")
+	}
+	ix.Close() // every SQLite write now fails
+	if _, _, err := rec.rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if !rec.sqlStale {
+		t.Fatal("a rebuild that lost rows cleared sqlStale")
+	}
+	if rec.mentionCandidates([]string{"x"}) != nil {
+		t.Error("mentions must fall back to the full scan after a failed rebuild")
+	}
+}

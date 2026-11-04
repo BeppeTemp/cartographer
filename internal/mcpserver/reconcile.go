@@ -174,8 +174,11 @@ func (r *searchReconciler) rebuild() (indexed, sqlUpserted int, err error) {
 	r.assetSigs = nil
 	stats, err := r.reconcileLocked(false)
 	if err == nil && r.sql != nil {
-		sqlUpserted = rebuildSQLIndex(r.k, r.sql)
-		r.sqlStale = false
+		var failed int
+		sqlUpserted, failed = rebuildSQLIndex(r.k, r.sql)
+		// Cleared only by a rebuild that lost nothing; a partial one keeps
+		// the index untrusted.
+		r.sqlStale = failed > 0
 	}
 	return stats.Indexed, sqlUpserted, err
 }
