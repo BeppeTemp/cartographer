@@ -489,3 +489,39 @@ func TestLinkSuggestTitleFallbackStaysBounded(t *testing.T) {
 		t.Fatalf("the whole-title search has %d terms, want the first %d", len(strings.Fields(queries[0])), maxSearchQueryTerms)
 	}
 }
+
+// A glossary alias is stored text, not a tool argument, and the variant it
+// makes for a short query can be longer than the argument bounds allow: each
+// variant is shortened like the query before it reaches the index.
+func TestSearchGlossaryVariantStaysWithinTheQueryBounds(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	writeKBFile(t, k, "arch/zephyr.md", "---\ntype: Note\ntitle: Zephyr\n---\n# Zephyr\n\nThe zephyr scheduler.\n")
+	// A glossary term is at most 80 bytes, so the variant outgrows the bounds
+	// only from a query near them: 63 terms, and an alias of 20 more.
+	alias := strings.TrimSpace(strings.Repeat("ab ", 20))
+	gloss := "terms:\n  - canonical: Zephyr\n    aliases: [\"" + alias + "\"]\n"
+	if err := os.WriteFile(filepath.Join(k.Root, "glossary.yaml"), []byte(gloss), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := newSearchReconciler(k, nil)
+	probe := &searchProbe{}
+	probe.attach(rec)
+	s := New("test")
+	s.RegisterTool(toolSearch(k, rec, nil, nil, Deps{}))
+
+	probe.take()
+	res := callTool(t, s, "search", `{"query":"zephyr `+distinctWords(62)+`"}`)
+	if res.IsError {
+		t.Fatalf("search refused: %+v", res.Content)
+	}
+	queries := probe.take()
+	if len(queries) < 2 {
+		t.Fatalf("%d searches, want the query and its glossary variant: %q", len(queries), queries)
+	}
+	for _, q := range queries {
+		if err := checkQuerySize("search", q); err != nil {
+			t.Fatalf("a glossary variant reached the index unbounded: %.40q...: %v", q, err)
+		}
+	}
+}
