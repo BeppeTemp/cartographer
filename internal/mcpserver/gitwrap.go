@@ -59,7 +59,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			// Step 2: fetch + pull --rebase before every write operation.
 			// If the KB has no remote, SyncIn is a no-op.
 			syncInStart := time.Now()
-			refused, syncRefused := syncInForWrite(k)
+			refused, syncRefused := syncInForWrite(ctx, k)
 			syncInDur = time.Since(syncInStart)
 			if syncRefused {
 				res = refused
@@ -188,14 +188,15 @@ const discardedNote = "the changes this call had already written were discarded,
 // It returns a refusal result (and true) when the write must not go on: a
 // rebase conflict is registered and its concepts marked degraded, any other
 // failure is worded by syncFailureMessage. No remote: a no-op.
-func syncInForWrite(k *kb.KB) (ToolResult, bool) {
+func syncInForWrite(ctx requestContext, k *kb.KB) (ToolResult, bool) {
 	_, syncErr := k.SyncIn()
 	if syncErr == nil {
 		return ToolResult{}, false
 	}
 	var rce *gitx.RebaseConflictError
 	if errors.As(syncErr, &rce) {
-		return errorResult(conflictMessage(handleConflictError(k, rce))), true
+		n, reserved, other := handleConflictError(k, rce)
+		return errorResult(callerConflictMessage(ctx, k, n, reserved, other)), true
 	}
 	return errorResult(syncFailureMessage(k, syncErr)), true
 }
@@ -691,4 +692,34 @@ func commitMessage(toolName string, args json.RawMessage) string {
 		}
 	}
 	return toolName
+}
+
+// callerConflictMessage is conflictMessage for a caller who may not see every
+// conflicting file: the paths outside its perimeter are counted, never named.
+func callerConflictMessage(ctx requestContext, k *kb.KB, n int, reserved, other []string) string {
+	guard := newHistoryGuard(ctx, k)
+	if guard == nil {
+		return conflictMessage(n, reserved, other)
+	}
+	hidden := 0
+	keep := func(paths []string) []string {
+		var out []string
+		for _, p := range paths {
+			if guard.pathVisible("HEAD", p, "M") {
+				out = append(out, p)
+			} else {
+				hidden++
+			}
+		}
+		return out
+	}
+	reserved, other = keep(reserved), keep(other)
+	if hidden == 0 {
+		return conflictMessage(n, reserved, other)
+	}
+	note := fmt.Sprintf("; %d conflicting file(s) are outside what this caller can see and are left to the operator", hidden)
+	if len(reserved) == 0 && len(other) == 0 {
+		return "git conflict detected; the conflicting files are outside what this caller can see (" + fmt.Sprint(hidden) + " file(s)), the operator resolves them"
+	}
+	return conflictMessage(n, reserved, other) + note
 }

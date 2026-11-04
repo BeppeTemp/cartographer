@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -351,15 +352,15 @@ func TestBatchWriteError_RollbackFailureCarriesTheRecoveryHint(t *testing.T) {
 	ops := []kb.BatchWriteOp{{ID: "manutenzione/test-runbook"}}
 
 	failed := fmt.Errorf("batch op 0 (manutenzione/test-runbook): disk full (%s: log.md: permission denied)", kb.RollbackFailedMarker)
-	if msg := batchWriteError(k, ops, failed); !strings.HasPrefix(msg, "concept_batch: ") || !strings.Contains(msg, "concept_history(id)") || !strings.Contains(msg, "rev=<sha>") {
+	if msg := batchWriteError(context.Background(), k, ops, failed); !strings.HasPrefix(msg, "concept_batch: ") || !strings.Contains(msg, "concept_history(id)") || !strings.Contains(msg, "rev=<sha>") {
 		t.Errorf("rollback failure: %q", msg)
 	}
-	if msg := batchWriteError(k, ops, errors.New("batch op 0 (x): disk full")); strings.Contains(msg, "concept_history") {
+	if msg := batchWriteError(context.Background(), k, ops, errors.New("batch op 0 (x): disk full")); strings.Contains(msg, "concept_history") {
 		t.Errorf("a rollback that worked has nothing to undo: %q", msg)
 	}
 
 	stale := fmt.Errorf("batch op 0 (manutenzione/test-runbook): %w", okf.ErrStaleWrite)
-	if msg := batchWriteError(k, ops, stale); !strings.HasPrefix(msg, "stale_write: ") || !strings.Contains(msg, "current content_hash "+readHash(t, k, "manutenzione/test-runbook")) {
+	if msg := batchWriteError(context.Background(), k, ops, stale); !strings.HasPrefix(msg, "stale_write: ") || !strings.Contains(msg, "current content_hash "+readHash(t, k, "manutenzione/test-runbook")) {
 		t.Errorf("stale batch: %q", msg)
 	}
 }

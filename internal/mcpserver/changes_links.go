@@ -116,6 +116,7 @@ func changesSinceLinks(ctx requestContext, k *kb.KB, commits []gitx.CommitChange
 		return nil, "", err
 	}
 	visibleID := visiblePredicate(ctx, k)
+	guard := newHistoryGuard(ctx, k)
 	visible := func(id okf.ConceptID) bool { return visibleID(string(id)) }
 
 	var added, removed []changesLinkEdge
@@ -134,7 +135,10 @@ func changesSinceLinks(ctx requestContext, k *kb.KB, commits []gitx.CommitChange
 			continue
 		}
 		then := map[okf.ConceptID]struct{}{}
-		if base != "" && oldOK {
+		// The source's links at the base are the caller's to know only if the
+		// file lay inside its perimeter then (it may have been moved or
+		// retyped into it since).
+		if base != "" && oldOK && guard.pathVisible(base, old, "M") {
 			if content, err := gitx.ShowFile(k.Root, base, old); err == nil {
 				_, body, _ := okf.SplitFrontmatter(content)
 				// Trap: resolve against the file's path AT THE BASE, not its

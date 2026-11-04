@@ -96,7 +96,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			newHash, err := writeConceptAndLog(k, "concept_write", params.ID, fm, params.Body, params.IfMatch)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
-					return errorResult("stale_write: " + err.Error() + staleConceptSuffix(k, params.ID)), nil
+					return errorResult("stale_write: " + err.Error() + staleConceptSuffix(ctx, k, params.ID)), nil
 				}
 				return errorResult(fmt.Sprintf("concept_write %q: %v", params.ID, err)), nil
 			}
@@ -719,7 +719,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 			newHash, err := writeConceptAndLog(k, "concept_patch", params.ID, fm, body, params.IfMatch)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
-					return errorResult("stale_write: " + err.Error() + staleConceptSuffix(k, params.ID)), nil
+					return errorResult("stale_write: " + err.Error() + staleConceptSuffix(ctx, k, params.ID)), nil
 				}
 				return errorResult(fmt.Sprintf("concept_patch %q: %v", params.ID, err)), nil
 			}
@@ -3175,7 +3175,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 							return errorResult(fmt.Sprintf("stale_write: %s: file not found", label)), nil
 						}
 						if existing.ContentHash != op.IfMatch {
-							return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(k, op.ID))), nil
+							return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(ctx, k, op.ID))), nil
 						}
 					}
 					var err error
@@ -3196,7 +3196,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 						return errorResult(fmt.Sprintf("%s: not found", label)), nil
 					}
 					if existing.ContentHash != op.IfMatch {
-						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(k, op.ID))), nil
+						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(ctx, k, op.ID))), nil
 					}
 					if hasEdits && hasSingle {
 						return errorResult(fmt.Sprintf("%s: 'edits' is mutually exclusive with top-level 'old_string'/'new_string'/'replace_all'", label)), nil
@@ -3255,7 +3255,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 						return errorResult(fmt.Sprintf("%s: not found", label)), nil
 					}
 					if op.IfMatch != "" && existing.ContentHash != op.IfMatch {
-						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(k, op.ID))), nil
+						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(ctx, k, op.ID))), nil
 					}
 					deleting[op.ID] = true
 					ops = append(ops, kb.BatchWriteOp{ID: okf.ConceptID(op.ID), Delete: true})
@@ -3350,7 +3350,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				return applyIndexEntries(k, indexPending)
 			})
 			if err != nil {
-				return errorResult(batchWriteError(k, ops, err)), nil
+				return errorResult(batchWriteError(ctx, k, ops, err)), nil
 			}
 
 			entries := make([]batchResultEntry, len(results))
@@ -3526,7 +3526,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 					return errorResult(fmt.Sprintf("concept_delete %q: %v", params.ID, err)), nil
 				}
 				if data.ContentHash != params.IfMatch {
-					return errorResult("stale_write: content_hash does not match if_match" + staleConceptSuffix(k, params.ID)), nil
+					return errorResult("stale_write: content_hash does not match if_match" + staleConceptSuffix(ctx, k, params.ID)), nil
 				}
 			}
 

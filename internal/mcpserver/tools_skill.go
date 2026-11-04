@@ -404,7 +404,11 @@ func toolServiceList(k *kb.KB) Tool {
 			}
 			var services []svcEntry
 
+			visible := visiblePredicate(ctx, k)
 			err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
+				if !visible(string(id)) {
+					return nil
+				}
 				fmRaw, _, _ := okf.SplitFrontmatter(content)
 				fm, err := okf.ParseFrontmatter(fmRaw)
 				if err != nil {

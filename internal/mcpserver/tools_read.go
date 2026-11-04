@@ -275,7 +275,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					return errorResult(fmt.Sprintf("concept_read %q: invalid rev %q: want a 7-40 hex commit SHA", params.ID, params.Rev)), nil
 				}
 				var msg string
-				data, msg = readConceptAtRev(k, params.ID, params.Rev)
+				data, msg = readConceptAtRev(k, newHistoryGuard(ctx, k), params.ID, params.Rev)
 				if data == nil {
 					return errorResult(msg), nil
 				}
@@ -509,7 +509,7 @@ func conceptGitPath(k *kb.KB, id string) (string, error) {
 // readConceptAtRev returns the concept as of commit rev: the newest entry of
 // the file's history that is rev or one of its ancestors, unless that entry is
 // a deletion. On failure it returns nil and the error message.
-func readConceptAtRev(k *kb.KB, id, rev string) (*kb.ConceptData, string) {
+func readConceptAtRev(k *kb.KB, guard *historyGuard, id, rev string) (*kb.ConceptData, string) {
 	notFound := fmt.Sprintf("concept_read %q: not found at rev %s", id, rev)
 	path, err := conceptGitPath(k, id)
 	if err != nil {
@@ -519,7 +519,9 @@ func readConceptAtRev(k *kb.KB, id, rev string) (*kb.ConceptData, string) {
 	if err != nil {
 		return nil, fmt.Sprintf("concept_read %q: %v", id, err)
 	}
-	for _, r := range revs {
+	// A caller limited to a perimeter reads only the revisions that lay
+	// inside it: a page moved in from outside has no past behind the move.
+	for _, r := range guard.revisions(revs) {
 		ok, err := gitx.IsAncestor(k.Root, r.SHA, rev)
 		if err != nil {
 			// An unknown rev is reported by git as an error; to the caller
@@ -608,30 +610,41 @@ func toolConceptHistory(k *kb.KB) Tool {
 			if truncated {
 				revs = revs[:limit]
 			}
+			// A caller limited to a perimeter sees only the revisions inside
+			// it, and the text of a commit that also touched outside it is
+			// cut down to the tool name.
+			guard := newHistoryGuard(ctx, k)
+			if kept := guard.revisions(revs); len(kept) < len(revs) {
+				revs, truncated = kept, false
+			}
 			for _, r := range revs {
+				subject, reason, redacted := guard.redact(r.SHA, r.Subject, r.Reason)
+				if !redacted {
+					subject, reason, redacted = redactForeign(ctx, subject, reason, r.MovedTo, r.MovedFrom)
+				}
 				e := map[string]interface{}{
 					"sha":     r.SHA,
 					"at":      r.At.UTC().Format(time.RFC3339),
 					"author":  r.Author,
-					"subject": r.Subject,
+					"subject": subject,
 					"path":    r.Path,
 				}
 				if r.Agent != "" {
 					e["agent"] = r.Agent
 				}
-				if r.MovedTo != "" {
+				if r.MovedTo != "" && reachesKB(ctx, r.MovedTo) {
 					e["moved_to"] = r.MovedTo
 				}
-				if r.MovedFrom != "" {
+				if r.MovedFrom != "" && reachesKB(ctx, r.MovedFrom) {
 					e["moved_from"] = r.MovedFrom
 				}
 				if r.Token != "" {
 					e["token"] = r.Token
 				}
-				if r.Reason != "" {
-					e["reason"] = r.Reason
+				if reason != "" {
+					e["reason"] = reason
 				}
-				if len(r.AcceptedFindings) > 0 {
+				if len(r.AcceptedFindings) > 0 && !redacted {
 					e["accepted_findings"] = r.AcceptedFindings
 				}
 				revisions = append(revisions, e)
@@ -867,6 +880,7 @@ func toolChangesSince(k *kb.KB) Tool {
 				return id
 			}
 			visibleConcept := visiblePredicate(ctx, k)
+			guard := newHistoryGuard(ctx, k)
 			otherChanges := 0
 			for _, commit := range commits {
 				for _, file := range commit.Files {
@@ -895,6 +909,15 @@ func toolChangesSince(k *kb.KB) Tool {
 					id = resolveMovedID(id)
 					if !visibleConcept(id) {
 						continue
+					}
+					// The id above is the page's final one; the file as this
+					// commit wrote it may have lain outside the perimeter.
+					if !guard.pathVisible(commit.SHA, file.Path, file.Status) {
+						continue
+					}
+					opText, reasonText, redacted := guard.redact(commit.SHA, commit.Subject, commit.Reason)
+					if !redacted {
+						opText, reasonText, redacted = redactForeign(ctx, opText, reasonText, commit.MovedTo, commit.MovedFrom)
 					}
 					info, exists := conceptByID[id]
 					if !exists {
@@ -932,20 +955,23 @@ func toolChangesSince(k *kb.KB) Tool {
 						agentSeen[id][commit.Agent] = true
 						info.Agents = append(info.Agents, commit.Agent)
 					}
-					for _, tr := range []string{movedLabel("to", commit.MovedTo), movedLabel("from", commit.MovedFrom)} {
+					for _, tr := range []string{movedLabel("to", visibleKBName(ctx, commit.MovedTo)), movedLabel("from", visibleKBName(ctx, commit.MovedFrom))} {
 						if tr != "" && !slices.Contains(info.Transfers, tr) {
 							info.Transfers = append(info.Transfers, tr)
 						}
 					}
-					if !opSeen[id][commit.Subject] && len(info.Ops) < 5 {
-						opSeen[id][commit.Subject] = true
-						info.Ops = append(info.Ops, commit.Subject)
+					if !opSeen[id][opText] && len(info.Ops) < 5 {
+						opSeen[id][opText] = true
+						info.Ops = append(info.Ops, opText)
 					}
-					if commit.Reason != "" && !reasonSeen[id][commit.Reason] && len(info.Reasons) < 5 {
-						reasonSeen[id][commit.Reason] = true
-						info.Reasons = append(info.Reasons, commit.Reason)
+					if reasonText != "" && !reasonSeen[id][reasonText] && len(info.Reasons) < 5 {
+						reasonSeen[id][reasonText] = true
+						info.Reasons = append(info.Reasons, reasonText)
 					}
 					for _, af := range commit.AcceptedFindings {
+						if redacted {
+							break
+						}
 						if len(info.AcceptedFindings) < 5 && !slices.Contains(info.AcceptedFindings, af) {
 							info.AcceptedFindings = append(info.AcceptedFindings, af)
 						}

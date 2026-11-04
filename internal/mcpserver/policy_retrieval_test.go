@@ -29,6 +29,7 @@ func policyFixture(t *testing.T) (*Server, requestContext) {
 	write("visible/runbook", "Runbook", "Visible title")
 	write("visible/service", "Service", "Visible service")
 	write("hidden/secret", "Runbook", "Hidden title")
+	write("hidden/service", "Service", "Hidden service")
 	write("hidden/contradiction", "Contradiction", "Hidden contradiction")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})

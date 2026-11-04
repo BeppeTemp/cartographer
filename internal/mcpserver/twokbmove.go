@@ -92,7 +92,7 @@ func (m *twoKBMove) runLocked(ctx context.Context) ToolResult {
 		}
 	}
 	for _, k := range []*kb.KB{src, dst} {
-		if refused, bad := syncInForWrite(k); bad {
+		if refused, bad := syncInForWrite(ctx, k); bad {
 			return refused
 		}
 	}
