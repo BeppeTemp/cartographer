@@ -2,7 +2,7 @@
 topic: concurrency-git
 ---
 
-# D1614 — A remote URL is redacted where its error is built, by `gitx`
+# D1619 — A remote URL is redacted where its error is built, by `gitx`
 
 **Decision.** `RedactRemoteURL` lives in `internal/gitx` (it moved from `internal/kb`), and every message that names a remote, whether an error built in `gitx`, a log line, a CLI message or a stored row such as a KB's `origin`, uses its redacted form. `RedactRemoteText` scrubs the raw URL, and the same URL without its userinfo, from git's own output, including the stderr progress `Clone` shows live.
 
