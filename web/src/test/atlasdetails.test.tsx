@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "../components/CommandPalette";
 import { Health } from "../components/Health";
+import { Settings } from "../components/Settings";
 import { Instructions } from "../components/Instructions";
 import { Splitter } from "../components/Splitter";
 import { checkLabel, checkHelp } from "../lib/health";
@@ -95,5 +96,76 @@ describe("Splitter restore", () => {
     onCommit.mockClear();
     fireEvent.doubleClick(handle);
     expect(onCommit).toHaveBeenLastCalledWith(0);
+  });
+});
+
+describe("Health with a clean Map chosen while another Map has issues", () => {
+  it("does not switch to the all-clear state", () => {
+    render(
+      <Health
+        report={{ findings: [], count: 0, by_check: {} }}
+        allFindings={all.slice(0, 2)}
+        collections={collections}
+        hmap="notes"
+        scopeTitle="Notes"
+        loading={false}
+        error={null}
+        onReveal={() => {}}
+        onRetry={() => {}}
+      />,
+    );
+    const field = screen.getByRole("group", { name: "Pages by Map" });
+    expect(field).not.toHaveAttribute("data-clear");
+    expect(field.querySelectorAll("[data-problem]")).toHaveLength(2);
+  });
+});
+
+const baseSettings = { version: "v1", server: [], kbs: [{ name: "kb-a", entries: [], yaml: "" }, { name: "kb-b", entries: [], yaml: "" }] };
+const clientWith = (clients: unknown) => ({
+  ...baseSettings,
+  clients: [
+    {
+      machine: "laptop",
+      version: "v1",
+      server_url: "http://example.com/mcp",
+      received_at: "2026-10-16T10:00:00Z",
+      yaml: "",
+      providers: [],
+      entries: [{ key: "clients", value: clients, origin: "file", description: "Bindings.", default: "{}" }],
+    },
+  ],
+});
+
+describe("Settings", () => {
+  it("lists an agent under a KB unless its kbs key is present and excludes it", async () => {
+    stubApi({
+      "/settings": () => json(clientWith({ kiro: { kbs: [] }, claude: {}, codex: { kbs: ["kb-b"] } })),
+    });
+    render(<Settings reloadKey="a" activeKB="kb-a" onRetry={() => {}} onFailure={() => false} />);
+    const kbA = await screen.findByRole("list", { name: "Client settings of kb-a" });
+    const value = within(kbA).getByLabelText("Value of clients.<agent>.kbs");
+    expect(value).toHaveTextContent("claude");
+    expect(value).not.toHaveTextContent("kiro");
+    expect(value).not.toHaveTextContent("codex");
+  });
+
+  it("keeps a loaded page, with a note, when a refetch fails", async () => {
+    let fail = false;
+    stubApi({ "/settings": () => (fail ? json({ error: { code: "internal", message: "x" } }, 500) : json(baseSettings)) });
+    const { rerender } = render(<Settings reloadKey="a" activeKB="kb-a" onRetry={() => {}} onFailure={() => false} />);
+    await screen.findByRole("heading", { level: 1 });
+    fail = true;
+    rerender(<Settings reloadKey="b" activeKB="kb-a" onRetry={() => {}} onFailure={() => false} />);
+    expect(await screen.findByText(/Could not refresh the settings/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
+  });
+
+  it("says artifacts read-only for a rule that withholds the artifact write tools", async () => {
+    stubApi({
+      "/settings": () => json(baseSettings),
+      "/whoami": () => json({ id: "bot", admin: false, permissions: [{ kb: "kb-a", write: true, artifacts: "r" }] }),
+    });
+    render(<Settings reloadKey="a" activeKB="kb-a" onRetry={() => {}} onFailure={() => false} />);
+    expect(await screen.findByLabelText("Who is looking")).toHaveTextContent("artifacts read-only");
   });
 });

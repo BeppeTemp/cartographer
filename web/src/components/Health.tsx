@@ -112,10 +112,10 @@ export function Health({
   // Every single finding: the kinds are what to read, this is how much there is.
   const occurrences = groups.reduce((n, g) => n + g.count, 0);
   const pages = scoped.reduce((n, m) => n + m.total, 0);
-  // Nothing found anywhere in the KB: the goal state. It keeps the page of the
+  // Nothing found anywhere in the KB (not just in the chosen Map): the goal state. It keeps the page of the
   // issues state (headline, field, a list, the sections below) and says what
   // was read instead of what was found.
-  const allClear = settled && !!report && issues === 0 && touched === 0 && pages > 0;
+  const allClear = settled && !!report && issues === 0 && wholeTouched === 0 && pages > 0;
   // Rules that could run here (D371): an idle rule's silence is no pass.
   const rules = checks ? checks.checks.filter((c) => c.active !== false).length : 0;
   // Bars are relative to the heaviest row: what matters is which issue weighs most.
