@@ -52,7 +52,7 @@ func TestConfiguredBranch_FirstWriteCreatesIt(t *testing.T) {
 	if err := k.WriteFileAtomic("data/a.md", []byte("a\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("write a"); err != nil {
+	if _, err := k.CommitOpAs("write a", "", ""); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 	if err := k.SyncOut(); err != nil {
@@ -98,7 +98,7 @@ func TestConfiguredBranch_OnlyTheDefaultBranchCounts(t *testing.T) {
 	if err := k.WriteFileAtomic("data/a.md", []byte("a\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("write a"); err != nil {
+	if _, err := k.CommitOpAs("write a", "", ""); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 	if err := k.SyncOut(); err != nil {
@@ -153,7 +153,7 @@ func TestConfiguredBranch_OtherBranchRefused(t *testing.T) {
 	if err := k.WriteFileAtomic("data/b.md", []byte("b\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("write b"); err != nil {
+	if _, err := k.CommitOpAs("write b", "", ""); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 	if err := k.SyncOut(); !errors.Is(err, ErrBranchDiverged) {
@@ -273,7 +273,7 @@ func TestCommitOp_AGitFailureIsReported(t *testing.T) {
 	if err := k.WriteFileAtomic("data/x.md", []byte("x\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("write x"); err == nil {
+	if _, err := k.CommitOpAs("write x", "", ""); err == nil {
 		t.Fatal("CommitOp returned nil with a corrupt index")
 	}
 }

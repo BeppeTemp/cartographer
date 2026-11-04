@@ -68,7 +68,7 @@ func TestConceptBatch_IndexEntry_AddsOrderedEntriesInOneCommit(t *testing.T) {
 	k, _ := setupGitKB(t)
 	seedIndexMaps(t, k, mapFiles("docs", ""))
 	forwardLinks(t, k, "docs/beta", "docs/alpha", "docs/skipped")
-	if _, err := k.CommitOp("test: seed"); err != nil {
+	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")
@@ -227,7 +227,7 @@ func TestConceptNew_IndexEntry(t *testing.T) {
 	seedIndexMaps(t, k, mapFiles("docs", ""))
 	seedIndexMaps(t, k, mapFiles("gen", "index: generated\n"))
 	forwardLinks(t, k, "docs/fresh", "gen/fresh")
-	if _, err := k.CommitOp("test: seed"); err != nil {
+	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")

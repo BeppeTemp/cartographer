@@ -21,7 +21,7 @@ func writeKBSkill(t *testing.T, k *kb.KB, dir, content string) {
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("test: skills/" + dir); err != nil {
+	if _, err := k.CommitOpAs("test: skills/"+dir, "", ""); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -76,7 +76,7 @@ func TestRepairRevertRefusesWhenALaterChangeTouchedTheSameFiles(t *testing.T) {
 	if _, err := k.WriteConcept("ops/n0", fm, "# Later\n", cd.ContentHash); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("test: later edit"); err != nil {
+	if _, err := k.CommitOpAs("test: later edit", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	before := commitCount(t, k)

@@ -25,7 +25,7 @@ func TestSyncOut_PushTimeoutIsNotRetried(t *testing.T) {
 	if err := k.WriteFileAtomic("data/a.md", []byte("a\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("write a"); err != nil {
+	if _, err := k.CommitOpAs("write a", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	// The remote answers everything but stalls the push itself in its hook.

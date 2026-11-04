@@ -39,7 +39,7 @@ func TestWriteGate_RenamedExpandedConceptKeepsItsFindings(t *testing.T) {
 		"notes/topic/index.md":  "---\ntype: Note\ntitle: Topic\n---\n[detail](detail.md)\n\n[[anchor]]\n",
 		"notes/topic/detail.md": "---\ntype: Note\ntitle: Detail\n---\n[index](index.md)\n",
 	})
-	if _, err := k.CommitOp("test: seed"); err != nil {
+	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")
@@ -92,7 +92,7 @@ func TestWriteGate_UnrelatedSameNameCreateIsJudgedAsNew(t *testing.T) {
 	if res := judgeWrite(k, "concept_batch", nil); res != nil {
 		t.Fatalf("a moved page was refused: %+v", res.Content)
 	}
-	if _, err := k.CommitOp("test: moved"); err != nil {
+	if _, err := k.CommitOpAs("test: moved", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	// Reset to the seed, then an unrelated page under the same file name.
@@ -104,7 +104,7 @@ func TestWriteGate_UnrelatedSameNameCreateIsJudgedAsNew(t *testing.T) {
 	if err := os.Rename(filepath.Join(root, "arch", "b", "page.md"), filepath.Join(root, "arch", "a", "page.md")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("test: back"); err != nil {
+	if _, err := k.CommitOpAs("test: back", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	swap("Unrelated")

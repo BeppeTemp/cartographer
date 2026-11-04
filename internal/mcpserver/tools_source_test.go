@@ -535,7 +535,7 @@ func TestSourceRegisterOneCommit(t *testing.T) {
 	if err := k.CreateMap("sources", "Sources", "journal", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CommitOp("test: journal"); err != nil {
+	if _, err := k.CommitOpAs("test: journal", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")

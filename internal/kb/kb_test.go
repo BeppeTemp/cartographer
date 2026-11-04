@@ -442,34 +442,6 @@ func TestListExpanded(t *testing.T) {
 	}
 }
 
-func TestConceptCount_ArchivioFlat(t *testing.T) {
-	t.Parallel()
-	kb := newTestKB(t)
-
-	os.MkdirAll(filepath.Join(kb.DataRoot(), "entities"), 0o755)
-	os.WriteFile(filepath.Join(kb.DataRoot(), "entities", "concept-a.md"), []byte("---\ntype: Nota\n---\n"), 0o644)
-	os.WriteFile(filepath.Join(kb.DataRoot(), "entities", "concept-b.md"), []byte("---\ntype: Nota\n---\n"), 0o644)
-	os.WriteFile(filepath.Join(kb.DataRoot(), "entities", "index.md"), []byte("# index"), 0o644)
-	os.WriteFile(filepath.Join(kb.DataRoot(), "entities", "log.md"), []byte("# log"), 0o644)
-
-	count, err := kb.ConceptCount("entities")
-	if err != nil {
-		t.Fatalf("ConceptCount: %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("ConceptCount: expected 2 concepts (reserved files excluded), found %d", count)
-	}
-}
-
-func TestConceptCount_ArchivioInesistente(t *testing.T) {
-	t.Parallel()
-	kb := newTestKB(t)
-
-	if _, err := kb.ConceptCount("inesistente"); !errors.Is(err, okf.ErrNotFound) {
-		t.Fatalf("ConceptCount: expected ErrNotFound, got %v", err)
-	}
-}
-
 // --- WriteFileAtomic ---
 
 func TestWriteFileAtomic(t *testing.T) {

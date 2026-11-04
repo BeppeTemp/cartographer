@@ -357,7 +357,7 @@ func TestRealignKBSettingsCommitsAndRefuses(t *testing.T) {
 
 func gitCommitAll(t *testing.T, k *kb.KB) {
 	t.Helper()
-	if _, err := k.CommitOp("test: seed"); err != nil {
+	if _, err := k.CommitOpAs("test: seed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 }
