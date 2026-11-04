@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -679,26 +680,44 @@ func scanCopilot(base string, targets []usageTarget, cutoff time.Time) []usageEv
 }
 
 // hostSkillNames is the set of skill names a Codex world_state lists in
-// host_skills: strings, or objects with a "name". An entry of another shape
-// names nothing, so a catalogue of unknown shape credits no skill.
+// host_skills. Seen in real transcripts: an object {body, includeInstructions}
+// whose body is a text with one "- <name>: <description> (file: …)" line per
+// skill (the "- `r0` = <root>" lines are not skills). A list of strings or of
+// objects with a "name" is read too. A shape of none of these credits no skill.
 func hostSkillNames(raw json.RawMessage) map[string]bool {
-	var items []json.RawMessage
-	if json.Unmarshal(raw, &items) != nil {
-		return nil
-	}
 	names := map[string]bool{}
-	for _, it := range items {
-		var s string
-		if json.Unmarshal(it, &s) == nil {
-			names[s] = true
-			continue
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) == nil {
+		for _, it := range items {
+			var s string
+			if json.Unmarshal(it, &s) == nil {
+				names[s] = true
+				continue
+			}
+			var o struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(it, &o) == nil && o.Name != "" {
+				names[o.Name] = true
+			}
 		}
-		var o struct {
-			Name string `json:"name"`
+		return names
+	}
+	var obj struct {
+		Body string `json:"body"`
+	}
+	if json.Unmarshal(raw, &obj) == nil && obj.Body != "" {
+		for _, line := range strings.Split(obj.Body, "\n") {
+			if m := hostSkillLine.FindStringSubmatch(line); m != nil {
+				names[m[1]] = true
+			}
 		}
-		if json.Unmarshal(it, &o) == nil && o.Name != "" {
-			names[o.Name] = true
-		}
+		return names
+	}
+	if len(raw) > 0 && string(raw) != "null" {
+		slog.Debug("codex host_skills in a shape not recognised; no catalogue sighting credited")
 	}
 	return names
 }
+
+var hostSkillLine = regexp.MustCompile(`^\s*- ([^\s` + "`" + `]+): `)

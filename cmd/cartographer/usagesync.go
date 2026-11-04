@@ -29,22 +29,41 @@ const usageStampName = ".cartographer-usage-scan"
 // scanUsage is provisioning.ScanUsage; a test replaces it to count the scans.
 var scanUsage = provisioning.ScanUsage
 
-// reportUsageThrottled is reportUsage at most once per usageScanInterval. The
-// stamp is written when the scan was due, delivered or not: an unreachable
-// server is retried at the next window, not at every session start.
-func reportUsageThrottled(cfg *clientconfig.Config, dir string) {
-	if !cfg.UsageScan {
-		return
+// usageClaimLockName guards the stamp's check-and-touch, never the scan.
+const usageClaimLockName = ".cartographer-usage-scan.lock"
+
+// claimUsageScan says whether this process owns the current window. The check
+// and the stamp's touch happen under a short lock of their own, so sessions
+// starting together do not all see a stale stamp and scan at once; the scan
+// itself runs after the claim, outside any lock.
+func claimUsageScan(dir string) bool {
+	release, err := provisioning.LockStateFile(dir, usageClaimLockName, 5*time.Second)
+	if err != nil {
+		slog.Debug("usage scan claim not taken", "err", err)
+		return false
 	}
+	defer func() { _ = release() }()
 	stamp := filepath.Join(dir, usageStampName)
 	if info, err := os.Stat(stamp); err == nil && time.Since(info.ModTime()) < usageScanInterval && time.Since(info.ModTime()) >= 0 {
+		return false
+	}
+	// The mtime is the datum, so the content carries the time: identical bytes
+	// would not move it.
+	if err := safewrite.WriteFileAtomicNoFollow(dir, stamp, []byte(time.Now().UTC().Format(time.RFC3339Nano)+"\n"), 0o600); err != nil {
+		slog.Debug("usage scan stamp not written", "err", err)
+		return false
+	}
+	return true
+}
+
+// reportUsageThrottled is reportUsage at most once per usageScanInterval. The
+// window is claimed before the scan, delivered or not: an unreachable server is
+// retried at the next window, not at every session start.
+func reportUsageThrottled(cfg *clientconfig.Config, dir string) {
+	if !cfg.UsageScan || !claimUsageScan(dir) {
 		return
 	}
 	reportUsage(cfg, dir)
-	// The mtime is the datum: a rewrite of identical bytes would not move it.
-	if err := safewrite.WriteFileAtomicNoFollow(dir, stamp, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
-		slog.Debug("usage scan stamp not written", "err", err)
-	}
 }
 
 // reportUsage is the post-apply step of `sync` that tells each server which

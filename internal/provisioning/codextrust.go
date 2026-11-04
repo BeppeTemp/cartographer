@@ -234,11 +234,22 @@ func mentionsPath(content, path string) bool {
 			return false
 		}
 		end := from + i + len(path)
-		if end >= len(content) || !strings.ContainsRune(pathContinuation, rune(content[end])) {
+		if end >= len(content) || !continuesPath(content, end) {
 			return true
 		}
 		from += i + 1
 	}
+}
+
+// continuesPath says whether content[i] continues the path name before it. A
+// '.' does only when a path character follows it: "repo." ends a sentence,
+// "repo.old" is another path.
+func continuesPath(content string, i int) bool {
+	c := content[i]
+	if c == '.' {
+		return i+1 < len(content) && strings.ContainsRune(pathContinuation, rune(content[i+1]))
+	}
+	return strings.ContainsRune(pathContinuation, rune(c))
 }
 
 const pathContinuation = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.~/"

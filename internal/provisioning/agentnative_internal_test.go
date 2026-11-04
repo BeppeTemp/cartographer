@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"encoding/json"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -26,5 +27,23 @@ func TestRenderNativeTOML_ScalarsAreRenderedFromTheDecodedValue(t *testing.T) {
 	want := "flag = true\nratio = 0.5\nlim = inf\nneg = -inf\nnope = nan\noct = 15\nbig = 1000.0\nwhole = 2.0\nname = \"x\"\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// The shape real Codex transcripts carry: an object whose body lists one
+// "- name: description (file: …)" line per skill, after the root lines.
+func TestHostSkillNames_RealBodyShapeAndLists(t *testing.T) {
+	body := "## Skills\n### Roots\n- `r0` = `/h/.codex/skills`\n### Available\n- ops-tool: does ops (file: r0/ops-tool/SKILL.md)\n- plug:other: x (file: r0/o/SKILL.md)\n"
+	raw, _ := json.Marshal(map[string]any{"body": body, "includeInstructions": true})
+	got := hostSkillNames(raw)
+	if !got["ops-tool"] || !got["plug:other"] || got["r0"] || len(got) != 2 {
+		t.Errorf("body shape: %v", got)
+	}
+	got = hostSkillNames(json.RawMessage(`["a", {"name": "b"}, 3]`))
+	if !got["a"] || !got["b"] || len(got) != 2 {
+		t.Errorf("list shape: %v", got)
+	}
+	if got := hostSkillNames(json.RawMessage(`42`)); len(got) != 0 {
+		t.Errorf("unknown shape credited %v", got)
 	}
 }

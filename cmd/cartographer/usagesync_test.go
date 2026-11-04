@@ -240,3 +240,32 @@ func TestRunSync_ReleasesLockBeforeUsageScan(t *testing.T) {
 		t.Fatalf("the client lock was still held during the scan: %v", lockErr)
 	}
 }
+
+// Sessions starting together claim the window before scanning: the scan runs
+// once, not once per session that saw a stale stamp.
+func TestReportUsageThrottled_ConcurrentCallsScanOnce(t *testing.T) {
+	home := usageClientHome(t)
+	srv, _ := usageServer(t, http.StatusOK)
+	cfg := clientconfig.Default()
+	cfg.ServerURL = srv.URL + "/mcp"
+	var mu sync.Mutex
+	scans := 0
+	orig := scanUsage
+	scanUsage = func(lf provisioning.LockFile, base string, w time.Duration, all bool) (map[string]provisioning.ArtifactUsage, error) {
+		mu.Lock()
+		scans++
+		mu.Unlock()
+		time.Sleep(100 * time.Millisecond) // a slow scan: the others arrive meanwhile
+		return orig(lf, base, w, all)
+	}
+	t.Cleanup(func() { scanUsage = orig })
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); reportUsageThrottled(cfg, home) }()
+	}
+	wg.Wait()
+	if scans != 1 {
+		t.Fatalf("%d scans for concurrent calls, want 1", scans)
+	}
+}

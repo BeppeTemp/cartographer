@@ -38,10 +38,16 @@ const clientLockPollInterval = 100 * time.Millisecond
 // It does not protect against an editor rewriting the same files, which is
 // not a race any lock could arbitrate.
 func LockClientState(dir string, timeout time.Duration) (func() error, error) {
+	return LockStateFile(dir, ClientLockFileName, timeout)
+}
+
+// LockStateFile is LockClientState on another lock file of the same directory,
+// for a short claim that must not wait behind (or hold up) a whole sync.
+func LockStateFile(dir, name string, timeout time.Duration) (func() error, error) {
 	if timeout <= 0 {
 		timeout = DefaultClientLockTimeout
 	}
-	path := filepath.Join(dir, ClientLockFileName)
+	path := filepath.Join(dir, name)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open client lock %s: %w", path, err)

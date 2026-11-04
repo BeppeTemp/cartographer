@@ -285,3 +285,19 @@ func TestCodexTrust_SiblingPrefixAndTrailingComments(t *testing.T) {
 		}
 	}
 }
+
+func TestMentionsPath_SentencePunctuationIsNotPathContinuation(t *testing.T) {
+	for content, want := range map[string]bool{
+		"# trusted: /h/repo.\n":      true,
+		"# trusted: /h/repo. Done\n": true,
+		"# trusted: /h/repo":         true,
+		"[projects.\"/h/repo\"]":     true,
+		"[projects.\"/h/repo-old\"]": false,
+		"[projects.\"/h/repo.old\"]": false,
+		"[projects.\"/h/repo/sub\"]": false,
+	} {
+		if got := mentionsPath(content, "/h/repo"); got != want {
+			t.Errorf("mentionsPath(%q) = %v, want %v", content, got, want)
+		}
+	}
+}

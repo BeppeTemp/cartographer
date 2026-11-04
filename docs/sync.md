@@ -154,11 +154,11 @@ and the server degrades to "no data". Every scan reads the whole window afresh: 
 incremental state to go stale.
 
 The scan runs at most once every 6 hours (`usageScanInterval`; the stamp is the mtime of
-`.cartographer-usage-scan` in the client state directory, written whether the report was
+`.cartographer-usage-scan` in the client state directory, claimed before the scan under a short lock of its own, so concurrent session starts scan once, and kept whether the report was
 delivered or not), and **after the client lock is released**: `sync` runs at every agent session
 start, and a scan of seconds under the lock made the concurrent syncs wait and, past the lock
 timeout, fail. `sync --report-to` always scans. A Codex catalogue sighting is credited only to the
-skills the `host_skills` list names (strings or objects with a `name`).
+skills the `host_skills` list names (the real transcripts carry an object whose `body` lists one `- name: description` line per skill; a list of strings or of objects with a `name` is read too).
 
 ## Client settings report (D818)
 
