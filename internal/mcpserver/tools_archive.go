@@ -71,7 +71,7 @@ func toolConceptArchive(k *kb.KB) Tool {
 			}
 			archives, err := k.ListArchives()
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_archive: list maps: %v", err)), nil
+				return errorResult(fmt.Sprintf("concept_archive: list maps: %v", relPathErr(err, k.Root))), nil
 			}
 			if !slices.Contains(archives, to) {
 				return errorResult(fmt.Sprintf("concept_archive: unknown map %q (create it with map_create first)", to)), nil
@@ -84,14 +84,14 @@ func toolConceptArchive(k *kb.KB) Tool {
 			// Preflight: nothing is written until the move is known to be valid.
 			data, err := k.ReadConcept(okf.ConceptID(params.ID))
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_archive: read %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_archive: read %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			if data.ContentHash != params.IfMatch {
 				return errorResult(fmt.Sprintf("stale_write: concept_archive %q: if_match %q does not match %q", params.ID, params.IfMatch, data.ContentHash)), nil
 			}
 			srcLoc, err := k.LocateConcept(okf.ConceptID(params.ID))
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_archive: resolve %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_archive: resolve %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			if srcLoc.Expanded && len(strings.Split(params.ID, "/")) != 2 {
 				return errorResult("expanded concept moves require a two-segment id"), nil
@@ -101,7 +101,7 @@ func toolConceptArchive(k *kb.KB) Tool {
 				if errors.Is(err, okf.ErrInvalidPath) {
 					return errorResult("target resolves outside KB root: " + target), nil
 				}
-				return errorResult(fmt.Sprintf("concept_archive: resolve target %q: %v", target, err)), nil
+				return errorResult(fmt.Sprintf("concept_archive: resolve target %q: %v", target, relPathErr(err, k.Root))), nil
 			}
 			if msg := targetOccupied(k, target, targetLoc); msg != "" {
 				if strings.HasPrefix(msg, "conflict:") {
@@ -111,7 +111,7 @@ func toolConceptArchive(k *kb.KB) Tool {
 			}
 			fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_archive: parse frontmatter %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_archive: parse frontmatter %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			// A superseded page is retired already, and its status and successor
 			// are one story: overwriting the status would leave superseded_by on a
@@ -128,9 +128,9 @@ func toolConceptArchive(k *kb.KB) Tool {
 				fm.Set("status", status)
 				if _, err := k.WriteConcept(okf.ConceptID(params.ID), fm, data.Body, params.IfMatch); err != nil {
 					if strings.Contains(err.Error(), "stale") {
-						return errorResult(fmt.Sprintf("stale_write: concept_archive %q: %v", params.ID, err)), nil
+						return errorResult(fmt.Sprintf("stale_write: concept_archive %q: %v", params.ID, relPathErr(err, k.Root))), nil
 					}
-					return errorResult(fmt.Sprintf("concept_archive: write status of %q: %v", params.ID, err)), nil
+					return errorResult(fmt.Sprintf("concept_archive: write status of %q: %v", params.ID, relPathErr(err, k.Root))), nil
 				}
 			}
 

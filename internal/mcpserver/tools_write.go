@@ -67,7 +67,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				return errorResult("'frontmatter' is required"), nil
 			}
 			if err := rejectToolParamKeys(params.Frontmatter, false); err != nil {
-				return errorResult("concept_write: " + err.Error()), nil
+				return errorResult("concept_write: " + relPathErr(err, k.Root)), nil
 			}
 
 			// Build a structured Frontmatter from a JSON map.
@@ -76,7 +76,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				return errorResult("internal frontmatter error: " + err.Error()), nil
 			}
 			if err := applyFrontmatterMap(fm, params.Frontmatter); err != nil {
-				return errorResult("concept_write: " + err.Error()), nil
+				return errorResult("concept_write: " + relPathErr(err, k.Root)), nil
 			}
 
 			isNew := conceptIsNew(k, params.ID)
@@ -98,7 +98,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				if errors.Is(err, okf.ErrStaleWrite) {
 					return errorResult("stale_write: " + err.Error() + staleConceptSuffix(ctx, k, params.ID)), nil
 				}
-				return errorResult(fmt.Sprintf("concept_write %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_write %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 
 			result := map[string]interface{}{
@@ -185,7 +185,7 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			if _, err := k.ReadConcept(id); err == nil {
 				return errorResult(fmt.Sprintf("concept_new %q: already exists — use concept_write or concept_patch to update it", params.ID)), nil
 			} else if !errors.Is(err, okf.ErrNotFound) {
-				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 
 			info, err := classifyArtifactPath("templates/" + params.Template + ".md")
@@ -193,11 +193,11 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				return errorResult(fmt.Sprintf("concept_new: invalid template %q", params.Template)), nil
 			}
 			if err := rejectArtifactSymlinks(k.Root, "templates/"+params.Template+".md"); err != nil {
-				return errorResult("concept_new: " + err.Error()), nil
+				return errorResult("concept_new: " + relPathErr(err, k.Root)), nil
 			}
 			path, err := k.ResolveRootPath("templates/" + params.Template + ".md")
 			if err != nil {
-				return errorResult("concept_new: " + err.Error()), nil
+				return errorResult("concept_new: " + relPathErr(err, k.Root)), nil
 			}
 			content, err := os.ReadFile(path)
 			if os.IsNotExist(err) {
@@ -213,7 +213,7 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				return errorResult(fmt.Sprintf("concept_new: template %q not found; available templates: %s; truncated:%t", params.Template, strings.Join(slugs, ", "), truncated)), nil
 			}
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_new: read template %q: %v", params.Template, err)), nil
+				return errorResult(fmt.Sprintf("concept_new: read template %q: %v", params.Template, relPathErr(err, k.Root))), nil
 			}
 			fm, body, wanted, err := validateTemplateArtifact(content)
 			if err != nil {
@@ -291,7 +291,7 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			fm.Set(kb.ShapeField, params.Template)
 			newHash, err := writeConceptAndLog(k, "concept_new", params.ID, fm, body, "")
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			result := map[string]interface{}{"id": params.ID, "template": params.Template, "content_hash": newHash}
 			if params.IndexEntry {
@@ -673,7 +673,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 				if errors.Is(err, okf.ErrNotFound) {
 					return errorResult(fmt.Sprintf("concept_patch %q: not found", params.ID)), nil
 				}
-				return errorResult(fmt.Sprintf("concept_patch %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_patch %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 
 			// Apply every edit in memory first (sequentially, each seeing the
@@ -713,7 +713,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 			// with concept_batch (D342).
 			dropped, err := applyPatchFrontmatter(fm, pfm)
 			if err != nil {
-				return errorResult("concept_patch: " + err.Error()), nil
+				return errorResult("concept_patch: " + relPathErr(err, k.Root)), nil
 			}
 
 			newHash, err := writeConceptAndLog(k, "concept_patch", params.ID, fm, body, params.IfMatch)
@@ -721,7 +721,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 				if errors.Is(err, okf.ErrStaleWrite) {
 					return errorResult("stale_write: " + err.Error() + staleConceptSuffix(ctx, k, params.ID)), nil
 				}
-				return errorResult(fmt.Sprintf("concept_patch %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_patch %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 
 			result := map[string]interface{}{
@@ -840,7 +840,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 
 			content, _, err := k.IndexHash(params.Path)
 			if err != nil {
-				return errorResult(fmt.Sprintf("index_patch %q: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("index_patch %q: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 			original := content
 
@@ -878,7 +878,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 				if errors.Is(err, okf.ErrStaleWrite) {
 					return errorResult("stale_write: " + err.Error() + staleIndexSuffix(k, params.Path)), nil
 				}
-				return errorResult(fmt.Sprintf("index_patch %q: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("index_patch %q: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 
 			normalizedPath := normalizeIndexPath(params.Path)
@@ -1030,7 +1030,7 @@ func toolMapCreate(k *kb.KB) Tool {
 			contract.RequiredFields, contract.RequiredFieldsByType = splitRequiredFields(params.RequiredFields)
 			contract.FieldValues, contract.FieldValuesByType = splitFieldValues(params.FieldValues)
 			if err := k.CreateMapWithContract(params.Name, params.Title, params.Kind, params.ConceptTypes, contract); err != nil {
-				return errorResult(fmt.Sprintf("map_create %q: %v", params.Name, err)), nil
+				return errorResult(fmt.Sprintf("map_create %q: %v", params.Name, relPathErr(err, k.Root))), nil
 			}
 
 			_ = k.AppendLog("map_create: "+params.Name, time.Now())
@@ -1375,7 +1375,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				},
 			})
 			if err != nil {
-				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil
+				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, relPathErr(err, k.Root))), nil
 			}
 
 			logLine := "map_update: " + params.Map
@@ -1537,7 +1537,7 @@ func toolMapDelete(k *kb.KB) Tool {
 			}
 			removed, err := k.DeleteMap(params.Map, params.Force)
 			if err != nil {
-				return errorResult(fmt.Sprintf("map_delete %q: %v", params.Map, err)), nil
+				return errorResult(fmt.Sprintf("map_delete %q: %v", params.Map, relPathErr(err, k.Root))), nil
 			}
 
 			_ = k.AppendLog("map_delete: "+params.Map, time.Now())
@@ -1595,7 +1595,7 @@ func toolConceptExpand(k *kb.KB) Tool {
 			}
 
 			if err := k.ExpandConcept(okf.ConceptID(params.ID)); err != nil {
-				return errorResult(fmt.Sprintf("concept_expand %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_expand %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 
 			_ = k.AppendLog("concept_expand: "+params.ID, time.Now())
@@ -1664,7 +1664,7 @@ func toolLogAppend(k *kb.KB) Tool {
 			}
 
 			if err := k.AppendLog(entry, time.Now()); err != nil {
-				return errorResult(fmt.Sprintf("log_append: %v", err)), nil
+				return errorResult(fmt.Sprintf("log_append: %v", relPathErr(err, k.Root))), nil
 			}
 			return jsonResult(map[string]string{"status": "appended"}), nil
 		},
@@ -1701,7 +1701,7 @@ func toolSnapshot(k *kb.KB) Tool {
 			}
 
 			if err := k.AppendLog("snapshot: "+msg, time.Now()); err != nil {
-				return errorResult(fmt.Sprintf("snapshot: %v", err)), nil
+				return errorResult(fmt.Sprintf("snapshot: %v", relPathErr(err, k.Root))), nil
 			}
 
 			result := map[string]interface{}{
@@ -1763,7 +1763,7 @@ func toolSupersede(k *kb.KB) Tool {
 
 			data, err := k.ReadConcept(okf.ConceptID(params.SourceID))
 			if err != nil {
-				return errorResult(fmt.Sprintf("supersede: read source %q: %v", params.SourceID, err)), nil
+				return errorResult(fmt.Sprintf("supersede: read source %q: %v", params.SourceID, relPathErr(err, k.Root))), nil
 			}
 
 			fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
@@ -1778,7 +1778,7 @@ func toolSupersede(k *kb.KB) Tool {
 			}
 
 			if _, err := k.WriteConcept(okf.ConceptID(params.SourceID), fm, data.Body, data.ContentHash); err != nil {
-				return errorResult(fmt.Sprintf("supersede: write: %v", err)), nil
+				return errorResult(fmt.Sprintf("supersede: write: %v", relPathErr(err, k.Root))), nil
 			}
 
 			_ = k.AppendLog(fmt.Sprintf("supersede: %s → %s", params.SourceID, params.TargetID), time.Now())
@@ -1959,16 +1959,16 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 			if errors.Is(err, okf.ErrInvalidPath) {
 				return nil, errRes(errorResult("target_id resolves outside KB root: " + m.TargetID))
 			}
-			return nil, errRes(errorResult(fmt.Sprintf("concept_move: resolve target %q: %v", m.TargetID, err)))
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: resolve target %q: %v", m.TargetID, relPathErr(err, k.Root))))
 		}
 
 		data, err := k.ReadConcept(okf.ConceptID(m.SourceID))
 		if err != nil {
-			return nil, errRes(errorResult(fmt.Sprintf("concept_move: read source %q: %v", m.SourceID, err)))
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: read source %q: %v", m.SourceID, relPathErr(err, k.Root))))
 		}
 		sourceLoc, err := k.LocateConcept(okf.ConceptID(m.SourceID))
 		if err != nil {
-			return nil, errRes(errorResult(fmt.Sprintf("concept_move: resolve source %q: %v", m.SourceID, err)))
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: resolve source %q: %v", m.SourceID, relPathErr(err, k.Root))))
 		}
 
 		if msg := targetOccupied(k, m.TargetID, targetLoc); msg != "" {
@@ -2002,7 +2002,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 				}
 				return nil
 			}); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: list expanded source %q: %v", m.SourceID, err)))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: list expanded source %q: %v", m.SourceID, relPathErr(err, k.Root))))
 			}
 		}
 
@@ -2052,7 +2052,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 			}
 			return nil
 		}); err != nil {
-			return nil, errRes(errorResult(fmt.Sprintf("concept_move: list linkers: %v", err)))
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: list linkers: %v", relPathErr(err, k.Root))))
 		}
 		if len(bad) > 0 {
 			return nil, errRes(errorResult("concept_move: nothing moved: these pages link to a moved concept but their frontmatter does not parse, so their links cannot be rewritten; fix them first: " + strings.Join(bad, "; ")))
@@ -2083,10 +2083,10 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 	for _, mv := range valid {
 		if mv.expanded {
 			if err := os.MkdirAll(filepath.Dir(mv.target.Dir), 0o755); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: create target parent %q: %v%s", mv.targetID, err, appliedNote(false))))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: create target parent %q: %v%s", mv.targetID, relPathErr(err, k.Root), appliedNote(false))))
 			}
 			if err := conceptMoveRename(mv.source.Dir, mv.target.Dir); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: could not move expanded concept %q to %q: %v; its directory was not moved%s", mv.sourceID, mv.targetID, err, appliedNote(false))))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: could not move expanded concept %q to %q: %v; its directory was not moved%s", mv.sourceID, mv.targetID, relPathErr(err, k.Root), appliedNote(false))))
 			}
 		} else {
 			write := k.WriteConcept
@@ -2094,14 +2094,14 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 				write = k.WriteConceptKeepingName // a legacy stem the move does not change
 			}
 			if _, err := write(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: write target %q: %v%s", mv.targetID, err, appliedNote(false))))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: write target %q: %v%s", mv.targetID, relPathErr(err, k.Root), appliedNote(false))))
 			}
 
 			// The source was resolved and read in preflight, so even
 			// not-found here is a failure: ignoring it is how the move
 			// used to report success with the source still in place.
 			if err := conceptMoveRemove(mv.source.File); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v%s", mv.targetID, mv.sourceID, err, appliedNote(true))))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v%s", mv.targetID, mv.sourceID, relPathErr(err, k.Root), appliedNote(true))))
 			}
 		}
 
@@ -2158,7 +2158,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 			// Moves are already applied (and will still be committed by
 			// gitWrap only on success); surface the rewrite failure so the
 			// caller knows some backlinks may be stale.
-			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewrite_links failed: %v", len(applied), err)))
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewrite_links failed: %v", len(applied), relPathErr(err, k.Root))))
 		}
 		result["rewritten"] = opts.View.filterRewritten(touched)
 		if len(touched) > 0 {
@@ -2166,7 +2166,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 		}
 		indexes, err := rewriteIndexLinks(k, moveMap)
 		if err != nil {
-			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewriting index links failed: %v", len(applied), err)))
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewriting index links failed: %v", len(applied), relPathErr(err, k.Root))))
 		}
 		if len(indexes) > 0 {
 			result["rewritten_indexes"] = opts.View.filterPaths(indexes)
@@ -2305,14 +2305,14 @@ func toolConceptMerge(k *kb.KB) Tool {
 
 			satellite, err := k.ReadConcept(okf.ConceptID(params.SatelliteID))
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_merge %q: %v", params.SatelliteID, err)), nil
+				return errorResult(fmt.Sprintf("concept_merge %q: %v", params.SatelliteID, relPathErr(err, k.Root))), nil
 			}
 			if satellite.ContentHash != params.IfMatch {
 				return errorResult(fmt.Sprintf("stale_write: concept_merge %q: if_match %q does not match %q", params.SatelliteID, params.IfMatch, satellite.ContentHash)), nil
 			}
 			parent, err := k.ReadConcept(parentID)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_merge: read parent %q: %v", parentID, err)), nil
+				return errorResult(fmt.Sprintf("concept_merge: read parent %q: %v", parentID, relPathErr(err, k.Root))), nil
 			}
 
 			heading := params.Heading
@@ -2331,14 +2331,14 @@ func toolConceptMerge(k *kb.KB) Tool {
 			mergedBody, _ := kb.RewriteOutboundLinks(satellite.Body, okf.IDToPath(okf.ConceptID(params.SatelliteID)), parentRel, nil)
 			parentFM, err := okf.ParseFrontmatter(parent.FrontmatterRaw)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_merge: parse parent frontmatter: %v", err)), nil
+				return errorResult(fmt.Sprintf("concept_merge: parse parent frontmatter: %v", relPathErr(err, k.Root))), nil
 			}
 			newParentBody := strings.TrimRight(parent.Body, "\n") + "\n\n## " + heading + "\n\n" + strings.TrimSpace(mergedBody) + "\n"
 			if _, err := k.WriteConcept(parentID, parentFM, newParentBody, parent.ContentHash); err != nil {
-				return errorResult(fmt.Sprintf("concept_merge: write parent %q: %v", parentID, err)), nil
+				return errorResult(fmt.Sprintf("concept_merge: write parent %q: %v", parentID, relPathErr(err, k.Root))), nil
 			}
 			if err := k.DeleteConcept(okf.ConceptID(params.SatelliteID)); err != nil {
-				return errorResult(fmt.Sprintf("concept_merge: delete satellite %q: %v", params.SatelliteID, err)), nil
+				return errorResult(fmt.Sprintf("concept_merge: delete satellite %q: %v", params.SatelliteID, relPathErr(err, k.Root))), nil
 			}
 
 			// Inbound links — including from sibling satellites, which the
@@ -2346,10 +2346,10 @@ func toolConceptMerge(k *kb.KB) Tool {
 			moveMap := map[string]string{params.SatelliteID: string(parentID)}
 			touched, replacements, err := rewriteBacklinks(k, moveMap)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_merge: merged %q but redirecting inbound links failed: %v", params.SatelliteID, err)), nil
+				return errorResult(fmt.Sprintf("concept_merge: merged %q but redirecting inbound links failed: %v", params.SatelliteID, relPathErr(err, k.Root))), nil
 			}
 			if _, err := rewriteIndexLinks(k, moveMap); err != nil {
-				return errorResult(fmt.Sprintf("concept_merge: merged %q but redirecting index links failed: %v", params.SatelliteID, err)), nil
+				return errorResult(fmt.Sprintf("concept_merge: merged %q but redirecting index links failed: %v", params.SatelliteID, relPathErr(err, k.Root))), nil
 			}
 			_ = k.AppendLog(fmt.Sprintf("concept_merge: %s → %s", params.SatelliteID, parentID), time.Now())
 
@@ -2403,7 +2403,7 @@ func toolConceptCollapse(k *kb.KB) Tool {
 			}
 			data, err := k.ReadConcept(id)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			if data.ContentHash != params.IfMatch {
 				return errorResult(fmt.Sprintf("stale_write: concept_collapse %q: if_match %q does not match %q", params.ID, params.IfMatch, data.ContentHash)), nil
@@ -2417,7 +2417,7 @@ func toolConceptCollapse(k *kb.KB) Tool {
 				}
 				return nil
 			}); err != nil {
-				return errorResult(fmt.Sprintf("concept_collapse: walk: %v", err)), nil
+				return errorResult(fmt.Sprintf("concept_collapse: walk: %v", relPathErr(err, k.Root))), nil
 			}
 			if len(satellites) > 0 {
 				sort.Strings(satellites)
@@ -2440,17 +2440,17 @@ func toolConceptCollapse(k *kb.KB) Tool {
 
 			dirAbs, err := k.ResolvePath(params.ID, true)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			flatAbs, err := k.ResolvePath(okf.IDToPath(id), true)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			// A dangling <id>.md link reads as absent to os.Stat and the
 			// rename would write through it (D1025).
 			for _, rel := range []string{params.ID, okf.IDToPath(id)} {
 				if err := k.RejectSymlinkedConceptPath(rel); err != nil {
-					return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+					return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, relPathErr(err, k.Root))), nil
 				}
 			}
 			if _, statErr := os.Stat(flatAbs); statErr == nil {
@@ -2461,7 +2461,7 @@ func toolConceptCollapse(k *kb.KB) Tool {
 			// already moved: refuse before touching anything (D270).
 			entries, err := os.ReadDir(dirAbs)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			var leftover, junk []string
 			for _, e := range entries {
@@ -2481,14 +2481,14 @@ func toolConceptCollapse(k *kb.KB) Tool {
 			}
 			for _, name := range junk {
 				if err := os.RemoveAll(filepath.Join(dirAbs, name)); err != nil {
-					return errorResult(fmt.Sprintf("concept_collapse %q: remove %s: %v", params.ID, name, err)), nil
+					return errorResult(fmt.Sprintf("concept_collapse %q: remove %s: %v", params.ID, name, relPathErr(err, k.Root))), nil
 				}
 			}
 			if err := os.Rename(filepath.Join(dirAbs, "index.md"), flatAbs); err != nil {
-				return errorResult(fmt.Sprintf("concept_collapse %q: move index.md: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_collapse %q: move index.md: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			if err := os.Remove(dirAbs); err != nil {
-				return errorResult(fmt.Sprintf("concept_collapse %q: remove the now-empty directory: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_collapse %q: remove the now-empty directory: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			_ = k.AppendLog("concept_collapse: "+params.ID, time.Now())
 
@@ -3165,7 +3165,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 						return errorResult(fmt.Sprintf("%s: 'frontmatter' is required for a write operation", label)), nil
 					}
 					if err := rejectToolParamKeys(op.Frontmatter, false); err != nil {
-						return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+						return errorResult(fmt.Sprintf("%s: %v", label, relPathErr(err, k.Root))), nil
 					}
 					if existed && op.IfMatch == "" {
 						return errorResult(fmt.Sprintf("%s: if_match is required to update an existing concept", label)), nil
@@ -3181,10 +3181,10 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 					var err error
 					fm, err = okf.ParseFrontmatter("")
 					if err != nil {
-						return errorResult(fmt.Sprintf("%s: internal frontmatter error: %v", label, err)), nil
+						return errorResult(fmt.Sprintf("%s: internal frontmatter error: %v", label, relPathErr(err, k.Root))), nil
 					}
 					if err := applyFrontmatterMap(fm, op.Frontmatter); err != nil {
-						return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+						return errorResult(fmt.Sprintf("%s: %v", label, relPathErr(err, k.Root))), nil
 					}
 					body = op.Body
 
@@ -3241,7 +3241,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 					}
 					dropped, err := applyPatchFrontmatter(fm, pfm)
 					if err != nil {
-						return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+						return errorResult(fmt.Sprintf("%s: %v", label, relPathErr(err, k.Root))), nil
 					}
 					if msg := droppedFinding(op.ID, dropped); msg != nil {
 						droppedByID[op.ID] = msg
@@ -3276,7 +3276,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 					return errorResult(fmt.Sprintf("%s: type field is required", label)), nil
 				}
 				if err := mapContractViolation(k, op.ID, fm); err != nil {
-					return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+					return errorResult(fmt.Sprintf("%s: %v", label, relPathErr(err, k.Root))), nil
 				}
 
 				if op.IndexEntry {
@@ -3312,7 +3312,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				}
 				linkers, err := deleteBlockers(ctx, k, string(op.ID))
 				if err != nil {
-					return errorResult(fmt.Sprintf("operation (%s): read links: %v", op.ID, err)), nil
+					return errorResult(fmt.Sprintf("operation (%s): read links: %v", op.ID, relPathErr(err, k.Root))), nil
 				}
 				// A linker the batch deletes does not block; one it writes or
 				// patches is judged on its content after the batch (D1327).
@@ -3523,7 +3523,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 					if errors.Is(err, okf.ErrNotFound) {
 						return errorResult(fmt.Sprintf("concept_delete %q: not found", params.ID)), nil
 					}
-					return errorResult(fmt.Sprintf("concept_delete %q: %v", params.ID, err)), nil
+					return errorResult(fmt.Sprintf("concept_delete %q: %v", params.ID, relPathErr(err, k.Root))), nil
 				}
 				if data.ContentHash != params.IfMatch {
 					return errorResult("stale_write: content_hash does not match if_match" + staleConceptSuffix(ctx, k, params.ID)), nil
@@ -3532,7 +3532,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 
 			linkers, err := deleteBlockers(ctx, k, params.ID)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_delete %q: read links: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_delete %q: read links: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			if len(linkers) > 0 && !params.Force {
 				// Dangling links to a missing concept are not a reason to refuse:
@@ -3550,7 +3550,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 				if errors.Is(err, okf.ErrNotFound) {
 					return errorResult(fmt.Sprintf("concept_delete %q: not found", params.ID)), nil
 				}
-				return errorResult(fmt.Sprintf("concept_delete %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_delete %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 
 			_ = k.AppendLog("concept_delete: "+params.ID, time.Now())

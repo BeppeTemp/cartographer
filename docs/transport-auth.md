@@ -531,6 +531,16 @@ typed (an allow-listed resource such as `target_kb` of `concept_transfer` is
 recorded as the caller sent it). A call the view dispatches is audited once, by
 the target KB's server ([D1627](decisions/D1627-audit-verifies-the-written-form-and-the-routed-view-audits-refusals.md)).
 
+Documented limit: the chain proves that no recorded entry was altered and that
+the entries follow one another, not that the tail is complete. Whoever can
+write the log file can remove its last attempt/completion pairs (or empty the
+active file when there is no checkpoint) and the chain stays valid, because
+each entry commits to the one before it and nothing commits to the one after;
+only a cut inside a pair is noticed (an attempt with no completion). A server
+started afterwards continues from the shortened tail. Keep the audit directory
+writable by the server user only, and copy the log to a sink the server cannot
+write when the tail matters.
+
 The log is `<data>/audit/audit.log` unless `audit.log` moves it, and its key is
 `audit.key` in the credentials directory, which the first start generates when
 it is missing; the start logs the path and the public key `audit verify`

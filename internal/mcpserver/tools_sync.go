@@ -188,7 +188,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 			lockPath := filepath.Join(params.BaseDir, provisioning.LockFileName)
 			lock, err := provisioning.ReadLock(lockPath)
 			if err != nil {
-				return errorResult(fmt.Sprintf("sync_apply: read lock: %v", err)), nil
+				return errorResult(fmt.Sprintf("sync_apply: read lock: %v", relPathErr(err, k.Root))), nil
 			}
 
 			applyOpts := provisioning.ApplyOptions{
@@ -202,7 +202,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 
 			applied, err := provisioning.Apply(m, applyOpts)
 			if err != nil {
-				return errorResult(fmt.Sprintf("sync_apply: %v", err)), nil
+				return errorResult(fmt.Sprintf("sync_apply: %v", relPathErr(err, k.Root))), nil
 			}
 
 			type mfJSON struct {
@@ -301,7 +301,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 					continue
 				}
 				if err != nil {
-					return errorResult(fmt.Sprintf("sync_pull: read files of %s/%s: %v", a.Kind, a.Name, err)), nil
+					return errorResult(fmt.Sprintf("sync_pull: read files of %s/%s: %v", a.Kind, a.Name, relPathErr(err, k.Root))), nil
 				}
 				// An artifact with a file over the cap is left out whole, not
 				// shipped without that file: a client must never materialize
