@@ -1,5 +1,5 @@
 // Package agents detects which LLM agent CLIs/apps are installed on the local
-// machine (Claude Code, OpenCode, Codex CLI, Kiro, Antigravity, Crush, Copilot CLI, Pi), so `cartographer agents`
+// machine (Claude Code, OpenCode, Codex CLI, Kiro, Antigravity, Crush, Copilot CLI, Pi, Cline), so `cartographer agents`
 // and `cartographer connect all` know which providers to target.
 package agents
 
@@ -141,6 +141,26 @@ func detect(d configurator.Descriptor, home string) Agent {
 		dir := filepath.Join(append([]string{home}, segments...)...)
 		if dirExists(dir) {
 			return a.found(HeuristicConfigDir, dir)
+		}
+	}
+	// A glob of directories: an editor extension's directory carries a version.
+	// A bad pattern or no match is "not found", never an error.
+	for _, segments := range d.ConfigDirGlobs {
+		if home == "" {
+			break
+		}
+		// ReadDir on the fixed parent and Match on the last segment only: a home
+		// path holding '[', '*' or '?' must not be read as part of a pattern.
+		last := len(segments) - 1
+		parent := filepath.Join(append([]string{home}, segments[:last]...)...)
+		entries, err := os.ReadDir(parent)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if ok, _ := filepath.Match(segments[last], e.Name()); ok && dirExists(filepath.Join(parent, e.Name())) {
+				return a.found(HeuristicConfigDir, filepath.Join(parent, e.Name()))
+			}
 		}
 	}
 	// An env-anchored config dir is skipped when the variable is unset, which is

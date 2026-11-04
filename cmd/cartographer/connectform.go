@@ -36,6 +36,7 @@ const (
 	fieldAgentCrush
 	fieldAgentCopilot
 	fieldAgentPi
+	fieldAgentCline
 	fieldTokenEnv
 	fieldAuth
 	fieldSubmit
@@ -47,7 +48,7 @@ const (
 // The order is the order of the fieldAgent* constants: providerForField indexes
 // this slice by the field's offset, so a field without an entry here toggles
 // nothing (crush was missing until D676).
-var formProviders = []string{"claude", "opencode", "codex", "kiro", "antigravity", "crush", "copilot", "pi"}
+var formProviders = []string{"claude", "opencode", "codex", "kiro", "antigravity", "crush", "copilot", "pi", "cline"}
 
 func providerForField(f connectField) (string, bool) {
 	idx := int(f - fieldAgentClaude)
@@ -162,7 +163,7 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 func (m connectFormModel) focusOrder() []connectField {
 	fields := []connectField{fieldServerURL}
 	if m.selectAgents {
-		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi)
+		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline)
 	}
 	return append(fields, fieldTokenEnv, fieldAuth, fieldSubmit)
 }
@@ -270,7 +271,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case " ":
 		switch m.focus {
-		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi:
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline:
 			if !m.selectAgents {
 				break
 			}
@@ -286,7 +287,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		switch m.focus {
-		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi:
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline:
 			if !m.selectAgents {
 				break
 			}
@@ -387,6 +388,7 @@ func (m connectFormModel) View() string {
 			formProviderLine("crush", m.providers["crush"], m.focus == fieldAgentCrush),
 			formProviderLine("copilot", m.providers["copilot"], m.focus == fieldAgentCopilot),
 			formProviderLine("pi", m.providers["pi"], m.focus == fieldAgentPi),
+			formProviderLine("cline", m.providers["cline"], m.focus == fieldAgentCline),
 		)
 	}
 	fields = append(fields, tokenEnvLine, formFieldLine("Auth", auth, m.focus == fieldAuth))
@@ -442,7 +444,7 @@ func fieldHint(f connectField, authEnabled bool) string {
 	switch f {
 	case fieldServerURL:
 		return "MCP endpoint of the server, e.g. https://host/mcp"
-	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi:
+	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline:
 		return "space or enter toggles this agent; select one or more agents to connect"
 	case fieldTokenEnv:
 		if !authEnabled {

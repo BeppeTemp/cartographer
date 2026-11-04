@@ -341,6 +341,7 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderCrush:       {{".config", "crush"}},
 		configurator.ProviderCopilot:     {{".copilot"}},
 		configurator.ProviderPi:          {{".pi", "agent"}},
+		configurator.ProviderCline:       {{".cline"}},
 	}
 	wantBinaries := map[configurator.Provider][]string{
 		configurator.ProviderClaudeCode:  {"claude"},
@@ -351,6 +352,7 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderCrush:       {"crush"},
 		configurator.ProviderCopilot:     {"copilot"},
 		configurator.ProviderPi:          {"pi"},
+		configurator.ProviderCline:       {"cline"},
 	}
 
 	for _, d := range configurator.Providers() {
@@ -542,4 +544,74 @@ func TestDetect_NoHomeDoesNotReadConfigDirsRelativeToTheWorkingDirectory(t *test
 			t.Errorf("%s detected through %q with no home directory", a.Name, a.Evidence)
 		}
 	}
+}
+
+// Cline is an editor extension: its directory under an editor's extensions
+// folder is evidence even before ~/.cline exists, in any of the editors.
+func TestDetect_ClineByExtensionDirectory(t *testing.T) {
+	find := func(t *testing.T, home string) Agent {
+		t.Helper()
+		withStubs(t, home, nil, "linux")
+		for _, a := range Detect() {
+			if a.Provider == configurator.ProviderCline {
+				return a
+			}
+		}
+		t.Fatal("cline missing from Detect()")
+		return Agent{}
+	}
+	t.Run("match", func(t *testing.T) {
+		home := t.TempDir()
+		dir := filepath.Join(home, ".cursor", "extensions", "saoudrizwan.claude-dev-4.1.26")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		a := find(t, home)
+		if !a.Installed || a.DetectedBy != HeuristicConfigDir || a.Evidence != dir {
+			t.Fatalf("cline = %+v, want detected by %s", a, dir)
+		}
+	})
+	t.Run("two editors", func(t *testing.T) {
+		home := t.TempDir()
+		for _, ed := range []string{".vscode", ".windsurf"} {
+			if err := os.MkdirAll(filepath.Join(home, ed, "extensions", "saoudrizwan.claude-dev-4.1.26"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if a := find(t, home); !a.Installed {
+			t.Fatalf("cline = %+v", a)
+		}
+	})
+	t.Run("no match", func(t *testing.T) {
+		home := t.TempDir()
+		// Another extension in the same folder, and a plain file of the right name.
+		if err := os.MkdirAll(filepath.Join(home, ".vscode", "extensions", "other.ext-1.0.0"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".vscode-oss-file"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if a := find(t, home); a.Installed {
+			t.Fatalf("cline detected without evidence: %+v", a)
+		}
+	})
+}
+
+// A home path holding glob metacharacters is a literal directory, not a pattern.
+func TestDetect_ClineHomeWithGlobCharacters(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home[1]*?")
+	dir := filepath.Join(home, ".vscode", "extensions", "saoudrizwan.claude-dev-4.1.26")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, nil, "linux")
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderCline {
+			if !a.Installed || a.Evidence != dir {
+				t.Fatalf("cline = %+v, want evidence %s", a, dir)
+			}
+			return
+		}
+	}
+	t.Fatal("cline missing")
 }

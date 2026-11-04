@@ -497,3 +497,43 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
 - **Probe notes**: `pi -p --no-session --model <provider/id> [-a|-na] "<prompt>"`, `pi mcp list`;
   a scratch `PI_CODING_AGENT_DIR` for probes only (copy `auth.json` when a model is needed),
   never `$HOME/.pi/agent`.
+
+## cline
+
+- **Aligned with**: `4.1.26` — 2026-11-04, read from the bundle (`dist/extension.js` of the VS Code
+  extension `saoudrizwan.claude-dev`); nothing was exercised on a live Cline except where a note says so.
+- **Sources**: `unverified` vendor documentation; the cells come from the extension bundle and the npm
+  package `cline` (3.0.74, `bin = { cline: 'bin/cline' }`).
+- **Depends on**:
+  - Stdio bridge (D737). Cline declares no MCP `roots` capability and starts a stdio server with the
+    extension host's working directory (`/` on macOS) unless the entry sets `cwd`, so the bridge resolves an
+    unbound folder and serves the provider default. Cartographer never writes `cwd`, `disabled`,
+    `autoApprove` or `timeout`.
+  - `mcp` in `~/.cline/data/settings/cline_mcp_settings.json` (`mcpServers`), hot-reloaded; entry
+    `{type: "stdio", command, args, env}` or `{type: "streamableHttp", url, headers}` (`sse` exists in Cline, no
+    KB descriptor carries it). The file is Cline's own (a `.bak` beside it): other servers and keys survive and
+    it is never deleted. `${VAR}` expansion in `headers`/`env` was **not** verified, so `SupportsMCPHeaders` is
+    false and a KB `mcp` artifact with headers is materialised without them, with the warning; a stdio `env`
+    value is written verbatim and unprobed. Cartographer's own entry is the bridge and carries no header.
+  - Tool names: the model sees `<server>__<tool>` (bundle `pCn`), not a flat namespace; `mcp__<server>__<tool>`
+    is the permission-rule syntax.
+  - `instructions` in `~/.cline/rules/cartographer.md`, a file Cartographer owns whole. The global rules list is
+    `$CLINE_DIR/rules`, `~/Cline/Rules`, `Documents/Cline/Rules` and the OneDrive variant, all through **one**
+    loader: `.md`, `.markdown` or `.txt`, optional `name` and `disabled`/`enabled` frontmatter only, non-empty
+    body; no path-conditional frontmatter, so a plain file is an always-on global rule (the Antigravity
+    `always_on` trap, D364, does not apply, but it was not confirmed on a live session).
+  - `skill` in `~/.cline/skills/<name>/`; `~/.claude/skills` is read only at project level.
+  - `agent` in `~/.cline/agents/<name>.yaml`: only `.yml`/`.yaml` load; frontmatter `name` and `description`
+    (required), `tools`, `skills`, `providerId`, `modelId`, `maxIterations`; the body is the system prompt and an
+    empty one skips the file silently. Exposed to the model as `subagent_<name>`, capped at 64 characters.
+  - `hook` unsupported in this slice. Every project cell is unsupported (no roots).
+  - `CLINE_DIR`, `CLINE_MCP_SETTINGS_PATH` and a relocated Documents folder are not honoured: every destination is
+    home-relative (D676, D755).
+  - Detection: the `cline` binary, `~/.cline`, or an extension directory `saoudrizwan.claude-dev-*` under the
+    `extensions` folder of VS Code, Insiders, Cursor, Windsurf, VSCodium or VS Code Server. A directory left by an
+    uninstalled version is a known false positive.
+- **Watch items**: MCP `roots` or a per-workspace MCP file (flips the project cells); `${VAR}` expansion in
+  `headers` (flips `SupportsMCPHeaders`); a path-conditional rule frontmatter in the rules loader; a rename of the
+  extension id (detection); whether the `cline` CLI shares `$HOME/.cline` (inferred, not run); other builds of Cline
+  that read different directories.
+- **Probe notes**: use a scratch `CLINE_DIR` and `CLINE_MCP_SETTINGS_PATH`, never `$HOME/.cline`.

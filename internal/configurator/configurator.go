@@ -106,6 +106,9 @@ const (
 	ProviderCopilot Provider = "copilot"
 	// ProviderPi is Pi, the `pi` binary of @earendil-works/pi-coding-agent.
 	ProviderPi Provider = "pi"
+	// ProviderCline is Cline, the VS Code extension and the `cline` CLI; not
+	// other builds derived from it.
+	ProviderCline Provider = "cline"
 )
 
 // EmitResult contains the generated config for a provider.

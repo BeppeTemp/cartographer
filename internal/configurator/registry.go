@@ -98,6 +98,11 @@ type Descriptor struct {
 	// ConfigDirs are directories relative to the user's home, probed in this
 	// order when the binary is absent.
 	ConfigDirs [][]string
+	// ConfigDirGlobs are home-relative segment lists whose last segment is a
+	// filepath.Match pattern, probed after ConfigDirs and before EnvConfigDirs:
+	// the evidence of a client that is an editor extension, whose directory name
+	// carries a version.
+	ConfigDirGlobs [][]string
 	// EnvConfigDirs are further configuration directories anchored at an
 	// environment variable instead of at the home directory, probed after
 	// ConfigDirs. Windows keeps per-user configuration under %APPDATA% and
@@ -304,12 +309,45 @@ var descriptors = []Descriptor{
 		},
 		emit: emitPiServer,
 	},
+	{
+		Provider:      ProviderCline,
+		DisplayName:   "Cline",
+		MCPConfigPath: ClineConfigPath,
+		MCPFormat:     FormatJSON,
+		MCPServerKey:  "mcpServers",
+		// The file is Cline's own: it recreates it and keeps a .bak beside it,
+		// and an empty mcpServers object is its normal shape.
+		DeletableWhenEmpty: false,
+		// Whether Cline expands ${VAR} in headers is unverified (docs/harnesses.md
+		// §cline): a literal "Bearer ${TOKEN}" would fail authentication, so a
+		// KB mcp artifact with headers is materialised with the warning.
+		SupportsMCPHeaders: false,
+		// Not a flat tool namespace: the model sees <server>__<tool> (bundle 4.1.26).
+		FlatToolNamespace: false,
+		Binaries:          []string{"cline"},
+		ConfigDirs:        [][]string{{".cline"}},
+		// The extension directory is evidence even before Cline ever ran (an
+		// installed, never-started Cline has no .cline yet).
+		ConfigDirGlobs: [][]string{
+			{".vscode", "extensions", "saoudrizwan.claude-dev-*"},
+			{".vscode-insiders", "extensions", "saoudrizwan.claude-dev-*"},
+			{".cursor", "extensions", "saoudrizwan.claude-dev-*"},
+			{".windsurf", "extensions", "saoudrizwan.claude-dev-*"},
+			{".vscode-oss", "extensions", "saoudrizwan.claude-dev-*"},
+			{".vscode-server", "extensions", "saoudrizwan.claude-dev-*"},
+		},
+		// CLINE_DIR is deliberately not an EnvConfigDirs entry: every destination
+		// is relative to the user's home (D676, D755). No AppDirs: the editor is
+		// the host, not an app of Cline's own. No InstructionsPrecedence: nothing
+		// in Cline replaces a rules file by another.
+		emit: emitClineServer,
+	},
 }
 
 // detectionOrder is the order `cartographer agents` and the TUI list agents
 // in. It differs from the registry order above and is equally user-visible:
 // both are preserved deliberately rather than unified (D137).
-var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderAntigravity, ProviderCrush, ProviderCopilot, ProviderPi}
+var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderAntigravity, ProviderCrush, ProviderCopilot, ProviderPi, ProviderCline}
 
 // Providers returns every supported provider's descriptor, in registry order.
 func Providers() []Descriptor {

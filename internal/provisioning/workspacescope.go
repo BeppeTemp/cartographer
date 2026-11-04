@@ -74,6 +74,15 @@ const (
 //     and hook cells are documented under .mcp.json / .github/ but were not
 //     observed working without folder trust, so they stay unsupported.
 //
+//   - Cline (bundle 4.1.26): every cell is unsupported. Cline declares no MCP
+//     roots and starts the bridge with the extension host's cwd, so every
+//     session is unbound and served the provider-default read-only tools; a
+//     bound folder would receive skills and instructions that explain write
+//     tools (D1018). The locations a later plan flips: skills .cline/skills or
+//     .agents/skills, instructions AGENTS.md, agents .cline/agents/<n>.yaml,
+//     hooks .clinerules/hooks. What flips it: Cline declaring roots, or a
+//     per-workspace MCP settings file.
+//
 // A provider in workspace scope that cannot project a kind reports it as
 // unsupported, never silently degraded to the global catalogue — degrading is
 // exactly the exposure this plan exists to prevent.
@@ -93,7 +102,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// destination is declared, never invented (probed on 1.0.94, D676).
 		configurator.ProviderCopilot: unsupportedDest,
 		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
-		configurator.ProviderPi: unsupportedDest,
+		configurator.ProviderPi:    unsupportedDest,
+		configurator.ProviderCline: unsupportedDest,
 	},
 	"instructions": {
 		// The project root's own CLAUDE.md is the file Claude Code reads for a
@@ -117,7 +127,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCopilot: at("AGENTS.md"),
 		// pi: AGENTS.md is read without trust, from every ancestor directory
 		// (probe 2 on Pi 1.5.0). CLAUDE.local.md is not read.
-		configurator.ProviderPi: at("AGENTS.md"),
+		configurator.ProviderPi:    at("AGENTS.md"),
+		configurator.ProviderCline: unsupportedDest,
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -133,7 +144,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// so nothing is observed working without it (D676).
 		configurator.ProviderCopilot: unsupportedDest,
 		// pi: no subagents.
-		configurator.ProviderPi: unsupportedDest,
+		configurator.ProviderPi:    unsupportedDest,
+		configurator.ProviderCline: unsupportedDest,
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -153,7 +165,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// copilot: .github/hooks is gated on folder trust (`copilot --help`) (D676).
 		configurator.ProviderCopilot: unsupportedDest,
 		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
-		configurator.ProviderPi: unsupportedDest,
+		configurator.ProviderPi:    unsupportedDest,
+		configurator.ProviderCline: unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -172,7 +185,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// Codex and Antigravity (probed on 1.0.94, D676).
 		configurator.ProviderCopilot: perName("", ".agents", "skills"),
 		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
-		configurator.ProviderPi: unsupportedDest,
+		configurator.ProviderPi:    unsupportedDest,
+		configurator.ProviderCline: unsupportedDest,
 	},
 }
 

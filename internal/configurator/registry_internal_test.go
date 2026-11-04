@@ -7,7 +7,7 @@ package configurator
 import "testing"
 
 func TestRegistryHasOneDescriptorPerProvider(t *testing.T) {
-	want := []Provider{ProviderClaudeCode, ProviderCodex, ProviderKiro, ProviderOpenCode, ProviderAntigravity, ProviderCrush, ProviderCopilot, ProviderPi}
+	want := []Provider{ProviderClaudeCode, ProviderCodex, ProviderKiro, ProviderOpenCode, ProviderAntigravity, ProviderCrush, ProviderCopilot, ProviderPi, ProviderCline}
 
 	if got := len(Providers()); got != len(want) {
 		t.Fatalf("Providers() has %d descriptors, want %d", got, len(want))
@@ -64,6 +64,14 @@ func TestEveryConfigIsDeletableWhenEmpty(t *testing.T) {
 	// nothing of Claude's to keep either (#1269); one holding another key is
 	// kept (TestRemove_ClaudeJSONKeepsOtherKeys).
 	for _, d := range Providers() {
+		// Cline's settings file is Cline's own: it recreates it, keeps a .bak
+		// beside it and an empty mcpServers object is its normal shape.
+		if d.Provider == ProviderCline {
+			if d.DeletableWhenEmpty {
+				t.Errorf("%q: Cline's own settings file must never be deleted", d.Provider)
+			}
+			continue
+		}
 		if !d.DeletableWhenEmpty {
 			t.Errorf("%q: expected the config file deletable when empty", d.Provider)
 		}
