@@ -2,6 +2,7 @@ package clientvariant_test
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -242,6 +243,11 @@ func TestParseRejects(t *testing.T) {
 		{"device name", cli(`".fork-cli/skills"`, `"x/NUL"`), "fork-cli", "Windows device name"},
 		{"device name with extension", cli(`".fork-cli/skills"`, `"x/com1.txt"`), "fork-cli", "Windows device name"},
 		{"cell without a path", cli("    skill: {dir: \".fork-cli/skills\"}", "    skill: {}"), "fork-cli", "paths.project.skill.dir: required"},
+		{"conin", cli(`".fork-cli/skills"`, `"x/CONIN$"`), "fork-cli", "Windows device name"},
+		{"conout with extension", cli(`".fork-cli/skills"`, `"x/conout$.txt"`), "fork-cli", "Windows device name"},
+		{"superscript com", cli(`".fork-cli/skills"`, `"x/COM¹"`), "fork-cli", "Windows device name"},
+		{"superscript lpt", cli(`".fork-cli/skills"`, `"x/lpt³.log"`), "fork-cli", "Windows device name"},
+		{"space before extension", cli(`".fork-cli/skills"`, `"x/con .txt"`), "fork-cli", "Windows device name"},
 		{"binary dotdot", cli("[fork-cli]", "[..]"), "fork-cli", "bare binary name"},
 		{"binary dash", cli("[fork-cli]", "[-x]"), "fork-cli", "bare binary name"},
 	}
@@ -311,5 +317,17 @@ func TestParseErrorsAreCompleteAndStable(t *testing.T) {
 		if err == nil || err.Error() != want {
 			t.Fatalf("round %d:\n%v\nwant:\n%s", i, err, want)
 		}
+	}
+}
+
+func TestParseBoundsCapabilities(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 20000; i++ { // as many as the size cap allows
+		b.WriteString("  k" + strconv.Itoa(i) + ": no\n")
+	}
+	src := strings.Replace(forkCLI, "capabilities:\n", "capabilities:\n"+b.String(), 1)
+	_, err := clientvariant.Parse("fork-cli", []byte(src))
+	if err == nil || !strings.Contains(err.Error(), "more than 64 entries") || len(err.Error()) > 1024 {
+		t.Fatalf("err = %v", err)
 	}
 }

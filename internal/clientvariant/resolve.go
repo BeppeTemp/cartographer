@@ -18,7 +18,7 @@ const (
 
 var anchorEnv = map[string]string{"home": "", "xdg_config": "XDG_CONFIG_HOME", "local_app_data": "LOCALAPPDATA", "app_data": "APPDATA"}
 
-var reservedName = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$`)
+var reservedName = regexp.MustCompile(`(?i)^(con|prn|aux|nul|conin\$|conout\$|(com|lpt)[1-9¹²³]) *(\..*)?$`)
 
 // tpl is a parsed path: an anchor (empty for a project path) and its segments.
 type tpl struct {

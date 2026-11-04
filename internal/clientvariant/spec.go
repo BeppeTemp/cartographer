@@ -247,7 +247,7 @@ func (s *Spec) validate(stem string) error {
 	s.validateCells(add)
 	add(len(s.Capabilities) > 64, "capabilities: more than 64 entries")
 	for id, v := range s.Capabilities {
-		add(!capabilityRe.MatchString(id) || !slices.Contains([]string{"verified", "unverified", "absent"}, v), "capabilities.%s: %s is not verified, unverified or absent (or the id is malformed)", q(id), q(v))
+		add(len(s.Capabilities) <= 64 && (!capabilityRe.MatchString(id) || !slices.Contains([]string{"verified", "unverified", "absent"}, v)), "capabilities.%s: %s is not verified, unverified or absent (or the id is malformed)", q(id), q(v))
 	}
 	if s.InvokeHint != "" {
 		addErr(printable("invoke_hint", s.InvokeHint, 200))
