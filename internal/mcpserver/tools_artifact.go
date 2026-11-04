@@ -681,9 +681,13 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 		if filepath.Base(relPath) != "hook.json" {
 			return nil // the hook's script and other files
 		}
-		_, err := provisioning.ValidateHookJSON(data)
-		return err
-	default: // instructions
+		if _, err := provisioning.ValidateHookJSON(data); err != nil {
+			return err
+		}
+		return provisioning.ValidateHookRequires(info.Name, data)
+	case "instructions":
+		return validateInstructionsRequires(data)
+	default:
 		return nil
 	}
 }
@@ -994,6 +998,27 @@ func validateSkillArtifact(slug string, data []byte) error {
 	if err := skill.FirstError(skill.Validate(s)); err != nil {
 		return fmt.Errorf("%s", err.Message)
 	}
+	if hasFM {
+		if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
+			return provisioning.ValidateFrontmatterRequires("skill", slug, fm)
+		}
+	}
+	return nil
+}
+
+// validateInstructionsRequires refuses a `requires` key in instructions.md's
+// frontmatter by name: `requires` is for skill, agent and hook only, and an
+// ignored key would look like a requirement that holds.
+func validateInstructionsRequires(data []byte) error {
+	fmRaw, _, hasFM := okf.SplitFrontmatter(string(data))
+	if !hasFM {
+		return nil
+	}
+	if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
+		if _, ok := fm.Get(provisioning.RequiresKey); ok {
+			return fmt.Errorf("instructions.md cannot declare %q: it applies to skills, agents and hooks only", provisioning.RequiresKey)
+		}
+	}
 	return nil
 }
 
@@ -1031,7 +1056,7 @@ func validateAgentArtifact(slug string, data []byte) error {
 	if err := provisioning.ValidateAgentProviders(fm); err != nil {
 		return err
 	}
-	return nil
+	return provisioning.ValidateFrontmatterRequires("agent", slug, fm)
 }
 
 // --- artifact_delete ---

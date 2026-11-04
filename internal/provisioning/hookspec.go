@@ -155,6 +155,9 @@ func ValidateHookJSON(data []byte) (misses []string, err error) {
 	if hookCommandEscapes(spec.Command) {
 		return nil, fmt.Errorf("command %q points outside the hook's directory", spec.Command)
 	}
+	if err := ValidateHookRequires("", data); err != nil {
+		return nil, err
+	}
 	return HookEventMisses(spec.Event), nil
 }
 

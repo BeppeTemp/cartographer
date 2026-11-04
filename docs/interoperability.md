@@ -101,6 +101,8 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 | Pi | `AGENTS.md` | project `.pi/*` and `.agents/skills` load only after project trust |
 | Cline | none | every project cell is unsupported: Cline declares no MCP roots, so its sessions are unbound |
 
+A skill, an agent or a hook can declare `requires` (other artifacts or client capabilities): the grammar is in [sync.md](sync.md) §Agents and hooks (D1656).
+
 A subagent's `tools` allow-list is enforced by Claude Code only. The other
 clients receive the agent without it, and therefore with every tool that client
 has; each `sync` warns per agent, and `strict_tools: true` in the agent's
