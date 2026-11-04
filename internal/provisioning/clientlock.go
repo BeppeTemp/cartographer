@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // ClientLockFileName is the advisory lock guarding every mutation of this
@@ -48,6 +50,10 @@ func LockStateFile(dir, name string, timeout time.Duration) (func() error, error
 		timeout = DefaultClientLockTimeout
 	}
 	path := filepath.Join(dir, name)
+	// O_CREATE on a symlink would create or open the link's target (D148).
+	if err := safewrite.CheckPath(dir, path); err != nil {
+		return nil, fmt.Errorf("client lock %s: %w", path, err)
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open client lock %s: %w", path, err)

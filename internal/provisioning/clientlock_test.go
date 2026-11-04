@@ -1,7 +1,9 @@
 package provisioning_test
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +66,29 @@ func TestLockClientState_SequentialAcquisitions(t *testing.T) {
 		}
 		if err := release(); err != nil {
 			t.Fatalf("release %d: %v", i, err)
+		}
+	}
+}
+
+// A lock file that is a symlink is refused, and its target is not touched.
+func TestLockClientState_RefusesASymlinkedLockFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	for _, name := range []string{provisioning.ClientLockFileName, ".cartographer-usage-scan.lock"} {
+		dir := t.TempDir()
+		target := filepath.Join(t.TempDir(), "victim")
+		if err := os.WriteFile(target, []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := provisioning.LockStateFile(dir, name, 50*time.Millisecond); err == nil {
+			t.Errorf("%s: a symlinked lock file was opened", name)
+		}
+		if b, _ := os.ReadFile(target); string(b) != "keep" {
+			t.Errorf("%s: the target was modified: %q", name, b)
 		}
 	}
 }
