@@ -411,7 +411,7 @@ unioned, so a deployment migrates one token at a time.
 a digest of the token; a plaintext token prefix is never used.
 
 Configuration is validated at startup and the server refuses to start on a
-duplicate role or principal ID, an unknown role reference, an empty KB, an
+duplicate role or principal ID, two tokens with one secret value, an unknown role reference, an empty KB, an
 access other than `r`/`rw`, an empty or traversal selector, or a selector
 declared both as a map and a journal. No diagnostic ever contains a token
 value.

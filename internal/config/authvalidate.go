@@ -14,6 +14,8 @@ package config
 // pasted by mistake, and startup output is where it must not appear.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -32,6 +34,7 @@ func ValidateAuth(a AuthConfig) error {
 	if err := ValidateAuthRoles(a); err != nil {
 		return err
 	}
+	seenToken := make(map[string]string, len(a.Tokens))
 	for i, tok := range a.Tokens {
 		where := fmt.Sprintf("token %d", i)
 		if tok.ID != "" {
@@ -44,6 +47,15 @@ func ValidateAuth(a AuthConfig) error {
 			// stopped enforcing.
 			return fmt.Errorf("%s: empty token value", where)
 		}
+		// Two entries with one secret overwrite each other in the token store
+		// (last wins), so one of them would silently take the other's policy.
+		// Compared by hash, and named by position: the value is never printed.
+		sum := sha256.Sum256([]byte(tok.Token))
+		h := hex.EncodeToString(sum[:])
+		if prev, dup := seenToken[h]; dup {
+			return fmt.Errorf("%s: same token value as %s", where, prev)
+		}
+		seenToken[h] = where
 		if tok.ScopesDeclared && len(tok.Scopes) == 0 && len(tok.Roles) == 0 {
 			// An empty list is not "no restriction": the admin token is the one
 			// that writes neither scopes nor roles.

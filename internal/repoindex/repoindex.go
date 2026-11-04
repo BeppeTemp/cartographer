@@ -323,6 +323,15 @@ type notFoundError struct{ msg string }
 func (e notFoundError) Error() string        { return e.msg }
 func (e notFoundError) Is(target error) bool { return target == ErrNotFound }
 
+// stillOrigin reports whether the clone at path still has the origin the
+// index recorded for it. A path that now holds another repository (the clone
+// was replaced in place) counts as a dead clone, like a vanished one (D181),
+// so the caller rescans instead of working in the wrong tree.
+func stillOrigin(path string, key RemoteKey) bool {
+	got, ok := readOriginRemote(path)
+	return ok && got == key
+}
+
 // lookupIndex resolves key against idx alone: key containing "/" is treated
 // as a full canonical RemoteKey, otherwise as a short name matched against
 // every indexed key's ShortName(). A candidate whose every local path has
@@ -352,7 +361,7 @@ func lookupIndex(idx *Index, key string) (string, []string, error) {
 	for _, c := range candidates {
 		var paths []string
 		for _, p := range idx.Repos[c] {
-			if isLiveClone(p) {
+			if isLiveClone(p) && stillOrigin(p, c) {
 				paths = append(paths, p)
 			}
 		}

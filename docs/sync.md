@@ -189,8 +189,8 @@ machine is skipped without a warning), and is consulted only for a key with no `
 remote**, never on a directory name: that is what makes a `repo:` key identical for every operator.
 
 A cache hit is not trusted blindly (D181): before a cached path is returned, `repoindex` checks
-that it still holds a live clone (a directory with a `.git` entry) — a moved or removed clone
-behaves as a cache miss and triggers a rescan, instead of resolving to a location that no longer
+that it still holds a live clone (a directory with a `.git` entry) whose `origin` is still the
+repository looked up — a moved or removed clone, or a path now holding another repository, behaves as a cache miss and triggers a rescan, instead of resolving to a location that no longer
 exists (or, worse, to a leftover clone left behind at the old path). Editing `search_roots` in
 `.cartographer.yaml` also invalidates the cache — a changed root set is a rescan even for a key
 that is still present under the old roots, since root order decides which clone wins when more

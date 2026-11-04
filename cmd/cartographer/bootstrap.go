@@ -96,10 +96,17 @@ func gitTokenCredentialEnv(tokenPath string) []string {
 	}
 	escaped := strings.ReplaceAll(tokenPath, "'", `'\''`)
 	helper := fmt.Sprintf(`!f() { echo username=token; echo "password=$(cat '%s')"; }; f`, escaped)
+	// credential.helper is a list, and git asks the system, global and local
+	// helpers (a keychain, a credential manager) before the ones set here,
+	// stopping at the first that answers. The empty first value resets the list,
+	// so the KB's token is the only credential consulted and no other stored
+	// credential is used, erased or updated by this KB's fetch and push.
 	return []string{
-		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_COUNT=2",
 		"GIT_CONFIG_KEY_0=credential.helper",
-		"GIT_CONFIG_VALUE_0=" + helper,
+		"GIT_CONFIG_VALUE_0=",
+		"GIT_CONFIG_KEY_1=credential.helper",
+		"GIT_CONFIG_VALUE_1=" + helper,
 	}
 }
 

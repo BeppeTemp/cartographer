@@ -130,3 +130,27 @@ func TestValidateAuthNamesTheToken(t *testing.T) {
 		t.Errorf("error = %q, want it to name the offending principal", err)
 	}
 }
+
+func TestValidateAuthRefusesDuplicateTokenValues(t *testing.T) {
+	dup := config.AuthConfig{Mode: "on", Tokens: []config.TokenSpec{
+		{ID: "admin", Token: sentinelToken},
+		{ID: "ci", Token: sentinelToken, Scopes: []string{"kb:docs:r"}},
+	}}
+	err := config.ValidateAuth(dup)
+	if err == nil {
+		t.Fatal("two entries with one secret were accepted")
+	}
+	if strings.Contains(err.Error(), sentinelToken) {
+		t.Errorf("diagnostic prints the token value: %v", err)
+	}
+	if !strings.Contains(err.Error(), `"ci"`) || !strings.Contains(err.Error(), `"admin"`) {
+		t.Errorf("diagnostic does not name both entries: %v", err)
+	}
+	distinct := config.AuthConfig{Mode: "on", Tokens: []config.TokenSpec{
+		{ID: "admin", Token: sentinelToken},
+		{ID: "ci", Token: sentinelToken + "-2", Scopes: []string{"kb:docs:r"}},
+	}}
+	if err := config.ValidateAuth(distinct); err != nil {
+		t.Errorf("distinct tokens rejected: %v", err)
+	}
+}
