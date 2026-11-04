@@ -1933,3 +1933,23 @@ func TestBuildManifest_SkillWithUnparseableFrontmatterExcludedAndAttributed(t *t
 			diagnostics, m.Issues)
 	}
 }
+
+func TestBuildManifest_CLISkillOnlyOnRequest(t *testing.T) {
+	t.Parallel()
+	has := func(m provisioning.Manifest) bool {
+		for _, a := range m.Artifacts {
+			if a.Name == provisioning.CLISkillName {
+				return true
+			}
+		}
+		return false
+	}
+	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{})
+	if err != nil || has(m) {
+		t.Fatalf("default manifest must omit the CLI skill (err=%v)", err)
+	}
+	m, err = provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{IncludeCLISkill: true})
+	if err != nil || !has(m) {
+		t.Fatalf("IncludeCLISkill must list it (err=%v)", err)
+	}
+}

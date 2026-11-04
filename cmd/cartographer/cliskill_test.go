@@ -40,7 +40,7 @@ func TestWithoutCLISkill(t *testing.T) {
 // The skill is in the bundle manifest every client receives, and the predicate
 // drops it for every built-in provider: the whole point of shipping it unset.
 func TestCLISkillIsBundledAndFilteredForBuiltIns(t *testing.T) {
-	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{})
+	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{IncludeCLISkill: true})
 	if err != nil {
 		t.Fatal(err)
 	}
