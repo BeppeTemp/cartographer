@@ -32,16 +32,14 @@ func relPathErr(err error, roots ...string) string {
 	return scrubRoots(msg, roots...)
 }
 
-// relToRoots is p relative to the first root that contains it, p's last
-// element when it is absolute and in none, and p itself otherwise.
+// relToRoots is p relative to the first root that contains it (the root as
+// given or with its symlinks resolved), p's last element when it is absolute
+// and in none, and p itself otherwise.
 func relToRoots(p string, roots []string) string {
 	if !filepath.IsAbs(p) {
 		return p
 	}
-	for _, r := range roots {
-		if r == "" {
-			continue
-		}
+	for _, r := range rootForms(roots) {
 		if rel, err := filepath.Rel(r, p); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return filepath.ToSlash(rel)
 		}
@@ -49,10 +47,8 @@ func relToRoots(p string, roots []string) string {
 	return filepath.Base(p)
 }
 
-// scrubRoots removes every occurrence of the roots (and of their symlink-
-// resolved forms) from text, longest first, so that "<root>/a/b" becomes
-// "a/b" and a bare "<root>" becomes ".".
-func scrubRoots(text string, roots ...string) string {
+// rootForms lists every root and its symlink-resolved form, longest first.
+func rootForms(roots []string) []string {
 	var all []string
 	for _, r := range roots {
 		if r == "" {
@@ -64,9 +60,48 @@ func scrubRoots(text string, roots ...string) string {
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return len(all[i]) > len(all[j]) })
-	for _, r := range all {
-		text = strings.ReplaceAll(text, r+string(filepath.Separator), "")
-		text = strings.ReplaceAll(text, r, ".")
+	return all
+}
+
+// scrubRoots removes every occurrence of the roots (and of their symlink-
+// resolved forms) from text, longest first, so that "<root>/a/b" becomes
+// "a/b" and a bare "<root>" becomes ".". An occurrence counts only at a path
+// boundary: it must not continue a longer path on either side ("/data/kb2/x"
+// and "/var/data/kb/x" are other paths than "/data/kb").
+func scrubRoots(text string, roots ...string) string {
+	for _, r := range rootForms(roots) {
+		text = replaceAtBoundary(text, r)
 	}
 	return text
+}
+
+func isPathChar(b byte) bool {
+	return b == '/' || b == '\\' || b == '.' || b == '_' || b == '-' || b == '~' ||
+		b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= 0x80
+}
+
+func replaceAtBoundary(text, root string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(text, root)
+		if i < 0 {
+			break
+		}
+		end := i + len(root)
+		before := i == 0 || !isPathChar(text[i-1])
+		switch {
+		case before && end < len(text) && (text[end] == '/' || text[end] == filepath.Separator):
+			b.WriteString(text[:i])
+			text = text[end+1:]
+		case before && (end == len(text) || !isPathChar(text[end])):
+			b.WriteString(text[:i])
+			b.WriteByte('.')
+			text = text[end:]
+		default:
+			b.WriteString(text[:end])
+			text = text[end:]
+		}
+	}
+	b.WriteString(text)
+	return b.String()
 }

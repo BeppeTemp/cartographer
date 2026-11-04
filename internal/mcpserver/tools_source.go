@@ -186,7 +186,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 				return nil
 			})
 			if err != nil {
-				return errorResult(fmt.Sprintf("source_register: walk: %v", err)), nil
+				return errorResult(fmt.Sprintf("source_register: walk: %v", relPathErr(err, k.Root))), nil
 			}
 			if dupID != "" {
 				res := map[string]interface{}{"id": dupID, "duplicate": true, "ingest_status": dupStatus}
@@ -205,7 +205,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 					if errors.Is(rerr, okf.ErrNotFound) {
 						break
 					}
-					return errorResult(fmt.Sprintf("source_register: %v", rerr)), nil
+					return errorResult(fmt.Sprintf("source_register: %v", relPathErr(rerr, k.Root))), nil
 				}
 				id = fmt.Sprintf("%s-%d", base, n)
 			}
@@ -260,7 +260,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 				indexPlan = pendingIndexEntry{id: id, mapName: p.Map, note: fmt.Sprintf("no index entry added: %v", planErr)}
 			}
 			if _, err := k.WriteConcept(okf.ConceptID(id), fm, body, ""); err != nil {
-				return errorResult(fmt.Sprintf("source_register %q: %v", id, err)), nil
+				return errorResult(fmt.Sprintf("source_register %q: %v", id, relPathErr(err, k.Root))), nil
 			}
 			if err := applyIndexEntries(k, []pendingIndexEntry{indexPlan}); err != nil {
 				indexPlan.note = fmt.Sprintf("curated index %s/index.md: %v", indexPlan.mapName, err)

@@ -164,7 +164,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 			// Hidden concepts removed before computing: see the file comment.
 			lg, err := visibleGraph(ctx, k)
 			if err != nil {
-				return errorResult(fmt.Sprintf("graph_context: %v", err)), nil
+				return errorResult(fmt.Sprintf("graph_context: %v", relPathErr(err, k.Root))), nil
 			}
 			seeds := map[int]float64{}
 			for _, id := range params.IDs {
@@ -280,7 +280,7 @@ func toolLinkSuggest(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 			// Hidden concepts removed before computing: see the file comment.
 			lg, err := visibleGraph(ctx, k)
 			if err != nil {
-				return errorResult(fmt.Sprintf("link_suggest: %v", err)), nil
+				return errorResult(fmt.Sprintf("link_suggest: %v", relPathErr(err, k.Root))), nil
 			}
 			u, ok := lg.Index[okf.ConceptID(params.ID)]
 			if !ok {
@@ -445,7 +445,7 @@ func toolGraphPath(k *kb.KB) Tool {
 			// Hidden concepts removed before computing: see the file comment.
 			lg, err := visibleGraph(ctx, k)
 			if err != nil {
-				return errorResult(fmt.Sprintf("graph_path: %v", err)), nil
+				return errorResult(fmt.Sprintf("graph_path: %v", relPathErr(err, k.Root))), nil
 			}
 			s, ok := lg.Index[okf.ConceptID(params.Source)]
 			if !ok {

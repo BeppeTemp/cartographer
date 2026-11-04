@@ -43,7 +43,7 @@ func toolAtlasOverview(k *kb.KB) Tool {
 			if WholeVisible(ctx, k, false) {
 				indexContent, err := k.ReadIndex("")
 				if err != nil {
-					return errorResult(fmt.Sprintf("read index.md: %v", err)), nil
+					return errorResult(fmt.Sprintf("read index.md: %v", relPathErr(err, k.Root))), nil
 				}
 				sb.WriteString(indexContent)
 			}
@@ -122,7 +122,7 @@ func toolIndexGet(k *kb.KB) Tool {
 
 			content, err := k.ReadIndex(params.Path)
 			if err != nil {
-				return errorResult(fmt.Sprintf("index_get %q: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("index_get %q: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 
 			if params.Outline {
@@ -283,7 +283,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 				var err error
 				data, err = k.ReadConcept(okf.ConceptID(params.ID))
 				if err != nil {
-					return errorResult(fmt.Sprintf("concept_read %q: %v", params.ID, err)), nil
+					return errorResult(fmt.Sprintf("concept_read %q: %v", params.ID, relPathErr(err, k.Root))), nil
 				}
 			}
 			reads.record(params.ID) // D322: the concept reached the agent
@@ -589,7 +589,7 @@ func toolConceptHistory(k *kb.KB) Tool {
 
 			path, err := conceptGitPath(k, params.ID)
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_history %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_history %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			revisions := []map[string]interface{}{}
 			result := map[string]interface{}{"id": params.ID, "revisions": revisions, "truncated": false}
@@ -599,7 +599,7 @@ func toolConceptHistory(k *kb.KB) Tool {
 			}
 			revs, err := gitx.FileHistory(k.Root, path, limit+1) // one more than shown: tells a full page from a truncated one
 			if err != nil {
-				return errorResult(fmt.Sprintf("concept_history %q: %v", params.ID, err)), nil
+				return errorResult(fmt.Sprintf("concept_history %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
 			if len(revs) == 0 {
 				if _, statErr := k.ReadConcept(okf.ConceptID(params.ID)); statErr != nil {
@@ -687,7 +687,7 @@ func toolLogTail(k *kb.KB) Tool {
 
 			content, err := k.LogTail(params.Path, params.N)
 			if err != nil {
-				return errorResult(fmt.Sprintf("log_tail: %v", err)), nil
+				return errorResult(fmt.Sprintf("log_tail: %v", relPathErr(err, k.Root))), nil
 			}
 			if content == "" {
 				note := map[string]interface{}{

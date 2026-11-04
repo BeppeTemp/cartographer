@@ -67,7 +67,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				return errorResult("'frontmatter' is required"), nil
 			}
 			if err := rejectToolParamKeys(params.Frontmatter, false); err != nil {
-				return errorResult("concept_write: " + err.Error()), nil
+				return errorResult("concept_write: " + relPathErr(err, k.Root)), nil
 			}
 
 			// Build a structured Frontmatter from a JSON map.
@@ -76,7 +76,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				return errorResult("internal frontmatter error: " + err.Error()), nil
 			}
 			if err := applyFrontmatterMap(fm, params.Frontmatter); err != nil {
-				return errorResult("concept_write: " + err.Error()), nil
+				return errorResult("concept_write: " + relPathErr(err, k.Root)), nil
 			}
 
 			isNew := conceptIsNew(k, params.ID)
@@ -193,11 +193,11 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				return errorResult(fmt.Sprintf("concept_new: invalid template %q", params.Template)), nil
 			}
 			if err := rejectArtifactSymlinks(k.Root, "templates/"+params.Template+".md"); err != nil {
-				return errorResult("concept_new: " + err.Error()), nil
+				return errorResult("concept_new: " + relPathErr(err, k.Root)), nil
 			}
 			path, err := k.ResolveRootPath("templates/" + params.Template + ".md")
 			if err != nil {
-				return errorResult("concept_new: " + err.Error()), nil
+				return errorResult("concept_new: " + relPathErr(err, k.Root)), nil
 			}
 			content, err := os.ReadFile(path)
 			if os.IsNotExist(err) {
@@ -713,7 +713,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 			// with concept_batch (D342).
 			dropped, err := applyPatchFrontmatter(fm, pfm)
 			if err != nil {
-				return errorResult("concept_patch: " + err.Error()), nil
+				return errorResult("concept_patch: " + relPathErr(err, k.Root)), nil
 			}
 
 			newHash, err := writeConceptAndLog(k, "concept_patch", params.ID, fm, body, params.IfMatch)

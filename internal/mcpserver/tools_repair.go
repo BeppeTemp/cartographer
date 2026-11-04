@@ -1491,7 +1491,7 @@ func toolKBRepair(k *kb.KB) Tool {
 			}
 			run, err := repairOneCheck(k, checks[0], params.Scope, dryRun, params.Limit, repairPlannedCap)
 			if err != nil {
-				return errorResult(fmt.Sprintf("kb_repair: %v", err)), nil
+				return errorResult(fmt.Sprintf("kb_repair: %v", relPathErr(err, k.Root))), nil
 			}
 			res := ToolResult{}
 			if run.LogEntry != "" {

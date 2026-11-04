@@ -101,7 +101,7 @@ func toolServiceGet(k *kb.KB) Tool {
 
 			data, err := k.ReadConcept(okf.ConceptID(params.ServiceID))
 			if err != nil {
-				return errorResult(fmt.Sprintf("service_get %q: %v", params.ServiceID, err)), nil
+				return errorResult(fmt.Sprintf("service_get %q: %v", params.ServiceID, relPathErr(err, k.Root))), nil
 			}
 
 			fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
@@ -428,7 +428,7 @@ func toolServiceList(k *kb.KB) Tool {
 				return nil
 			})
 			if err != nil {
-				return errorResult(fmt.Sprintf("service_list: walk: %v", err)), nil
+				return errorResult(fmt.Sprintf("service_list: walk: %v", relPathErr(err, k.Root))), nil
 			}
 
 			if len(services) == 0 {
@@ -582,11 +582,11 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				plan = append(plan, planned{path: path, rel: rel, dir: d.IsDir()})
 				return nil
 			}); err != nil {
-				return errorResult("skill_install: " + err.Error()), nil
+				return errorResult("skill_install: " + relPathErr(err, k.Root).Error()), nil
 			}
 
 			if err := os.MkdirAll(dstDir, 0o755); err != nil {
-				return errorResult(fmt.Sprintf("skill_install: mkdir %s: %v", dstDir, err)), nil
+				return errorResult(fmt.Sprintf("skill_install: mkdir skills/%s: %v", params.Name, relPathErr(err, k.Root))), nil
 			}
 
 			// Recursively copy all files from srcDir into dstDir.
@@ -594,16 +594,16 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				dstPath := filepath.Join(dstDir, filepath.FromSlash(p.rel))
 				if p.dir {
 					if err := os.MkdirAll(dstPath, 0o755); err != nil {
-						return errorResult(fmt.Sprintf("skill_install: copy: %v", err)), nil
+						return errorResult(fmt.Sprintf("skill_install: copy: %v", relPathErr(err, k.Root))), nil
 					}
 					continue
 				}
 				data, err := fs.ReadFile(bundleFS, p.path)
 				if err != nil {
-					return errorResult(fmt.Sprintf("skill_install: copy: %v", err)), nil
+					return errorResult(fmt.Sprintf("skill_install: copy: %v", relPathErr(err, k.Root))), nil
 				}
 				if err := os.WriteFile(dstPath, data, 0o644); err != nil {
-					return errorResult(fmt.Sprintf("skill_install: copy: %v", err)), nil
+					return errorResult(fmt.Sprintf("skill_install: copy: %v", relPathErr(err, k.Root))), nil
 				}
 			}
 

@@ -598,12 +598,12 @@ func toolConflictResolve(k *kb.KB) Tool {
 
 			data, err := k.ReadConcept(okf.ConceptID(params.ContradictionID))
 			if err != nil {
-				return errorResult(fmt.Sprintf("conflict_resolve: read %q: %v", params.ContradictionID, err)), nil
+				return errorResult(fmt.Sprintf("conflict_resolve: read %q: %v", params.ContradictionID, relPathErr(err, k.Root))), nil
 			}
 
 			fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
 			if err != nil {
-				return errorResult(fmt.Sprintf("conflict_resolve: parse frontmatter: %v", err)), nil
+				return errorResult(fmt.Sprintf("conflict_resolve: parse frontmatter: %v", relPathErr(err, k.Root))), nil
 			}
 
 			if !kb.IsContradictionType(fm.Type()) {
@@ -618,7 +618,7 @@ func toolConflictResolve(k *kb.KB) Tool {
 			}
 
 			if _, err := k.WriteConcept(okf.ConceptID(params.ContradictionID), fm, data.Body, data.ContentHash); err != nil {
-				return errorResult(fmt.Sprintf("conflict_resolve: write: %v", err)), nil
+				return errorResult(fmt.Sprintf("conflict_resolve: write: %v", relPathErr(err, k.Root))), nil
 			}
 
 			_ = k.AppendLog("conflict_resolve: "+params.ContradictionID, time.Now())

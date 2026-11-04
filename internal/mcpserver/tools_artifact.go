@@ -277,24 +277,24 @@ func toolArtifactRead(k *kb.KB) Tool {
 			}
 			info, err := classifyArtifactPath(params.Path)
 			if err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 			if params.Encoding != "" && params.Encoding != "text" && params.Encoding != "base64" {
 				return errorResult("encoding must be text or base64"), nil
 			}
 			if err := rejectArtifactSymlinks(k.Root, params.Path); err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 			abs, err := k.ResolveRootPath(params.Path)
 			if err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 			data, oversized, err := provisioning.ReadFileCapped(abs)
 			if err != nil {
 				if os.IsNotExist(err) {
 					return errorResult(fmt.Sprintf("not_found: %s", params.Path)), nil
 				}
-				return errorResult(fmt.Sprintf("artifact_read %q: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("artifact_read %q: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 			if oversized > 0 {
 				return errorResult(fmt.Sprintf("oversized: %s is %d bytes, over the %d bytes cap of an artifact file; it is not read", params.Path, oversized, artifactMaxFileSize)), nil
@@ -535,7 +535,7 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			}
 			info, err := classifyArtifactPath(params.Path)
 			if err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 
 			if params.Encoding != "" && params.Encoding != "text" && params.Encoding != "base64" {
@@ -563,10 +563,10 @@ func toolArtifactWrite(k *kb.KB) Tool {
 
 			abs, err := k.ResolveRootPath(params.Path)
 			if err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 			if err := rejectArtifactSymlinks(k.Root, params.Path); err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 
 			existing, existingSize, statErr := provisioning.ReadFileCapped(abs)
@@ -618,7 +618,7 @@ func toolArtifactWrite(k *kb.KB) Tool {
 				}
 			}
 			if err := os.Chmod(abs, mode); err != nil {
-				return errorResult(fmt.Sprintf("artifact_write %q: chmod: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("artifact_write %q: chmod: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 
 			result := map[string]interface{}{
@@ -1054,18 +1054,18 @@ func toolArtifactDelete(k *kb.KB) Tool {
 			}
 			info, err := classifyArtifactPath(params.Path)
 			if err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 			if params.IfMatch == "" {
 				return errorResult("'if_match' is required"), nil
 			}
 			if err := rejectArtifactSymlinks(k.Root, params.Path); err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 
 			abs, err := k.ResolveRootPath(params.Path)
 			if err != nil {
-				return errorResult(err.Error()), nil
+				return errorResult(relPathErr(err, k.Root)), nil
 			}
 
 			existing, existingSize, readErr := provisioning.ReadFileCapped(abs)

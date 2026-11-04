@@ -58,3 +58,34 @@ func TestConceptMove_FilesystemErrorsCarryNoHostPaths(t *testing.T) {
 		t.Fatalf("message lost the cause: %q", msg)
 	}
 }
+
+func TestScrubRoots_ReplacesOnlyAtAPathBoundary(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"open /data/kb/a/b: x", "open a/b: x"},
+		{"open /data/kb: x", "open .: x"},
+		{"open /data/kb2/x: x", "open /data/kb2/x: x"},
+		{"open /var/data/kb/x: x", "open /var/data/kb/x: x"},
+		{"a /data/kb/x and /data/kb/y", "a x and y"},
+	} {
+		if got := scrubRoots(tc.in, "/data/kb"); got != tc.want {
+			t.Errorf("scrubRoots(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestRelPathErr_KeepsAResolvedRootRelative(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	resolved, _ := filepath.EvalSymlinks(real)
+	got := relPathErr(&os.PathError{Op: "open", Path: filepath.Join(resolved, "m", "x"), Err: os.ErrNotExist}, link)
+	if want := "open m/x: file does not exist"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
