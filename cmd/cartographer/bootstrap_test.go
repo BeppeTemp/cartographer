@@ -277,17 +277,17 @@ func TestGitTokenCredentialEnv_FilePresent(t *testing.T) {
 	tokenPath := writeCredential(t, dir, "wiki-kb.token", "s3cr3t-token\n")
 
 	got := gitTokenCredentialEnv(tokenPath)
-	if len(got) != 3 {
-		t.Fatalf("gitTokenCredentialEnv = %v, want 3 entries", got)
+	want := []string{"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=credential.helper", "GIT_CONFIG_VALUE_0=", "GIT_CONFIG_KEY_1=credential.helper"}
+	if len(got) != 5 {
+		t.Fatalf("gitTokenCredentialEnv = %v, want 5 entries", got)
 	}
-	if got[0] != "GIT_CONFIG_COUNT=1" {
-		t.Errorf("entry 0 = %q, want GIT_CONFIG_COUNT=1", got[0])
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("entry %d = %q, want %q", i, got[i], w)
+		}
 	}
-	if got[1] != "GIT_CONFIG_KEY_0=credential.helper" {
-		t.Errorf("entry 1 = %q, want GIT_CONFIG_KEY_0=credential.helper", got[1])
-	}
-	if !strings.Contains(got[2], "GIT_CONFIG_VALUE_0=") || !strings.Contains(got[2], tokenPath) {
-		t.Errorf("entry 2 = %q, want it to reference %q", got[2], tokenPath)
+	if !strings.Contains(got[4], "GIT_CONFIG_VALUE_1=") || !strings.Contains(got[4], tokenPath) {
+		t.Errorf("entry 4 = %q, want it to reference %q", got[4], tokenPath)
 	}
 	for _, e := range got {
 		if strings.Contains(e, "s3cr3t-token") {
@@ -319,7 +319,7 @@ func TestGitEnvForKB_TokenInjectsCredentialHelper(t *testing.T) {
 		got := gitEnvForKB(tc.kb, dir)
 		found := false
 		for _, e := range got {
-			if strings.HasPrefix(e, "GIT_CONFIG_VALUE_0=") && strings.Contains(e, tc.wantPath) {
+			if strings.HasPrefix(e, "GIT_CONFIG_VALUE_1=") && strings.Contains(e, tc.wantPath) {
 				found = true
 			}
 			if strings.Contains(e, "own-tok") || strings.Contains(e, "default-tok") {
@@ -327,7 +327,7 @@ func TestGitEnvForKB_TokenInjectsCredentialHelper(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("gitEnvForKB(%s) = %v, want a GIT_CONFIG_VALUE_0 entry referencing %q", tc.kb, got, tc.wantPath)
+			t.Errorf("gitEnvForKB(%s) = %v, want a GIT_CONFIG_VALUE_1 entry referencing %q", tc.kb, got, tc.wantPath)
 		}
 	}
 }
@@ -589,5 +589,27 @@ func TestEnsureClonedKBErrorRedactsRemoteCredentials(t *testing.T) {
 	_, err = ensureClonedKB("http://user:s3cr3t@127.0.0.1:1/x.git", "kb-a", "")
 	if err == nil || strings.Contains(err.Error(), "s3cr3t") {
 		t.Fatalf("data-dir error = %v", err)
+	}
+}
+
+// TestGitTokenCredentialEnv_ResetsOtherHelpers loads the generated environment
+// into a real git: the helper list starts with an empty value (the reset) and
+// ends with the injected helper, whatever the global configuration lists.
+func TestGitTokenCredentialEnv_ResetsOtherHelpers(t *testing.T) {
+	dir := t.TempDir()
+	tokenPath := writeCredential(t, dir, "wiki-kb.token", "s3cr3t-token\n")
+	globalCfg := filepath.Join(dir, "gitconfig")
+	if err := os.WriteFile(globalCfg, []byte("[credential]\n\thelper = personal-store\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "config", "--get-all", "credential.helper")
+	cmd.Env = append(append(os.Environ(), "GIT_CONFIG_GLOBAL="+globalCfg, "GIT_CONFIG_NOSYSTEM=1"), gitTokenCredentialEnv(tokenPath)...)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git config: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(lines) != 3 || lines[0] != "personal-store" || lines[1] != "" || !strings.Contains(lines[2], tokenPath) {
+		t.Fatalf("helper list = %q, want the global entry, an empty reset, then the injected helper", lines)
 	}
 }

@@ -279,7 +279,7 @@ endpoint (`/mcp/<name>`, see below), the token scope (`kb:<name>:r|rw`), the clo
 KB's files in the credentials directory (§Credentials directory). With an `http(s)://` remote, if
 `<name>.token` or `default.token` exists there (content: the token, trimmed), the server uses it as the HTTPS
 credential for clone/fetch/pull/push of that KB, injected via `credential.helper` in the
-per-process environment (`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0`, D53): the token
+per-process environment (`GIT_CONFIG_COUNT=2`: an empty `credential.helper` first, which resets the list so no system or user helper answers before it, then the token helper; D53): the token
 never appears in argv, in the remote URL, or in `.git/config` — only the file's *path* is
 embedded in the helper, which reads it (`cat`) whenever git invokes it. `ssh://` remotes use
 `<name>.ssh` or `default.ssh` (above), and the KB's SOPS key is `<name>.age`, else `default.age`.
@@ -994,7 +994,7 @@ Rollout notes:
   before: unscoped tokens stay admin, `scopes` keep granting whole-KB access.
 - **Migrate one token at a time.** `roles` and `scopes` on the same token are
   unioned, so a token can gain a narrow role while keeping an existing scope.
-- **Validation is fatal at startup.** A duplicate role or principal ID, an
+- **Validation is fatal at startup.** A duplicate role or principal ID, two tokens with the same secret value, an
   unknown role reference, an empty `kb`, an `access` other than `r`/`rw`, an `artifacts` other than `r`/`rw` (or `rw` on an `r` rule), an
   empty or traversal selector, or a selector declared as both map and journal
   aborts the boot. Diagnostics name the role and rule index, never a token.

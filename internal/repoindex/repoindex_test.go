@@ -563,3 +563,30 @@ func TestResolverScansAtMostOnce(t *testing.T) {
 		t.Errorf("scans after a cache hit = %d, want 1", scans)
 	}
 }
+
+// A cached path that now holds a clone of another repository is not served: it
+// counts as a dead clone and the lookup falls through to a rescan.
+func TestResolveReplacedCloneIsNotServed(t *testing.T) {
+	home := t.TempDir()
+	userHomeDir = func() (string, error) { return home, nil }
+	defer func() { userHomeDir = os.UserHomeDir }()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "myrepo")
+	os.MkdirAll(path, 0o755)
+	writeGitRepo(t, path, "git@github.com:acme/myrepo.git")
+	if got, _, err := Resolve("myrepo", nil, []string{root}, 0); err != nil || got != path {
+		t.Fatalf("first resolve = %q, %v", got, err)
+	}
+
+	// The same path now holds an unrelated repository.
+	writeGitRepo(t, path, "git@github.com:other/unrelated.git")
+	if got, _, err := Resolve("myrepo", nil, []string{root}, 0); err == nil {
+		t.Fatalf("resolved to %q, a clone of another repository", got)
+	}
+
+	idx := &Index{Repos: map[RemoteKey][]string{"github.com/acme/myrepo": {path}}}
+	if _, _, err := lookupIndex(idx, "myrepo"); err == nil {
+		t.Fatal("lookupIndex served a path whose origin changed")
+	}
+}

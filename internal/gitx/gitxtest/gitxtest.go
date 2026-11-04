@@ -65,15 +65,17 @@ func HTTPRemote(t testing.TB, user, password string) (url, bare string) {
 }
 
 // TokenEnv is the git environment that makes a credential helper answer with
-// user "token" and the content of tokenFile: the three GIT_CONFIG_* variables
+// user "token" and the content of tokenFile: the GIT_CONFIG_* variables (a reset of the helper list, then the helper)
 // of cmd/cartographer's gitTokenCredentialEnv, which that package's own test
 // checks against a server (bootstrap_test.go). Kept in step by hand.
 func TokenEnv(tokenFile string) []string {
 	escaped := strings.ReplaceAll(tokenFile, "'", `'\''`)
 	return []string{
-		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_COUNT=2",
 		"GIT_CONFIG_KEY_0=credential.helper",
-		`GIT_CONFIG_VALUE_0=!f() { echo username=token; echo "password=$(cat '` + escaped + `')"; }; f`,
+		"GIT_CONFIG_VALUE_0=",
+		"GIT_CONFIG_KEY_1=credential.helper",
+		`GIT_CONFIG_VALUE_1=!f() { echo username=token; echo "password=$(cat '` + escaped + `')"; }; f`,
 	}
 }
 

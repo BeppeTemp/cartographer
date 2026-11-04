@@ -98,3 +98,24 @@ func TestRepairRevertIsAdvancedAndWriteOnly(t *testing.T) {
 		t.Error("repair_revert needs write access")
 	}
 }
+
+// The Reason trailer is free text from the caller of any write tool, so a
+// commit that merely claims to be a repair is not one.
+func TestRepairRevertRefusesACommitThatClaimsToBeARepair(t *testing.T) {
+	t.Parallel()
+	k, s := autoRepairKB(t)
+	if res := callTool(t, s, "concept_write", `{"id":"ops/claimed","frontmatter":{"type":"Note","title":"Claimed","updated":"2026-01-02","tags":["a"]},"body":"# Claimed\n\n[[ops/n1]]\n","index_entry":true,"reason":"auto-repair (background)"}`); res.IsError {
+		t.Fatalf("concept_write: %s", res.Content[0].Text)
+	}
+	sha := gitOut(t, k, "rev-parse", "HEAD")
+	if got := gitOut(t, k, "log", "-1", "--format=%(trailers:key=Reason,valueonly)"); !strings.HasPrefix(got, "auto-repair") {
+		t.Fatalf("fixture: reason trailer = %q", got)
+	}
+	before := commitCount(t, k)
+	if res := revertCall(t, s, sha); !res.IsError {
+		t.Fatal("a write with an auto-repair reason was reverted as a repair")
+	}
+	if commitCount(t, k) != before {
+		t.Fatal("the refused revert left a commit")
+	}
+}
