@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -117,5 +119,24 @@ func TestRepairRevertRefusesACommitThatClaimsToBeARepair(t *testing.T) {
 	}
 	if commitCount(t, k) != before {
 		t.Fatal("the refused revert left a commit")
+	}
+}
+
+// A git that cannot answer is not a dirty tree: the error names the cause, so
+// the agent does not wait for a commit that will never fix it.
+func TestRepairRevertNamesAGitFailureNotADirtyTree(t *testing.T) {
+	t.Parallel()
+	k, s := autoRepairKB(t)
+	sha := s.runAutoRepairQuota(t.Context()).Checks[0].Commit
+	// A corrupt index breaks `git status` but not the lookups before it.
+	if err := os.WriteFile(filepath.Join(k.Root, ".git", "index"), []byte("not an index"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := revertCall(t, s, sha)
+	if !res.IsError {
+		t.Fatal("the revert ran against a git that cannot report its status")
+	}
+	if text := res.Content[0].Text; strings.Contains(text, "uncommitted changes") || !strings.Contains(text, "git status") {
+		t.Fatalf("error = %q, want the git failure and not the dirty-tree message", text)
 	}
 }

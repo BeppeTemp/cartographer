@@ -9,11 +9,11 @@ import (
 	"testing"
 )
 
+// testToken is a fixed bearer token: the tests need a string, not entropy.
+const testToken = "test-token-0123456789abcdef"
+
 func TestTokenStoreValidate(t *testing.T) {
-	tok, err := GenerateToken()
-	if err != nil {
-		t.Fatal(err)
-	}
+	tok := testToken
 	ts := NewTokenStore([]string{tok})
 
 	agentID, ok := ts.Validate(tok)
@@ -60,7 +60,7 @@ func TestTokenStoreDisabled(t *testing.T) {
 }
 
 func TestMiddleware401(t *testing.T) {
-	tok, _ := GenerateToken()
+	tok := testToken
 	ts := NewTokenStore([]string{tok})
 
 	handler := ts.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +89,7 @@ func TestMiddleware401(t *testing.T) {
 }
 
 func TestMiddlewareValid(t *testing.T) {
-	tok, _ := GenerateToken()
+	tok := testToken
 	ts := NewTokenStore([]string{tok})
 
 	called := false
@@ -110,22 +110,6 @@ func TestMiddlewareValid(t *testing.T) {
 	}
 }
 
-func TestGenerateToken(t *testing.T) {
-	tok, err := GenerateToken()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 32 bytes hex-encoded = 64 chars
-	if len(tok) != 64 {
-		t.Fatalf("expected 64 chars, got %d", len(tok))
-	}
-
-	tok2, _ := GenerateToken()
-	if tok == tok2 {
-		t.Fatal("two generated tokens should be unique")
-	}
-}
-
 func TestParseScopes(t *testing.T) {
 	scopes := ParseScopes("kb:docs:rw kb:notes:r kb:bad")
 	if len(scopes) != 2 {
@@ -139,21 +123,6 @@ func TestParseScopes(t *testing.T) {
 		t.Errorf("scope[1] = %+v, want {notes, false}", scopes[1])
 	}
 
-	if !HasAccess(scopes, "docs", false) {
-		t.Error("docs read should be accessible")
-	}
-	if !HasAccess(scopes, "docs", true) {
-		t.Error("docs write should be accessible")
-	}
-	if !HasAccess(scopes, "notes", false) {
-		t.Error("notes read should be accessible")
-	}
-	if HasAccess(scopes, "notes", true) {
-		t.Error("notes write should NOT be accessible")
-	}
-	if HasAccess(scopes, "unknown", false) {
-		t.Error("unknown KB should not be accessible")
-	}
 }
 
 func TestPolicyRoleUnionAndSelectors(t *testing.T) {
@@ -219,7 +188,8 @@ func TestProtectedResourceMetadata(t *testing.T) {
 
 func TestNewScopedTokenStore(t *testing.T) {
 	ts := NewScopedTokenStore([]ScopedToken{
-		{Token: "admin-tok"}, // no scopes = full access
+		{Token: "admin-tok", Policy: Policy{Admin: true}},
+		{Token: "empty-tok"}, // no policy and no scopes grants nothing (D179)
 		{Token: "scoped-tok", Scopes: []KBScope{{KB: "wiki", Write: true}, {KB: "notes"}}},
 	})
 
@@ -227,32 +197,37 @@ func TestNewScopedTokenStore(t *testing.T) {
 		t.Fatal("expected enabled store")
 	}
 
-	scopes, ok := ts.ScopesOf("admin-tok")
+	admin, ok := ts.PrincipalOf("admin-tok")
 	if !ok {
 		t.Fatal("expected admin-tok to be valid")
 	}
-	if len(scopes) != 0 {
-		t.Fatalf("expected no scopes (full access) for admin-tok, got %+v", scopes)
+	if !admin.Policy.Admin {
+		t.Fatalf("expected full access for admin-tok, got %+v", admin.Policy)
 	}
 
-	scopes, ok = ts.ScopesOf("scoped-tok")
+	empty, ok := ts.PrincipalOf("empty-tok")
+	if !ok || empty.Policy.Admin || empty.Policy.AllowsWholeKB("wiki", false) {
+		t.Fatalf("a token with no policy must grant nothing, got %+v", empty.Policy)
+	}
+
+	scoped, ok := ts.PrincipalOf("scoped-tok")
 	if !ok {
 		t.Fatal("expected scoped-tok to be valid")
 	}
-	if len(scopes) != 2 {
-		t.Fatalf("expected 2 scopes, got %+v", scopes)
+	if scoped.Policy.Admin || len(scoped.Policy.Permissions) != 2 {
+		t.Fatalf("expected 2 permissions, got %+v", scoped.Policy)
 	}
-	if !HasAccess(scopes, "wiki", true) {
+	if !scoped.Policy.AllowsWholeKB("wiki", true) {
 		t.Error("expected write access to wiki")
 	}
-	if HasAccess(scopes, "notes", true) {
+	if scoped.Policy.AllowsWholeKB("notes", true) {
 		t.Error("expected no write access to notes")
 	}
-	if !HasAccess(scopes, "notes", false) {
+	if !scoped.Policy.AllowsWholeKB("notes", false) {
 		t.Error("expected read access to notes")
 	}
 
-	if _, ok := ts.ScopesOf("unknown-tok"); ok {
+	if _, ok := ts.PrincipalOf("unknown-tok"); ok {
 		t.Error("unknown token should be invalid")
 	}
 }
@@ -264,12 +239,12 @@ func TestNewTokenStoreBackwardCompat(t *testing.T) {
 	if !ok || agentID == "tok-a" || agentID == "" {
 		t.Fatalf("Validate(tok-a) = %q, %v", agentID, ok)
 	}
-	scopes, ok := ts.ScopesOf("tok-a")
+	p, ok := ts.PrincipalOf("tok-a")
 	if !ok {
 		t.Fatal("expected tok-a to be valid")
 	}
-	if len(scopes) != 0 {
-		t.Fatalf("expected full access (no scopes), got %+v", scopes)
+	if !p.Policy.Admin {
+		t.Fatalf("expected full access, got %+v", p.Policy)
 	}
 }
 
@@ -278,10 +253,10 @@ func TestMiddlewareInjectsScopesFromStore(t *testing.T) {
 		{Token: "scoped-tok", Scopes: []KBScope{{KB: "wiki", Write: false}}},
 	})
 
-	var gotScopes []KBScope
+	var got Policy
 	var gotOK bool
 	handler := ts.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotScopes = ScopesFromContext(r.Context())
+		got = PrincipalFromContext(r.Context()).Policy
 		gotOK = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -294,8 +269,8 @@ func TestMiddlewareInjectsScopesFromStore(t *testing.T) {
 	if !gotOK {
 		t.Fatal("handler not called")
 	}
-	if len(gotScopes) != 1 || gotScopes[0].KB != "wiki" || gotScopes[0].Write {
-		t.Fatalf("scopes injected into context = %+v, want [{wiki false}]", gotScopes)
+	if got.Admin || len(got.Permissions) != 1 || got.Permissions[0].KB != "wiki" || got.Permissions[0].Write {
+		t.Fatalf("policy injected into context = %+v, want read on wiki only", got)
 	}
 }
 

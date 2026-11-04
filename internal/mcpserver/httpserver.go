@@ -16,22 +16,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/webui"
 )
 
-// HTTPHandler returns an http.Handler that serves MCP over Streamable HTTP.
-// POST /mcp accepts a JSON-RPC 2.0 request and returns a JSON response.
-// GET /mcp is answered 405 on purpose: the transport is stateless and opens no
-// event stream. An MCP POST body is capped at 4 MiB by the SDK, which answers
-// a plain-text 413.
-// GET /health returns 200 OK with a JSON status body (liveness).
-// GET /ready returns readiness (single-KB server is always ready).
-func (s *Server) HTTPHandler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/mcp", s.handleMCP)
-	mux.HandleFunc("/health", s.handleHealth)
-	mux.HandleFunc("/ready", s.handleReady)
-	mux.HandleFunc("/clients", s.handleClients)
-	return mux
-}
-
 // handleMCP serves one KB's MCP endpoint through the official SDK (D168).
 // POST remains the whole transport: the SDK's stateless mode answers GET and
 // DELETE with 405, which is what 2026-07-28 requires now that neither the
@@ -264,105 +248,15 @@ func (s *Server) auditState() *audit.State {
 	return &st
 }
 
-// auditGate is the one rule both the single-KB and multi-KB readiness paths
-// apply (D119/D176): no sink contributes nothing, an unhealthy required-mode
+// auditGate is the one rule the readiness paths apply (D119/D176): no sink contributes nothing, an unhealthy required-mode
 // sink makes the server not ready. Shared because two implementations of one
 // readiness rule is how they drifted apart in the first place.
 func auditGate(st *audit.State) bool { return st == nil || st.Ready }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	// A single-KB server always has its one KB mounted; only the audit gate
-	// can make it not ready.
-	st := s.auditState()
-	result := map[string]interface{}{
-		"status":     "ok",
-		"version":    s.version,
-		"started_at": processStartedAt,
-	}
-	if st != nil {
-		result["audit"] = st
-	}
-	// Additive (D254): present only when a newer release is known.
-	if latest := s.knownLatestVersion(); latest != "" {
-		result["latest_version"] = latest
-	}
-	result["ready"] = auditGate(st)
-	json.NewEncoder(w).Encode(result)
-}
-
-// handleReady reports readiness: a single-KB server is always ready (its one
-// KB is mounted at construction time), unlike MultiKBServer where 0 KBs
-// mounted means not ready — UNLESS an attached audit sink in required mode is
-// unhealthy (D119: readiness gates on the sink so an operator, or a
-// readinessProbe, notices before the next required-mode call is rejected).
-func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	st := s.auditState()
-	ready := auditGate(st)
-	var auditInfo interface{}
-	if st != nil {
-		auditInfo = st
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if !ready {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	} else {
-		w.WriteHeader(http.StatusOK)
-	}
-	body := map[string]interface{}{"ready": ready}
-	if auditInfo != nil {
-		body["audit"] = auditInfo
-	}
-	json.NewEncoder(w).Encode(body)
-}
-
-func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	by := s.PolicyKB()
-	if by == "" && s.kbRef != nil {
-		// Same fallback as installPolicy: a server without SetPolicyKB is
-		// named by its KB.
-		by = kbName(s.kbRef)
-	}
-	rows := make([]ClientStat, 0)
-	var overflow int64
-	// An invisible KB answers the same 200 with an empty roster, not 403: the
-	// answer must not confirm that the KB exists.
-	if kbRosterVisible(r.Context(), by) {
-		var stats []ClientStat
-		stats, overflow = s.ClientStats()
-		for _, st := range stats {
-			st.KB = by
-			rows = append(rows, st)
-		}
-	}
-	result := map[string]interface{}{
-		"clients": rows,
-	}
-	if overflow > 0 {
-		result["overflow"] = overflow
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
-}
-
 // KBInfo holds metadata about a mounted KB for kb_list responses.
 type KBInfo struct {
 	Name   string `json:"name"`
-	Root   string `json:"root"`
-	Status string `json:"status"` // "normal", "syncing", "needs-resolution"
+	Status string `json:"status"` // always "normal": a mounted KB is serving
 	// Capabilities is what this KB is allowed to do, keyed by gate name, with
 	// the configuration key that controls each one (D151). Advertised here so
 	// `cartographer doctor` can report a capability that is off without a
@@ -498,12 +392,6 @@ func (m *MultiKBServer) FlushReadAccess() {
 		srv.FlushReadAccess()
 	}
 }
-
-// maxToolNameLen is the conservative per-tool-name budget (D102) enforced
-// once a tool-name prefix is set: Kiro (and MCP clients generally) may
-// reject or exclude a tool whose name is too long, and some clients add
-// their own "@server/" prefix on top — 48 leaves room for that.
-const maxToolNameLen = 48
 
 // MaxBareToolNameLen is the length of the longest tool name the registry
 // registers. The client uses it to compute a tool

@@ -279,9 +279,27 @@ func TestProvisionedContextCarrier(t *testing.T) {
 	if isProvisioned(context.Background()) || !isProvisioned(withProvisioned(context.Background())) {
 		t.Error("withProvisioned/isProvisioned do not round-trip")
 	}
-	f := newViewFixture(t, nil, "kb-a")
-	if f.view(t, tokAdmin, nil, false) != f.view(t, tokAdmin, nil, false) {
-		t.Error("the marker must not touch the view cache")
+	// The marker is added to the context after the view is chosen (D1097): a
+	// request with it must resolve to the very view the same request without it
+	// does, and add none to the cache. TRAP: comparing two calls of f.view
+	// proves only that the cache is a cache; the marker travels through the
+	// handler, so the handler is what is exercised.
+	f := newViewFixture(t, nil, "kb-a", "kb-b")
+	views := func() int {
+		f.multi.routedMu.Lock()
+		defer f.multi.routedMu.Unlock()
+		return len(f.multi.routedViews)
+	}
+	plain := RoutedMountPath + "?kbs=kb-a"
+	if rr := f.post(t, tokAdmin, plain, toolsListBody); rr.Code != http.StatusOK {
+		t.Fatalf("plain: %d %s", rr.Code, rr.Body.String())
+	}
+	before, n := f.view(t, tokAdmin, []string{"kb-a"}, false), views()
+	if rr := f.post(t, tokAdmin, plain+"&provisioned=1", toolsListBody); rr.Code != http.StatusOK {
+		t.Fatalf("provisioned: %d %s", rr.Code, rr.Body.String())
+	}
+	if after := f.view(t, tokAdmin, []string{"kb-a"}, false); after != before || views() != n {
+		t.Errorf("the marker must not touch the view cache: same view %v, views %d -> %d", after == before, n, views())
 	}
 }
 

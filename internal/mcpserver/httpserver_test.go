@@ -234,49 +234,6 @@ func TestMultiKB_Health_NoToolPrefix(t *testing.T) {
 	}
 }
 
-func TestServer_Health_IncludesReady(t *testing.T) {
-	t.Parallel()
-	s := New("test")
-	handler := s.HTTPHandler()
-
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("/health: status = %d, want 200", rr.Code)
-	}
-	var body map[string]interface{}
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("invalid JSON body: %v", err)
-	}
-	if body["status"] != "ok" {
-		t.Fatalf("status = %v, want \"ok\"", body["status"])
-	}
-	if ready, _ := body["ready"].(bool); !ready {
-		t.Fatalf("ready = %v, want true (single-KB server always ready)", body["ready"])
-	}
-}
-
-func TestServer_Ready(t *testing.T) {
-	t.Parallel()
-	s := New("test")
-	handler := s.HTTPHandler()
-
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("/ready: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
-	}
-	var body map[string]interface{}
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("invalid JSON body: %v", err)
-	}
-	if ready, _ := body["ready"].(bool); !ready {
-		t.Fatalf("ready = %v, want true", body["ready"])
-	}
-}
-
 // asAdmin runs a bare handler (no auth middleware) as the local admin: /clients
 // is fail-closed for the zero principal, which a bare handler carries.
 func asAdmin(h http.Handler) http.Handler {
@@ -289,8 +246,7 @@ func asAdmin(h http.Handler) http.Handler {
 // HTTP 200, never 404 and never a null array.
 func TestClients_EmptyRoster(t *testing.T) {
 	t.Parallel()
-	s := New("test")
-	handler := asAdmin(s.HTTPHandler())
+	handler := asAdmin(newMultiKBTestHandler(t, "kbx").Handler())
 
 	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
 	rr := httptest.NewRecorder()
@@ -316,26 +272,9 @@ func TestClients_EmptyRoster(t *testing.T) {
 }
 
 // TestClients_MethodNotAllowed verifies POST (and other non-GET methods) return
-// 405 on /clients for every handler constructor.
+// 405 on /clients.
 func TestClients_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
-	s := New("test")
-	// Single-KB handler.
-	for _, v := range []struct {
-		h    http.Handler
-		desc string
-	}{
-		{s.HTTPHandler(), "HTTPHandler"},
-	} {
-		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
-			req := httptest.NewRequest(method, "/clients", nil)
-			rr := httptest.NewRecorder()
-			v.h.ServeHTTP(rr, req)
-			if rr.Code != http.StatusMethodNotAllowed {
-				t.Fatalf("%s %s: status = %d, want 405", v.desc, method, rr.Code)
-			}
-		}
-	}
 	// Multi-KB handler.
 	multi := NewMultiKBServer("test")
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
@@ -352,51 +291,7 @@ func TestClients_MethodNotAllowed(t *testing.T) {
 // constructors (HTTPHandler, MultiKBServer.Handler).
 func TestClients_HandlerConstructors(t *testing.T) {
 	t.Parallel()
-	// Build a single-KB server and populate the roster by hitting /mcp.
-	k := setupTestKB(t)
-	s := New("test")
-	s.SetPolicyKB("docs")
-	RegisterKBTools(s, k, Deps{})
-
-	// Simulate a few MCP requests so the roster is non-empty.
 	mcpBody := writeToolCallBody("atlas_overview")
-	for i := 0; i < 3; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader([]byte(mcpBody)))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json, text/event-stream")
-		rr := httptest.NewRecorder()
-		s.handleMCP(rr, req)
-	}
-
-	for _, v := range []struct {
-		desc string
-		h    http.Handler
-	}{
-		{"HTTPHandler", asAdmin(s.HTTPHandler())},
-	} {
-		req := httptest.NewRequest(http.MethodGet, "/clients", nil)
-		rr := httptest.NewRecorder()
-		v.h.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Fatalf("%s: status = %d, want 200; body=%s", v.desc, rr.Code, rr.Body.String())
-		}
-		var body struct {
-			Clients []struct {
-				KB         string `json:"kb"`
-				ClientName string `json:"client_name"`
-			} `json:"clients"`
-		}
-		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-			t.Fatalf("%s: invalid JSON: %v", v.desc, err)
-		}
-		if len(body.Clients) == 0 {
-			t.Fatalf("%s: expected at least 1 client row", v.desc)
-		}
-		if body.Clients[0].KB != "docs" {
-			t.Fatalf("%s: kb = %q, want \"docs\"", v.desc, body.Clients[0].KB)
-		}
-	}
-
 	// Multi-KB handler with two KBs.
 	multi := NewMultiKBServer("test")
 	k1 := setupTestKB(t)
@@ -449,8 +344,7 @@ func TestClients_HandlerConstructors(t *testing.T) {
 // TestClients_NoOverflow omits overflow when zero.
 func TestClients_NoOverflow(t *testing.T) {
 	t.Parallel()
-	s := New("test")
-	handler := asAdmin(s.HTTPHandler())
+	handler := asAdmin(newMultiKBTestHandler(t, "kbx").Handler())
 	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -493,7 +387,7 @@ func unhealthyLog(t *testing.T, mode string) *audit.Log {
 	if err := os.Chmod(path, 0o400); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.Append(audit.Entry{Tool: "x"}); err == nil {
+	if _, err := l.AppendEvent(audit.Entry{RequestID: "x", Phase: audit.PhaseAttempt, Tool: "x"}); err == nil {
 		t.Fatal("expected the append to fail against a read-only file")
 	}
 	if st := l.State(); st.Healthy {
@@ -910,13 +804,12 @@ func TestStripHeaderIfNotification_NotificationLosesTheHeaderAndKeepsItsBody(t *
 	}
 }
 
-// D266: both /health shapes carry the same process start instant, which is
+// D266: /health carries the same process start instant, which is
 // what a restart compares to prove the process answering is a new one.
 func TestHealth_ReportsProcessStartedAt(t *testing.T) {
 	t.Parallel()
 	for name, h := range map[string]http.Handler{
-		"single-KB": New("test").HTTPHandler(),
-		"multi-KB":  NewMultiKBServer("test").Handler(),
+		"multi-KB": NewMultiKBServer("test").Handler(),
 	} {
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/health", nil))

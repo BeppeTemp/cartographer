@@ -1,12 +1,11 @@
 // Package auth implements bearer-token authorization for the HTTP transport:
-// the token store, the middleware that resolves a request to a set of scopes,
-// and the per-KB RBAC check (`kb:<name>:r` / `kb:<name>:rw`) the tools are
-// gated on. Disabled by default; stdio is trusted and never passes through it.
+// the token store, the middleware that resolves a request to a principal with
+// a Policy, and the per-KB RBAC check the tools are gated on (`kb:<name>:r` /
+// `kb:<name>:rw` scopes are parsed into Policy permissions). Disabled by default; stdio is trusted and never passes through it.
 package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -262,22 +261,6 @@ func (ts *TokenStore) Validate(token string) (agentID string, ok bool) {
 	return agentID, ok
 }
 
-// ScopesOf returns the KB scopes granted to the given token, and whether the
-// token is valid. A valid token with nil/empty scopes has full access.
-func (ts *TokenStore) ScopesOf(token string) ([]KBScope, bool) {
-	p, ok := ts.hashes[hashToken(token)]
-	if !ok || p.Policy.Admin {
-		return nil, ok
-	}
-	var scopes []KBScope
-	for _, rule := range p.Policy.Permissions {
-		if len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
-			scopes = append(scopes, KBScope{KB: rule.KB, Write: rule.Write})
-		}
-	}
-	return scopes, ok
-}
-
 // PrincipalOf returns the authenticated immutable principal.
 func (ts *TokenStore) PrincipalOf(token string) (Principal, bool) {
 	p, ok := ts.hashes[hashToken(token)]
@@ -354,24 +337,6 @@ func isPublicPath(path string) bool {
 		path == "/ui" || strings.HasPrefix(path, "/ui/")
 }
 
-// ScopesFromContext reports the plain per-KB scopes of the principal stored
-// by ContextWithPrincipal. Returns nil for an admin principal (unrestricted,
-// so no scope list describes it) and for rules narrowed to specific
-// maps/journals/types, which a flat KBScope cannot express.
-func ScopesFromContext(ctx context.Context) []KBScope {
-	p := PrincipalFromContext(ctx)
-	if p.Policy.Admin {
-		return nil
-	}
-	var out []KBScope
-	for _, rule := range p.Policy.Permissions {
-		if len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
-			out = append(out, KBScope{KB: rule.KB, Write: rule.Write})
-		}
-	}
-	return out
-}
-
 func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
 	return context.WithValue(ctx, principalKey, clonePrincipal(principal))
 }
@@ -398,15 +363,6 @@ func clonePolicy(p Policy) Policy {
 		p.Permissions[i] = rule
 	}
 	return p
-}
-
-// GenerateToken creates a cryptographically random bearer token (32 bytes, hex encoded).
-func GenerateToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("auth: generate token: %w", err)
-	}
-	return hex.EncodeToString(b), nil
 }
 
 // ProtectedResourceMetadata returns JSON for /.well-known/oauth-protected-resource (RFC 9728).
@@ -479,18 +435,6 @@ func parseScopes(scope string) (parsed []KBScope, malformed []string) {
 		}
 	}
 	return parsed, malformed
-}
-
-// HasAccess checks if the scopes include at least read (or write) access to the given KB.
-func HasAccess(scopes []KBScope, kbName string, write bool) bool {
-	for _, s := range scopes {
-		if s.KB == kbName {
-			if !write || s.Write {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // --- internal helpers ---
