@@ -189,7 +189,7 @@ func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lo
 		managed = append(managed, ManagedFile{
 			Kind:             "hook",
 			Name:             h.name,
-			Path:             rp,
+			Path:             filepath.ToSlash(rp), // lock keys are slash form on every host
 			ContentHash:      h.contentHash,
 			MaterializedHash: materializedHash,
 			// The one file hashed as executable above. Recorded like any other

@@ -103,6 +103,8 @@ func TestApply_PiHookGolden(t *testing.T) {
 		}
 		// The command is an absolute path under the temp base dir.
 		norm := strings.ReplaceAll(string(got), filepath.ToSlash(baseDir), "$BASE")
+		norm = strings.ReplaceAll(norm, ".cmd\"", ".sh\"") // Windows writes the .cmd script variant
+		norm = strings.ReplaceAll(norm, ".cmd\"", ".sh\"") // Windows writes the .cmd script variant
 		piUpdateGolden(t, tc.file, norm)
 		want, err := os.ReadFile(filepath.Join("testdata", "pi", tc.file+".golden.ts"))
 		if err != nil {
@@ -144,6 +146,7 @@ func TestApply_PiWriteFindingsGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	norm := strings.ReplaceAll(string(got), filepath.ToSlash(baseDir), "$BASE")
+	norm = strings.ReplaceAll(norm, ".cmd\"", ".sh\"") // Windows writes the .cmd script variant
 	piUpdateGolden(t, "write_findings", norm)
 	want, err := os.ReadFile(filepath.Join("testdata", "pi", "write_findings.golden.ts"))
 	if err != nil {
@@ -236,9 +239,10 @@ func TestEnsureBootstrapAndWriteFindings_Pi(t *testing.T) {
 
 // piDriver loads a generated extension with a stub `pi` and fires one event.
 const piDriver = `
+import { pathToFileURL } from "node:url"
 const [,, file, ev, evtJson, ctxJson] = process.argv
 const handlers = {}
-const mod = await import(file)
+const mod = await import(pathToFileURL(file).href)
 mod.default({ on: (n, h) => { handlers[n] = h } })
 try {
   const out = await handlers[ev](JSON.parse(evtJson), JSON.parse(ctxJson))
@@ -256,7 +260,7 @@ func firePi(t *testing.T, event, matcher, script, piEvent, evtJSON string) (resu
 	}
 	baseDir := t.TempDir()
 	out := filepath.Join(t.TempDir(), "payload.json")
-	script = strings.ReplaceAll(script, "$OUT", out)
+	script = strings.ReplaceAll(script, "$OUT", filepath.ToSlash(out)) // a backslash is an escape to sh
 	if _, err := applyPiHook(t, baseDir, event, matcher, script); err != nil {
 		t.Fatal(err)
 	}
@@ -274,9 +278,11 @@ func firePi(t *testing.T, event, matcher, script, piEvent, evtJSON string) (resu
 		t.Fatal(err)
 	}
 	cmd := exec.Command("node", drv, ext, piEvent, evtJSON, `{"cwd":"`+filepath.ToSlash(dir)+`"}`)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	b, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("node: %v\n%s", err, b)
+		t.Fatalf("node: %v\n%s\n%s", err, b, stderr.String())
 	}
 	p, _ := os.ReadFile(out)
 	return strings.TrimSpace(string(b)), string(p)
