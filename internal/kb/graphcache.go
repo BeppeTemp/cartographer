@@ -24,8 +24,9 @@ import (
 //
 // What is cached per file is what the graph readers need — links, the lines
 // that wrote them (D317), the asset probes that decided them, the content
-// hash and four frontmatter facets — never the body, so memory stays
-// proportional to the link count.
+// hash and the frontmatter facets (ConceptFacets, the provenance list among
+// them: a handful of short strings per page, within D241's budget) — never the
+// body, so memory stays proportional to the link count.
 
 // racyWindow is how close to its observation a modification time may be
 // before the signature stops being trusted. A file rewritten within the same

@@ -159,3 +159,39 @@ func TestConflictResolve_RefusesAResolvedContradiction(t *testing.T) {
 		t.Errorf("page changed:\n%s\n---\n%s", before, after)
 	}
 }
+
+// A scalar provenance stays a scalar, a page citing both ends of a move cites
+// the target once, and a page citing nothing moved is not rewritten.
+func TestRewriteBacklinks_ProvenanceShapes(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	files := satMapFiles("m", "sources")
+	files["sources/s1.md"] = "---\ntype: Source\ntitle: S1\n---\nsource\n"
+	files["sources/s2.md"] = "---\ntype: Source\ntitle: S2\n---\nsource\n"
+	files["m/scalar.md"] = "---\ntype: Note\ntitle: Scalar\nprovenance: sources/s1\n---\nbody\n"
+	files["m/both.md"] = "---\ntype: Note\ntitle: Both\nprovenance: [sources/s1, sources/s2]\n---\nbody\n"
+	satWriteFiles(t, k, files)
+
+	// rewriteBacklinks runs in the post-move state: s1 is gone, s2 holds both.
+	if err := os.Remove(filepath.Join(k.DataRoot(), "sources", "s1.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := rewriteBacklinks(k, map[string]string{"sources/s1": "sources/s2"}); err != nil {
+		t.Fatal(err)
+	}
+	prov := func(id string) interface{} {
+		d, err := k.ReadConcept(okf.ConceptID(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fm, _ := okf.ParseFrontmatter(d.FrontmatterRaw)
+		v, _ := fm.Get("provenance")
+		return v
+	}
+	if v := prov("m/scalar"); v != "sources/s2" {
+		t.Errorf("scalar provenance = %#v, want the scalar sources/s2", v)
+	}
+	if v, _ := prov("m/both").([]string); len(v) != 1 || v[0] != "sources/s2" {
+		t.Errorf("both provenance = %#v, want [sources/s2]", prov("m/both"))
+	}
+}

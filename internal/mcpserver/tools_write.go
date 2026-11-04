@@ -2927,16 +2927,24 @@ func rewriteBacklinks(k *kb.KB, moveMap map[string]string) ([]rewrittenConcept, 
 		// that names a moved concept follows it, so the Source does not
 		// become source_uncited (#1510).
 		if entries := kb.ProvenanceEntries(fm); len(entries) > 0 {
-			rewritten, changed := make([]string, len(entries)), 0
-			for i, e := range entries {
-				rewritten[i] = e
+			rewritten, changed := make([]string, 0, len(entries)), 0
+			for _, e := range entries {
 				if moved, ok := moveMap[e]; ok {
-					rewritten[i] = moved
+					e = moved
 					changed++
+				}
+				// A page citing both ends of a merge would cite the target twice.
+				if !slices.Contains(rewritten, e) {
+					rewritten = append(rewritten, e)
 				}
 			}
 			if changed > 0 {
-				fm.Set("provenance", rewritten)
+				raw, _ := fm.Get("provenance")
+				if _, wasScalar := raw.(string); wasScalar && len(rewritten) == 1 {
+					fm.Set("provenance", rewritten[0]) // a scalar stays a scalar
+				} else {
+					fm.Set("provenance", rewritten)
+				}
 				count += changed
 			}
 		}
