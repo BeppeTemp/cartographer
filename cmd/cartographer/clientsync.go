@@ -466,13 +466,22 @@ type kbPullFailure struct {
 // server's unnamed endpoint, and two KBs serving one artifact with different
 // signatures.
 func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candidateSet, []kbPullFailure, error) {
-	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry)}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnv).Health(probeTimeout)
 	if err != nil {
-		return cs, nil, fmt.Errorf("health: %w", err)
+		return candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry)}, nil, fmt.Errorf("health: %w", err)
 	}
+	return pullCandidatesPartial(cfg, health, kbNames)
+}
+
+// pullCandidatesPartial is fetchCandidatesPartial after /health: a caller that
+// already holds the response (doctor, via serverFacts) passes it instead of
+// probing the server again.
+func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNames []string) (candidateSet, []kbPullFailure, error) {
+	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry)}
+	token := resolveToken(cfg)
+	tokenEnv := tokenEnvName(cfg)
 	targets, err := resolveKBTargets(health, kbNames)
 	if err != nil {
 		return cs, nil, err

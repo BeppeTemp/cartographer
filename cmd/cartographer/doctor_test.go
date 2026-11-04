@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
@@ -478,6 +479,12 @@ func TestCheckSymlinkedDestinations(t *testing.T) {
 // A gate that is off changes what an agent can do, and nothing in the running
 // system said so (D151). A missing signal must stay silent rather than be read
 // as "everything is on".
+func capabilitiesFor(t *testing.T, cfg *clientconfig.Config) []doctorFinding {
+	t.Helper()
+	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
+	return checkCapabilities(t.TempDir(), cfg, facts, err)
+}
+
 func TestCheckCapabilities(t *testing.T) {
 	newServer := func(body string) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -489,7 +496,7 @@ func TestCheckCapabilities(t *testing.T) {
 	t.Run("reports a disabled gate with its setting", func(t *testing.T) {
 		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"secrets":{"state":"disabled","setting":"credentials_dir"},"git_sync":{"state":"enabled","setting":"git.sync"}}}]}`)
 		defer srv.Close()
-		findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL})
+		findings := capabilitiesFor(t, &clientconfig.Config{ServerURL: srv.URL})
 		if len(findings) != 1 {
 			t.Fatalf("findings = %+v, want exactly one", findings)
 		}
@@ -501,7 +508,7 @@ func TestCheckCapabilities(t *testing.T) {
 	t.Run("reports a discovered mount", func(t *testing.T) {
 		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"mount":{"state":"discovered","setting":"kbs[]"}}}]}`)
 		defer srv.Close()
-		findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL})
+		findings := capabilitiesFor(t, &clientconfig.Config{ServerURL: srv.URL})
 		if len(findings) != 1 || !strings.Contains(findings[0].Message, "discovered") {
 			t.Fatalf("findings = %+v, want one naming the discovered mount", findings)
 		}
@@ -510,13 +517,13 @@ func TestCheckCapabilities(t *testing.T) {
 	t.Run("silent when everything is on", func(t *testing.T) {
 		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"secrets":{"state":"enabled","setting":"credentials_dir"},"mount":{"state":"configured","setting":"kbs[]"}}}]}`)
 		defer srv.Close()
-		if findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL}); len(findings) != 0 {
+		if findings := capabilitiesFor(t, &clientconfig.Config{ServerURL: srv.URL}); len(findings) != 0 {
 			t.Errorf("findings = %+v, want none", findings)
 		}
 	})
 
 	t.Run("silent when the server is unreachable", func(t *testing.T) {
-		if findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: "http://127.0.0.1:1"}); len(findings) != 0 {
+		if findings := capabilitiesFor(t, &clientconfig.Config{ServerURL: "http://127.0.0.1:1"}); len(findings) != 0 {
 			t.Errorf("findings = %+v, want none", findings)
 		}
 	})
@@ -524,7 +531,7 @@ func TestCheckCapabilities(t *testing.T) {
 	t.Run("silent when the server advertises no capabilities", func(t *testing.T) {
 		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb"}]}`)
 		defer srv.Close()
-		if findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL}); len(findings) != 0 {
+		if findings := capabilitiesFor(t, &clientconfig.Config{ServerURL: srv.URL}); len(findings) != 0 {
 			t.Errorf("findings = %+v, want none", findings)
 		}
 	})
@@ -898,4 +905,47 @@ func TestRunDoctor_MCPEntriesIgnoresNamesItDoesNotManage(t *testing.T) {
 	if f := findingsFor(runDoctor(dir, ""), "mcp-entries"); len(f) != 0 {
 		t.Errorf("an entry outside the managed names produced findings: %+v", f)
 	}
+}
+
+// Doctor probes the server once: one /health for the whole run, and with an
+// unreachable server no pull at all.
+func TestRunDoctor_ProbesTheServerOnce(t *testing.T) {
+	doctorStubs(t, []string{"claude"}, false)
+	dir := doctorFixture(t, "claude")
+	var health atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			health.Add(1)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok","version":"0.8.3","kbs":[{"name":"kb"}]}`)
+	}))
+	defer srv.Close()
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ServerURL = srv.URL
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	runDoctor(dir, "")
+	if got := health.Load(); got != 1 {
+		t.Errorf("/health requests = %d, want 1", got)
+	}
+}
+
+func TestCheckKBCollisions_NotRunWhenServerUnreachable(t *testing.T) {
+	doctorStubs(t, []string{"claude"}, false)
+	dir := doctorFixture(t, "claude")
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ServerURL = "http://127.0.0.1:1/mcp"
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	// With facts.health nil, pulling would panic: runDoctor must skip it.
+	runDoctor(dir, "")
 }

@@ -327,8 +327,12 @@ func TestKBArtifactsOptOutSilencesCollisionWarnings(t *testing.T) {
 	defer srv.Close()
 	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"kb-a", "kb-b"}, Agents: []string{"claude"}}
 	bound := []string{"kb-a", "kb-b"}
+	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	if got := checkKBCollisions(t.TempDir(), cfg, cfg.Agents); len(got) == 0 {
+	if got := checkKBCollisions(t.TempDir(), cfg, cfg.Agents, facts); len(got) == 0 {
 		t.Fatal("doctor sees no collision without the option")
 	}
 	if out := withStderr(t, func() { warnProviderCollisions(cfg, "claude", bound) }); !strings.Contains(out, "skill/shared") {
@@ -336,7 +340,7 @@ func TestKBArtifactsOptOutSilencesCollisionWarnings(t *testing.T) {
 	}
 
 	cfg.SetKBArtifacts("kb-a", false)
-	if got := checkKBCollisions(t.TempDir(), cfg, cfg.Agents); len(got) != 0 {
+	if got := checkKBCollisions(t.TempDir(), cfg, cfg.Agents, facts); len(got) != 0 {
 		t.Errorf("doctor reports %+v for an opted-out KB", got)
 	}
 	if out := withStderr(t, func() { warnProviderCollisions(cfg, "claude", bound) }); strings.Contains(out, "claimed by") {

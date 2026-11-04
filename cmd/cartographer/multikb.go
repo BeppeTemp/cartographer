@@ -157,6 +157,9 @@ type serverFacts struct {
 	// empty otherwise. A client that sees it writes ONE MCP entry pointing at
 	// that endpoint instead of one per KB.
 	RoutedPath string
+	// health is the /health response these facts came from, kept so a caller
+	// that goes on to pull (doctor) does not probe the server a second time.
+	health *client.Health
 }
 
 // enumerateKBs obtains the mounted KB names and the server version from
@@ -171,7 +174,7 @@ func enumerateKBs(serverURL string, auth bool, tokenSpec string, allowInsecure b
 	if err != nil {
 		return serverFacts{}, err
 	}
-	facts := serverFacts{Version: health.Version}
+	facts := serverFacts{Version: health.Version, health: health}
 	if health.Routed() {
 		facts.RoutedPath = health.RoutedPath
 	}
