@@ -2,7 +2,7 @@
 topic: control-plane
 ---
 
-# D1510 — An unreadable map descriptor refuses writes, and a move keeps the citations of a Source
+# D1643 — An unreadable map descriptor refuses writes, and a move keeps the citations of a Source
 
 **Decision.** Two contract changes of the KB data plane review (#1510).
 
