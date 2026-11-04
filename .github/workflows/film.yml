@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Ref whose film to render (only main is published)
+        description: Ref whose film to render (only main is published; another ref must be on main or under a tag)
         type: string
         default: main
 
@@ -51,6 +51,14 @@ jobs:
         env:
           MANUAL_REF: ${{ inputs.ref }}
         run: |
+          # A manual ref renders code that runs on this runner: only a commit that is on main or
+          # under a tag, never the head of a branch nobody has merged. Nothing of it has run yet.
+          if [ -n "$MANUAL_REF" ] && [ "$MANUAL_REF" != main ]; then
+            if ! git merge-base --is-ancestor HEAD origin/main 2>/dev/null && [ -z "$(git tag --contains HEAD)" ]; then
+              echo "::error::ref '$MANUAL_REF' is neither on main nor under a tag" >&2
+              exit 1
+            fi
+          fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           # Caches are scoped to the ref the run started on (main): only main's own code may read or write them.
           if [ -z "$MANUAL_REF" ] || [ "$MANUAL_REF" = main ]; then

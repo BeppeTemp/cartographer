@@ -64,14 +64,14 @@ else
 	# The client report (client-report.json) is built from the client schema, so
 	# the sources of the client settings are part of the key too.
 	key=$( (cat internal/testkbs/*.go; find internal/clientconfig internal/settingschema -name '*.go' ! -name '*_test.go' | sort | xargs cat; date -u +%F) | shasum | cut -c1-12)
-	caches="${TMPDIR:-/tmp}/cartographer-testkbs"
+	# Under the user's own cache directory, mode 700 (scripts/testkbs-cache-dir.sh).
+	caches=$(scripts/testkbs-cache-dir.sh)
 	cache="$caches/$key"
 	if [ ! -d "$cache" ]; then
 		echo "[dev] generating the test KBs (once a day)…"
 		# Other worktrees may be reading their own cache right now: only
 		# entries older than two days go, and the new one is generated
 		# under a name of its own and renamed into place.
-		mkdir -p "$caches"
 		find "$caches" -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
 		tmp="$cache.tmp.$$"
 		go run ./internal/testkbs/gen "$tmp"

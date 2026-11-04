@@ -60,8 +60,10 @@ remote=origin
 git remote get-url upstream >/dev/null 2>&1 && remote=upstream
 
 # Role (D955): the GitHub permission. author_association in a PR, the caller's
-# viewerPermission before opening one. OWNER/MEMBER/COLLABORATOR and
-# ADMIN/MAINTAIN/WRITE are the maintainer side; a bot has its own role.
+# viewerPermission before opening one. OWNER/MEMBER and ADMIN/MAINTAIN/WRITE are the
+# maintainer side; a COLLABORATOR is one only when the collaborator's own permission
+# is write or higher (a read or triage collaborator is a contributor); a bot has its
+# own role.
 role=contributor
 if [ $# -ge 1 ]; then
   PR=$1
@@ -74,7 +76,13 @@ if [ $# -ge 1 ]; then
   author=$(jq -r .author.login <<<"$meta")
   prinfo=$(gh api "repos/{owner}/{repo}/pulls/$PR" --jq '[.author_association, .user.type] | @tsv')
   assoc=${AUTHOR_ASSOCIATION:-${prinfo%%$'\t'*}}
-  case "$assoc" in OWNER|MEMBER|COLLABORATOR) role=maintainer ;; esac
+  case "$assoc" in
+    OWNER|MEMBER) role=maintainer ;;
+    COLLABORATOR)
+      # An unreadable answer leaves the contributor role.
+      collab=$(gh api "repos/{owner}/{repo}/collaborators/$author/permission" --jq .permission 2>/dev/null || true)
+      case "$collab" in admin|maintain|write) role=maintainer ;; esac ;;
+  esac
   [ "${prinfo##*$'\t'}" = Bot ] && role=bot
   echo "PR #$PR $(jq -r .title <<<"$meta") — by $author, branch $(jq -r .headRefName <<<"$meta")"
   sizelabel=$(jq -r '[.labels[].name] | index("size-exception") // empty' <<<"$meta")

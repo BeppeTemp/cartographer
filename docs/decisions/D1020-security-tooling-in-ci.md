@@ -36,3 +36,5 @@ ruleset for `v*`, "require actions pinned to a full SHA", approval for fork-PR
 workflows) are listed in `docs/deployment.md` for the maintainer. Docker
 Dependabot PRs are not auto-merged, because the `docker` job is not a required
 check.
+
+The same rule covers every job that holds a write token, `hero.yml` and the image push of `preview.yml` included: no dependency or browser cache, and an image cache only scoped to the run. A test pins it (`TestWriteTokenJobsRestoreNoSharedCache`). Python tools are installed from a hash lock in `.github/pip/`.

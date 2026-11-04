@@ -300,3 +300,55 @@ func TestPRTriageSkipsRowsWithANonNumericSize(t *testing.T) {
 		}
 	})
 }
+
+// A COLLABORATOR is a maintainer only with write permission or higher (D955): a read
+// or triage collaborator's `Size exception:` body line is ignored, and a permission
+// that cannot be read leaves the contributor role.
+func TestPRTriageCollaboratorRoleFollowsThePermission(t *testing.T) {
+	bash := bashOrSkip(t)
+	fake := `#!/bin/sh
+case "$1 $2" in
+  "pr view") printf '{"title":"fix: big","author":{"login":"u"},"closingIssuesReferences":[],"statusCheckRollup":[],"body":"Size exception: generated","headRefName":"b","labels":[],"assignees":[]}' ;;
+  "api --paginate") printf '900\t0\tinternal/big/gen.go\n' ;;
+  "api repos/{owner}/{repo}/pulls/1") printf '%s\tUser\n' "$ASSOC" ;;
+  "api repos/{owner}/{repo}/collaborators/u/permission") if [ -z "$PERM" ]; then exit 1; fi; printf '%s\n' "$PERM" ;;
+  *) exit 1 ;;
+esac
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		assoc, perm string
+		role        string
+		exception   bool
+	}{
+		{"COLLABORATOR", "read", "contributor", false},
+		{"COLLABORATOR", "triage", "contributor", false},
+		{"COLLABORATOR", "", "contributor", false},
+		{"COLLABORATOR", "write", "maintainer", true},
+		{"COLLABORATOR", "maintain", "maintainer", true},
+		{"COLLABORATOR", "admin", "maintainer", true},
+		{"MEMBER", "", "maintainer", true},
+		{"OWNER", "", "maintainer", true},
+		{"CONTRIBUTOR", "write", "contributor", false},
+	}
+	for _, c := range cases {
+		t.Run(c.assoc+"/"+c.perm, func(t *testing.T) {
+			cmd := exec.Command(bash, "scripts/pr-triage.sh", "--gate", "1")
+			cmd.Dir = repoRoot(t)
+			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"ASSOC="+c.assoc, "PERM="+c.perm, "AUTHOR_ASSOCIATION=")
+			var out bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &out, &out
+			_ = cmd.Run()
+			if !strings.Contains(out.String(), "Role: "+c.role+"\n") {
+				t.Errorf("want role %s\n%s", c.role, out.String())
+			}
+			if got := strings.Contains(out.String(), "with an accepted exception"); got != c.exception {
+				t.Errorf("size exception accepted = %v, want %v\n%s", got, c.exception, out.String())
+			}
+		})
+	}
+}

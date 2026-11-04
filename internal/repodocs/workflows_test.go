@@ -3,10 +3,13 @@ package repodocs
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // A tag is a pointer its owner can move; a commit SHA is not. Every workflow
@@ -75,5 +78,152 @@ func TestWorkflowActionsArePinnedBySHA(t *testing.T) {
 		for _, msg := range unpinnedUses(filepath.Base(f), string(raw)) {
 			t.Error(msg)
 		}
+	}
+}
+
+// wfFile is the part of a workflow the token rules below read.
+type wfFile struct {
+	Permissions map[string]string `yaml:"permissions"`
+	Jobs        map[string]struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Env         map[string]any    `yaml:"env"`
+		Steps       []struct {
+			Name string         `yaml:"name"`
+			Uses string         `yaml:"uses"`
+			Run  string         `yaml:"run"`
+			Env  map[string]any `yaml:"env"`
+			With map[string]any `yaml:"with"`
+		} `yaml:"steps"`
+	} `yaml:"jobs"`
+}
+
+func loadWorkflows(t *testing.T) map[string]wfFile {
+	t.Helper()
+	root := repoRoot(t)
+	files, err := filepath.Glob(filepath.Join(root, ".github/workflows/*.yml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no workflows found (%v)", err)
+	}
+	out := map[string]wfFile{}
+	for _, f := range files {
+		var wf wfFile
+		if err := yaml.Unmarshal([]byte(readFile(t, root, filepath.Join(".github/workflows", filepath.Base(f)))), &wf); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		out[filepath.Base(f)] = wf
+	}
+	return out
+}
+
+// A job that holds a write token restores no cache a past run, or a run of another
+// ref, left behind, and builds from none (D1020): no `cache:` input other than off,
+// no actions/cache step, and a `type=gha` image cache only when scoped to the run.
+func TestWriteTokenJobsRestoreNoSharedCache(t *testing.T) {
+	for name, wf := range loadWorkflows(t) {
+		for id, job := range wf.Jobs {
+			perms := job.Permissions
+			if perms == nil {
+				perms = wf.Permissions
+			}
+			if perms["contents"] != "write" && perms["packages"] != "write" {
+				continue
+			}
+			for i, st := range job.Steps {
+				where := fmt.Sprintf("%s job %s step %d (%s)", name, id, i+1, st.Name+st.Uses)
+				if strings.HasPrefix(st.Uses, "actions/cache") {
+					t.Errorf("%s: a job with a write token restores a cache", where)
+				}
+				if v, ok := st.With["cache"]; ok {
+					if s := fmt.Sprint(v); s != "false" && s != "" {
+						t.Errorf("%s: cache: %v on a job with a write token", where, v)
+					}
+				}
+				for _, k := range []string{"cache-from", "cache-to"} {
+					if v, ok := st.With[k].(string); ok && strings.Contains(v, "type=gha") && !strings.Contains(v, "scope=${{ github.run_id }}") {
+						t.Errorf("%s: %s: %s is not scoped to the run", where, k, v)
+					}
+				}
+			}
+		}
+	}
+}
+
+// The branch's own code (make, go, a repository script) never runs in a step that
+// holds the release PAT: it is set where it is needed, and only gh commands use it.
+func TestReleasePATStepsRunNoRepositoryCode(t *testing.T) {
+	code := regexp.MustCompile(`(^|[\s;&|(])(make|go|npm|npx|bash|sh)\s|(^|[\s;&|(])(\./|scripts/|web/|test/)`)
+	seen := 0
+	for name, wf := range loadWorkflows(t) {
+		for id, job := range wf.Jobs {
+			for i, st := range job.Steps {
+				holds := false
+				for _, env := range []map[string]any{job.Env, st.Env} {
+					for _, v := range env {
+						if strings.Contains(fmt.Sprint(v), "secrets.RELEASE_PLEASE_TOKEN") {
+							holds = true
+						}
+					}
+				}
+				if !holds {
+					continue
+				}
+				seen++
+				if code.MatchString(st.Run) {
+					t.Errorf("%s job %s step %d holds RELEASE_PLEASE_TOKEN and runs repository code:\n%s", name, id, i+1, st.Run)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Error("no step holding RELEASE_PLEASE_TOKEN found: the test reads nothing")
+	}
+}
+
+// A Python package installed by a workflow or the Makefile is checked against a
+// hash lock: `pip install` names `--require-hashes`, and installs from a file.
+func TestPipInstallsRequireHashes(t *testing.T) {
+	root := repoRoot(t)
+	files, _ := filepath.Glob(filepath.Join(root, ".github/workflows/*.yml"))
+	files = append(files, filepath.Join(root, "Makefile"))
+	install := regexp.MustCompile(`\bpipx? (run|install)\b`)
+	for _, f := range files {
+		for i, line := range strings.Split(readFile(t, filepath.Dir(f), filepath.Base(f)), "\n") {
+			l := strings.TrimSpace(line)
+			if strings.HasPrefix(l, "#") || !install.MatchString(l) {
+				continue
+			}
+			if !strings.Contains(l, "--require-hashes") || !strings.Contains(l, " -r ") {
+				t.Errorf("%s:%d: %q installs without --require-hashes -r <lock>", filepath.Base(f), i+1, l)
+			}
+		}
+	}
+	for _, lock := range []string{"docs", "zizmor"} {
+		if !strings.Contains(readFile(t, root, ".github/pip/"+lock+".txt"), "--hash=sha256:") {
+			t.Errorf(".github/pip/%s.txt carries no hashes", lock)
+		}
+	}
+}
+
+// scripts/dev.sh keeps the generated test KBs under the user's own cache
+// directory, mode 700, whatever TMPDIR is.
+func TestTestKBsCacheDirIsPrivate(t *testing.T) {
+	bash := bashOrSkip(t)
+	home := t.TempDir()
+	cmd := exec.Command(bash, "scripts/testkbs-cache-dir.sh")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")} // no TMPDIR, no XDG_CACHE_HOME
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("testkbs-cache-dir.sh: %v", err)
+	}
+	dir := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(dir, home+string(filepath.Separator)) {
+		t.Errorf("cache dir %q is not under HOME %q", dir, home)
+	}
+	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("cache dir mode = %v (%v), want 0700", fi, err)
+	}
+	if strings.Contains(readFile(t, repoRoot(t), "scripts/dev.sh"), "/tmp/cartographer-testkbs") {
+		t.Error("scripts/dev.sh still names a cache directory in /tmp")
 	}
 }

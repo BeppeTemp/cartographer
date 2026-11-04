@@ -60,7 +60,7 @@ jobs:
           echo "name=$b" >> "$GITHUB_OUTPUT"
       # No credential stays in the checkout: the next steps run the branch's own
       # code (`make`, `go run`). The push step sets the PAT on `origin` itself,
-      # last (D1020).
+      # after them, and takes it off again (D1020).
       - if: steps.branch.outputs.name != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,19 +81,29 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "docs: regenerate the decision index and group the changelog by area" docs/decisions.md CHANGELOG.md
           echo "committed=true" >> "$GITHUB_OUTPUT"
+      # The PR body is read and grouped before the token is used for the push: the
+      # step that runs the branch's own code (`go run`) holds no secret.
+      - if: steps.branch.outputs.name != ''
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+        run: gh pr view -R "${{ github.repository }}" "$BRANCH" --json body -q .body > "$RUNNER_TEMP/body.md"
+      - if: steps.branch.outputs.name != ''
+        run: go run ./internal/changelog/gen -stdin < "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/grouped.md"
+      # The token goes on `origin` for the push only, and comes off it again.
       - if: steps.regen.outputs.committed == 'true'
         env:
           RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         run: |
+          trap 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"' EXIT
           git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push
-      # Edited only when the grouping changes it: an edit re-runs pr-title.
+      # Edited only when the grouping changes it: an edit re-runs pr-title. Runs
+      # `gh` only.
       - if: steps.branch.outputs.name != ''
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           BRANCH: ${{ steps.branch.outputs.name }}
         run: |
-          gh pr view -R "${{ github.repository }}" "$BRANCH" --json body -q .body > "$RUNNER_TEMP/body.md"
-          go run ./internal/changelog/gen -stdin < "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/grouped.md"
           if cmp -s "$RUNNER_TEMP/body.md" "$RUNNER_TEMP/grouped.md"; then exit 0; fi
           gh pr edit -R "${{ github.repository }}" "$BRANCH" --body-file "$RUNNER_TEMP/grouped.md"
