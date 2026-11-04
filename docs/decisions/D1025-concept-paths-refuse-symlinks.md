@@ -6,7 +6,7 @@ topic: data-plane
 
 **Decision.** A symlink on a concept's path (a map directory, the `.md` file, an expanded `index.md`, a dangling link) is `okf.ErrInvalidPath` for read, write, delete and locate; the graph walk does not list a symlinked `.md`; the new lint check `symlinked_path` reports every symlink under `data/` and `services/`.
 
-**Why.** A KB's `data/` is a git working tree, and git stores symlinks: a poisoned remote or a shared tree could make `concept_read` disclose, or `concept_write` modify, a file outside the KB. Assets (`asset.go`), provisioning artifacts and `paths.yaml` already `Lstat` every component and refuse links (D148); concepts were the gap. No MCP token can create a link, so this is hardening. It costs a `Lstat` per path component on each by-ID concept access, and a KB that relied on a symlinked map or concept stops working for it.
+**Why.** A KB's `data/` is a git working tree, and git stores symlinks: a poisoned remote or a shared tree could make `concept_read` disclose, or `concept_write` modify, a file outside the KB. Assets (`asset.go`), the `artifact_*` tools and `paths.yaml` already `Lstat` every component and refuse links (D148); concepts were the gap. The provisioning readers refuse them by a rule of their own, a per-entry check in `internal/provisioning/kblinks.go`, which is not this decision's. No MCP token can create a link, so this is hardening. It costs a `Lstat` per path component on each by-ID concept access, and a KB that relied on a symlinked map or concept stops working for it.
 
 **Alternatives rejected.**
 - Resolve the link and check the target stays inside the KB: Cartographer would decide what is on the other side, and a target can change after the check. D148 chose refuse-never-resolve.

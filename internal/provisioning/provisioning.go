@@ -459,7 +459,7 @@ func ContentHashDir(fsys fs.FS, dir string) (string, error) {
 }
 
 // contentHashDir hashes dir. With maxFile > 0 (a KB's own artifact on disk) a
-// symlink is skipped, not followed, and a file over maxFile is hashed by its
+// symlink is a *kbSymlinkError, never followed (kblinks.go), and a file over maxFile is hashed by its
 // size without being read.
 func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, include func(rel string) bool, maxFile int64) (string, error) {
 	var files []ArtifactFile
@@ -494,7 +494,6 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, 
 		if include != nil && !include(rel) {
 			continue
 		}
-
 		stat := fs.Stat
 		if maxFile > 0 {
 			stat = fs.Lstat
@@ -504,7 +503,7 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, 
 			return "", fmt.Errorf("provisioning: stat %s: %w", p, statErr)
 		}
 		if maxFile > 0 && info.Mode()&fs.ModeSymlink != 0 {
-			continue
+			return "", &kbSymlinkError{rel: rel} // a KB's tree is never read through a link (kblinks.go)
 		}
 		exec := execbit.IsExecutable(info.Mode())
 		if executable != nil {
@@ -696,12 +695,15 @@ func ContentHashDirOSForKind(dirPath, kind string) (string, error) {
 }
 
 func contentHashDirOS(dirPath, kind string) (string, error) {
-	return contentHashDirTracked(dirPath, kind, nil)
+	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
+		return effectiveExecutable(kind, path, executable)
+	}, nil, 0)
 }
 
-// contentHashDirTracked is contentHashDirOS restricted to the files include
-// accepts (paths relative to dirPath); nil accepts all. The server uses it to
-// hash only what git tracks in a KB (#1325).
+// contentHashDirTracked hashes a directory of a KB's tree, restricted to the
+// files include accepts (paths relative to dirPath); nil accepts all. The
+// server uses it to hash only what git tracks in a KB (#1325), and it refuses a
+// symlink among them (kblinks.go).
 func contentHashDirTracked(dirPath, kind string, include func(rel string) bool) (string, error) {
 	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return effectiveExecutable(kind, path, executable)
@@ -880,10 +882,41 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 			continue
 		}
 
+		// A link refuses one artifact (or one kind's directory) and names it;
+		// every other artifact of the KB is built as usual (kblinks.go).
+		linkOut := func(what, link string) {
+			issue := kbLinkIssue(kbName, what, link)
+			issues = append(issues, issue)
+			if opts.SkillDiagnostic != nil {
+				opts.SkillDiagnostic(issue)
+			}
+		}
+		kindDirLinked := func(dir string) bool {
+			link, lerr := firstKBLink(kbRoot, dir)
+			if lerr != nil || link == "" {
+				return false
+			}
+			linkOut(dir+"/", link)
+			return true
+		}
+
 		// 2. Skill (skills/<name>/SKILL.md, several files per artifact). A KB with
 		// no skills/ folder or an unreadable directory: kbSkills is empty,
 		// silent skip (no fatal error).
-		kbSkills, loadErrs := skill.LoadAllSkills(kbRoot)
+		var kbSkills []skill.Skill
+		var loadErrs []error
+		if !kindDirLinked("skills") {
+			kbSkills, loadErrs = skill.LoadAllSkills(kbRoot)
+			// LoadAllSkills lists real directories only: a link in their place
+			// is named here instead of vanishing.
+			if linked, rerr := os.ReadDir(filepath.Join(kbRoot, "skills")); rerr == nil {
+				for _, e := range linked {
+					if e.Type()&fs.ModeSymlink != 0 && tracked.has("skills/"+e.Name()) {
+						linkOut("skill skills/"+e.Name(), "skills/"+e.Name())
+					}
+				}
+			}
+		}
 		var skillNames []string // the valid ones, for the brief instructions section (D1182)
 		for _, loadErr := range loadErrs {
 			// Previously discarded. An unreadable SKILL.md is not fatal — the
@@ -917,6 +950,12 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 			}
 			hash, err := contentHashDirTracked(skillDir, "skill", skillInclude)
 			if err != nil {
+				var linkErr *kbSymlinkError
+				if errors.As(err, &linkErr) {
+					skillNames = skillNames[:len(skillNames)-1]
+					linkOut("skill "+s.DirPath, s.DirPath+"/"+linkErr.rel)
+					continue
+				}
 				return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/%s: %w", kbName, s.Name, err)
 			}
 			artifacts = append(artifacts, Artifact{
@@ -933,7 +972,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// pre-D48 KBs, see kb.Init).
 		agentsDir := filepath.Join(kbRoot, "agents")
 		agentEntries, err := os.ReadDir(agentsDir)
-		if err == nil {
+		if err == nil && !kindDirLinked("agents") {
 			for _, e := range agentEntries {
 				if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 					continue
@@ -944,6 +983,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				}
 				if !validArtifactName(name) {
 					issues = append(issues, fmt.Sprintf("KB %q: agent %q excluded: not a valid artifact name", kbName, e.Name()))
+					continue
+				}
+				if e.Type()&fs.ModeSymlink != 0 {
+					linkOut("agent agents/"+e.Name(), "agents/"+e.Name())
 					continue
 				}
 				hash, err := contentHashFile(filepath.Join(agentsDir, e.Name()))
@@ -977,8 +1020,12 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// entirely in Apply, the only place that materializes.
 		hooksDir := filepath.Join(kbRoot, "hooks")
 		hookEntries, err := os.ReadDir(hooksDir)
-		if err == nil {
+		if err == nil && !kindDirLinked("hooks") {
 			for _, e := range hookEntries {
+				if e.Type()&fs.ModeSymlink != 0 && tracked.has("hooks/"+e.Name()) {
+					linkOut("hook hooks/"+e.Name(), "hooks/"+e.Name())
+					continue
+				}
 				if !e.IsDir() {
 					continue
 				}
@@ -992,6 +1039,11 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				}
 				hash, err := contentHashDirTracked(filepath.Join(hooksDir, name), "hook", tracked.under("hooks/"+name))
 				if err != nil {
+					var linkErr *kbSymlinkError
+					if errors.As(err, &linkErr) {
+						linkOut("hook hooks/"+name, "hooks/"+name+"/"+linkErr.rel)
+						continue
+					}
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/hooks/%s: %w", kbName, name, err)
 				}
 				artifacts = append(artifacts, Artifact{
@@ -1012,13 +1064,17 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// D114 signature remains independently verifiable.
 		mcpDir := filepath.Join(kbRoot, "mcp")
 		mcpEntries, err := os.ReadDir(mcpDir)
-		if err == nil {
+		if err == nil && !kindDirLinked("mcp") {
 			for _, e := range mcpEntries {
 				if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 					continue
 				}
 				name := strings.TrimSuffix(e.Name(), ".json")
 				if !tracked.has("mcp/" + e.Name()) {
+					continue
+				}
+				if e.Type()&fs.ModeSymlink != 0 {
+					linkOut("mcp mcp/"+e.Name(), "mcp/"+e.Name())
 					continue
 				}
 				mcpPath := filepath.Join(mcpDir, e.Name())
@@ -1434,6 +1490,9 @@ func readOpenedCapped(path string, lstat os.FileInfo) (data []byte, size int64, 
 // contentHashFile computes the versioned artifact hash of a single,
 // non-executable file (agents and MCP descriptors).
 func contentHashFile(path string) (string, error) {
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return "", &kbSymlinkError{rel: filepath.Base(path)}
+	}
 	data, size, err := ReadFileCapped(path)
 	if err != nil {
 		return "", fmt.Errorf("provisioning: read %s: %w", path, err)
@@ -5013,6 +5072,26 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 		return nil, err
 	}
 
+	// Nothing is read through a link: not the file, not a directory above it.
+	var artifactRel string
+	switch a.Kind {
+	case "agent":
+		artifactRel = "agents/" + a.Name + ".md"
+	case "mcp":
+		artifactRel = "mcp/" + a.Name + ".json"
+	case "hook":
+		artifactRel = "hooks/" + a.Name
+	default:
+		artifactRel = "skills/" + a.Name
+	}
+	link, linkErr := firstKBLink(kbRoot, artifactRel)
+	if linkErr != nil {
+		return nil, fmt.Errorf("provisioning: %s %s: %w", a.Kind, a.Name, linkErr)
+	}
+	if link != "" {
+		return nil, fmt.Errorf("provisioning: %s %s: %w", a.Kind, a.Name, &kbSymlinkError{rel: link})
+	}
+
 	switch a.Kind {
 	case "agent":
 		if !tracked.has("agents/" + a.Name + ".md") {
@@ -5059,6 +5138,18 @@ func readDirFiles(srcDir string, include func(rel string) bool) ([]ArtifactFile,
 	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			// A link is never read. One the include filter leaves out is not part
+			// of the artifact, so it is no reason to refuse it (kblinks.go).
+			rel, relErr := filepath.Rel(srcDir, path)
+			if relErr != nil {
+				return relErr
+			}
+			if path == srcDir || include == nil || include(filepath.ToSlash(rel)) {
+				return &kbSymlinkError{rel: filepath.ToSlash(rel)}
+			}
+			return nil
 		}
 		if d.IsDir() {
 			return nil

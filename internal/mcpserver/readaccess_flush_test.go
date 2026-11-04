@@ -153,14 +153,14 @@ func TestReadAccessSaveReportsAWriteFailure(t *testing.T) {
 	fixReadAccessClock(t, time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC))
 	l := newReadAccessLog(k)
 	l.record("ops/a")
-	// A directory where the temp file goes makes the write fail.
-	if err := os.MkdirAll(l.path+".tmp", 0o755); err != nil {
+	// A directory in place of the log makes the write fail.
+	if err := os.MkdirAll(l.path, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := l.save(); err == nil {
 		t.Fatal("save swallowed the write failure")
 	}
-	if err := os.Remove(l.path + ".tmp"); err != nil {
+	if err := os.Remove(l.path); err != nil {
 		t.Fatal(err)
 	}
 	if err := l.save(); err != nil {

@@ -53,7 +53,13 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each
   client syncs again `kb_status.usage` is `no_data` (with `no_report_since`, the
   start time, D333) and no artifact reads as stale. Keep `.cartographer/` on
-  the KB's persistent volume when that signal matters.
+  the KB's persistent volume when that signal matters. The server's own state
+  files there (`read-access.json`, `search-misses.jsonl`, `lint-history.jsonl`,
+  the auto-repair log) are read and written only when `.cartographer/` and the
+  file are not symlinks: a KB comes from a remote and git stores links, so with
+  a link in either place the record is dropped and nothing is ever written
+  through it. A file is replaced through a temporary with a random name
+  beside it, never a fixed one.
 
 The audit log is always on (D905): MCP tool execution appends an attempt+completion event
 pair per call to `<data>/audit/audit.log`, or to `audit.log` when it is set, so the file is a complete

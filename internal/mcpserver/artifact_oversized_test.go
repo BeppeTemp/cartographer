@@ -13,7 +13,7 @@ import (
 )
 
 // oversizedKB has a skill "x" with a valid SKILL.md and a file one byte over
-// the artifact file cap, a symlink beside it, and a small skill "ok".
+// the artifact file cap, a small skill "ok", and, with a symlink, a skill "linked" that holds one (left out whole).
 func oversizedKB(t *testing.T, withSymlink bool) *Server {
 	t.Helper()
 	k := setupTestKB(t)
@@ -35,11 +35,12 @@ func oversizedKB(t *testing.T, withSymlink bool) *Server {
 	write("skills/x/big.bin", make([]byte, artifactMaxFileSize+1))
 	write("skills/ok/SKILL.md", skill("ok"))
 	if withSymlink {
+		write("skills/linked/SKILL.md", skill("linked"))
 		outside := filepath.Join(t.TempDir(), "secret.txt")
 		if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(outside, filepath.Join(k.Root, "skills", "ok", "link.txt")); err != nil {
+		if err := os.Symlink(outside, filepath.Join(k.Root, "skills", "linked", "link.txt")); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 	}
@@ -194,7 +195,7 @@ func TestSymlinkedSingleFileArtifactsDoNotBreakTheKB(t *testing.T) {
 		}
 	}
 	text, _ := callJSON(t, s, adminCtx, "sync_pull", `{}`)
-	if !strings.Contains(text, "left out: not a regular file") {
+	if !strings.Contains(text, "symlink at") {
 		t.Errorf("no issue for the symlinked artifacts: %.400s", text)
 	}
 }

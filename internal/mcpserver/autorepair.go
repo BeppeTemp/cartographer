@@ -153,11 +153,8 @@ func appendAutoRepairRun(k *kb.KB, run autoRepairRun) error {
 	mu, _ := autoRepairLogLocks.LoadOrStore(p, &sync.Mutex{})
 	mu.(*sync.Mutex).Lock()
 	defer mu.(*sync.Mutex).Unlock()
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := ensureLocalStateDir(p); err != nil { // never write through a symlink (D148)
 		return err
-	}
-	if fi, err := os.Lstat(p); err == nil && !fi.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", p) // never write through a symlink (D148)
 	}
 	now, err := time.Parse(time.RFC3339, run.At)
 	if err != nil {
@@ -248,6 +245,9 @@ func rewriteAutoRepairLog(p string, lines [][]byte) error {
 // at most limit of them. A line that does not parse is skipped.
 func autoRepairRunsSince(k *kb.KB, since time.Time, limit int) []autoRepairRun {
 	out := []autoRepairRun{}
+	if checkLocalStatePath(autoRepairLogPath(k)) != nil {
+		return out
+	}
 	f, err := os.Open(autoRepairLogPath(k))
 	if err != nil {
 		return out
@@ -275,6 +275,9 @@ func autoRepairRunsSince(k *kb.KB, since time.Time, limit int) []autoRepairRun {
 
 // lastAutoRepairRun returns the newest run in the log, or false.
 func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
+	if checkLocalStatePath(autoRepairLogPath(k)) != nil {
+		return autoRepairRun{}, false
+	}
 	f, err := os.Open(autoRepairLogPath(k))
 	if err != nil {
 		return autoRepairRun{}, false

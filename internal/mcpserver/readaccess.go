@@ -298,15 +298,7 @@ func (l *readAccessLog) write(data []byte, seq uint64) error {
 }
 
 func (l *readAccessLog) writeFile(data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
-		return err
-	}
-	tmp := l.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, l.path); err != nil {
-		_ = os.Remove(tmp)
+	if err := writeLocalStateFile(l.path, data); err != nil {
 		return err
 	}
 	return nil
@@ -326,6 +318,9 @@ func formatTimes(m map[string]time.Time) map[string]string {
 // and an entry in it may be a hit nobody opened. Its entries become surfaced
 // and reads start over from now, so none of them is ever taken for a read.
 func (l *readAccessLog) load() {
+	if checkLocalStatePath(l.path) != nil {
+		return
+	}
 	data, err := os.ReadFile(l.path)
 	if err != nil {
 		return

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -111,13 +110,10 @@ func (l *searchMissLog) record(query string) {
 func (l *searchMissLog) append(m searchMiss) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
+	// Never append through a symlink, the file or its directory: it would
+	// write into whatever it points at (D148).
+	if err := ensureLocalStateDir(l.path); err != nil {
 		return err
-	}
-	// Never append through a symlink: it would write into whatever it points
-	// at (D148).
-	if info, err := os.Lstat(l.path); err == nil && info.Mode()&fs.ModeSymlink != 0 {
-		return fmt.Errorf("%s is a symlink, refusing to write through it", l.path)
 	}
 	if l.lines < 0 {
 		entries, err := l.readLocked()
@@ -161,12 +157,7 @@ func (l *searchMissLog) trimLocked() error {
 		b.Write(line)
 		b.WriteByte('\n')
 	}
-	tmp := l.path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, l.path); err != nil {
-		os.Remove(tmp)
+	if err := writeLocalStateFile(l.path, []byte(b.String())); err != nil {
 		return err
 	}
 	l.lines = len(entries)
@@ -176,6 +167,9 @@ func (l *searchMissLog) trimLocked() error {
 // readLocked returns the log's entries, skipping lines that do not parse. A
 // missing file is an empty log.
 func (l *searchMissLog) readLocked() ([]searchMiss, error) {
+	if err := checkLocalStatePath(l.path); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(l.path)
 	if os.IsNotExist(err) {
 		return nil, nil
