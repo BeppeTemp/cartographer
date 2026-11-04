@@ -10,7 +10,7 @@ design from the implementation and hands it over in an issue; a live session
 keeps them together, because the user decides by seeing the result, and always
 ends in one PR that lands in the release changelog (§The record). The rules
 of the repository do not change: `main` is protected, one PR, `make gate`,
-docs and decision in the same PR (`AGENTS.md`, `CONTRIBUTING.md` §Pull requests).
+docs and decision in the same PR (`AGENTS.md`, `CONTRIBUTING.md` §Pull requests). `make gate` is the check; a maintainer pushes with `make signoff`.
 
 Choose it when the result can only be judged on the instance. If the change
 can be written down completely before it is built, write a plan instead.
@@ -103,7 +103,7 @@ file; cite no `D<n>` in code or docs before the PR has its number.
 ## 3 — Close
 
 1. Agree the scope with the user: what is in this PR, what becomes an `idea` or a `bug` issue.
-   Only then open the PR, as a draft: `git push -u origin feat/<slug>` + `gh pr create --draft`.
+   Check the cap (at most 4 open maintainer PRs) and that no open PR is a dependency (`CONTRIBUTING.md` §Pull requests). Only then open the PR, as a draft: `make signoff` + `gh pr create --draft`.
    Its number is the decision number (D672): `make decisions-new N=<pr> SLUG=<slug> TOPIC=<topic>`,
    never guessed from the issue and PR lists (another session can take it first, D703).
 2. Closing mandate to one `cartographer-live-implementer` (or yourself): the docs named in
@@ -120,7 +120,7 @@ file; cite no `D<n>` in code or docs before the PR has its number.
 4. Before the merge, as in `cartographer-implement-plan` §4: `git fetch <upstream>` (the `upstream` remote when it exists, else `origin`), rebase on
    `<upstream>/main` in the worktree (a conflict in `internal/webui/dist/` → take
    `main`'s side, then `make web`; any other non-append conflict → stop and ask),
-   the full `make gate` on the rebased tree, `git push --force-with-lease`.
+   the rebased tree is pushed with `make signoff` (the full gate, the push with a lease, the attestation).
 5. Write the record (below), then `gh pr ready`. Contributor mode stops here: the maintainer merges. Maintainer mode merges only on the user's
    decision, and not in the release freeze. **Freeze** (D1384): run `GH_REPO=$(scripts/upstream-repo.sh) scripts/freeze-open.sh` (needs `GH_TOKEN`); exit 0 = open (a release candidate newer than the latest stable release exists): a PR whose title type is `feat`, `perf` or `refactor`, or that is breaking (`!:` or a `BREAKING CHANGE` footer), is not merged and gets no auto-merge: say it waits until the release (or the candidate's `discard`). Other types are unaffected. Otherwise `gh pr merge --squash --delete-branch --auto` merges once the
    required checks are green; confirm with `gh pr view <pr> --json state`. A

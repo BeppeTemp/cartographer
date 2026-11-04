@@ -35,7 +35,7 @@ failure to read it, is **contributor mode**. State the mode to the user in one l
 ## Preconditions
 
 - `main` is protected: every plan lands via its own PR, squash-merge, CI green. No direct pushes.
-- Merging a self-authored PR and `git push --force-with-lease` require an explicit user decision or a standing approval (the user's own Claude Code permission settings, e.g. `Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`, or `.claude/settings.local.json`). **Never work around the approval gate** — surface it and let the user choose.
+- Merging a self-authored PR and `make signoff` (which pushes with `--force-with-lease`) require an explicit user decision or a standing approval (the user's own Claude Code permission settings, e.g. `Bash(gh pr merge *)`, `Bash(make signoff*)`, or `.claude/settings.local.json`). **Never work around the approval gate** — surface it and let the user choose.
 
 ## 0 — Keep the coordinator cheap
 
@@ -45,7 +45,7 @@ state; the plans are read by the subagents that implement them.
 
 - **Ask once, up front**, in a single question: the wave plan, plus a standing
   approval for self-merge (squash on green CI after the §3 read) and
-  `--force-with-lease` on `feat/*` for the session. Then run without
+  `make signoff` on `feat/*` for the session. Then run without
   per-PR check-ins, stopping only at the §Explicit gates that remain.
 - **Never read a whole plan** for wave planning: extract only what the
   graph needs (step 2 below).
@@ -64,12 +64,13 @@ state; the plans are read by the subagents that implement them.
 ## 1 — Wave planning (coordinator)
 
 1. Collect the plan files the user gave.
-2. Extract, per plan, only the **execution order** paragraph and the **file-set**:
+2. Extract, per plan, only the **execution order** paragraph, the **`## PRs`** section and the **file-set**:
 
    ```bash
    for f in <plan files>; do
      echo "=== $f"
      grep -iA5 -m2 'execution order\|cross-plan' "$f"
+     sed -n '/^## PRs/,/^## /p' "$f"
      echo "FILES: $(grep -oE '(internal|cmd|docs|web|scripts|\.github|\.claude)/[A-Za-z0-9_./-]+\.(go|md|ts|tsx|sh|yml)' "$f" | grep -v decisions/ | sort -u | tr '\n' ' ')"
    done
    ```
@@ -81,12 +82,12 @@ state; the plans are read by the subagents that implement them.
    - **Hard code dependency** — a plan uses code a sibling introduces (a new client method, a new helper). These form **strictly sequential chains**: never start a plan before its predecessor is on `main`.
    - **Shared file** — plans touching the same code or the same current-state page can conflict at merge. A decision is not a shared file: one decision is one `docs/decisions/D<n>-<slug>.md`, so two plans adding two decisions never conflict there. The **generated index** is the exception: it is regenerated, not merged (see §4).
 4. Plans that share a **hot file** (one touched by three or more plans, e.g. `internal/lint/lint.go` or `internal/mcpserver/conformance.go`) go in **one sequential chain**, not in parallel waves: each rebase there is a real conflict, and resolving it costs more than the time saved.
-5. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One plan = one PR.
+5. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One PR per entry of the plan's `## PRs` section. Waves respect the cap of 4 open maintainer PRs (count them as `CONTRIBUTING.md` §Pull requests says); entries of one plan that depend on each other run as a chain, the next one only after the previous PR is merged.
 6. State the wave plan to the user before spawning (spawning N subagents and opening N public PRs is outward-facing).
 
 ## 2 — Delegate each plan to a coding subagent
 
-One plan → one coding subagent → one worktree. **No client gives isolation for
+One PR entry of a plan → one coding subagent → one worktree; the spawn prompt names the entry and the mandate implements the WPs of that entry only. **No client gives isolation for
 free**: every one of them shares the filesystem with its own subagents, so the
 coordinator creates the worktree first and puts its absolute path in the
 mandate.
@@ -116,12 +117,12 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the decision file `docs/decisions/D<pr>-<slug>.md` (`make decisions-new`); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
 - `make gate` green — iterate until it is.
 - One commit for the implementation on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it; its scope is one `scripts/pr-triage.sh --title-scopes` prints, or none), Co-Authored-By trailer. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
-- `git push -u origin feat/<slug>` + `gh pr create` with `Closes #<n>` for an issue the plan names and this PR finishes, `Refs #<n>` for one a later PR finishes, and `--draft` when the plan names a decision file: the PR number is its `<n>`, so that file is a second commit, then `gh pr ready <pr>`.
+- `make signoff` (it replaces `git push -u origin feat/<slug>`: it runs the gate, pushes, sets the upstream and attests the sha) + `gh pr create` with `Closes #<n>` for an issue the plan names and this PR finishes, `Refs #<n>` for one a later PR finishes, and `--draft` when the plan names a decision file: the PR number is its `<n>`, so that file is a second commit, pushed with `make signoff` again, then `gh pr ready <pr>`.
   The PR body, commit messages and any test fixture carry placeholder names only —
   never a KB, host, user or project from a real setup (D259, `AGENTS.md`).
   Leave the `## Self-review` section as "pending review": the coordinator writes
   it after the last round (§3).
-- Report `git diff --stat` vs main, the `make gate` outcome, and the PR URL.
+- Report `git diff --stat` vs main, the `make gate` and `make signoff` outcomes, and the PR URL.
 
 ## 3 — Review (coordinator GATE — never skip)
 
@@ -165,8 +166,8 @@ file-sets overlap:
    `internal/webui/dist/`: take `origin/main`'s side, then `make web`. Any other conflict that is not a
    clean append — real code or current-state prose divergence — → **STOP** and
    surface it to the user.
-3. `git rebase --continue`, then the **full** `make -C .worktrees/<slug> gate` on the rebased tree, then `git push --force-with-lease`. Rebase onto the `main` that already holds the previous merges even when GitHub says the PR is mergeable: two PRs that each pass alone can fail together — a whole-catalogue budget (D285), a duplicate decision number — and only the combined tree shows it. The local gate (~2 min) catches that before it breaks `main` (D328).
-4. **Freeze** (D1384): run `GH_REPO=$(scripts/upstream-repo.sh) scripts/freeze-open.sh` (needs `GH_TOKEN`); exit 0 = open (a release candidate newer than the latest stable release exists): a PR whose title type is `feat`, `perf` or `refactor`, or that is breaking (`!:` or a `BREAKING CHANGE` footer), is not merged and gets no auto-merge: say it waits until the release (or the candidate's `discard`). Other types are unaffected. Otherwise `gh pr merge <pr> --squash --delete-branch --auto` right after the push: GitHub merges it when the required checks pass (D329), with no wait loop on this side. Check `gh pr view <pr> --json state` before the next plan's rebase; a check that fails leaves the PR open (read it through `cartographer-source-reader`, as in §3), and auto-merge is cancelled by any later push.
+3. `git rebase --continue`, then `make -C .worktrees/<slug> signoff` on the rebased tree (the full gate, the push with a lease and the attestation in one). Rebase onto the `main` that already holds the previous merges even when GitHub says the PR is mergeable: two PRs that each pass alone can fail together — a whole-catalogue budget (D285), a duplicate decision number — and only the combined tree shows it. The local gate (~2 min) catches that before it breaks `main` (D328).
+4. **Freeze** (D1384): run `GH_REPO=$(scripts/upstream-repo.sh) scripts/freeze-open.sh` (needs `GH_TOKEN`); exit 0 = open (a release candidate newer than the latest stable release exists): a PR whose title type is `feat`, `perf` or `refactor`, or that is breaking (`!:` or a `BREAKING CHANGE` footer), is not merged and gets no auto-merge: say it waits until the release (or the candidate's `discard`). Other types are unaffected. Otherwise `gh pr merge <pr> --squash --delete-branch --auto` right after `make signoff`: GitHub merges it when the required checks pass (D329), with no wait loop on this side. Check `gh pr view <pr> --json state` before the next plan's rebase; a check that fails leaves the PR open (read it through `cartographer-source-reader`, as in §3), and auto-merge is cancelled by any later push.
 5. `git checkout main && git pull --ff-only` in the main working copy, then
    `make worktree-rm SLUG=<slug>`.
 
@@ -180,6 +181,6 @@ stale-vs-`main` (per `CONTRIBUTING.md`: stop and tell the user rather than guess
 
 - **Review** of every PR (§3).
 - **Non-append conflicts** during rebase — hand back to the user.
-- **Self-merge / force-push** — act only on an explicit user decision or a standing approval.
+- **Self-merge / `make signoff`** — act only on an explicit user decision or a standing approval.
 - **Supply-chain files** (`SUPPLY_CHAIN` in `scripts/pr-triage.sh`: CI workflows, installers, the release pipeline, bundled skills, agent-instruction files, the Makefile, `scripts/`) — the user reads those hunks and decides that merge; a standing approval does not cover it.
 - **`make worktree-rm`** — it runs `git worktree remove --force`, which discards uncommitted work: confirm the PR is merged and the slug is the right one first.

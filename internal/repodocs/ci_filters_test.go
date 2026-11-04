@@ -148,6 +148,7 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		"fmt": true, "hero": true, "web": true, "worktree-add": true, "worktree-rm": true, "worktree-clean": true,
 		"decisions-index": true, "decisions-new": true, "changelog-areas": true, "codemap": true,
 		"settings-example": true, "demo-kb": true, "demo-image": true,
+		"signoff": true, "signoff-platform": true, "web-gate": true,
 		// The docker job builds with buildx (layer cache in the GitHub cache) and
 		// runs test/smoke/image.sh itself; these two are the same checks by hand.
 		"docker": true, "docker-smoke": true,

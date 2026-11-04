@@ -5,8 +5,8 @@
 #   - vulncheck: govulncheck (Go) and npm audit (web/ production dependencies).
 #   - workflows: actionlint and zizmor over .github/workflows.
 #
-# CodeQL lives in codeql.yml: it also runs on a PR that touches code, while
-# these scans run on a PR only when the dependency graph or the workflows change.
+# CodeQL lives in codeql.yml: it runs on main, weekly and on demand, not on a PR,
+# while these scans run on a PR when the dependency graph or the workflows change.
 #
 name: security
 
@@ -25,9 +25,10 @@ on:
     - cron: "17 3 * * 0"
   workflow_dispatch:
 
+# Only a PR's run is superseded; runs on main coalesce (one running, the newest pending).
 concurrency:
   group: security-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

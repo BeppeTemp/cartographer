@@ -30,9 +30,10 @@ on:
   workflow_dispatch:
 
 # A newer push to a PR supersedes the older build. Never on push to main (it
-# deploys Pages) or workflow_dispatch: those get their own group per sha.
+# deploys Pages): runs on main coalesce, one running and the newest pending.
+# workflow_dispatch gets its own group per sha.
 concurrency:
-  group: docs-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: docs-${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

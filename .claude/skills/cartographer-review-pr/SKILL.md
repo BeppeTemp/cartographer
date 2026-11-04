@@ -61,7 +61,8 @@ About 15 lines: size split into production, tests, docs and generated; areas;
 
 Any `BLOCK` line ends the review here, with one comment that names it:
 
-- **red CI** — nothing to review yet. On a contributor's PR that is the whole
+- **red CI** — nothing to review yet. On a maintainer's PR a red `gate` with no `signoff`
+  status means `make signoff` has not run on this head: run it, do not re-run the job in the Actions UI. On a contributor's PR that is the whole
   comment; on your own PR, spawn `cartographer-source-reader` with the PR number and fix from its
   digest instead of opening the log;
 - **over the size cap** without a `Size exception:` line — ask for a split by

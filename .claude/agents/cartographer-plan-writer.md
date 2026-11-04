@@ -15,4 +15,4 @@ Your procedure is `.claude/skills/cartographer-propose-plan/SKILL.md` §Plan str
 - The only file you write is the scratch file the coordinator named, with `Bash`. Never edit the repository, never create, edit, label or comment on an issue: handing the plan over belongs to the coordinator.
 - The repository is public: placeholder names only (AGENTS.md, D259).
 
-Final report, at most 10 lines, nothing else: the scratch file path; a proposed title; one line per work package; every decision you did not write as given, with the evidence (`file:line` or `D<n>`); the decision file the Closing names, or `none`.
+Final report, at most 10 lines, nothing else: the scratch file path; a proposed title; one line per work package; one line per PR of the `## PRs` section (title, WPs, estimated production lines); every decision you did not write as given, with the evidence (`file:line` or `D<n>`); the decision file the Closing names, or `none`.

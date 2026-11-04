@@ -1,6 +1,7 @@
 # CodeQL for Go, JavaScript/TypeScript and the workflows (D1020). Not a required
-# check. It is a workflow of its own because it runs on a PR that touches code,
-# while security.yml scans a PR only when the dependency graph changes.
+# check, and not run on a PR: it runs on push to main, weekly and on demand
+# (a maintainer's PR is gated locally by `make signoff`). security.yml scans a PR
+# when the dependency graph or the workflows change.
 #
 # This replaces GitHub's "default setup": keep the default setup disabled in
 # Settings -> Code security, or the two upload the same analysis twice.
@@ -9,30 +10,20 @@ name: codeql
 on:
   push:
     branches: [main]
-  pull_request:
-    paths:
-      - "**/*.go"
-      - go.mod
-      - go.sum
-      - web/src/**
-      - .github/workflows/**
-      - .github/codeql/**
   schedule:
     - cron: "17 3 * * 0"
   workflow_dispatch:
 
+# Runs on main coalesce: the running one finishes, the newest pending one follows.
 concurrency:
   group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  # Fork PRs get a read-only token: they cannot upload SARIF, so they skip this
-  # job; the push to main and the weekly run still analyse the merged code.
   codeql:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read

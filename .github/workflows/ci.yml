@@ -14,22 +14,26 @@ on:
 permissions:
   contents: read
 
-# A new push to a PR supersedes the run in flight. Runs on main are never
-# cancelled: each merge gets its own record, so on push the group is the commit.
-# A group keeps at most one pending run, and a shared `main` group dropped the
-# middle one of three quick merges. A merge_group run is keyed by its own commit
-# too and is never cancelled: GitHub supersedes a stale group itself, and
-# cancelling one here would eject the PRs queued in it.
+# A new push to a PR supersedes the run in flight. Runs on main coalesce: one
+# running and the newest pending, because a group keeps at most one pending run
+# and replaces an older one without cancelling the running one; `main-status`
+# then names the range since the last green commit. A merge_group and a manual
+# run are keyed by their own commit and never cancelled: GitHub supersedes a
+# stale merge group itself, and cancelling one here would eject the PRs queued in it.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ci-${{ (github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch') && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # On main every job runs, and a red main opens (or updates) a `ci-red` issue.
-# A PR runs the light checks only: `test`, `web` (when the frontend changed) and
-# the two PR-title workflows. The heavy legs (Windows, macOS, docker, demo-edge)
-# run on push to main, on workflow_dispatch and on `merge_group` (D1592): the
-# account runs about five jobs at a time and twenty per PR was the bottleneck.
-# A Windows- or macOS-only break is caught on main and tracked by `ci-red`.
+# A contributor's PR runs the light checks: `test`, the web legs (when the
+# frontend changed) and the two PR-title workflows. A maintainer's PR is gated
+# locally by `make signoff` and runs only `changes` and `gate`, which looks for
+# the signoff status of its head sha. `gate` is the one required CI check: the
+# `test-windows` and `web` aggregators no longer run on a PR. The heavy legs
+# (Windows, macOS, docker, demo-edge) run on push to main, on workflow_dispatch
+# and on `merge_group` (D1592): the account runs about five jobs at a time and
+# twenty per PR was the bottleneck. A Windows- or macOS-only break is caught on
+# main and tracked by `ci-red`.
 jobs:
   # Which of the slower jobs this PR needs: `web` and `forge` only, the other
   # outputs stay in the table pinned by a test but no PR job reads them (the
@@ -66,8 +70,19 @@ jobs:
           printf '%s\n' "$files"
           printf '%s\n' "$files" | scripts/ci-filters.sh "$HEAD_REF" >> "$GITHUB_OUTPUT"
 
+  # Not run on a maintainer's PR: `make signoff` ran the gate before the push and
+  # `gate` below checks its status. A maintainer is GitHub's author_association
+  # (a PR cannot forge it), not a bot, and not the release PR, which the
+  # maintainer's token opens and which must be tested.
   test:
     name: test
+    if: >-
+      github.event_name != 'pull_request' ||
+      !((github.event.pull_request.author_association == 'OWNER' ||
+         github.event.pull_request.author_association == 'MEMBER' ||
+         github.event.pull_request.author_association == 'COLLABORATOR') &&
+        github.event.pull_request.user.type != 'Bot' &&
+        !startsWith(github.head_ref, 'release-please--'))
     runs-on: ubuntu-latest
     env:
       # Feature PRs leave docs/decisions.md alone; the release PR regenerates
@@ -175,15 +190,13 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }
 
-  # The required check. main's branch protection requires checks named
-  # literally `test-windows` and `web`, and a matrix renames its legs, which
-  # would silently un-protect the branch: one job per required name collects
-  # its legs. Legs skipped by design (every PR, D1592) pass it; in the merge
-  # queue a skipped leg is a defect and fails it.
+  # Collects the Windows legs for `main-status`; not a required check any more
+  # (`gate` is) and not run on a PR. Kept as one job because a matrix renames
+  # its legs. In the merge queue a skipped leg is a defect and fails it.
   test-windows:
     name: test-windows
     needs: [test-windows-shard, test-windows-install]
-    if: "!cancelled()"
+    if: "!cancelled() && github.event_name != 'pull_request'"
     runs-on: ubuntu-latest
     steps:
       - env:
@@ -204,16 +217,25 @@ jobs:
   # frontend and runs its tests, and it only needs to run when the frontend
   # changed (the `changes` job decides), and after every merge on main, so a
   # browser regression is seen on the merge that caused it (D672). It is a
-  # required check: a red `web` blocks the merge like a red `test`.
+  # collected by `gate`: a red leg blocks a contributor's PR like a red `test`.
   #
-  # Two legs, collected by the required `web` job below: the @video test (the
+  # Two legs, collected by `gate` (and by `web` on main): the @video test (the
   # growth replay's export, about two minutes of software rendering) was half
   # the browser suite, so it runs beside the rest, together with the unit
   # tests and the bundle checks, instead of after them (D785).
   web-leg:
     name: web (${{ matrix.leg }})
     needs: changes
-    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true')"
+    # The same maintainer exclusion as `test`.
+    if: >-
+      !cancelled() &&
+      (needs.changes.result != 'success' || needs.changes.outputs.web == 'true') &&
+      (github.event_name != 'pull_request' ||
+      !((github.event.pull_request.author_association == 'OWNER' ||
+         github.event.pull_request.author_association == 'MEMBER' ||
+         github.event.pull_request.author_association == 'COLLABORATOR') &&
+        github.event.pull_request.user.type != 'Bot' &&
+        !startsWith(github.head_ref, 'release-please--')))
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -263,10 +285,11 @@ jobs:
         run: cd web && npx playwright install-deps chromium
       - run: make e2e-web NPM_CI= E2E_WEB_ARGS="${{ matrix.grep }}"
 
+  # Collects the web legs for `main-status`; not run on a PR (`gate` reads the legs).
   web:
     name: web
     needs: web-leg
-    if: "!cancelled()"
+    if: "!cancelled() && github.event_name != 'pull_request'"
     runs-on: ubuntu-latest
     steps:
       - env:
@@ -277,6 +300,38 @@ jobs:
           case "$RESULT" in failure|cancelled) exit 1 ;; esac
           # Skipped by `changes` on a PR is by design; on merge_group every leg runs.
           if [ "$EVENT" = merge_group ] && [ "$RESULT" = skipped ]; then exit 1; fi
+
+  # The required check, and the only required CI job (with `pr-title` and
+  # `plan-gate`). On a maintainer's PR it passes iff a maintainer's `signoff`
+  # status exists on the head sha (scripts/ci-gate.sh); elsewhere it collects
+  # `test` and the web legs.
+  #
+  # **Never add an `if` that can skip this job, on any event or at any level.** A
+  # job skipped by `if:` reports as passed, and a skipped required check is a
+  # hole (D1592). The only condition is `!cancelled()`.
+  gate:
+    name: gate
+    needs: [changes, test, web-leg]
+    if: "!cancelled()"
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          TEST_RESULT: ${{ needs.test.result }}
+          WEB_RESULT: ${{ needs.web-leg.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          CHANGES_WEB: ${{ needs.changes.outputs.web }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: scripts/ci-gate.sh
 
   # The demo Worker (Node only) and the demo's Terraform: a Worker change used
   # to ride the web video leg and a deploy/demo-only PR skipped it. Not a
@@ -443,6 +498,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      actions: read
     steps:
       - env:
           GH_TOKEN: ${{ github.token }}
@@ -453,7 +509,15 @@ jobs:
         run: |
           open=$(gh issue list -R "$REPO" --label ci-red --state open --json number -q '.[0].number')
           if [ "$RED" = true ]; then
-            body="CI failed on main at $SHA: $RUN"
+            # Runs on main coalesce, so $SHA is not necessarily the commit that
+            # broke: name the range since the newest green push run instead.
+            green=$(gh run list -R "$REPO" --workflow ci.yml --branch main --event push --status success --limit 1 --json headSha -q '.[0].headSha // empty')
+            if [ -n "$green" ]; then
+              since="commits since the last green run: https://github.com/$REPO/compare/$green...$SHA"
+            else
+              since="no earlier green run found"
+            fi
+            body="CI failed on main at $SHA ($since): $RUN"
             if [ -n "$open" ]; then
               gh issue comment "$open" -R "$REPO" -b "$body"
             else
