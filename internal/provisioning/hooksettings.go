@@ -10,6 +10,7 @@
 package provisioning
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -289,11 +290,38 @@ func resolveHookCommand(command, hookDirAbs string) string {
 	if !isAbsCommandPath(bin) && !strings.HasPrefix(bin, "$") && strings.ContainsAny(bin, `/\`) {
 		bin = filepath.Join(hookDirAbs, bin)
 	}
-	if strings.ContainsAny(bin, " \t") {
-		bin = `"` + bin + `"`
-	}
+	bin = quoteHookBin(bin, hookHostWindows)
 	if hasRest {
 		return bin + " " + rest
+	}
+	return bin
+}
+
+// quoteHookBin quotes the executable token of a hook command. On a POSIX host
+// the token is single-quoted (an apostrophe becomes '\”) whenever it holds a
+// character outside [A-Za-z0-9_./:@%+=,-] (or a backslash, a Windows spelling kept as declared): inside double quotes `$`, a
+// backtick and `\` still expand, and an unquoted `&` or apostrophe breaks the
+// line. A `$VAR`-led token is the shell's to expand and is only double-quoted
+// when it holds a space. On Windows the host's shells take double quotes, and
+// only a space asks for them. unquoteHookToken undoes both forms, so
+// resolving twice gives the same string.
+func quoteHookBin(bin string, windows bool) string {
+	if windows || strings.HasPrefix(bin, "$") {
+		if strings.ContainsAny(bin, " \t") {
+			return `"` + bin + `"`
+		}
+		return bin
+	}
+	for _, r := range bin {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("_./:@%+=,-", r):
+		case r == '\\':
+			// A Windows-spelled path declared in hook.json: left as it was
+			// registered before this rule, so it does not churn.
+		default:
+			return `'` + strings.ReplaceAll(bin, `'`, `'\''`) + `'`
+		}
 	}
 	return bin
 }
@@ -303,6 +331,21 @@ func resolveHookCommand(command, hookDirAbs string) string {
 // a double quote, in which case it ends at the closing quote — that is the case
 // resolveHookCommand's own previous output falls into.
 func splitHookCommand(command string) (bin, rest string, hasRest bool) {
+	if strings.HasPrefix(command, `'`) {
+		// A single-quoted token ends at the first quote that is not the middle
+		// of an escaped apostrophe ('\'').
+		for i := 1; i < len(command); i++ {
+			if command[i] != '\'' {
+				continue
+			}
+			if strings.HasPrefix(command[i:], `'\''`) {
+				i += 3
+				continue
+			}
+			bin, rest = command[:i+1], strings.TrimPrefix(command[i+1:], " ")
+			return bin, rest, rest != ""
+		}
+	}
 	if strings.HasPrefix(command, `"`) {
 		if end := strings.Index(command[1:], `"`); end >= 0 {
 			bin, rest = command[:end+2], strings.TrimPrefix(command[end+2:], " ")
@@ -605,6 +648,22 @@ func registerCodexHook(baseDir, hookName, fullDestDir string) (string, bool, err
 	return migration, true, nil
 }
 
+// fileNamesHook reports whether the file at path mentions hookName at all, from
+// its raw bytes: a remover asks it before parsing, so a file that is not ours
+// to edit (a comment, a trailing comma) never fails a prune or a disconnect
+// that has nothing to remove from it (as removeHookEntries does for Claude).
+// A missing file names nothing. JSON may escape separators, never the name.
+func fileNamesHook(path, hookName string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("provisioning: read %s: %w", path, err)
+	}
+	return strings.Contains(string(data), hookName), nil
+}
+
 // removeCodexHook strips hookName's entry from <baseDir>/.codex/hooks.json and any
 // legacy config.toml registration of it — the inverse of registerCodexHook, called
 // from PruneManaged's prune path. No-op, with no write, when neither holds one.
@@ -613,6 +672,9 @@ func removeCodexHook(baseDir, hookName string) error {
 		return err
 	}
 	path := codexHooksPath(baseDir)
+	if names, err := fileNamesHook(path, hookName); err != nil || !names {
+		return err
+	}
 	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return err
@@ -780,6 +842,9 @@ func antigravityHooksPath(baseDir, hookRel string) string {
 // anybody's. One that still holds another entry is only rewritten.
 func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 	path := antigravityHooksPath(baseDir, hookRel)
+	if names, err := fileNamesHook(path, hookName); err != nil || !names {
+		return err
+	}
 	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return err
@@ -910,7 +975,7 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 		warning = fmt.Sprintf("hook %q: "+openCodeVersionUnreadableMarker+" (opencode --version), plugin written for OpenCode %d.x; run cartographer sync once the opencode command is on PATH if this client is another major", hookName, shape)
 	}
 	var content string
-	if hookName == WriteFindingsHookName && major >= 2 {
+	if hookName == WriteFindingsHookName && shape >= 2 {
 		content = generateOpenCodeWriteFindingsPlugin(command)
 	} else {
 		content = generateOpenCodePlugin(hookName, spec, mapping, command, shape)
@@ -1018,8 +1083,10 @@ func generateOpenCodeWriteFindingsPlugin(command string) string {
 //
 // command is already fully resolved (resolveHookCommand): an absolute path (or
 // a "$VAR"-prefixed one) plus any verbatim trailing arguments, run via
-// `sh -c <command>` — Bun's $ shell tag quotes the whole interpolated string
-// as a single argument to `sh -c`, so the command line is interpreted by the
+// `sh -c <command>` — the command is bound to a JS const (never pasted into the
+// template literal, where a backtick or `${` would be read by JS) and Bun's $
+// shell tag quotes the whole interpolated value as a single argument to
+// `sh -c`, so the command line is interpreted by the
 // shell exactly as Claude Code/Codex would run it natively, not word-split by
 // $ itself.
 //
@@ -1074,7 +1141,8 @@ func generateOpenCodePlugin(hookName string, spec hookSpec, mapping openCodeMapp
 		sb.WriteString("  return {\n")
 		fmt.Fprintf(&sb, "    %s: async (input, output) => {\n", mustJSONKey(hookKey))
 		sb.WriteString("      if (!cartographerMatches(input.tool)) return\n")
-		fmt.Fprintf(&sb, "      await $`sh -c %s`\n", commandLit)
+		fmt.Fprintf(&sb, "      const command = %s\n", commandLit)
+		sb.WriteString("      await $`sh -c ${command}`\n")
 		sb.WriteString("    },\n")
 		sb.WriteString("  }\n")
 		sb.WriteString("}\n")
@@ -1084,7 +1152,8 @@ func generateOpenCodePlugin(hookName string, spec hookSpec, mapping openCodeMapp
 		sb.WriteString("  return {\n")
 		sb.WriteString("    event: async ({ event }) => {\n")
 		fmt.Fprintf(&sb, "      if (event.type !== %s) return\n", mustJSONString(mapping.eventType))
-		fmt.Fprintf(&sb, "      await $`sh -c %s`\n", commandLit)
+		fmt.Fprintf(&sb, "      const command = %s\n", commandLit)
+		sb.WriteString("      await $`sh -c ${command}`\n")
 		sb.WriteString("    },\n")
 		sb.WriteString("  }\n")
 		sb.WriteString("}\n")
@@ -1099,12 +1168,16 @@ func generateOpenCodePlugin(hookName string, spec hookSpec, mapping openCodeMapp
 // U+2028/U+2029 line separators). Used throughout generateOpenCodePlugin so
 // every interpolated value is safely escaped.
 func mustJSONString(s string) string {
-	data, err := json.Marshal(s)
-	if err != nil {
-		// s is always a plain Go string: Marshal cannot fail on it.
+	// No HTML escaping: the literal stays readable (`>` and `&` are not
+	// rewritten as \u003e), and the string it decodes to is the same.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
+		// s is always a plain Go string: Encode cannot fail on it.
 		panic(err)
 	}
-	return string(data)
+	return strings.TrimSuffix(buf.String(), "\n")
 }
 
 // mustJSONKey renders a hook key (e.g. "tool.execute.before") as a quoted JS

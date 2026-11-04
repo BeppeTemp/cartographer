@@ -64,7 +64,8 @@ func registerCrushHook(baseDir, hookName, fullDestDir string) (string, bool, err
 	if specErr != nil {
 		return hookSpecWarning(hookName, configurator.ProviderCrush, specErr), false, nil
 	}
-	if warning, skip := hookEventWarning(hookName, configurator.ProviderCrush, spec.Event); skip {
+	warning, skip := hookEventWarning(hookName, configurator.ProviderCrush, spec.Event)
+	if skip {
 		return warning, false, nil
 	}
 
@@ -90,7 +91,7 @@ func registerCrushHook(baseDir, hookName, fullDestDir string) (string, bool, err
 	hooks[spec.Event] = append(list, entry)
 	settings["hooks"] = hooks
 	err = saveOrderedJSONObject(baseDir, path, settings, layout)
-	return "", err == nil, err
+	return warning, err == nil, err
 }
 
 // removeCrushHook strips hookName's entry from the config file that matches
@@ -99,6 +100,9 @@ func registerCrushHook(baseDir, hookName, fullDestDir string) (string, bool, err
 // configuration.
 func removeCrushHook(baseDir, hookName, hookRel string) error {
 	path := crushSettingsPath(baseDir, hookRel)
+	if names, err := fileNamesHook(path, crushHookName(hookName)); err != nil || !names {
+		return err
+	}
 	settings, layout, err := loadOrderedJSONObject(path)
 	if err != nil {
 		return err
