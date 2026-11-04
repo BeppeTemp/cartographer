@@ -13,6 +13,16 @@ as its output ([D292](decisions/D292-a-harness-ledger-and-a-procedure-not-versio
 `TestHarnessLedgerCoversEveryProvider` requires one `## <provider-id>` section per
 provider in `configurator.Providers()` and no section for an unknown one.
 
+Each section also carries a fenced `capabilities` block, the ledger of the per-client capability
+table (`internal/provisioning/capabilities.go`, D1656): one line `<scope> <id> <status>` for every
+scope (`global`, `project`) and id (`skill`, `mcp`, `agent.delegate`, `agent.invoke`,
+`hook.<Event>` for each event of the vocabulary). `absent` is derived from the destination matrix
+and the hook vocabulary, so a cell with no destination is `absent`; `unverified` is the default for
+the rest; `verified` is written `<scope> <id> verified <YYYY-MM-DD> <recipe>`, the recipe a name in
+`probes.md`, and only a probe earns it. `TestCapabilityTableMatchesLedger` fails on any difference
+between the block and the Go table, on a provider without a block, and on a `verified` line without
+date and recipe: change the table and the block in the same PR.
+
 Conventions: `unknown` means no version or date was ever recorded in this
 repository; `unverified` means a source was named but not confirmed to exist. A
 value is never filled in from memory. Documentation is not evidence: a change that
@@ -93,6 +103,37 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   it (`"agents-md@builtin": false` in `~/.claude/settings.json`), so pass
   `--settings '{"enabledPlugins":{"agents-md@builtin":true}}'` to `claude -p` to
   test the default. Ask for a token planted in the file under test.
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate unverified
+global agent.invoke unverified
+global hook.PostInvocation absent
+global hook.PostToolUse unverified
+global hook.PreCompact unverified
+global hook.PreInvocation absent
+global hook.PreToolUse unverified
+global hook.SessionStart unverified
+global hook.Stop unverified
+global hook.SubagentStop unverified
+global hook.UserPromptSubmit unverified
+project skill unverified
+project mcp unverified
+project agent.delegate unverified
+project agent.invoke unverified
+project hook.PostInvocation absent
+project hook.PostToolUse unverified
+project hook.PreCompact unverified
+project hook.PreInvocation absent
+project hook.PreToolUse unverified
+project hook.SessionStart unverified
+project hook.Stop unverified
+project hook.SubagentStop unverified
+project hook.UserPromptSubmit unverified
+```
 
 ## codex
 
@@ -156,6 +197,37 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   `config.toml`, granted interactively): an untrusted sentinel never fires, so
   probe with `codex exec --dangerously-bypass-hook-trust` inside the isolated
   home only. Project trust: `[projects."<path>"] trust_level = "trusted"`.
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate unverified
+global agent.invoke unverified
+global hook.PostInvocation absent
+global hook.PostToolUse unverified
+global hook.PreCompact unverified
+global hook.PreInvocation absent
+global hook.PreToolUse unverified
+global hook.SessionStart unverified
+global hook.Stop unverified
+global hook.SubagentStop unverified
+global hook.UserPromptSubmit unverified
+project skill unverified
+project mcp unverified
+project agent.delegate unverified
+project agent.invoke unverified
+project hook.PostInvocation absent
+project hook.PostToolUse unverified
+project hook.PreCompact unverified
+project hook.PreInvocation absent
+project hook.PreToolUse unverified
+project hook.SessionStart unverified
+project hook.Stop unverified
+project hook.SubagentStop unverified
+project hook.UserPromptSubmit unverified
+```
 
 ## kiro
 
@@ -219,6 +291,37 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   `~/.kiro/{logs,sessions,session-index,agents}`: remove them afterwards. Three agent engines coexist (`--agent-engine
   v1|v2|v3`, default `v2`): a feature present in a non-default engine is not
   "supported". An interactive probe needs a pty. Details in the probe recipe.
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate unverified
+global agent.invoke unverified
+global hook.PostInvocation absent
+global hook.PostToolUse absent
+global hook.PreCompact absent
+global hook.PreInvocation absent
+global hook.PreToolUse absent
+global hook.SessionStart unverified
+global hook.Stop unverified
+global hook.SubagentStop absent
+global hook.UserPromptSubmit unverified
+project skill unverified
+project mcp unverified
+project agent.delegate unverified
+project agent.invoke unverified
+project hook.PostInvocation absent
+project hook.PostToolUse absent
+project hook.PreCompact absent
+project hook.PreInvocation absent
+project hook.PreToolUse absent
+project hook.SessionStart absent
+project hook.Stop absent
+project hook.SubagentStop absent
+project hook.UserPromptSubmit absent
+```
 
 ## opencode
 
@@ -282,6 +385,37 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   configuration: run `opencode reload` after changing a file. `opencode run -m
   opencode/big-pickle` works without credentials, but the free tier refuses some
   custom primary agents ("can only be used from within OpenCode").
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate unverified
+global agent.invoke unverified
+global hook.PostInvocation absent
+global hook.PostToolUse unverified
+global hook.PreCompact absent
+global hook.PreInvocation absent
+global hook.PreToolUse unverified
+global hook.SessionStart unverified
+global hook.Stop unverified
+global hook.SubagentStop absent
+global hook.UserPromptSubmit absent
+project skill unverified
+project mcp unverified
+project agent.delegate unverified
+project agent.invoke unverified
+project hook.PostInvocation absent
+project hook.PostToolUse unverified
+project hook.PreCompact absent
+project hook.PreInvocation absent
+project hook.PreToolUse unverified
+project hook.SessionStart unverified
+project hook.Stop unverified
+project hook.SubagentStop absent
+project hook.UserPromptSubmit absent
+```
 
 ## antigravity
 
@@ -335,6 +469,37 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   --dangerously-skip-permissions </dev/null`; the MCP test server must be global
   (`~/.gemini/config/mcp_config.json`) or in `.agents/mcp_config.json`. Back up
   and restore `~/.gemini/config/*` around a global probe.
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate unverified
+global agent.invoke unverified
+global hook.PostInvocation unverified
+global hook.PostToolUse unverified
+global hook.PreCompact absent
+global hook.PreInvocation unverified
+global hook.PreToolUse unverified
+global hook.SessionStart unverified
+global hook.Stop unverified
+global hook.SubagentStop absent
+global hook.UserPromptSubmit absent
+project skill unverified
+project mcp unverified
+project agent.delegate unverified
+project agent.invoke unverified
+project hook.PostInvocation unverified
+project hook.PostToolUse unverified
+project hook.PreCompact absent
+project hook.PreInvocation unverified
+project hook.PreToolUse unverified
+project hook.SessionStart unverified
+project hook.Stop unverified
+project hook.SubagentStop absent
+project hook.UserPromptSubmit absent
+```
 
 ## crush
 
@@ -377,6 +542,37 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   default model may be refused by a ChatGPT account); `--yolo` is a root flag,
   not accepted by `run`. `~/.config/crush/` may not exist: create it for a global
   probe and remove it afterwards.
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate absent
+global agent.invoke absent
+global hook.PostInvocation absent
+global hook.PostToolUse absent
+global hook.PreCompact absent
+global hook.PreInvocation absent
+global hook.PreToolUse unverified
+global hook.SessionStart absent
+global hook.Stop absent
+global hook.SubagentStop absent
+global hook.UserPromptSubmit absent
+project skill unverified
+project mcp unverified
+project agent.delegate absent
+project agent.invoke absent
+project hook.PostInvocation absent
+project hook.PostToolUse absent
+project hook.PreCompact absent
+project hook.PreInvocation absent
+project hook.PreToolUse unverified
+project hook.SessionStart absent
+project hook.Stop absent
+project hook.SubagentStop absent
+project hook.UserPromptSubmit absent
+```
 
 ## copilot
 
@@ -435,6 +631,37 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
 - **Probe notes**: `COPILOT_HOME=<scratch> copilot instruction list | skill list |
   mcp list` show the cells without a model; hooks need `copilot -p … -s
   --allow-all-tools`. Never point the probe at `$HOME/.copilot`.
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate unverified
+global agent.invoke unverified
+global hook.PostInvocation absent
+global hook.PostToolUse unverified
+global hook.PreCompact absent
+global hook.PreInvocation absent
+global hook.PreToolUse unverified
+global hook.SessionStart unverified
+global hook.Stop absent
+global hook.SubagentStop absent
+global hook.UserPromptSubmit absent
+project skill unverified
+project mcp absent
+project agent.delegate absent
+project agent.invoke absent
+project hook.PostInvocation absent
+project hook.PostToolUse absent
+project hook.PreCompact absent
+project hook.PreInvocation absent
+project hook.PreToolUse absent
+project hook.SessionStart absent
+project hook.Stop absent
+project hook.SubagentStop absent
+project hook.UserPromptSubmit absent
+```
 
 ## pi
 
@@ -497,6 +724,37 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
 - **Probe notes**: `pi -p --no-session --model <provider/id> [-a|-na] "<prompt>"`, `pi mcp list`;
   a scratch `PI_CODING_AGENT_DIR` for probes only (copy `auth.json` when a model is needed),
   never `$HOME/.pi/agent`.
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate absent
+global agent.invoke absent
+global hook.PostInvocation absent
+global hook.PostToolUse unverified
+global hook.PreCompact absent
+global hook.PreInvocation absent
+global hook.PreToolUse unverified
+global hook.SessionStart unverified
+global hook.Stop absent
+global hook.SubagentStop absent
+global hook.UserPromptSubmit absent
+project skill absent
+project mcp absent
+project agent.delegate absent
+project agent.invoke absent
+project hook.PostInvocation absent
+project hook.PostToolUse absent
+project hook.PreCompact absent
+project hook.PreInvocation absent
+project hook.PreToolUse absent
+project hook.SessionStart absent
+project hook.Stop absent
+project hook.SubagentStop absent
+project hook.UserPromptSubmit absent
+```
 
 ## cline
 
@@ -537,3 +795,34 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   extension id (detection); whether the `cline` CLI shares `$HOME/.cline` (inferred, not run); other builds of Cline
   that read different directories.
 - **Probe notes**: use a scratch `CLINE_DIR` and `CLINE_MCP_SETTINGS_PATH`, never `$HOME/.cline`.
+- **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
+  `internal/provisioning/capabilities.go`.
+
+```capabilities
+global skill unverified
+global mcp unverified
+global agent.delegate unverified
+global agent.invoke unverified
+global hook.PostInvocation absent
+global hook.PostToolUse absent
+global hook.PreCompact absent
+global hook.PreInvocation absent
+global hook.PreToolUse absent
+global hook.SessionStart absent
+global hook.Stop absent
+global hook.SubagentStop absent
+global hook.UserPromptSubmit absent
+project skill absent
+project mcp absent
+project agent.delegate absent
+project agent.invoke absent
+project hook.PostInvocation absent
+project hook.PostToolUse absent
+project hook.PreCompact absent
+project hook.PreInvocation absent
+project hook.PreToolUse absent
+project hook.SessionStart absent
+project hook.Stop absent
+project hook.SubagentStop absent
+project hook.UserPromptSubmit absent
+```

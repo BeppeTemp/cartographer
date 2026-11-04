@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/lint"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 var update = flag.Bool("update", false, "rewrite the generated blocks instead of checking them")
@@ -615,6 +616,113 @@ func TestHarnessLedgerCoversEveryProvider(t *testing.T) {
 	for id := range sections {
 		if !known[id] {
 			t.Errorf("docs/harnesses.md has a `## %s` section, but configurator.Providers() has no such provider", id)
+		}
+	}
+}
+
+// ledgerCapabilities parses the fenced `capabilities` block of each provider section of
+// docs/harnesses.md: "<scope> <id> <status> [<date> <recipe>]" per line. The key of a cell
+// is "<provider> <scope> <id>"; a malformed or repeated line is reported through errf.
+func ledgerCapabilities(ledger, probes string, errf func(format string, args ...any)) map[string]string {
+	cells := map[string]string{}
+	provider, inBlock := "", false
+	date := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	for _, line := range strings.Split(ledger, "\n") {
+		if id, ok := strings.CutPrefix(line, "## "); ok {
+			provider, inBlock = strings.TrimSpace(id), false
+			continue
+		}
+		switch {
+		case strings.TrimSpace(line) == "```capabilities":
+			inBlock = true
+			cells[provider+" block"] = "present"
+			continue
+		case inBlock && strings.TrimSpace(line) == "```":
+			inBlock = false
+			continue
+		case !inBlock:
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			errf("docs/harnesses.md %s: capability line %q is not `<scope> <id> <status>`", provider, line)
+			continue
+		}
+		switch provisioning.CapStatus(f[2]) {
+		case provisioning.CapVerified:
+			if len(f) != 5 || !date.MatchString(f[3]) {
+				errf("docs/harnesses.md %s: verified line %q needs `<YYYY-MM-DD> <probes.md recipe>`", provider, line)
+			} else if !strings.Contains(probes, f[4]) {
+				errf("docs/harnesses.md %s: verified line %q names recipe %q, which does not appear in probes.md", provider, line, f[4])
+			}
+		case provisioning.CapUnverified, provisioning.CapAbsent:
+			if len(f) != 3 {
+				errf("docs/harnesses.md %s: capability line %q takes no date or recipe", provider, line)
+			}
+		default:
+			errf("docs/harnesses.md %s: capability line %q has status %q, not verified, unverified or absent", provider, line, f[2])
+		}
+		key := provider + " " + f[0] + " " + f[1]
+		if _, dup := cells[key]; dup {
+			errf("docs/harnesses.md %s: capability line %q is repeated", provider, line)
+		}
+		cells[key] = f[2]
+	}
+	return cells
+}
+
+// A verified line must name a recipe that exists in probes.md and carry a date.
+func TestLedgerCapabilitiesRejectsBadVerifiedLines(t *testing.T) {
+	const probes = "## Pi\nrecipe pi-agent-delegate: ...\n"
+	cases := []struct {
+		line    string
+		wantErr bool
+	}{
+		{"global skill verified 2026-11-05 pi-agent-delegate", false},
+		{"global skill verified 2026-11-05 no-such-recipe", true},
+		{"global skill verified pi-agent-delegate", true},
+		{"global skill verified 2026-11 pi-agent-delegate", true},
+		{"global skill unverified", false},
+	}
+	for _, c := range cases {
+		var errs []string
+		ledger := "## pi\n```capabilities\n" + c.line + "\n```\n"
+		ledgerCapabilities(ledger, probes, func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) })
+		if (len(errs) > 0) != c.wantErr {
+			t.Errorf("line %q: errors %v, want error=%v", c.line, errs, c.wantErr)
+		}
+	}
+}
+
+// The capability table (internal/provisioning/capabilities.go) is data and its ledger is the
+// fenced `capabilities` block of each provider section of docs/harnesses.md: a difference in
+// either direction, a provider without a block, or a verified cell without a probe date and
+// recipe fails here. The table itself is tied to the destination matrix by the provisioning
+// tests, so a ledger cell contradicting the matrix cannot match the table.
+func TestCapabilityTableMatchesLedger(t *testing.T) {
+	cells := ledgerCapabilities(readFile(t, repoRoot(t), "docs/harnesses.md"),
+		readFile(t, repoRoot(t), ".claude/skills/cartographer-audit-clients/references/probes.md"), t.Errorf)
+
+	want := map[string]bool{}
+	for _, d := range configurator.Providers() {
+		if cells[string(d.Provider)+" block"] == "" {
+			t.Errorf("docs/harnesses.md `## %s` has no fenced `capabilities` block", d.Provider)
+		}
+	}
+	for _, c := range provisioning.CapabilityCells() {
+		key := string(c.Provider) + " " + provisioning.ScopeName(c.Scope) + " " + string(c.ID)
+		want[key] = true
+		got, ok := cells[key]
+		switch {
+		case !ok:
+			t.Errorf("ledger has no line for %q (table: %s)", key, c.Status)
+		case got != string(c.Status):
+			t.Errorf("ledger says %q is %s, the table says %s: change both in the same PR", key, got, c.Status)
+		}
+	}
+	for key := range cells {
+		if !strings.HasSuffix(key, " block") && !want[key] {
+			t.Errorf("ledger line %q matches no cell of the table", key)
 		}
 	}
 }

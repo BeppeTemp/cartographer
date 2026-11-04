@@ -34,6 +34,7 @@ modifies files a user did not ask about.
   `destinationMatrix` (`provisioning.go`) the unsupported cells are explicit with a
   stated reason, so `Unsupported` means "no approval unblocks this" (D50). Do not
   make a destination up for a provider that does not document one.
+- **A capability is declared in `capabilities.go` and in the ledger together.** `absent` follows from the destination matrix and `hookEventReach`; `verified` needs a probe recorded in `docs/harnesses.md`. A PR that flips a destination or a hook reach changes the `capabilities` block of that provider there too, or `TestCapabilityTableMatchesLedger` fails.
 - **This matrix is the repository's answer about a client, including in prose.**
   `destinationMatrix` and `workspacescope.go` (D193) are what `docs/sync.md` and
   `docs/interoperability.md` restate for a human, and a restatement drifts (D207):
