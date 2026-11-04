@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -39,6 +40,38 @@ import (
 // and exiting anyway. Generous relative to pushFlushTimeout in mcpserver
 // (per-request flushes) because this only runs once, at process exit.
 const shutdownPushFlushTimeout = 10 * time.Second
+
+// pushFlusher is what the shutdown needs of a KB; *kb.KB satisfies it.
+type pushFlusher interface {
+	FlushPush(timeout time.Duration) error
+}
+
+// namedFlusher carries the KB name with its flusher, so the log always names it.
+type namedFlusher struct {
+	name string
+	f    pushFlusher
+}
+
+// flushPushes flushes every KB's pending push in parallel under ONE overall
+// budget: all flushers start together and share it, so N KBs behind a slow
+// remote cost one budget, not N (a sequential loop could outlast the k8s grace
+// period or the service stop timeout and lose the very pushes D76/WP4 meant to
+// save). The timeout is computed once, before any goroutine starts, so a late
+// scheduled one never gets zero. It returns when every flusher has.
+func flushPushes(flushers []namedFlusher, budget time.Duration) {
+	remaining := budget
+	var wg sync.WaitGroup
+	for _, nf := range flushers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := nf.f.FlushPush(remaining); err != nil {
+				log.Printf("flush pending push for KB %s: %v", nf.name, err)
+			}
+		}()
+	}
+	wg.Wait()
+}
 
 // shutdownHTTPTimeout bounds how long the HTTP server waits for in-flight
 // requests to finish during a graceful shutdown before forcing close.
@@ -721,11 +754,11 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		m.FlushReadAccess()
 	}
 	if kbs := mounted.Load(); kbs != nil {
-		for _, k := range *kbs {
-			if err := k.FlushPush(shutdownPushFlushTimeout); err != nil {
-				log.Printf("flush pending push for KB %s: %v", k.Root, err)
-			}
+		flushers := make([]namedFlusher, len(*kbs))
+		for i, k := range *kbs {
+			flushers[i] = namedFlusher{name: k.Root, f: k}
 		}
+		flushPushes(flushers, shutdownPushFlushTimeout)
 	}
 	return nil
 }

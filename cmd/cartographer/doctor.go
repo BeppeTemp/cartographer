@@ -213,11 +213,18 @@ func runDoctor(dir, only string) doctorReport {
 			findings = append(findings, checkOpenCodePluginShape(dir, providers, lockFile)...)
 		}
 		findings = append(findings, checkMCPEntries(dir, cfg, providers)...)
-		findings = append(findings, checkServer(dir, cfg, providers)...)
+		// One probe for the whole run (an unreachable server costs one
+		// probeTimeout, not three); the facts and the error go down.
+		facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
+		findings = append(findings, checkServer(dir, cfg, providers, facts, healthErr)...)
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
-		findings = append(findings, checkCapabilities(dir, cfg)...)
-		findings = append(findings, checkKBCollisions(dir, cfg, providers)...)
+		findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
+		// facts.health is set whenever /health answered, even when the listing
+		// is malformed (enumerateKBs then returns facts with an error).
+		if facts.health != nil {
+			findings = append(findings, checkKBCollisions(dir, cfg, providers, facts)...)
+		}
 		findings = append(findings, checkWorkspaceProjections(dir, cfg, providers)...)
 		findings = append(findings, checkUpdateAvailable()...)
 		findings = append(findings, checkSteeringPatterns(dir, providers)...)
@@ -767,9 +774,8 @@ func managedHookNames(lock provisioning.Lock) []string {
 
 // checkServer: reachability, then the two version comparisons. An unreachable
 // server is one finding, not a failure — doctor must stay useful offline.
-func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doctorFinding {
+func checkServer(dir string, cfg *clientconfig.Config, providers []string, facts serverFacts, err error) []doctorFinding {
 	configPath := filepath.Join(dir, clientconfig.FileName)
-	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 	if err != nil {
 		f := doctorFinding{
 			Check: "server", Severity: doctorWarning, Path: configPath,
@@ -880,10 +886,10 @@ func checkUnboundResidues(dir string, cfg *clientconfig.Config, providers []stri
 // Silent when the server is unreachable: a missing signal is not evidence that
 // nothing collides. Reported per provider, because two colliding KBs bound to
 // different providers are not a conflict.
-func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string) []doctorFinding {
+func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string, facts serverFacts) []doctorFinding {
 	union, _, _ := boundKBUnion(cfg, providers)
-	candidates, err := fetchCandidates(cfg, union)
-	if err != nil {
+	candidates, failed, err := pullCandidatesPartial(cfg, facts.health, union)
+	if err != nil || len(failed) > 0 {
 		return nil
 	}
 	configPath := filepath.Join(dir, clientconfig.FileName)
@@ -906,8 +912,7 @@ func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string)
 // for a whole migration (D151). Silent when the server is unreachable or does
 // not advertise capabilities: a missing signal is not evidence that everything is
 // on.
-func checkCapabilities(dir string, cfg *clientconfig.Config) []doctorFinding {
-	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
+func checkCapabilities(dir string, cfg *clientconfig.Config, facts serverFacts, err error) []doctorFinding {
 	if err != nil {
 		return nil
 	}
