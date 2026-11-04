@@ -7,7 +7,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
-	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
 
 // SetSettings gives the settings view (D743) the configuration the process
@@ -146,7 +146,7 @@ func narrowSettingsView(view *config.View, visible, whole map[string]bool, admin
 					continue
 				}
 				if raw, ok := e.Value.(string); ok {
-					e.Value = kb.RedactRemoteURL(raw)
+					e.Value = gitx.RedactRemoteURL(raw)
 				}
 			}
 			kept = append(kept, e)

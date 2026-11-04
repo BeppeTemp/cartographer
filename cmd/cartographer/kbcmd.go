@@ -250,9 +250,9 @@ func cmdKBCreate(args []string) int {
 			if replacedReadme {
 				replaced = "; replaced README.md"
 			}
-			fmt.Printf("origin: %s (adopted the forge's initial commit on %s: %s%s)\n", remote, originBranch, strings.Join(adopted, ", "), replaced)
+			fmt.Printf("origin: %s (adopted the forge's initial commit on %s: %s%s)\n", gitx.RedactRemoteURL(remote), originBranch, strings.Join(adopted, ", "), replaced)
 		} else {
-			fmt.Printf("origin: %s\n", remote)
+			fmt.Printf("origin: %s\n", gitx.RedactRemoteURL(remote))
 		}
 		if orphan {
 			fmt.Printf("branch: %s (an orphan branch: it shares no history with the repository, whose other branches were not touched; kbs[].branch is recorded in %s)\n", originBranch, orphanConfig)
@@ -428,7 +428,7 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string, 
 		// would name a remote that is not there: discard the scaffold like any
 		// other failure that precedes the first push, and say what failed.
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		fmt.Fprintf(os.Stderr, "Hint: git could not add %q as the origin of the new KB; check the URL and rerun the command (nothing was left behind).\n", remote)
+		fmt.Fprintf(os.Stderr, "Hint: git could not add %q as the origin of the new KB; check the URL and rerun the command (nothing was left behind).\n", gitx.RedactRemoteURL(remote))
 		return originResult{code: 1, discard: true}
 	}
 	branch, err := gitx.Branch(path)
@@ -463,7 +463,7 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string, 
 		restore()
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		if orphan {
-			fmt.Fprintf(os.Stderr, "Hint: once the push succeeds, add this entry under kbs: in %s:\n  - remote: %s\n    branch: %s\n", configPath, remote, branch)
+			fmt.Fprintf(os.Stderr, "Hint: once the push succeeds, add this entry under kbs: in %s:\n  - remote: %s\n    branch: %s\n", configPath, gitx.RedactRemoteURL(remote), branch)
 		}
 		if strings.Contains(err.Error(), "src refspec") {
 			// Not an authentication problem: the branch has no commit yet.
@@ -493,7 +493,7 @@ func writePushRefusalHints(w io.Writer, gitOut, remote, authorName, authorEmail 
 		fmt.Fprintln(w, "Hint: the branch is protected for this account: the remote refuses a direct push to it. Push with an account allowed to, or ask for the protection to be lifted on this branch.")
 	default:
 		fmt.Fprintln(w, "Hint: authenticate git with your SSH agent or credential helper, then retry.")
-		fmt.Fprintf(w, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", remote)
+		fmt.Fprintf(w, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", gitx.RedactRemoteURL(remote))
 	}
 }
 
@@ -524,8 +524,8 @@ func adoptForgeCommit(path, remote, kbName, readme, branch, want, configFlag str
 		}
 	}
 	if want != "" && refs.HasBranch(want) && !(forgeInit && target == want) {
-		fmt.Fprintf(os.Stderr, "Error: the remote %s already has a branch %s, so a new KB cannot be created on it.\n", remote, want)
-		fmt.Fprintf(os.Stderr, "Hint: if it holds a KB, mount it: cartographer kb clone %s --branch %s\n", remote, want)
+		fmt.Fprintf(os.Stderr, "Error: the remote %s already has a branch %s, so a new KB cannot be created on it.\n", gitx.RedactRemoteURL(remote), want)
+		fmt.Fprintf(os.Stderr, "Hint: if it holds a KB, mount it: cartographer kb clone %s --branch %s\n", gitx.RedactRemoteURL(remote), want)
 		fmt.Fprintln(os.Stderr, "Hint: otherwise pick another branch name.")
 		return refuse()
 	}
@@ -550,9 +550,9 @@ func adoptForgeCommit(path, remote, kbName, readme, branch, want, configFlag str
 		return want, nil, false, true, configPath, nil
 	}
 	if !forgeInit {
-		fmt.Fprintf(os.Stderr, "Error: the remote %s already has commits, so a new KB cannot be created in it.\n", remote)
-		fmt.Fprintf(os.Stderr, "Hint: if it holds a KB, mount it: cartographer kb clone %s\n", remote)
-		fmt.Fprintf(os.Stderr, "Hint: put the KB on a branch of its own, leaving the rest of the repository untouched: cartographer kb create %s --remote %s --branch <name>\n", kbName, remote)
+		fmt.Fprintf(os.Stderr, "Error: the remote %s already has commits, so a new KB cannot be created in it.\n", gitx.RedactRemoteURL(remote))
+		fmt.Fprintf(os.Stderr, "Hint: if it holds a KB, mount it: cartographer kb clone %s\n", gitx.RedactRemoteURL(remote))
+		fmt.Fprintf(os.Stderr, "Hint: put the KB on a branch of its own, leaving the rest of the repository untouched: cartographer kb create %s --remote %s --branch <name>\n", kbName, gitx.RedactRemoteURL(remote))
 		fmt.Fprintln(os.Stderr, "Hint: otherwise import its content with the cartographer-kb-import skill, or point --remote at an empty repository.")
 		return refuse()
 	}
@@ -784,7 +784,7 @@ func cmdKBClone(args []string) int {
 	if branch != "" {
 		if !gitx.RemoteBranchExists(path, "origin", branch) && !hasKBLayout(path, "HEAD") {
 			if forgeInitClone(path) {
-				fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s --branch %s\n", remote, remote, branch)
+				fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s --branch %s\n", gitx.RedactRemoteURL(remote), gitx.RedactRemoteURL(remote), branch)
 				return 1
 			}
 			fmt.Fprintf(os.Stderr, "Error: branch %s does not exist on the remote and the default branch holds no KB\n", branch)
@@ -800,7 +800,7 @@ func cmdKBClone(args []string) int {
 		// A forge's initial commit is not a KB to import but an empty project
 		// to build one in: point at kb create, which adopts it (D710).
 		if branch == "" && forgeInitClone(path) {
-			fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s\n", remote, remote)
+			fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s\n", gitx.RedactRemoteURL(remote), gitx.RedactRemoteURL(remote))
 			return 1
 		}
 		fmt.Fprintln(os.Stderr, "Error: not an OKF KB — import it with the cartographer-kb-import skill, push, then retry")
@@ -863,14 +863,14 @@ func printKBBranchHint(path, remote string) {
 		}
 	}
 	if len(found) == 0 {
-		fmt.Fprintf(os.Stderr, "Hint: if the KB is on another branch: cartographer kb clone %s --branch <name>\n", remote)
+		fmt.Fprintf(os.Stderr, "Hint: if the KB is on another branch: cartographer kb clone %s --branch <name>\n", gitx.RedactRemoteURL(remote))
 		return
 	}
 	if len(found) > maxBranchHints {
 		found = found[:maxBranchHints]
 	}
 	for _, b := range found {
-		fmt.Fprintf(os.Stderr, "Hint: a KB lives on branch %s: cartographer kb clone %s --branch %s\n", b, remote, b)
+		fmt.Fprintf(os.Stderr, "Hint: a KB lives on branch %s: cartographer kb clone %s --branch %s\n", b, gitx.RedactRemoteURL(remote), b)
 	}
 }
 
@@ -1007,7 +1007,7 @@ func scanDataDir(dataDir string) ([]kbRow, error) {
 		}
 		if row.IsRepo {
 			if url, err := gitx.RemoteURL(path, "origin"); err == nil {
-				row.Origin = strings.TrimSpace(url)
+				row.Origin = gitx.RedactRemoteURL(strings.TrimSpace(url))
 			}
 		}
 		rows = append(rows, row)

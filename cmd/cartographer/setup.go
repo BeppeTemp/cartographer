@@ -248,7 +248,9 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 // trailing slash or ".git" does not make a different repository.
 func sameRemote(a, b string) bool {
 	norm := func(s string) string {
-		return strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(s), "/"), ".git")
+		// Origin is stored redacted (it is printed); the operator's value may
+		// not be, so both sides are compared in their redacted form.
+		return strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(gitx.RedactRemoteURL(strings.TrimSpace(s))), "/"), ".git")
 	}
 	return norm(a) == norm(b)
 }
@@ -435,7 +437,7 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 		defer cancel()
 		probe, err := setupProbeRemote(ctx, o.Remote)
 		if err != nil {
-			return f, fmt.Errorf("cannot reach %s with this machine's git credentials — nothing was changed:\n  %v", o.Remote, err)
+			return f, fmt.Errorf("cannot reach %s with this machine's git credentials — nothing was changed:\n  %v", gitx.RedactRemoteURL(o.Remote), err)
 		}
 		f.RemoteProbed, f.RemoteHasRefs, f.RemoteForgeInit = true, probe.HasRefs, probe.ForgeInit
 	}

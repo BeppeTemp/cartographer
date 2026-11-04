@@ -576,3 +576,18 @@ func TestEnsureClonedKBStopsWithTheBootstrapContext(t *testing.T) {
 		t.Fatalf(".cloning left behind (err=%v)", err)
 	}
 }
+
+// The bootstrap error names the remote without its credentials.
+func TestEnsureClonedKBErrorRedactsRemoteCredentials(t *testing.T) {
+	_, err := ensureClonedKB("http://user:s3cr3t@127.0.0.1:1/x.git", "kb-a", t.TempDir())
+	if err == nil {
+		t.Fatal("clone of an unreachable remote succeeded")
+	}
+	if strings.Contains(err.Error(), "s3cr3t") {
+		t.Fatalf("bootstrap error leaks the credential: %v", err)
+	}
+	_, err = ensureClonedKB("http://user:s3cr3t@127.0.0.1:1/x.git", "kb-a", "")
+	if err == nil || strings.Contains(err.Error(), "s3cr3t") {
+		t.Fatalf("data-dir error = %v", err)
+	}
+}

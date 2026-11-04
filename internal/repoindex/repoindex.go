@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
 
 // userHomeDir is indirected so tests can stub it out, mirroring
@@ -286,21 +288,21 @@ func NormalizeRemote(raw string) (RemoteKey, error) {
 	case strings.Contains(s, "://"):
 		u, err := url.Parse(s)
 		if err != nil {
-			return "", fmt.Errorf("repoindex: parse remote %q: %w", raw, err)
+			return "", fmt.Errorf("repoindex: parse remote %q: %w", gitx.RedactRemoteURL(raw), errors.New(gitx.RedactRemoteText(err.Error(), s)))
 		}
 		host, path = u.Hostname(), u.Path
 	case scpLikeRe.MatchString(s):
 		m := scpLikeRe.FindStringSubmatch(s)
 		host, path = m[1], m[2]
 	default:
-		return "", fmt.Errorf("repoindex: unrecognized remote url %q", raw)
+		return "", fmt.Errorf("repoindex: unrecognized remote url %q", gitx.RedactRemoteURL(raw))
 	}
 
 	host = strings.ToLower(host)
 	path = strings.Trim(path, "/")
 	path = strings.TrimSuffix(path, ".git")
 	if host == "" || path == "" {
-		return "", fmt.Errorf("repoindex: cannot normalize remote %q", raw)
+		return "", fmt.Errorf("repoindex: cannot normalize remote %q", gitx.RedactRemoteURL(raw))
 	}
 	return RemoteKey(host + "/" + path), nil
 }

@@ -86,7 +86,7 @@ func runGitNet(dir, remote string, timeout time.Duration, env []string, args ...
 	cmd := netCommand(ctx, netEnv(dir, env), append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		return string(out), &RemoteTimeoutError{Remote: remote, After: timeout}
+		return string(out), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: timeout}
 	}
 	return string(out), err
 }
@@ -139,8 +139,11 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 	}
 	cmd := netCommand(ctx, cloneEnv(remote, env), "clone", "--progress", "--", remote, dest)
 	var stderr strings.Builder
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
+	// The progress shown live is scrubbed of the remote's credentials too.
+	tee := &scrubWriter{w: os.Stderr, remote: remote}
+	cmd.Stderr = io.MultiWriter(tee, &stderr)
 	out, err := cmd.Output()
+	tee.Flush()
 	if err != nil {
 		return cloneError(ctx, remote, dest, err, stderr.String()+string(out))
 	}
@@ -233,13 +236,18 @@ func isSSHRemote(remote string) bool {
 // convenience, not a filter, and an unrecognised failure must not be reduced
 // to "git clone failed".
 func cloneError(ctx context.Context, remote, dest string, err error, output string) error {
+	// The remote may carry credentials (https://user:token@host/...): the
+	// error text reaches logs and agent transcripts, so it names the
+	// redacted form and git's output is scrubbed of the raw one.
+	shown := RedactRemoteURL(remote)
+	output = RedactRemoteText(output, remote)
 	if ctx.Err() != nil {
-		return fmt.Errorf("%w while cloning %s: %v", ErrCloneTimeout, remote, ctx.Err())
+		return fmt.Errorf("%w while cloning %s: %v", ErrCloneTimeout, shown, ctx.Err())
 	}
 	if remedy := remoteRemedy(output); remedy != "" {
-		return fmt.Errorf("git clone %s: %s\n%s", remote, remedy, strings.TrimSpace(output))
+		return fmt.Errorf("git clone %s: %s\n%s", shown, remedy, strings.TrimSpace(output))
 	}
-	return fmt.Errorf("git clone %s %s: %w: %s", remote, dest, err, strings.TrimSpace(output))
+	return fmt.Errorf("git clone %s %s: %w: %s", shown, dest, redactedErr(err, remote), strings.TrimSpace(output))
 }
 
 // remoteRemedy maps git's output for a failed network operation to the one
@@ -281,14 +289,15 @@ func lsRemoteProbe(ctx context.Context, remote string) (RemoteRefs, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		shown := RedactRemoteURL(remote)
 		if ctx.Err() != nil {
-			return RemoteRefs{}, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, remote, ctx.Err())
+			return RemoteRefs{}, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, shown, ctx.Err())
 		}
-		output := strings.TrimSpace(stderr.String())
+		output := RedactRemoteText(strings.TrimSpace(stderr.String()), remote)
 		if remedy := remoteRemedy(output); remedy != "" {
-			return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %s\n%s", remote, remedy, output)
+			return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %s\n%s", shown, remedy, output)
 		}
-		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", remote, err, output)
+		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", shown, redactedErr(err, remote), output)
 	}
 	return parseLsRemoteSymref(string(out)), nil
 }
@@ -319,7 +328,7 @@ func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error)
 	}
 	tmp, err := os.MkdirTemp("", "cartographer-probe-")
 	if err != nil {
-		return probe, fmt.Errorf("probe %s: %w", remote, err)
+		return probe, fmt.Errorf("probe %s: %w", RedactRemoteURL(remote), err)
 	}
 	defer os.RemoveAll(tmp)
 	if out, err := runGit(tmp, "init", "--quiet"); err != nil {
@@ -328,9 +337,9 @@ func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error)
 	cmd := netCommand(ctx, cloneEnv(remote, nil), "-C", tmp, "fetch", "--quiet", "--depth", "2", "--filter=blob:none", "--no-tags", "--", remote, "refs/heads/"+refs.Branches[0])
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
-			return probe, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, remote, ctx.Err())
+			return probe, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, RedactRemoteURL(remote), ctx.Err())
 		}
-		return probe, fmt.Errorf("git fetch %s: %w: %s", remote, err, strings.TrimSpace(string(out)))
+		return probe, fmt.Errorf("git fetch %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(strings.TrimSpace(string(out)), remote))
 	}
 	_, ok, err := ForgeInitialized(tmp, "FETCH_HEAD")
 	if err != nil {
@@ -594,10 +603,10 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if ctx.Err() == context.DeadlineExceeded {
-		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w", remote, &RemoteTimeoutError{Remote: remote, After: FetchTimeout})
+		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w", RedactRemoteURL(remote), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: FetchTimeout})
 	}
 	if err != nil {
-		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", remote, err, strings.TrimSpace(stderr.String()))
+		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(strings.TrimSpace(stderr.String()), remote))
 	}
 	refs := parseLsRemoteSymref(string(out))
 	if refs.Default != "" && RemoteBranchExists(dir, remote, refs.Default) {
@@ -797,11 +806,11 @@ func PullRebaseAutostash(dir, remote, branch string, env ...string) error {
 			Files:     conflictFiles,
 			LocalSHA:  localSHA,
 			RemoteSHA: remoteSHA,
-			Remote:    remote,
+			Remote:    RedactRemoteURL(remote),
 			Branch:    branch,
 		}
 	}
-	return fmt.Errorf("git pull --rebase --autostash %s %s: %w: %s", remote, branch, err, out)
+	return fmt.Errorf("git pull --rebase --autostash %s %s: %w: %s", RedactRemoteURL(remote), branch, redactedErr(err, remote), RedactRemoteText(out, remote))
 }
 
 // Branch returns the current branch name, or "" if detached HEAD.
@@ -836,10 +845,10 @@ func Fetch(dir, remote string, env ...string) error {
 	cmd := netCommand(ctx, netEnv(dir, env), "-C", dir, "fetch", remote)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("git fetch %s: %w", remote, &RemoteTimeoutError{Remote: remote, After: FetchTimeout})
+		return fmt.Errorf("git fetch %s: %w", RedactRemoteURL(remote), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: FetchTimeout})
 	}
 	if err != nil {
-		return fmt.Errorf("git fetch %s: %w: %s", remote, err, string(out))
+		return fmt.Errorf("git fetch %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(string(out), remote))
 	}
 	return nil
 }
@@ -934,7 +943,7 @@ func RebaseOntoAutostash(dir, remote, branch string, env ...string) error {
 		files, _ := UnmergedFiles(dir)
 		remoteSHA, _ := HeadSHAAt(dir, target)
 		_, _ = runGit(dir, "rebase", "--abort")
-		return &RebaseConflictError{Files: files, LocalSHA: localSHA, RemoteSHA: remoteSHA, Remote: remote, Branch: branch}
+		return &RebaseConflictError{Files: files, LocalSHA: localSHA, RemoteSHA: remoteSHA, Remote: RedactRemoteURL(remote), Branch: branch}
 	}
 	return fmt.Errorf("git rebase --autostash %s: %w: %s", target, err, out)
 }
@@ -1727,7 +1736,7 @@ func AddRemote(dir, name, url string) error {
 	}
 	out, err := runGit(dir, "remote", "add", "--", name, url)
 	if err != nil {
-		return fmt.Errorf("git remote add %s: %w: %s", name, err, out)
+		return fmt.Errorf("git remote add %s: %w: %s", name, redactedErr(err, url), RedactRemoteText(out, url))
 	}
 	return nil
 }

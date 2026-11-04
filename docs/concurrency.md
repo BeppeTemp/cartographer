@@ -82,6 +82,8 @@ name the holder.
 
 **Network git commands are all bounded.** Every `internal/gitx` command that talks to a remote (clone, ls-remote, fetch, push, the probe's shallow fetch) is built by `netCommand`, which kills the whole process group on cancel and sets `WaitDelay`; hand-building one let a deadline kill only `git` while `git-remote-http` held the pipe open. After `Fetch`, `SyncIn` and the `SyncOut` retry rebase locally (`RebaseOntoAutostash`): one network round-trip, none under the KB git lock outside the fetch deadline.
 
+**A remote URL's credentials never reach error text.** `gitx` names a remote in its errors (clone, ls-remote, the probe, fetch, pull, `remote add`) and in the bootstrap and `kb`/`setup` messages only as `gitx.RedactRemoteURL` renders it (userinfo, query and fragment dropped, as `kb_status` shows it), and `RedactRemoteText` scrubs the raw URL from git's own output; the server log and an agent transcript therefore never hold a `https://user:token@host/...` remote.
+
 **An in-progress rebase makes sync refuse.** When `.git/rebase-merge` or `.git/rebase-apply` exists
 (a real rebase, or an orphan autostash an aborted `pull --rebase --autostash` left behind), `SyncIn`/`SyncOut`
 detect it first and return an error that names the remedy, where git's own *"there is already a

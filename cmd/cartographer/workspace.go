@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/mcpbridge"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -506,7 +507,7 @@ func cmdWorkspaceList(args []string) int {
 			}
 			fmt.Printf("  %s  →  %s%s\n", w.Path, kbs, state)
 			if w.Remote != "" {
-				fmt.Printf("      remote %s\n", w.Remote)
+				fmt.Printf("      remote %s\n", gitx.RedactRemoteURL(w.Remote))
 			}
 		}
 		for _, u := range cfg.DerivedUnresolved(provider) {

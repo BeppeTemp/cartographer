@@ -158,16 +158,19 @@ func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error)
 // ensureClonedKBOn is ensureClonedKB with the server's branch override: a fresh
 // clone is checked out on it instead of on the committed `branch` setting.
 func ensureClonedKBOn(remote, name, dataDir, override string, env ...string) (string, error) {
+	// Every message below names the remote: it may carry credentials, and the
+	// text reaches the server log and agent transcripts.
+	shown := gitx.RedactRemoteURL(remote)
 	if dataDir == "" {
-		return "", fmt.Errorf("remote KB %q requires a data directory to clone into (--data, CARTOGRAPHER_DATA, or data: in the YAML config)", remote)
+		return "", fmt.Errorf("remote KB %q requires a data directory to clone into (--data, CARTOGRAPHER_DATA, or data: in the YAML config)", shown)
 	}
 	if name == "" {
-		return "", fmt.Errorf("cannot derive KB name from remote %q", remote)
+		return "", fmt.Errorf("cannot derive KB name from remote %q", shown)
 	}
 	dest := filepath.Join(dataDir, name)
 
 	if !isGitRepoDir(dest) {
-		log.Printf("cloning KB %q from %s to %s", name, remote, dest)
+		log.Printf("cloning KB %q from %s to %s", name, shown, dest)
 		// Clone beside the destination and rename when done (D348): git
 		// creates .git first, so a process killed mid-clone (an emptyDir
 		// survives a container restart) would leave a dest that the next
@@ -175,14 +178,14 @@ func ensureClonedKBOn(remote, name, dataDir, override string, env ...string) (st
 		// temporary directory out of KB discovery.
 		tmp := filepath.Join(dataDir, "."+name+".cloning")
 		if err := os.RemoveAll(tmp); err != nil {
-			return "", fmt.Errorf("clone %s: remove stale %s: %w", remote, tmp, err)
+			return "", fmt.Errorf("clone %s: remove stale %s: %w", shown, tmp, err)
 		}
 		// No deadline here: a server bootstrapping a large KB must not have
 		// its clone killed mid-way. Clone's non-interactive environment is
 		// what keeps this from hanging on a prompt (D173).
 		if err := gitx.Clone(bootstrapContext, remote, tmp, env...); err != nil {
 			_ = os.RemoveAll(tmp)
-			return "", fmt.Errorf("clone %s: %w", remote, err)
+			return "", fmt.Errorf("clone %s: %w", shown, err)
 		}
 		target := override
 		if target == "" {
@@ -190,17 +193,17 @@ func ensureClonedKBOn(remote, name, dataDir, override string, env ...string) (st
 		}
 		if err := checkoutConfiguredBranch(tmp, target, env...); err != nil {
 			_ = os.RemoveAll(tmp)
-			return "", fmt.Errorf("clone %s: %w", remote, err)
+			return "", fmt.Errorf("clone %s: %w", shown, err)
 		}
 		// dest may exist without .git (an empty directory): clear it so the
 		// rename is portable.
 		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
 			_ = os.RemoveAll(tmp)
-			return "", fmt.Errorf("clone %s: %w", remote, err)
+			return "", fmt.Errorf("clone %s: %w", shown, err)
 		}
 		if err := os.Rename(tmp, dest); err != nil {
 			_ = os.RemoveAll(tmp)
-			return "", fmt.Errorf("clone %s: %w", remote, err)
+			return "", fmt.Errorf("clone %s: %w", shown, err)
 		}
 	}
 	return dest, nil

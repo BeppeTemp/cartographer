@@ -138,7 +138,7 @@ func cmdKBUnmount(args []string) int {
 		fmt.Printf("left the local clone in %s (outside the data dir, never discovered)\n", plan.KBPath)
 	}
 	if plan.Origin != "" {
-		fmt.Printf("the remote stays the source of truth: `cartographer kb clone %s %s` brings it back\n", plan.Origin, name)
+		fmt.Printf("the remote stays the source of truth: `cartographer kb clone %s %s` brings it back\n", gitx.RedactRemoteURL(plan.Origin), name)
 	}
 	fmt.Println("other machines' client configs are not reached: their stale URLs are served without this KB until they run `cartographer sync`.")
 	printPostUnmountGuidanceFn(*configFlag, *restartFlag)

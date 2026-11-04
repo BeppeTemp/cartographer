@@ -23,6 +23,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -229,7 +230,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 				if hint := credentialHint(spec.Remote, name, credDir); hint != "" {
 					err = fmt.Errorf("%w\n%s", err, hint)
 				}
-				log.Fatalf("KB remote %q: %v", spec.Remote, err)
+				log.Fatalf("KB remote %q: %v", gitx.RedactRemoteURL(spec.Remote), err)
 			}
 			mounts = append(mounts, kbMount{Path: dest, Name: name, Spec: spec})
 			continue
