@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -64,13 +65,15 @@ func cmdSync(args []string) int {
 	// must be the one read after every other writer finished (D172). A dry run
 	// writes nothing and takes none.
 	locked := false
+	unlock := func() {}
 	if !*dryRun {
 		release, err := lockClient(dir)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 2
 		}
-		defer release()
+		unlock = sync.OnceFunc(release)
+		defer unlock()
 		locked = true
 	}
 	cfg, err := clientconfig.Load(dir)
@@ -89,7 +92,7 @@ func cmdSync(args []string) int {
 		return 0
 	}
 
-	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked}); err != nil {
+	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked, Unlock: unlock}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -123,6 +126,10 @@ type syncOptions struct {
 	// taking it (D172): runSync takes none, because a second descriptor on the
 	// lock file in the same process would block.
 	Locked bool
+	// Unlock, when set with Locked, releases the caller's lock (idempotently):
+	// runSync calls it before the post-apply reports, which read what was
+	// written and must not make the next session-start sync wait (#1619).
+	Unlock func()
 	// Streams is where the run reports; the zero value is the process's own
 	// stdout and stderr. The dashboard passes buffers so that nothing a sync
 	// prints lands in the middle of its inline frame.
@@ -183,13 +190,18 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// runs `cartographer sync` per agent session, so several are routinely in
 	// flight at once and the loser of that race silently drops another
 	// provider's lock entry (D172). A dry run writes nothing and needs none.
+	unlock := func() {}
+	if opts.Locked && opts.Unlock != nil {
+		unlock = opts.Unlock
+	}
 	if !opts.DryRun {
 		if !opts.Locked {
 			release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
 			if err != nil {
 				return syncResult{}, err
 			}
-			defer release()
+			unlock = sync.OnceFunc(func() { _ = release() })
+			defer unlock()
 		}
 		// Under the lock, so concurrent session-start syncs replace a stale
 		// service once: the next one in line finds it already current.
@@ -407,7 +419,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// A dry run changes nothing and neither does it report, and an unreachable
 	// server has nobody to report to.
 	if !opts.DryRun && healthErr == nil {
-		reportUsage(cfg, dir)
+		// Both reports only read the lockfile and the config the apply just
+		// wrote, and the usage scan can take seconds: the lock is released
+		// first, or every concurrent session-start sync waits for it.
+		unlock()
+		reportUsageThrottled(cfg, dir)
 		reportClientSettings(cfg, dir)
 	}
 	if len(pullFailures) > 0 || len(providerFailures) > 0 {

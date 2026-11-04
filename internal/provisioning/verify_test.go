@@ -405,3 +405,32 @@ func TestVerifyManaged_ForeignFileDoesNotHealForever(t *testing.T) {
 		t.Errorf("an owned file edited must stay modified, got %+v", f)
 	}
 }
+
+// `doctor --repair-hashes` hashes an agent under the name Apply and verify use,
+// not under the client's file name (reviewer.toml, .json, .agent.md): right
+// after the repair the agent is clean, not modified.
+func TestRepairManagedHashes_AgentHashedUnderApplyName(t *testing.T) {
+	for _, p := range []configurator.Provider{configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderCopilot} {
+		t.Run(string(p), func(t *testing.T) {
+			baseDir, _, applied, _ := driftKB(t, func(o *ApplyOptions) { o.Provider = p })
+			lock := applied.NewLock
+			found := false
+			for i := range lock.Managed {
+				if lock.Managed[i].Kind == "agent" {
+					lock.Managed[i].MaterializedHash = ""
+					found = true
+				}
+			}
+			if !found {
+				t.Skipf("%s materialised no agent", p)
+			}
+			repaired, skipped, err := RepairManagedHashes(lock, p, baseDir, false)
+			if err != nil || len(skipped) != 0 || len(repaired) == 0 {
+				t.Fatalf("repair: repaired=%v skipped=%v err=%v", repaired, skipped, err)
+			}
+			if f, ok := findingFor(VerifyManaged(lock, p, baseDir), "agent", "reviewer"); ok {
+				t.Fatalf("repaired agent still reported: %+v", f)
+			}
+		})
+	}
+}

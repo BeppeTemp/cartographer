@@ -159,10 +159,17 @@ func EmitServer(name string, spec ServerSpec, provider Provider) (*EmitResult, e
 	return d.emit(name, spec)
 }
 
+// serverNamePattern is what a server name may be, so that the JSON and TOML
+// emitters agree: a bare TOML key needs exactly this alphabet.
+var serverNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
 // validateServerSpec keeps direct EmitServer callers from silently dropping
 // incompatible transport fields. KB descriptors receive stricter validation in
 // provisioning; this is the final emitter boundary for every caller.
 func validateServerSpec(name string, spec ServerSpec) error {
+	if !serverNamePattern.MatchString(name) {
+		return fmt.Errorf("mcp %q: the server name must be letters, digits, '_' or '-': it is an entry key, a tool prefix and a URL part, and a space, quote or dot breaks the TOML and JSON entries", name)
+	}
 	switch spec.Type {
 	case "http":
 		if spec.Command != "" || len(spec.Args) != 0 {
@@ -658,30 +665,22 @@ func mergeJSON(existing, incoming []byte) ([]byte, error) {
 	if err := json.Unmarshal(incoming, &incomMap); err != nil {
 		return incoming, nil
 	}
-	jsonDeepMerge(existMap, incomMap)
-	dropSupersededURLKeys(existMap, incomMap)
-	return jsonorder.Marshal(existMap, layout)
-}
-
-// dropSupersededURLKeys removes "serverUrl" from every server entry that the
-// incoming content writes with "url": Antigravity entries written before D1030
-// carry "serverUrl", and the deep merge would otherwise keep it beside "url",
-// pointing at the old address once the URL changes. Entries the incoming
-// content does not write (other servers) are left alone.
-func dropSupersededURLKeys(dst, src map[string]any) {
+	// A server entry is replaced whole: merging into the old one would keep a
+	// removed header, command/args after a transport change, and would unite
+	// the old and new args. The merge stays at the level of the server map.
 	for _, key := range mcpServerKeys {
-		srcServers, _ := src[key].(map[string]any)
-		dstServers, _ := dst[key].(map[string]any)
-		for name, sv := range srcServers {
-			se, _ := sv.(map[string]any)
-			de, _ := dstServers[name].(map[string]any)
-			if _, hasURL := se["url"]; hasURL && de != nil {
-				if _, own := se["serverUrl"]; !own {
-					delete(de, "serverUrl")
-				}
-			}
+		src, srcOK := incomMap[key].(map[string]any)
+		dst, dstOK := existMap[key].(map[string]any)
+		if !srcOK || !dstOK {
+			continue
 		}
+		for name, entry := range src {
+			dst[name] = entry
+		}
+		delete(incomMap, key)
 	}
+	jsonDeepMerge(existMap, incomMap)
+	return jsonorder.Marshal(existMap, layout)
 }
 
 // jsonDeepMerge merges src into dst. For nested maps, recurses.

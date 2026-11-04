@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -516,11 +517,12 @@ func scanCodex(base string, targets []usageTarget, cutoff time.Time) []usageEven
 						HostSkills json.RawMessage `json:"host_skills"`
 					} `json:"state"`
 				}
-				if json.Unmarshal(rec.Payload, &p) != nil || !nonEmptyJSON(p.State.HostSkills) {
+				if json.Unmarshal(rec.Payload, &p) != nil {
 					return
 				}
+				listed := hostSkillNames(p.State.HostSkills)
 				for _, t := range targets {
-					if t.kind == "skill" {
+					if t.kind == "skill" && listed[t.name] {
 						events = append(events, usageEvent{key: UsageKey(t.kind, t.name), at: at, catalog: true, provider: "codex"})
 					}
 				}
@@ -543,11 +545,6 @@ func scanCodex(base string, targets []usageTarget, cutoff time.Time) []usageEven
 		})
 	}
 	return events
-}
-
-func nonEmptyJSON(raw json.RawMessage) bool {
-	s := strings.TrimSpace(string(raw))
-	return s != "" && s != "null" && s != "[]" && s != "{}" && s != `""`
 }
 
 // --- Kiro ---
@@ -681,3 +678,46 @@ func scanCopilot(base string, targets []usageTarget, cutoff time.Time) []usageEv
 	}
 	return events
 }
+
+// hostSkillNames is the set of skill names a Codex world_state lists in
+// host_skills. Seen in real transcripts: an object {body, includeInstructions}
+// whose body is a text with one "- <name>: <description> (file: …)" line per
+// skill (the "- `r0` = <root>" lines are not skills). A list of strings or of
+// objects with a "name" is read too. A shape of none of these credits no skill.
+func hostSkillNames(raw json.RawMessage) map[string]bool {
+	names := map[string]bool{}
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) == nil {
+		for _, it := range items {
+			var s string
+			if json.Unmarshal(it, &s) == nil {
+				names[s] = true
+				continue
+			}
+			var o struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(it, &o) == nil && o.Name != "" {
+				names[o.Name] = true
+			}
+		}
+		return names
+	}
+	var obj struct {
+		Body string `json:"body"`
+	}
+	if json.Unmarshal(raw, &obj) == nil && obj.Body != "" {
+		for _, line := range strings.Split(obj.Body, "\n") {
+			if m := hostSkillLine.FindStringSubmatch(line); m != nil {
+				names[m[1]] = true
+			}
+		}
+		return names
+	}
+	if len(raw) > 0 && string(raw) != "null" {
+		slog.Debug("codex host_skills in a shape not recognised; no catalogue sighting credited")
+	}
+	return names
+}
+
+var hostSkillLine = regexp.MustCompile(`^\s*- ([^\s` + "`" + `]+): `)

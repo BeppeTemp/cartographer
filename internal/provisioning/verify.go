@@ -192,6 +192,11 @@ func (mf ManagedFile) executableOnDisk(rel string, onDisk bool) bool {
 	return effectiveExecutable(mf.Kind, rel, false)
 }
 
+// agentHashPath is the path a managed agent's single file is hashed under,
+// whatever the client's file is called: Apply, verify and `doctor
+// --repair-hashes` must agree, or a repaired agent reads as modified.
+func agentHashPath(name string) string { return name + ".md" }
+
 // readManagedFiles reads the on-disk bytes of one managed artifact in the shape
 // hashArtifactFiles expects: one entry for a single-file kind, every file under
 // the directory for a skill or hook.
@@ -206,6 +211,11 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 			return nil, readErr
 		}
 		base := filepath.Base(full)
+		if mf.Kind == "agent" {
+			// The name the hash is taken under at Apply and in verify, not the
+			// client's file name (reviewer.toml, .json, .agent.md).
+			base = agentHashPath(mf.Name)
+		}
 		return []ArtifactFile{{Path: base, Content: data, Executable: mf.executableOnDisk(base, execbit.IsExecutable(info.Mode()))}}, nil
 	}
 	var files []ArtifactFile
@@ -347,7 +357,7 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		var data []byte
 		data, err = os.ReadFile(full)
 		if err == nil {
-			onDisk = hashArtifactFiles([]ArtifactFile{{Path: mf.Name + ".md", Content: data}})
+			onDisk = hashArtifactFiles([]ArtifactFile{{Path: agentHashPath(mf.Name), Content: data}})
 		}
 	default:
 		// skill/hook: a directory of its own. Hashed through the lockfile

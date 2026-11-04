@@ -524,3 +524,22 @@ func TestRunVersion_GrandchildHoldingStdoutDoesNotHang(t *testing.T) {
 		t.Errorf("runVersion blocked for %v on a held stdout", d)
 	}
 }
+
+// With no home directory the config dirs are skipped: filepath.Join("", ".claude")
+// is relative to the working directory, and a project's own .claude/ is not an
+// installed client.
+func TestDetect_NoHomeDoesNotReadConfigDirsRelativeToTheWorkingDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	for _, d := range []string{".claude", ".codex"} {
+		if err := os.MkdirAll(filepath.Join(cwd, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(cwd)
+	withStubs(t, "", nil, "linux")
+	for _, a := range Detect() {
+		if a.Installed {
+			t.Errorf("%s detected through %q with no home directory", a.Name, a.Evidence)
+		}
+	}
+}
