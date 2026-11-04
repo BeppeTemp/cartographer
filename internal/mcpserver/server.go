@@ -144,6 +144,10 @@ type Server struct {
 	// for every tools/call dispatched through this server (D119). Nil (the
 	// default) means auditing is off — byte-identical to pre-D119 behaviour.
 	auditLog *audit.Log
+	// auditRefusalsOnly marks the routed view (SetRefusalAuditLog): it audits
+	// the calls it refuses itself and leaves the pair of a call it dispatches
+	// to the target KB's server, so a dispatched call is recorded once.
+	auditRefusalsOnly bool
 	// kbName identifies the KB this server serves, recorded on every audit
 	// event. Set via SetKBName at mount time.
 	kbName string
@@ -258,6 +262,18 @@ func (s *Server) SetAuditLog(l *audit.Log) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.auditLog = l
+}
+
+// SetRefusalAuditLog attaches the audit sink to a routed view (D288), which
+// records only what it refuses itself, before any KB server sees the call:
+// the argument checks, the profile and read-only gates, a missing or foreign
+// `kb`, a tool the target KB lacks. A call it dispatches is audited by the
+// target KB's server, as before.
+func (s *Server) SetRefusalAuditLog(l *audit.Log) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLog = l
+	s.auditRefusalsOnly = true
 }
 
 // SetKBName records the KB name (config.KBSpec-resolved) attributed to every

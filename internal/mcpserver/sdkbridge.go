@@ -313,7 +313,15 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	}
 
 	resources := extractResources(name, args)
-	call, rejected, ok := s.beginAuditCall(principal, name, tool.ReadOnly, resources)
+	s.mu.Lock()
+	refusalsOnly := s.auditRefusalsOnly
+	s.mu.Unlock()
+	var call auditCall // zero: end is a no-op on a routed view, the target KB audits the pair
+	var rejected ToolResult
+	ok := true
+	if !refusalsOnly {
+		call, rejected, ok = s.beginAuditCall(principal, name, tool.ReadOnly, resources)
+	}
 	if !ok {
 		// Required mode, attempt-phase append failed: reject before the tool
 		// ever runs — see beginAuditCall.

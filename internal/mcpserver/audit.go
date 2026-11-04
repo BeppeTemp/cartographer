@@ -308,11 +308,21 @@ func resultBytes(result ToolResult) int64 {
 // unavailable, the denial is simply not recorded (best_effort) rather than
 // failing the already-decided rejection a second time.
 func (s *Server) auditDenied(principal, toolName string, rawArgs json.RawMessage) {
+	s.auditDeniedFor("", principal, toolName, rawArgs)
+}
+
+// auditDeniedFor is auditDenied attributing the event to kbOverride when it
+// is not empty (a routed view has no KB of its own: the KB the refusal
+// resolved to, never a name the caller merely typed).
+func (s *Server) auditDeniedFor(kbOverride, principal, toolName string, rawArgs json.RawMessage) {
 	s.mu.Lock()
 	log, kbName, transport := s.auditLog, s.kbName, s.transport
 	s.mu.Unlock()
 	if log == nil {
 		return
+	}
+	if kbOverride != "" {
+		kbName = kbOverride
 	}
 
 	canonical := toolName

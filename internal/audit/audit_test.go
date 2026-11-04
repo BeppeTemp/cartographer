@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -1171,4 +1172,136 @@ func TestVerifyAuditAcceptsAnEmptyLogWithAKey(t *testing.T) {
 	if _, err := VerifyAudit(path, filepath.Join(dir, "archive"), kp.Public, VerifyOptions{}); err != nil {
 		t.Errorf("VerifyAudit of an empty log = %v, want accepted", err)
 	}
+}
+
+// A signed line is verified as the bytes on disk, not as the values a JSON
+// decoder extracts from them: anything the hash does not cover, and any
+// alternative spelling of a covered key, fails verification.
+func TestVerifyRefusesALineThatIsNotTheWrittenForm(t *testing.T) {
+	forge := func(t *testing.T, edit func(line string) string) {
+		t.Helper()
+		kp, _ := GenerateKeyPair()
+		path := filepath.Join(t.TempDir(), "audit.jsonl")
+		l, err := OpenWithKey(path, kp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.AppendEvent(Entry{RequestID: "r", Phase: PhaseAttempt, Tool: "concept_read", PrincipalID: "alice"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.AppendEvent(Entry{RequestID: "r", Phase: PhaseCompletion, Tool: "concept_read", PrincipalID: "alice", Outcome: OutcomeSuccess}); err != nil {
+			t.Fatal(err)
+		}
+		l.Close()
+		if _, err := VerifyAudit(path, "", kp.Public, VerifyOptions{}); err != nil {
+			t.Fatalf("untouched log: %v", err)
+		}
+		data, _ := os.ReadFile(path)
+		lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		forged := edit(lines[0])
+		if forged == lines[0] {
+			t.Fatal("edit had no effect")
+		}
+		lines[0] = forged
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := VerifyAudit(path, "", kp.Public, VerifyOptions{}); err == nil {
+			t.Error("VerifyAudit accepts a forged line")
+		}
+		if _, err := VerifyFile(path, kp.Public); err == nil {
+			t.Error("VerifyFile accepts a forged line")
+		}
+	}
+	cases := map[string]func(string) string{
+		"args added":       func(l string) string { return strings.Replace(l, `{"version":2`, `{"version":2,"args":"x"`, 1) },
+		"agent_id added":   func(l string) string { return strings.Replace(l, `"tool":`, `"agent_id":"mallory","tool":`, 1) },
+		"case-variant key": func(l string) string { return strings.TrimSuffix(l, "}") + `,"PRINCIPAL_ID":"alice"}` },
+		"forged value then original under another case": func(l string) string {
+			return strings.Replace(strings.TrimSuffix(l, "}"), `"principal_id":"alice"`, `"principal_id":"mallory"`, 1) + `,"PRINCIPAL_ID":"alice"}`
+		},
+		"duplicate key":         func(l string) string { return strings.TrimSuffix(l, "}") + `,"tool":"concept_read"}` },
+		"unknown key":           func(l string) string { return strings.TrimSuffix(l, "}") + `,"note":"x"}` },
+		"CR before the newline": func(l string) string { return l + "\r" },
+		"timestamp at another offset": func(l string) string {
+			m := regexp.MustCompile(`"timestamp":"([^"]+)"`).FindStringSubmatch(l)
+			ts, err := time.Parse(time.RFC3339Nano, m[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			moved := ts.In(time.FixedZone("", 2*3600)).Format(time.RFC3339Nano)
+			return strings.Replace(l, m[1], moved, 1)
+		},
+		"whitespace": func(l string) string { return strings.Replace(l, `"version":2,`, `"version": 2,`, 1) },
+	}
+	for name, edit := range cases {
+		t.Run(name, func(t *testing.T) { forge(t, edit) })
+	}
+}
+
+// Lines written by earlier releases keep verifying: the first release's
+// layout (args, agent_id and duration_ms always present) and the layout of a
+// legacy entry written through the deprecated Append.
+func TestVerifyAcceptsLinesOfEarlierReleases(t *testing.T) {
+	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	e1 := Entry{Timestamp: ts, Tool: "concept_read", Args: "{}", AgentID: "a", Outcome: "ok", PrevHash: "genesis"}
+	e1.Hash = computeHash(e1)
+	e2 := Entry{Timestamp: ts, Tool: "lint", Outcome: "ok", PrevHash: e1.Hash}
+	e2.Hash = computeHash(e2)
+	old1 := fmt.Sprintf(`{"timestamp":"2026-01-02T03:04:05Z","tool":"concept_read","args":"{}","agent_id":"a","outcome":"ok","duration_ms":0,"prev_hash":"genesis","hash":%q}`, e1.Hash)
+	old2 := fmt.Sprintf(`{"timestamp":"2026-01-02T03:04:05Z","tool":"lint","args":"","agent_id":"","outcome":"ok","duration_ms":0,"prev_hash":%q,"hash":%q}`, e1.Hash, e2.Hash)
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	if err := os.WriteFile(path, []byte(old1+"\n"+old2+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := VerifyFile(path, nil); err != nil || s.Valid != 2 {
+		t.Fatalf("first-release layout: %+v %v", s, err)
+	}
+	if s, err := VerifyAudit(path, "", nil, VerifyOptions{}); err != nil || s.Valid != 2 {
+		t.Fatalf("first-release layout, VerifyAudit: %+v %v", s, err)
+	}
+	l, p2 := tempLog(t)
+	if err := l.Append(makeEntry("tool")); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := VerifyFile(p2, nil); err != nil || s.Valid != 1 {
+		t.Fatalf("legacy Append: %+v %v", s, err)
+	}
+}
+
+// A v2 event carries no legacy-only field, whatever its hash says.
+func TestValidV2OutcomeRefusesLegacyFields(t *testing.T) {
+	if validV2Outcome(Entry{Phase: PhaseAttempt, Args: "x"}) || validV2Outcome(Entry{Phase: PhaseAttempt, AgentID: "x"}) {
+		t.Fatal("a v2 event with args or agent_id is accepted")
+	}
+}
+
+// A legacy (version 0) line is hashed over six fields only: a signed one must
+// not gain any field of the later eras, nor a timestamp at another offset.
+func TestVerifyRefusesAnnotatedLegacyLines(t *testing.T) {
+	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	e := Entry{Timestamp: ts, Tool: "lint", Outcome: "ok", PrevHash: "genesis"}
+	e.Hash = computeHash(e)
+	line := func(extra string) string {
+		return fmt.Sprintf(`{"timestamp":"2026-01-02T03:04:05Z",%s"tool":"lint","outcome":"ok","prev_hash":"genesis","hash":%q}`, extra, e.Hash)
+	}
+	check := func(l string, wantOK bool) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "audit.jsonl")
+		if err := os.WriteFile(path, []byte(l+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := VerifyFile(path, nil)
+		if (err == nil) != wantOK {
+			t.Fatalf("%s: err=%v, want ok=%v", l, err, wantOK)
+		}
+	}
+	check(line(""), true)
+	check(line(`"kb":"kb-a",`), false)
+	check(line(`"principal_id":"mallory",`), false)
+	check(line(`"id":"x","phase":"attempt",`), false)
+	check(line(`"read_only":true,`), false)
+	check(line(`"resources":{"id":"x"},`), false)
+	// Same instant, another offset.
+	check(strings.Replace(line(""), "2026-01-02T03:04:05Z", "2026-01-02T05:04:05+02:00", 1), false)
 }

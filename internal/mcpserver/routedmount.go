@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
@@ -205,7 +206,7 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 		}
 		return lastErr
 	})
-	for _, t := range m.unionTools(set) {
+	for _, t := range m.unionTools(set, routed) {
 		routed.RegisterTool(t)
 	}
 	return routed
@@ -594,7 +595,7 @@ func (m *MultiKBServer) mountedNames() []string {
 // silently hide a tool from a KB that registers it because a sibling KB does
 // not; the union registers it once and refuses it per KB at dispatch, with an
 // error naming the KB — which is the answer a caller can act on.
-func (m *MultiKBServer) unionTools(set []string) []Tool {
+func (m *MultiKBServer) unionTools(set []string, sink *Server) []Tool {
 	seen := map[string]bool{}
 	var out []Tool
 	for _, name := range set {
@@ -615,7 +616,7 @@ func (m *MultiKBServer) unionTools(set []string) []Tool {
 			}
 			routedTool := *t
 			routedTool.InputSchema = withKBProperty(t.InputSchema, len(set) >= 2)
-			routedTool.Handler = m.routedHandler(toolName, set)
+			routedTool.Handler = m.routedHandler(toolName, set, sink)
 			routedTool.AcceptsKB = true
 			out = append(out, routedTool)
 		}
@@ -628,11 +629,20 @@ func (m *MultiKBServer) unionTools(set []string) []Tool {
 // entry point the per-KB endpoint uses, so authorization, audit, the
 // read/write classification and the git wrapper are the per-KB ones,
 // unchanged, applied to the KB actually named.
-func (m *MultiKBServer) routedHandler(toolName string, set []string) func(context.Context, json.RawMessage) (ToolResult, error) {
+func (m *MultiKBServer) routedHandler(toolName string, set []string, sink *Server) func(context.Context, json.RawMessage) (ToolResult, error) {
 	return func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+		// A refusal decided here never reaches a KB server, so it is audited
+		// here, as the denial the target KB would have recorded. The KB is
+		// attributed only once resolved within the set.
+		refuse := func(kbFor string, res ToolResult) (ToolResult, error) {
+			if sink != nil {
+				sink.auditDeniedFor(kbFor, auth.PrincipalFromContext(ctx).ID, toolName, args)
+			}
+			return res, nil
+		}
 		kbName, rest, err := splitKBArgument(args)
 		if err != nil {
-			return errorResult(err.Error()), nil
+			return refuse("", errorResult(err.Error()))
 		}
 		if kbName == "" {
 			if len(set) == 1 {
@@ -640,9 +650,9 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 				// /mcp/<name>: there is nothing to infer.
 				kbName = set[0]
 			} else {
-				return errorResult(fmt.Sprintf(
+				return refuse("", errorResult(fmt.Sprintf(
 					"%q is required on this endpoint: it serves %d Knowledge Bases (%s) and the KB is never inferred",
-					routedKBArgument, len(set), strings.Join(set, ", "))), nil
+					routedKBArgument, len(set), strings.Join(set, ", "))))
 			}
 		}
 		// A session that outlived the rename still names the old KB in its
@@ -660,30 +670,30 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			operator := addressesOperator(ctx)
 			if _, mounted := m.servers[kbName]; mounted && kbRosterVisible(ctx, kbName) {
 				if !operator {
-					return errorResult(fmt.Sprintf("kb %q is mounted on this server but is not part of this connection (allowed: %s). "+
+					return refuse("", errorResult(fmt.Sprintf("kb %q is mounted on this server but is not part of this connection (allowed: %s). "+
 						"The connection's KB set is fixed when the integration connects: whoever runs the integration adds the KB to its URL (?kbs=), "+
-						"then the integration reconnects or re-synchronizes its tool list — an open session keeps the tool list it started with.", kbName, allowed)), nil
+						"then the integration reconnects or re-synchronizes its tool list — an open session keeps the tool list it started with.", kbName, allowed)))
 				}
-				return errorResult(fmt.Sprintf("kb %q is mounted on this server but not bound to this connection (allowed: %s): "+
+				return refuse("", errorResult(fmt.Sprintf("kb %q is mounted on this server but not bound to this connection (allowed: %s): "+
 					"bind it to this client (cartographer client bind), run cartographer sync, then start a new agent session — "+
-					"an open session keeps the tool list it started with. "+routedScopeHint, kbName, allowed)), nil
+					"an open session keeps the tool list it started with. "+routedScopeHint, kbName, allowed)))
 			}
 			if containsString(routedUnknown(ctx), kbName) {
 				if !operator {
-					return errorResult(fmt.Sprintf("kb %q is named by this connection's URL but is not mounted on this server (renamed or removed?): "+
-						"whoever runs the integration needs to update the URL — allowed: %s", kbName, allowed)), nil
+					return refuse("", errorResult(fmt.Sprintf("kb %q is named by this connection's URL but is not mounted on this server (renamed or removed?): "+
+						"whoever runs the integration needs to update the URL — allowed: %s", kbName, allowed)))
 				}
-				return errorResult(fmt.Sprintf("kb %q is in this connection's kbs but is not mounted on this server (renamed or removed?): "+
-					"run cartographer sync on this client, then start a new agent session — allowed: %s", kbName, allowed)), nil
+				return refuse("", errorResult(fmt.Sprintf("kb %q is in this connection's kbs but is not mounted on this server (renamed or removed?): "+
+					"run cartographer sync on this client, then start a new agent session — allowed: %s", kbName, allowed)))
 			}
 			if !operator {
-				return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s. "+
+				return refuse("", errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s. "+
 					"A KB created after the server started is served only once the server's operator restarts the server; "+
-					"the integration then reconnects or re-synchronizes its tool list.", kbName, allowed)), nil
+					"the integration then reconnects or re-synchronizes its tool list.", kbName, allowed)))
 			}
-			return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s"+
+			return refuse("", errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s"+
 				"; a KB created after the server started is mounted only by a server restart (cartographer service restart), "+
-				"then cartographer sync and a new agent session. "+routedScopeHint, kbName, allowed)), nil
+				"then cartographer sync and a new agent session. "+routedScopeHint, kbName, allowed)))
 		}
 		srv := m.servers[kbName]
 		srv.mu.Lock()
@@ -693,7 +703,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			// The union exposed it because a sibling KB has it. Attribute the
 			// refusal: the caller must learn which KB refused and why, not that
 			// a tool it can see does not exist.
-			return errorResult(fmt.Sprintf("kb %q: tool not found: %s", kbName, toolName)), nil
+			return refuse(kbName, errorResult(fmt.Sprintf("kb %q: tool not found: %s", kbName, toolName)))
 		}
 		res := srv.callTool(withRoutedSet(ctx, set), toolName, rest)
 		if toolName == "kb_status" && !res.IsError {

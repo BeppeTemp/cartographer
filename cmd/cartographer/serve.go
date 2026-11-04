@@ -646,6 +646,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 			err := multi.EnableRoutedMount(version, func(s *mcpserver.Server) {
 				s.SetToolsProfile(toolsProfile)
 				s.SetTransport("http")
+				s.SetRefusalAuditLog(auditLog)
 			})
 			if err != nil {
 				log.Fatal(err)
