@@ -64,7 +64,7 @@ func TestConceptMove_Mentions(t *testing.T) {
 	t.Parallel()
 	_, out, raw := mentionsMove(t, "concept_move", `{"source_id":"ops/net","target_id":"ops/network"}`, map[string]string{
 		"ops/net.md":        "---\ntype: Note\ntitle: Net\n---\nI was ops/net once.\n",
-		"ops/a.md":          "---\ntype: Note\ntitle: A\nprovenance:\n  - ops/net\n---\nSee `ops/net` here.\n\nAlso ops/net.md and [link](net.md) and [[ops/net]] and [ops/net](net.md).\n",
+		"ops/a.md":          "---\ntype: Note\ntitle: A\nrelated: ops/net\n---\nSee `ops/net` here.\n\nAlso ops/net.md and [link](net.md) and [[ops/net]] and [ops/net](net.md).\n",
 		"ops/b.md":          "---\ntype: Note\ntitle: B\n---\ndev/ops/net, ops/network-2, ops/netx, ops/net-old, ops/network.\n",
 		"skills/s/SKILL.md": "---\nname: s\ndescription: Use when testing.\n---\n\nRead `ops/net`.\n",
 		"instructions.md":   "line\nops/net\n",

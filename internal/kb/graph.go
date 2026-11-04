@@ -807,7 +807,7 @@ func (kb *KB) WalkConceptPaths(fn func(id okf.ConceptID, physicalPath, content s
 // WalkConceptsLinkingTo is WalkConceptPaths restricted to the concepts that
 // can hold a reference to one of targets: every file whose links (as
 // ExtractLinks reports them) include a target, every file whose superseded_by
-// facet names one, and every file emitting one of also. Candidates come from
+// or provenance facet names one, and every file emitting one of also. Candidates come from
 // the cached link graph (D241) and are visited in walk order; only they are
 // read, each once, at its physical path. A candidate that vanished since the
 // graph was validated is skipped, as the walk skips an unreadable file.
@@ -837,6 +837,11 @@ func (kb *KB) WalkConceptsLinkingTo(targets, also []okf.ConceptID, fn func(id ok
 		}
 		for _, l := range e.links {
 			if _, ok := want[l]; ok {
+				return true
+			}
+		}
+		for _, p := range e.facets.Provenance {
+			if _, ok := want[okf.ConceptID(p)]; ok {
 				return true
 			}
 		}

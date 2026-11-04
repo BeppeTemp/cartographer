@@ -24,8 +24,9 @@ import (
 //
 // What is cached per file is what the graph readers need — links, the lines
 // that wrote them (D317), the asset probes that decided them, the content
-// hash and four frontmatter facets — never the body, so memory stays
-// proportional to the link count.
+// hash and the frontmatter facets (ConceptFacets, the provenance list among
+// them: a handful of short strings per page, within D241's budget) — never the
+// body, so memory stays proportional to the link count.
 
 // racyWindow is how close to its observation a modification time may be
 // before the signature stops being trusted. A file rewritten within the same
@@ -183,6 +184,10 @@ type ConceptFacets struct {
 	Title          string
 	Status         string
 	SupersededBy   string
+	// Provenance are the entries of the `provenance` frontmatter list
+	// (ProvenanceEntries): what lets a move find the pages that cite a moved
+	// Source without reading every file (#1510).
+	Provenance []string
 	// Placeholders are the {{repo:…}}/{{path:…}} keys the body cites, plus
 	// those of a Source's frontmatter `locator` (D278), as sorted, unique
 	// "kind:key" strings (okf.Placeholders: escaped ones and metasyntax
@@ -214,6 +219,7 @@ func facetsOf(content string) ConceptFacets {
 	if v, ok := fm.Get("superseded_by"); ok {
 		f.SupersededBy, _ = v.(string)
 	}
+	f.Provenance = ProvenanceEntries(fm)
 	if v, ok := fm.Get("locator"); ok {
 		if loc, _ := v.(string); loc != "" {
 			f.Placeholders = okf.Placeholders(loc + "\n" + body)

@@ -273,6 +273,9 @@ func transferReport(plan *transferPlan, srcName, dstName, srcSHA, dstSHA string,
 	if len(srcOut.unlinked) > 0 {
 		result["unlinked_in"] = srcOut.unlinked
 	}
+	if len(srcOut.provenanceKept) > 0 {
+		result["provenance_not_rewritten"] = srcOut.provenanceKept
+	}
 	if len(srcOut.supersededCleared) > 0 {
 		result["superseded_by_cleared"] = srcOut.supersededCleared
 	}
@@ -355,17 +358,19 @@ func transferSubject(pl *transferPlan, dir, other string) string {
 func transferTypeViolation(dst *kb.KB, m conceptMoveEntry, fm *okf.Frontmatter) error {
 	dstMap, ok := conceptMapName(m.TargetID)
 	conceptType := fm.Type()
-	if !ok || conceptType == "" {
+	if !ok {
 		return nil
 	}
-	meta, err := dst.ReadArchiveMeta(dstMap)
-	if err != nil || strictTypeViolation(meta, dstMap, conceptType) == nil {
+	meta, err := dst.ReadArchiveMetaStrict(dstMap)
+	if err != nil {
+		return fmt.Errorf("concept_transfer: %w. Nothing was transferred", err)
+	}
+	if meta == nil || conceptType == "" || strictTypeViolation(meta, dstMap, conceptType) == nil {
 		return nil
 	}
-	admitted, _ := meta.Get("concept_types")
 	return fmt.Errorf("concept_transfer: %q has type %q, which map %s of the target KB (strict) does not admit; admitted types: %s. "+
 		"Nothing was transferred — extend the map's concept_types with map_update, or pick a map that admits the type",
-		m.SourceID, conceptType, dstMap, strings.Join(admitted.([]string), ", "))
+		m.SourceID, conceptType, dstMap, strings.Join(admittedTypes(meta), ", "))
 }
 
 // planTransfer validates every move before any write. Nothing here mutates
@@ -805,8 +810,11 @@ func copyTransferFile(from, to string, exec bool) (err error) {
 type transferSourceOut struct {
 	unlinked          []rewrittenConcept
 	supersededCleared []string
-	notes             []string
-	findings          []findingOut
+	// provenanceKept are the pages whose provenance cites a transferred
+	// Source: the citation cannot name a page of another KB, so it stays.
+	provenanceKept []provenanceKept
+	notes          []string
+	findings       []findingOut
 }
 
 // applyTransferSource removes the moved concepts from src and turns every link
@@ -874,6 +882,15 @@ func applyTransferSource(src *kb.KB, pl *transferPlan) (transferSourceOut, error
 		}
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
 		newBody, count := kb.UnlinkTargets(body, basePath, gone, src.AssetExists)
+		if strings.Contains(fmRaw, "provenance") {
+			if parsed, perr := okf.ParseFrontmatter(fmRaw); perr == nil {
+				for _, e := range kb.ProvenanceEntries(parsed) {
+					if gone[e] {
+						out.provenanceKept = append(out.provenanceKept, provenanceKept{ID: string(id), Source: e})
+					}
+				}
+			}
+		}
 		clearSuperseded := false
 		var fm *okf.Frontmatter
 		if strings.Contains(fmRaw, "superseded_by") {
@@ -959,4 +976,11 @@ func applyTransferSource(src *kb.KB, pl *transferPlan) (transferSourceOut, error
 	sort.Strings(touched)
 	out.findings, _, _ = repairWritten(src, touched, goneList, nil)
 	return out, nil
+}
+
+// provenanceKept names a page of the source KB whose provenance still cites a
+// Source that was transferred away (concept_transfer's provenance_not_rewritten).
+type provenanceKept struct {
+	ID     string `json:"id"`
+	Source string `json:"source"`
 }
