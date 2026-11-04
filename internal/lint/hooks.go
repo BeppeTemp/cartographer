@@ -42,6 +42,10 @@ func checkHooks(k *kb.KB) []Finding {
 		case provisioning.UnknownHookEvent(data) != "":
 			// Registered as declared, so not skipped; a typo still never fires.
 			msg = fmt.Sprintf("hook %q: %s", e.Name(), provisioning.UnknownHookEvent(data))
+		case provisioning.ValidateHookRequires(e.Name(), data) != nil:
+			// The hook still registers (parseHookSpec ignores `requires`); only
+			// the declaration is wrong, and nothing evaluates it.
+			msg = fmt.Sprintf("hook %q: invalid requires, ignored at sync (the hook is still registered): %v", e.Name(), provisioning.ValidateHookRequires(e.Name(), data))
 		default:
 			continue
 		}
