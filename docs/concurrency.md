@@ -155,6 +155,24 @@ it when the remote has it, branched from the remote's default branch otherwise);
 is switched only by the sync, and only when that loses nothing (below). A server's `kbs[].branch` takes the place
 of `branch` for that server (D1093). A name git would not accept is a finding in the file and never a branch.
 
+**A KB holds files, never repositories.** A directory carrying a `.git` of its own is a nested repository: the
+server's git never looks inside one, and its commits never record one. Three rules (`gitx/gitlink.go`):
+
+- every git command of the server runs with submodules ignored, ahead of the repository's own configuration:
+  `diff.ignoreSubmodules=all`, `submodule.recurse` and `fetch.recurseSubmodules` off, and `core.fsmonitor=false`
+  (command-line configuration reaches a child git process too, so a nested repository's fsmonitor is not run
+  even by a command that does look inside);
+- a commit never records a gitlink (index mode 160000). The staging of a write leaves a change to one out, and a
+  working tree that holds a nested repository new to the history makes the commit fail whole with
+  `refusing to record a nested git repository (gitlink): <path>` (`gitx.ErrGitlink`): nothing is committed, the
+  index keeps no trace of it, and every later write fails the same way, as a failed commit (`sync_status` is `failed`, with the
+  path in `last_error`), until the nested `.git` is removed. Every commit path holds to it: `Commit`, `CommitPaths`, and the
+  staging the write gate previews;
+- a gitlink the history already holds is left alone: it is kept out of `git add -A`, the one command that looks
+  inside it whatever the configuration says, so its pointer is never updated and its repository never
+  inspected; removing its folder is recorded as any removal. A gitlink the other side of a merge brings is part
+  of finishing that merge.
+
 Each commit subject is `<tool_name>: <resource>`, so the history of a KB is
 readable as an audit trail. The resource is built from the arguments that
 identify what the write touched: `path` for the artifact tools, `concept_id/path`

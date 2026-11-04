@@ -750,6 +750,14 @@ func dropArtifactFrontmatterKey(k *kb.KB, rel, key string) error {
 // diverged are a person's merge, not a mechanical move. Nothing is touched when
 // a check fails, and a second run finds no from directory.
 func moveLegacySkill(k *kb.KB, from, to string) error {
+	// The folder moves whole and the commit that follows records it at its new
+	// path: no hidden segment in either name (as for any artifact path), and
+	// no hidden entry inside, a nested .git above all.
+	for _, rel := range []string{from, to} {
+		if seg, hidden := hiddenPathSegment(rel); hidden {
+			return fmt.Errorf("path not allowed: %q has the hidden segment %q", rel, seg)
+		}
+	}
 	// from/SKILL.md too: the KB comes from a remote, and a SKILL.md that is a
 	// link would make the WriteFile below truncate its target outside the KB.
 	for _, rel := range []string{from + "/SKILL.md", to} {
@@ -771,6 +779,13 @@ func moveLegacySkill(k *kb.KB, from, to string) error {
 	}
 	if _, err := os.Lstat(absTo); err == nil {
 		return fmt.Errorf("conflict: %s already exists; both copies are left as they are, merge them by hand", to)
+	}
+	hidden, err := hiddenEntryUnder(filepath.Dir(absFrom))
+	if err != nil {
+		return err
+	}
+	if hidden != "" {
+		return fmt.Errorf("%s holds %s: a skill has no hidden file or folder (a name starting with a dot); remove it, then the move can run", from, hidden)
 	}
 	fmRaw, body, ok := okf.SplitFrontmatter(string(data))
 	if !ok {
