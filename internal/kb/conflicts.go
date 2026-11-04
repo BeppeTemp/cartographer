@@ -353,7 +353,10 @@ func (k *KB) FinalizeConflicts() ([]string, error) {
 // Only paths of the form "data/<...>.md" are converted; all others return ("", false).
 // Reserved files (index.md, log.md, _map.md, _archive.md) are excluded — note
 // this means an expanded concept's "index.md" (D77 WP2) is not reported here;
-// callers needing that mapping should go through WalkConcepts instead.
+// callers that need it add GitPathToExpandedConceptID (conceptIDFromGitPath in
+// mcpserver). The Atlas births feed deliberately stays on this narrower
+// mapping: the growth replay of the 3D view breaks when an expanded concept
+// gains a birth (e2e/graph3d.spec.ts).
 func GitPathToConceptID(path string) (string, bool) {
 	// Normalize to forward slashes regardless of OS.
 	path = filepath.ToSlash(path)

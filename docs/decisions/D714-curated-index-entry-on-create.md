@@ -8,6 +8,8 @@ topic: control-plane
 
 **Decision.** `concept_new` and a creating `write` operation of `concept_batch` accept `index_entry: true`, which appends `- [title](rel.md)` under a `## New pages` heading of the map's curated index, in the same commit as the concept. It applies to any non-generated index, whether or not the map declared `require_index_entry`; a generated index only yields a note.
 
+**Where it lands.** At the end of the `## New pages` section (before the next heading of level 2 or lower), found by a whole-line match outside code fences; the heading is appended at the end of the file only when it is missing. The same holds for `## Moved here`.
+
 **Why.** Bulk-creating drafts in a map with a hand-curated index cost an `index_get` and `index_patch` per map and a second commit, with a window where the KB was not conformant. The caller asking explicitly is the same intent as `concept_archive` (D344), so no map opt-in is needed.
 
 **Alternatives rejected.**
