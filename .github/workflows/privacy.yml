@@ -10,11 +10,12 @@ name: privacy
 # that revision. Forks get no secrets and are skipped, and so is issue and
 # comment text by an actor without write access: the guard is for what
 # maintainers publish. On a PR `edited` event (title or body) only the text is
-# scanned: no commit scan, a shallow checkout.
+# scanned: no commit scan, a shallow checkout. A new push to a PR is not scanned
+# by a `synchronize` run: the `push` run on the same sha scans the same commits.
 on:
   push:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, reopened]
   issues:
     types: [opened, edited]
   issue_comment:
@@ -25,9 +26,8 @@ on:
 # cancelled run would leave commits unscanned), and a group keeps only one
 # PENDING run, cancelling an older pending one even without cancel-in-progress
 # (two quick comments on one issue would leave one unscanned). On a PR, `edited`
-# has its own group so it never cancels a running commit scan; within `code` a
-# newer synchronize may supersede an older one because the range BASE..HEAD is
-# full.
+# has its own group so it never cancels a running commit scan; the `code` group
+# only serves `opened` and `reopened`.
 concurrency:
   group: privacy-${{ github.event_name == 'pull_request' && format('pr-{0}-{1}', github.event.pull_request.number, github.event.action == 'edited' && 'text' || 'code') || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

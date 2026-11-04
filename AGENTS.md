@@ -6,6 +6,7 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 
 ```
 make gate            # gofmt + vet + test + race: everything green before a PR (and what CI runs)
+make signoff         # maintainer: gate, push, attest the sha (CI's gate)
 make build           # → bin/cartographer
 make test            # go test ./...
 make vet             # go vet ./..., also GOOS=windows
@@ -125,7 +126,7 @@ Not duplicated here:
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web`, `pr-title`, `plan-gate`; squash-merge only). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
+- All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`; squash-merge only). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
 - **Route a maintainer's change before writing any code**: a bug → an `accepted` `bug` issue with the design in a comment, fixed by `cartographer-fix-implementer` (`CONTRIBUTING.md` §Fixes without a plan); a feature → a plan (`cartographer-propose-plan`) implemented by `cartographer-implement-plan`, on `exp/<theme>` unless the maintainer names `main` (§Experiment branches); a change found by trying it → a live session (below). The coordinator writes no production code itself: it verifies `make gate`.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter (D259).
 - **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code, otherwise one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).

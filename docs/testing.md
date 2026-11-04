@@ -54,11 +54,17 @@ behaviour) and leaves `fmt-check` and `vet` to `test`, which vets with
 Defender's real-time scanning (about a fifth of their time) and use `bash`, the
 scripts being POSIX shell. Required checks match job names literally and a
 matrix renames its legs, so a small job named `test-windows` collects the legs
-and is what branch protection requires; `web` does the same for its two legs —
+for `main-status` (it does not run on a PR); `web` does the same for its two legs —
 the `@video`-tagged browser test (about two minutes of software rendering)
 with the unit tests and bundle checks, and the rest of the browser suite.
-`make e2e-web E2E_WEB_ARGS=...` passes the filter to Playwright. A PR runs `test`, the `web` legs when the
-frontend (or what `bin/cartographer` imports) changed, `pr-title` and `plan-gate`; the heavy legs
+`make e2e-web E2E_WEB_ARGS=...` passes the filter to Playwright. A contributor's PR runs `test`, the `web` legs when the
+frontend (or what `bin/cartographer` imports) changed, `pr-title` and `plan-gate`, and `gate` collects the first two
+(`scripts/ci-gate.sh`). A maintainer's PR (`author_association` OWNER, MEMBER or COLLABORATOR, not a bot, not a
+`release-please--*` head) skips `test` and the web legs: `make signoff` ran the gate (and `make web-gate` when the
+diff needs the web legs, decided by `scripts/ci-filters.sh`) before the push and posted a `signoff` commit status on the
+head sha, and `gate` passes iff such a status exists, created by someone with write access (it polls for
+three minutes, so a status posted just after the push is found). `gate` has no `if` but `!cancelled()` (a skipped
+required check passes), pinned by `internal/repodocs/ci_gate_test.go`. The heavy legs
 (the Windows shards and `install.ps1`, `test-macos`, `docker`, `demo-edge`) run on `merge_group`, on
 every push to `main` and on `workflow_dispatch`, never on a PR (D1592). A merge queue is not
 available here (it needs an organization-owned repository), so the heavy legs run after the merge:
@@ -71,14 +77,13 @@ Playwright browser is cached by version. The `demo-edge` job runs the demo
 Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. On a PR a `changes` job decides `web` and `forge` with
 `scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
 which also compares the excluded packages with `go list -deps`), failing open; where it is
-skipped (push, `merge_group`) everything runs. `test`, `test-windows`, `web` and
-`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are required checks; a job skipped by design reports as
-passed, so `test-windows` is green on a PR, and fails on `merge_group` if a leg was skipped or failed.
+skipped (push, `merge_group`) everything runs. `gate`, `pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are the required checks (D1610); on `merge_group` `test-windows` fails if a leg was skipped or failed.
 On `merge_group` `pr-title` (the same job, every step skipped) and `plan-gate` (`plan-gate-queue.yml`,
 one `echo`, pinned by `TestPlanGateQueueWorkflowDoesNothing`) report success because the PR
-already passed them. Both only matter if a queue is ever enabled. On `main` every push gets its own run (the concurrency group is the
-commit), and the `main-status` job opens a `ci-red` issue on the first
-failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
+already passed them. Both only matter if a queue is ever enabled. Runs on `main` coalesce (`ci.yml`, `codeql.yml`, `security.yml` and
+`docs.yml` each keep one running run and the newest pending one; only `privacy.yml` and `release-please.yml` are
+outside this), so the `main-status` job opens a `ci-red` issue on the first failing push naming the range since the
+last green push run (a compare URL), comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
 generated index is checked only on the release PR, which regenerates it. The working tree is LF on both
 legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fails
 `fmt-check` on every file at once.
@@ -823,7 +828,7 @@ scripts against a scratch bare repository.
 
 `security.yml` is the one workflow that tests nothing of ours: `make vulncheck`
 (govulncheck) and `npm audit` over the `web/` production dependencies,
-`make lint-workflows` (actionlint and zizmor); CodeQL is `codeql.yml`, which also runs on a PR touching code and skips the generated bundle `internal/webui/dist` (`.github/codeql/codeql-config.yml`). It runs on push to
+`make lint-workflows` (actionlint and zizmor); CodeQL is `codeql.yml`, which runs on push to `main`, weekly and on demand, never on a PR, and skips the generated bundle `internal/webui/dist` (`.github/codeql/codeql-config.yml`). `security.yml` runs on push to
 `main`, on a PR touching dependencies or workflows, and weekly, and **none
 of it is a required check**: an advisory published against an old dependency must
 not block an unrelated PR. A red scan on `main` opens a `vuln-scan` issue with
@@ -864,7 +869,12 @@ make e2e
 make test-install
 ```
 
-Exactly what CI runs, in the same order: `make gate` is the one place that
+A maintainer runs `make signoff` instead of `make gate` + `git push`: it runs `gate` (and `web-gate` when the
+diff touches what the web legs cover), pushes with `--force-with-lease` to `origin` and posts the `signoff`
+status CI's `gate` job looks for (`scripts/signoff.sh`; `SIGNOFF_MAKE` points it at a wrapper that runs
+make elsewhere). The four commands after `gate` then run on `main` after the merge.
+
+What CI runs for a contributor's PR, in the same order: `make gate` is the one place that
 defines "green", so a step added here has to be added to `gate` or to
 `ci.yml`, not to a list that only lives in prose.
 

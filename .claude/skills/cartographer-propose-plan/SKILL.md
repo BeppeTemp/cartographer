@@ -42,6 +42,12 @@ One WP section per work package: one-line goal; file:line to touch; exact semant
 and error cases; tests to add; acceptance criterion. `make gate` green at the end of
 each WP.
 
+## PRs
+
+The WPs grouped into the fewest PRs the size cap allows: for each PR its title, its
+WPs, the estimated production lines. Each WP is a body line `type(scope): ...` (one
+unwrapped line), so the changelog keeps one entry per WP.
+
 ## Closing
 
 - [ ] Current-state docs: `docs/<page>.md`
@@ -70,7 +76,10 @@ each WP.
 5. Apply the self-sufficiency test from `CONTRIBUTING.md`, and replace every real KB
    name, host, username, employer or client with a placeholder: the implementer
    pours the plan into a public PR (D259).
-6. One analysis, several plans → every plan states the cross-plan execution order
+6. Group the WPs into the fewest PRs the size cap allows, by file-set and dependency
+   (`CONTRIBUTING.md` §Plans). A PR never depends on another open PR, so a dependent
+   group is one PR or a later one.
+7. One analysis, several plans → every plan states the cross-plan execution order
    and which sibling plans touch the same files (those land strictly sequentially,
    never in parallel). A pointer into a sibling's not-yet-implemented artifact cites
    the plan and its WP, never an invented `file:line`.

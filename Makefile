@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -199,6 +199,27 @@ dev: ## Live instance from this worktree: make dev [DATA=<data dir>] [API_PORT=3
 # `web` CI job's business (D227).
 gate: fmt-check vet test race ## Everything that must be green before a PR is opened
 	@echo "gate: OK"
+
+# A maintainer's replacement for `make gate` + `git push`: the gate (and the web
+# legs when the diff needs them), the push, and the `signoff` status that CI's
+# `gate` job looks for. scripts/signoff.sh has the rules.
+signoff: ## Maintainer only: gate (+ web-gate when needed), push the branch and attest its sha for CI (a contributor just pushes)
+	@./scripts/signoff.sh
+
+# The machine running make, so the status can name where the targets ran when
+# SIGNOFF_MAKE runs them elsewhere.
+signoff-platform:
+	@echo "$$(go env GOOS)/$$(go env GOARCH)"
+
+# The two `web-leg` matrix legs of ci.yml as one local command: install once
+# (NPM_CI= tells the targets not to repeat it), then the video leg's steps and the
+# whole browser suite (the two --grep legs partition it). ci_gate_test.go pins
+# that every make target of the CI legs appears here.
+web-gate: ## Frontend checks and the browser suite as CI's web legs run them (needs Node; installs Playwright's Chromium)
+	cd web && npm ci --silent && npx playwright install chromium
+	$(MAKE) web-check NPM_CI=
+	$(MAKE) web-test NPM_CI=
+	$(MAKE) e2e-web NPM_CI=
 
 # One decision is one file under docs/decisions/, and the index in
 # docs/decisions.md is generated from them. The generator IS the test that

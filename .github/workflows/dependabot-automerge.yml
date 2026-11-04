@@ -3,8 +3,8 @@ name: dependabot-automerge
 # Dependabot's weekly grouped PRs merge themselves once the required checks
 # pass, for patch and minor bumps (D329). A major bump stays open for a human:
 # it is the kind that changes behaviour. The merge itself is GitHub's
-# auto-merge, so the PR still waits for `test` (and `test-windows` where it
-# runs) exactly like any other.
+# auto-merge, so the PR still waits for the required checks (`gate`, which
+# collects `test` and the web legs on a bot's PR) exactly like any other.
 #
 # Not while the freeze is open (a release candidate newer than the latest stable
 # release exists, D1180, D1384): a bump that merges itself then moves main off the
