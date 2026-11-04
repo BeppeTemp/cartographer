@@ -28,12 +28,16 @@ func linkDest(raw string) (start, end int) {
 			return start + 1, start + i
 		}
 	}
-	end = start + len(rest)
-	if i := strings.IndexAny(rest, " \t\n"); i >= 0 {
-		end = start + i
+	// A destination may hold spaces ("Raw file v1.xlsx", written without
+	// angle brackets by hand): only a trailing quoted or parenthesised part is
+	// a title. mdLinkRe stops at the first ")", so a "(title)" arrives unclosed.
+	if loc := linkTitleRe.FindStringIndex(rest); loc != nil {
+		return start, start + loc[0]
 	}
-	return start, end
+	return start, start + len(strings.TrimRight(rest, " \t\n"))
 }
+
+var linkTitleRe = regexp.MustCompile(`[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*)[ \t]*$`)
 
 // wikiLinkRe matches wiki-links [[id]], [[id#section]] and the alias forms
 // [[id|text]] / [[id#section|text]] (D150). The ID is capture group 1: whatever
