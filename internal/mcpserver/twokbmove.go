@@ -77,6 +77,12 @@ func (m *twoKBMove) run(ctx context.Context) ToolResult {
 	_ = first.WithGitLock(func() error {
 		return second.WithGitLock(func() error {
 			res = m.runLocked(ctx)
+			if res.IsError {
+				// Copy, rename and git errors carry host paths of both KBs.
+				for i := range res.Content {
+					res.Content[i].Text = scrubRoots(res.Content[i].Text, m.Src.Root, m.Dst.Root)
+				}
+			}
 			return nil
 		})
 	})

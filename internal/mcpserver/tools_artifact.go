@@ -598,17 +598,17 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			}
 
 			if err := validateArtifactContent(info, params.Path, data); err != nil {
-				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 			if params.Executable != nil && *params.Executable && isStructuredArtifact(info, params.Path) {
 				return errorResult("executable is not allowed for structured artifact files"), nil
 			}
 
 			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-				return errorResult(fmt.Sprintf("artifact_write %q: mkdir: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("artifact_write %q: mkdir: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 			if err := os.WriteFile(abs, data, 0o644); err != nil {
-				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 			if params.Executable != nil {
 				if *params.Executable {
@@ -1083,7 +1083,7 @@ func toolArtifactDelete(k *kb.KB) Tool {
 			}
 
 			if err := os.Remove(abs); err != nil {
-				return errorResult(fmt.Sprintf("artifact_delete %q: %v", params.Path, err)), nil
+				return errorResult(fmt.Sprintf("artifact_delete %q: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 
 			// Clean up the now-empty containing directory, bounded to the

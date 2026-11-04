@@ -84,3 +84,7 @@ test or a decision record: none of them is a preference.
   history follows renames and a commit touches several files. A new tool or hint
   that returns commit data builds `newHistoryGuard(ctx, k)` and uses
   `revisions`, `pathVisible` and `redact`; a nil guard is a whole-KB caller.
+- **An error that can hold a filesystem path goes through `relPathErr(err, k.Root)`** before
+  it enters a tool result (`errpaths.go`): an `*fs.PathError` or `*os.LinkError` printed
+  with `%v` shows the directory the server keeps its data in, which a client of a shared
+  server has no use for. `twoKBMove.run` scrubs both roots from its error results.
