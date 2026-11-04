@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
+	"github.com/BeppeTemp/cartographer/internal/sops"
 )
 
 // Artifact checks (D316): lint covers what a KB ships next to its concepts —
@@ -618,7 +619,7 @@ func sopsFileArg(cmd string) string {
 		if f == "decrypt" {
 			continue
 		}
-		if !strings.HasPrefix(f, "secrets/") || strings.ContainsAny(f, "$<>{}*`") {
+		if !sops.InSecretsDir(f) || strings.ContainsAny(f, "$<>{}*`") {
 			return ""
 		}
 		return f

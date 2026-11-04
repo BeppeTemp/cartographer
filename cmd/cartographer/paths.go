@@ -310,7 +310,7 @@ func cmdPathsSuggest(args []string) int {
 			}
 		}
 		if r.Default != "" {
-			if p := repoindex.ExpandHome(r.Default); pathExists(p) {
+			if p, ok := provisioning.RegistryDefaultPath(r.Default); ok && pathExists(p) {
 				add(p)
 			}
 		}

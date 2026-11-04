@@ -590,10 +590,8 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 	}
 }
 
-// isSecretsPath reports whether p is spelled in canonical form (no "." or ".."
-// segment, no doubled slash) and names secrets/<...>.sops.yaml. The prefix is
-// tested on the same string the file is opened with, so "secrets/../x" cannot
-// pass the test and land elsewhere.
+// isSecretsPath reports whether p names secrets/<...>.sops.yaml in canonical
+// form (the test is sops.InSecretsDir, shared with the lint checks).
 func isSecretsPath(p string) bool {
-	return filepath.IsLocal(p) && p == path.Clean(p) && strings.HasPrefix(p, "secrets/") && strings.HasSuffix(p, ".sops.yaml")
+	return sops.InSecretsDir(p) && strings.HasSuffix(p, ".sops.yaml")
 }

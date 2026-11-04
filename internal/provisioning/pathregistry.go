@@ -118,6 +118,9 @@ func describeDecl(d PathDecl) string {
 	return strings.Join(parts, ", ")
 }
 
+// RegistryDefaultPath is registryDefaultPath for callers outside the package.
+func RegistryDefaultPath(p string) (string, bool) { return registryDefaultPath(p) }
+
 // registryDefaultPath turns a declared default into this machine's path.
 // The server validated it to be "~", "$HOME" or either followed by "/…" with
 // no ".." segment; it is checked again here because the registry is unsigned

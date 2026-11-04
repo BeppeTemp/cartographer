@@ -648,3 +648,24 @@ func TestArtifactUnusedNotAvoidableAtWrite(t *testing.T) {
 		t.Fatalf("spec = %+v ok=%v", spec, ok)
 	}
 }
+
+// A secrets/ path with a ".." segment names no file this check resolves, in a
+// sops command and in a secret_refs entry alike.
+func TestLint_SecretsPathsInNonCanonicalFormAreLeftAlone(t *testing.T) {
+	t.Parallel()
+	if got := sopsFileArg("decrypt secrets/../data/x.sops.yaml"); got != "" {
+		t.Errorf("sopsFileArg = %q, want empty", got)
+	}
+	if got := sopsFileArg("decrypt secrets/x.sops.yaml"); got != "secrets/x.sops.yaml" {
+		t.Errorf("sopsFileArg = %q", got)
+	}
+	k := tempKB(t)
+	writeFile(t, k.Root, "data/ops/refs.md", "---\ntype: Service\ntitle: R\nsecret_refs:\n  - PW=secrets/../data/x.sops.yaml#/pw\n---\n# R\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "secret_ref_broken"); len(got) != 0 {
+		t.Fatalf("want no secret_ref_broken, got %v", got)
+	}
+}

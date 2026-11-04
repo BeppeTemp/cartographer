@@ -2,7 +2,6 @@ package lint
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -28,7 +27,7 @@ func secretRefFindings(fm *okf.Frontmatter, relPath, kbRoot string) []Finding {
 			continue
 		}
 		name, file, ptr := entry[:eq], entry[eq+1:hash], entry[hash+1:]
-		if !filepath.IsLocal(file) || !strings.HasPrefix(file, "secrets/") || !strings.HasPrefix(ptr, "/") {
+		if !sops.InSecretsDir(file) || !strings.HasPrefix(ptr, "/") {
 			continue
 		}
 		if problem := sops.RefProblem(kbRoot, file, ptr); problem != "" {
