@@ -720,3 +720,18 @@ func TestCall_OversizedErrorBodyKeepsItsStatus(t *testing.T) {
 		t.Errorf("Message/HTTPStatus = %q/%d, want the HTTP 500 classification", re.Message, re.HTTPStatus)
 	}
 }
+
+func TestRequestMeta(t *testing.T) {
+	m := client.RequestMeta("v1")
+	info, _ := m["io.modelcontextprotocol/clientInfo"].(map[string]any)
+	if m["io.modelcontextprotocol/protocolVersion"] != client.ProtocolVersion || info["name"] != client.ClientName || info["version"] != "v1" {
+		t.Errorf("RequestMeta = %v", m)
+	}
+	if _, ok := m["io.modelcontextprotocol/clientCapabilities"]; !ok {
+		t.Error("no capabilities key")
+	}
+	empty, _ := client.RequestMeta("")["io.modelcontextprotocol/clientInfo"].(map[string]any)
+	if empty["version"] != "unknown" {
+		t.Error("empty version is not unknown")
+	}
+}

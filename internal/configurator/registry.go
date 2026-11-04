@@ -72,6 +72,12 @@ type Descriptor struct {
 	// only one stays reachable (D102/D144).
 	FlatToolNamespace bool
 
+	// UsesCLI says the provider reaches Cartographer through `cartographer
+	// call`, not MCP, so the bundled cartographer-cli skill is projected to it.
+	// False for every built-in descriptor, on purpose: nothing sets it until
+	// the client variants plan replaces it with a per-variant MCP mode.
+	UsesCLI bool
+
 	// ToolIdentifierLimit, when non-zero, is the longest tool identifier the
 	// provider accepts, where it shows each MCP tool to the model as
 	// "mcp_<server>_<tool>" and silently drops any longer one (Antigravity:
@@ -332,6 +338,13 @@ func Lookup(p Provider) (Descriptor, bool) {
 		}
 	}
 	return Descriptor{}, false
+}
+
+// UsesCLI reports whether the provider reaches Cartographer through `cartographer
+// call` instead of MCP; false for an unknown provider.
+func UsesCLI(p Provider) bool {
+	d, ok := Lookup(p)
+	return ok && d.UsesCLI
 }
 
 // ConfigPath returns MCPConfigPath in the local filesystem's separator form.

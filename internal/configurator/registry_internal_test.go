@@ -80,3 +80,17 @@ func TestEmitAllCoversEveryProvider(t *testing.T) {
 		t.Errorf("EmitAll returned %d results, want %d", len(results), want)
 	}
 }
+
+// No built-in provider reaches Cartographer through `cartographer call` yet:
+// the cartographer-cli skill is projected to none. The client variants plan
+// sets UsesCLI per variant; changing this test then is deliberate.
+func TestNoBuiltInProviderUsesCLI(t *testing.T) {
+	for _, d := range descriptors {
+		if d.UsesCLI || UsesCLI(d.Provider) {
+			t.Errorf("%s sets UsesCLI: intentionally unset until the client variants plan", d.Provider)
+		}
+	}
+	if UsesCLI("no-such-provider") {
+		t.Error("an unknown provider uses the CLI")
+	}
+}

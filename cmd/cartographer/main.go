@@ -40,6 +40,7 @@ var subcommands = []subcommand{
 	{"Client", "config", "Show every setting with its value and where it comes from"},
 	{"Client", "client", "Manage which KBs each agent client receives"},
 	{"Client", "workspace", "Bind a repository to the KBs a client receives there"},
+	{"Client", "call", "Call one MCP tool from the command line"},
 	{"Client", "mcp", "Run the stdio bridge a client starts for a workspace-bound provider"},
 	{"Server", "serve", "Run the MCP server"},
 	{"Server", "service", "Manage the native server service"},
@@ -81,6 +82,7 @@ var (
 	clientFn        = cmdClient
 	workspaceFn     = cmdWorkspace
 	mcpFn           = cmdMCP
+	callFn          = cmdCall
 	setupFn         = cmdSetup
 	updateFn        = cmdUpdate
 	hookFn          = cmdHook
@@ -165,6 +167,8 @@ func run(args []string) int {
 		return trayFn(rest)
 	case "mcp":
 		return mcpFn(rest)
+	case "call":
+		return callFn(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown command %q", cmd)
 		if suggestion := commandSuggestion(cmd); suggestion != "" {
