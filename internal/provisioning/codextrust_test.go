@@ -258,3 +258,30 @@ func TestTrustCodexProjectWriteFailureKeepsOriginal(t *testing.T) {
 		t.Error("original file damaged")
 	}
 }
+
+// A longer sibling path is not a mention of the project, and a trailing
+// comment does not make a trusted project read as untrusted.
+func TestCodexTrust_SiblingPrefixAndTrailingComments(t *testing.T) {
+	_, cfg := trustCfg(t)
+	ws := filepath.Join(t.TempDir(), "repo")
+
+	writeCfg(t, cfg, "[projects.\""+ws+"-old\"]\ntrust_level = \"trusted\"\n")
+	res, err := TrustCodexProject(cfg, ws)
+	if err != nil || res.Status != TrustWritten {
+		t.Fatalf("sibling declaration refused --trust: res=%+v err=%v", res, err)
+	}
+	if !CodexProjectTrusted(cfg, ws) {
+		t.Error("the written table is not read back as trusted")
+	}
+
+	for name, content := range map[string]string{
+		"header comment": "[projects.\"" + ws + "\"] # mine\ntrust_level = \"trusted\"\n",
+		"value comment":  "[projects.\"" + ws + "\"]\ntrust_level = \"trusted\"  # ok\n",
+		"hash in path":   "[projects.\"" + ws + "\"]\ntrust_level = 'trusted' # x \"y\"\n",
+	} {
+		writeCfg(t, cfg, content)
+		if !CodexProjectTrusted(cfg, ws) {
+			t.Errorf("%s: a trusted project reads as untrusted", name)
+		}
+	}
+}

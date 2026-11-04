@@ -132,6 +132,12 @@ func detect(d configurator.Descriptor, home string) Agent {
 		}
 	}
 	for _, segments := range d.ConfigDirs {
+		if home == "" {
+			// filepath.Join("", ".claude") is relative to the working
+			// directory: a project's own .claude/ would make the client look
+			// installed.
+			break
+		}
 		dir := filepath.Join(append([]string{home}, segments...)...)
 		if dirExists(dir) {
 			return a.found(HeuristicConfigDir, dir)

@@ -171,3 +171,72 @@ func TestReportOnly_RefusesAServerOffThisMachine(t *testing.T) {
 		t.Fatalf("exit %d, want 2", code)
 	}
 }
+
+func TestReportUsageThrottled_ScansOncePerWindow(t *testing.T) {
+	home := usageClientHome(t)
+	srv, _ := usageServer(t, http.StatusOK)
+	cfg := clientconfig.Default()
+	cfg.ServerURL = srv.URL + "/mcp"
+	scans := 0
+	orig := scanUsage
+	scanUsage = func(lf provisioning.LockFile, base string, w time.Duration, all bool) (map[string]provisioning.ArtifactUsage, error) {
+		scans++
+		return orig(lf, base, w, all)
+	}
+	t.Cleanup(func() { scanUsage = orig })
+
+	reportUsageThrottled(cfg, home)
+	reportUsageThrottled(cfg, home)
+	if scans != 1 {
+		t.Fatalf("%d scans inside the window, want 1", scans)
+	}
+	old := time.Now().Add(-2 * usageScanInterval)
+	if err := os.Chtimes(filepath.Join(home, usageStampName), old, old); err != nil {
+		t.Fatal(err)
+	}
+	reportUsageThrottled(cfg, home)
+	if scans != 2 {
+		t.Fatalf("%d scans after the window, want 2", scans)
+	}
+}
+
+// The usage scan runs after the client lock is released: a second sync that
+// waits for the lock is not made to wait for the scan.
+func TestRunSync_ReleasesLockBeforeUsageScan(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "solo")
+	})
+	defer srv.Close()
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude"}, KnownKBs: []string{"one"}, UsageScan: true,
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	scanned := false
+	var lockErr error
+	orig := scanUsage
+	scanUsage = func(lf provisioning.LockFile, base string, w time.Duration, all bool) (map[string]provisioning.ArtifactUsage, error) {
+		scanned = true
+		var release func() error
+		release, lockErr = provisioning.LockClientState(dir, 50*time.Millisecond)
+		if lockErr == nil {
+			_ = release()
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { scanUsage = orig })
+	withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{}); err != nil {
+			t.Fatalf("sync: %v", err)
+		}
+	})
+	if !scanned {
+		t.Fatal("the usage scan did not run")
+	}
+	if lockErr != nil {
+		t.Fatalf("the client lock was still held during the scan: %v", lockErr)
+	}
+}

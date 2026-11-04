@@ -35,7 +35,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -293,7 +295,9 @@ func tomlValue(n *yaml.Node) (string, error) {
 	case yaml.ScalarNode:
 		switch n.Tag {
 		case "!!bool", "!!int", "!!float":
-			return n.Value, nil
+			// The decoded value, not the YAML spelling: True, .5, .inf and 017
+			// are valid YAML and invalid TOML.
+			return tomlScalar(n)
 		case "!!null":
 			return "", fmt.Errorf("TOML has no null")
 		default:
@@ -301,6 +305,45 @@ func tomlValue(n *yaml.Node) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("unsupported YAML node")
+}
+
+// tomlScalar renders a YAML bool, int or float scalar from its decoded value.
+func tomlScalar(n *yaml.Node) (string, error) {
+	switch n.Tag {
+	case "!!bool":
+		var b bool
+		if err := n.Decode(&b); err != nil {
+			return "", err
+		}
+		return strconv.FormatBool(b), nil
+	case "!!int":
+		var i int64
+		if err := n.Decode(&i); err == nil {
+			return strconv.FormatInt(i, 10), nil
+		}
+		var u uint64
+		if err := n.Decode(&u); err != nil {
+			return "", err
+		}
+		return strconv.FormatUint(u, 10), nil
+	}
+	var f float64
+	if err := n.Decode(&f); err != nil {
+		return "", err
+	}
+	switch {
+	case math.IsInf(f, 1):
+		return "inf", nil
+	case math.IsInf(f, -1):
+		return "-inf", nil
+	case math.IsNaN(f):
+		return "nan", nil
+	}
+	out := strconv.FormatFloat(f, 'g', -1, 64)
+	if !strings.ContainsAny(out, ".e") {
+		out += ".0" // TOML wants a fraction or an exponent to tell a float from an integer
+	}
+	return out, nil
 }
 
 // renderNativeJSONPairs renders the fields as `"key": value` JSON members, in

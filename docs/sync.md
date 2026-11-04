@@ -153,6 +153,13 @@ does a server that is unreachable, too old for the route, or refuses the token (
 and the server degrades to "no data". Every scan reads the whole window afresh: there is no
 incremental state to go stale.
 
+The scan runs at most once every 6 hours (`usageScanInterval`; the stamp is the mtime of
+`.cartographer-usage-scan` in the client state directory, written whether the report was
+delivered or not), and **after the client lock is released**: `sync` runs at every agent session
+start, and a scan of seconds under the lock made the concurrent syncs wait and, past the lock
+timeout, fail. `sync --report-to` always scans. A Codex catalogue sighting is credited only to the
+skills the `host_skills` list names (strings or objects with a `name`).
+
 ## Client settings report (D818)
 
 Next to the usage report, and under the same conditions (not a dry run, server reachable), `sync` posts this machine's client

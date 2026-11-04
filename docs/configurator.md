@@ -1608,7 +1608,10 @@ with no arguments prints the usage (like `cartographer help`).
 
 If a config file already exists, `connect` reads the existing content, adds or
 updates only the server's key (`server_name`, default `cartographer`) and rewrites the file. Other configuration present
-in the file (other MCP servers, other keys) is left untouched. `disconnect` performs the
+in the file (other MCP servers, other keys) is left untouched. The merge is at the level of the
+server map: the server's own entry is **replaced whole**, so a header or an `args` element the new
+spec no longer has does not survive. `server_name` is letters, digits, `_` and `-` only (the
+emitters refuse anything else: it is an entry key, a bare TOML key, a tool prefix and a URL part). `disconnect` performs the
 inverse operation (`configurator.Remove`): removes only the server's key from the `mcpServers`/`mcp` map and
 rewrites the file, leaving everything else intact (other MCP servers, other top-level keys).
 

@@ -21,7 +21,7 @@ package configurator
 // security):
 //
 //   - a "${VAR}" reference becomes "$VAR", the documented form (the braced one
-//     is not documented);
+//     is not documented), unless a name character follows it (crushBracesStripped);
 //   - a value that still contains "$(" afterwards is refused, not written: it
 //     would execute on the next Crush start. Cartographer's own specs never
 //     contain one, but a KB-provided "mcp" artifact can
@@ -93,6 +93,34 @@ func emitCrushServer(name string, spec ServerSpec) (*EmitResult, error) {
 	}, nil
 }
 
+// crushBracesStripped rewrites "${VAR}" to the documented "$VAR" unless the
+// next character would continue the name: "${PREFIX}_v2" is kept braced, as
+// "$PREFIX_v2" names another variable. Done by hand rather than with a
+// replacement template because "$" is the template's own escape character.
+//
+// A literal "$" in a value (for instance "cost $5") is not touched: how Crush
+// escapes one is not documented, so it is left as written.
+func crushBracesStripped(v string) string {
+	var sb strings.Builder
+	last := 0
+	for _, loc := range envRefPattern.FindAllStringIndex(v, -1) {
+		sb.WriteString(v[last:loc[0]])
+		ref := v[loc[0]:loc[1]]
+		if loc[1] < len(v) && isShellNameChar(v[loc[1]]) {
+			sb.WriteString(ref)
+		} else {
+			sb.WriteString("$" + ref[2:len(ref)-1])
+		}
+		last = loc[1]
+	}
+	sb.WriteString(v[last:])
+	return sb.String()
+}
+
+func isShellNameChar(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
 // crushExpansionSafeMap rewrites "${VAR}" to "$VAR" in every value and refuses
 // the map if any value still carries a command substitution. kind names the
 // field in the error ("header", "env") so the message says which one to fix.
@@ -105,12 +133,7 @@ func crushExpansionSafeMap(server, kind string, in map[string]string) (map[strin
 
 	out := make(map[string]string, len(in))
 	for _, key := range keys {
-		// "${VAR}" → "$VAR". Done with a function rather than a replacement
-		// template because "$" is the template's own escape character, and the
-		// whole point here is to emit one literally.
-		value := envRefPattern.ReplaceAllStringFunc(in[key], func(ref string) string {
-			return "$" + ref[2:len(ref)-1]
-		})
+		value := crushBracesStripped(in[key])
 		if strings.Contains(value, "$(") {
 			return nil, fmt.Errorf(
 				"mcp %q: %s %q contains a command substitution, which crush would execute when it loads crush.json: remove it or pass the value through an environment variable",

@@ -1040,3 +1040,72 @@ func TestApplyThenRemoveKeepsTheUsersLayout(t *testing.T) {
 		})
 	}
 }
+
+// An entry is replaced whole: a header removed from the spec and the old args
+// do not survive an Apply over the previous entry.
+func TestApplyReplacesTheWholeServerEntry(t *testing.T) {
+	baseDir := t.TempDir()
+	path := filepath.Join(baseDir, ".claude.json")
+	existing := `{"mcpServers": {
+  "mine": {"type": "stdio", "command": "old", "args": ["a", "b"], "headers": {"Cartographer-Author": "x"}},
+  "foreign": {"command": "keep", "args": ["z"]}
+}, "other": {"k": 1}}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := configurator.EmitServer("mine", configurator.ServerSpec{Type: "stdio", Command: "new", Args: []string{"c"}}, configurator.ProviderClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, false); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(baseDir, r.FilePath))
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	servers := root["mcpServers"].(map[string]any)
+	got, _ := json.Marshal(servers["mine"])
+	if string(got) != `{"args":["c"],"command":"new"}` {
+		t.Errorf("entry = %s, want exactly the new one", got)
+	}
+	if f, _ := json.Marshal(servers["foreign"]); string(f) != `{"args":["z"],"command":"keep"}` {
+		t.Errorf("foreign entry changed: %s", f)
+	}
+	if root["other"] == nil {
+		t.Error("an unrelated top-level key was dropped")
+	}
+}
+
+func TestEmitServer_RejectsANameThatBreaksTheEntry(t *testing.T) {
+	spec := configurator.ServerSpec{Type: "http", URL: "https://kb.example.com/mcp"}
+	for _, name := range []string{"my server", `a"b`, "a.b", ""} {
+		for _, p := range []configurator.Provider{configurator.ProviderCodex, configurator.ProviderClaudeCode} {
+			if _, err := configurator.EmitServer(name, spec, p); err == nil {
+				t.Errorf("EmitServer(%q, %s) accepted the name", name, p)
+			}
+		}
+	}
+	if _, err := configurator.EmitServer("kb-server_2", spec, configurator.ProviderCodex); err != nil {
+		t.Errorf("a plain name was refused: %v", err)
+	}
+}
+
+func TestEmitServer_Crush_BracesStayWhenANameCharFollows(t *testing.T) {
+	spec := configurator.ServerSpec{Type: "http", URL: "https://kb.example.com/mcp",
+		Headers: map[string]string{"X-A": "${PREFIX}_v2", "X-B": "Bearer ${TOK}", "X-C": "${TOK}-x"}}
+	r, err := configurator.EmitServer("kb", spec, configurator.ProviderCrush)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	_ = json.Unmarshal(r.Content, &root)
+	h := root["mcp"].(map[string]any)["kb"].(map[string]any)["headers"].(map[string]any)
+	want := map[string]string{"X-A": "${PREFIX}_v2", "X-B": "Bearer $TOK", "X-C": "$TOK-x"}
+	for k, v := range want {
+		if h[k] != v {
+			t.Errorf("%s = %v, want %q", k, h[k], v)
+		}
+	}
+}

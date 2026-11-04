@@ -158,16 +158,18 @@ func TestScanUsage_Codex_CatalogLoaded(t *testing.T) {
 	home, lf := usageHome(t, "codex", ".codex/skills", "ops-tool", "idle-tool")
 	at := ts(72 * time.Hour)
 	ws, _ := json.Marshal(map[string]any{"timestamp": at, "type": "world_state",
-		"payload": map[string]any{"state": map[string]any{"host_skills": []string{"ops-tool", "idle-tool"}}}})
+		"payload": map[string]any{"state": map[string]any{"host_skills": []any{"ops-tool", map[string]any{"name": "other-tool"}}}}})
 	empty, _ := json.Marshal(map[string]any{"timestamp": ts(time.Hour), "type": "world_state",
 		"payload": map[string]any{"state": map[string]any{"host_skills": []string{}}}})
 	writeLines(t, filepath.Join(home, ".codex/sessions/2026/10/01/rollout-1-a.jsonl"), string(ws), string(empty))
 	got, _ := provisioning.ScanUsage(lf, home, 90*24*time.Hour, true)
-	for _, n := range []string{"ops-tool", "idle-tool"} {
-		u, ok := got[provisioning.UsageKey("skill", n)]
-		if !ok || u.Count != 0 || u.Provider != "codex" || time.Since(u.LastUsed) < 71*time.Hour || time.Since(u.LastUsed) > 73*time.Hour {
-			t.Errorf("%s = %+v (ok=%v), want a catalogue timestamp 72h old and Count 0", n, u, ok)
-		}
+	u, ok := got[provisioning.UsageKey("skill", "ops-tool")]
+	if !ok || u.Count != 0 || u.Provider != "codex" || time.Since(u.LastUsed) < 71*time.Hour || time.Since(u.LastUsed) > 73*time.Hour {
+		t.Errorf("ops-tool = %+v (ok=%v), want a catalogue timestamp 72h old and Count 0", u, ok)
+	}
+	// Only the listed skills are credited: idle-tool is managed but not listed.
+	if u, ok := got[provisioning.UsageKey("skill", "idle-tool")]; ok {
+		t.Errorf("idle-tool credited with a catalogue it is not in: %+v", u)
 	}
 }
 

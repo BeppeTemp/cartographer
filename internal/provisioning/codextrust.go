@@ -50,7 +50,7 @@ func CodexProjectTrusted(codexConfigPath, workspaceDir string) bool {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+		line := stripTOMLComment(strings.TrimSpace(sc.Text()))
 		if strings.HasPrefix(line, "[") {
 			inProject = isCodexProjectHeader(line, want)
 			continue
@@ -66,6 +66,28 @@ func CodexProjectTrusted(codexConfigPath, workspaceDir string) bool {
 		return strings.EqualFold(v, "trusted")
 	}
 	return false
+}
+
+// stripTOMLComment cuts a trailing `# comment` that is outside a quoted
+// string, and the whitespace before it.
+func stripTOMLComment(line string) string {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote == '"' && c == '\\':
+			i++ // an escaped character cannot close the string
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
+			return strings.TrimSpace(line[:i])
+		}
+	}
+	return line
 }
 
 // isCodexProjectHeader reports whether a TOML table header names this project.
@@ -202,15 +224,35 @@ func TrustCodexProject(codexConfigPath, workspaceDir string) (TrustResult, error
 	return TrustResult{Status: TrustWritten, Line: line}, nil
 }
 
+// mentionsPath reports whether content holds path as a whole path: the next
+// character must not continue a path name, so "$HOME/repo" is not found in
+// "$HOME/repo-old".
+func mentionsPath(content, path string) bool {
+	for from := 0; ; {
+		i := strings.Index(content[from:], path)
+		if i < 0 {
+			return false
+		}
+		end := from + i + len(path)
+		if end >= len(content) || !strings.ContainsRune(pathContinuation, rune(content[end])) {
+			return true
+		}
+		from += i + 1
+	}
+}
+
+const pathContinuation = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.~/"
+
 // conflictingDeclaration returns why content must not get a second declaration
 // for dir, or "". The tests are line-prefix and substring tests: no TOML parser.
-// Any mention of the path counts, a comment included (the conservative reading).
+// Any mention of the path counts, a comment included (the conservative
+// reading); a longer sibling path that merely starts with dir does not.
 func conflictingDeclaration(content, dir string) string {
 	// The spellings a config may carry for one path: native, TOML-escaped
 	// backslashes (a basic string) and forward slashes. All three name the same
 	// project to Codex, so a second table under any of them is a duplicate.
 	for _, spelling := range []string{dir, strings.ReplaceAll(dir, `\`, `\\`), filepath.ToSlash(dir)} {
-		if strings.Contains(content, spelling) {
+		if mentionsPath(content, spelling) {
 			return "the config already mentions this path (an existing declaration, possibly \"untrusted\", is never overridden)"
 		}
 	}

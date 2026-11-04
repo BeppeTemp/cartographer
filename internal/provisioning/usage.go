@@ -516,11 +516,12 @@ func scanCodex(base string, targets []usageTarget, cutoff time.Time) []usageEven
 						HostSkills json.RawMessage `json:"host_skills"`
 					} `json:"state"`
 				}
-				if json.Unmarshal(rec.Payload, &p) != nil || !nonEmptyJSON(p.State.HostSkills) {
+				if json.Unmarshal(rec.Payload, &p) != nil {
 					return
 				}
+				listed := hostSkillNames(p.State.HostSkills)
 				for _, t := range targets {
-					if t.kind == "skill" {
+					if t.kind == "skill" && listed[t.name] {
 						events = append(events, usageEvent{key: UsageKey(t.kind, t.name), at: at, catalog: true, provider: "codex"})
 					}
 				}
@@ -543,11 +544,6 @@ func scanCodex(base string, targets []usageTarget, cutoff time.Time) []usageEven
 		})
 	}
 	return events
-}
-
-func nonEmptyJSON(raw json.RawMessage) bool {
-	s := strings.TrimSpace(string(raw))
-	return s != "" && s != "null" && s != "[]" && s != "{}" && s != `""`
 }
 
 // --- Kiro ---
@@ -680,4 +676,29 @@ func scanCopilot(base string, targets []usageTarget, cutoff time.Time) []usageEv
 		})
 	}
 	return events
+}
+
+// hostSkillNames is the set of skill names a Codex world_state lists in
+// host_skills: strings, or objects with a "name". An entry of another shape
+// names nothing, so a catalogue of unknown shape credits no skill.
+func hostSkillNames(raw json.RawMessage) map[string]bool {
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		return nil
+	}
+	names := map[string]bool{}
+	for _, it := range items {
+		var s string
+		if json.Unmarshal(it, &s) == nil {
+			names[s] = true
+			continue
+		}
+		var o struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(it, &o) == nil && o.Name != "" {
+			names[o.Name] = true
+		}
+	}
+	return names
 }

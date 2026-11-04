@@ -2284,7 +2284,7 @@ hookLoop:
 					return AppliedResult{}, fmt.Errorf("provisioning: translate agent %s for %s: %w", a.Name, opts.Provider, err)
 				}
 				// After the translation: this is the byte sequence on disk.
-				materializedHash = hashArtifactFiles([]ArtifactFile{{Path: a.Name + ".md", Content: content}})
+				materializedHash = hashArtifactFiles([]ArtifactFile{{Path: agentHashPath(a.Name), Content: content}})
 				if err := writeFileNoFollow(fullDestPath, content, 0o644); err != nil {
 					if refuseArtifact(a, err) {
 						continue
@@ -4934,7 +4934,7 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 		if err != nil {
 			return nil, fmt.Errorf("provisioning: read agent %s: %w", agentPath, err)
 		}
-		return []ArtifactFile{{Path: a.Name + ".md", Content: data, Oversized: size}}, nil
+		return []ArtifactFile{{Path: agentHashPath(a.Name), Content: data, Oversized: size}}, nil
 	case "mcp":
 		if !tracked.has("mcp/" + a.Name + ".json") {
 			return nil, fmt.Errorf("provisioning: mcp %s is not tracked by git in KB %q", a.Name, kbName)

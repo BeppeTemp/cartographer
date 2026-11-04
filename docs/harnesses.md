@@ -347,7 +347,7 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   `charmbracelet/tap/crush`, npm `@charmland/crush` (not in homebrew-core).
 - **Depends on**:
   - Stdio bridge (D737): spawned in the session's folder (probe 2026-10-17, Crush 0.98.1); `roots` declared with an empty list, so the working directory decides.
-  - Writer header (D904): an HTTP entry carries it in `headers`; a value Crush would expand (`$VAR`, `$(cmd)`) is written in the encoded form, never as is.
+  - Writer header (D904): an HTTP entry carries it in `headers`; a value Crush would expand (`$VAR`, `$(cmd)`) is written in the encoded form, never as is. `${VAR}` becomes `$VAR` (the documented form) unless a name character follows (`${PREFIX}_v2` stays braced, since `$PREFIX_v2` is another variable); a literal `$` in a value is left as written, because how Crush escapes one is not documented.
   - `mcp` in `~/.config/crush/crush.json` — JSON Crush documents as deprecated (no
     new options) in favour of `crushrc`, a Bash file Cartographer refuses to
     write; `$VAR` form for values, `$(` refused (D225). JSON is still read and
