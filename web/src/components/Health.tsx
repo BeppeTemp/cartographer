@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import type { CheckCatalog, CollectionSummary, GitConflict, LintFinding, LintReport } from "../api/types";
 import {
   categoryHue,
@@ -105,15 +105,17 @@ export function Health({
   const where = scopeTitle ? ` in ${scopeTitle}` : "";
   // One row per cause: the headline counts them, the bars weigh them against the heaviest.
   const issues = groups.length;
-  const touched = field.reduce((n, m) => n + m.marks.length, 0);
+  // With a Map chosen, all three numbers of the lede describe that Map alone.
+  const scoped = hmap ? field.filter((m) => m.name === hmap) : field;
+  const wholeTouched = field.reduce((n, m) => n + m.marks.length, 0);
+  const touched = scoped.reduce((n, m) => n + m.marks.length, 0);
   // Every single finding: the kinds are what to read, this is how much there is.
   const occurrences = groups.reduce((n, g) => n + g.count, 0);
-  const pages = field.reduce((n, m) => n + m.total, 0);
-  // Nothing found anywhere in the KB: the goal state. It keeps the page of the
+  const pages = scoped.reduce((n, m) => n + m.total, 0);
+  // Nothing found anywhere in the KB (not just in the chosen Map): the goal state. It keeps the page of the
   // issues state (headline, field, a list, the sections below) and says what
   // was read instead of what was found.
-  const allClear = settled && !!report && issues === 0 && touched === 0 && pages > 0;
-  const scopePages = (hmap && field.find((m) => m.name === hmap)?.total) || pages;
+  const allClear = settled && !!report && issues === 0 && wholeTouched === 0 && pages > 0;
   // Rules that could run here (D371): an idle rule's silence is no pass.
   const rules = checks ? checks.checks.filter((c) => c.active !== false).length : 0;
   // Bars are relative to the heaviest row: what matters is which issue weighs most.
@@ -174,7 +176,7 @@ export function Health({
           {effectiveTab === "checks"
             ? "Every page is read against fixed rules. This is what they look for, and what they found here."
             : allClear
-              ? clearLede(scopePages, rules)
+              ? clearLede(pages, rules)
               : issues > 0 && pages > 0
                 ? `${plural(occurrences, "occurrence")} in all, on ${touched} of ${pages} pages. Open one to see where.`
                 : "Every page is read against fixed rules, and none of them found anything."}
@@ -187,7 +189,7 @@ export function Health({
         <>
           {/* Over the whole KB, not the chosen Map: a clean Map must not take
             away the field, which is also the way back to every Map. */}
-          {report && (touched > 0 || allClear) && (
+          {report && (wholeTouched > 0 || allClear) && (
             <div className="hfield">
               <PageField field={field} focus={focus} clear={allClear} hmap={hmap} onMap={onMap} onReveal={onReveal} />
               <p className="pfield__legend">
@@ -445,6 +447,12 @@ function PageField({
   onMap?(map: string | null): void;
   onReveal(concept: string | null, message: string): void;
 }) {
+  // The callbacks are read through a ref so the clusters below keep their props
+  // across a hover: only the clusters the hovered row lights re-render.
+  const handlers = useRef({ onMap, onReveal });
+  handlers.current = { onMap, onReveal };
+  const pickMap = useCallback((name: string | null) => handlers.current.onMap?.(name), []);
+  const reveal = useCallback((id: string) => handlers.current.onReveal(id, ""), []);
   return (
     <div
       className="pfield"
@@ -453,58 +461,80 @@ function PageField({
       data-focus={focus ? "problem" : undefined}
       data-clear={clear || undefined}
     >
-      {field.map((m) => {
-        const clean = Math.max(0, m.total - m.marks.length);
-        return (
-          <div
-            key={m.name}
-            className="pfield__map"
-            data-chosen={hmap === m.name || undefined}
-            data-dim={(hmap && hmap !== m.name) || undefined}
-            style={{ "--map-hue": collectionVar(m.name) } as React.CSSProperties}
-          >
-            <button
-              type="button"
-              className="pfield__label"
-              aria-pressed={hmap === m.name}
-              title={`${m.marks.length} of ${m.total} pages with an issue · ${hmap === m.name ? "click to show every map" : "click to see only these"}`}
-              onClick={() => onMap?.(hmap === m.name ? null : m.name)}
-            >
-              {m.title}
-            </button>
-            <span className="pfield__dots">
-              {/* A mouse shortcut, not a control: a 9px square fails the WCAG
-                target size, and every page it opens is also a button in the
-                list below (the 2.5.8 equivalent-control exception). */}
-              {m.marks.map((d) => {
-                const lit = !!focus?.pages.has(d.id);
-                // A lit square shows only the colour of the row that lit it.
-                const cats = lit ? [focus!.category] : d.cats;
-                return (
-                  <span
-                    key={d.id}
-                    className="pfield__dot"
-                    data-page
-                    data-problem
-                    data-n={Math.min(cats.length, MAX_COLOURS)}
-                    data-lit={lit || undefined}
-                    style={squareColours(cats)}
-                    title={d.id}
-                    aria-hidden="true"
-                    onClick={() => onReveal(d.id, "")}
-                  />
-                );
-              })}
-              {Array.from({ length: clean }, (_, i) => (
-                <span key={i} className="pfield__dot" aria-hidden="true" />
-              ))}
-            </span>
-          </div>
-        );
-      })}
+      {field.map((m) => (
+        <MapCluster
+          key={m.name}
+          m={m}
+          focus={focus && m.marks.some((d) => focus.pages.has(d.id)) ? focus : null}
+          hmap={hmap}
+          onMap={pickMap}
+          onReveal={reveal}
+        />
+      ))}
     </div>
   );
 }
+
+const MapCluster = memo(function MapCluster({
+  m,
+  focus,
+  hmap,
+  onMap,
+  onReveal,
+}: {
+  m: FieldMap;
+  focus: Focus | null;
+  hmap: string | null;
+  onMap(map: string | null): void;
+  onReveal(concept: string): void;
+}) {
+  const clean = Math.max(0, m.total - m.marks.length);
+  return (
+    <div
+      className="pfield__map"
+      data-chosen={hmap === m.name || undefined}
+      data-dim={(hmap && hmap !== m.name) || undefined}
+      style={{ "--map-hue": collectionVar(m.name) } as React.CSSProperties}
+    >
+      <button
+        type="button"
+        className="pfield__label"
+        aria-pressed={hmap === m.name}
+        title={`${m.marks.length} of ${m.total} pages with an issue · ${hmap === m.name ? "click to show every map" : "click to see only these"}`}
+        onClick={() => onMap(hmap === m.name ? null : m.name)}
+      >
+        {m.title}
+      </button>
+      <span className="pfield__dots">
+        {/* A mouse shortcut, not a control: a 9px square fails the WCAG
+          target size, and every page it opens is also a button in the
+          list below (the 2.5.8 equivalent-control exception). */}
+        {m.marks.map((d) => {
+          const lit = !!focus?.pages.has(d.id);
+          // A lit square shows only the colour of the row that lit it.
+          const cats = lit ? [focus!.category] : d.cats;
+          return (
+            <span
+              key={d.id}
+              className="pfield__dot"
+              data-page
+              data-problem
+              data-n={Math.min(cats.length, MAX_COLOURS)}
+              data-lit={lit || undefined}
+              style={squareColours(cats)}
+              title={d.id}
+              aria-hidden="true"
+              onClick={() => onReveal(d.id)}
+            />
+          );
+        })}
+        {Array.from({ length: clean }, (_, i) => (
+          <span key={i} className="pfield__dot" aria-hidden="true" />
+        ))}
+      </span>
+    </div>
+  );
+});
 
 /**
  * The line every agenda row shares: what it is, a bar for how much of the KB

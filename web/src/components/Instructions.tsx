@@ -33,6 +33,8 @@ export function Instructions({
   const names = listed.map((a) => a.name).join("\u0000");
   const [read, setRead] = useState<{ key: string; items: Artifact[] } | null>(null);
   const [readError, setReadError] = useState<unknown>(null);
+  // Retry re-runs the read: `names` stays the same string when the list is re-fetched.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!names) return;
@@ -45,10 +47,14 @@ export function Instructions({
         if (!onFailure(err)) setReadError(err);
       });
     return () => controller.abort();
-  }, [kb, names, onFailure]);
+  }, [kb, names, onFailure, attempt]);
 
+  const retry = () => {
+    setAttempt((n) => n + 1);
+    onRetry();
+  };
   const failure = error ?? readError;
-  if (failure) return <ErrorState error={failure} onRetry={onRetry} />;
+  if (failure) return <ErrorState error={failure} onRetry={retry} />;
 
   const items = read?.key === `${kb}:${names}` ? read.items : null;
   const info = list?.kinds?.find((k) => k.kind === "instructions");

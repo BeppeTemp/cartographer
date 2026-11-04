@@ -235,7 +235,8 @@ export function Settings({
         <SettingsSkeleton label="Loading settings" />
       </Page>
     );
-  if (error) return <ErrorState error={error} onRetry={onRetry} />;
+  // A failed refetch leaves a loaded page in place, with a note; the full-page error is for no data.
+  if (error && !view) return <ErrorState error={error} onRetry={onRetry} />;
   if (!view) return null;
 
   // The KB picked in the top bar, and only that one: another KB's settings
@@ -271,6 +272,12 @@ export function Settings({
         }
         actions={headerActions}
       />
+
+      {error != null && (
+        <p className="page-note" role="status">
+          Could not refresh the settings; showing the last loaded.
+        </p>
+      )}
 
       <div className="settings__bar">
         <div className="inspector__tabs settings__tabs" role="tablist" aria-label="Settings of">
@@ -589,11 +596,12 @@ function ClientKBs({
         : typeof identities.default === "string" && identities.default
           ? `${identities.default} (default)`
           : null;
-    // An agent with no clients entry, or one without kbs, receives every KB.
+    // An agent with no clients entry, or one without a kbs key, receives every KB;
+    // a present but empty kbs binds to none (clientconfig Explicit()).
     const agentNames = providers.length ? providers.map((p) => p.name) : Object.keys(clientsMap);
     const agents = agentNames.filter((a) => {
-      const ks = clientsMap[a]?.kbs;
-      return !ks?.length || ks.includes(kb);
+      const b = clientsMap[a];
+      return !b || !("kbs" in b) || (b.kbs ?? []).includes(kb);
     });
     // Per agent, the folders it gives this KB in (or everywhere): a table, one agent a line.
     const where: Record<string, string[]> = {};
@@ -1059,7 +1067,7 @@ function YamlLine({ line }: { line: string }) {
       </span>
     );
   }
-  // key: value  # comment — the comment is the last " #" outside a quote.
+  // key: value  # comment — the comment starts at the first " #" after the value (quotes are not tracked).
   const m = /^(\s*(?:- )?)([^:#]+?:)(\s.*?)?(\s+#.*)?$/.exec(line);
   if (!m) {
     return (
@@ -1089,7 +1097,8 @@ function describeRule(rule: WhoamiRule): string {
   ]
     .filter(Boolean)
     .join("; ");
-  return `${rule.write ? "can read and write" : "can read"} ${scope}`;
+  const artifacts = rule.artifacts === "r" ? ", artifacts read-only" : "";
+  return `${rule.write ? "can read and write" : "can read"} ${scope}${artifacts}`;
 }
 
 /** Who is looking, in a few words: the principal and what it reaches. */

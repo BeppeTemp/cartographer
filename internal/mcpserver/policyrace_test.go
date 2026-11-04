@@ -59,7 +59,7 @@ func TestPolicyRefreshDoesNotRaceReaders(t *testing.T) {
 			t.Errorf("lint: %v", err)
 		}
 	})
-	reader(func() { _ = uiAutoChecks(k) })
+	reader(func() { _ = uiAutoChecks() })
 
 	path := filepath.Join(k.Root, kb.SettingsFile)
 	for i := 0; i < 60; i++ {
