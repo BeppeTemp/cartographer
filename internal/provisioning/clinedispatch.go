@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // The logic behind the Cline dispatcher files (clinehooks.go): `cartographer
@@ -264,7 +266,7 @@ func clineToolInput(params map[string]string) map[string]any {
 func runClineHook(sh, command, hookDir, cwd string, payload []byte, timeout time.Duration) (status int, stdout, stderr string, ok bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, sh, "-c", command)
+	cmd := procattr.Hide(exec.CommandContext(ctx, sh, "-c", command))
 	cmd.Dir = hookDir
 	if fi, err := os.Stat(cwd); cwd != "" && err == nil && fi.IsDir() {
 		cmd.Dir = cwd
