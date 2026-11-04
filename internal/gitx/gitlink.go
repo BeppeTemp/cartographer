@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // A KB repository holds files, never other repositories. A directory that
@@ -85,7 +87,7 @@ const gitlinkMode = "160000"
 // runGitOut runs git and returns its stdout alone: the NUL-separated listings
 // below must not carry a warning git prints on stderr.
 func runGitOut(dir string, env []string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := procattr.Hide(exec.Command("git", append([]string{"-C", dir}, args...)...))
 	cmd.Env = gitEnv(env)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
