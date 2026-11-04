@@ -163,7 +163,7 @@ func prefixLen(tok string) int {
 
 const secretAdvice = "; move it to the KB's secrets/ (SOPS-encrypted) and rotate it, because if the page was ever committed the value is already in git history; if it was an example, rewrite it as a placeholder"
 
-// secretFindings scans the body and the frontmatter values of one concept. The
+// secretFindings scans the body and every line of the frontmatter of one concept. The
 // message names the kind and the location, never the value (D1202).
 func secretFindings(in conceptInput) []Finding {
 	var out []Finding
@@ -176,32 +176,59 @@ func secretFindings(in conceptInput) []Finding {
 	for _, m := range secretMatches(in.Body) {
 		emit(m.kind, fmt.Sprintf("on body line %d", m.line))
 	}
-	if in.Parsed == nil {
-		for _, m := range secretMatches(in.FrontmatterRaw) {
-			emit(m.kind, `in frontmatter field "frontmatter"`)
-		}
-		return out
-	}
-	for _, key := range in.Parsed.Keys() {
-		v, _ := in.Parsed.Get(key)
-		var vals []string
-		switch t := v.(type) {
-		case string:
-			vals = []string{t}
-		case []string:
-			vals = t
-		case okf.Block: // a nested block (`credentials:` + indented keys)
-			vals = []string{string(t)}
-		}
-		kinds := map[string]bool{}
-		for _, s := range vals {
-			for _, m := range secretMatches(s) {
-				if !kinds[m.kind] {
-					kinds[m.kind] = true
-					emit(m.kind, fmt.Sprintf("in frontmatter field %q", key))
+	reported := map[string]bool{} // key + "\x00" + kind, found through a parsed value
+	if in.Parsed != nil {
+		for _, key := range in.Parsed.Keys() {
+			v, _ := in.Parsed.Get(key)
+			var vals []string
+			switch t := v.(type) {
+			case string:
+				vals = []string{t}
+			case []string:
+				vals = t
+			case okf.Block: // a nested block (`credentials:` + indented keys)
+				vals = []string{string(t)}
+			}
+			for _, s := range vals {
+				for _, m := range secretMatches(s) {
+					if !reported[key+"\x00"+m.kind] {
+						reported[key+"\x00"+m.kind] = true
+						emit(m.kind, fmt.Sprintf("in frontmatter field %q", key))
+					}
 				}
 			}
 		}
 	}
+	// The raw block is always scanned too: the parser drops lines (a scalar
+	// followed by list items, comments), and a dropped line still reaches git.
+	// A match under a top-level key already reported for that kind is the same
+	// finding; any other is reported by its line within the frontmatter.
+	rawKeys := rawLineKeys(in.FrontmatterRaw)
+	for _, m := range secretMatches(in.FrontmatterRaw) {
+		if k := rawKeys[m.line-1]; k != "" && reported[k+"\x00"+m.kind] {
+			continue
+		}
+		emit(m.kind, fmt.Sprintf("on frontmatter line %d", m.line))
+	}
 	return out
+}
+
+// rawLineKeys maps each line of a raw frontmatter block to the top-level key
+// it sits under ("" before the first key or under a comment).
+func rawLineKeys(raw string) []string {
+	lines := strings.Split(raw, "\n")
+	keys := make([]string, len(lines))
+	cur := ""
+	for i, l := range lines {
+		if l != "" && l[0] != ' ' && l[0] != '\t' && l[0] != '#' && l[0] != '-' {
+			if c := strings.Index(l, ":"); c > 0 {
+				cur = strings.Trim(strings.TrimSpace(l[:c]), `"'`)
+			}
+		}
+		if strings.HasPrefix(l, "#") {
+			continue // a top-level comment belongs to no key
+		}
+		keys[i] = cur
+	}
+	return keys
 }

@@ -189,3 +189,24 @@ func TestPotentialSecret_RunAgreesAndScope(t *testing.T) {
 		}
 	}
 }
+
+// Every frontmatter line is scanned, including the ones the parser drops.
+func TestPotentialSecret_WholeFrontmatter(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	tok := "ghp_" + rep("a1B2", 9)
+	for name, fm := range map[string]string{
+		"dropped_item": "notes: see below\n  - " + tok + "\n",
+		"comment":      "# " + tok + "\n",
+	} {
+		fs := findingsOf(CheckConcept(k, okf.ConceptID("arch/s"), secretPage(fm, "clean")), "potential_secret")
+		if len(fs) != 1 || !strings.Contains(fs[0].Message, "frontmatter line") {
+			t.Errorf("%s: %+v", name, fs)
+		}
+	}
+	// A parsed value is reported once, by its field.
+	fs := findingsOf(CheckConcept(k, okf.ConceptID("arch/s"), secretPage("note: "+tok+"\n", "clean")), "potential_secret")
+	if len(fs) != 1 || !strings.Contains(fs[0].Message, `"note"`) {
+		t.Errorf("parsed value: %+v", fs)
+	}
+}
