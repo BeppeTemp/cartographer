@@ -5,7 +5,7 @@ import (
 )
 
 // The capability table says WHETHER an artifact kind works on a client, beside
-// destinationMatrix, which says WHERE it installs (D1655). Nothing consumes it
+// destinationMatrix, which says WHERE it installs (D1656). Nothing consumes it
 // yet: the degradation and `requires` slices read it through CapabilityStatus
 // and AgentMode.
 

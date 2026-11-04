@@ -14,7 +14,7 @@ as its output ([D292](decisions/D292-a-harness-ledger-and-a-procedure-not-versio
 provider in `configurator.Providers()` and no section for an unknown one.
 
 Each section also carries a fenced `capabilities` block, the ledger of the per-client capability
-table (`internal/provisioning/capabilities.go`, D1655): one line `<scope> <id> <status>` for every
+table (`internal/provisioning/capabilities.go`, D1656): one line `<scope> <id> <status>` for every
 scope (`global`, `project`) and id (`skill`, `mcp`, `agent.delegate`, `agent.invoke`,
 `hook.<Event>` for each event of the vocabulary). `absent` is derived from the destination matrix
 and the hook vocabulary, so a cell with no destination is `absent`; `unverified` is the default for
