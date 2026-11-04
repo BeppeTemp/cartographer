@@ -599,7 +599,11 @@ func TestDetect_ClineByExtensionDirectory(t *testing.T) {
 
 // A home path holding glob metacharacters is a literal directory, not a pattern.
 func TestDetect_ClineHomeWithGlobCharacters(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "home[1]*?")
+	name := "home[1]"
+	if runtime.GOOS != "windows" {
+		name += "*?" // Windows forbids * and ? in names; [ ] still exercise the glob escape there
+	}
+	home := filepath.Join(t.TempDir(), name)
 	dir := filepath.Join(home, ".vscode", "extensions", "saoudrizwan.claude-dev-4.1.26")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
