@@ -320,16 +320,29 @@ func (c *Config) ResolveWorkspace(provider, dir string) (WorkspaceBinding, bool,
 			Detail: "rebind it with `cartographer workspace bind`, or remove the binding with `workspace unbind`",
 		}
 	}
-	if w.Remote != "" {
-		if got := gitRemoteFn(w.Path); got != w.Remote {
-			return WorkspaceBinding{}, false, &WorkspaceLookupError{
-				Path: w.Path, Reason: "git remote changed since it was bound",
-				Detail: fmt.Sprintf("bound to %s, found %q — rebind deliberately rather than projecting another perimeter's artifacts here", gitx.RedactRemoteURL(w.Remote), gitx.RedactRemoteURL(got)),
-			}
-		}
+	if err := CheckWorkspaceRemote(w); err != nil {
+		return WorkspaceBinding{}, false, err
 	}
 	w.KBs = append([]string(nil), w.KBs...)
 	return w, true, nil
+}
+
+// CheckWorkspaceRemote reports an error when the repository now at w.Path is
+// not the one the binding recorded: the git remote guard of BindWorkspace,
+// shared by ResolveWorkspace and the sync path so that no write reaches a
+// directory that is a checkout of another repository. A binding with no
+// recorded remote (not a repository when bound) has nothing to compare.
+func CheckWorkspaceRemote(w WorkspaceBinding) error {
+	if w.Remote == "" {
+		return nil
+	}
+	if got := gitRemoteFn(w.Path); got != w.Remote {
+		return &WorkspaceLookupError{
+			Path: w.Path, Reason: "git remote changed since it was bound",
+			Detail: fmt.Sprintf("bound to %s, found %q — rebind deliberately rather than projecting another perimeter's artifacts here", gitx.RedactRemoteURL(w.Remote), gitx.RedactRemoteURL(got)),
+		}
+	}
+	return nil
 }
 
 // pathWithin reports whether target is root or a descendant of it. It compares

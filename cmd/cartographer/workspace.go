@@ -128,6 +128,16 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			return nil, fmt.Errorf("%s: bound workspace %s is gone — rebind it, or remove the binding with `cartographer workspace unbind %s %s`",
 				provider, w.Path, provider, w.Path)
 		}
+		if !w.Derived {
+			// The recorded remote is the binding's identity (docs/sync.md):
+			// a directory now holding another repository is refused like a
+			// missing one. A derived binding was matched on its remote when
+			// it was computed, in this same run.
+			if err := clientconfig.CheckWorkspaceRemote(w); err != nil {
+				return nil, fmt.Errorf("%s: %w — rebind it, or remove the binding with `cartographer workspace unbind %s %s`",
+					provider, err, provider, w.Path)
+			}
+		}
 		sp := syncProjection{
 			Provider:  provider,
 			Workspace: w.Path,
