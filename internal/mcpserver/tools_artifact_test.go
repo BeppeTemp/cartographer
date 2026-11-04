@@ -313,7 +313,13 @@ func TestClassifyArtifactPath(t *testing.T) {
 		{"mcp/my-server.json", true, "mcp", "my-server"},
 		{"instructions.md", true, "instructions", ""},
 		{"paths.yaml", true, "paths", ""},
-		{"./paths.yaml", true, "paths", ""},
+		// Only the canonical spelling is accepted: the form a join resolves is
+		// the form the symlink guard walks.
+		{"./paths.yaml", false, "", ""},
+		{"skills/a/../b/SKILL.md", false, "", ""},
+		{"skills//b/SKILL.md", false, "", ""},
+		{"skills/b/./SKILL.md", false, "", ""},
+		{"agents/my-agent.md/", false, "", ""},
 		{"data/paths.yaml", false, "", ""},
 		{"paths.yml", false, "", ""},
 		{"glossary.yaml", true, "glossary", ""},

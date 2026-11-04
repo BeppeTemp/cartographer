@@ -89,6 +89,11 @@ const maxSkillFileBytes = 256 * 1024
 
 func LoadSkill(dirPath string) (*Skill, error) {
 	skillPath := filepath.Join(dirPath, "SKILL.md")
+	// A SKILL.md that is a symlink is not read: a KB comes from a remote, and the
+	// file on the other side is not the KB's.
+	if fi, lerr := os.Lstat(skillPath); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("skill: %s is a symlink, not read", skillPath)
+	}
 	data, err := readSkillFile(skillPath)
 	if err != nil {
 		return nil, fmt.Errorf("skill: read %s: %w", skillPath, err)
@@ -173,6 +178,9 @@ func getString(fm *okf.Frontmatter, key string) string {
 // skills/ directory has no skills, which is not an error.
 func LoadAllSkills(kbRoot string) ([]Skill, []error) {
 	skillsDir := filepath.Join(kbRoot, "skills")
+	if fi, lerr := os.Lstat(skillsDir); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return nil, []error{fmt.Errorf("skill: %s is a symlink, not listed", skillsDir)}
+	}
 	entries, err := os.ReadDir(skillsDir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil

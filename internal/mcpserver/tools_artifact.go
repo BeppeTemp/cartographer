@@ -133,6 +133,11 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	if seg, hidden := hiddenPathSegment(clean); hidden {
 		return artifactPathInfo{}, fmt.Errorf("path not allowed: %q has the hidden segment %q: an artifact path has no segment starting with a dot", relPath, seg)
 	}
+	// Only the canonical spelling is accepted, so the callers' symlink walk and
+	// the join visit the same components.
+	if clean != relPath {
+		return artifactPathInfo{}, fmt.Errorf("path not allowed: %q is not canonical, use %q", relPath, clean)
+	}
 
 	if clean == "instructions.md" {
 		return artifactPathInfo{Kind: "instructions"}, nil
@@ -193,9 +198,19 @@ func sha256Hex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// rejectArtifactSymlinks refuses a symlink on any component of relPath under
+// root. It walks the cleaned path, the one a join resolves, so the guard and
+// the access visit the same components.
 func rejectArtifactSymlinks(root, relPath string) error {
+	clean := filepath.ToSlash(filepath.Clean(relPath))
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return fmt.Errorf("path not allowed: %q escapes the KB root", relPath)
+	}
+	if clean == "." {
+		return nil
+	}
 	current := root
-	for _, part := range strings.Split(filepath.ToSlash(relPath), "/") {
+	for _, part := range strings.Split(clean, "/") {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if os.IsNotExist(err) {

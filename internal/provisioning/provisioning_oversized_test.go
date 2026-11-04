@@ -14,7 +14,7 @@ import (
 // A file over the artifact cap is never read: ReadArtifactFiles fails (a client
 // must not materialize half a skill), the Capped variant reports it, and a
 // symlink beside it is not followed.
-func TestReadDirFilesCapsAndSkipsSymlinks(t *testing.T) {
+func TestReadDirFilesCapsAndRefusesSymlinks(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "skills", "x")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -30,6 +30,13 @@ func TestReadDirFilesCapsAndSkipsSymlinks(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "SKILL.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
+	// A link among the files refuses the directory (kblinks.go); with it gone
+	// the rest reads as before.
+	var linkErr *kbSymlinkError
+	if _, err := readDirFiles(dir, nil); !errors.As(err, &linkErr) {
+		t.Fatalf("readDirFiles with a link = %v, want a *kbSymlinkError", err)
+	}
+	must(os.Remove(filepath.Join(dir, "link.md")))
 	files, err := readDirFiles(dir, nil)
 	must(err)
 	got := map[string]ArtifactFile{}

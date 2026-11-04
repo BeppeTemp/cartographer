@@ -530,6 +530,9 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 			if params.Name == "" {
 				return errorResult("'name' is required"), nil
 			}
+			if !artifactSlugPattern.MatchString(params.Name) {
+				return errorResult(fmt.Sprintf("skill_install: invalid name %q: a skill name is a lowercase-hyphenated slug", params.Name)), nil
+			}
 
 			// A name the bundle no longer carries but knew before D958 installs
 			// under its current name; the exact name is tried first.
@@ -545,16 +548,22 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				return errorResult(fmt.Sprintf("unknown bundled skill %q", requested)), nil
 			}
 
+			// Every destination is inside the KB: no component of skills/<name>,
+			// nor of a file the skill writes, is a symlink (a KB comes from a
+			// remote that can track one). All are checked before the first write.
+			skillRel := "skills/" + params.Name
+			if err := rejectArtifactSymlinks(k.Root, skillRel); err != nil {
+				return errorResult("skill_install: " + err.Error()), nil
+			}
 			dstDir := filepath.Join(k.Root, "skills", params.Name)
-			if _, err := os.Stat(dstDir); err == nil && !params.Force {
+			if _, err := os.Lstat(dstDir); err == nil && !params.Force {
 				return errorResult(fmt.Sprintf("skill %q already installed, use force=true to overwrite", params.Name)), nil
 			}
-
-			if err := os.MkdirAll(dstDir, 0o755); err != nil {
-				return errorResult(fmt.Sprintf("skill_install: mkdir %s: %v", dstDir, err)), nil
+			type planned struct {
+				path, rel string
+				dir       bool
 			}
-
-			// Recursively copy all files from srcDir into dstDir.
+			var plan []planned // the bundle below srcDir, parents first
 			if err := fs.WalkDir(bundleFS, srcDir, func(path string, d fs.DirEntry, walkErr error) error {
 				if walkErr != nil {
 					return walkErr
@@ -562,18 +571,36 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				if path == srcDir {
 					return nil // skip root dir itself
 				}
-				rel := path[len(srcDir)+1:] // relative path within skill dir
-				dstPath := filepath.Join(dstDir, filepath.FromSlash(rel))
-				if d.IsDir() {
-					return os.MkdirAll(dstPath, 0o755)
-				}
-				data, err := fs.ReadFile(bundleFS, path)
-				if err != nil {
+				rel := path[len(srcDir)+1:]
+				if err := rejectArtifactSymlinks(k.Root, skillRel+"/"+rel); err != nil {
 					return err
 				}
-				return os.WriteFile(dstPath, data, 0o644)
+				plan = append(plan, planned{path: path, rel: rel, dir: d.IsDir()})
+				return nil
 			}); err != nil {
-				return errorResult(fmt.Sprintf("skill_install: copy: %v", err)), nil
+				return errorResult("skill_install: " + err.Error()), nil
+			}
+
+			if err := os.MkdirAll(dstDir, 0o755); err != nil {
+				return errorResult(fmt.Sprintf("skill_install: mkdir %s: %v", dstDir, err)), nil
+			}
+
+			// Recursively copy all files from srcDir into dstDir.
+			for _, p := range plan {
+				dstPath := filepath.Join(dstDir, filepath.FromSlash(p.rel))
+				if p.dir {
+					if err := os.MkdirAll(dstPath, 0o755); err != nil {
+						return errorResult(fmt.Sprintf("skill_install: copy: %v", err)), nil
+					}
+					continue
+				}
+				data, err := fs.ReadFile(bundleFS, p.path)
+				if err != nil {
+					return errorResult(fmt.Sprintf("skill_install: copy: %v", err)), nil
+				}
+				if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+					return errorResult(fmt.Sprintf("skill_install: copy: %v", err)), nil
+				}
 			}
 
 			result := map[string]interface{}{

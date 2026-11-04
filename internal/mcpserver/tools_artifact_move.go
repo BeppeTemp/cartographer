@@ -290,7 +290,7 @@ func parseArtifactUnit(raw string) (artifactUnit, error) {
 			return artifactUnit{rel: clean, info: artifactPathInfo{Kind: kind, Name: segs[1]}}, nil
 		}
 	default:
-		info, err := classifyArtifactPath(raw)
+		info, err := classifyArtifactPath(clean)
 		if err != nil {
 			return artifactUnit{}, err
 		}

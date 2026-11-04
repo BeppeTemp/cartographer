@@ -55,6 +55,9 @@ func newLintSample(k *kb.KB, findings []lint.Finding, now time.Time) lintSample 
 // parse is skipped.
 func readLintHistory(k *kb.KB) []lintSample {
 	out := []lintSample{}
+	if checkLocalStatePath(lintHistoryPath(k)) != nil {
+		return out
+	}
 	f, err := os.Open(lintHistoryPath(k))
 	if err != nil {
 		return out
@@ -93,11 +96,8 @@ func recordLintSample(k *kb.KB, s lintSample, now time.Time) error {
 	}
 	kept = append(kept, s)
 	p := lintHistoryPath(k)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := ensureLocalStateDir(p); err != nil { // never write through a symlink (D148)
 		return err
-	}
-	if fi, err := os.Lstat(p); err == nil && !fi.Mode().IsRegular() {
-		return os.ErrInvalid // never write through a symlink (D148)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(p), lintHistoryName+".*")
 	if err != nil {
