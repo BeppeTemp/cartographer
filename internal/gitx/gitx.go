@@ -35,8 +35,36 @@ var ErrNothingToCommit = errors.New("nothing to commit")
 //
 // The environment also carries serverConfig (gitlink.go): no command of the
 // server looks inside a nested repository.
+//
+// The variables that pin a repository (repoPinVars) are dropped from the
+// process environment: gitx always names the repository with -C, and an
+// inherited GIT_DIR would send the command to another one. extra may set them
+// again (CommitPaths sets GIT_INDEX_FILE).
 func gitEnv(extra []string) []string {
-	return append(withServerConfig(append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), extra...)), "LC_ALL=C")
+	env := append(withoutRepoPins(os.Environ()), "GIT_TERMINAL_PROMPT=0")
+	return append(withServerConfig(append(env, extra...)), "LC_ALL=C")
+}
+
+// repoPinVars are the environment variables that select a repository, its
+// index or its object store instead of the one -C names.
+var repoPinVars = []string{
+	"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_PREFIX",
+}
+
+// withoutRepoPins returns a copy of env without the repoPinVars.
+func withoutRepoPins(env []string) []string {
+	out := make([]string, 0, len(env))
+next:
+	for _, kv := range env {
+		for _, v := range repoPinVars {
+			if strings.HasPrefix(kv, v+"=") {
+				continue next
+			}
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // sshBatchCommand is the ssh invocation that never asks: no password or
@@ -441,7 +469,7 @@ func CommitPaths(dir string, paths []string, message, authorName, authorEmail st
 	if out, err := runGitEnv(dir, commitEnv, "read-tree", "HEAD"); err != nil {
 		return fmt.Errorf("git read-tree HEAD: %w: %s", err, out)
 	}
-	args := append([]string{"add", "--"}, paths...)
+	args := append([]string{"--literal-pathspecs", "add", "--"}, paths...)
 	if out, err := runGitEnv(dir, commitEnv, args...); err != nil {
 		return fmt.Errorf("git add paths: %w: %s", err, out)
 	}
@@ -456,7 +484,7 @@ func ResetPaths(dir string, paths ...string) error {
 	if len(paths) == 0 {
 		return nil
 	}
-	if out, err := runGit(dir, append([]string{"reset", "-q", "--"}, paths...)...); err != nil {
+	if out, err := runGit(dir, append([]string{"--literal-pathspecs", "reset", "-q", "--"}, paths...)...); err != nil {
 		return fmt.Errorf("git reset -- paths: %w: %s", err, out)
 	}
 	return nil
@@ -664,7 +692,7 @@ func parseLsRemoteSymref(out string) RemoteRefs {
 func IgnoredFiles(dir, path string) ([]string, error) {
 	// -z: a name with a non-ASCII byte, a tab or a newline comes back intact
 	// instead of quoted ("citt\303\240.png").
-	out, errOut, err := runGitStdin(dir, "", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", path)
+	out, errOut, err := runGitStdin(dir, "", "--literal-pathspecs", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", path)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files --ignored: %w: %s", err, errOut)
 	}
@@ -841,7 +869,7 @@ func Branch(dir string) (string, error) {
 
 // Checkout checks out an existing branch.
 func Checkout(dir, branch string) error {
-	out, err := runGit(dir, "checkout", branch)
+	out, err := runGit(dir, "switch", "--end-of-options", branch)
 	if err != nil {
 		return fmt.Errorf("git checkout %s: %w: %s", branch, err, out)
 	}
@@ -921,7 +949,7 @@ func RemoteTrackingBranches(dir, remote string) ([]string, error) {
 // branch; callers that see an existing branch must make an explicit, safe
 // decision instead of discarding history.
 func CheckoutNewBranch(dir, branch, start string, env ...string) error {
-	out, err := runGitEnv(dir, env, "checkout", "-b", branch, start)
+	out, err := runGitEnv(dir, env, "switch", "-c", branch, "--end-of-options", start)
 	if err != nil {
 		return fmt.Errorf("git checkout -b %s %s: %w: %s", branch, start, err, out)
 	}
@@ -930,7 +958,7 @@ func CheckoutNewBranch(dir, branch, start string, env ...string) error {
 
 // IsAncestor reports whether ancestor is reachable from descendant.
 func IsAncestor(dir, ancestor, descendant string) (bool, error) {
-	out, err := runGit(dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	out, err := runGit(dir, "merge-base", "--is-ancestor", "--end-of-options", ancestor, descendant)
 	if err == nil {
 		return true, nil
 	}
@@ -987,7 +1015,7 @@ func TreePaths(dir, ref string) ([]string, error) {
 // an error, never a silent false. "Exactly one branch" is the caller's
 // condition (RemoteRefs.Branches).
 func ForgeInitialized(dir, ref string) (paths []string, ok bool, err error) {
-	out, err := runGit(dir, "rev-list", "--count", ref)
+	out, err := runGit(dir, "rev-list", "--count", "--end-of-options", ref)
 	if err != nil {
 		return nil, false, fmt.Errorf("git rev-list --count %s: %w: %s", ref, err, out)
 	}
@@ -1129,7 +1157,7 @@ func ForgeReadmeBoilerplate(dir, ref, path, remote string) (boilerplate bool, de
 
 // RenameBranch renames the checked-out branch ("git branch -m <name>").
 func RenameBranch(dir, name string) error {
-	out, err := runGit(dir, "branch", "-m", name)
+	out, err := runGit(dir, "branch", "-m", "--end-of-options", name)
 	if err != nil {
 		return fmt.Errorf("git branch -m %s: %w: %s", name, err, out)
 	}
@@ -1148,7 +1176,7 @@ func HeadSHAAt(dir, ref string) (string, error) {
 // ResetHardTo resets a clean working tree to ref. It is deliberately narrow:
 // callers check cleanliness before using it.
 func ResetHardTo(dir, ref string, env ...string) error {
-	out, err := runGitEnv(dir, env, "reset", "--hard", ref)
+	out, err := runGitEnv(dir, env, "reset", "--hard", "--end-of-options", ref)
 	if err != nil {
 		return fmt.Errorf("git reset --hard %s: %w: %s", ref, err, out)
 	}
@@ -1159,7 +1187,7 @@ func ResetHardTo(dir, ref string, env ...string) error {
 // Returns error on non-fast-forward (caller should rebase and retry).
 // env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
 func Push(dir, remote, branch string, env ...string) error {
-	out, err := runGitNet(dir, remote, PushTimeout, env, "push", remote, branch)
+	out, err := runGitNet(dir, remote, PushTimeout, env, "push", "--", remote, branch)
 	if err != nil {
 		return pushError(fmt.Sprintf("git push %s %s", remote, branch), err, out)
 	}
@@ -1192,7 +1220,7 @@ var PushTimeout = 60 * time.Second
 // in internal/kb uses Push, which must not touch tracking configuration.
 // env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
 func PushSetUpstream(dir, remote, branch string, env ...string) error {
-	out, err := runGitNet(dir, remote, PushTimeout, env, "push", "-u", remote, branch)
+	out, err := runGitNet(dir, remote, PushTimeout, env, "push", "-u", "--", remote, branch)
 	if err != nil {
 		return pushError(fmt.Sprintf("git push -u %s %s", remote, branch), err, out)
 	}
@@ -1259,7 +1287,7 @@ func ShowFile(dir, ref, path string) (string, error) {
 // nil error) from every other failure (a bad ref, a damaged repository), which
 // is returned: an error must never be read as absence.
 func ShowFileIfExists(dir, ref, path string) (text string, exists bool, err error) {
-	out, err := runGit(dir, "ls-tree", "--name-only", "-z", ref, "--", path)
+	out, err := runGit(dir, "--literal-pathspecs", "ls-tree", "--name-only", "-z", ref, "--", path)
 	if err != nil {
 		return "", false, fmt.Errorf("git ls-tree %s -- %s: %w: %s", ref, path, err, out)
 	}
@@ -1289,7 +1317,7 @@ func MergeNoCommitNoFF(dir, ref string) (conflicted bool, err error) {
 // --no-commit, so a caller inside a KB passes kb.ServerGitEnv() or it fails
 // with "empty ident name" on a host with no git identity.
 func MergeNoCommitNoFFEnv(dir, ref string, env ...string) (conflicted bool, err error) {
-	out, gerr := runGitEnv(dir, env, "merge", "--no-commit", "--no-ff", ref)
+	out, gerr := runGitEnv(dir, env, "merge", "--no-commit", "--no-ff", "--end-of-options", ref)
 	if gerr == nil {
 		return false, nil
 	}
@@ -1375,7 +1403,7 @@ func Untrack(dir string, paths ...string) error {
 
 // AddPath stages a single path ("git add -- <path>").
 func AddPath(dir, path string) error {
-	out, err := runGit(dir, "add", "--", path)
+	out, err := runGit(dir, "--literal-pathspecs", "add", "--", path)
 	if err != nil {
 		return fmt.Errorf("git add %s: %w: %s", path, err, out)
 	}
@@ -1614,7 +1642,7 @@ func movedFrom(dir, sha, dest string) string {
 func fileHistoryOnce(dir, startRev, path string, limit int) ([]FileRevision, error) {
 	// Reason must stay the LAST field (see LogNameStatus).
 	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
-	args := []string{"-c", "core.quotepath=off", "log", "-M", "--name-status", "--pretty=format:" + format}
+	args := []string{"--literal-pathspecs", "-c", "core.quotepath=off", "log", "-M", "--name-status", "--pretty=format:" + format}
 	if limit > 0 {
 		args = append(args, "-n", strconv.Itoa(limit))
 	}
@@ -1691,7 +1719,7 @@ func otherConceptForm(path string) string {
 // DiffNameStatus returns changed files between two refs as a list of FileChange.
 // Example: DiffNameStatus(dir, "HEAD~1", "HEAD") → [{"M", "a/foo.md"}, {"A", "new.md"}]
 func DiffNameStatus(dir, from, to string) ([]FileChange, error) {
-	out, err := runGit(dir, "diff", "--name-status", from, to)
+	out, err := runGit(dir, "diff", "--name-status", "--end-of-options", from, to)
 	if err != nil {
 		return nil, fmt.Errorf("git diff --name-status %s %s: %w: %s", from, to, err, out)
 	}
@@ -1727,7 +1755,7 @@ func Status(dir string) (string, error) {
 
 // StatusPaths is Status restricted to paths: empty when none of them has a change.
 func StatusPaths(dir string, paths ...string) (string, error) {
-	out, err := runGit(dir, append([]string{"status", "--short", "--"}, paths...)...)
+	out, err := runGit(dir, append([]string{"--literal-pathspecs", "status", "--short", "--"}, paths...)...)
 	if err != nil {
 		return "", fmt.Errorf("git status --short: %w: %s", err, out)
 	}
@@ -1805,7 +1833,7 @@ func StashDrop(dir string) error {
 
 // MergeBase returns the best common ancestor of a and b ("git merge-base").
 func MergeBase(dir, a, b string) (string, error) {
-	out, err := runGit(dir, "merge-base", a, b)
+	out, err := runGit(dir, "merge-base", "--end-of-options", a, b)
 	if err != nil {
 		return "", fmt.Errorf("git merge-base %s %s: %w: %s", a, b, err, out)
 	}
@@ -1845,7 +1873,7 @@ func MergeFileUnion(base, ours, theirs string) (string, error) {
 // ResolveCommit returns the full SHA of the commit that ref names, or an error
 // when ref is not a commit of this repository.
 func ResolveCommit(dir, ref string) (string, error) {
-	out, err := runGit(dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	out, err := runGit(dir, "rev-parse", "--verify", "--quiet", "--end-of-options", ref+"^{commit}")
 	if err != nil {
 		return "", fmt.Errorf("%q is not a commit of this KB", ref)
 	}
@@ -1879,7 +1907,7 @@ func ShowCommit(dir, sha string) (CommitSummary, error) {
 // index without committing, so the caller's own commit path records it. On a
 // conflict it returns an error and leaves the tree for the caller to reset.
 func RevertNoCommit(dir, sha string, env ...string) error {
-	if out, err := runGitEnv(dir, env, "revert", "--no-commit", sha); err != nil {
+	if out, err := runGitEnv(dir, env, "revert", "--no-commit", "--end-of-options", sha); err != nil {
 		return fmt.Errorf("git revert %s: %w: %s", sha, err, strings.TrimSpace(out))
 	}
 	return nil

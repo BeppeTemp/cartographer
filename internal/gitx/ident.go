@@ -131,16 +131,10 @@ func GlobalIdent() (ident string, perFolder bool) {
 }
 
 // identEnv is the environment of the git commands that read an identity:
-// GIT_DIR and GIT_WORK_TREE are dropped so no repository is forced on them,
-// and no prompt can block a write.
+// the variables that pin a repository are dropped so no repository is forced
+// on them, and no prompt can block a write.
 func identEnv() []string {
-	env := []string{"GIT_TERMINAL_PROMPT=0"}
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_DIR=") && !strings.HasPrefix(kv, "GIT_WORK_TREE=") {
-			env = append(env, kv)
-		}
-	}
-	return env
+	return append([]string{"GIT_TERMINAL_PROMPT=0"}, withoutRepoPins(os.Environ())...)
 }
 
 func hasLetterOrDigit(s string) bool {
