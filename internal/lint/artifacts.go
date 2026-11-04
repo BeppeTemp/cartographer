@@ -909,9 +909,11 @@ func checkArtifactsUnused(k *kb.KB, skills []skill.Skill) []Finding {
 // (history is append-only; a rewrite moves HEAD), so the answer is kept per
 // root and HEAD sha. The map is shared and read-only.
 func artifactBirths(k *kb.KB) map[string]time.Time {
+	// Never nil: the caller treats nil as "not computed yet" and would run
+	// this again for every unused artifact of a KB with no history.
 	head, err := gitx.HeadSHA(k.Root)
 	if err != nil {
-		return nil
+		return map[string]time.Time{}
 	}
 	birthsMu.Lock()
 	e, ok := birthsMemo[k.Root]
@@ -921,7 +923,7 @@ func artifactBirths(k *kb.KB) map[string]time.Time {
 	}
 	commits, err := logNameStatus(k.Root, time.Unix(0, 0))
 	if err != nil {
-		return nil
+		return map[string]time.Time{}
 	}
 	births := gitx.Births(commits, func(path string) (string, bool) { return path, true })
 	birthsMu.Lock()
@@ -936,6 +938,8 @@ type birthsEntry struct {
 }
 
 var (
+	// birthsMemo keeps one entry per root (a new HEAD replaces it), so it is
+	// bounded by the number of KB roots the process has served: a handful.
 	birthsMu   sync.Mutex
 	birthsMemo = map[string]birthsEntry{}
 	// logNameStatus is gitx.LogNameStatus; a test swaps it to count the runs.

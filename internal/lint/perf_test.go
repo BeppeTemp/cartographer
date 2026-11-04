@@ -101,3 +101,13 @@ func TestPerf_DuplicateItemsSkipJournals(t *testing.T) {
 		t.Fatalf("%d title pairs compared, the journal entries must not be", got)
 	}
 }
+
+// No history (not a repository, or no commit yet) gives an empty map, not nil:
+// the caller computes the births once per run, nil would mean "not yet".
+func TestPerf_ArtifactBirthsWithoutHistoryAreNotNil(t *testing.T) {
+	k := tempKB(t)
+	k.Root = t.TempDir() // not a repository
+	if got := artifactBirths(k); got == nil || len(got) != 0 {
+		t.Fatalf("births = %#v, want an empty non-nil map", got)
+	}
+}
