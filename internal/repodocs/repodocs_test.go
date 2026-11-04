@@ -623,7 +623,7 @@ func TestHarnessLedgerCoversEveryProvider(t *testing.T) {
 // ledgerCapabilities parses the fenced `capabilities` block of each provider section of
 // docs/harnesses.md: "<scope> <id> <status> [<date> <recipe>]" per line. The key of a cell
 // is "<provider> <scope> <id>"; a malformed or repeated line is reported through errf.
-func ledgerCapabilities(ledger string, errf func(format string, args ...any)) map[string]string {
+func ledgerCapabilities(ledger, probes string, errf func(format string, args ...any)) map[string]string {
 	cells := map[string]string{}
 	provider, inBlock := "", false
 	date := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -652,6 +652,8 @@ func ledgerCapabilities(ledger string, errf func(format string, args ...any)) ma
 		case provisioning.CapVerified:
 			if len(f) != 5 || !date.MatchString(f[3]) {
 				errf("docs/harnesses.md %s: verified line %q needs `<YYYY-MM-DD> <probes.md recipe>`", provider, line)
+			} else if !strings.Contains(probes, f[4]) {
+				errf("docs/harnesses.md %s: verified line %q names recipe %q, which does not appear in probes.md", provider, line, f[4])
 			}
 		case provisioning.CapUnverified, provisioning.CapAbsent:
 			if len(f) != 3 {
@@ -669,13 +671,37 @@ func ledgerCapabilities(ledger string, errf func(format string, args ...any)) ma
 	return cells
 }
 
+// A verified line must name a recipe that exists in probes.md and carry a date.
+func TestLedgerCapabilitiesRejectsBadVerifiedLines(t *testing.T) {
+	const probes = "## Pi\nrecipe pi-agent-delegate: ...\n"
+	cases := []struct {
+		line    string
+		wantErr bool
+	}{
+		{"global skill verified 2026-11-05 pi-agent-delegate", false},
+		{"global skill verified 2026-11-05 no-such-recipe", true},
+		{"global skill verified pi-agent-delegate", true},
+		{"global skill verified 2026-11 pi-agent-delegate", true},
+		{"global skill unverified", false},
+	}
+	for _, c := range cases {
+		var errs []string
+		ledger := "## pi\n```capabilities\n" + c.line + "\n```\n"
+		ledgerCapabilities(ledger, probes, func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) })
+		if (len(errs) > 0) != c.wantErr {
+			t.Errorf("line %q: errors %v, want error=%v", c.line, errs, c.wantErr)
+		}
+	}
+}
+
 // The capability table (internal/provisioning/capabilities.go) is data and its ledger is the
 // fenced `capabilities` block of each provider section of docs/harnesses.md: a difference in
 // either direction, a provider without a block, or a verified cell without a probe date and
 // recipe fails here. The table itself is tied to the destination matrix by the provisioning
 // tests, so a ledger cell contradicting the matrix cannot match the table.
 func TestCapabilityTableMatchesLedger(t *testing.T) {
-	cells := ledgerCapabilities(readFile(t, repoRoot(t), "docs/harnesses.md"), t.Errorf)
+	cells := ledgerCapabilities(readFile(t, repoRoot(t), "docs/harnesses.md"),
+		readFile(t, repoRoot(t), ".claude/skills/cartographer-audit-clients/references/probes.md"), t.Errorf)
 
 	want := map[string]bool{}
 	for _, d := range configurator.Providers() {
