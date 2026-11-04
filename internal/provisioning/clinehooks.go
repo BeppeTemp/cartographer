@@ -115,7 +115,8 @@ func clineOwner(path string) clineOwnership {
 // order: every needed event gets its dispatcher created or, when it is ours and
 // differs, rewritten (the mode is kept: on POSIX the exec bit is the user's
 // per-hook toggle in Cline's UI); every other event loses its dispatcher, only
-// if it still carries the marker. A needed event whose path is not ours is
+// if it still carries the marker, and no folder is ever removed. An event whose
+// path safewrite refuses (a link) is reported and left untouched. A needed event whose path is not ours is
 // reported in the returned map and left untouched. exclude is a hook being
 // removed, whose hook.json is still on disk.
 func reconcileClineDispatchers(baseDir, exclude string) (warnings map[string]string, err error) {
@@ -138,23 +139,31 @@ func reconcileClineDispatchers(baseDir, exclude string) (warnings map[string]str
 	}
 	for _, event := range clineEventNames {
 		path := clineDispatcherPath(baseDir, event)
+		// A link (or another non-plain path) at Cline, Cline/Hooks or the file is a
+		// safewrite refusal, in its words: a warning, never an error that would
+		// abort the reconcile and repeat on every sync. Nothing is touched.
 		owner := clineOwner(path)
-		if !needed[event] {
-			if owner != clineOwned {
-				continue
+		if !needed[event] && owner != clineOwned {
+			continue // nothing of ours to remove, nothing to report
+		}
+		if err := safewrite.CheckPath(docs, path); err != nil {
+			if needed[event] {
+				warnings[event] = fmt.Sprintf("cline: the %s hooks of this KB were installed but not wired: %v", event, err)
+			} else {
+				warnings[event] = fmt.Sprintf("cline: the %s dispatcher was left in place: %v", event, err)
 			}
+			continue
+		}
+		if !needed[event] {
 			if err := safewrite.Remove(docs, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return warnings, fmt.Errorf("provisioning: remove Cline dispatcher %s: %w", path, err)
 			}
-			pruneEmptyDirs(docs, filepath.Join("Cline", "Hooks", event))
+			// No directory is removed: Documents/Cline/Hooks belongs to the extension.
 			continue
 		}
 		switch {
 		case binErr != nil:
 			warnings[event] = fmt.Sprintf("cline: the %s hooks need cartographer on PATH to be wired (%v)", event, binErr)
-		case owner == clineForeign && safewrite.CheckPath(docs, path) != nil:
-			// A link (or another non-plain path) is a safewrite refusal, in its words.
-			warnings[event] = fmt.Sprintf("cline: the %s hooks of this KB were installed but not wired: %v", event, safewrite.CheckPath(docs, path))
 		case owner == clineForeign:
 			warnings[event] = fmt.Sprintf("cline: %s already exists and is not Cartographer's; the %s hooks of this KB were installed but not wired (rename or move that file, then sync)", path, event)
 		default:

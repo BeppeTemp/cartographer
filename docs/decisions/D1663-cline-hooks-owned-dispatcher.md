@@ -9,7 +9,7 @@ topic: client-configurator
 files live in `~/.cline/cartographer-hooks/<name>/`. Ownership is the token `cartographer:cline-hook-dispatcher
 <Event>` in the first 512 bytes, never a lock entry; the set of dispatchers is derived from the hooks on disk
 (`reconcileClineDispatchers`), so the bootstrap, write-findings and KB hooks share one path in any order and a
-prune removes a dispatcher only with the last hook of its event, and only while it still carries the marker. A file
+prune removes a dispatcher only with the last hook of its event, and only while it still carries the marker; no folder is ever removed, `Cline/Hooks` belongs to the extension. A file
 at the path without the marker is the user's: it is never rewritten, merged or read past its head, the hooks are
 installed but not wired, and the sync warns (a symlink there is reported in `safewrite`'s refusal wording). For the
 bootstrap hook that warning is fatal (`warningBlocksBootstrap`): `TaskStart` would never run it, so it must not be
@@ -28,7 +28,8 @@ not own and fails open (a missing binary prints `{}`, the script exits 0).
 - Home-relative `Documents` everywhere: a OneDrive-redirected Windows folder would leave the hooks dead. On Windows,
   for the real home, the known folder is used; every mkdir, write, remove, prune and the registration-target check go through `safewrite` rooted at the
   Documents folder, not the base dir: the folder itself may be a link of the user's (exempt as a root, also when
-  the base dir is not its parent) while a link at `Cline` or `Cline/Hooks` is refused before anything is written.
+  the base dir is not its parent) while a link at `Cline` or `Cline/Hooks` is refused before anything is written: on sync a warning (the event is skipped, the remove path
+  included), never an error.
 
 **Consequences.** The binary path is quoted for PowerShell by doubling the ASCII quote and U+2018, U+2019, U+201A and
 U+201B, which PowerShell reads as quotes too. `clineDocumentsDir` is the one place a Cline destination leaves the base dir (a relocated Linux

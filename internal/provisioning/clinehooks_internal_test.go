@@ -145,8 +145,8 @@ func TestClineDispatcherOwnership(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(base, "Documents")); err != nil {
 		t.Errorf("Documents was pruned: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(base, "Documents", "Cline")); !os.IsNotExist(err) {
-		t.Errorf("empty Cline/Hooks left behind: %v", err)
+	if fi, err := os.Stat(clineHooksDir(base)); err != nil || !fi.IsDir() {
+		t.Errorf("Cline/Hooks belongs to the extension and must survive: %v", err)
 	}
 }
 
@@ -215,11 +215,32 @@ func TestClineHooksDirSymlinkIsRefusedBeforeAnyWrite(t *testing.T) {
 	dir := filepath.Join(base, filepath.FromSlash(clineHookFilesPrefix), "g")
 	_ = os.MkdirAll(dir, 0o755)
 	_ = os.WriteFile(filepath.Join(dir, "hook.json"), []byte(`{"event":"PreToolUse","command":"./x"}`), 0o644)
-	if _, err := reconcileClineDispatchers(base, ""); err == nil {
-		t.Error("a write through the linked Hooks directory was not refused")
+	w, err := reconcileClineDispatchers(base, "")
+	if err != nil || !strings.Contains(w["PreToolUse"], "refusing to write through symlink") {
+		t.Errorf("a linked Hooks directory must be a warning, not an error: %v %v", w, err)
 	}
 	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
 		t.Errorf("a write went through the symlink: %v", entries)
+	}
+
+	// remove path: an owned-looking dispatcher seen through the link survives, no error
+	owned := filepath.Join(elsewhere, "PostToolUse")
+	body := "#!/bin/sh\n# " + clineDispatcherMarker + "\n"
+	if err := os.WriteFile(owned, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w, err = reconcileClineDispatchers(base, "")
+	if err != nil || w["PostToolUse"] == "" {
+		t.Errorf("remove through a linked Hooks directory: %v %v", w, err)
+	}
+	if got := readFile(t, owned); got != body {
+		t.Errorf("the file behind the link was touched: %q", got)
+	}
+	if err := removeClineHook(base, "g"); err != nil {
+		t.Errorf("removeClineHook through a link: %v", err)
+	}
+	if _, err := os.Stat(owned); err != nil {
+		t.Errorf("the file behind the link was removed: %v", err)
 	}
 }
 
