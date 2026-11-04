@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -245,6 +246,74 @@ func TestSync_GoneWorkspaceCostsOnlyItsProvider(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "codex") || !strings.Contains(err.Error(), "is gone") {
 		t.Errorf("the error must name codex and the gone workspace: %v", err)
+	}
+	lf, rerr := provisioning.ReadLockFile(lockFilePath(dir))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if len(lf.ForProvider("claude").Managed) == 0 {
+		t.Error("claude was not synced")
+	}
+}
+
+// A bound workspace whose directory now holds another repository (its git
+// remote differs from the recorded one) is refused like a missing one: nothing
+// is projected into it, the other providers are synced, and the error names the
+// provider. A workspace whose remote is unchanged still receives its artifacts.
+func TestSync_WorkspaceWithChangedRemoteIsNotWrittenInto(t *testing.T) {
+	setHome(t, t.TempDir())
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+
+	gitIn := func(dir string, args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	repo := func(remote string) string {
+		d := t.TempDir()
+		gitIn(d, "init", "-q")
+		gitIn(d, "remote", "add", "origin", remote)
+		return d
+	}
+	moved, kept := repo("https://example.com/org/repo-a.git"), repo("https://example.com/org/repo-b.git")
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude", "codex"}, KnownKBs: []string{"one"},
+	}
+	if err := cfg.SetWorkspaceScope("codex", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("codex", moved, []string{"one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("codex", kept, []string{"one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	// The directory is replaced by a checkout of another repository.
+	gitIn(moved, "remote", "set-url", "origin", "https://example.com/org/other.git")
+
+	var err error
+	withStdout(t, func() { _, err = runSync(dir, cfg, syncOptions{}) })
+	var partial partialSyncError
+	if !errors.As(err, &partial) || len(partial.Providers) != 1 || partial.Providers[0].Provider != "codex" {
+		t.Fatalf("err = %v, want a partial failure naming codex", err)
+	}
+	if !strings.Contains(err.Error(), "git remote changed") {
+		t.Errorf("the error must say the remote changed: %v", err)
+	}
+	for _, rel := range []string{".agents", "AGENTS.md", ".codex"} {
+		if _, serr := os.Lstat(filepath.Join(moved, rel)); serr == nil {
+			t.Errorf("%s was written into the workspace whose remote changed", rel)
+		}
 	}
 	lf, rerr := provisioning.ReadLockFile(lockFilePath(dir))
 	if rerr != nil {
