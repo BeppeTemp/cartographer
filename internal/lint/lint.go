@@ -174,7 +174,8 @@ func runOptions(k *kb.KB) Options {
 // the files given (KB-root-relative), which Run finds by listing the whole git
 // tree. missing_instructions is never reported: it needs the concept count.
 func ArtifactFindings(k *kb.KB, files []string) []Finding {
-	findings := checkArtifacts(k, runOptions(k), readInstructions(k), 0, secretsDirExists(k))
+	skills, missingSkills := loadSkills(k)
+	findings := checkArtifacts(k, runOptions(k), readInstructions(k), 0, secretsDirExists(k), skills, missingSkills)
 	return append(findings, junkFindings(files, nil)...)
 }
 
@@ -435,10 +436,12 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	instr := readInstructions(k)
 	hasSecretsDir := secretsDirExists(k)
 	if scopeNorm == "" {
-		findings = append(findings, checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir)...)
+		// Loaded once: LoadAllSkills walks the filesystem, and the artifact
+		// checks and the unused check both need the result.
+		skills, missingSkills := loadSkills(k)
+		findings = append(findings, checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir, skills, missingSkills)...)
 		// Not in ArtifactFindings: it reads the usage store and git history,
 		// and its callers hold a lock (D1043).
-		skills, _ := loadSkills(k)
 		findings = append(findings, checkArtifactsUnused(k, skills)...)
 	}
 	// junkAssets are the junk files the expanded-concept pass reported as
@@ -581,7 +584,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// --- digest_missing (D322) ---
 	// Whole-graph coverage, but only entries in scope are counted and anchor
 	// a finding.
-	findings = append(findings, st.digestMissing(k, func(id okf.ConceptID) bool { _, in := toCheck[id]; return in })...)
+	findings = append(findings, st.digestMissing(allConcepts, func(id okf.ConceptID) bool { _, in := toCheck[id]; return in })...)
 
 	// --- structural checks on maps and expanded concepts (D77 WP4) ---
 	// Directory-based (unlike the checks above, not driven by toCheck).
@@ -1145,7 +1148,6 @@ func indexLinkForms(body, linkBase string, exists func(okf.ConceptID) bool) []Fi
 func brokenLinkRebaseFixes(body, newBase, oldBase string, self okf.ConceptID, exists func(okf.ConceptID) bool) map[string]*Fix {
 	oldDir, newDir := path.Dir(oldBase), path.Dir(newBase)
 	masked := kb.MaskCodeSpans(body)
-	mdLinkPat := regexp.MustCompile(`\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]+)\)`)
 	out := map[string]*Fix{}
 	for _, m := range mdLinkPat.FindAllStringSubmatch(masked, -1) {
 		href := m[2]

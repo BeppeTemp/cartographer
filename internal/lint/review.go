@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -262,9 +263,6 @@ type reviewConcept struct {
 	timestamp string
 	resource  string
 	body      string
-	// content is the whole file, frontmatter included, for the observation
-	// detectors that read other pages' frontmatter.
-	content string
 }
 
 // Review builds the ranked work list from the KB, its contracts and the
@@ -276,7 +274,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	byID := map[okf.ConceptID]*reviewConcept{}
 	if err := walkConceptsDirectWins(k, func(id okf.ConceptID, physicalPath string, content string) error {
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		c := &reviewConcept{id: id, body: body, path: physicalPath, content: content}
+		c := &reviewConcept{id: id, body: body, path: physicalPath}
 		if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 			c.mapName = parts[0]
 		}
@@ -333,7 +331,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	}
 
 	var items []ReviewItem
-	items = append(items, duplicateItems(concepts, links)...)
+	items = append(items, duplicateItems(concepts, contracts, links)...)
 	items = append(items, templateProposalItems(concepts, contracts, k.TemplateCatalog())...)
 	zombies, zombieItems := zombieWorkItems(k, byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
@@ -486,7 +484,11 @@ func findingConceptID(path string) okf.ConceptID {
 // resource need before they are duplicate candidates (D313).
 const resourceTitleJaccardMin = 0.3
 
-func duplicateItems(concepts []*reviewConcept, links kb.Links) []ReviewItem {
+// titlePairsCompared counts the near-identical-title comparisons, for the test
+// that pins journals out of them.
+var titlePairsCompared atomic.Int64
+
+func duplicateItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, links kb.Links) []ReviewItem {
 	var out []ReviewItem
 	paired := map[[2]okf.ConceptID]bool{}
 
@@ -551,6 +553,12 @@ func duplicateItems(concepts []*reviewConcept, links kb.Links) []ReviewItem {
 		if c.mapName == "" || c.title == "" {
 			continue
 		}
+		// A journal's entries share their title words by construction ("Daily
+		// standup <date>"): pairing them is N^2/2 Jaccards that SeriesSiblings
+		// then discards, so they are never candidates.
+		if contracts[c.mapName].Kind == "journal" {
+			continue
+		}
 		ts := TitleTokens(c.title)
 		if len(ts) == 0 {
 			continue
@@ -581,6 +589,7 @@ func duplicateItems(concepts []*reviewConcept, links kb.Links) []ReviewItem {
 				seen[other] = true
 				// The overlap first: it is cheap on the tokens already built and
 				// rules out almost every pair, where SeriesSiblings re-tokenizes.
+				titlePairsCompared.Add(1)
 				j := Jaccard(ts, tokens[other])
 				if j < TitleJaccardMin {
 					continue

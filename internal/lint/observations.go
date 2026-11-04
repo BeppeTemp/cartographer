@@ -187,9 +187,13 @@ func observationFindings(k *kb.KB, concepts []*reviewConcept, contracts map[stri
 	}
 	found := st.observations()
 
-	content := make(map[okf.ConceptID]string, len(concepts))
+	// Review parsed each concept's frontmatter once; the per-map detectors
+	// reuse it instead of parsing every page again for every map.
+	fms := make(map[okf.ConceptID]*okf.Frontmatter, len(concepts))
 	for _, c := range concepts {
-		content[c.id] = c.content
+		if c.fm != nil {
+			fms[c.id] = c.fm
+		}
 		if f, ok := conceptOversizeObservation(c.id, c.body); ok {
 			found = append(found, f)
 		}
@@ -201,8 +205,8 @@ func observationFindings(k *kb.KB, concepts []*reviewConcept, contracts map[stri
 		if !ok {
 			continue
 		}
-		found = append(found, valueContractFindings(a, c, content)...)
-		found = append(found, facetSprawlFindings(a, c, content)...)
+		found = append(found, valueContractFindings(a, c, fms)...)
+		found = append(found, facetSprawlFindings(a, c, fms)...)
 		if f, ok := mapOversizeFinding(a, c, mapOversizeCount(lg, a)); ok {
 			found = append(found, f)
 		}

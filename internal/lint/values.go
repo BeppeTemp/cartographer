@@ -2,8 +2,11 @@ package lint
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/search"
@@ -54,16 +57,37 @@ func NormValue(s string) string {
 // key, built from the table plus the contract's value_synonyms.
 type valueFamilies map[string]string
 
-func familiesFor(contract *kb.MapContract) valueFamilies {
-	idx := valueFamilies{}
-	for fam, members := range ValueSynonymFamilies {
-		for _, m := range members {
-			idx[NormValue(m)] = fam
+// builtinFamilies builds the index of the built-in table, once: NormValue
+// folds every member, and the table does not change. The result is shared and
+// read-only; a contract with synonyms works on a copy.
+var (
+	builtinOnce   sync.Once
+	builtinIdx    valueFamilies
+	builtinBuilds atomic.Int64 // test-only: how many times the table was folded
+)
+
+func builtinFamilies() valueFamilies {
+	builtinOnce.Do(func() {
+		builtinBuilds.Add(1)
+		builtinIdx = valueFamilies{}
+		for fam, members := range ValueSynonymFamilies {
+			for _, m := range members {
+				builtinIdx[NormValue(m)] = fam
+			}
 		}
+	})
+	return builtinIdx
+}
+
+// familiesFor returns the family index for one contract. Callers only read it,
+// so a contract without value_synonyms (most of them) gets the shared built-in
+// index and nothing is rebuilt per entry.
+func familiesFor(contract *kb.MapContract) valueFamilies {
+	base := builtinFamilies()
+	if contract == nil || len(contract.ValueSynonyms) == 0 {
+		return base
 	}
-	if contract == nil {
-		return idx
-	}
+	idx := maps.Clone(base)
 	canon := make([]string, 0, len(contract.ValueSynonyms))
 	for c := range contract.ValueSynonyms {
 		canon = append(canon, c)
