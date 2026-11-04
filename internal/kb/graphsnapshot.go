@@ -187,7 +187,9 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 			title:      e.facets.Title,
 			status:     e.facets.Status,
 		}
-		ids = append(ids, id)
+		if _, dup := metas[id]; !dup {
+			ids = append(ids, id) // one node per id: m/c.md and m/c/index.md both emit m/c
+		}
 		metas[id] = meta
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })

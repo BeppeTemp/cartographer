@@ -11,7 +11,8 @@ import (
 
 // LockFileName is the advisory per-KB lock a writer takes for the duration of a
 // git-touching critical section. Dot-prefixed so every walker already skips it
-// (listMDFiles, walkConceptPaths and discoverKBPaths all ignore dotfiles).
+// (conceptFiles and listMDFiles skip hidden directories through walkVisibleDirs, and
+// discoverKBPaths ignores dotfiles).
 const LockFileName = ".cartographer.lock"
 
 // lockPollInterval is how often AcquireProcessLock retries while waiting.

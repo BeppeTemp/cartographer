@@ -218,7 +218,9 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 				meta.status, _ = v.(string)
 			}
 		}
-		ids = append(ids, id)
+		if _, dup := metas[id]; !dup {
+			ids = append(ids, id) // one node per id, as GraphSnapshot (m/c.md and m/c/index.md)
+		}
 		metas[id] = meta
 		return nil
 	})
