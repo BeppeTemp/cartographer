@@ -784,7 +784,41 @@ project hook.UserPromptSubmit absent
   - `agent` in `~/.cline/agents/<name>.yaml`: only `.yml`/`.yaml` load; frontmatter `name` and `description`
     (required), `tools`, `skills`, `providerId`, `modelId`, `maxIterations`; the body is the system prompt and an
     empty one skips the file silently. Exposed to the model as `subagent_<name>`, capped at 64 characters.
-  - `hook` unsupported in this slice. Every project cell is unsupported (no roots).
+  - `hook` unsupported in this slice: the command that will run the hooks exists (below), the file that calls it
+    is the next one. Every project cell is unsupported (no roots).
+  - Hooks, read from the bundle (4.1.26; none of it run live). It carries two loaders. The one the VS Code
+    extension runs reads the global `Documents/Cline/Hooks` and `<workspace>/.clinerules/hooks` only
+    (`$HOME/.cline/hooks` and `<workspace>/.cline/hooks` belong to the SDK loader, which the VS Code host switches
+    off; the CLI is inferred to run it too and reads `Documents/Cline/Hooks` as well). `Documents` is
+    `[Environment]::GetFolderPath('MyDocuments')` on Windows (a redirected folder is honoured), `xdg-user-dir
+    DOCUMENTS` on Linux, `$HOME/Documents` on macOS. Every file found runs, in parallel, none shadows another;
+    the only collision is two writers of one path. The file is `<Event>` with no extension and the exec bit on
+    POSIX (run as `sh -c`, so a shebang is needed; the exec bit is the per-hook toggle of the Cline UI, `chmod 644`
+    disables it), `<Event>.ps1` on Windows (run as `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass
+    -File`; no `.cmd`, no toggle). Switch: the global `hooksEnabled` (default on). Timeout 30 s, then SIGTERM; a
+    failed hook never breaks the run. Events fired: `TaskStart` and `UserPromptSubmit` (before the run),
+    `PreToolUse`, `PostToolUse`, `TaskComplete`, `TaskCancel`; `TaskResume`, `TaskError`, `PreCompact`,
+    `Notification` and `SessionShutdown` exist and are never created. Stdin is JSON: `hookName`, `taskId`,
+    `workspaceRoots`, `model`, plus `preToolUse{toolName, parameters}`, `postToolUse{toolName, parameters, result,
+    success}`, `userPromptSubmit{prompt}`; every parameter is a string and `result` is `String(output)`. Stdout is
+    read as one JSON object with `cancel`, `contextModification` and `errorMessage` only (`review`, `context` and
+    `overrideInput` are read by the SDK loader alone); **`cancel` stops the whole task**, there is no per-call skip.
+    **Nothing in the payload or the environment names the invoking client**, so a second build that reads
+    `Documents/Cline/Hooks` runs the very same files.
+  - `cartographer hook dispatch --provider cline --event <Event>` (internal) is the logic a dispatcher file will
+    call: it reads Cline's payload and runs the Cartographer hooks of the event, materialized under
+    `~/.cline/cartographer-hooks/<name>/` (a Claude-style `hook.json` and command, run as `sh -c`, payload on stdin,
+    25 s in total, kill grace included; each stream capped at 1 MiB). `TaskStart` runs the `SessionStart` hooks (once per task: a 12 h marker in a private per-user directory of the temp dir),
+    `UserPromptSubmit`, `PreToolUse` and `PostToolUse` run their own. `PreToolUse` exit 2 returns `cancel`, which
+    stops the task; `PostToolUse` exit 2 with stderr is context, never `cancel`, and only a successful tool fires it;
+    `SessionStart` and `UserPromptSubmit` stdout is context; anything else has no effect. A tool `<server>__<tool>`
+    is presented as `mcp__<server>__<tool>` and the matcher (unanchored, case-insensitive, honoured on `PreToolUse` and `PostToolUse` only) is tried on both names; a
+    Cline built-in (`run_commands`, `editor`) is not translated to Claude's `Bash`. Output is one line of ASCII
+    JSON, exit 0 in every case. The write-findings hook is not installed for Cline until probe P2 shows what
+    `postToolUse.result` is for an MCP response.
+  - Probes, **not run** (the dispatcher is built for either answer): **P1** whether `TaskStart` fires once per task
+    or per turn (the 12 h dedupe covers both); **P2** the `toolName` and `result` of a `concept_write` response;
+    **P3** that a `PreToolUse` `{"cancel":true,"errorMessage":"x"}` stops the task and shows the message.
   - `CLINE_DIR`, `CLINE_MCP_SETTINGS_PATH` and a relocated Documents folder are not honoured: every destination is
     home-relative (D676, D755).
   - Detection: the `cline` binary, `~/.cline`, or an extension directory `saoudrizwan.claude-dev-*` under the
@@ -793,8 +827,10 @@ project hook.UserPromptSubmit absent
 - **Watch items**: MCP `roots` or a per-workspace MCP file (flips the project cells); `${VAR}` expansion in
   `headers` (flips `SupportsMCPHeaders`); a path-conditional rule frontmatter in the rules loader; a rename of the
   extension id (detection); whether the `cline` CLI shares `$HOME/.cline` (inferred, not run); other builds of Cline
-  that read different directories.
-- **Probe notes**: use a scratch `CLINE_DIR` and `CLINE_MCP_SETTINGS_PATH`, never `$HOME/.cline`.
+  that read different directories; a per-call skip in the extension's hooks; an environment variable or payload field
+  naming the client; the SDK hook loader enabled in the VS Code host; a rename of the event files; probes P1-P3 above.
+- **Probe notes**: a scratch `Documents/Cline/Hooks/<Event>` that appends its stdin to a file, never the real hooks;
+  use a scratch `CLINE_DIR` and `CLINE_MCP_SETTINGS_PATH`, never `$HOME/.cline`.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
   `internal/provisioning/capabilities.go`.
 

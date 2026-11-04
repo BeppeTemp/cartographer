@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
+	"unicode/utf16"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -46,7 +49,10 @@ const maxHookPayload = 8 << 20
 const maxFeedbackFindings = 10
 
 func cmdHook(args []string) (code int) {
-	const usage = "usage: cartographer hook write-findings [--channel stderr|context|copilot]   (internal: reads a PostToolUse payload on stdin)"
+	const usage = "usage: cartographer hook write-findings [--channel stderr|context|copilot] | dispatch --provider cline --event <Event>   (internal: reads a hook payload on stdin)"
+	if len(args) > 0 && args[0] == "dispatch" {
+		return cmdHookDispatch(args[1:])
+	}
 	if len(args) == 0 || args[0] != "write-findings" {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
@@ -253,4 +259,61 @@ func findingsFromText(s string, depth int) []hookFinding {
 		return nil
 	}
 	return fs
+}
+
+// cmdHookDispatch is `cartographer hook dispatch --provider cline --event
+// <Event>`: the logic behind the dispatcher files Cartographer writes in
+// Cline's hooks folder (provisioning.DispatchClineHooks). Internal. It always
+// exits 0 and prints one line of ASCII JSON: an unknown provider, event or flag
+// is {} (a dispatcher left behind by a newer version must not break a session),
+// and so is a panic.
+func cmdHookDispatch(args []string) (code int) {
+	defer func() {
+		if recover() != nil {
+			fmt.Fprintln(os.Stdout, "{}")
+			code = 0
+		}
+	}()
+	var provider, event string
+	for i := 0; i+1 < len(args); i += 2 {
+		switch args[i] {
+		case "--provider":
+			provider = args[i+1]
+		case "--event":
+			event = args[i+1]
+		}
+	}
+	res := provisioning.ClineDispatchResult{}
+	if provider == "cline" && slices.Contains([]string{"TaskStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"}, event) {
+		if raw, err := io.ReadAll(io.LimitReader(hookStdin, maxHookPayload)); err == nil {
+			if dir, err := clientconfig.TargetDir(); err == nil {
+				res = provisioning.DispatchClineHooks(dir, event, raw)
+			}
+		}
+	}
+	fmt.Fprintln(os.Stdout, asciiJSON(res))
+	return 0
+}
+
+// asciiJSON marshals v with every non-ASCII rune as \uXXXX: on Windows the
+// dispatcher's .ps1 re-encodes the native command's output, and a UTF-8 byte
+// sequence would be mangled on the way to Cline.
+func asciiJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	var sb strings.Builder
+	for _, r := range string(b) {
+		switch {
+		case r < 0x80:
+			sb.WriteRune(r)
+		case r > 0xFFFF:
+			r1, r2 := utf16.EncodeRune(r)
+			fmt.Fprintf(&sb, "\\u%04x\\u%04x", r1, r2)
+		default:
+			fmt.Fprintf(&sb, "\\u%04x", r)
+		}
+	}
+	return sb.String()
 }

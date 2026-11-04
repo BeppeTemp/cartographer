@@ -62,6 +62,17 @@ stdout and exits 0, never 2; `--channel copilot` (Copilot CLI, D676) prints
 an unknown flag or channel) is silent exit 0; with the stderr channel stdout is always empty. A wrong
 subcommand name exits 2. `tool_name` may be `mcp__<server>__<tool>`, `<server>_<tool>` (OpenCode, [D362](decisions/D362-opencode-write-findings-plugin.md)), `<server>-<tool>` (Copilot) or the bare tool name.
 
+### `cartographer hook dispatch --provider cline --event <Event>` (internal)
+
+Not in the usage text. The logic behind the dispatcher files Cartographer will own in Cline's hooks folder: reads
+Cline's hook payload on stdin (`taskId`, `workspaceRoots`, `preToolUse`, `postToolUse`, `userPromptSubmit`) and runs the
+Cartographer hooks of the event found under `~/.cline/cartographer-hooks/*/hook.json`. `TaskStart` runs the `SessionStart`
+hooks, once per task (a 12 h marker in a private per-user directory of the temp dir); a tool named `<server>__<tool>` reaches them as
+`mcp__<server>__<tool>`; a `matcher` applies to `PreToolUse` and `PostToolUse` only. It prints one line of ASCII JSON with the three fields Cline reads, `cancel`, `contextModification`
+and `errorMessage` (`{}` when there is nothing to say): `PreToolUse` exit 2 sets `cancel` (Cline stops the whole task),
+`PostToolUse` exit 2 with stderr and `SessionStart`/`UserPromptSubmit` stdout become `contextModification`. It always exits 0:
+an unknown provider, event or flag, a bad payload and a panic are all `{}`. `docs/harnesses.md` §cline has the contract.
+
 ### `cartographer update check|notice`
 
 Tells an agent, and its user, that a newer release exists
