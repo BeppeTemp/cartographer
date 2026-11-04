@@ -2,7 +2,7 @@
 topic: transport-auth
 ---
 
-# D1613 — audit verification compares the bytes on disk, and the routed view audits the refusals it decides
+# D1627 — audit verification compares the bytes on disk, and the routed view audits the refusals it decides
 
 **Decision.** `audit verify` and `audit export` accept a line only if it is exactly
 the line the writer produces for the entry it decodes to (UTC timestamp, bare `\n`

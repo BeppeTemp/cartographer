@@ -528,7 +528,7 @@ the named KB lacks. Each is one denied attempt+completion pair with outcome
 set only when the call resolved to a KB in the set, never to a name the caller
 typed (an allow-listed resource such as `target_kb` of `concept_transfer` is
 recorded as the caller sent it). A call the view dispatches is audited once, by
-the target KB's server ([D1613](decisions/D1613-audit-verifies-the-written-form-and-the-routed-view-audits-refusals.md)).
+the target KB's server ([D1627](decisions/D1627-audit-verifies-the-written-form-and-the-routed-view-audits-refusals.md)).
 
 The log is `<data>/audit/audit.log` unless `audit.log` moves it, and its key is
 `audit.key` in the credentials directory, which the first start generates when
