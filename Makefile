@@ -133,21 +133,24 @@ demo-tf-check: ## terraform fmt + validate of deploy/demo (no credentials)
 # The security tooling of .github/workflows/security.yml (D1020). Not part of
 # gate: gate stays offline and deterministic on a fixed commit, while these need
 # the network and answer from a database that changes under an unchanged tree.
-# The versions are pinned: Dependabot does not read them, bump them by hand.
+# The versions are pinned: Dependabot does not read them, bump them by hand. zizmor's
+# is in .github/pip/zizmor.txt, with the hash of every file (regenerate: .github/pip/README).
 GOVULNCHECK_VERSION ?= v1.9.0
 ACTIONLINT_VERSION ?= v1.7.12
-ZIZMOR_VERSION ?= 1.31.1
+ZIZMOR_VENV ?= bin/zizmor-venv
 
 vulncheck: ## Known-vulnerability scan of the Go module graph (govulncheck; needs network)
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
-# zizmor runs through pipx (preinstalled on the GitHub runners); it reads
-# .github/zizmor.yml, where every suppression carries its reason. actionlint runs
+# zizmor is installed from .github/pip/zizmor.txt, which carries a hash per file, into
+# a virtualenv; it reads .github/zizmor.yml, where every suppression carries its reason. actionlint runs
 # without its shellcheck integration: the result must not depend on whether the
 # host has shellcheck, and the scripts' info-level notes predate this target.
-lint-workflows: ## Lint .github/workflows with actionlint and zizmor (needs network and pipx)
+lint-workflows: ## Lint .github/workflows with actionlint and zizmor (needs network and python3)
 	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -shellcheck=
-	pipx run zizmor==$(ZIZMOR_VERSION) --min-severity low .github/workflows
+	python3 -m venv $(ZIZMOR_VENV)
+	$(ZIZMOR_VENV)/bin/pip install -q --require-hashes --only-binary=:all: -r .github/pip/zizmor.txt
+	$(ZIZMOR_VENV)/bin/zizmor --min-severity low .github/workflows
 
 clean: ## Remove bin/ and demo-kb/
 	rm -rf bin/ demo-kb/

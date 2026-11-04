@@ -516,7 +516,7 @@ take the shape of measured real ones (Maps and journals, expanded concepts with 
 (`seed-bank`, `ferry-line`, …). The shapes are a table of numbers (`profiles.go`), the words invented per theme
 (`themes.go`); the history is written through one `git fast-import` per KB. Every Atlas state is planted somewhere in
 the fleet, the conflicts on `ferry-line`. The fleet is cached per day in
-`$TMPDIR/cartographer-testkbs`, with the audit log on; `internal/testkbs` tests check the planted states, the bare KB, the
+`${XDG_CACHE_HOME:-$HOME/.cache}/cartographer-testkbs` (mode 700, `scripts/testkbs-cache-dir.sh`), with the audit log on; `internal/testkbs` tests check the planted states, the bare KB, the
 fleet, each profile (`profiles_test.go`) and that no generated page holds a word outside the package's vocabulary. Beside the KBs it posts the settings report of an imaginary client (`client-report.json`,
 built by `clientconfig.Save` and `Report`) after every server start, so Settings → Client has a machine to show. By hand: run a
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
@@ -830,7 +830,7 @@ scripts against a scratch bare repository.
 
 `security.yml` is the one workflow that tests nothing of ours: `make vulncheck`
 (govulncheck) and `npm audit` over the `web/` production dependencies,
-`make lint-workflows` (actionlint and zizmor); CodeQL is `codeql.yml`, which runs on push to `main`, weekly and on demand, never on a PR, and skips the generated bundle `internal/webui/dist` (`.github/codeql/codeql-config.yml`). `security.yml` runs on push to
+`make lint-workflows` (actionlint and zizmor, the latter installed from the hash lock `.github/pip/zizmor.txt`); `internal/repodocs/workflows_test.go` pins the token rules: `TestWriteTokenJobsRestoreNoSharedCache` (a job with a write token restores no cache, setup actions say `cache: false`, an image cache is scoped to the run), `TestReleasePATStepsRunNoRepositoryCode` (no step with the release PAT runs `make`, `go` or a repository script) and `TestPipInstallsRequireHashes` (Python installs are `--require-hashes --only-binary=:all:` from a lock); CodeQL is `codeql.yml`, which runs on push to `main`, weekly and on demand, never on a PR, and skips the generated bundle `internal/webui/dist` (`.github/codeql/codeql-config.yml`). `security.yml` runs on push to
 `main`, on a PR touching dependencies or workflows, and weekly, and **none
 of it is a required check**: an advisory published against an old dependency must
 not block an unrelated PR. A red scan on `main` opens a `vuln-scan` issue with

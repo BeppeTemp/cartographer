@@ -51,8 +51,9 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.x"
-      - run: pip install mkdocs-material==9.6.14
+          python-version: "3.12"
+      # Every file installed is checked against the hash in the lock (.github/pip/README).
+      - run: pip install --require-hashes "--only-binary=:all:" -r .github/pip/docs.txt
       # --strict turns broken internal links and nav typos into build failures,
       # so a PR that moves a page can't silently break the published site.
       - run: mkdocs build --strict

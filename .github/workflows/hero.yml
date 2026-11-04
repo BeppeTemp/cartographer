@@ -73,29 +73,20 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # No dependency cache either: setup-go caches by default (D1020).
+          cache: false
       - if: steps.needed.outputs.record == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: web/.nvmrc
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          # No dependency cache: this job publishes with a write token (D1020).
+          cache: false
       - if: steps.needed.outputs.record == 'true'
         run: cd web && npm ci --silent
-      # The browser binary is cached by Playwright version; the OS packages it
-      # needs are not cacheable and are installed every run (as in ci.yml).
+      # No browser cache either (D1020): the browser and its OS packages are
+      # installed every run.
       - if: steps.needed.outputs.record == 'true'
-        id: playwright
-        run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-      - if: steps.needed.outputs.record == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: pw-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - if: steps.needed.outputs.record == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
         run: cd web && npx playwright install --with-deps chromium
-      - if: steps.needed.outputs.record == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
-        run: cd web && npx playwright install-deps chromium
       - if: steps.needed.outputs.record == 'true'
         run: sudo apt-get install -y ffmpeg webp
       - if: steps.needed.outputs.record == 'true'

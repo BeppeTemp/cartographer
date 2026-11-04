@@ -1,0 +1,9 @@
+Python tools the workflows and `make lint-workflows` install, each locked with the
+hash of every file (`pip install --require-hashes`). `*.in` names the tool and its
+version; `*.txt` is generated. To bump one, edit its `.in` and run, from this directory
+(uv; any Python 3.12 or later):
+
+    uv pip compile --universal --generate-hashes --python-version 3.12 -o docs.txt docs.in
+    uv pip compile --universal --generate-hashes --python-version 3.12 -o zizmor.txt zizmor.in
+
+docs.txt: the Pages build (docs.yml). zizmor.txt: `make lint-workflows`.
