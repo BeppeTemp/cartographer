@@ -90,13 +90,15 @@ func cmdCall(args []string) int {
 		return fail("--output must be text or json")
 	}
 
+	jsonSet := false
+	fs.Visit(func(f *flag.Flag) { jsonSet = jsonSet || f.Name == "json" })
 	var callArgs map[string]any
 	if len(pos) > 0 {
 		var err error
-		if callArgs, err = parseCallArgs(pos[1:], *jsonArg, mcpStdin); err != nil {
+		if callArgs, err = parseCallArgs(pos[1:], jsonSet, *jsonArg, mcpStdin); err != nil {
 			return fail("%v", err)
 		}
-	} else if *jsonArg != "" {
+	} else if jsonSet {
 		return fail("--json goes with a tool call")
 	}
 
@@ -131,6 +133,9 @@ func cmdCall(args []string) int {
 			blog = log
 			if err != nil {
 				return fail("%v", err)
+			}
+			if len(tools) == 0 {
+				return fail("no KB is served for %s (the bridge lists no tool); see \"cartographer workspace resolve\"", *dir)
 			}
 			if *list {
 				for _, t := range tools {
@@ -279,9 +284,12 @@ func printToolResult(tool string, result json.RawMessage, output string) int {
 }
 
 // parseCallArgs builds the arguments object from key=value words and --json.
-func parseCallArgs(words []string, jsonArg string, stdin io.Reader) (map[string]any, error) {
+//
+// jsonSet is whether --json was given at all: an empty value (an unset shell
+// variable) is a usage error, never "no arguments".
+func parseCallArgs(words []string, jsonSet bool, jsonArg string, stdin io.Reader) (map[string]any, error) {
 	args := map[string]any{}
-	if jsonArg != "" {
+	if jsonSet {
 		raw := []byte(jsonArg)
 		if jsonArg == "-" {
 			var err error

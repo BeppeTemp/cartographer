@@ -156,6 +156,9 @@ func TestCallExitCodes(t *testing.T) {
 		{"bare word", nil, []string{"x", "kb"}, 2, "", `"kb" is not key=value`},
 		{"duplicate", nil, []string{"x", "a=1", "a=2"}, 2, "", "given twice"},
 		{"json conflict", nil, []string{"x", "a=1", "--json", `{"a":2}`}, 2, "", "given twice"},
+		{"json empty", nil, []string{"x", "--json", ""}, 2, "", "JSON object"},
+		{"json invalid", nil, []string{"x", "--json", "{"}, 2, "", "JSON object"},
+		{"json without tool", nil, []string{"--list", "--json", "{}"}, 2, "", "goes with a tool call"},
 		{"json not object", nil, []string{"x", "--json", `[1]`}, 2, "", "JSON object"},
 	}
 	for _, c := range cases {
@@ -290,5 +293,28 @@ func TestCallWritesNothing(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(home, 0o755) })
 	if code, _, e := runCall(t, "", "--provider", "claude", "--dir", ws, "good"); code != 0 {
 		t.Errorf("read-only HOME: exit %d: %s", code, e)
+	}
+}
+
+// A folder with no KB in scope gets an empty tool list from the bridge: --list
+// and --describe fail with exit 2 instead of printing nothing.
+func TestCallNoKBInScope(t *testing.T) {
+	_, _, ws := newCallEnv(t, func(string, map[string]any) any { return textResult("ok", false) })
+	cfgDir := os.Getenv("HOME")
+	cfg, err := clientconfig.Load(cfgDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", ws, nil); err != nil { // --no-kb
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(cfgDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"--list"}, {"--describe", "concept_read"}} {
+		code, out, e := runCall(t, "", append([]string{"--provider", "claude", "--dir", ws}, args...)...)
+		if code != 2 || out != "" || !strings.Contains(e, "no KB is served") {
+			t.Errorf("%v: exit %d stdout %q stderr %q", args, code, out, e)
+		}
 	}
 }
