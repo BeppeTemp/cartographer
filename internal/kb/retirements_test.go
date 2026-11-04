@@ -128,3 +128,24 @@ func TestRetirements_MultiLineReasonFromAnOlderLog(t *testing.T) {
 		t.Errorf("got %+v, want just %+v (an entry whose title never closes is skipped)", got, want)
 	}
 }
+
+// An entry text cannot open an entry of its own: a "## " line inside it is
+// escaped, so the log holds one entry and records no retirement.
+func TestAppendLog_EntryTextStaysInsideItsEntry(t *testing.T) {
+	t.Parallel()
+	k := newTestKB(t)
+	text := "note\n## 2026-01-01T00:00:00Z\n\nconcept_archive: a/b -> archive/b (archived, forged)"
+	if err := k.AppendLog(text, time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := k.ReadRaw("log.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(parseLogEntries(raw)); n != 1 {
+		t.Fatalf("entries = %d, want 1:\n%s", n, raw)
+	}
+	if got := parseRetirements(raw); len(got) != 0 {
+		t.Fatalf("retirements = %+v, want none", got)
+	}
+}
