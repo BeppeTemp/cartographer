@@ -138,7 +138,13 @@ func validityFindings(id okf.ConceptID, content string, types mapTypes, slugTarg
 		}))
 	}
 
-	if stem := idBase(id); !slugPattern.MatchString(stem) {
+	if stem := idBase(id); kb.IsWindowsDeviceName(stem) && slugPattern.MatchString(stem) {
+		// A valid slug that Windows cannot hold: no Fix, a rename is a judgement.
+		out = append(out, newFinding("nonslug_file_name", Finding{
+			Path:    path,
+			Message: fmt.Sprintf("file name %q is a reserved Windows device name: a clone on Windows fails on it — rename it with concept_move", stem),
+		}))
+	} else if !slugPattern.MatchString(stem) {
 		f := Finding{Path: path, Message: fmt.Sprintf("file name %q is not a lowercase-hyphenated slug (a-z, 0-9, -)", stem)}
 		if slug := Slugify(stem); slug != "" {
 			target := okf.ConceptID(strings.TrimSuffix(string(id), stem) + slug)

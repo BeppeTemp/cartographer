@@ -142,7 +142,8 @@ func ConceptIDOfPath(rel string) (okf.ConceptID, bool) {
 	default:
 		return "", false
 	}
-	for _, seg := range strings.Split(rel, "/") {
+	segs := strings.Split(rel, "/")
+	for _, seg := range segs[:len(segs)-1] { // directories only, as walkVisibleDirs
 		if strings.HasPrefix(seg, ".") {
 			return "", false // a hidden directory holds no concepts (walkVisibleDirs)
 		}

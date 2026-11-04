@@ -352,3 +352,21 @@ func TestQuoteBrokenValueOnlyWhenUnique(t *testing.T) {
 		t.Errorf("keys = %s", b)
 	}
 }
+
+// A Windows device name is a valid slug that a Windows clone cannot hold: the
+// lint reports it under nonslug_file_name with no fix (D1615).
+func TestWindowsDeviceNameIsReportedWithoutFix(t *testing.T) {
+	t.Parallel()
+	k, _ := repairKB(t, 2)
+	writeRaw(t, k, "ops/aux.md", "---\ntype: Note\ntitle: Aux\nupdated: 2026-01-02\n---\n# Aux\n\nBody.\n")
+	f, ok := findingsFor(t, k, "nonslug_file_name")["ops/aux.md"]
+	if !ok {
+		t.Fatal("no nonslug_file_name finding for ops/aux.md")
+	}
+	if f.Fix != nil {
+		t.Errorf("a device name carries no fix: %+v", f.Fix)
+	}
+	if !strings.Contains(f.Message, "Windows device name") {
+		t.Errorf("message = %q", f.Message)
+	}
+}

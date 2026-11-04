@@ -90,8 +90,8 @@ func checkConceptName(id okf.ConceptID, absPath string, expanded, fileExists, ke
 		return fmt.Errorf("%w: %q differs only in case from the existing concept %q: write to that one, or choose another name",
 			okf.ErrInvalidPath, string(id), strings.Join(canon, "/"))
 	}
-	// Parent segments, innermost first: dir holds the last segment, and the
-	// directory of segment i is i+1 levels... walked up one level per step.
+	// Parent segments, innermost first: cur is the directory of segment i,
+	// and its parent is the directory whose entries are compared with it.
 	cur := dir
 	for i := len(segs) - 2; i >= 0; i-- {
 		parent := filepath.Dir(cur)

@@ -1790,7 +1790,12 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 		undo()
 		return fmt.Errorf("ExpandConcept: write %s: %w", id, err)
 	}
-	_ = os.Chmod(indexAbs, info.Mode().Perm()) // the rename this replaces kept the source's mode
+	// writeFileAtomic leaves the temp file's 0600: restore the source's mode,
+	// as the rename this replaces did.
+	if err := os.Chmod(indexAbs, info.Mode().Perm()); err != nil {
+		undo()
+		return fmt.Errorf("ExpandConcept: chmod %s: %w", id, err)
+	}
 	if err := expandRemoveFile(directAbs); err != nil {
 		undo()
 		return fmt.Errorf("ExpandConcept: move %s: %w", id, err)

@@ -132,6 +132,13 @@ func TestWalk_SkipsHiddenDirectories(t *testing.T) {
 	if _, ok := ConceptIDOfPath("data/.trash/old.md"); ok {
 		t.Error("ConceptIDOfPath maps a hidden directory")
 	}
+	// A hidden FILE is still a concept in the walk, so the mapping agrees.
+	writeRaw(t, k, "m/.draft.md", "---\ntype: Note\ntitle: D\n---\nx\n")
+	inWalk := false
+	_ = k.WalkConcepts(func(id okf.ConceptID, _ string) error { inWalk = inWalk || id == "m/.draft"; return nil })
+	if _, ok := ConceptIDOfPath("data/m/.draft.md"); ok != inWalk {
+		t.Errorf("ConceptIDOfPath(.draft.md) = %v but the walk has it = %v", ok, inWalk)
+	}
 	files, err := k.listMDFiles(".")
 	if err != nil {
 		t.Fatal(err)
