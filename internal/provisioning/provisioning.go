@@ -730,10 +730,85 @@ func contentHashDirManaged(mf ManagedFile, dirPath string, owned map[string]bool
 // BuildManifest excludes an artifact with a bad name (D191 for skills) and Apply
 // refuses one per artifact, since a manifest can come from a remote server.
 func validArtifactName(name string) bool {
-	if name == "" || name != filepath.Base(name) || !filepath.IsLocal(name) {
+	if name == "" || name == "." || name == ".." || name != filepath.Base(name) || !filepath.IsLocal(name) {
 		return false
 	}
-	return !strings.ContainsAny(name, "\\/\x00\n\r\t") && strings.TrimSpace(name) == name
+	if windowsReservedName(name) {
+		return false
+	}
+	// Windows drops a trailing dot or blank and reads ":" as an NTFS stream:
+	// "foo." would be written as "foo", so none of them is a spelling of a
+	// different name on any OS.
+	return !strings.ContainsAny(name, "\\/:\x00\n\r\t") && strings.TrimSpace(name) == name && !strings.HasSuffix(name, ".")
+}
+
+// ValidArtifactName is validArtifactName for the client's sync_pull decode.
+func ValidArtifactName(name string) bool { return validArtifactName(name) }
+
+// windowsReservedName reports a device name Windows resolves to a device
+// whatever the extension ("con", "NUL.txt", "com1"), checked on every OS so a
+// manifest means the same thing on all of them.
+func windowsReservedName(name string) bool {
+	base := name
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	switch b := strings.ToUpper(strings.TrimRight(base, " ")); b {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
+		return true
+	default:
+		if len(b) == 4 && (strings.HasPrefix(b, "COM") || strings.HasPrefix(b, "LPT")) && b[3] >= '0' && b[3] <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidArtifactFilePath reports whether p is a file path a server may send for
+// an artifact: already in canonical slash form (path.Clean(p) == p, so no "./",
+// "..", doubled or trailing separator, and no backslash where it separates),
+// relative and inside the artifact directory. Every comparison against a file
+// name ("SKILL.md" for the approval gate and the provenance stamp) is then
+// exact, because the spelling on the wire is the spelling written to disk.
+func ValidArtifactFilePath(p string) bool {
+	if p == "" || p == "." || path.Clean(p) != p {
+		return false
+	}
+	local := filepath.FromSlash(p)
+	if !filepath.IsLocal(local) || filepath.ToSlash(filepath.Clean(local)) != p || strings.ContainsAny(p, "\x00:") {
+		return false
+	}
+	// Windows writes "SKILL.md." and "SKILL.md " as "SKILL.md" and resolves a
+	// device name in any component: every component is checked, on every OS, so
+	// the path on the wire is the path on disk.
+	for _, c := range strings.Split(p, "/") {
+		if strings.HasSuffix(c, ".") || strings.HasSuffix(c, " ") || windowsReservedName(c) {
+			return false
+		}
+	}
+	return true
+}
+
+// ErrInvalidArtifactFile is the refusal for an artifact whose file paths are
+// not ValidArtifactFilePath or collide: that artifact is skipped, the sync goes on.
+var ErrInvalidArtifactFile = errors.New("invalid artifact file")
+
+// CheckArtifactFilePaths refuses an artifact whose files carry a path that is
+// not ValidArtifactFilePath, or two files that name the same path
+// (case-insensitively: the filesystems a client runs on may fold case).
+func CheckArtifactFilePaths(files []ArtifactFile) error {
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		if !ValidArtifactFilePath(f.Path) {
+			return fmt.Errorf("%w: invalid file path %q", ErrInvalidArtifactFile, f.Path)
+		}
+		k := strings.ToLower(f.Path)
+		if seen[k] {
+			return fmt.Errorf("%w: duplicate file path %q", ErrInvalidArtifactFile, f.Path)
+		}
+		seen[k] = true
+	}
+	return nil
 }
 
 // --- Manifest ---
@@ -3407,11 +3482,13 @@ func ArtifactRequiresApproval(a Artifact, opts ApplyOptions) bool {
 			return opts.KBRoots != nil
 		}
 	}
+	// A path the client will not write is refused at the copy; here it is
+	// compared in cleaned form, so no spelling of SKILL.md escapes the check.
 	for _, f := range files {
 		if f.Executable {
 			return true
 		}
-		if (a.Kind == "skill" && strings.EqualFold(f.Path, "SKILL.md")) || a.Kind == "agent" {
+		if (a.Kind == "skill" && strings.EqualFold(path.Clean(filepath.ToSlash(f.Path)), "SKILL.md")) || a.Kind == "agent" {
 			if FrontmatterDeclaresCommands(f.Content) {
 				return true
 			}
@@ -3635,7 +3712,7 @@ var ErrCorruptedBlock = blocktext.ErrCorruptedBlock
 // (a symlinked destination, D148, or a corrupted marker block) rather than a
 // failure that stops it.
 func IsRefusal(err error) bool {
-	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock)
+	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile)
 }
 
 // replaceBlock is replaceBetweenMarkers over an arbitrary marker pair: the
@@ -4730,6 +4807,16 @@ func singleArtifactContent(a Artifact, opts ApplyOptions) ([]byte, error) {
 	return files[0].Content, nil
 }
 
+// removeEmptyDestDir undoes the directory the caller created for a delivery
+// that is refused: os.Remove refuses a non-empty directory, so an earlier
+// successful delivery survives untouched.
+func removeEmptyDestDir(baseDir, fullDestDir string) {
+	_ = os.Remove(fullDestDir)
+	if rel, relErr := filepath.Rel(baseDir, fullDestDir); relErr == nil {
+		pruneEmptyDirs(baseDir, rel)
+	}
+}
+
 // copyArtifactFiles writes the artifact's files (skill or hook: one or more
 // files inside a directory) into the absolute fullDestDir folder. It returns
 // the paths relative to opts.BaseDir, the artifact-relative paths written
@@ -4750,6 +4837,11 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		}
 	}
 
+	if err := CheckArtifactFilePaths(files); err != nil {
+		removeEmptyDestDir(opts.BaseDir, fullDestDir)
+		return nil, nil, "", "", fmt.Errorf("provisioning: %w in %s", err, a.Name)
+	}
+
 	// Files Cartographer generates on top of the KB's own (SOURCE.env, D316). A collision with a KB file of the same name fails this one
 	// artifact — with a warning, before anything is written — and leaves the
 	// rest of the sync to complete.
@@ -4759,10 +4851,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		// again so a refused delivery leaves no empty directory that looks
 		// like one. os.Remove refuses a non-empty directory, so an earlier
 		// successful delivery survives untouched.
-		_ = os.Remove(fullDestDir)
-		if rel, relErr := filepath.Rel(opts.BaseDir, fullDestDir); relErr == nil {
-			pruneEmptyDirs(opts.BaseDir, rel)
-		}
+		removeEmptyDestDir(opts.BaseDir, fullDestDir)
 		return nil, nil, "", collision, nil
 	}
 	files = append(append([]ArtifactFile{}, files...), generated...)
