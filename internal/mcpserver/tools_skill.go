@@ -582,7 +582,7 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				plan = append(plan, planned{path: path, rel: rel, dir: d.IsDir()})
 				return nil
 			}); err != nil {
-				return errorResult("skill_install: " + relPathErr(err, k.Root).Error()), nil
+				return errorResult("skill_install: " + relPathErr(err, k.Root)), nil
 			}
 
 			if err := os.MkdirAll(dstDir, 0o755); err != nil {
