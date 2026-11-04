@@ -1729,3 +1729,21 @@ func TestRun_Orphan_ProvenanceCited_Clean(t *testing.T) {
 		t.Errorf("provenance-cited concept flagged orphan: %v", findings)
 	}
 }
+
+// A page saved with a UTF-8 BOM keeps its frontmatter: no missing_frontmatter,
+// hence no add_frontmatter fix that would prepend a second block (WP11).
+func TestRun_BOMFrontmatterIsNotMissing(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "m/c.md", "\ufeff---\ntype: Note\ntitle: C\nstatus: active\n---\n# C\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Path == "m/c.md" && (f.Check == "missing_frontmatter" || f.Check == "malformed_frontmatter") {
+			t.Fatalf("BOM page reported %s: %+v", f.Check, f)
+		}
+	}
+}
