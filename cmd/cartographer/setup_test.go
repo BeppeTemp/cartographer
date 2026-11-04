@@ -465,3 +465,9 @@ func TestRunSetup_FailingStepsExitOne(t *testing.T) {
 		t.Errorf("a failing KB step exited %d, want 1", code)
 	}
 }
+
+func TestSameRemoteIgnoresCredentials(t *testing.T) {
+	if !sameRemote(gitx.RedactRemoteURL("https://u:tok@example.com/o/kb.git"), "https://u:tok@example.com/o/kb.git") {
+		t.Fatal("a redacted origin must still match the remote it came from")
+	}
+}

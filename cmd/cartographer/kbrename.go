@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"gopkg.in/yaml.v3"
@@ -277,7 +278,7 @@ func findKBEntry(name, configPath string, cfg *config.Config) (int, error) {
 	if len(matches) > 1 {
 		var found []string
 		for _, i := range matches {
-			found = append(found, fmt.Sprintf("kbs[%d] (name=%q remote=%q)", i, cfg.KBs[i].Name, cfg.KBs[i].Remote))
+			found = append(found, fmt.Sprintf("kbs[%d] (name=%q remote=%q)", i, cfg.KBs[i].Name, gitx.RedactRemoteURL(cfg.KBs[i].Remote)))
 		}
 		return -1, fmt.Errorf("KB %q matches %d entries in %s: %s — make the intended one unambiguous first",
 			name, len(matches), configPath, strings.Join(found, ", "))

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
@@ -323,7 +324,7 @@ func (c *Config) ResolveWorkspace(provider, dir string) (WorkspaceBinding, bool,
 		if got := gitRemoteFn(w.Path); got != w.Remote {
 			return WorkspaceBinding{}, false, &WorkspaceLookupError{
 				Path: w.Path, Reason: "git remote changed since it was bound",
-				Detail: fmt.Sprintf("bound to %s, found %q — rebind deliberately rather than projecting another perimeter's artifacts here", w.Remote, got),
+				Detail: fmt.Sprintf("bound to %s, found %q — rebind deliberately rather than projecting another perimeter's artifacts here", gitx.RedactRemoteURL(w.Remote), gitx.RedactRemoteURL(got)),
 			}
 		}
 	}

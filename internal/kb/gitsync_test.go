@@ -157,33 +157,6 @@ func TestCommitOp_CleanTree_NoCommit(t *testing.T) {
 	}
 }
 
-func TestRedactRemoteURL(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"https with user and token", "https://user:ghp_secret@gitlab.com/o/wiki.git", "https://gitlab.com/o/wiki.git"},
-		{"https with token only", "https://ghp_secret@github.com/o/wiki.git", "https://github.com/o/wiki.git"},
-		{"https without credentials", "https://github.com/o/wiki.git", "https://github.com/o/wiki.git"},
-		{"ssh keeps the username", "ssh://git@github.com/o/wiki.git", "ssh://git@github.com/o/wiki.git"},
-		{"ssh drops the password", "ssh://git:secret@github.com/o/wiki.git", "ssh://git@github.com/o/wiki.git"},
-		{"scp-style is left alone", "git@github.com:o/wiki.git", "git@github.com:o/wiki.git"},
-		{"local path is left alone", "/srv/wiki.git", "/srv/wiki.git"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := RedactRemoteURL(tc.in); got != tc.want {
-				t.Errorf("RedactRemoteURL(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-			if strings.Contains(RedactRemoteURL(tc.in), "secret") {
-				t.Errorf("RedactRemoteURL(%q) leaked credential material", tc.in)
-			}
-		})
-	}
-}
-
 func TestRemoteInfo(t *testing.T) {
 	t.Parallel()
 	k := newTestKB(t)
