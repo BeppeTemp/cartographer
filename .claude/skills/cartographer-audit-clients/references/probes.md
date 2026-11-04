@@ -213,3 +213,9 @@ unique token; ask the client to repeat it.
 - Watch for MCP `roots` (flips every unsupported project cell), a per-workspace MCP file, `${VAR}`
   expansion in `headers` (flips `SupportsMCPHeaders`), a rename of the extension id (detection), and
   whether the `cline` CLI shares `$HOME/.cline`.
+- Hooks: probe with a scratch `Documents/Cline/Hooks/<Event>` that appends its stdin to a file, never the
+  real hooks. P1: does `TaskStart` fire once per task or once per turn. P2: the `toolName` and `result` of
+  a Cartographer write response (`result` is `String(output)`; the write-findings hook is claimed for Cline
+  only when it is the response text). P3: a `PreToolUse` hook printing `{"cancel":true,"errorMessage":"x"}`
+  stops the task and shows the message. Once on Windows: `<Event>.ps1` run by `powershell -NoProfile
+  -NonInteractive -ExecutionPolicy Bypass -File`.
