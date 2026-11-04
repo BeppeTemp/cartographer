@@ -9,6 +9,9 @@
 //	tokenizer: one row per "##" section of a concept's body, bm25 weights 3 / 1
 //	(D1207). It never ranks pages: it only answers which section of an already
 //	ranked page matched best (BestSection).
+//	fts_rows(id, kind, fts_rowid) — which rowids of the two FTS tables belong
+//	to a concept, so an update or delete removes them by rowid: FTS5 cannot
+//	index an UNINDEXED column and `WHERE id = ?` scans the table (#1507).
 //
 // The schema version lives in PRAGMA user_version (schemaVersion). Opening an
 // older database recreates concepts_fts and sections_fts and empties concepts: the index is
@@ -24,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -100,9 +104,11 @@ func dsn(dbPath string) string {
 // schemaVersion is the concepts_fts layout this package writes. Version 2
 // (D246) split the single body column into title/meta/body and folded
 // diacritics; version 3 (D277) added the assets column; version 4 (D1207)
-// added sections_fts; version 1 is every database created before it
+// added sections_fts; version 5 added fts_rows, the id -> FTS rowid map that
+// lets an update or delete address its rows by rowid instead of scanning the
+// UNINDEXED id column; version 1 is every database created before it
 // (user_version 0).
-const schemaVersion = 4
+const schemaVersion = 5
 
 // migrate brings an older database to schemaVersion by dropping what cannot
 // be converted in place. concepts is emptied with concepts_fts so the hashes
@@ -119,7 +125,7 @@ func migrate(db *sql.DB) error {
 	// Trap: every FTS table must be dropped here AND created in createSchema,
 	// or a database migrated from an older version keeps a stale layout (or
 	// none) and concepts, emptied below, no longer matches it.
-	for _, table := range []string{"concepts_fts", "sections_fts"} {
+	for _, table := range []string{"concepts_fts", "sections_fts", "fts_rows"} {
 		if _, err := db.Exec(`DROP TABLE IF EXISTS ` + table); err != nil {
 			return fmt.Errorf("sqlindex: drop v%d %s: %w", version, table, err)
 		}
@@ -166,7 +172,7 @@ func createSchema(db *sql.DB) error {
 	}
 
 	// Trap: a new FTS table is also dropped in migrate and cleared in Upsert
-	// and Delete.
+	// and Delete (through fts_rows).
 	_, err = db.Exec(`
 		CREATE VIRTUAL TABLE IF NOT EXISTS sections_fts USING fts5(
 			id UNINDEXED,
@@ -180,7 +186,85 @@ func createSchema(db *sql.DB) error {
 		return fmt.Errorf("sqlindex: create sections_fts: %w", err)
 	}
 
+	// fts_rows maps a concept id to the rowids of its rows in concepts_fts
+	// (kind ftsKindConcept) and sections_fts (ftsKindSection). Trap: FTS5
+	// has no index on an UNINDEXED column, so `DELETE ... WHERE id = ?`
+	// scans the whole table; deleting by rowid does not. Every insert into
+	// an FTS table records its rowid here, every delete goes through
+	// deleteFTSRows.
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS fts_rows (
+			id TEXT NOT NULL,
+			kind INTEGER NOT NULL,
+			fts_rowid INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("sqlindex: create fts_rows: %w", err)
+	}
+	if _, err = db.Exec(`CREATE INDEX IF NOT EXISTS fts_rows_id ON fts_rows(id)`); err != nil {
+		return fmt.Errorf("sqlindex: index fts_rows: %w", err)
+	}
+
 	return nil
+}
+
+const (
+	ftsKindConcept = 0
+	ftsKindSection = 1
+)
+
+// deleteFTSRows removes every concepts_fts and sections_fts row of id by
+// rowid, then forgets the rowids.
+func deleteFTSRows(tx *sql.Tx, id string) error {
+	rows, err := tx.Query(`SELECT kind, fts_rowid FROM fts_rows WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("sqlindex: lookup fts rows: %w", err)
+	}
+	type ref struct{ kind, rowid int64 }
+	var refs []ref
+	for rows.Next() {
+		var r ref
+		if err := rows.Scan(&r.kind, &r.rowid); err != nil {
+			rows.Close()
+			return fmt.Errorf("sqlindex: scan fts row: %w", err)
+		}
+		refs = append(refs, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("sqlindex: fts rows iteration: %w", err)
+	}
+	rows.Close()
+	if len(refs) == 0 {
+		return nil
+	}
+	for _, r := range refs {
+		if _, err := tx.Exec(ftsDeleteByRowid(r.kind), r.rowid); err != nil {
+			return fmt.Errorf("sqlindex: delete fts: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fts_rows WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("sqlindex: forget fts rows: %w", err)
+	}
+	return nil
+}
+
+func ftsDeleteByRowid(kind int64) string {
+	if kind == ftsKindSection {
+		return `DELETE FROM sections_fts WHERE rowid = ?`
+	}
+	return `DELETE FROM concepts_fts WHERE rowid = ?`
+}
+
+// recordFTSRow records the rowid of the FTS insert whose result is res.
+func recordFTSRow(tx *sql.Tx, id string, kind int, res sql.Result) error {
+	rowid, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO fts_rows(id, kind, fts_rowid) VALUES(?, ?, ?)`, id, kind, rowid)
+	return err
 }
 
 // Close closes the underlying database connection.
@@ -361,15 +445,16 @@ func upsertTx(tx *sql.Tx, id, contentHash, body, assetsText string) error {
 	}
 
 	if known > 0 {
-		if _, err := tx.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
-			return fmt.Errorf("sqlindex: delete fts: %w", err)
-		}
-		if _, err := tx.Exec(`DELETE FROM sections_fts WHERE id = ?`, id); err != nil {
-			return fmt.Errorf("sqlindex: delete sections: %w", err)
+		if err := deleteFTSRows(tx, id); err != nil {
+			return err
 		}
 	}
 	f := search.SplitFields(body)
-	if _, err := tx.Exec(`INSERT INTO concepts_fts(id, title, meta, body, assets) VALUES(?, ?, ?, ?, ?)`, id, f.Title, f.Meta, f.Body, assetsText); err != nil {
+	res, err := tx.Exec(`INSERT INTO concepts_fts(id, title, meta, body, assets) VALUES(?, ?, ?, ?, ?)`, id, f.Title, f.Meta, f.Body, assetsText)
+	if err == nil {
+		err = recordFTSRow(tx, id, ftsKindConcept, res)
+	}
+	if err != nil {
 		return fmt.Errorf("sqlindex: insert fts: %w", err)
 	}
 	secs := okf.Level2Sections(f.Body)
@@ -382,7 +467,11 @@ func upsertTx(tx *sql.Tx, id, contentHash, body, assetsText string) error {
 	}
 	defer stmt.Close()
 	for _, sec := range secs {
-		if _, err := stmt.Exec(id, sec.Heading, sec.Title, sec.Text); err != nil {
+		res, err := stmt.Exec(id, sec.Heading, sec.Title, sec.Text)
+		if err == nil {
+			err = recordFTSRow(tx, id, ftsKindSection, res)
+		}
+		if err != nil {
 			return fmt.Errorf("sqlindex: insert section: %w", err)
 		}
 	}
@@ -390,11 +479,8 @@ func upsertTx(tx *sql.Tx, id, contentHash, body, assetsText string) error {
 }
 
 func deleteTx(tx *sql.Tx, id string) error {
-	if _, err := tx.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("sqlindex: delete fts: %w", err)
-	}
-	if _, err := tx.Exec(`DELETE FROM sections_fts WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("sqlindex: delete sections: %w", err)
+	if err := deleteFTSRows(tx, id); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM concepts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("sqlindex: delete concepts: %w", err)
@@ -540,10 +626,23 @@ func (ix *Index) searchFTS(query, scope string, limit int, allow func(id string)
 }
 
 func (ix *Index) searchFTSFiltered(query, scope string, limit int, allow func(id string) bool, snippets bool) ([]Hit, bool, error) {
+	hits, found, err := ix.pageFTS(query, scope, limit, allow)
+	if err != nil || !snippets || len(hits) == 0 {
+		return hits, found, err
+	}
+	return hits, found, ix.fillSnippets(query, hits)
+}
+
+// pageFTS pages ranked (id, score) rows until it has limit allowed hits.
+// Trap: snippet() must not be in these queries. It is evaluated for every row
+// a page returns, hidden ones included, and an OFFSET page re-evaluates the
+// rows it skips: the cost grew with the square of the hidden hits. The
+// excerpts are computed afterwards, for the final hits only (fillSnippets).
+func (ix *Index) pageFTS(query, scope string, limit int, allow func(id string) bool) ([]Hit, bool, error) {
 	var hits []Hit
 	found := false
 	for offset := 0; ; offset += ftsSearchBatch {
-		batch, err := ix.searchFTSPage(query, scope, ftsSearchBatch, offset, snippets)
+		batch, err := ix.searchFTSPage(query, scope, ftsSearchBatch, offset)
 		if err != nil {
 			return nil, false, err
 		}
@@ -564,6 +663,54 @@ func (ix *Index) searchFTSFiltered(query, scope string, limit int, allow func(id
 			return hits, found, nil
 		}
 	}
+}
+
+// snippetRowsEvaluated counts the rows for which fillSnippets asked FTS5 for
+// an excerpt; a test reads it to prove the cost follows the final hits, not
+// the matches.
+var snippetRowsEvaluated atomic.Int64
+
+// ftsSnippetChunk bounds the ids of one snippet query.
+const ftsSnippetChunk = 200
+
+// fillSnippets sets Snippet on every hit with one query per chunk of ids,
+// against the same MATCH expression that ranked them.
+func (ix *Index) fillSnippets(query string, hits []Hit) error {
+	at := make(map[string]int, len(hits))
+	for i, h := range hits {
+		at[h.ID] = i
+	}
+	for start := 0; start < len(hits); start += ftsSnippetChunk {
+		chunk := hits[start:min(start+ftsSnippetChunk, len(hits))]
+		args := []any{ftsSnippetTokens, ftsSnippetTokens, query}
+		for _, h := range chunk {
+			args = append(args, h.ID)
+		}
+		rows, err := ix.db.Query(
+			`SELECT id, `+ftsSnippet+`, `+ftsAssetSnippet+`
+			 FROM concepts_fts
+			 WHERE concepts_fts MATCH ? AND id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(chunk)), ",")+`)`,
+			args...,
+		)
+		if err != nil {
+			return fmt.Errorf("sqlindex: snippets: %w", err)
+		}
+		for rows.Next() {
+			var id, bodySnip, assetSnip string
+			if err := rows.Scan(&id, &bodySnip, &assetSnip); err != nil {
+				rows.Close()
+				return fmt.Errorf("sqlindex: scan snippet: %w", err)
+			}
+			snippetRowsEvaluated.Add(1)
+			hits[at[id]].Snippet = pickSnippet(bodySnip, assetSnip)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return fmt.Errorf("sqlindex: snippets iteration: %w", err)
+		}
+	}
+	return nil
 }
 
 // ftsRank and the two snippet expressions are the ranking and excerpt of every
@@ -599,39 +746,28 @@ func pickSnippet(body, assets string) string {
 	}, pick)
 }
 
-func (ix *Index) searchFTSPage(query, scope string, limit, offset int, snippets bool) ([]Hit, error) {
+func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, error) {
 	var rows *sql.Rows
 	var err error
-	snip, asnip := ftsSnippet, ftsAssetSnippet
-	var snipArgs []any
-	if snippets {
-		snipArgs = []any{ftsSnippetTokens, ftsSnippetTokens}
-	} else {
-		snip, asnip = `''`, `''`
-	}
 	if scope != "" {
 		rows, err = ix.db.Query(
-			`SELECT c.id, `+ftsRank+` AS score,
-			        `+snip+` AS snip,
-			        `+asnip+` AS asnip
+			`SELECT c.id, `+ftsRank+` AS score
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ? AND c.id LIKE ? ESCAPE '\'
 			 ORDER BY score DESC, c.id
 			 LIMIT ? OFFSET ?`,
-			append(snipArgs, query, likePrefixPattern(scope), limit, offset)...,
+			query, likePrefixPattern(scope), limit, offset,
 		)
 	} else {
 		rows, err = ix.db.Query(
-			`SELECT c.id, `+ftsRank+` AS score,
-			        `+snip+` AS snip,
-			        `+asnip+` AS asnip
+			`SELECT c.id, `+ftsRank+` AS score
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ?
 			 ORDER BY score DESC, c.id
 			 LIMIT ? OFFSET ?`,
-			append(snipArgs, query, limit, offset)...,
+			query, limit, offset,
 		)
 	}
 	if err != nil {
@@ -642,11 +778,9 @@ func (ix *Index) searchFTSPage(query, scope string, limit, offset int, snippets 
 	var hits []Hit
 	for rows.Next() {
 		var h Hit
-		var bodySnip, assetSnip string
-		if err := rows.Scan(&h.ID, &h.Score, &bodySnip, &assetSnip); err != nil {
+		if err := rows.Scan(&h.ID, &h.Score); err != nil {
 			return nil, fmt.Errorf("sqlindex: scan hit: %w", err)
 		}
-		h.Snippet = pickSnippet(bodySnip, assetSnip)
 		hits = append(hits, h)
 	}
 	if err := rows.Err(); err != nil {
