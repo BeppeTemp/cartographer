@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -660,4 +661,12 @@ func Declared(kbRoot string) bool {
 		}
 	}
 	return false
+}
+
+// InSecretsDir reports whether p is a KB-relative path spelled in canonical
+// form (no "." or ".." segment, no doubled slash) under secrets/. The prefix is
+// tested on the string the file is opened with, so "secrets/../x" cannot pass
+// the test and name a file elsewhere.
+func InSecretsDir(p string) bool {
+	return filepath.IsLocal(p) && p == path.Clean(p) && strings.HasPrefix(p, "secrets/")
 }

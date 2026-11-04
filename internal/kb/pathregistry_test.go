@@ -218,3 +218,17 @@ func TestParsePathRegistry_BindMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckRegistryDefault_RefusesBackslashAndColon(t *testing.T) {
+	t.Parallel()
+	for _, in := range []string{`$HOME/a\..\..\Work`, `~/a\b`, "~/C:/x", "$HOME/a:b"} {
+		if checkRegistryDefault(in) == "" {
+			t.Errorf("checkRegistryDefault(%q) accepted", in)
+		}
+	}
+	for _, in := range []string{"~", "$HOME", "~/.claude", "$HOME/a/b"} {
+		if msg := checkRegistryDefault(in); msg != "" {
+			t.Errorf("checkRegistryDefault(%q) = %q, want accepted", in, msg)
+		}
+	}
+}

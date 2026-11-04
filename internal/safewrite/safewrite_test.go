@@ -185,3 +185,29 @@ func TestMkdirAllNoFollowRefusesALinkedComponent(t *testing.T) {
 		t.Error("a directory was created through the link")
 	}
 }
+
+// A directory name that merely starts with two dots is inside the base and is
+// walked like any other; a directory outside the base is checked as itself.
+func TestMkdirAllNoFollowDotDotPrefixedNames(t *testing.T) {
+	skipOnWindows(t)
+	base := t.TempDir()
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(base, "..cache")); err != nil {
+		t.Fatal(err)
+	}
+	err := MkdirAllNoFollow(base, filepath.Join(base, "..cache", "sub"), 0o755)
+	if !errors.Is(err, ErrSymlinkDestination) {
+		t.Fatalf("MkdirAllNoFollow under ..cache link = %v, want ErrSymlinkDestination", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(elsewhere, "sub")); statErr == nil {
+		t.Error("a directory was created through the link")
+	}
+
+	linkOutside := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(elsewhere, linkOutside); err != nil {
+		t.Fatal(err)
+	}
+	if err := MkdirAllNoFollow(base, linkOutside, 0o755); !errors.Is(err, ErrSymlinkDestination) {
+		t.Fatalf("MkdirAllNoFollow of a link outside the base = %v, want ErrSymlinkDestination", err)
+	}
+}

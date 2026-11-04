@@ -274,16 +274,20 @@ func TestRegistryDefaultPath(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
 	for in, want := range map[string]string{
-		"~":           home,
-		"$HOME":       home,
-		"~/.claude":   filepath.Join(home, ".claude"),
-		"$HOME/.ssh":  filepath.Join(home, ".ssh"),
-		"/Users/x":    "",
-		"relative":    "",
-		"~bob/x":      "",
-		"~/../etc":    "",
-		"$HOMEX/y":    "",
-		"$HOME/a/../": "",
+		"~":                  home,
+		"$HOME":              home,
+		"~/.claude":          filepath.Join(home, ".claude"),
+		"$HOME/.ssh":         filepath.Join(home, ".ssh"),
+		"/Users/x":           "",
+		"relative":           "",
+		"~bob/x":             "",
+		"~/../etc":           "",
+		"$HOMEX/y":           "",
+		"$HOME/a/../":        "",
+		`$HOME/a\..\..\Work`: "",
+		`~/a\b`:              "",
+		"~/C:/x":             "",
+		"$HOME/.cfg/x":       filepath.Join(home, ".cfg", "x"),
 	} {
 		got, ok := registryDefaultPath(in)
 		if (want == "") == ok || (ok && filepath.Clean(got) != filepath.Clean(want)) {

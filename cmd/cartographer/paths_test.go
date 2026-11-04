@@ -369,7 +369,7 @@ func TestCmdPathsSuggest_FindsDefault(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
 	writeClientConfig(t, home, "future_key: kept\n")
-	def := filepath.Join(t.TempDir(), "testpath")
+	def := filepath.Join(home, "testpath")
 	if err := os.MkdirAll(def, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestCmdPathsSuggest_FindsDefault(t *testing.T) {
 			Provider:               "claude",
 			UnresolvedPlaceholders: map[string]string{"path:data": "no entry", "path:notes": "no entry", "path:none": "no entry"},
 			PlaceholderSources:     map[string][]string{"path:data": {"kb-a"}, "path:notes": {"kb-a"}, "path:none": {"kb-a"}},
-			PlaceholderDecls:       map[string]provisioning.PathDecl{"path:data": {Description: "the data dir", Default: def}},
+			PlaceholderDecls:       map[string]provisioning.PathDecl{"path:data": {Description: "the data dir", Default: "~/testpath"}},
 		},
 	}}
 	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
@@ -489,5 +489,36 @@ func TestCmdPathsUnset_KindOnlyRemovesThatIgnore(t *testing.T) {
 	}
 	if len(cfg.IgnoredPaths) != 1 || cfg.IgnoredPaths[0] != "path:x" {
 		t.Errorf("ignores = %v, want [path:x]", cfg.IgnoredPaths)
+	}
+}
+
+// A server-declared default is expanded under the same rule as at apply time:
+// a backslash or a colon after the home prefix makes it no default at all.
+func TestCmdPathsSuggest_IgnoresDefaultWithBackslashOrColon(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "future_key: kept\n")
+	decls := map[string]provisioning.PathDecl{}
+	unresolved := map[string]string{}
+	sources := map[string][]string{}
+	for key, def := range map[string]string{"path:bs": `~/a\..\b`, "path:colon": "~/C:/x"} {
+		decls[key], unresolved[key], sources[key] = provisioning.PathDecl{Description: "d", Default: def}, "no entry", []string{"kb-a"}
+	}
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": {
+		Provider: "claude", UnresolvedPlaceholders: unresolved, PlaceholderSources: sources, PlaceholderDecls: decls,
+	}}}
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	out := withStdout(t, func() {
+		if code := cmdPaths([]string{"suggest"}); code != 0 {
+			t.Errorf("paths suggest = %d", code)
+		}
+	})
+	if strings.Contains(out, `a\`) || strings.Contains(out, "C:") {
+		t.Errorf("a refused default was suggested:\n%s", out)
+	}
+	if strings.Count(out, "(no suggestion") != 2 {
+		t.Errorf("want no suggestion for both keys:\n%s", out)
 	}
 }

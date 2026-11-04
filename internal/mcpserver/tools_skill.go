@@ -183,7 +183,7 @@ func parseSecretRefs(raw any) ([]sops.SecretRef, error) {
 			return nil, fmt.Errorf("invalid secret_refs entry %q; expected NAME=secrets/file.sops.yaml#/json-pointer", entry)
 		}
 		name, path, ptr := entry[:eq], entry[eq+1:hash], entry[hash+1:]
-		if strings.TrimSpace(name) != name || strings.TrimSpace(path) != path || strings.TrimSpace(ptr) != ptr || !secretRefName.MatchString(name) || !filepath.IsLocal(path) || !strings.HasPrefix(path, "secrets/") || !strings.HasSuffix(path, ".sops.yaml") || !strings.HasPrefix(ptr, "/") || seen[name] {
+		if strings.TrimSpace(name) != name || strings.TrimSpace(path) != path || strings.TrimSpace(ptr) != ptr || !secretRefName.MatchString(name) || !isSecretsPath(path) || !strings.HasPrefix(ptr, "/") || seen[name] {
 			return nil, fmt.Errorf("invalid secret_refs entry %q; expected NAME=secrets/file.sops.yaml#/json-pointer", entry)
 		}
 		seen[name] = true
@@ -283,7 +283,7 @@ func secretsSources(raw any) (sources []string, ok bool) {
 		return nil, false
 	}
 	for _, s := range sources {
-		if s == "" || !filepath.IsLocal(s) || !strings.HasPrefix(s, "secrets/") || !strings.HasSuffix(s, ".sops.yaml") {
+		if s == "" || !isSecretsPath(s) {
 			return nil, false
 		}
 	}
@@ -363,7 +363,7 @@ func toolSecretSet(k *kb.KB) Tool {
 		if err := json.Unmarshal(args, &p); err != nil {
 			return errorResult("invalid params: " + err.Error()), nil
 		}
-		if !filepath.IsLocal(p.Path) || !strings.HasPrefix(p.Path, "secrets/") || !strings.HasSuffix(p.Path, ".sops.yaml") {
+		if !isSecretsPath(p.Path) {
 			return errorResult(fmt.Sprintf("secret_set: path %q must be a local secrets/<name>.sops.yaml path, for example %s", p.Path, suggestSopsPath(p.Path))), nil
 		}
 		_, statErr := os.Lstat(filepath.Join(k.Root, p.Path))
@@ -619,4 +619,10 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 			return jsonResult(result), nil
 		},
 	}
+}
+
+// isSecretsPath reports whether p names secrets/<...>.sops.yaml in canonical
+// form (the test is sops.InSecretsDir, shared with the lint checks).
+func isSecretsPath(p string) bool {
+	return sops.InSecretsDir(p) && strings.HasSuffix(p, ".sops.yaml")
 }

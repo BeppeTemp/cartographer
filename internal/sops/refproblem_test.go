@@ -17,3 +17,19 @@ func TestRefProblem(t *testing.T) {
 		}
 	}
 }
+
+func TestInSecretsDir(t *testing.T) {
+	for in, want := range map[string]bool{
+		"secrets/a.sops.yaml":         true,
+		"secrets/sub/a.sops.yaml":     true,
+		"secrets/../data/x.sops.yaml": false,
+		"secrets/./a.sops.yaml":       false,
+		"secrets//a.sops.yaml":        false,
+		"/secrets/a.sops.yaml":        false,
+		"other/a.sops.yaml":           false,
+	} {
+		if got := InSecretsDir(in); got != want {
+			t.Errorf("InSecretsDir(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
