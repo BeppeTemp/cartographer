@@ -600,6 +600,12 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 			}
 			files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
 		}
+		if !provisioning.ValidArtifactName(pa.Name) {
+			return pullResult{err: fmt.Errorf("sync_pull: invalid artifact name %q for %s", pa.Name, pa.Kind)}
+		}
+		if err := provisioning.CheckArtifactFilePaths(files); err != nil {
+			return pullResult{err: fmt.Errorf("sync_pull: %s/%s: %w", pa.Kind, pa.Name, err)}
+		}
 		if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
 			return pullResult{err: fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)}
 		}

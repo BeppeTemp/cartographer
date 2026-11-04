@@ -1450,3 +1450,40 @@ func TestSync_UnchangedFileDoesNotReportMCPEntryWrite(t *testing.T) {
 		t.Errorf("sync should report wrote MCP entry when entry changed:\n%s", out5)
 	}
 }
+
+// TestFetchMergedManifestRefusesUntrustedNamesAndPaths: the client does not
+// trust an artifact name or a file path from the server; a non-canonical path,
+// a duplicate after cleaning or a name that is not one segment stops the sync.
+func TestFetchMergedManifestRefusesUntrustedNamesAndPaths(t *testing.T) {
+	cases := map[string]struct {
+		name  string
+		paths []string
+	}{
+		"dot-slash":  {"s", []string{"./SKILL.md"}},
+		"dotdot":     {"s", []string{"a/../SKILL.md"}},
+		"duplicates": {"s", []string{"SKILL.md", "./SKILL.md"}},
+		"name-dot":   {".", []string{"SKILL.md"}},
+		"name-sep":   {"a/b", []string{"SKILL.md"}},
+	}
+	for label, c := range cases {
+		t.Run(label, func(t *testing.T) {
+			var files []map[string]any
+			var pf []provisioning.ArtifactFile
+			for _, p := range c.paths {
+				content := []byte("x")
+				pf = append(pf, provisioning.ArtifactFile{Path: p, Content: content})
+				files = append(files, map[string]any{"path": p, "content_b64": base64.StdEncoding.EncodeToString(content)})
+			}
+			body, _ := json.Marshal(map[string]any{"revision": "r", "artifacts": []map[string]any{{
+				"kind": "skill", "name": c.name, "source": "kb:one",
+				"content_hash": provisioning.ContentHashFiles(pf), "files": files,
+			}}})
+			srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(string) string { return string(body) })
+			defer srv.Close()
+			cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one"}}
+			if m, err := fetchMergedManifest(cfg); err == nil {
+				t.Fatalf("accepted: %+v", m.Artifacts)
+			}
+		})
+	}
+}

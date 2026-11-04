@@ -457,7 +457,7 @@ func (e *InvalidArtifactNameError) Error() string {
 // segment) plus what a path written into .git/info/exclude must not carry: a
 // line break, a gitignore glob or negation, a comment, or edge spaces.
 func ownableName(name string) bool {
-	if name == "" || name != filepath.Base(name) || !filepath.IsLocal(name) {
+	if !validArtifactName(name) {
 		return false
 	}
 	if strings.ContainsAny(name, "\n\r*?[!\\#") || strings.TrimSpace(name) != name {
