@@ -2,7 +2,7 @@
 
 ## Deployment and packaging
 
-The server is distributed as a native **Go binary** (via `install.sh`, see §Client installation — client and server are the same binary). The Docker image only exists as a CI artifact for k8s deployment: **it is not a local deployment mode** (D73 — containers on macOS mean a slow virtualized filesystem for git/SQLite, and an always-on VM).
+The server is distributed as a native **Go binary** (via `install.sh`, see §Client installation — client and server are the same binary). The Docker image only exists as a CI artifact for k8s deployment: **it is not a local deployment mode** (D73 — containers on macOS mean a slow virtualized filesystem for git/SQLite, and an always-on VM). Both sides need `git` 2.24 or later on `PATH`: the binary runs it for every KB operation, with `--end-of-options` and `git switch`.
 
 ### Topologies
 

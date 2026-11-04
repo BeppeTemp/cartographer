@@ -134,7 +134,7 @@ decides every step **before** running any:
   already carry a binding keep it; a KB this run adds next to existing ones is bound alone (the
   narrowest choice); otherwise, with two or more KBs and nothing to go on, an interactive run
   asks with the same picker as `connect` and a non-interactive one exits 2 naming `--kb`.
-- **Refusals, all before any change:** no `git` on `PATH`; a client already pointed at a
+- **Refusals, all before any change:** no `git` on `PATH` (2.24 or later is required); a client already pointed at a
   non-loopback server (setup provisions a local one — `connect` is the command for a remote
   server); no remote and no mounted KB in a non-interactive run; no agent detected and none named.
 - **A service that demands a token stops setup before `connect` (D268).** The agents setup

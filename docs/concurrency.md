@@ -190,6 +190,14 @@ Every git command Cartographer runs gets `LC_ALL=C`, over the process environmen
 variable: outcomes such as "nothing to commit" or a rebase conflict are recognised from git's English
 messages, and a git built with translations prints them in the user's locale.
 
+The repository is always the one the command names with `-C`: the variables that pin another
+(`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
+`GIT_COMMON_DIR`, `GIT_NAMESPACE`, `GIT_PREFIX`) are dropped from the inherited environment, and only a
+per-call variable can set them (the temporary index of a path-scoped commit). File names handed to
+`add`, `reset`, `status`, `log` and `ls-files` are literal (`--literal-pathspecs`): `img[1].png` is that
+file, never a glob. Refs and branch names follow `--end-of-options`, remote names `--`, so a name that
+begins with `-` is a name.
+
 A KB with an `origin` remote syncs; one without never contacts anything (D903). The two timings
 below are constants, not settings: a 30s freshness window and a 3s push debounce.
 
