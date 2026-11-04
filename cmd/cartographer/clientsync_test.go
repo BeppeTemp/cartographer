@@ -521,7 +521,7 @@ func TestPrintApplySummary_DryRunSpeaksInTheConditional(t *testing.T) {
 		},
 	}
 
-	dry := withStdout(t, func() { printApplySummary(t.TempDir(), results, true) })
+	dry := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true) })
 	for _, want := range []string{"would write", "would prune", "would restore"} {
 		if !strings.Contains(dry, want) {
 			t.Errorf("dry run output = %q, want it to contain %q", dry, want)
@@ -533,7 +533,7 @@ func TestPrintApplySummary_DryRunSpeaksInTheConditional(t *testing.T) {
 		}
 	}
 
-	real := withStdout(t, func() { printApplySummary(t.TempDir(), results, false) })
+	real := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
 	for _, want := range []string{"] wrote ", "] pruned ", "] restored "} {
 		if !strings.Contains(real, want) {
 			t.Errorf("real run output = %q, want it to contain %q", real, want)
@@ -983,7 +983,7 @@ func TestPrintSyncRevisions_UnsupportedKindReportsRecordedRevision(t *testing.T)
 		t.Fatalf("recorded revision = %q, want the post-filter revision %q", got, filtered.Revision)
 	}
 
-	out := withStdout(t, func() { printSyncRevisions(results, []string{"crush"}, false) })
+	out := withStdout(t, func() { printSyncRevisions(os.Stdout, results, []string{"crush"}, false) })
 	want := "synced to revision " + filtered.Revision + "\n"
 	if out != want {
 		t.Errorf("printSyncRevisions output = %q, want %q", out, want)
@@ -1006,7 +1006,7 @@ func TestPrintSyncRevisions_DryRunMatchesReal(t *testing.T) {
 		t.Fatalf("materializeForProviders (dry-run): %v", err)
 	}
 
-	out := withStdout(t, func() { printSyncRevisions(results, []string{"crush"}, true) })
+	out := withStdout(t, func() { printSyncRevisions(os.Stdout, results, []string{"crush"}, true) })
 	want := "would sync to revision " + filtered.Revision + "\n"
 	if out != want {
 		t.Errorf("printSyncRevisions (dry-run) output = %q, want %q", out, want)
@@ -1033,7 +1033,7 @@ func TestPrintSyncRevisions_MultiProviderDivergence(t *testing.T) {
 		t.Errorf("commonRevision = %q, want empty: claude and crush diverge", got)
 	}
 
-	out := withStdout(t, func() { printSyncRevisions(results, []string{"claude", "crush"}, false) })
+	out := withStdout(t, func() { printSyncRevisions(os.Stdout, results, []string{"claude", "crush"}, false) })
 	wantClaude := "[claude] synced to revision " + claudeRev + "\n"
 	wantCrush := "[crush] synced to revision " + crushRev + "\n"
 	if !strings.Contains(out, wantClaude) || !strings.Contains(out, wantCrush) {
@@ -1055,7 +1055,7 @@ func TestSyncRevisions_CoverWorkspaceProjections(t *testing.T) {
 	if got := commonRevision(only, []string{"claude"}); got != "r1" {
 		t.Errorf("commonRevision with only a workspace projection = %q, want r1", got)
 	}
-	if out := withStdout(t, func() { printSyncRevisions(only, []string{"claude"}, false) }); out != "synced to revision r1\n" {
+	if out := withStdout(t, func() { printSyncRevisions(os.Stdout, only, []string{"claude"}, false) }); out != "synced to revision r1\n" {
 		t.Errorf("printSyncRevisions = %q, want the workspace revision", out)
 	}
 
@@ -1063,7 +1063,7 @@ func TestSyncRevisions_CoverWorkspaceProjections(t *testing.T) {
 	if got := commonRevision(diverge, []string{"claude"}); got != "" {
 		t.Errorf("commonRevision = %q, want empty: the global and the workspace projection diverge", got)
 	}
-	out := withStdout(t, func() { printSyncRevisions(diverge, []string{"claude"}, false) })
+	out := withStdout(t, func() { printSyncRevisions(os.Stdout, diverge, []string{"claude"}, false) })
 	want := "[claude] synced to revision r1\n[claude " + ws + "] synced to revision r2\n"
 	if out != want {
 		t.Errorf("printSyncRevisions = %q, want %q", out, want)

@@ -218,7 +218,7 @@ func TestKBArtifactsOptOutInAWorkspaceProjection(t *testing.T) {
 	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"kb-a", "kb-b"}, Agents: []string{"claude"}}
 	cfg.SetKBArtifacts("kb-a", false)
 	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, KBs: []string{"kb-a", "kb-b"}}
-	ms, _, err := buildProjectionManifests(cfg, []syncProjection{p}, false, nil)
+	ms, _, err := buildProjectionManifests(syncStreams{}, cfg, []syncProjection{p}, false, nil)
 	if err != nil {
 		t.Fatalf("buildProjectionManifests: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestKBArtifactsOptOutInADerivedBinding(t *testing.T) {
 	cfg.SetKBArtifacts("kb-a", false)
 	p := claudeDerivedProjection(ws)
 	p.KBs = []string{"kb-a", "kb-b"}
-	ms, _, err := buildProjectionManifests(cfg, []syncProjection{p}, false, nil)
+	ms, _, err := buildProjectionManifests(syncStreams{}, cfg, []syncProjection{p}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

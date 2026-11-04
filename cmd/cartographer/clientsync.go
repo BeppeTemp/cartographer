@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -695,6 +696,8 @@ func uniformManifests(m provisioning.Manifest, providers []string) map[string]pr
 type portabilityOptions struct {
 	SearchRoots []string
 	Paths       map[string]string
+	// Streams is where the pass reports its warnings; zero is the process's.
+	Streams syncStreams
 }
 
 // kbOrder, keyed by provider, is the KB names in that provider's explicit
@@ -727,7 +730,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
-		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace), derivedLocalFiles(projections, p.Workspace)...); err != nil {
+		if err := prepareWorkspace(portability.Streams, p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace), derivedLocalFiles(projections, p.Workspace)...); err != nil {
 			if p.Derived {
 				// Nobody asked for a derived binding on this machine (D1019):
 				// one repository's clash is no reason to stop the others
@@ -735,7 +738,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 				// a repository git cannot read (dubious ownership, a corrupt
 				// index, a lock): whatever the error, the binding is skipped with
 				// a warning (#1502). An explicit binding keeps the refusal.
-				fmt.Fprintf(os.Stderr, "warning: workspace %s: %s projection skipped: %v\n", p.Workspace, p.Provider, err)
+				fmt.Fprintf(portability.Streams.err(), "warning: workspace %s: %s projection skipped: %v\n", p.Workspace, p.Provider, err)
 				skippedProjections[projectionKey(p)] = true
 				continue
 			}
@@ -750,7 +753,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	// This runs before the projections are applied, so the files are gone
 	// before anything is written in their place.
 	if !dryRun {
-		orphans, err := pruneOrphanProjections(&lockFile, projections, manifests, targetDir)
+		orphans, err := pruneOrphanProjections(portability.Streams, &lockFile, projections, manifests, targetDir)
 		if err != nil {
 			return nil, err
 		}
@@ -929,7 +932,7 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 // when it changes nothing, so reporting those lines in the past tense describes
 // a pass that never happened — precisely when the reader asked to see the plan
 // before committing to it (D147).
-func printApplySummary(dir string, results map[string]provisioning.AppliedResult, dryRun bool) {
+func printApplySummary(wr io.Writer, dir string, results map[string]provisioning.AppliedResult, dryRun bool) {
 	needsMCPApproval := false
 	// "wrote" / "would write", chosen once so every line of the pass agrees.
 	verb := func(done, planned string) string {
@@ -959,11 +962,11 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 				}
 				reportedInstructions[w.Path] = true
 			}
-			fmt.Printf("[%s] %s %s\n", p, verb("wrote", "would write"), w.Path)
+			fmt.Fprintf(wr, "[%s] %s %s\n", p, verb("wrote", "would write"), w.Path)
 			// The registration line reports a side effect on a shared file
 			// that a dry run does not perform either.
 			if !dryRun && hookRegistrationManagedFile(provider, w) {
-				printHookRegistered(p, provider, projDir, w, r.HookSettings)
+				printHookRegistered(wr, p, provider, projDir, w, r.HookSettings)
 			}
 		}
 		reportedPruned := map[string]bool{}
@@ -973,7 +976,7 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 				continue
 			}
 			reportedPruned[cleanPath] = true
-			fmt.Printf("[%s] %s %s\n", p, verb("pruned", "would prune"), cleanPath)
+			fmt.Fprintf(wr, "[%s] %s %s\n", p, verb("pruned", "would prune"), cleanPath)
 		}
 		// A heal means a local change was discarded (D139): say so on its own
 		// line instead of folding it into the ordinary writes above.
@@ -984,7 +987,7 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 				continue
 			}
 			healedArtifacts[key] = true
-			fmt.Printf("[%s] %s %s from the server (local changes discarded)\n", p, verb("restored", "would restore"), key)
+			fmt.Fprintf(wr, "[%s] %s %s from the server (local changes discarded)\n", p, verb("restored", "would restore"), key)
 		}
 		movedArtifacts := map[string]bool{}
 		for _, h := range r.Relocated {
@@ -993,28 +996,28 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 				continue
 			}
 			movedArtifacts[key] = true
-			fmt.Printf("[%s] %s %s to its current location\n", p, verb("moved", "would move"), key)
+			fmt.Fprintf(wr, "[%s] %s %s to its current location\n", p, verb("moved", "would move"), key)
 		}
 		for _, d := range r.Divergent {
-			fmt.Printf("[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, d.Reason, d.Kind, d.Name, d.Path)
+			fmt.Fprintf(wr, "[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, d.Reason, d.Kind, d.Name, d.Path)
 		}
 		for _, na := range r.NeedsApproval {
 			// An MCP descriptor, a hook and an executable file wait for an approval
 			// (D906, D1141): the rest of what a KB ships is installed.
 			needsMCPApproval = true
-			fmt.Printf("[%s] needs_approval: %s/%s [%s]\n", p, na.Kind, na.Name, na.Source)
+			fmt.Fprintf(wr, "[%s] needs_approval: %s/%s [%s]\n", p, na.Kind, na.Name, na.Source)
 		}
 		for _, ua := range r.Unsupported {
-			fmt.Printf("[%s] unsupported: %s/%s [%s] (kind has no destination for this provider)\n", p, ua.Kind, ua.Name, ua.Source)
+			fmt.Fprintf(wr, "[%s] unsupported: %s/%s [%s] (kind has no destination for this provider)\n", p, ua.Kind, ua.Name, ua.Source)
 		}
 		// A refusal is not one warning among others: the artifact is not
 		// installed, and only the operator can clear the condition (D148).
 		for _, rf := range r.Refused {
-			fmt.Printf("[%s] %s: %s/%s [%s] — its destination is a symlink, so the write would land outside the client\n",
+			fmt.Fprintf(wr, "[%s] %s: %s/%s [%s] — its destination is a symlink, so the write would land outside the client\n",
 				p, verb("refused", "would refuse"), rf.Kind, rf.Name, rf.Source)
 		}
 		for _, w := range r.Warnings {
-			fmt.Printf("[%s] warning: %s\n", p, w)
+			fmt.Fprintf(wr, "[%s] warning: %s\n", p, w)
 		}
 	}
 	// One line for every placeholder no provider could resolve (D262), not
@@ -1026,15 +1029,15 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 	}
 	unresolved, fresh := unresolvedAcross(results, ignored)
 	if w := provisioning.UnresolvedPlaceholdersWarning(unresolved, fresh); w != "" {
-		fmt.Printf("warning: %s\n", w)
+		fmt.Fprintf(wr, "warning: %s\n", w)
 	}
 	// Two KBs declaring one key differently (D263): the same conflict for
 	// every provider bound to both, so each is printed once.
 	for _, w := range registryWarningsAcross(results) {
-		fmt.Printf("warning: %s\n", w)
+		fmt.Fprintf(wr, "warning: %s\n", w)
 	}
 	if needsMCPApproval {
-		fmt.Println("Pending artifacts (MCP descriptors, hooks, executable files) require an approval: cartographer approve <kind> <name> --kb <kb>, then cartographer sync")
+		fmt.Fprintln(wr, "Pending artifacts (MCP descriptors, hooks, executable files) require an approval: cartographer approve <kind> <name> --kb <kb>, then cartographer sync")
 	}
 }
 
@@ -1110,12 +1113,12 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 // config.toml (D58), or its own generated plugin file (D59 — the plugin *is*
 // the registration, so its own path is printed instead of a separate shared
 // file).
-func printHookRegistered(label, provider, dir string, w provisioning.ManagedFile, settingsRel string) {
+func printHookRegistered(wr io.Writer, label, provider, dir string, w provisioning.ManagedFile, settingsRel string) {
 	registeredIn, _ := hookRegistrationTarget(configurator.Provider(provider), w.Name, w.Path, settingsRel)
 	if registeredIn == "" {
 		return
 	}
-	fmt.Printf("[%s] hook %q registered in %s\n", label, w.Name, filepath.Join(dir, registeredIn))
+	fmt.Fprintf(wr, "[%s] hook %q registered in %s\n", label, w.Name, filepath.Join(dir, registeredIn))
 }
 
 // hookRegistrationTarget is the one resolution of where a hook is registered,

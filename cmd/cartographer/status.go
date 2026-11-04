@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -62,7 +63,7 @@ func cmdStatus(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)
 		return 2
 	}
-	handleUnsupportedProviders(dir, cfg, false)
+	handleUnsupportedProviders(os.Stderr, dir, cfg, false)
 	if len(cfg.Agents) == 0 {
 		return renderStatus(output, emptySnapshot(), 0)
 	}
@@ -330,7 +331,7 @@ func mountModeLabel(mode string) string {
 // apply just wrote, so a block that was not written (a refused write, a derived
 // workspace binding) is not measured; a dry run wrote nothing and prints
 // nothing. Informational: never an exit code.
-func printInstructionsSizeWarnings(dir string, results map[string]provisioning.AppliedResult, dryRun bool) {
+func printInstructionsSizeWarnings(w io.Writer, dir string, results map[string]provisioning.AppliedResult, dryRun bool) {
 	if dryRun {
 		return
 	}
@@ -349,7 +350,7 @@ func printInstructionsSizeWarnings(dir string, results map[string]provisioning.A
 		seen[name] = true
 		for _, b := range snapshotInstructionsBlocks(lockFile, name, dir) {
 			if b.Over {
-				fmt.Println(instructionsSizeLine(name, b))
+				fmt.Fprintln(w, instructionsSizeLine(name, b))
 			}
 		}
 	}

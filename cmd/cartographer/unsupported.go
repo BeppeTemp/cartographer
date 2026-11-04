@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -23,7 +23,7 @@ import (
 // report, and the first command that writes does the rest. The notice is
 // derived from the lockfile too, so a name already gone from the config but
 // still in the lock is cleaned without a second message.
-func handleUnsupportedProviders(dir string, cfg *clientconfig.Config, write bool) {
+func handleUnsupportedProviders(errw io.Writer, dir string, cfg *clientconfig.Config, write bool) {
 	lf, lockErr := provisioning.ReadLockFile(lockFilePath(dir))
 	if lockErr != nil {
 		// A broken lockfile is reported by the code that needs it; here it only
@@ -32,7 +32,7 @@ func handleUnsupportedProviders(dir string, cfg *clientconfig.Config, write bool
 	}
 	if cfg != nil {
 		for _, name := range cfg.Unsupported {
-			fmt.Fprintln(os.Stderr, unsupportedProviderNotice(name, recordedBaseDir(lf, name), write))
+			fmt.Fprintln(errw, unsupportedProviderNotice(name, recordedBaseDir(lf, name), write))
 		}
 	}
 	if !write {
@@ -43,13 +43,13 @@ func handleUnsupportedProviders(dir string, cfg *clientconfig.Config, write bool
 	}
 	if cfg != nil && len(cfg.Unsupported) > 0 {
 		if err := clientconfig.Save(dir, cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not remove the unsupported agent clients from %s: %v\n", clientconfig.Path(dir), err)
+			fmt.Fprintf(errw, "warning: could not remove the unsupported agent clients from %s: %v\n", clientconfig.Path(dir), err)
 		}
 		cfg.Unsupported = nil
 	}
 	if lockErr == nil && dropUnsupportedLockSections(&lf) {
 		if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not drop the unsupported agent clients from the lockfile: %v\n", err)
+			fmt.Fprintf(errw, "warning: could not drop the unsupported agent clients from the lockfile: %v\n", err)
 		}
 	}
 }

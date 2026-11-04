@@ -9,7 +9,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +54,7 @@ type screen int
 const (
 	screenList screen = iota
 	screenConnect
+	screenKBSelect
 	screenConfirmDisconnect
 )
 
@@ -123,24 +126,23 @@ type Model struct {
 	// dashboard one server-level explanation instead of repeating it per row.
 	snapshot *statusSnapshot
 
-	// syncingAll is true between the S keypress and syncAllDoneMsg, and
-	// syncProgress is the channel the sequential run announces each provider
-	// on (D175 WP4). The flag exists so a progress message that arrives after
-	// the outcome — the two travel on different goroutines — cannot overwrite
-	// the result the user needs to read.
-	syncingAll   bool
-	syncProgress chan string
-
 	// busy is true from the moment a command that writes (a sync, a connect and
 	// its probe, a disconnect) is started until its done message arrives. The
 	// list ignores every key that would start another one meanwhile: two writers
 	// of the lockfile and .cartographer.yaml lose one another's entries (D172),
-	// and a second S would replace syncProgress and let the first done message
-	// clear syncingAll early.
+	// and two syncs at once would write over each other.
 	busy bool
 
 	formProvider string
 	connectForm  connectFormModel
+	// allowInsecureHTTP is the recorded opt-in to a cleartext non-loopback
+	// server (D1023): the form cannot show it, but a connect must not drop it.
+	allowInsecureHTTP bool
+	// kbSelect is the D190 KB choice, opened after a ready probe when the
+	// server mounts several KBs and a provider has no binding; pending holds
+	// the connect it completes.
+	kbSelect kbSelectModel
+	pending  connectOptions
 	// probing is true while the pre-connect reachability probe (D64) is in
 	// flight; submitting is true while the real connect (doConnect) is. They
 	// are mutually exclusive phases of the same submit, kept separate so the
@@ -197,28 +199,20 @@ type probeDoneMsg struct {
 	err      error
 }
 
-// syncAllDoneMsg carries the result of one sequential sync-all run: the
-// providers that completed, and the one that failed if any. A partial result
-// is reported as such — the providers already synced keep their lockfile
-// entries (D172).
+// syncAllDoneMsg carries the result of one sync-all run (a single runSync over
+// every connected provider). notes is what the run printed to stderr.
 type syncAllDoneMsg struct {
-	done    []string
-	applied map[string]provisioning.AppliedResult
-	failed  string
-	err     error
-}
-
-// syncProgressMsg names the provider whose sync is starting, emitted by a
-// sequential sync-all run before each provider (D175 WP4). It is progress
-// only: syncAllDoneMsg remains the single source of the outcome.
-type syncProgressMsg struct {
-	provider string
+	providers []string
+	applied   map[string]provisioning.AppliedResult
+	notes     string
+	err       error
 }
 
 // syncDoneMsg carries the result of a syncCmd run.
 type syncDoneMsg struct {
 	provider string
 	applied  provisioning.AppliedResult
+	notes    string
 	err      error
 }
 
@@ -490,114 +484,79 @@ func probeCmd(provider string, opts connectOptions) tea.Cmd {
 }
 
 // connectCmd runs doConnect for a single provider (the shared logic behind the
-// `connect` subcommand) and reports the outcome.
-func connectCmd(provider, dir, serverURL, name, token string, auth bool) tea.Cmd {
+// `connect` subcommand) and reports the outcome. opts carries everything the
+// CLI would: the KB selection and the recorded cleartext opt-in included.
+func connectCmd(provider string, opts connectOptions) tea.Cmd {
 	return func() tea.Msg {
-		res, err := doConnect(connectOptions{
-			Providers: []string{provider},
-			Dir:       dir,
-			ServerURL: serverURL,
-			Name:      name,
-			Auth:      auth,
-			Token:     token,
-		})
+		opts.Providers = []string{provider}
+		res, err := doConnect(opts)
 		return connectDoneMsg{provider: provider, res: res, err: err}
 	}
 }
 
-// syncCmd re-fetches the manifest and re-applies it for a single provider (the
-// shared logic behind the `sync` subcommand). The dashboard never exposes
-// --dry-run — that is CLI-only (see mandate) — and otherwise does what
-// `cartographer sync` does.
-func syncCmd(provider, dir string) tea.Cmd {
+// kbChoiceMsg answers kbChoiceCmd: names is non-empty when the connect needs
+// the D190 choice before its first write.
+type kbChoiceMsg struct {
+	provider string
+	opts     connectOptions
+	names    []string
+}
+
+// kbChoiceCmd is the check cmdConnect makes between the probe and doConnect: a
+// server that lists more than one KB and a provider with no binding yet need
+// the operator's selection. An unreachable listing is not an error here —
+// doConnect defers, as in the CLI.
+func kbChoiceCmd(provider string, opts connectOptions) tea.Cmd {
 	return func() tea.Msg {
-		release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
-		if err != nil {
-			return syncDoneMsg{provider: provider, err: err}
+		msg := kbChoiceMsg{provider: provider, opts: opts}
+		if len(opts.KBs) > 0 {
+			return msg
 		}
-		defer release()
-		return syncOneProvider(provider, dir)
+		facts, err := enumerateKBs(opts.ServerURL, opts.Auth, opts.Token, opts.insecureHTTPAllowed())
+		if err == nil && facts.Listed && len(facts.Names) > 1 && !allProvidersBound(existingOrDefault(opts.Dir), opts.Providers) {
+			msg.names = facts.Names
+		}
+		return msg
 	}
 }
 
-// syncAllCmd syncs every connected provider SEQUENTIALLY under one client
-// lock (D172). It used to fan out one syncCmd per provider through tea.Batch;
-// with the lock in place each goroutine would only queue behind the others,
-// buying nothing and making the progress message incoherent — and before the
-// lock existed, those concurrent writers lost one another's lockfile entries.
-// progress, when non-nil, receives the name of each provider just before its
-// sync starts (D175 WP4) and is closed when the run ends. It must be buffered
-// for at least len(providers): a send that blocked would stall the run while
-// it holds the client lock, so progress reporting can never be a reason a sync
-// does not finish.
-func syncAllCmd(providers []string, dir string, progress chan<- string) tea.Cmd {
-	return func() tea.Msg {
-		if progress != nil {
-			defer close(progress)
-		}
-		release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
-		if err != nil {
-			return syncAllDoneMsg{err: err}
-		}
-		defer release()
-
-		out := syncAllDoneMsg{applied: make(map[string]provisioning.AppliedResult, len(providers))}
-		for _, p := range providers {
-			if progress != nil {
-				progress <- p
-			}
-			res := syncOneProvider(p, dir)
-			if res.err != nil {
-				out.failed, out.err = p, res.err
-				return out
-			}
-			out.done = append(out.done, p)
-			out.applied[p] = res.applied
-		}
-		return out
+// dashboardSync is `cartographer sync` for the dashboard: the same runSync, on
+// the same locked, freshly loaded config, restricted to clients (D1019, D288,
+// D898: everything sync does around the manifest comes with it). What the run
+// prints goes to buffers, never to the process streams under the inline frame;
+// notes is its stderr, for the message. The CLI's other first steps — the
+// config realign and the stale-service replacement — print and restart a
+// service, so they stay with the command.
+func dashboardSync(dir string, clients []string) (res syncResult, notes string, err error) {
+	var out, errw bytes.Buffer
+	release, err := lockClient(dir)
+	if err != nil {
+		return syncResult{}, "", err
 	}
-}
-
-// waitForSyncProgressCmd blocks on one syncAllCmd announcement and re-arms
-// itself from the handler. A closed channel ends the chain: returning a nil
-// Msg leaves the model untouched, which is what the end of the run means here.
-func waitForSyncProgressCmd(progress <-chan string) tea.Cmd {
-	return func() tea.Msg {
-		provider, ok := <-progress
-		if !ok {
-			return nil
-		}
-		return syncProgressMsg{provider: provider}
-	}
-}
-
-// syncOneProvider is the body of a single-provider sync. The caller holds the
-// client lock: taking it here would deadlock syncAllCmd, since flock is held
-// per file description and this process would block on itself.
-func syncOneProvider(provider, dir string) syncDoneMsg {
+	defer release()
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
-		return syncDoneMsg{provider: provider, err: err}
+		return syncResult{}, "", err
 	}
-	projections, err := allProjections(cfg, []string{provider}, dir)
-	if err != nil {
-		return syncDoneMsg{provider: provider, err: err}
+	res, err = runSync(dir, cfg, syncOptions{Clients: clients, Locked: true, Streams: syncStreams{Out: &out, Err: &errw}})
+	return res, strings.TrimSpace(errw.String()), err
+}
+
+// syncCmd is dashboardSync for a single provider.
+func syncCmd(provider, dir string) tea.Cmd {
+	return func() tea.Msg {
+		res, notes, err := dashboardSync(dir, []string{provider})
+		return syncDoneMsg{provider: provider, applied: res.Applied[provider], notes: notes, err: err}
 	}
-	manifests, err := manifestsForProjections(cfg, projections)
-	if err != nil {
-		return syncDoneMsg{provider: provider, err: err}
+}
+
+// syncAllCmd syncs every connected provider in one runSync call, as
+// `cartographer sync` does: one pull, one reconciliation, one lockfile write.
+func syncAllCmd(providers []string, dir string) tea.Cmd {
+	return func() tea.Msg {
+		res, notes, err := dashboardSync(dir, providers)
+		return syncAllDoneMsg{providers: providers, applied: res.Applied, notes: notes, err: err}
 	}
-	// The server version recorded in the lockfile (D142). A failed probe
-	// leaves it empty, which preserves the previously recorded value
-	// instead of erasing it.
-	facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
-	applied, err := materializeForProviders(manifests, projections, dir, facts.Version, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths}, kbOrderForProviders(cfg, []string{provider}), cfg.ApprovedMCPHashes())
-	if err != nil {
-		return syncDoneMsg{provider: provider, err: err}
-	}
-	// The dashboard shows one card per provider: report its global projection,
-	// which is the one the card's counts describe.
-	return syncDoneMsg{provider: provider, applied: applied[provider]}
 }
 
 // disconnectCmd runs doDisconnect for a single provider (the shared logic
@@ -765,6 +724,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.screen {
 		case screenConnect:
 			return m.updateConnectForm(msg)
+		case screenKBSelect:
+			return m.updateKBSelect(msg)
 		case screenConfirmDisconnect:
 			return m.updateConfirmDisconnect(msg)
 		default:
@@ -810,7 +771,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.submitting = true
 		m.message = fmt.Sprintf("connecting %s…", msg.provider)
-		return m, connectCmd(msg.provider, m.dir, msg.opts.ServerURL, msg.opts.Name, msg.opts.Token, msg.opts.Auth)
+		return m, kbChoiceCmd(msg.provider, msg.opts)
+
+	case kbChoiceMsg:
+		if len(msg.names) == 0 {
+			return m, connectCmd(msg.provider, msg.opts)
+		}
+		m.submitting = false
+		m.pending = msg.opts
+		m.kbSelect = newKBSelectModel(msg.names)
+		m.screen = screenKBSelect
+		m.message = ""
+		return m, nil
 
 	case connectDoneMsg:
 		m.submitting = false
@@ -820,6 +792,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// (untouched) with connectForm still populated, plus an inline
 			// error clarifying that a retry needs no disconnect first — connect
 			// is idempotent (mandate D64).
+			m.screen = screenConnect // also from the KB choice, which comes before the write
 			errText := fmt.Sprintf("connect %s failed: %v (connect is idempotent: no need to disconnect — fix the values and press Connect again)", msg.provider, msg.err)
 			m.connectForm = m.connectForm.withError(errText, false)
 			m.err = nil
@@ -838,49 +811,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		return m, loadRemoteStatusCmd(m.dir)
 
-	case syncProgressMsg:
-		// Ignored once the run is over: the outcome message must survive a
-		// progress message still in flight behind it.
-		if !m.syncingAll {
-			return m, nil
-		}
-		m.message = fmt.Sprintf("syncing %s…", msg.provider)
-		return m, waitForSyncProgressCmd(m.syncProgress)
-
 	case syncDoneMsg:
 		m.loading = false
 		m.busy = false
 		if msg.err != nil {
 			m.err = msg.err
-			m.message = fmt.Sprintf("sync %s failed: %v", msg.provider, msg.err)
+			m.message = withNotes(fmt.Sprintf("sync %s failed: %v", msg.provider, msg.err), msg.notes)
 			return m, nil
 		}
 		m.err = nil
-		m.message = fmt.Sprintf("synced %s: %s", msg.provider, summarizeApplied(msg.applied))
+		m.message = withNotes(fmt.Sprintf("synced %s: %s", msg.provider, summarizeApplied(msg.applied)), msg.notes)
 		m.rows = buildRows(m.dir)
 		m.loading = true
 		return m, loadRemoteStatusCmd(m.dir)
 
 	case syncAllDoneMsg:
-		m.loading = false
-		m.syncingAll = false
 		m.busy = false
+		// buildRows resets every card to "checking…": the status is read again
+		// whether or not the sync succeeded, or the cards would stay there.
 		m.rows = buildRows(m.dir)
+		m.loading = true
 		if msg.err != nil {
 			m.err = msg.err
-			if len(msg.done) > 0 {
-				m.message = fmt.Sprintf("sync %s failed after syncing %s: %v", msg.failed, strings.Join(msg.done, ", "), msg.err)
-			} else {
-				m.message = fmt.Sprintf("sync %s failed: %v", msg.failed, msg.err)
+			text := fmt.Sprintf("sync failed: %v", msg.err)
+			var partial partialSyncError
+			if errors.As(msg.err, &partial) && len(msg.applied) > 0 {
+				// A partial sync still applied the providers it did not skip.
+				keys := make([]string, 0, len(msg.applied))
+				for k := range msg.applied {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				text = fmt.Sprintf("synced %s, but %v", strings.Join(keys, ", "), msg.err)
 			}
-			// buildRows reset every card to "checking…": the status is read again
-			// whether or not the sync succeeded, or the cards would stay there.
-			m.loading = true
+			m.message = withNotes(text, msg.notes)
 			return m, loadRemoteStatusCmd(m.dir)
 		}
 		m.err = nil
-		m.message = fmt.Sprintf("synced %s", strings.Join(msg.done, ", "))
-		m.loading = true
+		m.message = withNotes(fmt.Sprintf("synced %s", strings.Join(msg.providers, ", ")), msg.notes)
 		return m, loadRemoteStatusCmd(m.dir)
 
 	case disconnectDoneMsg:
@@ -954,12 +922,9 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		m.busy = true
-		m.syncingAll = true
-		m.message = fmt.Sprintf("syncing %d providers one at a time: %s", len(providers), strings.Join(providers, ", "))
+		m.message = fmt.Sprintf("syncing %d providers: %s", len(providers), strings.Join(providers, ", "))
 		m.err = nil
-		// Buffered for the whole run so the sync never blocks on the UI.
-		m.syncProgress = make(chan string, len(providers))
-		return m, tea.Batch(syncAllCmd(providers, m.dir, m.syncProgress), waitForSyncProgressCmd(m.syncProgress))
+		return m, syncAllCmd(providers, m.dir)
 
 	case "enter", "s":
 		if len(m.rows) == 0 {
@@ -1046,6 +1011,33 @@ func (m Model) updateConfirmDisconnect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateKBSelect drives the shared KB choice (kbselectform.go) inside the
+// dashboard: enter connects with the picked KBs, esc goes back to the connect
+// form with its values intact, ctrl+c quits. Nothing was written yet.
+func (m Model) updateKBSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	if m.submitting {
+		return m, nil
+	}
+	next, _ := m.kbSelect.Update(msg) // its tea.Quit is the standalone program's exit; here the flags say what happened
+	m.kbSelect = next.(kbSelectModel)
+	switch {
+	case m.kbSelect.cancel:
+		m.screen = screenConnect
+		m.busy = false
+		m.connectForm = m.connectForm.withError("connect cancelled: no KB was chosen", true)
+	case m.kbSelect.done:
+		opts := m.pending
+		opts.KBs = m.kbSelect.chosen()
+		m.submitting = true
+		m.message = fmt.Sprintf("connecting %s…", m.formProvider)
+		return m, connectCmd(m.formProvider, opts)
+	}
+	return m, nil
+}
+
 // openConnectForm switches to the connect form for row, prefilled from the
 // existing .cartographer.yaml (or configurator defaults if there is none yet).
 // The form itself lives in connectform.go (connectFormModel), shared with the
@@ -1059,6 +1051,7 @@ func (m Model) openConnectForm(row dashboardAgent) Model {
 	prefill := connectOptions{Providers: []string{string(row.Provider)}, ServerURL: cfg.ServerURL, Name: cfg.ServerName, Token: cfg.Token, Auth: cfg.Auth}
 
 	m.screen = screenConnect
+	m.allowInsecureHTTP = cfg.AllowInsecureHTTP
 	m.formProvider = string(row.Provider)
 	m.connectForm = newConnectFormModel(fmt.Sprintf("Connect %s", row.Provider), prefill, false)
 	m.connectForm.selectAgents = false
@@ -1100,6 +1093,7 @@ func (m Model) updateConnectForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		opts := m.connectForm.Values()
 		opts.Providers = []string{m.formProvider}
 		opts.Dir = m.dir
+		opts.AllowInsecureHTTP = m.allowInsecureHTTP
 		m.err = nil
 		m.message = ""
 		if forceRetry {
@@ -1108,7 +1102,7 @@ func (m Model) updateConnectForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.busy = true
 			m.submitting = true
 			m.message = fmt.Sprintf("connecting %s…", m.formProvider)
-			return m, connectCmd(m.formProvider, m.dir, opts.ServerURL, opts.Name, opts.Token, opts.Auth)
+			return m, kbChoiceCmd(m.formProvider, opts)
 		}
 		m.busy = true
 		m.probing = true
@@ -1135,6 +1129,8 @@ func (m Model) View() string {
 		}
 		form.SpinnerView = m.spinner.View()
 		b.WriteString(form.View())
+	case screenKBSelect:
+		b.WriteString(m.kbSelect.View())
 	case screenConfirmDisconnect:
 		b.WriteString(m.viewConfirmDisconnect())
 	default:
@@ -1153,11 +1149,13 @@ func (m Model) View() string {
 	switch m.screen {
 	case screenConnect:
 		b.WriteString(styleFooter.Render(wrapForWidth("tab/shift+tab move · space toggle auth · enter next/submit · esc cancel · ctrl+c quit", m.width-6)))
+	case screenKBSelect:
+		b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · space toggle · a all · enter connect · esc back · ctrl+c quit", m.width-6)))
 	case screenConfirmDisconnect:
 		b.WriteString(styleFooter.Render(wrapForWidth("←/→ select · enter confirm · y/n shortcut · esc cancel · ctrl+c quit", m.width-6)))
 	default:
 		if len(m.rows) > 0 && m.rows[m.cursor].Connected {
-			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter/s sync selected · S sync all, one at a time · d disconnect · r refresh · q quit", m.width-6)))
+			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter/s sync selected · S sync all · d disconnect · r refresh · q quit", m.width-6)))
 		} else {
 			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter connect · r refresh · q quit", m.width-6)))
 		}
@@ -1588,4 +1586,18 @@ func runTUI() int {
 		return 1
 	}
 	return 0
+}
+
+// withNotes appends the first line of what a sync reported on stderr (a
+// warning, a reconciliation skipped) to the dashboard message: the run no
+// longer prints it where the user would see it.
+func withNotes(message, notes string) string {
+	if notes == "" {
+		return message
+	}
+	first, _, more := strings.Cut(notes, "\n")
+	if more {
+		first += " (…)"
+	}
+	return message + " — " + first
 }

@@ -201,3 +201,44 @@ func TestUntrustedCodexTextMatchesTheBinding(t *testing.T) {
 		}
 	}
 }
+
+// The argument errors of `workspace` name what is wrong (exit 2), and the
+// unbind of a derived binding changes and claims nothing.
+func TestWorkspaceArgumentErrorsAndDerivedUnbind(t *testing.T) {
+	home, ws := trustHome(t)
+	var code int
+	errOut := withStderr(t, func() { code = cmdWorkspaceBind([]string{"codex", ws, "--kb"}) })
+	if code != 2 || !strings.Contains(errOut, "--kb needs a value") {
+		t.Errorf("bind --kb last: code=%d err=%q", code, errOut)
+	}
+	errOut = withStderr(t, func() { code = cmdWorkspaceList([]string{"typo"}) })
+	if code != 2 || !strings.Contains(errOut, `unknown provider "typo"`) {
+		t.Errorf("list typo: code=%d err=%q", code, errOut)
+	}
+	errOut = withStderr(t, func() { code = cmdWorkspaceResolve([]string{"--provider", "typo", ws}) })
+	if code != 2 || !strings.Contains(errOut, `unknown provider "typo"`) {
+		t.Errorf("resolve typo: code=%d err=%q", code, errOut)
+	}
+
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{"codex": {{Path: ws, KBs: []string{"kb-a"}}}}}
+	if err := clientconfig.SaveDerived(home, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetWorkspaceScope("codex", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(clientconfig.Path(home))
+	var out string
+	errOut = withStderr(t, func() { out = withStdout(t, func() { code = cmdWorkspaceUnbind([]string{"codex", ws}) }) })
+	after, _ := os.ReadFile(clientconfig.Path(home))
+	if code == 0 || out != "" || !strings.Contains(errOut, "nothing to unbind") || string(before) != string(after) {
+		t.Errorf("derived unbind: code=%d out=%q err=%q changed=%v", code, out, errOut, string(before) != string(after))
+	}
+}
