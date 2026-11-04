@@ -818,7 +818,7 @@ project hook.UserPromptSubmit absent
     Cline built-in (`run_commands`, `editor`) is not translated to Claude's `Bash`. Output is one line of ASCII
     JSON, exit 0 in every case. The write-findings hook is not installed for Cline until probe P2 shows what
     `postToolUse.result` is for an MCP response.
-  - The dispatcher (`internal/provisioning/clinehooks.go`, DPRNUM) is a three-line shim: POSIX `<Event>` (`#!/bin/sh`, mode
+  - The dispatcher (`internal/provisioning/clinehooks.go`, D1663) is a three-line shim: POSIX `<Event>` (`#!/bin/sh`, mode
     0755) or Windows `<Event>.ps1` (UTF-8 with BOM, ASCII otherwise: Windows PowerShell 5.1 reads BOM-less UTF-8 as ANSI),
     both fail-open (a missing binary prints `{}` and exits 0) and exiting 0 whatever `cartographer` returned; the
     payload reaches it by stdin inheritance. Ownership is the token `cartographer:cline-hook-dispatcher <Event>` in the
