@@ -1814,7 +1814,7 @@ type rewrittenConcept struct {
 	Replacements int    `json:"replacements"`
 }
 
-func toolConceptMove(k *kb.KB) Tool {
+func toolConceptMove(k *kb.KB, rec *searchReconciler) Tool {
 	return Tool{
 		Name:        "concept_move",
 		Description: "Moves concepts to new IDs in one commit: one source_id/target_id pair or a moves array (exclusive). All entries are validated first (source exists, target free, no traversal or duplicate source); an invalid one aborts the batch. Unless rewrite_links=false, inbound links KB-wide are rewritten; in a git KB rewrite_links=false is refused by the write gate when the page has linkers. Works across maps and services/. An expanded concept moves with assets and satellites. A mid-batch failure names both IDs. Returns findings on moved concepts and their linkers.",
@@ -1884,7 +1884,7 @@ func toolConceptMove(k *kb.KB) Tool {
 				rewriteLinks = *params.RewriteLinks
 			}
 
-			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k), RefuseStrictType: true, ReportMentions: true})
+			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k), RefuseStrictType: true, ReportMentions: true, MentionCandidates: rec.mentionCandidates})
 			if errRes != nil {
 				return *errRes, nil
 			}
@@ -1908,6 +1908,10 @@ type moveOptions struct {
 	// plain-text occurrences of an old ID that the link rewrite does not own
 	// (D1070). Off for kb_repair, which discards the result.
 	ReportMentions bool
+	// MentionCandidates, when set, names the concept ids whose content holds
+	// one of the old IDs, so the mentions scan reads those files only; nil
+	// result = unknown, scan every concept.
+	MentionCandidates func(oldIDs []string) map[string]bool
 }
 
 // applyConceptMoves validates every move, applies them, rebases the moved
@@ -2188,7 +2192,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 	_ = k.AppendLog(title+":\n"+strings.Join(logLines, "\n"), time.Now())
 
 	if opts.ReportMentions {
-		attachMentions(k, result, moveMap, opts.View)
+		attachMentions(k, result, moveMap, opts.View, opts.MentionCandidates)
 	}
 
 	// D312: what the move left behind. Every moved ID is checked, and

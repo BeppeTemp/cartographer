@@ -889,6 +889,29 @@ func (kb *KB) WalkConceptPathsUnder(scope string, fn func(id okf.ConceptID, phys
 	return nil
 }
 
+// WalkConceptPathsIn is WalkConceptPaths restricted to the concepts whose id
+// is in ids. The candidates come from the cached link graph (D241) and only
+// they are read, each once, in walk order; one that vanished since is skipped.
+func (kb *KB) WalkConceptPathsIn(ids map[string]bool, fn func(id okf.ConceptID, physicalPath, content string) error) error {
+	view, err := kb.graphView()
+	if err != nil {
+		return err
+	}
+	for _, e := range view.entries {
+		if !ids[string(e.id)] {
+			continue
+		}
+		content, err := kb.ReadRaw(e.rel)
+		if err != nil {
+			continue
+		}
+		if err := fn(e.id, e.rel, content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // walkConceptPaths is WalkConcepts' internal physical-path-aware variant.
 // physicalPath is always the actual KB-relative Markdown path for id.
 func (kb *KB) walkConceptPaths(fn func(id okf.ConceptID, physicalPath, content string) error) error {

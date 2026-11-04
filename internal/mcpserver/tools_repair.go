@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -456,12 +457,22 @@ func planArtifactRepair(k *kb.KB, check, scope string) ([]artifactRepairTarget, 
 	return targets, items, nil
 }
 
+// fieldReCompiles counts compileFieldRe calls (tests only).
+var fieldReCompiles atomic.Int64
+
+// compileFieldRe matches a tool name as a whole word.
+func compileFieldRe(field string) *regexp.Regexp {
+	fieldReCompiles.Add(1)
+	return regexp.MustCompile(`\b` + regexp.QuoteMeta(field) + `\b`)
+}
+
 // applyArtifactRepair rewrites each artifact file with its fixes, under the
 // same rules as artifact_write: no symlink on the path, the content hash read
 // at planning time as if_match, the per-kind validation, the file mode kept.
 // The caller holds the KB lock (gitWrap).
 func applyArtifactRepair(k *kb.KB, targets []artifactRepairTarget) (applied []artifactRepairTarget, skipped []repairSkip) {
 	var untrack []artifactRepairTarget
+	fieldRes := map[string]*regexp.Regexp{} // one compile per field per call, not per fix per file
 	for _, t := range targets {
 		if hasFixKind(t.Fixes, lint.FixUntrack) {
 			untrack = append(untrack, t)
@@ -495,7 +506,11 @@ func applyArtifactRepair(k *kb.KB, targets []artifactRepairTarget) (applied []ar
 			if fx.Kind != lint.FixStripToolPrefix || fx.Field == "" {
 				continue
 			}
-			re := regexp.MustCompile(`\b` + regexp.QuoteMeta(fx.Field) + `\b`)
+			re := fieldRes[fx.Field]
+			if re == nil {
+				re = compileFieldRe(fx.Field)
+				fieldRes[fx.Field] = re
+			}
 			text = re.ReplaceAllLiteralString(text, fx.To)
 		}
 		if text == string(data) {

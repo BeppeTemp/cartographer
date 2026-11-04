@@ -717,6 +717,8 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			// One lint-inputs stamp for the review, work and lint getters below.
+			ctx = withLintStamp(ctx, k)
 			today := time.Now().UTC().Format("2006-01-02")
 			typeCounts := map[string]int{}
 			statusCounts := map[string]int{}
@@ -886,7 +888,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			// D294: lint.Run is cached on the graph generation; the visibility
 			// filter stays outside the cache so a restricted caller never sees
 			// a hidden concept's findings from a warm cache.
-			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
+			if allFindings, lerr := cc.lintFindingsCtx(ctx, k); lerr == nil {
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
 				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), kb.DoctorSuggestionDays, time.Now().UTC())
 				// D370: the trend of the whole-KB totals, whole-KB callers only.

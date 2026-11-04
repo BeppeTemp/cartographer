@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/procattr"
@@ -759,12 +760,20 @@ func runGit(dir string, args ...string) (string, error) {
 // GIT_SSH_COMMAND fallback — see D46. A nil/empty env
 // behaves exactly like runGit.
 func runGitEnv(dir string, env []string, args ...string) (string, error) {
+	runCount.Add(1)
 	fullArgs := append([]string{"-C", dir}, args...)
 	cmd := procattr.Hide(exec.Command("git", fullArgs...))
 	cmd.Env = gitEnv(env)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
+
+// runCount counts the git processes runGitEnv started. Tests only: it is how
+// one proves an operation starts a constant number of processes (RunCount).
+var runCount atomic.Int64
+
+// RunCount returns how many git processes runGitEnv has started so far.
+func RunCount() int64 { return runCount.Load() }
 
 // runGitStdin is runGit with stdin fed to the command: for a list too long for
 // argv. It returns stdout alone, and stderr as the second value: the caller
@@ -966,6 +975,32 @@ func IsAncestor(dir, ancestor, descendant string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", ancestor, descendant, err, out)
+}
+
+// Ancestors returns the commits reachable from rev, rev itself included, that
+// touch one of paths ("git rev-list --full-history rev -- paths"): one process
+// answers "is this commit an ancestor of rev" for every commit of those paths'
+// history, where IsAncestor costs one each, and the walk is bounded by the
+// paths' history, not the repository's. --full-history keeps every commit that
+// differs from a parent on a path, a superset of what `git log -- path` lists,
+// so a commit of that history is in the set exactly when it is an ancestor. The
+// "--" after rev keeps a file named like the rev from making it ambiguous.
+func Ancestors(dir, rev string, paths []string) (map[string]bool, error) {
+	if len(paths) == 0 {
+		return map[string]bool{}, nil
+	}
+	args := append([]string{"--literal-pathspecs", "rev-list", "--full-history", "--end-of-options", rev, "--"}, paths...)
+	out, err := runGit(dir, args...)
+	if err != nil {
+		return nil, fmt.Errorf("git rev-list %s: %w: %s", rev, err, out)
+	}
+	set := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			set[line] = true
+		}
+	}
+	return set, nil
 }
 
 // RebaseOntoAutostash rebases the checked-out branch onto remote/branch. It

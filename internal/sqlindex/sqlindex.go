@@ -511,6 +511,38 @@ func (ix *Index) AllHashes() (map[string]string, error) {
 	return hashes, nil
 }
 
+// IDsContaining returns the ids of the indexed concepts whose stored content
+// holds at least one of subs as a plain, case-sensitive substring: the
+// candidates of a mentions scan, found inside SQLite instead of by reading
+// every file. The set is exact for the content the index was last reconciled
+// with, so callers reconcile first.
+func (ix *Index) IDsContaining(subs []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, sub := range subs {
+		if sub == "" {
+			continue
+		}
+		rows, err := ix.db.Query(`SELECT id FROM concepts WHERE instr(body, ?) > 0`, sub)
+		if err != nil {
+			return nil, fmt.Errorf("sqlindex: ids containing: %w", err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("sqlindex: ids containing: %w", err)
+			}
+			out[id] = true
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, fmt.Errorf("sqlindex: ids containing: %w", err)
+		}
+	}
+	return out, nil
+}
+
 // sanitizeFTSQuery wraps the query string for safe FTS5 trigram MATCH.
 // The trigram tokenizer with a quoted string performs a substring search.
 // Any double quotes in the input are stripped to avoid syntax errors.

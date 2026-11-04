@@ -21,6 +21,9 @@ type ReconcileStats struct {
 	Indexed int
 	Updated int
 	Removed int
+	// Failed counts the SQLite writes of this pass that did not land (upsert,
+	// delete, batch commit): the index no longer mirrors the files.
+	Failed int
 }
 
 // ReconcileIndex compares every concept's content hash with the persisted
@@ -126,6 +129,11 @@ type searchReconciler struct {
 	// assetSigs is, per owner concept, the asset signature the indexes were
 	// last built from (D277); nil until the first reconciliation.
 	assetSigs map[okf.ConceptID]string
+	// sqlStale is set by any SQLite write that failed and cleared by a full
+	// rebuild: the delta is consumed when it fails, so a later pass reports
+	// nothing, yet the index still lacks the row. What must be exact (the
+	// mentions scan) does not trust SQLite while it is set.
+	sqlStale bool
 	// onSearch, when set, sees the query of every keyword search that runs on
 	// this reconciler. Tests only: it is how they count the searches an
 	// advice lookup makes and read the queries.
@@ -166,7 +174,11 @@ func (r *searchReconciler) rebuild() (indexed, sqlUpserted int, err error) {
 	r.assetSigs = nil
 	stats, err := r.reconcileLocked(false)
 	if err == nil && r.sql != nil {
-		sqlUpserted = rebuildSQLIndex(r.k, r.sql)
+		var failed int
+		sqlUpserted, failed = rebuildSQLIndex(r.k, r.sql)
+		// Cleared only by a rebuild that lost nothing; a partial one keeps
+		// the index untrusted.
+		r.sqlStale = failed > 0
 	}
 	return stats.Indexed, sqlUpserted, err
 }
@@ -175,7 +187,7 @@ func newSearchReconciler(k *kb.KB, sql *sqlindex.Index) *searchReconciler {
 	return &searchReconciler{k: k, live: newLiveIndex(search.New(), nil), sql: sql}
 }
 
-func (r *searchReconciler) reconcileLocked(applySQL bool) (ReconcileStats, error) {
+func (r *searchReconciler) reconcileLocked(applySQL bool) (stats ReconcileStats, _ error) {
 	changes, err := r.k.ConceptChanges()
 	if err != nil {
 		return ReconcileStats{}, fmt.Errorf("reconcile index: %w", err)
@@ -186,7 +198,6 @@ func (r *searchReconciler) reconcileLocked(applySQL bool) (ReconcileStats, error
 	if sigErr != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: search index: asset signatures: %v\n", sigErr)
 	}
-	var stats ReconcileStats
 	var persisted map[string]string
 	if r.sql != nil && applySQL && (len(changes) > 0 || sigErr == nil) {
 		if persisted, err = r.sql.AllHashes(); err != nil {
@@ -202,6 +213,8 @@ func (r *searchReconciler) reconcileLocked(applySQL bool) (ReconcileStats, error
 		defer func() {
 			if err := w.Commit(); err != nil {
 				fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite commit: %v\n", err)
+				stats.Failed++
+				r.sqlStale = true
 			}
 		}()
 	}
@@ -224,6 +237,8 @@ func (r *searchReconciler) reconcileLocked(applySQL bool) (ReconcileStats, error
 		}
 		if err := w.Upsert(string(id), hash, content, assets); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite upsert %s: %v\n", id, err)
+			stats.Failed++
+			r.sqlStale = true
 		}
 	}
 	for _, c := range changes {
@@ -235,6 +250,8 @@ func (r *searchReconciler) reconcileLocked(applySQL bool) (ReconcileStats, error
 			if r.sql != nil && applySQL {
 				if err := w.Delete(id); err != nil {
 					fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite delete %s: %v\n", id, err)
+					stats.Failed++
+					r.sqlStale = true
 				}
 			}
 			continue

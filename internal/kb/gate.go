@@ -28,6 +28,36 @@ var GapKinds = map[string]bool{"missing_context": true, "open_question": true}
 // IsGapKind reports whether kind is one of the reserved gap kinds.
 func IsGapKind(kind string) bool { return GapKinds[kind] }
 
+// contradictionFiles lists, in the directory walk's order, the files the gate
+// must read: every .md file except the concepts the cached graph (D241) types
+// as something other than a Contradiction. A file the graph does not hold (the
+// reserved root and map index.md, _map.md, _archive.md) is still read, as the
+// full walk read it; a concept is read only when the graph says Contradiction.
+// When the graph cannot be validated it is every .md file, and the loop in
+// CommitGate filters by type itself.
+func (kb *KB) contradictionFiles() ([]string, error) {
+	files, err := kb.listMDFiles(".")
+	if err != nil {
+		return nil, err
+	}
+	view, err := kb.graphView()
+	if err != nil {
+		return files, nil
+	}
+	typed := make(map[string]bool, len(view.entries)) // rel -> is a Contradiction
+	for _, e := range view.entries {
+		typed[e.rel] = e.facets.Parsed && IsContradictionType(e.facets.Type)
+	}
+	out := files[:0]
+	for _, rel := range files {
+		if isC, inGraph := typed[rel]; inGraph && !isC {
+			continue
+		}
+		out = append(out, rel)
+	}
+	return out, nil
+}
+
 // CommitGate checks for open contradictions involving any of the given concept IDs.
 // It walks all .md files, finds those with type=Contradiction and resolution_status=open,
 // and checks if their "involves" list intersects with changedIDs.
@@ -38,7 +68,7 @@ func (kb *KB) CommitGate(changedIDs []okf.ConceptID) (*GateResult, error) {
 		changedSet[string(id)] = true
 	}
 
-	files, err := kb.listMDFiles(".")
+	files, err := kb.contradictionFiles()
 	if err != nil {
 		return nil, fmt.Errorf("CommitGate: list files: %w", err)
 	}
