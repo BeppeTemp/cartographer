@@ -48,7 +48,7 @@ func TestAsciiJSON(t *testing.T) {
 	got := asciiJSON(struct {
 		M string `json:"errorMessage"`
 	}{"è<😀"})
-	if want := `{"errorMessage":"è<😀"}`; got != want {
+	if want := `{"errorMessage":"\u00e8\u003c\ud83d\ude00"}`; got != want {
 		t.Errorf("asciiJSON = %s, want %s", got, want)
 	}
 	for _, r := range got {
