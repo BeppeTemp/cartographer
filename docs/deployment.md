@@ -279,7 +279,7 @@ endpoint (`/mcp/<name>`, see below), the token scope (`kb:<name>:r|rw`), the clo
 KB's files in the credentials directory (§Credentials directory). With an `http(s)://` remote, if
 `<name>.token` or `default.token` exists there (content: the token, trimmed), the server uses it as the HTTPS
 credential for clone/fetch/pull/push of that KB, injected via `credential.helper` in the
-per-process environment (`GIT_CONFIG_COUNT=2`: an empty `credential.helper` first, which resets the list so no system or user helper answers before it, then the token helper; D53): the token
+per-process environment (`GIT_CONFIG_COUNT=2`: an empty `credential.helper` first, which resets the list so no system or user helper answers before it, then the token helper; D53; a helper set in the server process's own `GIT_CONFIG_PARAMETERS` is applied after these and stays the operator's to manage): the token
 never appears in argv, in the remote URL, or in `.git/config` — only the file's *path* is
 embedded in the helper, which reads it (`cat`) whenever git invokes it. `ssh://` remotes use
 `<name>.ssh` or `default.ssh` (above), and the KB's SOPS key is `<name>.age`, else `default.age`.
