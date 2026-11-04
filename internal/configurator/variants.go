@@ -2,6 +2,8 @@ package configurator
 
 import (
 	"fmt"
+	"path"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -42,18 +44,59 @@ var (
 // detection see. Providers(), ProviderList() and DetectionOrder() stay built-in
 // (every completeness test and "every provider" loop keeps its meaning): a
 // caller that needs variants too asks Variants() or AllProviders(). It refuses
-// a name that is a built-in or already registered, and an unknown base.
+// a name that is a built-in or already registered, an unknown base, and an MCP
+// file whose extension disagrees with the base's format (Apply picks TOML or
+// JSON from the extension).
 func RegisterVariant(spec VariantSpec) error {
+	e, err := buildVariant(spec)
+	if err != nil {
+		return err
+	}
+	variantsMu.Lock()
+	defer variantsMu.Unlock()
+	for _, v := range variants {
+		if v.desc.Provider == e.desc.Provider {
+			return fmt.Errorf("variant %q: already registered", spec.Name)
+		}
+	}
+	variants = append(variants, e)
+	return nil
+}
+
+// ReplaceVariants swaps the whole registered set for specs in one step, so a
+// concurrent Lookup never sees the set empty between a reset and the register
+// that follows. Nothing changes when any spec is refused. nil empties the set.
+func ReplaceVariants(specs []VariantSpec) error {
+	next := make([]variantEntry, 0, len(specs))
+	seen := map[Provider]bool{}
+	for _, s := range specs {
+		e, err := buildVariant(s)
+		if err != nil {
+			return err
+		}
+		if seen[e.desc.Provider] {
+			return fmt.Errorf("variant %q: declared twice", s.Name)
+		}
+		seen[e.desc.Provider] = true
+		next = append(next, e)
+	}
+	variantsMu.Lock()
+	variants = next
+	variantsMu.Unlock()
+	return nil
+}
+
+func buildVariant(spec VariantSpec) (variantEntry, error) {
 	name := Provider(spec.Name)
 	if spec.Name == "" {
-		return fmt.Errorf("variant: empty name")
+		return variantEntry{}, fmt.Errorf("variant: empty name")
 	}
 	base, ok := builtin(Provider(spec.Base))
 	if !ok {
-		return fmt.Errorf("variant %q: base %q is not a built-in provider", spec.Name, spec.Base)
+		return variantEntry{}, fmt.Errorf("variant %q: base %q is not a built-in provider", spec.Name, spec.Base)
 	}
 	if _, ok := builtin(name); ok {
-		return fmt.Errorf("variant %q: the name is a built-in provider", spec.Name)
+		return variantEntry{}, fmt.Errorf("variant %q: the name is a built-in provider", spec.Name)
 	}
 	d := base
 	d.Provider = name
@@ -62,12 +105,18 @@ func RegisterVariant(spec VariantSpec) error {
 		d.DisplayName = spec.Name
 	}
 	d.MCPConfigPath = strings.Join(spec.MCPFile, "/")
+	if d.MCPConfigPath != "" {
+		if toml := strings.EqualFold(path.Ext(d.MCPConfigPath), ".toml"); toml != (base.MCPFormat == FormatTOMLBlock) {
+			return variantEntry{}, fmt.Errorf("variant %q: MCP file %q has the wrong extension for base %q's format", spec.Name, d.MCPConfigPath, spec.Base)
+		}
+	}
 	d.Binaries = append([]string(nil), spec.Binaries...)
 	d.ConfigDirs, d.ConfigDirGlobs = nil, nil
 	for _, segs := range spec.DetectDirs {
 		if len(segs) == 0 {
 			continue
 		}
+		segs = append([]string(nil), segs...)
 		if strings.ContainsAny(segs[len(segs)-1], "*?[") {
 			d.ConfigDirGlobs = append(d.ConfigDirGlobs, segs)
 		} else {
@@ -77,6 +126,9 @@ func RegisterVariant(spec VariantSpec) error {
 	d.EnvConfigDirs, d.AppDirs, d.InstructionsPrecedence, d.HookPluginMajors = nil, nil, nil, nil
 	baseEmit := base.emit
 	d.emit = func(n string, s ServerSpec) (*EmitResult, error) {
+		if d.MCPConfigPath == "" {
+			return nil, fmt.Errorf("variant %q declares no MCP file: nothing to write", name)
+		}
 		r, err := baseEmit(n, s)
 		if err != nil {
 			return nil, err
@@ -86,24 +138,36 @@ func RegisterVariant(spec VariantSpec) error {
 		r.Provider, r.FilePath = name, d.ConfigPath()
 		return r, nil
 	}
-
-	variantsMu.Lock()
-	defer variantsMu.Unlock()
-	for _, v := range variants {
-		if v.desc.Provider == name {
-			return fmt.Errorf("variant %q: already registered", spec.Name)
-		}
-	}
-	variants = append(variants, variantEntry{d, spec})
-	return nil
+	return variantEntry{d, cloneSpec(spec)}, nil
 }
 
-// ResetVariants forgets every registered variant: tests, and a refresh that
-// registers the current set again.
-func ResetVariants() {
-	variantsMu.Lock()
-	variants = nil
-	variantsMu.Unlock()
+func cloneSpec(s VariantSpec) VariantSpec {
+	s.Binaries = slices.Clone(s.Binaries)
+	s.MCPFile = slices.Clone(s.MCPFile)
+	s.SeedTemplate = slices.Clone(s.SeedTemplate)
+	s.SeedDerived = slices.Clone(s.SeedDerived)
+	s.DetectDirs = cloneDirs(s.DetectDirs)
+	return s
+}
+
+func cloneDirs(in [][]string) [][]string {
+	if in == nil {
+		return nil
+	}
+	out := make([][]string, len(in))
+	for i, d := range in {
+		out[i] = slices.Clone(d)
+	}
+	return out
+}
+
+// copyOf returns d with the slices the registry owns copied, so a caller that
+// edits a result cannot change the registered descriptor.
+func (d Descriptor) copyOf() Descriptor {
+	d.Binaries = slices.Clone(d.Binaries)
+	d.ConfigDirs = cloneDirs(d.ConfigDirs)
+	d.ConfigDirGlobs = cloneDirs(d.ConfigDirGlobs)
+	return d
 }
 
 // Variants returns the registered variants' descriptors, in registration order.
@@ -112,7 +176,24 @@ func Variants() []Descriptor {
 	defer variantsMu.RUnlock()
 	out := make([]Descriptor, len(variants))
 	for i, v := range variants {
-		out[i] = v.desc
+		out[i] = v.desc.copyOf()
+	}
+	return out
+}
+
+// RegisteredVariant is a variant's descriptor with the spec it came from.
+type RegisteredVariant struct {
+	Descriptor Descriptor
+	Spec       VariantSpec
+}
+
+// RegisteredVariants returns every variant with its spec, read under one lock.
+func RegisteredVariants() []RegisteredVariant {
+	variantsMu.RLock()
+	defer variantsMu.RUnlock()
+	out := make([]RegisteredVariant, len(variants))
+	for i, v := range variants {
+		out[i] = RegisteredVariant{v.desc.copyOf(), cloneSpec(v.spec)}
 	}
 	return out
 }
@@ -123,7 +204,7 @@ func VariantOf(p Provider) (VariantSpec, bool) {
 	defer variantsMu.RUnlock()
 	for _, v := range variants {
 		if v.desc.Provider == p {
-			return v.spec, true
+			return cloneSpec(v.spec), true
 		}
 	}
 	return VariantSpec{}, false

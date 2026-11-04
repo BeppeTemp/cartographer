@@ -17,8 +17,8 @@ func fixtureVariant() VariantSpec {
 
 func registered(t *testing.T, specs ...VariantSpec) {
 	t.Helper()
-	ResetVariants()
-	t.Cleanup(ResetVariants)
+	ReplaceVariants(nil)
+	t.Cleanup(func() { ReplaceVariants(nil) })
 	for _, s := range specs {
 		if err := RegisterVariant(s); err != nil {
 			t.Fatal(err)
@@ -79,7 +79,7 @@ func TestVariantsStayOutOfBuiltInLists(t *testing.T) {
 	if len(all) != n+1 || all[n].Provider != "fork-cli" || len(Variants()) != 1 {
 		t.Fatalf("AllProviders = %d", len(all))
 	}
-	ResetVariants()
+	ReplaceVariants(nil)
 	if _, ok := Lookup("fork-cli"); ok {
 		t.Fatal("reset kept the variant")
 	}
@@ -103,4 +103,78 @@ func TestVariantConcurrentRegisterLookup(t *testing.T) {
 	if len(Variants()) != 8 {
 		t.Fatalf("got %d", len(Variants()))
 	}
+}
+
+func TestVariantMCPFileMustMatchBaseFormat(t *testing.T) {
+	registered(t)
+	toml := fixtureVariant()
+	toml.MCPFile = []string{".fork", "mcp.toml"} // base is JSON
+	if err := RegisterVariant(toml); err == nil {
+		t.Error("a .toml file for a JSON base was accepted")
+	}
+	json := fixtureVariant()
+	json.Base, json.MCPFile = string(ProviderCodex), []string{".fork", "mcp.json"} // base is TOML
+	if err := RegisterVariant(json); err == nil {
+		t.Error("a .json file for a TOML base was accepted")
+	}
+	ok := fixtureVariant()
+	ok.Base, ok.MCPFile = string(ProviderCodex), []string{".fork", "config.toml"}
+	if err := RegisterVariant(ok); err != nil {
+		t.Errorf("matching TOML refused: %v", err)
+	}
+}
+
+func TestVariantWithoutMCPFileCannotEmit(t *testing.T) {
+	s := fixtureVariant()
+	s.MCPFile = nil
+	registered(t, s)
+	if _, err := EmitServer("kb", ServerSpec{Type: "http", URL: "http://example.com/mcp"}, "fork-cli"); err == nil {
+		t.Fatal("emitted with no MCP file")
+	}
+}
+
+func TestReplaceVariantsIsAtomic(t *testing.T) {
+	registered(t, fixtureVariant())
+	bad := fixtureVariant()
+	bad.Name = "other"
+	bad.Base = "nope"
+	if err := ReplaceVariants([]VariantSpec{bad}); err == nil {
+		t.Fatal("refused spec accepted")
+	}
+	if _, ok := Lookup("fork-cli"); !ok {
+		t.Fatal("a refused replace dropped the registered set")
+	}
+	next := fixtureVariant()
+	next.Name = "fork-two"
+	if err := ReplaceVariants([]VariantSpec{next}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Lookup("fork-cli"); ok {
+		t.Fatal("old variant kept")
+	}
+	if _, ok := Lookup("fork-two"); !ok {
+		t.Fatal("new variant missing")
+	}
+	if err := ReplaceVariants([]VariantSpec{next, next}); err == nil {
+		t.Fatal("duplicate names accepted")
+	}
+}
+
+func TestVariantResultsAreCopies(t *testing.T) {
+	registered(t, fixtureVariant())
+	d, _ := Lookup("fork-cli")
+	d.Binaries[0], d.ConfigDirs[0][0], d.ConfigDirGlobs[0][0] = "x", "x", "x"
+	for _, got := range []Descriptor{mustLookup(t), Variants()[0], RegisteredVariants()[0].Descriptor} {
+		if got.Binaries[0] != "fork" || got.ConfigDirs[0][0] != ".fork" || got.ConfigDirGlobs[0][0] != ".vscode" {
+			t.Fatalf("registry changed through a returned descriptor: %+v", got)
+		}
+	}
+}
+
+func mustLookup(t *testing.T) Descriptor {
+	d, ok := Lookup("fork-cli")
+	if !ok {
+		t.Fatal("missing")
+	}
+	return d
 }

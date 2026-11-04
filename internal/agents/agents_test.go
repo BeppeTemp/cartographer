@@ -617,8 +617,8 @@ func TestDetect_ClineHomeWithGlobCharacters(t *testing.T) {
 }
 
 func TestDetect_Variants(t *testing.T) {
-	configurator.ResetVariants()
-	t.Cleanup(configurator.ResetVariants)
+	configurator.ReplaceVariants(nil)
+	t.Cleanup(func() { configurator.ReplaceVariants(nil) })
 	for _, name := range []string{"fork-bin", "fork-dir", "fork-glob", "fork-none"} {
 		spec := configurator.VariantSpec{Name: name, Base: string(configurator.ProviderCrush)}
 		switch name {
@@ -661,8 +661,8 @@ func TestDetect_Variants(t *testing.T) {
 
 // A fork of Pi is probed as Pi: a `pi` shim that fails --version is not the fork.
 func TestDetect_VariantBinaryProbedAsBase(t *testing.T) {
-	configurator.ResetVariants()
-	t.Cleanup(configurator.ResetVariants)
+	configurator.ReplaceVariants(nil)
+	t.Cleanup(func() { configurator.ReplaceVariants(nil) })
 	if err := configurator.RegisterVariant(configurator.VariantSpec{Name: "fork-pi", Base: string(configurator.ProviderPi), Binaries: []string{"forkpi"}}); err != nil {
 		t.Fatal(err)
 	}

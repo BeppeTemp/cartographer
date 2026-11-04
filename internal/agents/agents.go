@@ -124,25 +124,22 @@ func Detect() []Agent {
 	}
 	// Variants come after the built-ins and are detected by the same probes:
 	// their binaries, and their directories (plain or glob) in the descriptor.
-	for _, d := range configurator.Variants() {
-		a := detect(d, home)
-		a.Variant = true
-		if spec, ok := configurator.VariantOf(d.Provider); ok {
-			a.Base = configurator.Provider(spec.Base)
-		}
+	for _, v := range configurator.RegisteredVariants() {
+		a := detectAs(v.Descriptor, home, configurator.Provider(v.Spec.Base))
+		a.Variant, a.Base = true, configurator.Provider(v.Spec.Base)
 		out = append(out, a)
 	}
 	return out
 }
 
 func detect(d configurator.Descriptor, home string) Agent {
+	return detectAs(d, home, d.Provider)
+}
+
+// detectAs probes d; its binary is checked with probeFor's probe, the base's for
+// a variant: a name match alone is no more evidence for a fork than for its base.
+func detectAs(d configurator.Descriptor, home string, probeFor configurator.Provider) Agent {
 	a := Agent{Provider: d.Provider, Name: d.DisplayName}
-	// A fork of a probed base is probed as the base: a name match alone is no
-	// more evidence for the fork than for the base.
-	probeFor := d.Provider
-	if spec, ok := configurator.VariantOf(d.Provider); ok {
-		probeFor = configurator.Provider(spec.Base)
-	}
 	for _, binary := range d.Binaries {
 		if path, err := lookPath(binary); err == nil {
 			if probe := binaryProbes[probeFor]; probe != nil && !probe(path) {

@@ -379,7 +379,7 @@ func Lookup(p Provider) (Descriptor, bool) {
 	defer variantsMu.RUnlock()
 	for _, v := range variants {
 		if v.desc.Provider == p {
-			return v.desc, true
+			return v.desc.copyOf(), true
 		}
 	}
 	return Descriptor{}, false
