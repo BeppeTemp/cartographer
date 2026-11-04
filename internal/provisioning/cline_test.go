@@ -142,3 +142,31 @@ func TestApply_ClineSymlinkedRulesDirIsRefused(t *testing.T) {
 		t.Errorf("wrote through a symlink: %v (result %+v)", entries, res)
 	}
 }
+
+// Cline cannot be shown to expand ${VAR}: a KB mcp artifact's headers are
+// warned about and not written, so a literal credential never reaches the
+// settings file in clear text.
+func TestApply_ClineKBMCPHeadersAreNotWritten(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "wiki-tools", `{"type":"http","url":"https://tools.example.com/mcp","headers":{"X-Api-Key":"${WIKI_KEY}"}}`)
+	mcp := findMCPArtifact(t, signedMCPManifest(t, kbRoot, "wiki-tools"), "wiki-tools")
+	mcp.Signed = true
+	home := t.TempDir()
+	res, err := provisioning.Apply(provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{mcp}},
+		provisioning.ApplyOptions{Provider: configurator.ProviderCline, BaseDir: home, KBRoots: map[string]string{"kb": kbRoot}, SkipLockWrite: true,
+			ApprovedMCP: map[string]string{"kb:kb\x00wiki-tools": mcp.ContentHash}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(home, ".cline", "data", "settings", "cline_mcp_settings.json"))
+	if !strings.Contains(string(cfg), "wiki-tools") || strings.Contains(string(cfg), "X-Api-Key") || strings.Contains(string(cfg), "WIKI_KEY") {
+		t.Errorf("settings = %s, want the server without its headers", cfg)
+	}
+	warned := false
+	for _, w := range res.Warnings {
+		warned = warned || strings.Contains(w, "does not support headers")
+	}
+	if !warned {
+		t.Errorf("Warnings = %v, want the headers warning", res.Warnings)
+	}
+}

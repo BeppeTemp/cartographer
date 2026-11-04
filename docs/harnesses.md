@@ -513,7 +513,8 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
     `{type: "stdio", command, args, env}` or `{type: "streamableHttp", url, headers}` (`sse` exists in Cline, no
     KB descriptor carries it). The file is Cline's own (a `.bak` beside it): other servers and keys survive and
     it is never deleted. `${VAR}` expansion in `headers`/`env` was **not** verified, so `SupportsMCPHeaders` is
-    false and a KB `mcp` artifact with headers is materialised with the warning.
+    false and a KB `mcp` artifact with headers is materialised without them, with the warning; a stdio `env`
+    value is written verbatim and unprobed. Cartographer's own entry is the bridge and carries no header.
   - Tool names: the model sees `<server>__<tool>` (bundle `pCn`), not a flat namespace; `mcp__<server>__<tool>`
     is the permission-rule syntax.
   - `instructions` in `~/.cline/rules/cartographer.md`, a file Cartographer owns whole. The global rules list is

@@ -91,6 +91,7 @@ var usageScanners = map[string]usageScanner{
 	"crush":       scanNone("crush: no documented session transcript"),
 	"copilot":     scanCopilot,
 	"pi":          scanNone("pi: session transcript format not probed"),
+	"cline":       scanNone("cline: session transcript format not probed"),
 }
 
 // UsageProviders reports which providers contribute what, for kb_status and
@@ -99,7 +100,7 @@ var usageScanners = map[string]usageScanner{
 func UsageProviders() (supported, partial, unsupported []string) {
 	supported = []string{"claude", "copilot", "kiro"}
 	partial = []string{"codex"}
-	unsupported = []string{"antigravity", "crush", "opencode", "pi"}
+	unsupported = []string{"antigravity", "crush", "opencode", "pi", "cline"}
 	return
 }
 

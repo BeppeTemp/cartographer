@@ -149,13 +149,17 @@ func detect(d configurator.Descriptor, home string) Agent {
 		if home == "" {
 			break
 		}
-		matches, err := filepath.Glob(filepath.Join(append([]string{home}, segments...)...))
+		// ReadDir on the fixed parent and Match on the last segment only: a home
+		// path holding '[', '*' or '?' must not be read as part of a pattern.
+		last := len(segments) - 1
+		parent := filepath.Join(append([]string{home}, segments[:last]...)...)
+		entries, err := os.ReadDir(parent)
 		if err != nil {
 			continue
 		}
-		for _, m := range matches {
-			if dirExists(m) {
-				return a.found(HeuristicConfigDir, m)
+		for _, e := range entries {
+			if ok, _ := filepath.Match(segments[last], e.Name()); ok && dirExists(filepath.Join(parent, e.Name())) {
+				return a.found(HeuristicConfigDir, filepath.Join(parent, e.Name()))
 			}
 		}
 	}

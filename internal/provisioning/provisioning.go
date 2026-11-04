@@ -2378,6 +2378,12 @@ hookLoop:
 					// the KB.
 					result.Warnings = append(result.Warnings, fmt.Sprintf(
 						"mcp %q: %s does not support headers for MCP servers, ignored", a.Name, d.Provider))
+					// Ignored means not written: an emitter that can carry the
+					// field (Cline) would otherwise put a KB header, possibly a
+					// literal credential, in the client's settings in clear text.
+					// Cartographer's own entry does not come through here and
+					// keeps its Authorization header.
+					spec.Headers = nil
 				}
 				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope)
 				if regErr != nil {

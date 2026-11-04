@@ -596,3 +596,22 @@ func TestDetect_ClineByExtensionDirectory(t *testing.T) {
 		}
 	})
 }
+
+// A home path holding glob metacharacters is a literal directory, not a pattern.
+func TestDetect_ClineHomeWithGlobCharacters(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home[1]*?")
+	dir := filepath.Join(home, ".vscode", "extensions", "saoudrizwan.claude-dev-4.1.26")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, nil, "linux")
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderCline {
+			if !a.Installed || a.Evidence != dir {
+				t.Fatalf("cline = %+v, want evidence %s", a, dir)
+			}
+			return
+		}
+	}
+	t.Fatal("cline missing")
+}
