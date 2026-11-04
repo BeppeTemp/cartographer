@@ -929,7 +929,7 @@ named entry in `Manifest.Issues`, so one typo does not stop the KB's skills, and
 refuses it and the `variant_invalid` lint check reports one that arrived by git. The kind is
 **declarative**: it has no row in the destination matrix, `unsupportedKindWarnings` skips it, and
 a client that does not know it ignores it. Nothing applies a descriptor yet; registration and
-approval come in later changes. Why: [D1656](decisions/D1656-variant-artifact-kind.md).
+approval come in later changes. Why: [D1657](decisions/D1657-variant-artifact-kind.md).
 
 ## Implementation choices
 
