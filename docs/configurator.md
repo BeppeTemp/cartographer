@@ -288,6 +288,29 @@ directory that is not there any more and `[derived: paths.yaml of kb-a]` next to
 server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
 entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
 
+**`cartographer call` (no MCP).** For an agent that has a shell but cannot use MCP,
+`cartographer call --provider <p> <tool> [key=value…] [--json '<object>'|-]` sends one stateless
+`tools/call` and exits; `--list` prints `name<TAB>first sentence` per tool, `--describe <tool>` the
+description and input schema. It drives the same bridge as `cartographer mcp`, so the scope is
+identical: the provider plus the working directory (`--dir` overrides it), with the unbound read-only
+default and `kb_options` access. A value that parses as JSON (`limit=5`, `ids=["a"]`, `title="2026"`)
+is passed typed, anything else as a string; `--json` takes an object (`-` reads stdin, 16 MiB), and a
+key given twice, in pairs or with `--json`, is a usage error. No client-side schema validation: the
+server's own error is what the agent reads. Flags: `--output text|json` (`json` is the raw MCP result),
+`--timeout` (default 5m, bounds the whole call), `--verbose` (print the bridge log on success too).
+
+| Exit | Meaning | Output |
+|---|---|---|
+| 0 | the tool succeeded | text content on stdout |
+| 1 | the tool returned `isError` | its text on stderr, nothing on stdout |
+| 2 | usage, no client configuration, unusable token, no KB in scope, transport, server too old for read-only, HTTP 401, JSON-RPC error, timeout | `Error: …` on stderr |
+
+**The command writes no file anywhere** (no cache, log, lock or audit file, `$TMPDIR` included) and
+works with a read-only `$HOME`: it only reads the client configuration and the token. The bundled
+`cartographer-cli` skill, which teaches this command, is filtered out of every provider's manifest
+client-side unless the provider reaches Cartographer through the command; no built-in provider does
+today.
+
 Existing configurations are untouched: the scope is per provider, absent means the historical global
 catalogue, and no upgrade changes it. Full rules, the project-local destination matrix, the
 repository-hygiene guarantees and the providers that cannot be scoped at all → `sync.md`

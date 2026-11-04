@@ -335,25 +335,11 @@ const ClientName = "cartographer"
 // it.
 const AuthorHeader = "Cartographer-Author"
 
-// clientVersion is the build stamp reported to the server, or "unknown".
-func (c *MCPClient) clientVersion() string {
-	if c.Version == "" {
-		return "unknown"
-	}
-	return c.Version
-}
-
 // withProtocolMeta returns params with the revision's reserved _meta keys
 // merged in. params is left untouched: callers build plain maps and should not
 // have to know the protocol decorates them.
 func (c *MCPClient) withProtocolMeta(params any) any {
-	meta := map[string]any{
-		metaProtocolVersion: ProtocolVersion,
-		metaClientInfo:      map[string]any{"name": ClientName, "version": c.clientVersion()},
-		// This client implements no optional capability.
-		metaClientCapabilities: map[string]any{},
-	}
-	merged := map[string]any{"_meta": meta}
+	merged := map[string]any{"_meta": RequestMeta(c.Version)}
 	if m, ok := params.(map[string]any); ok {
 		for k, v := range m {
 			if k != "_meta" {
@@ -362,6 +348,21 @@ func (c *MCPClient) withProtocolMeta(params any) any {
 		}
 	}
 	return merged
+}
+
+// RequestMeta is the _meta object of one request: the revision, this client's
+// identity and no optional capability. version is the build stamp, "unknown"
+// when empty. `cartographer call` builds its requests with it too.
+func RequestMeta(version string) map[string]any {
+	if version == "" {
+		version = "unknown"
+	}
+	return map[string]any{
+		metaProtocolVersion: ProtocolVersion,
+		metaClientInfo:      map[string]any{"name": ClientName, "version": version},
+		// This client implements no optional capability.
+		metaClientCapabilities: map[string]any{},
+	}
 }
 
 // do sends a single JSON-RPC 2.0 request and returns the raw "result" field.

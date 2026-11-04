@@ -124,7 +124,7 @@ func TestHelpFlagExitsZeroEverywhere(t *testing.T) {
 		{"agents", "-h"}, {"status", "-h"}, {"approve", "-h"}, {"approve", "revoke", "-h"},
 		{"config", "-h"}, {"mcp", "-h"}, {"client", "bind", "-h"}, {"client", "update", "--help"},
 		{"workspace", "bind", "-h"}, {"workspace", "unbind", "-h"}, {"update", "check", "-h"},
-		{"service", "sync-timer", "-h"},
+		{"service", "sync-timer", "-h"}, {"call", "-h"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var code int
