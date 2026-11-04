@@ -20,6 +20,12 @@ test or a decision record: none of them is a preference.
   wording beside it; `TestGenericConnectionIsNeverToldToRunACLICommand` fails
   otherwise. Scenarios in `test/e2e/` grep these texts too, and `make gate`
   does not run them: a wording change runs `make e2e` before the push.
+- **A path an artifact tool names has no hidden segment, and a tool that moves a whole folder
+  checks what is inside it.** `classifyArtifactPath` refuses any segment that starts with a dot (a
+  nested `.git` is no part of an artifact); `artifact_move` and `moveLegacySkill` carry a folder
+  whole, so they walk it with `hiddenEntryUnder` first. The commit side holds the same line: `gitx.Commit` and
+  `CommitPaths` refuse a gitlink (`gitx.ErrGitlink`). A new tool that writes under `skills/` or
+  `hooks/` goes through the guard; one that renames or copies a directory checks its contents.
 - **A tool's `ReadOnly` field and `readOnlyToolNames` are two halves of one fact.**
   `readonly.go` carries the source-of-truth list; `TestReadOnlyToolsGolden` builds
   a real registry and fails if they diverge. A new read-only tool that is not in

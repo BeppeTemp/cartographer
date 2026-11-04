@@ -71,6 +71,11 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 
 `templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision. A template is also a closed page schema that a map's pages bind to (§Templates are page schemas).
 
+An artifact path has no hidden segment: a file or folder of `skills/`, `agents/`, `hooks/`, `mcp/` or `templates/`
+whose name starts with a dot is no artifact, and the `artifact_*` tools refuse it with `path not allowed`
+(`classifyArtifactPath`, one guard for `artifact_read`/`write`/`delete`/`move`). The KB is files only: a nested
+`.git` is no part of an artifact, and its commits record no gitlink (`concurrency.md` §How changes land).
+
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
 `*.pyo`, `*~`, `*.swp`, `Thumbs.db`, `.tmp-wiki-*` — `kb.JunkPatterns`), only when it creates the KB: the root
 `.gitignore` stays absent (D62), and this one is content that travels with the KB (D316). `Init` and
@@ -742,6 +747,8 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   `kb-ingest`). The copy and the bundled skill would reach one agent twice under two names, so the
   repair moves the directory to the new name and sets its `name`, keeping the body. When the new
   name exists too, the message says both copies stay: merging two diverged skills is a person's job.
+  A folder that holds a hidden entry (a nested `.git` above all; a `.DS_Store` is junk and goes with
+  it) is skipped with the entry named, like any artifact path (`control-plane.md` §KB-root artifacts).
 - `legacy_tool_name` (fix `strip_tool_prefix`): a pre-D288 prefixed tool name
   (`<kb>__search`, e.g. kb_a__search) in a skill, agent or `instructions.md` (Markdown, text, scripts and config
   files; stylesheets are skipped, a BEM class has the same shape). A client's own MCP tool name,

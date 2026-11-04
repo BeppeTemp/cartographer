@@ -270,6 +270,9 @@ func parseArtifactUnit(raw string) (artifactUnit, error) {
 		return artifactUnit{}, fmt.Errorf("path not allowed: absolute path %q", raw)
 	}
 	clean := filepath.ToSlash(filepath.Clean(raw))
+	if seg, hidden := hiddenPathSegment(clean); hidden {
+		return artifactUnit{}, fmt.Errorf("path not allowed: %q has the hidden segment %q: an artifact path has no segment starting with a dot", raw, seg)
+	}
 	segs := strings.Split(clean, "/")
 	switch segs[0] {
 	case "skills", "hooks":
@@ -359,6 +362,16 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 		u.isDir = info.IsDir()
 		switch {
 		case u.isDir && (u.info.Kind == "skill" || u.info.Kind == "hook"):
+			// The folder moves whole into a KB that commits it: a hidden entry
+			// (a nested .git above all) is not carried and not dropped either,
+			// the move is refused until it is removed.
+			hidden, herr := hiddenEntryUnder(srcAbs)
+			if herr != nil {
+				return refuse("%s: %v", u.rel, herr)
+			}
+			if hidden != "" {
+				return refuse("%s holds %s: an artifact has no hidden file or folder (a name starting with a dot); remove it first", u.rel, hidden)
+			}
 			u.files, err = collectTransferFilesBounded(srcAbs, artifactMoveMaxFiles, artifactMoveMaxBytes)
 			var bound *transferBoundError
 			if errors.As(err, &bound) {

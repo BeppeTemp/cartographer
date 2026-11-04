@@ -32,8 +32,11 @@ var ErrNothingToCommit = errors.New("nothing to commit")
 // still yields to a caller that says otherwise: a server started from a
 // terminal must never leave git blocked on /dev/tty for a username or password
 // nobody is there to type (#1004). The ssh counterpart is netEnv.
+//
+// The environment also carries serverConfig (gitlink.go): no command of the
+// server looks inside a nested repository.
 func gitEnv(extra []string) []string {
-	return append(append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), extra...), "LC_ALL=C")
+	return append(withServerConfig(append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), extra...)), "LC_ALL=C")
 }
 
 // sshBatchCommand is the ssh invocation that never asks: no password or
@@ -390,9 +393,14 @@ func InitOnBranch(dir, branch string) error {
 // process environment, and when git cannot resolve one either the author
 // becomes the committer (withCommitterFallback). If there is nothing to commit, returns
 // ErrNothingToCommit (not a fatal error).
+//
+// A KB never records a gitlink (a nested git repository, index mode 160000):
+// the staging leaves a change to one out, and when the working tree holds a
+// nested repository that is new it returns a *GitlinkError (ErrGitlink),
+// nothing committed and nothing of it left in the index.
 func Commit(dir, message, authorName, authorEmail string, env ...string) error {
-	if out, err := runGitEnv(dir, env, "add", "-A"); err != nil {
-		return fmt.Errorf("git add -A: %w: %s", err, out)
+	if err := stageAll(dir, env); err != nil {
+		return err
 	}
 	return commit(dir, message, authorName, authorEmail, env...)
 }
@@ -446,6 +454,12 @@ func ResetPaths(dir string, paths ...string) error {
 }
 
 func commit(dir, message, authorName, authorEmail string, env ...string) error {
+	// Every commit passes here, whatever staged its index (the real one, the
+	// temporary one of CommitPaths, a command run by hand): a gitlink new to
+	// the history is refused, not recorded.
+	if err := refuseGitlinks(dir, env); err != nil {
+		return err
+	}
 	args := []string{"commit"}
 	if authorName != "" && authorEmail != "" {
 		args = append(args, "--author", fmt.Sprintf("%s <%s>", authorName, authorEmail))
@@ -1862,14 +1876,15 @@ func RevertNoCommit(dir, sha string, env ...string) error {
 	return nil
 }
 
-// StagedChanges stages every change of the working tree (git add -A) and
+// StagedChanges stages every change of the working tree (stageAll: git add -A,
+// leaving a gitlink out, a *GitlinkError for a new nested repository) and
 // returns what differs from HEAD, renames detected (-M), parsed from the
 // NUL-separated form so a path with spaces or unusual bytes survives. The
 // existing DiffNameStatus splits on whitespace and is not safe for that
 // (D350). The index is left staged; DiscardChanges or a commit clears it.
 func StagedChanges(dir string) ([]FileChange, error) {
-	if out, err := runGit(dir, "add", "-A"); err != nil {
-		return nil, fmt.Errorf("git add -A: %w: %s", err, out)
+	if err := stageAll(dir, nil); err != nil {
+		return nil, err
 	}
 	out, err := runGit(dir, "-c", "core.quotepath=off", "diff", "--cached", "-M", "--name-status", "-z", "HEAD")
 	if err != nil {

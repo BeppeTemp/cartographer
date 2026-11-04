@@ -59,12 +59,62 @@ type artifactPathInfo struct {
 	Name string // artifact name (slug); "" for instructions, paths and glossary
 }
 
+// ntfsGitShortName matches the 8.3 short name NTFS gives a ".git" directory.
+var ntfsGitShortName = regexp.MustCompile(`(?i)^git~[0-9]+$`)
+
+// hiddenPathSegment returns the first segment of rel that is hidden: it starts
+// with a dot, or it is a name a file system maps to ".git" (NTFS "GIT~1"). Both
+// "/" and "\" separate segments, so the answer does not depend on the host the
+// KB is checked out on. An artifact path has no hidden segment, and neither
+// does a directory the artifact tools move: a nested ".git" is no part of an
+// artifact.
+func hiddenPathSegment(rel string) (string, bool) {
+	for _, seg := range strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if strings.HasPrefix(seg, ".") || ntfsGitShortName.MatchString(seg) {
+			return seg, true
+		}
+	}
+	return "", false
+}
+
+// hiddenEntryUnder returns the slash-separated path, relative to dir, of the
+// first hidden file or directory below it that is not a junk file (a Finder
+// .DS_Store goes with the folder, it is never a reason to refuse; a hidden
+// directory is never junk, nor is anything below a junk directory), or
+// "" when there is none.
+func hiddenEntryUnder(dir string) (string, error) {
+	var found string
+	err := filepath.WalkDir(dir, func(abs string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if abs == dir {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, abs)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		// The entry's own name decides, whatever its ancestors are: a junk
+		// directory (__pycache__/) excuses nothing below it. Only a regular
+		// file whose own name is junk (.DS_Store) is let through.
+		if _, hidden := hiddenPathSegment(d.Name()); hidden && !(d.Type().IsRegular() && kb.IsJunkPath(d.Name())) {
+			found = rel
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found, err
+}
+
 // classifyArtifactPath validates relPath against the D71 whitelist and
 // extracts its (kind, name). This is the single path guard shared by all
 // four artifact_* tools: skills/<slug>/**, agents/<slug>.md, hooks/**,
 // mcp/<slug>.json, instructions.md, templates/<slug>.md, and the path
 // placeholder registry paths.yaml (D263) and the glossary glossary.yaml (D276). Rejects absolute
-// paths, traversal ("../"), and anything not matching one of those shapes.
+// paths, traversal ("../"), a hidden segment under any kind (hiddenPathSegment),
+// and anything not matching one of those shapes.
 func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	if relPath == "" {
 		return artifactPathInfo{}, fmt.Errorf("'path' is required")
@@ -79,6 +129,9 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	clean := filepath.ToSlash(filepath.Clean(relPath))
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
 		return artifactPathInfo{}, fmt.Errorf("path not allowed: %q escapes the KB root", relPath)
+	}
+	if seg, hidden := hiddenPathSegment(clean); hidden {
+		return artifactPathInfo{}, fmt.Errorf("path not allowed: %q has the hidden segment %q: an artifact path has no segment starting with a dot", relPath, seg)
 	}
 
 	if clean == "instructions.md" {

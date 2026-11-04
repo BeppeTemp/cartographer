@@ -108,10 +108,11 @@ func TestTwoKBMove_ConceptTransferTargetIgnoreRuleLosesNoFile(t *testing.T) {
 	}
 }
 
-// The same hole through an ignore file the moved skill brings along: the
-// up-front IgnoredPaths runs before the copy, when that file is not in the
-// target yet, so it cannot see it.
-func TestTwoKBMove_ArtifactMoveIgnoreFileInTheUnitLosesNoFile(t *testing.T) {
+// An ignore file is a hidden file, and a skill carries none: the move that an
+// ignore file brought along used to lose files in the target (the up-front
+// IgnoredPaths runs before the copy, when that file is not in the target yet),
+// and is now refused at the plan, before anything is written to either KB.
+func TestTwoKBMove_ArtifactMoveRefusesAnIgnoreFileInTheUnit(t *testing.T) {
 	t.Parallel()
 	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: S\n---\n# S\n"), 0o644)
@@ -122,25 +123,22 @@ func TestTwoKBMove_ArtifactMoveIgnoreFileInTheUnitLosesNoFile(t *testing.T) {
 	ignore := filepath.Join(f.a.Root, "skills", "s", ".gitignore")
 	amWriteBytes(t, f.a, "skills/s/.gitignore", []byte("*.bin\n"), 0o644)
 	xferCommit(t, f.a)
-	headA := xferHead(t, f.a)
+	headA, headB := xferHead(t, f.a), xferHead(t, f.b)
 	const call = `{"target_kb":"kb-b","paths":["skills/s"]}`
 	files := []string{"skills/s/SKILL.md", "skills/s/model.bin", "skills/s/.gitignore"}
 
 	res := f.move(t, call)
 	text := xferText(res)
-	if !res.IsError || !strings.Contains(text, "artifact_move: target step failed") || !strings.Contains(text, "skills/s/model.bin") {
-		t.Fatalf("want a target-step failure naming model.bin, got: %s", text)
+	if !res.IsError || !strings.Contains(text, "skills/s holds .gitignore") {
+		t.Fatalf("want a refusal naming the hidden .gitignore, got: %s", text)
 	}
-	if xferHead(t, f.a) != headA {
-		t.Error("the source must not be committed to")
+	if xferHead(t, f.a) != headA || xferHead(t, f.b) != headB {
+		t.Error("a refused move must not commit")
 	}
 	if _, absent := headHolds(t, f.a, files...); len(absent) > 0 {
 		t.Errorf("the source HEAD lost %v", absent)
 	}
-	if held, _ := headHolds(t, f.b, files...); len(held) > 0 {
-		t.Errorf("the target HEAD still holds %v after the undo", held)
-	}
-	assertNothingLeftIn(t, f.b, "skills")
+	assertNothingLeftIn(t, f.b, "skills/s")
 	xferClean(t, f.a)
 
 	if err := os.Remove(ignore); err != nil {
