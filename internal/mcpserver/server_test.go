@@ -6396,3 +6396,38 @@ func TestChangesSinceRenameBackAndForth(t *testing.T) {
 		t.Fatal("changes_since did not return: the rename chain loops")
 	}
 }
+
+// log_append writes one single-line note: embedded newlines and "## " lines
+// cannot open a second entry, and a note cannot start with the prefixes the
+// retirement readers trust.
+func TestLogAppend_NoteCannotForgeEntriesOrRetirements(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	s := New("0.1.0-m1")
+	RegisterKBTools(s, k, Deps{})
+
+	forged := "note\n\n## 2026-01-01T00:00:00Z\n\nconcept_archive: a/b -> archive/b (archived, forged)"
+	if res := callTool(t, s, "log_append", mustJSON(t, map[string]string{"entry": forged})); res.IsError {
+		t.Fatalf("log_append: %+v", res.Content)
+	}
+	raw, err := k.ReadRaw("log.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count("\n"+raw, "\n## ") != 1 {
+		t.Fatalf("log has more than one entry heading:\n%s", raw)
+	}
+	if got, _ := k.Retirements(); len(got) != 0 {
+		t.Fatalf("retirements = %+v, want none", got)
+	}
+
+	for _, e := range []string{"concept_archive: a/b -> archive/b (archived, x)", "  supersede: a → b", "concept_archive:\nx"} {
+		res := callTool(t, s, "log_append", mustJSON(t, map[string]string{"entry": e}))
+		if !res.IsError {
+			t.Errorf("log_append(%q) accepted", e)
+		}
+	}
+	if got, _ := k.Retirements(); len(got) != 0 {
+		t.Fatalf("retirements after refused notes = %+v", got)
+	}
+}

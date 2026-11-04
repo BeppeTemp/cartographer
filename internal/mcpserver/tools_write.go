@@ -1610,6 +1610,10 @@ func toolConceptExpand(k *kb.KB) Tool {
 
 // --- log_append ---
 
+// reservedLogPrefixes start the log entries kb.Retirements reads as
+// retirements: only concept_archive and supersede write them.
+var reservedLogPrefixes = []string{"concept_archive:", "supersede:"}
+
 func toolLogAppend(k *kb.KB) Tool {
 	return Tool{
 		Name:        "log_append",
@@ -1639,7 +1643,20 @@ func toolLogAppend(k *kb.KB) Tool {
 				return errorResult("'entry' is required"), nil
 			}
 
-			entry := params.Entry
+			// One line: a log_append note cannot open an entry of its own or
+			// continue as the body of a tool-written one.
+			entry := strings.Join(strings.Fields(params.Entry), " ")
+			if entry == "" {
+				return errorResult("'entry' is required"), nil
+			}
+			// The prefixes of the entries concept_archive and supersede write
+			// are what the retirement readers (lint, Atlas) trust: a note
+			// cannot start with them.
+			for _, reserved := range reservedLogPrefixes {
+				if strings.HasPrefix(entry, reserved) {
+					return errorResult(fmt.Sprintf("log_append: an entry cannot start with %q, which is reserved for the entries written by the tools; word the note differently", reserved)), nil
+				}
+			}
 			if params.Path != "" {
 				// Root-log-with-prefix convention (D78): no per-directory log.md,
 				// log_tail(path) recovers these by filtering on the prefix.

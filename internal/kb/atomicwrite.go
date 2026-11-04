@@ -47,6 +47,14 @@ func writeFileAtomic(dest string, data []byte) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("writeFileAtomic: write: %w", err)
 	}
+	// CreateTemp makes the file 0600 and the rename would keep it: the file
+	// keeps the permission bits of the one it replaces, 0644 for a new one,
+	// as files that arrive through git have them.
+	if err := tmp.Chmod(destMode(dest)); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("writeFileAtomic: chmod: %w", err)
+	}
 	if err := syncTempFile(tmp); err != nil {
 		tmp.Close()
 		os.Remove(tmpName)
@@ -62,6 +70,15 @@ func writeFileAtomic(dest string, data []byte) error {
 	}
 	_ = syncParent(dir)
 	return nil
+}
+
+// destMode is the permission a rewritten file keeps: those of the regular file
+// at dest, 0644 when there is none (or it is not a regular file).
+func destMode(dest string) os.FileMode {
+	if info, err := os.Lstat(dest); err == nil && info.Mode().IsRegular() {
+		return info.Mode().Perm()
+	}
+	return 0o644
 }
 
 // tempNameRe is exactly what os.CreateTemp(dir, tempFilePrefix) produces: the

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -110,5 +111,37 @@ func TestOpen_DoesNotSweepOrCreateTheLockFile(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(k.Root, LockFileName)); err == nil {
 		t.Error("Open created the lock file")
+	}
+}
+
+// A rewritten file keeps the permission bits of the one it replaces, and a new
+// one is 0644: not the 0600 of the temporary file.
+func TestWriteFileAtomic_KeepsTheModeOfTheFileItReplaces(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	dir := t.TempDir()
+	for name, mode := range map[string]os.FileMode{"a.md": 0o644, "run.sh": 0o755, "ro.md": 0o640} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("old"), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeFileAtomic(p, []byte("new")); err != nil {
+			t.Fatal(err)
+		}
+		if info, _ := os.Stat(p); info.Mode().Perm() != mode {
+			t.Errorf("%s mode = %v, want %v", name, info.Mode().Perm(), mode)
+		}
+	}
+	fresh := filepath.Join(dir, "fresh.md")
+	if err := writeFileAtomic(fresh, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(fresh); info.Mode().Perm() != 0o644 {
+		t.Errorf("new file mode = %v, want 0644", info.Mode().Perm())
 	}
 }

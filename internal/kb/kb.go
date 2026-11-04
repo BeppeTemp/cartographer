@@ -1156,7 +1156,7 @@ func (kb *KB) AppendLog(entry string, ts time.Time) error {
 	}
 
 	tsStr := ts.UTC().Format(time.RFC3339)
-	entryBlock := fmt.Sprintf("## %s\n\n%s\n\n", tsStr, entry)
+	entryBlock := fmt.Sprintf("## %s\n\n%s\n\n", tsStr, neutralizeHeadings(entry))
 
 	// Insert after the first line (# Log header) if present. A CRLF log (a
 	// Windows clone with core.autocrlf) keeps its line endings: the entry is
@@ -1175,6 +1175,19 @@ func (kb *KB) AppendLog(entry string, ts time.Time) error {
 	}
 
 	return writeFileAtomic(logPath, []byte(newContent))
+}
+
+// neutralizeHeadings keeps an entry text inside its own entry: a line that
+// starts with "## " would open a new entry in the log, so it is escaped with a
+// leading backslash.
+func neutralizeHeadings(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimLeft(l, " \t"), "## ") {
+			lines[i] = "\\" + strings.TrimLeft(l, " \t")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // LogTail reads the last n entries relevant to relPath. An "entry" starts with "## ".
