@@ -977,11 +977,20 @@ func IsAncestor(dir, ancestor, descendant string) (bool, error) {
 	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", ancestor, descendant, err, out)
 }
 
-// Ancestors returns the set of commits reachable from rev, rev itself
-// included ("git rev-list rev"): one process answers "is this commit an
-// ancestor of rev" for any number of commits, where IsAncestor costs one each.
-func Ancestors(dir, rev string) (map[string]bool, error) {
-	out, err := runGit(dir, "rev-list", "--end-of-options", rev)
+// Ancestors returns the commits reachable from rev, rev itself included, that
+// touch one of paths ("git rev-list --full-history rev -- paths"): one process
+// answers "is this commit an ancestor of rev" for every commit of those paths'
+// history, where IsAncestor costs one each, and the walk is bounded by the
+// paths' history, not the repository's. --full-history keeps every commit that
+// differs from a parent on a path, a superset of what `git log -- path` lists,
+// so a commit of that history is in the set exactly when it is an ancestor. The
+// "--" after rev keeps a file named like the rev from making it ambiguous.
+func Ancestors(dir, rev string, paths []string) (map[string]bool, error) {
+	if len(paths) == 0 {
+		return map[string]bool{}, nil
+	}
+	args := append([]string{"--literal-pathspecs", "rev-list", "--full-history", "--end-of-options", rev, "--"}, paths...)
+	out, err := runGit(dir, args...)
 	if err != nil {
 		return nil, fmt.Errorf("git rev-list %s: %w: %s", rev, err, out)
 	}

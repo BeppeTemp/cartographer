@@ -74,6 +74,10 @@ func TestConceptMove_MentionsViaIndexEqualsFullScan(t *testing.T) {
 	if set == nil || len(set) == 0 || len(set) > 4 {
 		t.Fatalf("candidates = %v, want the few concepts naming ops/network", set)
 	}
+	rec.sqlStale = true // an earlier SQLite write failed: the index is not trusted
+	if rec.mentionCandidates([]string{"ops/network"}) != nil {
+		t.Error("a stale SQLite index must fall back to the full scan")
+	}
 	if rec2 := newSearchReconciler(k, nil); rec2.mentionCandidates([]string{"x"}) != nil {
 		t.Error("without an SQLite index the candidates are unknown (nil)")
 	}

@@ -169,13 +169,22 @@ func scanMentions(k *kb.KB, moveMap map[string]string, candidates func(oldIDs []
 // the KB: after bringing the SQLite index in line with the files it asks it
 // which stored contents hold an old ID as a substring (a superset of the
 // whole-token matches the scan then confirms in those files). nil, meaning
-// "scan everything", when there is no SQLite index or either step fails: the
+// "scan everything", when there is no SQLite index, either step fails, or any
+// earlier SQLite write failed (sqlStale: the failure is only logged and its
+// delta consumed, so the index may lack a row for good): the
 // index is a derived cache and never decides what the report omits.
 func (r *searchReconciler) mentionCandidates(oldIDs []string) map[string]bool {
 	if r == nil || r.sql == nil {
 		return nil
 	}
-	if _, err := r.reconcile(); err != nil {
+	stats, err := r.reconcile()
+	if err != nil || stats.Failed > 0 {
+		return nil
+	}
+	r.mu.Lock()
+	stale := r.sqlStale
+	r.mu.Unlock()
+	if stale {
 		return nil
 	}
 	set, err := r.sql.IDsContaining(oldIDs)

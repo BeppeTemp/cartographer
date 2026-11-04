@@ -86,10 +86,21 @@ reason: r
 		t.Fatalf("gate = %+v", res)
 	}
 	mu.Lock()
-	n := len(reads)
+	var concepts, contradictions int
+	for _, rel := range reads {
+		switch {
+		case strings.HasPrefix(rel, "arch/"):
+			concepts++
+		case strings.HasPrefix(rel, "conflicts/"):
+			contradictions++
+		}
+	}
+	got := append([]string(nil), reads...)
 	mu.Unlock()
-	if n != 3 { // the three Contradiction concepts, the gap included
-		t.Fatalf("CommitGate read %d files %v, want the 3 contradictions", n, reads)
+	// The 3 Contradictions (the gap included) and the reserved files the graph
+	// does not hold; none of the 20 ordinary concepts.
+	if concepts != 0 || contradictions != 3 {
+		t.Fatalf("CommitGate read %v, want the 3 contradictions and no ordinary concept", got)
 	}
 
 	mu.Lock()
@@ -106,5 +117,38 @@ reason: r
 	defer mu.Unlock()
 	if len(seen) != 2 || len(reads) != 2 {
 		t.Fatalf("walked %v, read %v, want the 2 named concepts", seen, reads)
+	}
+}
+
+// The gate keeps the walk's order, and a Contradiction in a file the graph
+// does not hold (a reserved index.md) still blocks, as the full walk did.
+func TestCommitGate_OrderAndReservedFiles(t *testing.T) {
+	t.Parallel()
+	k := newTestKB(t)
+	const c = "---\ntype: Contradiction\nresolution_status: open\ninvolves: [arch/n0]\ncontradiction_kind: conflict\nreason: r\n---\n# C\n"
+	for _, rel := range []string{"conflicts/a.md", "conflicts/a/b.md", "conflicts/z.md", "conflicts/index.md"} {
+		writeTestFile(t, k.DataRoot(), rel, c)
+	}
+	writeTestFile(t, k.DataRoot(), "arch/n0.md", "---\ntype: Note\ntitle: N\n---\n# N\n")
+	res, err := k.CommitGate([]okf.ConceptID{"arch/n0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := k.listMDFiles(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string // the full walk's order, as before
+	for _, rel := range all {
+		if strings.HasPrefix(rel, "conflicts/") && rel != "conflicts/_map.md" {
+			want = append(want, rel)
+		}
+	}
+	var got []string
+	for _, b := range res.Blockers {
+		got = append(got, b.ConceptPath)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") || len(got) != 4 {
+		t.Fatalf("blockers = %v, want %v", got, want)
 	}
 }

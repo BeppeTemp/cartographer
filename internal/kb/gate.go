@@ -2,7 +2,6 @@ package kb
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -29,23 +28,34 @@ var GapKinds = map[string]bool{"missing_context": true, "open_question": true}
 // IsGapKind reports whether kind is one of the reserved gap kinds.
 func IsGapKind(kind string) bool { return GapKinds[kind] }
 
-// contradictionFiles lists the files that can hold a Contradiction, sorted as
-// the directory walk is: the ones the cached graph (D241) types as one, so the
-// gate reads those and no other file. When the graph cannot be validated it is
-// every .md file, as before, and the loop below filters by type itself.
+// contradictionFiles lists, in the directory walk's order, the files the gate
+// must read: every .md file except the concepts the cached graph (D241) types
+// as something other than a Contradiction. A file the graph does not hold (the
+// reserved root and map index.md, _map.md, _archive.md) is still read, as the
+// full walk read it; a concept is read only when the graph says Contradiction.
+// When the graph cannot be validated it is every .md file, and the loop in
+// CommitGate filters by type itself.
 func (kb *KB) contradictionFiles() ([]string, error) {
+	files, err := kb.listMDFiles(".")
+	if err != nil {
+		return nil, err
+	}
 	view, err := kb.graphView()
 	if err != nil {
-		return kb.listMDFiles(".")
+		return files, nil
 	}
-	var files []string
+	typed := make(map[string]bool, len(view.entries)) // rel -> is a Contradiction
 	for _, e := range view.entries {
-		if e.facets.Parsed && IsContradictionType(e.facets.Type) {
-			files = append(files, e.rel)
-		}
+		typed[e.rel] = e.facets.Parsed && IsContradictionType(e.facets.Type)
 	}
-	sort.Strings(files)
-	return files, nil
+	out := files[:0]
+	for _, rel := range files {
+		if isC, inGraph := typed[rel]; inGraph && !isC {
+			continue
+		}
+		out = append(out, rel)
+	}
+	return out, nil
 }
 
 // CommitGate checks for open contradictions involving any of the given concept IDs.

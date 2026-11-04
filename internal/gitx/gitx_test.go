@@ -1192,3 +1192,55 @@ func TestProbeRemoteContent(t *testing.T) {
 		t.Errorf("two branches = (%+v, %v), want refs only", got, err)
 	}
 }
+
+// Ancestors answers for the commits of the given paths only, and a rev named
+// like a file in the repository root is not ambiguous.
+func TestAncestors(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2024, time.March, 1, 10, 0, 0, 0, time.UTC)
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("page.md", "one\n")
+	commitAt(t, dir, "c1", base)
+	first, _ := HeadSHA(dir)
+	write("page.md", "two\n")
+	write("other.md", "x\n")
+	commitAt(t, dir, "c2", base.Add(time.Hour))
+	second, _ := HeadSHA(dir)
+	write("other.md", "y\n")
+	commitAt(t, dir, "c3", base.Add(2*time.Hour))
+	third, _ := HeadSHA(dir)
+
+	// A branch and a file with one name: the rev must resolve as the branch.
+	if out, err := runGit(dir, "branch", "shared", first); err != nil {
+		t.Fatalf("branch: %v %s", err, out)
+	}
+	write("shared", "a file\n")
+
+	set, err := Ancestors(dir, "shared", []string{"page.md"})
+	if err != nil {
+		t.Fatalf("Ancestors with a file named like the rev: %v", err)
+	}
+	if len(set) != 1 || !set[first] {
+		t.Fatalf("set = %v, want only %s", set, first)
+	}
+	set, err = Ancestors(dir, third, []string{"page.md"})
+	if err != nil || len(set) != 2 || !set[first] || !set[second] {
+		t.Fatalf("set = %v, err = %v: want the two commits touching page.md", set, err)
+	}
+	if set[third] {
+		t.Error("a commit that does not touch the paths is outside the bounded set")
+	}
+	if _, err := Ancestors(dir, "deadbeefdeadbeef", []string{"page.md"}); err == nil {
+		t.Error("an unknown rev must be an error")
+	}
+}

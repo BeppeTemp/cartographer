@@ -523,7 +523,15 @@ func readConceptAtRev(k *kb.KB, guard *historyGuard, id, rev string) (*kb.Concep
 	// revision, up to conceptHistoryScan, before). An unknown rev is reported
 	// by git as an error; to the caller it is the same as a revision without
 	// the file.
-	ancestors, err := gitx.Ancestors(k.Root, rev)
+	var paths []string
+	seenPath := map[string]bool{}
+	for _, r := range revs {
+		if !seenPath[r.Path] {
+			seenPath[r.Path] = true
+			paths = append(paths, r.Path)
+		}
+	}
+	ancestors, err := gitx.Ancestors(k.Root, rev, paths)
 	if err != nil {
 		return nil, notFound
 	}
