@@ -237,6 +237,10 @@ func trimMDExt(name string) string {
 	return name
 }
 
+// importMaxFileSize is the largest source file import reads: ten times the
+// body size concept_read guards, so a regular note never reaches it.
+const importMaxFileSize = 10 * okf.ConceptReadSizeGuard
+
 // stringSliceFlag implements flag.Value, accumulating one entry per
 // occurrence of a repeatable flag (used by --map).
 type stringSliceFlag []string
@@ -363,6 +367,18 @@ func buildImportPlanWithOptions(source string, mapping []importMapEntry, default
 		}
 		rel = filepath.ToSlash(rel)
 		if strings.HasSuffix(strings.ToLower(name), ".md") {
+			// A link is not imported: its target may sit anywhere on the
+			// machine, outside the corpus --source names.
+			if d.Type()&fs.ModeSymlink != 0 {
+				fmt.Fprintf(os.Stderr, "skipped %s: symbolic link\n", rel)
+				skipped = append(skipped, rel)
+				return nil
+			}
+			if info, infoErr := d.Info(); infoErr == nil && info.Size() > importMaxFileSize {
+				fmt.Fprintf(os.Stderr, "skipped %s: %d bytes exceeds the %d byte limit per file\n", rel, info.Size(), importMaxFileSize)
+				skipped = append(skipped, rel)
+				return nil
+			}
 			mdFiles = append(mdFiles, rel)
 		} else {
 			skipped = append(skipped, rel)

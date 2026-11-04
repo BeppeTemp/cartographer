@@ -350,3 +350,26 @@ func TestSecretToolMessagesSayTheWayOut(t *testing.T) {
 		t.Errorf("secret_set without key: %v", res.Content)
 	}
 }
+
+// The secrets prefix is tested on the canonical spelling: a path that would
+// clean to somewhere else is refused at every site that takes one.
+func TestSecretsPaths_RefuseNonCanonicalSpellings(t *testing.T) {
+	bad := "secrets/../data/x.sops.yaml"
+	if _, ok := secretsSources(bad); ok {
+		t.Errorf("secretsSources accepted %q", bad)
+	}
+	if _, ok := secretsSources("secrets/./a.sops.yaml"); ok {
+		t.Error("secretsSources accepted a . segment")
+	}
+	if _, ok := secretsSources("secrets/a.sops.yaml"); !ok {
+		t.Error("secretsSources refused a canonical path")
+	}
+	if _, err := parseSecretRefs([]string{"PW=" + bad + "#/pw"}); err == nil {
+		t.Errorf("parseSecretRefs accepted %q", bad)
+	}
+	k := secretRefsKB(t)
+	res := callSecretTool(t, toolSecretSet(k), map[string]any{"path": bad, "key": "/k", "value": "v"})
+	if !res.IsError {
+		t.Errorf("secret_set accepted %q", bad)
+	}
+}

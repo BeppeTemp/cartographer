@@ -906,7 +906,7 @@ actions have ⌘O, ⌘R, ⌘L, ⌘Q while the menu is open; Windows shows the sa
 A mechanical import scaffold (D74 WP2), a sibling of the agentic `cartographer-kb-import` skill
 (`internal/skillbundle/bundled/cartographer-kb-import/`): unlike the other subcommands, it doesn't talk to the
 server, it operates directly on a local clone of the KB (`--kb`). It walks the `.md` files under `--source`
-(recursively, skipping hidden directories), maps each source directory onto a destination map (or
+(recursively, skipping hidden directories; a symbolic link and a file over 600 000 bytes are skipped with a line on stderr and counted as skipped), maps each source directory onto a destination map (or
 expanded concept), fills in the frontmatter (never overwriting a field already present), and writes via
 `kb.Open`+`WriteConcept`. By default it leaves the working tree for the operator to review; `--commit`
 creates one final commit containing only the paths written by that import.

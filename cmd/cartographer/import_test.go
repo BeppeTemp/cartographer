@@ -702,3 +702,33 @@ func TestCmdImport_UpperCaseMDExtension(t *testing.T) {
 		t.Errorf("both links to Upper.MD must be rewritten to upper.md:\n%s", other)
 	}
 }
+
+// A symbolic link in the corpus is skipped with a reason, and a file over the
+// per-file limit likewise; neither is read.
+func TestCmdImport_SkipsLinksAndOversizedFiles(t *testing.T) {
+	src := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("outside content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSourceFile(t, src, "real.md", "Real note.\n")
+	writeSourceFile(t, src, "big.md", strings.Repeat("x", importMaxFileSize+1))
+	if err := os.Symlink(outside, filepath.Join(src, "linked.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	kbDir := kbtest.New(t).Root
+	out := withStdout(t, func() {
+		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
+			t.Errorf("cmdImport = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "imported: 1, skipped: 2, errors: 0") {
+		t.Errorf("unexpected summary: %q", out)
+	}
+	for _, name := range []string{"linked.md", "big.md"} {
+		if _, err := os.Stat(filepath.Join(kbDir, "data", "notes", name)); err == nil {
+			t.Errorf("%s was imported", name)
+		}
+	}
+}

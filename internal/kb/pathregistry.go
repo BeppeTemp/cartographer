@@ -266,6 +266,9 @@ func checkRegistryDefault(p string) string {
 	if !ok {
 		return fmt.Sprintf("default %q must start with ~/ or $HOME/ (a default is read on every machine, so it cannot name an absolute or relative path)", p)
 	}
+	if strings.ContainsAny(rest, `\:`) {
+		return fmt.Sprintf("default %q must not contain a backslash or a colon (they are separators or drive markers on Windows)", p)
+	}
 	for _, seg := range strings.Split(rest, "/") {
 		if seg == ".." {
 			return fmt.Sprintf("default %q must not contain a .. segment", p)

@@ -135,6 +135,11 @@ func registryDefaultPath(p string) (string, bool) {
 	default:
 		return "", false
 	}
+	// "\" and ":" are separators or drive markers on Windows, where the join
+	// below would clean a ".." the split on "/" never saw.
+	if strings.ContainsAny(rest, `\:`) {
+		return "", false
+	}
 	for _, seg := range strings.Split(rest, "/") {
 		if seg == ".." {
 			return "", false

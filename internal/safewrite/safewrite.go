@@ -126,10 +126,15 @@ func WriteFileNoFollow(path string, data []byte, perm os.FileMode) error {
 // baseDir anchors the walk; dir must be inside it.
 func MkdirAllNoFollow(baseDir, dir string, perm os.FileMode) error {
 	rel, err := filepath.Rel(baseDir, dir)
-	if err == nil && !strings.HasPrefix(rel, "..") {
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		// A name that merely starts with two dots ("..cache") is inside baseDir.
 		if err := EnsureSafeDir(baseDir, rel); err != nil {
 			return err
 		}
+	} else if IsUnsafe(dir) {
+		// Outside baseDir no base anchors a walk: check the directory itself,
+		// as CheckPath does.
+		return refusal(dir)
 	}
 	return os.MkdirAll(dir, perm)
 }
