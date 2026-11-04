@@ -155,12 +155,14 @@ func (e *TrackedCollisionError) Error() string {
 // in workspaceDir is already tracked by git. It is called **before** anything is
 // written, so a refusal costs nothing.
 //
-// A shared-file destination (CLAUDE.md, AGENTS.md, opencode.json) that is
-// tracked is deliberately NOT a refusal: those are user-owned files that a
-// repository legitimately has, and Cartographer writes a marker-delimited block
-// inside them rather than owning the file — the same D57 mechanism it uses for
-// a user's settings.json. Only a path Cartographer would own **entirely** — its
-// own directories, and .mcp.json, which it writes whole — can collide.
+// A shared-file destination (CLAUDE.md, AGENTS.md, .codex/hooks.json: blockPaths)
+// that is tracked is deliberately NOT a refusal: those are user-owned files that
+// a repository legitimately has, and Cartographer edits only its own part of
+// them (a marker-delimited block, or its own hook entries) rather than owning
+// the file — the same D57 mechanism it uses for a user's settings.json. A path
+// Cartographer would own **entirely** — its own directories, .mcp.json and the
+// non-named MCP cell opencode.json (ProjectOwnedArtifactPaths) — is a
+// TrackedCollisionError when tracked.
 func CheckWorkspaceHygiene(provider, workspaceDir string, ownedPaths, blockPaths []string) error {
 	tracked, err := gitTrackedFn(workspaceDir)
 	if err != nil {

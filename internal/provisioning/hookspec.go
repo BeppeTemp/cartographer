@@ -161,13 +161,13 @@ func ValidateHookJSON(data []byte) (misses []string, err error) {
 // UnknownHookEvent returns a warning when hook.json declares an event outside
 // the vocabulary, "" otherwise. It warns rather than rejects: the vocabulary
 // holds only the events this repository encodes, and a client may fire more
-// (Claude Code's Notification, for one), which claude/codex register as declared.
+// (Claude Code's Notification, for one), which those registrars write as declared.
 func UnknownHookEvent(data []byte) string {
 	spec, err := parseHookSpec(data)
 	if err != nil || hookEventKnown(spec.Event) {
 		return ""
 	}
-	return fmt.Sprintf("event %q is not in the known vocabulary (%s): it is registered as declared on claude and codex, and never fires if misspelled", spec.Event, strings.Join(HookEventNames(), ", "))
+	return fmt.Sprintf("event %q is not in the known vocabulary (%s): it is registered as declared on claude, codex, copilot, crush, kiro and pi, and never fires if misspelled", spec.Event, strings.Join(HookEventNames(), ", "))
 }
 
 // hookSpecWarning is the sync-time report for a hook whose hook.json cannot be

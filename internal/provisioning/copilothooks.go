@@ -68,7 +68,15 @@ func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warnin
 	// eaten, D267); powershell keeps the host's spelling and needs the call
 	// operator in front of a quoted executable.
 	powershell := command
-	if strings.HasPrefix(powershell, `"`) {
+	if strings.HasPrefix(powershell, `'`) {
+		// A POSIX-quoted executable: PowerShell quotes an apostrophe by doubling
+		// it, not with '\''.
+		bin, rest, hasRest := splitHookCommand(powershell)
+		powershell = "& '" + strings.ReplaceAll(unquoteHookToken(bin), `'`, `''`) + "'"
+		if hasRest {
+			powershell += " " + rest
+		}
+	} else if strings.HasPrefix(powershell, `"`) {
 		powershell = "& " + powershell
 	}
 	content, err := json.MarshalIndent(map[string]any{

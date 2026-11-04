@@ -97,6 +97,9 @@ func removeKiroHook(baseDir, hookName string) error {
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
+	if names, err := fileNamesHook(path, hookName); err != nil || !names {
+		return err
+	}
 	doc, err := loadJSONObject(path)
 	if err != nil {
 		return err

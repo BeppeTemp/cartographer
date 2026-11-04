@@ -93,13 +93,13 @@ func TestResolveHookCommand(t *testing.T) {
 			name:    "a resolved path containing a space is quoted, not truncated",
 			command: "./notify.sh",
 			hookDir: spacedDir,
-			want:    `"` + filepath.Join(spacedDir, "notify.sh") + `"`,
+			want:    hookQuoteForTest(filepath.Join(spacedDir, "notify.sh")),
 		},
 		{
 			name:    "a quoted resolved path keeps its arguments after the quote",
 			command: "./notify.sh --flag",
 			hookDir: spacedDir,
-			want:    `"` + filepath.Join(spacedDir, "notify.sh") + `" --flag`,
+			want:    hookQuoteForTest(filepath.Join(spacedDir, "notify.sh")) + " --flag",
 		},
 		{
 			// isAbsCommandPath, not filepath.IsAbs: on unix the latter calls a
@@ -124,7 +124,7 @@ func TestResolveHookCommand(t *testing.T) {
 			name:    "an already-quoted absolute command round-trips",
 			command: `"C:\Program Files\notify.exe" --flag`,
 			hookDir: posixDir,
-			want:    `"C:\Program Files\notify.exe" --flag`,
+			want:    hookQuoteForTest(`C:\Program Files\notify.exe`) + " --flag",
 		},
 	}
 
@@ -150,7 +150,7 @@ func TestResolveHookCommand(t *testing.T) {
 // the ends, so they cannot get in the way — but nothing said so before.
 func TestQuotedCommandIsStillRecognisedAsOurs(t *testing.T) {
 	command := resolveHookCommand("./notify.sh", hookDirWithASpace(t))
-	if !strings.HasPrefix(command, `"`) {
+	if !strings.HasPrefix(command, hookQuoteForTest("")[:1]) {
 		t.Fatalf("command %q is not quoted: the rest of this test asserts nothing", command)
 	}
 	if marker := hookOwnershipMarker("notify"); !commandOwnedBy(command, marker) {
@@ -200,4 +200,13 @@ func TestSplitHookCommand(t *testing.T) {
 			t.Errorf("splitHookCommand(%q) = (%q, %q, %v), want (%q, %q, %v)", c.in, bin, rest, hasRest, c.bin, c.rest, c.hasRest)
 		}
 	}
+}
+
+// hookQuoteForTest is the host's quote of an executable holding a space:
+// single quotes on a POSIX host, double on Windows.
+func hookQuoteForTest(bin string) string {
+	if hookHostWindows {
+		return `"` + bin + `"`
+	}
+	return "'" + bin + "'"
 }
