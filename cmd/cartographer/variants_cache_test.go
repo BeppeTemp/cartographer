@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/agents"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -178,8 +179,8 @@ func TestUnregisteredCachedNameIsNotDropped(t *testing.T) {
 	}
 	var errw bytes.Buffer
 	registerCachedVariants(&errw)
-	if errw.Len() == 0 {
-		t.Fatal("no warning for the broken entry")
+	if registered("fork-cli") {
+		t.Fatal("a broken descriptor was registered")
 	}
 	cfg, err := clientconfig.Load(home)
 	if err != nil {
@@ -360,5 +361,70 @@ func TestForgetCachedVariant(t *testing.T) {
 	}
 	if _, err := os.Stat(skill); err != nil {
 		t.Fatalf("revoke removed what was installed: %v", err)
+	}
+}
+
+func TestWantsVariantDiscovery(t *testing.T) {
+	for _, tc := range []struct {
+		target, csv string
+		want        bool
+	}{
+		{"", "", true}, {"all", "", true}, {"claude", "", false}, {"fork-cli", "", true},
+		{"", "claude,codex", false}, {"", "claude, fork-cli", true},
+	} {
+		if got := wantsVariantDiscovery(tc.target, tc.csv); got != tc.want {
+			t.Errorf("wantsVariantDiscovery(%q,%q) = %v, want %v", tc.target, tc.csv, got, tc.want)
+		}
+	}
+}
+
+func TestSetupPlanDefersAgentsWhenAKBSourceExists(t *testing.T) {
+	f := baseSetupFacts()
+	f.Detected = nil
+	f.RemoteProbed = true
+	p, err := planSetup(f, setupOptions{Remote: "git@h:me/new.git", ApproveVariants: true})
+	if err != nil || !p.AgentsLater || !p.ApproveVariants || len(p.Agents) != 0 {
+		t.Fatalf("plan = %+v, err %v: want agents deferred", p, err)
+	}
+	var b bytes.Buffer
+	renderSetupPlan(&b, p, f)
+	if !strings.Contains(b.String(), "detected after the KB is mounted") {
+		t.Errorf("plan does not say agents are detected after the KB is mounted:\n%s", b.String())
+	}
+}
+
+func TestReconcileReportsNewlyCachedVariantsOnce(t *testing.T) {
+	home := variantHome(t)
+	a := variantArtifact(cachedVariant)
+	cfg := writeConfig(t, home, a)
+	pulled := map[string]bool{"kb-a": true}
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, pulled, true, false); len(res.Added) != 1 || res.Added[0] != "fork-cli" {
+		t.Fatalf("first run Added = %v, want [fork-cli]", res.Added)
+	}
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, pulled, true, false); len(res.Added) != 0 {
+		t.Fatalf("a variant already cached is not new: Added = %v", res.Added)
+	}
+}
+
+func TestAgentsTableNamesAVariantAfterItsBase(t *testing.T) {
+	var b bytes.Buffer
+	writeAgentsTable(&b, []agents.Agent{
+		{Provider: "claude", Name: "Claude Code", Installed: true},
+		{Provider: "fork-cli", Name: "Fork CLI", Installed: true, Variant: true, Base: "crush"},
+	}, map[string]bool{"fork-cli": true})
+	if !strings.Contains(b.String(), "fork-cli (variant of crush)") {
+		t.Errorf("table does not say what the variant forks:\n%s", b.String())
+	}
+}
+
+func TestDoctorReportsACachedVariantThatIsNotAuthorized(t *testing.T) {
+	home := variantHome(t)
+	a := variantArtifact(cachedVariant)
+	if err := clientvariant.SaveCache(home, cacheOf(a)); err != nil {
+		t.Fatal(err)
+	}
+	got := checkClientVariants(home, &clientconfig.Config{})
+	if len(got) != 1 || !strings.Contains(got[0].Fix, "approve variant fork-cli --kb kb-a") {
+		t.Fatalf("findings = %+v, want one naming the approve command", got)
 	}
 }

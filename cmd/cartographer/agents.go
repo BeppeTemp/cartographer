@@ -60,6 +60,11 @@ func cmdAgents(args []string) int {
 		}
 	}
 	writeAgentsTable(os.Stdout, agents.Detect(), connected)
+	if dir, err := clientconfig.TargetDir(); err == nil {
+		for _, n := range variantsNeedingApproval(dir) {
+			fmt.Printf("%s (client variant): needs approval: cartographer approve variant %s --kb <kb>\n", escapeControl(n), escapeControl(n))
+		}
+	}
 	return 0
 }
 
@@ -77,7 +82,7 @@ func cmdAgents(args []string) int {
 func writeAgentsTable(w io.Writer, detected []agents.Agent, connected map[string]bool) {
 	provider, detectedBy := len("PROVIDER"), len("DETECTION")
 	for _, a := range detected {
-		if n := len(a.Provider); n > provider {
+		if n := len(agentLabel(a)); n > provider {
 			provider = n
 		}
 		if n := len(a.DetectedBy); n > detectedBy {
@@ -86,7 +91,7 @@ func writeAgentsTable(w io.Writer, detected []agents.Agent, connected map[string
 	}
 	fmt.Fprintf(w, "%-*s %-10s %-10s %-*s %s\n", provider, "PROVIDER", "INSTALLED", "CONNECTED", detectedBy, "DETECTION", "EVIDENCE")
 	for _, a := range detected {
-		fmt.Fprintf(w, "%-*s %-10s %-10s %-*s %s\n", provider, a.Provider, yesNo(a.Installed), yesNo(connected[string(a.Provider)]), detectedBy, dashIfEmpty(string(a.DetectedBy)), dashIfEmpty(a.Evidence))
+		fmt.Fprintf(w, "%-*s %-10s %-10s %-*s %s\n", provider, agentLabel(a), yesNo(a.Installed), yesNo(connected[string(a.Provider)]), detectedBy, dashIfEmpty(string(a.DetectedBy)), dashIfEmpty(a.Evidence))
 	}
 }
 

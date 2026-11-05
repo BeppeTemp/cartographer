@@ -308,7 +308,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 	// D1698: the KBs' variant declarations against the cache, before the
 	// retired ones are dropped from this run.
-	if retired := syncVariants(out, errw, cfg, dir, projections, declaredVariants, manifests, pullFailures, healthErr == nil, opts.DryRun); len(retired) > 0 {
+	retired, newVariants := syncVariants(out, errw, cfg, dir, projections, declaredVariants, manifests, pullFailures, healthErr == nil, opts.DryRun)
+	if len(opts.Clients) > 0 {
+		newVariants = nil // --client leaves every other provider untouched
+	}
+	if len(retired) > 0 {
 		targets = removeStrings(targets, retired)
 		kept := projections[:0:0]
 		for _, p := range projections {
@@ -435,6 +439,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	printApplySummary(out, dir, results, opts.DryRun)
 	printInstructionsSizeWarnings(out, dir, results, opts.DryRun)
 	printSyncRevisions(out, results, targets, opts.DryRun)
+	// After the apply and the config save above: doConnectLocked reads the
+	// config from disk and writes it back.
+	connectNewVariants(out, errw, cfg, dir, newVariants)
 	// D326: after the apply, so the lockfile names what was just materialised.
 	// A dry run changes nothing and neither does it report, and an unreachable
 	// server has nobody to report to.

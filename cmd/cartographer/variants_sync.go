@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -25,7 +26,9 @@ type variantPending struct {
 // the cache did. Cached are the names stored or refreshed, Retired the ones
 // dropped, Detected the cached variants whose client is installed here.
 type variantSyncResult struct {
-	Cached     []string
+	Cached []string
+	// Added are the Cached names the cache did not hold before this run.
+	Added      []string
 	Pending    []variantPending
 	Collisions []string
 	Retired    []string
@@ -111,6 +114,9 @@ func reconcileVariants(dir string, cfg *clientconfig.Config, arts []provisioning
 		}
 		if old, ok := next[name]; ok && old.SourceKB == kb && old.ContentHash == a.ContentHash {
 			continue
+		}
+		if _, had := next[name]; !had {
+			res.Added = append(res.Added, name)
 		}
 		next[name] = clientvariant.NewCacheEntry(kb, a.ContentHash, a.Files[0].Content, time.Now())
 		res.Cached = append(res.Cached, name)
@@ -219,13 +225,12 @@ func printVariantSync(w io.Writer, res variantSyncResult, dryRun bool) {
 	}
 }
 
-// syncVariants runs reconcileVariants from the variant declarations the pulled
-// KBs served and prints the outcome; it returns the names retired, which the
-// caller leaves out of the run. Under dry-run it retires nothing and returns
-// nil. The declarations come from the pull itself, not from the projections'
-// manifests: kb_options artifacts:false and workspace scoping drop a KB's
-// artifacts there, and a variant filtered out is not a variant undeclared.
-func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, projections []syncProjection, declared []provisioning.Artifact, manifests map[string]provisioning.Manifest, failures []kbPullFailure, reachable, dryRun bool) []string {
+// syncVariants runs reconcileVariants from the manifests a sync pulled and
+// prints the outcome; it returns the names retired, which the caller leaves out
+// of the run, and the variants to connect: newly declared, authorized and
+// detected here, not connected yet (the KB asked for them, D1702). Under dry-run
+// it retires and connects nothing and returns nil.
+func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, projections []syncProjection, declared []provisioning.Artifact, manifests map[string]provisioning.Manifest, failures []kbPullFailure, reachable, dryRun bool) (retired, connect []string) {
 	var arts []provisioning.Artifact
 	seen := map[string]bool{}
 	for _, a := range declared {
@@ -259,7 +264,12 @@ func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, pro
 	}
 	printVariantSync(out, res, dryRun)
 	if dryRun {
-		return nil
+		return nil, nil
 	}
-	return res.Retired
+	for _, n := range res.Added {
+		if slices.Contains(res.Detected, n) && !slices.Contains(cfg.Agents, n) {
+			connect = append(connect, n)
+		}
+	}
+	return res.Retired, connect
 }
