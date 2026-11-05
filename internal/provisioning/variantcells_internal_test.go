@@ -154,20 +154,11 @@ func TestVariantCells_ForkCLIDestinations(t *testing.T) {
 	}
 }
 
-// The hook cell is ignored until the base's registrar is wired: a destination
-// without it would copy hook files that nothing runs.
-func TestVariantCells_HookCellIsNotRegistered(t *testing.T) {
-	notes := registerTestVariant(t, testVariant(t, "fork-ext", testForkExt, "linux", nil))
-	if len(notes) != 1 || !strings.Contains(notes[0], "hook cell: applied by a later release") {
-		t.Fatalf("notes = %q", notes)
-	}
+// A variant's hook cell is built (varianthooks_internal_test.go); the rest of an
+// editor fork's cells are as declared.
+func TestVariantCells_ForkExtCells(t *testing.T) {
+	registerTestVariant(t, testVariant(t, "fork-ext", testForkExt, "linux", nil))
 	p := configurator.Provider("fork-ext")
-	if got := destDir("hook", "x", p); got != "" {
-		t.Errorf("hook destination = %q, want none", got)
-	}
-	if got := destDirScoped("hook", "x", p, ScopeProject); got != "" {
-		t.Errorf("project hook destination = %q", got)
-	}
 	// An absent kind is unsupported: no global skill, a project one, rules in Documents.
 	if got := destDir("skill", "x", p); got != "" {
 		t.Errorf("global skill = %q, want none", got)

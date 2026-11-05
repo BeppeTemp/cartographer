@@ -89,7 +89,8 @@ func SupportsWriteFindingsHook(provider configurator.Provider) bool {
 	if provider == configurator.ProviderOpenCode {
 		return openCodeMajor() >= 2
 	}
-	return hookMechanisms[provider].writeFindingsHook
+	m, _ := mechanismFor(provider)
+	return m.writeFindingsHook
 }
 
 // reservedHookNames are the hook names the client generates itself: a KB hook

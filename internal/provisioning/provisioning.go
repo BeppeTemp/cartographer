@@ -2602,7 +2602,7 @@ hookLoop:
 					// the hook.json just materialized. Best-effort on a
 					// malformed hook.json (see registerHookSettings/
 					// registerCodexHook): doesn't fail materialization.
-					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
+					if mechanism, ok := mechanismFor(opts.Provider); ok {
 						// The files the update dropped are not pruned yet, so a
 						// dropped hook.json is removed first, or the registrar would
 						// read it again and register the old spec.
@@ -4396,7 +4396,7 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 			err = fmt.Errorf("provisioning: prune Pi extension %s: %w", mf.Name, err)
 		}
 	case "cline":
-		if err = removeClineHook(baseDir, mf.Name); err != nil {
+		if err = removeClineHookAt(baseDir, mf.Path); err != nil {
 			err = fmt.Errorf("provisioning: prune Cline dispatchers of hook %s: %w", mf.Name, err)
 		}
 	case "crush":
