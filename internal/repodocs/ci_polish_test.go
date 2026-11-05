@@ -18,6 +18,11 @@ func TestPrivacyGuardRedactKeepsOffsets(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not on PATH")
 	}
+	// On Windows without Python, LookPath finds the App Execution Alias in
+	// WindowsApps, which exits 9009 instead of running anything (#1669).
+	if err := exec.Command(py, "-I", "-c", "").Run(); err != nil {
+		t.Skipf("python3 at %s does not run (a Microsoft Store alias?): %v", py, err)
+	}
 	root := repoRoot(t)
 	guard := filepath.Join(root, ".github", "privacy-guard.py")
 	dir := t.TempDir()
