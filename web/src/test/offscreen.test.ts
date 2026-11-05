@@ -208,4 +208,59 @@ describe("LivingScene offscreen (D691)", () => {
     expect(geo.getAttribute("position")).toBe(first);
     scene.dispose();
   });
+
+  it("moves the idle camera towards the fit once a fit follow has expired", async () => {
+    const LivingScene = await load();
+    const scene = new LivingScene(document.createElement("div"), callbacks, { live: true, reducedMotion: false, offscreen });
+    scene.setData(structuredClone(one), [], 0);
+    scene.renderFrame(20_000);
+    const internals = scene as unknown as {
+      controls: { target: { x: number; distanceTo(v: unknown): number } };
+      fitPoseFor(b: number): { lookAt: { x: number; y: number; z: number } } | null;
+    };
+    scene.followFit(0, 0, 2500);
+    internals.controls.target.x = 500;
+    let t = 20_000;
+    while (t < 22_500) scene.renderFrame((t += 1000 / 60));
+    const fit = internals.fitPoseFor(0)!.lookAt;
+    const gap = () => Math.hypot(internals.controls.target.x - fit.x, (internals.controls as never as { target: { y: number } }).target.y - fit.y);
+    // Knock the target away again once the follow is over: only the idle refit can bring it back.
+    internals.controls.target.x = fit.x + 80;
+    const before = gap();
+    for (let k = 0; k < 120; k++) scene.renderFrame((t += 1000 / 60));
+    expect(gap()).toBeLessThan(before * 0.9);
+    scene.dispose();
+  });
+
+  it("puts the pivot on the node's final position when a focus tween ends on a moving node", async () => {
+    const LivingScene = await load();
+    const scene = new LivingScene(document.createElement("div"), callbacks, { live: false, reducedMotion: false, offscreen });
+    scene.setData(structuredClone(one), [], 0);
+    scene.renderFrame(0);
+    scene.setSelection("a");
+    scene.focus("a", { left: 0, right: 0 }, () => {});
+    const internals = scene as unknown as {
+      nodes: { id: string; x: number; y: number; z: number }[];
+      follow: { x: number; y: number; z: number } | null;
+      controls: { target: { x: number; y: number; z: number } };
+    };
+    const node = internals.nodes.find((n) => n.id === "a")!;
+    // The node keeps moving while the 520 ms tween runs.
+    let t = 0;
+    while (t < 300) {
+      node.x += 0.5;
+      scene.renderFrame((t += 1000 / 60));
+    }
+    for (let k = 0; k < 120; k++) scene.renderFrame((t += 1000 / 60));
+    expect(internals.follow!.x).toBeCloseTo(node.x, 6);
+    expect(internals.controls.target.x).toBeCloseTo(node.x, 3);
+    scene.dispose();
+  });
+
+  it("keeps the export's virtual step at the 60 Hz reference, so its eases are unchanged", async () => {
+    const { FRAME_MS } = await import("../lib/graph3d/record");
+    const { REF_FRAME_MS, frameEase } = await import("../lib/graph3d/motion");
+    expect(FRAME_MS).toBeCloseTo(REF_FRAME_MS, 12);
+    for (const e of [0.06, 0.01, 0.08]) expect(Math.abs(frameEase(e, FRAME_MS) - e)).toBeLessThan(1e-12);
+  });
 });
