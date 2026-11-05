@@ -941,7 +941,7 @@ completeness tests stay built-in only, and the descriptor's `agent.format` picks
 under the roots of a built-in or another variant is refused whole (`ValidateVariantCells`; project cells
 are exempt, as `AGENTS.md` and `.agents/skills` already are among built-ins). Its roots are prune
 boundaries, and its capability row is the declared value, else the base's probe, forced `absent` where it
-has no cell. A `hook` cell is ignored until a later release wires the base's registrar. Nothing registers
+has no cell. The refusals of cells that reach shell profiles, autostart, credentials, git or CI files are defence in depth: the control is the explicit, hash-bound approval of the variant, which shows every resolved path. A `hook` cell is ignored until a later release wires the base's registrar. Nothing registers
 a descriptor yet; discovery and approval come in later changes. Why: [D1657](decisions/D1657-variant-artifact-kind.md).
 
 ## Implementation choices

@@ -167,18 +167,59 @@ func clientDir(segs []string) []string {
 	return segs[:min(n, len(segs))]
 }
 
-// deniedClientDir reports whether a client directory is one no variant may write
-// under: credentials, git, the desktop, and Cartographer's own state and config.
-func deniedClientDir(dir []string) bool {
+// The denylists below are defence in depth, not the control: a variant is
+// applied only after the explicit, hash-bound approval of its descriptor, which
+// shows every resolved cell path (client variants PR 5). They name the places
+// where a write is code execution or credentials theft the user would not
+// think to look for in a client's own directory. Matching is segment-wise and
+// case-insensitive on every OS, after anchor resolution.
+var (
+	// deniedGlobalPrefixes: a global cell path starting with one of these
+	// segment lists is refused (home-relative, so .config/git is ~/.config/git).
+	deniedGlobalPrefixes = [][]string{
+		{".ssh"}, {".gnupg"}, {".aws"}, {".kube"}, {".docker"}, {"desktop"},
+		{"documents", "powershell"}, {"documents", "windowspowershell"},
+		{"appdata", "roaming", "microsoft"}, {"library", "launchagents"}, {"library", "launchdaemons"},
+		{".config", "git"}, {".config", "autostart"}, {".config", "systemd"}, {".config", "environment.d"},
+		{".config", "fish"}, {".config", "powershell"}, {".config", "nushell"},
+		{".oh-my-zsh"}, {".bashrc.d"}, {".zshrc.d"}, {".profile.d"}, {".config.d"},
+		{".cargo"}, {".npm-global"}, {".local", "bin"},
+	}
+	// deniedProjectFirst: a project cell whose first segment is one of these
+	// (a file or a directory) is refused; .git is refused at any depth.
+	deniedProjectFirst = []string{
+		".envrc", ".pre-commit-config.yaml", ".lefthook.yml", "lefthook.yml", ".gitlab-ci.yml", ".gitattributes", ".gitmodules",
+		".circleci", ".githooks", ".devcontainer", ".vscode", ".idea", ".husky",
+	}
+	deniedProjectPrefixes = [][]string{{".github", "workflows"}, {".github", "actions"}}
+)
+
+func hasPrefixFold(segs, prefix []string) bool {
+	if len(segs) < len(prefix) {
+		return false
+	}
+	for i, p := range prefix {
+		if !strings.EqualFold(segs[i], p) {
+			return false
+		}
+	}
+	return true
+}
+
+// deniedClientDir reports whether a global path is one no variant may write
+// under: the lists above, git configuration (.git*), and Cartographer's own
+// state and config (a client directory whose last segment starts with
+// cartographer).
+func deniedClientDir(segs, dir []string) bool {
 	if len(dir) == 0 {
 		return true
 	}
-	// Lowercased on every OS: a denied name is denied in any spelling.
-	first, last := strings.ToLower(dir[0]), strings.ToLower(dir[len(dir)-1])
-	switch first {
-	case ".ssh", ".gnupg", ".aws", ".kube", ".docker", "desktop":
-		return true
+	for _, p := range deniedGlobalPrefixes {
+		if hasPrefixFold(segs, p) {
+			return true
+		}
 	}
+	first, last := strings.ToLower(dir[0]), strings.ToLower(dir[len(dir)-1])
 	return strings.HasPrefix(first, ".git") || strings.HasPrefix(last, ".cartographer") || strings.HasPrefix(last, "cartographer")
 }
 
@@ -203,7 +244,7 @@ func checkGlobalCells(name string, cells map[string]destination) error {
 		switch {
 		case len(segs) <= len(cd):
 			return fmt.Errorf("variant %q: the %s cell %q names no path below its client directory (a cell is never a file or directory directly in the home or in a shared parent)", name, kind, strings.Join(segs, "/"))
-		case deniedClientDir(cd):
+		case deniedClientDir(segs, cd):
 			return fmt.Errorf("variant %q: the %s cell %q is under %q, a directory no variant may write into", name, kind, strings.Join(segs, "/"), strings.Join(cd, "/"))
 		}
 		if owner, ok := builtin[fold(strings.Join(cd, "/"))]; ok {
@@ -218,11 +259,26 @@ func checkGlobalCells(name string, cells map[string]destination) error {
 // managers.
 func checkProjectCells(name string, cells map[string]destination) error {
 	for kind, c := range cells {
+		denied := ""
 		for i, seg := range c.dir {
-			f := strings.ToLower(seg)
-			if f == ".git" || (i == 0 && f == ".husky") || (i == 0 && f == ".github" && len(c.dir) > 1 && strings.EqualFold(c.dir[1], "workflows")) {
-				return fmt.Errorf("variant %q: the project %s cell %q reaches %q, which a repository runs code from", name, kind, strings.Join(c.dir, "/"), seg)
+			if strings.EqualFold(seg, ".git") {
+				denied = seg
 			}
+			if i == 0 {
+				for _, d := range deniedProjectFirst {
+					if strings.EqualFold(seg, d) {
+						denied = seg
+					}
+				}
+			}
+		}
+		for _, p := range deniedProjectPrefixes {
+			if hasPrefixFold(c.dir, p) {
+				denied = strings.Join(p, "/")
+			}
+		}
+		if denied != "" {
+			return fmt.Errorf("variant %q: the project %s cell %q reaches %q, which a repository runs code from", name, kind, strings.Join(c.dir, "/"), denied)
 		}
 	}
 	return nil

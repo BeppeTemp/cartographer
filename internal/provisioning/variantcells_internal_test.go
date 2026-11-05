@@ -422,6 +422,26 @@ func TestVariantCells_GlobalCellsStayInTheirOwnClientDirectory(t *testing.T) {
 		"shared config dir":  skillAt(".config"),
 		"cline dir":          skillAt(".cline", "skills", "mine"),
 		"windows local data": skillAt("AppData", "Local"),
+		"powershell":         insAt("Documents", "PowerShell", "profile.ps1"),
+		"windows powershell": insAt("documents", "windowspowershell", "x.ps1"),
+		"roaming microsoft":  skillAt("AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup"),
+		"launch agents":      insAt("Library", "LaunchAgents", "x.plist"),
+		"launch daemons":     insAt("library", "launchdaemons", "x.plist"),
+		"config git":         insAt(".config", "git", "config"),
+		"config autostart":   insAt(".config", "autostart", "x.desktop"),
+		"config systemd":     skillAt(".config", "systemd", "user"),
+		"config environment": insAt(".config", "environment.d", "x.conf"),
+		"config fish":        insAt(".config", "fish", "config.fish"),
+		"config powershell":  insAt(".config", "powershell", "profile.ps1"),
+		"config nushell":     insAt(".config", "nushell", "env.nu"),
+		"oh-my-zsh":          skillAt(".oh-my-zsh", "custom", "x"),
+		"bashrc.d":           insAt(".bashrc.d", "x.sh"),
+		"zshrc.d":            insAt(".zshrc.d", "x.zsh"),
+		"profile.d":          insAt(".profile.d", "x.sh"),
+		"config.d":           insAt(".config.d", "x"),
+		"cargo":              skillAt(".cargo", "bin"),
+		"npm-global":         skillAt(".npm-global", "bin"),
+		"local bin":          skillAt(".local", "bin", "x"),
 	} {
 		if _, err := RegisterVariantCells(cellVariant(g, clientvariant.Scope{})); err == nil {
 			UnregisterVariantCells("fork-cli")
@@ -434,6 +454,7 @@ func TestVariantCells_GlobalCellsStayInTheirOwnClientDirectory(t *testing.T) {
 		"home dir":        skillAt(".fork-cli", "skills"),
 		"rules documents": insAt("Documents", "Cline", "Rules", "cartographer.md"),
 		"windows":         skillAt("AppData", "Local", "fork-cli", "skills"),
+		"app support":     skillAt("Library", "Application Support", "Fork", "skills"),
 	} {
 		if _, err := RegisterVariantCells(cellVariant(g, clientvariant.Scope{})); err != nil {
 			t.Errorf("%s: %v", name, err)
@@ -451,6 +472,19 @@ func TestVariantCells_ProjectCellsAvoidGitAndCI(t *testing.T) {
 		"workflows":     insAt(".github", "workflows", "x.yml"),
 		"workflows dir": skillAt(".github", "workflows"),
 		"husky":         skillAt(".husky", "x"),
+		"envrc":         insAt(".envrc"),
+		"pre-commit":    insAt(".pre-commit-config.yaml"),
+		"lefthook dot":  insAt(".lefthook.yml"),
+		"lefthook":      insAt("Lefthook.yml"),
+		"gitlab ci":     insAt(".gitlab-ci.yml"),
+		"gitattributes": insAt(".gitattributes"),
+		"gitmodules":    insAt(".gitmodules"),
+		"circleci":      skillAt(".circleci", "x"),
+		"githooks":      skillAt(".githooks", "x"),
+		"devcontainer":  skillAt(".devcontainer", "x"),
+		"vscode":        skillAt(".vscode", "x"),
+		"idea":          skillAt(".idea", "x"),
+		"gh actions":    skillAt(".github", "actions", "x"),
 	} {
 		if _, err := RegisterVariantCells(cellVariant(skillAt(".fork-cli", "skills"), p)); err == nil {
 			UnregisterVariantCells("fork-cli")
