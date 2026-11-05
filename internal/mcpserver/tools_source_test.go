@@ -782,3 +782,64 @@ func TestSourceRegisterWithoutShapeFieldsWritesNone(t *testing.T) {
 		}
 	}
 }
+
+// A Source whose frontmatter does not parse is still scanned for citations:
+// deleting it would leave them dangling (#1500).
+func TestConceptDeleteUnparsableSourceStillCountsCiters(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	id := registerSource(t, s, `{"title":"A","source_kind":"x"}`)["id"].(string)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: N\nprovenance: [" + id + "]")
+	if _, err := k.WriteConcept("manutenzione/citer", fm, "# N\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	var p string
+	_ = filepath.WalkDir(k.Root, func(abs string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(abs, ".md") && strings.Contains(abs, strings.TrimPrefix(id, "sources/")) {
+			p = abs
+		}
+		return nil
+	})
+	if p == "" {
+		t.Fatalf("file of %s not found", id)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.Replace(string(raw), "\n---\n", "\nbroken: [unclosed\n---\n", 1)
+	if err := os.WriteFile(p, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err := k.ReadConcept(okf.ConceptID(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, perr := okf.ParseFrontmatter(data.FrontmatterRaw); perr == nil {
+		t.Fatal("the corrupted frontmatter still parses: the test proves nothing")
+	}
+	blockers, err := deleteBlockers(authLocalContext(), k, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(blockers, "manutenzione/citer") {
+		t.Fatalf("blockers = %v, want the citer", blockers)
+	}
+}
+
+// A Source that cannot be read at all is still scanned for citations.
+func TestConceptDeleteUnreadableSourceStillCountsCiters(t *testing.T) {
+	t.Parallel()
+	k, _ := sourceFixture(t, true)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: N\nprovenance: [sources/gone]")
+	if _, err := k.WriteConcept("manutenzione/citer", fm, "# N\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	blockers, err := deleteBlockers(authLocalContext(), k, "sources/gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(blockers, "manutenzione/citer") {
+		t.Fatalf("blockers = %v, want the citer", blockers)
+	}
+}

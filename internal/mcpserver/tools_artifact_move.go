@@ -560,6 +560,7 @@ func (pl *artifactMovePlan) referencesInSourceBounded(src *kb.KB, maxFiles int, 
 	}
 	_ = filepath.WalkDir(src.Root, func(abs string, d fs.DirEntry, err error) error {
 		if err != nil {
+			cut = true // an unreadable entry: the scan is incomplete (#1500)
 			return nil
 		}
 		rel, rerr := filepath.Rel(src.Root, abs)
@@ -588,7 +589,11 @@ func (pl *artifactMovePlan) referencesInSourceBounded(src *kb.KB, maxFiles int, 
 		readFiles++
 		readBytes += info.Size()
 		data, rerr := readTransferHead(abs, transferScanMaxBytes)
-		if rerr != nil || !utf8.Valid(data) {
+		if rerr != nil {
+			cut = true
+			return nil
+		}
+		if !utf8.Valid(data) {
 			return nil
 		}
 		for i, pat := range pats {

@@ -304,3 +304,29 @@ func TestVisibleCollectionIgnoresTypeSelector(t *testing.T) {
 		t.Error("a narrowed role must not see the whole KB")
 	}
 }
+
+// Every tool of the whole-KB resource class refuses a map-scoped writer with
+// the whole-KB denial: the authorizer reads the class from
+// resourceClassForTool, so the two cannot drift (#1500).
+func TestWholeKBClassRefusesAMapScopedToken(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}}}}
+	n := 0
+	for name := range s.Tools() {
+		if resourceClassForTool(name) != resourceWhole {
+			continue
+		}
+		n++
+		err := authorizeTool(policy, k, "docs", name, json.RawMessage(`{}`))
+		if err == nil || !strings.Contains(err.Error(), denyNeedsWholeKB) {
+			t.Errorf("%s: scoped token got %v, want %s", name, err, denyNeedsWholeKB)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no whole-KB tool registered: the test proves nothing")
+	}
+}

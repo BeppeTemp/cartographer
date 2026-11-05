@@ -534,12 +534,13 @@ func deleteBlockers(ctx requestContext, k *kb.KB, id string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, rerr := k.ReadConcept(okf.ConceptID(id))
-	if rerr != nil {
-		return linkers, nil
-	}
-	if fm, perr := okf.ParseFrontmatter(data.FrontmatterRaw); perr != nil || !kb.IsSourceType(fm.Type()) {
-		return linkers, nil
+	// A concept that cannot be read, or whose frontmatter does not parse, may
+	// still be a Source: the provenance scan runs rather than leave citations
+	// dangling (#1500).
+	if data, rerr := k.ReadConcept(okf.ConceptID(id)); rerr == nil {
+		if fm, perr := okf.ParseFrontmatter(data.FrontmatterRaw); perr == nil && !kb.IsSourceType(fm.Type()) {
+			return linkers, nil
+		}
 	}
 	have := map[string]bool{}
 	for _, l := range linkers {

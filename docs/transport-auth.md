@@ -563,6 +563,18 @@ rotated segment is recorded in a signed checkpoint index *before* retention may
 delete it, so `audit.retention_days` never breaks verifiability: the chain
 stays checkable across segments no longer on disk, which `audit verify` reports
 as checkpoint-only.
+The in-memory state and the index file change together with the segment: a
+rotation whose rename fails restores the previous index and leaves no phantom
+checkpoint. An `audit.archive_dir` on another volume is handled by a
+copy, fsync and truncate instead of the rename (EXDEV). On open, by the holder
+of the writer lock only, a crash between the two steps is repaired: a
+checkpoint whose segment never reached the archive, while the active log still
+starts with its first hash, is dropped (index re-signed when a key is
+configured); a checkpoint whose segment is archived while the active log still
+holds the same entries (first hash, last hash, count) finishes with the
+truncate. Open repairs only an index it can trust: with a key the index
+signature must verify and the last checkpoint must continue the chain of the
+one before, otherwise the file is left untouched for `audit verify` to report.
 
 The operator commands are offline by design — they read the files, not a
 running server, because an audit trail is most needed when the server is down:
@@ -576,7 +588,8 @@ cartographer audit export --log /var/lib/cartographer/audit.jsonl --out report.j
 for a chain it cannot verify, so an exported document is never
 authoritative-looking without being authoritative. Without `--public-key` the
 chain is checked but signatures are not, and the unsigned count is reported so
-the two situations stay distinguishable.
+the two situations stay distinguishable. `export` to stdout exits 1 with the error
+on stderr when the write fails (a closed pipe, a full disk).
 
 With a key the log must be signed from a start: `--signed-since`, else the
 first checkpoint written with a key loaded, else the first signed entry. A log

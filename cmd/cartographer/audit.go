@@ -148,7 +148,10 @@ func cmdAuditExport(args []string) int {
 	out = append(out, '\n')
 
 	if f.out == "" {
-		os.Stdout.Write(out)
+		if _, err := os.Stdout.Write(out); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
 		return 0
 	}
 	if err := os.WriteFile(f.out, out, 0o600); err != nil {
