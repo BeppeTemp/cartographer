@@ -57,6 +57,8 @@ func cmdService(args []string) int {
 		return cmdServiceRestart(rest)
 	case "status":
 		return cmdServiceStatus(rest)
+	case "ensure":
+		return cmdServiceEnsure(rest)
 	case "sync-timer":
 		return cmdServiceSyncTimer(rest)
 	case "tray":
@@ -72,13 +74,15 @@ func printServiceUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: cartographer service <install|uninstall|start|stop|restart|status> [flags]")
 	fmt.Fprintln(w, "       cartographer service sync-timer <install|uninstall|status> [--interval <duration>]")
 	fmt.Fprintln(w, "       cartographer service tray <install|uninstall|status>")
+	fmt.Fprintln(w, "       cartographer service ensure --config <file> [--log-file <file>]   (used by the cron entries)")
 	fmt.Fprintln(w, "       (service install also starts the status icon at logon; --no-tray skips it)")
 	// Naming the three implementations is not trivia: it is what tells an
 	// operator which tool to look with when they want to see the service
 	// outside Cartographer — launchctl, systemctl, or the Task Scheduler.
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "The service is per-user and native: a launchd agent on macOS, a systemd user unit")
-	fmt.Fprintln(w, "on Linux, a Scheduled Task on Windows. None of them needs administrator rights.")
+	fmt.Fprintln(w, "on Linux (cron where there is no systemd), a Scheduled Task on Windows. None of them needs")
+	fmt.Fprintln(w, "administrator rights.")
 }
 
 // syncTimerFns are indirected so the dispatch is testable without a real
@@ -241,6 +245,35 @@ func cmdServiceInstall(args []string) int {
 	printNoKBHintIfEmpty(*configFlag, dataDir)
 
 	return exitStatusRunning
+}
+
+// cmdServiceEnsure is what the cron backend's crontab lines run: start the
+// server unless it already runs or was stopped on purpose. Silent when there is
+// nothing to do; the cron lines send its output to supervisor.log.
+func cmdServiceEnsure(args []string) int {
+	fs := flag.NewFlagSet("service ensure", flag.ExitOnError)
+	configFlag := fs.String("config", "", "Path to the server config YAML")
+	logFlag := fs.String("log-file", "", "Append this command's output to this file instead of stderr")
+	if code := noExtraArgs(fs, args); code != 0 {
+		return code
+	}
+	if *configFlag == "" {
+		fmt.Fprintln(os.Stderr, "Error: --config is required")
+		return exitStatusError
+	}
+	if *logFlag != "" {
+		f, err := redirectServerLog(*logFlag)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return exitStatusError
+		}
+		defer f.Close()
+	}
+	if err := service.NewManager().Ensure(*configFlag); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return exitStatusError
+	}
+	return 0
 }
 
 func cmdServiceUninstall(args []string) int {

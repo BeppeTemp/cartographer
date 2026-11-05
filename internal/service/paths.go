@@ -150,6 +150,41 @@ func SystemdUnitPath() (string, error) {
 	return filepath.Join(home, ".config", "systemd", "user", "cartographer.service"), nil
 }
 
+// StateDir is where the cron backend keeps its pidfile, lock, stop marker and
+// logs: $XDG_STATE_HOME/cartographer when that is absolute, else
+// ~/.local/state/cartographer. The config stays under ~/.config/cartographer
+// whatever XDG_CONFIG_HOME says.
+func StateDir() (string, error) {
+	if d := getenv("XDG_STATE_HOME"); d != "" && filepath.IsAbs(d) {
+		return filepath.Join(d, "cartographer"), nil
+	}
+	home, err := userHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "state", "cartographer"), nil
+}
+
+// CronServerDefinitionPath is the cron backend's server definition file:
+// ~/.config/cartographer/cron/server.cron. Its presence is what "installed"
+// means for that backend, as the unit file's is for systemd.
+func CronServerDefinitionPath() (string, error) {
+	return cronDefinitionFile("server.cron")
+}
+
+// CronSyncDefinitionPath is the sync timer's counterpart, sync.cron.
+func CronSyncDefinitionPath() (string, error) {
+	return cronDefinitionFile("sync.cron")
+}
+
+func cronDefinitionFile(name string) (string, error) {
+	home, err := userHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "cartographer", "cron", name), nil
+}
+
 // WindowsTaskPath returns the path of the server's Scheduled Task definition:
 // %LOCALAPPDATA%\cartographer\tasks\serve.xml.
 //

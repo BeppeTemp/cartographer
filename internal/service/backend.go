@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // Backend names the mechanism that keeps the server running. The values are
@@ -21,7 +22,7 @@ const (
 // ErrNoServiceManager is Install's answer on a Linux host where neither a
 // systemd user manager nor a usable crontab exists. It is returned before
 // anything is written.
-var ErrNoServiceManager = errors.New("service: no reachable systemd user manager on this machine, so there is no service manager to install into; start `cartographer serve --config <config>` from your init system instead (rc.local, an OpenRC or runit service, a container entrypoint)")
+var ErrNoServiceManager = errors.New("service: no service manager on this machine: no reachable systemd user manager and no usable `crontab`; start `cartographer serve --config <config>` from your init system")
 
 // lookPath and systemdRunDir are test seams for the backend probe.
 var (
@@ -29,11 +30,15 @@ var (
 	systemdRunDir = "/run/systemd/system"
 )
 
-// linuxInstalledBackend is the backend whose definition is on disk, "" when
-// there is none. An installed definition wins over the probe.
+// linuxInstalledBackend is the backend whose definition is on disk: the unit
+// file wins over the cron definition (an install of one removes the other), ""
+// when neither exists.
 func linuxInstalledBackend() Backend {
 	if p, err := SystemdUnitPath(); err == nil && fileExists(p) {
 		return BackendSystemd
+	}
+	if p, err := CronServerDefinitionPath(); err == nil && fileExists(p) {
+		return BackendCron
 	}
 	return ""
 }
@@ -66,8 +71,9 @@ func (m *Manager) Backend() Backend {
 //	   is reachable over its bus: it fails in containers, in WSL without
 //	   systemd and after a bare su, exactly where a unit would be written and
 //	   never run): systemd.
-//	c. none. (The cron backend adds its probe between b and this, with its
-//	   implementation: no commit selects a backend that cannot run the server.)
+//	c. crontab is on PATH and `crontab -l` succeeds or says there is no crontab
+//	   (proves the account may use cron without writing anything): cron.
+//	d. none.
 //
 // It never errors: a failing probe is "not this backend".
 func (m *Manager) DetectBackend() Backend {
@@ -85,5 +91,20 @@ func (m *Manager) DetectBackend() Backend {
 			}
 		}
 	}
+	if _, err := lookPath("crontab"); err == nil {
+		if _, err := m.readCrontab(); err == nil {
+			return BackendCron
+		}
+	}
 	return BackendNone
+}
+
+// isNoCrontab reports whether a `crontab -l` failure only says the user has no
+// crontab yet, which is an empty crontab and not an error.
+func isNoCrontab(out string, err error) bool {
+	text := out
+	if err != nil {
+		text += " " + err.Error()
+	}
+	return strings.Contains(strings.ToLower(text), "no crontab")
 }

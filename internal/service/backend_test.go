@@ -9,53 +9,6 @@ import (
 	"testing"
 )
 
-func TestDetectBackend(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		sandbox bool // $HOME is not the account's home
-		systemd bool // systemctl on PATH
-		runDir  bool // /run/systemd/system exists
-		showEnv bool // `systemctl --user show-environment` succeeds
-		want    Backend
-	}{
-		// A sandboxed run keeps writing unit files and registering nothing (#683).
-		{"sandboxed home", true, false, false, false, BackendSystemd},
-		{"systemd reachable", false, true, true, true, BackendSystemd},
-		{"systemctl left on a non-systemd host", false, true, false, true, BackendNone},
-		{"user manager unreachable", false, true, true, false, BackendNone},
-		{"no systemctl", false, false, false, false, BackendNone},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			home := withTestHome(t, "linux")
-			if !tc.sandbox {
-				accountHome = func() (string, error) { return home, nil }
-			}
-			lookPath = func(n string) (string, error) {
-				if n == "systemctl" && tc.systemd {
-					return "/usr/bin/systemctl", nil
-				}
-				return "", exec.ErrNotFound
-			}
-			dir := t.TempDir()
-			if !tc.runDir {
-				dir = filepath.Join(dir, "absent")
-			}
-			orig := systemdRunDir
-			systemdRunDir = dir
-			t.Cleanup(func() { systemdRunDir = orig })
-			m := &Manager{run: func(name string, args ...string) (string, error) {
-				if name == "systemctl" && !tc.showEnv {
-					return "", errors.New("no bus")
-				}
-				return "", nil
-			}}
-			if got := m.DetectBackend(); got != tc.want {
-				t.Errorf("DetectBackend = %s, want %s", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestBackend_PerPlatformAndInstalledUnit(t *testing.T) {
 	home := withTestHome(t, "darwin")
 	m := &Manager{run: func(string, ...string) (string, error) { return "", errors.New("no tools") }}

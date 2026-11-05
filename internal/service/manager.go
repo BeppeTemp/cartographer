@@ -46,6 +46,11 @@ var osExecutable = os.Executable
 // Scheduled Task on Windows).
 type Manager struct {
 	run runFunc
+	// proc holds the process operations the cron backend uses (spawn, liveness,
+	// signals). nil means the real implementation, because tests build
+	// &Manager{run: ...} literals: a test that exercises the cron backend must
+	// set a fake here or it would spawn and signal real processes.
+	proc *procOps
 }
 
 // NewManager returns a Manager that runs real platform commands via os/exec.
@@ -120,6 +125,10 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 			return warnings, err
 		}
 	case "linux":
+		if backend == BackendCron {
+			more, err := m.installCron(binPath, configPath)
+			return append(warnings, more...), err
+		}
 		if err := m.installLinux(binPath, configPath); err != nil {
 			return warnings, err
 		}
@@ -303,8 +312,11 @@ func (m *Manager) uninstallServer() error {
 		}
 		return nil
 	case "linux":
-		if m.Backend() == BackendNone {
-			return nil // nothing installed: there is nothing to unregister
+		switch m.Backend() {
+		case BackendCron:
+			return m.uninstallCron()
+		case BackendNone:
+			return nil // nothing installed (an installed definition selects its own backend)
 		}
 		unitPath, err := SystemdUnitPath()
 		if err != nil {
@@ -366,6 +378,9 @@ func (m *Manager) Start() error {
 		}
 		return err
 	case "linux":
+		if b := m.Backend(); b != BackendSystemd {
+			return m.startCron(b)
+		}
 		_, err := m.run("systemctl", "--user", "start", systemdUnit)
 		return err
 	case "windows":
@@ -407,6 +422,9 @@ func (m *Manager) Stop() error {
 		_, err := m.run("launchctl", "kill", "SIGTERM", target)
 		return err
 	case "linux":
+		if b := m.Backend(); b != BackendSystemd {
+			return m.stopCron(b)
+		}
 		_, err := m.run("systemctl", "--user", "stop", systemdUnit)
 		return err
 	case "windows":
@@ -431,6 +449,9 @@ func (m *Manager) Restart() error {
 		_, err := m.run("launchctl", "kickstart", "-k", target)
 		return err
 	case "linux":
+		if b := m.Backend(); b != BackendSystemd {
+			return m.restartCron(b)
+		}
 		_, err := m.run("systemctl", "--user", "restart", systemdUnit)
 		return err
 	case "windows":
@@ -528,6 +549,9 @@ func (m *Manager) EffectiveConfigPath(explicit string) (string, error) {
 		}
 		return cfgPath, nil
 	case "linux":
+		if linuxInstalledBackend() == BackendCron {
+			return cronDefinitionConfig()
+		}
 		unitPath, err := SystemdUnitPath()
 		if err != nil {
 			return "", fmt.Errorf("service: resolve unit path: %w", err)
@@ -574,7 +598,11 @@ func DefinitionPath() (string, error) {
 	case "darwin":
 		path, err = LaunchdPlistPath()
 	case "linux":
-		path, err = SystemdUnitPath()
+		if linuxInstalledBackend() == BackendCron {
+			path, err = CronServerDefinitionPath()
+		} else {
+			path, err = SystemdUnitPath()
+		}
 	case "windows":
 		path, err = WindowsTaskPath()
 	default:
@@ -657,6 +685,9 @@ func (m *Manager) DefinitionBinary() (string, error) {
 		extract = extractPlistBinary
 	case "linux":
 		extract = extractUnitBinary
+		if linuxInstalledBackend() == BackendCron {
+			extract = extractCronBinary
+		}
 	default:
 		extract = extractTaskBinary
 	}
@@ -894,6 +925,11 @@ func (m *Manager) signalGraceful() error {
 		_, err := m.run("launchctl", "kill", "SIGTERM", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel))
 		return err
 	case "linux":
+		if b := m.Backend(); b != BackendSystemd {
+			// A watchdog is not an immediate supervisor: the restart is the
+			// whole stop-and-start (see windowstask.go restartWindowsServe).
+			return m.restartCron(b)
+		}
 		_, err := m.run("systemctl", "--user", "restart", systemdUnit)
 		return err
 	case "windows":
@@ -1041,7 +1077,9 @@ const (
 // stopped: on darwin `launchctl print` on the label succeeded and the job is
 // alive (a `pid`) or neither disabled nor `not running` (Stop leaves it
 // registered, disabled and without a process); on linux `systemctl --user
-// is-active`; on Windows `Get-ScheduledTask` succeeded and the task's State is
+// is-active`; with the cron backend the definition is installed, no stop
+// marker is set and a live process of ours (or a /health answer) exists, so it
+// is "registered and not stopped" there too; on Windows `Get-ScheduledTask` succeeded and the task's State is
 // neither Disabled (what Stop leaves) nor Ready (no process), and an unreadable
 // State counts as running. On darwin and Windows that proves the job is known
 // to the scheduler and not stopped, NOT that the server answers. Callers must not present it as a liveness probe.
@@ -1114,6 +1152,14 @@ func (m *Manager) Status(configPath string) (Status, error) {
 			}
 		}
 	case "linux":
+		// Only an installed cron definition selects the cron arm: with nothing
+		// installed there is nothing to probe, and a systemd host keeps the
+		// exact commands it always ran.
+		if linuxInstalledBackend() == BackendCron {
+			st.Installed = true
+			st.Running = m.cronRunning(st.ConfigPath)
+			break
+		}
 		unitPath, err := SystemdUnitPath()
 		if err != nil {
 			return st, fmt.Errorf("service: resolve unit path: %w", err)
