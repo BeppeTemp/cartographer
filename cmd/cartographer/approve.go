@@ -77,6 +77,11 @@ func cmdApprove(args []string) int {
 		}
 		if err := withClientConfig(dir, func(c *clientconfig.Config) error {
 			c.RevokeMCP(kbName, approvalEntryName(kind, name))
+			if kind == "variant" {
+				// Under the client lock withClientConfig holds: the variant leaves
+				// the cache and the registry; what it installed stays (D1702).
+				return forgetCachedVariant(dir, name)
+			}
 			return nil
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)

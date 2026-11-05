@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/clientvariant"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // version is the build version, normally overridden at link time via
@@ -99,17 +100,34 @@ func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
-// registerCachedVariants registers the client variants the cache holds (D1655).
-// It runs here, before any command loads the client config: that load drops
-// every provider name the registry does not know (D898), so a variant
-// registered later would be deleted from the agents and the lock sections.
+// registerCachedVariants registers the client variants the cache holds and the
+// client config still authorizes (D1655, D1699). It runs here, before any
+// command loads the client config: that load drops every provider name the
+// registry does not know (D898), so a variant registered later would be deleted
+// from the agents and the lock sections.
+//
+// The approvals come from a read of the config of its own: registration has no
+// gate, so only a variant whose approval matches its descriptor hash and the
+// paths it resolves to in this environment is registered. A cache that is empty
+// costs one stat and no config read.
 func registerCachedVariants(errw io.Writer) {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return
 	}
-	_, warnings := clientvariant.RegisterCached(dir, clientvariant.HostEnv())
-	for _, w := range warnings {
+	cache, err := clientvariant.LoadCache(dir)
+	if err != nil {
+		fmt.Fprintln(errw, "warning: ignoring the client variant cache:", err)
+		return
+	}
+	if len(cache) == 0 {
+		return
+	}
+	var opts provisioning.ApplyOptions
+	if cfg, err := clientconfig.Load(dir); err == nil {
+		opts.ApprovedMCP, opts.ApprovedVariantPaths = cfg.ApprovedMCPHashes(), cfg.ApprovedPathFingerprints()
+	} // unreadable: nothing is authorized, nothing registers; the command reports the config itself
+	for _, w := range provisioning.RegisterCachedVariants(cache, opts).Warnings {
 		fmt.Fprintln(errw, "warning:", w)
 	}
 }

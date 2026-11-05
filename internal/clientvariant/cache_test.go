@@ -1,7 +1,6 @@
 package clientvariant_test
 
 import (
-	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,99 +8,41 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientvariant"
-	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
-func cacheOf(t *testing.T, descriptors map[string]string) (string, clientvariant.Cache) {
-	t.Helper()
+func TestCacheRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	c := clientvariant.Cache{}
-	for n, d := range descriptors {
-		c[n] = clientvariant.NewCacheEntry("kb-a", []byte(d), time.Unix(0, 0))
-	}
+	c := clientvariant.Cache{"fork-cli": clientvariant.NewCacheEntry("kb-a", "h1", []byte(forkCLI), time.Unix(0, 0))}
 	if err := clientvariant.SaveCache(dir, c); err != nil {
 		t.Fatal(err)
 	}
-	return dir, c
-}
-
-func hostEnv(dir string) clientvariant.Env {
-	return clientvariant.Env{GOOS: "linux", Home: dir, Getenv: func(string) string { return "" }}
-}
-
-func reset(t *testing.T) {
-	t.Helper()
-	t.Cleanup(func() { _ = configurator.ReplaceVariants(nil) })
-	_ = configurator.ReplaceVariants(nil)
-}
-
-func TestCacheRoundTripAndRestart(t *testing.T) {
-	reset(t)
-	dir, _ := cacheOf(t, map[string]string{"fork-cli": forkCLI})
-	got, warns := clientvariant.RegisterCached(dir, hostEnv(dir))
-	if len(warns) != 0 || len(got) != 1 || got[0] != "fork-cli" {
-		t.Fatalf("registered %v, warnings %v", got, warns)
+	got, err := clientvariant.LoadCache(dir)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%v %v", got, err)
 	}
-	if _, ok := configurator.Lookup("fork-cli"); !ok {
-		t.Fatal("the variant is not registered")
+	e := got["fork-cli"]
+	data, err := e.Descriptor()
+	if err != nil || string(data) != forkCLI || e.SourceKB != "kb-a" || e.ContentHash != "h1" {
+		t.Fatalf("%+v %v", e, err)
 	}
-	// A restart: the registry is empty again, the cache restores it.
-	_ = configurator.ReplaceVariants(nil)
-	if _, ok := configurator.Lookup("fork-cli"); ok {
-		t.Fatal("reset did not empty the registry")
+	if n := clientvariant.CachedNames(dir); !n["fork-cli"] {
+		t.Fatalf("CachedNames %v", n)
 	}
-	if got, _ := clientvariant.RegisterCached(dir, hostEnv(dir)); len(got) != 1 {
-		t.Fatalf("restart registered %v", got)
+	if without := got.Without("fork-cli"); len(without) != 0 || len(got) != 1 {
+		t.Fatalf("Without mutated or kept: %v / %v", without, got)
 	}
 }
 
-func TestRegisterCachedRevalidates(t *testing.T) {
-	reset(t)
-	escaping := strings.Replace(forkCLI, `"{xdg_config}/fork-cli/skills"`, `"{home}/../x"`, 1)
-	for name, tc := range map[string]struct {
-		mut  func(dir string, c clientvariant.Cache)
-		want string
-	}{
-		"edited bytes": {func(dir string, c clientvariant.Cache) {
-			e := c["fork-cli"]
-			e.DescriptorB64 = base64.StdEncoding.EncodeToString([]byte(escaping))
-			c["fork-cli"] = e
-		}, "hash"},
-		"escaping path, rehashed": {func(dir string, c clientvariant.Cache) {
-			c["fork-cli"] = clientvariant.NewCacheEntry("kb-a", []byte(escaping), time.Unix(0, 0))
-		}, "skipped"},
-		"not yaml": {func(dir string, c clientvariant.Cache) {
-			c["fork-cli"] = clientvariant.NewCacheEntry("kb-a", []byte("{not"), time.Unix(0, 0))
-		}, "skipped"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			dir, c := cacheOf(t, map[string]string{"fork-cli": forkCLI})
-			tc.mut(dir, c)
-			if err := clientvariant.SaveCache(dir, c); err != nil {
-				t.Fatal(err)
-			}
-			got, warns := clientvariant.RegisterCached(dir, hostEnv(dir))
-			if len(got) != 0 || len(warns) != 1 || !strings.Contains(warns[0], tc.want) {
-				t.Fatalf("registered %v, warnings %v", got, warns)
-			}
-			if _, ok := configurator.Lookup("fork-cli"); ok {
-				t.Fatal("an invalid cache entry registered")
-			}
-		})
-	}
-}
-
-func TestCorruptCacheIsAWarningNotAFailure(t *testing.T) {
-	reset(t)
+func TestCorruptCacheIsAnErrorNotAFailure(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, clientvariant.CacheFileName), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got, warns := clientvariant.RegisterCached(dir, hostEnv(dir)); len(got) != 0 || len(warns) != 1 {
-		t.Fatalf("registered %v, warnings %v", got, warns)
+	if _, err := clientvariant.LoadCache(dir); err == nil {
+		t.Fatal("a corrupt cache loaded")
 	}
-	if got, warns := clientvariant.RegisterCached(t.TempDir(), hostEnv(dir)); len(got) != 0 || len(warns) != 0 {
-		t.Fatalf("absent cache: %v %v", got, warns)
+	if c, err := clientvariant.LoadCache(t.TempDir()); err != nil || len(c) != 0 {
+		t.Fatalf("absent cache: %v %v", c, err)
 	}
 }
 
