@@ -308,7 +308,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 	// D1702: the KBs' variant declarations against the cache, before the
 	// retired ones are dropped from this run.
-	if retired := syncVariants(out, errw, cfg, dir, projections, declaredVariants, pullFailures, healthErr == nil, opts.DryRun); len(retired) > 0 {
+	if retired := syncVariants(out, errw, cfg, dir, projections, declaredVariants, manifests, pullFailures, healthErr == nil, opts.DryRun); len(retired) > 0 {
 		targets = removeStrings(targets, retired)
 		kept := projections[:0:0]
 		for _, p := range projections {

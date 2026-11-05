@@ -52,7 +52,7 @@ func TestSyncVariantsKeepsAVariantOfAnOptedOutKB(t *testing.T) {
 		}
 	}
 	var out, errw bytes.Buffer
-	retired := syncVariants(&out, &errw, cfg, home, []syncProjection{p}, declared, failed, true, false)
+	retired := syncVariants(&out, &errw, cfg, home, []syncProjection{p}, declared, ms, failed, true, false)
 	if len(retired) != 0 {
 		t.Fatalf("retired %v: %s%s", retired, out.String(), errw.String())
 	}
@@ -89,7 +89,7 @@ func TestSyncVariantsCollisionThroughTheStrictMerge(t *testing.T) {
 		}
 	}
 	var out, errw bytes.Buffer
-	syncVariants(&out, &errw, cfg, home, []syncProjection{p}, declared, failed, true, false)
+	syncVariants(&out, &errw, cfg, home, []syncProjection{p}, declared, ms, failed, true, false)
 	if !strings.Contains(out.String(), "client variant fork-cli: declared by more than one KB") || registered("fork-cli") {
 		t.Fatalf("out=%q registered=%v", out.String(), registered("fork-cli"))
 	}
@@ -137,7 +137,7 @@ func TestReconcileKeepsAVariantWhoseDisconnectWasRefused(t *testing.T) {
 	if err := os.Symlink(real, filepath.Join(home, ".fork-cli")); err != nil {
 		t.Fatal(err)
 	}
-	res := reconcileVariants(home, cfg, nil, map[string]bool{"kb-a": true}, true, false)
+	res := reconcileVariants(home, cfg, nil, nil, map[string]bool{"kb-a": true}, true, false)
 	if len(res.Retired) != 0 || len(res.Warnings) == 0 {
 		t.Fatalf("%+v", res)
 	}
@@ -149,5 +149,29 @@ func TestReconcileKeepsAVariantWhoseDisconnectWasRefused(t *testing.T) {
 	}
 	if lf, _ := provisioning.ReadLockFile(lockFilePath(home)); len(lf.Providers["fork-cli"].Managed) == 0 {
 		t.Fatal("the lock section was dropped")
+	}
+}
+
+// An approved variant of an opted-out KB that is not cached yet is neither
+// cached nor registered: the opt-out keeps it out, only retirement and
+// collisions read the unfiltered declarations.
+func TestSyncVariantsDoesNotCacheAVariantOfAnOptedOutKB(t *testing.T) {
+	home := variantHome(t)
+	srv := prefixAwareMCPServer(t, map[string]string{"kb-a": ""}, "sync_pull", func(kb string) string { return variantPayload(t, kb) })
+	defer srv.Close()
+	cfg := writeConfig(t, home, variantArtifact(cachedVariant))
+	cfg.ServerURL = srv.URL + "/mcp"
+	cfg.KnownKBs = []string{"kb-a"}
+	cfg.Agents = nil
+	cfg.SetKBArtifacts("kb-a", false)
+	p := syncProjection{Provider: "claude", BaseDir: home, KBs: []string{"kb-a"}}
+	ms, failed, declared, err := buildProjectionManifestsVariants(syncStreams{}, cfg, []syncProjection{p}, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	syncVariants(&out, &errw, cfg, home, []syncProjection{p}, declared, ms, failed, true, false)
+	if c, _ := clientvariant.LoadCache(home); len(c) != 0 || registered("fork-cli") {
+		t.Fatalf("cache %v registered=%v out=%q", c, registered("fork-cli"), out.String())
 	}
 }

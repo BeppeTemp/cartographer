@@ -195,7 +195,7 @@ func TestReconcileCachesRegistersAndRestartRestores(t *testing.T) {
 	home := variantHome(t)
 	a := variantArtifact(cachedVariant)
 	cfg := writeConfig(t, home, a)
-	res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, map[string]bool{"kb-a": true}, true, false)
+	res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, map[string]bool{"kb-a": true}, true, false)
 	if len(res.Cached) != 1 || len(res.Pending) != 0 || len(res.Warnings) != 0 {
 		t.Fatalf("%+v", res)
 	}
@@ -215,7 +215,7 @@ func TestReconcileLeavesAnUnapprovedVariantPending(t *testing.T) {
 	home := variantHome(t)
 	a := variantArtifact(cachedVariant)
 	cfg := writeConfig(t, home)
-	res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, map[string]bool{"kb-a": true}, true, false)
+	res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, map[string]bool{"kb-a": true}, true, false)
 	if len(res.Pending) != 1 || len(res.Cached) != 0 || registered("fork-cli") {
 		t.Fatalf("%+v registered=%v", res, registered("fork-cli"))
 	}
@@ -237,9 +237,9 @@ func TestReconcileRefreshNeedsTheNewApproval(t *testing.T) {
 	v2 := variantArtifact(strings.Replace(cachedVariant, ".fork-cli/skills", ".fork-cli/newer", 1))
 	cfg := writeConfig(t, home, v1)
 	pulled := map[string]bool{"kb-a": true}
-	reconcileVariants(home, cfg, []provisioning.Artifact{v1}, pulled, true, false)
+	reconcileVariants(home, cfg, []provisioning.Artifact{v1}, nil, pulled, true, false)
 
-	res := reconcileVariants(home, cfg, []provisioning.Artifact{v2}, pulled, true, false)
+	res := reconcileVariants(home, cfg, []provisioning.Artifact{v2}, nil, pulled, true, false)
 	if len(res.Pending) != 1 || len(res.Cached) != 0 {
 		t.Fatalf("%+v", res)
 	}
@@ -251,7 +251,7 @@ func TestReconcileRefreshNeedsTheNewApproval(t *testing.T) {
 	}
 
 	cfg = writeConfig(t, home, v1, v2)
-	res = reconcileVariants(home, cfg, []provisioning.Artifact{v2}, pulled, true, false)
+	res = reconcileVariants(home, cfg, []provisioning.Artifact{v2}, nil, pulled, true, false)
 	if len(res.Cached) != 1 || len(res.Pending) != 0 {
 		t.Fatalf("%+v", res)
 	}
@@ -267,7 +267,7 @@ func TestReconcileCollisionRegistersNeither(t *testing.T) {
 	b := a
 	b.Source = "kb:kb-b"
 	cfg := writeConfig(t, home, a)
-	res := reconcileVariants(home, cfg, []provisioning.Artifact{a, b}, map[string]bool{"kb-a": true, "kb-b": true}, true, false)
+	res := reconcileVariants(home, cfg, []provisioning.Artifact{a, b}, nil, map[string]bool{"kb-a": true, "kb-b": true}, true, false)
 	if len(res.Collisions) != 1 || len(res.Cached) != 0 || registered("fork-cli") {
 		t.Fatalf("%+v registered=%v", res, registered("fork-cli"))
 	}
@@ -282,7 +282,7 @@ func retireFixture(t *testing.T) (home string, cfg *clientconfig.Config, skill s
 	home = variantHome(t)
 	a := variantArtifact(cachedVariant)
 	cfg = writeConfig(t, home, a)
-	reconcileVariants(home, cfg, []provisioning.Artifact{a}, map[string]bool{"kb-a": true}, true, false)
+	reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, map[string]bool{"kb-a": true}, true, false)
 	skillRel := filepath.Join(".fork-cli", "skills", "demo", "SKILL.md")
 	skill = filepath.Join(home, skillRel)
 	if err := os.MkdirAll(filepath.Dir(skill), 0o755); err != nil {
@@ -303,7 +303,7 @@ func retireFixture(t *testing.T) (home string, cfg *clientconfig.Config, skill s
 // pruned through the lock, cache entry, registration and agent name gone.
 func TestReconcileRetiresAVariantItsKBDropped(t *testing.T) {
 	home, cfg, skill := retireFixture(t)
-	res := reconcileVariants(home, cfg, nil, map[string]bool{"kb-a": true}, true, false)
+	res := reconcileVariants(home, cfg, nil, nil, map[string]bool{"kb-a": true}, true, false)
 	if len(res.Retired) != 1 || len(res.Warnings) != 0 {
 		t.Fatalf("%+v", res)
 	}
@@ -335,7 +335,7 @@ func TestReconcileRetiresNothingOnAPartialView(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			home, cfg, skill := retireFixture(t)
-			res := reconcileVariants(home, cfg, nil, tc.pulled, tc.complete, tc.dry)
+			res := reconcileVariants(home, cfg, nil, nil, tc.pulled, tc.complete, tc.dry)
 			if tc.dry != (len(res.Retired) == 1) {
 				t.Fatalf("%+v", res)
 			}

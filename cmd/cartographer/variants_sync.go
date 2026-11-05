@@ -35,7 +35,11 @@ type variantSyncResult struct {
 
 // reconcileVariants is the sync side of the variant cache (D1702). arts are the
 // variant artifacts the KBs served this run (the client lock is held, as for the
-// state file). pulled names the KBs whose pull answered, and complete says the
+// state file), unfiltered: they decide collisions and "still declared". reach
+// (source+NUL+name) is the subset that reached a projection, the only one that
+// may be cached, refreshed or registered: an opted-out KB (`artifacts: false`) or
+// one outside a projection's workspace scoping keeps what is cached, as it is,
+// and gets nothing new. nil means every declaration reached one. pulled names the KBs whose pull answered, and complete says the
 // server was reachable: a cached variant is retired only when its own KB
 // answered and no longer declares it, because a partial view proves no absence.
 //
@@ -52,7 +56,7 @@ type variantSyncResult struct {
 // registered at start, so its files are pruned through the lock; an entry that
 // was never registered this run (not authorized) has nothing of ours to prune
 // and just leaves the cache. cfg.Agents loses the retired names.
-func reconcileVariants(dir string, cfg *clientconfig.Config, arts []provisioning.Artifact, pulled map[string]bool, complete, dryRun bool) variantSyncResult {
+func reconcileVariants(dir string, cfg *clientconfig.Config, arts []provisioning.Artifact, reach map[string]bool, pulled map[string]bool, complete, dryRun bool) variantSyncResult {
 	var res variantSyncResult
 	cache, err := clientvariant.LoadCache(dir)
 	if err != nil {
@@ -94,6 +98,9 @@ func reconcileVariants(dir string, cfg *clientconfig.Config, arts []provisioning
 			a = s
 		}
 		kb := strings.TrimPrefix(a.Source, "kb:")
+		if reach != nil && !reach[a.Source+"\x00"+a.Name] {
+			continue
+		}
 		if len(a.Files) != 1 || provisioning.ContentHashFiles(a.Files) != a.ContentHash {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("client variant %s from KB %s: the served bytes do not match their hash, left out", name, kb))
 			continue
@@ -218,13 +225,21 @@ func printVariantSync(w io.Writer, res variantSyncResult, dryRun bool) {
 // nil. The declarations come from the pull itself, not from the projections'
 // manifests: kb_options artifacts:false and workspace scoping drop a KB's
 // artifacts there, and a variant filtered out is not a variant undeclared.
-func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, projections []syncProjection, declared []provisioning.Artifact, failures []kbPullFailure, reachable, dryRun bool) []string {
+func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, projections []syncProjection, declared []provisioning.Artifact, manifests map[string]provisioning.Manifest, failures []kbPullFailure, reachable, dryRun bool) []string {
 	var arts []provisioning.Artifact
 	seen := map[string]bool{}
 	for _, a := range declared {
 		if a.Kind == "variant" && !seen[a.Source+"\x00"+a.Name] {
 			seen[a.Source+"\x00"+a.Name] = true
 			arts = append(arts, a)
+		}
+	}
+	reach := map[string]bool{}
+	for _, m := range manifests {
+		for _, a := range m.Artifacts {
+			if a.Kind == "variant" {
+				reach[a.Source+"\x00"+a.Name] = true
+			}
 		}
 	}
 	pulled := map[string]bool{}
@@ -238,7 +253,7 @@ func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, pro
 	for _, f := range failures {
 		delete(pulled, f.KB)
 	}
-	res := reconcileVariants(dir, cfg, arts, pulled, reachable, dryRun)
+	res := reconcileVariants(dir, cfg, arts, reach, pulled, reachable, dryRun)
 	for _, w := range res.Warnings {
 		fmt.Fprintf(errw, "warning: %s\n", w)
 	}

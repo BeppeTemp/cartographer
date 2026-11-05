@@ -1654,6 +1654,8 @@ type Collision struct {
 //
 // A variant is exempt: a name two KBs declare is registered from neither and
 // reported by the variant cache, never an error (D1702, withoutClaimedVariants).
+// collisionsForProvider (connect, doctor) inherits the exemption on purpose:
+// printVariantSync already reports the collision on every sync.
 func DetectCollisions(artifacts []Artifact) []Collision {
 	sourcesByKey := make(map[string]map[string]bool)
 	for _, a := range artifacts {
