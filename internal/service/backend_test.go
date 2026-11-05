@@ -133,3 +133,28 @@ func TestSchedulerGuardCoversCrontab(t *testing.T) {
 		t.Errorf("crontab under a sandboxed HOME: %v", err)
 	}
 }
+
+// An installed unit selects systemd for uninstall even when the probe fails
+// (no reachable user manager): the disable and the removal still happen.
+func TestUninstall_InstalledUnitIsRemovedEvenIfProbeFails(t *testing.T) {
+	home := withTestHome(t, "linux")
+	accountHome = func() (string, error) { return home, nil }
+	lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	unit, _ := SystemdUnitPath()
+	os.MkdirAll(filepath.Dir(unit), 0o755)
+	os.WriteFile(unit, []byte("x"), 0o644)
+	var calls []string
+	m := &Manager{run: func(name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return "", nil
+	}}
+	if err := m.Uninstall(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(unit); !os.IsNotExist(err) {
+		t.Error("unit file kept")
+	}
+	if !strings.Contains(strings.Join(calls, "\n"), "systemctl --user disable --now "+systemdUnit) {
+		t.Errorf("unit not disabled: %v", calls)
+	}
+}

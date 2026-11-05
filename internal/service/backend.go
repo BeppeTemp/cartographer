@@ -21,7 +21,7 @@ const (
 // ErrNoServiceManager is Install's answer on a Linux host where neither a
 // systemd user manager nor a usable crontab exists. It is returned before
 // anything is written.
-var ErrNoServiceManager = errors.New("service: no service manager on this machine: no reachable systemd user manager and no usable `crontab`; run `cartographer service install --config-only` to write the config, then start `cartographer serve --config <config>` from your init system")
+var ErrNoServiceManager = errors.New("service: no reachable systemd user manager on this machine, so there is no service manager to install into; start `cartographer serve --config <config>` from your init system instead (rc.local, an OpenRC or runit service, a container entrypoint)")
 
 // lookPath and systemdRunDir are test seams for the backend probe.
 var (
