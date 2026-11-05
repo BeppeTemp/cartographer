@@ -245,3 +245,26 @@ func appendBlock(content, block string) string {
 	}
 	return trimmed + "\n\n" + block
 }
+
+// Upsert puts block (the whole block, markers and a final newline included) into
+// content: it replaces the one begin..end block when there is one, appends it
+// when there is none, and returns ErrCorruptedBlock (content untouched) for any
+// other shape. Unlike the file-based Write it adds no blank separator line: a
+// missing trailing newline is added once and the block follows directly, so
+// ReplaceBlock(..., "") restores the original text byte for byte when it ended
+// with a newline (every crontab does). A text that did not gets that one
+// newline: removal cannot know whether the newline was the user's or ours, and
+// guessing would eat a user's own blank-line ending.
+func Upsert(content, begin, end, block string) (string, error) {
+	out, o := ReplaceBlock(content, begin, end, block)
+	switch o {
+	case Found:
+		return out, nil
+	case Corrupted:
+		return content, ErrCorruptedBlock
+	}
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	return content + block, nil
+}

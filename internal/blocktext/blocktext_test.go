@@ -352,3 +352,34 @@ func TestReplaceBlock_MarkersAreWholeLines(t *testing.T) {
 		t.Errorf("CRLF markers: %q %v", got, o)
 	}
 }
+
+func TestUpsert(t *testing.T) {
+	const bg, en = "# BEGIN x — managed", "# END x"
+	block := bg + "\nbody\n" + en + "\n"
+	for _, tc := range []struct{ name, in, want string }{
+		{"empty", "", block},
+		{"appened directly", "a\nb\n", "a\nb\n" + block},
+		{"newline added once", "a", "a\n" + block},
+		{"replaced", "a\n" + bg + "\nold\n" + en + "\nz\n", "a\n" + block + "z\n"},
+	} {
+		got, err := blocktext.Upsert(tc.in, bg, en, block)
+		if err != nil || got != tc.want {
+			t.Errorf("%s: got %q, %v; want %q", tc.name, got, err, tc.want)
+		}
+		// Strip is the exact inverse of an appen.
+		if tc.name != "replaced" {
+			back, o := blocktext.ReplaceBlock(got, bg, en, "")
+			wantBack := tc.in
+			if wantBack != "" && !strings.HasSuffix(wantBack, "\n") {
+				wantBack += "\n"
+			}
+			if o != blocktext.Found || back != wantBack {
+				t.Errorf("%s: strip = %q (%v), want %q", tc.name, back, o, wantBack)
+			}
+		}
+	}
+	bad := bg + "\nno en\n"
+	if got, err := blocktext.Upsert(bad, bg, en, block); !errors.Is(err, blocktext.ErrCorruptedBlock) || got != bad {
+		t.Errorf("corrupted: got %q, %v", got, err)
+	}
+}
