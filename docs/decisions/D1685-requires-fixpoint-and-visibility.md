@@ -2,7 +2,7 @@
 topic: sync-provisioning
 ---
 
-# D1690 — Requirements are evaluated by one resolver over the greatest fixpoint, against what a session sees
+# D1685 — Requirements are evaluated by one resolver over the greatest fixpoint, against what a session sees
 
 **Decision.** `ResolveProjections` replaces `ProjectManifest` as the client-side step of `sync` and `status`. It projects
 every projection of the run, then removes artifacts with an unmet `requires` until stable. An entry `<kind>:<name>` is met
