@@ -45,6 +45,17 @@ func observed(t *testing.T, k *kb.KB) []Finding {
 // obsFixtures build, per observation, a KB with one positive item and name the
 // concept it is about; obsClosers write the page state that closes it (D907).
 var obsFixtures = map[string]func(t *testing.T) (*kb.KB, string){
+	"requires_unresolved": func(t *testing.T) (*kb.KB, string) {
+		k := tempKB(t)
+		writeFile(t, k.Root, "skills/plan/SKILL.md", "---\nname: plan\ndescription: Plans\nrequires: [agent:ghost]\n---\n# Plan\n")
+		return k, "skills/plan/SKILL.md"
+	},
+	"requires_undeclared": func(t *testing.T) (*kb.KB, string) {
+		k := tempKB(t)
+		writeFile(t, k.Root, "agents/auditor.md", "---\nname: auditor\ndescription: Audits\n---\nAudit.\n")
+		writeFile(t, k.Root, "skills/plan/SKILL.md", skillMD("plan", "Plans", "# Plan\nDelegate the review to auditor.\n"))
+		return k, "skills/plan/SKILL.md"
+	},
 	"cut_concept": func(t *testing.T) (*kb.KB, string) {
 		s := newStructKB(t, map[string]string{"ops": "map"})
 		s.mainGraph(nil)
@@ -95,6 +106,14 @@ var obsFixtures = map[string]func(t *testing.T) (*kb.KB, string){
 }
 
 var obsClosers = map[string]func(t *testing.T, k *kb.KB){
+	// The entry resolves: the agent exists in the KB.
+	"requires_unresolved": func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.Root, "agents/ghost.md", "---\nname: ghost\ndescription: G\n---\nBoo.\n")
+	},
+	// The skill lists the agent it names.
+	"requires_undeclared": func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.Root, "skills/plan/SKILL.md", "---\nname: plan\ndescription: Plans\nrequires: [agent:auditor]\n---\n# Plan\nDelegate the review to auditor.\n")
+	},
 	// A second path around the hub: its leaves link each other.
 	"cut_concept": func(t *testing.T, k *kb.KB) {
 		writeFile(t, k.DataRoot(), "ops/h.md", "---\ntype: Note\ntitle: ops/h\n---\nSee [[ops/l1]].\n")

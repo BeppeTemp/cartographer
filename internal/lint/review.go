@@ -179,10 +179,13 @@ func SeriesSiblings(titleA, idA, titleB, idB string) bool {
 
 // ReviewItem is one entry of the doctor's work list.
 type ReviewItem struct {
-	Kind            string   `json:"kind"`
-	Concepts        []string `json:"concepts"`
-	Evidence        string   `json:"evidence"`
-	SuggestedAction string   `json:"suggested_action"`
+	Kind     string   `json:"kind"`
+	Concepts []string `json:"concepts"`
+	// Artifact is the KB-root-relative file an artifact observation is about
+	// (requires_unresolved, requires_undeclared); Concepts is empty then.
+	Artifact        string `json:"artifact,omitempty"`
+	Evidence        string `json:"evidence"`
+	SuggestedAction string `json:"suggested_action"`
 	// Check is the source lint check of a lint_judgement item, or the observation
 	// of an observation item (D947).
 	Check string `json:"check,omitempty"`

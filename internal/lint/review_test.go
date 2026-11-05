@@ -38,6 +38,9 @@ func itemsOf(items []ReviewItem, kind string) []ReviewItem {
 
 func names(items []ReviewItem, id string) bool {
 	for _, it := range items {
+		if it.Artifact == id {
+			return true
+		}
 		for _, c := range it.Concepts {
 			if c == id {
 				return true
