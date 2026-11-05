@@ -19,7 +19,6 @@ trap 'rm -rf "$SCENARIO_TMP"' EXIT
 
 FAKE_TAG="v2.0.0"
 write_fake_binary "$NEW_BINARY" "$FAKE_TAG"
-install_fake_wget
 fake_uname Linux armv7l
 run_install install
 echo "--- Assertions (armv7l) ---"

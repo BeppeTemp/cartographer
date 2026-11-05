@@ -17,6 +17,7 @@
 #                       mismatch — a well-formed line with the wrong digest
 #                       noasset  — a file that covers some other asset only
 
+echo "$*" >> "${SCENARIO_TMP:-/tmp}/curl-argv"
 out=""
 url=""
 prev=""

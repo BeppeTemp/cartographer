@@ -28,23 +28,24 @@ log() { printf '%s\n' "$*" >&2; }
 fail() { log "error: $*"; exit 1; }
 
 # fetch URL (to stdout) or fetch -o FILE URL: curl when there is one, else wget
-# (GNU and busybox take -q, -O and --header alike). GITHUB_TOKEN works with both.
+# (GNU and busybox take -q and -O alike). Both are limited to https, redirects
+# included. The token goes through curl only: curl drops it on a cross-host
+# redirect (the asset CDN), wget would forward it.
 fetch() {
     if command -v curl >/dev/null 2>&1; then
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-            curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$@"
+            curl -fsSL --proto '=https' --proto-redir '=https' -H "Authorization: Bearer ${GITHUB_TOKEN}" "$@"
         else
-            curl -fsSL "$@"
+            curl -fsSL --proto '=https' --proto-redir '=https' "$@"
         fi
         return
     fi
     out=-
     if [ "${1:-}" = "-o" ]; then out=$2; shift 2; fi
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-        wget -q --header "Authorization: Bearer ${GITHUB_TOKEN}" -O "$out" "$@"
-    else
-        wget -q -O "$out" "$@"
-    fi
+    # WGET_HTTPS is --https-only where wget has it (GNU). A busybox wget has no
+    # such flag and no way to refuse a redirect: every URL this script fetches
+    # is an https constant, so it is what we can do there.
+    wget -q ${WGET_HTTPS:+"$WGET_HTTPS"} -O "$out" "$@"
 }
 
 # need_fetcher fails before any work when there is neither curl nor wget, and
@@ -53,7 +54,10 @@ need_fetcher() {
     WGET_HINT=""
     command -v curl >/dev/null 2>&1 && return 0
     command -v wget >/dev/null 2>&1 || fail "need curl or wget"
-    WGET_HINT=" (wget without HTTPS support: install curl or ca-certificates + ssl_client)"
+    WGET_HTTPS=""
+    if wget --help 2>&1 | grep -q -- '--https-only'; then WGET_HTTPS="--https-only"; fi
+    [ -z "${GITHUB_TOKEN:-}" ] || log "note: GITHUB_TOKEN is not used with wget (it would follow redirects to other hosts with it); install curl to use it"
+    WGET_HINT=" (if this is a TLS error: wget without HTTPS support, install curl or ca-certificates + ssl_client)"
 }
 
 # sha256_tool names the first SHA-256 tool this host has, empty when none.
@@ -140,7 +144,7 @@ latest_tag() {
     # distinct from a failed request. One key per line first, so compact and
     # pretty-printed JSON read the same.
     list=$(fetch "${API_URL}/releases?per_page=100") \
-        || fail "cannot determine latest release (rate-limited? set GITHUB_TOKEN)"
+        || fail "cannot determine latest release (rate-limited? set GITHUB_TOKEN)${WGET_HINT}"
     tag=$(printf '%s\n' "$list" | tr ',{' '\n\n' \
         | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
         | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
