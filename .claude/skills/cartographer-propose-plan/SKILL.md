@@ -46,7 +46,8 @@ each WP.
 
 The WPs grouped into the fewest PRs the size cap allows: for each PR its title, its
 WPs, the estimated production lines. Each WP is a body line `type(scope): ...` (one
-unwrapped line), so the changelog keeps one entry per WP.
+unwrapped line), so the changelog keeps one entry per WP; a PR with one WP omits the body
+line when it equals the title.
 
 ## Closing
 
