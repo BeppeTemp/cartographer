@@ -22,7 +22,7 @@ func satPage(body string) string {
 func satWriteFiles(t *testing.T, k *kb.KB, files map[string]string) {
 	t.Helper()
 	for rel, content := range files {
-		abs, err := k.ResolvePath(rel, true)
+		abs, err := k.ResolvePath(rel)
 		if err != nil {
 			t.Fatal(err)
 		}

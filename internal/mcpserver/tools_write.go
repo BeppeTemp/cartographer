@@ -2448,11 +2448,11 @@ func toolConceptCollapse(k *kb.KB) Tool {
 					params.ID, len(assets), strings.Join(names, ", "))), nil
 			}
 
-			dirAbs, err := k.ResolvePath(params.ID, true)
+			dirAbs, err := k.ResolvePath(params.ID)
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
-			flatAbs, err := k.ResolvePath(okf.IDToPath(id), true)
+			flatAbs, err := k.ResolvePath(okf.IDToPath(id))
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, relPathErr(err, k.Root))), nil
 			}

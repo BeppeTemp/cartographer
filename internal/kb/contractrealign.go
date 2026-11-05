@@ -66,7 +66,7 @@ func (kb *KB) RealignContract(name string) (bool, error) {
 			fm.Delete(key)
 		}
 	}
-	abs, err := kb.ResolvePath(relPath, false)
+	abs, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return false, fmt.Errorf("RealignContract %s: %w", name, err)
 	}

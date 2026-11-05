@@ -297,7 +297,7 @@ func (kb *KB) prepareDeleteConcept(id okf.ConceptID, ops []BatchWriteOp, deletin
 	if !expanded && okf.IsReserved(filepath.Base(relPath)) {
 		return "", "", fmt.Errorf("%w: %s is a reserved file", okf.ErrInvalidConcept, filepath.Base(relPath))
 	}
-	abs, err = kb.ResolvePath(relPath, true)
+	abs, err = kb.ResolvePath(relPath)
 	if err != nil {
 		return "", "", err
 	}

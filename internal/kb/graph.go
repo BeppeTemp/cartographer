@@ -628,7 +628,7 @@ func (kb *KB) AssetExists(relPath string) bool {
 	if strings.EqualFold(path.Ext(relPath), ".md") {
 		return false
 	}
-	abs, err := kb.ResolvePath(relPath, false)
+	abs, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return false
 	}

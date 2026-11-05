@@ -269,7 +269,7 @@ func (kb *KB) writeIndexBlock(name, block string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	absPath, err := kb.ResolvePath(relPath, true)
+	absPath, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return false, err
 	}

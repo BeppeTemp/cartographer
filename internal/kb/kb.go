@@ -687,7 +687,7 @@ func isReservedMapName(name string) bool {
 // Paths are anchored at DataRoot() (the conceptual root) by default. The
 // services/ tree is a first-class concept root included in WalkConcepts but
 // lives as a sibling of data/ under Root, so it is anchored at Root.
-func (kb *KB) ResolvePath(relPath string, writeMode bool) (string, error) {
+func (kb *KB) ResolvePath(relPath string) (string, error) {
 	// Defence in depth: a path that is not canonical is refused here too, so a
 	// caller that skipped okf.ValidateID cannot reach a different file than the
 	// one the authorizer judged. "." (the data root itself) is the one exception.
@@ -769,7 +769,7 @@ func (kb *KB) ReadRaw(relPath string) (string, error) {
 	if readRawHook != nil {
 		readRawHook(relPath)
 	}
-	abs, err := kb.ResolvePath(relPath, false)
+	abs, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return "", err
 	}
@@ -827,7 +827,7 @@ func (kb *KB) PatchIndex(path, ifMatch, newContent string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	absPath, err := kb.ResolvePath(relPath, true)
+	absPath, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return "", err
 	}
@@ -901,7 +901,7 @@ func (kb *KB) curatedIndexRelPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	descAbs, err := kb.ResolvePath(descRel, false)
+	descAbs, err := kb.ResolvePath(descRel)
 	if err != nil {
 		return "", err
 	}
@@ -1012,11 +1012,11 @@ func (kb *KB) LocateConcept(id okf.ConceptID) (ConceptLocation, error) {
 	if err != nil {
 		return ConceptLocation{}, err
 	}
-	file, err := kb.ResolvePath(rel, true)
+	file, err := kb.ResolvePath(rel)
 	if err != nil {
 		return ConceptLocation{}, err
 	}
-	dir, err := kb.ResolvePath(string(id), true)
+	dir, err := kb.ResolvePath(string(id))
 	if err != nil {
 		return ConceptLocation{}, err
 	}
@@ -1049,7 +1049,7 @@ func (kb *KB) resolveConceptRelPath(id okf.ConceptID, writeMode bool) (relPath s
 		return "", false, err
 	}
 	direct := okf.IDToPath(id)
-	directAbs, err := kb.ResolvePath(direct, false)
+	directAbs, err := kb.ResolvePath(direct)
 	if err != nil {
 		return "", false, err
 	}
@@ -1060,7 +1060,7 @@ func (kb *KB) resolveConceptRelPath(id okf.ConceptID, writeMode bool) (relPath s
 	directExists := statErr == nil
 
 	expandedRel := gopath.Join(string(id), "index.md")
-	expandedAbs, err := kb.ResolvePath(expandedRel, false)
+	expandedAbs, err := kb.ResolvePath(expandedRel)
 	if err != nil {
 		return "", false, err
 	}
@@ -1103,7 +1103,7 @@ func (kb *KB) ListArchives() ([]string, error) {
 // ListExpanded returns the subdirectories of a map (its expanded concepts;
 // path relative to root).
 func (kb *KB) ListExpanded(archive string) ([]string, error) {
-	archiveAbs, err := kb.ResolvePath(archive, false)
+	archiveAbs, err := kb.ResolvePath(archive)
 	if err != nil {
 		return nil, err
 	}
@@ -1125,7 +1125,7 @@ func (kb *KB) ListExpanded(archive string) ([]string, error) {
 
 // WriteFileAtomic writes data to relPath atomically (write to temp + rename).
 func (kb *KB) WriteFileAtomic(relPath string, data []byte) error {
-	abs, err := kb.ResolvePath(relPath, true)
+	abs, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return err
 	}
@@ -1477,7 +1477,7 @@ func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, bod
 		if inServices || len(segments) != 2 {
 			return nil, fmt.Errorf("%w: expanded concept requires a map/concept id, got %s", okf.ErrInvalidPath, id)
 		}
-		directAbs, resolveErr := kb.ResolvePath(okf.IDToPath(id), false)
+		directAbs, resolveErr := kb.ResolvePath(okf.IDToPath(id))
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
@@ -1516,7 +1516,7 @@ func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, bod
 			okf.ErrInvalidPath, len(segments), maxConceptDepth, id)
 	}
 
-	absPath, err := kb.ResolvePath(relPath, true)
+	absPath, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return nil, err
 	}
@@ -1643,7 +1643,7 @@ func (kb *KB) DeleteConcept(id okf.ConceptID) error {
 		return fmt.Errorf("%w: %s is a reserved file", okf.ErrInvalidConcept, filepath.Base(relPath))
 	}
 
-	absPath, err := kb.ResolvePath(relPath, true)
+	absPath, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return err
 	}
@@ -1697,11 +1697,11 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 			return err
 		}
 	}
-	directAbs, err := kb.ResolvePath(direct, true)
+	directAbs, err := kb.ResolvePath(direct)
 	if err != nil {
 		return err
 	}
-	dirAbs, err := kb.ResolvePath(string(id), true)
+	dirAbs, err := kb.ResolvePath(string(id))
 	if err != nil {
 		return err
 	}
@@ -1797,7 +1797,7 @@ func (kb *KB) danglingAssetLink(resolved, pathPart string) bool {
 	if ext == "" || strings.EqualFold(ext, ".md") {
 		return false
 	}
-	abs, err := kb.ResolvePath(resolved, false)
+	abs, err := kb.ResolvePath(resolved)
 	if err != nil {
 		return false
 	}
@@ -1818,7 +1818,7 @@ var mapDescriptorCandidates = []string{"_map.md", "_archive.md"}
 func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 	for _, name := range mapDescriptorCandidates {
 		rel := gopath.Join(archive, name)
-		abs, err := kb.ResolvePath(rel, false)
+		abs, err := kb.ResolvePath(rel)
 		if err != nil {
 			return "", err
 		}
@@ -2157,7 +2157,7 @@ func (kb *KB) isMapName(name string) bool {
 	if err != nil {
 		return false
 	}
-	abs, err := kb.ResolvePath(rel, false)
+	abs, err := kb.ResolvePath(rel)
 	if err != nil {
 		return false
 	}
@@ -2480,7 +2480,7 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 			return MapContract{}, err
 		}
 	}
-	abs, err := kb.ResolvePath(relPath, false)
+	abs, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
 	}
@@ -2572,7 +2572,7 @@ func (kb *KB) planRetitleIndex(name, oldTitle, newTitle string) (string, []byte,
 			fm.Set("title", newTitle)
 		}
 	}
-	abs, err := kb.ResolvePath(relPath, false)
+	abs, err := kb.ResolvePath(relPath)
 	if err != nil {
 		return "", nil, err
 	}
@@ -3222,7 +3222,7 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 // listMDFiles recursively lists .md files in a directory relative to the data root.
 // Returned paths are relative to DataRoot() so they can be passed back to ReadRaw.
 func (kb *KB) listMDFiles(relDir string) ([]string, error) {
-	absDir, err := kb.ResolvePath(relDir, false)
+	absDir, err := kb.ResolvePath(relDir)
 	if err != nil {
 		return nil, err
 	}
