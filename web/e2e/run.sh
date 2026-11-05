@@ -102,4 +102,12 @@ wait_health "$E2E_AUTH_URL" "${TMP}/auth.log"
 
 echo "[e2e-web] local ${E2E_LOCAL_URL}, auth ${E2E_AUTH_URL}"
 cd "$WEB_DIR"
+# A headless run talks to no display server. Handed one (WSLg exports DISPLAY
+# and WAYLAND_DISPLAY), Chromium's GPU process stalls 70-100 s on it before its
+# first WebGL context, so the first test's navigation never returns (#1665).
+# A headed or UI run keeps them: it draws on that display.
+case " $* " in
+    *" --headed "*|*" --ui "*|*" --debug "*) ;;
+    *) unset DISPLAY WAYLAND_DISPLAY ;;
+esac
 npx playwright test "$@"
