@@ -17,7 +17,13 @@
 #                 `make`). A command that takes make's arguments and runs them on
 #                 another machine from the same tree (for instance a wrapper that
 #                 syncs the clean tree to a build host and runs make there); it
-#                 must exit non-zero when make does.
+#                 must exit non-zero when make does, and exit 75 (EX_TEMPFAIL) when
+#                 the machine is unavailable: the gate then runs in CI instead (step 4b).
+#   SIGNOFF_WINDOWS a command that runs its arguments natively on Windows from the
+#                 same tree (empty: no Windows leg). It gets `go test` of the packages
+#                 the branch affects (scripts/affected-pkgs.sh), in parallel with the
+#                 targets; a failure fails the signoff, an exit 75 is reported and
+#                 skipped (test-windows on main stays the net).
 #
 # Plain bash 3.2 (the macOS default): no associative arrays, no GNU-only flags.
 set -euo pipefail
@@ -59,37 +65,106 @@ git fetch -q "$remote" main || die "cannot fetch $remote main (the merge-base mu
 web=$(git diff --name-only "$remote"/main...HEAD | "$here/ci-filters.sh" "$branch" | sed -n 's/^web=//p')
 targets=$TARGETS
 [ "$web" != true ] || targets="$targets $WEB_TARGET"
+win_pkgs=
+[ -z "${SIGNOFF_WINDOWS:-}" ] ||
+  win_pkgs=$(git diff --name-only "$remote"/main...HEAD | "$here/affected-pkgs.sh" | tr '\n' ' ')
+win_pkgs=${win_pkgs% }
+sha=$(git rev-parse HEAD)
+
+push() { # explicit remote and refspec: a worktree branch tracks upstream/main, and a
+  # bare `git push` would follow push.default=upstream to main.
+  git push --force-with-lease -u origin "$branch:$branch" || die "the push failed: nothing posted"
+}
+post() { # $1 = the status description
+  if ! gh api -X POST "repos/$slug/statuses/$sha" -f state=success -f context=signoff \
+    -f description="${1:0:140}" >/dev/null; then
+    die "the branch is pushed but the status is not posted: run make signoff again (a 422 about the commit means $sha is not on $slug yet: open the PR, then run it again)"
+  fi
+}
+still_head() {
+  [ "$(git rev-parse HEAD)" = "$sha" ] && [ "$(git symbolic-ref --short -q HEAD || true)" = "$branch" ] ||
+    die "HEAD moved during the run: the new commit was not signed off, run it again"
+}
+# 4b. The machine of SIGNOFF_MAKE is unavailable: push, dispatch ci.yml on the branch and
+# post the status only when its `gate` job (test and the web legs, ci-gate.sh) is green.
+hosted() {
+  echo "signoff: the build host is unavailable (exit 75): ci.yml runs the gate instead" >&2
+  still_head
+  push
+  local t0 id= c= i
+  t0=$(date +%s)
+  gh workflow run ci.yml -R "$slug" --ref "$branch" >/dev/null || die "cannot dispatch ci.yml on $branch: nothing posted"
+  for i in $(seq 1 "${SIGNOFF_DISPATCH_TRIES:-30}"); do
+    id=$(gh run list -R "$slug" --workflow ci.yml --branch "$branch" --event workflow_dispatch --commit "$sha" \
+      --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
+    [ -z "$id" ] || break
+    sleep "${SIGNOFF_POLL:-10}"
+  done
+  [ -n "$id" ] || die "the dispatched ci.yml run of $sha did not appear: nothing posted"
+  echo "signoff: waiting for the gate job of ci.yml run $id" >&2
+  for i in $(seq 1 "${SIGNOFF_GATE_TRIES:-180}"); do
+    c=$(gh run view "$id" -R "$slug" --json jobs \
+      --jq '[.jobs[] | select(.name == "gate")][0] | if .status == "completed" then .conclusion else "" end' 2>/dev/null || true)
+    [ -z "$c" ] || break
+    sleep "${SIGNOFF_POLL:-10}"
+  done
+  [ "$c" = success ] || die "the gate job of ci.yml run $id is ${c:-unfinished}: nothing posted"
+  secs=$(( $(date +%s) - t0 ))
+  post "make $targets - github-actions/ci.yml run $id - $(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))"
+  echo "signoff: ${sha:0:12} on $branch signed off by ci.yml run $id"
+  exit 0
+}
 
 # 4. Targets. First the platform probe, so a broken wrapper is found before the gate is spent.
 read -r -a mk <<<"${SIGNOFF_MAKE:-make}"
-head_before=$(git rev-parse HEAD)
-probe=$("${mk[@]}" -s --no-print-directory signoff-platform) || die "the platform probe failed: check SIGNOFF_MAKE"
+prc=0
+probe=$("${mk[@]}" -s --no-print-directory signoff-platform) || prc=$?
+[ "$prc" != 75 ] || hosted
+[ "$prc" = 0 ] || die "the platform probe failed: check SIGNOFF_MAKE"
 platform=$(printf '%s\n' "$probe" | awk 'NF { l = $0 } END { print l }')
 [ -n "$platform" ] || die "the platform probe printed nothing"
 echo "signoff: running make $targets on $platform" >&2
 start=$(date +%s)
+# The Windows leg runs beside the targets; its log and end time go to temp files.
+win_pid= win_log=
+if [ -n "$win_pkgs" ]; then
+  read -r -a wmk <<<"$SIGNOFF_WINDOWS"
+  win_log=$(mktemp "${TMPDIR:-/tmp}/signoff-windows.XXXXXX")
+  echo "signoff: Windows leg on $(printf '%s\n' $win_pkgs | wc -l | tr -d ' ') package(s)" >&2
+  # shellcheck disable=SC2086  # the packages are a word list on purpose
+  ( r=0; "${wmk[@]}" go test -timeout 20m $win_pkgs >"$win_log" 2>&1 || r=$?; echo "$r $(date +%s)" >"$win_log.end" ) &
+  win_pid=$!
+fi
+# The leg's wrapper is a child of the subshell: stop it too, or it keeps the machine busy.
+trap '[ -z "$win_pid" ] || { pkill -TERM -P "$win_pid" 2>/dev/null; kill "$win_pid" 2>/dev/null; } || true; [ -z "$win_log" ] || rm -f "$win_log" "$win_log.end"' EXIT
 rc=0
 # shellcheck disable=SC2086  # the targets are a word list on purpose
 "${mk[@]}" $targets || rc=$?
 secs=$(( $(date +%s) - start ))
+[ "$rc" != 75 ] || hosted
 [ "$rc" = 0 ] || die "make $targets failed (exit $rc): nothing pushed, nothing posted"
 duration=$(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))
+windows="windows not run"
+if [ -n "$win_pid" ]; then
+  wait "$win_pid" || true
+  win_pid=
+  read -r wrc wend <"$win_log.end" || { wrc=1; wend=$(date +%s); }
+  wsecs=$(( wend - start ))
+  case "$wrc" in
+    0) windows="windows $(printf '%dm%02ds' $((wsecs / 60)) $((wsecs % 60)))" ;;
+    75) windows="windows unavailable"; echo "signoff: warning: the Windows machine is unavailable, leg skipped" >&2 ;;
+    *) tail -n 40 "$win_log" >&2; die "the Windows leg failed (exit $wrc): nothing pushed, nothing posted" ;;
+  esac
+fi
 
 # 5. Still the same commit (the tree may differ: a web build rewrites tracked bundle files).
-[ "$(git rev-parse HEAD)" = "$head_before" ] && [ "$(git symbolic-ref --short -q HEAD || true)" = "$branch" ] ||
-  die "HEAD moved during the run: the new commit was not signed off, run it again"
-sha=$head_before
+still_head
 
-# 6. Push: explicit remote and refspec. A worktree branch tracks upstream/main, and a
-# bare `git push` would follow push.default=upstream to main.
-git push --force-with-lease -u origin "$branch:$branch" || die "the push failed: nothing posted"
+# 6. Push.
+push
 
 # 7. Status.
-desc="make $targets - $platform - $duration"
-if ! gh api -X POST "repos/$slug/statuses/$sha" -f state=success -f context=signoff \
-  -f description="${desc:0:140}" >/dev/null; then
-  die "the branch is pushed but the status is not posted: run make signoff again (a 422 about the commit means $sha is not on $slug yet: open the PR, then run it again)"
-fi
+post "make $targets - $platform - $duration - $windows"
 
 # 8. Re-run a failed ci.yml run of this sha: its gate ran before the status existed.
 # A run in progress is left alone, its gate is polling. Warnings only from here on.

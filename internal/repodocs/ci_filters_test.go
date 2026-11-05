@@ -149,6 +149,8 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		"decisions-index": true, "decisions-new": true, "changelog-areas": true, "codemap": true,
 		"settings-example": true, "demo-kb": true, "demo-image": true,
 		"signoff": true, "signoff-platform": true, "web-gate": true,
+		// The fast tier: what an implementer runs while iterating; make gate is CI's.
+		"check": true, "check-run": true,
 		// The docker job builds with buildx (layer cache in the GitHub cache) and
 		// runs test/smoke/image.sh itself; these two are the same checks by hand.
 		"docker": true, "docker-smoke": true,

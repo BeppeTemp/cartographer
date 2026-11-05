@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -205,6 +205,25 @@ dev: ## Live instance from this worktree: make dev [DATA=<data dir>] [API_PORT=3
 # `web` CI job's business (D227).
 gate: fmt-check vet test race ## Everything that must be green before a PR is opened
 	@echo "gate: OK"
+
+# The fast tier an implementer runs on every iteration (safe in parallel): fmt, vet
+# and the tests of the packages this checkout affects, from scripts/affected-pkgs.sh
+# (the changed packages and their reverse test dependencies). `make gate` still runs
+# everything. CHECK_MAKE runs check-run elsewhere, like SIGNOFF_MAKE (the package list
+# travels as a make variable); an exit 75 from it means "host unavailable" and the
+# check runs here instead.
+CHECK_MAKE ?= $(MAKE)
+check: ## Fast tier: fmt-check, vet and the tests of the packages this branch affects (CHECK_MAKE runs them elsewhere)
+	@pkgs=$$(scripts/affected-pkgs.sh --changed | scripts/affected-pkgs.sh | tr '\n' ' '); \
+	echo "check: $${pkgs:-no Go package affected}"; \
+	rc=0; $(CHECK_MAKE) check-run CHECK_PKGS="$$pkgs" || rc=$$?; \
+	if [ "$$rc" = 75 ]; then echo "check: the build host is unavailable, running here"; $(MAKE) check-run CHECK_PKGS="$$pkgs"; \
+	else exit $$rc; fi
+
+check-run: fmt-check vet
+	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -timeout 20m $(CHECK_PKGS)
+	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -race -count=1 -run 'Race|Concurren' $(CHECK_PKGS)
+	@echo "check: OK"
 
 # A maintainer's replacement for `make gate` + `git push`: the gate (and the web
 # legs when the diff needs them), the push, and the `signoff` status that CI's
