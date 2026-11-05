@@ -23,6 +23,21 @@ the rest; `verified` is written `<scope> <id> verified <YYYY-MM-DD> <recipe>`, t
 between the block and the Go table, on a provider without a block, and on a `verified` line without
 date and recipe: change the table and the block in the same PR.
 
+**Capability probes (2026-11-05, recipes in `probes.md` §Capability probes).** Claude Code 2.1.318,
+Codex CLI 0.166.0, Kiro CLI 3.0.0, OpenCode 2.2.5, Pi 1.5.0; Cline, Crush, Copilot CLI and Antigravity were
+not probed and stay `unverified`. A skill whose frontmatter carries the unknown key `requires` loaded on all
+five (negative control: no skill, `NONE`), and an agent with `requires` in its frontmatter was invoked on
+Claude Code only: no probed client refuses or mangles it, so none needs `requires` stripped from a skill copy.
+Codex TOML, Kiro JSON and OpenCode agent files with `requires` are unprobed. Agents and
+hooks placed in a non-git folder `W`, asked from a git repository `W/repo` (the positive control from `W`):
+
+| Client (version) | agent in `W/repo` | hook in `W/repo` |
+|---|---|---|
+| Claude Code 2.1.318 | no | no |
+| Codex 0.166.0 | no | no |
+| Kiro CLI 3.0.0 | no | not probed |
+| OpenCode 2.2.5 | yes | not probed |
+
 Conventions: `unknown` means no version or date was ever recorded in this
 repository; `unverified` means a source was named but not confirmed to exist. A
 value is never filled in from memory. Documentation is not evidence: a change that
@@ -120,19 +135,19 @@ global hook.SessionStart unverified
 global hook.Stop unverified
 global hook.SubagentStop unverified
 global hook.UserPromptSubmit unverified
-project skill unverified
-project mcp unverified
+project skill verified 2026-11-05 claude-project
+project mcp verified 2026-11-05 claude-project
 project agent.delegate unverified
-project agent.invoke unverified
+project agent.invoke verified 2026-11-05 claude-project
 project hook.PostInvocation absent
-project hook.PostToolUse unverified
+project hook.PostToolUse verified 2026-11-05 claude-project
 project hook.PreCompact unverified
 project hook.PreInvocation absent
-project hook.PreToolUse unverified
-project hook.SessionStart unverified
-project hook.Stop unverified
-project hook.SubagentStop unverified
-project hook.UserPromptSubmit unverified
+project hook.PreToolUse verified 2026-11-05 claude-project
+project hook.SessionStart verified 2026-11-05 claude-project
+project hook.Stop verified 2026-11-05 claude-project
+project hook.SubagentStop verified 2026-11-05 claude-project
+project hook.UserPromptSubmit verified 2026-11-05 claude-project
 ```
 
 ## codex
@@ -201,32 +216,32 @@ project hook.UserPromptSubmit unverified
   `internal/provisioning/capabilities.go`.
 
 ```capabilities
-global skill unverified
+global skill verified 2026-11-05 codex-scratch-home
 global mcp unverified
-global agent.delegate unverified
-global agent.invoke unverified
+global agent.delegate verified 2026-11-05 codex-scratch-home
+global agent.invoke verified 2026-11-05 codex-scratch-home
 global hook.PostInvocation absent
-global hook.PostToolUse unverified
+global hook.PostToolUse verified 2026-11-05 codex-scratch-home
 global hook.PreCompact unverified
 global hook.PreInvocation absent
-global hook.PreToolUse unverified
-global hook.SessionStart unverified
-global hook.Stop unverified
+global hook.PreToolUse verified 2026-11-05 codex-scratch-home
+global hook.SessionStart verified 2026-11-05 codex-scratch-home
+global hook.Stop verified 2026-11-05 codex-scratch-home
 global hook.SubagentStop unverified
-global hook.UserPromptSubmit unverified
-project skill unverified
-project mcp unverified
-project agent.delegate unverified
-project agent.invoke unverified
+global hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
+project skill verified 2026-11-05 codex-scratch-home
+project mcp verified 2026-11-05 codex-scratch-home
+project agent.delegate verified 2026-11-05 codex-scratch-home
+project agent.invoke verified 2026-11-05 codex-scratch-home
 project hook.PostInvocation absent
-project hook.PostToolUse unverified
+project hook.PostToolUse verified 2026-11-05 codex-scratch-home
 project hook.PreCompact unverified
 project hook.PreInvocation absent
-project hook.PreToolUse unverified
-project hook.SessionStart unverified
-project hook.Stop unverified
+project hook.PreToolUse verified 2026-11-05 codex-scratch-home
+project hook.SessionStart verified 2026-11-05 codex-scratch-home
+project hook.Stop verified 2026-11-05 codex-scratch-home
 project hook.SubagentStop unverified
-project hook.UserPromptSubmit unverified
+project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
 ```
 
 ## kiro
@@ -308,10 +323,10 @@ global hook.SessionStart unverified
 global hook.Stop unverified
 global hook.SubagentStop absent
 global hook.UserPromptSubmit unverified
-project skill unverified
-project mcp unverified
-project agent.delegate unverified
-project agent.invoke unverified
+project skill verified 2026-11-05 kiro-project
+project mcp verified 2026-11-05 kiro-project
+project agent.delegate verified 2026-11-05 kiro-project
+project agent.invoke verified 2026-11-05 kiro-project
 project hook.PostInvocation absent
 project hook.PostToolUse absent
 project hook.PreCompact absent
@@ -376,10 +391,12 @@ project hook.UserPromptSubmit absent
   - `opencode --version` prints `opencode v2.0.25` (seen on both streams); the major parser reads it (D719). The no-`PATH` sync run and `session.created` delivery to `ctx.event.subscribe` are not yet probed.
   - 2.x `opencode.json` is translated on load (`mcp` → `mcp.servers`,
     `permission` map → `permissions` list), so the 1.x shape still works.
-- **Watch items**: the project skill cell (`.opencode/skills`) is documented. The
-  project agent cell in `projectDestinationMatrix` is `.opencode/agent`, while the
-  2.0.30 probe listed project agents from `.opencode/agents/`: the matrix cell and
-  the probe disagree.
+- **Watch items**: the project skill cell (`.opencode/skills`) loads on 2.2.5
+  (probe 2026-11-05). On 2.2.5 project agents load from both `.opencode/agent/` (the
+  matrix cell) and `.opencode/agents/`, so the two no longer disagree. `session.idle`
+  never reached a plugin in `opencode run`: `hook.Stop` stays unverified, and the
+  global MCP cell was not probed (`opencode mcp list` failed against the background
+  service of the real install).
 - **Probe notes**: 2.x has no `opencode agent list`: use `opencode debug agents`
   (JSON) and `opencode debug paths`. A background service caches the
   configuration: run `opencode reload` after changing a file. `opencode run -m
@@ -389,29 +406,29 @@ project hook.UserPromptSubmit absent
   `internal/provisioning/capabilities.go`.
 
 ```capabilities
-global skill unverified
+global skill verified 2026-11-05 opencode-scratch-xdg
 global mcp unverified
-global agent.delegate unverified
-global agent.invoke unverified
+global agent.delegate verified 2026-11-05 opencode-scratch-xdg
+global agent.invoke verified 2026-11-05 opencode-scratch-xdg
 global hook.PostInvocation absent
-global hook.PostToolUse unverified
+global hook.PostToolUse verified 2026-11-05 opencode-scratch-xdg
 global hook.PreCompact absent
 global hook.PreInvocation absent
-global hook.PreToolUse unverified
-global hook.SessionStart unverified
+global hook.PreToolUse verified 2026-11-05 opencode-scratch-xdg
+global hook.SessionStart verified 2026-11-05 opencode-scratch-xdg
 global hook.Stop unverified
 global hook.SubagentStop absent
 global hook.UserPromptSubmit absent
-project skill unverified
-project mcp unverified
-project agent.delegate unverified
-project agent.invoke unverified
+project skill verified 2026-11-05 opencode-scratch-xdg
+project mcp verified 2026-11-05 opencode-scratch-xdg
+project agent.delegate verified 2026-11-05 opencode-scratch-xdg
+project agent.invoke verified 2026-11-05 opencode-scratch-xdg
 project hook.PostInvocation absent
-project hook.PostToolUse unverified
+project hook.PostToolUse verified 2026-11-05 opencode-scratch-xdg
 project hook.PreCompact absent
 project hook.PreInvocation absent
-project hook.PreToolUse unverified
-project hook.SessionStart unverified
+project hook.PreToolUse verified 2026-11-05 opencode-scratch-xdg
+project hook.SessionStart verified 2026-11-05 opencode-scratch-xdg
 project hook.Stop unverified
 project hook.SubagentStop absent
 project hook.UserPromptSubmit absent
@@ -728,16 +745,16 @@ project hook.UserPromptSubmit absent
   `internal/provisioning/capabilities.go`.
 
 ```capabilities
-global skill unverified
-global mcp unverified
+global skill verified 2026-11-05 pi-scratch-agent-dir
+global mcp verified 2026-11-05 pi-scratch-agent-dir
 global agent.delegate absent
 global agent.invoke absent
 global hook.PostInvocation absent
-global hook.PostToolUse unverified
+global hook.PostToolUse verified 2026-11-05 pi-scratch-agent-dir
 global hook.PreCompact absent
 global hook.PreInvocation absent
-global hook.PreToolUse unverified
-global hook.SessionStart unverified
+global hook.PreToolUse verified 2026-11-05 pi-scratch-agent-dir
+global hook.SessionStart verified 2026-11-05 pi-scratch-agent-dir
 global hook.Stop absent
 global hook.SubagentStop absent
 global hook.UserPromptSubmit absent

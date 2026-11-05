@@ -219,3 +219,49 @@ unique token; ask the client to repeat it.
   only when it is the response text). P3: a `PreToolUse` hook printing `{"cancel":true,"errorMessage":"x"}`
   stops the task and shows the message. Once on Windows: `<Event>.ps1` run by `powershell -NoProfile
   -NonInteractive -ExecutionPolicy Bypass -File`.
+
+## Capability probes (D1656)
+
+One recipe per client; its name is what a `verified` line of the `docs/harnesses.md` capability block
+cites. Common shape: a fresh `mktemp -d` (git repository inside), a KB made with `cartographer kb create kb
+--no-remote --local --data <tmp>/data` for the MCP entry (`cartographer serve --kb <tmp>/data/kb`), a skill
+`probe-skill` whose description asks for the token `SKILLTOK-7731` (its frontmatter carries
+`requires: [skill:other]`, which is the unknown-key probe), an agent `probe-agent` whose description says it
+knows "the zebra code" and whose body answers `ZEBRA-4412`, and one hook per event appending `H-<Event>` to a
+sentinel file. Each cell is run once **with** the artifacts and once **without** (the negative control:
+`NONE`, empty sentinel). `agent.delegate` is the prompt "find the zebra code by delegating to a subagent if
+one fits" (the model chooses the agent from its description; the parent's Read/Grep/Bash are denied, or the
+body would be found in the file); `agent.invoke` is "use the probe-agent agent to get the code". Use
+non-interactive runs with a short prompt and an alarm. Ancestor probe: the same artifact in a non-git `W`,
+asked from `W/repo` (a git repository) and, as the positive control, from `W`.
+Safety: create every scratch dir with `mktemp -d` (mode 0700) and remove them at the end, copied
+credentials (`auth.json`, `settings.json`) included. A recipe that trusts all tools without a scratch `HOME`
+(`kiro-project`) is run from a `cd` into the temp project only, with no global cell, or after asking the operator.
+
+- **claude-project**: artifacts under the temp dir's `.claude/{skills,agents,settings.json}` and `.mcp.json`;
+  `claude -p --model haiku --disallowedTools=Read,Glob,Grep,Bash --allowedTools=Agent,Task "<prompt>" </dev/null`
+  (the `=` form: a space makes the variadic flag swallow the prompt). An agent whose `tools:` names a tool the
+  parent denies is refused as "invalid tools": leave `tools` out. MCP: ask for the count of `mcp__probe__*`
+  tools; a user setting that auto-approves project servers makes `.mcp.json` load with no prompt, so the
+  control is the same prompt in a dir with no `.mcp.json`. The model may decline to delegate to an agent whose
+  description claims knowledge it cannot verify: `agent.delegate` stays unverified until it does.
+- **codex-scratch-home**: scratch `HOME` and `CODEX_HOME` with only `auth.json` copied; global cells under
+  `$CODEX_HOME/{skills,agents,hooks.json,config.toml}`, project cells under `.agents/skills`, `.codex/` after
+  `[projects."<dir>"] trust_level = "trusted"` in the scratch config. `codex exec --skip-git-repo-check
+  --dangerously-bypass-hook-trust -s read-only "<prompt>" </dev/null`. MCP: `[mcp_servers.probe]`, ask for the
+  tool count (`codex mcp list` shows only that the entry is enabled; the global MCP cell was not probed).
+- **opencode-scratch-xdg**: scratch `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` (the free
+  `opencode/big-pickle` model needs no credentials); `opencode run --standalone --auto -m opencode/big-pickle`.
+  Skills `.opencode/skills/`, agents `.opencode/agents/` **and** `.opencode/agent/` (both load on 2.2.5), hooks
+  as plugins `.opencode/plugins/*.js` in the 2.x shape (`ctx.tool.hook("execute.before"|"execute.after")`,
+  `ctx.event.subscribe` filtered on `session.created`/`session.idle`), MCP in `opencode.json`;
+  `opencode mcp list` and `opencode debug agents --standalone` (the background service caches and its port may
+  be taken by the real one). `session.idle` never fired in `run`: `Stop` stays unverified.
+- **kiro-project**: real `$HOME` (Kiro keeps its login there), project cells only: `.kiro/skills/`,
+  `.kiro/agents/<name>.json` (`tools: ["*"]`), `.kiro/settings/mcp.json`; `kiro-cli chat --no-interactive -a
+  --trust-workspace "<prompt>"`. The transcript prints `Load skill: <name>` and `Sub-agent: <name>`. MCP:
+  `kiro-cli mcp list` shows the entry under the default agent (a model-side count is useless, the real global
+  config carries the same tools). Global cells are not probed: they would write into `~/.kiro`.
+- **pi-scratch-agent-dir**: `PI_CODING_AGENT_DIR` scratch with `auth.json` and `settings.json` copied;
+  `pi -p --no-session "<prompt>"`. Skill in `skills/`, MCP in `mcp.json` (`pi mcp list`, then the count in a
+  session), hooks as one extension `extensions/*.ts` listening on `session_start`, `tool_call`, `tool_result`.

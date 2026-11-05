@@ -61,9 +61,10 @@ func TestCapabilityTableFollowsDestinationMatrix(t *testing.T) {
 }
 
 func TestCapabilityTableCoversPiAndCline(t *testing.T) {
-	for _, p := range []configurator.Provider{configurator.ProviderPi, configurator.ProviderCline} {
-		if got := CapabilityStatus(p, ScopeGlobal, CapSkill); got != CapUnverified {
-			t.Errorf("%s global skill = %q, want unverified", p, got)
+	// Pi was probed on 2026-11-05, Cline was not.
+	for p, want := range map[configurator.Provider]CapStatus{configurator.ProviderPi: CapVerified, configurator.ProviderCline: CapUnverified} {
+		if got := CapabilityStatus(p, ScopeGlobal, CapSkill); got != want {
+			t.Errorf("%s global skill = %q, want %s", p, got, want)
 		}
 		if got := AgentMode(p, ScopeProject); got != AgentDegraded {
 			t.Errorf("%s project agent mode = %q, want degraded (no project cell)", p, got)
@@ -73,8 +74,8 @@ func TestCapabilityTableCoversPiAndCline(t *testing.T) {
 	if got := AgentMode(configurator.ProviderPi, ScopeGlobal); got != AgentDegraded {
 		t.Errorf("pi global agent mode = %q, want degraded", got)
 	}
-	if got := CapabilityStatus(configurator.ProviderPi, ScopeGlobal, "hook.PreToolUse"); got != CapUnverified {
-		t.Errorf("pi global hook.PreToolUse = %q, want unverified", got)
+	if got := CapabilityStatus(configurator.ProviderPi, ScopeGlobal, "hook.PreToolUse"); got != CapVerified {
+		t.Errorf("pi global hook.PreToolUse = %q, want verified", got)
 	}
 	if got := AgentMode(configurator.ProviderCline, ScopeGlobal); got != AgentNative {
 		t.Errorf("cline global agent mode = %q, want native", got)
