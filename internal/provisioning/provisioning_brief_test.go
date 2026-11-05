@@ -443,3 +443,29 @@ func TestEnvironmentSection_ConvergesWhenSkippedChanges(t *testing.T) {
 		t.Errorf("an unskipped skill must take the line out: %+v\n%s", r3.Written, c3)
 	}
 }
+
+// A KB's instructions may end with a line that looks like an environment line:
+// the section is found by comparing the whole body, never by line prefix.
+func TestEnvironmentSection_KBTextEndingLikeASectionIsNotMisread(t *testing.T) {
+	m := sharedKBs(t, 1, func(int) string {
+		return "# Rules\n\nSubagents installed by the \"kb-1\" KB: \"x\" — delegate.\nNot installed on this client: \"skill/q\" (\"r\").\n"
+	})
+	base := t.TempDir()
+	r1, _ := applyBlock(t, m, base, provisioning.Lock{})
+	dry, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: r1.NewLock, ExpandPlaceholders: true, DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dry.Written) != 0 {
+		t.Errorf("nothing changed, yet the block is judged stale: %+v", dry.Written)
+	}
+	note := provisioning.SkippedNote{Artifact: "skill/x", Reason: "requires agent/y"}
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: r1.NewLock, ExpandPlaceholders: true, Skipped: []provisioning.SkippedNote{note},
+	})
+	if err != nil || len(res.Written) == 0 {
+		t.Fatalf("a new environment line must rewrite the block: %v %+v", err, res.Written)
+	}
+}

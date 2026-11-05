@@ -18,6 +18,16 @@ the Atlas sees one KB, the client may bind several.
 
 **Deviations accepted.** The skipped line is not grouped per KB (the notes carry no KB; adding one would change every
 `ProjectionNote` literal). The Atlas judges the global scope only; a project-scope cell that differs is not shown.
-A skipped artifact is named whatever its approval state, since the note does not carry the artifact.
+A skipped artifact is named only when it is authorized (`AuthorizedSkipped`, looked up by `kind/name` in the source manifest).
+
+**Rewrite trigger and the server path.** The environment section moves with things no artifact hash records, and it cannot
+join the recorded paths-section hash: `status` recomputes that hash without the approvals and resolver notes a sync holds
+and would report drift for good. Its trigger is the block itself: `applyInstructionsGroup` builds the whole body before
+the trigger check and compares it with the block on disk (`blockBodyIs`), so the section is never located by line prefix
+(a KB's instructions can end with any line). The server `sync_apply` now runs `ResolveProjections` and applies the
+resolved manifest, so it writes the same block a client would; it holds no approvals, so a gated artifact is never named.
+Every KB-supplied name or reason in the lines is quoted and bounded; the native "Subagents installed by the KB" line is
+not quoted (those agents are authorized and their KB already writes the instructions text, and quoting would change
+Claude Code's bytes).
 
 **Number.** Provisional: the PR number is not known yet; rename to `D<pr>-...` when it is opened (D672).

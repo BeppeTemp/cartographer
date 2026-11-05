@@ -3145,8 +3145,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// moves with things no artifact hash records (a skill skipped or unskipped, a
 	// capability probed). It cannot join the paths-section hash: `status` judges
 	// that hash without the approvals and notes a sync holds, so the two would
-	// disagree for good. Its trigger is the text itself, read back from the block
-	// on disk, like the @AGENTS.md import below.
+	// disagree for good. Its trigger is blockBodyIs below, with the @AGENTS.md import.
 	envSection := environmentSection(m, opts)
 	var pathsSection, sharedSection string
 	if len(signed) > 0 {
@@ -3180,9 +3179,53 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// and drop the import when it doesn't. An appearing/disappearing
 	// AGENTS.md changes the rendered body, so it is a trigger of its own.
 	wantImport := needsAgentsMDImport(opts)
+	// The body this block should hold, built before the trigger so the
+	// import and the environment section are compared as the whole text: a
+	// KB's instructions can end with any line, so the section is never found by
+	// what it starts with.
+	var body string
+	if len(signed) > 0 {
+		// Each KB's snippet is individually attributed (D182 WP1): current is
+		// already in the order applyInstructionsGroup will render (WP2's
+		// opts.KBOrder-aware sort above), so signed — a filtered copy of current —
+		// carries that same order through to the wrap.
+		snippets := make([]string, 0, len(signed))
+		for _, a := range signed {
+			content := strings.TrimRight(string(expandedContent[a.Name]), "\n")
+			snippets = append(snippets, wrapKBSection(a.Name, content))
+		}
+		body = strings.Join(snippets, "\n\n")
+
+		// D1182: the operational bullets, once per block, after the last section.
+		if sharedSection != "" {
+			body += "\n\n" + strings.TrimRight(sharedSection, "\n")
+		}
+
+		// D293: a project-scope Claude CLAUDE.md that lives alongside an
+		// AGENTS.md must import it, or creating/keeping CLAUDE.md hides the
+		// repository's own instructions from every Claude session.
+		if wantImport {
+			body = "@AGENTS.md\n\n" + body
+		}
+
+		if pathsSection != "" {
+			body += "\n\n" + pathsSection
+		}
+
+		// The subagent sentence, per provider and per KB (D154): it must describe
+		// what THIS client received, not what the KB declares. A client whose "agent"
+		// cell is unsupportedDest (crush) receives none, and the sentence must not
+		// tell it to delegate to subagents that are not there; installedSubagentSentence
+		// derives it from destDir.
+		if envSection != "" {
+			body += "\n\n" + envSection
+		}
+		if cliSentence != "" {
+			body += "\n\n" + cliSentence
+		}
+	}
 	if !triggered && len(signed) > 0 {
-		fullPath := filepath.Join(opts.BaseDir, destRel)
-		if wantImport != blockHasAgentsMDImport(fullPath) || envSection != blockEnvironment(fullPath) {
+		if !blockBodyIs(filepath.Join(opts.BaseDir, destRel), body) {
 			triggered = true
 		}
 	}
@@ -3220,45 +3263,6 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 			pruneEmptyDirs(opts.BaseDir, destRel)
 		}
 		return nil
-	}
-
-	// Each KB's snippet is individually attributed (D182 WP1): current is
-	// already in the order applyInstructionsGroup will render (WP2's
-	// opts.KBOrder-aware sort above), so signed — a filtered copy of current —
-	// carries that same order through to the wrap.
-	snippets := make([]string, 0, len(signed))
-	for _, a := range signed {
-		content := strings.TrimRight(string(expandedContent[a.Name]), "\n")
-		snippets = append(snippets, wrapKBSection(a.Name, content))
-	}
-	body := strings.Join(snippets, "\n\n")
-
-	// D1182: the operational bullets, once per block, after the last section.
-	if sharedSection != "" {
-		body += "\n\n" + strings.TrimRight(sharedSection, "\n")
-	}
-
-	// D293: a project-scope Claude CLAUDE.md that lives alongside an
-	// AGENTS.md must import it, or creating/keeping CLAUDE.md hides the
-	// repository's own instructions from every Claude session.
-	if wantImport {
-		body = "@AGENTS.md\n\n" + body
-	}
-
-	if pathsSection != "" {
-		body += "\n\n" + pathsSection
-	}
-
-	// The subagent sentence, per provider and per KB (D154): it must describe
-	// what THIS client received, not what the KB declares. A client whose "agent"
-	// cell is unsupportedDest (crush) receives none, and the sentence must not
-	// tell it to delegate to subagents that are not there; installedSubagentSentence
-	// derives it from destDir.
-	if envSection != "" {
-		body += "\n\n" + envSection
-	}
-	if cliSentence != "" {
-		body += "\n\n" + cliSentence
 	}
 
 	unchanged := false
@@ -3381,67 +3385,24 @@ func fileImportsAgentsMDOutsideBlock(path string) bool {
 	return containsAgentsMDImport(stripped)
 }
 
-// blockHasAgentsMDImport reports whether the existing managed block at path
-// contains the @AGENTS.md import line. Used to detect when the import state
-// changed (AGENTS.md appeared or disappeared) and trigger a rewrite.
-func blockHasAgentsMDImport(path string) bool {
+// blockBodyIs reports whether the managed block already in the file at path
+// holds exactly body: the same comparison writeInstructionsBlockChanged ends
+// with, without writing. Client-written text of the block that no artifact
+// hash records (the AGENTS.md import, the environment section, D1701) triggers
+// a rewrite through it. It stays out of the recorded paths-section hash because
+// `status` recomputes that hash without the approvals and resolver notes a sync
+// holds and would report drift for good.
+func blockBodyIs(path, body string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
 	content := string(data)
-	beginIdx := strings.Index(content, instructionsBlockBeginPrefix)
-	if beginIdx == -1 {
-		return false
+	next, outcome := replaceBetweenMarkers(content, instructionsBlockBegin+"\n"+body+"\n"+instructionsBlockEnd+"\n")
+	if outcome == blocktext.Corrupted {
+		return true // left to the write, which refuses it (D148), when something else triggers
 	}
-	endIdx := strings.Index(content[beginIdx:], instructionsBlockEnd)
-	if endIdx == -1 {
-		return false
-	}
-	block := content[beginIdx : beginIdx+endIdx+len(instructionsBlockEnd)]
-	return containsAgentsMDImport(block)
-}
-
-// environmentLinePrefixes start every line environmentSection can write.
-var environmentLinePrefixes = []string{
-	"Subagents installed by the ",
-	"Subagents available here as skills ",
-	"Not installed on this client: ",
-	"Hooks installed here that this client never fires: ",
-}
-
-// blockEnvironment returns the client environment section the existing managed
-// block at path ends with: its last lines, while they start like one of the
-// section's lines. "" when there is no block or none.
-func blockEnvironment(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	content := string(data)
-	beginIdx := strings.Index(content, instructionsBlockBeginPrefix)
-	if beginIdx == -1 {
-		return ""
-	}
-	endIdx := strings.Index(content[beginIdx:], instructionsBlockEnd)
-	if endIdx == -1 {
-		return ""
-	}
-	lines := strings.Split(strings.TrimRight(content[beginIdx:beginIdx+endIdx], "\n"), "\n")
-	i := len(lines)
-	for i > 0 {
-		isEnv := false
-		for _, p := range environmentLinePrefixes {
-			if strings.HasPrefix(lines[i-1], p) {
-				isEnv = true
-			}
-		}
-		if !isEnv {
-			break
-		}
-		i--
-	}
-	return strings.Join(lines[i:], "\n")
+	return outcome == blocktext.Found && next == content
 }
 
 // containsAgentsMDImport reports whether text contains a line that is exactly
@@ -3784,8 +3745,10 @@ func silentHookSentence(m Manifest, opts ApplyOptions) string {
 // generalizing D154's sentence): native agents, agents installed as skills, what
 // was left out, hooks that cannot fire. Each line only when it applies, in that
 // order; "" when none does. Client-side and outside every artifact hash, and
-// rewritten when its text changes: it is folded into the recorded block hash
-// (pathsSectionHash), so a new binary with a changed table updates it.
+// rewritten when its text changes: the trigger is blockBodyIs, the block on disk
+// compared with the body to write. It is not in pathsSectionHash because `status`
+// recomputes that hash without the approvals and notes a sync holds and would
+// drift for good. A new binary with a changed table updates it.
 func environmentSection(m Manifest, opts ApplyOptions) string {
 	var lines []string
 	for _, l := range []string{
