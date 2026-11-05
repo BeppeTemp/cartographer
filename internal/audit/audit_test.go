@@ -1528,3 +1528,23 @@ func TestOpenWithoutTheWriterLockDoesNotReconcile(t *testing.T) {
 		t.Fatal("the index was reconciled without the writer lock")
 	}
 }
+
+// A forged keyless index plus a junk file at the archive path must not
+// truncate the active log: the archived segment has to equal it.
+func TestOpenDoesNotTruncateWhenTheArchivedSegmentDiffers(t *testing.T) {
+	l, path, archive := rotatingLog(t, nil)
+	if err := ev(l); err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+	crashState(t, path, archive, nil, true)
+	if err := os.WriteFile(filepath.Join(archive, "seg.000001.jsonl"), []byte("junk\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	reopen(t, path, archive, nil, true).Close()
+	after, _ := os.ReadFile(path)
+	if len(before) == 0 || string(before) != string(after) {
+		t.Fatal("the active log was truncated against a segment that does not match it")
+	}
+}

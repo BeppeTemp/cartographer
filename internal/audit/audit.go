@@ -813,7 +813,7 @@ func reconcileIndex(idx checkpointIndex, entries []Entry, path, cpPath, dir stri
 	}
 	_, statErr := os.Stat(filepath.Join(dir, last.Name))
 	if statErr == nil {
-		if entries[len(entries)-1].Hash == last.LastHash && len(entries) == last.Count {
+		if entries[len(entries)-1].Hash == last.LastHash && len(entries) == last.Count && sameFile(path, filepath.Join(dir, last.Name)) {
 			if err := os.Truncate(path, 0); err != nil {
 				return idx, entries, fmt.Errorf("audit: finish an interrupted rotation: %w", err)
 			}
@@ -836,6 +836,17 @@ func reconcileIndex(idx checkpointIndex, entries []Entry, path, cpPath, dir stri
 		return idx, entries, fmt.Errorf("audit: reconcile checkpoint index: %w", err)
 	}
 	return out, entries, nil
+}
+
+// sameFile reports whether two files hold the same bytes: the archived segment
+// is the proof that truncating the active log loses nothing.
+func sameFile(a, b string) bool {
+	x, err := os.ReadFile(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.ReadFile(b)
+	return err == nil && bytes.Equal(x, y)
 }
 
 // retainLocked deletes rotated segments older than RetentionDays, but only
