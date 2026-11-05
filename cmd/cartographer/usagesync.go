@@ -22,6 +22,10 @@ import (
 // to the unused-skill signal.
 const usageScanInterval = 6 * time.Hour
 
+// usageClockSkew is how far ahead of the clock a stamp may be and still count
+// as a claim of the current window.
+const usageClockSkew = time.Minute
+
 // usageStampName is the stamp in the client state directory whose mtime is the
 // time of the last scan.
 const usageStampName = ".cartographer-usage-scan"
@@ -44,8 +48,13 @@ func claimUsageScan(dir string) bool {
 	}
 	defer func() { _ = release() }()
 	stamp := filepath.Join(dir, usageStampName)
-	if info, err := os.Stat(stamp); err == nil && time.Since(info.ModTime()) < usageScanInterval && time.Since(info.ModTime()) >= 0 {
-		return false
+	// A stamp a little in the future is the one just written, seen through a
+	// clock that stepped back or a filesystem that stamps ahead of time.Now
+	// (WSL2): only one beyond the skew allowance is a wrong clock, not a claim.
+	if info, err := os.Stat(stamp); err == nil {
+		if age := time.Since(info.ModTime()); age < usageScanInterval && age >= -usageClockSkew {
+			return false
+		}
 	}
 	// The mtime is the datum, so the content carries the time: identical bytes
 	// would not move it.

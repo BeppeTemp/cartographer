@@ -53,19 +53,20 @@ printf 'pw: ENC[new]\nsops:\n  mac: x\n' > "$3"
 
 // The same with the real sops: a key set twice on an existing file.
 func TestSetTwiceOnExistingFileRealSOPS(t *testing.T) {
+	root := t.TempDir()
+	realSOPSFixtureRun(t, root)
+}
+
+// realSOPSFixtureRun is the body of the test above, on root. It skips when
+// sops or age-keygen is missing, so no caller can forget one of the two.
+func realSOPSFixtureRun(t *testing.T, root string) {
+	t.Helper()
 	if !Available() {
 		t.Skip("sops is not installed")
 	}
 	if _, err := exec.LookPath("age-keygen"); err != nil {
 		t.Skip("age-keygen is not installed")
 	}
-	root := t.TempDir()
-	realSOPSFixtureRun(t, root)
-}
-
-// realSOPSFixtureRun is the body of the test above, on root.
-func realSOPSFixtureRun(t *testing.T, root string) {
-	t.Helper()
 	keyFile := filepath.Join(t.TempDir(), "k.age")
 	if out, err := exec.Command("age-keygen", "-o", keyFile).CombinedOutput(); err != nil {
 		t.Fatalf("age-keygen: %v: %s", err, out)
@@ -105,9 +106,6 @@ func sopsStderr(root string) string {
 // (macOS t.TempDir is /var -> /private/var) matched no rule and every create
 // failed with "sops encrypt failed".
 func TestCreateThroughASymlinkedKBRootRealSOPS(t *testing.T) {
-	if !Available() {
-		t.Skip("sops is not installed")
-	}
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need privileges on Windows")
 	}

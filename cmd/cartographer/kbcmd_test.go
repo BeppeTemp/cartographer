@@ -907,10 +907,17 @@ func TestCmdKBList_JSON(t *testing.T) {
 	closed.Close()
 	withClientServerURL(t, closed.URL)
 	dataDir := seedKBListDir(t)
+	// `kb list` finds the local server through the service config's http:
+	// field, never the client config; a missing file would fall back to the
+	// default address, where a developer's real service may be listening.
+	cfgPath := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(cfgPath, []byte("http: "+strings.TrimPrefix(closed.URL, "http://")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	var code int
 	out := withStdout(t, func() {
-		code = cmdKBList([]string{"--data", dataDir, "--config", filepath.Join(t.TempDir(), "none.yaml"), "--json"})
+		code = cmdKBList([]string{"--data", dataDir, "--config", cfgPath, "--json"})
 	})
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
