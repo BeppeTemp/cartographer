@@ -80,22 +80,6 @@ export function focusPose(node: Vec3, camera: Vec3, radius: number, view: Viewpo
   return { position: add(lookAt, scale(back, distance)), lookAt };
 }
 
-/**
- * framePose frames a whole graph: the look-at point on its centroid, the
- * camera back along its current line of sight until a sphere of `radius`
- * fits the narrower of the two fields of view, with a little margin.
- */
-export function framePose(centroid: Vec3, radius: number, camera: Vec3, lookAt: Vec3, view: Viewport): Pose {
-  const back = normalize(sub(camera, lookAt));
-  const vertical = ((view.fov / 2) * Math.PI) / 180;
-  const visible = view.width - Math.max(0, view.occludedRight) - Math.max(0, view.occludedLeft ?? 0);
-  const aspect = Math.max(1, visible) / Math.max(1, view.height);
-  const horizontal = Math.atan(Math.tan(vertical) * aspect);
-  const half = Math.min(vertical, horizontal);
-  const distance = (radius * 1.12) / Math.sin(half);
-  return { position: add(centroid, scale(back, distance)), lookAt: centroid };
-}
-
 /** Zoom limits for a graph of this radius: never inside a node, never so far
  *  that the graph is a speck. */
 export function zoomLimits(radius: number): { min: number; max: number } {
@@ -118,8 +102,8 @@ export const FIT_MAX_NODE_PX = 14;
 
 /**
  * The pose that shows every body in the strip the panels leave, as tight as
- * the view allows, from the current viewing direction. Unlike framePose's
- * bounding sphere -- which must hold the graph from any side and so leaves a
+ * the view allows, from the current viewing direction. Unlike a bounding
+ * sphere -- which must hold the graph from any side and so leaves a
  * flat or elongated graph floating in space -- it measures the graph as the
  * camera sees it: across, up and in depth, each against its own half-angle.
  */

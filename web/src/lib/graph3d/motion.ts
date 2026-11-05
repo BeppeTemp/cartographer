@@ -7,8 +7,6 @@
  * reader does by hand -- orbit, zoom, drag -- always works.
  */
 
-export type MotionMode = "live" | "still";
-
 /** Reduced motion wins over the stored toggle; the reader can still flip it. */
 export function initialMotion(stored: boolean, reducedMotion: boolean): boolean {
   return reducedMotion ? false : stored;
@@ -90,6 +88,20 @@ export const DRIFT_REST_MS = 12;
  *  cost of a tick. */
 export function sustainsFullRate(tickMs: number, fullRate: boolean): boolean {
   return fullRate ? tickMs <= DRIFT_TICK_BUDGET_MS : tickMs < DRIFT_TICK_RESUME_MS;
+}
+
+/** The frame the per-frame constants (ease shares, damping) are tuned at: 60 Hz. */
+export const REF_FRAME_MS = 1000 / 60;
+/** A longer gap (a tab coming back) moves the camera as one of this length. */
+export const MAX_FRAME_MS = 100;
+
+/**
+ * The share of the way covered in `dtMs` by something that covers `ease` of it
+ * every 60 Hz frame: 1 - (1 - e) ** (dt * 60). The same elapsed time gives the
+ * same progress at 30, 60 or 144 Hz.
+ */
+export function frameEase(ease: number, dtMs: number): number {
+  return 1 - (1 - ease) ** (dtMs / REF_FRAME_MS);
 }
 
 /** Signals alive at once, at most. */

@@ -131,3 +131,49 @@ describe("growthSchedule", () => {
     expect(shownAt(growthSchedule([]), 100)).toBe(0);
   });
 });
+
+describe("growthOrder", () => {
+  // The order the replay had when it re-sorted `pending` at every empty queue.
+  function reference(
+    nodes: { id: string; pagerank?: number }[],
+    edges: { source: string; target: string }[],
+    births: Record<string, string>,
+  ): string[] {
+    const adjacent = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
+    for (const e of edges) {
+      adjacent.get(e.source)?.push(e.target);
+      adjacent.get(e.target)?.push(e.source);
+    }
+    const rank = new Map(nodes.map((n) => [n.id, n.pagerank ?? 0]));
+    const byRank = (a: string, b: string) => rank.get(b)! - rank.get(a)! || a.localeCompare(b);
+    const batches = new Map<string, string[]>();
+    for (const n of nodes) (batches.get(births[n.id] ?? "") ?? batches.set(births[n.id] ?? "", []).get(births[n.id] ?? "")!).push(n.id);
+    const keys = [...batches.keys()].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : Date.parse(a) - Date.parse(b)));
+    const placed = new Set<string>();
+    const order: string[] = [];
+    for (const key of keys) {
+      const pending = new Set(batches.get(key)!);
+      const queue = [...pending].filter((id) => adjacent.get(id)!.some((m) => placed.has(m))).sort(byRank);
+      while (pending.size) {
+        if (!queue.length) queue.push([...pending].sort(byRank)[0]!);
+        const id = queue.shift()!;
+        if (!pending.delete(id)) continue;
+        placed.add(id);
+        order.push(id);
+        for (const m of adjacent.get(id)!) if (pending.has(m)) queue.push(m);
+      }
+    }
+    return order;
+  }
+
+  it("keeps the golden order of the per-pick sort (several components per batch)", async () => {
+    const { growthOrder } = await import("../lib/graph3d/growth");
+    const nodes = Array.from({ length: 60 }, (_, i) => ({ id: `n${i}`, pagerank: ((i * 37) % 11) / 10 }));
+    const edges = Array.from({ length: 40 }, (_, i) => ({ source: `n${(i * 7) % 60}`, target: `n${(i * 13 + 5) % 60}` }));
+    const births: Record<string, string> = {};
+    nodes.forEach((n, i) => {
+      if (i % 9 !== 0) births[n.id] = new Date(start + (i % 3) * DAY).toISOString();
+    });
+    expect(growthOrder(nodes, edges, births).map((s) => s.id)).toEqual(reference(nodes, edges, births));
+  });
+});

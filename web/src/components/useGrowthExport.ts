@@ -214,6 +214,8 @@ export function useGrowthExport(p: Params) {
   const [ext, setExt] = useState<"mp4" | "webm" | null>(null);
   const abort = useRef<(() => void) | null>(null);
   const alive = useRef(true);
+  // The "saved" pill's timer: a new export or leaving the view cancels it.
+  const doneTimer = useRef(0);
   const params = useRef(p);
   params.current = p;
 
@@ -237,7 +239,7 @@ export function useGrowthExport(p: Params) {
     running = true;
     setError(null);
     let cancelled = false;
-    let doneTimer = 0;
+    window.clearTimeout(doneTimer.current);
     abort.current = () => {
       cancelled = true;
     };
@@ -256,7 +258,7 @@ export function useGrowthExport(p: Params) {
       downloadBlob(blob, exportFileName(job.kbName, aspect, kind));
       if (alive.current) {
         setStatus({ aspect, progress: 1, done: true });
-        doneTimer = window.setTimeout(() => alive.current && setStatus(null), DONE_PILL_MS);
+        doneTimer.current = window.setTimeout(() => alive.current && setStatus(null), DONE_PILL_MS);
       }
     } catch (err) {
       if (!cancelled) {
@@ -270,7 +272,6 @@ export function useGrowthExport(p: Params) {
       running = false;
       abort.current = null;
       if (cancelled && alive.current) setStatus(null);
-      void doneTimer;
     }
   };
 
@@ -279,6 +280,7 @@ export function useGrowthExport(p: Params) {
     alive.current = true;
     return () => {
       alive.current = false;
+      window.clearTimeout(doneTimer.current);
       abort.current?.();
     };
   }, []);

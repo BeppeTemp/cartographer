@@ -237,6 +237,19 @@ describe("Export video", () => {
     expect(sceneStub.offline.seeded).toBe(1);
   }, 30_000);
 
+  it("a second export inside the saved pill's window cancels the first one's timer", async () => {
+    view(async () => births);
+    await openReplay();
+    await startExport();
+    expect(await screen.findByText(/Video saved/, {}, { timeout: 20_000 })).toBeInTheDocument();
+    const clear = vi.spyOn(window, "clearTimeout");
+    await startExport();
+    // The pill's timer (a real handle, not the 0 of no timer) was cleared when the new export began.
+    expect(clear.mock.calls.some(([id]) => !!id)).toBe(true);
+    await waitFor(() => expect(screen.queryByText(/Video saved/)).toBeNull());
+    await userEvent.click(screen.getByRole("button", { name: "Cancel the export" }));
+  }, 40_000);
+
   it("cancelling disposes the offline scene, downloads nothing and leaves the replay open", async () => {
     view(async () => births);
     await openReplay();

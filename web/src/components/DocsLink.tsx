@@ -9,7 +9,7 @@ const DOCS_ROOT = "https://github.com/BeppeTemp/cartographer/blob/main/";
 /** docs/<dir>/<file>.md#<anchor>: no scheme, no host, no ".." segment. */
 const DOC_PATH = /^docs\/(?:[\w-]+\/)*[\w.-]+\.md#[\w-]+$/;
 
-export function docsUrl(doc: string): string | null {
+function docsUrl(doc: string): string | null {
   return DOC_PATH.test(doc) ? DOCS_ROOT + doc : null;
 }
 

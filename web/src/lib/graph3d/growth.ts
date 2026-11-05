@@ -46,8 +46,15 @@ export function growthOrder(nodes: GrowthNode[], edges: GrowthEdge[], births: Re
   for (const key of keys) {
     const pending = new Set(batches.get(key)!);
     const queue = [...pending].filter((id) => adjacent.get(id)!.some((m) => placed.has(m))).sort(byRank);
+    // Sorted once per batch: the best-ranked concept still pending is the
+    // first of this list not yet placed (a cursor moves along it).
+    const ranked = [...pending].sort(byRank);
+    let next = 0;
     while (pending.size) {
-      if (!queue.length) queue.push([...pending].sort(byRank)[0]!);
+      if (!queue.length) {
+        while (!pending.has(ranked[next]!)) next++;
+        queue.push(ranked[next]!);
+      }
       const id = queue.shift()!;
       if (!pending.delete(id)) continue;
       placed.add(id);

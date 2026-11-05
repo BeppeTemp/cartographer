@@ -19,7 +19,7 @@ const opName = (op: string) => op.split(":")[0]!.trim();
 export function changeKind(c: Pick<ConceptChange, "change" | "ops" | "last_edit_at" | "added">): ChangeKind {
   if (c.change === "deleted") return "reorganised";
   if (c.change === "added" || c.added) return "new";
-  if (c.change === "deleted" || c.change === "moved" || c.change === "renamed") return "reorganised";
+  if (c.change === "moved" || c.change === "renamed") return "reorganised";
   const ops = (c.ops ?? []).map(opName);
   // last_edit_at is the server's word on it; ops, capped at five, the
   // fallback for a server that does not send it.

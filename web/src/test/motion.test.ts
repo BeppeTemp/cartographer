@@ -5,6 +5,7 @@ import {
   DRIFT_TICK_RESUME_MS,
   IDLE_RESUME_MS,
   IdleRotation,
+  frameEase,
   MAX_SIGNALS,
   SIGNAL_PASS_MS,
   SIGNAL_SPAN_MS,
@@ -150,5 +151,22 @@ describe("camera focus", () => {
     const large = zoomLimits(2000);
     expect(small.min).toBeGreaterThan(0);
     expect(large.max).toBeGreaterThan(small.max);
+  });
+});
+
+describe("frameEase", () => {
+  it("covers the same share of the way in the same elapsed time at any frame rate", () => {
+    const run = (dt: number, total: number) => {
+      let left = 1;
+      for (let t = 0; t < total - 1e-9; t += dt) left *= 1 - frameEase(0.06, dt);
+      return 1 - left;
+    };
+    const at60 = run(1000 / 60, 1000);
+    expect(run(1000 / 120, 1000)).toBeCloseTo(at60, 6);
+    expect(run(8.3, 996)).toBeCloseTo(run(16.6, 996), 6);
+  });
+  it("is the per-frame share at 60 Hz, and nothing at no time", () => {
+    expect(frameEase(0.06, 1000 / 60)).toBeCloseTo(0.06, 12);
+    expect(frameEase(0.06, 0)).toBe(0);
   });
 });

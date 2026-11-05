@@ -89,7 +89,6 @@ export function seedPosition(id: string, nodeCount: number, dimensions: 2 | 3 = 
 
 export interface DriftForce<N extends PhysicsNode> extends Force<N> {
   enabled(on: boolean): DriftForce<N>;
-  isEnabled(): boolean;
   /** The share of the full amplitude the drift eases towards (1 = full), a
    *  little every tick: a change of pace never jolts the network. */
   calm(target: number): DriftForce<N>;
@@ -138,7 +137,6 @@ export function drift<N extends PhysicsNode>(dimensions: 2 | 3 = 3): DriftForce<
     on = value;
     return force;
   };
-  force.isEnabled = () => on;
   force.calm = (value: number) => {
     target = value;
     return force;

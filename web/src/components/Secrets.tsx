@@ -4,7 +4,7 @@ import type { SecretEntry, SecretFile, SecretList, ServiceEntry } from "../api/t
 import { decryptFile, encType, InvalidKeyError, looksLikeAgeKey, WrongKeyError } from "../lib/secrets";
 import { DocsLink } from "./DocsLink";
 import { Icon } from "./Icon";
-import { CatalogSkeleton, Count, Page, PageHeader, TitleBone } from "./Page";
+import { CatalogSkeleton, BoldCount, Page, PageHeader, TitleBone } from "./Page";
 import { useMediaQuery } from "./Sheet";
 import { ErrorState } from "./States";
 
@@ -267,7 +267,7 @@ export function Secrets({
             "This KB keeps no secrets."
           ) : (
             <>
-              <Count>{total}</Count> secret{total === 1 ? "" : "s"} in <Count>{files.length}</Count> file
+              <BoldCount>{total}</BoldCount> secret{total === 1 ? "" : "s"} in <BoldCount>{files.length}</BoldCount> file
               {files.length === 1 ? "" : "s"}.
             </>
           )

@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, fetchRevision } from "../api/client";
-import { LIVE_POLL_MS, currentSource, pollIntervalMs } from "../api/static";
-
-/** How often an open tab asks whether the KB moved. The answer is a stat walk
- *  on the server and a few bytes on the wire, so ten seconds stays cheap. A
- *  live session on the public static build (D800) polls every 20 s instead:
- *  see pollIntervalMs. */
-export const LIVE_INTERVAL_MS = LIVE_POLL_MS;
+import { currentSource, pollIntervalMs } from "../api/static";
 
 /**
  * Polls the KB's revision (D337) while the tab is visible and returns a
