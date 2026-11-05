@@ -154,4 +154,58 @@ describe("LivingScene offscreen (D691)", () => {
     new LivingScene(document.createElement("div"), callbacks, { live: false, reducedMotion: false }).dispose();
     expect(renderer.contextLost).toBe(1);
   });
+
+  it("moves the idle camera by elapsed time, not by frame count (D736)", async () => {
+    const LivingScene = await load();
+    const angle = async (dt: number) => {
+      const scene = new LivingScene(document.createElement("div"), callbacks, { live: true, reducedMotion: false, offscreen });
+      scene.setData(structuredClone(one), [], 0);
+      scene.renderFrame(0);
+      scene.camera.position.set(0, 0, 300);
+      const start = 20_000; // past IDLE_RESUME_MS: the panorama turns
+      for (let t = start; t <= start + 2000 + 1e-6; t += dt) scene.renderFrame(t);
+      const p = scene.camera.position;
+      scene.dispose();
+      return Math.atan2(p.x, p.z);
+    };
+    const a = await angle(1000 / 120);
+    const b = await angle(1000 / 60);
+    expect(Math.abs(a)).toBeGreaterThan(0);
+    expect(a).toBeCloseTo(b, 2);
+  });
+
+  it("lets the idle refit run again once a fit follow has expired", async () => {
+    const LivingScene = await load();
+    const scene = new LivingScene(document.createElement("div"), callbacks, { live: true, reducedMotion: false, offscreen });
+    scene.setData(structuredClone(one), [], 0);
+    scene.renderFrame(0);
+    scene.followFit(0, 0, 2500);
+    const s = scene as unknown as { fitFollow: unknown };
+    scene.renderFrame(2000);
+    expect(s.fitFollow).not.toBeNull();
+    scene.renderFrame(2500);
+    expect(s.fitFollow).toBeNull();
+    scene.dispose();
+  });
+
+  it("keeps the same edge attribute across selections", async () => {
+    const LivingScene = await load();
+    const scene = new LivingScene(document.createElement("div"), callbacks, { live: true, reducedMotion: false, offscreen });
+    const nodes = [
+      { id: "a", weight: 0.5, x: 0, y: 0, z: 0 },
+      { id: "b", weight: 0.5, x: 10, y: 0, z: 0 },
+      { id: "c", weight: 0.5, x: 0, y: 10, z: 0 },
+    ];
+    scene.setData(structuredClone(nodes), [{ source: "a", target: "b" }, { source: "a", target: "c" }] as never, 0);
+    const geo = (scene as unknown as { activeGeometry: { getAttribute(n: string): unknown; drawRange: { count: number } } }).activeGeometry;
+    scene.setSelection("a");
+    const first = geo.getAttribute("position");
+    expect(geo.drawRange.count).toBe(4);
+    scene.setSelection("b");
+    expect(geo.getAttribute("position")).toBe(first);
+    expect(geo.drawRange.count).toBe(2);
+    scene.setSelection("a");
+    expect(geo.getAttribute("position")).toBe(first);
+    scene.dispose();
+  });
 });

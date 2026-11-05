@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
 import type { KBStatus } from "../api/types";
-import { LIVE_INTERVAL_MS } from "../lib/live";
+import { LIVE_POLL_MS } from "../api/static";
 import { SETTLED_INTERVAL_MS, useSyncStatus } from "../lib/syncstatus";
 
 const fetchStatus = vi.fn();
@@ -61,14 +61,14 @@ describe("useSyncStatus (#1092)", () => {
     renderHook(() => useSyncStatus("a", true, 0));
     await advance(0);
     expect(fetchStatus).toHaveBeenCalledTimes(1);
-    await advance(LIVE_INTERVAL_MS);
-    await advance(LIVE_INTERVAL_MS);
+    await advance(LIVE_POLL_MS);
+    await advance(LIVE_POLL_MS);
     expect(fetchStatus).toHaveBeenCalledTimes(3);
 
     fetchStatus.mockResolvedValue(ok);
-    await advance(LIVE_INTERVAL_MS); // reads the settled answer
+    await advance(LIVE_POLL_MS); // reads the settled answer
     expect(fetchStatus).toHaveBeenCalledTimes(4);
-    await advance(LIVE_INTERVAL_MS * 3);
+    await advance(LIVE_POLL_MS * 3);
     expect(fetchStatus).toHaveBeenCalledTimes(4);
     await advance(SETTLED_INTERVAL_MS);
     expect(fetchStatus).toHaveBeenCalledTimes(5);
@@ -79,7 +79,7 @@ describe("useSyncStatus (#1092)", () => {
     renderHook(() => useSyncStatus("a", true, 0));
     await advance(0);
     setVisibility("hidden");
-    await advance(LIVE_INTERVAL_MS * 3);
+    await advance(LIVE_POLL_MS * 3);
     expect(fetchStatus).toHaveBeenCalledTimes(1);
     setVisibility("visible");
     await advance(0);
@@ -92,7 +92,7 @@ describe("useSyncStatus (#1092)", () => {
     const { result } = renderHook(() => useSyncStatus("a", true, 0));
     await advance(0);
     expect(result.current.status).toBeNull();
-    await advance(LIVE_INTERVAL_MS);
+    await advance(LIVE_POLL_MS);
     expect(fetchStatus).toHaveBeenCalledTimes(2);
     expect(result.current.status).toEqual(ok);
   });
@@ -102,7 +102,7 @@ describe("useSyncStatus (#1092)", () => {
     const { result } = renderHook(() => useSyncStatus("a", true, 0));
     await advance(0);
     fetchStatus.mockRejectedValue(new TypeError("offline"));
-    await advance(LIVE_INTERVAL_MS);
+    await advance(LIVE_POLL_MS);
     expect(result.current.status).toEqual(pending);
     expect(result.current.hidden).toBe(false);
   });

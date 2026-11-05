@@ -37,6 +37,9 @@ import {
   MAX_SIGNALS,
   SIGNAL_PASS_MS,
   sustainsFullRate,
+  frameEase,
+  REF_FRAME_MS,
+  MAX_FRAME_MS,
   type Signal,
 } from "./motion";
 import {
@@ -49,6 +52,7 @@ import {
   boundingRadius,
   configureForces,
   drift,
+  hashId,
   knockAll,
   sanitize,
   type DriftForce,
@@ -105,9 +109,6 @@ export interface SceneCallbacks {
   onLost(): void;
 }
 
-/** Radius of a leaf, in scene units, and of the best-connected node: the
- *  Studio 03 ratio (.053 : .125), one size up from it -- at the prototype's
- *  scale a few hundred real concepts read as dust, and on paper as nothing. */
 /** How long the camera follows a new graph as it settles, and how much of
  *  the way to its fit it eases each frame. */
 const SETTLE_MS = 3500;
@@ -117,12 +118,29 @@ const SETTLE_EASE = 0.06;
  *  never carry the network off screen, and the reader never sees it move. */
 const IDLE_FIT_EASE = 0.01;
 const IDLE_FIT_EVERY = 10;
+/** OrbitControls damping share per 60 Hz frame (see frameEase). */
+const DAMPING = 0.08;
 /** How long a new KB or Map takes to open out of its centre. */
 const BLOOM_MS = 1800;
 /** The burst's raggedness: the latest a node sets off, and how much slower
  *  than the fastest the slowest flies, both as shares of BLOOM_MS. */
 const BLOOM_STAGGER = 0.3;
 const BLOOM_SPEED_SPREAD = 0.3;
+
+/**
+ * Makes `geometry` hold room for `vertices` positions and draws exactly that
+ * many. The attribute is kept (its GL buffer with it) while it is large
+ * enough; only growth allocates, and then the old buffer is released at once
+ * rather than left to the GC.
+ */
+export function reuseAttribute(geometry: BufferGeometry, vertices: number): void {
+  const attr = geometry.getAttribute("position") as BufferAttribute | undefined;
+  if (!attr || attr.array.length < vertices * 3) {
+    if (attr) geometry.dispose();
+    geometry.setAttribute("position", new BufferAttribute(new Float32Array(vertices * 3), 3).setUsage(DynamicDrawUsage));
+  }
+  geometry.setDrawRange(0, vertices);
+}
 
 /** Out, past the mark, and back: the flight of a node in the burst. The
  *  flight is eased in first, so it is seen leaving the seed rather than
@@ -133,16 +151,15 @@ function easeOutBack(t: number): number {
   return 1 + (s + 1) * u * u * u + s * u * u;
 }
 
-/** A stable value in [0, 1) for an id. */
 function distanceOf(pose: Pose): number {
   return Math.hypot(pose.position.x - pose.lookAt.x, pose.position.y - pose.lookAt.y, pose.position.z - pose.lookAt.z);
 }
 
+/** A stable value in [0, 1) for an id. */
 function hashUnit(id: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
-  return (h >>> 0) / 4294967296;
+  return hashId(id) / 2 ** 32;
 }
+
 /** A Map change keeps the nodes both views share where they are: leavers shrink
  *  away and newcomers grow in over MORPH_MS, while the simulation relaxes the
  *  rest from MORPH_ALPHA (gently: nothing is rebuilt from a point). */
@@ -165,6 +182,9 @@ const RESTORE_ALPHA = 0.04;
  *  until it is open. */
 const BLOOM_ALPHA = 0.3;
 const BLOOM_WARMTH = 0.12;
+/** Radius of a leaf, in scene units, and of the best-connected node: the
+ *  Studio 03 ratio (.053 : .125), one size up from it -- at the prototype's
+ *  scale a few hundred real concepts read as dust, and on paper as nothing. */
 const LEAF_RADIUS = LINK_DISTANCE * 0.12;
 const HUB_RADIUS = LEAF_RADIUS * 2.36;
 /** A press that travels less than this is a click, not a drag or an orbit. */
@@ -278,7 +298,7 @@ export class LivingScene {
     // No input reaches an offline scene: nobody orbits a render.
     if (this.offscreen) this.controls.disconnect();
     this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
+    this.controls.dampingFactor = DAMPING;
     this.controls.rotateSpeed = 0.6;
     this.controls.zoomSpeed = 0.8;
     this.controls.autoRotateSpeed = AUTO_ROTATE_SPEED;
@@ -500,10 +520,7 @@ export class LivingScene {
     }
     this.nodeMesh = build(this.sphere, spheres);
     this.artifactMesh = build(this.diamond, diamonds);
-    this.edgeGeometry.setAttribute(
-      "position",
-      new BufferAttribute(new Float32Array(links.length * 6), 3).setUsage(DynamicDrawUsage),
-    );
+    reuseAttribute(this.edgeGeometry, links.length * 2);
     this.colourFade = null;
     this.applyColours();
     // The colours just painted were laid out for the previous node order: the
@@ -613,10 +630,7 @@ export class LivingScene {
     this.activeLinks = node
       ? this.links.filter((l) => endpoint(l.source) === node.id || endpoint(l.target) === node.id)
       : [];
-    this.activeGeometry.setAttribute(
-      "position",
-      new BufferAttribute(new Float32Array(this.activeLinks.length * 6), 3).setUsage(DynamicDrawUsage),
-    );
+    reuseAttribute(this.activeGeometry, this.activeLinks.length * 2);
     this.ring.visible = !!node;
     this.idle.setSelected(!!node);
     this.applyMotion();
@@ -633,10 +647,7 @@ export class LivingScene {
         : null;
     this.edgeMaterial.opacity = this.edgeFade ? this.edgeFade.from : opacity;
     this.burst = null;
-    this.signalGeometry.setAttribute(
-      "position",
-      new BufferAttribute(new Float32Array(MAX_SIGNALS * 3), 3).setUsage(DynamicDrawUsage),
-    );
+    reuseAttribute(this.signalGeometry, MAX_SIGNALS);
     this.signals.visible = false;
   }
 
@@ -1047,7 +1058,13 @@ export class LivingScene {
     this.sync();
   }
 
+  private lastStepAt: number | null = null;
   private step(now: number, simTicks = 1, force = false): void {
+    // The camera's easing, damping and rotation follow the real time between
+    // two steps, not the number of steps, so a 120 Hz screen and the 60 fps
+    // export move the camera alike.
+    const dtMs = this.lastStepAt === null ? REF_FRAME_MS : Math.min(MAX_FRAME_MS, Math.max(0, now - this.lastStepAt));
+    this.lastStepAt = now;
     const sim = this.sim;
     // Still mode lets the simulation cool and then stops ticking it: at rest
     // the frame costs only the draw.
@@ -1085,7 +1102,13 @@ export class LivingScene {
           z: lerp(f.lookAt.z, to.lookAt.z),
         },
       });
-      if (t >= 1) this.cancelTween();
+      if (t >= 1) {
+        this.cancelTween();
+        // The tween aimed at where the node is now, not where it was at the
+        // start: the follow continues from there, not from the old anchor.
+        const node = this.follow && this.selected ? this.nodeById(this.selected) : undefined;
+        if (node && Number.isFinite(node.x)) this.follow!.set(node.x!, node.y!, node.z!);
+      }
     } else if (this.follow && this.selected) {
       moved ||= ticked > 0;
       // Follow the selection as the physics moves it.
@@ -1109,12 +1132,14 @@ export class LivingScene {
       if (pose) {
         const p = this.camera.position;
         const t = this.controls.target;
-        const e = SETTLE_EASE * smooth((now - this.settleFrom) / MORPH_MS);
+        const e = frameEase(SETTLE_EASE * smooth((now - this.settleFrom) / MORPH_MS), dtMs);
         p.set(p.x + (pose.position.x - p.x) * e, p.y + (pose.position.y - p.y) * e, p.z + (pose.position.z - p.z) * e);
         t.set(t.x + (pose.lookAt.x - t.x) * e, t.y + (pose.lookAt.y - t.y) * e, t.z + (pose.lookAt.z - t.z) * e);
         this.controls.maxDistance = Math.max(this.controls.maxDistance, p.distanceTo(t) * 1.5);
       }
     }
+    // An expired follow lets the idle refit below run again.
+    if (this.fitFollow && now >= this.fitFollow.until) this.fitFollow = null;
     this.controls.autoRotate = !this.tween && this.idle.shouldRotate();
     this.controls.autoRotateSpeed = this.selected ? READING_ROTATE_SPEED : AUTO_ROTATE_SPEED;
     if (!this.controls.autoRotate) this.idleFit = null;
@@ -1128,7 +1153,7 @@ export class LivingScene {
       if (pose) {
         const p = this.camera.position;
         const t = this.controls.target;
-        const e = IDLE_FIT_EASE;
+        const e = frameEase(IDLE_FIT_EASE, dtMs);
         p.set(p.x + (pose.position.x - p.x) * e, p.y + (pose.position.y - p.y) * e, p.z + (pose.position.z - p.z) * e);
         t.set(t.x + (pose.lookAt.x - t.x) * e, t.y + (pose.lookAt.y - t.y) * e, t.z + (pose.lookAt.z - t.z) * e);
         this.controls.maxDistance = Math.max(this.controls.maxDistance, p.distanceTo(t) * 1.5);
@@ -1136,7 +1161,8 @@ export class LivingScene {
       }
     }
     // True while the camera moves: the reader's drag, its damping, the panorama.
-    if (this.controls.update()) moved = true;
+    this.controls.dampingFactor = frameEase(DAMPING, dtMs);
+    if (this.controls.update(dtMs / 1000)) moved = true;
     const animating = !!(this.bloom || this.morph || this.colourFade || this.edgeFade || (this.burst && this.live));
     if (!force) {
       // Nothing moved and nothing changed: the picture on screen is still

@@ -13,7 +13,7 @@ import {
   rowSize,
   type CheckGroup,
 } from "../lib/health";
-import { Bone, Count, Page, PageHeader, PageSection, Quiet, Segmented, TitleBone, HealthSkeleton } from "./Page";
+import { Bone, BoldCount, Page, PageHeader, PageSection, Quiet, Segmented, TitleBone, HealthSkeleton } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { ErrorState } from "./States";
@@ -132,11 +132,11 @@ export function Health({
             <>What Cartographer checks</>
           ) : allClear ? (
             <>
-              <Count>Every page</Count> passes every check{where}
+              <BoldCount>Every page</BoldCount> passes every check{where}
             </>
           ) : issues > 0 ? (
             <>
-              Cartographer found <Count>{issues}</Count> {issues === 1 ? "kind of issue" : "kinds of issues"}
+              Cartographer found <BoldCount>{issues}</BoldCount> {issues === 1 ? "kind of issue" : "kinds of issues"}
               {where}
             </>
           ) : (

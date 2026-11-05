@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Activity } from "../components/Activity";
+import { Activity, perDay } from "../components/Activity";
 import type { ChangesResponse, ConceptChange } from "../api/types";
 import { json, stubApi } from "./fixtures";
 
@@ -230,5 +230,51 @@ describe("the Activity timeline's empty window and retirements", () => {
     expect(document.querySelector(".timeline__retired--superseded")).toHaveTextContent("superseded");
     expect(document.querySelectorAll(".timeline__retired")).toHaveLength(1);
     expect(await within(await summary()).findByText("retired")).toBeInTheDocument();
+  });
+});
+
+describe("the Activity empty state with filters", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it("names the Map and clears both filters", async () => {
+    const user = userEvent.setup();
+    renderActivity(concepts);
+    const band = await summary();
+    await waitFor(() => expect(entries()).toBe(4));
+    await user.click(within(within(band).getByRole("list", { name: "Filter by Map" })).getByRole("button", { name: /Notes/ }));
+    await user.click(within(within(band).getByRole("list", { name: "Filter by author" })).getByRole("button", { name: /bob-lee/ }));
+    await screen.findByText("Quiet stretch.");
+    expect(screen.getByText(/No concept edited in Notes in the last 7 days by bob-lee/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(entries()).toBe(4));
+  });
+});
+
+describe("perDay across a daylight-saving change", () => {
+  const tz = process.env.TZ;
+  afterEach(() => {
+    vi.useRealTimers();
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  });
+
+  it("makes one bar per calendar day, 29 March included, with the changes of that day", () => {
+    process.env.TZ = "Europe/Rome";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T10:00:00+02:00"));
+    // 29 March 2026 is the 23-hour day in Rome.
+    const onChangeover = change("a/x", { last_at: "2026-03-29T15:00:00+02:00", last_edit_at: "2026-03-29T15:00:00+02:00" });
+    const kinds = new Map();
+    const bars = perDay([onChangeover], kinds, 30);
+    expect(bars).toHaveLength(30);
+    const labels = bars.map((b) => b.label);
+    expect(labels.slice(-4)).toEqual(["Mar 29", "Mar 30", "Mar 31", "Apr 1"]);
+    expect(new Set(labels).size).toBe(30);
+    expect(bars.find((b) => b.label === "Mar 29")?.work).toBe(1);
+    const series = perDay([], kinds, 30, { "2026-03-29": { work: 4, upkeep: 1 } });
+    expect(series.find((b) => b.label === "Mar 29")).toMatchObject({ work: 4, upkeep: 1 });
   });
 });

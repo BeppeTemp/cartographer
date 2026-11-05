@@ -20,8 +20,6 @@ import type { GraphSnapshot } from "../api/types";
  * adapts the server's answer to the shape the view reads.
  */
 
-/** Hue slots available in tokens.css (--hue-1 .. --hue-12). */
-export const COMMUNITY_SLOTS = 12;
 /** The slot for singletons and the long tail: --graph-community-other. */
 export const OTHER_SLOT = 0;
 

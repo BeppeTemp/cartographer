@@ -34,15 +34,6 @@ export interface ViewState {
   hmap: string | null;
 }
 
-export const EMPTY_VIEW: ViewState = {
-  kb: null,
-  scope: null,
-  concept: null,
-  panel: "atlas",
-  artifact: null,
-  hmap: null,
-};
-
 export function readViewState(search: string = window.location.search): ViewState {
   const params = new URLSearchParams(search);
   const param = params.get("panel");
@@ -99,17 +90,6 @@ export function viewStateToSearch(view: ViewState): string {
   if (view.panel === "health" && view.hmap) params.set("hmap", view.hmap);
   const query = params.toString();
   return query ? `?${query}` : "";
-}
-
-export function sameView(a: ViewState, b: ViewState): boolean {
-  return (
-    a.kb === b.kb &&
-    a.scope === b.scope &&
-    a.concept === b.concept &&
-    a.panel === b.panel &&
-    a.artifact === b.artifact &&
-    a.hmap === b.hmap
-  );
 }
 
 /**

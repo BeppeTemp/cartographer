@@ -16,8 +16,9 @@ interface Props {
 }
 
 const DAY_MS = 86_400_000;
+/** Days are grouped in UTC (see `days` below), so they are named in UTC. */
 export const formatDay = (ms: number) =>
-  new Date(ms).toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric" });
+  new Date(ms).toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 /**
  * The growth replay's timeline: the KB's life from its first concept to its

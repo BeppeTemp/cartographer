@@ -5,7 +5,7 @@ import { DocsLink } from "./DocsLink";
 import { Markdown } from "./Markdown";
 import {
   CatalogSkeleton,
-  Count,
+  BoldCount,
   FilterChip,
   FilterChips,
   Hero,
@@ -60,7 +60,7 @@ const SECTION_KINDS: Record<"kit" | "templates", string[]> = {
   templates: ["template"],
 };
 
-export function KindMark({ kind }: { kind: string }) {
+function KindMark({ kind }: { kind: string }) {
   const mark = KIND_MARK[kind] ?? { glyph: "•", hue: "var(--text-muted)" };
   return (
     <span className="kind-mark" aria-hidden="true" style={{ "--kind": mark.hue } as CSSProperties}>
@@ -71,7 +71,7 @@ export function KindMark({ kind }: { kind: string }) {
 
 type Slice = "used" | "idle" | "flagged" | null;
 
-export const artifactId = (a: Pick<Artifact, "kind" | "name">) => `${a.kind}/${a.name}`;
+const artifactId = (a: Pick<Artifact, "kind" | "name">) => `${a.kind}/${a.name}`;
 
 /** The lint check that flags a skill or agent nobody uses (D1043). */
 const UNUSED_CHECK = "artifact_unused";
@@ -83,7 +83,7 @@ const isUnused = (a: Artifact) => !!a.findings?.some((f) => f.check === UNUSED_C
  * card never judges by thresholds of its own. Null for kinds the scanner does
  * not follow (hooks, MCP descriptors, instructions, templates).
  */
-export function lastUsed(a: Artifact): { text: string } | null {
+function lastUsed(a: Artifact): { text: string } | null {
   if (a.kind !== "skill" && a.kind !== "agent") return null;
   if (a.last_used === undefined) return null; // an older server: say nothing rather than "never"
   const provider = a.last_used_provider ? ` (${a.last_used_provider})` : "";
@@ -262,11 +262,11 @@ export function Artifacts({
         title={
           section === "templates" ? (
             <>
-              <Count>{all.length}</Count> template{all.length === 1 ? "" : "s"} shape new concepts.
+              <BoldCount>{all.length}</BoldCount> template{all.length === 1 ? "" : "s"} shape new concepts.
             </>
           ) : (
             <>
-              <Count>{all.length}</Count> {noun}
+              <BoldCount>{all.length}</BoldCount> {noun}
               {all.length === 1 ? " ships" : "s ship"} to agent clients.
             </>
           )
@@ -681,7 +681,7 @@ function LastUsed({ artifact }: { artifact: Artifact }) {
 }
 
 /** Frontmatter as key/value rows, never rendered as Markdown. */
-export function splitFrontmatter(text: string): { fields: [string, string][]; body: string } | null {
+function splitFrontmatter(text: string): { fields: [string, string][]; body: string } | null {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   if (!m) return null;
   const fields: [string, string][] = [];

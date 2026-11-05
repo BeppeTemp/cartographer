@@ -8,7 +8,7 @@ import { Bone } from "./Page";
 const COMMON_KEYS = new Set(["type", "title", "timestamp", "status", "provenance"]);
 
 /** What a template prescribes, read from its source: the fields beyond the common ones, its one-line brief, its sections. */
-export interface TemplateShape {
+interface TemplateShape {
   fields: string[];
   brief: string | null;
   sections: string[];

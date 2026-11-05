@@ -17,9 +17,10 @@ interface Row {
 }
 
 /**
- * The card over the whole-KB graph: what is drawn (the KB, how many concepts
- * and links), what the colours mean and the switch between the two things
- * they can mean, and the growth replay.
+ * The card over the graph: what the snapshot holds (the KB or Map, how many
+ * concepts and links; the filters in the page do not narrow it), what the
+ * colours mean and the switch between the two things they can mean, and the
+ * growth replay.
  *
  * Colour is never the only carrier here either: every row names its group and
  * counts it, and the inspector states a concept's Map in words.
@@ -102,8 +103,8 @@ function communityRows(communities: Communities, snapshot: GraphSnapshot): { row
   const titles = new Map(snapshot.nodes.map((n) => [n.id, nameOf(n)]));
   // Real communities get rows; singletons and the long tail share one neutral
   // and are only ever summed into the closing row.
-  // Counted over what is drawn, so a graph narrowed to one Map keys its own
-  // nodes rather than the whole KB's.
+  // Counted over the snapshot, so a graph narrowed to one Map keys its own
+  // nodes rather than the whole KB's (hidden concepts are still counted).
   const drawn = new Map<number, number>();
   for (const n of snapshot.nodes) {
     const rank = communities.rankOf.get(n.id);

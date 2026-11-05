@@ -55,16 +55,6 @@ export function sameKB(a: string, b: string): boolean {
   return a.split("\u0000")[0] === b.split("\u0000")[0];
 }
 
-/** Which concepts a new view keeps, brings in and drops. */
-export function transitionSets(before: ReadonlySet<string>, after: readonly string[]) {
-  const next = new Set(after);
-  return {
-    kept: after.filter((id) => before.has(id)),
-    entering: after.filter((id) => !before.has(id)),
-    leaving: [...before].filter((id) => !next.has(id)),
-  };
-}
-
 /** Eases 0..1 smoothly at both ends. */
 export function smooth(t: number): number {
   const k = Math.min(1, Math.max(0, t));

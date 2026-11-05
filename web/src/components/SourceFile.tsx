@@ -80,7 +80,7 @@ export function SourceFile({
 }
 
 /** One numbered line of a source file. */
-export function SourceLine({ children }: { children: ReactNode }) {
+function SourceLine({ children }: { children: ReactNode }) {
   return (
     <span className="yaml__line">
       {children}

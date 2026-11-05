@@ -23,7 +23,7 @@ import { ErrorState } from "./States";
 import { Icon } from "./Icon";
 import {
   Avatar,
-  Count,
+  BoldCount,
   Hero,
   MapBar,
   MapDot,
@@ -370,10 +370,23 @@ export function Activity({
               <div className="timeline__empty-text">
                 <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
                 <p className="timeline__empty-note">
-                  No concept edited {when(shown)}
+                  No concept edited {map ? `in ${mapTitles.get(map) ?? map} ` : ""}
+                  {when(shown)}
                   {author ? ` by ${author}` : ""}.
                 </p>
               </div>
+              {(author || map) && (
+                <button
+                  type="button"
+                  className="button timeline__empty-action"
+                  onClick={() => {
+                    setAuthor(null);
+                    setMap(null);
+                  }}
+                >
+                  Clear {author && map ? "filters" : "filter"}
+                </button>
+              )}
               {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
               {(() => {
                 const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
@@ -884,7 +897,7 @@ function groupByDay(rows: ConceptChange[]): { key: string; label: string; items:
 
 /** One bar per day of the window -- or, for the whole history, from the
  *  oldest change on -- oldest first, today last. */
-function perDay(
+export function perDay(
   rows: ConceptChange[],
   kinds: Map<ConceptChange, ChangeKind>,
   days: number | null,
@@ -905,7 +918,11 @@ function perDay(
     span = Math.max(2, Math.round((today - startOfDay(oldest)) / DAY_MS) + 1);
   }
   const bars: DayBar[] = Array.from({ length: span }, (_, i) => {
-    const t = today - (span! - 1 - i) * DAY_MS;
+    // Calendar arithmetic: a day is not always 24 hours (DST), and a bar
+    // per 24 h step would miss the changeover day and label the rest a day early.
+    const d = new Date(today);
+    d.setDate(d.getDate() - (span! - 1 - i));
+    const t = d.getTime();
     return {
       day: t,
       label: new Date(t).toLocaleDateString("en", {
@@ -987,7 +1004,7 @@ function Headline({
   if (n === 0) return <>{`Nothing edited${where}${who} ${when(since)}.`}</>;
   return (
     <>
-      <Count>{data.truncated ? `${n}+` : n}</Count> {n === 1 ? "concept" : "concepts"} edited{where}
+      <BoldCount>{data.truncated ? `${n}+` : n}</BoldCount> {n === 1 ? "concept" : "concepts"} edited{where}
       {who} {when(since)}.
     </>
   );

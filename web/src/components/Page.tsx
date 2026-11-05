@@ -68,8 +68,8 @@ export function PageHeader({
   );
 }
 
-/** A count set in bold inside a title sentence. */
-export function Count({ children }: { children: ReactNode }) {
+/** A count set in bold inside a title sentence (not the animated Count). */
+export function BoldCount({ children }: { children: ReactNode }) {
   return <strong className="page__count">{children}</strong>;
 }
 
@@ -146,27 +146,6 @@ export function HeroRow({ label, children }: { label: string; children: ReactNod
       <span className="hero__label">{label}</span>
       <div className="hero__content">{children}</div>
     </div>
-  );
-}
-
-/** Big numbers set in a line: the band's headline figures. */
-export function Figures({
-  items,
-}: {
-  items: { label: string; value: number | string; tone?: string; sign?: string }[];
-}) {
-  return (
-    <dl className="figures">
-      {items.map((s) => (
-        <div key={s.label} className="figures__item" data-tone={s.tone}>
-          <dt>{s.label}</dt>
-          <dd>
-            {s.sign && <span className="figures__sign">{s.sign}</span>}
-            {s.value}
-          </dd>
-        </div>
-      ))}
-    </dl>
   );
 }
 
@@ -307,17 +286,6 @@ export function Quiet({ children, tone = "ok" }: { children: ReactNode; tone?: "
   );
 }
 
-/** Placeholder rows while a list loads. */
-export function SkeletonRows({ label, rows = 4 }: { label: string; rows?: number }) {
-  return (
-    <LoadingRegion label={label} className="skeleton-rows">
-      {Array.from({ length: rows }, (_, i) => (
-        <span key={i} className="skeleton" />
-      ))}
-    </LoadingRegion>
-  );
-}
-
 /**
  * The one live region of a loading page: a single status with a screen-reader
  * label, and the shapes inside it hidden, so nothing is announced twice.
@@ -386,7 +354,7 @@ export function SubtitleBone({ w = "42ch" }: { w?: string | number }) {
  * The hero's rows before their chips exist: each row its label and a line of
  * pill-shaped bones, the first optionally over a bar (Where's map bar).
  */
-export function HeroBones({ rows, bar = false }: { rows: number[]; bar?: boolean }) {
+function HeroBones({ rows, bar = false }: { rows: number[]; bar?: boolean }) {
   return (
     <div className="hero">
       {rows.map((chips, r) => (

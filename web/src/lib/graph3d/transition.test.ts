@@ -7,7 +7,6 @@ import {
   sameKB,
   smooth,
   snapshotPositions,
-  transitionSets,
   type LayoutMemory,
 } from "./transition";
 
@@ -16,16 +15,6 @@ const entry = (): LayoutMemory => ({
   artifacts: new Map(),
   pose: { position: { x: 0, y: 0, z: 1 }, lookAt: { x: 0, y: 0, z: 0 } },
   shift: 0,
-});
-
-describe("transitionSets", () => {
-  it("splits a Map change into what stays, enters and leaves", () => {
-    const sets = transitionSets(new Set(["a", "b", "c"]), ["b", "c", "d"]);
-    expect(sets).toEqual({ kept: ["b", "c"], entering: ["d"], leaving: ["a"] });
-  });
-  it("keeps nothing when the views share nothing", () => {
-    expect(transitionSets(new Set(["a"]), ["x"]).kept).toEqual([]);
-  });
 });
 
 describe("sameKB", () => {

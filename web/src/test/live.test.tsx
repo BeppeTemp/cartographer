@@ -1,7 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
-import { LIVE_INTERVAL_MS, useLiveRevision } from "../lib/live";
+import { LIVE_POLL_MS } from "../api/static";
+import { useLiveRevision } from "../lib/live";
 
 const fetchRevision = vi.fn();
 vi.mock("../api/client", async (importOriginal) => ({
@@ -11,7 +12,7 @@ vi.mock("../api/client", async (importOriginal) => ({
 
 async function beat() {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(LIVE_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(LIVE_POLL_MS);
   });
 }
 

@@ -6,7 +6,7 @@ import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import { Icon } from "./Icon";
 import {
-  Count,
+  BoldCount,
   FilterChip,
   FilterChips,
   Hero,
@@ -579,24 +579,24 @@ function Headline({
   if (data.total > 0) {
     parts.push(
       <>
-        <Count>{data.total}</Count> {data.total === 1 ? "concept carries" : "concepts carry"} open work
+        <BoldCount>{data.total}</BoldCount> {data.total === 1 ? "concept carries" : "concepts carry"} open work
       </>,
       <>
-        <Count>{data.open_items}</Count> unchecked item{data.open_items === 1 ? "" : "s"}
+        <BoldCount>{data.open_items}</BoldCount> unchecked item{data.open_items === 1 ? "" : "s"}
       </>,
     );
   }
   if (misses > 0) {
     parts.push(
       <>
-        <Count>{misses}</Count> {misses === 1 ? "search" : "searches"} to answer
+        <BoldCount>{misses}</BoldCount> {misses === 1 ? "search" : "searches"} to answer
       </>,
     );
   }
   if (decisions > 0) {
     parts.push(
       <>
-        <Count>{decisions}</Count> {decisions === 1 ? "proposal" : "proposals"} to decide
+        <BoldCount>{decisions}</BoldCount> {decisions === 1 ? "proposal" : "proposals"} to decide
       </>,
     );
   }

@@ -524,7 +524,7 @@ export function App() {
     setLintLoading(true);
     // The whole KB, every finding (a finding is a problem, D947): Health groups
     // them itself, and its Map chips filter this report in the page.
-    fetchLint(activeKB, null, controller.signal)
+    fetchLint(activeKB, controller.signal)
       .then((data) => {
         setLintAll(data);
         setLintError(null);

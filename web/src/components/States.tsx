@@ -9,24 +9,6 @@ import { RailSkeleton } from "./LeftRail";
  * empty, not-found, offline and failure.
  */
 
-export function Skeleton({ lines = 3, label }: { lines?: number; label: string }) {
-  return (
-    <div className="state" role="status" aria-live="polite">
-      <span className="sr-only">{label}</span>
-      <div style={{ display: "grid", gap: "var(--space-3)", width: "min(420px, 100%)" }}>
-        {Array.from({ length: lines }, (_, i) => (
-          <div
-            key={i}
-            className="skeleton"
-            aria-hidden="true"
-            style={{ height: "var(--space-4)", width: `${100 - i * 12}%` }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /** The shell before the first answer: the real top bar, rail and canvas
  *  outline with skeleton blocks where content will land, so the first paint
  *  already has the final layout and only content fills in. Built from the
