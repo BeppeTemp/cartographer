@@ -84,6 +84,10 @@ func artifactSourcePath(a Artifact) string {
 // defeating hash comparison. The artifact's own content hash is stable until
 // the artifact itself changes.
 func provenanceBlock(a Artifact) string {
+	// A skill derived from an agent says where the agent lives: that is the
+	// address a fix goes to, and its hash is the one the KB knows.
+	origin, derived := a.Origin()
+	a = origin
 	var sb strings.Builder
 	sb.WriteString(provenanceBlockBegin)
 	sb.WriteString("\n")
@@ -101,6 +105,9 @@ func provenanceBlock(a Artifact) string {
 		sb.WriteString("Local edits to this file are replaced on the next `cartographer sync`; changing it for good means changing the Cartographer release that ships it.\n")
 	}
 
+	if derived {
+		sb.WriteString("Derived by Cartographer as a skill on this client (no subagents); local edits are replaced on the next sync.\n")
+	}
 	sb.WriteString(provenanceBlockEnd)
 	return sb.String()
 }

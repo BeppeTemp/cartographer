@@ -468,7 +468,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		if cfg.WorkspaceScope(p.Name) == clientconfig.ScopeWorkspace {
 			pm, d, wsDiverged = workspaceProviderDiff(cfg, provProjections[p.Name], manifests, lockFile, dir)
 		} else {
-			pm = provisioning.FilterForProvider(manifests[p.Name], configurator.Provider(p.Name))
+			pm, _ = provisioning.ProjectManifest(manifests[p.Name], configurator.Provider(p.Name), provisioning.ScopeGlobal, provisioning.ProjectOptions{})
 			d = provisioning.ComputeDiffResolved(pm, lockFile.ForProvider(p.Name), statusResolveOptions(cfg, p.Name, manifests[p.Name]))
 		}
 		p.Revision = pm.Revision
@@ -570,7 +570,7 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 				}
 			}
 		}
-		pm := provisioning.FilterForProviderScoped(src, provider, sp.Scope)
+		pm, _ := provisioning.ProjectManifest(src, provider, sp.Scope, provisioning.ProjectOptions{})
 		d := provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)]))
 		merged.Added = append(merged.Added, d.Added...)
 		merged.Updated = append(merged.Updated, d.Updated...)

@@ -768,7 +768,10 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
 		// simply don't concern it.
-		applied, err := provisioning.Apply(provisioning.FilterForProviderScoped(manifest, configurator.Provider(p.Provider), p.Scope), opts)
+		// The projection also derives a skill from each agent this client cannot
+		// run as a subagent; status uses the same function, or drift is permanent.
+		projected, _ := provisioning.ProjectManifest(manifest, configurator.Provider(p.Provider), p.Scope, provisioning.ProjectOptions{BundleFS: opts.BundleFS, KBRoots: opts.KBRoots})
+		applied, err := provisioning.Apply(projected, opts)
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
 			// than a guess about how far the previous one got.
