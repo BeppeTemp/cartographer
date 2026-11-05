@@ -56,13 +56,102 @@ const (
 // capabilityProbed holds the cells a probe moved off the derived value, by
 // provider, scope and id. A `verified` entry is backed by a ledger line in
 // docs/harnesses.md (date and recipe); TestCapabilityTableMatchesLedger keeps
-// the two aligned. Empty until the probing slice fills it.
-var capabilityProbed = map[configurator.Provider]map[Scope]map[Capability]CapStatus{}
+// the two aligned. Filled by the probes of 2026-11-05 (probes.md); a cell
+// nobody probed is absent from the map and stays unverified.
+var capabilityProbed = map[configurator.Provider]map[Scope]map[Capability]CapStatus{
+	configurator.ProviderClaudeCode: {
+		ScopeProject: {
+			CapSkill:       CapVerified,
+			CapMCP:         CapVerified,
+			CapAgentInvoke: CapVerified,
+			Capability(hookCapPrefix + "SessionStart"):     CapVerified,
+			Capability(hookCapPrefix + "UserPromptSubmit"): CapVerified,
+			Capability(hookCapPrefix + "PreToolUse"):       CapVerified,
+			Capability(hookCapPrefix + "PostToolUse"):      CapVerified,
+			Capability(hookCapPrefix + "Stop"):             CapVerified,
+			Capability(hookCapPrefix + "SubagentStop"):     CapVerified,
+		},
+	},
+	configurator.ProviderCodex: {
+		ScopeGlobal: {
+			CapSkill:         CapVerified,
+			CapAgentDelegate: CapVerified,
+			CapAgentInvoke:   CapVerified,
+			Capability(hookCapPrefix + "SessionStart"):     CapVerified,
+			Capability(hookCapPrefix + "UserPromptSubmit"): CapVerified,
+			Capability(hookCapPrefix + "PreToolUse"):       CapVerified,
+			Capability(hookCapPrefix + "PostToolUse"):      CapVerified,
+			Capability(hookCapPrefix + "Stop"):             CapVerified,
+		},
+		ScopeProject: {
+			CapSkill:         CapVerified,
+			CapMCP:           CapVerified,
+			CapAgentDelegate: CapVerified,
+			CapAgentInvoke:   CapVerified,
+			Capability(hookCapPrefix + "SessionStart"):     CapVerified,
+			Capability(hookCapPrefix + "UserPromptSubmit"): CapVerified,
+			Capability(hookCapPrefix + "PreToolUse"):       CapVerified,
+			Capability(hookCapPrefix + "PostToolUse"):      CapVerified,
+			Capability(hookCapPrefix + "Stop"):             CapVerified,
+		},
+	},
+	configurator.ProviderOpenCode: {
+		ScopeGlobal: {
+			CapSkill:         CapVerified,
+			CapAgentDelegate: CapVerified,
+			CapAgentInvoke:   CapVerified,
+			Capability(hookCapPrefix + "SessionStart"): CapVerified,
+			Capability(hookCapPrefix + "PreToolUse"):   CapVerified,
+			Capability(hookCapPrefix + "PostToolUse"):  CapVerified,
+		},
+		ScopeProject: {
+			CapSkill:         CapVerified,
+			CapMCP:           CapVerified,
+			CapAgentDelegate: CapVerified,
+			CapAgentInvoke:   CapVerified,
+			Capability(hookCapPrefix + "SessionStart"): CapVerified,
+			Capability(hookCapPrefix + "PreToolUse"):   CapVerified,
+			Capability(hookCapPrefix + "PostToolUse"):  CapVerified,
+		},
+	},
+	configurator.ProviderKiro: {
+		ScopeProject: {
+			CapSkill:         CapVerified,
+			CapMCP:           CapVerified,
+			CapAgentDelegate: CapVerified,
+			CapAgentInvoke:   CapVerified,
+		},
+	},
+	configurator.ProviderPi: {
+		ScopeGlobal: {
+			CapSkill: CapVerified,
+			CapMCP:   CapVerified,
+			Capability(hookCapPrefix + "SessionStart"): CapVerified,
+			Capability(hookCapPrefix + "PreToolUse"):   CapVerified,
+			Capability(hookCapPrefix + "PostToolUse"):  CapVerified,
+		},
+	},
+}
 
 // capabilityInvokeHint is the one-line "how to invoke an agent" per provider
 // and scope, for the providers whose agent.invoke is not absent. Empty until
-// the probing slice records the sentence that works.
-var capabilityInvokeHint = map[configurator.Provider]map[Scope]string{}
+// a probe recorded the sentence that works.
+var capabilityInvokeHint = map[configurator.Provider]map[Scope]string{
+	configurator.ProviderClaudeCode: {
+		ScopeProject: "Ask for it by name: \"use the <name> agent\".",
+	},
+	configurator.ProviderCodex: {
+		ScopeGlobal:  "Ask for it by name: \"spawn the <name> agent\".",
+		ScopeProject: "Ask for it by name: \"spawn the <name> agent\".",
+	},
+	configurator.ProviderOpenCode: {
+		ScopeGlobal:  "Ask for it by name: \"use the <name> subagent\".",
+		ScopeProject: "Ask for it by name: \"use the <name> subagent\".",
+	},
+	configurator.ProviderKiro: {
+		ScopeProject: "Ask for it by name: \"use the <name> subagent\".",
+	},
+}
 
 // capabilityOverride replaces the table in tests (nil in production), so a
 // later slice can simulate a client without agents or with a verified
