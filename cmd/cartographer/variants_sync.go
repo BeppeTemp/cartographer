@@ -129,7 +129,17 @@ func reconcileVariants(dir string, cfg *clientconfig.Config, arts []provisioning
 			continue
 		}
 		if _, registered := configurator.VariantOf(configurator.Provider(name)); registered {
-			if _, err := doDisconnectLocked(disconnectOptions{Providers: []string{name}, Dir: dir, KeepToken: true}); err != nil {
+			dres, err := doDisconnectLocked(disconnectOptions{Providers: []string{name}, Dir: dir, KeepToken: true})
+			if err == nil {
+				// A symlink refusal is a result, not an error: the lock section
+				// stays and so must the cache entry, or nothing would own the files.
+				for _, pr := range dres.Providers {
+					if len(pr.Refused) > 0 {
+						err = fmt.Errorf("refused: %s", strings.Join(pr.Refused, "; "))
+					}
+				}
+			}
+			if err != nil {
 				// Not retired: the entry stays so the next sync tries again.
 				res.Warnings = append(res.Warnings, fmt.Sprintf("client variant %s is no longer declared but could not be disconnected: %v", name, err))
 				next[name] = cache[name]
@@ -202,18 +212,19 @@ func printVariantSync(w io.Writer, res variantSyncResult, dryRun bool) {
 	}
 }
 
-// syncVariants runs reconcileVariants from the manifests a sync pulled and
-// prints the outcome; it returns the names retired, which the caller leaves out
-// of the run. Under dry-run it retires nothing and returns nil.
-func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, projections []syncProjection, manifests map[string]provisioning.Manifest, failures []kbPullFailure, reachable, dryRun bool) []string {
+// syncVariants runs reconcileVariants from the variant declarations the pulled
+// KBs served and prints the outcome; it returns the names retired, which the
+// caller leaves out of the run. Under dry-run it retires nothing and returns
+// nil. The declarations come from the pull itself, not from the projections'
+// manifests: kb_options artifacts:false and workspace scoping drop a KB's
+// artifacts there, and a variant filtered out is not a variant undeclared.
+func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, projections []syncProjection, declared []provisioning.Artifact, failures []kbPullFailure, reachable, dryRun bool) []string {
 	var arts []provisioning.Artifact
 	seen := map[string]bool{}
-	for _, m := range manifests {
-		for _, a := range m.Artifacts {
-			if a.Kind == "variant" && !seen[a.Source+"\x00"+a.Name] {
-				seen[a.Source+"\x00"+a.Name] = true
-				arts = append(arts, a)
-			}
+	for _, a := range declared {
+		if a.Kind == "variant" && !seen[a.Source+"\x00"+a.Name] {
+			seen[a.Source+"\x00"+a.Name] = true
+			arts = append(arts, a)
 		}
 	}
 	pulled := map[string]bool{}
