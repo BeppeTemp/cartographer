@@ -14,7 +14,7 @@ import (
 )
 
 // MCPModeSeed is the VariantSpec.MCPMode of a variant whose client re-seeds its
-// MCP settings from a plaintext template shipped with an extension (D1711). The
+// MCP settings from a plaintext template shipped with an extension (D1700). The
 // variant has no MCP file of its own: Cartographer's entry is merged into the
 // template and the client's derived store is reset when the template changed.
 const MCPModeSeed = "seed"

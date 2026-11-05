@@ -8,7 +8,7 @@ import (
 )
 
 // seedMCPEntries writes Cartographer's entry into the plaintext template of a
-// seed-mode variant (D1711). The entry is always the stdio bridge, never the
+// seed-mode variant (D1700). The entry is always the stdio bridge, never the
 // HTTP one: the bridge is the shape verified end to end, and it resolves
 // workspace bindings from the folder it starts in. One entry is enough (the
 // bridge serves every bound KB), so the first one names it. Where the bridge

@@ -11,7 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
-// D1711: a client that cannot install a KB's skills as files is told to read
+// D1700: a client that cannot install a KB's skills as files is told to read
 // them with artifact_read. That route must work on an unbound folder (access=read)
 // and kb_guide must name the same tool and path shape the instructions block does.
 func TestUnplacedSkills_ReadableThroughMCPOnAnUnboundFolder(t *testing.T) {
@@ -42,7 +42,7 @@ func TestUnplacedSkills_ReadableThroughMCPOnAnUnboundFolder(t *testing.T) {
 	}
 }
 
-// D1711: the bundled cartographer-cli skill is listed by sync_pull only for a
+// D1700: the bundled cartographer-cli skill is listed by sync_pull only for a
 // client that asks, so a client older than the client-side filter never gets it.
 func TestSyncPullListsTheCLISkillOnlyWhenAsked(t *testing.T) {
 	t.Parallel()

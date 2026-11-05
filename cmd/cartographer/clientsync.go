@@ -1378,7 +1378,7 @@ func safeField(s string) string {
 }
 
 // syncPullArgs always asks the server for the bundled cartographer-cli skill
-// (D1711): a current client filters it per provider (withoutCLISkill), so only
+// (D1700): a current client filters it per provider (withoutCLISkill), so only
 // a cli variant keeps it, and asking unconditionally means a variant discovered
 // by this very sync gets it without a lag (the registry is read before sync
 // registers it). A client older than the filter never sends the flag, so it

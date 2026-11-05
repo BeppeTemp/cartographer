@@ -287,7 +287,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 		Description: "Returns the provisioning manifest (bundle and KB skills) with file contents " +
 			"embedded in base64, ready for client-side materialization over HTTP (no shared filesystem " +
 			"with the server required). Read-only. Used by `cartographer connect`/`cartographer sync` on the client side.",
-		InputSchema: json.RawMessage(`{"type": "object", "properties": {"include_cli_skill": {"type": "boolean", "description": "Also list the bundled cartographer-cli skill. Sent by every client that filters it per provider (D1711); a client that never sends it never receives it."}}}`),
+		InputSchema: json.RawMessage(`{"type": "object", "properties": {"include_cli_skill": {"type": "boolean", "description": "Also list the bundled cartographer-cli skill. Sent by every client that filters it per provider (D1700); a client that never sends it never receives it."}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			flushPendingPush(k, "sync_pull")
 			var params struct {
