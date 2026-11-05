@@ -21,13 +21,23 @@ func affectedSeeds(t *testing.T, paths ...string) []string {
 	return strings.Fields(string(out))
 }
 
+// needBash skips where the script cannot run: Windows (bash there may be WSL) and
+// an image without bash, such as the alpine one the docker job tests in.
+func needBash(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("bash script, run by the Unix legs")
+	}
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not on PATH")
+	}
+}
+
 // The seed table of the fast tier (make check) and of the Windows leg of make
 // signoff. A miss is not a hole, make gate runs everything, but it makes the fast
 // tier lie: every row here is a reader the table must keep.
 func TestAffectedPackagesSeedTable(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("bash script, run by the Unix legs")
-	}
+	needBash(t)
 	cases := []struct {
 		name  string
 		paths []string
@@ -57,9 +67,7 @@ func TestAffectedPackagesSeedTable(t *testing.T) {
 
 // The expansion adds the packages whose tests depend on a seed, and only those.
 func TestAffectedPackagesAddsReverseTestDependencies(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("bash script, run by the Unix legs")
-	}
+	needBash(t)
 	cmd := exec.Command("bash", "scripts/affected-pkgs.sh")
 	cmd.Dir = repoRoot(t)
 	cmd.Stdin = strings.NewReader("internal/execbit/execbit.go\n")
