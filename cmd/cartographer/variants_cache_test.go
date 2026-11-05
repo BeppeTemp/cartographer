@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -165,7 +168,9 @@ func TestApprovedVariantIsNotRegisteredWhenItsPathsMoved(t *testing.T) {
 }
 
 // A cached variant that fails to register keeps its name in the config for the
-// run: no destructive drop on a name a failure left unknown.
+// run: no destructive drop on a name a failure left unknown. The entry is
+// approved with the real fingerprint of the descriptor it was cached from, then
+// its stored bytes are damaged: registration names the failure.
 func TestUnregisteredCachedNameIsNotDropped(t *testing.T) {
 	home := variantHome(t)
 	good := variantArtifact(cachedVariant)
@@ -179,8 +184,8 @@ func TestUnregisteredCachedNameIsNotDropped(t *testing.T) {
 	}
 	var errw bytes.Buffer
 	registerCachedVariants(&errw)
-	if registered("fork-cli") {
-		t.Fatal("a broken descriptor was registered")
+	if errw.Len() == 0 {
+		t.Fatal("no warning for the broken entry")
 	}
 	cfg, err := clientconfig.Load(home)
 	if err != nil {
@@ -367,13 +372,15 @@ func TestForgetCachedVariant(t *testing.T) {
 func TestWantsVariantDiscovery(t *testing.T) {
 	for _, tc := range []struct {
 		target, csv string
+		approve     bool
 		want        bool
 	}{
-		{"", "", true}, {"all", "", true}, {"claude", "", false}, {"fork-cli", "", true},
-		{"", "claude,codex", false}, {"", "claude, fork-cli", true},
+		{"", "", false, true}, {"all", "", false, true}, {"claude", "", false, false}, {"fork-cli", "", false, true},
+		{"", "claude,codex", false, false}, {"", "claude, fork-cli", false, true},
+		{"", "claude", true, true}, // --agents <base> --approve-variants discovers
 	} {
-		if got := wantsVariantDiscovery(tc.target, tc.csv); got != tc.want {
-			t.Errorf("wantsVariantDiscovery(%q,%q) = %v, want %v", tc.target, tc.csv, got, tc.want)
+		if got := wantsVariantDiscovery(tc.target, tc.csv, tc.approve); got != tc.want {
+			t.Errorf("wantsVariantDiscovery(%q,%q,%v) = %v, want %v", tc.target, tc.csv, tc.approve, got, tc.want)
 		}
 	}
 }
@@ -398,10 +405,10 @@ func TestReconcileReportsNewlyCachedVariantsOnce(t *testing.T) {
 	a := variantArtifact(cachedVariant)
 	cfg := writeConfig(t, home, a)
 	pulled := map[string]bool{"kb-a": true}
-	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, pulled, true, false); len(res.Added) != 1 || res.Added[0] != "fork-cli" {
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, pulled, true, false); len(res.Added) != 1 || res.Added[0] != "fork-cli" {
 		t.Fatalf("first run Added = %v, want [fork-cli]", res.Added)
 	}
-	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, pulled, true, false); len(res.Added) != 0 {
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, pulled, true, false); len(res.Added) != 0 {
 		t.Fatalf("a variant already cached is not new: Added = %v", res.Added)
 	}
 }
@@ -426,5 +433,85 @@ func TestDoctorReportsACachedVariantThatIsNotAuthorized(t *testing.T) {
 	got := checkClientVariants(home, &clientconfig.Config{})
 	if len(got) != 1 || !strings.Contains(got[0].Fix, "approve variant fork-cli --kb kb-a") {
 		t.Fatalf("findings = %+v, want one naming the approve command", got)
+	}
+}
+
+func TestVariantKBsIsTheDeclaringKBNarrowedBySelection(t *testing.T) {
+	for _, tc := range []struct {
+		sel  []string
+		want []string
+	}{
+		{nil, []string{"kb-a"}}, {[]string{"all"}, []string{"kb-a"}},
+		{[]string{"kb-a", "kb-b"}, []string{"kb-a"}}, {[]string{"kb-b"}, nil},
+	} {
+		if got := variantKBs("kb-a", tc.sel); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("variantKBs(kb-a, %v) = %v, want %v", tc.sel, got, tc.want)
+		}
+	}
+	if variantKBs("", nil) != nil {
+		t.Error("a variant with no known source connects to nothing")
+	}
+}
+
+// sync connects a newly cached variant bound to its source KB alone, whatever
+// else the server mounts (D1714).
+func TestConnectNewVariantsBindsOnlyTheSourceKB(t *testing.T) {
+	home := variantHome(t)
+	a := variantArtifact(cachedVariant)
+	cfg := writeConfig(t, home, a)
+	cfg.Agents = nil
+	cfg.ServerURL = "http://127.0.0.1:1/mcp" // nobody listens: the binding is still recorded
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, map[string]bool{"kb-a": true}, true, false); len(res.Added) != 1 {
+		t.Fatalf("not cached: %+v", res)
+	}
+	var out, errw bytes.Buffer
+	connectNewVariants(&out, &errw, cfg, home, []string{"fork-cli"})
+	if !strings.Contains(out.String(), "connected") {
+		t.Fatalf("out %q err %q", out.String(), errw.String())
+	}
+	got, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kbs, explicit := got.BoundKBs("fork-cli"); !explicit || !reflect.DeepEqual(kbs, []string{"kb-a"}) {
+		t.Fatalf("bound to %v (explicit %v), want exactly [kb-a]", kbs, explicit)
+	}
+}
+
+func TestDiscoverVariantsSaysWhyItFoundNothing(t *testing.T) {
+	home := variantHome(t)
+	var out, errw bytes.Buffer
+	got := discoverVariants(&clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp"}, home, variantDiscovery{Out: &out, Err: &errw})
+	if got != nil || !strings.Contains(errw.String(), "not discovered") {
+		t.Fatalf("found %v, stderr %q: want the reason printed", got, errw.String())
+	}
+}
+
+// setup connects the variant it approved, though nothing was detected when the
+// plan was made (D1714).
+func TestRunSetup_ConnectsTheVariantItApproved(t *testing.T) {
+	calls := stubSetup(t, setupFacts{})
+	setupDetected = func() []string { return nil }
+	saved := setupDiscover
+	t.Cleanup(func() { setupDiscover = saved })
+	setupDiscover = func(_ string, approve bool, kbs []string) []string {
+		*calls = append(*calls, fmt.Sprintf("discover approve=%v kbs=%v", approve, kbs))
+		return []string{"fork-cli"}
+	}
+	if code := runSetup(setupOptions{Remote: "git@h:me/wiki.git", ApproveVariants: true}, false, true, false, noPrompt()); code != 0 {
+		t.Fatalf("runSetup = %d", code)
+	}
+	want := []string{"discover approve=true kbs=[]", "connect --no-input --agents fork-cli --approve-variants"}
+	got := 0
+	for _, c := range *calls {
+		if got < len(want) && strings.HasPrefix(c, want[got]) {
+			got++
+		}
+	}
+	if got != len(want) {
+		t.Fatalf("calls %q: want them to contain, in order, %q", *calls, want)
 	}
 }

@@ -352,7 +352,7 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 		scope = "only inside " + p.Workspace
 	}
 	if p.AgentsLater {
-		line("agents       agent clients: detected after the KB is mounted (client variants it declares need --approve-variants, or are left needs_approval)")
+		line("agents       agent clients: detected after the KB is mounted (the variants it declares need --approve-variants, else they are reported needs_approval)")
 	} else if len(p.KeepAgents) > 0 {
 		receiving := slices.DeleteFunc(slices.Clone(p.Agents), func(a string) bool { return slices.Contains(p.KeepAgents, a) })
 		line("agents       connect %s — KBs: %s; visible in %s", strings.Join(receiving, ", "), kbs, scope)
@@ -448,14 +448,14 @@ var (
 	setupConnect     = cmdConnect
 	setupDetected    = func() []string { p, _ := resolveTargetProviders("", ""); return p }
 	// setupDiscover pulls the KBs' client variants once the server has mounted them.
-	setupDiscover = func(serverURL string, approve bool) {
+	setupDiscover = func(serverURL string, approve bool, kbs []string) []string {
 		dir, err := clientconfig.TargetDir()
 		if err != nil {
-			return
+			return nil
 		}
 		cfg, err := clientconfig.Load(dir)
 		if err != nil {
-			return
+			return nil
 		}
 		if serverURL != "" && cfg.ServerURL == "" {
 			cfg.ServerURL = serverURL
@@ -463,7 +463,7 @@ var (
 		if cfg.ServerURL == "" {
 			cfg.ServerURL = clientconfig.Default().ServerURL
 		}
-		discoverVariants(cfg, dir, variantDiscovery{Approve: approve, Out: os.Stdout, Err: os.Stderr})
+		return discoverVariants(cfg, dir, variantDiscovery{Approve: approve, KBs: kbs, Out: os.Stdout, Err: os.Stderr})
 	}
 	setupWaitReady = waitSetupReady
 	// setupWaitBootstrapped waits until the server has mounted its KBs: /health
@@ -596,7 +596,7 @@ func cmdSetup(args []string) int {
 	yes := fs.Bool("yes", false, "Do not ask for confirmation before running the plan")
 	dryRun := fs.Bool("dry-run", false, "Print the plan and stop, changing nothing")
 	noInput := fs.Bool("no-input", false, "Never ask questions, even in a terminal")
-	approveVariants := fs.Bool("approve-variants", false, "Approve the client variants the KBs declare, printing the paths each will write")
+	approveVariants := fs.Bool("approve-variants", false, "Approve the client variants the selected KBs declare, printing the paths each will write (setup never asks: without it they are reported needs_approval)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer setup [--remote <url> | --no-remote] [--name <kb>] [--agents a,b] [--kb <name>] [--workspace <repo>] [--approve-variants] [--yes] [--dry-run] [--no-input]")
 		fs.PrintDefaults()
@@ -815,10 +815,19 @@ func runSetupPlan(p setupPlan) int {
 	}
 
 	if p.AgentsLater || p.ApproveVariants {
-		setupDiscover(p.ServerURL, p.ApproveVariants)
+		found := setupDiscover(p.ServerURL, p.ApproveVariants, p.KBs)
+		if p.AgentsLater {
+			p.Agents = setupDetected()
+		}
+		// The variants setup approved join the agents it connects (D1714).
+		for _, v := range found {
+			if !slices.Contains(p.Agents, v) {
+				p.Agents = append(p.Agents, v)
+			}
+		}
 	}
 	if p.AgentsLater {
-		if p.Agents = setupDetected(); len(p.Agents) == 0 {
+		if len(p.Agents) == 0 {
 			fmt.Fprintln(os.Stderr, "Error:", errNoAgentDetected())
 			return 1
 		}

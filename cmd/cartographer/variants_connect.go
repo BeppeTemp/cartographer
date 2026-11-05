@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"maps"
+	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,8 +18,11 @@ import (
 
 // wantsVariantDiscovery says whether connect's target can name a client variant
 // that is not registered yet: "all" or nothing (the detection must include the
-// KBs' variants) or a name no registry entry carries.
-func wantsVariantDiscovery(target, csv string) bool {
+// KBs' variants), a name no registry entry carries, or --approve-variants.
+func wantsVariantDiscovery(target, csv string, approve bool) bool {
+	if approve {
+		return true // the flag asks for the KBs' variants whatever the target
+	}
 	unknown := func(n string) bool {
 		_, ok := configurator.Lookup(configurator.Provider(strings.TrimSpace(n)))
 		return !ok
@@ -38,21 +44,95 @@ func wantsVariantDiscovery(target, csv string) bool {
 // neither reports it needs_approval and goes on.
 type variantDiscovery struct {
 	Approve, Interactive bool
-	KBs                  []string // the --kb selection; empty or "all" is every mounted KB
+	KBs                  []string // the --kb selection: what is pulled, approved and connected; empty or "all" is every mounted KB
 	Out, Err             io.Writer
+}
+
+// variantKBs is the KBs a discovered variant is connected with (D1714): the KB
+// that declared it, narrowed by the operator's --kb selection when there is
+// one, never every mounted KB. nil means the selection leaves it out.
+func variantKBs(source string, selection []string) []string {
+	if source == "" {
+		return nil
+	}
+	if len(selection) == 0 || (len(selection) == 1 && selection[0] == kbSelectionAll) || slices.Contains(selection, source) {
+		return []string{source}
+	}
+	return nil
+}
+
+// doConnectScoped is doConnect with each registered client variant connected on
+// its own, bound to variantKBs of its source KB (D1714): one shared --kb would
+// bind it, and its token, to KBs that never asked for it.
+func doConnectScoped(opts connectOptions) (connectResult, error) {
+	cache, _ := clientvariant.LoadCache(opts.Dir)
+	var plain []string
+	var variants []string
+	for _, p := range opts.Providers {
+		if _, ok := configurator.VariantOf(configurator.Provider(p)); ok {
+			variants = append(variants, p)
+		} else {
+			plain = append(plain, p)
+		}
+	}
+	if len(variants) == 0 {
+		return doConnect(opts)
+	}
+	var total connectResult
+	run := func(o connectOptions) error {
+		res, err := doConnect(o)
+		total.Providers = append(total.Providers, res.Providers...)
+		total.ConfigsWritten = append(total.ConfigsWritten, res.ConfigsWritten...)
+		total.MCPEntries = append(total.MCPEntries, res.MCPEntries...)
+		total.Warnings = append(total.Warnings, res.Warnings...)
+		if total.Applied == nil {
+			total.Applied = map[string]provisioning.AppliedResult{}
+		}
+		maps.Copy(total.Applied, res.Applied)
+		if res.Deferred {
+			total.Deferred, total.DeferredErr = true, res.DeferredErr
+		}
+		return err
+	}
+	if len(plain) > 0 {
+		o := opts
+		o.Providers = plain
+		if err := run(o); err != nil {
+			return total, err
+		}
+	}
+	for _, v := range variants {
+		kbs := variantKBs(cache[v].SourceKB, opts.KBs)
+		if kbs == nil {
+			fmt.Fprintf(os.Stderr, "client variant %s: declared by KB %s, which is not among the selected KBs: not connected\n", escapeControl(v), escapeControl(cache[v].SourceKB))
+			continue
+		}
+		o := opts
+		o.Providers, o.KBs = []string{v}, kbs
+		if err := run(o); err != nil {
+			return total, err
+		}
+	}
+	return total, nil
 }
 
 // discoverVariants pulls the variant declarations of the KBs the server mounts
 // (verified manifest), records the approvals the operator gave and caches and
 // registers the authorized ones through reconcileVariants, so the detection
-// that follows sees them (D1702). A server that does not answer leaves the
+// that follows sees them (D1698). A server that does not answer leaves the
 // registry as registerCachedVariants built it: the cache only. It never
-// retires: a connect proves no absence.
-func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery) {
+// retires: a connect proves no absence. It returns the cached variants whose
+// client is installed here and whose KB the selection covers, for the caller to
+// connect (D1714); every failure to look is printed, never swallowed.
+func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery) []string {
+	skip := func(why error) []string {
+		fmt.Fprintf(o.Err, "note: client variants of the KBs not discovered, the cached ones stay: %v\n", why)
+		return nil
+	}
 	fc := *base
 	facts, err := enumerateKBs(fc.ServerURL, fc.Auth, fc.Token, fc.InsecureHTTPAllowed())
 	if err != nil {
-		return
+		return skip(err)
 	}
 	fc.KnownKBs = nil
 	if facts.Listed {
@@ -63,11 +143,11 @@ func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery)
 	}
 	m, err := fetchMergedManifest(&fc)
 	if err != nil {
-		return
+		return skip(err)
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
-		return
+		return skip(err)
 	}
 	opts := provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes(), ApprovedVariantPaths: cfg.ApprovedPathFingerprints()}
 	var arts, approve []provisioning.Artifact
@@ -100,26 +180,34 @@ func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery)
 			return nil
 		}); err != nil {
 			fmt.Fprintln(o.Err, "warning: client variants not approved:", err)
-			return
+			return nil
 		}
 	}
 	if len(arts) == 0 {
-		return
+		return nil
 	}
 	release, err := lockClient(dir)
 	if err != nil {
 		fmt.Fprintln(o.Err, "warning: client variants not cached:", err)
-		return
+		return nil
 	}
 	defer release()
 	if cfg, err = clientconfig.Load(dir); err != nil {
-		return
+		return skip(err)
 	}
 	res := reconcileVariants(dir, cfg, arts, nil, pulled, false, false)
 	for _, w := range res.Warnings {
 		fmt.Fprintf(o.Err, "warning: %s\n", w)
 	}
 	printVariantSync(o.Out, res, false)
+	cache, _ := clientvariant.LoadCache(dir)
+	var found []string
+	for _, n := range res.Detected {
+		if variantKBs(cache[n].SourceKB, o.KBs) != nil {
+			found = append(found, n)
+		}
+	}
+	return found
 }
 
 // connectNewVariants connects, one doConnectLocked each, the variants a sync
@@ -127,9 +215,12 @@ func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery)
 // is a warning with the command that finishes it; the sync goes on.
 func connectNewVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, names []string) {
 	for _, n := range names {
-		_, err := doConnectLocked(connectOptions{Providers: []string{n}, Dir: dir, ServerURL: cfg.ServerURL, Name: cfg.ServerName, Auth: cfg.Auth, Token: cfg.Token, AllowInsecureHTTP: cfg.AllowInsecureHTTP})
+		// Bound to the KB that declared it and to no other (D1714).
+		cache, _ := clientvariant.LoadCache(dir)
+		kb := cache[n].SourceKB
+		_, err := doConnectLocked(connectOptions{Providers: []string{n}, Dir: dir, ServerURL: cfg.ServerURL, Name: cfg.ServerName, Auth: cfg.Auth, Token: cfg.Token, AllowInsecureHTTP: cfg.AllowInsecureHTTP, KBs: variantKBs(kb, nil)})
 		if err != nil {
-			fmt.Fprintf(errw, "warning: client variant %s declared by the KB was not connected: %v (run `cartographer connect %s`)\n", escapeControl(n), err, escapeControl(n))
+			fmt.Fprintf(errw, "warning: client variant %s declared by the KB was not connected: %v (run `cartographer connect %s --kb %s`)\n", escapeControl(n), err, escapeControl(n), escapeControl(kb))
 			continue
 		}
 		fmt.Fprintf(out, "client variant %s: connected\n", escapeControl(n))
@@ -173,10 +264,10 @@ func checkClientVariants(dir string, cfg *clientconfig.Config) []doctorFinding {
 	reg := provisioning.RegisterCachedVariants(cache, provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes(), ApprovedVariantPaths: cfg.ApprovedPathFingerprints()})
 	var out []doctorFinding
 	for _, w := range reg.Warnings {
-		out = append(out, doctorFinding{Check: "client_variant", Severity: doctorWarning, Message: w})
+		out = append(out, doctorFinding{Check: "client_variant", Severity: doctorWarning, Message: escapeControl(w)})
 	}
 	for _, n := range reg.Pending {
-		out = append(out, doctorFinding{Check: "client_variant", Severity: doctorWarning, Message: fmt.Sprintf("client variant %s is cached but not authorized here", n), Fix: "cartographer approve variant " + n + " --kb " + cache[n].SourceKB})
+		out = append(out, doctorFinding{Check: "client_variant", Severity: doctorWarning, Message: fmt.Sprintf("client variant %s is cached but not authorized here", escapeControl(n)), Fix: "cartographer approve variant " + escapeControl(n) + " --kb " + escapeControl(cache[n].SourceKB)})
 	}
 	return out
 }

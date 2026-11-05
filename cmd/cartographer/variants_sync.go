@@ -228,7 +228,7 @@ func printVariantSync(w io.Writer, res variantSyncResult, dryRun bool) {
 // syncVariants runs reconcileVariants from the manifests a sync pulled and
 // prints the outcome; it returns the names retired, which the caller leaves out
 // of the run, and the variants to connect: newly declared, authorized and
-// detected here, not connected yet (the KB asked for them, D1702). Under dry-run
+// detected here, not connected yet (the KB asked for them, D1698). Under dry-run
 // it retires and connects nothing and returns nil.
 func syncVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, projections []syncProjection, declared []provisioning.Artifact, manifests map[string]provisioning.Manifest, failures []kbPullFailure, reachable, dryRun bool) (retired, connect []string) {
 	var arts []provisioning.Artifact
