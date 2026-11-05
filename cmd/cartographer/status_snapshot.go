@@ -643,16 +643,19 @@ func tagHookSettings(arts []statusArtifact, ps []syncProjection, manifests map[s
 func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Config) []statusArtifact {
 	out := make([]statusArtifact, len(artifacts))
 	for i, a := range artifacts {
+		// A skill derived from an agent is approved as the agent: its approval
+		// is bound to the agent's hash, not to the derived one.
+		o, _ := a.Origin()
 		trust := "needs_approval"
 		if a.BuiltIn {
 			trust = "built_in"
-		} else if provisioning.ArtifactRequiresApproval(a, provisioning.ApplyOptions{}) {
+		} else if provisioning.ArtifactRequiresApproval(o, provisioning.ApplyOptions{}) {
 			// A signature never installs an MCP descriptor, a hook or an
 			// executable file (D906, D1141): only the hash-bound approval does,
 			// so it is checked before Signed.
 			source := strings.TrimPrefix(a.Source, "kb:")
-			if approval, ok := cfg.MCPApprovals[source][provisioning.ApprovalName(a)]; ok {
-				if approval.ContentHash == a.ContentHash {
+			if approval, ok := cfg.MCPApprovals[source][provisioning.ApprovalName(o)]; ok {
+				if approval.ContentHash == o.ContentHash {
 					trust = "approved"
 				} else {
 					trust = "approval_stale"

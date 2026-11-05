@@ -2282,7 +2282,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		key := a.Kind + "\x00" + a.Name
 		heldKeys[key] = true
 		if !toWriteKeys[key] {
-			result.NeedsApproval = append(result.NeedsApproval, a)
+			result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
 		}
 	}
 
@@ -2362,7 +2362,7 @@ hookLoop:
 		}
 		if !artifactAuthorized(a, opts) {
 			// Not approved: notify, don't write.
-			result.NeedsApproval = append(result.NeedsApproval, a)
+			result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
 			continue
 		}
 
@@ -3054,7 +3054,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	contentHashes := make(map[string]string, len(current))
 	for _, a := range current {
 		if !artifactAuthorized(a, opts) {
-			result.NeedsApproval = append(result.NeedsApproval, a)
+			result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
 			continue
 		}
 		signed = append(signed, a)
@@ -3575,6 +3575,15 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 	// rejected a path that escapes its directory and an artifact whose signature
 	// fails against a pinned key (D40, D114), so Signed does not gate this.
 	return a.Signed || strings.HasPrefix(a.Source, "kb:")
+}
+
+// heldArtifact is what NeedsApproval reports for a: the artifact the operator
+// approves. For a skill derived from an agent that is the agent, so the command
+// sync prints (`approve agent <name>`) finds it in the server's manifest.
+func heldArtifact(a Artifact) Artifact {
+	o, _ := a.Origin()
+	o.Files = nil
+	return o
 }
 
 // ApprovalName is the name an artifact's local approval is stored under inside

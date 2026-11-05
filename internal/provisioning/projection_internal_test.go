@@ -154,6 +154,11 @@ func TestDegradedSkillInheritsAgentApproval(t *testing.T) {
 	if len(res.NeedsApproval) != 1 || len(res.Written) != 0 {
 		t.Fatalf("gated agent must stay needs_approval: %+v", res)
 	}
+	// What sync prints is what `approve <kind> <name>` looks up in the server's
+	// manifest: the agent, not the derived skill.
+	if h := res.NeedsApproval[0]; h.Kind != "agent" || h.Name != "gated" || h.ContentHash != agent.ContentHash {
+		t.Fatalf("NeedsApproval must name the origin agent: %s/%s", h.Kind, h.Name)
+	}
 	opts := ApplyOptions{Provider: configurator.ProviderCrush, BaseDir: base, ApprovedMCP: map[string]string{"kb:kb-a\x00agent/gated": agent.ContentHash}}
 	res, err = Apply(pm, opts)
 	if err != nil {
