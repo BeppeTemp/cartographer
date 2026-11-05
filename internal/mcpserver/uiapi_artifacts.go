@@ -26,6 +26,12 @@ var uiArtifactKinds = map[string]bool{
 type uiArtifactClient struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Mode (D1656) is what this client does with the artifact: native,
+	// degraded (an agent installed as a skill), skipped (Reason says why) or
+	// unverified. Empty on a kind row, which has no artifact to judge, except
+	// "degraded" for the agents of a client without subagents.
+	Mode   string `json:"mode,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // uiKindInfo is one kind of artifact a KB can hold, as provisioning.Kinds
@@ -66,7 +72,7 @@ func uiArtifactKindRows(counts map[string]int) []uiArtifactKind {
 		rows = append(rows, uiArtifactKind{
 			uiKindInfo: uiKindInfoFrom(k),
 			Count:      counts[k.Kind],
-			Clients:    uiClientsFor(k.Kind, ""),
+			Clients:    uiClientsFor(k.Kind, "", nil),
 		})
 	}
 	return rows
@@ -74,17 +80,55 @@ func uiArtifactKindRows(counts map[string]int) []uiArtifactKind {
 
 // uiClientsFor names the clients that receive an artifact of this kind, in
 // registry order, with the display names the Atlas shows. An empty name asks
-// for the kind as a whole (provisioning.Destinations accepts it).
-func uiClientsFor(kind, name string) []uiArtifactClient {
+// for the kind as a whole. modes are the client modes of the artifact
+// (clientModesFor), nil for a kind row or an artifact the resolver does not
+// judge (the curated instructions): those list the providers whose destination
+// cell is supported, as provisioning.Destinations does, plus the clients that
+// get agents as skills.
+func uiClientsFor(kind, name string, modes []provisioning.ClientMode) []uiArtifactClient {
 	names := map[configurator.Provider]string{}
 	for _, d := range configurator.Providers() {
 		names[d.Provider] = d.DisplayName
 	}
+	if modes == nil {
+		if name == "" {
+			modes = provisioning.KindClientModes(kind)
+		} else {
+			for _, p := range provisioning.Destinations(kind, name) {
+				modes = append(modes, provisioning.ClientMode{Provider: p})
+			}
+		}
+	}
 	out := []uiArtifactClient{}
-	for _, p := range provisioning.Destinations(kind, name) {
-		out = append(out, uiArtifactClient{ID: string(p), Name: names[p]})
+	for _, m := range modes {
+		out = append(out, uiArtifactClient{ID: string(m.Provider), Name: names[m.Provider], Mode: m.Mode, Reason: m.Reason})
 	}
 	return out
+}
+
+// modeJudged: the artifact takes part in clientModesFor.
+func modeJudged(a kbArtifact) bool {
+	return a.Manifest != nil && (a.Kind == "skill" || a.Kind == "agent" || a.Kind == "hook" || a.Kind == "mcp")
+}
+
+// clientModesFor judges every artifact the KB ships, once per request, with the
+// resolver a sync runs (provisioning.ClientModes): the panel cannot say
+// something a sync would not do. Only artifacts with a manifest entry take
+// part; a nil map means none is judged.
+func clientModesFor(catalog kbArtifactCatalog) map[string][]provisioning.ClientMode {
+	var arts []provisioning.Artifact
+	for _, a := range catalog.Artifacts {
+		if !modeJudged(a) {
+			continue
+		}
+		pa := *a.Manifest
+		pa.Files = a.Files
+		arts = append(arts, pa)
+	}
+	if len(arts) == 0 {
+		return nil
+	}
+	return provisioning.ClientModes(arts, provisioning.ProjectOptions{})
 }
 
 type uiArtifactFile struct {
@@ -195,7 +239,7 @@ func attachFindings(a *uiArtifact, findings []lint.Finding) {
 	}
 }
 
-func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]struct{}) uiArtifact {
+func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]struct{}, modes map[string][]provisioning.ClientMode) uiArtifact {
 	out := uiArtifact{
 		Kind:        a.Kind,
 		Name:        a.Name,
@@ -212,7 +256,12 @@ func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]str
 	// it does reach clients: sync folds it into the generated instructions
 	// block (D61). Templates never leave the KB, and the matrix has no row
 	// for them.
-	out.Clients = uiClientsFor(a.Kind, a.Name)
+	var judged []provisioning.ClientMode
+	if modes != nil && modeJudged(a) {
+		// Judged and received by nobody is an empty list, not the matrix.
+		judged = append([]provisioning.ClientMode{}, modes[a.Kind+"/"+a.Name]...)
+	}
+	out.Clients = uiClientsFor(a.Kind, a.Name, judged)
 	for _, f := range a.Files {
 		file := uiArtifactFile{Path: f.Path, SHA256: sha256Hex(f.Content), Size: len(f.Content), Executable: f.Executable}
 		if f.Oversized > 0 {
@@ -259,8 +308,9 @@ func (m *MultiKBServer) uiArtifacts(w http.ResponseWriter, r *http.Request, srv 
 	list := make([]uiArtifact, 0, len(catalog.Artifacts))
 	counts := map[string]int{}
 	usage, now := artifactUsage(srv.kbRef), time.Now()
+	modes := clientModesFor(catalog)
 	for _, a := range catalog.Artifacts {
-		ua := uiArtifactFrom(a, false, exists)
+		ua := uiArtifactFrom(a, false, exists, modes)
 		attachFindings(&ua, findings)
 		attachUsage(&ua, usage, now)
 		list = append(list, ua)
@@ -310,7 +360,7 @@ func (m *MultiKBServer) uiArtifact(w http.ResponseWriter, r *http.Request, srv *
 	}
 	for _, a := range catalog.Artifacts {
 		if a.Kind == kind && a.Name == name {
-			ua := uiArtifactFrom(a, true, exists)
+			ua := uiArtifactFrom(a, true, exists, clientModesFor(catalog))
 			findings, err := artifactFindings(srv)
 			if err != nil {
 				writeUIInternal(w, "artifact: lint", err)

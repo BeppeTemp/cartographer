@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchArtifact } from "../api/client";
-import type { Artifact, ArtifactFile, ArtifactKindInfo, ArtifactList } from "../api/types";
+import type { Artifact, ArtifactClient, ArtifactFile, ArtifactKindInfo, ArtifactList } from "../api/types";
 import { DocsLink } from "./DocsLink";
 import { Markdown } from "./Markdown";
 import {
@@ -100,6 +100,14 @@ function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
   return `${(n / 1024 / 1024).toFixed(1)} MiB`;
 }
+
+/** What a client mode means, shown when the server gives no reason (D1656). */
+const MODE_HINT: Record<NonNullable<ArtifactClient["mode"]>, string> = {
+  native: "Installed as it is.",
+  degraded: "Installed as a skill: this client has no subagents.",
+  skipped: "Not installed on this client.",
+  unverified: "Installed, but nobody has verified it works on this client.",
+};
 
 /**
  * The Artifacts panel (D238): what this KB ships to agent clients, for a
@@ -583,6 +591,14 @@ function ArtifactDetail({
               <span key={c.id}>
                 {i > 0 && <span aria-hidden="true"> · </span>}
                 <span className="artifacts__client">{c.name || c.id}</span>
+                {c.mode && c.mode !== "native" && (
+                  <span
+                    className={`artifacts__mode artifacts__mode--${c.mode}`}
+                    title={c.reason || MODE_HINT[c.mode]}
+                  >
+                    {c.mode}
+                  </span>
+                )}
               </span>
             ))
           )}

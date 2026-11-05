@@ -935,6 +935,12 @@ shows the empty kinds of the tab instead of a page-level empty state. Against a 
 that sends no `kinds` the page behaves as before: only the kinds that have an
 artifact, and the page-level empty state.
 
+Each client of an artifact carries its `mode` (D1697), the answer of the resolver a sync runs: `native` is the plain
+case and shows no tag; `degraded` (an agent a client without subagents receives as a skill), `skipped` and
+`unverified` show a tag whose title is the reason (`clients[].reason`). A requirement on an artifact the KB does not ship
+reads `unverified`, "depends on another KB": it may come from another KB bound to the same client. The kind tiles list
+the clients that receive agents as skills too. Against a server that sends no `mode` the page shows the names alone.
+
 Selecting a tile opens the artifact beside the catalog, as the reading panel
 opens beside the atlas, with a close button; on a narrow screen it takes the
 whole width with a way back. The detail gives its description, its signature,

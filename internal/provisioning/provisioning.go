@@ -390,6 +390,11 @@ type ApplyOptions struct {
 	// it registers in ClaudeLocalSettings (#1198). Only read for ScopeProject
 	// and the claude provider.
 	HookSettingsRel string
+
+	// Skipped are the artifacts the resolver left out of this projection
+	// (ProjectionResult.Notes through ReportNotes). They are not in the projected
+	// manifest, so the client environment section takes them from here.
+	Skipped []SkippedNote
 }
 
 // claudeHookSettings is, for an Apply with HookSettingsRel, the settings
@@ -3136,6 +3141,12 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	if cliSentence != "" {
 		cliHashPart = "\x00cli\x00" + cliSentence
 	}
+	// The client environment section (D1697) is client-owned text too, and it
+	// moves with things no artifact hash records (a skill skipped or unskipped, a
+	// capability probed). It cannot join the paths-section hash: `status` judges
+	// that hash without the approvals and notes a sync holds, so the two would
+	// disagree for good. Its trigger is blockBodyIs below, with the @AGENTS.md import.
+	envSection := environmentSection(m, opts)
 	var pathsSection, sharedSection string
 	if len(signed) > 0 {
 		sections := make([]string, 0, len(signed))
@@ -3168,9 +3179,53 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// and drop the import when it doesn't. An appearing/disappearing
 	// AGENTS.md changes the rendered body, so it is a trigger of its own.
 	wantImport := needsAgentsMDImport(opts)
+	// The body this block should hold, built before the trigger so the
+	// import and the environment section are compared as the whole text: a
+	// KB's instructions can end with any line, so the section is never found by
+	// what it starts with.
+	var body string
+	if len(signed) > 0 {
+		// Each KB's snippet is individually attributed (D182 WP1): current is
+		// already in the order applyInstructionsGroup will render (WP2's
+		// opts.KBOrder-aware sort above), so signed — a filtered copy of current —
+		// carries that same order through to the wrap.
+		snippets := make([]string, 0, len(signed))
+		for _, a := range signed {
+			content := strings.TrimRight(string(expandedContent[a.Name]), "\n")
+			snippets = append(snippets, wrapKBSection(a.Name, content))
+		}
+		body = strings.Join(snippets, "\n\n")
+
+		// D1182: the operational bullets, once per block, after the last section.
+		if sharedSection != "" {
+			body += "\n\n" + strings.TrimRight(sharedSection, "\n")
+		}
+
+		// D293: a project-scope Claude CLAUDE.md that lives alongside an
+		// AGENTS.md must import it, or creating/keeping CLAUDE.md hides the
+		// repository's own instructions from every Claude session.
+		if wantImport {
+			body = "@AGENTS.md\n\n" + body
+		}
+
+		if pathsSection != "" {
+			body += "\n\n" + pathsSection
+		}
+
+		// The subagent sentence, per provider and per KB (D154): it must describe
+		// what THIS client received, not what the KB declares. A client whose "agent"
+		// cell is unsupportedDest (crush) receives none, and the sentence must not
+		// tell it to delegate to subagents that are not there; installedSubagentSentence
+		// derives it from destDir.
+		if envSection != "" {
+			body += "\n\n" + envSection
+		}
+		if cliSentence != "" {
+			body += "\n\n" + cliSentence
+		}
+	}
 	if !triggered && len(signed) > 0 {
-		fullPath := filepath.Join(opts.BaseDir, destRel)
-		if wantImport != blockHasAgentsMDImport(fullPath) {
+		if !blockBodyIs(filepath.Join(opts.BaseDir, destRel), body) {
 			triggered = true
 		}
 	}
@@ -3208,45 +3263,6 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 			pruneEmptyDirs(opts.BaseDir, destRel)
 		}
 		return nil
-	}
-
-	// Each KB's snippet is individually attributed (D182 WP1): current is
-	// already in the order applyInstructionsGroup will render (WP2's
-	// opts.KBOrder-aware sort above), so signed — a filtered copy of current —
-	// carries that same order through to the wrap.
-	snippets := make([]string, 0, len(signed))
-	for _, a := range signed {
-		content := strings.TrimRight(string(expandedContent[a.Name]), "\n")
-		snippets = append(snippets, wrapKBSection(a.Name, content))
-	}
-	body := strings.Join(snippets, "\n\n")
-
-	// D1182: the operational bullets, once per block, after the last section.
-	if sharedSection != "" {
-		body += "\n\n" + strings.TrimRight(sharedSection, "\n")
-	}
-
-	// D293: a project-scope Claude CLAUDE.md that lives alongside an
-	// AGENTS.md must import it, or creating/keeping CLAUDE.md hides the
-	// repository's own instructions from every Claude session.
-	if wantImport {
-		body = "@AGENTS.md\n\n" + body
-	}
-
-	if pathsSection != "" {
-		body += "\n\n" + pathsSection
-	}
-
-	// The subagent sentence, per provider and per KB (D154): it must describe
-	// what THIS client received, not what the KB declares. A client whose "agent"
-	// cell is unsupportedDest (crush) receives none, and the sentence must not
-	// tell it to delegate to subagents that are not there; installedSubagentSentence
-	// derives it from destDir.
-	if sentence := installedSubagentSentence(m, opts); sentence != "" {
-		body += "\n\n" + sentence
-	}
-	if cliSentence != "" {
-		body += "\n\n" + cliSentence
 	}
 
 	unchanged := false
@@ -3369,25 +3385,24 @@ func fileImportsAgentsMDOutsideBlock(path string) bool {
 	return containsAgentsMDImport(stripped)
 }
 
-// blockHasAgentsMDImport reports whether the existing managed block at path
-// contains the @AGENTS.md import line. Used to detect when the import state
-// changed (AGENTS.md appeared or disappeared) and trigger a rewrite.
-func blockHasAgentsMDImport(path string) bool {
+// blockBodyIs reports whether the managed block already in the file at path
+// holds exactly body: the same comparison writeInstructionsBlockChanged ends
+// with, without writing. Client-written text of the block that no artifact
+// hash records (the AGENTS.md import, the environment section, D1697) triggers
+// a rewrite through it. It stays out of the recorded paths-section hash because
+// `status` recomputes that hash without the approvals and resolver notes a sync
+// holds and would report drift for good.
+func blockBodyIs(path, body string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
 	content := string(data)
-	beginIdx := strings.Index(content, instructionsBlockBeginPrefix)
-	if beginIdx == -1 {
-		return false
+	next, outcome := replaceBetweenMarkers(content, instructionsBlockBegin+"\n"+body+"\n"+instructionsBlockEnd+"\n")
+	if outcome == blocktext.Corrupted {
+		return true // left to the write, which refuses it (D148), when something else triggers
 	}
-	endIdx := strings.Index(content[beginIdx:], instructionsBlockEnd)
-	if endIdx == -1 {
-		return false
-	}
-	block := content[beginIdx : beginIdx+endIdx+len(instructionsBlockEnd)]
-	return containsAgentsMDImport(block)
+	return outcome == blocktext.Found && next == content
 }
 
 // containsAgentsMDImport reports whether text contains a line that is exactly
@@ -3568,6 +3583,10 @@ func cliProviderSentence(p configurator.Provider) string {
 //
 // An artifact awaiting approval is excluded: it was not installed, and the whole
 // point is that the sentence describes what happened.
+//
+// When the client cannot delegate on its own (agent.delegate absent, invoke
+// only) the sentence says so and carries InvokeHint; otherwise it is the
+// original text, byte for byte (Claude Code's golden tests pin it).
 func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 	byKB := map[string][]string{}
 	for _, a := range m.Artifacts {
@@ -3583,6 +3602,22 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 		kbName := strings.TrimPrefix(a.Source, "kb:")
 		byKB[kbName] = append(byKB[kbName], a.Name)
 	}
+	invokeOnly := CapabilityStatus(opts.Provider, opts.Scope, CapAgentDelegate) == CapAbsent
+	return perKBLines(byKB, func(kbName string, names []string) string {
+		if invokeOnly {
+			line := fmt.Sprintf("Subagents installed by the %q KB: %s — this client does not pick them on its own.", kbName, strings.Join(names, ", "))
+			if hint := InvokeHint(opts.Provider, opts.Scope); hint != "" {
+				line += " " + hint
+			}
+			return line
+		}
+		return fmt.Sprintf("Subagents installed by the %q KB: %s — their descriptions are in the client's agent registry: delegate to them the tasks they cover.",
+			kbName, strings.Join(names, ", "))
+	})
+}
+
+// perKBLines renders one line per KB, KBs and names sorted.
+func perKBLines(byKB map[string][]string, line func(kbName string, names []string) string) string {
 	if len(byKB) == 0 {
 		return ""
 	}
@@ -3595,8 +3630,136 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 	for _, kbName := range kbNames {
 		names := byKB[kbName]
 		sort.Strings(names)
-		lines = append(lines, fmt.Sprintf("Subagents installed by the %q KB: %s — their descriptions are in the client's agent registry: delegate to them the tasks they cover.",
-			kbName, strings.Join(names, ", ")))
+		lines = append(lines, line(kbName, names))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// degradedAgentSentence names, per KB, the agents installed here as skills
+// (D1656): the model is told to load the skill where a skill says to delegate.
+// A derived skill is judged on its origin's approval, like the skill itself.
+func degradedAgentSentence(m Manifest, opts ApplyOptions) string {
+	byKB := map[string][]string{}
+	for _, a := range m.Artifacts {
+		if a.DerivedFrom == nil || a.DerivedFrom.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") || !artifactAuthorized(a, opts) {
+			continue
+		}
+		kbName := strings.TrimPrefix(a.Source, "kb:")
+		byKB[kbName] = append(byKB[kbName], a.Name)
+	}
+	return perKBLines(byKB, func(kbName string, names []string) string {
+		return fmt.Sprintf("Subagents available here as skills (no separate context) from the %q KB: %s — where a skill says to delegate to one of them, load the skill of that name.",
+			kbName, envJoin(quoteAll(names, envNameMax)))
+	})
+}
+
+// The environment lines carry text a KB supplies (artifact names, a skip
+// reason that quotes a `requires`): it is quoted, so quotes, markdown and line
+// separators stay inert, and bounded, so one artifact cannot fill the block.
+const (
+	envNameMax   = 60
+	envReasonMax = 160
+	envMaxItems  = 8
+)
+
+// envQuote quotes s with %q after cutting it to max runes.
+func envQuote(s string, max int) string {
+	if r := []rune(s); len(r) > max {
+		s = string(r[:max]) + "..."
+	}
+	return fmt.Sprintf("%q", s)
+}
+
+func quoteAll(in []string, max int) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = envQuote(s, max)
+	}
+	return out
+}
+
+// envJoin lists at most envMaxItems entries and counts the rest.
+func envJoin(items []string) string {
+	if len(items) <= envMaxItems {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(items[:envMaxItems], ", "), len(items)-envMaxItems)
+}
+
+// AuthorizedSkipped keeps the skipped notes whose artifact (looked up by
+// "kind/name" in source, the manifest before projection) a client may name:
+// the one gate of every environment line. An artifact awaiting approval is not
+// announced, and a note that matches no artifact is dropped.
+func AuthorizedSkipped(notes []SkippedNote, source Manifest, opts ApplyOptions) []SkippedNote {
+	byID := map[string]Artifact{}
+	for _, a := range source.Artifacts {
+		byID[a.Kind+"/"+a.Name] = a
+	}
+	var out []SkippedNote
+	for _, n := range notes {
+		if a, ok := byID[n.Artifact]; ok && artifactAuthorized(a, opts) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// skippedSentence is one line naming what the resolver left out of this
+// client, with its reason; the notes carry no KB, so it is not grouped.
+func skippedSentence(opts ApplyOptions) string {
+	if len(opts.Skipped) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(opts.Skipped))
+	for _, s := range opts.Skipped {
+		parts = append(parts, envQuote(s.Artifact, envNameMax)+" ("+envQuote(s.Reason, envReasonMax)+")")
+	}
+	return "Not installed on this client: " + envJoin(parts) + "."
+}
+
+// silentHookSentence names the installed hooks whose event this client never
+// fires (capability hook.<Event> absent), so the model does not rely on them.
+func silentHookSentence(m Manifest, opts ApplyOptions) string {
+	var parts []string
+	for _, a := range m.Artifacts {
+		if a.Kind != "hook" || a.BuiltIn || a.DerivedFrom != nil || !strings.HasPrefix(a.Source, "kb:") ||
+			destDirScoped("hook", a.Name, opts.Provider, opts.Scope) == "" || isReservedHook(a.Kind, a.Name) || !artifactAuthorized(a, opts) {
+			continue
+		}
+		spec, ok := hookSpecOf(a, opts)
+		if !ok || !hookEventKnown(spec.Event) {
+			continue
+		}
+		if CapabilityStatus(opts.Provider, opts.Scope, Capability(hookCapPrefix+spec.Event)) == CapAbsent {
+			parts = append(parts, envQuote(a.Name, envNameMax)+" ("+envQuote(spec.Event, envNameMax)+")")
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	sort.Strings(parts)
+	return "Hooks installed here that this client never fires: " + envJoin(parts) + "."
+}
+
+// environmentSection is what the managed block says about THIS client (D1656,
+// generalizing D154's sentence): native agents, agents installed as skills, what
+// was left out, hooks that cannot fire. Each line only when it applies, in that
+// order; "" when none does. Client-side and outside every artifact hash, and
+// rewritten when its text changes: the trigger is blockBodyIs, the block on disk
+// compared with the body to write. It is not in pathsSectionHash because `status`
+// recomputes that hash without the approvals and notes a sync holds and would
+// drift for good. A new binary with a changed table updates it.
+func environmentSection(m Manifest, opts ApplyOptions) string {
+	var lines []string
+	for _, l := range []string{
+		installedSubagentSentence(m, opts),
+		degradedAgentSentence(m, opts),
+		skippedSentence(opts),
+		silentHookSentence(m, opts),
+	} {
+		if l != "" {
+			lines = append(lines, l)
+		}
 	}
 	return strings.Join(lines, "\n")
 }

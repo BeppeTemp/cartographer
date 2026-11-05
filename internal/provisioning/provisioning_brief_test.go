@@ -406,3 +406,66 @@ func TestShared_NonExpandingApplyRewritesWhenTheSharedTextChanges(t *testing.T) 
 		t.Errorf("the block must be rewritten with the current text and the hash converge:\n%s", content3)
 	}
 }
+
+// The client environment section (D1697) is rewritten when its text changes,
+// though no artifact hash does: a skill becomes skipped, then unskipped.
+func TestEnvironmentSection_ConvergesWhenSkippedChanges(t *testing.T) {
+	m := sharedKBs(t, 1, nil)
+	base := t.TempDir()
+	apply := func(lock provisioning.Lock, skipped ...provisioning.SkippedNote) (provisioning.AppliedResult, string) {
+		t.Helper()
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+			Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: lock, ExpandPlaceholders: true, Skipped: skipped,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(filepath.Join(base, ".claude", "CLAUDE.md"))
+		return res, string(data)
+	}
+	r1, c1 := apply(provisioning.Lock{})
+	if strings.Contains(c1, "Not installed on this client") {
+		t.Fatalf("nothing skipped yet:\n%s", c1)
+	}
+	if r, _ := apply(r1.NewLock); len(r.Written) != 0 {
+		t.Errorf("unchanged: nothing may be written: %+v", r.Written)
+	}
+	note := provisioning.SkippedNote{Artifact: "skill/x", Reason: "requires agent/y"}
+	r2, c2 := apply(r1.NewLock, note)
+	if len(r2.Written) == 0 || !strings.Contains(c2, `Not installed on this client: "skill/x" ("requires agent/y").`) {
+		t.Fatalf("a newly skipped skill must rewrite the block: %+v\n%s", r2.Written, c2)
+	}
+	if r, _ := apply(r2.NewLock, note); len(r.Written) != 0 {
+		t.Errorf("converged: nothing may be written: %+v", r.Written)
+	}
+	r3, c3 := apply(r2.NewLock)
+	if len(r3.Written) == 0 || strings.Contains(c3, "Not installed on this client") {
+		t.Errorf("an unskipped skill must take the line out: %+v\n%s", r3.Written, c3)
+	}
+}
+
+// A KB's instructions may end with a line that looks like an environment line:
+// the section is found by comparing the whole body, never by line prefix.
+func TestEnvironmentSection_KBTextEndingLikeASectionIsNotMisread(t *testing.T) {
+	m := sharedKBs(t, 1, func(int) string {
+		return "# Rules\n\nSubagents installed by the \"kb-1\" KB: \"x\" — delegate.\nNot installed on this client: \"skill/q\" (\"r\").\n"
+	})
+	base := t.TempDir()
+	r1, _ := applyBlock(t, m, base, provisioning.Lock{})
+	dry, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: r1.NewLock, ExpandPlaceholders: true, DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dry.Written) != 0 {
+		t.Errorf("nothing changed, yet the block is judged stale: %+v", dry.Written)
+	}
+	note := provisioning.SkippedNote{Artifact: "skill/x", Reason: "requires agent/y"}
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: r1.NewLock, ExpandPlaceholders: true, Skipped: []provisioning.SkippedNote{note},
+	})
+	if err != nil || len(res.Written) == 0 {
+		t.Fatalf("a new environment line must rewrite the block: %v %+v", err, res.Written)
+	}
+}
