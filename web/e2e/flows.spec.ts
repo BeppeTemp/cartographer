@@ -77,6 +77,8 @@ test("a filter that hides the selection keeps it open but draws no names", async
 
 test("dragging the reading panel's edge resizes it, and the width survives a reload", async ({ page }) => {
   await page.goto(`${ATLAS}&scope=infra&concept=infra%2Fgateway`);
+  // The default width is derived from the layout: read it only once it has settled (#1676).
+  await waitForAtlas(page);
   const handle = page.getByRole("separator", { name: "Resize reading panel" });
   const panel = page.locator("#reading-panel");
   // The default is half the room beside the rail (D818), so read it, never assume it.
