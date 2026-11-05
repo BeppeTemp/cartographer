@@ -2364,6 +2364,15 @@ hookLoop:
 				"hook %q: name reserved by Cartographer (client-generated hook), KB artifact ignored", a.Name))
 			continue
 		}
+		// A client variant is data the client registers, never a file Apply writes
+		// (it has no destination in any provider): it only waits for its approval,
+		// and is reported once per run until it has one (D1699).
+		if a.Kind == "variant" {
+			if !artifactAuthorized(a, opts) {
+				result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
+			}
+			continue
+		}
 		// No destination for this provider: no approval unblocks it, so it is
 		// Unsupported and never waits for one (D50).
 		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" {
@@ -3220,6 +3229,9 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	if sentence := installedSubagentSentence(m, opts); sentence != "" {
 		body += "\n\n" + sentence
 	}
+	if configurator.UsesCLI(opts.Provider) {
+		body += "\n\n" + cliProviderSentence(opts.Provider)
+	}
 
 	unchanged := false
 	if !opts.DryRun {
@@ -3524,6 +3536,15 @@ func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []strin
 	return out
 }
 
+// cliProviderSentence tells a client variant that reaches Cartographer through
+// the shell which provider name to pass: the bundled cartographer-cli skill says
+// to use the name "given in the client's instructions block". Client-side like
+// installedSubagentSentence, so it never enters an artifact hash, and emitted
+// only for a provider whose MCP mode is cli.
+func cliProviderSentence(p configurator.Provider) string {
+	return fmt.Sprintf("This client reaches Cartographer through the shell: run `cartographer call --provider %s ...` (see the `%s` skill).", p, CLISkillName)
+}
+
 // installedSubagentSentence names the KB agents this provider can actually
 // receive, grouped per KB, or returns "" when none qualifies (D154). Emitted
 // client-side, like the paths table: it is a statement about this client, not
@@ -3612,7 +3633,8 @@ func ApprovalName(a Artifact) string {
 
 // ArtifactRequiresApproval reports whether a KB artifact waits for the client's
 // hash-bound approval before it is installed (D906, D1141): an MCP descriptor, a
-// hook, any artifact that ships a file with the execute bit, and a skill or
+// hook, a client variant (it decides where files are written, and no signature
+// substitutes for the approval: D1699), any artifact that ships a file with the execute bit, and a skill or
 // agent whose frontmatter declares hooks or MCP servers. The bundle is
 // built into the binary and never asks. An artifact whose files cannot be read
 // is treated as executable: it fails closed.
@@ -3623,7 +3645,7 @@ func ArtifactRequiresApproval(a Artifact, opts ApplyOptions) bool {
 	if a.BuiltIn || !strings.HasPrefix(a.Source, "kb:") {
 		return false
 	}
-	if a.Kind == "mcp" || a.Kind == "hook" {
+	if a.Kind == "mcp" || a.Kind == "hook" || a.Kind == "variant" {
 		return true
 	}
 	files := a.Files

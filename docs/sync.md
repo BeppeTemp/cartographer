@@ -943,7 +943,11 @@ under the roots of a built-in or another variant is refused whole (`ValidateVari
 are exempt, as `AGENTS.md` and `.agents/skills` already are among built-ins). Its roots are prune
 boundaries, and its capability row is the declared value, else the base's probe, forced `absent` where it
 has no cell. The refusals of cells that reach shell profiles, autostart, credentials, git or CI files are defence in depth: the control is the explicit, hash-bound approval of the variant, which shows every resolved path. A `hook` cell is ignored until a later release wires the base's registrar. Nothing registers
-a descriptor yet; discovery and approval come in later changes. Why: [D1657](decisions/D1657-variant-artifact-kind.md).
+a descriptor yet; discovery and the cache come in later changes. Why: [D1657](decisions/D1657-variant-artifact-kind.md).
+
+**Approval** ([D1699](decisions/D1699-variant-approval.md)). A variant decides which directories Cartographer writes into, so it follows the D1141 contract **signed or not**: `needs_approval` until `cartographer approve variant <name> --kb <kb>`, bound to source, name and the descriptor's content hash (no signature carve-out; `approve --pending` lists a variant but never approves it in bulk). The approval is the security control for where a variant writes: the preview and the `--pending` listing show every destination of the descriptor, global and project, per kind, after the anchors are resolved on this machine, the detection rules, the MCP mode and what `seed` or `hook` touch. The hash covers the descriptor, so an edit that changes only a path asks again. `approve revoke variant <name>` keeps what is installed and names `cartographer disconnect <name>`.
+
+**MCP mode `cli`.** A variant with `mcp.mode: cli` gets no MCP entry (connect, sync and disconnect skip it silently; KB `mcp` artifacts are unsupported for it), receives the bundled `cartographer-cli` skill, and its instructions block says to run `cartographer call --provider <name>` (client-side sentence, outside every hash). `allow_call` is not applied yet.
 
 ## Implementation choices
 

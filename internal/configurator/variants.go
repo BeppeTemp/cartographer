@@ -8,6 +8,10 @@ import (
 	"sync"
 )
 
+// MCPModeCLI is the Descriptor.MCPMode of a variant that reaches Cartographer
+// through `cartographer call` and has no MCP entry.
+const MCPModeCLI = "cli"
+
 // VariantSpec is what the registry needs to know about a client variant: a fork
 // of a built-in provider that a KB declares as data (D1655). It is plain data
 // built by the caller from a validated internal/clientvariant.Variant: this
@@ -22,8 +26,9 @@ type VariantSpec struct {
 	// MCPFile is the variant's own MCP file, home-relative segments; nil for a
 	// mode that writes none (cli, seed).
 	MCPFile []string
-	// MCPMode and the seed globs are carried for the later steps; the registry
-	// does not act on them.
+	// MCPMode "cli" makes the variant reach Cartographer through `cartographer
+	// call` (Descriptor.MCPMode); any other value leaves it an MCP provider. The
+	// seed globs are carried for the later steps; the registry does not act on them.
 	MCPMode      string
 	SeedTemplate []string
 	SeedDerived  []string
@@ -103,6 +108,10 @@ func buildVariant(spec VariantSpec) (variantEntry, error) {
 	d.DisplayName = spec.DisplayName
 	if d.DisplayName == "" {
 		d.DisplayName = spec.Name
+	}
+	d.MCPMode = ""
+	if spec.MCPMode == MCPModeCLI {
+		d.MCPMode = MCPModeCLI
 	}
 	d.MCPConfigPath = strings.Join(spec.MCPFile, "/")
 	if d.MCPConfigPath != "" {

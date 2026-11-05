@@ -178,3 +178,19 @@ func mustLookup(t *testing.T) Descriptor {
 	}
 	return d
 }
+
+// Only a variant of mode cli uses the shell: the mode is data the registry reads
+// from the spec, and a file or seed variant stays an MCP provider.
+func TestVariantMCPModeCLIDrivesUsesCLI(t *testing.T) {
+	cli := fixtureVariant()
+	cli.Name, cli.MCPMode, cli.MCPFile = "fork-shell", MCPModeCLI, nil
+	file := fixtureVariant()
+	file.MCPMode = "file"
+	registered(t, cli, file)
+	if !UsesCLI("fork-shell") {
+		t.Error("a cli variant does not use the CLI")
+	}
+	if UsesCLI("fork-cli") || UsesCLI(ProviderCrush) {
+		t.Error("a file variant or its base uses the CLI")
+	}
+}

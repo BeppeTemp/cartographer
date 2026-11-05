@@ -24,7 +24,7 @@ var (
 	approveInteractive = isInteractive
 )
 
-const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent)\n       cartographer approve --pending [--kb <kb>] [--yes]"
+const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent, variant)\n       cartographer approve --pending [--kb <kb>] [--yes]"
 
 func cmdApprove(args []string) int {
 	if hasHelpFlag(args) {
@@ -84,6 +84,8 @@ func cmdApprove(args []string) int {
 		}
 		if kind == "mcp" {
 			fmt.Printf("revoked approval for MCP %s from KB %s; run cartographer sync to prune generated provider config\n", name, kbName)
+		} else if kind == "variant" {
+			fmt.Printf("revoked approval for variant %s from KB %s; what it already installed stays and is no longer refreshed: to remove it, run `cartographer disconnect %s`\n", escapeControl(name), escapeControl(kbName), escapeControl(name))
 		} else {
 			fmt.Printf("revoked approval for %s %s from KB %s; what is already installed stays installed and registered (and keeps running) but is no longer refreshed: to remove it, delete its files and its registration in the client's settings by hand\n", kind, name, kbName)
 		}
@@ -191,7 +193,7 @@ func shortHash(hash string) string {
 // A skill or an agent only does when it carries an executable file.
 func approvableKind(k string) bool {
 	switch k {
-	case "mcp", "hook", "skill", "agent":
+	case "mcp", "hook", "skill", "agent", "variant":
 		return true
 	}
 	return false
@@ -228,6 +230,12 @@ func printApprovalPreview(w io.Writer, a provisioning.Artifact) error {
 		}
 		fmt.Fprintf(w, "Approve MCP %s from KB %s\ntransport: %s\ntarget: %s\nhash: %s\n", name, source, escapeControl(string(spec.Type)), escapeControl(target), shortHash(a.ContentHash))
 		return nil
+	}
+	if a.Kind == "variant" {
+		if err != nil || len(files) != 1 {
+			return fmt.Errorf("invalid client variant descriptor")
+		}
+		return printVariantPreview(w, a, files[0].Content)
 	}
 	if err != nil {
 		return fmt.Errorf("cannot read the artifact files: %w", err)
@@ -332,15 +340,25 @@ func cmdApprovePending(args []string) int {
 		if !provisioning.PendingApproval(a, opts) {
 			continue
 		}
-		if a.Kind == "mcp" {
+		if a.Kind == "mcp" || a.Kind == "variant" {
 			mcps = append(mcps, a)
 		} else {
 			pending = append(pending, a)
 		}
 	}
 	for _, a := range mcps {
-		fmt.Printf("MCP %s [%s] is not approved by --pending: run `cartographer approve mcp %s --kb %s` to review and approve it\n",
-			escapeControl(a.Name), escapeControl(a.Source), escapeControl(a.Name), escapeControl(strings.TrimPrefix(a.Source, "kb:")))
+		// A variant decides where files are written: like an MCP descriptor it is
+		// approved one by one, after its own preview (D1699).
+		label := "MCP"
+		if a.Kind == "variant" {
+			label = "variant"
+			// The listing carries every resolved path: the approval is the control.
+			if err := printApprovalPreview(os.Stdout, a); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: variant %s: %v\n", escapeControl(a.Name), err)
+			}
+		}
+		fmt.Printf("%s %s [%s] is not approved by --pending: run `cartographer approve %s %s --kb %s` to review and approve it\n",
+			label, escapeControl(a.Name), escapeControl(a.Source), a.Kind, escapeControl(a.Name), escapeControl(strings.TrimPrefix(a.Source, "kb:")))
 	}
 	if len(pending) == 0 {
 		fmt.Println("nothing is waiting for approval")
