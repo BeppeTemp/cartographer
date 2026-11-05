@@ -95,7 +95,13 @@ func (o InstallOptions) resolvedConfigPath() (string, error) {
 // Returns warnings to surface to the user (e.g. --data/--http ignored
 // because a config file already existed) alongside any fatal error.
 func (m *Manager) Install(opts InstallOptions) ([]string, error) {
-	var warnings []string
+	// The backend is resolved before the first write: a host with neither a
+	// reachable systemd user manager nor a usable crontab must not be left with
+	// a config and a data directory and a failed install.
+	backend := m.Backend()
+	if goos == "linux" && backend == BackendNone {
+		return nil, ErrNoServiceManager
+	}
 
 	binPath, err := osExecutable()
 	if err != nil {
@@ -103,38 +109,9 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 	}
 	binPath = resolveStableBinPath(binPath)
 
-	configPath, err := opts.resolvedConfigPath()
+	warnings, configPath, _, err := m.prepareConfig(opts)
 	if err != nil {
-		return nil, fmt.Errorf("service: resolve config path: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return nil, fmt.Errorf("service: create config dir: %w", err)
-	}
-
-	dataDir := opts.DataDir
-	if _, err := os.Stat(configPath); err == nil {
-		if opts.DataExplicit || opts.HTTPExplicit {
-			warnings = append(warnings, fmt.Sprintf("config %s already exists; --data/--http are ignored (edit the file directly to change them)", configPath))
-		}
-		if cfg, cfgErr := config.Load(configPath); cfgErr == nil && cfg.Data != "" {
-			dataDir = cfg.Data
-		}
-	} else if os.IsNotExist(err) {
-		yamlData := DefaultServerYAML(opts.DataDir, opts.HTTPAddr)
-		if err := os.WriteFile(configPath, []byte(yamlData), 0o644); err != nil {
-			return nil, fmt.Errorf("service: write config: %w", err)
-		}
-	} else {
-		return nil, fmt.Errorf("service: stat config: %w", err)
-	}
-
-	if dataDir != "" {
-		if _, err := os.Stat(dataDir); os.IsNotExist(err) {
-			if err := os.MkdirAll(dataDir, 0o755); err != nil {
-				return nil, fmt.Errorf("service: create data dir: %w", err)
-			}
-			fmt.Fprintf(os.Stderr, "created %s\n", dataDir)
-		}
+		return warnings, err
 	}
 
 	switch goos {
@@ -155,6 +132,47 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 	}
 
 	return warnings, nil
+}
+
+// prepareConfig resolves the config path, writes a default config when none
+// exists and creates the data directory: the half of Install that does not
+// depend on the platform's service manager. It returns the warnings, the
+// config path and the data directory.
+func (m *Manager) prepareConfig(opts InstallOptions) (warnings []string, configPath, dataDir string, err error) {
+	configPath, err = opts.resolvedConfigPath()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("service: resolve config path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return nil, "", "", fmt.Errorf("service: create config dir: %w", err)
+	}
+
+	dataDir = opts.DataDir
+	if _, err := os.Stat(configPath); err == nil {
+		if opts.DataExplicit || opts.HTTPExplicit {
+			warnings = append(warnings, fmt.Sprintf("config %s already exists; --data/--http are ignored (edit the file directly to change them)", configPath))
+		}
+		if cfg, cfgErr := config.Load(configPath); cfgErr == nil && cfg.Data != "" {
+			dataDir = cfg.Data
+		}
+	} else if os.IsNotExist(err) {
+		yamlData := DefaultServerYAML(opts.DataDir, opts.HTTPAddr)
+		if err := os.WriteFile(configPath, []byte(yamlData), 0o644); err != nil {
+			return nil, "", "", fmt.Errorf("service: write config: %w", err)
+		}
+	} else {
+		return nil, "", "", fmt.Errorf("service: stat config: %w", err)
+	}
+
+	if dataDir != "" {
+		if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+			if err := os.MkdirAll(dataDir, 0o755); err != nil {
+				return nil, "", "", fmt.Errorf("service: create data dir: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "created %s\n", dataDir)
+		}
+	}
+	return warnings, configPath, dataDir, nil
 }
 
 func (m *Manager) installDarwin(binPath, configPath string) error {
@@ -285,6 +303,9 @@ func (m *Manager) uninstallServer() error {
 		}
 		return nil
 	case "linux":
+		if m.Backend() == BackendNone {
+			return nil // nothing installed: there is nothing to unregister
+		}
 		unitPath, err := SystemdUnitPath()
 		if err != nil {
 			return fmt.Errorf("service: resolve unit path: %w", err)

@@ -227,9 +227,17 @@ func withTestHome(t *testing.T, os_ string) string {
 	userHomeDir = func() (string, error) { return home, nil }
 	goos = os_
 	getenv = func(string) string { return "" }
+	// Every tool is "installed" unless a test says otherwise (the backend
+	// probe and RemoveLegacyDoctorTimer ask lookPath), and the account's home is
+	// not the temp HOME, so a Linux test is a sandboxed one: systemd, files
+	// only (#683).
+	origLook, origAcct := lookPath, accountHome
+	lookPath = func(n string) (string, error) { return "/usr/bin/" + n, nil }
+	accountHome = func() (string, error) { return "/nonexistent-account-home", nil }
 	origUnload, origUnloadPoll := launchdUnloadTimeout, launchdUnloadPoll
 	launchdUnloadTimeout, launchdUnloadPoll = 50*time.Millisecond, time.Millisecond
 	t.Cleanup(func() {
+		lookPath, accountHome = origLook, origAcct
 		userHomeDir, goos, getenv = origHome, origGOOS, origGetenv
 		launchdUnloadTimeout, launchdUnloadPoll = origUnload, origUnloadPoll
 	})

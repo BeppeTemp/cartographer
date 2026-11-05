@@ -29,6 +29,7 @@ var schedulerCommands = map[string]bool{
 	"launchctl":      true,
 	"systemctl":      true,
 	"powershell.exe": true,
+	"crontab":        true, // reserved: the cron backend (next change) runs it
 }
 
 // accountHome and envHome are indirected for tests.
