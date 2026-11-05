@@ -775,6 +775,9 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// run as a subagent; status uses the same function, or drift is permanent.
 		projected := resolved[projectionKey(p)].Manifest
 		applied, err := provisioning.Apply(projected, opts)
+		if err == nil {
+			applied.Degraded, applied.Skipped = provisioning.ReportNotes(resolved[projectionKey(p)].Notes)
+		}
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
 			// than a guess about how far the previous one got.
@@ -983,6 +986,23 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		}
 		for _, ua := range r.Unsupported {
 			fmt.Fprintf(wr, "[%s] unsupported: %s/%s [%s] (kind has no destination for this provider)\n", p, ua.Kind, ua.Name, ua.Source)
+		}
+		// What the resolver decided for this client (D1656): an agent installed as
+		// a skill, an artifact left out for a requirement, and the capabilities
+		// the install leans on that nobody probed. A dry run has not installed
+		// anything yet, so it says "would".
+		for _, d := range r.Degraded {
+			fmt.Fprintf(wr, "[%s] %s: %s -> %s\n", p, verb("degraded", "would degrade"), d.Artifact, d.As)
+		}
+		for _, sk := range r.Skipped {
+			fmt.Fprintf(wr, "[%s] %s: %s %s\n", p, verb("skipped", "would skip"), sk.Artifact, sk.Reason)
+		}
+		if n := len(r.Unverified); n > 0 {
+			ids := make([]string, n)
+			for i, id := range r.Unverified {
+				ids[i] = string(id)
+			}
+			fmt.Fprintf(wr, "[%s] unverified: %d capabilities (%s)\n", p, n, strings.Join(ids, ", "))
 		}
 		// A refusal is not one warning among others: the artifact is not
 		// installed, and only the operator can clear the condition (D148).

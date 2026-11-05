@@ -461,6 +461,16 @@ type AppliedResult struct {
 	// of a derived binding, D1198); empty otherwise. It lets the one-line
 	// confirmation name the file actually written (#1275).
 	HookSettings string
+	// Degraded and Skipped are the resolver's decisions for this projection
+	// (D1656): agents installed as skills, and artifacts left out because a
+	// requirement is not met. Apply does not decide them (it receives the
+	// projected manifest); the caller fills them from ProjectionResult.Notes with
+	// ReportNotes. Neither is drift nor pending (D50).
+	Degraded []DegradedNote
+	Skipped  []SkippedNote
+	// Unverified: capabilities an installed artifact depends on while the
+	// capability table says `unverified` (see unverifiedCapabilities).
+	Unverified []Capability
 }
 
 // LockFileName is the lockfile's name, relative to base-dir.
@@ -2649,6 +2659,7 @@ hookLoop:
 		return AppliedResult{}, err
 	}
 
+	result.Unverified = unverifiedCapabilities(m, opts)
 	result.Warnings = append(result.Warnings, m.Skipped...)
 	result.Warnings = append(result.Warnings, tracker.warnings...)
 	result.Warnings = append(result.Warnings, unsupportedKindWarnings(m, opts.Provider)...)
