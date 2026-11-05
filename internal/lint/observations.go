@@ -84,6 +84,18 @@ var observations = []ObservationSpec{
 		Closes: "the map declares field_values for the field",
 		Advice: "declare the proposed vocabulary in the map's contract (map_update field_values), then kb_repair invalid_field_value converges the pages",
 	},
+	{
+		Name: "requires_unresolved", Category: CategoryArtifacts,
+		Why:    "the named skill, agent or hook may come from another KB bound to the same client",
+		Closes: "the entry names an artifact of this KB or of the bundle, or is removed from requires",
+		Advice: "check the name; leave it when another KB provides the artifact, otherwise fix or remove the entry",
+	},
+	{
+		Name: "requires_undeclared", Category: CategoryArtifacts,
+		Why:    "a skill may name an agent in prose without needing it; the match is a word search",
+		Closes: "the skill lists agent:<name> in requires, or its body stops naming the agent outside code",
+		Advice: "add agent:<name> to the skill's requires if it needs that agent; leave it when the mention is incidental",
+	},
 }
 
 var observationIndex = func() map[string]ObservationSpec {
@@ -186,6 +198,7 @@ func observationFindings(k *kb.KB, concepts []*reviewConcept, contracts map[stri
 		return nil, fmt.Errorf("lint.Review: structure: %w", err)
 	}
 	found := st.observations()
+	found = append(found, requiresObservations(k)...)
 
 	// Review parsed each concept's frontmatter once; the per-map detectors
 	// reuse it instead of parsing every page again for every map.
@@ -224,6 +237,18 @@ func observationItem(f Finding) (ReviewItem, bool) {
 	}
 	var ids []string
 	switch {
+	case f.Artifact:
+		// An artifact file, not a concept: it names no concept, so FilterReview
+		// shows it to every caller that may read the KB (it is not whole-graph).
+		return ReviewItem{
+			Kind:            ReviewObservation,
+			Concepts:        []string{},
+			Artifact:        filepath.ToSlash(f.Path),
+			Check:           f.Check,
+			Evidence:        f.Check + ": " + f.Message,
+			SuggestedAction: spec.Advice,
+			Weight:          categoryWeight(spec.Category),
+		}, true
 	case len(f.members) > 0:
 		for _, m := range f.members {
 			ids = append(ids, string(m))

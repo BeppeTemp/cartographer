@@ -563,6 +563,8 @@ An observation that no page state could close, or that another tool already repo
 | `map_oversize` | maps | yes | a map grows by construction and none of its pages is the one that is wrong | the map has at most 50 top-level concepts |
 | `facet_sprawl` | maps | yes | tags are a free vocabulary, and which values to merge is an editorial call | fewer than 30 distinct tag values, or fewer than half of them used once |
 | `missing_value_contract` | maps | yes | whether a field is a closed vocabulary is the map's choice, not a defect | the map declares field_values for the field |
+| `requires_unresolved` | artifacts | - | the named skill, agent or hook may come from another KB bound to the same client | the entry names an artifact of this KB or of the bundle, or is removed from requires |
+| `requires_undeclared` | artifacts | - | a skill may name an agent in prose without needing it; the match is a word search | the skill lists agent:<name> in requires, or its body stops naming the agent outside code |
 <!-- lint:observations:end -->
 
 ### Conformance checks (D289)
