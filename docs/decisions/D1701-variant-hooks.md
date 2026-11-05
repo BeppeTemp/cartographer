@@ -2,7 +2,7 @@
 topic: client-configurator
 ---
 
-# D1713 — A client variant contributes a hook directory to its base's shared dispatcher and never writes one
+# D1701 — A client variant contributes a hook directory to its base's shared dispatcher and never writes one
 
 The number is provisional: it is the next unused one, to be renumbered after the PR (D672).
 

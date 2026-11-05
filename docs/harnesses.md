@@ -847,7 +847,7 @@ project hook.UserPromptSubmit absent
     (a OneDrive-redirected folder included), `<home>/Documents` otherwise, and is the root of the symlink walk (a linked Documents folder works, a link at `Cline` or `Cline/Hooks` is refused, and a link at the dispatcher path is reported as a `safewrite` refusal); `xdg-user-dir` is not replicated, so a
     relocated Linux folder leaves the hooks silently unwired. A dispatcher is machine-wide and client-agnostic: any
     other build reading that folder runs it too.
-  - A client variant of Cline (D1713) that declares a `hook` cell with `scan: base` adds its own hook directory as one more root of the same dispatcher: the variant writes no dispatcher, and its hooks run through the shared one under every Cline-family client installed, Cline included. Its directory may not overlap `Documents/Cline`.
+  - A client variant of Cline (D1701) that declares a `hook` cell with `scan: base` adds its own hook directory as one more root of the same dispatcher: the variant writes no dispatcher, and its hooks run through the shared one under every Cline-family client installed, Cline included. Its directory may not overlap `Documents/Cline`.
   - Probes, **not run** (the dispatcher is built for either answer): **P1** whether `TaskStart` fires once per task
     or per turn (the 12 h dedupe covers both); **P2** the `toolName` and `result` of a `concept_write` response;
     **P3** that a `PreToolUse` `{"cancel":true,"errorMessage":"x"}` stops the task and shows the message.
