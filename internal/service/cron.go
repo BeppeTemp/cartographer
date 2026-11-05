@@ -1,6 +1,6 @@
 package service
 
-// The cron + supervisor backend (D1670-linux-service-backends): on a Linux host
+// The cron + supervisor backend (D1682): on a Linux host
 // with no reachable systemd user manager the server is kept up by the user's
 // crontab. A managed block holds an @reboot line and a watchdog every five
 // minutes, both running `service ensure`, which starts the server detached
