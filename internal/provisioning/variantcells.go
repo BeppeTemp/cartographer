@@ -306,6 +306,11 @@ func ValidateVariantCells(v clientvariant.Variant) error {
 	if err := checkProjectCells(v.Name, cells[ScopeProject]); err != nil {
 		return err
 	}
+	// The shared dispatchers live in Documents/Cline/Hooks: a KB hook named like an
+	// event would sit at a dispatcher path, so no hook directory may reach it.
+	if hook, ok := cells[ScopeGlobal]["hook"]; ok && pathsCollide(path.Join(hook.dir...), "Documents/Cline") {
+		return fmt.Errorf("variant %q: the hook cell %q overlaps Documents/Cline, where the shared hook dispatchers live", v.Name, strings.Join(hook.dir, "/"))
+	}
 	mine := variantRoots(cells[ScopeGlobal])
 	check := func(owner string, theirs []string) error {
 		for _, m := range mine {

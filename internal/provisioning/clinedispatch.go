@@ -91,8 +91,10 @@ type clineHook struct {
 
 // clineHooks lists the hooks on disk that a Cline dispatcher can run: a
 // hook.json that loads, whose event Cline fires, and whose matcher is a valid
-// regular expression. exclude is a hook name left out (the one being removed).
-// Sorted by root, then name: the order is deterministic.
+// regular expression. exclude is the slash path, relative to baseDir, of the one
+// hook directory left out (the one being removed): a hook is identified by its
+// root and its name, since Cline's and a variant's may share a name. Sorted by
+// root, then name: the order is deterministic.
 func clineHooks(baseDir, exclude string) []clineHook {
 	var out []clineHook
 	for _, root := range clineHookRoots() {
@@ -103,7 +105,7 @@ func clineHooks(baseDir, exclude string) []clineHook {
 		}
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 		for _, e := range entries {
-			if !e.IsDir() || e.Name() == exclude {
+			if !e.IsDir() || (exclude != "" && root+"/"+e.Name() == exclude) {
 				continue
 			}
 			dir := filepath.Join(rootDir, e.Name())

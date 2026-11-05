@@ -185,3 +185,35 @@ func TestVariantHookDirOverlappingTheBaseIsRefused(t *testing.T) {
 		t.Fatal("an overlapping hook directory was registered")
 	}
 }
+
+// The shared dispatcher directory is no hook directory: a hook named like an
+// event would sit at a dispatcher path.
+func TestVariantHookDirInTheDispatcherFolderIsRefused(t *testing.T) {
+	for _, dir := range []string{"Documents/Cline/Hooks", "Documents/Cline/Hooks/sub", "Documents/Cline"} {
+		src := strings.Replace(testForkExt, "{home}/.fork-ext/cartographer-hooks", "{home}/"+dir, 1)
+		if _, err := RegisterVariantCells(testVariant(t, "fork-ext", src, "linux", nil)); err == nil {
+			UnregisterVariantCells("fork-ext")
+			t.Errorf("%s: a hook directory in the dispatcher folder was registered", dir)
+		}
+	}
+}
+
+// A hook of the same name in Cline's root and a variant's: pruning the variant's
+// keeps the dispatcher and Cline's hook keeps running.
+func TestVariantHookPruneDoesNotHideAClineHookOfTheSameName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("posix path")
+	}
+	registerTestVariant(t, testVariant(t, "fork-ext", testForkExt, "linux", nil))
+	base, _ := clineStubBase(t)
+	fork := configurator.Provider("fork-ext")
+	resF := applyHooks(t, fork, base, Lock{}, variantHookArtifact("x", "PostToolUse"))
+	applyHooks(t, configurator.ProviderCline, base, Lock{}, variantHookArtifact("x", "PostToolUse"))
+	applyHooks(t, fork, base, resF.NewLock) // prune the variant's x
+	if _, err := os.Stat(clineDispatcherPath(base, "PostToolUse")); err != nil {
+		t.Fatalf("the dispatcher left with the variant's hook: %v", err)
+	}
+	if got := DispatchClineHooks(base, "PostToolUse", []byte(`{"postToolUse":{"toolName":"x","parameters":{},"result":"ok","success":true}}`)).ContextModification; got != "from x" {
+		t.Fatalf("Cline's own x no longer runs: %q", got)
+	}
+}

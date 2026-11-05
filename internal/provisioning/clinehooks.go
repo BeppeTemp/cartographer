@@ -110,6 +110,20 @@ func clineOwner(path string) clineOwnership {
 	return clineForeign
 }
 
+// clineHookDirOf is the hook directory (slash, relative to baseDir) a file of a
+// hook belongs to: the root the path lies under plus the next segment. Empty when
+// no registered root holds it (a variant that left the registry).
+func clineHookDirOf(relPath string) string {
+	p := filepath.ToSlash(relPath)
+	for _, root := range clineHookRoots() {
+		if rest, ok := strings.CutPrefix(p, root+"/"); ok {
+			name, _, _ := strings.Cut(rest, "/")
+			return root + "/" + name
+		}
+	}
+	return ""
+}
+
 // reconcileClineDispatchers makes the dispatchers match the hooks on disk, the
 // one code path of the bootstrap, write-findings and KB hooks whatever their
 // order: every needed event gets its dispatcher created or, when it is ours and
@@ -118,7 +132,7 @@ func clineOwner(path string) clineOwnership {
 // if it still carries the marker, and no folder is ever removed. An event whose
 // path safewrite refuses (a link) is reported and left untouched. A needed event whose path is not ours is
 // reported in the returned map and left untouched. exclude is a hook being
-// removed, whose hook.json is still on disk.
+// removed (its directory, see clineHooks), whose hook.json is still on disk.
 func reconcileClineDispatchers(baseDir, exclude string) (warnings map[string]string, err error) {
 	needed := map[string]bool{}
 	for _, h := range clineHooks(baseDir, exclude) {
@@ -194,7 +208,7 @@ func registerClineHook(baseDir, hookName, fullDestDir string) (relPath, warning 
 		return "", fmt.Sprintf("hook %q: cline: event %q has no Cline equivalent; files were installed but the hook was not registered", hookName, spec.Event), false, nil
 	}
 	if m := strings.TrimSpace(spec.Matcher); m != "" && spec.Event != "SessionStart" {
-		if h := clineHooks(baseDir, ""); !hasClineHook(h, hookName) {
+		if h := clineHooks(baseDir, ""); !hasClineHook(h, fullDestDir) {
 			return "", fmt.Sprintf("hook %q: cline: matcher %q is not a valid regular expression; files were installed but the hook was not registered", hookName, spec.Matcher), false, nil
 		}
 	}
@@ -208,9 +222,9 @@ func registerClineHook(baseDir, hookName, fullDestDir string) (relPath, warning 
 	return "", "", true, nil
 }
 
-func hasClineHook(hooks []clineHook, name string) bool {
+func hasClineHook(hooks []clineHook, dir string) bool {
 	for _, h := range hooks {
-		if h.name == name {
+		if h.dir == dir {
 			return true
 		}
 	}
@@ -220,6 +234,13 @@ func hasClineHook(hooks []clineHook, name string) bool {
 // removeClineHook runs before the hook's files go (removeHookRegistration), so
 // its hook.json is still on disk: reconcile without it.
 func removeClineHook(baseDir, hookName string) error {
-	_, err := reconcileClineDispatchers(baseDir, hookName)
+	return removeClineHookAt(baseDir, clineHookFilesPrefix+hookName+"/hook.json")
+}
+
+// removeClineHookAt is removeClineHook for a file of the hook at relPath: only
+// that root's hook of the name is left out, so a Cline hook of the same name in
+// another root keeps its dispatcher.
+func removeClineHookAt(baseDir, relPath string) error {
+	_, err := reconcileClineDispatchers(baseDir, clineHookDirOf(relPath))
 	return err
 }
