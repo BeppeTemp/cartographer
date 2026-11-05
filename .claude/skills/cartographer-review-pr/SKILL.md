@@ -1,6 +1,6 @@
 ---
 name: cartographer-review-pr
-description: "Use when asked to review or check a pull request, especially a contributor's, or before opening your own PR — runs a scripted triage that sends a PR back without reading its code when it is over the size cap or has red CI, then a review by `cartographer-contract-reviewer` (full tier: also `cartographer-security-reviewer`) on a cheaper model, whose findings the coordinator verifies line by line. `cartographer-implement-plan` and `cartographer-develop-live` run this same procedure on the PRs they open; merging is `cartographer-implement-plan` §4."
+description: "Use when asked to review or check a pull request, especially a contributor's, or before opening your own PR — runs a scripted triage that sends a PR back without reading its code when it is over the size cap or has red CI, then a review by `cartographer-contract-reviewer` (full tier: also `cartographer-security-reviewer`) on a cheaper model, whose findings the coordinator verifies line by line. `cartographer-implement-plan` and `cartographer-develop-live` run this same procedure on a maintainer's change before it is queued; queuing is `cartographer-implement-plan` §4."
 ---
 
 # cartographer-review-pr — review a PR without reading all of it
@@ -171,14 +171,16 @@ A fix for a regression names its origin in the PR body, `Regression-of: #<pr>`
 3. fixes that where it bites (D214): a test or a lint check, a line in the area
    `AGENTS.md`, or an entry in the reviewer's list of things to look for.
 
-## Before opening your own PR
+## Before opening your own PR, or queuing a change
 
-The same procedure moves the review cost to the author, which is the point:
+The same procedure moves the review cost to the author, which is the point. A
+maintainer's change is reviewed this way on its branch, before `make ready`; the record
+is `REVIEW="<tier>, <n> rounds"`, and the steps below stop at step 2:
 
 1. `scripts/pr-triage.sh` with no argument compares the current branch with `upstream/main`
    (`origin/main` without that remote) and prints your role; fix every `BLOCK`.
    The `plan-gate` check runs the same script on the PR.
 2. Spawn the reviewers of the tier (§3) on your own worktree (tier from the triage, PR number
-   "not opened yet"), fix or answer each finding, in rounds as in §5.
+   "not opened yet", the base the triage measured from), fix or answer each finding, in rounds as in §5.
 3. Fill the PR template; its `## Self-review` section says what the review found
    and what you did with it.
