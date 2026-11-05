@@ -200,6 +200,30 @@ func TestReportUsageThrottled_ScansOncePerWindow(t *testing.T) {
 	}
 }
 
+// #1673: a stamp slightly ahead of the clock (a step back, a filesystem that
+// stamps ahead of time.Now) is still the claim just taken, not a stale one:
+// treating it as stale let a concurrent session scan a second time.
+func TestClaimUsageScan_StampSlightlyInTheFutureIsFresh(t *testing.T) {
+	dir := t.TempDir()
+	if !claimUsageScan(dir) {
+		t.Fatal("first claim refused")
+	}
+	ahead := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(filepath.Join(dir, usageStampName), ahead, ahead); err != nil {
+		t.Fatal(err)
+	}
+	if claimUsageScan(dir) {
+		t.Fatal("a stamp 2s ahead of the clock was treated as stale")
+	}
+	far := time.Now().Add(2 * usageScanInterval)
+	if err := os.Chtimes(filepath.Join(dir, usageStampName), far, far); err != nil {
+		t.Fatal(err)
+	}
+	if !claimUsageScan(dir) {
+		t.Fatal("a stamp far in the future must not block scans forever")
+	}
+}
+
 // The usage scan runs after the client lock is released: a second sync that
 // waits for the lock is not made to wait for the scan.
 func TestRunSync_ReleasesLockBeforeUsageScan(t *testing.T) {
