@@ -14,8 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 	"sync"
+	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
