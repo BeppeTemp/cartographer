@@ -442,6 +442,9 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		s.Artifacts += len(distinct)
 	}
+	// The same resolver sync runs, over the same projections: a requirement
+	// that flipped there must flip here, or the drift would be permanent.
+	resolved := resolveProjectionSet(allProjs, manifests, provisioning.ProjectOptions{})
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
 		s.State = "error"
@@ -466,9 +469,13 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			continue
 		}
 		if cfg.WorkspaceScope(p.Name) == clientconfig.ScopeWorkspace {
-			pm, d, wsDiverged = workspaceProviderDiff(cfg, provProjections[p.Name], manifests, lockFile, dir)
+			pm, d, wsDiverged = workspaceProviderDiff(cfg, provProjections[p.Name], manifests, resolved, lockFile, dir)
 		} else {
-			pm, _ = provisioning.ProjectManifest(manifests[p.Name], configurator.Provider(p.Name), provisioning.ScopeGlobal, provisioning.ProjectOptions{})
+			if r, ok := resolved[p.Name]; ok {
+				pm = r.Manifest
+			} else {
+				pm, _ = provisioning.ProjectManifest(manifests[p.Name], configurator.Provider(p.Name), provisioning.ScopeGlobal, provisioning.ProjectOptions{})
+			}
 			d = provisioning.ComputeDiffResolved(pm, lockFile.ForProvider(p.Name), statusResolveOptions(cfg, p.Name, manifests[p.Name]))
 		}
 		p.Revision = pm.Revision
@@ -544,23 +551,18 @@ func statusResolveOptions(cfg *clientconfig.Config, provider string, m provision
 // against its own manifest and lock. It returns the global manifest (for the
 // revision and the kind counts), one merged Diff, and the on-disk findings of
 // the workspace locks.
-func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manifests map[string]provisioning.Manifest, lockFile provisioning.LockFile, dir string) (provisioning.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
+func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manifests map[string]provisioning.Manifest, resolved map[string]provisioning.ProjectionResult, lockFile provisioning.LockFile, dir string) (provisioning.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
 	var global provisioning.Manifest
 	merged := provisioning.Diff{InSync: true}
 	var diverged []provisioning.DriftFinding
 	for _, sp := range ps {
 		provider := configurator.Provider(sp.Provider)
-		src := manifests[projectionKey(sp)]
 		lock := lockFile.ForProjection(sp.Key())
 		diffLock := lock
 		if sp.Derived {
 			// Judge a derived projection the way sync applies it (D1019): what
 			// it deliberately leaves alone is neither pending nor drift, and
 			// the lock entries held out of its diff are not "removed".
-			if sp.InstructionsSkipped != "" {
-				src = withoutInstructions(src)
-			}
-			src = withoutKinds(src, sp.SkipKinds)
 			if len(sp.SkipKinds) > 0 {
 				diffLock.Managed = nil
 				for _, mf := range lock.Managed {
@@ -570,7 +572,12 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 				}
 			}
 		}
-		pm, _ := provisioning.ProjectManifest(src, provider, sp.Scope, provisioning.ProjectOptions{})
+		r, ok := resolved[projectionKey(sp)]
+		if !ok {
+			// Not resolved with the rest (a caller judging one projection alone).
+			r = resolveProjectionSet([]syncProjection{sp}, manifests, provisioning.ProjectOptions{})[projectionKey(sp)]
+		}
+		pm := r.Manifest
 		d := provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)]))
 		merged.Added = append(merged.Added, d.Added...)
 		merged.Updated = append(merged.Updated, d.Updated...)

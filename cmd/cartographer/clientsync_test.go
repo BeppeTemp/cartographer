@@ -1509,3 +1509,22 @@ func TestFetchMergedManifestRefusesUntrustedNamesAndPaths(t *testing.T) {
 		})
 	}
 }
+
+// resolveProjectionSet is the one resolver sync and status share (D1656): a
+// derived projection's SkipKinds leave an artifact out BEFORE requirements are
+// judged, so a skill requiring a skipped hook is itself skipped.
+func TestResolveProjectionSetDerivedSkipKinds(t *testing.T) {
+	skill := provisioning.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: s\ndescription: d\nrequires: [hook:h]\n---\nb\n")}}}
+	hook := provisioning.Artifact{Kind: "hook", Name: "h", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"Stop","command":"x"}`)}}}
+	ps := []syncProjection{{Provider: "claude", Workspace: "/ws/r", Scope: provisioning.ScopeProject, Derived: true, SkipKinds: []string{"hook"}}}
+	manifests := map[string]provisioning.Manifest{projectionKey(ps[0]): {Artifacts: []provisioning.Artifact{skill, hook}}}
+	got := resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})[projectionKey(ps[0])]
+	if len(got.Manifest.Artifacts) != 0 {
+		t.Errorf("projected %v, want nothing", got.Manifest.Artifacts)
+	}
+	ps[0].SkipKinds = nil
+	got = resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})[projectionKey(ps[0])]
+	if len(got.Manifest.Artifacts) != 2 {
+		t.Errorf("projected %d artifacts, want 2", len(got.Manifest.Artifacts))
+	}
+}
