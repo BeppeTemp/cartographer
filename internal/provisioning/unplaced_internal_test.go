@@ -106,9 +106,9 @@ func TestApply_InstructionsNameUnplacedSkills(t *testing.T) {
 	if err != nil || again.NewLock.PathsSectionHash != first.NewLock.PathsSectionHash {
 		t.Fatalf("a repeated apply moved the hash: %v", err)
 	}
-	// The skill set changed: the block follows.
-	second, err := Apply(m, ApplyOptions{Provider: p, BaseDir: base, Lock: first.NewLock, Unplaced: []Artifact{kbSkill("kb-a", "alpha"), kbSkill("kb-a", "beta")}})
-	if err != nil || second.NewLock.PathsSectionHash == first.NewLock.PathsSectionHash || !strings.Contains(read(), "alpha, beta") {
+	// The skill set changed: the block follows (trigger: blockBodyIs, the body on disk against the body to write).
+	_, err = Apply(m, ApplyOptions{Provider: p, BaseDir: base, Lock: first.NewLock, Unplaced: []Artifact{kbSkill("kb-a", "alpha"), kbSkill("kb-a", "beta")}})
+	if err != nil || !strings.Contains(read(), "alpha, beta") {
 		t.Fatalf("a changed skill set did not rewrite the block (%v):\n%s", err, read())
 	}
 }
