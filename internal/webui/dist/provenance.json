@@ -1,12 +1,4 @@
 {
-<<<<<<< HEAD
-  "source_hash": "f07ad99d8a3cfa58b6c39b787973e97738fc3764a638a4201e54f412c8d23cce",
+  "source_hash": "63e17aa85541befb10b0564b083f9c56f3c5ab24d26edf2b84f441399a0bd2ce",
   "files": 170
-||||||| parent of 2bad58b4 (feat(client): tell each client what it received)
-  "source_hash": "1a261bcbc56cbf421bab3e5a7d11d6550cc605d2bcc122bd73defa2f78eafb73",
-  "files": 169
-=======
-  "source_hash": "8bd5ffd8ca155f41cf2314d499a75884847ddce5938356b539dacd05a34dab48",
-  "files": 169
->>>>>>> 2bad58b4 (feat(client): tell each client what it received)
 }
