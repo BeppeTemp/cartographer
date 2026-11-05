@@ -41,7 +41,7 @@ func TestAffectedPackagesSeedTable(t *testing.T) {
 		{"frontend is hashed by webui", []string{"web/src/lib/health.ts"}, "./internal/webui"},
 		{"markdown is read by repodocs and the tool-citation check", []string{"docs/testing.md"}, "./internal/repodocs ./internal/mcpserver"},
 		{"scripts and workflows are read by repodocs", []string{"scripts/signoff.sh", ".github/workflows/ci.yml", "Makefile"}, "./internal/repodocs"},
-		{"the module selects everything", []string{"docs/x.md", "go.sum"}, "./..."},
+		{"the module selects everything", []string{"docs/testing.md", "go.sum"}, "./..."},
 		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb"},
 		{"a deleted package selects nothing", []string{"internal/gone-for-good/x.go"}, ""},
 		{"nothing in, nothing out", nil, ""},

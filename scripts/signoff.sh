@@ -135,7 +135,8 @@ if [ -n "$win_pkgs" ]; then
   ( r=0; "${wmk[@]}" go test -timeout 20m $win_pkgs >"$win_log" 2>&1 || r=$?; echo "$r $(date +%s)" >"$win_log.end" ) &
   win_pid=$!
 fi
-trap '[ -z "$win_pid" ] || kill "$win_pid" 2>/dev/null || true; [ -z "$win_log" ] || rm -f "$win_log" "$win_log.end"' EXIT
+# The leg's wrapper is a child of the subshell: stop it too, or it keeps the machine busy.
+trap '[ -z "$win_pid" ] || { pkill -TERM -P "$win_pid" 2>/dev/null; kill "$win_pid" 2>/dev/null; } || true; [ -z "$win_log" ] || rm -f "$win_log" "$win_log.end"' EXIT
 rc=0
 # shellcheck disable=SC2086  # the targets are a word list on purpose
 "${mk[@]}" $targets || rc=$?

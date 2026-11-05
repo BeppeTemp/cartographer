@@ -6,7 +6,7 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 
 ```
 make gate            # gofmt + vet + test + race: everything green before a PR (and what CI runs)
-make check           # fast tier: fmt, vet, tests of the packages the branch affects
+make check           # fast tier (affected packages only)
 make signoff         # maintainer: gate, push, attest the sha (CI's gate)
 make build           # → bin/cartographer
 make test            # go test ./...
@@ -17,7 +17,7 @@ make run-http        # HTTP on :39273 with demo KB
 make smoke           # build + quick stdio test
 make smoke-http      # operator-level HTTP smoke test (creates temp KBs via curl)
 make e2e             # deterministic HTTP/CLI end-to-end scenarios
-make test-install    # network-free install.sh/Cask packaging suite + goreleaser guard
+make test-install    # install.sh/Cask packaging suite + goreleaser guard
 make docker          # build Docker image
 make clean           # remove bin/ and demo-kb/
 
