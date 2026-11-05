@@ -1421,7 +1421,7 @@ refreshed, registered anew or removed until approved.
 (the files with their size and execute bit, the `hook.json`, the content of every executable file and of a
 frontmatter that declares hooks or MCP servers), so the confirmation covers what will run. An MCP descriptor is
 never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. A client
-variant (D1699) is the same: `--pending` lists it with every path it resolves to on this machine but approves it only
+variant (D1695) is the same: `--pending` lists it with every path it resolves to on this machine but approves it only
 with `cartographer approve variant <name> --kb <kb>`, whose approval also records those paths. Without a
 terminal it needs `--yes`, like the single form. Names, paths and targets chosen by the server are printed with
 every non-printable character escaped (`\n`, `\x1b`, `\u202e`), so a name cannot forge a line, rewrite the screen or read as another command. Then run

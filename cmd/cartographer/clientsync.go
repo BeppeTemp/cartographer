@@ -666,7 +666,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		approvedMCP = approvalHashes[0]
 	}
 	if len(approvalHashes) > 1 {
-		approvedPaths = approvalHashes[1] // the paths each variant approval was given for (D1699)
+		approvedPaths = approvalHashes[1] // the paths each variant approval was given for (D1695)
 	}
 	// Validate every authorized local command for every destination before any
 	// provider file or lockfile can change, and — for a workspace projection —

@@ -265,7 +265,7 @@ func (s *Spec) validateMCP(add adder) {
 	}
 	add(!slices.Contains([]string{"file", "cli", "seed"}, m.Mode), "mcp.mode: %s (want file, cli or seed)", q(m.Mode))
 	// Refused, not ignored, so a KB that sets it learns at write and lint time:
-	// the permission rule it would merge is untried on the base client (D1699).
+	// the permission rule it would merge is untried on the base client (D1695).
 	add(m.AllowCall, "mcp.allow_call: not supported: refused until the permission rule is probed on the base client")
 	add((m.Mode == "seed") != (m.Seed != nil), "mcp.seed: required by mode seed and refused by any other")
 	add((s.Paths.Global.MCP != nil) != (m.Mode == "file"), "paths.global.mcp.file: required by mode file, refused otherwise")

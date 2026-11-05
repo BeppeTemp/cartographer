@@ -2,7 +2,7 @@
 topic: sync-provisioning
 ---
 
-# D1699 — A client variant is applied only after a hash-bound approval that shows every path it writes
+# D1695 — A client variant is applied only after a hash-bound approval that shows every path it writes
 
 The number is provisional: it is the next unused one, to be renumbered after the PR (D672).
 

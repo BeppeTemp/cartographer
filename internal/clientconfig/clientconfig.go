@@ -190,7 +190,7 @@ type MCPApproval struct {
 	ContentHash string    `yaml:"content_hash"`
 	ApprovedAt  time.Time `yaml:"approved_at"`
 	// PathFingerprint is set only for a client variant: the hash of the
-	// directories the descriptor resolved to when it was approved (D1699). An
+	// directories the descriptor resolved to when it was approved (D1695). An
 	// entry without one never authorizes a variant.
 	PathFingerprint string `yaml:"path_fingerprint,omitempty"`
 }
@@ -725,7 +725,7 @@ func (c *Config) ApproveMCP(sourceKB, name, hash string, at time.Time) error {
 }
 
 // ApproveVariant records the descriptor hash and the fingerprint of the paths it
-// resolved to for one source/name pair (D1699).
+// resolved to for one source/name pair (D1695).
 func (c *Config) ApproveVariant(sourceKB, name, hash, fingerprint string, at time.Time) error {
 	if fingerprint == "" {
 		return fmt.Errorf("clientconfig: invalid variant approval")

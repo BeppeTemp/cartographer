@@ -47,7 +47,7 @@ func applyVariant(t *testing.T, a Artifact, approved, paths map[string]string) A
 	return res
 }
 
-// D1699: a variant waits for the hash-bound approval; a descriptor edit that
+// D1695: a variant waits for the hash-bound approval; a descriptor edit that
 // changes only a destination path changes the hash, so it asks again.
 func TestVariantNeedsApprovalAndAPathChangeAsksAgain(t *testing.T) {
 	fixedEnv(t, "")

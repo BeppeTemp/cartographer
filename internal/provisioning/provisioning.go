@@ -316,7 +316,7 @@ type ApplyOptions struct {
 	// ApprovedVariantPaths holds, for a client variant, the fingerprint of the
 	// paths its approval was given for (same keys as ApprovedMCP). The approval
 	// authorizes the variant only while the descriptor still resolves to them
-	// in this environment (D1699).
+	// in this environment (D1695).
 	ApprovedVariantPaths map[string]string
 	Lock                 Lock // current lockfile
 
@@ -2371,7 +2371,7 @@ hookLoop:
 		}
 		// A client variant is data the client registers, never a file Apply writes
 		// (it has no destination in any provider): it only waits for its approval,
-		// and is reported once per run until it has one (D1699).
+		// and is reported once per run until it has one (D1695).
 		if a.Kind == "variant" {
 			if !artifactAuthorized(a, opts) {
 				result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
@@ -3125,7 +3125,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// kind: a release that edits it changes no artifact ContentHash, so no
 	// Added/Updated fires. It is folded into the hash recorded here, which
 	// rewrites the block once after such a release and converges.
-	// The cli sentence (D1699) is client-owned text of the same kind: it enters
+	// The cli sentence (D1695) is client-owned text of the same kind: it enters
 	// the recorded hash only when present, so a provider without one keeps the
 	// hash it had, while a mode flip or a text edit rewrites the block.
 	cliSentence := ""
@@ -3624,7 +3624,7 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 		if a.Kind == "variant" {
 			// The hash binds the bytes, not where the anchors land: another
 			// $HOME or XDG_CONFIG_HOME resolves the same bytes to other
-			// directories, which the operator never saw (D1699).
+			// directories, which the operator never saw (D1695).
 			want := opts.ApprovedVariantPaths[key]
 			return want != "" && want == VariantPathFingerprint(a, opts)
 		}
@@ -3661,7 +3661,7 @@ func ApprovalName(a Artifact) string {
 // ArtifactRequiresApproval reports whether a KB artifact waits for the client's
 // hash-bound approval before it is installed (D906, D1141): an MCP descriptor, a
 // hook, a client variant (it decides where files are written, and no signature
-// substitutes for the approval: D1699), any artifact that ships a file with the execute bit, and a skill or
+// substitutes for the approval: D1695), any artifact that ships a file with the execute bit, and a skill or
 // agent whose frontmatter declares hooks or MCP servers. The bundle is
 // built into the binary and never asks. An artifact whose files cannot be read
 // is treated as executable: it fails closed.

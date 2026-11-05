@@ -179,7 +179,7 @@ func TestInvalidClientConfigIsNamedBySyncAndWorkspace(t *testing.T) {
 	}
 }
 
-// D1699: the approval is the control over where a variant writes, so the preview
+// D1695: the approval is the control over where a variant writes, so the preview
 // and the --pending listing show every resolved destination, and the approval
 // is stored against the descriptor's hash.
 func TestCmdApprove_VariantShowsEveryResolvedPathAndBindsTheHash(t *testing.T) {

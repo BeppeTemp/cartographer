@@ -260,7 +260,7 @@ func TestParseRejects(t *testing.T) {
 }
 
 // allow_call is refused with its own message, on any base and mode, until the
-// permission rule is probed (D1699).
+// permission rule is probed (D1695).
 func TestAllowCallIsRefused(t *testing.T) {
 	src := strings.Replace(forkCLI, "mode: cli", "mode: cli\n  allow_call: true", 1)
 	_, err := clientvariant.Parse("fork-cli", []byte(src))

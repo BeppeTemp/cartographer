@@ -247,7 +247,7 @@ func (v Variant) Paths(home string) []string {
 // PathFingerprint is a sha256 over Paths: the same descriptor resolved under
 // another home or anchor environment has another fingerprint, so an approval
 // that records it is bound to the directories the operator was shown, not only
-// to the descriptor's bytes (D1699).
+// to the descriptor's bytes (D1695).
 func (v Variant) PathFingerprint(home string) string {
 	sum := sha256.Sum256([]byte(strings.Join(v.Paths(home), "\n")))
 	return hex.EncodeToString(sum[:])

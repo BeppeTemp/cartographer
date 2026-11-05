@@ -137,7 +137,7 @@ func cmdApprove(args []string) int {
 	// long as the operator does, and a sync may have saved meanwhile (D172).
 	if err := withClientConfig(dir, func(c *clientconfig.Config) error {
 		if kind == "variant" {
-			// Bound to the paths the preview above printed (D1699).
+			// Bound to the paths the preview above printed (D1695).
 			return c.ApproveVariant(source, approvalEntryName(kind, name), a.ContentHash, provisioning.VariantPathFingerprint(a, provisioning.ApplyOptions{}), time.Now())
 		}
 		return c.ApproveMCP(source, approvalEntryName(kind, name), a.ContentHash, time.Now())
@@ -352,7 +352,7 @@ func cmdApprovePending(args []string) int {
 	}
 	for _, a := range mcps {
 		// A variant decides where files are written: like an MCP descriptor it is
-		// approved one by one, after its own preview (D1699).
+		// approved one by one, after its own preview (D1695).
 		label := "MCP"
 		if a.Kind == "variant" {
 			label = "variant"

@@ -11,7 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
-// printVariantPreview is what approving a client variant lets happen (D1699).
+// printVariantPreview is what approving a client variant lets happen (D1695).
 // The approval is the one security control for where a variant writes, so the
 // text lists EVERY destination of the descriptor after the anchors are resolved
 // on this machine (global under the home, project relative to a project root),
@@ -88,7 +88,7 @@ func modeOrFile(m string) string {
 
 // variantPathsMoved reports whether a is a variant approved for exactly these
 // bytes whose paths resolve differently in this environment than when it was
-// approved (D1699): the approval no longer authorizes it.
+// approved (D1695): the approval no longer authorizes it.
 func variantPathsMoved(cfg *clientconfig.Config, a provisioning.Artifact) bool {
 	if a.Kind != "variant" {
 		return false
