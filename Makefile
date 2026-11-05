@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -164,6 +164,9 @@ e2e-upgrade: ## Upgrade a client from the previous stable release to this build 
 test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and the .goreleaser.yaml guard
 	@./test/install/run.sh
 	@./test/install/goreleaser_guard.sh
+
+test-linux: ## Run setup and the service verbs in containers with no systemd (needs Docker)
+	@./test/linux/run.sh
 
 
 # Isolated worktree for one plan branch. Every agent client shares the

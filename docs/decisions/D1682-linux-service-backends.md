@@ -42,3 +42,8 @@ while the block is still in the crontab. Paths with `%`, a newline or NUL are
 refused. The probe never errors: a failing probe means "not this backend". The
 sync-timer cron arm, setup and CI legs build on this record; the number is the
 PR's.
+
+**CI leg.** `test-linux-nosystemd` (`make test-linux`) runs `setup` and the
+service verbs against a real cron daemon in Alpine (busybox `crond`) and Debian
+(Vixie `cron`) containers with no init. It is a D1592 heavy leg: push to `main`,
+`workflow_dispatch` and `merge_group`, never a PR, and watched by `main-status`.
