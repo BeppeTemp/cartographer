@@ -661,9 +661,12 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	}
 
 	results := make(map[string]provisioning.AppliedResult, len(projections))
-	var approvedMCP map[string]string
+	var approvedMCP, approvedPaths map[string]string
 	if len(approvalHashes) > 0 {
 		approvedMCP = approvalHashes[0]
+	}
+	if len(approvalHashes) > 1 {
+		approvedPaths = approvalHashes[1] // the paths each variant approval was given for (D1695)
 	}
 	// Validate every authorized local command for every destination before any
 	// provider file or lockfile can change, and — for a workspace projection —
@@ -728,18 +731,19 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		previous := lockFile.ForProjection(p.Key())
 		manifest := manifests[projectionKey(p)]
 		opts := provisioning.ApplyOptions{
-			Provider:           configurator.Provider(p.Provider),
-			BaseDir:            p.BaseDir,
-			Scope:              p.Scope,
-			DryRun:             dryRun,
-			NoHeal:             noHeal,
-			ApprovedMCP:        approvedMCP,
-			Lock:               previous,
-			CoOwnedPaths:       lockFile.CoOwnedPaths(p.Key()),
-			SkipLockWrite:      true,
-			ExpandPlaceholders: true,
-			SearchRoots:        portability.SearchRoots,
-			Paths:              portability.Paths,
+			Provider:             configurator.Provider(p.Provider),
+			BaseDir:              p.BaseDir,
+			Scope:                p.Scope,
+			DryRun:               dryRun,
+			NoHeal:               noHeal,
+			ApprovedMCP:          approvedMCP,
+			ApprovedVariantPaths: approvedPaths,
+			Lock:                 previous,
+			CoOwnedPaths:         lockFile.CoOwnedPaths(p.Key()),
+			SkipLockWrite:        true,
+			ExpandPlaceholders:   true,
+			SearchRoots:          portability.SearchRoots,
+			Paths:                portability.Paths,
 			// Read off the projection's manifest before the filter below,
 			// which — like every Manifest copy — does not carry it (D262).
 			Placeholders:   manifest.Placeholders,
@@ -982,7 +986,11 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 			// An MCP descriptor, a hook and an executable file wait for an approval
 			// (D906, D1141): the rest of what a KB ships is installed.
 			needsMCPApproval = true
-			fmt.Fprintf(wr, "[%s] needs_approval: %s/%s [%s]\n", p, na.Kind, na.Name, na.Source)
+			note := ""
+			if c, err := clientconfig.Load(dir); err == nil && variantPathsMoved(c, na) {
+				note = " (approved for other paths: they resolve differently in this environment; `cartographer approve variant " + na.Name + "` shows the new ones)"
+			}
+			fmt.Fprintf(wr, "[%s] needs_approval: %s/%s [%s]%s\n", p, na.Kind, na.Name, na.Source, note)
 		}
 		for _, ua := range r.Unsupported {
 			fmt.Fprintf(wr, "[%s] unsupported: %s/%s [%s] (kind has no destination for this provider)\n", p, ua.Kind, ua.Name, ua.Source)

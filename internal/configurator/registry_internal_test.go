@@ -89,13 +89,12 @@ func TestEmitAllCoversEveryProvider(t *testing.T) {
 	}
 }
 
-// No built-in provider reaches Cartographer through `cartographer call` yet:
-// the cartographer-cli skill is projected to none. The client variants plan
-// sets UsesCLI per variant; changing this test then is deliberate.
+// No built-in provider reaches Cartographer through `cartographer call`: the
+// cartographer-cli skill is projected to a client variant of mode cli only.
 func TestNoBuiltInProviderUsesCLI(t *testing.T) {
 	for _, d := range descriptors {
-		if d.UsesCLI || UsesCLI(d.Provider) {
-			t.Errorf("%s sets UsesCLI: intentionally unset until the client variants plan", d.Provider)
+		if d.MCPMode != "" || UsesCLI(d.Provider) {
+			t.Errorf("%s has MCP mode %q: only a variant may be cli", d.Provider, d.MCPMode)
 		}
 	}
 	if UsesCLI("no-such-provider") {

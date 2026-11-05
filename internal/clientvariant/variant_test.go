@@ -259,19 +259,17 @@ func TestParseRejects(t *testing.T) {
 	}
 }
 
-func TestAllowCallOnCrush(t *testing.T) {
+// allow_call is refused with its own message, on any base and mode, until the
+// permission rule is probed (D1695).
+func TestAllowCallIsRefused(t *testing.T) {
 	src := strings.Replace(forkCLI, "mode: cli", "mode: cli\n  allow_call: true", 1)
-	if _, err := clientvariant.Parse("fork-cli", []byte(src)); err == nil {
-		t.Fatal("allow_call without a config file must be refused")
+	_, err := clientvariant.Parse("fork-cli", []byte(src))
+	if err == nil || !strings.Contains(err.Error(), "mcp.allow_call: not supported") {
+		t.Fatalf("err = %v", err)
 	}
 	src = strings.Replace(src, "    instructions:\n      file:", "    mcp: {file: \"{home}/.config/fork-cli/cfg.json\"}\n    instructions:\n      file:", 1)
-	spec, err := clientvariant.Parse("fork-cli", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	v, _ := clientvariant.Resolve(spec, envFor("linux", nil))
-	if !v.AllowCall || !reflect.DeepEqual(v.MCPFile, []string{".config", "fork-cli", "cfg.json"}) {
-		t.Fatalf("%+v", v)
+	if _, err := clientvariant.Parse("fork-cli", []byte(src)); err == nil || !strings.Contains(err.Error(), "allow_call") {
+		t.Fatalf("with a config file: err = %v", err)
 	}
 }
 

@@ -408,7 +408,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams}, kbOrderForProviders(cfg, targets), approvals)
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams}, kbOrderForProviders(cfg, targets), approvals, cfg.ApprovedPathFingerprints())
 	if err != nil {
 		return syncResult{}, err
 	}

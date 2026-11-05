@@ -97,8 +97,7 @@ func variantDestinations(v clientvariant.Variant) (map[Scope]map[string]destinat
 			cells[scope]["instructions"] = at(sc.Instructions.File...)
 		}
 	}
-	// Only mode file writes an MCP entry: the cli and seed modes have no mcp
-	// cell, and an allow_call file is a permission file, not an MCP target.
+	// Only mode file writes an MCP entry: the cli and seed modes have no mcp cell.
 	if v.MCPMode == "file" && v.MCPFile != nil {
 		cells[ScopeGlobal]["mcp"] = at(v.MCPFile...)
 	}

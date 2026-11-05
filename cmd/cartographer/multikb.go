@@ -520,6 +520,9 @@ func withRetainedKBs(current, retained []string) []string {
 func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseName, serverURL string, mounted []string, routedPath string) (map[string][]mcpEntry, error) {
 	out := make(map[string][]mcpEntry, len(providers))
 	for _, p := range providers {
+		if usesCLI(configurator.Provider(p)) {
+			continue // a cli variant reaches Cartographer through the shell: no entry, no warning (WP7)
+		}
 		if cfg.ProfileIgnoresWorkspaces(p, routedPath) {
 			fmt.Fprintf(os.Stderr, "warning: %s has the read-only profile (clients.%s.access), so its workspace bindings are ignored and it keeps the HTTP entry; remove the key to use them\n", p, p)
 		}
@@ -866,6 +869,9 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 	written = make([]string, 0, len(providers))
 	seenPaths := map[string]bool{}
 	for _, provider := range providers {
+		if usesCLI(configurator.Provider(provider)) {
+			continue
+		}
 		entries := entriesByProvider[provider]
 		results := make([]*configurator.EmitResult, 0, len(entries))
 		for _, entry := range entries {
@@ -927,6 +933,9 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 	names := make(map[string][]string, len(providers))
 	var refused []error
 	for _, provider := range providers {
+		if usesCLI(configurator.Provider(provider)) {
+			continue // never had an entry: nothing to remove, and no file to open
+		}
 		// The codex block is one unit: Remove reports it for every name whether
 		// or not that name's table is in it, and the first removal takes the
 		// others with it. Which entries exist is read before any removal (#1267).

@@ -1,9 +1,13 @@
 package clientvariant
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -92,7 +96,6 @@ type Variant struct {
 	Global, Project         Scope
 	MCPFile, HookDir        []string // home-relative; nil when absent
 	MCPMode                 string
-	AllowCall               bool
 	SeedTemplate            []string // home-relative; one middle segment holds *
 	SeedDerived             []string
 	Capabilities            map[string]string
@@ -165,7 +168,7 @@ func Resolve(spec Spec, env Env) (Variant, []string) {
 	})
 	v := Variant{
 		Name: spec.Name, DisplayName: spec.DisplayName, Base: spec.Base,
-		Binaries: spec.Detect.Binaries, MCPMode: spec.MCP.Mode, AllowCall: spec.MCP.AllowCall,
+		Binaries: spec.Detect.Binaries, MCPMode: spec.MCP.Mode,
 		Capabilities: spec.Capabilities, InvokeHint: spec.InvokeHint,
 		MCPFile: res["paths.global.mcp.file"], HookDir: res["paths.global.hook.dir"],
 		SeedTemplate: res["mcp.seed.template_glob"], SeedDerived: res["mcp.seed.derived_glob"],
@@ -192,4 +195,60 @@ func Resolve(spec Spec, env Env) (Variant, []string) {
 	}
 	v.Global, v.Project = scope("global", &spec.Paths.Global), scope("project", &spec.Paths.Project)
 	return v, reasons
+}
+
+// Paths lists every path the variant resolved to on this machine, one
+// "scope kind: path" line per cell, sorted: the global ones absolute under env's
+// home, the project ones relative to a project root. It is what an approval is
+// shown and what PathFingerprint hashes.
+func (v Variant) Paths(home string) []string {
+	var out []string
+	abs := func(segs []string) string { return path.Join(append([]string{filepath.ToSlash(home)}, segs...)...) }
+	cell := func(scope, kind string, c *Cell, project bool) {
+		if c == nil {
+			return
+		}
+		segs := c.Dir
+		if segs == nil {
+			segs = c.File
+		}
+		p := ""
+		if project {
+			p = "<project>/" + path.Join(segs...)
+		} else {
+			p = abs(segs)
+		}
+		if kind == "agent" {
+			p += " (format " + c.AgentFormat + ")"
+		}
+		out = append(out, scope+" "+kind+": "+p)
+	}
+	for _, sc := range []struct {
+		name    string
+		s       Scope
+		project bool
+	}{{"global", v.Global, false}, {"project", v.Project, true}} {
+		cell(sc.name, "skill", sc.s.Skill, sc.project)
+		cell(sc.name, "agent", sc.s.Agent, sc.project)
+		cell(sc.name, "instructions", sc.s.Instructions, sc.project)
+	}
+	for _, f := range []struct {
+		label string
+		segs  []string
+	}{{"global mcp", v.MCPFile}, {"global hook", v.HookDir}, {"global seed template", v.SeedTemplate}, {"global seed derived", v.SeedDerived}} {
+		if f.segs != nil {
+			out = append(out, f.label+": "+abs(f.segs))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// PathFingerprint is a sha256 over Paths: the same descriptor resolved under
+// another home or anchor environment has another fingerprint, so an approval
+// that records it is bound to the directories the operator was shown, not only
+// to the descriptor's bytes (D1695).
+func (v Variant) PathFingerprint(home string) string {
+	sum := sha256.Sum256([]byte(strings.Join(v.Paths(home), "\n")))
+	return hex.EncodeToString(sum[:])
 }

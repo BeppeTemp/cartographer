@@ -313,7 +313,12 @@ type ApplyOptions struct {
 	// MCP descriptors, hooks and executable artifacts (D1141).
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
-	Lock        Lock // current lockfile
+	// ApprovedVariantPaths holds, for a client variant, the fingerprint of the
+	// paths its approval was given for (same keys as ApprovedMCP). The approval
+	// authorizes the variant only while the descriptor still resolves to them
+	// in this environment (D1695).
+	ApprovedVariantPaths map[string]string
+	Lock                 Lock // current lockfile
 
 	// Scope selects which half of the destination matrix this apply writes
 	// through (D193). The zero value is ScopeGlobal, so every existing caller
@@ -2364,6 +2369,15 @@ hookLoop:
 				"hook %q: name reserved by Cartographer (client-generated hook), KB artifact ignored", a.Name))
 			continue
 		}
+		// A client variant is data the client registers, never a file Apply writes
+		// (it has no destination in any provider): it only waits for its approval,
+		// and is reported once per run until it has one (D1695).
+		if a.Kind == "variant" {
+			if !artifactAuthorized(a, opts) {
+				result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
+			}
+			continue
+		}
 		// No destination for this provider: no approval unblocks it, so it is
 		// Unsupported and never waits for one (D50).
 		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" {
@@ -3111,6 +3125,17 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// kind: a release that edits it changes no artifact ContentHash, so no
 	// Added/Updated fires. It is folded into the hash recorded here, which
 	// rewrites the block once after such a release and converges.
+	// The cli sentence (D1695) is client-owned text of the same kind: it enters
+	// the recorded hash only when present, so a provider without one keeps the
+	// hash it had, while a mode flip or a text edit rewrites the block.
+	cliSentence := ""
+	if configurator.UsesCLI(opts.Provider) {
+		cliSentence = cliProviderSentence(opts.Provider)
+	}
+	cliHashPart := ""
+	if cliSentence != "" {
+		cliHashPart = "\x00cli\x00" + cliSentence
+	}
 	var pathsSection, sharedSection string
 	if len(signed) > 0 {
 		sections := make([]string, 0, len(signed))
@@ -3123,7 +3148,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 	if opts.ExpandPlaceholders && len(signed) > 0 {
 		pathsSection = buildPathsSection(tracker.resolved)
-		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection)
+		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection + cliHashPart)
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
@@ -3132,7 +3157,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// but the shared operational section is still client-owned text of the
 		// block: without its hash a release that edits it left the block old
 		// until an instructions or agent artifact changed (#1502).
-		*pathsHash = pathsSectionHash(sharedSection + "\x00")
+		*pathsHash = pathsSectionHash(sharedSection + "\x00" + cliHashPart)
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
@@ -3219,6 +3244,9 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// derives it from destDir.
 	if sentence := installedSubagentSentence(m, opts); sentence != "" {
 		body += "\n\n" + sentence
+	}
+	if cliSentence != "" {
+		body += "\n\n" + cliSentence
 	}
 
 	unchanged := false
@@ -3524,6 +3552,15 @@ func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []strin
 	return out
 }
 
+// cliProviderSentence tells a client variant that reaches Cartographer through
+// the shell which provider name to pass: the bundled cartographer-cli skill says
+// to use the name "given in the client's instructions block". Client-side like
+// installedSubagentSentence, so it never enters an artifact hash, and emitted
+// only for a provider whose MCP mode is cli.
+func cliProviderSentence(p configurator.Provider) string {
+	return fmt.Sprintf("This client reaches Cartographer through the shell: run `cartographer call --provider %s ...` (see the `%s` skill).", p, CLISkillName)
+}
+
 // installedSubagentSentence names the KB agents this provider can actually
 // receive, grouped per KB, or returns "" when none qualifies (D154). Emitted
 // client-side, like the paths table: it is a statement about this client, not
@@ -3580,7 +3617,18 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 		// one. What runs on this machine (a hook, any executable file, D1141)
 		// follows the same contract: the server signs whatever a token wrote, so
 		// Signed proves the origin and is never consent.
-		return a.ContentHash != "" && opts.ApprovedMCP[a.Source+"\x00"+ApprovalName(a)] == a.ContentHash
+		key := a.Source + "\x00" + ApprovalName(a)
+		if a.ContentHash == "" || opts.ApprovedMCP[key] != a.ContentHash {
+			return false
+		}
+		if a.Kind == "variant" {
+			// The hash binds the bytes, not where the anchors land: another
+			// $HOME or XDG_CONFIG_HOME resolves the same bytes to other
+			// directories, which the operator never saw (D1695).
+			want := opts.ApprovedVariantPaths[key]
+			return want != "" && want == VariantPathFingerprint(a, opts)
+		}
+		return true
 	}
 	// Everything else a KB ships is installed (D906): the pull has already
 	// rejected a path that escapes its directory and an artifact whose signature
@@ -3612,7 +3660,8 @@ func ApprovalName(a Artifact) string {
 
 // ArtifactRequiresApproval reports whether a KB artifact waits for the client's
 // hash-bound approval before it is installed (D906, D1141): an MCP descriptor, a
-// hook, any artifact that ships a file with the execute bit, and a skill or
+// hook, a client variant (it decides where files are written, and no signature
+// substitutes for the approval: D1695), any artifact that ships a file with the execute bit, and a skill or
 // agent whose frontmatter declares hooks or MCP servers. The bundle is
 // built into the binary and never asks. An artifact whose files cannot be read
 // is treated as executable: it fails closed.
@@ -3623,7 +3672,7 @@ func ArtifactRequiresApproval(a Artifact, opts ApplyOptions) bool {
 	if a.BuiltIn || !strings.HasPrefix(a.Source, "kb:") {
 		return false
 	}
-	if a.Kind == "mcp" || a.Kind == "hook" {
+	if a.Kind == "mcp" || a.Kind == "hook" || a.Kind == "variant" {
 		return true
 	}
 	files := a.Files
