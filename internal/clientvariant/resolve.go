@@ -92,7 +92,6 @@ type Variant struct {
 	Global, Project         Scope
 	MCPFile, HookDir        []string // home-relative; nil when absent
 	MCPMode                 string
-	AllowCall               bool
 	SeedTemplate            []string // home-relative; one middle segment holds *
 	SeedDerived             []string
 	Capabilities            map[string]string
@@ -165,7 +164,7 @@ func Resolve(spec Spec, env Env) (Variant, []string) {
 	})
 	v := Variant{
 		Name: spec.Name, DisplayName: spec.DisplayName, Base: spec.Base,
-		Binaries: spec.Detect.Binaries, MCPMode: spec.MCP.Mode, AllowCall: spec.MCP.AllowCall,
+		Binaries: spec.Detect.Binaries, MCPMode: spec.MCP.Mode,
 		Capabilities: spec.Capabilities, InvokeHint: spec.InvokeHint,
 		MCPFile: res["paths.global.mcp.file"], HookDir: res["paths.global.hook.dir"],
 		SeedTemplate: res["mcp.seed.template_glob"], SeedDerived: res["mcp.seed.derived_glob"],

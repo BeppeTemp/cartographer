@@ -17,4 +17,4 @@ The same change adds the MCP mode `cli`: `Descriptor.MCPMode` replaces cli-call'
 - Showing the descriptor text only: anchors (`{xdg_config}`, `{local_app_data}`) resolve differently per machine, so the text does not say where the files land.
 - Approving variants in bulk with `--pending`: the cheap path would hide the one decision that matters.
 
-**Consequences.** `allow_call` (a permission rule merged into the fork's config) is not implemented here: its syntax must first be probed on the base client with the audit probes, and an unverified rule is not shipped. Registration, the cache and `--approve-variants` come in later changes.
+**Consequences.** `mcp.allow_call` (a permission rule merged into the fork's config) is refused by the descriptor schema, with an error saying so, until the rule is probed on the base client with the audit probes: a KB that sets it learns at write and lint time instead of being silently ignored. Registration, the cache and `--approve-variants` come in later changes.

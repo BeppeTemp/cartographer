@@ -30,9 +30,8 @@ var (
 	nameRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 	capabilityRe = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
 	// kiro and codex write JSON/TOML files and are not offered as agent formats.
-	agentFormats   = []string{"claude", "opencode", "antigravity", "copilot", "cline"}
-	allowCallBases = []string{"crush"}
-	osKeys         = []string{"darwin", "linux", "windows", "default"}
+	agentFormats = []string{"claude", "opencode", "antigravity", "copilot", "cline"}
+	osKeys       = []string{"darwin", "linux", "windows", "default"}
 )
 
 const maxList = 16 // entries of a descriptor list
@@ -265,10 +264,11 @@ func (s *Spec) validateMCP(add adder) {
 		m.Mode = "file"
 	}
 	add(!slices.Contains([]string{"file", "cli", "seed"}, m.Mode), "mcp.mode: %s (want file, cli or seed)", q(m.Mode))
-	add(m.AllowCall && (m.Mode != "cli" || !slices.Contains(allowCallBases, s.Base)), "mcp.allow_call: only a cli variant of %v has a known permission syntax", allowCallBases)
+	// Refused, not ignored, so a KB that sets it learns at write and lint time:
+	// the permission rule it would merge is untried on the base client (D1699).
+	add(m.AllowCall, "mcp.allow_call: not supported: refused until the permission rule is probed on the base client")
 	add((m.Mode == "seed") != (m.Seed != nil), "mcp.seed: required by mode seed and refused by any other")
-	// The MCP file is the target of mode file and the permission file of allow_call.
-	add((s.Paths.Global.MCP != nil) != (m.Mode == "file" || m.AllowCall), "paths.global.mcp.file: required by mode file and by allow_call, refused otherwise")
+	add((s.Paths.Global.MCP != nil) != (m.Mode == "file"), "paths.global.mcp.file: required by mode file, refused otherwise")
 }
 
 func (s *Spec) validateCells(add adder) {
