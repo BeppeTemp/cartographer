@@ -158,6 +158,9 @@ func cmdServiceSyncTimer(args []string) int {
 		} else {
 			fmt.Printf("sync timer %s (%s)\n", state, st.Path)
 		}
+		if st.Also != "" {
+			fmt.Printf("  also installed: %s (`cartographer service sync-timer install` keeps one)\n", st.Also)
+		}
 		if !st.Active {
 			return exitStatusStopped
 		}

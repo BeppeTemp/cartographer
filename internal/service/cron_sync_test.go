@@ -4,6 +4,8 @@ package service
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +133,100 @@ func TestSyncTimer_NoManagerIsAnError(t *testing.T) {
 	// Nothing installed on such a host is not a failure to uninstall.
 	if err := e.m.UninstallSyncTimer(); err != nil {
 		t.Errorf("uninstall with nothing installed: %v", err)
+	}
+}
+
+func writeSyncUnits(t *testing.T, ours bool) (timer, svc string) {
+	t.Helper()
+	timer, _ = SyncSystemdTimerPath()
+	svc, _ = SyncSystemdServicePath()
+	if err := os.MkdirAll(filepath.Dir(timer), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	svcText, timerText := RenderSyncSystemdService("/opt/bin/cartographer"), RenderSyncSystemdTimer(time.Hour)
+	if !ours {
+		svcText, timerText = "[Service]\nExecStart=/usr/bin/other\n", "[Timer]\nOnCalendar=daily\n"
+	}
+	os.WriteFile(svc, []byte(svcText), 0o644)
+	os.WriteFile(timer, []byte(timerText), 0o644)
+	return timer, svc
+}
+
+// A host that lost systemd moves the timer to cron: the install follows the
+// fresh probe, not the unit file on disk, and removes our units.
+func TestCronSyncTimer_MigratesFromSystemd(t *testing.T) {
+	e := newCronEnv(t)
+	timer, svc := writeSyncUnits(t, true)
+	if err := e.m.InstallSyncTimer(time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if fileExists(timer) || fileExists(svc) {
+		t.Error("our systemd sync units were left next to the cron entry")
+	}
+	if !strings.Contains(e.ct.text, "BEGIN cartographer sync") {
+		t.Errorf("no cron block:\n%s", e.ct.text)
+	}
+}
+
+func TestCronSyncTimer_LeavesForeignUnits(t *testing.T) {
+	e := newCronEnv(t)
+	timer, svc := writeSyncUnits(t, false)
+	if err := e.m.InstallSyncTimer(time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if !fileExists(timer) || !fileExists(svc) {
+		t.Error("units that are not ours were removed")
+	}
+	if !strings.Contains(e.ct.text, "BEGIN cartographer sync") {
+		t.Errorf("no cron block:\n%s", e.ct.text)
+	}
+}
+
+// A host that gained systemd moves the timer back: the cron block and sync.cron go.
+func TestSystemdSyncTimer_MigratesFromCron(t *testing.T) {
+	e := newCronEnv(t)
+	if err := e.m.InstallSyncTimer(time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	e.ct.text += "0 3 * * * /usr/bin/backup\n"
+	lookPath = func(n string) (string, error) { return "/usr/bin/" + n, nil }
+	systemdRunDir = t.TempDir()
+	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
+	if err := e.m.InstallSyncTimer(time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	def, _ := CronSyncDefinitionPath()
+	timer, _ := SyncSystemdTimerPath()
+	if fileExists(def) || strings.Contains(e.ct.text, "cartographer sync") || !strings.Contains(e.ct.text, "/usr/bin/backup") {
+		t.Errorf("cron half left or foreign line lost (definition=%v):\n%s", fileExists(def), e.ct.text)
+	}
+	if !fileExists(timer) {
+		t.Error("the systemd timer was not written")
+	}
+}
+
+func TestSyncTimer_BothDefinitionsReportedAndRemoved(t *testing.T) {
+	e := newCronEnv(t)
+	if err := e.m.InstallSyncTimer(time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	timer, svc := writeSyncUnits(t, true)
+	st, err := e.m.SyncTimerStatus()
+	if err != nil || !st.Installed || st.Also != timer {
+		t.Errorf("status = %+v, %v", st, err)
+	}
+	lookPath = func(n string) (string, error) {
+		if n == "systemctl" {
+			return "", errors.New("absent")
+		}
+		return "/usr/bin/" + n, nil
+	}
+	_ = svc
+	if err := e.m.UninstallSyncTimer(); err != nil {
+		t.Fatal(err)
+	}
+	def, _ := CronSyncDefinitionPath()
+	if fileExists(def) || fileExists(timer) || fileExists(svc) || strings.Contains(e.ct.text, "cartographer sync") {
+		t.Error("uninstall left one half behind")
 	}
 }

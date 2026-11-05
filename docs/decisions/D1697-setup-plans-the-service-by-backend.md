@@ -6,7 +6,7 @@ topic: deployment-release
 
 **Decision.** `setup` reads the backend of D1682 and the answer of `/health`
 into its facts and decides the server step in this order: installed and running
-is kept; installed is started; a well-formed `/health` answer on the configured
+is kept; installed is started; a `/health` answer with status ok and a version on the configured
 address (the default one when there is no config) is **kept** with no installed
 service, flagged unmanaged; no backend is a plan error (exit 2, nothing created,
 the manual route printed); otherwise install. The plan line names the backend

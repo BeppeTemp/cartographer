@@ -79,12 +79,15 @@ type setupFacts struct {
 	// Backend is the mechanism the service verbs would act on (D1682);
 	// ServerAnswers is true when a well-formed /health answers on the configured
 	// address whether or not a service is installed (a server started by hand).
-	Backend        service.Backend
-	ServerAnswers  bool
-	DataDir        string
-	KBs            []kbRow // direct subdirectories of the data dir
-	Detected       []string
-	ProvidersBound bool // every target provider already carries an explicit KB binding
+	Backend       service.Backend
+	ServerAnswers bool
+	// ForeignListener: something that is not a Cartographer server answers on
+	// the configured address.
+	ForeignListener bool
+	DataDir         string
+	KBs             []kbRow // direct subdirectories of the data dir
+	Detected        []string
+	ProvidersBound  bool // every target provider already carries an explicit KB binding
 	// BoundProviders are the providers of the client config that carry an
 	// explicit KB binding, whichever of them the run ends up connecting.
 	BoundProviders []string
@@ -129,6 +132,10 @@ var errSetupNeedsRemote = errors.New("no KB is mounted yet and no remote was giv
 // manager and no server answering: a plan error, so nothing is created.
 var errSetupNoServiceManager = errors.New("this machine has no service manager")
 
+// errSetupForeignListener is planSetup's answer when another program holds the
+// server address: setup would otherwise connect the agents to it.
+var errSetupForeignListener = errors.New("something else is listening on the server address")
+
 // errSetupNeedsKBChoice is planSetup's answer when the server will mount two or
 // more KBs and the agents have no binding yet (D190).
 var errSetupNeedsKBChoice = errors.New("choose the KBs the agents receive")
@@ -158,6 +165,8 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 		p.Service = serviceStart
 	case f.ServerAnswers:
 		p.Service, p.ServerUnmanaged = serviceKeep, true
+	case f.ForeignListener:
+		return p, errSetupForeignListener
 	case f.Backend == service.BackendNone:
 		return p, errSetupNoServiceManager
 	default:
@@ -401,15 +410,27 @@ var (
 	setupLookGit       = func() bool { _, err := exec.LookPath("git"); return err == nil }
 	setupServiceStatus = func() (service.Status, error) { return service.NewManager().Status("") }
 	setupBackend       = func() service.Backend { return service.NewManager().Backend() }
-	setupProbeHealth   = service.ProbeHealth
-	setupFailureHint   = func() string { return service.NewManager().FailureHint() }
-	setupInstallSvc    = func() error { return installServiceAndWaitHealthy(service.NewManager(), 20*time.Second) }
-	setupStartSvc      = func() error { return service.NewManager().Start() }
-	setupKBCreate      = cmdKBCreate
-	setupKBClone       = cmdKBClone
-	setupConnect       = cmdConnect
-	setupDetected      = func() []string { p, _ := resolveTargetProviders("", ""); return p }
-	setupWaitReady     = waitSetupReady
+	setupProbeListener = func(addr string) service.ListenerState { return service.ProbeListener(addr, 2*time.Second) }
+	// setupMountedKBs lists the KBs the answering server mounts; listed is false
+	// when /health does not say (routing off, or it does not answer).
+	setupMountedKBs = func() (names []string, listed bool) {
+		h, err := fetchHealth(serverBaseURL(""))
+		if err != nil || h.KBs == nil {
+			return nil, false
+		}
+		for _, k := range *h.KBs {
+			names = append(names, k.Name)
+		}
+		return names, true
+	}
+	setupFailureHint = func() string { return service.NewManager().FailureHint() }
+	setupInstallSvc  = func() error { return installServiceAndWaitHealthy(service.NewManager(), 20*time.Second) }
+	setupStartSvc    = func() error { return service.NewManager().Start() }
+	setupKBCreate    = cmdKBCreate
+	setupKBClone     = cmdKBClone
+	setupConnect     = cmdConnect
+	setupDetected    = func() []string { p, _ := resolveTargetProviders("", ""); return p }
+	setupWaitReady   = waitSetupReady
 	// setupWaitBootstrapped waits until the server has mounted its KBs: /health
 	// answers 200 while it is still cloning (D348), so "the service answers" is
 	// not "the KBs are there", and connect run against a bootstrapping server
@@ -452,10 +473,13 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 		f.Service = st
 	}
 	f.Backend = setupBackend()
-	// A bootstrapping server answers too (ProbeHealth returns its ok status
-	// with errBootstrapping); anything else on the port is not one of ours.
-	if hs, err := setupProbeHealth(serviceAddrOrDefault(f.Service), 2*time.Second); err == nil || hs.Status == "ok" {
+	// A bootstrapping server answers too; a listener that does not answer like
+	// a Cartographer server (no version in /health) is not one of ours.
+	switch setupProbeListener(serviceAddrOrDefault(f.Service)) {
+	case service.ListenerCartographer:
 		f.ServerAnswers = true
+	case service.ListenerForeign:
+		f.ForeignListener = true
 	}
 	f.DataDir = resolveServerDataDir("")
 	if rows, err := scanDataDir(f.DataDir); err == nil {
@@ -593,6 +617,9 @@ func runSetup(o setupOptions, interactive, yes, dryRun bool, ask setupPrompter) 
 			fmt.Fprintln(os.Stderr, "  cartographer setup --remote <url>          an empty repository (created) or one holding a KB (mounted)")
 			fmt.Fprintln(os.Stderr, "  cartographer setup --no-remote [--name n]  a local-only KB, not backed up and never synced")
 			return 2
+		case errors.Is(err, errSetupForeignListener):
+			fmt.Fprintf(os.Stderr, "Error: something that is not a Cartographer server answers on %s - nothing was changed.\n  Free that address, or point the server elsewhere with `cartographer service install --http <addr>`, then rerun `cartographer setup`.\n", serviceAddrOrDefault(facts.Service))
+			return 2
 		case errors.Is(err, errSetupNoServiceManager):
 			printNoServiceManager(os.Stderr, setupConfigPath(facts), true)
 			return 2
@@ -716,6 +743,20 @@ func runSetupPlan(p setupPlan) int {
 		fmt.Printf("%q is already mounted\n", p.KBName)
 	default:
 		fmt.Printf("using %s\n", strings.Join(p.Existing, ", "))
+	}
+	if p.ServerUnmanaged && (p.KB == kbAlreadyThere || p.KB == kbKeepExisting) {
+		// The rerun after "restart it by hand": the server must really mount
+		// the KBs, or the agents would be connected to one that does not serve them.
+		want := p.Existing
+		if p.KB == kbAlreadyThere {
+			want = []string{p.KBName}
+		}
+		if mounted, listed := setupMountedKBs(); listed {
+			if missing := slices.DeleteFunc(slices.Clone(want), func(n string) bool { return slices.Contains(mounted, n) }); len(missing) > 0 {
+				fmt.Fprintf(os.Stderr, "Error: the running server does not mount %s (mounted: %s): it was started before the KB existed. Restart it by hand, then rerun `cartographer setup`.\n", strings.Join(missing, ", "), strings.Join(mounted, ", "))
+				return 1
+			}
+		}
 	}
 	if p.ServerUnmanaged && (p.KB == kbCreate || p.KB == kbClone) {
 		fmt.Fprintln(os.Stderr, "The running server mounts KBs only when it starts and was not started by Cartographer: restart it by hand, then rerun `cartographer setup` (finished steps are skipped).")

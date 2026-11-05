@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -159,7 +158,7 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 	calls := &[]string{}
 	record := func(s string) { *calls = append(*calls, s) }
 	saved := []any{setupProbeRemote, setupLookGit, setupServiceStatus, setupInstallSvc, setupStartSvc,
-		setupKBCreate, setupKBClone, setupConnect, setupDetected, setupWaitReady, setupProbeAuth, setupWaitBootstrapped, setupBackend, setupProbeHealth, setupFailureHint}
+		setupKBCreate, setupKBClone, setupConnect, setupDetected, setupWaitReady, setupProbeAuth, setupWaitBootstrapped, setupBackend, setupProbeListener, setupFailureHint, setupMountedKBs}
 	t.Cleanup(func() {
 		setupProbeRemote = saved[0].(func(context.Context, string) (gitx.RemoteProbe, error))
 		setupLookGit = saved[1].(func() bool)
@@ -174,8 +173,9 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 		setupProbeAuth = saved[10].(func(string) (bool, error))
 		setupWaitBootstrapped = saved[11].(func() bool)
 		setupBackend = saved[12].(func() service.Backend)
-		setupProbeHealth = saved[13].(func(string, time.Duration) (service.HealthStatus, error))
+		setupProbeListener = saved[13].(func(string) service.ListenerState)
 		setupFailureHint = saved[14].(func() string)
+		setupMountedKBs = saved[15].(func() ([]string, bool))
 	})
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
@@ -198,12 +198,16 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 	setupProbeAuth = func(addr string) (bool, error) { record("probe auth " + addr); return false, nil }
 	setupWaitBootstrapped = func() bool { record("ready"); return true }
 	setupBackend = func() service.Backend { return facts.Backend }
-	setupProbeHealth = func(string, time.Duration) (service.HealthStatus, error) {
-		if facts.ServerAnswers {
-			return service.HealthStatus{Status: "ok"}, nil
+	setupProbeListener = func(string) service.ListenerState {
+		switch {
+		case facts.ServerAnswers:
+			return service.ListenerCartographer
+		case facts.ForeignListener:
+			return service.ListenerForeign
 		}
-		return service.HealthStatus{}, errors.New("connection refused")
+		return service.ListenerNone
 	}
+	setupMountedKBs = func() ([]string, bool) { return nil, false }
 	setupFailureHint = func() string { return "stub hint for " + string(facts.Backend) }
 	return calls
 }
@@ -498,6 +502,7 @@ func TestPlanSetup_ServiceDecisionByBackendAndAnswer(t *testing.T) {
 		{"installed and running", func(f *setupFacts) { f.Service = service.Status{Installed: true, Running: true} }, serviceKeep, false, nil},
 		{"installed, stopped", func(f *setupFacts) { f.Service = service.Status{Installed: true} }, serviceStart, false, nil},
 		{"answering without a definition", func(f *setupFacts) { f.ServerAnswers, f.Backend = true, service.BackendNone }, serviceKeep, true, nil},
+		{"foreign listener", func(f *setupFacts) { f.ForeignListener = true }, 0, false, errSetupForeignListener},
 		{"no manager, nothing answering", func(f *setupFacts) { f.Backend = service.BackendNone }, 0, false, errSetupNoServiceManager},
 		{"cron", func(f *setupFacts) { f.Backend = service.BackendCron }, serviceInstall, false, nil},
 	}
@@ -594,5 +599,41 @@ func TestRunSetup_InstallFailureHintIsPerBackend(t *testing.T) {
 	out, _ := io.ReadAll(r)
 	if code != 1 || !strings.Contains(string(out), "stub hint for cron") || strings.Contains(string(out), "systemctl") {
 		t.Errorf("code=%d, stderr=%s", code, out)
+	}
+}
+
+func TestRunSetup_ForeignListenerStopsBeforeAnythingElse(t *testing.T) {
+	calls := stubSetup(t, setupFacts{ForeignListener: true})
+	if code := runSetup(setupOptions{NoRemote: true}, false, true, false, noPrompt()); code != 2 {
+		t.Fatalf("runSetup = %d, want 2", code)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("ran %q although a foreign program holds the address", *calls)
+	}
+}
+
+func TestRunSetup_RerunAfterUnmanagedKBNeedsTheServerToMountIt(t *testing.T) {
+	calls := stubSetup(t, setupFacts{ServerAnswers: true})
+	setupMountedKBs = func() ([]string, bool) { return []string{"other"}, true }
+	plan := setupPlan{Service: serviceKeep, ServerUnmanaged: true, KB: kbKeepExisting, Existing: []string{"wiki"}, Agents: []string{"claude"}}
+	if code := runSetupPlan(plan); code != 1 {
+		t.Fatalf("runSetupPlan = %d, want 1: the server was not restarted", code)
+	}
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "connect") {
+			t.Errorf("agents were connected to a server that does not mount the KB: %q", *calls)
+		}
+	}
+	setupMountedKBs = func() ([]string, bool) { return []string{"wiki"}, true }
+	if code := runSetupPlan(plan); code != 0 {
+		t.Errorf("runSetupPlan with the KB mounted = %d, want 0", code)
+	}
+}
+
+func TestServiceUsageNamesCron(t *testing.T) {
+	var sb strings.Builder
+	printServiceUsage(&sb)
+	if !strings.Contains(sb.String(), "cron where there is no systemd") {
+		t.Errorf("usage:\n%s", sb.String())
 	}
 }

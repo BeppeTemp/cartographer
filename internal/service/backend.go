@@ -2,9 +2,11 @@ package service
 
 import (
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Backend names the mechanism that keeps the server running. The values are
@@ -141,4 +143,39 @@ func (m *Manager) FailureHint() string {
 		}
 	}
 	return status
+}
+
+// ListenerState says what answers on a server address.
+type ListenerState int
+
+const (
+	// ListenerNone: nothing answered HTTP.
+	ListenerNone ListenerState = iota
+	// ListenerCartographer: a /health answer of the shape a Cartographer server
+	// gives (status "ok" and a version); a bootstrapping server counts.
+	ListenerCartographer
+	// ListenerForeign: something answered, but not like one of ours.
+	ListenerForeign
+)
+
+// ProbeListener classifies what is listening on addr. Any process can answer
+// {"status":"ok"}; the version field is what a real server adds.
+func ProbeListener(addr string, timeout time.Duration) ListenerState {
+	hs, err := ProbeHealth(addr, timeout)
+	if err == nil || errors.Is(err, errBootstrapping) {
+		if hs.Status == "ok" && hs.Version != "" {
+			return ListenerCartographer
+		}
+		return ListenerForeign
+	}
+	var proto *healthProtocolError
+	if errors.As(err, &proto) {
+		return ListenerForeign
+	}
+	var nerr net.Error
+	var operr *net.OpError
+	if errors.As(err, &nerr) || errors.As(err, &operr) || strings.Contains(err.Error(), "no http address") {
+		return ListenerNone
+	}
+	return ListenerForeign // a non-200 answer: someone is there
 }

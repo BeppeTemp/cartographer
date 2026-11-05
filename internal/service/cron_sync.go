@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
@@ -51,20 +52,62 @@ func intervalFromCronDefinition(data []byte) time.Duration {
 	return d
 }
 
-// syncBackend picks the backend of the sync timer: its own definition decides
-// when present, else the server's rule. The error is ErrNoServiceManager where
-// neither exists.
+// syncBackend picks the backend an install of the sync timer uses: the same
+// fresh probe as the server's Install, so a host that gained or lost systemd
+// migrates the timer too. The definitions on disk decide only status and
+// uninstall. ErrNoServiceManager where neither backend exists.
 func (m *Manager) syncBackend() (Backend, error) {
-	if p, err := CronSyncDefinitionPath(); err == nil && fileExists(p) {
-		return BackendCron, nil
+	b := m.Backend()
+	if goos == "linux" {
+		b = m.DetectBackend()
 	}
-	if p, err := SyncSystemdTimerPath(); err == nil && fileExists(p) {
-		return BackendSystemd, nil
+	if b == BackendNone {
+		return BackendNone, ErrNoServiceManager
 	}
-	if b := m.Backend(); b != BackendNone {
-		return b, nil
+	return b, nil
+}
+
+// removeSyncCronLeftover removes our sync cron block and definition before a
+// systemd install, so the two never both fire. A sandboxed home touches no
+// scheduler; a failure is a note, the install goes on.
+func (m *Manager) removeSyncCronLeftover() {
+	if p, err := CronSyncDefinitionPath(); err != nil || !fileExists(p) || homeSandboxed() {
+		return
 	}
-	return BackendNone, ErrNoServiceManager
+	if err := m.uninstallSyncCron(); err != nil {
+		fmt.Fprintf(os.Stderr, "note: the old cron sync entry could not be removed (%v); remove it with `crontab -e`\n", err)
+	}
+}
+
+// Markers of the units RenderSyncSystemdService/Timer write: a unit file that
+// lacks its marker is somebody else's and is never disabled or deleted.
+const (
+	syncServiceMarker = "Description=Cartographer client sync\n"
+	syncTimerMarker   = "Description=Cartographer client sync timer\n"
+)
+
+func fileHolds(path, marker string) bool {
+	data, err := os.ReadFile(path)
+	return err == nil && strings.Contains(string(data), marker)
+}
+
+// removeSyncSystemdLeftover disables and removes our systemd sync pair before
+// a cron install. A pair that is not ours is left alone, with a note.
+func (m *Manager) removeSyncSystemdLeftover() {
+	timer, err1 := SyncSystemdTimerPath()
+	svc, err2 := SyncSystemdServicePath()
+	if err1 != nil || err2 != nil || (!fileExists(timer) && !fileExists(svc)) {
+		return
+	}
+	if (fileExists(timer) && !fileHolds(timer, syncTimerMarker)) || (fileExists(svc) && !fileHolds(svc, syncServiceMarker)) {
+		fmt.Fprintf(os.Stderr, "note: %s and %s are not ours (no Cartographer header): left in place; remove them yourself if they should not run next to the cron entry\n", filepath.Base(timer), filepath.Base(svc))
+		return
+	}
+	if _, err := lookPath("systemctl"); err == nil {
+		m.run("systemctl", "--user", "disable", "--now", syncSystemdTimer)
+	}
+	os.Remove(timer)
+	os.Remove(svc)
 }
 
 func (m *Manager) installSyncCron(binPath string, interval time.Duration) error {
@@ -102,16 +145,7 @@ func (m *Manager) installSyncCron(binPath string, interval time.Duration) error 
 		}
 		return err
 	}
-	// A unit pair of ours would fire next to the cron entry.
-	if timer, err := SyncSystemdTimerPath(); err == nil && fileExists(timer) {
-		if _, err := lookPath("systemctl"); err == nil {
-			m.run("systemctl", "--user", "disable", "--now", syncSystemdTimer)
-		}
-		os.Remove(timer)
-		if svc, err := SyncSystemdServicePath(); err == nil {
-			os.Remove(svc)
-		}
-	}
+	m.removeSyncSystemdLeftover()
 	return nil
 }
 
