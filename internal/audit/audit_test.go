@@ -1382,6 +1382,7 @@ func TestOpenReconcilesTheCrashWindowOfARotation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { l2.Close() })
 		if len(l2.index.Segments) != 0 || l2.sequence != 0 {
 			t.Fatalf("signed=%v: index not reconciled: %+v", signed, l2.index)
 		}
@@ -1438,6 +1439,9 @@ func reopen(t *testing.T, path, archive string, kp *KeyPair, single bool) *Log {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A SingleWriter log holds <path>.lock open; Windows cannot remove it
+	// while the handle lives (#1680).
+	t.Cleanup(func() { l.Close() })
 	return l
 }
 
