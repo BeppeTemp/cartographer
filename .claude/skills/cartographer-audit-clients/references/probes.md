@@ -234,6 +234,9 @@ one fits" (the model chooses the agent from its description; the parent's Read/G
 body would be found in the file); `agent.invoke` is "use the probe-agent agent to get the code". Use
 non-interactive runs with a short prompt and an alarm. Ancestor probe: the same artifact in a non-git `W`,
 asked from `W/repo` (a git repository) and, as the positive control, from `W`.
+Safety: create every scratch dir with `mktemp -d` (mode 0700) and remove them at the end, copied
+credentials (`auth.json`, `settings.json`) included. A recipe that trusts all tools without a scratch `HOME`
+(`kiro-project`) is run from a `cd` into the temp project only, with no global cell, or after asking the operator.
 
 - **claude-project**: artifacts under the temp dir's `.claude/{skills,agents,settings.json}` and `.mcp.json`;
   `claude -p --model haiku --disallowedTools=Read,Glob,Grep,Bash --allowedTools=Agent,Task "<prompt>" </dev/null`

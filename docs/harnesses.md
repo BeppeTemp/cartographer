@@ -27,7 +27,8 @@ date and recipe: change the table and the block in the same PR.
 Codex CLI 0.166.0, Kiro CLI 3.0.0, OpenCode 2.2.5, Pi 1.5.0; Cline, Crush, Copilot CLI and Antigravity were
 not probed and stay `unverified`. A skill whose frontmatter carries the unknown key `requires` loaded on all
 five (negative control: no skill, `NONE`), and an agent with `requires` in its frontmatter was invoked on
-Claude Code: no client refuses or mangles it, so no client needs `requires` stripped from its copy. Agents and
+Claude Code only: no probed client refuses or mangles it, so none needs `requires` stripped from a skill copy.
+Codex TOML, Kiro JSON and OpenCode agent files with `requires` are unprobed. Agents and
 hooks placed in a non-git folder `W`, asked from a git repository `W/repo` (the positive control from `W`):
 
 | Client (version) | agent in `W/repo` | hook in `W/repo` |
