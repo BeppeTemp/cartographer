@@ -64,8 +64,8 @@ modifies files a user did not ask about.
   convergence test (`TestShared_Convergence`). Text that depends on what only a sync
   holds (the client environment section: approvals, resolver notes) cannot join that
   hash, because `status` recomputes it without them and would report drift forever: its
-  trigger is the text itself read back from the block (`blockEnvironment`,
-  `TestEnvironmentSection_ConvergesWhenSkippedChanges`).
+  trigger is the whole body compared with the block on disk (`blockBodyIs`, which also
+  covers the `@AGENTS.md` import; `TestEnvironmentSection_ConvergesWhenSkippedChanges`).
 - **An artifact rewritten client-side is rewritten after `VerifiedManifest` and rehashed**: a signature covers
   `ContentHash` and `Apply` trusts the `Signed` flag without re-verifying (`WithoutSkillsLine`, D1408).
 - **Names and file paths from a server are validated before they are compared or joined**: `validArtifactName` (also behind `ownableName`) and `ValidArtifactFilePath`/`CheckArtifactFilePaths` (a refusal, `IsRefusal`: one artifact skipped). Anything keyed on a spelling (the `SKILL.md` approval and stamp checks) relies on the path being canonical; a new place that takes a name or path off the wire uses them.
