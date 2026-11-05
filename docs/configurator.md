@@ -186,7 +186,7 @@ decides every step **before** running any:
 - **Client variants:** with no agent detected and a KB source (`--remote` or a mounted KB) the plan says the agents are
   detected after the KB is mounted; `setup --approve-variants` then approves the variants the selected KBs declare (each
   printed with the paths it writes), caches them and connects them with the agents; without the flag `setup` never asks
-  and reports `needs_approval`. A variant is connected with its declaring KB only ([D1714](decisions/D1714-variant-connect-scope.md)).
+  and reports `needs_approval`. A variant is connected with its declaring KB only ([D1702](decisions/D1702-variant-connect-scope.md)).
 
 ```bash
 cartographer setup                                                  # interview, plan, confirm
@@ -248,7 +248,7 @@ match ([#305](https://github.com/BeppeTemp/cartographer/issues/305)).
 `--approve-variants` approves every client variant the `--kb`-selected KBs declare, printing the paths each will write; without it
 a terminal asks per variant and anything else reports `needs_approval` and connects the rest. For `all`/no target, an unknown name
 or the flag, `connect` first discovers the KBs' variants (server unreachable: the cache only, the reason printed); a variant is connected
-with its declaring KB only, narrowed by `--kb` ([D1714](decisions/D1714-variant-connect-scope.md)).
+with its declaring KB only, narrowed by `--kb` ([D1702](decisions/D1702-variant-connect-scope.md)).
 
 Generates the MCP config (HTTP transport only), materializes artifacts via `sync_pull` (the full
 kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations with no known

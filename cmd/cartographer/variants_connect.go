@@ -48,7 +48,7 @@ type variantDiscovery struct {
 	Out, Err             io.Writer
 }
 
-// variantKBs is the KBs a discovered variant is connected with (D1714): the KB
+// variantKBs is the KBs a discovered variant is connected with (D1702): the KB
 // that declared it, narrowed by the operator's --kb selection when there is
 // one, never every mounted KB. nil means the selection leaves it out.
 func variantKBs(source string, selection []string) []string {
@@ -62,7 +62,7 @@ func variantKBs(source string, selection []string) []string {
 }
 
 // doConnectScoped is doConnect with each registered client variant connected on
-// its own, bound to variantKBs of its source KB (D1714): one shared --kb would
+// its own, bound to variantKBs of its source KB (D1702): one shared --kb would
 // bind it, and its token, to KBs that never asked for it.
 func doConnectScoped(opts connectOptions) (connectResult, error) {
 	cache, _ := clientvariant.LoadCache(opts.Dir)
@@ -137,7 +137,7 @@ func mergeDiscovered(providers, discovered []string) []string {
 }
 
 // detectedVariants are the registered variants whose client is installed here
-// and whose declaring KB the selection covers: what a connect may add (D1714).
+// and whose declaring KB the selection covers: what a connect may add (D1702).
 func detectedVariants(dir string, selection []string) []string {
 	cache, _ := clientvariant.LoadCache(dir)
 	var found []string
@@ -156,7 +156,7 @@ func detectedVariants(dir string, selection []string) []string {
 // registry as registerCachedVariants built it: the cache only. It never
 // retires: a connect proves no absence. It returns the cached variants whose
 // client is installed here and whose KB the selection covers, for the caller to
-// connect (D1714); every failure to look is printed, never swallowed.
+// connect (D1702); every failure to look is printed, never swallowed.
 func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery) []string {
 	skip := func(why error) []string {
 		fmt.Fprintf(o.Err, "note: client variants of the KBs not discovered, the cached ones stay: %s\n", escapeControl(why.Error()))
@@ -253,7 +253,7 @@ func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery)
 // is a warning with the command that finishes it; the sync goes on.
 func connectNewVariants(out, errw io.Writer, cfg *clientconfig.Config, dir string, names []string) {
 	for _, n := range names {
-		// Bound to the KB that declared it and to no other (D1714).
+		// Bound to the KB that declared it and to no other (D1702).
 		cache, _ := clientvariant.LoadCache(dir)
 		kb := cache[n].SourceKB
 		_, err := doConnectLocked(connectOptions{Providers: []string{n}, Dir: dir, ServerURL: cfg.ServerURL, Name: cfg.ServerName, Auth: cfg.Auth, Token: cfg.Token, AllowInsecureHTTP: cfg.AllowInsecureHTTP, KBs: variantKBs(kb, nil)})

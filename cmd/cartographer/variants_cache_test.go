@@ -454,7 +454,7 @@ func TestVariantKBsIsTheDeclaringKBNarrowedBySelection(t *testing.T) {
 }
 
 // sync connects a newly cached variant bound to its source KB alone, whatever
-// else the server mounts (D1714).
+// else the server mounts (D1702).
 func TestConnectNewVariantsBindsOnlyTheSourceKB(t *testing.T) {
 	home := variantHome(t)
 	a := variantArtifact(cachedVariant)
@@ -491,7 +491,7 @@ func TestDiscoverVariantsSaysWhyItFoundNothing(t *testing.T) {
 }
 
 // setup connects the variant it approved, though nothing was detected when the
-// plan was made (D1714).
+// plan was made (D1702).
 func TestRunSetup_ConnectsTheVariantItApproved(t *testing.T) {
 	calls := stubSetup(t, setupFacts{})
 	setupDetected = func() []string { return nil }

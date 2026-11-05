@@ -819,7 +819,7 @@ func runSetupPlan(p setupPlan) int {
 		if p.AgentsLater {
 			p.Agents = setupDetected()
 		}
-		// The variants setup approved join the agents it connects (D1714).
+		// The variants setup approved join the agents it connects (D1702).
 		for _, v := range found {
 			if !slices.Contains(p.Agents, v) {
 				p.Agents = append(p.Agents, v)
