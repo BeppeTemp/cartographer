@@ -2,8 +2,8 @@ package provisioning_test
 
 // Cline (bundle 4.1.26) as a sync target: global skills, instructions and agents
 // land under $HOME/.cline, a prune removes only what the lock owns and keeps the
-// directory Cline itself fills (data/, the user's own rules), and the hook cell
-// is unsupported until the dispatcher slice.
+// directory Cline itself fills (data/, the user's own rules), and a hook is wired
+// through a dispatcher in Documents/Cline/Hooks (PreToolUse, PreToolUse.ps1 on Windows).
 
 import (
 	"os"
@@ -55,7 +55,11 @@ func TestApply_ClineGlobalCells(t *testing.T) {
 	if len(res.Unsupported) != 0 {
 		t.Errorf("Unsupported = %+v, want none", res.Unsupported)
 	}
-	if _, err := os.Stat(filepath.Join(home, "Documents", "Cline", "Hooks", "PreToolUse")); err != nil {
+	dispatcher := "PreToolUse"
+	if runtime.GOOS == "windows" {
+		dispatcher += ".ps1"
+	}
+	if _, err := os.Stat(filepath.Join(home, "Documents", "Cline", "Hooks", dispatcher)); err != nil {
 		t.Errorf("dispatcher not wired: %v (warnings %v)", err, res.Warnings)
 	}
 	if _, err := os.Stat(filepath.Join(cl, "cartographer-hooks", "guard", "hook.json")); err != nil {
