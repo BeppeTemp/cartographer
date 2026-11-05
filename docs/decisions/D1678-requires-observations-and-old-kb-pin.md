@@ -2,7 +2,7 @@
 topic: sync-provisioning
 ---
 
-# D1676 — `requires` suggestions are observations on an artifact file, and a pre-feature KB is pinned
+# D1678 — `requires` suggestions are observations on an artifact file, and a pre-feature KB is pinned
 
 **Decision.** `kb_review` lists two observations about `requires` (D1661): `requires_unresolved` (a `<kind>:<name>`
 entry of a skill, agent or hook naming no artifact of this KB nor a bundled skill) and `requires_undeclared` (a skill

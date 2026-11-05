@@ -168,7 +168,7 @@ client file, a KB's `settings.yaml`) is tested for what it drops, what it resets
 it keeps, its report, its backup (or, for a KB, its commit) and that a second run
 changes nothing. An ordinary CI run never calls a forge; the real ones are below.
 
-#### Pre-feature KB pin (D1676)
+#### Pre-feature KB pin (D1678)
 
 `TestOldKBOutputIsUnchanged` (`internal/lint`) builds a KB written before `requires` existed and fails when lint or
 `kb_review` says anything new about it beyond the one `requires_undeclared` suggestion the heuristic exists for.
