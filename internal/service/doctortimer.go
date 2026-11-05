@@ -101,6 +101,12 @@ func (m *Manager) UninstallDoctorTimer() error {
 				return fmt.Errorf("service: remove %s: %w", filepath.Base(p), err)
 			}
 		}
+		// A host without systemctl never had this timer registered: the files
+		// are gone and there is nothing to reload (a spurious error here made
+		// connect, sync and upgrade-repair warn on every non-systemd Linux).
+		if _, lookErr := lookPath("systemctl"); lookErr != nil {
+			return nil
+		}
 		_, err = m.run("systemctl", "--user", "daemon-reload")
 		return err
 	case "windows":
