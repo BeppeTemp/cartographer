@@ -208,6 +208,8 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 		findings = append(findings, sopsFindings(s.Body, skillFile(s), k.Root, hasSecretsDir)...)
 	}
 	findings = append(findings, checkCrossKBPaths(files, opts.CrossKBRoots)...)
+	findings = append(findings, checkRequires(k, files)...)
+	findings = append(findings, checkDegradedNameCollision(k)...)
 	findings = append(findings, checkSkillMissingPerimeter(skills, instr.perimeter)...)
 	if instr.legacyAccept {
 		findings = append(findings, legacyAcceptFinding())

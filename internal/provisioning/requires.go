@@ -2,6 +2,7 @@ package provisioning
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -18,6 +19,10 @@ import (
 // array of hook.json. A hook has no frontmatter and parseHookSpec is lenient,
 // so a typo there is ignored on the client: ValidateRequires, run by the write
 // gate and by lint, is the only guard.
+
+// ErrHookJSON marks a hook.json that is not valid JSON: ValidateHookJSON
+// owns that finding, so lint does not report it a second time as requires.
+var ErrHookJSON = errors.New("invalid JSON")
 
 // MaxRequires caps one `requires` list.
 const MaxRequires = 32
@@ -103,7 +108,7 @@ func ValidateFrontmatterRequires(kind, name string, fm *okf.Frontmatter) error {
 func hookRequires(data []byte) ([]string, bool, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, false, fmt.Errorf("invalid JSON: %v", err)
+		return nil, false, fmt.Errorf("%w: %v", ErrHookJSON, err)
 	}
 	r, ok := raw[RequiresKey]
 	if !ok {

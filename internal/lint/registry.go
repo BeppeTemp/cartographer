@@ -186,6 +186,8 @@ var registry = []CheckSpec{
 	// KB-root artifacts (D316).
 	{Name: "skill_invalid", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "skill_warning", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "requires_invalid", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "degraded_name_collision", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	// A move, not a file rewrite: kb_repair routes it with the map repairs.
 	{Name: "legacy_skill_name", Level: LevelArtifact, Panel: true, FixKinds: []string{FixMoveSkill}, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "legacy_tool_name", Level: LevelArtifact, Panel: true, FixKinds: []string{FixStripToolPrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
