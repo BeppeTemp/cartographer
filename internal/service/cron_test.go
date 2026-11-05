@@ -568,3 +568,130 @@ func TestRealProcOps(t *testing.T) {
 		t.Error("still alive after SIGTERM")
 	}
 }
+
+// Install resolves the backend with a fresh probe: a cron host that gained a
+// reachable systemd migrates, and the cron leftovers go.
+func TestInstall_SystemdWinsOverAnInstalledCronDefinition(t *testing.T) {
+	e := newCronEnv(t)
+	e.install(t)
+	lookPath = func(n string) (string, error) { return "/usr/bin/" + n, nil }
+	run := t.TempDir()
+	orig := systemdRunDir
+	systemdRunDir = run
+	t.Cleanup(func() { systemdRunDir = orig })
+	if _, err := e.m.Install(InstallOptions{DataDir: filepath.Join(e.home, "data"), HTTPAddr: "127.0.0.1:39999"}); err != nil {
+		t.Fatal(err)
+	}
+	def, _ := CronServerDefinitionPath()
+	unit, _ := SystemdUnitPath()
+	if fileExists(def) || !fileExists(unit) {
+		t.Errorf("cron definition %v, unit %v: want only the unit", fileExists(def), fileExists(unit))
+	}
+	if strings.Contains(e.ct.text, "cartographer") {
+		t.Errorf("crontab still holds the block: %q", e.ct.text)
+	}
+	if fileExists(e.state("server.pid")) {
+		t.Error("pidfile left behind")
+	}
+}
+
+// A stale unit on a host with no usable systemd must not break a cron install,
+// and the unit is removed.
+func TestInstall_CronRemovesAStaleUnit(t *testing.T) {
+	e := newCronEnv(t)
+	unit, _ := SystemdUnitPath()
+	os.MkdirAll(filepath.Dir(unit), 0o755)
+	os.WriteFile(unit, []byte("x"), 0o644)
+	e.install(t)
+	if fileExists(unit) {
+		t.Error("stale unit kept")
+	}
+	if def, _ := CronServerDefinitionPath(); !fileExists(def) {
+		t.Error("cron definition not written")
+	}
+}
+
+func TestUninstall_BothDefinitionsPresentRemovesBoth(t *testing.T) {
+	e := newCronEnv(t)
+	e.install(t)
+	unit, _ := SystemdUnitPath()
+	os.MkdirAll(filepath.Dir(unit), 0o755)
+	os.WriteFile(unit, []byte("x"), 0o644)
+	if err := e.m.Uninstall(); err != nil {
+		t.Fatal(err)
+	}
+	def, _ := CronServerDefinitionPath()
+	if fileExists(def) || fileExists(unit) || strings.Contains(e.ct.text, "cartographer") {
+		t.Errorf("left: def=%v unit=%v crontab=%q", fileExists(def), fileExists(unit), e.ct.text)
+	}
+}
+
+// Under a sandboxed HOME an inherited XDG_STATE_HOME must not point the cron
+// backend at the real state directory, and nothing is touched.
+func TestCron_SandboxedHomeIgnoresXDGStateAndTouchesNothing(t *testing.T) {
+	e := newCronEnv(t)
+	e.install(t)
+	real := t.TempDir()
+	getenv = func(k string) string {
+		if k == "XDG_STATE_HOME" {
+			return real
+		}
+		return ""
+	}
+	accountHome = func() (string, error) { return "/nonexistent-account-home", nil }
+	if d, _ := StateDir(); strings.HasPrefix(d, real) {
+		t.Errorf("StateDir = %s follows the inherited XDG_STATE_HOME", d)
+	}
+	before := len(e.procs.signals)
+	for name, err := range map[string]error{"stop": e.m.Stop(), "start": e.m.Start(), "uninstall": e.m.Uninstall()} {
+		if !errors.Is(err, errSandboxHome) {
+			t.Errorf("%s: %v, want errSandboxHome", name, err)
+		}
+	}
+	if ents, _ := os.ReadDir(real); len(ents) != 0 {
+		t.Errorf("real state dir touched: %v", ents)
+	}
+	if len(e.procs.signals) != before || fileExists(e.state("server.stopped")) {
+		t.Error("a process was signalled or the stop marker written")
+	}
+}
+
+// ensure: only "held for the whole wait" is silent; a lock that cannot be
+// opened is an error, and start fails when nothing ends up running.
+func TestEnsure_LockErrorsAreNotSilent(t *testing.T) {
+	e := newCronEnv(t)
+	dir, _ := StateDir()
+	os.MkdirAll(dir, 0o755)
+	os.Mkdir(filepath.Join(dir, "server.lock"), 0o755) // a directory cannot be opened read-write
+	if err := e.m.ensure("/opt/bin/cartographer", e.cfg); err == nil {
+		t.Error("an unopenable lock returned nil")
+	}
+}
+
+func TestStart_FailsWhenNothingRuns(t *testing.T) {
+	e := newCronEnv(t)
+	e.install(t)
+	e.procs.live = map[int]bool{}
+	e.m.proc = e.procs.ops()
+	for pid := range e.procs.cmd {
+		delete(e.procs.cmd, pid)
+	}
+	e.m.proc.start = func(string, []string, []string) (int, error) { return 999, nil } // never alive
+	os.Remove(e.state("server.pid"))
+	if err := e.m.Start(); err == nil {
+		t.Error("Start succeeded with no server running")
+	}
+}
+
+// crontab -l is read from stdout alone: the runner used for parsing is not the
+// combined-output one.
+func TestReadCrontab_UsesStdoutRunner(t *testing.T) {
+	m := &Manager{
+		run:    func(string, ...string) (string, error) { return "WARNING on stderr\n", nil },
+		runOut: func(string, ...string) (string, error) { return "0 * * * * x\n", nil },
+	}
+	got, err := m.readCrontab()
+	if err != nil || got != "0 * * * * x\n" {
+		t.Errorf("readCrontab = %q, %v", got, err)
+	}
+}

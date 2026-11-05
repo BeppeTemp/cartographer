@@ -133,7 +133,7 @@ func cronDefinitionConfig() (string, error) {
 // readCrontab returns the user's crontab; "no crontab" is an empty one, any
 // other failure is an error.
 func (m *Manager) readCrontab() (string, error) {
-	out, err := m.run("crontab", "-l")
+	out, err := m.stdout("crontab", "-l")
 	if err != nil {
 		if isNoCrontab(out, err) {
 			return "", nil
@@ -229,6 +229,9 @@ func (m *Manager) removeCronBlock(begin, end string) error {
 // --- install / uninstall ---------------------------------------------------
 
 func (m *Manager) installCron(binPath, configPath string) ([]string, error) {
+	if err := cronGuard(); err != nil {
+		return nil, err
+	}
 	stateDir, err := StateDir()
 	if err != nil {
 		return nil, fmt.Errorf("service: resolve state dir: %w", err)
@@ -291,7 +294,19 @@ func (m *Manager) removeSystemdLeftover() {
 	os.Remove(unit)
 }
 
+// removeCronLeftover is the cron backend's uninstall run before a systemd
+// install: the watchdog must not start a second server next to the unit.
+func (m *Manager) removeCronLeftover() error {
+	if p, err := CronServerDefinitionPath(); err != nil || !fileExists(p) || homeSandboxed() {
+		return nil // nothing there, or a files-only install that touches no scheduler
+	}
+	return m.uninstallCron()
+}
+
 func (m *Manager) uninstallCron() error {
+	if err := cronGuard(); err != nil {
+		return err
+	}
 	defPath, err := CronServerDefinitionPath()
 	if err != nil {
 		return fmt.Errorf("service: resolve cron definition path: %w", err)
@@ -299,7 +314,7 @@ func (m *Manager) uninstallCron() error {
 	if !fileExists(defPath) {
 		return nil
 	}
-	cfg, _ := m.EffectiveConfigPath("")
+	cfg, _ := cronDefinitionConfig() // not EffectiveConfigPath: a unit may coexist
 	// The marker first, so the watchdog cannot restart what is being removed.
 	stopErr := errors.Join(m.setStopMarker(), m.cronStopAndWait(cfg))
 	if err := m.removeCronBlock(cronServerBegin, cronServerEnd); err != nil {
@@ -332,6 +347,9 @@ func (m *Manager) startCron(b Backend) error {
 	if b == BackendNone {
 		return ErrNoServiceManager
 	}
+	if err := cronGuard(); err != nil {
+		return err
+	}
 	if err := m.cronDefinitionPresent(); err != nil {
 		return err
 	}
@@ -349,8 +367,11 @@ func (m *Manager) startCron(b Backend) error {
 	if err := m.ensure(bin, cfg); err != nil {
 		return err
 	}
-	if addr := configHTTPAddr(cfg); m.ownPID(cfg) == 0 && addr != "" && healthAnswers(addr) {
-		return fmt.Errorf("service: something already answers on %s and was not started by this service", addr)
+	if m.ownPID(cfg) == 0 {
+		if addr := configHTTPAddr(cfg); addr != "" && healthAnswers(addr) {
+			return fmt.Errorf("service: something already answers on %s and was not started by this service", addr)
+		}
+		return fmt.Errorf("service: the server is not running after start (see server.log in the state directory)")
 	}
 	return nil
 }
@@ -358,6 +379,9 @@ func (m *Manager) startCron(b Backend) error {
 func (m *Manager) stopCron(b Backend) error {
 	if b == BackendNone {
 		return ErrNoServiceManager
+	}
+	if err := cronGuard(); err != nil {
+		return err
 	}
 	if err := m.cronDefinitionPresent(); err != nil {
 		return err
@@ -492,6 +516,10 @@ func (m *Manager) cronStopAndWait(configPath string) error {
 	return nil
 }
 
+// errLockHeld is lockExclusive's answer when another holder kept the lock for
+// the whole wait, the only lock failure that is not an error.
+var errLockHeld = errors.New("lock held by another process")
+
 // --- ensure ----------------------------------------------------------------
 
 // Ensure is what the cron lines run: it starts the server unless it is
@@ -514,7 +542,10 @@ func (m *Manager) ensure(bin, configPath string) error {
 	}
 	unlock, err := lockExclusive(filepath.Join(dir, "server.lock"), ensureLockWait)
 	if err != nil {
-		return nil // another ensure is working
+		if errors.Is(err, errLockHeld) {
+			return nil // another ensure has been working for the whole wait
+		}
+		return fmt.Errorf("service: lock %s: %w", filepath.Join(dir, "server.lock"), err)
 	}
 	defer unlock()
 

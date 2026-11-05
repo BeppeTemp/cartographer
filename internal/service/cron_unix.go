@@ -67,9 +67,13 @@ func lockExclusive(path string, wait time.Duration) (func(), error) {
 		if err == nil {
 			return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
 		}
-		if time.Now().After(deadline) {
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
 			f.Close()
 			return nil, err
+		}
+		if time.Now().After(deadline) {
+			f.Close()
+			return nil, errLockHeld
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

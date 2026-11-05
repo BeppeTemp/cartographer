@@ -155,7 +155,10 @@ func SystemdUnitPath() (string, error) {
 // ~/.local/state/cartographer. The config stays under ~/.config/cartographer
 // whatever XDG_CONFIG_HOME says.
 func StateDir() (string, error) {
-	if d := getenv("XDG_STATE_HOME"); d != "" && filepath.IsAbs(d) {
+	// An inherited XDG_STATE_HOME names the real state directory, while the
+	// definition path follows $HOME: under a sandboxed HOME the two would
+	// disagree and a stop marker or pidfile of the real service would be touched.
+	if d := getenv("XDG_STATE_HOME"); d != "" && filepath.IsAbs(d) && !homeSandboxed() {
 		return filepath.Join(d, "cartographer"), nil
 	}
 	home, err := userHomeDir()

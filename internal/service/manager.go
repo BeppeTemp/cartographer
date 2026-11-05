@@ -51,11 +51,23 @@ type Manager struct {
 	// &Manager{run: ...} literals: a test that exercises the cron backend must
 	// set a fake here or it would spawn and signal real processes.
 	proc *procOps
+	// runOut runs a command and returns its standard output only (stderr is
+	// carried in the error). nil means run: test fakes do not tell the streams apart.
+	runOut runFunc
+}
+
+// stdout is for commands whose output is parsed (crontab -l): a warning on
+// stderr must never become data.
+func (m *Manager) stdout(name string, args ...string) (string, error) {
+	if m.runOut != nil {
+		return m.runOut(name, args...)
+	}
+	return m.run(name, args...)
 }
 
 // NewManager returns a Manager that runs real platform commands via os/exec.
 func NewManager() *Manager {
-	return &Manager{run: execRun}
+	return &Manager{run: execRun, runOut: execStdout}
 }
 
 func execRun(name string, args ...string) (string, error) {
@@ -65,6 +77,22 @@ func execRun(name string, args ...string) (string, error) {
 	out, err := procattr.Hide(exec.Command(name, args...)).CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("%s %s: %w (output: %s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+// execStdout is execRun for a command whose standard output is parsed: stderr
+// is kept apart and only reaches the error.
+func execStdout(name string, args ...string) (string, error) {
+	if err := guardScheduler(name); err != nil {
+		return "", err
+	}
+	cmd := procattr.Hide(exec.Command(name, args...))
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return string(out), fmt.Errorf("%s %s: %w (output: %s)", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(out), nil
 }
@@ -103,7 +131,12 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 	// The backend is resolved before the first write: a host with neither a
 	// reachable systemd user manager nor a usable crontab must not be left with
 	// a config and a data directory and a failed install.
+	// A fresh probe, not the installed definition: a host that gained (or lost)
+	// systemd migrates on re-install; the other backend's leftovers go below.
 	backend := m.Backend()
+	if goos == "linux" {
+		backend = m.DetectBackend()
+	}
 	if goos == "linux" && backend == BackendNone {
 		return nil, ErrNoServiceManager
 	}
@@ -128,6 +161,9 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 		if backend == BackendCron {
 			more, err := m.installCron(binPath, configPath)
 			return append(warnings, more...), err
+		}
+		if err := m.removeCronLeftover(); err != nil {
+			return warnings, err
 		}
 		if err := m.installLinux(binPath, configPath); err != nil {
 			return warnings, err
@@ -294,6 +330,21 @@ func (m *Manager) Uninstall() error {
 	return err
 }
 
+func (m *Manager) uninstallSystemd() error {
+	unitPath, err := SystemdUnitPath()
+	if err != nil {
+		return fmt.Errorf("service: resolve unit path: %w", err)
+	}
+	if err := m.disableUnitNow(systemdUnit); err != nil {
+		return err
+	}
+	if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("service: remove unit: %w", err)
+	}
+	_, err = m.run("systemctl", "--user", "daemon-reload")
+	return err
+}
+
 func (m *Manager) uninstallServer() error {
 	switch goos {
 	case "darwin":
@@ -312,24 +363,18 @@ func (m *Manager) uninstallServer() error {
 		}
 		return nil
 	case "linux":
-		switch m.Backend() {
-		case BackendCron:
-			return m.uninstallCron()
-		case BackendNone:
-			return nil // nothing installed (an installed definition selects its own backend)
+		// Both definitions can be present (an interrupted migration): remove both.
+		cronDef, _ := CronServerDefinitionPath()
+		unit, _ := SystemdUnitPath()
+		hasCron, hasUnit := fileExists(cronDef), fileExists(unit)
+		var errs []error
+		if hasCron {
+			errs = append(errs, m.uninstallCron())
 		}
-		unitPath, err := SystemdUnitPath()
-		if err != nil {
-			return fmt.Errorf("service: resolve unit path: %w", err)
+		if hasUnit || (!hasCron && m.Backend() == BackendSystemd) {
+			errs = append(errs, m.uninstallSystemd())
 		}
-		if err := m.disableUnitNow(systemdUnit); err != nil {
-			return err
-		}
-		if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("service: remove unit: %w", err)
-		}
-		_, err = m.run("systemctl", "--user", "daemon-reload")
-		return err
+		return errors.Join(errs...)
 	case "windows":
 		taskPath, err := WindowsTaskPath()
 		if err != nil {

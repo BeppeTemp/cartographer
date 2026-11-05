@@ -59,6 +59,29 @@ func sandboxedHome() (bool, string, string) {
 	return !samePath(acct, env), env, acct
 }
 
+// homeSandboxed is sandboxedHome over the home the paths of this package
+// resolve (userHomeDir), which is what the state and definition paths use.
+func homeSandboxed() bool {
+	acct, err := accountHome()
+	if err != nil || acct == "" {
+		return false
+	}
+	h, err := userHomeDir()
+	if err != nil || h == "" {
+		return false
+	}
+	return !samePath(acct, h)
+}
+
+// cronGuard refuses a cron operation that mutates state (pid, marker, lock,
+// crontab) under a sandboxed HOME, before anything is touched.
+func cronGuard() error {
+	if homeSandboxed() {
+		return fmt.Errorf("%w: the cron backend was not touched", errSandboxHome)
+	}
+	return nil
+}
+
 func samePath(a, b string) bool {
 	clean := func(p string) string {
 		if r, err := filepath.EvalSymlinks(p); err == nil {
