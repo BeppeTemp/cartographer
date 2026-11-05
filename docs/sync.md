@@ -306,6 +306,17 @@ than being told to delegate to subagents they never received. The block's conten
 on the KB's agent set even though its artifact hash does not, so the rewrite trigger fires on an
 `agent` artifact too — otherwise the sentence would go stale the moment an agent was added.
 
+**The client environment section** (D1701) generalizes that sentence (`environmentSection`, `provisioning.go`).
+Each line appears only when it applies, in this order, and none when empty: the original sentence for the
+native agents (byte-identical when the client can delegate on its own, so Claude Code's block does not change; a
+client whose `agent.delegate` is `absent` and `agent.invoke` is not gets "does not pick them on its own" plus the
+`InvokeHint` of the ledger); `Subagents available here as skills (no separate context) from the "<kb>" KB: a, b — where
+a skill says to delegate to one of them, load the skill of that name.` for the degraded agents, found as derived skills of the
+projected manifest; `Not installed on this client: kind/name (reason); …` for what the resolver skipped (one line, not
+grouped per KB: the notes carry no KB; the caller passes them in `ApplyOptions.Skipped`); and `Hooks installed here that
+this client never fires: name (Event)` for a hook whose `hook.<Event>` cell is `absent`. A pending artifact, a degraded
+skill judged on its origin's approval, is not announced. Client-side and outside every hash, like the sentence it grows from.
+
 **A KB may opt out of the generated bullets** by putting `<!-- cartographer: preamble: none -->` in the
 leading directive lines of its `instructions.md` (D1182: the run, not only the first line). The generated wrapper is hardcoded English, so a KB
 written in another language produced a steering file that switched language twice, with the English
@@ -445,7 +456,7 @@ The TUI's `S` (sync all) is a single `runSync` call over every connected provide
 
 ## Kind × provider matrix
 
-The matrix below is data in the code: `destinationMatrix` in `internal/provisioning/provisioning.go`, resolved by `destDir(kind, name, provider)` ([D137](decisions/D137-declarative-provider-registry-two-tables-owned-by-the.md)). Every cell either names a destination or is explicitly `unsupported` — a cell *missing* from the table fails a completeness test instead of degrading silently. `unsupported` is not `needs_approval` (no approval would unblock it): clients filter such artifacts out upstream with `ProjectManifest` (which also derives the degraded skill of an agent, §Agents and hooks), and they count as neither drift nor pending ([D50](decisions/D50-honest-per-provider-sync-state-unsupported-needs.md)). `provisioning.Destinations(kind, name)` reads the same matrix for the Atlas UI's Artifacts panel, which shows an artifact's clients (D238); `provisioning.Kinds()` lists next to it every kind a KB can hold — the matrix kinds, with their KB path and the doc that explains them, plus the two that never leave the KB (templates, secrets) — so the panel shows a kind the KB has none of, with the clients that would receive it (D864). A test keeps the list honest: a file written at each `KBPath` is found by the scanner, and a matrix kind without a descriptor fails the build.
+The matrix below is data in the code: `destinationMatrix` in `internal/provisioning/provisioning.go`, resolved by `destDir(kind, name, provider)` ([D137](decisions/D137-declarative-provider-registry-two-tables-owned-by-the.md)). Every cell either names a destination or is explicitly `unsupported` — a cell *missing* from the table fails a completeness test instead of degrading silently. `unsupported` is not `needs_approval` (no approval would unblock it): clients filter such artifacts out upstream with `ProjectManifest` (which also derives the degraded skill of an agent, §Agents and hooks), and they count as neither drift nor pending ([D50](decisions/D50-honest-per-provider-sync-state-unsupported-needs.md)). `provisioning.Destinations(kind, name)` reads the same matrix for the Atlas UI's Artifacts panel, which shows an artifact's clients (D238); for a skill, agent, hook or mcp the panel takes the clients and their mode (`native`, `degraded`, `skipped` with a reason, `unverified`) from `provisioning.ClientModes`, the resolver a sync runs over the KB's own artifacts in the global scope (D1701); `provisioning.Kinds()` lists next to it every kind a KB can hold — the matrix kinds, with their KB path and the doc that explains them, plus the two that never leave the KB (templates, secrets) — so the panel shows a kind the KB has none of, with the clients that would receive it (D864). A test keeps the list honest: a file written at each `KBPath` is found by the scanner, and a matrix kind without a descriptor fails the build.
 
 | Kind | claude | opencode | codex | kiro | antigravity | crush | copilot | pi | cline |
 |---|---|---|---|---|---|---|---|---|---|

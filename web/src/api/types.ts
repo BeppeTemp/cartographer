@@ -23,6 +23,14 @@ export interface KBSummary {
 export interface ArtifactClient {
   id: string;
   name: string;
+  /**
+   * What this client does with the artifact (D1656): native, degraded (an agent
+   * installed as a skill), skipped (see reason) or unverified. Absent on a kind
+   * row and from an older server.
+   */
+  mode?: "native" | "degraded" | "skipped" | "unverified";
+  /** Why a client skips it, or why it is unverified. */
+  reason?: string;
 }
 
 export interface ArtifactFile {

@@ -390,6 +390,11 @@ type ApplyOptions struct {
 	// it registers in ClaudeLocalSettings (#1198). Only read for ScopeProject
 	// and the claude provider.
 	HookSettingsRel string
+
+	// Skipped are the artifacts the resolver left out of this projection
+	// (ProjectionResult.Notes through ReportNotes). They are not in the projected
+	// manifest, so the client environment section takes them from here.
+	Skipped []SkippedNote
 }
 
 // claudeHookSettings is, for an Apply with HookSettingsRel, the settings
@@ -3242,7 +3247,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// cell is unsupportedDest (crush) receives none, and the sentence must not
 	// tell it to delegate to subagents that are not there; installedSubagentSentence
 	// derives it from destDir.
-	if sentence := installedSubagentSentence(m, opts); sentence != "" {
+	if sentence := environmentSection(m, opts); sentence != "" {
 		body += "\n\n" + sentence
 	}
 	if cliSentence != "" {
@@ -3568,6 +3573,10 @@ func cliProviderSentence(p configurator.Provider) string {
 //
 // An artifact awaiting approval is excluded: it was not installed, and the whole
 // point is that the sentence describes what happened.
+//
+// When the client cannot delegate on its own (agent.delegate absent, invoke
+// only) the sentence says so and carries InvokeHint; otherwise it is the
+// original text, byte for byte (Claude Code's golden tests pin it).
 func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 	byKB := map[string][]string{}
 	for _, a := range m.Artifacts {
@@ -3583,6 +3592,22 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 		kbName := strings.TrimPrefix(a.Source, "kb:")
 		byKB[kbName] = append(byKB[kbName], a.Name)
 	}
+	invokeOnly := CapabilityStatus(opts.Provider, opts.Scope, CapAgentDelegate) == CapAbsent
+	return perKBLines(byKB, func(kbName string, names []string) string {
+		if invokeOnly {
+			line := fmt.Sprintf("Subagents installed by the %q KB: %s — this client does not pick them on its own.", kbName, strings.Join(names, ", "))
+			if hint := InvokeHint(opts.Provider, opts.Scope); hint != "" {
+				line += " " + hint
+			}
+			return line
+		}
+		return fmt.Sprintf("Subagents installed by the %q KB: %s — their descriptions are in the client's agent registry: delegate to them the tasks they cover.",
+			kbName, strings.Join(names, ", "))
+	})
+}
+
+// perKBLines renders one line per KB, KBs and names sorted.
+func perKBLines(byKB map[string][]string, line func(kbName string, names []string) string) string {
 	if len(byKB) == 0 {
 		return ""
 	}
@@ -3595,8 +3620,82 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 	for _, kbName := range kbNames {
 		names := byKB[kbName]
 		sort.Strings(names)
-		lines = append(lines, fmt.Sprintf("Subagents installed by the %q KB: %s — their descriptions are in the client's agent registry: delegate to them the tasks they cover.",
-			kbName, strings.Join(names, ", ")))
+		lines = append(lines, line(kbName, names))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// degradedAgentSentence names, per KB, the agents installed here as skills
+// (D1656): the model is told to load the skill where a skill says to delegate.
+// A derived skill is judged on its origin's approval, like the skill itself.
+func degradedAgentSentence(m Manifest, opts ApplyOptions) string {
+	byKB := map[string][]string{}
+	for _, a := range m.Artifacts {
+		if a.DerivedFrom == nil || a.DerivedFrom.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") || !artifactAuthorized(a, opts) {
+			continue
+		}
+		kbName := strings.TrimPrefix(a.Source, "kb:")
+		byKB[kbName] = append(byKB[kbName], a.Name)
+	}
+	return perKBLines(byKB, func(kbName string, names []string) string {
+		return fmt.Sprintf("Subagents available here as skills (no separate context) from the %q KB: %s — where a skill says to delegate to one of them, load the skill of that name.",
+			kbName, strings.Join(names, ", "))
+	})
+}
+
+// skippedSentence is one line naming what the resolver left out of this
+// client, with its reason; the notes carry no KB, so it is not grouped.
+func skippedSentence(opts ApplyOptions) string {
+	if len(opts.Skipped) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(opts.Skipped))
+	for _, s := range opts.Skipped {
+		parts = append(parts, fmt.Sprintf("%s (%s)", s.Artifact, s.Reason))
+	}
+	return "Not installed on this client: " + strings.Join(parts, "; ") + "."
+}
+
+// silentHookSentence names the installed hooks whose event this client never
+// fires (capability hook.<Event> absent), so the model does not rely on them.
+func silentHookSentence(m Manifest, opts ApplyOptions) string {
+	var parts []string
+	for _, a := range m.Artifacts {
+		if a.Kind != "hook" || a.BuiltIn || a.DerivedFrom != nil || !strings.HasPrefix(a.Source, "kb:") ||
+			destDirScoped("hook", a.Name, opts.Provider, opts.Scope) == "" || isReservedHook(a.Kind, a.Name) || !artifactAuthorized(a, opts) {
+			continue
+		}
+		spec, ok := hookSpecOf(a, opts)
+		if !ok || !hookEventKnown(spec.Event) {
+			continue
+		}
+		if CapabilityStatus(opts.Provider, opts.Scope, Capability(hookCapPrefix+spec.Event)) == CapAbsent {
+			parts = append(parts, fmt.Sprintf("%s (%s)", a.Name, spec.Event))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	sort.Strings(parts)
+	return "Hooks installed here that this client never fires: " + strings.Join(parts, ", ") + "."
+}
+
+// environmentSection is what the managed block says about THIS client (D1656,
+// generalizing D154's sentence): native agents, agents installed as skills, what
+// was left out, hooks that cannot fire. Each line only when it applies, in that
+// order; "" when none does. Client-side and outside every artifact hash, and
+// rewritten on every Apply, so a new binary with a changed table updates it.
+func environmentSection(m Manifest, opts ApplyOptions) string {
+	var lines []string
+	for _, l := range []string{
+		installedSubagentSentence(m, opts),
+		degradedAgentSentence(m, opts),
+		skippedSentence(opts),
+		silentHookSentence(m, opts),
+	} {
+		if l != "" {
+			lines = append(lines, l)
+		}
 	}
 	return strings.Join(lines, "\n")
 }

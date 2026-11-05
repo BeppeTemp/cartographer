@@ -3259,6 +3259,22 @@ code.mapcontract__label {
   color: var(--text-primary);
 }
 
+/* The client's mode (D1656): a small tag after the name, none when native. */
+.artifacts__mode {
+  margin-inline-start: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  cursor: help;
+}
+
+.artifacts__mode--skipped {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
 /* Reading panel: a closed table of contents, links as rows. */
 .inspector__toc {
   margin-block-end: var(--space-4);

@@ -55,43 +55,8 @@ func unverifiedCapabilities(m Manifest, opts ApplyOptions) []Capability {
 		if a.BuiltIn || a.DerivedFrom != nil || destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
 			continue
 		}
-		switch a.Kind {
-		case "agent":
-			if strictAgentSkipped(a, opts.Provider) {
-				continue
-			}
-			d, i := CapabilityStatus(opts.Provider, opts.Scope, CapAgentDelegate), CapabilityStatus(opts.Provider, opts.Scope, CapAgentInvoke)
-			if d == CapUnverified && i != CapVerified {
-				set[CapAgentDelegate] = true
-			}
-			if i == CapUnverified && d != CapVerified {
-				set[CapAgentInvoke] = true
-			}
-		case "hook":
-			if isReservedHook(a.Kind, a.Name) {
-				continue
-			}
-			files := a.Files
-			if len(files) == 0 {
-				var err error
-				if files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots); err != nil {
-					continue
-				}
-			}
-			for _, f := range files {
-				if path.Clean(filepath.ToSlash(f.Path)) != "hook.json" {
-					continue
-				}
-				spec, err := parseHookSpec(f.Content)
-				if err != nil || !hookEventKnown(spec.Event) {
-					break
-				}
-				id := Capability(hookCapPrefix + spec.Event)
-				if CapabilityStatus(opts.Provider, opts.Scope, id) == CapUnverified {
-					set[id] = true
-				}
-				break
-			}
+		for _, id := range unverifiedFor(a, opts) {
+			set[id] = true
 		}
 	}
 	out := make([]Capability, 0, len(set))
@@ -100,4 +65,57 @@ func unverifiedCapabilities(m Manifest, opts ApplyOptions) []Capability {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
+}
+
+// unverifiedFor is the capabilities one artifact depends on while their status
+// is `unverified`: the agent pair for a native agent, the event of a hook. It
+// judges neither authorization nor destination; the callers do.
+func unverifiedFor(a Artifact, opts ApplyOptions) []Capability {
+	var out []Capability
+	switch a.Kind {
+	case "agent":
+		if strictAgentSkipped(a, opts.Provider) {
+			return nil
+		}
+		d, i := CapabilityStatus(opts.Provider, opts.Scope, CapAgentDelegate), CapabilityStatus(opts.Provider, opts.Scope, CapAgentInvoke)
+		if d == CapUnverified && i != CapVerified {
+			out = append(out, CapAgentDelegate)
+		}
+		if i == CapUnverified && d != CapVerified {
+			out = append(out, CapAgentInvoke)
+		}
+	case "hook":
+		if isReservedHook(a.Kind, a.Name) {
+			return nil
+		}
+		spec, ok := hookSpecOf(a, opts)
+		if !ok || !hookEventKnown(spec.Event) {
+			return nil
+		}
+		id := Capability(hookCapPrefix + spec.Event)
+		if CapabilityStatus(opts.Provider, opts.Scope, id) == CapUnverified {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// hookSpecOf reads the hook.json of a hook artifact, from memory or from its
+// source; ok is false when it is absent or unreadable.
+func hookSpecOf(a Artifact, opts ApplyOptions) (hookSpec, bool) {
+	files := a.Files
+	if len(files) == 0 {
+		var err error
+		if files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots); err != nil {
+			return hookSpec{}, false
+		}
+	}
+	for _, f := range files {
+		if path.Clean(filepath.ToSlash(f.Path)) != "hook.json" {
+			continue
+		}
+		spec, err := parseHookSpec(f.Content)
+		return spec, err == nil
+	}
+	return hookSpec{}, false
 }

@@ -779,6 +779,8 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// The projection also derives a skill from each agent this client cannot
 		// run as a subagent; status uses the same function, or drift is permanent.
 		projected := resolved[projectionKey(p)].Manifest
+		degraded, skipped := provisioning.ReportNotes(resolved[projectionKey(p)].Notes)
+		opts.Skipped = skipped // the client environment section names them
 		applied, err := provisioning.Apply(projected, opts)
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
@@ -789,7 +791,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			return nil, fmt.Errorf("apply %s: %w", p.Label(), err)
 		}
 		// Degraded/Skipped are filled here, the only path that prints the summary.
-		applied.Degraded, applied.Skipped = provisioning.ReportNotes(resolved[projectionKey(p)].Notes)
+		applied.Degraded, applied.Skipped = degraded, skipped
 		// D737: the tool scope is the stdio bridge in the global entry, so
 		// nothing is written into a workspace for it. What a pre-D737 client
 		// (D717) left in a repository is removed here, on every project

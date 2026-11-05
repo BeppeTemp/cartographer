@@ -392,3 +392,31 @@ func TestUIAPI_ArtifactsIncludesFindings(t *testing.T) {
 		t.Errorf("detail findings = %+v", detail.Findings)
 	}
 }
+
+// The panel's client list carries what each client does with the artifact
+// (D1656): the same resolver a sync runs, so an agent shows as degraded where
+// the client has no subagents and as unverified where nobody probed it.
+func TestUIClientsForCarriesTheMode(t *testing.T) {
+	mode := func(cs []uiArtifactClient, id string) (string, bool) {
+		for _, c := range cs {
+			if c.ID == id {
+				return c.Mode, true
+			}
+		}
+		return "", false
+	}
+	if m, ok := mode(uiClientsFor("agent", "", nil), "crush"); !ok || m != "degraded" {
+		t.Errorf("agent kind row, crush = %q %v", m, ok)
+	}
+	if m, ok := mode(uiClientsFor("agent", "", nil), "claude"); !ok || m != "" {
+		t.Errorf("agent kind row, claude-code = %q %v", m, ok)
+	}
+	// A judged artifact received by nobody lists nobody, not the matrix.
+	if got := uiClientsFor("agent", "x", []provisioning.ClientMode{}); len(got) != 0 {
+		t.Errorf("judged-empty artifact listed %+v", got)
+	}
+	got := uiClientsFor("skill", "s", []provisioning.ClientMode{{Provider: "crush", Mode: "skipped", Reason: "requires skill/y"}})
+	if len(got) != 1 || got[0].Mode != "skipped" || got[0].Reason != "requires skill/y" {
+		t.Errorf("modes not carried: %+v", got)
+	}
+}

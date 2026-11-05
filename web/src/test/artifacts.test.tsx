@@ -85,6 +85,36 @@ describe("the Artifacts panel", () => {
     expect(screen.queryByRole("article", { name: /Artifact/ })).not.toBeInTheDocument();
   });
 
+  it("tags a client that does not receive the artifact as it is, and says why (D1656)", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=skill%2Freview");
+    const fetchMock = stubApi();
+    const route = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/artifact?")) {
+        const reply = (await route(url)) as Response;
+        const review = await reply.json();
+        return json({
+          ...review,
+          clients: [
+            { id: "claude-code", name: "Claude Code", mode: "native" },
+            { id: "codex", name: "Codex CLI", mode: "skipped", reason: "requires skill/x (not provided to this client)" },
+            { id: "crush", name: "Crush", mode: "degraded" },
+          ],
+        });
+      }
+      return route(url);
+    });
+    render(<App />);
+    const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
+    // Native is the plain case: no tag. The others carry theirs, the reason as its title.
+    expect(within(detail).queryByText("native")).not.toBeInTheDocument();
+    expect(within(detail).getByText("skipped")).toHaveAttribute(
+      "title",
+      "requires skill/x (not provided to this client)",
+    );
+    expect(within(detail).getByText("degraded")).toHaveAttribute("title", expect.stringContaining("no subagents"));
+  });
+
   it("shows artifact findings in the list and the detail (D316)", async () => {
     window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=skill%2Freview");
     stubApi();
