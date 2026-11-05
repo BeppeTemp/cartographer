@@ -52,7 +52,7 @@ func TestSyncVariantsKeepsAVariantOfAnOptedOutKB(t *testing.T) {
 		}
 	}
 	var out, errw bytes.Buffer
-	retired := syncVariants(&out, &errw, cfg, home, []syncProjection{p}, declared, ms, failed, true, false)
+	retired, _ := syncVariants(&out, &errw, cfg, home, []syncProjection{p}, declared, ms, failed, true, false)
 	if len(retired) != 0 {
 		t.Fatalf("retired %v: %s%s", retired, out.String(), errw.String())
 	}
@@ -187,7 +187,7 @@ func TestSyncVariantsKeepsACachedVariantOfALaterOptedOutKB(t *testing.T) {
 	v2 := provisioning.Artifact{Kind: "variant", Name: "fork-cli", Source: "kb:kb-a", ContentHash: provisioning.ContentHashFiles(files), Files: files}
 	p := syncProjection{Provider: "claude", BaseDir: home, KBs: []string{"kb-a"}}
 	var out, errw bytes.Buffer
-	retired := syncVariants(&out, &errw, cfg, home, []syncProjection{p}, []provisioning.Artifact{v2}, map[string]provisioning.Manifest{}, nil, true, false)
+	retired, _ := syncVariants(&out, &errw, cfg, home, []syncProjection{p}, []provisioning.Artifact{v2}, map[string]provisioning.Manifest{}, nil, true, false)
 	c, _ := clientvariant.LoadCache(home)
 	if len(retired) != 0 || c["fork-cli"].ContentHash != oldHash || out.Len() != 0 || !registered("fork-cli") {
 		t.Fatalf("retired=%v cache=%v registered=%v", retired, c, registered("fork-cli"))

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -529,7 +528,7 @@ func scopedFixture(t *testing.T) string {
 	if err := clientconfig.Save(home, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, map[string]bool{"kb-a": true}, true, false); len(res.Cached) != 1 {
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, map[string]bool{"kb-a": true}, true, false); len(res.Cached) != 1 {
 		t.Fatalf("not cached: %+v", res)
 	}
 	return home
