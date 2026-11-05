@@ -189,6 +189,10 @@ type Config struct {
 type MCPApproval struct {
 	ContentHash string    `yaml:"content_hash"`
 	ApprovedAt  time.Time `yaml:"approved_at"`
+	// PathFingerprint is set only for a client variant: the hash of the
+	// directories the descriptor resolved to when it was approved (D1699). An
+	// entry without one never authorizes a variant.
+	PathFingerprint string `yaml:"path_fingerprint,omitempty"`
 }
 
 // ClientBinding is one provider's per-client declaration. An entry carrying an
@@ -718,6 +722,35 @@ func (c *Config) ApproveMCP(sourceKB, name, hash string, at time.Time) error {
 	}
 	c.MCPApprovals[sourceKB][name] = MCPApproval{ContentHash: hash, ApprovedAt: at.UTC()}
 	return nil
+}
+
+// ApproveVariant records the descriptor hash and the fingerprint of the paths it
+// resolved to for one source/name pair (D1699).
+func (c *Config) ApproveVariant(sourceKB, name, hash, fingerprint string, at time.Time) error {
+	if fingerprint == "" {
+		return fmt.Errorf("clientconfig: invalid variant approval")
+	}
+	if err := c.ApproveMCP(sourceKB, name, hash, at); err != nil {
+		return err
+	}
+	a := c.MCPApprovals[sourceKB][name]
+	a.PathFingerprint = fingerprint
+	c.MCPApprovals[sourceKB][name] = a
+	return nil
+}
+
+// ApprovedPathFingerprints returns ApplyOptions' source/name → path fingerprint
+// map, for the entries that carry one.
+func (c *Config) ApprovedPathFingerprints() map[string]string {
+	out := make(map[string]string)
+	for source, entries := range c.MCPApprovals {
+		for name, approval := range entries {
+			if approval.PathFingerprint != "" {
+				out["kb:"+source+"\x00"+name] = approval.PathFingerprint
+			}
+		}
+	}
+	return out
 }
 
 // RevokeMCP removes an approval. Missing records are intentionally a no-op.

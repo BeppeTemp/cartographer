@@ -1103,7 +1103,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		res.DeferredErr = pullErr
 	} else {
 		materialize := func() (map[string]provisioning.AppliedResult, error) {
-			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.ScanRoots(), Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
+			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.ScanRoots(), Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes(), existing.ApprovedPathFingerprints())
 		}
 		applied, err := materialize()
 		if err != nil {

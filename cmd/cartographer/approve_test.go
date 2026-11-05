@@ -211,6 +211,9 @@ func TestCmdApprove_VariantShowsEveryResolvedPathAndBindsTheHash(t *testing.T) {
 		}
 	}
 	cfg, _ := clientconfig.Load(home)
+	if cfg.MCPApprovals["kb-a"]["variant/fork-cli"].PathFingerprint == "" {
+		t.Error("the approval must record the fingerprint of the paths it showed")
+	}
 	if got := cfg.MCPApprovals["kb-a"]["variant/fork-cli"].ContentHash; got != "variant-hash-0123456789" {
 		t.Fatalf("approval = %q (%+v)", got, cfg.MCPApprovals)
 	}

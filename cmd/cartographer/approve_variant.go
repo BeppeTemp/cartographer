@@ -3,11 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
@@ -24,8 +23,9 @@ func printVariantPreview(w io.Writer, a provisioning.Artifact, data []byte) erro
 	if err != nil {
 		return err
 	}
-	home, _ := os.UserHomeDir()
-	v, reasons := clientvariant.Resolve(spec, clientvariant.Env{GOOS: runtime.GOOS, Home: home, Getenv: os.Getenv})
+	env := provisioning.VariantEnv() // the environment the fingerprint is taken in
+	home := env.Home
+	v, reasons := clientvariant.Resolve(spec, env)
 	e := escapeControl
 	p := func(segs []string) string { return e(filepath.Join(append([]string{home}, segs...)...)) }
 	rel := func(segs []string) string { return e(strings.Join(segs, "/")) }
@@ -84,4 +84,15 @@ func modeOrFile(m string) string {
 		return "file"
 	}
 	return m
+}
+
+// variantPathsMoved reports whether a is a variant approved for exactly these
+// bytes whose paths resolve differently in this environment than when it was
+// approved (D1699): the approval no longer authorizes it.
+func variantPathsMoved(cfg *clientconfig.Config, a provisioning.Artifact) bool {
+	if a.Kind != "variant" {
+		return false
+	}
+	ap, ok := cfg.MCPApprovals[strings.TrimPrefix(a.Source, "kb:")][provisioning.ApprovalName(a)]
+	return ok && ap.ContentHash == a.ContentHash && ap.PathFingerprint != provisioning.VariantPathFingerprint(a, provisioning.ApplyOptions{})
 }

@@ -1406,20 +1406,23 @@ a file with the execute bit, and a skill or agent whose frontmatter declares `ho
 `providers:` block) need the same approval because they run on this machine (D1141), signed or not. Nothing else the client installs
 waits for a decision (`sync` has no `trust` setting and no `--auto-trust`; the one explicit trust write is `workspace bind codex … --trust` for Codex project trust, D1074), and bundled artifacts never do.
 Inspect and record the current content with `cartographer approve <kind> <name> --kb <kb> --yes`
-(`kind` is `mcp`, `hook`, `skill` or `agent`; interactive terminals default to no confirmation; for a
+(`kind` is `mcp`, `hook`, `skill`, `agent` or `variant`; interactive terminals default to no confirmation; for a
 non-MCP kind the command lists the files and prints the `hook.json` and the content of the executable files). Approval records the source KB,
 artifact name (`<kind>/<name>` for everything but an MCP descriptor), content hash and timestamp in
 `.cartographer.yaml`; a content change requires reapproval. `cartographer approve revoke <kind> <name> --kb <kb>`
 takes effect on the next `cartographer sync` (revoking an approval that was never given is an error, exit 2, and without `--kb` it says whether there is nothing to revoke or the name is approved from several KBs): for an MCP descriptor it prunes the managed
 provider config; for a hook or an executable file it stops refreshing what is installed, which is left in
-place, registered and running (the command says how to remove it). A hook or executable file that is waiting is reported as pending on every sync and is not
+place, registered and running (the command says how to remove it); for a client variant it keeps what is installed
+and names `cartographer disconnect <name>` to remove it (deregistration comes with variant discovery). A hook or executable file that is waiting is reported as pending on every sync and is not
 refreshed, registered anew or removed until approved.
 
 `cartographer approve --pending [--kb <kb>] [--yes]` approves every hook, skill or agent `sync` would report as
 `needs_approval` after one confirmation, and before it prints each of them exactly as the single form does
 (the files with their size and execute bit, the `hook.json`, the content of every executable file and of a
 frontmatter that declares hooks or MCP servers), so the confirmation covers what will run. An MCP descriptor is
-never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. Without a
+never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. A client
+variant (D1699) is the same: `--pending` lists it with every path it resolves to on this machine but approves it only
+with `cartographer approve variant <name> --kb <kb>`, whose approval also records those paths. Without a
 terminal it needs `--yes`, like the single form. Names, paths and targets chosen by the server are printed with
 every non-printable character escaped (`\n`, `\x1b`, `\u202e`), so a name cannot forge a line, rewrite the screen or read as another command. Then run
 `cartographer sync`.

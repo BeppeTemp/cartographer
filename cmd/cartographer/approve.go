@@ -136,6 +136,10 @@ func cmdApprove(args []string) int {
 	// Reloaded under the lock: the preview and the prompt above can take as
 	// long as the operator does, and a sync may have saved meanwhile (D172).
 	if err := withClientConfig(dir, func(c *clientconfig.Config) error {
+		if kind == "variant" {
+			// Bound to the paths the preview above printed (D1699).
+			return c.ApproveVariant(source, approvalEntryName(kind, name), a.ContentHash, provisioning.VariantPathFingerprint(a, provisioning.ApplyOptions{}), time.Now())
+		}
 		return c.ApproveMCP(source, approvalEntryName(kind, name), a.ContentHash, time.Now())
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -331,7 +335,7 @@ func cmdApprovePending(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	opts := provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes()}
+	opts := provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes(), ApprovedVariantPaths: cfg.ApprovedPathFingerprints()}
 	var pending, mcps []provisioning.Artifact
 	for _, a := range m.Artifacts {
 		if kbName != "" && a.Source != "kb:"+kbName {
@@ -352,6 +356,9 @@ func cmdApprovePending(args []string) int {
 		label := "MCP"
 		if a.Kind == "variant" {
 			label = "variant"
+			if variantPathsMoved(cfg, a) {
+				fmt.Printf("variant %s was approved for other paths: the descriptor resolves differently in this environment\n", escapeControl(a.Name))
+			}
 			// The listing carries every resolved path: the approval is the control.
 			if err := printApprovalPreview(os.Stdout, a); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: variant %s: %v\n", escapeControl(a.Name), err)
