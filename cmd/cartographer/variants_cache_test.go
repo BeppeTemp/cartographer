@@ -576,3 +576,42 @@ func TestMergeDiscoveredJoinsAnExplicitList(t *testing.T) {
 		t.Errorf("merged = %v", got)
 	}
 }
+
+// A KB that turned artifacts off installs nothing through sync, so discovery
+// neither approves nor caches its variants either; the same KB with artifacts on
+// is the control.
+func TestDiscoverVariantsLeavesOutAKBWithArtifactsOff(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name string
+		opts map[string]clientconfig.KBOption
+		want bool // cached
+	}{
+		{"artifacts on", nil, true},
+		{"artifacts off", map[string]clientconfig.KBOption{"kb-a": {Artifacts: &off}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := variantHome(t)
+			a := variantArtifact(cachedVariant)
+			srv := prefixAwareMCPServer(t, map[string]string{"kb-a": ""}, "sync_pull", func(kb string) string {
+				return pulledHookPayload(t, kb, a)
+			})
+			defer srv.Close()
+			cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", KBOptions: tc.opts}
+			if err := clientconfig.Save(home, cfg); err != nil {
+				t.Fatal(err)
+			}
+			var out, errw bytes.Buffer
+			discoverVariants(cfg, home, variantDiscovery{Approve: true, Out: &out, Err: &errw})
+			c, _ := clientvariant.LoadCache(home)
+			got, _ := clientconfig.Load(home)
+			approved := len(got.MCPApprovals["kb-a"]) != 0
+			if (len(c) != 0) != tc.want || approved != tc.want {
+				t.Fatalf("cached %v approved %v, want %v\nout %q err %q", c, approved, tc.want, out.String(), errw.String())
+			}
+			if !tc.want && !strings.Contains(out.String(), "kb-a") {
+				t.Errorf("no note naming the KB: %q", out.String())
+			}
+		})
+	}
+}

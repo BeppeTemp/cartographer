@@ -185,12 +185,23 @@ func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery)
 	opts := provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes(), ApprovedVariantPaths: cfg.ApprovedPathFingerprints()}
 	var arts, approve []provisioning.Artifact
 	pulled := map[string]bool{}
+	optedOut := map[string]bool{}
 	for _, a := range m.Artifacts {
 		if a.Kind != "variant" {
 			continue
 		}
+		kb := strings.TrimPrefix(a.Source, "kb:")
+		if !cfg.KBArtifacts(kb) {
+			// kb_options artifacts:false: sync installs nothing from this KB, and
+			// neither may discovery preview, approve or cache its variants.
+			if !optedOut[kb] {
+				optedOut[kb] = true
+				fmt.Fprintf(o.Out, "note: KB %s has artifacts turned off (kb_options): its client variants are left out\n", escapeControl(kb))
+			}
+			continue
+		}
 		arts = append(arts, a)
-		pulled[strings.TrimPrefix(a.Source, "kb:")] = true
+		pulled[kb] = true
 		if provisioning.ArtifactAuthorized(a, opts) || (!o.Approve && !o.Interactive) {
 			continue
 		}
