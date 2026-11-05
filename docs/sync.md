@@ -933,8 +933,16 @@ A KB can declare a **client variant**: a fork of a supported client, as data in 
 named entry in `Manifest.Issues`, so one typo does not stop the KB's skills, and `artifact_write`
 refuses it and the `variant_invalid` lint check reports one that arrived by git. The kind is
 **declarative**: it has no row in the destination matrix, `unsupportedKindWarnings` skips it, and
-a client that does not know it ignores it. Nothing applies a descriptor yet; registration and
-approval come in later changes. Why: [D1657](decisions/D1657-variant-artifact-kind.md).
+a client that does not know it ignores it. A registered variant adds **runtime cells** to the matrix
+(`provisioning.RegisterVariantCells`): every lookup reads them through `cellFor`, a kind the descriptor
+did not declare is unsupported (cells are not inherited from the base), the static matrices and their
+completeness tests stay built-in only, and the descriptor's `agent.format` picks the agent translation
+(the base's `providers.<base>` block is honoured). A variant whose global roots equal, contain or lie
+under the roots of a built-in or another variant is refused whole (`ValidateVariantCells`; project cells
+are exempt, as `AGENTS.md` and `.agents/skills` already are among built-ins). Its roots are prune
+boundaries, and its capability row is the declared value, else the base's probe, forced `absent` where it
+has no cell. A `hook` cell is ignored until a later release wires the base's registrar. Nothing registers
+a descriptor yet; discovery and approval come in later changes. Why: [D1657](decisions/D1657-variant-artifact-kind.md).
 
 ## Implementation choices
 

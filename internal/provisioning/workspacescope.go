@@ -202,7 +202,7 @@ func matrixFor(scope Scope) map[string]map[configurator.Provider]destination {
 // case and keeps its signature, because every caller that has no workspace to
 // speak of is asking exactly that question.
 func destDirScoped(kind, name string, provider configurator.Provider, scope Scope) string {
-	cell, ok := matrixFor(scope)[kind][provider]
+	cell, ok := cellFor(scope, kind, provider)
 	if !ok || cell.unsupported {
 		return ""
 	}
@@ -221,8 +221,8 @@ func destDirScoped(kind, name string, provider configurator.Provider, scope Scop
 // that cannot project must be reported as unsupported rather than quietly
 // served from the global catalogue (decision 11).
 func SupportsProjectScope(provider configurator.Provider) bool {
-	for kind := range projectDestinationMatrix {
-		if cell, ok := projectDestinationMatrix[kind][provider]; ok && !cell.unsupported {
+	for _, kind := range artifactKinds {
+		if cell, ok := cellFor(ScopeProject, kind, provider); ok && !cell.unsupported {
 			return true
 		}
 	}
@@ -286,8 +286,8 @@ func ProjectRegistrationFiles(provider configurator.Provider) []string {
 func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for kind := range projectDestinationMatrix {
-		cell, ok := projectDestinationMatrix[kind][provider]
+	for _, kind := range artifactKinds {
+		cell, ok := cellFor(ScopeProject, kind, provider)
 		if !ok || cell.unsupported {
 			continue
 		}
@@ -334,7 +334,7 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	var out []string
 	var roots []string
 	for _, kind := range artifactKinds {
-		cell, ok := projectDestinationMatrix[kind][provider]
+		cell, ok := cellFor(ScopeProject, kind, provider)
 		if !ok || cell.unsupported {
 			continue
 		}
@@ -369,7 +369,7 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 		out = append(out, rel)
 	}
 	for _, kind := range artifactKinds {
-		cell, ok := projectDestinationMatrix[kind][provider]
+		cell, ok := cellFor(ScopeProject, kind, provider)
 		if !ok || cell.unsupported {
 			continue
 		}
