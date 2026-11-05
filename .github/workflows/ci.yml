@@ -30,7 +30,7 @@ concurrency:
 # locally by `make signoff` and runs only `changes` and `gate`, which looks for
 # the signoff status of its head sha. `gate` is the one required CI check: the
 # `test-windows` and `web` aggregators no longer run on a PR. The heavy legs
-# (Windows, macOS, docker, demo-edge) run on push to main, on workflow_dispatch
+# (Windows, macOS, Linux without systemd, docker, demo-edge) run on push to main, on workflow_dispatch
 # and on `merge_group` (D1592): the account runs about five jobs at a time and
 # twenty per PR was the bottleneck. A Windows- or macOS-only break is caught on
 # main and tracked by `ci-red`.

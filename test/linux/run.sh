@@ -10,7 +10,8 @@ set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(CDPATH= cd -- "$here/../.." && pwd)
 
-# Pinned by digest like the Dockerfile's: a moving tag would change what this
+# Pinned by digest like the Dockerfile's (both digests are multi-arch index digests, so
+# an arm64 runner or a local Apple-silicon Docker resolves its own platform): a moving tag would change what this
 # leg proves without a commit. alpine = musl + busybox crond; debian = glibc + cronie-like Vixie cron.
 ALPINE='alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35'
 DEBIAN='debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc'

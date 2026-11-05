@@ -48,7 +48,16 @@ status_is() { # code
   rc=0; $BIN service status >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq "$1" ]
 }
-watchdog() { sh -c "$(crontab -l | sed -n 's|^\*/5 \* \* \* \* ||p')"; }
+# The server block's command, taken verbatim: the block is selected by its
+# markers, then the line that is neither a comment nor @reboot, minus its five
+# schedule fields (the interval is not this test's business).
+watchdog() {
+  cmd=$(crontab -l | sed -n '/^# BEGIN cartographer server/,/^# END cartographer server/p' \
+    | awk '!/^#/ && !/^@/ { for (i = 6; i <= NF; i++) printf "%s%s", $i, (i < NF ? " " : ""); printf "\n" }')
+  [ -n "$cmd" ] || fail "no watchdog command in the server block"
+  sh -c "$cmd"
+}
+blocks() { crontab -l | grep -c "^# BEGIN cartographer $1"; }
 
 git config --global user.name ci
 git config --global user.email ci@local
@@ -72,6 +81,27 @@ cron)
   [ "$(crontab -l | grep -c 'BEGIN cartographer server')" -eq 1 ] || fail "not exactly one server block"
   crontab -l | grep -qxF "$seed" || fail "the foreign crontab line is gone"
   ok "status 0, /health, one block, foreign line intact"
+
+  echo "→ setup rerun over the managed server"
+  out=$($BIN setup --yes --no-input --no-remote --name kb-a --agents claude 2>&1) || fail "setup rerun exited $?: $out"
+  case $out in *"already running ("*) ;; *) fail "the rerun plan does not keep the running server: $out" ;; esac
+  case $out in *"server ready"*) ;; *) fail "the rerun did not end with 'server ready'" ;; esac
+  [ "$(blocks server)" -eq 1 ] || fail "the rerun left $(blocks server) server blocks"
+  ok "rerun keeps the server, still one block"
+
+  echo "→ sync timer on cron"
+  $BIN service sync-timer install >/dev/null || fail "sync-timer install failed"
+  [ "$(blocks sync)" -eq 1 ] || fail "want one sync block, found $(blocks sync)"
+  $BIN service sync-timer install >/dev/null || fail "sync-timer reinstall failed"
+  [ "$(blocks sync)" -eq 1 ] || fail "a reinstall left $(blocks sync) sync blocks"
+  [ "$(blocks server)" -eq 1 ] || fail "the sync timer touched the server block"
+  crontab -l | grep -qxF "$seed" || fail "the sync timer touched the foreign line"
+  $BIN service sync-timer status >/dev/null || fail "sync-timer status is not 0"
+  $BIN service sync-timer uninstall >/dev/null || fail "sync-timer uninstall failed"
+  [ "$(blocks sync)" -eq 0 ] || fail "the sync block is still in the crontab"
+  [ "$(blocks server)" -eq 1 ] || fail "removing the sync timer removed the server block"
+  crontab -l | grep -qxF "$seed" || fail "the foreign line is gone after the sync timer's removal"
+  ok "one sync block, idempotent, removed alone, seed and server block intact"
 
   echo "→ watchdog"
   t0=$(started_at)
@@ -142,6 +172,8 @@ nocron)
   out=$($BIN setup --yes --no-input --no-remote --name kb-a --agents claude 2>&1) || rc=$?
   echo "$out"
   [ "$rc" -eq 1 ] || fail "setup over a hand-started server exited $rc, wanted 1 (restart needed)"
+  case $out in *"already answering on 127.0.0.1:39273 (not managed by Cartographer) - keep"*) ;; *) fail "the plan does not keep the hand-started server" ;; esac
+  case $out in *"already answering (not managed by Cartographer)"*) ;; *) fail "the server step does not report the unmanaged server" ;; esac
   case $out in *"restart it by hand"*) ;; *) fail "setup did not ask for a restart" ;; esac
   kill_serve 15
   wait_for 40 not_serving || fail "the hand-started server did not stop"
