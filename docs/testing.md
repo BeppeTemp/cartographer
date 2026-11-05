@@ -65,7 +65,7 @@ diff needs the web legs, decided by `scripts/ci-filters.sh`) before the push and
 head sha, and `gate` passes iff such a status exists, created by someone with write access (it polls for
 three minutes, so a status posted just after the push is found). `gate` has no `if` but `!cancelled()` (a skipped
 required check passes), pinned by `internal/repodocs/ci_gate_test.go`. The heavy legs
-(the Windows shards and `install.ps1`, `test-macos`, `docker`, `demo-edge`) run on `merge_group`, on
+(the Windows shards and `install.ps1`, `test-macos`, `test-linux-nosystemd`, `docker`, `demo-edge`) run on `merge_group`, on
 every push to `main` and on `workflow_dispatch`, never on a PR (D1592). A merge queue is not
 available here (it needs an organization-owned repository), so the heavy legs run after the merge:
 a Windows- or macOS-only break is caught on `main` and tracked by the `ci-red` issue, fixed by a
@@ -109,7 +109,9 @@ test that stubs only the home directory writes task definitions into the
 the recorded commands are asserted, not merely the absence of an error: no test
 stubs `os.Getuid`, which returns `-1` on Windows, so a branch that built
 `gui/-1/com.cartographer.serve` would otherwise pass. The launchd branch is the one that
-is also run for real, on a macOS runner (§Real macOS, D997). What the gate cannot check
+is also run for real, on a macOS runner (§Real macOS, D997), and the cron backend's
+`crontab` and process calls (stubbed through `Manager.run` and `Manager.proc`) are run for
+real in containers with no systemd (§Real Linux without systemd, D1682). What the gate cannot check
 is the *schema validity* of the two generated task XML documents — nothing
 registers a task, since `make gate` stays side-effect-free — so their element
 order follows Task Scheduler's own export, and the first real
@@ -223,6 +225,28 @@ already has the approval gate, so the default run proves that an approval surviv
 the upgrade, not the one-time migration of D1166: exercise that with
 `E2E_UPGRADE_FROM=v0.25.1 E2E_UPGRADE_ONLINE=1 make e2e-upgrade`, which expects one
 `approved hook/<name> [kb:kb]: installed before approvals existed, unchanged` line.
+
+### Real Linux without systemd (D1682)
+
+The `test-linux-nosystemd` job (and `make test-linux` locally, which needs Docker) runs
+`test/linux/run.sh`: it builds one static binary (`CGO_ENABLED=0`) and, in each of two images pinned by
+digest, an Alpine one (musl, busybox `crond`) and a Debian one (glibc, Vixie `cron`), neither with an
+init, runs `test/linux/nosystemd.sh` (POSIX `sh`) as non-root accounts with a clean environment and
+their real `$HOME` (so the scheduler guard allows `crontab`) against a running cron daemon. The first
+account runs `setup --yes --no-input --no-remote` with a foreign crontab line pre-seeded and asserts: the
+plan names cron and `server ready`; `service status` exits 0 and `/health` answers; exactly one server
+block and the foreign line intact; a killed server comes back when the watchdog command, taken
+verbatim from the crontab, runs (new `started_at`, no 5-minute sleep) and two concurrent
+watchdogs leave one process; `stop` gives status 3 and the watchdog does nothing; `start`, then
+`restart --wait` gives a new `started_at`; `uninstall` gives status 4, the crontab equals the seeded
+text, no process is left and the KB is untouched. The second account has a `PATH` with no
+`crontab` and no server: `setup` exits 2, prints the manual route and writes nothing; then
+`service install --config-only`, a hand-started `serve`, `setup` (exit 1: restart by hand) and a
+restarted server end with `server ready`. On failure the script prints the container's architecture,
+the `crontab` flavour and the tail of `server.log` and `supervisor.log`. The job runs on push to
+`main`, `workflow_dispatch` and `merge_group`, never on a PR (D1592), so a maintainer runs
+`make test-linux` before the PR. The `install.sh` fallbacks are covered by the network-free
+`test/install` scenarios, not here.
 
 ### Real macOS (D997)
 
@@ -851,12 +875,13 @@ a `# vX.Y.Z` comment.
 - Provider/model quality comparisons.
 - Tests requiring production credentials or external private infrastructure.
 - Manual UI appearance checks, and screenshot baselines of the Atlas UI (D228).
+- The Linux no-systemd scripts without Docker: `test/linux/` needs a container runtime and `go`.
 - The macOS scripts on any other host: `test/macos/` runs only on a macOS runner (or a
   throwaway Mac with `CARTOGRAPHER_MACOS_E2E=1`).
 - The shell harnesses on Windows: `make smoke-http`, `make e2e` and
   `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
   `test/install/`) driving a launchd/systemd install path, so they run on the
-  ubuntu leg only.
+  ubuntu leg only; `make test-linux` (`test/linux/`, Docker) is a heavy leg of its own.
 - Registering a real Scheduled Task, or setting the real named shutdown event: both
   change state outside the test's temp directory. The command sequences and the XML
   are asserted; that Task Scheduler accepts the document is verified by an actual

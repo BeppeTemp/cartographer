@@ -485,6 +485,25 @@ jobs:
       - name: The Cask from a local tap
         run: test/macos/cask.sh dist
 
+  # Linux without systemd (D1682): `setup` and the service verbs on the cron
+  # backend, in an Alpine (musl, busybox crond) and a Debian (glibc, Vixie cron)
+  # container, neither with an init. Push to main, a manual run and merge_group
+  # (D1592). Not a required check; main-status watches it.
+  test-linux-nosystemd:
+    name: test-linux-nosystemd
+    if: "!cancelled() && github.event_name != 'pull_request'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: make test-linux
+
   # The PR title and body lint (the required `pr-title` check) is its own
   # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
 
@@ -493,7 +512,7 @@ jobs:
   # first green push closes it.
   main-status:
     name: main-status
-    needs: [test, test-windows, web, demo-edge, docker, test-macos]
+    needs: [test, test-windows, web, demo-edge, docker, test-macos, test-linux-nosystemd]
     if: github.event_name == 'push' && !cancelled()
     runs-on: ubuntu-latest
     permissions:
