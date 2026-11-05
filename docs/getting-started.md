@@ -20,7 +20,7 @@ brew install beppetemp/tap/cartographer
 # Windows (PowerShell; per-user, no administrator rights)
 irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex
 
-# Linux / macOS without Homebrew
+# Linux / macOS without Homebrew (curl or wget; 32-bit ARM needs ARMv7)
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh
 
 # From source (Go 1.26+)

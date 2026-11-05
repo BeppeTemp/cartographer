@@ -9,6 +9,7 @@
 # On macOS, Homebrew is the preferred install method:
 #   brew install beppetemp/tap/cartographer
 #
+# Needs curl or wget, and a SHA-256 tool (sha256sum, shasum, openssl or busybox).
 # Environment:
 #   CARTOGRAPHER_INSTALL_DIR  target directory (default: /usr/local/bin, falls
 #                             back to ~/.local/bin when not writable)
@@ -26,12 +27,56 @@ BIN_NAME="cartographer"
 log() { printf '%s\n' "$*" >&2; }
 fail() { log "error: $*"; exit 1; }
 
-auth_curl() {
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-        curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$@"
-    else
-        curl -fsSL "$@"
+# fetch URL (to stdout) or fetch -o FILE URL: curl when there is one, else wget
+# (GNU and busybox take -q and -O alike). Both are limited to https, redirects
+# included. The token goes through curl only: curl drops it on a cross-host
+# redirect (the asset CDN), wget would forward it.
+fetch() {
+    if command -v curl >/dev/null 2>&1; then
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            curl -fsSL --proto '=https' --proto-redir '=https' -H "Authorization: Bearer ${GITHUB_TOKEN}" "$@"
+        else
+            curl -fsSL --proto '=https' --proto-redir '=https' "$@"
+        fi
+        return
     fi
+    out=-
+    if [ "${1:-}" = "-o" ]; then out=$2; shift 2; fi
+    # WGET_HTTPS is --https-only where wget has it (GNU). A busybox wget has no
+    # such flag and no way to refuse a redirect: every URL this script fetches
+    # is an https constant, so it is what we can do there.
+    wget -q ${WGET_HTTPS:+"$WGET_HTTPS"} -O "$out" "$@"
+}
+
+# need_fetcher fails before any work when there is neither curl nor wget, and
+# sets WGET_HINT so a busybox wget without TLS reads as what it is.
+need_fetcher() {
+    WGET_HINT=""
+    command -v curl >/dev/null 2>&1 && return 0
+    command -v wget >/dev/null 2>&1 || fail "need curl or wget"
+    WGET_HTTPS=""
+    if wget --help 2>&1 | grep -q -- '--https-only'; then WGET_HTTPS="--https-only"; fi
+    [ -z "${GITHUB_TOKEN:-}" ] || log "note: GITHUB_TOKEN is not used with wget (it would follow redirects to other hosts with it); install curl to use it"
+    WGET_HINT=" (if this is a TLS error: wget without HTTPS support, install curl or ca-certificates + ssl_client)"
+}
+
+# sha256_tool names the first SHA-256 tool this host has, empty when none.
+sha256_tool() {
+    if command -v sha256sum >/dev/null 2>&1; then echo sum
+    elif command -v shasum >/dev/null 2>&1; then echo shasum
+    elif command -v openssl >/dev/null 2>&1; then echo openssl
+    elif busybox sha256sum </dev/null >/dev/null 2>&1; then echo busybox
+    fi
+}
+
+# sha256_of FILE prints the hex digest (sha256_tool must not be empty).
+sha256_of() {
+    case "$(sha256_tool)" in
+        sum) sha256sum "$1" | cut -d' ' -f1 ;;
+        shasum) shasum -a 256 "$1" | cut -d' ' -f1 ;;
+        openssl) openssl dgst -sha256 "$1" | sed 's/^.*[[:space:]]//' ;;
+        busybox) busybox sha256sum "$1" | cut -d' ' -f1 ;;
+    esac
 }
 
 detect_target() {
@@ -58,7 +103,14 @@ detect_target() {
     esac
     case "$arch" in
         x86_64|amd64) arch=amd64 ;;
-        arm64|aarch64) arch=arm64 ;;
+        arm64|aarch64)
+            arch=arm64
+            # A 64-bit kernel under a 32-bit userland (common on Raspberry Pi
+            # images) cannot run the arm64 binary.
+            if [ "$os" = linux ] && [ "$(getconf LONG_BIT 2>/dev/null || true)" = 32 ]; then arch=arm; fi
+            ;;
+        armv7*|armv8l) arch=arm ;;
+        armv6*|armv5*) fail "unsupported architecture: $arch (the 32-bit ARM build needs ARMv7)" ;;
         *) fail "unsupported architecture: $arch" ;;
     esac
     printf '%s-%s' "$os" "$arch"
@@ -91,8 +143,8 @@ latest_tag() {
     # hundred newer candidates, no stable tag is found and the message says so,
     # distinct from a failed request. One key per line first, so compact and
     # pretty-printed JSON read the same.
-    list=$(auth_curl "${API_URL}/releases?per_page=100") \
-        || fail "cannot determine latest release (rate-limited? set GITHUB_TOKEN)"
+    list=$(fetch "${API_URL}/releases?per_page=100") \
+        || fail "cannot determine latest release (rate-limited? set GITHUB_TOKEN)${WGET_HINT}"
     tag=$(printf '%s\n' "$list" | tr ',{' '\n\n' \
         | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
         | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
@@ -121,6 +173,7 @@ warn_no_git() {
 }
 
 do_install() {
+    need_fetcher
     target=$(detect_target)
     if [ -n "${CARTOGRAPHER_INSTALL_TAG:-}" ]; then
         # The tag goes into a URL: only the shape of a release tag is accepted.
@@ -156,7 +209,7 @@ do_install() {
     tmpdir=$(mktemp -d "${dir}/.cartographer-install.XXXXXX") || fail "cannot create a temporary directory in ${dir}"
     trap 'rm -rf "$tmpdir"' EXIT
     tmp="${tmpdir}/${BIN_NAME}"
-    auth_curl -o "$tmp" "$url" || fail "download failed: $url"
+    fetch -o "$tmp" "$url" || fail "download failed: ${url}${WGET_HINT}"
 
     # Every release since v0.1.0 publishes sha256sums.txt, so a manifest that
     # cannot be fetched (404, network error) is never "an old tag": it is the
@@ -167,11 +220,12 @@ do_install() {
     # release as the binary. The signed attestation (D1022) is verified with
     # `gh attestation verify`, by no installer. A manifest that exists but does not cover this asset is
     # the same error.
-    auth_curl -o "$tmpdir/sha256sums.txt" "${DOWNLOAD_URL}/${tag}/sha256sums.txt" 2>/dev/null \
-        || fail "cannot download sha256sums.txt for ${tag}: refusing to install unverified"
+    fetch -o "$tmpdir/sha256sums.txt" "${DOWNLOAD_URL}/${tag}/sha256sums.txt" 2>/dev/null \
+        || fail "cannot download sha256sums.txt for ${tag}: refusing to install unverified${WGET_HINT}"
     expected=$(grep " ${asset}\$" "$tmpdir/sha256sums.txt" | cut -d' ' -f1)
     [ -n "$expected" ] || fail "sha256sums.txt has no entry for ${asset}: refusing to install unverified"
-    actual=$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)
+    [ -n "$(sha256_tool)" ] || fail "no sha256 tool: refusing to install unverified"
+    actual=$(sha256_of "$tmp")
     [ "$actual" = "$expected" ] || fail "checksum mismatch for ${asset}"
     log "checksum OK"
 
@@ -225,7 +279,9 @@ leftover_units() {
         "${HOME}/Library/LaunchAgents/com.cartographer.sync.plist" \
         "${HOME}/Library/LaunchAgents/com.cartographer.tray.plist" \
         "${HOME}/.config/systemd/user/cartographer.service" \
-        "${HOME}/.config/systemd/user/cartographer-sync.timer"
+        "${HOME}/.config/systemd/user/cartographer-sync.timer" \
+        "${HOME}/.config/cartographer/cron/server.cron" \
+        "${HOME}/.config/cartographer/cron/sync.cron"
     do
         [ -f "$unit" ] && echo "$unit"
     done

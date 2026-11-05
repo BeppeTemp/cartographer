@@ -47,7 +47,7 @@ assert_file_contains() {
         _assert_fail "$3 — file not found: $1"
         return
     fi
-    if grep -qF "$2" "$1" 2>/dev/null; then
+    if grep -qF -- "$2" "$1" 2>/dev/null; then
         _assert_pass "$3"
     else
         _assert_fail "$3 — file '$1' does not contain '$2'"
@@ -60,7 +60,7 @@ assert_file_not_contains() {
         _assert_pass "$3 (file absent, trivially lacks '$2')"
         return
     fi
-    if grep -qF "$2" "$1" 2>/dev/null; then
+    if grep -qF -- "$2" "$1" 2>/dev/null; then
         _assert_fail "$3 — file '$1' unexpectedly contains '$2'"
     else
         _assert_pass "$3"
