@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run ready land land-status
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -236,6 +236,18 @@ signoff: ## Maintainer only: gate (+ web-gate when needed), push the branch and 
 signoff-platform:
 	@echo "$$(go env GOOS)/$$(go env GOARCH)"
 
+# A maintainer's path to main (D1706): queue the finished change as one commit,
+# the lander lands it in a train with one gate. scripts/ready.sh and scripts/land.sh
+# have the rules.
+ready: ## Maintainer only: queue this branch (MSG=<message file> [AFTER=<slug>] [HOLD=1] [REVIEW="<tier>, <n> rounds"]) and start the lander
+	@MSG="$(MSG)" AFTER="$(AFTER)" HOLD="$(HOLD)" REVIEW="$(REVIEW)" ./scripts/ready.sh
+
+land: ## Maintainer only: land the queue in the foreground until nothing is landable (DRY=1: print the next train)
+	@./scripts/land.sh $(if $(DRY),--dry-run)
+
+land-status: ## The lander's queue, its open train PR and the rejected changes
+	@./scripts/land.sh --status
+
 # The two `web-leg` matrix legs of ci.yml as one local command: install once
 # (NPM_CI= tells the targets not to repeat it), then the video leg's steps and the
 # whole browser suite (the two --grep legs partition it). ci_gate_test.go pins
@@ -264,13 +276,13 @@ codemap: ## Regenerate the code map in AGENTS.md from the package doc comments
 settings-example: ## Regenerate config.example.yaml from the settings schema (internal/config/schema.go)
 	@SETTINGS_EXAMPLE_UPDATE=1 go test ./internal/config -run TestExampleIsUpToDate -count=1
 
-decisions-new: ## New decision from the template: make decisions-new N=<PR number> SLUG=my-choice TOPIC=control-plane (D672)
-	@test -n "$(N)" -a -n "$(SLUG)" -a -n "$(TOPIC)" || \
-		(echo "decisions-new: N, SLUG and TOPIC are all required" && exit 1)
+decisions-new: ## New decision from the template: make decisions-new SLUG=my-choice TOPIC=control-plane (D-new-<slug>, numbered by the lander; N=<n> for a contributor PR's number)
+	@test -n "$(SLUG)" -a -n "$(TOPIC)" || \
+		(echo "decisions-new: SLUG and TOPIC are required" && exit 1)
 	@grep -q '{"$(TOPIC)",' internal/repodocs/repodocs.go || \
 		(echo "decisions-new: unknown TOPIC $(TOPIC); valid: $$(grep -oE '^	\{"[a-z-]+"' internal/repodocs/repodocs.go | tr -d '{"	' | tr '\n' ' ')" && exit 1)
-	@test ! -e "docs/decisions/D$(N)-$(SLUG).md" || \
-		(echo "decisions-new: docs/decisions/D$(N)-$(SLUG).md already exists" && exit 1)
-	@sed -e 's/^topic: .*/topic: $(TOPIC)/' -e 's/^# D<n> — .*/# D$(N) — <title>/' \
-		docs/decisions/TEMPLATE.md > "docs/decisions/D$(N)-$(SLUG).md"
-	@echo "docs/decisions/D$(N)-$(SLUG).md — write it, then: make decisions-index"
+	@id=$(if $(N),D$(N)-$(SLUG),D-new-$(SLUG)); head=$(if $(N),D$(N),D-new-$(SLUG)); \
+	test ! -e "docs/decisions/$$id.md" || { echo "decisions-new: docs/decisions/$$id.md already exists"; exit 1; }; \
+	sed -e 's/^topic: .*/topic: $(TOPIC)/' -e "s/^# D<n> — .*/# $$head — <title>/" \
+		docs/decisions/TEMPLATE.md > "docs/decisions/$$id.md"; \
+	echo "docs/decisions/$$id.md — write it; cite it as $$head"
