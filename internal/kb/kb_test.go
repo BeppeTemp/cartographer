@@ -342,7 +342,7 @@ func TestEnsureInfoExclude_GitfileWorktreeNoOp(t *testing.T) {
 func TestResolvePath_EscapeRifiutato(t *testing.T) {
 	t.Parallel()
 	kb := newTestKB(t)
-	_, err := kb.ResolvePath("../escape", false)
+	_, err := kb.ResolvePath("../escape")
 	if err == nil {
 		t.Fatal("ResolvePath: expected error for ../escape")
 	}
@@ -351,7 +351,7 @@ func TestResolvePath_EscapeRifiutato(t *testing.T) {
 func TestResolvePath_AssolutoRifiutato(t *testing.T) {
 	t.Parallel()
 	kb := newTestKB(t)
-	_, err := kb.ResolvePath("/etc/passwd", false)
+	_, err := kb.ResolvePath("/etc/passwd")
 	if err == nil {
 		t.Fatal("ResolvePath: expected error for absolute path")
 	}
@@ -361,7 +361,7 @@ func TestResolvePath_ServicesAnchoredAtRoot(t *testing.T) {
 	t.Parallel()
 	kb := newTestKB(t)
 	// services/ is a sibling of data/ but must be resolvable for Service concepts.
-	abs, err := kb.ResolvePath("services/keycloak.md", false)
+	abs, err := kb.ResolvePath("services/keycloak.md")
 	if err != nil {
 		t.Fatalf("ResolvePath services/: %v", err)
 	}

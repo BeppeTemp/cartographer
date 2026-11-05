@@ -76,7 +76,7 @@ func walkVisibleDirs(root string, visit func(p string, d fs.DirEntry)) error {
 // the operator why it is missing.
 func (kb *KB) conceptFiles() ([]conceptFile, error) {
 	var files []conceptFile
-	dataRoot, err := kb.ResolvePath(".", false)
+	dataRoot, err := kb.ResolvePath(".")
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +593,7 @@ func (kb *KB) ConceptFacets(id okf.ConceptID) ConceptFacets {
 	if err != nil {
 		return ConceptFacets{}
 	}
-	abs, err := kb.ResolvePath(rel, false)
+	abs, err := kb.ResolvePath(rel)
 	if err != nil {
 		return ConceptFacets{}
 	}

@@ -70,7 +70,7 @@ func (kb *KB) resolveAsset(id okf.ConceptID, assetPath string, writeMode bool) (
 		return "", "", err
 	}
 	if !expanded || conceptRel != path.Join(string(id), "index.md") {
-		conceptAbs, resolveErr := kb.ResolvePath(conceptRel, false)
+		conceptAbs, resolveErr := kb.ResolvePath(conceptRel)
 		if resolveErr == nil {
 			if _, statErr := os.Stat(conceptAbs); os.IsNotExist(statErr) {
 				return "", "", fmt.Errorf("%w: concept %s", okf.ErrNotFound, id)
@@ -79,7 +79,7 @@ func (kb *KB) resolveAsset(id okf.ConceptID, assetPath string, writeMode bool) (
 		return "", "", fmt.Errorf("%w: concept %s must be expanded first with concept_expand", okf.ErrInvalidPath, id)
 	}
 	conceptDir := filepath.Dir(conceptRel)
-	conceptAbs, err := kb.ResolvePath(conceptDir, false)
+	conceptAbs, err := kb.ResolvePath(conceptDir)
 	if err != nil {
 		return "", "", err
 	}
@@ -98,7 +98,7 @@ func (kb *KB) resolveAsset(id okf.ConceptID, assetPath string, writeMode bool) (
 	// ResolvePath keeps the lexical guard anchored at data/. Lstat every
 	// existing segment so a repository-controlled symlink cannot bypass it.
 	rel := path.Join(conceptDir, clean)
-	abs, err := kb.ResolvePath(rel, writeMode)
+	abs, err := kb.ResolvePath(rel)
 	if err != nil {
 		return "", "", err
 	}
@@ -317,7 +317,7 @@ func (kb *KB) DeleteAsset(id okf.ConceptID, assetPath, ifMatch string) error {
 	if err := os.Remove(abs); err != nil {
 		return fmt.Errorf("DeleteAsset %s: %w", assetPath, err)
 	}
-	conceptDir, err := kb.ResolvePath(string(id), false)
+	conceptDir, err := kb.ResolvePath(string(id))
 	if err != nil {
 		return err
 	}
@@ -472,7 +472,7 @@ func assetSignature(stats []assetStat, racy bool) string {
 // reads no content: it lists the two directory levels where concepts live and
 // stats each candidate file. An id absent from the map has no indexable assets.
 func (kb *KB) AssetSignatures() (map[okf.ConceptID]string, error) {
-	dataRoot, err := kb.ResolvePath(".", false)
+	dataRoot, err := kb.ResolvePath(".")
 	if err != nil {
 		return nil, err
 	}
