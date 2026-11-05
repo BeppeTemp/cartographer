@@ -6,6 +6,7 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 
 ```
 make gate            # gofmt + vet + test + race: everything green before a PR (and what CI runs)
+make check           # fast tier: fmt, vet, tests of the packages the branch affects
 make signoff         # maintainer: gate, push, attest the sha (CI's gate)
 make build           # → bin/cartographer
 make test            # go test ./...

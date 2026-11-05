@@ -221,7 +221,10 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   names the range since the last green commit), so a Windows- or macOS-only break is caught
   on `main` and fixed by a follow-up. The required checks are `gate`, `pr-title` and
   `plan-gate`. `SIGNOFF_MAKE` points `make signoff` at a wrapper that runs the make targets
-  on another machine; the push is `--force-with-lease` and names its remote and branch.
+  on another machine (its exit 75 means the machine is unavailable: the signoff then lets
+  `ci.yml` run the gate on the pushed branch), `SIGNOFF_WINDOWS` at one that runs the affected
+  packages' tests on Windows beside them; the push is `--force-with-lease` and names its remote
+  and branch. `make check` is the fast tier to run while iterating (the affected packages only).
   `docs/testing.md` has the table.
 - **At most 4 open maintainer PRs at a time, across all sessions** (check
   `gh pr list --author @me --state open --json number,headRefName` before opening, ignoring

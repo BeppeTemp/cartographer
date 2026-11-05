@@ -28,6 +28,8 @@ and the whole suite under `-race` is several times slower. A test written to
 exercise concurrency is named accordingly, or it never runs with the detector.
 `fmt-check`, `vet`, `test` and `race` are what `make gate` runs, the single command CI runs.
 
+`make check` is the fast tier an implementer runs on every iteration, safe to run from several worktrees at once: `fmt-check`, `vet`, and `go test` plus the `Race|Concurren` tests of only the packages the checkout affects. `scripts/affected-pkgs.sh` picks them from the paths changed since the merge-base with `main` (the working tree and untracked files included): the package directory of each changed file (a file in `testdata/` or an embedded skill belongs to the package that reads it), `internal/webui` for `web/`, `internal/repodocs` for any other repository file and `internal/mcpserver` too for markdown (the tool-citation check), everything for `go.mod`/`go.sum`, then every package whose test binary depends on one of those (`go list -test`). `internal/repodocs/affected_pkgs_test.go` pins the table. It is an accelerator, not a proof: `make gate` still runs the whole suite. `CHECK_MAKE` runs the targets on another machine like `SIGNOFF_MAKE` (the package list travels as the make variable `CHECK_PKGS`); an exit 75 from it means the machine is unavailable and the check runs locally.
+
 Three tests in `internal/mcpserver` guard what a tool result costs (D1185). `TestToolResultGolden` drives one call of every JSON-returning tool over a deterministic KB and checks that each answer is `json.Compact` of the golden in `testdata/results` byte for byte and decodes to an equal value: the goldens are the answers of the indenting code, so compaction provably changed nothing but whitespace; commit SHAs, timestamps and the KB root are normalised on both sides, and `-update` rewrites them only for an intended change of content. `TestNoIndentedMarshalInToolResults` fails when a non-test file calls `MarshalIndent` instead of `jsonResult`. `TestSearchDefaultAnswerBudget` runs 14 default-argument queries over a generated 41-concept KB and fails when the average `search` answer exceeds 5 KB (limit 20 and a `related` block of 5, the v0.26 default D1354 restored; the fixture measures 4.6 KB); the budget is the measured average plus a margin, and moves only when the default does, with a decision (D1354 superseded the "do not raise the number" rule of D1185). `TestSearchDefaultLimit` pins the 20 hits, and the `related` tests the block of 5. `TestGuidanceDoesNotPushSectionReads` (`internal/provisioning`) keeps the generated guide and the bundled skills from sending an agent from a search hit to a section, or from telling it to read runbooks, procedures and incidents by section.
 
 `TestTrayView_RunsNoCommand` (`internal/service`) and `TestTrayStatusFnRunsNoSchedulerCommand` (`cmd/cartographer`) pin that the tray's tick runs no `launchctl`, `systemctl` or PowerShell.
@@ -906,6 +908,13 @@ A maintainer runs `make signoff` instead of `make gate` + `git push`: it runs `g
 diff touches what the web legs cover), pushes with `--force-with-lease` to `origin` and posts the `signoff`
 status CI's `gate` job looks for (`scripts/signoff.sh`; `SIGNOFF_MAKE` points it at a wrapper that runs
 make elsewhere). The four commands after `gate` then run on `main` after the merge.
+`SIGNOFF_WINDOWS`, when set, is a command that runs its arguments natively on Windows from the same tree:
+the signoff gives it `go test` of the affected packages (`scripts/affected-pkgs.sh`) beside the targets, a
+red leg fails the signoff, an exit 75 is reported as `windows unavailable`, and the status description names
+the leg (`windows <duration>`, `windows not run` without the variable), so a Windows-only break is found
+before the merge instead of on `main`. An exit 75 from `SIGNOFF_MAKE` (the platform probe or the targets)
+means its machine is unavailable: the signoff pushes the branch, dispatches `ci.yml` on it, waits for that
+run's `gate` job and posts the status only when it is green, naming the run.
 
 What CI runs for a contributor's PR, in the same order: `make gate` is the one place that
 defines "green", so a step added here has to be added to `gate` or to
