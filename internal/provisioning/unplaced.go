@@ -61,29 +61,21 @@ func unplacedSentence(opts ApplyOptions) string {
 	sort.Strings(kbs)
 	var paras []string
 	for _, kb := range kbs {
-		if n := unplacedNames(skills[kb]); n != "" {
-			paras = append(paras, fmt.Sprintf("The %q KB's skills are not installed as files on this client: %s. Read one with %s (pass `kb: %q` on a routed connection) and follow it; a step that needs a CLI, a script or a subagent does not apply.", kb, n, ArtifactReadShape, kb))
+		q := envQuote(kb, envNameMax)
+		if len(skills[kb]) > 0 {
+			paras = append(paras, fmt.Sprintf("The %s KB's skills are not installed as files on this client: %s. Read one with %s (pass `kb: %s` on a routed connection) and follow it; a step that needs a CLI, a script or a subagent does not apply.", q, unplacedNames(skills[kb]), ArtifactReadShape, q))
 		}
-		if n := unplacedNames(agents[kb]); n != "" {
-			paras = append(paras, fmt.Sprintf("The %q KB's agents are not installed as subagents: %s. Read `agents/<name>.md` the same way and follow it yourself.", kb, n))
+		if len(agents[kb]) > 0 {
+			paras = append(paras, fmt.Sprintf("The %s KB's agents are not installed as subagents: %s. Read `agents/<name>.md` the same way and follow it yourself.", q, unplacedNames(agents[kb])))
 		}
 	}
 	return strings.Join(paras, "\n\n")
 }
 
+// unplacedNames sorts, quotes and bounds KB-supplied names like the other
+// environment lines (envQuote, envJoin).
 func unplacedNames(names []string) string {
-	if len(names) == 0 {
-		return ""
-	}
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
-	more := 0
-	if len(sorted) > maxSkillNames {
-		more, sorted = len(sorted)-maxSkillNames, sorted[:maxSkillNames]
-	}
-	s := strings.Join(sorted, ", ")
-	if more > 0 {
-		s += fmt.Sprintf(", +%d more (kb_guide)", more)
-	}
-	return s
+	return envJoin(quoteAll(sorted, envNameMax))
 }
