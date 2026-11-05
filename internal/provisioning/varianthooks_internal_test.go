@@ -217,3 +217,26 @@ func TestVariantHookPruneDoesNotHideAClineHookOfTheSameName(t *testing.T) {
 		t.Fatalf("Cline's own x no longer runs: %q", got)
 	}
 }
+
+// Any global cell is kept out of the dispatcher folder, not only the hook cell;
+// Documents/Cline/Rules (Cline's rules file) stays allowed. A redirected Windows
+// Documents is covered by dispatcherDirRels through clineDocumentsDir, which only
+// differs on a real Windows home; the literal case is what runs everywhere.
+func TestVariantCellsAreKeptOutOfTheDispatcherFolder(t *testing.T) {
+	for name, c := range map[string]struct{ vname, src string }{
+		"instructions": {"fork-ext", strings.Replace(testForkExt, "{home}/Documents/Cline/Rules/cartographer.md", "{home}/Documents/Cline/Hooks/PreToolUse.ps1", 1)},
+		"skill":        {"fork-cli", strings.Replace(testForkCLI, `linux: "{xdg_config}/fork-cli/skills"`, `linux: "{home}/Documents/Cline/Hooks/skills"`, 1)},
+		"agent":        {"fork-cli", strings.Replace(testForkCLI, `linux: "{xdg_config}/fork-cli/agents"`, `linux: "{home}/Documents/Cline/Hooks"`, 1)},
+	} {
+		v := testVariant(t, c.vname, c.src, "linux", nil)
+		_, err := RegisterVariantCells(v)
+		if err == nil {
+			UnregisterVariantCells(c.vname)
+			t.Errorf("%s: a cell in the dispatcher folder was registered", name)
+		} else if !strings.Contains(err.Error(), "shared hook dispatchers") {
+			t.Errorf("%s: refused for another reason: %v", name, err)
+		}
+	}
+	// Cline's rules folder is not the dispatcher folder.
+	registerTestVariant(t, testVariant(t, "fork-ext", testForkExt, "linux", nil))
+}

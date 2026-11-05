@@ -306,10 +306,8 @@ func ValidateVariantCells(v clientvariant.Variant) error {
 	if err := checkProjectCells(v.Name, cells[ScopeProject]); err != nil {
 		return err
 	}
-	// The shared dispatchers live in Documents/Cline/Hooks: a KB hook named like an
-	// event would sit at a dispatcher path, so no hook directory may reach it.
-	if hook, ok := cells[ScopeGlobal]["hook"]; ok && pathsCollide(path.Join(hook.dir...), "Documents/Cline") {
-		return fmt.Errorf("variant %q: the hook cell %q overlaps Documents/Cline, where the shared hook dispatchers live", v.Name, strings.Join(hook.dir, "/"))
+	if err := checkDispatcherCells(v.Name, cells[ScopeGlobal]); err != nil {
+		return err
 	}
 	mine := variantRoots(cells[ScopeGlobal])
 	check := func(owner string, theirs []string) error {
@@ -515,4 +513,40 @@ func mechanismFor(provider configurator.Provider) (hookMechanism, bool) {
 	}
 	m, ok := hookMechanisms[v.base]
 	return m, ok
+}
+
+// dispatcherDirRels are the home-relative slash paths of the folder holding
+// Cline's shared hook dispatchers: the literal one, and the redirected Documents
+// folder of a Windows home when it lies under it (clineDocumentsDir, OneDrive).
+func dispatcherDirRels() []string {
+	out := []string{"Documents/Cline/Hooks"}
+	home := VariantEnv().Home
+	if home == "" {
+		return out
+	}
+	if rel, err := filepath.Rel(home, filepath.Join(clineDocumentsDir(home), "Cline", "Hooks")); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+		if rel = filepath.ToSlash(rel); !strings.EqualFold(rel, out[0]) {
+			out = append(out, rel)
+		}
+	}
+	return out
+}
+
+// checkDispatcherCells refuses a global cell of any kind that reaches the folder
+// of the shared dispatchers: a file there named like an event is run by Cline as
+// a hook, so a skill, instructions or mcp cell would turn KB content into code.
+// A hook cell is also kept out of the rest of Documents/Cline, Cline's own.
+func checkDispatcherCells(name string, cells map[string]destination) error {
+	for kind, c := range cells {
+		p := path.Join(c.dir...)
+		for _, d := range dispatcherDirRels() {
+			if pathsCollide(p, d) {
+				return fmt.Errorf("variant %q: the %s cell %q overlaps %s, where the shared hook dispatchers live", name, kind, p, d)
+			}
+		}
+		if kind == "hook" && pathsCollide(p, "Documents/Cline") {
+			return fmt.Errorf("variant %q: the hook cell %q overlaps Documents/Cline, Cline's own folder", name, p)
+		}
+	}
+	return nil
 }
