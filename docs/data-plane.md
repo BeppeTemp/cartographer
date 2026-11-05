@@ -490,6 +490,8 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `stray_file` | map | yes | - | - | - |
 | `skill_invalid` | artifact | yes | - | - | - |
 | `skill_warning` | artifact | yes | - | - | - |
+| `requires_invalid` | artifact | yes | - | - | - |
+| `degraded_name_collision` | artifact | yes | - | - | - |
 | `legacy_skill_name` | artifact | yes | `move_skill` | - | - |
 | `legacy_tool_name` | artifact | yes | `strip_tool_prefix` | yes | - |
 | `skill_broken_ref` | artifact | yes | - | - | - |

@@ -15,6 +15,8 @@ import (
 // hooks instead of skipping them silently at every client's sync. Warning, not
 // error: the hook is already in the KB and the fix is the author's.
 //
+// A bad `requires` is requires_invalid's (requires.go).
+//
 // A hook directory with no hook.json is reported too: it materializes and is
 // counted, and nothing can fire it.
 func checkHooks(k *kb.KB) []Finding {
@@ -42,10 +44,6 @@ func checkHooks(k *kb.KB) []Finding {
 		case provisioning.UnknownHookEvent(data) != "":
 			// Registered as declared, so not skipped; a typo still never fires.
 			msg = fmt.Sprintf("hook %q: %s", e.Name(), provisioning.UnknownHookEvent(data))
-		case provisioning.ValidateHookRequires(e.Name(), data) != nil:
-			// The hook still registers (parseHookSpec ignores `requires`); only
-			// the declaration is wrong, and nothing evaluates it.
-			msg = fmt.Sprintf("hook %q: invalid requires, ignored at sync (the hook is still registered): %v", e.Name(), provisioning.ValidateHookRequires(e.Name(), data))
 		default:
 			continue
 		}
