@@ -174,11 +174,20 @@ func isLoopbackURL(rawURL string) bool {
 // (installing again wouldn't help) or was stopped on purpose, which a reinstall
 // would silently undo.
 func shouldOfferServiceInstall(loopback bool, installed bool) bool {
-	return loopback && !installed
+	return loopback && !installed && connectServiceBackend() != service.BackendNone
 }
 
+// connectServiceBackend is the backend an install would use; a seam for tests.
+var connectServiceBackend = func() service.Backend { return service.NewManager().Backend() }
+
+// installService installs the service and prints Install's warnings (a cron
+// host without a running crond must hear that the server will not survive a
+// reboot).
 var installService = func(mgr *service.Manager, opts service.InstallOptions) error {
-	_, err := mgr.Install(opts)
+	warnings, err := mgr.Install(opts)
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
 	return err
 }
 

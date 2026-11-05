@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -72,6 +73,7 @@ func cmdService(args []string) int {
 
 func printServiceUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: cartographer service <install|uninstall|start|stop|restart|status> [flags]")
+	fmt.Fprintln(w, "       cartographer service install --config-only   (no service manager: write the config and data dir only)")
 	fmt.Fprintln(w, "       cartographer service sync-timer <install|uninstall|status> [--interval <duration>]")
 	fmt.Fprintln(w, "       cartographer service tray <install|uninstall|status>")
 	fmt.Fprintln(w, "       cartographer service ensure --config <file> [--log-file <file>]   (used by the cron entries)")
@@ -156,6 +158,9 @@ func cmdServiceSyncTimer(args []string) int {
 		} else {
 			fmt.Printf("sync timer %s (%s)\n", state, st.Path)
 		}
+		if st.Also != "" {
+			fmt.Printf("  also installed: %s (`cartographer service sync-timer install` keeps one)\n", st.Also)
+		}
 		if !st.Active {
 			return exitStatusStopped
 		}
@@ -213,6 +218,7 @@ func cmdServiceInstall(args []string) int {
 	dataFlag := fs.String("data", defaultDataDir(), "KB data directory (only used when generating a new config)")
 	httpFlag := fs.String("http", defaults.DefaultListenAddress, "HTTP listen address (only used when generating a new config)")
 	noTray := fs.Bool("no-tray", false, "Do not install the status icon (tray); remembered until `service tray install`")
+	configOnly := fs.Bool("config-only", false, "Write the config and create the data directory only, install nothing (for hosts with no service manager)")
 	if code := noExtraArgs(fs, args); code != 0 {
 		return code
 	}
@@ -221,15 +227,23 @@ func cmdServiceInstall(args []string) int {
 	fs.Visit(func(f *flag.Flag) { passed[f.Name] = true })
 
 	m := service.NewManager()
-	warnings, err := m.Install(service.InstallOptions{
+	opts := service.InstallOptions{
 		ConfigPath:   *configFlag,
 		DataDir:      *dataFlag,
 		HTTPAddr:     *httpFlag,
 		DataExplicit: passed["data"],
 		HTTPExplicit: passed["http"],
-	})
+	}
+	if *configOnly {
+		return serviceInstallConfigOnly(m, opts)
+	}
+	warnings, err := m.Install(opts)
 	for _, w := range warnings {
 		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
+	if errors.Is(err, service.ErrNoServiceManager) {
+		printNoServiceManager(os.Stderr, *configFlag, false)
+		return exitStatusError
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -245,6 +259,28 @@ func cmdServiceInstall(args []string) int {
 	printNoKBHintIfEmpty(*configFlag, dataDir)
 
 	return exitStatusRunning
+}
+
+// serviceInstallConfigOnly writes the config and creates the data directory
+// exactly as Install does, installs nothing and says how to start the server.
+func serviceInstallConfigOnly(m *service.Manager, opts service.InstallOptions) int {
+	warnings, configPath, dataDir, err := m.PrepareConfig(opts)
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return exitStatusError
+	}
+	logPath := "<state dir>/server.log"
+	if d, err := service.StateDir(); err == nil {
+		logPath = filepath.Join(d, "server.log")
+	}
+	fmt.Printf("config written to %s, data directory %s; no service was installed\n", configPath, dataDir)
+	fmt.Println("start the server by hand and hook it into your init system:")
+	fmt.Printf("  nohup cartographer serve --config %s --log-file %s &\n", configPath, logPath)
+	fmt.Println("then run `cartographer setup`: it keeps a server that already answers")
+	return 0
 }
 
 // cmdServiceEnsure is what the cron backend's crontab lines run: start the
@@ -401,6 +437,10 @@ func printServiceStatus(w io.Writer, st service.Status, serverURL string) {
 		}
 	} else {
 		fmt.Fprintln(w, "no local cartographer service is installed on this machine")
+		if st.Healthy {
+			// A measured fact, not a verdict (D174): the exit code stays 4.
+			fmt.Fprintf(w, "  a server answers on %s but no service is installed (started by hand?)\n", st.HTTPAddr)
+		}
 		fmt.Fprintf(w, "  install one with: cartographer service install --data %s\n", defaultDataDir())
 	}
 	if serverURL != "" && !isLoopbackURL(serverURL) {

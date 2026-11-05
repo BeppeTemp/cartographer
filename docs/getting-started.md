@@ -106,9 +106,12 @@ cartographer setup --no-remote --name trial --agents claude --yes
 cartographer setup --remote <url> --dry-run      # print the plan, change nothing
 ```
 
-> On Linux the unit is a **user** unit, so it stops when you log out and does not
+> On Linux with systemd the unit is a **user** unit, so it stops when you log out and does not
 > come back on boot unless lingering is enabled for your account:
-> `loginctl enable-linger <user>` — setup prints this when it applies.
+> `loginctl enable-linger <user>` — setup prints this when it applies. Where there is no
+> systemd, setup uses `cron` instead (started at boot and checked every 5 minutes, no logout
+> problem, `crond` must be running); with neither, it stops before changing anything and
+> prints the manual route ([Hosts without a service manager](deployment.md)).
 
 ### Step by step, instead
 
@@ -182,7 +185,8 @@ agent made can be reviewed or reverted with ordinary git.
   or in `$GOBIN`/`$GOPATH/bin` (`go install`).
 - **A native per-user service**, if you run `cartographer service install`:
   `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS,
-  `~/.config/systemd/user/cartographer.service` on Linux, or the Scheduled Task
+  `~/.config/systemd/user/cartographer.service` on Linux (a crontab block where there is
+  no systemd), or the Scheduled Task
   `\Cartographer\Serve` on Windows, listening on `127.0.0.1:39273`. Its config is
   generated at `~/.config/cartographer/server.yaml` — on Windows
   `%APPDATA%\cartographer\server.yaml`, with the log at

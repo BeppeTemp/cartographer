@@ -7,6 +7,7 @@ package service
 // so the two never collide.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -291,6 +292,10 @@ type SyncTimerStatus struct {
 	Path string
 	// Interval is the configured period, when it could be read back.
 	Interval time.Duration
+	// Also is the second definition when a cron entry and our systemd timer
+	// both exist (a host that changed backend): status reports both, uninstall
+	// removes both.
+	Also string
 }
 
 // InstallSyncTimer writes the platform unit(s) and registers them. Idempotent:
@@ -333,6 +338,14 @@ func (m *Manager) InstallSyncTimer(interval time.Duration) error {
 		}
 		return nil
 	case "linux":
+		b, err := m.syncBackend()
+		if err != nil {
+			return err
+		}
+		if b == BackendCron {
+			return m.installSyncCron(binPath, interval)
+		}
+		m.removeSyncCronLeftover()
 		servicePath, err := SyncSystemdServicePath()
 		if err != nil {
 			return fmt.Errorf("service: resolve sync unit path: %w", err)
@@ -400,6 +413,12 @@ func (m *Manager) UninstallSyncTimer() error {
 		}
 		return nil
 	case "linux":
+		var cronErr error
+		hadCron := false
+		if p, err := CronSyncDefinitionPath(); err == nil && fileExists(p) {
+			hadCron = true
+			cronErr = m.uninstallSyncCron()
+		}
 		servicePath, err := SyncSystemdServicePath()
 		if err != nil {
 			return fmt.Errorf("service: resolve sync unit path: %w", err)
@@ -408,16 +427,19 @@ func (m *Manager) UninstallSyncTimer() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve sync timer path: %w", err)
 		}
+		if !fileExists(timerPath) && !fileExists(servicePath) && (hadCron || m.Backend() != BackendSystemd) {
+			return cronErr // nothing of the systemd half installed, and no systemd to tell so
+		}
 		if err := m.disableUnitNow(syncSystemdTimer); err != nil {
-			return err
+			return errors.Join(cronErr, err)
 		}
 		for _, p := range []string{timerPath, servicePath} {
 			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("service: remove %s: %w", filepath.Base(p), err)
+				return errors.Join(cronErr, fmt.Errorf("service: remove %s: %w", filepath.Base(p), err))
 			}
 		}
 		_, err = m.run("systemctl", "--user", "daemon-reload")
-		return err
+		return errors.Join(cronErr, err)
 	case "windows":
 		taskPath, err := SyncWindowsTaskPath()
 		if err != nil {
@@ -456,6 +478,19 @@ func (m *Manager) SyncTimerStatus() (SyncTimerStatus, error) {
 		}
 		return st, nil
 	case "linux":
+		if p, err := CronSyncDefinitionPath(); err == nil && fileExists(p) {
+			cst, err := m.syncTimerStatusCron()
+			if err != nil {
+				return cst, err
+			}
+			if tp, err := SyncSystemdTimerPath(); err == nil && fileExists(tp) {
+				cst.Also = tp
+				if out, err := m.run("systemctl", "--user", "is-active", syncSystemdTimer); err == nil && len(out) > 0 {
+					cst.Active = true
+				}
+			}
+			return cst, nil
+		}
 		timerPath, err := SyncSystemdTimerPath()
 		if err != nil {
 			return st, fmt.Errorf("service: resolve sync timer path: %w", err)

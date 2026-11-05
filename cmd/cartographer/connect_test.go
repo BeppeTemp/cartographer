@@ -266,6 +266,9 @@ func TestIsLoopbackURL(t *testing.T) {
 }
 
 func TestShouldOfferServiceInstall(t *testing.T) {
+	saved := connectServiceBackend
+	t.Cleanup(func() { connectServiceBackend = saved })
+	connectServiceBackend = func() service.Backend { return service.BackendSystemd }
 	cases := []struct {
 		loopback, installed, want bool
 	}{
@@ -279,6 +282,15 @@ func TestShouldOfferServiceInstall(t *testing.T) {
 		if got := shouldOfferServiceInstall(tc.loopback, tc.installed); got != tc.want {
 			t.Errorf("shouldOfferServiceInstall(%v, %v) = %v, want %v", tc.loopback, tc.installed, got, tc.want)
 		}
+	}
+}
+
+func TestShouldOfferServiceInstall_NotWithoutAServiceManager(t *testing.T) {
+	saved := connectServiceBackend
+	t.Cleanup(func() { connectServiceBackend = saved })
+	connectServiceBackend = func() service.Backend { return service.BackendNone }
+	if shouldOfferServiceInstall(true, false) {
+		t.Error("the install was offered on a host with no service manager")
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -243,5 +245,45 @@ func TestPrintServiceUsage_NamesEveryPlatform(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("service usage missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestPrintServiceStatus_AnsweringServerWithoutServiceIsAFact(t *testing.T) {
+	var sb strings.Builder
+	printServiceStatus(&sb, service.Status{Healthy: true, HealthChecked: true, HTTPAddr: "127.0.0.1:39273"}, "")
+	if !strings.Contains(sb.String(), "a server answers on 127.0.0.1:39273 but no service is installed") {
+		t.Errorf("missing the line:\n%s", sb.String())
+	}
+	sb.Reset()
+	printServiceStatus(&sb, service.Status{HealthChecked: true, HTTPAddr: "127.0.0.1:39273"}, "")
+	if strings.Contains(sb.String(), "a server answers") {
+		t.Errorf("line printed with nothing answering:\n%s", sb.String())
+	}
+}
+
+func TestServiceInstallConfigOnly_WritesConfigAndStartsNothing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cfg := filepath.Join(home, ".config", "cartographer", "server.yaml")
+	data := filepath.Join(home, "data")
+	var code int
+	out := withStdout(t, func() {
+		code = cmdServiceInstall([]string{"--config-only", "--config", cfg, "--data", data})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if _, err := os.Stat(cfg); err != nil {
+		t.Errorf("config not written: %v", err)
+	}
+	if fi, err := os.Stat(data); err != nil || !fi.IsDir() {
+		t.Errorf("data dir not created: %v", err)
+	}
+	if !strings.Contains(out, "serve --config "+cfg) {
+		t.Errorf("manual command missing:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".local")); err == nil {
+		t.Error("--config-only wrote state: it must install nothing")
 	}
 }
