@@ -781,7 +781,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		projected := resolved[projectionKey(p)].Manifest
 		degraded, skipped := provisioning.ReportNotes(resolved[projectionKey(p)].Notes)
 		// The client environment section names only the authorized ones: a
-		// pending artifact is not announced (D1701).
+		// pending artifact is not announced (D1697).
 		opts.Skipped = provisioning.AuthorizedSkipped(skipped, manifests[projectionKey(p)], opts)
 		applied, err := provisioning.Apply(projected, opts)
 		if err != nil {

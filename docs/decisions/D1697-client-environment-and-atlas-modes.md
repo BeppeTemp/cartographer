@@ -2,7 +2,7 @@
 topic: sync-provisioning
 ---
 
-# D1701 — The client environment section and the Atlas client modes come from the resolver, not from a second reading of the table
+# D1697 — The client environment section and the Atlas client modes come from the resolver, not from a second reading of the table
 
 **Decision.** The "subagent sentence" of the instructions block (D154) becomes `environmentSection`: the original
 sentence unchanged for native agents, then a line for agents installed as skills, one for what the resolver skipped

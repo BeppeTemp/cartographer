@@ -201,7 +201,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 			}
 
 			// The same resolver a client runs, so the instructions block this
-			// writes carries the same "Not installed" line (D1701): what the
+			// writes carries the same "Not installed" line (D1697): what the
 			// resolver leaves out is neither applied nor hidden.
 			resolved := provisioning.ResolveProjections([]provisioning.ProjectionInput{{
 				Key: "server", Provider: applyOpts.Provider, Scope: provisioning.ScopeGlobal, Manifest: m,

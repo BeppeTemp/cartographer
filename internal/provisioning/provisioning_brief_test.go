@@ -407,7 +407,7 @@ func TestShared_NonExpandingApplyRewritesWhenTheSharedTextChanges(t *testing.T) 
 	}
 }
 
-// The client environment section (D1701) is rewritten when its text changes,
+// The client environment section (D1697) is rewritten when its text changes,
 // though no artifact hash does: a skill becomes skipped, then unskipped.
 func TestEnvironmentSection_ConvergesWhenSkippedChanges(t *testing.T) {
 	m := sharedKBs(t, 1, nil)

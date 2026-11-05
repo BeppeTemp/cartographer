@@ -3141,7 +3141,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	if cliSentence != "" {
 		cliHashPart = "\x00cli\x00" + cliSentence
 	}
-	// The client environment section (D1701) is client-owned text too, and it
+	// The client environment section (D1697) is client-owned text too, and it
 	// moves with things no artifact hash records (a skill skipped or unskipped, a
 	// capability probed). It cannot join the paths-section hash: `status` judges
 	// that hash without the approvals and notes a sync holds, so the two would
@@ -3388,7 +3388,7 @@ func fileImportsAgentsMDOutsideBlock(path string) bool {
 // blockBodyIs reports whether the managed block already in the file at path
 // holds exactly body: the same comparison writeInstructionsBlockChanged ends
 // with, without writing. Client-written text of the block that no artifact
-// hash records (the AGENTS.md import, the environment section, D1701) triggers
+// hash records (the AGENTS.md import, the environment section, D1697) triggers
 // a rewrite through it. It stays out of the recorded paths-section hash because
 // `status` recomputes that hash without the approvals and resolver notes a sync
 // holds and would report drift for good.
