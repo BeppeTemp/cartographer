@@ -2,7 +2,7 @@
 topic: deployment-release
 ---
 
-# D1697 — setup plans the service by backend and keeps a server that already answers
+# D1694 — setup plans the service by backend and keeps a server that already answers
 
 **Decision.** `setup` reads the backend of D1682 and the answer of `/health`
 into its facts and decides the server step in this order: installed and running
