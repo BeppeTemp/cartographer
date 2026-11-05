@@ -65,6 +65,7 @@ modifies files a user did not ask about.
 - **An artifact rewritten client-side is rewritten after `VerifiedManifest` and rehashed**: a signature covers
   `ContentHash` and `Apply` trusts the `Signed` flag without re-verifying (`WithoutSkillsLine`, D1408).
 - **Names and file paths from a server are validated before they are compared or joined**: `validArtifactName` (also behind `ownableName`) and `ValidArtifactFilePath`/`CheckArtifactFilePaths` (a refusal, `IsRefusal`: one artifact skipped). Anything keyed on a spelling (the `SKILL.md` approval and stamp checks) relies on the path being canonical; a new place that takes a name or path off the wire uses them.
+- **A new `Artifact` of derived content must resolve approval and provenance to its origin** (`Artifact.Origin`, used by `ApprovalName`, `ArtifactRequiresApproval`, `artifactAuthorized` and `provenanceBlock`): the derived bytes carry none of the keys that gate the origin, so a derived skill judged on itself installs a gated agent ungated (`TestDegradedSkillInheritsAgentApproval`).
 - The lockfile is the client-side record of applied state. Changing its shape is a
   migration, and an empty new field must keep meaning what the files written
   before it meant (see `base_dir`, empty for a global projection, D193).

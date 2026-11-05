@@ -14,7 +14,8 @@ import (
 // the sync completes, and the collision persists (nothing is recorded in the
 // lockfile) until the KB is fixed.
 func generatedArtifactFiles(a Artifact, opts ApplyOptions, files []ArtifactFile) (generated []ArtifactFile, warning string, ok bool) {
-	if a.Kind != "skill" {
+	// A skill derived from an agent ships no script: SOURCE.env would be noise.
+	if a.Kind != "skill" || a.DerivedFrom != nil {
 		return nil, "", true
 	}
 	if kbName, fromKB := kbSourceName(a); fromKB {

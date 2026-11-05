@@ -898,3 +898,5 @@ GOOS=windows GOARCH=amd64 go vet ./...
 - Installation and upgrade are verified on the target platform.
 - Every command the installers' closing "Next:" line (`install.sh`, `install.ps1`) names exists in the release being cut: `main` can reference one that no release has yet.
 - Private deployment rollout checks are performed through maintainer tooling.
+
+`TestClaudeCodeGoldenIsUnchanged` (`internal/provisioning`) pins what a sync of a pre-feature KB (2 skills, 2 agents, 1 hook, no `requires`) writes on Claude Code against `testdata/golden/claude-code.txt`: files, lock entries, warnings, and a no-op re-sync. The golden was captured on `main` before the agent degradation landed; `-update-golden` rewrites it, only for an intended change of Claude Code's output (D1656).

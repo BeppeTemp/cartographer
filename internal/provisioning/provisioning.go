@@ -71,6 +71,11 @@ type Artifact struct {
 	// decoding), never sent on the wire: nil for every other kind and for an
 	// agent that declares no `tools`.
 	Restriction *AgentRestriction `json:"-"`
+
+	// DerivedFrom is set on a skill the client derived from a KB agent because
+	// it has no subagents (projection.go). Client-side only, never sent, outside
+	// the hash and every signature; approval and provenance resolve to the origin.
+	DerivedFrom *DerivedFrom `json:"-"`
 }
 
 // BuildOptions controls manifest construction. Signers is keyed by mounted KB
@@ -182,6 +187,10 @@ type ManagedFile struct {
 	// drift and never triggers re-materialization — ComputeDiff still compares
 	// ContentHash only — so no migration runs.
 	Source string `json:"source,omitempty"`
+	// DerivedFrom is "agent/<name>" for a skill derived from an agent on a
+	// client with no subagents, so status, doctor and prune can tell it from a
+	// real skill. Empty for every other entry; an old lockfile is unchanged.
+	DerivedFrom string `json:"derived_from,omitempty"`
 	// ExecutablePaths are the artifact-relative, slash-normalised paths this
 	// artifact's files were written executable at — the writer's *declared*
 	// intent, recorded because on a filesystem with no execute bit
@@ -1989,6 +1998,8 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 // for honest per-provider counts and diffs: a kind the provider can't
 // materialize isn't "missing", it simply doesn't apply (e.g. hook
 // exists only for Claude Code — D48; agent for Claude Code and OpenCode — D55).
+// It never degrades an agent to a skill: kept for API stability, the sync and
+// status paths use ProjectManifest.
 func FilterForProvider(m Manifest, provider configurator.Provider) Manifest {
 	var out Manifest
 	for _, a := range m.Artifacts {
@@ -2271,7 +2282,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		key := a.Kind + "\x00" + a.Name
 		heldKeys[key] = true
 		if !toWriteKeys[key] {
-			result.NeedsApproval = append(result.NeedsApproval, a)
+			result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
 		}
 	}
 
@@ -2351,7 +2362,7 @@ hookLoop:
 		}
 		if !artifactAuthorized(a, opts) {
 			// Not approved: notify, don't write.
-			result.NeedsApproval = append(result.NeedsApproval, a)
+			result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
 			continue
 		}
 
@@ -2609,6 +2620,7 @@ hookLoop:
 				ContentHash:      a.ContentHash,
 				MaterializedHash: materializedHash,
 				Source:           a.Source,
+				DerivedFrom:      derivedFromLabel(a),
 				ExecutablePaths:  execPaths,
 			}
 			newManaged = append(newManaged, mf)
@@ -2640,6 +2652,7 @@ hookLoop:
 	result.Warnings = append(result.Warnings, m.Skipped...)
 	result.Warnings = append(result.Warnings, tracker.warnings...)
 	result.Warnings = append(result.Warnings, unsupportedKindWarnings(m, opts.Provider)...)
+	result.Warnings = append(result.Warnings, degradedWidenedWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, legacySkillWarnings(m)...)
 	result.Warnings = append(result.Warnings, widenedAgentWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, absentMCPServerWarnings(m, opts)...)
@@ -3041,7 +3054,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	contentHashes := make(map[string]string, len(current))
 	for _, a := range current {
 		if !artifactAuthorized(a, opts) {
-			result.NeedsApproval = append(result.NeedsApproval, a)
+			result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
 			continue
 		}
 		signed = append(signed, a)
@@ -3545,6 +3558,7 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 func ArtifactAuthorized(a Artifact, opts ApplyOptions) bool { return artifactAuthorized(a, opts) }
 
 func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
+	a, _ = a.Origin() // the approval is bound to the agent's hash
 	if a.BuiltIn {
 		return true
 	}
@@ -3563,12 +3577,22 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 	return a.Signed || strings.HasPrefix(a.Source, "kb:")
 }
 
+// heldArtifact is what NeedsApproval reports for a: the artifact the operator
+// approves. For a skill derived from an agent that is the agent, so the command
+// sync prints (`approve agent <name>`) finds it in the server's manifest.
+func heldArtifact(a Artifact) Artifact {
+	o, _ := a.Origin()
+	o.Files = nil
+	return o
+}
+
 // ApprovalName is the name an artifact's local approval is stored under inside
 // its source KB: the bare name for an MCP descriptor (the form D115 wrote), and
 // "<kind>/<name>" for everything else, so a hook and a descriptor of one name
 // never share an approval. An artifact name is a single path segment, so the
 // two forms cannot collide.
 func ApprovalName(a Artifact) string {
+	a, _ = a.Origin() // a degraded skill is approved as the agent it came from
 	if a.Kind == "mcp" {
 		return a.Name
 	}
@@ -3582,6 +3606,9 @@ func ApprovalName(a Artifact) string {
 // built into the binary and never asks. An artifact whose files cannot be read
 // is treated as executable: it fails closed.
 func ArtifactRequiresApproval(a Artifact, opts ApplyOptions) bool {
+	// The derived frontmatter has no hooks/MCP keys: judge the agent it came
+	// from, or a gated agent would install ungated as a skill.
+	a, _ = a.Origin()
 	if a.BuiltIn || !strings.HasPrefix(a.Source, "kb:") {
 		return false
 	}

@@ -387,12 +387,15 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	// The shared hook file is owned only once a hook is registered in it: the
 	// projection carries one, or the lock records one. Before that it is the
 	// user's, and excluding it would hide it.
-	if destDirScoped("hook", "x", provider, ScopeProject) != "" && hasHook(FilterForProviderScoped(m, provider, ScopeProject), lock) {
+	projected, _ := ProjectManifest(m, provider, ScopeProject, ProjectOptions{})
+	if destDirScoped("hook", "x", provider, ScopeProject) != "" && hasHook(projected, lock) {
 		for _, rel := range projectSharedHookFiles[provider] {
 			add(rel)
 		}
 	}
-	for _, a := range FilterForProviderScoped(m, provider, ScopeProject).Artifacts {
+	// The projection, not the filter: a degraded skill owns a destination too,
+	// so the exclusion block and the prune include it.
+	for _, a := range projected.Artifacts {
 		if !ownableName(a.Name) {
 			return nil, &InvalidArtifactNameError{Name: a.Name}
 		}
@@ -676,7 +679,8 @@ func OwnedLocalInstructions(workspaceDir string, provider configurator.Provider)
 
 // FilterForProviderScoped is FilterForProvider with the scope axis: a kind the
 // provider cannot materialize **in this scope** is not missing, it simply does
-// not apply here.
+// not apply here. It never degrades an agent to a skill: kept for API
+// stability, the sync and status paths use ProjectManifest.
 func FilterForProviderScoped(m Manifest, provider configurator.Provider, scope Scope) Manifest {
 	if scope == ScopeGlobal {
 		return FilterForProvider(m, provider)

@@ -468,7 +468,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		if cfg.WorkspaceScope(p.Name) == clientconfig.ScopeWorkspace {
 			pm, d, wsDiverged = workspaceProviderDiff(cfg, provProjections[p.Name], manifests, lockFile, dir)
 		} else {
-			pm = provisioning.FilterForProvider(manifests[p.Name], configurator.Provider(p.Name))
+			pm, _ = provisioning.ProjectManifest(manifests[p.Name], configurator.Provider(p.Name), provisioning.ScopeGlobal, provisioning.ProjectOptions{})
 			d = provisioning.ComputeDiffResolved(pm, lockFile.ForProvider(p.Name), statusResolveOptions(cfg, p.Name, manifests[p.Name]))
 		}
 		p.Revision = pm.Revision
@@ -570,7 +570,7 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 				}
 			}
 		}
-		pm := provisioning.FilterForProviderScoped(src, provider, sp.Scope)
+		pm, _ := provisioning.ProjectManifest(src, provider, sp.Scope, provisioning.ProjectOptions{})
 		d := provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)]))
 		merged.Added = append(merged.Added, d.Added...)
 		merged.Updated = append(merged.Updated, d.Updated...)
@@ -643,16 +643,19 @@ func tagHookSettings(arts []statusArtifact, ps []syncProjection, manifests map[s
 func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Config) []statusArtifact {
 	out := make([]statusArtifact, len(artifacts))
 	for i, a := range artifacts {
+		// A skill derived from an agent is approved as the agent: its approval
+		// is bound to the agent's hash, not to the derived one.
+		o, _ := a.Origin()
 		trust := "needs_approval"
 		if a.BuiltIn {
 			trust = "built_in"
-		} else if provisioning.ArtifactRequiresApproval(a, provisioning.ApplyOptions{}) {
+		} else if provisioning.ArtifactRequiresApproval(o, provisioning.ApplyOptions{}) {
 			// A signature never installs an MCP descriptor, a hook or an
 			// executable file (D906, D1141): only the hash-bound approval does,
 			// so it is checked before Signed.
 			source := strings.TrimPrefix(a.Source, "kb:")
-			if approval, ok := cfg.MCPApprovals[source][provisioning.ApprovalName(a)]; ok {
-				if approval.ContentHash == a.ContentHash {
+			if approval, ok := cfg.MCPApprovals[source][provisioning.ApprovalName(o)]; ok {
+				if approval.ContentHash == o.ContentHash {
 					trust = "approved"
 				} else {
 					trust = "approval_stale"

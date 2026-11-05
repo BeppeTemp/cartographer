@@ -9,6 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -129,5 +130,25 @@ func TestStatusHookHintIsPerProvider(t *testing.T) {
 		if strings.Contains(out, "manually") || (tc.provider != "claude" && strings.Contains(out, "settings.json")) {
 			t.Errorf("%s: hint is Claude-specific or manual: %s", tc.provider, out)
 		}
+	}
+}
+
+// A skill derived from a gated agent is approved as the agent, against the
+// agent's hash: Apply installs it on that approval, so status must not call it
+// stale.
+func TestSnapshotArtifactsDerivedSkillUsesAgentApproval(t *testing.T) {
+	agent := provisioning.Artifact{Kind: "agent", Name: "gated", Source: "kb:kb", ContentHash: "agent-hash",
+		Files: []provisioning.ArtifactFile{{Path: "gated.md", Content: []byte("---\nname: gated\ndescription: d\nhooks:\n  Stop: []\n---\nb\n")}}}
+	pm, _ := provisioning.ProjectManifest(provisioning.Manifest{Artifacts: []provisioning.Artifact{agent}}, configurator.ProviderCrush, provisioning.ScopeGlobal, provisioning.ProjectOptions{})
+	if len(pm.Artifacts) != 1 || pm.Artifacts[0].Kind != "skill" {
+		t.Fatalf("setup: %v", pm.Artifacts)
+	}
+	cfg := &clientconfig.Config{}
+	if err := cfg.ApproveMCP("kb", "agent/gated", "agent-hash", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got := snapshotArtifacts(pm.Artifacts, cfg)
+	if got[0].Trust != "approved" || got[0].Kind != "skill" {
+		t.Errorf("derived skill: trust %q kind %q, want approved skill", got[0].Trust, got[0].Kind)
 	}
 }

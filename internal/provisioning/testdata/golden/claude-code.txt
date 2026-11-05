@@ -1,0 +1,208 @@
+=== file .cartographer-created.json
+{
+  "files": {
+    ".claude/settings.json": [
+      "notify"
+    ]
+  }
+}
+
+=== file .cartographer-sync.lock.json
+{
+  "applied_revision": "bd43777f07f14fed885bd0d0606b25ef68b6c2d3e3ae5b951c0e5f458a7cbe6c",
+  "provider": "claude",
+  "managed": [
+    {
+      "kind": "agent",
+      "name": "auditor",
+      "path": ".claude/agents/auditor.md",
+      "content_hash": "8adf8bb7843c258c221ca5e702a4a60ef3e1c32bcd15180ac53860a31baa2eea",
+      "materialized_hash": "-",
+      "source": "kb:kb-a"
+    },
+    {
+      "kind": "agent",
+      "name": "explorer",
+      "path": ".claude/agents/explorer.md",
+      "content_hash": "e5c998ce3d01b2d07bf96d88d1d29a12976d00b877744864ad1c66f354fd4de2",
+      "materialized_hash": "-",
+      "source": "kb:kb-a"
+    },
+    {
+      "kind": "hook",
+      "name": "notify",
+      "path": ".claude/hooks/notify/hook.json",
+      "content_hash": "8a55c3a0096453b8187c659673f95ae88d06d6e8a3bca992028f020bf910001c",
+      "materialized_hash": "-",
+      "source": "kb:kb-a",
+      "executable_paths": [
+        "notify.sh"
+      ]
+    },
+    {
+      "kind": "hook",
+      "name": "notify",
+      "path": ".claude/hooks/notify/notify.sh",
+      "content_hash": "8a55c3a0096453b8187c659673f95ae88d06d6e8a3bca992028f020bf910001c",
+      "materialized_hash": "-",
+      "source": "kb:kb-a",
+      "executable_paths": [
+        "notify.sh"
+      ]
+    },
+    {
+      "kind": "skill",
+      "name": "notes",
+      "path": ".claude/skills/notes/SKILL.md",
+      "content_hash": "aafee91dd3622bb03fca57748c0bb126987086e54cd6b6691a81ab56f8ddacce",
+      "materialized_hash": "-",
+      "source": "kb:kb-a"
+    },
+    {
+      "kind": "skill",
+      "name": "notes",
+      "path": ".claude/skills/notes/SOURCE.env",
+      "content_hash": "aafee91dd3622bb03fca57748c0bb126987086e54cd6b6691a81ab56f8ddacce",
+      "materialized_hash": "-",
+      "source": "kb:kb-a"
+    },
+    {
+      "kind": "skill",
+      "name": "review",
+      "path": ".claude/skills/review/SKILL.md",
+      "content_hash": "82af566f5637085c2cfb3c558124d795d15614b3b742f3889f83f0c6af40be1b",
+      "materialized_hash": "-",
+      "source": "kb:kb-a"
+    },
+    {
+      "kind": "skill",
+      "name": "review",
+      "path": ".claude/skills/review/SOURCE.env",
+      "content_hash": "82af566f5637085c2cfb3c558124d795d15614b3b742f3889f83f0c6af40be1b",
+      "materialized_hash": "-",
+      "source": "kb:kb-a"
+    },
+    {
+      "kind": "instructions",
+      "name": "kb-a",
+      "path": ".claude/CLAUDE.md",
+      "content_hash": "54b4056316b5a9dadfacbbbbe246e4adb29eaaffaac4a3ba7a3349956050511e",
+      "source": "kb:kb-a"
+    }
+  ],
+  "paths_section_hash": "d1e55877c0df02093cf0e00887a66ea92a2354a3c581c0b82abc7bf6421a48fc"
+}
+=== file .claude/CLAUDE.md
+<!-- cartographer:instructions:begin — block managed by Cartographer, do not edit by hand -->
+<!-- cartographer:kb:kb-a:begin -->
+The "kb-a" KB is served via MCP by the "cartographer" server. No maps yet.
+
+Skills: notes, review.
+<!-- cartographer:kb:kb-a:end -->
+
+Operational instructions:
+- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;
+- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;
+- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;
+- status convention: `active` means the page is valid and current, not that work is open; open work uses `open` (accepted or queued, not started), `in-progress` or `blocked`: when you start executing an `open` item, set `in-progress` in the same `concept_patch` or `concept_batch` that records the first progress; when progress cannot continue, set `blocked` and declare `waiting_on` and `review_after`; a finished task is `done`;
+- every write is a git commit, revertible.
+- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.
+- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).
+- procedures, runbooks and incidents are read whole with `concept_read`, never answered from a search excerpt or a snippet;
+- `kb_guide` returns the full operating guide, each KB's own directives and its skills with descriptions, on demand: call it when a task touches a KB's own rules or when a skill name in a `Skills:` line looks relevant (on a routed connection it takes the `kb` argument like every tool).
+
+Subagents installed by the "kb-a" KB: auditor, explorer — their descriptions are in the client's agent registry: delegate to them the tasks they cover.
+<!-- cartographer:instructions:end -->
+
+=== file .claude/agents/auditor.md
+---
+name: auditor
+description: Audits
+tools: Read
+strict_tools: true
+---
+Audit.
+
+<!-- cartographer:provenance:begin — managed by Cartographer, do not edit by hand -->
+Source: KB "kb-a", path agents/auditor.md
+Artifact content hash: 8adf8bb7843c258c221ca5e702a4a60ef3e1c32bcd15180ac53860a31baa2eea
+Local edits to this file are replaced on the next `cartographer sync`. To change it for good, call artifact_write on the "kb-a" KB with path agents/auditor.md.
+<!-- cartographer:provenance:end -->
+=== file .claude/agents/explorer.md
+---
+name: explorer
+description: Reads the repo
+tools: Read, Grep
+---
+Explore.
+
+<!-- cartographer:provenance:begin — managed by Cartographer, do not edit by hand -->
+Source: KB "kb-a", path agents/explorer.md
+Artifact content hash: e5c998ce3d01b2d07bf96d88d1d29a12976d00b877744864ad1c66f354fd4de2
+Local edits to this file are replaced on the next `cartographer sync`. To change it for good, call artifact_write on the "kb-a" KB with path agents/explorer.md.
+<!-- cartographer:provenance:end -->
+=== file .claude/hooks/notify/hook.json
+{"event":"Stop","command":"./notify.sh"}
+=== file .claude/hooks/notify/notify.sh
+#!/bin/sh
+echo ok
+
+=== file .claude/settings.json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "$BASE/.claude/hooks/notify/notify.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+=== file .claude/skills/notes/SKILL.md
+---
+name: notes
+description: Take notes
+---
+Write them down.
+
+<!-- cartographer:provenance:begin — managed by Cartographer, do not edit by hand -->
+Source: KB "kb-a", path skills/notes/SKILL.md
+Artifact content hash: aafee91dd3622bb03fca57748c0bb126987086e54cd6b6691a81ab56f8ddacce
+Local edits to this file are replaced on the next `cartographer sync`. To change it for good, call artifact_write on the "kb-a" KB with path skills/notes/SKILL.md.
+<!-- cartographer:provenance:end -->
+=== file .claude/skills/notes/SOURCE.env
+# Generated by Cartographer at sync: the KB this skill came from.
+CARTOGRAPHER_KB_NAME=kb-a
+CARTOGRAPHER_KB_ROOT=$KB
+
+=== file .claude/skills/review/SKILL.md
+---
+name: review
+description: Review a change
+---
+Read the diff.
+
+<!-- cartographer:provenance:begin — managed by Cartographer, do not edit by hand -->
+Source: KB "kb-a", path skills/review/SKILL.md
+Artifact content hash: 82af566f5637085c2cfb3c558124d795d15614b3b742f3889f83f0c6af40be1b
+Local edits to this file are replaced on the next `cartographer sync`. To change it for good, call artifact_write on the "kb-a" KB with path skills/review/SKILL.md.
+<!-- cartographer:provenance:end -->
+=== file .claude/skills/review/SOURCE.env
+# Generated by Cartographer at sync: the KB this skill came from.
+CARTOGRAPHER_KB_NAME=kb-a
+CARTOGRAPHER_KB_ROOT=$KB
+
+=== lock {"kind":"instructions","name":"kb-a","path":".claude/CLAUDE.md","content_hash":"54b4056316b5a9dadfacbbbbe246e4adb29eaaffaac4a3ba7a3349956050511e","source":"kb:kb-a"}
+=== lock {"kind":"agent","name":"auditor","path":".claude/agents/auditor.md","content_hash":"8adf8bb7843c258c221ca5e702a4a60ef3e1c32bcd15180ac53860a31baa2eea","source":"kb:kb-a"}
+=== lock {"kind":"agent","name":"explorer","path":".claude/agents/explorer.md","content_hash":"e5c998ce3d01b2d07bf96d88d1d29a12976d00b877744864ad1c66f354fd4de2","source":"kb:kb-a"}
+=== lock {"kind":"hook","name":"notify","path":".claude/hooks/notify/hook.json","content_hash":"8a55c3a0096453b8187c659673f95ae88d06d6e8a3bca992028f020bf910001c","source":"kb:kb-a","executable_paths":["notify.sh"]}
+=== lock {"kind":"hook","name":"notify","path":".claude/hooks/notify/notify.sh","content_hash":"8a55c3a0096453b8187c659673f95ae88d06d6e8a3bca992028f020bf910001c","source":"kb:kb-a","executable_paths":["notify.sh"]}
+=== lock {"kind":"skill","name":"notes","path":".claude/skills/notes/SKILL.md","content_hash":"aafee91dd3622bb03fca57748c0bb126987086e54cd6b6691a81ab56f8ddacce","source":"kb:kb-a"}
+=== lock {"kind":"skill","name":"notes","path":".claude/skills/notes/SOURCE.env","content_hash":"aafee91dd3622bb03fca57748c0bb126987086e54cd6b6691a81ab56f8ddacce","source":"kb:kb-a"}
+=== lock {"kind":"skill","name":"review","path":".claude/skills/review/SKILL.md","content_hash":"82af566f5637085c2cfb3c558124d795d15614b3b742f3889f83f0c6af40be1b","source":"kb:kb-a"}
+=== lock {"kind":"skill","name":"review","path":".claude/skills/review/SOURCE.env","content_hash":"82af566f5637085c2cfb3c558124d795d15614b3b742f3889f83f0c6af40be1b","source":"kb:kb-a"}
