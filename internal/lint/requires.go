@@ -2,6 +2,7 @@ package lint
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,7 +86,7 @@ func hookRequiresFindings(k *kb.KB) []Finding {
 		}
 		if err := provisioning.ValidateHookRequires(e.Name(), data); err != nil {
 			// Malformed JSON is hook_invalid's finding, not a second one here.
-			if strings.HasPrefix(err.Error(), "invalid JSON") {
+			if errors.Is(err, provisioning.ErrHookJSON) {
 				continue
 			}
 			findings = append(findings, newFinding("requires_invalid", Finding{

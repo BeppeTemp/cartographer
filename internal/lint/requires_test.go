@@ -68,3 +68,15 @@ func TestDegradedNameCollision(t *testing.T) {
 		t.Errorf("want one finding on agents/twin.md, got %v", got)
 	}
 }
+
+// Malformed hook.json is hook_invalid's finding alone, never a second one.
+func TestRequiresInvalidSkipsMalformedHookJSON(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{"hooks/junk/hook.json": `{"event":`}
+	if got := requiresFindingsOf(t, "requires_invalid", files); len(got) != 0 {
+		t.Errorf("requires_invalid on malformed JSON: %v", got)
+	}
+	if got := requiresFindingsOf(t, "hook_invalid", files); got["hooks/junk/hook.json"] == "" {
+		t.Errorf("want hook_invalid, got %v", got)
+	}
+}
