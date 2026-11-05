@@ -645,6 +645,12 @@ func summarizeApplied(r provisioning.AppliedResult) string {
 	if n := len(r.Unsupported); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d not supported by provider", n))
 	}
+	if n := len(r.Degraded); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d agent(s) installed as skills", n))
+	}
+	if n := len(r.Skipped); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d skipped (requirements not met)", n))
+	}
 	if n := len(r.Warnings); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d warning(s)", n))
 	}

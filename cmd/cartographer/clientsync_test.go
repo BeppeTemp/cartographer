@@ -1548,3 +1548,60 @@ func TestResolveProjectionSetCountsEveryProjection(t *testing.T) {
 		t.Errorf("the repo projection kept %d artifacts, want 1 (its requirement is met by the ancestor)", n)
 	}
 }
+
+// The resolver's decisions are reported per provider (D1656): the lines keep the
+// `[provider]` prefix, a dry run speaks in the conditional, and a client with
+// nothing to report prints none of them.
+func TestPrintApplySummary_DegradedSkippedUnverified(t *testing.T) {
+	results := map[string]provisioning.AppliedResult{
+		"crush": {
+			Degraded:   []provisioning.DegradedNote{{Artifact: "agent/x", As: "skill/x"}},
+			Skipped:    []provisioning.SkippedNote{{Artifact: "skill/y", Reason: "requires agent/x (skipped: strict_tools)"}},
+			Unverified: []provisioning.Capability{"agent.delegate", "hook.Stop"},
+		},
+		"claude": {Written: []provisioning.ManagedFile{{Kind: "skill", Name: "a", Path: ".claude/skills/a/SKILL.md"}}},
+	}
+	real := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
+	for _, want := range []string{
+		"[crush] degraded: agent/x -> skill/x\n",
+		"[crush] skipped: skill/y requires agent/x (skipped: strict_tools)\n",
+		"[crush] unverified: 2 capabilities (agent.delegate, hook.Stop)\n",
+	} {
+		if !strings.Contains(real, want) {
+			t.Errorf("output = %q, want it to contain %q", real, want)
+		}
+	}
+	if strings.Contains(real, "[claude] degraded") || strings.Contains(real, "[claude] skipped") || strings.Contains(real, "[claude] unverified") {
+		t.Errorf("a client with nothing to report prints no such line: %q", real)
+	}
+	dry := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true) })
+	for _, want := range []string{"[crush] would degrade: agent/x -> skill/x", "[crush] would skip: skill/y requires"} {
+		if !strings.Contains(dry, want) {
+			t.Errorf("dry run output = %q, want %q", dry, want)
+		}
+	}
+}
+
+// KB-derived names and cause chains reach a terminal: control runes are escaped
+// and one field is capped.
+func TestPrintApplySummary_ReportLinesAreSanitised(t *testing.T) {
+	long := strings.Repeat("é", 10000)
+	results := map[string]provisioning.AppliedResult{
+		"crush": {
+			Degraded: []provisioning.DegradedNote{{Artifact: "agent/a\x1b[2Jb", As: "skill/a\x1b]0;pwn\x07"}},
+			Skipped:  []provisioning.SkippedNote{{Artifact: "skill/y", Reason: "requires unreadable: " + long}},
+		},
+	}
+	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Errorf("control runes reached the output: %q", out)
+	}
+	for _, want := range []string{`agent/a\x1b[2Jb`, `skill/a\x1b]0;pwn\x07`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output = %q, want escaped %q", out, want)
+		}
+	}
+	if len(out) > 1000 || !strings.Contains(out, "...") {
+		t.Errorf("a 10k-rune reason must be capped, got %d bytes", len(out))
+	}
+}
