@@ -178,6 +178,7 @@ func regroupSection(sec []string) (out []string, ok bool) {
 		if !ok {
 			return nil, false
 		}
+		entries = dedupe(entries)
 		for _, e := range entries {
 			i, line := e.place()
 			if areas[i].Dropped {
@@ -245,6 +246,54 @@ func parseEntries(lines []string) (entries []entry, ok bool) {
 		entries = append(entries, cur)
 	}
 	return entries, true
+}
+
+var (
+	entryRefs   = regexp.MustCompile(`(?: \(\[[^\]]*\]\([^)]*\)\))+$`)
+	entryCommit = regexp.MustCompile(`/commit/([0-9a-f]{7,40})\)\)$`)
+)
+
+// dedupe drops the entries release-please writes twice for one change (#1670):
+// the header and a body line of one squash commit (same commit hash, the same
+// text, or a strict prefix of it when the body line was wrapped), and the two
+// commits of one PR on main (identical text, different hashes). Of two entries
+// of the same commit the longer line stays, since it carries the PR reference.
+// Entries keep their order.
+func dedupe(entries []entry) []entry {
+	text := make([]string, len(entries))
+	hash := make([]string, len(entries))
+	for i, e := range entries {
+		first := strings.TrimRight(e[0], "\r")
+		if m := entryCommit.FindStringSubmatch(first); m != nil {
+			hash[i] = m[1]
+		}
+		text[i] = entryRefs.ReplaceAllString(first, "")
+	}
+	var out []entry
+	for i, e := range entries {
+		dup := false
+		for j := range entries {
+			if i == j {
+				continue
+			}
+			same := hash[i] != "" && hash[i] == hash[j]
+			switch {
+			case text[i] == text[j]:
+				// identical text: one commit keeps the longer line, then the first
+				li, lj := len(entries[i][0]), len(entries[j][0])
+				dup = same && lj > li || (!same || lj == li) && j < i
+			case same && strings.HasPrefix(text[j], text[i]):
+				dup = true
+			}
+			if dup {
+				break
+			}
+		}
+		if !dup {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // place returns the area of an entry and the entry as that area shows it: the

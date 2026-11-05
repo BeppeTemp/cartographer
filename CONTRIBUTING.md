@@ -440,7 +440,8 @@ only the plan and the repo must be able to implement without asking questions.
 - A plan has a `## PRs` section that groups its work packages into the fewest PRs the size
   cap allows, by file-set and dependency, with for each PR its title, its WPs and the
   estimated production lines; each WP is a body line `type(scope): ...` (one unwrapped
-  line, §Pull requests body-line rule) so the changelog keeps one entry per WP;
+  line, §Pull requests body-line rule) so the changelog keeps one entry per WP, omitted when
+  it equals the PR title (a second entry for one commit, #1670);
   `cartographer-plan-writer` reports it.
 - A single analysis may yield **several plans**: each one states the
   cross-plan execution order and which sibling plans touch the same files
