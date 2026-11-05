@@ -81,6 +81,6 @@ if blocks=$(grep '^BLOCK' <<<"$triage" | grep -v 'CI is red'); then
 fi
 
 sha=$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$parent" -F "$full")
-git push -q --force origin "$sha:refs/heads/ready/$slug" || die "the push of ready/$slug failed"
+out=$(git push -q --force origin "$sha:refs/heads/ready/$slug" 2>&1) || die "the push of ready/$slug failed: $out"
 echo "ready: $branch queued as ready/$slug (${sha:0:12}): $(head -n 1 "$full")"
 [ -n "${READY_NO_LANDER:-}" ] || "$here/land.sh" --daemon

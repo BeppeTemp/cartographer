@@ -177,9 +177,12 @@ number_decisions() {
 }
 
 gate() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2 infrastructure
-  local rc=0
-  (cd "$wt" && "$here/signoff.sh") >"$1" 2>&1 || rc=$?
-  cat "$1" >&2
+  local rc
+  # Streamed to the lander's log as it runs (a gate takes minutes), and kept in $1.
+  set +e
+  (cd "$wt" && "$here/signoff.sh") 2>&1 | tee "$1" >&2
+  rc=${PIPESTATUS[0]}
+  set -e
   [ "$rc" = 0 ] && return 0
   if grep -qE 'failed \(exit [0-9]+\): nothing pushed, nothing posted|of ci.yml run [0-9]+ is ' "$1"; then return 1; fi
   return 2

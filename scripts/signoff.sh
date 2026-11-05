@@ -73,7 +73,9 @@ sha=$(git rev-parse HEAD)
 
 push() { # explicit remote and refspec: a worktree branch tracks upstream/main, and a
   # bare `git push` would follow push.default=upstream to main.
-  git push --force-with-lease -u origin "$branch:$branch" || die "the push failed: nothing posted"
+  # Quiet, its output only on failure: GitHub's "Create a pull request" hint is noise here.
+  local out
+  out=$(git push -q --force-with-lease -u origin "$branch:$branch" 2>&1) || die "the push failed: nothing posted: $out"
 }
 post() { # $1 = the status description
   if ! gh api -X POST "repos/$slug/statuses/$sha" -f state=success -f context=signoff \
