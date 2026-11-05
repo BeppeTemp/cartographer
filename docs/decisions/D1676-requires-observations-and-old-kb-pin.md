@@ -11,8 +11,8 @@ check: the first reference may come from another KB bound to the same client, th
 entry is `requires_invalid`'s, so the detectors skip it; capability ids are never judged.
 
 **Review item shape.** They are about a file, not a concept: `ReviewItem` gains the optional `artifact` (KB-root
-relative path) and carries an empty `concepts`. They are not whole-graph, so `FilterReview` keeps them for every caller
-that may read the KB.
+relative path) and carries an empty `concepts`. Artifacts are whole-KB resources, so they are whole-graph items: only a caller
+that sees the whole KB receives them, and a partial-scope caller never learns an artifact path or agent name.
 
 **Old-KB pin.** `TestOldKBOutputIsUnchanged` (internal/lint) builds a pre-feature KB (2 skills, 2 agents of which one
 `strict_tools`, 1 hook, no `requires`) and pins that lint gains no `requires` finding and that kb_review gains exactly

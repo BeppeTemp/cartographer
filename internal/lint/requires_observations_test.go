@@ -16,8 +16,8 @@ func requiresItems(t *testing.T, items []ReviewItem) []ReviewItem {
 	return out
 }
 
-// An artifact observation names a file, never a concept, and survives the
-// filter of a caller that does not see the whole KB (it is not whole-graph).
+// An artifact observation names a file, never a concept; artifacts are
+// whole-KB resources, so a partial-scope filter drops it and a whole one keeps it.
 func TestRequiresObservationItemsNameTheArtifact(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"requires_unresolved", "requires_undeclared"} {
@@ -32,12 +32,14 @@ func TestRequiresObservationItemsNameTheArtifact(t *testing.T) {
 		if got == nil {
 			t.Fatalf("%s: no item", name)
 		}
-		if got.Artifact != path || len(got.Concepts) != 0 || got.wholeGraph {
+		if got.Artifact != path || len(got.Concepts) != 0 || !got.wholeGraph {
 			t.Errorf("%s: item = %+v", name, got)
 		}
-		kept := FilterReview([]ReviewItem{*got}, func(string) bool { return false }, false)
-		if len(kept) != 1 {
-			t.Errorf("%s: FilterReview dropped an artifact item", name)
+		if kept := FilterReview([]ReviewItem{*got}, func(string) bool { return true }, false); len(kept) != 0 {
+			t.Errorf("%s: a partial-scope caller received an artifact item", name)
+		}
+		if kept := FilterReview([]ReviewItem{*got}, func(string) bool { return true }, true); len(kept) != 1 {
+			t.Errorf("%s: a whole-KB caller lost an artifact item", name)
 		}
 	}
 }
@@ -83,5 +85,16 @@ func TestOldKBOutputIsUnchanged(t *testing.T) {
 	if len(got) != 1 || got[0].Check != "requires_undeclared" || got[0].Artifact != "skills/report/SKILL.md" ||
 		!strings.Contains(got[0].Evidence, "agent:auditor, agent:explorer") {
 		t.Fatalf("items = %+v", got)
+	}
+}
+
+// A skill and an agent with one name: the skill naming itself is no mention.
+func TestRequiresUndeclaredIgnoresASkillNamingItself(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.Root, "agents/plan.md", "---\nname: plan\ndescription: A\n---\nx\n")
+	writeFile(t, k.Root, "skills/plan/SKILL.md", skillMD("plan", "Plans", "# Plan\nThe plan skill runs the plan.\n"))
+	if got := requiresItems(t, review(t, k)); len(got) != 0 {
+		t.Fatalf("unexpected items: %+v", got)
 	}
 }

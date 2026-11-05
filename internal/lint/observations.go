@@ -238,8 +238,8 @@ func observationItem(f Finding) (ReviewItem, bool) {
 	var ids []string
 	switch {
 	case f.Artifact:
-		// An artifact file, not a concept: it names no concept, so FilterReview
-		// shows it to every caller that may read the KB (it is not whole-graph).
+		// An artifact file, not a concept: artifacts are whole-KB resources, so
+		// the item is whole-graph and only a caller that sees the whole KB gets it.
 		return ReviewItem{
 			Kind:            ReviewObservation,
 			Concepts:        []string{},
@@ -248,6 +248,7 @@ func observationItem(f Finding) (ReviewItem, bool) {
 			Evidence:        f.Check + ": " + f.Message,
 			SuggestedAction: spec.Advice,
 			Weight:          categoryWeight(spec.Category),
+			wholeGraph:      true,
 		}, true
 	case len(f.members) > 0:
 		for _, m := range f.members {

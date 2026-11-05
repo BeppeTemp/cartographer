@@ -129,11 +129,13 @@ func requiresObservations(k *kb.KB) []Finding {
 		return nil
 	}
 	have := map[string]bool{}
-	agents := []string{}
+	agentRes := map[string]*regexp.Regexp{}
+	var agents []string
 	for _, a := range arts {
 		have[a.kind+":"+a.name] = true
 		if a.kind == "agent" {
 			agents = append(agents, a.name)
+			agentRes[a.name] = nameRe(a.name)
 		}
 	}
 	bundle := bundledSkillNames()
@@ -163,7 +165,11 @@ func requiresObservations(k *kb.KB) []Finding {
 		var undeclared []string
 		masked := kb.MaskCodeSpans(a.body)
 		for _, ag := range agents {
-			if !declared["agent:"+ag] && mentionsName(masked, ag) {
+			// A skill that shares its name with the agent only names itself.
+			if ag == a.name || declared["agent:"+ag] {
+				continue
+			}
+			if agentRes[ag].MatchString(masked) {
 				undeclared = append(undeclared, "agent:"+ag)
 			}
 		}
@@ -178,9 +184,8 @@ func requiresObservations(k *kb.KB) []Finding {
 	return found
 }
 
-// mentionsName reports a whole-word occurrence of name in text. A name is made
-// of letters, digits, '-' and '_': a longer name that contains it does not count.
-func mentionsName(text, name string) bool {
-	re := regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])` + regexp.QuoteMeta(name) + `(?:$|[^A-Za-z0-9_-])`)
-	return re.MatchString(text)
+// nameRe matches a whole-word occurrence of name. A name is made of letters,
+// digits, '-' and '_': a longer name that contains it does not count.
+func nameRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])` + regexp.QuoteMeta(name) + `(?:$|[^A-Za-z0-9_-])`)
 }
