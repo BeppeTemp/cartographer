@@ -1528,3 +1528,23 @@ func TestResolveProjectionSetDerivedSkipKinds(t *testing.T) {
 		t.Errorf("projected %d artifacts, want 2", len(got.Manifest.Artifacts))
 	}
 }
+
+// Sync resolves every projection, the one it declines to apply included, as
+// status does: a transient failure of one workspace must not flip the
+// requirements of the others (D1656).
+func TestResolveProjectionSetCountsEveryProjection(t *testing.T) {
+	base := provisioning.Artifact{Kind: "skill", Name: "base", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: base\ndescription: d\n---\nb\n")}}}
+	need := provisioning.Artifact{Kind: "skill", Name: "need", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: need\ndescription: d\nrequires: [skill:base]\n---\nb\n")}}}
+	ps := []syncProjection{
+		{Provider: "opencode", Workspace: "/ws", Scope: provisioning.ScopeProject, Derived: true},
+		{Provider: "opencode", Workspace: "/ws/repo", Scope: provisioning.ScopeProject},
+	}
+	manifests := map[string]provisioning.Manifest{
+		projectionKey(ps[0]): {Artifacts: []provisioning.Artifact{base}},
+		projectionKey(ps[1]): {Artifacts: []provisioning.Artifact{need}},
+	}
+	got := resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})
+	if n := len(got[projectionKey(ps[1])].Manifest.Artifacts); n != 1 {
+		t.Errorf("the repo projection kept %d artifacts, want 1 (its requirement is met by the ancestor)", n)
+	}
+}

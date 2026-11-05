@@ -137,7 +137,7 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 		t.Fatalf("hash skill dir: %v", err)
 	}
 	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{
-		{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true},
+		{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true, Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: runbooks\ndescription: d\n---\nBody.\n")}}},
 	}}
 	// D170: the lock carries the revision of the provider's own view.
 	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
@@ -272,7 +272,7 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 	canon := cfg.WorkspaceBindings("claude")[0].Path
 
 	bundle := provisioning.Artifact{Kind: "skill", Name: "cartographer-ops", Source: "bundle", ContentHash: "bundle-hash", Signed: true}
-	kbSkill := provisioning.Artifact{Kind: "skill", Name: "runbooks", Source: "kb:kb-a", ContentHash: "kb-hash", Signed: true}
+	kbSkill := provisioning.Artifact{Kind: "skill", Name: "runbooks", Source: "kb:kb-a", ContentHash: "kb-hash", Signed: true, Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: runbooks\ndescription: d\n---\nBody.\n")}}}
 	claude := configurator.ProviderClaudeCode
 	globalM := provisioning.Manifest{Artifacts: []provisioning.Artifact{bundle}}
 	wsM := provisioning.Manifest{Artifacts: []provisioning.Artifact{kbSkill}}

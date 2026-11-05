@@ -1,8 +1,10 @@
 package provisioning
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
@@ -124,11 +126,47 @@ func TestResolveBundleSkillsAreNeverRemoved(t *testing.T) {
 	}
 }
 
-func TestResolveUnreadableRequiresWarnsAndInstalls(t *testing.T) {
+func TestResolveUnreadableRequiresIsUnsatisfied(t *testing.T) {
 	bad := skillArt("bad", "---\nname: bad\ndescription: d\nrequires: nope\n---\n")
-	r := resolveOne(configurator.ProviderClaudeCode, bad)
-	if len(r.Manifest.Artifacts) != 1 || len(r.Warnings) != 1 {
-		t.Errorf("want installed with a warning: %v %v", projectedNames(r.Manifest), r.Warnings)
+	user := reqSkill("user", "skill:bad")
+	r := resolveOne(configurator.ProviderClaudeCode, bad, user)
+	if len(r.Manifest.Artifacts) != 0 {
+		t.Fatalf("an unreadable requires must skip the artifact: %v", projectedNames(r.Manifest))
+	}
+	if got := noteFor(r, "skill/bad"); !strings.HasPrefix(got, "requires unreadable: ") {
+		t.Errorf("cause: %q", got)
+	}
+	if got := noteFor(r, "skill/user"); !strings.HasPrefix(got, "requires skill/bad (skipped: requires unreadable: ") {
+		t.Errorf("dependent: %q", got)
+	}
+}
+
+func TestResolveLongChainIsFastAndBounded(t *testing.T) {
+	const n = 2000
+	var arts []Artifact
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("s%d", i)
+		if i == 0 {
+			arts = append(arts, reqSkill(name, "skill:gone"))
+		} else {
+			arts = append(arts, reqSkill(name, fmt.Sprintf("skill:s%d", i-1)))
+		}
+	}
+	start := time.Now()
+	r := resolveOne(configurator.ProviderClaudeCode, arts...)
+	if len(r.Manifest.Artifacts) != 0 {
+		t.Fatalf("%d left", len(r.Manifest.Artifacts))
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v", d)
+	}
+	if got := noteFor(r, fmt.Sprintf("skill/s%d", n-1)); len(got) > 1000 || !strings.Contains(got, "...") {
+		t.Errorf("cause chain not bounded (%d bytes)", len(got))
+	}
+	// The same chain with everything present is satisfied.
+	arts[0] = skillArt("s0", "---\nname: s0\ndescription: d\n---\n")
+	if r := resolveOne(configurator.ProviderClaudeCode, arts...); len(r.Manifest.Artifacts) != n {
+		t.Errorf("satisfied chain lost artifacts: %d", len(r.Manifest.Artifacts))
 	}
 }
 

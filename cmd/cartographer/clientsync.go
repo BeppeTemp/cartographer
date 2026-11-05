@@ -714,20 +714,10 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 
 	// Every projection is resolved in one run, against the union of what the
 	// client sees (D1656): a requirement is satisfied by the global projection
-	// and the ancestor workspaces too. A projection skipped above installs
-	// nothing, so it satisfies nothing.
-	var live []syncProjection
-	for _, p := range projections {
-		if !skippedProjections[projectionKey(p)] {
-			live = append(live, p)
-		}
-	}
-	resolved := resolveProjectionSet(live, manifests, provisioning.ProjectOptions{})
-	for _, p := range live {
-		for _, w := range resolved[projectionKey(p)].Warnings {
-			fmt.Fprintf(portability.Streams.err(), "warning: %s: %s\n", p.Label(), w)
-		}
-	}
+	// and the ancestor workspaces too. Status resolves the same full set, so the
+	// projection skipped above (a transient failure) still counts here: it only
+	// is not applied, and must not flip the requirements of the others.
+	resolved := resolveProjectionSet(projections, manifests, provisioning.ProjectOptions{})
 
 	var appliedSoFar []string
 	for _, p := range projections {
