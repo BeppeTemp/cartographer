@@ -86,7 +86,7 @@ func TestRegisterCachedVariantsRefusesAHandEditedEntry(t *testing.T) {
 }
 
 // The same approved bytes resolved under another XDG_CONFIG_HOME land in
-// directories the operator never saw: not registered (D1699).
+// directories the operator never saw: not registered (D1695).
 func TestRegisterCachedVariantsRefusesMovedPaths(t *testing.T) {
 	cleanVariants(t)
 	a := variantWith(xdgDescriptor)

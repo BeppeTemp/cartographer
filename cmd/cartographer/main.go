@@ -101,7 +101,7 @@ func main() {
 }
 
 // registerCachedVariants registers the client variants the cache holds and the
-// client config still authorizes (D1655, D1699). It runs here, before any
+// client config still authorizes (D1655, D1695). It runs here, before any
 // command loads the client config: that load drops every provider name the
 // registry does not know (D898), so a variant registered later would be deleted
 // from the agents and the lock sections.

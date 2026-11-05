@@ -56,7 +56,7 @@ func ResetVariants() {
 // configurator.RegisterVariant) has no gate of its own, so the gate is here and
 // is the one every sync applies: artifactAuthorized, which wants the approval
 // bound to the descriptor's hash AND to the fingerprint of the paths it resolves
-// to in this environment (D1699). An entry that is not authorized, whose bytes
+// to in this environment (D1695). An entry that is not authorized, whose bytes
 // do not match its hash, that no longer parses, resolves with paths dropped or
 // fails the cell validation registers nothing. opts needs only ApprovedMCP and
 // ApprovedVariantPaths.

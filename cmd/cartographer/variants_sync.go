@@ -17,7 +17,7 @@ import (
 // variantPending is a declared variant the client config does not authorize.
 type variantPending struct {
 	Name, KB string
-	// Moved: the bytes are approved but resolve to other paths here (D1699).
+	// Moved: the bytes are approved but resolve to other paths here (D1695).
 	Moved bool
 }
 
