@@ -86,3 +86,4 @@ modifies files a user did not ask about.
 The repository's own `.claude/skills` and `.claude/agents` are real directories (D992). Because of D148 this package will refuse to materialize
 into them, which is the correct outcome: those are repo-scoped skills, versioned
 here, and not something a KB sync should own.
+- **Registering a variant has no gate of its own**: `RegisterVariantCells` and `configurator.RegisterVariant` accept whatever they are given, so a variant is registered only through `RegisterCachedVariants`, which applies `artifactAuthorized` (hash and resolved-path fingerprint) first; a new caller that registers from stored or served bytes goes through it (`TestRegisterCachedVariantsRegistersOnlyWhatIsAuthorized`).

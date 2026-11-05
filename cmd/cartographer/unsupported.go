@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
@@ -47,7 +48,7 @@ func handleUnsupportedProviders(errw io.Writer, dir string, cfg *clientconfig.Co
 		}
 		cfg.Unsupported = nil
 	}
-	if lockErr == nil && dropUnsupportedLockSections(&lf) {
+	if lockErr == nil && dropUnsupportedLockSections(dir, &lf) {
 		if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 			fmt.Fprintf(errw, "warning: could not drop the unsupported agent clients from the lockfile: %v\n", err)
 		}
@@ -79,8 +80,12 @@ func recordedBaseDir(lf provisioning.LockFile, name string) string {
 // dropUnsupportedLockSections removes, in memory, the lock sections (global and
 // workspace) of every provider the registry does not know, and reports whether
 // it removed any. Only the record goes: the files it named stay on disk.
-func dropUnsupportedLockSections(lf *provisioning.LockFile) bool {
+func dropUnsupportedLockSections(dir string, lf *provisioning.LockFile) bool {
+	keep := clientvariant.CachedNames(dir)
 	known := func(name string) bool {
+		if keep[name] {
+			return true
+		}
 		_, ok := configurator.Lookup(configurator.Provider(name))
 		return ok
 	}

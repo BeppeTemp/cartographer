@@ -302,9 +302,29 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Providers: providerFailures})
 		}
 	}
-	manifests, pullFailures, err := manifestsForProjectionsPartial(opts.Streams, cfg, projections, pre)
+	manifests, pullFailures, declaredVariants, err := manifestsForProjectionsPartial(opts.Streams, cfg, projections, pre)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
+	}
+	// D1698: the KBs' variant declarations against the cache, before the
+	// retired ones are dropped from this run.
+	if retired := syncVariants(out, errw, cfg, dir, projections, declaredVariants, manifests, pullFailures, healthErr == nil, opts.DryRun); len(retired) > 0 {
+		targets = removeStrings(targets, retired)
+		kept := projections[:0:0]
+		for _, p := range projections {
+			if slices.Contains(retired, p.Provider) {
+				delete(manifests, projectionKey(p))
+				continue
+			}
+			kept = append(kept, p)
+		}
+		projections = kept
+		for _, r := range retired {
+			delete(entriesByProvider, r)
+		}
+		if len(targets) == 0 && len(pullFailures) == 0 && len(providerFailures) == 0 {
+			return syncResult{}, nil
+		}
 	}
 	// A KB that could not be pulled costs only the providers bound to it
 	// (#350): they are dropped from this run before anything is written, so

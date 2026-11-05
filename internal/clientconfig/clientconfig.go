@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
+	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"gopkg.in/yaml.v3"
@@ -567,7 +568,7 @@ func Load(dir string) (*Config, error) {
 	} else if legacy.Update.Check != nil {
 		cfg.UpdateCheckOff = !*legacy.Update.Check
 	}
-	cfg.dropUnsupportedProviders()
+	cfg.dropUnsupportedProviders(clientvariant.CachedNames(dir))
 	for _, h := range Retired.Find(&yamlDoc) {
 		cfg.Warnings = append(cfg.Warnings, h.Message())
 	}
@@ -950,8 +951,15 @@ func TargetDir() (string, error) {
 // directory or a prune: a removed client leaves configurations naming it, and the generic answer is to skip it, not to guess. It
 // is a rule about the registry, not about one provider, so the next removal is
 // covered by the same path. No file is touched here.
-func (c *Config) dropUnsupportedProviders() {
+//
+// keep names providers the registry does not know but that must stay: the
+// cached client variants (internal/clientvariant), whose registration failed
+// this run. They are kept untouched, never dropped on a failure to register.
+func (c *Config) dropUnsupportedProviders(keep map[string]bool) {
 	known := func(name string) bool {
+		if keep[name] {
+			return true
+		}
 		_, ok := configurator.Lookup(configurator.Provider(name))
 		return ok
 	}

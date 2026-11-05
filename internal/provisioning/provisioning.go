@@ -1651,10 +1651,15 @@ type Collision struct {
 // The same source appearing twice is not a collision. That is the ordinary
 // shape of the client's merge, where every per-KB sync_pull response carries the
 // same bundled artifacts.
+//
+// A variant is exempt: a name two KBs declare is registered from neither and
+// reported by the variant cache, never an error (D1698, withoutClaimedVariants).
+// collisionsForProvider (connect, doctor) inherits the exemption on purpose:
+// printVariantSync already reports the collision on every sync.
 func DetectCollisions(artifacts []Artifact) []Collision {
 	sourcesByKey := make(map[string]map[string]bool)
 	for _, a := range artifacts {
-		if !strings.HasPrefix(a.Source, "kb:") {
+		if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "variant" {
 			continue
 		}
 		k := a.Kind + "\x00" + a.Name
@@ -1798,7 +1803,32 @@ func MergeArtifactsStrict(artifacts []Artifact) (Manifest, error) {
 	if len(collisions) > 0 || len(directives) > 0 {
 		return Manifest{}, &CollisionError{Collisions: collisions, Directives: directives}
 	}
-	return MergeArtifacts(artifacts), nil
+	return MergeArtifacts(withoutClaimedVariants(artifacts)), nil
+}
+
+// withoutClaimedVariants drops every variant two KBs declare. A variant name is
+// not a collision that stops a sync (D1698): nothing says which KB's descriptor
+// the operator approved, so the client registers it from neither and warns; the
+// declarations themselves reach the variant cache apart from this merge.
+func withoutClaimedVariants(artifacts []Artifact) []Artifact {
+	sources := map[string]map[string]bool{}
+	for _, a := range artifacts {
+		if a.Kind != "variant" || !strings.HasPrefix(a.Source, "kb:") {
+			continue
+		}
+		if sources[a.Name] == nil {
+			sources[a.Name] = map[string]bool{}
+		}
+		sources[a.Name][a.Source] = true
+	}
+	out := make([]Artifact, 0, len(artifacts))
+	for _, a := range artifacts {
+		if a.Kind == "variant" && len(sources[a.Name]) > 1 {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // preferArtifact chooses, between two artifacts with the same kind+name, the one

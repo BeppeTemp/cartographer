@@ -77,6 +77,11 @@ func cmdApprove(args []string) int {
 		}
 		if err := withClientConfig(dir, func(c *clientconfig.Config) error {
 			c.RevokeMCP(kbName, approvalEntryName(kind, name))
+			if kind == "variant" {
+				// Under the client lock withClientConfig holds: the variant leaves
+				// the cache and the registry; what it installed stays (D1698).
+				return forgetCachedVariant(dir, name)
+			}
 			return nil
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
@@ -85,7 +90,7 @@ func cmdApprove(args []string) int {
 		if kind == "mcp" {
 			fmt.Printf("revoked approval for MCP %s from KB %s; run cartographer sync to prune generated provider config\n", name, kbName)
 		} else if kind == "variant" {
-			fmt.Printf("revoked approval for variant %s from KB %s; what it already installed stays and is no longer refreshed: to remove it, run `cartographer disconnect %s`\n", escapeControl(name), escapeControl(kbName), escapeControl(name))
+			fmt.Printf("revoked approval for variant %s from KB %s; it is out of the cache and deregistered, so `cartographer disconnect %s` can no longer name it and what it already installed stays, unmanaged and no longer refreshed (to remove it next time, run disconnect before revoking)\n", escapeControl(name), escapeControl(kbName), escapeControl(name))
 		} else {
 			fmt.Printf("revoked approval for %s %s from KB %s; what is already installed stays installed and registered (and keeps running) but is no longer refreshed: to remove it, delete its files and its registration in the client's settings by hand\n", kind, name, kbName)
 		}
