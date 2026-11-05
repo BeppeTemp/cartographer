@@ -27,8 +27,8 @@ type VariantSpec struct {
 	// mode that writes none (cli, seed).
 	MCPFile []string
 	// MCPMode "cli" makes the variant reach Cartographer through `cartographer
-	// call` (Descriptor.MCPMode); any other value leaves it an MCP provider. The
-	// seed globs are carried for the later steps; the registry does not act on them.
+	// call` (Descriptor.MCPMode); any other value leaves it an MCP provider. "seed"
+	// is acted on by SeedMCP through the two globs, not by the registry.
 	MCPMode      string
 	SeedTemplate []string
 	SeedDerived  []string
@@ -112,6 +112,9 @@ func buildVariant(spec VariantSpec) (variantEntry, error) {
 	d.MCPMode = ""
 	if spec.MCPMode == MCPModeCLI {
 		d.MCPMode = MCPModeCLI
+	}
+	if spec.MCPMode == MCPModeSeed && (base.MCPFormat == FormatTOMLBlock || len(spec.SeedTemplate) == 0) {
+		return variantEntry{}, fmt.Errorf("variant %q: seed mode needs a JSON base and a template glob", spec.Name)
 	}
 	d.MCPConfigPath = strings.Join(spec.MCPFile, "/")
 	if d.MCPConfigPath != "" {

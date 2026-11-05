@@ -98,7 +98,8 @@ type BuildOptions struct {
 	// built-in caller: no built-in provider reaches Cartographer through
 	// `cartographer call`, so the server leaves the skill out of sync_check,
 	// sync_apply and sync_pull and an older client, which has no client-side
-	// filter, never receives it. The variants work sets it per client.
+	// filter, never receives it. BuildManifest also sets it for itself when a
+	// served KB declares a variant in mcp.mode cli (kbDeclaresCLIVariant).
 	IncludeCLISkill bool
 }
 
@@ -319,6 +320,11 @@ type ApplyOptions struct {
 	// in this environment (D1695).
 	ApprovedVariantPaths map[string]string
 	Lock                 Lock // current lockfile
+	// Unplaced are the KB skills and agents this projection has no file for
+	// (UnplacedArtifacts, computed by the caller on the manifest before
+	// ProjectManifest drops them): the instructions block names them and how to
+	// read them through MCP (D1712). Client-side only.
+	Unplaced []Artifact
 
 	// Scope selects which half of the destination matrix this apply writes
 	// through (D193). The zero value is ScopeGlobal, so every existing caller
@@ -880,12 +886,13 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 			versionByName[s.Name] = s.Version
 		}
 
+		includeCLI := opts.IncludeCLISkill || kbDeclaresCLIVariant(kbRoots)
 		for _, e := range entries {
 			if !e.IsDir() {
 				continue
 			}
 			name := e.Name()
-			if name == CLISkillName && !opts.IncludeCLISkill {
+			if name == CLISkillName && !includeCLI {
 				continue
 			}
 			hash, err := ContentHashDir(bundleFS, "bundled/"+name)
@@ -3786,6 +3793,7 @@ func environmentSection(m Manifest, opts ApplyOptions) string {
 		degradedAgentSentence(m, opts),
 		skippedSentence(opts),
 		silentHookSentence(m, opts),
+		unplacedSentence(opts), // D1712: skills and agents with no file on this client
 	} {
 		if l != "" {
 			lines = append(lines, l)

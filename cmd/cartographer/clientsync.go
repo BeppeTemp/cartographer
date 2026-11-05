@@ -783,6 +783,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// The client environment section names only the authorized ones: a
 		// pending artifact is not announced (D1697).
 		opts.Skipped = provisioning.AuthorizedSkipped(skipped, manifests[projectionKey(p)], opts)
+		opts.Unplaced = provisioning.UnplacedArtifacts(manifests[projectionKey(p)], configurator.Provider(p.Provider), p.Scope)
 		applied, err := provisioning.Apply(projected, opts)
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
