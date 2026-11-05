@@ -937,7 +937,7 @@ a client that does not know it ignores it. A registered variant adds **runtime c
 (`provisioning.RegisterVariantCells`): every lookup reads them through `cellFor`, a kind the descriptor
 did not declare is unsupported (cells are not inherited from the base), the static matrices and their
 completeness tests stay built-in only, and the descriptor's `agent.format` picks the agent translation
-(the base's `providers.<base>` block is honoured). A variant whose global roots equal, contain or lie
+(the format `opencode` reads the base's `providers.<base>` block of an agent; the other formats read the block of the client they are named after). A variant whose global roots equal, contain or lie
 under the roots of a built-in or another variant is refused whole (`ValidateVariantCells`; project cells
 are exempt, as `AGENTS.md` and `.agents/skills` already are among built-ins). Its roots are prune
 boundaries, and its capability row is the declared value, else the base's probe, forced `absent` where it

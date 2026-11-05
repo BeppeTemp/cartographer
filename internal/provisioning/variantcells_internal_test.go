@@ -383,3 +383,166 @@ func TestUnsupportedKindWarningsSkipVariant(t *testing.T) {
 		}
 	}
 }
+
+func cellVariant(global, project clientvariant.Scope) clientvariant.Variant {
+	return clientvariant.Variant{Name: "fork-cli", Base: "crush", MCPMode: "cli", Global: global, Project: project}
+}
+
+func skillAt(segs ...string) clientvariant.Scope {
+	return clientvariant.Scope{Skill: &clientvariant.Cell{Dir: segs}}
+}
+
+func insAt(segs ...string) clientvariant.Scope {
+	return clientvariant.Scope{Instructions: &clientvariant.Cell{File: segs}}
+}
+
+// A global cell stays inside a client directory of its own: not in the home,
+// not in a built-in client's directory, not in a credentials or Cartographer one.
+func TestVariantCells_GlobalCellsStayInTheirOwnClientDirectory(t *testing.T) {
+	for name, g := range map[string]clientvariant.Scope{
+		"claude settings":    insAt(".claude", "settings.json"),
+		"codex hooks":        insAt(".codex", "hooks.json"),
+		"claude skills dir":  skillAt(".claude", "skills", "mine"),
+		"claude json":        insAt(".claude.json"),
+		"rc file":            insAt(".zshrc"),
+		"ssh":                insAt(".ssh", "authorized_keys"),
+		"gnupg":              skillAt(".gnupg", "skills"),
+		"aws":                insAt(".aws", "config"),
+		"kube":               insAt(".kube", "config"),
+		"docker":             insAt(".docker", "config.json"),
+		"git config":         insAt(".gitconfig"),
+		"git dir":            skillAt(".git", "hooks"),
+		"cartographer yaml":  insAt(".cartographer.yaml"),
+		"cartographer dir":   skillAt(".cartographer", "skills"),
+		"cartographer cfg":   skillAt(".config", "cartographer", "skills"),
+		"documents":          skillAt("Documents"),
+		"documents file":     insAt("Documents", "notes.md"),
+		"desktop":            skillAt("Desktop", "skills"),
+		"the client dir":     skillAt(".fork-cli"),
+		"shared config dir":  skillAt(".config"),
+		"cline dir":          skillAt(".cline", "skills", "mine"),
+		"windows local data": skillAt("AppData", "Local"),
+	} {
+		if _, err := RegisterVariantCells(cellVariant(g, clientvariant.Scope{})); err == nil {
+			UnregisterVariantCells("fork-cli")
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// What the appendix declares stays accepted.
+	for name, g := range map[string]clientvariant.Scope{
+		"config dir":      skillAt(".config", "fork-cli", "skills"),
+		"home dir":        skillAt(".fork-cli", "skills"),
+		"rules documents": insAt("Documents", "Cline", "Rules", "cartographer.md"),
+		"windows":         skillAt("AppData", "Local", "fork-cli", "skills"),
+	} {
+		if _, err := RegisterVariantCells(cellVariant(g, clientvariant.Scope{})); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		UnregisterVariantCells("fork-cli")
+	}
+}
+
+// A project cell never reaches a place the repository runs code from.
+func TestVariantCells_ProjectCellsAvoidGitAndCI(t *testing.T) {
+	for name, p := range map[string]clientvariant.Scope{
+		"git hook":      insAt(".git", "hooks", "pre-commit"),
+		"git config":    skillAt(".git", "config"),
+		"nested git":    skillAt("sub", ".GIT", "x"),
+		"workflows":     insAt(".github", "workflows", "x.yml"),
+		"workflows dir": skillAt(".github", "workflows"),
+		"husky":         skillAt(".husky", "x"),
+	} {
+		if _, err := RegisterVariantCells(cellVariant(skillAt(".fork-cli", "skills"), p)); err == nil {
+			UnregisterVariantCells("fork-cli")
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	for name, p := range map[string]clientvariant.Scope{
+		"github agents": skillAt(".github", "copilot"),
+		"plain":         skillAt(".fork-cli", "skills"),
+		"agents md":     insAt("AGENTS.md"),
+	} {
+		if _, err := RegisterVariantCells(cellVariant(skillAt(".fork-cli", "skills"), p)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		UnregisterVariantCells("fork-cli")
+	}
+}
+
+// A mode-file variant's MCP entry is removed from its own file when the KB drops it.
+func TestVariantCells_FileModeMCPEntryIsPruned(t *testing.T) {
+	v := clientvariant.Variant{Name: "fork-cc", Base: "claude", MCPMode: "file", MCPFile: []string{".fork-cc", "mcp.json"},
+		Global: skillAt(".fork-cc", "skills")}
+	registerTestVariant(t, v)
+	if err := configurator.ReplaceVariants([]configurator.VariantSpec{{Name: "fork-cc", Base: "claude", MCPMode: "file", MCPFile: v.MCPFile}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = configurator.ReplaceVariants(nil) })
+	if configurator.Provider(mcpProviderFromPath(".fork-cc/mcp.json")) != "fork-cc" {
+		t.Fatalf("the reverse lookup misses the variant: %q", mcpProviderFromPath(".fork-cc/mcp.json"))
+	}
+
+	kb := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(kb, "mcp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kb, "mcp", "srv.json"), []byte(`{"type":"http","url":"https://example.com/mcp"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	roots := map[string]string{"kb-a": kb}
+	m, err := BuildManifest(nil, roots, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	p := configurator.Provider("fork-cc")
+	res, err := Apply(FilterForProvider(m, p), ApplyOptions{KBRoots: roots, Provider: p, BaseDir: home, ApprovedMCP: approveAll(m)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(home, ".fork-cc", "mcp.json")
+	if data, err := os.ReadFile(file); err != nil || !strings.Contains(string(data), "srv") {
+		t.Fatalf("entry not written: %v\n%s", err, data)
+	}
+	empty, err := BuildManifest(nil, map[string]string{"kb-a": t.TempDir()}, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(FilterForProvider(empty, p), ApplyOptions{KBRoots: roots, Provider: p, BaseDir: home, Lock: res.NewLock}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(file); strings.Contains(string(data), "srv") {
+		t.Errorf("the entry stayed in the variant's config:\n%s", data)
+	}
+}
+
+// A base's probe is inherited only where the variant reads the same thing.
+func TestVariantCells_CapabilityInheritanceNeedsTheSameFormat(t *testing.T) {
+	old := capabilityProbed
+	capabilityProbed = map[configurator.Provider]map[Scope]map[Capability]CapStatus{
+		configurator.ProviderOpenCode: {ScopeGlobal: {CapSkill: CapVerified, CapAgentDelegate: CapVerified, CapMCP: CapVerified}},
+	}
+	t.Cleanup(func() { capabilityProbed = old })
+	mk := func(name, format string, mcp []string) clientvariant.Variant {
+		return clientvariant.Variant{Name: name, Base: "opencode", MCPMode: "file", MCPFile: mcp,
+			Global: clientvariant.Scope{Skill: &clientvariant.Cell{Dir: []string{"." + name, "skills"}}, Agent: &clientvariant.Cell{Dir: []string{"." + name, "agents"}, AgentFormat: format}}}
+	}
+	registerTestVariant(t, mk("fork-same", "opencode", []string{".fork-same", "opencode.json"}))
+	registerTestVariant(t, mk("fork-diff", "claude", []string{".fork-diff", "opencode.json"}))
+	for _, c := range []struct {
+		p    configurator.Provider
+		id   Capability
+		want CapStatus
+	}{
+		{"fork-diff", CapSkill, CapVerified},
+		{"fork-diff", CapAgentDelegate, CapUnverified},
+		{"fork-diff", CapMCP, CapUnverified},
+	} {
+		if got := CapabilityStatus(c.p, ScopeGlobal, c.id); got != c.want {
+			t.Errorf("%s %s = %s, want %s", c.p, c.id, got, c.want)
+		}
+	}
+	if got := CapabilityStatus("fork-same", ScopeGlobal, CapAgentDelegate); got != CapVerified {
+		t.Errorf("same format must inherit, got %s", got)
+	}
+}

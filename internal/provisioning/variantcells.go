@@ -141,14 +141,111 @@ func pathsCollide(a, b string) bool {
 	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
-// ValidateVariantCells refuses a variant whose global roots overlap the roots of
-// a built-in provider or of another registered variant: the two would write into
-// and prune the same directory. Project cells are exempt, as they already are
-// among built-ins (several clients share .agents/skills and AGENTS.md); the
-// project paths are relative and checked at write time. A variant is never
-// compared with itself, so re-registering is not a collision.
+// fold lowercases a path off Linux, where the default file systems do not tell
+// the spellings apart.
+func fold(s string) string {
+	if runtime.GOOS != "linux" {
+		return strings.ToLower(s)
+	}
+	return s
+}
+
+// clientDir is the directory a global path belongs to a client: the first
+// segment under the home, or the first two where one directory per client sits
+// under a shared parent (.config, Documents), or the first three under the
+// per-user data roots (.local/share, Library/Application Support, AppData/Local).
+func clientDir(segs []string) []string {
+	n := 1
+	if len(segs) > 0 {
+		switch strings.ToLower(segs[0]) {
+		case ".config", "documents":
+			n = 2
+		case ".local", "library", "appdata":
+			n = 3
+		}
+	}
+	return segs[:min(n, len(segs))]
+}
+
+// deniedClientDir reports whether a client directory is one no variant may write
+// under: credentials, git, the desktop, and Cartographer's own state and config.
+func deniedClientDir(dir []string) bool {
+	if len(dir) == 0 {
+		return true
+	}
+	// Lowercased on every OS: a denied name is denied in any spelling.
+	first, last := strings.ToLower(dir[0]), strings.ToLower(dir[len(dir)-1])
+	switch first {
+	case ".ssh", ".gnupg", ".aws", ".kube", ".docker", "desktop":
+		return true
+	}
+	return strings.HasPrefix(first, ".git") || strings.HasPrefix(last, ".cartographer") || strings.HasPrefix(last, "cartographer")
+}
+
+// checkGlobalCells refuses a global cell outside a client directory of its own:
+// one that sits directly in the home (an rc file), in a directory of a built-in
+// client or a denied one (settings, hooks, credentials).
+func checkGlobalCells(name string, cells map[string]destination) error {
+	builtin := map[string]string{}
+	for _, d := range configurator.Providers() {
+		for _, r := range globalRootRels(d.Provider) {
+			builtin[fold(strings.Join(clientDir(strings.Split(r, "/")), "/"))] = string(d.Provider)
+		}
+	}
+	kinds := make([]string, 0, len(cells))
+	for k := range cells {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	for _, kind := range kinds {
+		segs := cells[kind].dir
+		cd := clientDir(segs)
+		switch {
+		case len(segs) <= len(cd):
+			return fmt.Errorf("variant %q: the %s cell %q names no path below its client directory (a cell is never a file or directory directly in the home or in a shared parent)", name, kind, strings.Join(segs, "/"))
+		case deniedClientDir(cd):
+			return fmt.Errorf("variant %q: the %s cell %q is under %q, a directory no variant may write into", name, kind, strings.Join(segs, "/"), strings.Join(cd, "/"))
+		}
+		if owner, ok := builtin[fold(strings.Join(cd, "/"))]; ok {
+			return fmt.Errorf("variant %q: the %s cell %q is under %q, the client directory of %s", name, kind, strings.Join(segs, "/"), strings.Join(cd, "/"), owner)
+		}
+	}
+	return nil
+}
+
+// checkProjectCells refuses a project cell that reaches a place a repository
+// executes or configures itself from: any .git directory, CI workflows, hooks
+// managers.
+func checkProjectCells(name string, cells map[string]destination) error {
+	for kind, c := range cells {
+		for i, seg := range c.dir {
+			f := strings.ToLower(seg)
+			if f == ".git" || (i == 0 && f == ".husky") || (i == 0 && f == ".github" && len(c.dir) > 1 && strings.EqualFold(c.dir[1], "workflows")) {
+				return fmt.Errorf("variant %q: the project %s cell %q reaches %q, which a repository runs code from", name, kind, strings.Join(c.dir, "/"), seg)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateVariantCells refuses a variant that could write outside a client
+// directory of its own: a global cell directly in the home or under a built-in
+// client's directory or a denied one (checkGlobalCells), a project cell that
+// reaches .git, CI workflows or .husky (checkProjectCells), and a global root
+// that overlaps the roots of a built-in provider or of another registered
+// variant (the two would write into and prune the same directory). Project
+// cells are otherwise exempt from the overlap rule, as among built-ins (several
+// clients share .agents/skills and AGENTS.md). A variant is never compared with
+// itself, so re-registering is not a collision. Containment under the home is
+// the resolver's (clientvariant.Resolve) and safewrite's at write time.
 func ValidateVariantCells(v clientvariant.Variant) error {
 	cells, _ := variantDestinations(v)
+	if err := checkGlobalCells(v.Name, cells[ScopeGlobal]); err != nil {
+		return err
+	}
+	if err := checkProjectCells(v.Name, cells[ScopeProject]); err != nil {
+		return err
+	}
 	mine := variantRoots(cells[ScopeGlobal])
 	check := func(owner string, theirs []string) error {
 		for _, m := range mine {
@@ -247,7 +344,7 @@ func isVariantBoundary(dir string) bool {
 	defer variantCellsMu.RUnlock()
 	for _, v := range variantCells {
 		for _, r := range v.roots {
-			if dir == r {
+			if fold(dir) == fold(r) {
 				return true
 			}
 		}
@@ -275,8 +372,32 @@ func variantCapability(v variantEntry, provider configurator.Provider, scope Sco
 	if s, ok := v.capabilities[string(id)]; ok {
 		return CapStatus(s)
 	}
+	// A probe of the base says nothing about a different agent file format or MCP
+	// file: only the skill row is inherited across such a difference.
+	if (kind == "agent" && v.agentFormat != baseAgentFormat(v.base)) || (kind == "mcp" && !sameMCPFile(v, scope)) {
+		return CapUnverified
+	}
 	if s, ok := capabilityProbed[v.base][scope][id]; ok {
 		return s
 	}
 	return CapUnverified
+}
+
+// baseAgentFormat is the agent.format a built-in's own agent file corresponds
+// to, "" for a base whose agent file is no format a variant may declare.
+func baseAgentFormat(base configurator.Provider) string {
+	switch base {
+	case configurator.ProviderClaudeCode:
+		return "claude"
+	case configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderCopilot, configurator.ProviderCline:
+		return string(base)
+	}
+	return ""
+}
+
+// sameMCPFile reports whether the variant's mcp cell is the base's file.
+func sameMCPFile(v variantEntry, scope Scope) bool {
+	cell, ok := v.cells[scope]["mcp"]
+	d, found := configurator.Lookup(v.base)
+	return ok && found && path.Join(cell.dir...) == d.MCPConfigPath
 }
