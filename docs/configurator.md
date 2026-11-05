@@ -183,6 +183,10 @@ decides every step **before** running any:
   choice error (nothing changed). A failed step prints `Setup stopped at …`; a rerun skips what is
   done. On Linux a freshly installed user unit without lingering gets the `loginctl enable-linger`
   hint (systemd only: cron has no logout problem). The run ends on the Atlas URL and on restarting the agent sessions.
+- **Client variants:** with no agent detected and a KB source (`--remote` or a mounted KB) the plan says the agents are
+  detected after the KB is mounted; `setup --approve-variants` then approves the variants the selected KBs declare (each
+  printed with the paths it writes), caches them and connects them with the agents; without the flag `setup` never asks
+  and reports `needs_approval`. A variant is connected with its declaring KB only ([D1702](decisions/D1702-variant-connect-scope.md)).
 
 ```bash
 cartographer setup                                                  # interview, plan, confirm
@@ -201,6 +205,10 @@ behind it or answers with no KB mounted.
 
 Lists the supported providers, whether they are installed on the machine and whether they are
 connected (recorded in the client state file `.cartographer-state.json`, beside the machine-wide `~/.cartographer.yaml`).
+
+A client variant a KB declared and the client config authorizes is listed as `<provider> (variant of <base>)`; a
+cached one waiting for approval is listed after the table with its `approve variant` command (`status` and the TUI name
+variants the same way; `doctor` reports a cached one that fails registration). The cache is `.cartographer-variants.json`.
 
 `internal/agents.Detect` probes, in this order, and stops at the first match; the heuristic that
 matched is reported in the DETECTION column, and as `detected_by` in JSON
@@ -236,6 +244,11 @@ providers a bare `connect` or `connect all` targets — is unchanged: it is stil
 match ([#305](https://github.com/BeppeTemp/cartographer/issues/305)).
 
 ### `cartographer connect [provider|all]`
+
+`--approve-variants` approves every client variant the `--kb`-selected KBs declare, printing the paths each will write; without it
+a terminal asks per variant and anything else reports `needs_approval` and connects the rest. For `all`/no target, an unknown name
+or the flag, `connect` first discovers the KBs' variants (server unreachable: the cache only, the reason printed); a variant is connected
+with its declaring KB only, narrowed by `--kb` ([D1702](decisions/D1702-variant-connect-scope.md)).
 
 Generates the MCP config (HTTP transport only), materializes artifacts via `sync_pull` (the full
 kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations with no known

@@ -68,6 +68,8 @@ type setupOptions struct {
 	Agents    []string
 	KBs       []string
 	Workspace string
+	// ApproveVariants approves the client variants the KBs declare (D1699).
+	ApproveVariants bool
 }
 
 // setupFacts is everything planSetup reads, gathered once. Kept as plain data
@@ -121,6 +123,11 @@ type setupPlan struct {
 	// ServerUnmanaged marks serviceKeep decided because a server already
 	// answers with no installed service: setup cannot restart it.
 	ServerUnmanaged bool
+	// AgentsLater: nothing is detected yet and a KB source exists, so a client
+	// variant that KB declares may be the machine's only agent: the agents are
+	// detected after the KB is mounted.
+	AgentsLater     bool
+	ApproveVariants bool
 }
 
 // errSetupNeedsRemote is planSetup's answer when there is no KB and nothing
@@ -238,8 +245,12 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 	if len(p.Agents) == 0 {
 		p.Agents = f.Detected
 	}
+	p.ApproveVariants = o.ApproveVariants
 	if len(p.Agents) == 0 {
-		return p, fmt.Errorf("no agent client detected on this machine: install one, or name it with --agents (%s)", providerNamesJoined())
+		if o.Remote == "" && len(p.Existing) == 0 {
+			return p, errNoAgentDetected()
+		}
+		p.AgentsLater = true
 	}
 	p.Workspace = o.Workspace
 
@@ -268,6 +279,10 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 		return p, errSetupNeedsKBChoice
 	}
 	return p, nil
+}
+
+func errNoAgentDetected() error {
+	return fmt.Errorf("no agent client detected on this machine: install one, or name it with --agents (%s)", providerNamesJoined())
 }
 
 // sameRemote compares two remote URLs the way an operator means them: a
@@ -336,7 +351,9 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 	if p.Workspace != "" {
 		scope = "only inside " + p.Workspace
 	}
-	if len(p.KeepAgents) > 0 {
+	if p.AgentsLater {
+		line("agents       agent clients: detected after the KB is mounted (the variants it declares need --approve-variants, else they are reported needs_approval)")
+	} else if len(p.KeepAgents) > 0 {
 		receiving := slices.DeleteFunc(slices.Clone(p.Agents), func(a string) bool { return slices.Contains(p.KeepAgents, a) })
 		line("agents       connect %s — KBs: %s; visible in %s", strings.Join(receiving, ", "), kbs, scope)
 		line("             connect %s — they keep their existing KB binding", strings.Join(p.KeepAgents, ", "))
@@ -430,7 +447,25 @@ var (
 	setupKBClone     = cmdKBClone
 	setupConnect     = cmdConnect
 	setupDetected    = func() []string { p, _ := resolveTargetProviders("", ""); return p }
-	setupWaitReady   = waitSetupReady
+	// setupDiscover pulls the KBs' client variants once the server has mounted them.
+	setupDiscover = func(serverURL string, approve bool, kbs []string) []string {
+		dir, err := clientconfig.TargetDir()
+		if err != nil {
+			return nil
+		}
+		cfg, err := clientconfig.Load(dir)
+		if err != nil {
+			return nil
+		}
+		if serverURL != "" && cfg.ServerURL == "" {
+			cfg.ServerURL = serverURL
+		}
+		if cfg.ServerURL == "" {
+			cfg.ServerURL = clientconfig.Default().ServerURL
+		}
+		return discoverVariants(cfg, dir, variantDiscovery{Approve: approve, KBs: kbs, Out: os.Stdout, Err: os.Stderr})
+	}
+	setupWaitReady = waitSetupReady
 	// setupWaitBootstrapped waits until the server has mounted its KBs: /health
 	// answers 200 while it is still cloning (D348), so "the service answers" is
 	// not "the KBs are there", and connect run against a bootstrapping server
@@ -561,8 +596,9 @@ func cmdSetup(args []string) int {
 	yes := fs.Bool("yes", false, "Do not ask for confirmation before running the plan")
 	dryRun := fs.Bool("dry-run", false, "Print the plan and stop, changing nothing")
 	noInput := fs.Bool("no-input", false, "Never ask questions, even in a terminal")
+	approveVariants := fs.Bool("approve-variants", false, "Approve the client variants the selected KBs declare, printing the paths each will write (setup never asks: without it they are reported needs_approval)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer setup [--remote <url> | --no-remote] [--name <kb>] [--agents a,b] [--kb <name>] [--workspace <repo>] [--yes] [--dry-run] [--no-input]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer setup [--remote <url> | --no-remote] [--name <kb>] [--agents a,b] [--kb <name>] [--workspace <repo>] [--approve-variants] [--yes] [--dry-run] [--no-input]")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
@@ -577,6 +613,8 @@ func cmdSetup(args []string) int {
 		Name:      strings.TrimSpace(*name),
 		KBs:       splitCommaList(kbSel),
 		Workspace: *workspace,
+
+		ApproveVariants: *approveVariants,
 	}
 	if *agentsCSV != "" {
 		agents, err := resolveProviderCSV(*agentsCSV)
@@ -776,9 +814,31 @@ func runSetupPlan(p setupPlan) int {
 		return 1
 	}
 
+	if p.AgentsLater || p.ApproveVariants {
+		found := setupDiscover(p.ServerURL, p.ApproveVariants, p.KBs)
+		if p.AgentsLater {
+			p.Agents = setupDetected()
+		}
+		// The variants setup approved join the agents it connects (D1702).
+		for _, v := range found {
+			if !slices.Contains(p.Agents, v) {
+				p.Agents = append(p.Agents, v)
+			}
+		}
+	}
+	if p.AgentsLater {
+		if len(p.Agents) == 0 {
+			fmt.Fprintln(os.Stderr, "Error:", errNoAgentDetected())
+			return 1
+		}
+	}
+
 	fmt.Println("==> agents")
 	connect := func(agents []string, kbs []string) int {
 		args := []string{"--no-input", "--agents", strings.Join(agents, ",")}
+		if p.ApproveVariants {
+			args = append(args, "--approve-variants")
+		}
 		if p.ServerURL != "" {
 			args = append(args, "--server-url", p.ServerURL)
 		}

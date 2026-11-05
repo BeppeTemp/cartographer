@@ -226,6 +226,7 @@ func runDoctor(dir, only string) doctorReport {
 			findings = append(findings, checkKBCollisions(dir, cfg, providers, facts)...)
 		}
 		findings = append(findings, checkWorkspaceProjections(dir, cfg, providers)...)
+		findings = append(findings, checkClientVariants(dir, cfg)...)
 		findings = append(findings, checkUpdateAvailable()...)
 		findings = append(findings, checkSteeringPatterns(dir, providers)...)
 		if lockErr == nil {

@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/agents"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -164,7 +168,9 @@ func TestApprovedVariantIsNotRegisteredWhenItsPathsMoved(t *testing.T) {
 }
 
 // A cached variant that fails to register keeps its name in the config for the
-// run: no destructive drop on a name a failure left unknown.
+// run: no destructive drop on a name a failure left unknown. The entry is
+// approved with the real fingerprint of the descriptor it was cached from, then
+// its stored bytes are damaged: registration names the failure.
 func TestUnregisteredCachedNameIsNotDropped(t *testing.T) {
 	home := variantHome(t)
 	good := variantArtifact(cachedVariant)
@@ -360,5 +366,252 @@ func TestForgetCachedVariant(t *testing.T) {
 	}
 	if _, err := os.Stat(skill); err != nil {
 		t.Fatalf("revoke removed what was installed: %v", err)
+	}
+}
+
+func TestWantsVariantDiscovery(t *testing.T) {
+	for _, tc := range []struct {
+		target, csv string
+		approve     bool
+		want        bool
+	}{
+		{"", "", false, true}, {"all", "", false, true}, {"claude", "", false, false}, {"fork-cli", "", false, true},
+		{"", "claude,codex", false, false}, {"", "claude, fork-cli", false, true},
+		{"", "claude", true, true}, // --agents <base> --approve-variants discovers
+	} {
+		if got := wantsVariantDiscovery(tc.target, tc.csv, tc.approve); got != tc.want {
+			t.Errorf("wantsVariantDiscovery(%q,%q,%v) = %v, want %v", tc.target, tc.csv, tc.approve, got, tc.want)
+		}
+	}
+}
+
+func TestSetupPlanDefersAgentsWhenAKBSourceExists(t *testing.T) {
+	f := baseSetupFacts()
+	f.Detected = nil
+	f.RemoteProbed = true
+	p, err := planSetup(f, setupOptions{Remote: "git@h:me/new.git", ApproveVariants: true})
+	if err != nil || !p.AgentsLater || !p.ApproveVariants || len(p.Agents) != 0 {
+		t.Fatalf("plan = %+v, err %v: want agents deferred", p, err)
+	}
+	var b bytes.Buffer
+	renderSetupPlan(&b, p, f)
+	if !strings.Contains(b.String(), "detected after the KB is mounted") {
+		t.Errorf("plan does not say agents are detected after the KB is mounted:\n%s", b.String())
+	}
+}
+
+func TestReconcileReportsNewlyCachedVariantsOnce(t *testing.T) {
+	home := variantHome(t)
+	a := variantArtifact(cachedVariant)
+	cfg := writeConfig(t, home, a)
+	pulled := map[string]bool{"kb-a": true}
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, pulled, true, false); len(res.Added) != 1 || res.Added[0] != "fork-cli" {
+		t.Fatalf("first run Added = %v, want [fork-cli]", res.Added)
+	}
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, pulled, true, false); len(res.Added) != 0 {
+		t.Fatalf("a variant already cached is not new: Added = %v", res.Added)
+	}
+}
+
+func TestAgentsTableNamesAVariantAfterItsBase(t *testing.T) {
+	var b bytes.Buffer
+	writeAgentsTable(&b, []agents.Agent{
+		{Provider: "claude", Name: "Claude Code", Installed: true},
+		{Provider: "fork-cli", Name: "Fork CLI", Installed: true, Variant: true, Base: "crush"},
+	}, map[string]bool{"fork-cli": true})
+	if !strings.Contains(b.String(), "fork-cli (variant of crush)") {
+		t.Errorf("table does not say what the variant forks:\n%s", b.String())
+	}
+}
+
+func TestDoctorReportsACachedVariantThatIsNotAuthorized(t *testing.T) {
+	home := variantHome(t)
+	a := variantArtifact(cachedVariant)
+	if err := clientvariant.SaveCache(home, cacheOf(a)); err != nil {
+		t.Fatal(err)
+	}
+	got := checkClientVariants(home, &clientconfig.Config{})
+	if len(got) != 1 || !strings.Contains(got[0].Fix, "approve variant fork-cli --kb kb-a") {
+		t.Fatalf("findings = %+v, want one naming the approve command", got)
+	}
+}
+
+func TestVariantKBsIsTheDeclaringKBNarrowedBySelection(t *testing.T) {
+	for _, tc := range []struct {
+		sel  []string
+		want []string
+	}{
+		{nil, []string{"kb-a"}}, {[]string{"all"}, []string{"kb-a"}},
+		{[]string{"kb-a", "kb-b"}, []string{"kb-a"}}, {[]string{"kb-b"}, nil},
+	} {
+		if got := variantKBs("kb-a", tc.sel); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("variantKBs(kb-a, %v) = %v, want %v", tc.sel, got, tc.want)
+		}
+	}
+	if variantKBs("", nil) != nil {
+		t.Error("a variant with no known source connects to nothing")
+	}
+}
+
+// sync connects a newly cached variant bound to its source KB alone, whatever
+// else the server mounts (D1702).
+func TestConnectNewVariantsBindsOnlyTheSourceKB(t *testing.T) {
+	home := variantHome(t)
+	a := variantArtifact(cachedVariant)
+	cfg := writeConfig(t, home, a)
+	cfg.Agents = nil
+	cfg.ServerURL = "http://127.0.0.1:1/mcp" // nobody listens: the binding is still recorded
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, map[string]bool{"kb-a": true}, true, false); len(res.Added) != 1 {
+		t.Fatalf("not cached: %+v", res)
+	}
+	var out, errw bytes.Buffer
+	connectNewVariants(&out, &errw, cfg, home, []string{"fork-cli"})
+	if !strings.Contains(out.String(), "connected") {
+		t.Fatalf("out %q err %q", out.String(), errw.String())
+	}
+	got, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kbs, explicit := got.BoundKBs("fork-cli"); !explicit || !reflect.DeepEqual(kbs, []string{"kb-a"}) {
+		t.Fatalf("bound to %v (explicit %v), want exactly [kb-a]", kbs, explicit)
+	}
+}
+
+func TestDiscoverVariantsSaysWhyItFoundNothing(t *testing.T) {
+	home := variantHome(t)
+	var out, errw bytes.Buffer
+	got := discoverVariants(&clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp"}, home, variantDiscovery{Out: &out, Err: &errw})
+	if got != nil || !strings.Contains(errw.String(), "not discovered") {
+		t.Fatalf("found %v, stderr %q: want the reason printed", got, errw.String())
+	}
+}
+
+// setup connects the variant it approved, though nothing was detected when the
+// plan was made (D1702).
+func TestRunSetup_ConnectsTheVariantItApproved(t *testing.T) {
+	calls := stubSetup(t, setupFacts{})
+	setupDetected = func() []string { return nil }
+	saved := setupDiscover
+	t.Cleanup(func() { setupDiscover = saved })
+	setupDiscover = func(_ string, approve bool, kbs []string) []string {
+		*calls = append(*calls, fmt.Sprintf("discover approve=%v kbs=%v", approve, kbs))
+		return []string{"fork-cli"}
+	}
+	if code := runSetup(setupOptions{Remote: "git@h:me/wiki.git", ApproveVariants: true}, false, true, false, noPrompt()); code != 0 {
+		t.Fatalf("runSetup = %d", code)
+	}
+	want := []string{"discover approve=true kbs=[]", "connect --no-input --agents fork-cli --approve-variants"}
+	got := 0
+	for _, c := range *calls {
+		if got < len(want) && strings.HasPrefix(c, want[got]) {
+			got++
+		}
+	}
+	if got != len(want) {
+		t.Fatalf("calls %q: want them to contain, in order, %q", *calls, want)
+	}
+}
+
+// scopedFixture caches, approves and registers fork-cli (declared by kb-a) on a
+// server nobody listens on: the bindings are still recorded.
+func scopedFixture(t *testing.T) string {
+	t.Helper()
+	home := variantHome(t)
+	a := variantArtifact(cachedVariant)
+	cfg := writeConfig(t, home, a)
+	cfg.Agents = nil
+	cfg.ServerURL = "http://127.0.0.1:1/mcp"
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, nil, map[string]bool{"kb-a": true}, true, false); len(res.Cached) != 1 {
+		t.Fatalf("not cached: %+v", res)
+	}
+	return home
+}
+
+func scopedOpts(home string, providers, kbs []string) connectOptions {
+	return connectOptions{Providers: providers, Dir: home, ServerURL: "http://127.0.0.1:1/mcp", Name: "wiki", KBs: kbs}
+}
+
+func TestDoConnectScopedBindsAVariantToItsSourceKBOnly(t *testing.T) {
+	for _, sel := range [][]string{{"kb-a", "kb-b"}, {"all"}, {"kb-b", "all"}} {
+		home := scopedFixture(t)
+		if _, err := doConnectScoped(scopedOpts(home, []string{"fork-cli"}, sel)); err != nil {
+			t.Fatalf("selection %v: %v", sel, err)
+		}
+		got, _ := clientconfig.Load(home)
+		if kbs, explicit := got.BoundKBs("fork-cli"); !explicit || !reflect.DeepEqual(kbs, []string{"kb-a"}) {
+			t.Errorf("selection %v: bound to %v (explicit %v), want [kb-a]", sel, kbs, explicit)
+		}
+	}
+}
+
+func TestDoConnectScopedSkipsAVariantTheSelectionLeavesOut(t *testing.T) {
+	home := scopedFixture(t)
+	// Only the variant, and its KB is not selected: an error, not a quiet success.
+	if _, err := doConnectScoped(scopedOpts(home, []string{"fork-cli"}, []string{"kb-b"})); err == nil || !strings.Contains(err.Error(), "kb-a") {
+		t.Fatalf("err = %v, want one naming the declaring KB", err)
+	}
+	// Mixed with a built-in: the built-in connects with the selection, the variant is left out.
+	res, err := doConnectScoped(scopedOpts(home, []string{"crush", "fork-cli"}, []string{"kb-b"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := clientconfig.Load(home)
+	if kbs, _ := got.BoundKBs("crush"); !reflect.DeepEqual(kbs, []string{"kb-b"}) {
+		t.Errorf("crush bound to %v, want [kb-b]", kbs)
+	}
+	if slices.Contains(got.Agents, "fork-cli") || slices.Contains(res.Providers, "fork-cli") {
+		t.Errorf("fork-cli was connected: agents %v", got.Agents)
+	}
+}
+
+func TestMergeDiscoveredJoinsAnExplicitList(t *testing.T) {
+	if got := mergeDiscovered([]string{"crush"}, []string{"fork-cli", "crush"}); !reflect.DeepEqual(got, []string{"crush", "fork-cli"}) {
+		t.Errorf("merged = %v", got)
+	}
+}
+
+// A KB that turned artifacts off installs nothing through sync, so discovery
+// neither approves nor caches its variants either; the same KB with artifacts on
+// is the control.
+func TestDiscoverVariantsLeavesOutAKBWithArtifactsOff(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name string
+		opts map[string]clientconfig.KBOption
+		want bool // cached
+	}{
+		{"artifacts on", nil, true},
+		{"artifacts off", map[string]clientconfig.KBOption{"kb-a": {Artifacts: &off}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := variantHome(t)
+			a := variantArtifact(cachedVariant)
+			srv := prefixAwareMCPServer(t, map[string]string{"kb-a": ""}, "sync_pull", func(kb string) string {
+				return pulledHookPayload(t, kb, a)
+			})
+			defer srv.Close()
+			cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", KBOptions: tc.opts}
+			if err := clientconfig.Save(home, cfg); err != nil {
+				t.Fatal(err)
+			}
+			var out, errw bytes.Buffer
+			discoverVariants(cfg, home, variantDiscovery{Approve: true, Out: &out, Err: &errw})
+			c, _ := clientvariant.LoadCache(home)
+			got, _ := clientconfig.Load(home)
+			approved := len(got.MCPApprovals["kb-a"]) != 0
+			if (len(c) != 0) != tc.want || approved != tc.want {
+				t.Fatalf("cached %v approved %v, want %v\nout %q err %q", c, approved, tc.want, out.String(), errw.String())
+			}
+			if !tc.want && !strings.Contains(out.String(), "kb-a") {
+				t.Errorf("no note naming the KB: %q", out.String())
+			}
+		})
 	}
 }

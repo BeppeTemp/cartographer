@@ -118,6 +118,13 @@ ending with `server ready` and `Cartographer is set up.`, plus the Atlas URL. If
 above `Setup stopped at …` is the cause: fix it and rerun the same command — finished steps are
 skipped, so a rerun is always safe.
 
+A KB can declare client variants (agent clients of its own, for example a fork of a supported one). On a
+machine whose only agent is such a variant, `setup` finds nothing to connect until the KB is mounted, then
+reads the KB's declarations. A variant is configured only once approved: pass `--approve-variants` to `setup`
+or `connect` to approve every variant the selected KBs declare (each one is printed with the paths it will write); without
+the flag only `connect` in a terminal asks, `setup` and anything non-interactive report `needs_approval` and connect the rest.
+A variant is connected with the KB that declared it, not with every mounted KB.
+
 ## 4. Verify the instructions reach the model
 
 `cartographer status` should report in-sync with exit code 0. Then confirm the instructions actually
