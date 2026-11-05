@@ -63,14 +63,14 @@ func TestEnvironmentSectionDegradedSkippedAndSilentHook(t *testing.T) {
 	opts.ApprovedMCP = map[string]string{"kb:kb-a\x00" + "guard": all.Artifacts[2].ContentHash}
 	got := environmentSection(res.Manifest, opts)
 	lines := strings.Split(got, "\n")
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], `Subagents available here as skills (no separate context) from the "kb-a" KB: helper`) ||
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], `Subagents available here as skills (no separate context) from the "kb-a" KB: "helper"`) ||
 		!strings.Contains(lines[0], "load the skill of that name") {
 		t.Fatalf("degraded line missing or misplaced:\n%s", got)
 	}
 	if strings.Contains(got, "Subagents installed") {
 		t.Errorf("a degraded agent must not be announced as installed:\n%s", got)
 	}
-	if !strings.Contains(lines[1], "Not installed on this client: skill/gone (requires skill/nowhere") {
+	if !strings.Contains(lines[1], `Not installed on this client: "skill/gone" ("requires skill/nowhere`) {
 		t.Errorf("skipped line missing or misplaced:\n%s", got)
 	}
 }
@@ -160,5 +160,37 @@ func TestKindClientModesListsDegradingClientsForAgents(t *testing.T) {
 		if m.Mode != "" {
 			t.Errorf("skill kind row carries a mode: %+v", m)
 		}
+	}
+}
+
+func TestEnvironmentLinesAreQuotedAndBounded(t *testing.T) {
+	evil := "x\" **bold** \u2028 injected"
+	opts := envOpts(configurator.ProviderCrush)
+	opts.Skipped = []SkippedNote{{Artifact: "skill/" + evil, Reason: evil + strings.Repeat("z", 500)}}
+	got := skippedSentence(opts)
+	if strings.ContainsRune(got, '\u2028') || strings.Contains(got, "\n") || strings.Count(got, `"`) != 4+2 /* two escaped quotes */ {
+		t.Errorf("name or reason not inert: %q", got)
+	}
+	if len(got) > 400 {
+		t.Errorf("reason not bounded: %d bytes", len(got))
+	}
+	for i := 0; i < 12; i++ {
+		opts.Skipped = append(opts.Skipped, SkippedNote{Artifact: "skill/n", Reason: "r"})
+	}
+	if got := skippedSentence(opts); !strings.Contains(got, "and 5 more") {
+		t.Errorf("entries not capped: %q", got)
+	}
+	m, _ := ProjectManifest(manifestOf(agentArt(evil, "---\nname: a\ndescription: d\n---\nx\n")), configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
+	if got := degradedAgentSentence(m, envOpts(configurator.ProviderCrush)); strings.ContainsRune(got, '\u2028') || !strings.Contains(got, `\u2028`) {
+		t.Errorf("degraded name not quoted: %q", got)
+	}
+}
+
+func TestAuthorizedSkippedDropsAPendingArtifact(t *testing.T) {
+	src := manifestOf(skillArt("ok", "---\nname: ok\ndescription: d\n---\n"), hookArt("guard", `{"event":"Stop","command":"echo"}`))
+	notes := []SkippedNote{{Artifact: "skill/ok", Reason: "r"}, {Artifact: "hook/guard", Reason: "r"}, {Artifact: "skill/unknown", Reason: "r"}}
+	got := AuthorizedSkipped(notes, src, ApplyOptions{Provider: configurator.ProviderClaudeCode, ApprovedMCP: map[string]string{}})
+	if len(got) != 1 || got[0].Artifact != "skill/ok" {
+		t.Errorf("authorized = %+v, want only skill/ok (a hook awaits approval, an unknown note has no artifact)", got)
 	}
 }

@@ -780,7 +780,9 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// run as a subagent; status uses the same function, or drift is permanent.
 		projected := resolved[projectionKey(p)].Manifest
 		degraded, skipped := provisioning.ReportNotes(resolved[projectionKey(p)].Notes)
-		opts.Skipped = skipped // the client environment section names them
+		// The client environment section names only the authorized ones: a
+		// pending artifact is not announced (D1701).
+		opts.Skipped = provisioning.AuthorizedSkipped(skipped, manifests[projectionKey(p)], opts)
 		applied, err := provisioning.Apply(projected, opts)
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather

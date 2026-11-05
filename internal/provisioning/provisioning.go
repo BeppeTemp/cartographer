@@ -3141,6 +3141,13 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	if cliSentence != "" {
 		cliHashPart = "\x00cli\x00" + cliSentence
 	}
+	// The client environment section (D1701) is client-owned text too, and it
+	// moves with things no artifact hash records (a skill skipped or unskipped, a
+	// capability probed). It cannot join the paths-section hash: `status` judges
+	// that hash without the approvals and notes a sync holds, so the two would
+	// disagree for good. Its trigger is the text itself, read back from the block
+	// on disk, like the @AGENTS.md import below.
+	envSection := environmentSection(m, opts)
 	var pathsSection, sharedSection string
 	if len(signed) > 0 {
 		sections := make([]string, 0, len(signed))
@@ -3175,7 +3182,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	wantImport := needsAgentsMDImport(opts)
 	if !triggered && len(signed) > 0 {
 		fullPath := filepath.Join(opts.BaseDir, destRel)
-		if wantImport != blockHasAgentsMDImport(fullPath) {
+		if wantImport != blockHasAgentsMDImport(fullPath) || envSection != blockEnvironment(fullPath) {
 			triggered = true
 		}
 	}
@@ -3247,8 +3254,8 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// cell is unsupportedDest (crush) receives none, and the sentence must not
 	// tell it to delegate to subagents that are not there; installedSubagentSentence
 	// derives it from destDir.
-	if sentence := environmentSection(m, opts); sentence != "" {
-		body += "\n\n" + sentence
+	if envSection != "" {
+		body += "\n\n" + envSection
 	}
 	if cliSentence != "" {
 		body += "\n\n" + cliSentence
@@ -3393,6 +3400,48 @@ func blockHasAgentsMDImport(path string) bool {
 	}
 	block := content[beginIdx : beginIdx+endIdx+len(instructionsBlockEnd)]
 	return containsAgentsMDImport(block)
+}
+
+// environmentLinePrefixes start every line environmentSection can write.
+var environmentLinePrefixes = []string{
+	"Subagents installed by the ",
+	"Subagents available here as skills ",
+	"Not installed on this client: ",
+	"Hooks installed here that this client never fires: ",
+}
+
+// blockEnvironment returns the client environment section the existing managed
+// block at path ends with: its last lines, while they start like one of the
+// section's lines. "" when there is no block or none.
+func blockEnvironment(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	content := string(data)
+	beginIdx := strings.Index(content, instructionsBlockBeginPrefix)
+	if beginIdx == -1 {
+		return ""
+	}
+	endIdx := strings.Index(content[beginIdx:], instructionsBlockEnd)
+	if endIdx == -1 {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(content[beginIdx:beginIdx+endIdx], "\n"), "\n")
+	i := len(lines)
+	for i > 0 {
+		isEnv := false
+		for _, p := range environmentLinePrefixes {
+			if strings.HasPrefix(lines[i-1], p) {
+				isEnv = true
+			}
+		}
+		if !isEnv {
+			break
+		}
+		i--
+	}
+	return strings.Join(lines[i:], "\n")
 }
 
 // containsAgentsMDImport reports whether text contains a line that is exactly
@@ -3639,8 +3688,59 @@ func degradedAgentSentence(m Manifest, opts ApplyOptions) string {
 	}
 	return perKBLines(byKB, func(kbName string, names []string) string {
 		return fmt.Sprintf("Subagents available here as skills (no separate context) from the %q KB: %s — where a skill says to delegate to one of them, load the skill of that name.",
-			kbName, strings.Join(names, ", "))
+			kbName, envJoin(quoteAll(names, envNameMax)))
 	})
+}
+
+// The environment lines carry text a KB supplies (artifact names, a skip
+// reason that quotes a `requires`): it is quoted, so quotes, markdown and line
+// separators stay inert, and bounded, so one artifact cannot fill the block.
+const (
+	envNameMax   = 60
+	envReasonMax = 160
+	envMaxItems  = 8
+)
+
+// envQuote quotes s with %q after cutting it to max runes.
+func envQuote(s string, max int) string {
+	if r := []rune(s); len(r) > max {
+		s = string(r[:max]) + "..."
+	}
+	return fmt.Sprintf("%q", s)
+}
+
+func quoteAll(in []string, max int) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = envQuote(s, max)
+	}
+	return out
+}
+
+// envJoin lists at most envMaxItems entries and counts the rest.
+func envJoin(items []string) string {
+	if len(items) <= envMaxItems {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(items[:envMaxItems], ", "), len(items)-envMaxItems)
+}
+
+// AuthorizedSkipped keeps the skipped notes whose artifact (looked up by
+// "kind/name" in source, the manifest before projection) a client may name:
+// the one gate of every environment line. An artifact awaiting approval is not
+// announced, and a note that matches no artifact is dropped.
+func AuthorizedSkipped(notes []SkippedNote, source Manifest, opts ApplyOptions) []SkippedNote {
+	byID := map[string]Artifact{}
+	for _, a := range source.Artifacts {
+		byID[a.Kind+"/"+a.Name] = a
+	}
+	var out []SkippedNote
+	for _, n := range notes {
+		if a, ok := byID[n.Artifact]; ok && artifactAuthorized(a, opts) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // skippedSentence is one line naming what the resolver left out of this
@@ -3651,9 +3751,9 @@ func skippedSentence(opts ApplyOptions) string {
 	}
 	parts := make([]string, 0, len(opts.Skipped))
 	for _, s := range opts.Skipped {
-		parts = append(parts, fmt.Sprintf("%s (%s)", s.Artifact, s.Reason))
+		parts = append(parts, envQuote(s.Artifact, envNameMax)+" ("+envQuote(s.Reason, envReasonMax)+")")
 	}
-	return "Not installed on this client: " + strings.Join(parts, "; ") + "."
+	return "Not installed on this client: " + envJoin(parts) + "."
 }
 
 // silentHookSentence names the installed hooks whose event this client never
@@ -3670,21 +3770,22 @@ func silentHookSentence(m Manifest, opts ApplyOptions) string {
 			continue
 		}
 		if CapabilityStatus(opts.Provider, opts.Scope, Capability(hookCapPrefix+spec.Event)) == CapAbsent {
-			parts = append(parts, fmt.Sprintf("%s (%s)", a.Name, spec.Event))
+			parts = append(parts, envQuote(a.Name, envNameMax)+" ("+envQuote(spec.Event, envNameMax)+")")
 		}
 	}
 	if len(parts) == 0 {
 		return ""
 	}
 	sort.Strings(parts)
-	return "Hooks installed here that this client never fires: " + strings.Join(parts, ", ") + "."
+	return "Hooks installed here that this client never fires: " + envJoin(parts) + "."
 }
 
 // environmentSection is what the managed block says about THIS client (D1656,
 // generalizing D154's sentence): native agents, agents installed as skills, what
 // was left out, hooks that cannot fire. Each line only when it applies, in that
 // order; "" when none does. Client-side and outside every artifact hash, and
-// rewritten on every Apply, so a new binary with a changed table updates it.
+// rewritten when its text changes: it is folded into the recorded block hash
+// (pathsSectionHash), so a new binary with a changed table updates it.
 func environmentSection(m Manifest, opts ApplyOptions) string {
 	var lines []string
 	for _, l := range []string{

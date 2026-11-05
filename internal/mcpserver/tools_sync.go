@@ -200,7 +200,15 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 				Lock:     lock,
 			}
 
-			applied, err := provisioning.Apply(m, applyOpts)
+			// The same resolver a client runs, so the instructions block this
+			// writes carries the same "Not installed" line (D1701): what the
+			// resolver leaves out is neither applied nor hidden.
+			resolved := provisioning.ResolveProjections([]provisioning.ProjectionInput{{
+				Key: "server", Provider: applyOpts.Provider, Scope: provisioning.ScopeGlobal, Manifest: m,
+			}}, provisioning.ProjectOptions{BundleFS: bundleFS, KBRoots: kbRoots})["server"]
+			_, skipped := provisioning.ReportNotes(resolved.Notes)
+			applyOpts.Skipped = provisioning.AuthorizedSkipped(skipped, m, applyOpts)
+			applied, err := provisioning.Apply(resolved.Manifest, applyOpts)
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_apply: %v", relPathErr(err, k.Root))), nil
 			}
