@@ -11,7 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
-// D1712: a client that cannot install a KB's skills as files is told to read
+// D1711: a client that cannot install a KB's skills as files is told to read
 // them with artifact_read. That route must work on an unbound folder (access=read)
 // and kb_guide must name the same tool and path shape the instructions block does.
 func TestUnplacedSkills_ReadableThroughMCPOnAnUnboundFolder(t *testing.T) {

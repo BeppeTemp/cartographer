@@ -324,7 +324,7 @@ type ApplyOptions struct {
 	// Unplaced are the KB skills and agents this projection has no file for
 	// (UnplacedArtifacts, computed by the caller on the manifest before
 	// ProjectManifest drops them): the instructions block names them and how to
-	// read them through MCP (D1712). Client-side only.
+	// read them through MCP (D1711). Client-side only.
 	Unplaced []Artifact
 
 	// Scope selects which half of the destination matrix this apply writes
@@ -3793,7 +3793,7 @@ func environmentSection(m Manifest, opts ApplyOptions) string {
 		degradedAgentSentence(m, opts),
 		skippedSentence(opts),
 		silentHookSentence(m, opts),
-		unplacedSentence(opts), // D1712: skills and agents with no file on this client
+		unplacedSentence(opts), // D1711: skills and agents with no file on this client
 	} {
 		if l != "" {
 			lines = append(lines, l)

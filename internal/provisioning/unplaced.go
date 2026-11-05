@@ -41,7 +41,7 @@ func UnplacedArtifacts(m Manifest, provider configurator.Provider, scope Scope) 
 }
 
 // unplacedSentence tells a client that cannot install a KB's skills (or agents)
-// as files which ones exist and how to read them through MCP (D1712). Client
+// as files which ones exist and how to read them through MCP (D1711). Client
 // side like installedSubagentSentence: it enters no artifact hash. One paragraph
 // per KB, names sorted and capped like the brief's own skills line.
 func unplacedSentence(opts ApplyOptions) string {
