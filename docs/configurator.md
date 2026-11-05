@@ -162,6 +162,17 @@ decides every step **before** running any:
   URL yet setup passes `--server-url` for the local service's own address (a service installed with
   `--http` on another port included); a loopback client URL on a different port than the service is a
   plan-time refusal (exit 2, nothing changed).
+- **Service backend (D1682).** The plan line names how the server is kept: `systemd`, `launchd` and
+  the Scheduled Task say "starts at login, no admin rights"; `cron` says "starts at boot, checked every
+  5 minutes". A server already answering a well-formed `/health` on the configured address (the default
+  one when there is no config yet) is **kept** even with no installed service ("already answering ...
+  not managed by Cartographer"); anything else on the port is not one of ours and falls through to the
+  install, which fails at bind with the server's own message. With no systemd user manager, no usable
+  `crontab` and no answering server, the plan fails: exit 2, nothing created, the message gives the
+  manual route (`service install --config-only`, then `serve --config ... &` hooked into the init, then
+  `setup` again). A kept hand-started server cannot be restarted by setup: after a KB create or clone
+  setup stops with exit 1 asking for a restart by hand. The failure hint names only commands that
+  work on the backend (the cron log paths, not `journalctl`).
 - **Readiness.** Before the agents step setup waits (up to 5 minutes, a first clone of a large KB takes that
   long) until `/health` stops reporting `bootstrapping` — a server answers 200 while it clones — and the
   verify step uses the same condition, so "set up" is never printed over a server still loading its KBs.
@@ -171,7 +182,7 @@ decides every step **before** running any:
 - **Exit codes:** 0 set up; 1 a step failed (whatever code the step itself returned: the service and the KB may exist by then) or the operator cancelled; 2 usage, preflight or
   choice error (nothing changed). A failed step prints `Setup stopped at …`; a rerun skips what is
   done. On Linux a freshly installed user unit without lingering gets the `loginctl enable-linger`
-  hint. The run ends on the Atlas URL and on restarting the agent sessions.
+  hint (systemd only: cron has no logout problem). The run ends on the Atlas URL and on restarting the agent sessions.
 
 ```bash
 cartographer setup                                                  # interview, plan, confirm
@@ -829,11 +840,14 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 | Platform | Files | Logs |
 |---|---|---|
 | macOS | `~/Library/LaunchAgents/com.cartographer.sync.plist` | `~/Library/Logs/cartographer/sync.log` |
-| Linux | `~/.config/systemd/user/cartographer-sync.{service,timer}` | journal (`journalctl --user -u cartographer-sync`) |
+| Linux (systemd) | `~/.config/systemd/user/cartographer-sync.{service,timer}` | journal (`journalctl --user -u cartographer-sync`) |
+| Linux (cron, no systemd) | block `sync` of the user crontab, definition `~/.config/cartographer/cron/sync.cron` | `$XDG_STATE_HOME/cartographer/sync.log` (default `~/.local/state/cartographer`, via `sync --log-file`) |
 | Windows | `%LOCALAPPDATA%\cartographer\tasks\sync.xml` → Scheduled Task `\Cartographer\Sync` | `%LOCALAPPDATA%\cartographer\Logs\sync.log` (via `sync --log-file`) |
 
 `install` is idempotent (it overwrites and re-registers); uninstalling a timer that is not
-installed is a success. The per-user scheduler belongs to the account, not to `$HOME`: when
+installed is a success. On cron the interval is rounded up to whole minutes, and from an hour up to
+whole hours capped at daily (`*/n` fires at :00, :n, ... of each hour, not n minutes after the last
+run); uninstall strips the block and keeps `sync.cron` if the crontab still holds it. The per-user scheduler belongs to the account, not to `$HOME`: when
 `$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the server service
 and the sync timer write their unit files under `$HOME` and register nothing,
 so a sandbox never replaces the account's own jobs (#683); `connect` and `setup` then print `sync timer not installed: HOME is not this account's home (expected in tests)` as a plain line, not a warning. The timer runs plain `cartographer sync`: `sync` has no trust flag to give it (D906; `workspace bind codex --trust` is a separate, explicit command),
@@ -860,12 +874,14 @@ three needs administrator rights. Client and server are the same binary: the cli
 talk to the daemonized server over loopback.
 
 ```bash
-cartographer service install [--config <path>] [--data <dir>] [--http <addr>] [--no-tray]
+cartographer service install [--config <path>] [--data <dir>] [--http <addr>] [--no-tray] [--config-only]
 cartographer service uninstall|start|stop|restart
 cartographer service tray install|uninstall|status   # the status icon's autostart (D1482)
 cartographer service restart --wait [--config <path>]   # graceful, version-gated (D121)
 cartographer service status        # exit: 0 running, 3 installed but stopped, 4 not installed
 ```
+
+`--config-only` writes the config and creates the data directory exactly as `install` does and installs nothing: for a host with no service manager, where plain `install` exits 2 before writing anything and prints the manual route (see `deployment.md`, "Hosts without a service manager"). It prints the `serve` command to start by hand and exits 0. `connect` does not offer to install the service on such a host.
 
 Re-running `service install` leaves the installed definition and the running process in agreement: on Linux a unit that was active is restarted after `enable --now` (which alone leaves a running unit alone), as launchd and the Scheduled Task already are. The launchd plists escape every path as XML, so `R&D` in a path is valid.
 

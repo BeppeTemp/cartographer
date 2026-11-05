@@ -64,7 +64,7 @@ After the silent sync the script runs `cartographer update notice`, keeping its 
 | pi | `session_start`, every session (`-p` included) | generated extension `~/.pi/agent/extensions/cartographer-<name>.ts`, the hook's own files under `~/.pi/agent/cartographer-hooks/` |
 
 **Scheduled trigger (D140).** For a client with no session hook, `cartographer service sync-timer
-install [--interval 30m]` registers a launchd agent (macOS), a systemd user timer (Linux) or the Windows Scheduled Task `\Cartographer\Sync` that
+install [--interval 30m]` registers a launchd agent (macOS), a systemd user timer or, without systemd, a crontab block (Linux) or the Windows Scheduled Task `\Cartographer\Sync` that
 runs `cartographer sync` on an interval. `setup` and `connect` (and so `reconnect`) **install it
 themselves** (D325) when a connected provider has no session hook, or one that fires only in some of
 its sessions (kiro, `provisioning.SessionHookLimit`, D300), **and** the timer is not already

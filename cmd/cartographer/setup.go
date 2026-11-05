@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -72,9 +73,14 @@ type setupOptions struct {
 // setupFacts is everything planSetup reads, gathered once. Kept as plain data
 // so the planning rules are testable without a machine to inspect.
 type setupFacts struct {
-	GitFound       bool
-	ClientURL      string // the server URL the client config already points at, "" if none
-	Service        service.Status
+	GitFound  bool
+	ClientURL string // the server URL the client config already points at, "" if none
+	Service   service.Status
+	// Backend is the mechanism the service verbs would act on (D1682);
+	// ServerAnswers is true when a well-formed /health answers on the configured
+	// address whether or not a service is installed (a server started by hand).
+	Backend        service.Backend
+	ServerAnswers  bool
 	DataDir        string
 	KBs            []kbRow // direct subdirectories of the data dir
 	Detected       []string
@@ -109,12 +115,19 @@ type setupPlan struct {
 	// has none yet: connect's own default is the standard port, and a service
 	// installed on another one left the agents pointed at nothing.
 	ServerURL string
+	// ServerUnmanaged marks serviceKeep decided because a server already
+	// answers with no installed service: setup cannot restart it.
+	ServerUnmanaged bool
 }
 
 // errSetupNeedsRemote is planSetup's answer when there is no KB and nothing
 // says where the first one lives: the interview asks, a non-interactive run
 // stops with the flags that answer it.
 var errSetupNeedsRemote = errors.New("no KB is mounted yet and no remote was given")
+
+// errSetupNoServiceManager is planSetup's answer on a host with no service
+// manager and no server answering: a plan error, so nothing is created.
+var errSetupNoServiceManager = errors.New("this machine has no service manager")
 
 // errSetupNeedsKBChoice is planSetup's answer when the server will mount two or
 // more KBs and the agents have no binding yet (D190).
@@ -143,6 +156,10 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 		p.Service = serviceKeep
 	case f.Service.Installed:
 		p.Service = serviceStart
+	case f.ServerAnswers:
+		p.Service, p.ServerUnmanaged = serviceKeep, true
+	case f.Backend == service.BackendNone:
+		return p, errSetupNoServiceManager
 	default:
 		p.Service = serviceInstall
 	}
@@ -267,11 +284,19 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 	}
 	switch p.Service {
 	case serviceKeep:
-		line("server       already running (%s) — keep", serviceAddr(f.Service))
+		if p.ServerUnmanaged {
+			line("server       already answering on %s (not managed by Cartographer) - keep", serviceAddrOrDefault(f.Service))
+		} else {
+			line("server       already running (%s) — keep", serviceAddr(f.Service))
+		}
 	case serviceStart:
 		line("server       installed but stopped — start it")
 	case serviceInstall:
-		line("server       install the native service on %s (starts at login, no admin rights)", serviceAddrOrDefault(f.Service))
+		when := "starts at login, no admin rights"
+		if f.Backend == service.BackendCron {
+			when = "cron: starts at boot, checked every 5 minutes, no admin rights"
+		}
+		line("server       install the native service on %s (%s)", serviceAddrOrDefault(f.Service), when)
 	}
 	switch p.KB {
 	case kbKeepExisting:
@@ -375,6 +400,9 @@ var (
 	setupProbeRemote   = gitx.ProbeRemoteContent
 	setupLookGit       = func() bool { _, err := exec.LookPath("git"); return err == nil }
 	setupServiceStatus = func() (service.Status, error) { return service.NewManager().Status("") }
+	setupBackend       = func() service.Backend { return service.NewManager().Backend() }
+	setupProbeHealth   = service.ProbeHealth
+	setupFailureHint   = func() string { return service.NewManager().FailureHint() }
 	setupInstallSvc    = func() error { return installServiceAndWaitHealthy(service.NewManager(), 20*time.Second) }
 	setupStartSvc      = func() error { return service.NewManager().Start() }
 	setupKBCreate      = cmdKBCreate
@@ -422,6 +450,12 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 	}
 	if st, err := setupServiceStatus(); err == nil {
 		f.Service = st
+	}
+	f.Backend = setupBackend()
+	// A bootstrapping server answers too (ProbeHealth returns its ok status
+	// with errBootstrapping); anything else on the port is not one of ours.
+	if hs, err := setupProbeHealth(serviceAddrOrDefault(f.Service), 2*time.Second); err == nil || hs.Status == "ok" {
+		f.ServerAnswers = true
 	}
 	f.DataDir = resolveServerDataDir("")
 	if rows, err := scanDataDir(f.DataDir); err == nil {
@@ -559,6 +593,9 @@ func runSetup(o setupOptions, interactive, yes, dryRun bool, ask setupPrompter) 
 			fmt.Fprintln(os.Stderr, "  cartographer setup --remote <url>          an empty repository (created) or one holding a KB (mounted)")
 			fmt.Fprintln(os.Stderr, "  cartographer setup --no-remote [--name n]  a local-only KB, not backed up and never synced")
 			return 2
+		case errors.Is(err, errSetupNoServiceManager):
+			printNoServiceManager(os.Stderr, setupConfigPath(facts), true)
+			return 2
 		case errors.Is(err, errSetupNeedsKBChoice) && interactive:
 			names := planKBNames(facts)
 			selection, ok, ferr := runKBSelectForm(names)
@@ -630,11 +667,13 @@ func runSetupPlan(p setupPlan) int {
 	case serviceInstall:
 		if err := setupInstallSvc(); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
-			fmt.Fprintln(os.Stderr, "Fix it (`cartographer service status` shows the details), then rerun `cartographer setup`: finished steps are skipped.")
+			fmt.Fprintf(os.Stderr, "Fix it (%s), then rerun `cartographer setup`: finished steps are skipped.\n", setupFailureHint())
 			return 1
 		}
 		fmt.Println("service installed and started")
-		printLingerHint()
+		if setupBackend() == service.BackendSystemd {
+			printLingerHint()
+		}
 	case serviceStart:
 		if err := setupStartSvc(); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
@@ -642,13 +681,23 @@ func runSetupPlan(p setupPlan) int {
 		}
 		fmt.Println("service started")
 	default:
-		fmt.Println("already running")
+		if p.ServerUnmanaged {
+			fmt.Println("already answering (not managed by Cartographer)")
+		} else {
+			fmt.Println("already running")
+		}
 	}
 
+	// A hand-started server cannot be restarted by setup: the KB step runs
+	// without --restart and setup says so afterwards.
+	restart := []string{"--restart"}
+	if p.ServerUnmanaged {
+		restart = nil
+	}
 	fmt.Println("==> knowledge base")
 	switch p.KB {
 	case kbCreate:
-		args := []string{p.KBName, "--restart"}
+		args := append([]string{p.KBName}, restart...)
 		if p.Remote != "" {
 			args = append(args, "--remote", p.Remote)
 		} else {
@@ -659,7 +708,7 @@ func runSetupPlan(p setupPlan) int {
 			return 1
 		}
 	case kbClone:
-		if code := setupKBClone([]string{p.Remote, p.KBName, "--restart"}); code != 0 {
+		if code := setupKBClone(append([]string{p.Remote, p.KBName}, restart...)); code != 0 {
 			fmt.Fprintln(os.Stderr, "Setup stopped at the KB step: fix the cause above, then rerun `cartographer setup`.")
 			return 1
 		}
@@ -667,6 +716,10 @@ func runSetupPlan(p setupPlan) int {
 		fmt.Printf("%q is already mounted\n", p.KBName)
 	default:
 		fmt.Printf("using %s\n", strings.Join(p.Existing, ", "))
+	}
+	if p.ServerUnmanaged && (p.KB == kbCreate || p.KB == kbClone) {
+		fmt.Fprintln(os.Stderr, "The running server mounts KBs only when it starts and was not started by Cartographer: restart it by hand, then rerun `cartographer setup` (finished steps are skipped).")
+		return 1 // a KB was created: 2 means "nothing changed"
 	}
 
 	if msg := setupAuthMismatch(); msg != "" {
@@ -802,4 +855,34 @@ func printLingerHint() {
 		return
 	}
 	fmt.Printf("note: the service stops when you log out; to keep it running (headless hosts): loginctl enable-linger %s\n", u.Username)
+}
+
+// setupConfigPath is the server config path the manual route names: the
+// installed definition's, else the standard one.
+func setupConfigPath(f setupFacts) string {
+	if f.Service.ConfigPath != "" {
+		return f.Service.ConfigPath
+	}
+	p, _ := service.ConfigPath()
+	return p
+}
+
+// printNoServiceManager prints the manual route for a host with neither a
+// reachable systemd user manager nor a usable crontab. setup passes
+// nothingChanged: it stops at plan time, before creating anything.
+func printNoServiceManager(w io.Writer, configPath string, nothingChanged bool) {
+	tail := ""
+	if nothingChanged {
+		tail = " - nothing was changed"
+	}
+	fmt.Fprintf(w, "Error: this machine has neither a reachable systemd user manager nor a usable `crontab`, so Cartographer cannot install a service%s.\n", tail)
+	fmt.Fprintln(w, "  Run the server yourself and hook it into your init system:")
+	fmt.Fprintln(w, "    cartographer service install --config-only      write the config and the data directory, install nothing")
+	logPath := "<state dir>/server.log"
+	if d, err := service.StateDir(); err == nil {
+		logPath = filepath.Join(d, "server.log")
+	}
+	fmt.Fprintf(w, "    nohup cartographer serve --config %s --log-file %s &\n", configPath, logPath)
+	fmt.Fprintln(w, "  (examples for rc.local, OpenRC, runit and a container entrypoint: docs/deployment.md, \"Hosts without a service manager\")")
+	fmt.Fprintln(w, "  Then rerun `cartographer setup`: it keeps a server that already answers.")
 }

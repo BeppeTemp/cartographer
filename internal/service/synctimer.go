@@ -333,6 +333,13 @@ func (m *Manager) InstallSyncTimer(interval time.Duration) error {
 		}
 		return nil
 	case "linux":
+		b, err := m.syncBackend()
+		if err != nil {
+			return err
+		}
+		if b == BackendCron {
+			return m.installSyncCron(binPath, interval)
+		}
 		servicePath, err := SyncSystemdServicePath()
 		if err != nil {
 			return fmt.Errorf("service: resolve sync unit path: %w", err)
@@ -400,6 +407,9 @@ func (m *Manager) UninstallSyncTimer() error {
 		}
 		return nil
 	case "linux":
+		if p, err := CronSyncDefinitionPath(); err == nil && fileExists(p) {
+			return m.uninstallSyncCron()
+		}
 		servicePath, err := SyncSystemdServicePath()
 		if err != nil {
 			return fmt.Errorf("service: resolve sync unit path: %w", err)
@@ -407,6 +417,9 @@ func (m *Manager) UninstallSyncTimer() error {
 		timerPath, err := SyncSystemdTimerPath()
 		if err != nil {
 			return fmt.Errorf("service: resolve sync timer path: %w", err)
+		}
+		if !fileExists(timerPath) && !fileExists(servicePath) && m.Backend() != BackendSystemd {
+			return nil // nothing installed, and no systemd to tell so
 		}
 		if err := m.disableUnitNow(syncSystemdTimer); err != nil {
 			return err
@@ -456,6 +469,9 @@ func (m *Manager) SyncTimerStatus() (SyncTimerStatus, error) {
 		}
 		return st, nil
 	case "linux":
+		if p, err := CronSyncDefinitionPath(); err == nil && fileExists(p) {
+			return m.syncTimerStatusCron()
+		}
 		timerPath, err := SyncSystemdTimerPath()
 		if err != nil {
 			return st, fmt.Errorf("service: resolve sync timer path: %w", err)

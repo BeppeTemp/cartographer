@@ -108,3 +108,37 @@ func isNoCrontab(out string, err error) bool {
 	}
 	return strings.Contains(strings.ToLower(text), "no crontab")
 }
+
+// PrepareConfig is the half of Install that needs no service manager: it
+// resolves the config path, writes a default config when none exists and
+// creates the data directory. `service install --config-only` calls it on a
+// host where Install itself would stop with ErrNoServiceManager.
+func (m *Manager) PrepareConfig(opts InstallOptions) (warnings []string, configPath, dataDir string, err error) {
+	return m.prepareConfig(opts)
+}
+
+// FailureHint is what setup prints after a failed install: only commands that
+// work on the chosen backend (`journalctl` or `systemctl` would name a tool the
+// host may not have), then where the log is.
+func (m *Manager) FailureHint() string {
+	const status = "`cartographer service status` shows the details"
+	switch m.Backend() {
+	case BackendSystemd:
+		return status + "; the log is in `journalctl --user -u " + strings.TrimSuffix(systemdUnit, ".service") + "`"
+	case BackendCron:
+		server, err1 := statePath("server.log")
+		supervisor, err2 := statePath("supervisor.log")
+		if err1 == nil && err2 == nil {
+			return status + "; the logs are " + server + " (the server) and " + supervisor + " (the cron entry)"
+		}
+	case BackendLaunchd:
+		if p, err := LaunchdLogPath(); err == nil {
+			return status + "; the log is " + p
+		}
+	case BackendTask:
+		if p, err := WindowsLogPath(); err == nil {
+			return status + "; the log is " + p
+		}
+	}
+	return status
+}

@@ -389,6 +389,33 @@ Two entries that could both be the KB is a refusal, naming them: guessing there 
 
 `kb list [--data <dir>] [--config <path>] [--json]` prints one row per subdirectory of the data dir — name, whether it is an OKF KB (`data/index.md`), whether it is a git repository, its `origin` — and a `MOUNTED` column when the server answers `/health` and lists its KBs to a tokenless caller (authentication off; with authentication on `/health` names no KB without a token, D1096). When it does not, the column disappears and the reason is printed (a refused connection reads `the server is not running` and names `cartographer service start`): absence of the signal is not evidence that nothing is mounted. The command writes **nothing**: a missing data dir is reported rather than created (`kb list` then prints `no KB yet` with the `kb create` command and, when the server does not answer, the `service start` hint, and exits 0), and no repository is opened (which would migrate its git-exclude entry as a side effect). With `--json` stdout carries only `{"data_dir": …, "kbs": [{"name", "okf", "git", "origin", "mounted"}]}` (`kbs` is `[]` for an empty data dir, `origin` is empty when there is none): `mounted` is `null` when the server did not answer, and a `mounted_error` string then says why.
 
+The **sync timer** (`service sync-timer`) follows the same rule on its own definition: `sync.cron` present means cron, the `cartographer-sync` units mean systemd, else the server's backend. It is a second managed block (`sync`, with a `# interval=` comment and no `@reboot` line: a missed run is made up by the next slot), independent of the `server` block because `connect` installs it on machines that may run no server. Cron cannot say "every 45 minutes after the last run", so the interval is rounded up to whole minutes: under an hour it is `*/n * * * *`, a whole number of hours up to 23 is `0 */h * * *`, anything longer is rounded up to whole hours and capped at daily. Output goes to `sync.log` in the state directory. Uninstall follows the same verified-removal rule as the server block.
+
+##### Hosts without a service manager
+
+A host with neither a reachable systemd user manager nor a usable `crontab` (a container, a minimal image, a BSD-style init) has no backend: `service install` and `setup` exit 2 before writing anything, and name the manual route. `cartographer service install --config-only` writes `server.yaml` and creates the data directory exactly as `install` does, installs nothing, prints the start command and exits 0. Start the server detached and hook it into the init system, then run `cartographer setup`: a server already answering `/health` on the configured address is kept as is (the plan says `already answering ... (not managed by Cartographer)`). Setup cannot restart a server it did not start, so when its KB step creates or mounts a KB it stops with exit 1 and asks for a restart by hand; rerun it afterwards (finished steps are skipped).
+
+```sh
+# Slackware: /etc/rc.d/rc.local (as the user: su -l user -c '...')
+nohup cartographer serve --config ~/.config/cartographer/server.yaml --log-file ~/.local/state/cartographer/server.log >/dev/null 2>&1 &
+
+# OpenRC: /etc/init.d/cartographer
+command="/usr/local/bin/cartographer"
+command_args="serve --config /home/user/.config/cartographer/server.yaml"
+command_user="user"
+command_background=true
+pidfile="/run/cartographer.pid"
+
+# runit: /etc/sv/cartographer/run
+#!/bin/sh
+exec chpst -u user env HOME=/home/user /usr/local/bin/cartographer serve --config /home/user/.config/cartographer/server.yaml
+
+# container entrypoint
+cartographer service install --config-only && exec cartographer serve --config "$HOME/.config/cartographer/server.yaml"
+```
+
+`service status` on such a host exits 4 (nothing is installed) and, when something answers on the configured address, adds one line saying so (a measured fact, not a verdict, D174).
+
 `service ensure --config <file> [--log-file <file>]` is the action the cron backend's crontab lines run (start the server unless it runs or was stopped on purpose); it is not meant to be typed.
 
 `service status` uses systemctl-like exit codes: `0` running, `3` installed but stopped, `4` not installed — this is what lets `install.sh update` automatically restart only a running service (see §Client installation).
