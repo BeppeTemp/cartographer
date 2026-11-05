@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -513,5 +514,66 @@ func TestRunSetup_ConnectsTheVariantItApproved(t *testing.T) {
 	}
 	if got != len(want) {
 		t.Fatalf("calls %q: want them to contain, in order, %q", *calls, want)
+	}
+}
+
+// scopedFixture caches, approves and registers fork-cli (declared by kb-a) on a
+// server nobody listens on: the bindings are still recorded.
+func scopedFixture(t *testing.T) string {
+	t.Helper()
+	home := variantHome(t)
+	a := variantArtifact(cachedVariant)
+	cfg := writeConfig(t, home, a)
+	cfg.Agents = nil
+	cfg.ServerURL = "http://127.0.0.1:1/mcp"
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if res := reconcileVariants(home, cfg, []provisioning.Artifact{a}, map[string]bool{"kb-a": true}, true, false); len(res.Cached) != 1 {
+		t.Fatalf("not cached: %+v", res)
+	}
+	return home
+}
+
+func scopedOpts(home string, providers, kbs []string) connectOptions {
+	return connectOptions{Providers: providers, Dir: home, ServerURL: "http://127.0.0.1:1/mcp", Name: "wiki", KBs: kbs}
+}
+
+func TestDoConnectScopedBindsAVariantToItsSourceKBOnly(t *testing.T) {
+	for _, sel := range [][]string{{"kb-a", "kb-b"}, {"all"}, {"kb-b", "all"}} {
+		home := scopedFixture(t)
+		if _, err := doConnectScoped(scopedOpts(home, []string{"fork-cli"}, sel)); err != nil {
+			t.Fatalf("selection %v: %v", sel, err)
+		}
+		got, _ := clientconfig.Load(home)
+		if kbs, explicit := got.BoundKBs("fork-cli"); !explicit || !reflect.DeepEqual(kbs, []string{"kb-a"}) {
+			t.Errorf("selection %v: bound to %v (explicit %v), want [kb-a]", sel, kbs, explicit)
+		}
+	}
+}
+
+func TestDoConnectScopedSkipsAVariantTheSelectionLeavesOut(t *testing.T) {
+	home := scopedFixture(t)
+	// Only the variant, and its KB is not selected: an error, not a quiet success.
+	if _, err := doConnectScoped(scopedOpts(home, []string{"fork-cli"}, []string{"kb-b"})); err == nil || !strings.Contains(err.Error(), "kb-a") {
+		t.Fatalf("err = %v, want one naming the declaring KB", err)
+	}
+	// Mixed with a built-in: the built-in connects with the selection, the variant is left out.
+	res, err := doConnectScoped(scopedOpts(home, []string{"crush", "fork-cli"}, []string{"kb-b"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := clientconfig.Load(home)
+	if kbs, _ := got.BoundKBs("crush"); !reflect.DeepEqual(kbs, []string{"kb-b"}) {
+		t.Errorf("crush bound to %v, want [kb-b]", kbs)
+	}
+	if slices.Contains(got.Agents, "fork-cli") || slices.Contains(res.Providers, "fork-cli") {
+		t.Errorf("fork-cli was connected: agents %v", got.Agents)
+	}
+}
+
+func TestMergeDiscoveredJoinsAnExplicitList(t *testing.T) {
+	if got := mergeDiscovered([]string{"crush"}, []string{"fork-cli", "crush"}); !reflect.DeepEqual(got, []string{"crush", "fork-cli"}) {
+		t.Errorf("merged = %v", got)
 	}
 }

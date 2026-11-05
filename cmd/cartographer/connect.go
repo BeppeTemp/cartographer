@@ -423,11 +423,7 @@ func cmdConnect(args []string) int {
 	}
 	if *approveVariants && *agentsCSV != "" {
 		// An explicit list plus the flag: the variants it approved join it.
-		for _, v := range discovered {
-			if !slices.Contains(providers, v) {
-				providers = append(providers, v)
-			}
-		}
+		providers = mergeDiscovered(providers, discovered)
 	}
 	if len(providers) == 0 {
 		fmt.Fprintf(os.Stderr, "No agent detected on this machine; nothing to connect (pass an explicit provider name to force it: %s).\n", providerNamesJoined())

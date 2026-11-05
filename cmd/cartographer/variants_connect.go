@@ -55,7 +55,7 @@ func variantKBs(source string, selection []string) []string {
 	if source == "" {
 		return nil
 	}
-	if len(selection) == 0 || (len(selection) == 1 && selection[0] == kbSelectionAll) || slices.Contains(selection, source) {
+	if len(selection) == 0 || slices.Contains(selection, kbSelectionAll) || slices.Contains(selection, source) {
 		return []string{source}
 	}
 	return nil
@@ -79,7 +79,9 @@ func doConnectScoped(opts connectOptions) (connectResult, error) {
 		return doConnect(opts)
 	}
 	var total connectResult
+	ran := 0
 	run := func(o connectOptions) error {
+		ran++
 		res, err := doConnect(o)
 		total.Providers = append(total.Providers, res.Providers...)
 		total.ConfigsWritten = append(total.ConfigsWritten, res.ConfigsWritten...)
@@ -113,7 +115,38 @@ func doConnectScoped(opts connectOptions) (connectResult, error) {
 			return total, err
 		}
 	}
+	if ran == 0 {
+		var decl []string
+		for _, v := range variants {
+			decl = append(decl, fmt.Sprintf("%s (declared by KB %s)", escapeControl(v), escapeControl(cache[v].SourceKB)))
+		}
+		return total, fmt.Errorf("no client variant is connected: the selected KBs (%s) do not include the KB of %s", strings.Join(opts.KBs, ", "), strings.Join(decl, ", "))
+	}
 	return total, nil
+}
+
+// mergeDiscovered adds the variants discovery found to an explicit provider
+// list (connect --agents with --approve-variants), keeping its order.
+func mergeDiscovered(providers, discovered []string) []string {
+	for _, v := range discovered {
+		if !slices.Contains(providers, v) {
+			providers = append(providers, v)
+		}
+	}
+	return providers
+}
+
+// detectedVariants are the registered variants whose client is installed here
+// and whose declaring KB the selection covers: what a connect may add (D1714).
+func detectedVariants(dir string, selection []string) []string {
+	cache, _ := clientvariant.LoadCache(dir)
+	var found []string
+	for _, a := range agents.Detect() {
+		if a.Variant && a.Installed && variantKBs(cache[string(a.Provider)].SourceKB, selection) != nil {
+			found = append(found, string(a.Provider))
+		}
+	}
+	return found
 }
 
 // discoverVariants pulls the variant declarations of the KBs the server mounts
@@ -126,7 +159,7 @@ func doConnectScoped(opts connectOptions) (connectResult, error) {
 // connect (D1714); every failure to look is printed, never swallowed.
 func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery) []string {
 	skip := func(why error) []string {
-		fmt.Fprintf(o.Err, "note: client variants of the KBs not discovered, the cached ones stay: %v\n", why)
+		fmt.Fprintf(o.Err, "note: client variants of the KBs not discovered, the cached ones stay: %s\n", escapeControl(why.Error()))
 		return nil
 	}
 	fc := *base
@@ -184,7 +217,8 @@ func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery)
 		}
 	}
 	if len(arts) == 0 {
-		return nil
+		fmt.Fprintln(o.Out, "no client variant is declared by the selected KBs")
+		return detectedVariants(dir, o.KBs) // the ones cached and approved earlier
 	}
 	release, err := lockClient(dir)
 	if err != nil {
@@ -197,17 +231,10 @@ func discoverVariants(base *clientconfig.Config, dir string, o variantDiscovery)
 	}
 	res := reconcileVariants(dir, cfg, arts, nil, pulled, false, false)
 	for _, w := range res.Warnings {
-		fmt.Fprintf(o.Err, "warning: %s\n", w)
+		fmt.Fprintf(o.Err, "warning: %s\n", escapeControl(w))
 	}
 	printVariantSync(o.Out, res, false)
-	cache, _ := clientvariant.LoadCache(dir)
-	var found []string
-	for _, n := range res.Detected {
-		if variantKBs(cache[n].SourceKB, o.KBs) != nil {
-			found = append(found, n)
-		}
-	}
-	return found
+	return detectedVariants(dir, o.KBs)
 }
 
 // connectNewVariants connects, one doConnectLocked each, the variants a sync
