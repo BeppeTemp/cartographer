@@ -538,7 +538,7 @@ type pullResult struct {
 // artifacts. It touches no state shared with other targets, so fetchCandidates
 // can run it from several goroutines.
 func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
-	raw, err := callTool(c, target, "sync_pull", map[string]any{})
+	raw, err := callTool(c, target, "sync_pull", syncPullArgs())
 	if err != nil {
 		return pullResult{callErr: err}
 	}
@@ -1375,4 +1375,16 @@ func safeField(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// syncPullArgs asks the server for the bundled cartographer-cli skill only while
+// a registered variant reaches Cartographer through the shell (D1711). A client
+// that never sends it never receives the skill, whatever the KB declares.
+func syncPullArgs() map[string]any {
+	for _, d := range configurator.Variants() {
+		if d.MCPMode == configurator.MCPModeCLI {
+			return map[string]any{"include_cli_skill": true}
+		}
+	}
+	return map[string]any{}
 }

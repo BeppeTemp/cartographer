@@ -287,13 +287,23 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 		Description: "Returns the provisioning manifest (bundle and KB skills) with file contents " +
 			"embedded in base64, ready for client-side materialization over HTTP (no shared filesystem " +
 			"with the server required). Read-only. Used by `cartographer connect`/`cartographer sync` on the client side.",
-		InputSchema: json.RawMessage(`{"type": "object", "properties": {}}`),
+		InputSchema: json.RawMessage(`{"type": "object", "properties": {"include_cli_skill": {"type": "boolean", "description": "Also list the bundled cartographer-cli skill. Sent only by a client that has a variant reaching Cartographer through the shell (D1711); absent otherwise."}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			flushPendingPush(k, "sync_pull")
+			var params struct {
+				IncludeCLISkill bool `json:"include_cli_skill"`
+			}
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 			kbName := filepath.Base(k.Root)
 			kbRoots := map[string]string{kbName: k.Root}
 
-			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, routedMount, signer))
+			bo := buildOptions(kbName, routedMount, signer)
+			bo.IncludeCLISkill = params.IncludeCLISkill
+			m, err := provisioning.BuildManifest(bundleFS, kbRoots, bo)
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_pull: build manifest: %v", err)), nil
 			}

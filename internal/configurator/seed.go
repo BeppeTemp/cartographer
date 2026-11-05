@@ -80,7 +80,7 @@ func SeedMCP(p Provider, name string, spec ServerSpec, home string, dryRun bool)
 	templates, warns := expandSeedGlob(home, vs.SeedTemplate)
 	res.Warnings = append(res.Warnings, warns...)
 	for _, path := range templates {
-		data, err := os.ReadFile(path)
+		data, err := readCapped(path)
 		if err != nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %s: cannot read the seed template (%v); left alone", p, path, err))
 			continue
@@ -106,7 +106,7 @@ func SeedMCP(p Provider, name string, spec ServerSpec, home string, dryRun bool)
 		if info, err := os.Lstat(path); err == nil {
 			perm = info.Mode().Perm()
 		}
-		if err := safewrite.WriteFileNoFollow(path, merged, perm); err != nil {
+		if err := safewrite.WriteFileAtomicNoFollow(home, path, merged, perm); err != nil {
 			return res, fmt.Errorf("seed %s: %w", path, err)
 		}
 	}
@@ -128,7 +128,7 @@ func UnseedMCP(p Provider, names []string, home string, dryRun bool) (SeedResult
 	templates, warns := expandSeedGlob(home, vs.SeedTemplate)
 	res.Warnings = append(res.Warnings, warns...)
 	for _, path := range templates {
-		data, err := os.ReadFile(path)
+		data, err := readCapped(path)
 		if err != nil {
 			continue
 		}
@@ -165,7 +165,7 @@ func UnseedMCP(p Provider, names []string, home string, dryRun bool) (SeedResult
 		if info, err := os.Lstat(path); err == nil {
 			perm = info.Mode().Perm()
 		}
-		if err := safewrite.WriteFileNoFollow(path, out, perm); err != nil {
+		if err := safewrite.WriteFileAtomicNoFollow(home, path, out, perm); err != nil {
 			return res, fmt.Errorf("unseed %s: %w", path, err)
 		}
 	}
@@ -190,9 +190,28 @@ func (res *SeedResult) removeDerived(p Provider, vs VariantSpec, home string, dr
 		}
 		res.Removed = append(res.Removed, path)
 	}
-	if len(res.Removed) > 0 {
-		res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %s reset (%s): servers added through the extension's UI are dropped when it next starts; restart the window", p, plural(len(res.Removed), "derived file"), strings.Join(res.Removed, ", ")))
+	verb := "reset"
+	if dryRun {
+		verb = "would be reset"
 	}
+	if len(res.Removed) > 0 {
+		res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %s %s (%s): servers added through the extension's UI are dropped when it next starts; restart the window", p, plural(len(res.Removed), "derived file"), verb, strings.Join(res.Removed, ", ")))
+	}
+}
+
+// maxSeedTemplate caps what is read of a template: it is the extension's file,
+// not ours, and a huge one is skipped rather than loaded.
+const maxSeedTemplate = 4 << 20
+
+func readCapped(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxSeedTemplate {
+		return nil, fmt.Errorf("not a regular file of at most %d bytes", maxSeedTemplate)
+	}
+	return os.ReadFile(path)
 }
 
 func plural(n int, noun string) string {

@@ -88,3 +88,14 @@ func TestSeedVariantWithoutTheBridgeWritesNothing(t *testing.T) {
 		t.Fatalf("%v %v %s", warnings, err, got)
 	}
 }
+
+// The cli skill is requested from the server only while a cli variant is registered.
+func TestSyncPullArgsAskForTheCLISkillOnlyWithACLIVariant(t *testing.T) {
+	if len(syncPullArgs()) != 0 {
+		t.Fatalf("args without a variant: %v", syncPullArgs())
+	}
+	registerCLIVariant(t)
+	if syncPullArgs()["include_cli_skill"] != true {
+		t.Fatalf("args with a cli variant: %v", syncPullArgs())
+	}
+}

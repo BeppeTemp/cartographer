@@ -98,8 +98,9 @@ type BuildOptions struct {
 	// built-in caller: no built-in provider reaches Cartographer through
 	// `cartographer call`, so the server leaves the skill out of sync_check,
 	// sync_apply and sync_pull and an older client, which has no client-side
-	// filter, never receives it. BuildManifest also sets it for itself when a
-	// served KB declares a variant in mcp.mode cli (kbDeclaresCLIVariant).
+	// filter, never receives it. sync_pull sets it only when the client asks
+	// (include_cli_skill), which a client does only while a registered variant
+	// uses mcp.mode cli.
 	IncludeCLISkill bool
 }
 
@@ -886,13 +887,12 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 			versionByName[s.Name] = s.Version
 		}
 
-		includeCLI := opts.IncludeCLISkill || kbDeclaresCLIVariant(kbRoots)
 		for _, e := range entries {
 			if !e.IsDir() {
 				continue
 			}
 			name := e.Name()
-			if name == CLISkillName && !includeCLI {
+			if name == CLISkillName && !opts.IncludeCLISkill {
 				continue
 			}
 			hash, err := ContentHashDir(bundleFS, "bundled/"+name)

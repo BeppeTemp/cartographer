@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 func kbSkill(kb, name string) Artifact {
@@ -125,45 +124,5 @@ func TestApply_NoUnplacedSentenceWhenTheScopeHasASkillCell(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(base, ".claude/CLAUDE.md"))
 	if strings.Contains(string(b), "not installed as files") {
 		t.Errorf("sentence on a client with a skill cell:\n%s", b)
-	}
-}
-
-// The server does not know the client: the cli skill is listed when a served KB
-// declares a cli variant, and for no other KB (an existing manifest is unchanged).
-func TestBuildManifest_ListsTheCLISkillForAKBWithACLIVariant(t *testing.T) {
-	bundle := skillbundle.FS
-	kb := t.TempDir()
-	build := func() Manifest {
-		m, err := BuildManifest(bundle, map[string]string{"kb-a": kb}, BuildOptions{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return m
-	}
-	has := func(m Manifest) bool {
-		for _, a := range m.Artifacts {
-			if a.Kind == "skill" && a.Name == CLISkillName {
-				return true
-			}
-		}
-		return false
-	}
-	if has(build()) {
-		t.Fatal("cli skill listed for a KB with no variant")
-	}
-	if err := os.MkdirAll(filepath.Join(kb, "variants"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(kb, "variants", "fork-ext.yaml"), []byte(testForkExt), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if has(build()) {
-		t.Fatal("cli skill listed for a seed variant")
-	}
-	if err := os.WriteFile(filepath.Join(kb, "variants", "fork-cli.yaml"), []byte(testForkCLI), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if !has(build()) {
-		t.Fatal("cli skill not listed for a KB declaring a cli variant")
 	}
 }
