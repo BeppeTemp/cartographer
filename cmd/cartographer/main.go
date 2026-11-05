@@ -10,6 +10,9 @@ import (
 	"io"
 	"log"
 	"os"
+
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 )
 
 // version is the build version, normally overridden at link time via
@@ -92,7 +95,23 @@ var (
 func main() {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.Ltime | log.Lshortfile)
+	registerCachedVariants(os.Stderr)
 	os.Exit(run(os.Args[1:]))
+}
+
+// registerCachedVariants registers the client variants the cache holds (D1655).
+// It runs here, before any command loads the client config: that load drops
+// every provider name the registry does not know (D898), so a variant
+// registered later would be deleted from the agents and the lock sections.
+func registerCachedVariants(errw io.Writer) {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return
+	}
+	_, warnings := clientvariant.RegisterCached(dir, clientvariant.HostEnv())
+	for _, w := range warnings {
+		fmt.Fprintln(errw, "warning:", w)
+	}
 }
 
 // run dispatches to the subcommand named by args[0] and returns the process
