@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
@@ -775,9 +776,6 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// run as a subagent; status uses the same function, or drift is permanent.
 		projected := resolved[projectionKey(p)].Manifest
 		applied, err := provisioning.Apply(projected, opts)
-		if err == nil {
-			applied.Degraded, applied.Skipped = provisioning.ReportNotes(resolved[projectionKey(p)].Notes)
-		}
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
 			// than a guess about how far the previous one got.
@@ -786,6 +784,8 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			}
 			return nil, fmt.Errorf("apply %s: %w", p.Label(), err)
 		}
+		// Degraded/Skipped are filled here, the only path that prints the summary.
+		applied.Degraded, applied.Skipped = provisioning.ReportNotes(resolved[projectionKey(p)].Notes)
 		// D737: the tool scope is the stdio bridge in the global entry, so
 		// nothing is written into a workspace for it. What a pre-D737 client
 		// (D717) left in a repository is removed here, on every project
@@ -992,15 +992,15 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		// the install leans on that nobody probed. A dry run has not installed
 		// anything yet, so it says "would".
 		for _, d := range r.Degraded {
-			fmt.Fprintf(wr, "[%s] %s: %s -> %s\n", p, verb("degraded", "would degrade"), d.Artifact, d.As)
+			fmt.Fprintf(wr, "[%s] %s: %s -> %s\n", p, verb("degraded", "would degrade"), safeField(d.Artifact), safeField(d.As))
 		}
 		for _, sk := range r.Skipped {
-			fmt.Fprintf(wr, "[%s] %s: %s %s\n", p, verb("skipped", "would skip"), sk.Artifact, sk.Reason)
+			fmt.Fprintf(wr, "[%s] %s: %s %s\n", p, verb("skipped", "would skip"), safeField(sk.Artifact), safeField(sk.Reason))
 		}
 		if n := len(r.Unverified); n > 0 {
 			ids := make([]string, n)
 			for i, id := range r.Unverified {
-				ids[i] = string(id)
+				ids[i] = safeField(string(id))
 			}
 			fmt.Fprintf(wr, "[%s] unverified: %d capabilities (%s)\n", p, n, strings.Join(ids, ", "))
 		}
@@ -1335,4 +1335,31 @@ func syncServerChangeNotice(dir string, providers []string, liveVersion string) 
 	}
 	return fmt.Sprintf("the server changed since this client was configured (was %s, now %s); this sync re-applies the current manifest — `cartographer reconnect` is needed only for files an older version wrote under names no longer in the managed set",
 		strings.Join(recorded, ", "), liveVersion)
+}
+
+// maxPrintedField caps one KB-derived field in a summary line.
+const maxPrintedField = 200
+
+// safeField makes a KB-derived string safe to print on a terminal: every control
+// rune (ESC included, so no escape or OSC sequence survives) becomes \xNN or
+// \u00NN, and a field over maxPrintedField runes is cut with an ellipsis.
+func safeField(s string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if n == maxPrintedField {
+			b.WriteString("...")
+			break
+		}
+		n++
+		switch {
+		case r < 0x80 && unicode.IsControl(r):
+			fmt.Fprintf(&b, "\\x%02x", r)
+		case unicode.IsControl(r):
+			fmt.Fprintf(&b, "\\u%04x", r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

@@ -1581,3 +1581,27 @@ func TestPrintApplySummary_DegradedSkippedUnverified(t *testing.T) {
 		}
 	}
 }
+
+// KB-derived names and cause chains reach a terminal: control runes are escaped
+// and one field is capped.
+func TestPrintApplySummary_ReportLinesAreSanitised(t *testing.T) {
+	long := strings.Repeat("é", 10000)
+	results := map[string]provisioning.AppliedResult{
+		"crush": {
+			Degraded: []provisioning.DegradedNote{{Artifact: "agent/a\x1b[2Jb", As: "skill/a\x1b]0;pwn\x07"}},
+			Skipped:  []provisioning.SkippedNote{{Artifact: "skill/y", Reason: "requires unreadable: " + long}},
+		},
+	}
+	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Errorf("control runes reached the output: %q", out)
+	}
+	for _, want := range []string{`agent/a\x1b[2Jb`, `skill/a\x1b]0;pwn\x07`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output = %q, want escaped %q", out, want)
+		}
+	}
+	if len(out) > 1000 || !strings.Contains(out, "...") {
+		t.Errorf("a 10k-rune reason must be capped, got %d bytes", len(out))
+	}
+}
