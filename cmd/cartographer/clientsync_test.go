@@ -1509,3 +1509,42 @@ func TestFetchMergedManifestRefusesUntrustedNamesAndPaths(t *testing.T) {
 		})
 	}
 }
+
+// resolveProjectionSet is the one resolver sync and status share (D1656): a
+// derived projection's SkipKinds leave an artifact out BEFORE requirements are
+// judged, so a skill requiring a skipped hook is itself skipped.
+func TestResolveProjectionSetDerivedSkipKinds(t *testing.T) {
+	skill := provisioning.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: s\ndescription: d\nrequires: [hook:h]\n---\nb\n")}}}
+	hook := provisioning.Artifact{Kind: "hook", Name: "h", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"Stop","command":"x"}`)}}}
+	ps := []syncProjection{{Provider: "claude", Workspace: "/ws/r", Scope: provisioning.ScopeProject, Derived: true, SkipKinds: []string{"hook"}}}
+	manifests := map[string]provisioning.Manifest{projectionKey(ps[0]): {Artifacts: []provisioning.Artifact{skill, hook}}}
+	got := resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})[projectionKey(ps[0])]
+	if len(got.Manifest.Artifacts) != 0 {
+		t.Errorf("projected %v, want nothing", got.Manifest.Artifacts)
+	}
+	ps[0].SkipKinds = nil
+	got = resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})[projectionKey(ps[0])]
+	if len(got.Manifest.Artifacts) != 2 {
+		t.Errorf("projected %d artifacts, want 2", len(got.Manifest.Artifacts))
+	}
+}
+
+// Sync resolves every projection, the one it declines to apply included, as
+// status does: a transient failure of one workspace must not flip the
+// requirements of the others (D1656).
+func TestResolveProjectionSetCountsEveryProjection(t *testing.T) {
+	base := provisioning.Artifact{Kind: "skill", Name: "base", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: base\ndescription: d\n---\nb\n")}}}
+	need := provisioning.Artifact{Kind: "skill", Name: "need", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: need\ndescription: d\nrequires: [skill:base]\n---\nb\n")}}}
+	ps := []syncProjection{
+		{Provider: "opencode", Workspace: "/ws", Scope: provisioning.ScopeProject, Derived: true},
+		{Provider: "opencode", Workspace: "/ws/repo", Scope: provisioning.ScopeProject},
+	}
+	manifests := map[string]provisioning.Manifest{
+		projectionKey(ps[0]): {Artifacts: []provisioning.Artifact{base}},
+		projectionKey(ps[1]): {Artifacts: []provisioning.Artifact{need}},
+	}
+	got := resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})
+	if n := len(got[projectionKey(ps[1])].Manifest.Artifacts); n != 1 {
+		t.Errorf("the repo projection kept %d artifacts, want 1 (its requirement is met by the ancestor)", n)
+	}
+}

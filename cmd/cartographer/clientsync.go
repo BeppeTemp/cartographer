@@ -712,6 +712,13 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		}
 	}
 
+	// Every projection is resolved in one run, against the union of what the
+	// client sees (D1656): a requirement is satisfied by the global projection
+	// and the ancestor workspaces too. Status resolves the same full set, so the
+	// projection skipped above (a transient failure) still counts here: it only
+	// is not applied, and must not flip the requirements of the others.
+	resolved := resolveProjectionSet(projections, manifests, provisioning.ProjectOptions{})
+
 	var appliedSoFar []string
 	for _, p := range projections {
 		if skippedProjections[projectionKey(p)] {
@@ -760,17 +767,13 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			// instructions block goes to an untracked file, or nowhere.
 			opts.InstructionsRel = p.InstructionsRel
 			opts.HookSettingsRel = p.HookSettingsRel
-			if p.InstructionsSkipped != "" {
-				manifest = withoutInstructions(manifest)
-			}
-			manifest = withoutKinds(manifest, p.SkipKinds)
 		}
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
 		// simply don't concern it.
 		// The projection also derives a skill from each agent this client cannot
 		// run as a subagent; status uses the same function, or drift is permanent.
-		projected, _ := provisioning.ProjectManifest(manifest, configurator.Provider(p.Provider), p.Scope, provisioning.ProjectOptions{BundleFS: opts.BundleFS, KBRoots: opts.KBRoots})
+		projected := resolved[projectionKey(p)].Manifest
 		applied, err := provisioning.Apply(projected, opts)
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
@@ -823,6 +826,26 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		}
 	}
 	return results, nil
+}
+
+// resolveProjectionSet resolves what each projection receives: the source
+// manifest after what a derived binding leaves out (D1019), then the one
+// resolver (degradation and `requires`). Sync and status both call it, or a
+// requirement would flip in one and not in the other and drift would be
+// permanent.
+func resolveProjectionSet(ps []syncProjection, manifests map[string]provisioning.Manifest, opts provisioning.ProjectOptions) map[string]provisioning.ProjectionResult {
+	inputs := make([]provisioning.ProjectionInput, 0, len(ps))
+	for _, p := range ps {
+		m := manifests[projectionKey(p)]
+		if p.Derived {
+			if p.InstructionsSkipped != "" {
+				m = withoutInstructions(m)
+			}
+			m = withoutKinds(m, p.SkipKinds)
+		}
+		inputs = append(inputs, provisioning.ProjectionInput{Key: projectionKey(p), Provider: configurator.Provider(p.Provider), Scope: p.Scope, Workspace: p.Workspace, Manifest: m})
+	}
+	return provisioning.ResolveProjections(inputs, opts)
 }
 
 // ensureBootstrapForProviders ensures the cartographer-bootstrap hook (D60,

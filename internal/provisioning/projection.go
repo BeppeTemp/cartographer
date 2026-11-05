@@ -61,11 +61,14 @@ const (
 	// NoteDegradedSkipped: an agent would degrade but does not (a real skill
 	// of that name, or no description).
 	NoteDegradedSkipped = "degraded-skipped"
+	// NoteSkipped: an artifact is left out because a requirement of it is not
+	// met on this client; Reason is the cause chain.
+	NoteSkipped = "skipped"
 )
 
 // ProjectionNote reports one decision of ProjectManifest.
 type ProjectionNote struct {
-	Kind     string // NoteDegraded | NoteDegradedSkipped
+	Kind     string // NoteDegraded | NoteDegradedSkipped | NoteSkipped
 	Artifact string // "agent/<name>"
 	Reason   string
 }
@@ -80,6 +83,15 @@ const degradedHeader = "> Degraded subagent: this client has no subagents, so th
 // ProjectManifest returns what provider receives in scope from m, and one
 // note per agent that was degraded or could not be.
 func ProjectManifest(m Manifest, provider configurator.Provider, scope Scope, opts ProjectOptions) (Manifest, []ProjectionNote) {
+	out, notes, _ := projectOne(m, provider, scope, opts)
+	return out, notes
+}
+
+// projectOne is ProjectManifest plus the reason each candidate that did not
+// make it into the projection was left out, by "kind/name": the resolver
+// quotes it when something requires that artifact.
+func projectOne(m Manifest, provider configurator.Provider, scope Scope, opts ProjectOptions) (Manifest, []ProjectionNote, map[string]string) {
+	dropped := map[string]string{}
 	var out Manifest
 	var notes []ProjectionNote
 	var degradable []Artifact
@@ -94,19 +106,27 @@ func ProjectManifest(m Manifest, provider configurator.Provider, scope Scope, op
 			}
 			continue
 		}
-		if a.Kind == "agent" && !strictAgentSkipped(a, provider) && destDirScoped("skill", a.Name, provider, scope) != "" {
+		id := a.Kind + "/" + a.Name
+		switch {
+		case strictAgentSkipped(a, provider):
+			dropped[id] = "strict_tools"
+		case a.Kind == "agent" && destDirScoped("skill", a.Name, provider, scope) != "":
 			degradable = append(degradable, a)
+		default:
+			dropped[id] = "no destination"
 		}
 	}
 	for _, a := range degradable {
 		id := "agent/" + a.Name
 		if haveSkill[a.Name] {
 			notes = append(notes, ProjectionNote{NoteDegradedSkipped, id, "a skill of that name exists"})
+			dropped[id] = "name collision"
 			continue
 		}
 		d, reason := degradeAgent(a, opts)
 		if reason != "" {
 			notes = append(notes, ProjectionNote{NoteDegradedSkipped, id, reason})
+			dropped[id] = reason
 			continue
 		}
 		out.Artifacts = append(out.Artifacts, d)
@@ -130,7 +150,7 @@ func ProjectManifest(m Manifest, provider configurator.Provider, scope Scope, op
 	}
 	out.Revision = computeRevision(out.Artifacts)
 	out.Skipped = m.Skipped
-	return out, notes
+	return out, notes, dropped
 }
 
 // degradeAgent derives the skill of agent a. A non-empty reason means it
