@@ -89,13 +89,10 @@ func TestSeedVariantWithoutTheBridgeWritesNothing(t *testing.T) {
 	}
 }
 
-// The cli skill is requested from the server only while a cli variant is registered.
-func TestSyncPullArgsAskForTheCLISkillOnlyWithACLIVariant(t *testing.T) {
-	if len(syncPullArgs()) != 0 {
-		t.Fatalf("args without a variant: %v", syncPullArgs())
-	}
-	registerCLIVariant(t)
+// A current client always asks for the cli skill; the per-provider filter, not
+// the request, decides who keeps it (see TestCLISkillGoesToTheCLIVariantOnly).
+func TestSyncPullArgsAlwaysAskForTheCLISkill(t *testing.T) {
 	if syncPullArgs()["include_cli_skill"] != true {
-		t.Fatalf("args with a cli variant: %v", syncPullArgs())
+		t.Fatalf("args: %v", syncPullArgs())
 	}
 }

@@ -99,8 +99,8 @@ type BuildOptions struct {
 	// `cartographer call`, so the server leaves the skill out of sync_check,
 	// sync_apply and sync_pull and an older client, which has no client-side
 	// filter, never receives it. sync_pull sets it only when the client asks
-	// (include_cli_skill), which a client does only while a registered variant
-	// uses mcp.mode cli.
+	// (include_cli_skill), which every current client does (it filters the skill
+	// per provider, cliskill.go).
 	IncludeCLISkill bool
 }
 

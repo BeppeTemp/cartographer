@@ -1377,14 +1377,12 @@ func safeField(s string) string {
 	return b.String()
 }
 
-// syncPullArgs asks the server for the bundled cartographer-cli skill only while
-// a registered variant reaches Cartographer through the shell (D1711). A client
-// that never sends it never receives the skill, whatever the KB declares.
+// syncPullArgs always asks the server for the bundled cartographer-cli skill
+// (D1711): a current client filters it per provider (withoutCLISkill), so only
+// a cli variant keeps it, and asking unconditionally means a variant discovered
+// by this very sync gets it without a lag (the registry is read before sync
+// registers it). A client older than the filter never sends the flag, so it
+// never receives the skill.
 func syncPullArgs() map[string]any {
-	for _, d := range configurator.Variants() {
-		if d.MCPMode == configurator.MCPModeCLI {
-			return map[string]any{"include_cli_skill": true}
-		}
-	}
-	return map[string]any{}
+	return map[string]any{"include_cli_skill": true}
 }
