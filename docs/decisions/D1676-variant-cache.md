@@ -2,7 +2,7 @@
 topic: client-configurator
 ---
 
-# D0 — Accepted client variants live in a cache registered before the config loads
+# D1676 — Accepted client variants live in a cache registered before the config loads
 
 **Decision.** `.cartographer-variants.json` in the client directory maps a variant name to `{source_kb, content_hash, descriptor_b64, accepted_at}`, written atomically and without following a link (`clientvariant.SaveCache`, under the client lock). `main` calls `clientvariant.RegisterCached` before any command: every entry is hashed, parsed (`Parse`), resolved for this OS (`Resolve`) and registered with `configurator.ReplaceVariants`-style semantics; an entry that fails any step, or resolves with a dropped path, is skipped with a named warning. `clientconfig.Load` and the lock cleanup (`dropUnsupportedLockSections`) skip names present in the cache, so a variant that failed to register this run is kept, not deleted (D898).
 
