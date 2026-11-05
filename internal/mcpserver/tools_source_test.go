@@ -826,3 +826,20 @@ func TestConceptDeleteUnparsableSourceStillCountsCiters(t *testing.T) {
 		t.Fatalf("blockers = %v, want the citer", blockers)
 	}
 }
+
+// A Source that cannot be read at all is still scanned for citations.
+func TestConceptDeleteUnreadableSourceStillCountsCiters(t *testing.T) {
+	t.Parallel()
+	k, _ := sourceFixture(t, true)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: N\nprovenance: [sources/gone]")
+	if _, err := k.WriteConcept("manutenzione/citer", fm, "# N\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	blockers, err := deleteBlockers(authLocalContext(), k, "sources/gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(blockers, "manutenzione/citer") {
+		t.Fatalf("blockers = %v, want the citer", blockers)
+	}
+}

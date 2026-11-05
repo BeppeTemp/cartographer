@@ -1373,7 +1373,7 @@ func TestOpenReconcilesTheCrashWindowOfARotation(t *testing.T) {
 		l.Close()
 
 		var l2 *Log
-		o := Options{MaxBytes: 1, ArchiveDir: archive}
+		o := Options{MaxBytes: 1, ArchiveDir: archive, SingleWriter: true}
 		if signed {
 			l2, err = OpenWithKeyAndOptions(path, *kp, o)
 		} else {
@@ -1391,5 +1391,140 @@ func TestOpenReconcilesTheCrashWindowOfARotation(t *testing.T) {
 		if _, err := verifyChain(path, archive, pub); err != nil {
 			t.Fatalf("signed=%v: verify: %v", signed, err)
 		}
+	}
+}
+
+// crashState leaves the index a rotation wrote durably for the one entry in
+// the active log, with the segment copied to the archive (withSegment) or not.
+func crashState(t *testing.T, path, archive string, kp *KeyPair, withSegment bool) []byte {
+	t.Helper()
+	entries, err := readEntries(path)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("active entries = %d, %v", len(entries), err)
+	}
+	e := entries[0]
+	cp := Checkpoint{Name: "seg.000001.jsonl", Start: e.Timestamp, End: e.Timestamp, Count: 1,
+		PrevHash: e.PrevHash, FirstHash: e.Hash, LastHash: e.Hash, SigningRequired: kp != nil}
+	idx := checkpointIndex{Version: 1, Segments: []Checkpoint{cp}}
+	if kp != nil {
+		idx.Sig = hex.EncodeToString(ed25519.Sign(kp.Private, checkpointBytes(idx)))
+	}
+	data, _ := json.Marshal(idx)
+	if err := os.MkdirAll(archive, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if withSegment {
+		raw, _ := os.ReadFile(path)
+		if err := os.WriteFile(filepath.Join(archive, cp.Name), raw, 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(checkpointPath(path, archive), data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func reopen(t *testing.T, path, archive string, kp *KeyPair, single bool) *Log {
+	t.Helper()
+	o := Options{MaxBytes: 1, ArchiveDir: archive, SingleWriter: single}
+	var l *Log
+	var err error
+	if kp != nil {
+		l, err = OpenWithKeyAndOptions(path, *kp, o)
+	} else {
+		l, err = OpenWithOptions(path, o)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
+}
+
+// A crash after the EXDEV copy and before the truncate leaves the segment
+// archived and the active log holding the same entries: open finishes the
+// rotation instead of archiving them twice.
+func TestOpenFinishesAnInterruptedCopyRotation(t *testing.T) {
+	for _, signed := range []bool{false, true} {
+		var kp *KeyPair
+		var pub ed25519.PublicKey
+		if signed {
+			k, _ := GenerateKeyPair()
+			kp, pub = &k, k.Public
+		}
+		l, path, archive := rotatingLog(t, kp)
+		if err := ev(l); err != nil {
+			t.Fatal(err)
+		}
+		l.Close()
+		crashState(t, path, archive, kp, true)
+		l2 := reopen(t, path, archive, kp, true)
+		if n, _ := countEntries(l2); n != 0 {
+			t.Fatalf("signed=%v: active log still holds %d entries", signed, n)
+		}
+		if len(l2.index.Segments) != 1 {
+			t.Fatalf("signed=%v: segments = %d, want 1", signed, len(l2.index.Segments))
+		}
+		if err := ev(l2); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := verifyChain(path, archive, pub); err != nil {
+			t.Fatalf("signed=%v: verify: %v", signed, err)
+		}
+	}
+}
+
+// An index whose signature does not verify is never re-signed: a forged last
+// entry must not launder a tampered index into a signed one (#1500 review).
+func TestOpenDoesNotReconcileAnIndexItCannotVerify(t *testing.T) {
+	k, _ := GenerateKeyPair()
+	kp := &k
+	l, path, archive := rotatingLog(t, kp)
+	for i := 0; i < 2; i++ {
+		if err := ev(l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l.Close()
+	raw, err := os.ReadFile(checkpointPath(path, archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var idx checkpointIndex
+	if err := json.Unmarshal(raw, &idx); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := readEntries(path)
+	idx.Segments[0].Count += 7 // tamper with an earlier checkpoint
+	idx.Segments = append(idx.Segments, Checkpoint{Name: "missing.000002.jsonl", FirstHash: entries[0].Hash,
+		LastHash: entries[0].Hash, PrevHash: idx.Segments[0].LastHash, Count: 1, SigningRequired: true})
+	forged, _ := json.Marshal(idx) // the old signature no longer matches
+	if err := os.WriteFile(checkpointPath(path, archive), forged, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	l2 := reopen(t, path, archive, kp, true)
+	l2.Close()
+	after, _ := os.ReadFile(checkpointPath(path, archive))
+	if string(after) != string(forged) {
+		t.Fatal("the unverified index was rewritten (re-signed)")
+	}
+	if _, err := VerifyAudit(path, archive, k.Public, VerifyOptions{}); err == nil {
+		t.Fatal("verify accepted the tampered index")
+	}
+}
+
+// Without the writer lock another process may be mid-rotation: open repairs
+// nothing.
+func TestOpenWithoutTheWriterLockDoesNotReconcile(t *testing.T) {
+	l, path, archive := rotatingLog(t, nil)
+	if err := ev(l); err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+	data := crashState(t, path, archive, nil, false)
+	reopen(t, path, archive, nil, false).Close()
+	after, _ := os.ReadFile(checkpointPath(path, archive))
+	if string(after) != string(data) {
+		t.Fatal("the index was reconciled without the writer lock")
 	}
 }

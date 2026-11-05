@@ -566,10 +566,15 @@ as checkpoint-only.
 The in-memory state and the index file change together with the segment: a
 rotation whose rename fails restores the previous index and leaves no phantom
 checkpoint. An `audit.archive_dir` on another volume is handled by a
-copy, fsync and truncate instead of the rename (EXDEV), and on open a
-checkpoint whose segment never reached the archive (a crash between the two
-steps) while the active log still starts with its first hash is dropped, the
-index re-signed when a key is configured.
+copy, fsync and truncate instead of the rename (EXDEV). On open, by the holder
+of the writer lock only, a crash between the two steps is repaired: a
+checkpoint whose segment never reached the archive, while the active log still
+starts with its first hash, is dropped (index re-signed when a key is
+configured); a checkpoint whose segment is archived while the active log still
+holds the same entries (first hash, last hash, count) finishes with the
+truncate. Open repairs only an index it can trust: with a key the index
+signature must verify and the last checkpoint must continue the chain of the
+one before, otherwise the file is left untouched for `audit verify` to report.
 
 The operator commands are offline by design — they read the files, not a
 running server, because an audit trail is most needed when the server is down:

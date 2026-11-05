@@ -406,9 +406,13 @@ func open(path string, kp *KeyPair, opts Options) (*Log, error) {
 		releaseWriter(lock)
 		return nil, err
 	}
-	if idx, err = reconcileIndex(idx, entries, cpPath, archiveDir(path, opts.ArchiveDir), kp); err != nil {
-		releaseWriter(lock)
-		return nil, err
+	// Only the holder of the writer lock may repair: another process could be
+	// in the middle of a rotation.
+	if lock != nil {
+		if idx, entries, err = reconcileIndex(idx, entries, path, cpPath, archiveDir(path, opts.ArchiveDir), kp); err != nil {
+			releaseWriter(lock)
+			return nil, err
+		}
 	}
 	l.index = idx
 	l.sequence = uint64(len(idx.Segments))
@@ -772,21 +776,53 @@ func copySegment(src, dst string) error {
 	return nil
 }
 
-// reconcileIndex finishes or drops the crash window of a rotation: the
-// checkpoint index is durable but the segment never reached the archive. When
-// the last checkpoint's segment is missing and the active log still starts
-// with its FirstHash, the entry is dropped (re-signed when a key is set).
-func reconcileIndex(idx checkpointIndex, entries []Entry, cpPath, dir string, kp *KeyPair) (checkpointIndex, error) {
+// reconcileIndex repairs the two crash windows of a rotation, only on an index
+// it can trust: with a key the index signature must verify (an unverified
+// index is never re-signed, it is left for `audit verify` to report), and
+// without a key an index that carries a signature is left alone because it
+// cannot be re-signed. The last checkpoint must also continue the chain of the
+// one before it.
+//
+//   - the checkpoint is durable but its segment never reached the archive and
+//     the active log still starts with its FirstHash: the entry is dropped
+//     (re-signed when a key is set);
+//   - the segment is archived (EXDEV copy) but the active log was not
+//     truncated: the active log holds the same entries (first hash, last hash,
+//     count) and is truncated, finishing the rotation.
+//
+// It returns the index and the entries the active log holds afterwards.
+func reconcileIndex(idx checkpointIndex, entries []Entry, path, cpPath, dir string, kp *KeyPair) (checkpointIndex, []Entry, error) {
 	n := len(idx.Segments)
 	if n == 0 || len(entries) == 0 {
-		return idx, nil
+		return idx, entries, nil
+	}
+	if kp != nil {
+		sig, err := hex.DecodeString(idx.Sig)
+		if idx.Sig == "" || err != nil || !ed25519.Verify(kp.Public, checkpointBytes(idx), sig) {
+			return idx, entries, nil
+		}
+	} else if idx.Sig != "" {
+		return idx, entries, nil
 	}
 	last := idx.Segments[n-1]
-	if entries[0].Hash != last.FirstHash {
-		return idx, nil
+	if n > 1 && idx.Segments[n-2].LastHash != last.PrevHash {
+		return idx, entries, nil
 	}
-	if _, err := os.Stat(filepath.Join(dir, last.Name)); !os.IsNotExist(err) {
-		return idx, nil
+	if entries[0].Hash != last.FirstHash {
+		return idx, entries, nil
+	}
+	_, statErr := os.Stat(filepath.Join(dir, last.Name))
+	if statErr == nil {
+		if entries[len(entries)-1].Hash == last.LastHash && len(entries) == last.Count {
+			if err := os.Truncate(path, 0); err != nil {
+				return idx, entries, fmt.Errorf("audit: finish an interrupted rotation: %w", err)
+			}
+			return idx, nil, nil
+		}
+		return idx, entries, nil
+	}
+	if !os.IsNotExist(statErr) {
+		return idx, entries, nil
 	}
 	out := checkpointIndex{Version: idx.Version, Segments: append([]Checkpoint{}, idx.Segments[:n-1]...)}
 	if kp != nil {
@@ -794,12 +830,12 @@ func reconcileIndex(idx checkpointIndex, entries []Entry, cpPath, dir string, kp
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
-		return idx, fmt.Errorf("audit: marshal reconciled checkpoint index: %w", err)
+		return idx, entries, fmt.Errorf("audit: marshal reconciled checkpoint index: %w", err)
 	}
 	if err := atomicWrite(cpPath, data, 0o640); err != nil {
-		return idx, fmt.Errorf("audit: reconcile checkpoint index: %w", err)
+		return idx, entries, fmt.Errorf("audit: reconcile checkpoint index: %w", err)
 	}
-	return out, nil
+	return out, entries, nil
 }
 
 // retainLocked deletes rotated segments older than RetentionDays, but only
