@@ -75,6 +75,21 @@ else
     else
         _assert_pass "no windows override produces a raw binary"
     fi
+    # --- 32-bit ARM: linux only, ARMv7, asset name unchanged ------------------
+    if grep -q '^      - arm$' "$CODE_FILE"; then
+        _assert_pass "builds 32-bit ARM"
+    else
+        _assert_fail "builds 32-bit ARM — no '- arm' goarch"
+    fi
+    assert_file_contains "$CODE_FILE" '      - "7"' \
+        "32-bit ARM targets ARMv7 (goarm)"
+    if grep -A1 'ignore:' "$CODE_FILE" | grep -q 'goos: darwin' \
+        && grep -A1 '      - goos: darwin' "$CODE_FILE" | grep -q 'goarch: arm$' \
+        && grep -A1 '      - goos: windows' "$CODE_FILE" | grep -q 'goarch: arm$'; then
+        _assert_pass "darwin/arm and windows/arm are ignored"
+    else
+        _assert_fail "darwin/arm and windows/arm are ignored — no ignore rules for them"
+    fi
     # --- SBOMs (D1022): new assets next to the binaries, never instead of them --
     # `artifacts: binary` catalogs each platform binary once, the Windows exe
     # inside its zip included; `archive` would skip the raw darwin/linux assets.

@@ -14,6 +14,15 @@ builds:
     goarch:
       - amd64
       - arm64
+      - arm
+    # 32-bit ARM is linux only and needs ARMv7 (GOARM is ignored elsewhere).
+    goarm:
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
     # main.version must keep the leading "v" ({{.Version}} strips it): the
     # Makefile injects `git describe` output (v2.1.2) and install.sh compares
     # `cartographer version` against the release tag verbatim.

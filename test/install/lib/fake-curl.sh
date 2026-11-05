@@ -56,7 +56,7 @@ case "$url" in
         asset=$(cat "${SCENARIO_TMP:-/tmp}/last-asset" 2>/dev/null || echo "unknown-asset")
         case "${FAKE_SHA_MODE:-valid}" in
             valid)
-                digest=$( (sha256sum "${FAKE_NEW_BINARY}" 2>/dev/null || shasum -a 256 "${FAKE_NEW_BINARY}") | cut -d' ' -f1)
+                digest=${FAKE_DIGEST:-$( (sha256sum "${FAKE_NEW_BINARY}" 2>/dev/null || shasum -a 256 "${FAKE_NEW_BINARY}") | cut -d" " -f1)}
                 printf '%s  %s\n' "$digest" "$asset" > "${out:-/dev/stdout}"
                 ;;
             mismatch)
