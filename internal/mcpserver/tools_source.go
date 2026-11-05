@@ -538,7 +538,9 @@ func deleteBlockers(ctx requestContext, k *kb.KB, id string) ([]string, error) {
 	if rerr != nil {
 		return linkers, nil
 	}
-	if fm, perr := okf.ParseFrontmatter(data.FrontmatterRaw); perr != nil || !kb.IsSourceType(fm.Type()) {
+	// Frontmatter that does not parse may still be a Source: the provenance
+	// scan runs rather than leave citations dangling (#1500).
+	if fm, perr := okf.ParseFrontmatter(data.FrontmatterRaw); perr == nil && !kb.IsSourceType(fm.Type()) {
 		return linkers, nil
 	}
 	have := map[string]bool{}

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -88,4 +89,32 @@ func TestArtifactMove_NoTwinWhenTheParentIsMissing(t *testing.T) {
 	}
 	xferClean(t, f.a)
 	xferClean(t, f.b)
+}
+
+// A file the scan cannot read makes the reference list incomplete, and
+// the plan says so (#1500).
+func TestArtifactMove_ReferencesReportAnUnreadableFileAsTruncated(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("file permissions are not enforced here")
+	}
+	f := newTransferFixture(t)
+	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
+	amWriteBytes(t, f.a, "data/notes/n.md", []byte("---\ntype: Note\ntitle: N\n---\nSee skills/s.\n"), 0o644)
+	// Git-ignored, so the commit that precedes a move does not try to read it.
+	ex := filepath.Join(f.a.Root, ".git", "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(ex), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ex, []byte("data/notes/unread.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(f.a.Root, "data", "notes", "unread.md")
+	amWriteBytes(t, f.a, "data/notes/unread.md", []byte("x"), 0o000)
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o644) })
+	xferCommit(t, f.a)
+	_, truncated := refsOf(t, f.move(t, `{"target_kb":"kb-b","paths":["skills/s"]}`))
+	if !truncated {
+		t.Error("an unreadable file was scanned as complete")
+	}
 }
