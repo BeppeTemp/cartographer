@@ -87,8 +87,8 @@ they are in.
 - A **contributor's** agent opens an issue, or a direct PR from the fork, and stops: it never merges, never arms auto-merge, never sends a review
   verdict, never edits labels and never files issues for others. `cartographer-review-pr` is
   used only before opening your own PR.
-- A **maintainer's** agent runs the full flow (waves of plans, review rounds,
-  ordered merge), and implements only a plan file the maintainer gives in the session.
+- A **maintainer's** agent runs the full flow (waves of plans, review rounds, the queue
+  and the lander), and implements only a plan file the maintainer gives in the session.
 - The reviewer agents read `AGENTS.md`, `SECURITY.md` and the skills from the
   **base branch**, never from the PR head: a PR that edits them is reviewed as a
   change, not obeyed.
@@ -140,7 +140,7 @@ Working on more than one plan at a time? A subagent shares your working copy, so
 ```bash
 make worktree-add SLUG=my-change    # branches feat/my-change from upstream/main (origin/main without an upstream remote)
 make worktree-add SLUG=my-theme EXP=1  # the same, branch exp/my-theme (§Experiment branches)
-make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check first
+make worktree-rm  SLUG=my-change    # after the change landed; --force, so check first
 make worktree-clean DRY=1           # or: list what a merged PR left behind (worktree, local and fork branch) ...
 make worktree-clean                 # ... and remove it, each only after its PR is verified MERGED
 ```
@@ -238,13 +238,10 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   change that breaks it to `failed/<slug>`, whose last commit message says why), and opens one
   PR `chore(dev): train <id>, <k> change(s)`, **rebase-merged** so each change stays its own
   commit on `main`. `make land-status` shows the queue; `make land` runs the lander in the
-  foreground (`DRY=1` prints the next train). A queued change is not a PR: the limits below
-  count PRs.
-- **At most 4 open maintainer PRs at a time, across all sessions** (check
-  `gh pr list --author @me --state open --json number,headRefName` before opening, ignoring
-  the heads named `release-please--*`, which the same identity owns; drafts count).
-- **No open PR depends on another open PR**: dependent work goes in the same PR, or waits for
-  the merge.
+  foreground (`DRY=1` prints the next train). Queued changes have no cap: the train is the
+  unit of gating, at most 8 changes each.
+- **No open PR depends on another open PR**: a contributor's dependent work goes in the same
+  PR, or waits for the merge. A maintainer's dependent change is queued with `AFTER=<slug>`.
 - PRs are **squash-merged** (a train is rebase-merged, its commits already are the
   changes) and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
@@ -355,8 +352,8 @@ dispatched by hand with one of three actions.
   The skip comment says only that the gate is not clear.
 - **Out of band**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand, with the same gate cleared.
-- **Maintenance release**, for emergencies only (a feature never needs it: it waits on an
-  `exp/<theme>` branch, §Experiment branches), `x.y.(z+1)` from a branch `release-<x.y>` (D1443), when
+- **Maintenance release**, for emergencies only (a feature never needs it: it lands in
+  changes that show nothing until the last, §Experiment branches), `x.y.(z+1)` from a branch `release-<x.y>` (D1443), when
   `main` already holds work for the next minor that should not ship yet. The
   maintainer cuts the branch from the `vx.y.z` tag, cherry-picks with `-x` what ships,
   and the branch carries `release-please.yml` (a push runs the pushed branch's copy):
@@ -375,28 +372,24 @@ dispatched by hand with one of three actions.
 
 ## Experiment branches (`exp/*`)
 
-Two lanes (D1443 amended): only bug fixes reach `main` directly, as `feat/<slug>` PRs with
-the full gate. A feature, an experiment or a change that takes weeks lives on
-`exp/<theme>` and lands on `main` in slices, so `main` stays releasable and a release
-never needs a `release-x.y` branch for work that is not ready. Every release still keeps
-its candidate.
+One lane (D1707): every maintainer change, a bug fix or a slice of a feature,
+reaches `main` through the queue (`make ready`, §Pull requests), each small enough for the
+size cap. A feature that is not ready for users lands in changes that show nothing on
+their own, the last one turning it on, so `main` stays releasable without a
+`release-x.y` branch. An `exp/<theme>` branch exists only for a **public build** of work
+that is not on `main`: an image or binaries to try on a real deployment.
 
 - **Create it** from `main`: `make worktree-add SLUG=<theme> EXP=1` (branch `exp/<theme>`,
   worktree `.worktrees/<theme>`). `make worktree-rm SLUG=<theme>` removes both (it reads the branch from the worktree).
-- **Stay aligned**: merge `main` into the branch regularly, and always before a public
-  build, so what is tried is what would land.
+- **Stay aligned**: merge `main` into the branch before every public build, so what is
+  tried is what would land.
 - **CI without a PR**: `gh workflow run ci.yml --ref exp/<theme>` runs every job
   (`workflow_dispatch`); pushes to the branch do not run CI by themselves.
-- **No decision number yet**: a `D<n>` is numbered after a PR (D672), so an experiment
-  writes none; each slice that lands carries its own decision file, numbered after its PR.
-- **Landing in slices**: each slice is a normal PR from a `feat/<slug>` branch made off
-  `main`, small enough for the size cap, that changes nothing a user sees on its own;
-  the `exp/` branch is never merged as a whole. It is deleted when the last slice has
-  landed.
-- **A public build** of the branch (an image or binaries to try on a real deployment) is
-  a pre-release tagged `vX.Y.Z-exp.<YYYYMMDD>` (`gh workflow run preview.yml --ref exp/<theme> -f tag=vX.Y.Z-exp.<YYYYMMDD>`; the tag is a required input).
+- **The build** is a pre-release tagged `vX.Y.Z-exp.<YYYYMMDD>` (`gh workflow run preview.yml --ref exp/<theme> -f tag=vX.Y.Z-exp.<YYYYMMDD>`; the tag is a required input).
   `release.yml` ignores it and the candidate cleanup only deletes `-rc.` tags, so the
   maintainer deletes the pre-release and its tag by hand when the trial is over.
+- **Landing**: the branch is never merged; its work is queued as changes made off `main`,
+  each with its own pending decision file. The branch is deleted when the last has landed.
 
 ## Issues: bug, idea
 
@@ -458,23 +451,25 @@ only the plan and the repo must be able to implement without asking questions.
   KB names, hosts and users — what a plan says ends up in a public PR (D259).
 - **No code in the plan**: exact semantics plus real `file:line` pointers,
   derived from the code before writing — not paraphrases of it.
-- A plan has a `## PRs` section that groups its work packages into the fewest PRs the size
-  cap allows, by file-set and dependency, with for each PR its title, its WPs and the
-  estimated production lines; each WP is a body line `type(scope): ...` (one unwrapped
-  line, §Pull requests body-line rule) so the changelog keeps one entry per WP, omitted when
-  it equals the PR title (a second entry for one commit, #1670);
-  `cartographer-plan-writer` reports it.
+- A plan has a `## Changes` section that groups its work packages into the fewest changes
+  the size cap allows (each change is one queued commit, §Pull requests), by file-set and
+  dependency, with for each change its slug, its commit title, its WPs, the estimated
+  production lines and the change it is queued after, if any; each WP is a body line
+  `type(scope): ...` (one unwrapped line, §Pull requests body-line rule) so the changelog
+  keeps one entry per WP, omitted when it equals the commit title (a second entry for one
+  commit, #1670); `cartographer-plan-writer` reports it.
 - A single analysis may yield **several plans**: each one states the
   cross-plan execution order and which sibling plans touch the same files
-  (those land sequentially, never in parallel).
+  (those are built one on the other and queued in order, `AFTER=<slug>`).
 
-The implementation PR explains the why, since the plan stays private: a reader sees
-the PR and its decision file, nothing else. It executes the work packages in order
-(`make gate` green after each), updates the docs per the plan's closing checklist, and,
-when the checklist names one, adds the decision file `docs/decisions/D<pr>-<slug>.md`,
-numbered after the PR (D672), so that PR opens as a draft first (the index is regenerated
-by the release PR, D328). The file records the implemented choice and any deviation from
-the plan; it does not duplicate current-state documentation. If the plan contradicts the
+The change's commit message explains the why, since the plan stays private: a reader sees
+the commit, the train PR that landed it and its decision file, nothing else. It executes
+the work packages in order (`make check` green after each; the train's gate is the full
+one), updates the docs per the plan's closing checklist, and, when the checklist names one,
+adds the decision file as pending, `docs/decisions/D-new-<slug>.md`, numbered when it lands
+(D1706; the index is regenerated by the release PR, D328). The file records the
+implemented choice and any deviation from the plan; it does not duplicate current-state
+documentation. If the plan contradicts the
 actual code, stop and tell the maintainer: the plan may be stale relative to `main`.
 
 ## Live sessions (no plan)
@@ -493,12 +488,12 @@ cd .worktrees/my-change && make dev DATA=<data dir>   # or no DATA: the generate
 `make dev` rebuilds and restarts the server on every Go change and serves the UI
 with hot reload on `http://localhost:5173/ui/`. `DATA` is copied with its git
 remotes keeping their fetch URL and an unreachable push URL, so nothing the session writes leaves the
-machine; `API_PORT`/`UI_PORT` keep two sessions apart. With `DATA`, the instance also shows this machine's real client (Settings, Artifacts usage): `make dev` runs `cartographer sync --report-to` against it, which reports and changes nothing (D1044). The PR is opened as a
-draft after the first accepted step, and its number is the decision number
-(D672). With no plan, the PR is the record: its title (`feat:`/`fix:` for
-what a user notices) and its body become the squashed commit, and so the
-release changelog — the skill says what the body must hold. Everything else — `make gate`, docs and decision in the same PR, an
-independent read of the diff before the merge — is the same as for a plan.
+machine; `API_PORT`/`UI_PORT` keep two sessions apart. With `DATA`, the instance also shows this machine's real client (Settings, Artifacts usage): `make dev` runs `cartographer sync --report-to` against it, which reports and changes nothing (D1044). Nothing is pushed
+while iterating; at the end the change is queued with `make ready`. With no plan, the
+commit message is the record: its title (`feat:`/`fix:` for what a user notices) and its
+body become the commit on `main`, and so the release changelog — the skill says what the
+body must hold. Everything else — docs and decision in the same change, an independent
+read of the diff before it is queued — is the same as for a plan.
 
 ## Fixes without a plan (maintainers)
 
@@ -507,8 +502,8 @@ decisions in a comment on the issue and adds `accepted`, and a coordinator
 spawns `cartographer-fix-implementer` on a worktree with the issue number. The same
 agent takes a review round on a branch whose implementer is gone, with the verified
 findings as its mandate. Everything else — tests that fail without the fix, docs in
-the same PR, `make gate`, the review tier of `cartographer-review-pr` — is the same
-as for a plan.
+the same change, `make check`, the review tier of `cartographer-review-pr`, `make ready` —
+is the same as for a plan.
 
 A defect found on the way — a reviewer's `pre-existing` finding, a flaky or broken
 test, a doc that contradicts the code — does not wait in a backlog: it becomes an accepted
