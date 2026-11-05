@@ -217,8 +217,9 @@ func mcpProviderFromPath(path string) configurator.Provider {
 		// entry recorded there is pruned from it when the entry relocates.
 		return configurator.ProviderOpenCode
 	}
-	for _, d := range configurator.Providers() {
-		if slash == d.MCPConfigPath {
+	// Registered variants too: a mode-file variant's entry lives in its own file.
+	for _, d := range configurator.AllProviders() {
+		if d.MCPConfigPath != "" && slash == d.MCPConfigPath {
 			return d.Provider
 		}
 	}

@@ -3425,7 +3425,7 @@ func absentMCPServerWarnings(m Manifest, opts ApplyOptions) []string {
 		if err != nil {
 			continue
 		}
-		fields, err := nativeFieldsFor(fm, opts.Provider)
+		fields, err := nativeFieldsFor(fm, nativeProvider(opts.Provider))
 		if err != nil {
 			continue
 		}
@@ -3947,7 +3947,7 @@ var provisioningRootDirs = map[string]bool{
 func pruneEmptyDirs(baseDir, relPath string) {
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != string(filepath.Separator) {
-		if provisioningRootDirs[dir] {
+		if provisioningRootDirs[dir] || isVariantBoundary(dir) {
 			return
 		}
 		// A symlinked directory, or one under a symlink, is someone else's:
@@ -4488,8 +4488,8 @@ func Kinds() []KindInfo {
 func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for kind := range destinationMatrix {
-		cell, ok := destinationMatrix[kind][provider]
+	for _, kind := range artifactKinds {
+		cell, ok := cellFor(ScopeGlobal, kind, provider)
 		if !ok || cell.unsupported {
 			continue
 		}
@@ -4546,7 +4546,7 @@ func Destinations(kind, name string) []configurator.Provider {
 }
 
 func destDir(kind, name string, provider configurator.Provider) string {
-	cell, ok := destinationMatrix[kind][provider]
+	cell, ok := cellFor(ScopeGlobal, kind, provider)
 	if !ok || cell.unsupported {
 		return ""
 	}
@@ -4580,6 +4580,25 @@ func destDir(kind, name string, provider configurator.Provider) string {
 // reach here: destDir returns "" for them, so Apply routes them to Unsupported
 // before calling this function.
 func translateAgentForProvider(provider configurator.Provider, name string, content []byte) ([]byte, error) {
+	// A variant dispatches on its declared agent.format, not on its own id: the
+	// format names the provider whose file layout it reads, and a `providers.<base>`
+	// block of the agent is honoured through nativeProvider.
+	native := provider
+	if v, ok := variantFor(provider); ok {
+		native = v.base
+		switch v.agentFormat {
+		case "opencode":
+			provider = configurator.ProviderOpenCode
+		case "antigravity":
+			provider = configurator.ProviderAntigravity
+		case "copilot":
+			provider = configurator.ProviderCopilot
+		case "cline":
+			provider = configurator.ProviderCline
+		default: // claude: verbatim
+			return content, nil
+		}
+	}
 	switch provider {
 	case configurator.ProviderOpenCode:
 		// falls through to the OpenCode translation below
@@ -4600,7 +4619,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 
 	description := name
-	var native []nativeField
+	var fields []nativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -4611,13 +4630,13 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 				description = s
 			}
 		}
-		if native, err = nativeFieldsFor(fm, provider); err != nil {
+		if fields, err = nativeFieldsFor(fm, native); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
 		body = string(content)
 	}
-	extra, err := renderNativeYAML(native)
+	extra, err := renderNativeYAML(fields)
 	if err != nil {
 		return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 	}

@@ -218,6 +218,9 @@ func CapabilityStatus(provider configurator.Provider, scope Scope, id Capability
 	if !IsCapability(string(id)) {
 		return CapAbsent
 	}
+	if v, ok := variantFor(provider); ok {
+		return variantCapability(v, provider, scope, id)
+	}
 	derived := derivedCapability(provider, scope, id)
 	if derived == CapAbsent {
 		return CapAbsent // the destination matrix wins over a probe
@@ -245,6 +248,12 @@ func AgentMode(provider configurator.Provider, scope Scope) AgentModeKind {
 func InvokeHint(provider configurator.Provider, scope Scope) string {
 	if CapabilityStatus(provider, scope, CapAgentInvoke) == CapAbsent {
 		return ""
+	}
+	if v, ok := variantFor(provider); ok {
+		if v.invokeHint != "" {
+			return v.invokeHint
+		}
+		provider = v.base
 	}
 	return capabilityInvokeHint[provider][scope]
 }
