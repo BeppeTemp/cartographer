@@ -123,15 +123,20 @@ var ReservedDecisions = map[int]string{}
 
 // Decision is one record: exactly one file under docs/decisions.
 type Decision struct {
-	Num   int // 0 for the historical AD block, which has no single number
-	Title string
-	Topic string
-	File  string // base name, e.g. "D115-mcp-allow-list.md"
+	Num int // 0 for the historical AD block and for a pending decision
+	// Pending marks a decision a change has not landed yet: `D-new-<slug>.md`,
+	// cited as `D-new-<slug>`, which the lander numbers when it composes the
+	// train (scripts/land.sh). main never holds one.
+	Pending bool
+	Title   string
+	Topic   string
+	File    string // base name, e.g. "D115-mcp-allow-list.md"
 }
 
 var (
 	decisionFile = regexp.MustCompile(`^D(\d+)-[a-z0-9-]+\.md$`)
-	decisionH1   = regexp.MustCompile(`^# (D\d+ — .+|AD.+)$`)
+	pendingFile  = regexp.MustCompile(`^(D-new-[a-z0-9-]+)\.md$`)
+	decisionH1   = regexp.MustCompile(`^# (D\d+ — .+|D-new-[a-z0-9-]+ — .+|AD.+)$`)
 	topicField   = regexp.MustCompile(`(?m)^topic:\s*(\S.*?)\s*$`)
 )
 
@@ -199,8 +204,13 @@ func LoadDecisions(root string) ([]Decision, error) {
 			if want := fmt.Sprintf("D%d — ", n); !strings.HasPrefix(title, want) {
 				return nil, fmt.Errorf("%s: heading %q does not start with %q", name, title, want)
 			}
+		} else if pm := pendingFile.FindStringSubmatch(name); pm != nil {
+			d.Pending = true
+			if want := pm[1] + " — "; !strings.HasPrefix(title, want) {
+				return nil, fmt.Errorf("%s: heading %q does not start with %q", name, title, want)
+			}
 		} else if !strings.HasPrefix(name, "AD") {
-			return nil, fmt.Errorf("%s: name is neither D<n>-<slug>.md nor AD*.md", name)
+			return nil, fmt.Errorf("%s: name is neither D<n>-<slug>.md, D-new-<slug>.md nor AD*.md", name)
 		}
 
 		out = append(out, d)

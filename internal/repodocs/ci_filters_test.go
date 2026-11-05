@@ -151,6 +151,8 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		"signoff": true, "signoff-platform": true, "web-gate": true,
 		// The fast tier: what an implementer runs while iterating; make gate is CI's.
 		"check": true, "check-run": true,
+		// The lander queues and lands from a maintainer's machine (scripts/land.sh).
+		"ready": true, "land": true, "land-status": true,
 		// The docker job builds with buildx (layer cache in the GitHub cache) and
 		// runs test/smoke/image.sh itself; these two are the same checks by hand.
 		"docker": true, "docker-smoke": true,

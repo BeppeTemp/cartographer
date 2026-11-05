@@ -15,13 +15,14 @@ make fmt             # gofmt -w cmd internal
 make run             # stdio with demo KB
 make run-http        # HTTP on :39273 with demo KB
 make smoke           # build + quick stdio test
-make smoke-http      # operator-level HTTP smoke test (creates temp KBs via curl)
-make e2e             # deterministic HTTP/CLI end-to-end scenarios
+make smoke-http      # HTTP smoke test (temp KBs via curl)
+make e2e             # HTTP/CLI end-to-end scenarios
 make test-install    # install.sh/Cask packaging suite + goreleaser guard
 make docker          # build Docker image
 make clean           # remove bin/ and demo-kb/
 
-make decisions-new N=<pr> SLUG=my-choice TOPIC=control-plane   # D<n> = PR number
+make ready MSG=<file>              # maintainer: queue the change, the lander lands it
+make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered on landing
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
@@ -128,7 +129,7 @@ Not duplicated here:
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`; squash-merge only). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
+- All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`). A contributor's PR is squash-merged; a maintainer's change is queued (`make ready`) and lands in a train (`CONTRIBUTING.md` §Pull requests). Titles are conventional commits: release-please computes the semver bump from them.
 - **Route a maintainer's change before writing any code**: a bug → an `accepted` `bug` issue with the design in a comment, fixed by `cartographer-fix-implementer` (`CONTRIBUTING.md` §Fixes without a plan); a feature → a plan (`cartographer-propose-plan`) implemented by `cartographer-implement-plan`, on `exp/<theme>` unless the maintainer names `main` (§Experiment branches); a change found by trying it → a live session (below). The coordinator writes no production code itself: it verifies `make gate`.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter (D259).
 - **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code, otherwise one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).
@@ -138,6 +139,5 @@ Not duplicated here:
 - A PR is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap: `CONTRIBUTING.md` §Pull requests.
 - Releases (release-please PR merge, pipeline, rollout) → maintainer-local tooling, not versioned here; the on-demand flow is in `CONTRIBUTING.md` §Releases.
 - **Documentation is updated in the same session as the code — never afterward.** The "what changes → which file" table is in `docs/index.md` §Documentation maintenance rules.
-- Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).
-- Status and backlog live in GitHub issues, PRs and releases; user-visible completed work in `CHANGELOG.md`.
+- Conventions → `docs/conventions.md`. A decision is `docs/decisions/D<n>-<slug>.md`, `<n>` the PR's (D672) or, queued, `D-new-<slug>` numbered by the lander; never regenerate `docs/decisions.md` in a feature PR (D328).
 - **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks excluded) or 12.000 characters in total: past that a client drops instructions silently.

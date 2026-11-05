@@ -916,6 +916,15 @@ before the merge instead of on `main`. An exit 75 from `SIGNOFF_MAKE` (the platf
 means its machine is unavailable: the signoff pushes the branch, dispatches `ci.yml` on it, waits for that
 run's `gate` job and posts the status only when it is green, naming the run.
 
+A maintainer's queued changes (`make ready`, `CONTRIBUTING.md` §Pull requests) are gated by
+the lander as a **train**: `scripts/land.sh` runs `scripts/signoff.sh` once on `main` plus up
+to 8 changes. A red train is gated a second time on the same tree: green then is a flaky
+test, the train lands and a `bug` issue names the failing tests; red again, the lander
+bisects over the train's prefixes (one signoff each) and rejects the first change whose
+prefix is red. A gate that fails for a reason that is not a test (the signoff stops before
+the targets) stops the lander and leaves the queue untouched. `internal/repodocs/land_test.go`
+runs the lander against a local bare repository with fake `make` and `gh`.
+
 What CI runs for a contributor's PR, in the same order: `make gate` is the one place that
 defines "green", so a step added here has to be added to `gate` or to
 `ci.yml`, not to a list that only lives in prose.

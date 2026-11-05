@@ -226,12 +226,27 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   packages' tests on Windows beside them; the push is `--force-with-lease` and names its remote
   and branch. `make check` is the fast tier to run while iterating (the affected packages only).
   `docs/testing.md` has the table.
+- **A maintainer's change lands in a train** (D1706): finished and reviewed on its
+  branch, it is queued with `make ready MSG=<message file>` as **one commit** whose message
+  is the changelog entry (a conventional title, body lines unwrapped, `Closes #n`; checked as
+  `pr-title` and `plan-gate` would check a PR, `Size exception: <why>` included).
+  `AFTER=<slug>` lands it after another queued change (a branch built on that change's
+  branch is queued with its own diff only), `HOLD=1` keeps it queued, `REVIEW=`
+  records the review. The lander (`scripts/land.sh`, started by `make ready`, stopping when
+  nothing is landable) cherry-picks up to 8 queued changes onto `main`, numbers their pending
+  decisions, gates the train **once** with `make signoff` (red twice: bisection rejects the
+  change that breaks it to `failed/<slug>`, whose last commit message says why), and opens one
+  PR `chore(dev): train <id>, <k> change(s)`, **rebase-merged** so each change stays its own
+  commit on `main`. `make land-status` shows the queue; `make land` runs the lander in the
+  foreground (`DRY=1` prints the next train). A queued change is not a PR: the limits below
+  count PRs.
 - **At most 4 open maintainer PRs at a time, across all sessions** (check
   `gh pr list --author @me --state open --json number,headRefName` before opening, ignoring
   the heads named `release-please--*`, which the same identity owns; drafts count).
 - **No open PR depends on another open PR**: dependent work goes in the same PR, or waits for
   the merge.
-- PRs are **squash-merged** and the PR title becomes the commit message on
+- PRs are **squash-merged** (a train is rebase-merged, its commits already are the
+  changes) and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are
   cut automatically from these commits by release-please, so the title you
@@ -258,8 +273,11 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   updates the corresponding `docs/` pages (see `docs/index.md`
   §Documentation maintenance rules). An **architectural or contract** choice
   (an invariant, an interface, a rejected alternative a reader would otherwise
-  re-propose) gets **one** decision file, numbered after
-  the PR (D672): `make decisions-new N=<n> SLUG=<slug> TOPIC=<topic>`.
+  re-propose) gets **one** decision file. A maintainer's change writes it as pending,
+  `make decisions-new SLUG=<slug> TOPIC=<topic>` → `docs/decisions/D-new-<slug>.md`, and cites
+  it as `D-new-<slug>`: the lander gives it the next free number and rewrites the citations
+  in the change's own files (D1706). A contributor's PR numbers it after the PR (D672):
+  `make decisions-new N=<n> SLUG=<slug> TOPIC=<topic>`.
   Smaller choices need no file — the PR is
   their record. Do not regenerate `docs/decisions.md` in a feature PR: the
   release PR regenerates the index (D328).

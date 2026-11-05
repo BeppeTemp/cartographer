@@ -6,7 +6,9 @@
 #                           was printed (the plan-gate workflow runs this, D955)
 #   pr-triage.sh --title-scopes  the scopes a PR title may use, as pr-title.yml lists them
 #   pr-triage.sh               the current branch against upstream/main (origin/main when
-#                           there is no `upstream` remote), before opening a PR
+#                           there is no `upstream` remote), before opening a PR; TRIAGE_BODY
+#                           is the body it will carry (scripts/ready.sh passes the message),
+#                           TRIAGE_BASE the commit it is measured from (default: the merge-base)
 #
 # Prints at most ~20 lines: size split by kind, areas, review tier, closed issues,
 # CI, docs and decision hints (the docs-owner WARN comes from doc-owners.sh), and the
@@ -97,7 +99,8 @@ else
   # Fail closed on a fork clone without `upstream`: never diff against a stale fork main.
   "$(dirname "$0")/upstream-repo.sh" --require-remote >/dev/null || exit 2
   git fetch -q "$remote" main
-  files=$(git diff --numstat "$remote"/main...HEAD | awk -F'\t' '$1 != "-"')
+  tbase=${TRIAGE_BASE:-$(git merge-base "$remote"/main HEAD)}
+  files=$(git diff --numstat "$tbase" HEAD | awk -F'\t' '$1 != "-"')
   ci=local
   slug=$("$(dirname "$0")/upstream-repo.sh")
   author=$(gh api user --jq .login 2>/dev/null || echo me)
@@ -105,8 +108,8 @@ else
   perm=$(gh repo view "$slug" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
   case "$perm" in ADMIN|MAINTAIN|WRITE) role=maintainer ;; esac
   echo "Branch $(git rev-parse --abbrev-ref HEAD) vs $remote/main (before opening a PR)"
-  issues=$(git log --format=%B "$remote"/main..HEAD | grep -oiE '(closes|fixes) #[0-9]+' | grep -oE '[0-9]+' | sort -u || true)
-  body=""
+  issues=$(git log --format=%B "$tbase"..HEAD | grep -oiE '(closes|fixes) #[0-9]+' | grep -oE '[0-9]+' | sort -u || true)
+  body=${TRIAGE_BODY:-}
 fi
 echo "Role: $role"
 

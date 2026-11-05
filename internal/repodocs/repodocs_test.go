@@ -107,6 +107,9 @@ func TestNoDecisionNumberIsUsedTwice(t *testing.T) {
 	seen := map[int]string{}
 	var historical []string
 	for _, d := range decisions {
+		if d.Pending {
+			continue // numbered by the lander, never on main
+		}
 		if d.Num == 0 {
 			// The thirteen original ADs are one historical file with no
 			// individual bodies. A second one would mean two files claiming the
