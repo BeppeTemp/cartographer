@@ -27,7 +27,9 @@ func TestClineDispatcherRunsOnWindows(t *testing.T) {
 	}
 	rec := filepath.Join(dir, "rec")
 	stub := filepath.Join(dir, "cartographer.cmd")
-	body := "@echo off\r\necho %* > \"" + rec + ".args\"\r\nfindstr \"^\" > \"" + rec + ".in\"\r\necho {}\r\n"
+	// cmd.exe reads the batch in the OEM code page, so a non-ASCII path (Zoë) embedded
+	// in it would be written elsewhere: the stub records next to itself with %~dp0.
+	body := "@echo off\r\necho %* > \"%~dp0rec.args\"\r\nfindstr \"^\" > \"%~dp0rec.in\"\r\necho {}\r\n"
 	if err := os.WriteFile(stub, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
