@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -49,5 +50,35 @@ func TestRunAuditVerifyExitCodes(t *testing.T) {
 				t.Errorf("exit = %d, want %d", code, c.want)
 			}
 		})
+	}
+}
+
+// A stdout that cannot be written (a closed pipe, a full disk) fails the
+// export: a truncated document must not look successful (#1500).
+func TestAuditExportToAClosedStdoutFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	l, err := audit.OpenWithOptions(path, audit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AppendEvent(audit.Entry{RequestID: "r", Phase: audit.PhaseAttempt, Tool: "concept_read"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AppendEvent(audit.Entry{RequestID: "r", Phase: audit.PhaseCompletion, Tool: "concept_read", Outcome: audit.OutcomeSuccess}); err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+
+	closed, err := os.Create(filepath.Join(dir, "stdout"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed.Close()
+	saved := os.Stdout
+	os.Stdout = closed
+	defer func() { os.Stdout = saved }()
+	if code := cmdAuditExport([]string{"--log", path}); code != 1 {
+		t.Errorf("exit = %d, want 1", code)
 	}
 }

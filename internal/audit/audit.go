@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -399,8 +400,13 @@ func open(path string, kp *KeyPair, opts Options) (*Log, error) {
 	opts = normalizeOptions(opts)
 	l := &Log{path: path, lastHash: "genesis", kp: kp, opts: opts, opened: time.Now().UTC(), healthy: true, lock: lock}
 
-	idx, err := loadCheckpointIndex(checkpointPath(path, opts.ArchiveDir))
+	cpPath := checkpointPath(path, opts.ArchiveDir)
+	idx, err := loadCheckpointIndex(cpPath)
 	if err != nil {
+		releaseWriter(lock)
+		return nil, err
+	}
+	if idx, err = reconcileIndex(idx, entries, cpPath, archiveDir(path, opts.ArchiveDir), kp); err != nil {
 		releaseWriter(lock)
 		return nil, err
 	}
@@ -657,21 +663,53 @@ func (l *Log) rotateLocked() error {
 		return fmt.Errorf("audit: marshal checkpoint index: %w", err)
 	}
 	// Durable, atomic checkpoint write BEFORE the segment is renamed out of
-	// the active path: see the rotateLocked doc comment above.
-	if err := atomicWrite(checkpointPath(l.path, l.opts.ArchiveDir), idxData, 0o640); err != nil {
+	// the active path: see the rotateLocked doc comment above. The in-memory
+	// index and sequence change only once the segment is at its archive path,
+	// and a failure restores the previous index file, so a failed rotation
+	// leaves no phantom checkpoint (#1500).
+	cpPath := checkpointPath(l.path, l.opts.ArchiveDir)
+	_, statErr := os.Stat(cpPath)
+	hadIndex := statErr == nil
+	if err := atomicWrite(cpPath, idxData, 0o640); err != nil {
 		return fmt.Errorf("audit: checkpoint: %w", err)
+	}
+	rollback := func() error {
+		if !hadIndex {
+			if err := os.Remove(cpPath); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			return nil
+		}
+		prev, err := json.Marshal(l.index)
+		if err != nil {
+			return err
+		}
+		return atomicWrite(cpPath, prev, 0o640)
+	}
+
+	if err := renameFunc(l.path, segmentPath); err != nil {
+		if errors.Is(err, syscall.EXDEV) {
+			err = copySegment(l.path, segmentPath)
+		}
+		if err != nil {
+			if rbErr := rollback(); rbErr != nil {
+				err = fmt.Errorf("%w (restoring the previous checkpoint index also failed: %v)", err, rbErr)
+			}
+			return fmt.Errorf("audit: rotate segment: %w", err)
+		}
+		// Copied, not moved: the active log still holds the data. Truncate
+		// it; if that fails, undo the whole rotation so a retry does not
+		// archive the same entries twice.
+		if err := os.Truncate(l.path, 0); err != nil {
+			_ = os.Remove(segmentPath)
+			if rbErr := rollback(); rbErr != nil {
+				err = fmt.Errorf("%w (restoring the previous checkpoint index also failed: %v)", err, rbErr)
+			}
+			return fmt.Errorf("audit: truncate active log after copy: %w", err)
+		}
 	}
 	l.index = candidateIndex
 	l.sequence = nextSeq
-
-	if err := os.Rename(l.path, segmentPath); err != nil {
-		// The checkpoint now (rarely) refers to a segment that failed to
-		// land at its archive path; the source data itself is untouched by
-		// a failed rename (POSIX rename is all-or-nothing), so nothing is
-		// lost — but the operator must reconcile manually. Surfaced via the
-		// returned error and (in required mode) via /health, /ready.
-		return fmt.Errorf("audit: rotate rename (checkpoint already durable, manual reconciliation required): %w", err)
-	}
 
 	active, err := os.OpenFile(l.path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
 	if err != nil {
@@ -688,6 +726,80 @@ func (l *Log) rotateLocked() error {
 
 	l.retainLocked(dir)
 	return nil
+}
+
+// renameFunc moves the active segment into the archive. A variable so tests
+// can inject a failure or EXDEV (an archive_dir on another volume).
+var renameFunc = os.Rename
+
+// copySegment is the cross-device fallback of the rotation rename: copy into
+// a temp file in the destination directory, fsync, rename it into place and
+// fsync the directory. The source is left in place for the caller to truncate.
+func copySegment(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".audit-seg-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once renamed
+	if _, err := io.Copy(tmp, in); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o640); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		return err
+	}
+	if d, err := os.Open(filepath.Dir(dst)); err == nil {
+		defer d.Close()
+		_ = d.Sync()
+	}
+	return nil
+}
+
+// reconcileIndex finishes or drops the crash window of a rotation: the
+// checkpoint index is durable but the segment never reached the archive. When
+// the last checkpoint's segment is missing and the active log still starts
+// with its FirstHash, the entry is dropped (re-signed when a key is set).
+func reconcileIndex(idx checkpointIndex, entries []Entry, cpPath, dir string, kp *KeyPair) (checkpointIndex, error) {
+	n := len(idx.Segments)
+	if n == 0 || len(entries) == 0 {
+		return idx, nil
+	}
+	last := idx.Segments[n-1]
+	if entries[0].Hash != last.FirstHash {
+		return idx, nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, last.Name)); !os.IsNotExist(err) {
+		return idx, nil
+	}
+	out := checkpointIndex{Version: idx.Version, Segments: append([]Checkpoint{}, idx.Segments[:n-1]...)}
+	if kp != nil {
+		out.Sig = hex.EncodeToString(ed25519.Sign(kp.Private, checkpointBytes(out)))
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return idx, fmt.Errorf("audit: marshal reconciled checkpoint index: %w", err)
+	}
+	if err := atomicWrite(cpPath, data, 0o640); err != nil {
+		return idx, fmt.Errorf("audit: reconcile checkpoint index: %w", err)
+	}
+	return out, nil
 }
 
 // retainLocked deletes rotated segments older than RetentionDays, but only
