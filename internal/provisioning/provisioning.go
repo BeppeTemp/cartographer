@@ -1653,7 +1653,7 @@ type Collision struct {
 // same bundled artifacts.
 //
 // A variant is exempt: a name two KBs declare is registered from neither and
-// reported by the variant cache, never an error (D1702, withoutClaimedVariants).
+// reported by the variant cache, never an error (D1698, withoutClaimedVariants).
 // collisionsForProvider (connect, doctor) inherits the exemption on purpose:
 // printVariantSync already reports the collision on every sync.
 func DetectCollisions(artifacts []Artifact) []Collision {
@@ -1807,7 +1807,7 @@ func MergeArtifactsStrict(artifacts []Artifact) (Manifest, error) {
 }
 
 // withoutClaimedVariants drops every variant two KBs declare. A variant name is
-// not a collision that stops a sync (D1702): nothing says which KB's descriptor
+// not a collision that stops a sync (D1698): nothing says which KB's descriptor
 // the operator approved, so the client registers it from neither and warns; the
 // declarations themselves reach the variant cache apart from this merge.
 func withoutClaimedVariants(artifacts []Artifact) []Artifact {

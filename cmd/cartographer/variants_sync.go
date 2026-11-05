@@ -33,7 +33,7 @@ type variantSyncResult struct {
 	Warnings   []string
 }
 
-// reconcileVariants is the sync side of the variant cache (D1702). arts are the
+// reconcileVariants is the sync side of the variant cache (D1698). arts are the
 // variant artifacts the KBs served this run (the client lock is held, as for the
 // state file), unfiltered: they decide collisions and "still declared". reach
 // (source+NUL+name) is the subset that reached a projection, the only one that

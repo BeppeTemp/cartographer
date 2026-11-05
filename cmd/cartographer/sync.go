@@ -306,7 +306,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
 	}
-	// D1702: the KBs' variant declarations against the cache, before the
+	// D1698: the KBs' variant declarations against the cache, before the
 	// retired ones are dropped from this run.
 	if retired := syncVariants(out, errw, cfg, dir, projections, declaredVariants, manifests, pullFailures, healthErr == nil, opts.DryRun); len(retired) > 0 {
 		targets = removeStrings(targets, retired)

@@ -2,7 +2,7 @@
 topic: client-configurator
 ---
 
-# D1702 — Accepted client variants live in a cache, registered at start only while the client config authorizes them
+# D1698 — Accepted client variants live in a cache, registered at start only while the client config authorizes them
 
 **Decision.** `.cartographer-variants.json` in the client directory maps a variant name to `{source_kb, content_hash, descriptor_b64, accepted_at}`, written atomically and without following a link (`clientvariant.SaveCache`, under the client lock). `content_hash` is the manifest hash the operator approved (`provisioning.VariantContentHash`). `main` calls `provisioning.RegisterCachedVariants` before any command, and it is the only path that registers a variant from stored bytes: registration (`RegisterVariantCells`, `configurator.RegisterVariant`) has no gate of its own, so the gate is `artifactAuthorized`, the one every sync applies, with the approvals read from the client config: the descriptor hash AND the fingerprint of the paths it resolves to in this environment (D1695). An entry that is not authorized (never approved, revoked, bytes edited, paths moved by another `$HOME` or `XDG_CONFIG_HOME`) is pending and is not registered; one whose bytes do not match the recorded hash, that no longer parses, resolves with a dropped path or fails the cell validation is skipped with a named warning. `clientconfig.Load` and the lock cleanup skip names present in the cache, so a variant not registered this run is kept in the config, not deleted (D898).
 

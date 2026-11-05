@@ -771,7 +771,7 @@ func manifestsForProjections(cfg *clientconfig.Config, projections []syncProject
 // The variant artifacts the pulled KBs declared come back apart, unfiltered by
 // kb_options and by the projections' scoping: the variant cache reconciles
 // against what the KBs declare, not against what one projection receives
-// (D1702), and two KBs claiming one variant name must reach it (the strict
+// (D1698), and two KBs claiming one variant name must reach it (the strict
 // merge leaves both out of the manifests).
 func manifestsForProjectionsPartial(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, []provisioning.Artifact, error) {
 	return buildProjectionManifestsVariants(st, cfg, projections, true, pre)
