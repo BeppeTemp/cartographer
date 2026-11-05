@@ -2,7 +2,7 @@
 topic: sync-provisioning
 ---
 
-# D1700 — The sync summary reports degraded, skipped and unverified, filled by the caller from the resolver's notes
+# D1690 — The sync summary reports degraded, skipped and unverified, filled by the caller from the resolver's notes
 
 **Decision.** `AppliedResult` gains `Degraded`, `Skipped` and `Unverified`. The first two are the resolver's notes
 (D1685) split by `provisioning.ReportNotes`; `Apply` receives only the projected manifest and cannot know them, so the
