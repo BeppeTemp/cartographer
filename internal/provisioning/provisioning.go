@@ -2602,7 +2602,7 @@ hookLoop:
 					// the hook.json just materialized. Best-effort on a
 					// malformed hook.json (see registerHookSettings/
 					// registerCodexHook): doesn't fail materialization.
-					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
+					if mechanism, ok := mechanismFor(opts.Provider); ok {
 						// The files the update dropped are not pruned yet, so a
 						// dropped hook.json is removed first, or the registrar would
 						// read it again and register the old spec.

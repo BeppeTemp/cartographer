@@ -80,10 +80,11 @@ func variantAgentSuffix(format string) string {
 	return ".md"
 }
 
-// variantDestinations builds the cells of v. The hook cell is never built here:
-// a hook destination without the base's registrar would copy the KB's hook
-// files with nothing wiring them, so it is ignored until a later release
-// enables it (the returned note says so).
+// variantDestinations builds the cells of v. The hook cell is built only when
+// the base wires hooks through the shared dispatcher (hookMechanism.sharedDispatcher):
+// a hook destination without a registrar would copy the KB's hook files with
+// nothing wiring them, so for any other base the cell is dropped and the
+// returned note says why.
 func variantDestinations(v clientvariant.Variant) (map[Scope]map[string]destination, []string) {
 	cells := map[Scope]map[string]destination{ScopeGlobal: {}, ScopeProject: {}}
 	for scope, sc := range map[Scope]clientvariant.Scope{ScopeGlobal: v.Global, ScopeProject: v.Project} {
@@ -103,7 +104,11 @@ func variantDestinations(v clientvariant.Variant) (map[Scope]map[string]destinat
 	}
 	var notes []string
 	if v.HookDir != nil {
-		notes = append(notes, fmt.Sprintf("%s: hook cell: applied by a later release of this client", v.Name))
+		if hookMechanisms[configurator.Provider(v.Base)].sharedDispatcher {
+			cells[ScopeGlobal]["hook"] = perName("", v.HookDir...)
+		} else {
+			notes = append(notes, fmt.Sprintf("%s: hook cell ignored: the base %s wires hooks with no shared dispatcher a fork's directory could join", v.Name, v.Base))
+		}
 	}
 	return cells, notes
 }
@@ -409,8 +414,8 @@ func isVariantBoundary(dir string) bool {
 
 // variantCapability is CapabilityStatus for a variant: its declared value, else
 // what the base's probes recorded, else unverified; forced absent where the
-// variant has no cell for the kind in the scope. Hook capabilities are absent
-// until the hook cell is enabled.
+// variant has no cell for the kind in the scope. Hook capabilities stay absent:
+// no probe of a fork's hooks exists, and the base's rows say nothing about them.
 func variantCapability(v variantEntry, provider configurator.Provider, scope Scope, id Capability) CapStatus {
 	var kind string
 	switch id {
@@ -455,4 +460,54 @@ func sameMCPFile(v variantEntry, scope Scope) bool {
 	cell, ok := v.cells[scope]["mcp"]
 	d, found := configurator.Lookup(v.base)
 	return ok && found && path.Join(cell.dir...) == d.MCPConfigPath
+}
+
+// variantHookRoots returns the home-relative slash hook directories of the
+// registered variants whose base is base and that declared a hook cell, sorted.
+// It is derived from the registry, never stored: a variant that leaves the
+// registry (revoke, retirement, a cache that no longer validates) leaves the set.
+func variantHookRoots(base configurator.Provider) []string {
+	variantCellsMu.RLock()
+	defer variantCellsMu.RUnlock()
+	var out []string
+	for _, v := range variantCells {
+		if cell, ok := v.cells[ScopeGlobal]["hook"]; ok && v.base == base {
+			out = append(out, path.Join(cell.dir...))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// variantHookOwner returns the base provider whose registrar wires the hook
+// files at slash path p, when p lies under the hook directory of a registered
+// variant ("" otherwise): a variant has no registrar of its own.
+func variantHookOwner(p string) string {
+	variantCellsMu.RLock()
+	defer variantCellsMu.RUnlock()
+	for _, v := range variantCells {
+		if cell, ok := v.cells[ScopeGlobal]["hook"]; ok && strings.HasPrefix(fold(p), fold(path.Join(cell.dir...))+"/") {
+			return string(v.base)
+		}
+	}
+	return ""
+}
+
+// mechanismFor is the one read of a provider's hook mechanism: the table for a
+// built-in, the BASE's for a variant with a hook cell (a variant registers
+// nothing itself: its hook directory is one more root of the base's shared
+// dispatcher), none for a variant without one.
+func mechanismFor(provider configurator.Provider) (hookMechanism, bool) {
+	if m, ok := hookMechanisms[provider]; ok {
+		return m, true
+	}
+	v, ok := variantFor(provider)
+	if !ok {
+		return hookMechanism{}, false
+	}
+	if _, has := v.cells[ScopeGlobal]["hook"]; !has {
+		return hookMechanism{}, false
+	}
+	m, ok := hookMechanisms[v.base]
+	return m, ok
 }
