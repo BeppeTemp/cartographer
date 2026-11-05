@@ -175,3 +175,21 @@ func TestSyncVariantsDoesNotCacheAVariantOfAnOptedOutKB(t *testing.T) {
 		t.Fatalf("cache %v registered=%v out=%q", c, registered("fork-cli"), out.String())
 	}
 }
+
+// A cached variant whose KB is then opted out and serves new bytes keeps its
+// entry as it is (old hash, not refreshed) and stays registered.
+func TestSyncVariantsKeepsACachedVariantOfALaterOptedOutKB(t *testing.T) {
+	home, cfg, _ := retireFixture(t)
+	old, _ := clientvariant.LoadCache(home)
+	oldHash := old["fork-cli"].ContentHash
+	changed := strings.Replace(cachedVariant, "Fork CLI", "Fork CLI v2", 1)
+	files := []provisioning.ArtifactFile{{Path: "fork-cli.yaml", Content: []byte(changed)}}
+	v2 := provisioning.Artifact{Kind: "variant", Name: "fork-cli", Source: "kb:kb-a", ContentHash: provisioning.ContentHashFiles(files), Files: files}
+	p := syncProjection{Provider: "claude", BaseDir: home, KBs: []string{"kb-a"}}
+	var out, errw bytes.Buffer
+	retired := syncVariants(&out, &errw, cfg, home, []syncProjection{p}, []provisioning.Artifact{v2}, map[string]provisioning.Manifest{}, nil, true, false)
+	c, _ := clientvariant.LoadCache(home)
+	if len(retired) != 0 || c["fork-cli"].ContentHash != oldHash || out.Len() != 0 || !registered("fork-cli") {
+		t.Fatalf("retired=%v cache=%v registered=%v", retired, c, registered("fork-cli"))
+	}
+}
