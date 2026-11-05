@@ -330,8 +330,8 @@ server's own error is what the agent reads. Flags: `--output text|json` (`json` 
 **The command writes no file anywhere** (no cache, log, lock or audit file, `$TMPDIR` included) and
 works with a read-only `$HOME`: it only reads the client configuration and the token. The bundled
 `cartographer-cli` skill, which teaches this command, is filtered out of every provider's manifest
-client-side unless the provider reaches Cartographer through the command; no built-in provider does
-today.
+client-side unless the provider reaches Cartographer through the command; no built-in provider does,
+a client variant in `cli` mode does (`sync.md` §Client variants).
 
 Existing configurations are untouched: the scope is per provider, absent means the historical global
 catalogue, and no upgrade changes it. Full rules, the project-local destination matrix, the

@@ -538,7 +538,7 @@ type pullResult struct {
 // artifacts. It touches no state shared with other targets, so fetchCandidates
 // can run it from several goroutines.
 func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
-	raw, err := callTool(c, target, "sync_pull", map[string]any{})
+	raw, err := callTool(c, target, "sync_pull", syncPullArgs())
 	if err != nil {
 		return pullResult{callErr: err}
 	}
@@ -783,6 +783,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// The client environment section names only the authorized ones: a
 		// pending artifact is not announced (D1697).
 		opts.Skipped = provisioning.AuthorizedSkipped(skipped, manifests[projectionKey(p)], opts)
+		opts.Unplaced = provisioning.UnplacedArtifacts(manifests[projectionKey(p)], configurator.Provider(p.Provider), p.Scope)
 		applied, err := provisioning.Apply(projected, opts)
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
@@ -1374,4 +1375,14 @@ func safeField(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// syncPullArgs always asks the server for the bundled cartographer-cli skill
+// (D1700): a current client filters it per provider (withoutCLISkill), so only
+// a cli variant keeps it, and asking unconditionally means a variant discovered
+// by this very sync gets it without a lag (the registry is read before sync
+// registers it). A client older than the filter never sends the flag, so it
+// never receives the skill.
+func syncPullArgs() map[string]any {
+	return map[string]any{"include_cli_skill": true}
 }
