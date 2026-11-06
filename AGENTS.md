@@ -19,7 +19,6 @@ make smoke-http      # HTTP smoke test (temp KBs via curl)
 make e2e             # HTTP/CLI end-to-end scenarios
 make test-install    # install.sh/Cask packaging suite + goreleaser guard
 make docker          # build Docker image
-make clean           # remove bin/ and demo-kb/
 
 make ready MSG=<file>              # maintainer: queue the change, the lander lands it
 make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered on landing
