@@ -48,7 +48,11 @@ request: the address is checked when dialled (proxies, embedded IPv4, redirect h
 and redirect headers included), so a name that resolves to a private address, or a
 redirect to one, is refused whatever the allowlist says. `kb.call` reaches the KB
 through two adapters, one for the CLI and one for the bridge, which share the
-read-only decision.
+read-only decision: the server's own `readOnlyHint` annotation from `tools/list`,
+fetched by the adapter (`star.MCPKB`) and kept for five minutes, refetched early for a name it does not know, so no list of read tools is copied into the
+client. An unannotated or unknown tool counts as a write: a `read` manifest, or a
+read-only session, refuses it before any request is sent. The gate is the plugin's
+declared limit; the token's scopes and the session's access stay the server's.
 
 **Alternatives rejected.**
 
