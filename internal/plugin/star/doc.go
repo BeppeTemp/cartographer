@@ -7,8 +7,9 @@
 // registration builtins (command, tool, on), the pure modules (json, math, and
 // time without now) and capability modules that refuse every call, and reports
 // what the script registered; what a user approves is a pure function of the
-// tree, so LOAD reads no clock, no setting and no file. CALL, which a later
-// change adds, runs a registered function on demand.
+// tree, so LOAD reads no clock, no setting and no file. CALL runs a registered
+// function on demand, on a fresh thread, under step and time caps, with typed
+// errors (CallError) and the settings of the call.
 //
 // Starlark binds the names of a function when the function is created, so the
 // modules are values whose behavior is decided at the call, from the context

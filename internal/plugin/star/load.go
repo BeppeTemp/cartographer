@@ -74,7 +74,7 @@ func Load(files []plugin.TreeFile) (*Program, error) {
 	if len(srcs) == 0 {
 		return nil, nil
 	}
-	entry, ok := srcs[plugin.ScriptEntry]
+	_, ok := srcs[plugin.ScriptEntry]
 	if !ok {
 		return nil, &LoadError{Msg: "lib/ needs a plugin.star at the plugin root"}
 	}
@@ -82,19 +82,31 @@ func Load(files []plugin.TreeFile) (*Program, error) {
 		return nil, &LoadError{Msg: fmt.Sprintf("lib/: %d files, over the %d cap", libs, plugin.MaxLibFiles)}
 	}
 
+	return run(srcs, &settingsValue{}, nil, nil)
+}
+
+// run executes plugin.star over srcs. settings is the `settings` every function
+// of this run binds; extra is added to the predeclared names (a test seam, and
+// where later changes hand the host adapters over). A CALL runs it again for
+// its own thread, with its own settings: see settingsValue.
+func run(srcs map[string][]byte, settings *settingsValue, extra starlark.StringDict, lim *runLimits) (*Program, error) {
+	entry := srcs[plugin.ScriptEntry]
 	reg := &registry{}
 	ctx := &callCtx{phase: phaseLoad, reg: reg}
-	pure, caps := pureModules(), capabilityModules()
-	l := &loader{srcs: srcs, ctx: ctx, cache: map[string]*loaded{}, predeclared: merge(pure, caps)}
+	pure, caps := pureModules(), merge(capabilityModules(settings), extra)
+	if lim != nil {
+		defer lim.watch()()
+	}
+	l := &loader{srcs: srcs, ctx: ctx, lim: lim, cache: map[string]*loaded{}, predeclared: merge(pure, caps)}
 	thread := l.newThread(plugin.ScriptEntry)
 	entryEnv := merge(pure, caps, registrars())
-	globals, err := starlark.ExecFileOptions(fileOptions, thread, plugin.ScriptEntry, entry, entryEnv)
+	globals, err := l.exec(thread, plugin.ScriptEntry, entry, entryEnv)
 	if err != nil {
 		return nil, loadError(err)
 	}
 	globals.Freeze()
 
-	p := &Program{Registrations: reg.regs, globals: globals}
+	p := &Program{Registrations: reg.regs, globals: globals, srcs: srcs}
 	for _, path := range slices.Sorted(maps.Keys(srcs)) {
 		p.Files = append(p.Files, fileInfo(path, srcs[path]))
 	}
@@ -115,6 +127,7 @@ func merge(ds ...starlark.StringDict) starlark.StringDict {
 // exists, and nothing is read from the filesystem.
 type loader struct {
 	srcs        map[string][]byte
+	lim         *runLimits // nil for a first Load
 	ctx         *callCtx
 	cache       map[string]*loaded
 	stack       []string
@@ -130,8 +143,25 @@ type loaded struct {
 func (l *loader) newThread(name string) *starlark.Thread {
 	t := &starlark.Thread{Name: name, Load: l.load, Print: func(*starlark.Thread, string) {}}
 	t.SetLocal(ctxKey, l.ctx)
-	t.SetMaxExecutionSteps(MaxLoadSteps)
+	max := MaxLoadSteps
+	if l.lim != nil {
+		// 0 would mean unlimited: a spent budget leaves one step.
+		max = l.lim.start(t)
+		if max == 0 {
+			max = 1
+		}
+	}
+	t.SetMaxExecutionSteps(max)
 	return t
+}
+
+// exec runs one source file on thread and charges its steps to the call.
+func (l *loader) exec(t *starlark.Thread, name string, src []byte, env starlark.StringDict) (starlark.StringDict, error) {
+	g, err := starlark.ExecFileOptions(fileOptions, t, name, src, env)
+	if l.lim != nil {
+		l.lim.charge(t)
+	}
+	return g, err
 }
 
 func (l *loader) load(_ *starlark.Thread, module string) (starlark.StringDict, error) {
@@ -152,7 +182,7 @@ func (l *loader) load(_ *starlark.Thread, module string) (starlark.StringDict, e
 	l.cache[module] = e
 	l.stack = append(l.stack, module)
 	defer func() { l.stack = l.stack[:len(l.stack)-1] }()
-	globals, err := starlark.ExecFileOptions(fileOptions, l.newThread(module), module, src, l.predeclared)
+	globals, err := l.exec(l.newThread(module), module, src, l.predeclared)
 	e.running = false
 	if err != nil {
 		e.err = err

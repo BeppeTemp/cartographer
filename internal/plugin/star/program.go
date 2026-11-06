@@ -63,6 +63,7 @@ type Program struct {
 	Registrations []Registration
 
 	globals starlark.StringDict
+	srcs    map[string][]byte // the sources, to run again for a call
 }
 
 // Lines are the registrations in the order Sorted lists them.
