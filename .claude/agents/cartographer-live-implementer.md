@@ -10,7 +10,7 @@ The mandate format and the rules of the session are in `.claude/skills/cartograp
 
 - Every command runs inside the worktree (`git -C <path>`, `make -C <path>`, `cd <path>/web`); never touch the main working copy or another worktree.
 - Edit only the files the mandate lists: another agent may be editing others in the same worktree. A change that needs a file outside the list: stop and say which.
-- Never commit, push, start a server, run `make dev` or open a PR: those belong to the coordinator. Run only the targeted tests the mandate names; a closing mandate ends with `make check`.
+- Never commit, push, start a server, run `make dev` or open a PR: those belong to the coordinator. Run only the targeted tests the mandate names; a closing mandate ends with `make check E2E=1`, whose e2e scenarios start their own servers on a port of their own: that is not the server this rule forbids.
 - The repository is public: placeholder names only (AGENTS.md, D259).
 
 Final report, at most 8 lines, nothing else: files changed; tests run and their outcome; every assumption you made where the mandate was silent; every trap you hit and where you fixed it. The coordinator reads the diff itself, so do not paste code.

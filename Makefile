@@ -224,19 +224,24 @@ gate: fmt-check vet test race ## Everything that must be green before a PR is op
 # Go builds: the check then exits 75 itself.
 CHECK_MAKE ?= $(MAKE)
 CHECK_LOCAL_FALLBACK ?= 1
-check: ## Fast tier: fmt-check, vet and the tests of the packages this branch affects (CHECK_MAKE runs them elsewhere)
+check: ## Fast tier: fmt-check, vet and the tests of the packages this branch affects (CHECK_MAKE runs them elsewhere; E2E=1 adds the e2e scenarios)
 	@changed=$$(scripts/affected-pkgs.sh --changed) || { echo "check: cannot compute the changed paths (see above): not running a check that would test nothing" >&2; exit 1; }; \
 	pkgs=$$(printf '%s\n' "$$changed" | scripts/affected-pkgs.sh) || { echo "check: cannot compute the affected packages" >&2; exit 1; }; \
 	pkgs=$$(printf '%s' "$$pkgs" | tr '\n' ' '); \
 	echo "check: $${pkgs:-no Go package affected}"; \
-	rc=0; $(CHECK_MAKE) check-run CHECK_PKGS="$$pkgs" || rc=$$?; \
+	rc=0; $(CHECK_MAKE) check-run CHECK_PKGS="$$pkgs" $(if $(E2E),CHECK_E2E=1) || rc=$$?; \
 	if [ "$$rc" = 75 ] && [ "$(CHECK_LOCAL_FALLBACK)" = 0 ]; then echo "check: the build host is unavailable and CHECK_LOCAL_FALLBACK=0: not running here" >&2; exit 75; \
-	elif [ "$$rc" = 75 ]; then echo "check: the build host is unavailable, running here"; $(MAKE) check-run CHECK_PKGS="$$pkgs"; \
+	elif [ "$$rc" = 75 ]; then echo "check: the build host is unavailable, running here"; $(MAKE) check-run CHECK_PKGS="$$pkgs" $(if $(E2E),CHECK_E2E=1); \
 	else exit $$rc; fi
 
 check-run: fmt-check vet
 	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -timeout 20m $(CHECK_PKGS)
 	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -race -count=1 -run 'Race|Concurren' $(CHECK_PKGS)
+	@# E2E=1, the implementer's last check before it reports: the scenarios the train gate runs
+	@# (D1750), found while the implementer is still there. Their server listens on a fixed
+	@# port, so the port comes from this tree's path: two worktrees checking here do not collide.
+	@[ -z "$(CHECK_E2E)" ] || [ -z "$(strip $(CHECK_PKGS))" ] || \
+	  E2E_HTTP_PORT=$${E2E_HTTP_PORT:-$$((40000 + $$(printf %s "$(CURDIR)" | cksum | cut -d' ' -f1) % 10000))} ./test/e2e/run.sh
 	@echo "check: OK"
 
 # A maintainer's replacement for `make gate` + `git push`: the gate (and the web
