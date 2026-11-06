@@ -26,9 +26,9 @@ import (
 // used registers nothing and makes the registration incomplete; so does a
 // provider the registries refuse (a name two plugins claim, a colliding cell).
 // While it is incomplete clientconfig drops nothing (PluginProvidersComplete):
-// an unreadable store never costs the user a provider. Calling it again replaces
-// the whole registered set (install, approve and update call it after a state
-// change).
+// an unreadable store never costs the user a provider. It runs once per
+// process, at start; calling it again replaces the whole registered set, which a
+// command that changes a plugin's state does to re-register after the change.
 func registerPluginProviders(errw io.Writer) {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {

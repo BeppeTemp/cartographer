@@ -321,7 +321,9 @@ base the hook cell is dropped with a note.
 (`clientconfig.LoadPlugins`), opens the tree of every approved digest from the store (no git, no network, no lock) and
 registers each provider with the registry and the destination cells: active when the plugin is enabled, inactive
 when it is disabled (so what it installed can be retired). A plugin that is pending approval registers nothing.
-Calling it again replaces the whole registered set.
+It runs at every process start, for every subcommand (`serve` and the MCP bridge included), reads each approved tree
+once, writes nothing and reports its problems on stderr. Registration happens once per process; calling it again
+replaces the whole registered set, which a command that changes a plugin's state does after the change.
 
 A plugin whose approved tree is missing, modified or invalid registers nothing, and a provider the registries refuse
 is not registered (two plugins declaring one name, a colliding cell, a spec this machine cannot resolve); the run

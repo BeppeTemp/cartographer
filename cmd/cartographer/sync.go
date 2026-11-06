@@ -218,9 +218,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// plugins: the trees fetched above are stored (never approved).
 	storeFetchedPlugins(opts.Streams, cfg, fetchedPlugins)
 	// A disabled plugin's providers are retired here, before the targets are
-	// used; --client leaves every other provider untouched.
+	// used; --client leaves every other provider untouched. Only a run that
+	// retired its last provider stops here: one with no provider continues.
 	if len(opts.Clients) == 0 {
-		if targets = retirePluginProviders(opts.Streams, dir, cfg, targets, opts.DryRun); len(targets) == 0 {
+		connected := len(targets)
+		if targets = retirePluginProviders(opts.Streams, dir, cfg, targets, opts.DryRun); connected > 0 && len(targets) == 0 {
 			return syncResult{}, nil
 		}
 	}
