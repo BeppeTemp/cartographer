@@ -1021,8 +1021,15 @@ func TargetDir() (string, error) {
 // directory or a prune: a removed client leaves configurations naming it, and the generic answer is to skip it, not to guess. It
 // is a rule about the registry, not about one provider, so the next removal is
 // covered by the same path. keep names providers that are registered later
-// and must survive this pass (nil today). No file is touched here.
+// and must survive this pass (nil today); while PluginProvidersComplete says
+// false nothing is dropped. No file is touched here.
 func (c *Config) dropUnsupportedProviders(keep map[string]bool) {
+	if !PluginProvidersComplete(c.Plugins) {
+		// A provider a plugin declares may be missing from the registry only
+		// because its store could not be read: dropping it would delete the
+		// agent and its lock section for good.
+		return
+	}
 	known := func(name string) bool {
 		if keep[name] {
 			return true
