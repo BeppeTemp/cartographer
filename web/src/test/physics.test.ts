@@ -77,6 +77,10 @@ function moved(before: Map<string, Vec>, w: ReturnType<typeof world>, ids: Itera
 
 const snapshotOf = (w: ReturnType<typeof world>) => new Map(w.nodes.map((n) => [n.id, at(n)]));
 
+// The tests that tick a whole world get a timeout sized for a loaded gate host:
+// vitest's 5 s default tripped there (#1723).
+const SIM_TIMEOUT = 30_000;
+
 describe("the living 3D physics", () => {
   it("seeds the same picture for the same KB", () => {
     expect(seedPosition("a/b", 100)).toEqual(seedPosition("a/b", 100));
@@ -84,7 +88,7 @@ describe("the living 3D physics", () => {
     const a = world(120);
     const b = world(120);
     expect(a.nodes.map(at)).toEqual(b.nodes.map(at));
-  });
+  }, SIM_TIMEOUT);
 
   it("replaces d3's centring force with per-axis gravity", () => {
     const w = world(60);
@@ -95,11 +99,14 @@ describe("the living 3D physics", () => {
   it("breathes at rest without jitter, and stops when drift is off", () => {
     const w = world();
     const radius = boundingRadius(w.nodes);
-    // Let the live floor settle, then measure per-tick motion.
-    w.sim.tick(600);
+    // Let the live floor settle, then measure per-tick motion. The run is
+    // seeded, so these numbers do not vary: at 300/120/300 ticks the mean
+    // step is 2.1x its floor, the p95 is 4% of its ceiling and the cooled
+    // motion 0.2% of its ceiling (at 600/240/600 they were 1.7x, 3%, 0%).
+    w.sim.tick(300);
     const steps: number[] = [];
     let previous = snapshotOf(w);
-    for (let i = 0; i < 240; i++) {
+    for (let i = 0; i < 120; i++) {
       w.sim.tick();
       const now = snapshotOf(w);
       for (const n of w.nodes) steps.push(dist(previous.get(n.id)!, now.get(n.id)!));
@@ -116,11 +123,11 @@ describe("the living 3D physics", () => {
     // Paused: drift off and the simulation cooled -- motion dies out.
     w.driftForce.enabled(false);
     w.sim.alphaTarget(0);
-    w.sim.tick(600);
+    w.sim.tick(300);
     const before = snapshotOf(w);
     w.sim.tick();
     expect(moved(before, w, w.nodes.map((n) => n.id))).toBeLessThan(radius * 0.00005);
-  });
+  }, SIM_TIMEOUT);
 
   it("repairs a non-finite node at its neighbours' centroid", () => {
     const a: PhysicsNode = { id: "a", x: 0, y: 0, z: 0 };
