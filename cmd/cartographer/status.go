@@ -65,7 +65,9 @@ func cmdStatus(args []string) int {
 	}
 	handleUnsupportedProviders(os.Stderr, dir, cfg, false)
 	if len(cfg.Agents) == 0 {
-		return renderStatus(output, emptySnapshot(), 0)
+		empty := emptySnapshot()
+		empty.Plugins = snapshotPlugins(cfg)
+		return renderStatus(output, empty, 0)
 	}
 	s := snapshotForConfig(dir, cfg, true)
 	s.UnresolvedPlaceholders = snapshotUnresolvedPlaceholders(dir)
@@ -86,6 +88,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	}
 	if s.State == "not_configured" {
 		fmt.Println("no agent connected (run `cartographer connect`)")
+		printPluginSection(os.Stdout, s)
 		return code
 	}
 	if s.Error != nil && s.Error.Code == startingStatusCode {
@@ -198,6 +201,8 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Println("  approval required: cartographer approve <kind> <name> --kb <kb>")
 		}
 	}
+
+	printPluginSection(os.Stdout, s)
 
 	// D262: informational, never a drift — the sync left the keys verbatim.
 	if n := len(s.UnresolvedPlaceholders); n > 0 {

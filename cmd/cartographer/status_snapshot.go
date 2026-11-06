@@ -29,7 +29,11 @@ type statusError struct {
 }
 
 type providerStatus struct {
-	Name      string `json:"name"`
+	Name string `json:"name"`
+	// Plugin and Base are set for a provider a plugin declares: the plugin and
+	// the built-in client it forks (additive, schema unchanged).
+	Plugin    string `json:"plugin,omitempty"`
+	Base      string `json:"base,omitempty"`
 	Installed bool   `json:"installed"`
 	// DetectedBy names the heuristic behind Installed (#305): a binary on PATH
 	// and a leftover config directory both set Installed, and only this field
@@ -222,6 +226,9 @@ type statusSnapshot struct {
 	Ready     *bool            `json:"ready,omitempty"`
 	KBs       []string         `json:"kbs,omitempty"`
 	Providers []providerStatus `json:"providers"`
+	// Plugins lists the configured plugins (additive, schema unchanged); absent
+	// when none is configured.
+	Plugins   []pluginStatus   `json:"plugins,omitempty"`
 	Artifacts int              `json:"artifact_count"`
 	State     string           `json:"state"`
 	Error     *statusError     `json:"error,omitempty"`
@@ -353,7 +360,7 @@ func outputFlag(args []string) (string, []string, error) {
 }
 
 func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool) statusSnapshot {
-	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate()}
+	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate(), Plugins: snapshotPlugins(cfg)}
 	if includeService && isLoopbackURL(cfg.ServerURL) {
 		if st, err := statusServiceFn(); err == nil {
 			s.Service = newServiceSnapshot(st)
@@ -748,7 +755,7 @@ func providerStatuses(cfg *clientconfig.Config) []providerStatus {
 		if connected[string(a.Provider)] {
 			state = "unknown"
 		}
-		out[i] = providerStatus{Name: string(a.Provider), Installed: a.Installed, DetectedBy: string(a.DetectedBy), Connected: connected[string(a.Provider)], State: state}
+		out[i] = providerStatus{Name: string(a.Provider), Installed: a.Installed, DetectedBy: string(a.DetectedBy), Connected: connected[string(a.Provider)], State: state, Plugin: a.Plugin, Base: string(a.Base)}
 		if cfg != nil && connected[string(a.Provider)] {
 			base, err := clientconfig.TargetDir()
 			if err == nil {

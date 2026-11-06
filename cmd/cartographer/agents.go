@@ -37,6 +37,7 @@ func cmdAgents(args []string) int {
 	cfg, _ := clientconfig.Load(dir)
 	s := emptySnapshot()
 	s.Providers = providerStatuses(cfg)
+	s.Plugins = snapshotPlugins(cfg)
 	if cfg != nil {
 		s.ServerURL = cfg.ServerURL
 		s.State = "configured"
@@ -60,6 +61,7 @@ func cmdAgents(args []string) int {
 		}
 	}
 	writeAgentsTable(os.Stdout, agents.Detect(), connected)
+	printPluginSection(os.Stdout, statusSnapshot{Plugins: s.Plugins, Providers: s.Providers})
 	return 0
 }
 

@@ -10,6 +10,8 @@ recently it was checked* and *what to watch*. The `cartographer-audit-clients` s
 (`.claude/skills/cartographer-audit-clients/SKILL.md`) reads it as its baseline and updates it
 as its output ([D292](decisions/D292-a-harness-ledger-and-a-procedure-not-version-polling.md)).
 
+The providers a plugin declares are a fork of one of the clients below (its `base`): they get the destinations the plugin's descriptor names, never an entry in the matrices or in this ledger, and their capability rows stay `absent` or `unverified` until probed (see [plugins](plugins.md)).
+
 `TestHarnessLedgerCoversEveryProvider` requires one `## <provider-id>` section per
 provider in `configurator.Providers()` and no section for an unknown one.
 
