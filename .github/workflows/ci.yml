@@ -273,19 +273,44 @@ jobs:
           git config --global user.name ci
           git config --global user.email ci@local
           git config --global init.defaultBranch master
-      # The browser binary is cached by Playwright version (D328); the OS
-      # packages it needs are not cacheable and are installed every run.
+      # The browser binary is cached by Playwright version (D328). The OS packages
+      # it needs are installed every run, but their .deb files are cached: the
+      # runner's Ubuntu mirror sometimes serves them at a few kB/s (20 MB took 10
+      # minutes), and apt installs a cached file without downloading it.
       - id: playwright
-        run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "image=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: pw-cache
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      # Keyed by runner image too: a new image restores the previous files, apt
+      # downloads only the packages that changed, and the new key saves them.
+      # Only the .deb files: apt makes its partial/ directory unreadable to the
+      # runner user, and the save would fail on it. Saved right after the install,
+      # not at the end of the job, so a red browser suite still keeps them.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: debs
+        with:
+          path: ~/.cache/apt-archives/*.deb
+          key: playwright-debs-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ steps.playwright.outputs.image }}
+          restore-keys: playwright-debs-${{ runner.os }}-${{ steps.playwright.outputs.version }}-
+      - name: Keep apt's downloads in the cached directory
+        run: |
+          mkdir -p "$HOME/.cache/apt-archives"
+          printf 'Dir::Cache::Archives "%s/";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt-get::APT::Keep-Downloaded-Packages "true";\n' \
+            "$HOME/.cache/apt-archives" | sudo tee /etc/apt/apt.conf.d/99-cached-archives >/dev/null
       - if: steps.pw-cache.outputs.cache-hit != 'true'
         run: cd web && npx playwright install --with-deps chromium
       - if: steps.pw-cache.outputs.cache-hit == 'true'
         run: cd web && npx playwright install-deps chromium
+      - if: steps.debs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/apt-archives/*.deb
+          key: ${{ steps.debs.outputs.cache-primary-key }}
       - run: make e2e-web NPM_CI= E2E_WEB_ARGS="${{ matrix.grep }}"
 
   # Collects the web legs for `main-status`; not run on a PR (`gate` reads the legs).

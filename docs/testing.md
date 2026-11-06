@@ -77,7 +77,8 @@ follow-up. The `merge_group` triggers stay, inert, for a repository that moves t
 after every push to `main` (and on `merge_group`) and on a PR that touches the frontend, `test/lib/`, the build files, or a
 non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen}`
 and every `_test.go` cannot change what the browser sees, so they do not trigger it (D672, D255, D994); the
-Playwright browser is cached by version. The `demo-edge` job runs the demo
+Playwright browser is cached by version, and the `.deb` files of the OS packages it installs by version and runner
+image (the runner's mirror sometimes serves them at a few kB/s). The `demo-edge` job runs the demo
 Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. On a PR a `changes` job decides `web` and `forge` with
 `scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
 which also compares the excluded packages with `go list -deps`), failing open; where it is
