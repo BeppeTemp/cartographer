@@ -2113,3 +2113,28 @@ func TestUninstall_Linux_FailedDisableOfAnEnabledUnitIsAnError(t *testing.T) {
 		t.Errorf("Uninstall of a unit systemd does not know = %v, want success", err)
 	}
 }
+
+// The sync unit carries a PATH (#1715): the binary's directory first, then the
+// installing shell's absolute directories, so a timer run finds the provider
+// binaries sync probes. A directory the unit syntax cannot hold (space, quote,
+// backslash, $) is left out.
+func TestSyncUnitsCarryPATH(t *testing.T) {
+	if os.PathListSeparator != ':' {
+		t.Skip("unix PATH list")
+	}
+	t.Setenv("PATH", "/home/u/.opencode/bin:rel/bin:/with space/bin:/with\\back/bin:/with$dollar/bin:/home/u/.local/bin:/usr/bin")
+	const bin = "/home/u/.local/bin/cartographer"
+	want := "/home/u/.local/bin:/home/u/.opencode/bin:/usr/bin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/bin:/usr/sbin:/sbin"
+
+	unit := RenderSyncSystemdService(bin)
+	if !strings.Contains(unit, "Environment=PATH="+want+"\nExecStart=") {
+		t.Errorf("sync unit lacks the PATH line:\n%s", unit)
+	}
+	plist := RenderSyncLaunchdPlist(bin, "/tmp/sync.log", 30*time.Minute)
+	if !strings.Contains(plist, "<key>EnvironmentVariables</key>\n\t<dict>\n\t\t<key>PATH</key>\n\t\t<string>"+want+"</string>") {
+		t.Errorf("sync plist lacks EnvironmentVariables/PATH:\n%s", plist)
+	}
+	if got := intervalFromPlist(plist); got != 30*time.Minute {
+		t.Errorf("intervalFromPlist = %v, want 30m", got)
+	}
+}

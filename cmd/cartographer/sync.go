@@ -329,7 +329,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		// its entries untouched.
 		claudeDirs, claudeDirWarnings := claudeConfigDirs(dir, cfg)
 		beforeSnap := snapshotMCPConfigFiles(targets, dir, claudeDirs)
-		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
+		noteOnDiskBridgeCommand(targets, entriesByProvider, dir, claudeDirs)
+		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, providersToClear(targets, entriesByProvider), dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
 		// A symlinked config file or directory is refused for its provider
 		// only (D148): a warning, and the other providers proceed.
 		var refusalNotes []string

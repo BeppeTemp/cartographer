@@ -39,7 +39,9 @@ func cronSchedule(interval time.Duration) string {
 }
 
 func renderCronSyncBlock(bin, stateDir string, interval time.Duration) string {
-	cmd := fmt.Sprintf("%s sync --log-file %s", shQuote(bin), shQuote(filepath.Join(stateDir, "sync.log")))
+	// Cron runs a job with its own default PATH (/usr/bin:/bin): the entry
+	// carries the PATH of the units (syncServicePATH) as a command prefix.
+	cmd := fmt.Sprintf("PATH=%s %s sync --log-file %s", shQuote(syncServicePATH(bin)), shQuote(bin), shQuote(filepath.Join(stateDir, "sync.log")))
 	// No @reboot line: a missed run is made up by the next slot.
 	return cronSyncBegin + "\n# interval=" + interval.String() + "\n" + cronSchedule(interval) + " " + cmd + "\n" + cronSyncEnd + "\n"
 }

@@ -120,6 +120,28 @@ func isClientOwned(mf ManagedFile) bool {
 // enabled=false removes a previously installed hook through PruneManaged, the path `disconnect` uses;
 // idempotent when absent. dryRun performs no I/O.
 func EnsureWriteFindingsHook(baseDir string, provider configurator.Provider, lock Lock, enabled, dryRun bool) (Lock, error) {
+	lock, _, err := EnsureWriteFindingsHookNote(baseDir, provider, lock, enabled, dryRun)
+	return lock, err
+}
+
+// EnsureWriteFindingsHookNote is EnsureWriteFindingsHook plus a warning for
+// the one case that is neither installed nor removed: an OpenCode whose version
+// cannot be read (`opencode` not on PATH, as in a timer's short PATH) keeps an
+// already installed plugin, because "unknown" is not "older than 2" and only a
+// version actually read as < 2 removes it (D362).
+func EnsureWriteFindingsHookNote(baseDir string, provider configurator.Provider, lock Lock, enabled, dryRun bool) (Lock, string, error) {
+	if enabled && provider == configurator.ProviderOpenCode && openCodeMajor() == 0 {
+		for _, mf := range lock.Managed {
+			if mf.Kind == "hook" && mf.Name == WriteFindingsHookName {
+				return lock, "opencode: `opencode` not on PATH: kept the installed write-findings plugin; run `cartographer sync` once it is on PATH", nil
+			}
+		}
+	}
+	l, err := ensureWriteFindingsHook(baseDir, provider, lock, enabled, dryRun)
+	return l, "", err
+}
+
+func ensureWriteFindingsHook(baseDir string, provider configurator.Provider, lock Lock, enabled, dryRun bool) (Lock, error) {
 	// An unsupported client is pruned like an opt-out: OpenCode downgraded to
 	// 1.x (or unreadable) must not keep a 2.x-only plugin (D362). Absent entry:
 	// a no-op for every other provider.

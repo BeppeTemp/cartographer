@@ -1061,7 +1061,8 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	// A symlinked config file or directory is refused for its provider only
 	// (D148): the refusal is a warning, the other providers proceed.
 	var refusalNotes, retainedKBs []string
-	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); provisioning.IsRefusal(err) {
+	noteOnDiskBridgeCommand(opts.Providers, entriesByProvider, opts.Dir, claudeDirs)
+	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, providersToClear(opts.Providers, entriesByProvider), opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); provisioning.IsRefusal(err) {
 		refusalNotes = refusalWarnings(err)
 		// Their stale entries stay, so these KBs stay in known_kbs (as in sync).
 		retainedKBs = refusedEntryKBs(err, opts.Name, existing.KnownKBs)

@@ -404,7 +404,7 @@ project hook.UserPromptSubmit absent
     message to `result.output` on exit 2 and never throws; 1.x was not probed and
     gets nothing. The inner call's output joins the write response and the
     server's sync-state block with a newline; the subcommand reads both values.
-  - `opencode --version` prints `opencode v2.0.25` (seen on both streams); the major parser reads it (D719). The no-`PATH` sync run and `session.created` delivery to `ctx.event.subscribe` are not yet probed.
+  - `opencode --version` prints `opencode v2.0.25` (seen on both streams); the major parser reads it (D719). A sync run without `opencode` on `PATH` (a timer's) reads the version as unknown: it keeps the installed write-findings plugin with a warning and removes it only on a version read as < 2 (#1715). `session.created` delivery to `ctx.event.subscribe` is not yet probed.
   - 2.x `opencode.json` is translated on load (`mcp` → `mcp.servers`,
     `permission` map → `permissions` list), so the 1.x shape still works.
 - **Watch items**: the project skill cell (`.opencode/skills`) loads on 2.2.5

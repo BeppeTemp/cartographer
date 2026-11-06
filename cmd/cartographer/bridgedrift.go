@@ -7,8 +7,10 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -126,6 +128,98 @@ func stringList(v any) []string {
 			return nil
 		}
 		out = append(out, s)
+	}
+	return out
+}
+
+// onDiskBridgeCommand is the command of a bridge entry found in a provider's
+// configuration before sync removes it: the fallback of bridgeCommand when
+// `cartographer` is not on PATH (a systemd or launchd timer's short PATH).
+var onDiskBridgeCommand string
+
+// onDiskBridgeMissing is the first command the entries on disk name that is no
+// longer a usable file: the warning of an entry that is kept says it points at
+// nothing.
+var onDiskBridgeMissing string
+
+// noteOnDiskBridgeCommand records the command of the first bridge entry already
+// written for the targeted providers. It runs before removeMCPEntries, which
+// deletes the entries it is read from.
+func noteOnDiskBridgeCommand(targets []string, entriesByProvider map[string][]mcpEntry, dir string, claudeDirs []string) {
+	onDiskBridgeCommand, onDiskBridgeMissing = "", ""
+	for _, p := range targets {
+		d, ok := configurator.Lookup(configurator.Provider(p))
+		if !ok || d.MCPConfigPath == "" {
+			continue
+		}
+		for _, e := range entriesByProvider[p] {
+			if !e.Bridge {
+				continue
+			}
+			for _, base := range providerBaseDirs(p, dir, claudeDirs) {
+				fp := filepath.Join(base, d.ConfigPath())
+				if safewrite.CheckPath(base, fp) != nil {
+					continue
+				}
+				data, err := os.ReadFile(fp)
+				if err != nil {
+					continue
+				}
+				if have, ok := bridgeCommandOnDisk(d, data, e.Name, p); ok {
+					if usableBridgeFile(have) {
+						onDiskBridgeCommand = have
+						return
+					}
+					if onDiskBridgeMissing == "" {
+						onDiskBridgeMissing = have
+					}
+				}
+			}
+		}
+	}
+}
+
+// usableOnDiskBridgeCommand is the recorded command when it is still usable.
+func usableOnDiskBridgeCommand() string {
+	if usableBridgeFile(onDiskBridgeCommand) {
+		return onDiskBridgeCommand
+	}
+	return ""
+}
+
+// usableBridgeFile reports whether command is an existing executable regular
+// file that is not under a versioned Cellar directory (D737: the next Homebrew
+// upgrade deletes it).
+func usableBridgeFile(command string) bool {
+	if command == "" || !filepath.IsAbs(command) {
+		return false
+	}
+	if slices.Contains(strings.Split(filepath.ToSlash(command), "/"), "Cellar") {
+		return false
+	}
+	info, err := os.Stat(command)
+	return err == nil && info.Mode().IsRegular() && (!execbit.Supported || execbit.IsExecutable(info.Mode()))
+}
+
+// providersToClear drops from targets the providers whose bridge entry cannot
+// be written because the bridge command is unresolvable and there is no HTTP
+// entry to fall back to (emitMCPEntry): removing their entries first would
+// leave the client without the server, so they are left exactly as they are.
+func providersToClear(targets []string, entriesByProvider map[string][]mcpEntry) []string {
+	if _, err := bridgeCommand(); err == nil {
+		return targets
+	}
+	out := make([]string, 0, len(targets))
+	for _, p := range targets {
+		keep := false
+		for _, e := range entriesByProvider[p] {
+			if e.Bridge && e.URL == "" {
+				keep = true
+			}
+		}
+		if !keep {
+			out = append(out, p)
+		}
 	}
 	return out
 }

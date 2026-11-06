@@ -415,11 +415,9 @@ func TestEnsureWriteFindingsHook_OpenCode1_NothingAndPrunes(t *testing.T) {
 	}
 	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+provisioning.WriteFindingsHookName+".js")
 
-	for _, v := range []string{"1.18.34", ""} {
+	for _, v := range []string{"1.18.34"} {
 		t.Run("version "+v, func(t *testing.T) {
-			if v != "" {
-				defer provisioning.SetOpenCodeVersionForTest(v)()
-			}
+			defer provisioning.SetOpenCodeVersionForTest(v)()
 			if provisioning.SupportsWriteFindingsHook(configurator.ProviderOpenCode) {
 				t.Fatal("supported on an unprobed or unreadable version")
 			}
@@ -438,5 +436,45 @@ func TestEnsureWriteFindingsHook_OpenCode1_NothingAndPrunes(t *testing.T) {
 			lock, _ = provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderOpenCode, provisioning.Lock{}, true, false)
 			restore()
 		})
+	}
+}
+
+// An OpenCode whose version cannot be read (not on PATH, #1715) is not an
+// OpenCode older than 2: the installed plugin stays, with a warning, and none
+// is installed where there is none.
+func TestEnsureWriteFindingsHook_OpenCodeUnreadableKeepsThePlugin(t *testing.T) {
+	baseDir := t.TempDir()
+	restore := provisioning.SetOpenCodeVersionForTest("2.0.25")
+	lock, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderOpenCode, provisioning.Lock{}, true, false)
+	restore()
+	if err != nil || len(lock.Managed) == 0 {
+		t.Fatalf("setup: %v %+v", err, lock)
+	}
+	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+provisioning.WriteFindingsHookName+".js")
+
+	got, note, err := provisioning.EnsureWriteFindingsHookNote(baseDir, configurator.ProviderOpenCode, lock, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Managed) != len(lock.Managed) || !strings.Contains(note, "kept") {
+		t.Errorf("managed %d (was %d), note %q; want the plugin kept with a warning", len(got.Managed), len(lock.Managed), note)
+	}
+	if _, err := os.Stat(plugin); err != nil {
+		t.Errorf("plugin gone: %v", err)
+	}
+
+	empty, note, err := provisioning.EnsureWriteFindingsHookNote(t.TempDir(), configurator.ProviderOpenCode, provisioning.Lock{}, true, false)
+	if err != nil || len(empty.Managed) != 0 || note != "" {
+		t.Errorf("nothing installed expected: %v %+v %q", err, empty, note)
+	}
+
+	// A version actually read as 1.x still removes it.
+	defer provisioning.SetOpenCodeVersionForTest("1.18.34")()
+	got, note, err = provisioning.EnsureWriteFindingsHookNote(baseDir, configurator.ProviderOpenCode, lock, true, false)
+	if err != nil || len(got.Managed) != 0 || note != "" {
+		t.Errorf("1.x: %v %+v %q", err, got, note)
+	}
+	if _, err := os.Stat(plugin); !os.IsNotExist(err) {
+		t.Errorf("plugin not removed on 1.x: %v", err)
 	}
 }

@@ -80,7 +80,13 @@ evidence of coverage, and a client config that cannot be read never triggers an 
 while a client with no hook at all is always named and `doctor`'s `trigger` check still reports the
 limit on every run ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)). The timer runs plain
 `sync`: `sync` has no trust flag (D906; the one explicit trust write is `workspace bind codex … --trust`, [D1074](decisions/D1074-workspace-bind-codex-trust.md), never run by a timer), and an MCP descriptor, a hook or an executable file still needs the point approval an
-unattended job cannot give ([D1141](decisions/D1141-kb-hooks-need-approval.md)). Logs: `~/Library/Logs/cartographer/sync.log`
+unattended job cannot give ([D1141](decisions/D1141-kb-hooks-need-approval.md)). The launchd plist, the systemd service and the cron entry (a `PATH=…` prefix on the line) carry a `PATH` (the binary's directory, then the
+absolute directories of the `PATH` of the shell that ran `install`, then the package-manager ones): the
+managers' (and cron's) default lacks `~/.local/bin` and the provider binaries sync probes (`opencode`), and
+`install` again rewrites an existing unit (#1715). A sync that still cannot find `cartographer` never
+removes an MCP entry: it reuses the command of the bridge entry already on disk (an existing executable
+outside a versioned Homebrew Cellar, D737), else leaves that provider's entries untouched and warns (naming the kept command when it no longer exists); an
+OpenCode whose version cannot be read keeps an installed write-findings plugin, with a warning. Logs: `~/Library/Logs/cartographer/sync.log`
 on macOS, the journal on Linux, `%LOCALAPPDATA%\cartographer\Logs\sync.log` on Windows ([configurator](configurator.md) §cartographer service sync-timer).
 
 Beyond the revision comparison, every `sync` also verifies the managed files on disk and restores
