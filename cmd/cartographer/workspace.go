@@ -336,7 +336,7 @@ func cmdWorkspaceBind(args []string) int {
 		return 2
 	}
 	if cfg.Clients[provider].Access != "" {
-		fmt.Fprintf(os.Stderr, "Error: %s has the read-only profile (clients.%s.access), which the workspace bridge does not carry: remove that key from .cartographer.yaml to bind workspaces, or keep the profile and skip the binding.\n", provider, provider)
+		fmt.Fprintf(os.Stderr, "Error: %s has the read-only profile (providers.%s.access with providers.%s.tools), which the workspace bridge does not carry: remove both keys from .cartographer.yaml to bind workspaces, or keep the profile and skip the binding.\n", provider, provider, provider)
 		return 2
 	}
 	if len(kbs) > 0 {
@@ -619,7 +619,7 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 		// by any binding, so it is not made read-only either.
 		if entry == "bridge" && scope.Unbound && scope.Err == nil {
 			if scope.ReadOnly {
-				fmt.Fprintf(&sb, "  access: read-only (%s)\n  no write tool and no KB artifact here; bind the folder to write, or set `unbound_access` to write\n", scope.AccessOrigin)
+				fmt.Fprintf(&sb, "  access: read-only (%s)\n  no write tool and no KB artifact here; bind the folder to write, or set `defaults.unbound_access` to write\n", scope.AccessOrigin)
 			} else {
 				fmt.Fprintf(&sb, "  access: read-write (%s)\n  no KB artifact here; bind the folder for the KB's skills and agents\n", scope.AccessOrigin)
 			}

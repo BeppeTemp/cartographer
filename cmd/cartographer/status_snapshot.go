@@ -71,7 +71,7 @@ type providerStatus struct {
 	// list of names means two different things and the reader cannot tell.
 	BoundKBs      []string `json:"bound_kbs,omitempty"`
 	BindingOrigin string   `json:"binding_origin,omitempty"`
-	// ArtifactsOff names the bound KBs with `kb_options.<kb>.artifacts: false`
+	// ArtifactsOff names the bound KBs with `knowledge_bases.<kb>.artifacts: false`
 	// (#1408): their missing skills are a setting, not a failure.
 	ArtifactsOff []string `json:"artifacts_off,omitempty"`
 	// KBCounts breaks the materialized artifacts down by source KB, read from
@@ -320,7 +320,7 @@ func classifyManifestError(endpoint string, err error) statusError {
 	asRemote := errors.As(err, &remote)
 	switch {
 	case errors.Is(err, provisioning.ErrSignature):
-		return statusError{Code: "signature_failed", Message: "the server answered but its manifest does not verify against the pinned signing keys: fix or remove the pin with `cartographer connect --pin-key / --unpin-key <kb>` (signing_keys in .cartographer.yaml)", Cause: err.Error()}
+		return statusError{Code: "signature_failed", Message: "the server answered but its manifest does not verify against the pinned signing keys: fix or remove the pin with `cartographer connect --pin-key / --unpin-key <kb>` (knowledge_bases.<kb>.signing_keys in .cartographer.yaml)", Cause: err.Error()}
 	case errors.Is(err, client.ErrUnauthorized) || (asRemote && (remote.Code == client.CodeUnauthorized || remote.HTTPStatus == http.StatusForbidden)):
 		return statusError{Code: "unauthorized", Message: "the server answered but rejected the request for the manifest: check the bearer token and its scopes", Cause: err.Error()}
 	}

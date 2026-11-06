@@ -91,7 +91,7 @@ decide whether one is materialized, and they are not the same:
 - **Trust policy and approval**, which the `signed` manifest field feeds into (D906,
   D1141): bundled artifacts are trusted by construction. The client has no trust
   setting: a KB artifact is installed after the pull's own checks, an unsigned one is
-  reported as `trusted` rather than `verified`, and a KB pinned with `signing_keys`
+  reported as `trusted` rather than `verified`, and a KB pinned with `knowledge_bases.<kb>.signing_keys`
   accepts only signed artifacts. The exceptions run on the machine and wait for a local
   approval bound to their content hash (`cartographer approve`), signed or not (a
   signature proves the origin, not consent): an MCP descriptor, a KB hook, any KB

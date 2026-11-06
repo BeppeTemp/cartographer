@@ -55,8 +55,9 @@ type Scope struct {
 	// binding, whatever the access mode. False for a binding, an error and the
 	// roots scope.
 	Unbound bool
-	// AccessOrigin says where an unbound scope's mode comes from: "default" or
-	// "unbound_access". Empty for a scope that is not unbound.
+	// AccessOrigin says where an unbound scope's mode comes from: "default"
+	// (nothing sets it), "defaults.unbound_access" or
+	// "providers.<provider>.unbound_access". Empty for a scope that is not unbound.
 	AccessOrigin string
 	// Err is a binding that could not be honoured (bound directory gone, git
 	// remote changed). The scope is then empty: failing open here would hand a

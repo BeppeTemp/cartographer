@@ -547,9 +547,9 @@ func orUnknown(v string) string {
 var errServerTooOld = errors.New("the Cartographer server must be upgraded to serve read-only sessions " +
 	"(this folder is bound to no KB, so the session must be read-only, and this server did not confirm it)")
 
-// errServerTooOldKBs is the same failure for kb_options access: read (#1409): an
+// errServerTooOldKBs is the same failure for knowledge_bases access: read (#1409): an
 // older server ignores readonly= and would serve those KBs read-write.
-var errServerTooOldKBs = errors.New("this server cannot honour kb_options access: read; upgrade it " +
+var errServerTooOldKBs = errors.New("this server cannot honour knowledge_bases access: read; upgrade it " +
 	"(until then the session serves no KB rather than writing to one set read-only)")
 
 func serverTooOldScope(s Scope) Scope {

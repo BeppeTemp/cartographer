@@ -3,6 +3,7 @@ package settingschema
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -19,10 +20,20 @@ import (
 // for at least one minor, so a file on a read-only mount keeps working.
 //
 // Paths are dotted mapping keys; a "[]" segment (a list of mappings) is not
-// supported, a move across list entries has no single destination.
+// supported, a move across list entries has no single destination. A "*"
+// segment stands for every key the document holds there, in From and the same
+// key in To (scopes.* to providers.*.scope moves each provider's scope): the
+// key is addressed literally, whatever it holds: a dot or a "*" in a name (a KB
+// is named after its folder) moves like any other, and Except names keys that
+// another move owns. A key containing "[]" is left where it is.
 type Moved struct {
-	From string
-	To   string
+	From   string
+	To     string
+	Except []string
+	// from and to are the segments of a move that expandWildcards made out of a
+	// "*": a key with a dot in it cannot be told from two segments in From and To,
+	// which are then only for display.
+	from, to []string
 	// Plan is the decision that moved it.
 	Plan int
 	// Description is the description From had in its last release, and Previous
@@ -45,6 +56,67 @@ type movedPair struct {
 	conflicts  bool       // To exists with a different value
 }
 
+func (m Moved) fromSegs() []string {
+	if m.from != nil {
+		return m.from
+	}
+	return strings.Split(m.From, ".")
+}
+
+func (m Moved) toSegs() []string {
+	if m.to != nil {
+		return m.to
+	}
+	return strings.Split(m.To, ".")
+}
+
+// expandWildcards replaces each Moved with a "*" segment by one Moved per key
+// the document holds there.
+func (r Registry) expandWildcards(root *yaml.Node) []Moved {
+	var out []Moved
+	for _, m := range r.Moved {
+		from := m.fromSegs()
+		star := slices.Index(from, "*")
+		if star < 0 || m.from != nil { // m.from: already expanded, its "*" is a key's name
+			out = append(out, m)
+			continue
+		}
+		cur := root
+		for _, seg := range from[:star] {
+			cur, _ = deref(cur)
+			if cur == nil || cur.Kind != yaml.MappingNode || pairIdx(cur, seg) < 0 {
+				cur = nil
+				break
+			}
+			cur = cur.Content[pairIdx(cur, seg)+1]
+		}
+		if cur, _ = deref(cur); cur == nil || cur.Kind != yaml.MappingNode {
+			continue
+		}
+		for i := 0; i+1 < len(cur.Content); i += 2 {
+			k := cur.Content[i]
+			if k.Kind != yaml.ScalarNode || k.Value == "<<" || strings.Contains(k.Value, "[]") || slices.Contains(m.Except, k.Value) {
+				continue
+			}
+			c := m
+			f := slices.Clone(from)
+			f[star] = k.Value
+			c.From = strings.Join(f, ".")
+			c.from = f
+			to := strings.Split(m.To, ".")
+			for j, seg := range to {
+				if seg == "*" {
+					to[j] = k.Value
+				}
+			}
+			c.To = strings.Join(to, ".")
+			c.to = to
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // findMoved locates every Moved of r that the document holds. A pair reached
 // through an alias or a merge key is shared with other places and is left alone,
 // as Realign does for a removed key.
@@ -54,12 +126,12 @@ func (r Registry) findMoved(doc *yaml.Node) ([]movedPair, error) {
 		return nil, nil
 	}
 	var out []movedPair
-	for _, m := range r.Moved {
+	for _, m := range r.expandWildcards(root) {
 		if strings.Contains(m.From, "[]") || strings.Contains(m.To, "[]") {
 			return nil, fmt.Errorf("moved %s -> %s: a list segment cannot be moved", m.From, m.To)
 		}
 		var found *movedPair
-		walkPath(root, strings.Split(m.From, "."), "", false, map[walkStep]bool{}, func(parent *yaml.Node, idx int, concrete string, shared bool) {
+		walkPath(root, m.fromSegs(), "", false, map[walkStep]bool{}, func(parent *yaml.Node, idx int, concrete string, shared bool) {
 			if shared || found != nil {
 				return
 			}
@@ -69,7 +141,7 @@ func (r Registry) findMoved(doc *yaml.Node) ([]movedPair, error) {
 		if found == nil {
 			continue
 		}
-		segs := strings.Split(m.To, ".")
+		segs := m.toSegs()
 		cur := root
 		shared := false // the destination is reached through an alias: other places use it too
 		for i, seg := range segs {
@@ -160,13 +232,14 @@ func (s Schema) relocate(doc *yaml.Node, reg Registry) (changes []Change, touche
 	}
 	// One move at a time, each found again: an earlier one may have created the
 	// mapping a later one lands in.
-	for _, m := range reg.Moved {
+	for _, m := range reg.expandWildcards(docMapping(doc)) {
 		one, err := Registry{Moved: []Moved{m}}.findMoved(doc)
 		if err != nil {
 			return nil, nil, err
 		}
 		for _, p := range one {
-			idx := pairIdx(p.parent, p.m.From[strings.LastIndex(p.m.From, ".")+1:])
+			fs := p.m.fromSegs()
+			idx := pairIdx(p.parent, fs[len(fs)-1])
 			if idx < 0 {
 				continue
 			}
@@ -176,10 +249,10 @@ func (s Schema) relocate(doc *yaml.Node, reg Registry) (changes []Change, touche
 				// Nothing to carry: an empty value is dropped, not planted at the
 				// new path. A note a person wrote above it moves on (removePair).
 				s.removePair(doc, p.parent, idx)
-				changes = append(changes, Change{Kind: ChangeMoved, Path: m.From, Detail: "dropped, it was empty"})
+				changes = append(changes, Change{Kind: ChangeMoved, Path: p.m.From, Detail: "dropped, it was empty"})
 			case p.to != nil:
 				s.removePair(doc, p.parent, idx)
-				changes = append(changes, Change{Kind: ChangeMoved, Path: m.From, Detail: "dropped, " + m.To + " already holds the same value"})
+				changes = append(changes, Change{Kind: ChangeMoved, Path: m.From, Detail: "dropped, " + p.m.To + " already holds the same value"})
 			default:
 				key, val := p.parent.Content[idx], p.parent.Content[idx+1]
 				p.parent.Content = append(p.parent.Content[:idx], p.parent.Content[idx+2:]...)
@@ -196,7 +269,7 @@ func (s Schema) relocate(doc *yaml.Node, reg Registry) (changes []Change, touche
 					attach = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.rest[i]}
 				}
 				p.toParent.Content = append(p.toParent.Content, attach, attachVal)
-				changes = append(changes, Change{Kind: ChangeMoved, Path: m.From, Detail: "now " + m.To})
+				changes = append(changes, Change{Kind: ChangeMoved, Path: p.m.From, Detail: "now " + p.m.To})
 			}
 		}
 	}

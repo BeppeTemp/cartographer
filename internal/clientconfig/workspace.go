@@ -141,17 +141,21 @@ const UnboundDefault = "default"
 
 // UnboundAccess reports the access mode of a folder under no workspace
 // binding for provider (#1356): mode is "read" or "write", origin is "default"
-// when nothing sets it and "unbound_access" otherwise (an explicit read
-// included). A <provider> entry beats "default", which beats the built-in
-// read; any value other than "write" is read, so an invalid one never opens
+// when nothing sets it, "providers.<provider>.unbound_access" or
+// "defaults.unbound_access" otherwise (an explicit read included). A
+// <provider> entry beats "default", which beats the built-in read; any value other than "write" is read, so an invalid one never opens
 // write access.
 func (c *Config) UnboundAccess(provider string) (mode, origin string) {
 	for _, k := range []string{provider, UnboundDefault} {
 		if v, ok := c.UnboundModes[k]; ok {
-			if v == "write" {
-				return "write", "unbound_access"
+			origin = "providers." + provider + ".unbound_access"
+			if k == UnboundDefault {
+				origin = "defaults.unbound_access"
 			}
-			return "read", "unbound_access"
+			if v == "write" {
+				return "write", origin
+			}
+			return "read", origin
 		}
 	}
 	return "read", "default"

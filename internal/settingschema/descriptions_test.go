@@ -95,7 +95,7 @@ func TestDescriptionsAreRecordedWhenTheyChange(t *testing.T) {
 				}
 			}
 			for _, e := range r.retired.Moved {
-				if e.From == path && (e.Description == old || slices.Contains(e.Previous, old)) {
+				if strings.TrimSuffix(e.From, ".*") == path && (e.Description == old || slices.Contains(e.Previous, old)) {
 					recorded = true
 				}
 			}

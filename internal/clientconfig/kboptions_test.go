@@ -57,7 +57,7 @@ func TestKBOptionsRoundTripAndHandEditSurvives(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := readFile(t, clientconfig.Path(dir))
-	for _, want := range []string{"# mine", "kb_options:", "artifacts: false # no skills"} {
+	for _, want := range []string{"# mine", "knowledge_bases:", "artifacts: false # no skills"} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("lost %q:\n%s", want, raw)
 		}
@@ -140,7 +140,7 @@ func TestKBAccessRoundTripAndLoadErrors(t *testing.T) {
 	}
 	writeConfigFile(t, dir, "server_url: http://127.0.0.1:39273/mcp\nkb_options:\n  work-kb:\n    access: readonly\n")
 	_, err = clientconfig.Load(dir)
-	if err == nil || !strings.Contains(err.Error(), ".cartographer.yaml") || !strings.Contains(err.Error(), "kb_options.work-kb.access") ||
+	if err == nil || !strings.Contains(err.Error(), ".cartographer.yaml") || !strings.Contains(err.Error(), "knowledge_bases.work-kb.access") ||
 		!strings.Contains(err.Error(), `"read"`) || !strings.Contains(err.Error(), `"write"`) {
 		t.Errorf("invalid value: %v", err)
 	}

@@ -121,7 +121,7 @@ describe("Health with a clean Map chosen while another Map has issues", () => {
 });
 
 const baseSettings = { version: "v1", server: [], kbs: [{ name: "kb-a", entries: [], yaml: "" }, { name: "kb-b", entries: [], yaml: "" }] };
-const clientWith = (clients: unknown) => ({
+const clientWith = (clients: unknown, key = "providers") => ({
   ...baseSettings,
   clients: [
     {
@@ -131,19 +131,19 @@ const clientWith = (clients: unknown) => ({
       received_at: "2026-10-16T10:00:00Z",
       yaml: "",
       providers: [],
-      entries: [{ key: "clients", value: clients, origin: "file", description: "Bindings.", default: "{}" }],
+      entries: [{ key, value: clients, origin: "file", description: "Bindings.", default: "{}" }],
     },
   ],
 });
 
 describe("Settings", () => {
-  it("lists an agent under a KB unless its kbs key is present and excludes it", async () => {
+  it.each([["providers"], ["clients"]])("lists an agent under a KB unless its kbs key is present and excludes it (%s)", async (key) => {
     stubApi({
-      "/settings": () => json(clientWith({ kiro: { kbs: [] }, claude: {}, codex: { kbs: ["kb-b"] } })),
+      "/settings": () => json(clientWith({ kiro: { kbs: [] }, claude: {}, codex: { kbs: ["kb-b"] } }, key)),
     });
     render(<Settings reloadKey="a" activeKB="kb-a" onRetry={() => {}} onFailure={() => false} />);
     const kbA = await screen.findByRole("list", { name: "Client settings of kb-a" });
-    const value = within(kbA).getByLabelText("Value of clients.<agent>.kbs");
+    const value = within(kbA).getByLabelText("Value of providers.<agent>.kbs");
     expect(value).toHaveTextContent("claude");
     expect(value).not.toHaveTextContent("kiro");
     expect(value).not.toHaveTextContent("codex");

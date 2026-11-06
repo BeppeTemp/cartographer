@@ -268,7 +268,7 @@ func (cs candidateSet) forProvider(cfg *clientconfig.Config, provider string) []
 }
 
 // dropKBArtifacts removes the artifacts of every KB that has
-// `kb_options.<kb>.artifacts: false` (#1408), except its instructions artifact:
+// `knowledge_bases.<kb>.artifacts: false` (#1408), except its instructions artifact:
 // the KB stays connected and its routing sentence must reach the block. It runs
 // BEFORE the strict merge, so a name collision with an opted-out KB's skill no
 // longer stops the sync; bundle artifacts belong to no KB and stay. The pruning

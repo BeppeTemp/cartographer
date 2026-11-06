@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/settingschema"
@@ -51,6 +52,38 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	movedTo("search_roots", "placeholders.search_roots"),
 	movedTo("paths", "placeholders.paths"),
 	movedTo("ignored_paths", "placeholders.ignored"),
+	{From: "clients", To: "providers",
+		Description: "Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry, or an entry without kbs, receives every known KB. clients.<provider>.access: read-min connects the provider read-only with the minimal tool list (written by `connect --access read-min`; remove the key to clear it). clients.claude.config_dirs lists extra Claude Code config directories (CLAUDE_CONFIG_DIR) whose .claude.json also receives the MCP entry. Edit it with `cartographer client`.",
+		Previous: []string{
+			"Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry receives every known KB. Edit it with `cartographer client`.",
+			"Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry, or an entry without kbs, receives every known KB. clients.claude.config_dirs lists extra Claude Code config directories (CLAUDE_CONFIG_DIR) whose .claude.json also receives the MCP entry. Edit it with `cartographer client`.",
+		}},
+	{From: "kb_options", To: "knowledge_bases",
+		Description: "Per-KB settings, applied to every provider on this machine. artifacts: false stops sync from provisioning that KB's skills, subagents, hooks and MCP descriptors: the ones already installed are removed at the next sync, and its skills line and subagent sentence leave the instruction block. The KB stays connected: its MCP tools and routing sentence remain. It wins over every scope and binding (scopes, clients.<provider>.kbs, workspaces, derived bindings) and never adds a KB to any of them. Absent, or artifacts: true, is the default: artifacts are synced. It has no effect on a server that does not name its KBs. access: read connects that KB read-only on every provider that receives it, while the provider's other KBs stay writable; write, or absent, is the default. It is a scope filter, not a security boundary (a client that edits its own URL drops it): hard isolation is a server token role (kb:<name>:r). It needs a server with a routed endpoint. Edit it with `cartographer client kb`.",
+		Previous: []string{
+			"Per-KB settings, applied to every provider on this machine. artifacts: false stops sync from provisioning that KB's skills, subagents, hooks and MCP descriptors: the ones already installed are removed at the next sync, and its skills line and subagent sentence leave the instruction block. The KB stays connected: its MCP tools and routing sentence remain. It wins over every scope and binding (scopes, clients.<provider>.kbs, workspaces, derived bindings) and never adds a KB to any of them. Absent, or artifacts: true, is the default: artifacts are synced. It has no effect on a server that does not name its KBs. Edit it with `cartographer client kb`.",
+		}},
+	{From: "unbound_access.default", To: "defaults.unbound_access"},
+	{From: "scopes.*", To: "providers.*.scope",
+		Description: "Where a provider receives KB artifacts. provider puts them under the home directory and gives every session every KB the provider receives, read-write, wherever it starts (the default; nothing moves until a provider is switched). workspace makes the folder decide: a bound folder gets its KBs with their artifacts, any other folder ($HOME included) gets the provider's KBs read-only unless unbound_access says write, and no artifact either way. A repository a KB declares in its paths.yaml is bound to that KB automatically (a derived binding, recomputed by every sync and not stored in this file).",
+		Previous: []string{
+			"Where a provider receives KB artifacts: provider (global, under the home directory) or workspace (each bound workspace gets its own).",
+			"Where a provider receives KB artifacts. provider puts them under the home directory and gives every session every KB the provider receives, read-write, wherever it starts (the default; nothing moves until a provider is switched). workspace makes the folder decide: a bound folder gets its KBs with their artifacts, any other folder ($HOME included) gets the provider's KBs read-only and no artifact.",
+			"Where a provider receives KB artifacts. provider puts them under the home directory and gives every session every KB the provider receives, read-write, wherever it starts (the default; nothing moves until a provider is switched). workspace makes the folder decide: a bound folder gets its KBs with their artifacts, any other folder ($HOME included) gets the provider's KBs read-only and no artifact. A repository a KB declares in its paths.yaml is bound to that KB automatically (a derived binding, recomputed by every sync and not stored in this file).",
+		}},
+	{From: "unbound_access.*", To: "providers.*.unbound_access", Except: []string{"default"},
+		Description: "The access mode of a folder under no workspace binding ($HOME included), as default: <mode> for every provider and <provider>: <mode> overrides; a provider entry beats default, which beats the built-in read. read gives the provider's KBs with no write tool; write gives them read-write, still with no KB artifact (artifacts stay tied to a binding). Any other value is read. It only matters for a provider whose MCP entry is the workspace bridge (it has a binding); not a security boundary."},
+	{From: "workspaces.*", To: "providers.*.workspaces",
+		Description: "Which KBs a provider receives while working in a given directory, as <provider>: [{path, kbs}]. A folder under no binding is read-only unless unbound_access says write: the provider's KBs with no write tool and no KB artifact, $HOME included. The deepest binding wins. These entries are the explicit bindings: the ones derived from a KB's paths.yaml are not stored here. An entry on a declared repository's path replaces the derived binding (kbs: [] opts it out on this machine; bind: false in the KB's paths.yaml opts it out for everyone).",
+		Previous: []string{
+			"Which KBs a provider receives while working in a given directory, as <provider>: [{path, kbs}]. An unbound workspace gets only the transversal bundle.",
+			"Which KBs a provider receives while working in a given directory, as <provider>: [{path, kbs}]. A folder under no binding is read-only: the provider's KBs with no write tool and no KB artifact, $HOME included. The deepest binding wins.",
+			"Which KBs a provider receives while working in a given directory, as <provider>: [{path, kbs}]. A folder under no binding is read-only: the provider's KBs with no write tool and no KB artifact, $HOME included. The deepest binding wins. These entries are the explicit bindings: the ones derived from a KB's paths.yaml are not stored here. An entry on a declared repository's path replaces the derived binding (kbs: [] opts it out on this machine; bind: false in the KB's paths.yaml opts it out for everyone).",
+		}},
+	{From: "signing_keys.*", To: "knowledge_bases.*.signing_keys",
+		Description: "Ed25519 public keys pinned per source KB, to verify the signed artifacts it serves. Pins are configured out of band, never learned from a sync."},
+	{From: "identities.*", To: "knowledge_bases.*.identity",
+		Description: "The git author of this machine's writes, per KB name, with default for every other KB; without an entry, the identity git resolves in the session's repository. An empty value sends no author, and the server then names the token."},
 }}
 
 // movedTo is the move of a key into a group (D1731). The
@@ -79,18 +112,59 @@ func migrateLayout(data []byte) ([]byte, error) {
 	if root == nil {
 		return data, nil
 	}
-	pending := false
+	pending := len(splitReadMin(root)) > 0
 	for _, m := range Retired.Moved {
-		pending = pending || pairIndex(root, m.From) >= 0
+		pending = pending || pairIndex(root, strings.SplitN(m.From, ".", 2)[0]) >= 0
 	}
 	if !pending {
 		return data, nil
+	}
+	// splitReadMin changed doc in place: the conflicts and the moves read it.
+	if split, err := settingschema.Encode(&doc); err == nil {
+		data = split
 	}
 	if c := layoutConflicts(data); len(c) > 0 {
 		return nil, fmt.Errorf("%s", strings.Join(c, "; "))
 	}
 	out, _, err := Schema.Realign(data, settingschema.Registry{Moved: Retired.Moved})
 	return out, err
+}
+
+// Grouped is data in the current layout: what migrateLayout would write, in
+// memory, for a reader that shows a file the realignment has not reached (the
+// settings report, `cartographer config`). Data it cannot move is returned as
+// it is.
+func Grouped(data []byte) []byte {
+	if out, err := migrateLayout(data); err == nil {
+		return out
+	}
+	return data
+}
+
+// splitReadMin writes clients.<p>.access: read-min as the two keys that replaced
+// it, access: read and tools: minimal, in place and in doc root's order, and
+// returns the providers it changed. The moves into providers: carry them on.
+func splitReadMin(root *yaml.Node) []string {
+	i := pairIndex(root, "clients")
+	if i < 0 || root.Content[i+1].Kind != yaml.MappingNode {
+		return nil
+	}
+	var done []string
+	clients := root.Content[i+1]
+	for j := 0; j+1 < len(clients.Content); j += 2 {
+		e := clients.Content[j+1]
+		if e.Kind != yaml.MappingNode {
+			continue
+		}
+		a := pairIndex(e, "access")
+		if a < 0 || e.Content[a+1].Kind != yaml.ScalarNode || e.Content[a+1].Value != AccessReadMin || pairIndex(e, "tools") >= 0 {
+			continue
+		}
+		e.Content[a+1].Value = accessRead
+		e.Content = slices.Insert(e.Content, a+2, scalarKey("tools"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: toolsMinimal})
+		done = append(done, clients.Content[j].Value)
+	}
+	return done
 }
 
 // RealignFile brings the client config in dir up to date (D903): the removed
@@ -179,6 +253,10 @@ func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, er
 	}
 
 	edited := false
+	for _, p := range splitReadMin(root) {
+		changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "clients." + p + ".access", Detail: "now access: read with tools: minimal"})
+		edited = true
+	}
 	// token_env: NAME becomes token: ${NAME}, in place, comments kept. It is
 	// never dropped without a word: when token already holds a value, or NAME
 	// cannot be an environment variable, the key is removed here with a change

@@ -123,7 +123,7 @@ func repairCaller(cfg *clientconfig.Config, token string, target kbTarget, dir s
 func cliAuthor(cfg *clientconfig.Config, kb, dir string, errOut io.Writer) string {
 	if v, found, problem := cfg.Identity(kb); found {
 		if problem != "" {
-			fmt.Fprintf(errOut, "warning: the identities entry that applies to %s is not a valid Name <email> (%s): the write is authored as the token\n", kb, problem)
+			fmt.Fprintf(errOut, "warning: the identity that applies to %s (knowledge_bases.<kb>.identity, else knowledge_bases.default.identity) is not a valid Name <email> (%s): the write is authored as the token\n", kb, problem)
 		}
 		return v
 	}

@@ -156,10 +156,10 @@ func TestScopeUnboundAccessMatrix(t *testing.T) {
 		t.Errorf("default = %+v", s)
 	}
 	cfg.UnboundModes = map[string]string{"default": "write", "kiro": "read"}
-	if s := Resolve(cfg, "claude", dir); s.ReadOnly || !s.Unbound || s.AccessOrigin != "unbound_access" || s.Query() != "" {
+	if s := Resolve(cfg, "claude", dir); s.ReadOnly || !s.Unbound || s.AccessOrigin != "defaults.unbound_access" || s.Query() != "" {
 		t.Errorf("write = %+v query %q", s, s.Query())
 	}
-	if s := Resolve(cfg, "kiro", dir); !s.ReadOnly || s.AccessOrigin != "unbound_access" {
+	if s := Resolve(cfg, "kiro", dir); !s.ReadOnly || s.AccessOrigin != "providers.kiro.unbound_access" {
 		t.Errorf("kiro override = %+v", s)
 	}
 	if got := Resolve(cfg, "claude", dir).Describe(); got != "every KB of the provider (provider default, unbound)" {

@@ -124,10 +124,10 @@ func (c *Config) validateKBOptions(path string) error {
 	sort.Strings(names)
 	for _, k := range names {
 		if k == "" {
-			return fmt.Errorf("clientconfig: %s: kb_options has an entry with an empty KB name", path)
+			return fmt.Errorf("clientconfig: %s: knowledge_bases has an entry with an empty KB name", path)
 		}
 		if a := c.KBOptions[k].Access; a != "" && a != KBAccessRead && a != KBAccessWrite {
-			return fmt.Errorf("clientconfig: %s: kb_options.%s.access %q is not valid: the values are %q and %q (remove the key for %q)", path, k, a, KBAccessRead, KBAccessWrite, KBAccessWrite)
+			return fmt.Errorf("clientconfig: %s: knowledge_bases.%s.access %q is not valid: the values are %q and %q (remove the key for %q)", path, k, a, KBAccessRead, KBAccessWrite, KBAccessWrite)
 		}
 	}
 	return nil

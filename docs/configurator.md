@@ -135,7 +135,7 @@ decides every step **before** running any:
   the command warns before committing (it does not stop), naming that author and both routes: a global
   `user.name`/`user.email`, or an identity for the KBs only, which takes the same `Name <email>` in three
   places: an `includeIf "gitdir/i:<data dir>/"` in the global git config, `git.identities.default` in the server
-  file, `identities.default` in `.cartographer.yaml`. A first push the remote refuses is classified like
+  file, `knowledge_bases.default.identity` in `.cartographer.yaml`. A first push the remote refuses is classified like
   the server's sync does: a refused author names that author and the identity to set (with the server
   identity, `commit --amend --reset-author --no-edit` re-authors the kept scaffold), a protected branch
   says so, and only otherwise the hint is about authentication.
@@ -288,7 +288,7 @@ Kiro, naming that limit rather than calling it hookless; `status` stops repeatin
 Kiro agent config and `chat.defaultAgent` is never set (`interoperability.md` §Kiro
 hooks).
 
-**Read-only profile (D1184).** `connect <provider> --access read-min` writes that provider's entry as `<server>/mcp/routed[?kbs=…]&access=read-min&provisioned=1`: the connection is read-only and lists a minimal tool set instead of the full one, for an agent that only reads (`control-plane.md` §MCP API). The value is saved in `clients.<provider>.access` for the providers of that run, which is not a KB binding (the provider keeps receiving the KBs it received), and a later bare `connect` or `sync` keeps it; clearing it is editing the key out of `.cartographer.yaml`, then `sync`. Two refusals name the fix: a server with no routed endpoint (or that did not answer), and a provider with a workspace binding, whose bridge does not carry the profile (`workspace unbind` it first). A provider that has the profile never gets the bridge: `workspace bind` refuses it, and bindings it gains otherwise (derived ones) are ignored, with a warning from `sync`, while it keeps its HTTP entry. The interactive form does not offer it.
+**Read-only profile (D1184).** `connect <provider> --access read-min` writes that provider's entry as `<server>/mcp/routed[?kbs=…]&access=read-min&provisioned=1`: the connection is read-only and lists a minimal tool set instead of the full one, for an agent that only reads (`control-plane.md` §MCP API). The value is saved in `providers.<provider>.access` with `providers.<provider>.tools: minimal` for the providers of that run, which is not a KB binding (the provider keeps receiving the KBs it received), and a later bare `connect` or `sync` keeps it; clearing it is editing the keys out of `.cartographer.yaml`, then `sync`. Two refusals name the fix: a server with no routed endpoint (or that did not answer), and a provider with a workspace binding, whose bridge does not carry the profile (`workspace unbind` it first). A provider that has the profile never gets the bridge: `workspace bind` refuses it, and bindings it gains otherwise (derived ones) are ignored, with a warning from `sync`, while it keeps its HTTP entry. The interactive form does not offer it.
 
 **Workspace scope (D193).** `cartographer workspace bind <provider> <path> --kb <name>…` moves a
 provider from one machine-wide catalogue to one projection per bound repository: the KBs land in
@@ -303,7 +303,7 @@ cases and the exact rules in `sync.md` §Workspace scope, [D1074](decisions/D107
 written into the workspace: `sync` writes the provider's global MCP entry as a local stdio bridge,
 `cartographer mcp --provider <p> [--dir <folder>]` (the folder defaults to the working directory), which serves only the KBs of the folder the session runs in
 (deepest binding wins; an unbound folder, `$HOME` included, gets the provider's default set
-**read-only** and no KB artifact (D1018), or read-write when `unbound_access` says `write` (#1356, still no artifact); `--no-kb` means no KB, never every KB). `kb_options.<kb>.access: read` holds in every folder: the bridge carries it (D1409). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
+**read-only** and no KB artifact (D1018), or read-write when `unbound_access` (`defaults.unbound_access` or the provider's own) says `write` (#1356, still no artifact); `--no-kb` means no KB, never every KB). `knowledge_bases.<kb>.access: read` holds in every folder: the bridge carries it (D1409). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
 token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>] [--provider <p>]` shows which
 binding wins for a folder (for one provider, or each), says when it is derived from a KB's `paths.yaml` (D1019), and, for one that no binding covers, prints `access: read-only (default)`, `access: read-only (unbound_access)` or `access: read-write (unbound_access)`. `workspace unbind` on a binding derived from a KB's `paths.yaml` only prints the note and exits 1: it saves nothing. `workspace bind --kb` with no value, and a provider name `list` or `resolve --provider` does not know, are usage errors (exit 2). `workspace list` shows the bindings, with `[gone]` next to a
 directory that is not there any more and `[derived: paths.yaml of kb-a]` next to one a KB's declared repository implies, then the declared repositories with no local clone (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
@@ -315,7 +315,7 @@ entry with a warning; a client with `roots` in an unbound folder gets a handshak
 `tools/call` and exits; `--list` prints `name<TAB>first sentence` per tool, `--describe <tool>` the
 description and input schema. It drives the same bridge as `cartographer mcp`, so the scope is
 identical: the provider plus the working directory (`--dir` overrides it), with the unbound read-only
-default and `kb_options` access. A value that parses as JSON (`limit=5`, `ids=["a"]`, `title="2026"`)
+default and `knowledge_bases` access. A value that parses as JSON (`limit=5`, `ids=["a"]`, `title="2026"`)
 is passed typed, anything else as a string; `--json` takes an object (`-` reads stdin, 16 MiB), and a
 key given twice, in pairs or with `--json`, is a usage error. No client-side schema validation: the
 server's own error is what the agent reads. Flags: `--output text|json` (`json` is the raw MCP result),
@@ -411,7 +411,7 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 | `--workspace` | *(unset)* | Projects the selected KBs into this repository instead of the global catalogue (D193) |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906) |
 
-**An unloadable `.cartographer.yaml` is never replaced** (D1514). `reindex`, `kb repair`, `reconnect`, `client` and `usage` print that error too, instead of "no client config found" or a silent fallback to the local default server. `connect`, `disconnect` and the dashboard's connect form fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `clients.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
+**An unloadable `.cartographer.yaml` is never replaced** (D1514). `reindex`, `kb repair`, `reconnect`, `client` and `usage` print that error too, instead of "no client config found" or a silent fallback to the local default server. `connect`, `disconnect` and the dashboard's connect form fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `providers.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
 
 ### Transport security (D1023)
 
@@ -430,7 +430,7 @@ adds the key), or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1` for one run. A machine
 already connected to a plain-http remote is refused at its next `sync` with an
 error that names both fixes. Nothing upgrades `http` to `https` by itself.
 
-`signing_keys` in `.cartographer.yaml` stores public-key pins per KB. Pins are
+`knowledge_bases.<kb>.signing_keys` in `.cartographer.yaml` stores public-key pins per KB. Pins are
 operator-supplied and are never learned from `sync_pull`; multiple pins permit
 key rotation. Pin the new key, switch the server signer, then remove the old
 pin after all clients have synchronized.
@@ -490,7 +490,7 @@ as `kept <path>: changed since sync`, a lockfile path that is not inside the rep
 another provider's projection of the same repository still records stays too), prints which repositories it cleaned, then removes the provider from the
 lockfile and from the client state, its workspace bindings and projection scope included (#1324). If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
-preserving `server:` (`url`/`name`/`auth`/`token`) and `clients` as defaults for the next
+preserving `server:` (`url`/`name`/`auth`/`token`) and `providers` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
 The client state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`, `.cartographer-machine.json`,
 `.cartographer-client.lock` (in the config directory), `.cartographer-created.json` (in the home or workspace, only while a Claude Code file it created is kept because it holds other keys) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). `.cartographer-client.lock` is an empty lock file, not state: the first sync or connect creates it and a dry run does not announce it. To remove every trace, delete them by hand once the last provider is disconnected.
@@ -611,7 +611,7 @@ cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--log-file <
 | `--report-to` | *(none)* | Only sends this machine's usage and client-settings reports (D326, D818) to that MCP endpoint, and changes nothing: the config is read, never saved, nothing is provisioned, the configured server is not contacted. It is how `make dev DATA=<dir>` shows the real client on a live instance (D1044). The configured token goes with the reports, so the URL must name a server on this machine (`localhost`, `127.0.0.1`, `::1`): any other host is refused with exit 2 |
 
 For Claude Code the `cartographer` MCP entries are written to `$HOME/.claude.json` and to
-`<dir>/.claude.json` for every `clients.claude.config_dirs` (D755), and removed from all of them.
+`<dir>/.claude.json` for every `providers.claude.config_dirs` (D755), and removed from all of them.
 A declared dir that is missing, relative or holds a symlinked `.claude.json` is skipped with a
 warning, never created. A `CLAUDE_CONFIG_DIR` set at sync time but not declared is a warning
 naming the key; nothing is written there. Skills, agents, hooks, `CLAUDE.md`, the bootstrap hook
@@ -784,10 +784,10 @@ auto-repair commit (its SHA is in the KB's `git log`, reason "auto-repair (backg
 ordinary write path, and refuses any other commit.
 
 The commits of `--apply` and `--revert` are authored as whoever runs the command (D904), by the
-bridge's rule: the KB's `identities` entry, else `identities.default`, else what git resolves in the
+bridge's rule: the KB's `knowledge_bases.<kb>.identity`, else `knowledge_bases.default.identity`, else what git resolves in the
 folder the command runs in, and only inside a work tree. An empty entry sends no author, an invalid
 one sends none with a warning; without an author the server authors the commit as the token. A
-scheduled run outside any repository is therefore authored as its token unless `identities` names
+scheduled run outside any repository is therefore authored as its token unless `knowledge_bases.<kb>.identity` or `knowledge_bases.default.identity` names
 someone.
 
 Exit codes: `0` nothing left to do, `3` only judgement work or checks that are not safe to run unattended remain,
@@ -1175,7 +1175,7 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 
 | Provider | Generated file | Key |
 |----------|--------------|--------|
-| Claude Code | `.claude.json` (also `<dir>/.claude.json` for each `clients.claude.config_dirs`, D755) | `mcpServers` (JSON) |
+| Claude Code | `.claude.json` (also `<dir>/.claude.json` for each `providers.claude.config_dirs`, D755) | `mcpServers` (JSON) |
 | Codex CLI | `.codex/config.toml` | managed block `[mcp_servers.cartographer]` (TOML, marker `cartographer:mcp:*`) |
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
 | OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172) | `mcp` (JSON) |
@@ -1470,23 +1470,33 @@ server:                         # what the machine needs to reach the server (D1
   auth: false
   token: ${CARTOGRAPHER_TOKENS} # a literal token or ${ENV}; a literal keeps this file at mode 0600 (D906). Unattended runs fall back to the private token file
   allow_insecure_http: false    # D1023; written only when true. true: accept a plain http:// server.url that is not loopback (the token then travels in clear); set by `connect --allow-insecure-http`
-clients:         # per-provider KB binding (D169); absent provider = every known KB
+defaults:
+  unbound_access: read          # access of a folder under no workspace binding, for every provider (read | write); a provider's own unbound_access beats it
+providers:                      # one entry per provider (D1731); a provider with no entry receives every known KB
   claude:
-    kbs: [homelab]
+    kbs: [homelab]              # per-provider KB binding (D169); absent = every known KB
+    scope: workspace            # provider | workspace (D193); set by `cartographer workspace bind`
+    unbound_access: write       # D1731; this provider's mode for an unbound folder
     config_dirs: [~/.claude/accounts/b]   # extra Claude Code config dirs (CLAUDE_CONFIG_DIR) whose .claude.json also gets the MCP entry (D755); claude only; does not make the binding explicit
+    access: read                # with tools: minimal, the read-min profile of `connect --access read-min` (D1184)
+    tools: minimal
+    workspaces:                 # explicit workspace bindings, [{path, kbs}] (D193); set by `cartographer workspace bind`
+      - path: ~/projects/work
+        kbs: [homelab]
+knowledge_bases:                # one entry per KB, for every provider; default holds the identity of every other KB
+  default:
+    identity: Ada Lovelace <ada@example.com>   # D904; the git author of this machine's writes; without one, the identity git resolves in the session's repository (an HTTP entry: the global one)
+  work-kb:
+    identity: Ada Lovelace <ada@corp.example>  # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
+    access: read                # D1409; connects the KB read-only on every provider that receives it; edit with `cartographer client kb`
+    artifacts: false            # D1408; stops the KB's skills, subagents, hooks and MCP descriptors (it stays connected)
+    signing_keys: []            # Ed25519 public keys pinned per source KB (`connect --pin-key`); never learned from a sync
 placeholders:                   # how {{repo:<key>}} and {{path:<name>}} resolve (D75, D1731)
   search_roots: ["~/Documents", "~/src", "~/code", "~/projects"]   # where repoindex.Scan looks for git clones for {{repo:<key>}}; the default, 4 levels deep (a constant, D906); a default root that does not exist is skipped silently; consulted only for a key with no `placeholders.paths` entry
   paths: {}                     # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}); edit with `cartographer paths set`
   ignored: []                   # placeholder ids known to be absent on this machine, e.g. repo:work-tools (D282); edit with `cartographer paths ignore`
-identities:                     # D904; the git author of this machine's writes, by KB name or default; without an entry, the identity git resolves in the session's repository (an HTTP entry: the global one)
-  default: Ada Lovelace <ada@example.com>
-  work-kb: Ada Lovelace <ada@corp.example>   # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
 update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
-kb_options: {}                  # D1408; per-KB settings for every provider: <kb>: {artifacts: false} stops that KB's skills, subagents, hooks and MCP descriptors (it stays connected); `<kb>: {access: read}` connects that KB read-only on every provider that receives it (D1409); edit with `cartographer client kb`
-scopes: {}                      # per-provider scope, provider | workspace (D193); set by `cartographer workspace bind`
-workspaces: {}                  # per-provider explicit workspace bindings, [{path, kbs}] (D193); set by `cartographer workspace bind`
-signing_keys: {}                # Ed25519 public keys pinned per source KB (`connect --pin-key`); never learned from a sync
 approvals_migrated: false       # set by the first sync once it has approved what was already installed unchanged (D1166); never cleared, do not edit. Stays true after the approvals moved to the machine file (D1728)
 ```
 
@@ -1530,6 +1540,17 @@ minor, so a file on a read-only mount keeps working. A key set at both places wi
 error naming the two keys, from `Load`, `Save` and the realignment, which leaves the file as it is: keep
 one. The report a client posts to the server and `cartographer config` mask a literal token at either place.
 
+The per-provider and per-KB keys follow the same path. The realignment moves `clients`, `scopes`, `unbound_access` and
+`workspaces` into `providers.<provider>` (`kbs`, `config_dirs`, `access`, `scope`, `unbound_access`, `workspaces`), with
+`unbound_access.default` going to `defaults.unbound_access`; `kb_options`, `identities` and `signing_keys` go into
+`knowledge_bases.<kb>` (`access`, `artifacts`, `identity`, `signing_keys`), with `identities.default` going to
+`knowledge_bases.default.identity`. `clients.<p>.access: read-min`, one value for two things, is written as
+`providers.<p>.access: read` plus `tools: minimal`; `Load` accepts only that pair (a lone `access: read` or
+`tools: minimal` is an error naming the provider). A `*` segment in a `Moved` entry stands for every provider or KB the
+file names, so one entry moves them all; a KB name with a dot or a `*` in it moves like any other (a KB is named after its folder), each key addressed literally. `Grouped`
+renders a flat file in the current layout in memory, for the settings report and `cartographer config`. `mcp_approvals` and `plugins` are
+not part of the groups. The key order of a migrated file is kept: a moved group lands at the end.
+
 The registry holds the client keys `token_env` (rewritten as `token: ${NAME}`, comments kept),
 `trust`, `write_findings_hook`, `search_depth`, `update.check` and `update.policy` (`update_check`, which an
 `auto-patch` policy turns into `true`), `agents`, whose **value moves** to the client state file, and
@@ -1551,7 +1572,7 @@ line on stderr that names what to redo: the known KBs come back with the next `s
 
 **The machine file, `.cartographer-machine.json` (D1728).** What the client's own commands record and no sync can rebuild: the local approvals (`cartographer approve`; hooks, executable artifacts and MCP descriptors, under `<kind>/<name>` for the first two), the `approvals_migrated` marker and the opt-outs `sync_timer_opt_out` and `tray_opt_out`. JSON, mode 0600, never hand-edited, and **fail closed**, unlike the state file: if it exists and cannot be read or parsed, `Load` approves nothing, treats the pre-approval migration as done (so nothing installed is approved in its place) and warns that the file is unreadable; `Save` leaves it untouched, and a command that would record an approval or an opt-out stops with an error until the file is fixed or removed (removing it asks for every approval again). A machine with nothing to record has no such file. An installation from before keeps these keys in `.cartographer.yaml` (the approvals and the marker) and in the state file (the opt-outs): `Load` reads them while the machine file is absent, and the first save or `client realign` writes the machine file, then drops the old keys, after keeping `.cartographer.yaml.bak-pre-machine`. Once the machine file exists the old keys are ignored. `approvals_migrated: true` stays in the YAML as a tombstone and the two opt-outs are still copied into the state file for this minor, so an older client after a downgrade sees the marker set (it never re-approves what is installed), no approvals (it asks again) and its opt-outs. If the machine file later disappears (deleted, a dangling link) the tombstone makes `Load` approve nothing, migrate nothing and warn to give the approvals again with `cartographer approve`; the pre-migration YAML is the `.bak-pre-machine` copy. While the file is unreadable, `Save` and `client realign` keep the old YAML keys and stop rather than drop them.
 
-`clients` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
+`providers` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
 
 `.cartographer.yaml` is written atomically (a temporary file beside it, `fsync`, rename) and the operator's own file keeps what they gave it: a **symlink** (stow, yadm) is followed and its target replaced, so the link survives; an existing **mode** is kept (a literal token only ever takes group and other access away, never gives it). This differs from the no-follow rule of the client directories (D148) because it is the operator's own file, written on their own command, not a path inside somebody else's checkout. A key the file does not carry (`server.url`, `server.name`, `server.token`) loads as the schema's default, as `Default()` does; an explicit empty value stays empty.
 
@@ -1571,11 +1592,11 @@ a failure.
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
-| `client kb <kb> [--artifacts=true\|false] [--access=read\|write]` | shows, or sets, the KB's per-KB options (the `kb_options` map, D1408, D1409), for every provider; `--access=read` connects the KB read-only (below), `write` removes the key; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB the server does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
+| `client kb <kb> [--artifacts=true\|false] [--access=read\|write]` | shows, or sets, the KB's per-KB options (the `knowledge_bases` map, D1408, D1409), for every provider; `--access=read` connects the KB read-only (below), `write` removes the key; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB the server does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
 
-`kb_options.<kb>.artifacts: false` (D1408) is a narrowing, never a widening: it wins over `scopes`, `clients.<provider>.kbs`, explicit workspace bindings and derived bindings, and changes neither which KBs a provider or folder reaches nor the KB's MCP tools. It does nothing on a server that does not name its KBs. `status` marks such a KB `artifacts: off (kb_options)` under the provider's `kbs` line.
+`knowledge_bases.<kb>.artifacts: false` (D1408) is a narrowing, never a widening: it wins over `providers.<provider>.scope`, `providers.<provider>.kbs`, explicit workspace bindings and derived bindings, and changes neither which KBs a provider or folder reaches nor the KB's MCP tools. It does nothing on a server that does not name its KBs. `status` marks such a KB `artifacts: off (knowledge_bases)` under the provider's `kbs` line.
 
-**`kb_options.<kb>.access: read` (D1409).** The one KB is connected read-only on every provider that receives it, while the provider's other KBs stay writable; absent or `write` is the default and changes nothing in any URL. `sync` writes `readonly=<kb>,…` into the routed entry after `kbs=` and `access=` (only the KBs the entry reaches, escaped like `kbs`), and the workspace bridge sends the same parameter, so it applies in a bound folder too. With `clients.<provider>.access: read-min` the provider is already read-only: no `readonly=` is written. With `scopes`/`unbound_access` the stricter wins: an unbound read-only folder already covers everything, a bound folder is read-write except for the KBs marked `read`. It is a scope filter, not a security boundary (D737): a client that edits its own URL drops it; hard isolation is a server token role (`kb:<name>:r`). It needs a routed server: against a server without the routed endpoint `connect` and `sync` refuse, naming the KB and the fix, instead of writing an entry that would allow writes. The bridge fails closed on a server that predates the parameter (it sends no `Cartographer-Readonly` header), but a plain HTTP entry cannot check a header, so an entry written for a server older than this version ignores the setting silently: upgrade the server first.
+**`knowledge_bases.<kb>.access: read` (D1409).** The one KB is connected read-only on every provider that receives it, while the provider's other KBs stay writable; absent or `write` is the default and changes nothing in any URL. `sync` writes `readonly=<kb>,…` into the routed entry after `kbs=` and `access=` (only the KBs the entry reaches, escaped like `kbs`), and the workspace bridge sends the same parameter, so it applies in a bound folder too. With `providers.<provider>.access: read` and `tools: minimal` the provider is already read-only: no `readonly=` is written. With `providers.<provider>.scope` and `unbound_access` the stricter wins: an unbound read-only folder already covers everything, a bound folder is read-write except for the KBs marked `read`. It is a scope filter, not a security boundary (D737): a client that edits its own URL drops it; hard isolation is a server token role (`kb:<name>:r`). It needs a routed server: against a server without the routed endpoint `connect` and `sync` refuse, naming the KB and the fix, instead of writing an entry that would allow writes. The bridge fails closed on a server that predates the parameter (it sends no `Cartographer-Readonly` header), but a plain HTTP entry cannot check a header, so an entry written for a server older than this version ignores the setting silently: upgrade the server first.
 
 Three states, resolved only through `clientconfig.Config.BoundKBs` and never by
 testing a list for emptiness: **no entry** means every known KB (today's
@@ -1662,7 +1683,7 @@ fetched asynchronously against the configured server.
 `mcp-config` expects what `connect` and `sync` write today: on a routed server one entry named after
 the server whatever the number of KBs (the stdio bridge entry for a provider with a workspace binding,
 none for one bound to no KB), one per KB on a per-KB server. A Claude entry written to the
-`clients.claude.config_dirs` is not looked for. While a sync, a connect or a disconnect is running the
+`providers.claude.config_dirs` is not looked for. While a sync, a connect or a disconnect is running the
 list ignores `s`, `S`, `d` and `enter` (a second writer would lose the first one's lockfile entries);
 a failed `S` still reads the status again, so no card stays on `checking…`. Widths are counted in
 terminal columns, so footers and non-ASCII paths wrap where they should.

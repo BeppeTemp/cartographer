@@ -245,7 +245,7 @@ func TestStatusExplainsArtifactsOff(t *testing.T) {
 	out := withStdout(t, func() {
 		printBindingLine(providerStatus{Name: "claude", BindingOrigin: "default", BoundKBs: []string{"kb-a", "kb-b"}, ArtifactsOff: []string{"kb-a"}})
 	})
-	if !strings.Contains(out, "kb-a artifacts: off (kb_options)") || strings.Contains(out, "kb-b artifacts") {
+	if !strings.Contains(out, "kb-a artifacts: off (knowledge_bases)") || strings.Contains(out, "kb-b artifacts") {
 		t.Errorf("status line: %q", out)
 	}
 }

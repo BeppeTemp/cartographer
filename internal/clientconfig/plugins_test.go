@@ -104,7 +104,7 @@ func TestHiddenKeyIsNotRendered(t *testing.T) {
 			t.Errorf("a comment mentions the hidden key: %q", l)
 		}
 	}
-	if !strings.Contains(string(b), "kb_options") {
+	if !strings.Contains(string(b), "knowledge_bases") {
 		t.Errorf("the other keys lost their block:\n%s", b)
 	}
 	r, err := Report(dir, "v")

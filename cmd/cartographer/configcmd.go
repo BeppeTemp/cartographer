@@ -148,7 +148,7 @@ func printEntries(w io.Writer, title string, entries []config.Entry, all bool) {
 func clientEntries(dir string) []config.Entry {
 	var doc map[string]any
 	if b, err := os.ReadFile(clientconfig.Path(dir)); err == nil {
-		_ = yaml.Unmarshal(b, &doc)
+		_ = yaml.Unmarshal(clientconfig.Grouped(b), &doc)
 	}
 	out := []config.Entry{}
 	for _, k := range clientconfig.Schema.Keys {
@@ -158,11 +158,6 @@ func clientEntries(dir string) []config.Entry {
 		e := config.Entry{Key: k.Path, Value: k.Default, Origin: config.OriginDefault,
 			Description: k.Description, Default: k.Default, Env: k.Env, Flag: k.Flag, Restart: k.Restart, Secret: k.Secret}
 		v, ok := lookupPath(doc, k.Path)
-		for _, m := range clientconfig.Retired.Moved {
-			if !ok && m.To == k.Path {
-				v, ok = lookupPath(doc, m.From) // a file the realignment has not reached
-			}
-		}
 		if ok {
 			e.Value, e.Origin = v, config.OriginFile
 			// A literal secret is never printed; a ${NAME} reference names a

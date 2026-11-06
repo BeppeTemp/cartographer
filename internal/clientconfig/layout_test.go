@@ -9,7 +9,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 )
 
-// The layout of the file (D-new-client-file-layout): the server and placeholders
+// The layout of the file (D1731): the server and placeholders
 // groups, and the flat keys they replaced, read until a realignment moves them.
 
 const flatLayoutYAML = `# my machine

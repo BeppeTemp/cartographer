@@ -205,7 +205,7 @@ than one exists.
 
 ## The generated instructions block
 
-A KB with `kb_options.<kb>.artifacts: false` (D1408) keeps its region but loses the `Skills:` line, and no subagent sentence is written for it.
+A KB with `knowledge_bases.<kb>.artifacts: false` (D1408) keeps its region but loses the `Skills:` line, and no subagent sentence is written for it.
 
 The client steering file carries **one** managed block, shared by every mounted KB, delimited by
 `<!-- cartographer:instructions:begin … -->` / `<!-- cartographer:instructions:end -->`. The block is
@@ -358,7 +358,7 @@ every run: `kb-create` and the other old names reach the client next to the bund
 
 ## Pruning
 
-- **A KB with `kb_options.<kb>.artifacts: false`** (D1408) is pruned like a KB that stops being bound, for its skills, subagents, hooks and MCP descriptors: they leave the manifest before the strict merge, `ComputeDiff` lists them Removed and `PruneManaged` removes them through the lockfile. Its instructions artifact stays, rewritten without the `Skills:` line (client-side, after verification, rehashed), and the subagent sentence disappears with its agents; `bundle` skills and the synthetic hooks are not KB artifacts and stay.
+- **A KB with `knowledge_bases.<kb>.artifacts: false`** (D1408) is pruned like a KB that stops being bound, for its skills, subagents, hooks and MCP descriptors: they leave the manifest before the strict merge, `ComputeDiff` lists them Removed and `PruneManaged` removes them through the lockfile. Its instructions artifact stays, rewritten without the `Skills:` line (client-side, after verification, rehashed), and the subagent sentence disappears with its agents; `bundle` skills and the synthetic hooks are not KB artifacts and stay.
 - **The bundled `cartographer-cli` skill** is left out of the server's manifest (`sync_check`, `sync_apply`, `sync_pull`) unless `BuildOptions.IncludeCLISkill` is set, which no built-in caller sets, so a client older than the filter never receives it (`sync_pull` sets it only for a client that sends `include_cli_skill`); `skill_install` by name still copies it into a KB, an explicit act whose copy is a KB skill and is not filtered. As a second line it is dropped client-side from the manifest of every provider that does not reach Cartographer through `cartographer call` (`configurator.UsesCLI`, `withoutCLISkill`, after verification, both for the per-provider and the per-projection manifests); no built-in provider is one today, so `ComputeDiff` lists it nothing, a prune removes a copy installed earlier and `status` counts stay right.
 
 - `Apply`/`PruneManaged` remove **only** the paths in `managed[]` that are no longer in the manifest — never files not created by Cartographer. Healing (D139) obeys the same boundary: it reads and rewrites managed paths only.
@@ -499,7 +499,7 @@ that skill is not materialized, with a warning naming it, and the rest of the sy
 
 ## Workspace scope (D193)
 
-`kb_options.<kb>.artifacts: false` (D1408) applies inside every projection too: a KB bound to a folder (explicitly or by derivation, D1019) still reaches it with its MCP tools and its routing sentence, with no artifact files.
+`knowledge_bases.<kb>.artifacts: false` (D1408) applies inside every projection too: a KB bound to a folder (explicitly or by derivation, D1019) still reaches it with its MCP tools and its routing sentence, with no artifact files.
 
 By default a provider has **one** catalogue, under the user's home, shared by every session of
 that provider on the machine. A provider that works in two perimeters therefore sees both
@@ -539,8 +539,8 @@ the workspace for this: no `.mcp.json`, no project entry, whichever client.
 Rules: a folder under no binding, `$HOME` included, gets the provider's default set **read-only**
 (D1018): the bridge sends `access=read` and the server lists no write tool and refuses a call to one,
 naming `cartographer workspace bind` and a KB's `paths.yaml` as the ways to write; the folder also
-receives no KB artifact. That is the default: the client setting `unbound_access` (`default: <mode>` for
-every provider, `<provider>: <mode>` overrides; `read` or `write`, anything else is `read`; #1356) turns
+receives no KB artifact. That is the default: the client setting `defaults.unbound_access` (for
+every provider; `providers.<provider>.unbound_access` overrides; `read` or `write`, anything else is `read`; #1356) turns
 an unbound folder read-write instead, still without artifacts (they stay tied to a binding, D193). The
 bridge then sends no `access=read`, so the session is an ordinary routed one, and its `initialize`
 instructions say it is unbound (the bridge appends the sentence to what the server answers, in a JSON
@@ -624,25 +624,25 @@ unchanged.
 **Who a session's writes are authored as (D904).** On each `tools/call`, and on nothing else, the
 bridge sends the `Cartographer-Author` header for the KB the server will pick: the `kb` argument,
 else the session's only KB; with several reachable and none named it sends none, and the server
-refuses the call anyway. The value is the KB's `identities` entry in `.cartographer.yaml`, else
-`identities.default`, else what git resolves in the folder the KB was bound from (the session's
+refuses the call anyway. The value is the KB's `knowledge_bases.<kb>.identity` in `.cartographer.yaml`, else
+`knowledge_bases.default.identity`, else what git resolves in the folder the KB was bound from (the session's
 folder, or for a scope from roots the roots that bound it, which must agree), so an
 `includeIf gitdir:` setup applies to KB writes as to commits. A present entry always decides: an empty
 one sends no author, an invalid one sends none and the bridge logs it once. Git is asked only inside a
 work tree, never guesses `user@host` (`user.useConfigOnly`), and is asked once per folder for the
 session (a folder with no identity again after 30s). A call that writes to two KBs (`target_kb`)
 carries one author for both commits, so it is sent only when both KBs resolve to the same one. The
-`identities` keys are the client's KB names: a renamed KB's old name, which the server resolves through its state file, is not one.
+`knowledge_bases` keys are the client's KB names: a renamed KB's old name, which the server resolves through its state file, is not one.
 Without a header the server authors the write as the identity configured for the KB in the server file (`git.identities`), else the token.
 
 **Who an HTTP entry's writes are authored as (D904).** A provider without a workspace binding (or
 whose bridge cannot start) keeps an HTTP entry, written once into a file every folder shares, so
 `connect` and `sync` give it a static `Cartographer-Author` header. For each KB the entry reaches,
-the value is the KB's `identities` entry, else `identities.default`, else the global git identity
+the value is the KB's `knowledge_bases.<kb>.identity`, else `knowledge_bases.default.identity`, else the global git identity
 (`git config --global`, never a folder's). It is written only when all those KBs agree: an entry that
 reaches KBs with different writers sends none, and an entry without `?kbs=` also answers for every KB
-`identities` names and any KB mounted later. A global git config with an `includeIf` is not read for
-it, since a folder may get another identity there: set `identities.default` (empty to send none) or
+`knowledge_bases` names and any KB mounted later. A global git config with an `includeIf` is not read for
+it, since a folder may get another identity there: set `knowledge_bases.default.identity` (empty to send none) or
 bind a workspace, whose bridge reads each folder. Either case prints a warning on every `connect` and
 `sync`. Which clients take the header: [harness ledger](harnesses.md).
 
@@ -948,7 +948,7 @@ silently dropped, so no provider ever runs a command different from the approved
 ## Implementation choices
 
 - **Dedup by `kind`+`name`**: a skill present both in the bundle and in a KB is materialized only once, with the KB winning. The manifest holds exactly one artifact per `kind`+`name`.
-- **Per-provider projection** (D170): each provider receives only the KBs bound to it in `.cartographer.yaml` (`clients.<provider>.kbs`, see `configurator.md` §`cartographer client`). Three rules make it work:
+- **Per-provider projection** (D170): each provider receives only the KBs bound to it in `.cartographer.yaml` (`providers.<provider>.kbs`, see `configurator.md` §`cartographer client`). Three rules make it work:
   - **selection happens before the merge**, on the per-KB `sync_pull` responses. Filtering the merged manifest is wrong: `MergeArtifacts` has already discarded candidates, so if `kb-A` overrides a bundled skill and a provider is bound only to `kb-B`, the merge keeps `kb-A`'s copy and a source filter then deletes it — the provider loses the skill instead of receiving the bundled one. The server performs the same KB-over-bundle merge inside each single-KB pull, so a candidate the client never received cannot be reconstructed;
   - **the revision is recomputed per provider**, after selection and after `ProjectManifest`. Two providers holding different KB sets under one revision string would make `ComputeDiff.InSync` lie, and changing a binding would produce no drift at all. `ProjectManifest` also drops kinds the provider has no destination for and derives a skill from each agent a client cannot run (e.g. `agent` for `crush` becomes a degraded `skill`), so the recomputed revision differs from the pre-projection one whenever a provider supports less than the full kind set. The CLI's `synced to revision …` (and `would sync to revision …` under `--dry-run`) reports the revision each provider actually **recorded** — `AppliedResult.NewLock.AppliedRevision`, taken from `materializeForProviders`' return value, never the manifest `sync` fetched before projection — so it always matches what `status` reports for that provider (D184);
   - **unbinding removes the artifacts for free**: they leave the provider's manifest, so `ComputeDiff` marks them `Removed` and `PruneManaged` deletes them. Only files listed in the lock are touched, so user-owned files survive.

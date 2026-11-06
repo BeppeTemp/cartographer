@@ -519,7 +519,7 @@ func TestSaveWritesKnownKBsNotLegacyAlias(t *testing.T) {
 	if hasKey(raw, "kbs") {
 		t.Errorf("the legacy kbs key was written again:\n%s", raw)
 	}
-	if !strings.Contains(raw, "clients:") {
+	if !strings.Contains(raw, "providers:") {
 		t.Errorf("clients missing from the written file:\n%s", raw)
 	}
 	if !strings.Contains(raw, "custom_key: keep-me") {
@@ -616,7 +616,7 @@ func TestEveryYamlFieldIsWrittenBySave(t *testing.T) {
 		t.Fatalf("read back: %v", err)
 	}
 	raw := string(data)
-	for _, key := range []string{"server", "clients", "placeholders", "signing_keys"} {
+	for _, key := range []string{"server", "providers", "placeholders", "knowledge_bases"} {
 		if !hasKey(raw, key) {
 			t.Errorf("Save omitted %q:\n%s", key, raw)
 		}

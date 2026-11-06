@@ -364,7 +364,7 @@ func cmdConnect(args []string) int {
 	var kbSel repeatedString
 	fs.Var(&kbSel, "kb", "KB this client may receive (repeatable, or comma-separated; 'all' for every mounted KB)")
 	allowInsecure := fs.Bool("allow-insecure-http", false, "Accept a plain http:// server URL that is not loopback (the bearer token then travels in clear)")
-	accessFlag := fs.String("access", "", "Connection profile: read-min (read-only, minimal tool list; routed server only). Empty keeps the persisted value; clear it by removing clients.<provider>.access")
+	accessFlag := fs.String("access", "", "Connection profile: read-min (read-only, minimal tool list; routed server only). Empty keeps the persisted value; clear it by removing providers.<provider>.access and providers.<provider>.tools")
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	if code := bindPositionals("connect", parseFlagsAnywhere(fs, args), &target); code != 0 {
 		return code
@@ -1078,7 +1078,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	if errors.Is(pullErr, provisioning.ErrSignature) {
 		// The server answered; what failed is a pin. Nothing was written, so the
 		// wrong key is not kept in .cartographer.yaml (#1282).
-		return connectResult{}, fmt.Errorf("skill signatures do not verify against the pinned keys (fix or remove the pin with --pin-key / --unpin-key <kb>; signing_keys in %s): %w; the server is reachable; nothing was written", clientconfig.FileName, pullErr)
+		return connectResult{}, fmt.Errorf("skill signatures do not verify against the pinned keys (fix or remove the pin with --pin-key / --unpin-key <kb>; knowledge_bases.<kb>.signing_keys in %s): %w; the server is reachable; nothing was written", clientconfig.FileName, pullErr)
 	} else if isRejectedCredential(pullErr) {
 		// The server answered and refused the credential: not "unreachable", and
 		// saving a config that cannot sync would hide it (#1299).

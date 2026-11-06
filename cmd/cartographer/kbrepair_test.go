@@ -225,7 +225,7 @@ func TestCLIAuthorIdentitiesDecideBeforeGit(t *testing.T) {
 			if got := cliAuthor(cfg, "kb-a", tc.dir, &errOut); got != tc.want {
 				t.Fatalf("author = %q, want %q", got, tc.want)
 			}
-			if warned := strings.Contains(errOut.String(), "identities entry"); warned != tc.warns {
+			if warned := strings.Contains(errOut.String(), "knowledge_bases.<kb>.identity"); warned != tc.warns {
 				t.Fatalf("warning = %q", errOut.String())
 			}
 		})

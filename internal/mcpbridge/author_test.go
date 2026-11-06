@@ -98,7 +98,7 @@ func TestBridgeAuthorIdentitiesDecideBeforeGit(t *testing.T) {
 		}
 	}
 	b.author(scope, callParams(map[string]any{"kb": "kb-c"}))
-	if n := strings.Count(logs.String(), "kb-c is not a valid"); n != 1 {
+	if n := strings.Count(logs.String(), "identity that applies to kb-c "); n != 1 {
 		t.Errorf("the invalid entry was reported %d times, want once:\n%s", n, logs.String())
 	}
 }

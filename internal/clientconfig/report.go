@@ -302,18 +302,20 @@ func report(data []byte, machine, version string) (*SettingsReport, error) {
 		}
 	}
 	r := &SettingsReport{Machine: machine, Version: version, Entries: []ReportEntry{}}
+	// A file the realignment has not reached still holds the flat keys: the
+	// entries are read from it in the current layout.
+	values := doc
+	if len(data) > 0 {
+		if g := Grouped(data); yaml.Unmarshal(g, &values) != nil {
+			values = doc
+		}
+	}
 	for _, k := range Schema.Keys {
 		if k.Hidden {
 			continue
 		}
 		e := ReportEntry{Key: k.Path, Origin: "default", Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values}
-		n := lookup(&doc, k.Path)
-		// A file the realignment has not reached still holds the flat key.
-		for _, m := range Retired.Moved {
-			if n == nil && m.To == k.Path {
-				n = lookup(&doc, m.From)
-			}
-		}
+		n := lookup(&values, k.Path)
 		if n != nil {
 			e.Origin = "file"
 			_ = n.Decode(&e.Value)
