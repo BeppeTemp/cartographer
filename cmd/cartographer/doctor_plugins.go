@@ -75,7 +75,7 @@ func checkOnePlugin(name string, e clientconfig.PluginEntry, store plugin.Store,
 				Fix:     update})
 		case errors.Is(err, plugin.ErrInvalid):
 			out = append(out, doctorFinding{Check: "plugin-invalid", Severity: doctorError,
-				Message: fmt.Sprintf("plugin %s: the approved tree is no longer valid: %s", n, escapeControl(err.Error())),
+				Message: fmt.Sprintf("plugin %s: the approved tree is not valid: %s", n, escapeControl(err.Error())),
 				Fix:     update})
 		default:
 			out = append(out, doctorFinding{Check: "plugin-store", Severity: doctorWarning,
@@ -107,7 +107,7 @@ func checkOnePlugin(name string, e clientconfig.PluginEntry, store plugin.Store,
 // checkPluginCollisions runs DropPluginCollisions over what the active plugins
 // contribute and what the lockfile records as installed from a KB or the bundle.
 // The server is not asked: a KB artifact that a sync has already dropped because
-// of a plugin is no longer in the lockfile, and the sync that dropped it printed
+// of a plugin is not in the lockfile, and the sync that dropped it printed
 // the collision.
 func checkPluginCollisions(cfg *clientconfig.Config, lock *provisioning.LockFile) []doctorFinding {
 	arts := loadActivePlugins(cfg).Artifacts

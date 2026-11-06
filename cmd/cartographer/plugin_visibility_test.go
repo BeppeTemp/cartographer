@@ -95,7 +95,7 @@ func TestSnapshotPluginsInvalidAndStoreUnavailable(t *testing.T) {
 	installPlugin(t, writePlugin(t, "plug-new", nil), true)
 	cfg := mustCfg(t, home)
 	old := version
-	version = "0.1.0" // older than the manifest's ">=0.28.0": the stored tree no longer validates
+	version = "0.1.0" // older than the manifest's ">=0.28.0": the stored tree does not validate
 	if got := stateOf(t, cfg, "plug-new").State; got != "invalid" {
 		t.Errorf("state %q, want invalid", got)
 	}
@@ -260,7 +260,7 @@ func TestDoctorPluginFindingsEachWithItsFix(t *testing.T) {
 		}
 	}
 
-	// A range this build no longer satisfies is plugin-invalid, with the reason.
+	// A range this build does not satisfy is plugin-invalid, with the reason.
 	cfg = mustCfg(t, home)
 	old := version
 	version = "0.1.0"
@@ -276,7 +276,7 @@ func TestDoctorPluginFindingsEachWithItsFix(t *testing.T) {
 		}
 	}
 	if invalid == 0 {
-		t.Errorf("no plugin-invalid finding for a range the build no longer satisfies: %+v", got)
+		t.Errorf("no plugin-invalid finding for a range the build does not satisfy: %+v", got)
 	}
 }
 

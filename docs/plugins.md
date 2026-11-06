@@ -415,7 +415,7 @@ state and produces none, except for a pending or invalid installed tree.
 |---|---|---|---|
 | `plugin-store` | error | the plugin store cannot be used at all | make the user cache directory usable |
 | `plugin-store` | warning | an enabled, approved plugin is not in the store, or its stored tree was modified | `cartographer plugin update <name>` |
-| `plugin-invalid` | error | the approved tree no longer passes the tree reader, with the reason (for example a `cartographer` range this build no longer satisfies) | `cartographer plugin update <name>` |
+| `plugin-invalid` | error | the approved tree does not pass the tree reader, with the reason (for example a `cartographer` range this build does not satisfy) | `cartographer plugin update <name>` |
 | `plugin-invalid` | warning | the installed tree, newer than the approved one, does not validate: it cannot be approved | `cartographer plugin update <name>` |
 | `plugin-pending` | warning | the plugin was never approved | `cartographer plugin show <name>`, then `plugin approve <name>` |
 | `plugin-pending` | info | the installed tree is newer than the approved one, which stays active | the same |
