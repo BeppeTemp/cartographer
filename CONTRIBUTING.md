@@ -239,7 +239,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   PR `chore(dev): train <id>, <k> change(s)`, **rebase-merged** so each change stays its own
   commit on `main`. `make land-status` shows the queue; `make land` runs the lander in the
   foreground (`DRY=1` prints the next train). Queued changes have no cap: the train is the
-  unit of gating, at most 8 changes each.
+  unit of gating, at most 8 changes each. On macOS the lander keeps the machine from idle
+  sleep while it runs (`caffeinate -i`); a closed lid still stops it.
 - **No open PR depends on another open PR**: a contributor's dependent work goes in the same
   PR, or waits for the merge. A maintainer's dependent change is queued with `AFTER=<slug>`.
 - PRs are **squash-merged** (a train is rebase-merged, its commits already are the
