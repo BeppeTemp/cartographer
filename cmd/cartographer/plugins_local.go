@@ -264,6 +264,12 @@ type pluginPrep struct {
 	Out, Err io.Writer
 }
 
+// fail reports on the run's error stream and returns the exit code.
+func (o pluginPrep) fail(code int, format string, a ...any) int {
+	fmt.Fprintf(o.Err, "Error: "+format+"\n", a...)
+	return code
+}
+
 // installedNow is a plugin this run put in the store and the config: the only
 // plugins --approve-plugins and the prompt can approve.
 type installedNow struct {
@@ -292,7 +298,7 @@ func preparePlugins(o pluginPrep) int {
 	for _, s := range o.Sources {
 		src, err := plugin.ParseSource(s)
 		if err != nil {
-			return pluginFail(2, "--plugin: %s", escapeControl(err.Error()))
+			return o.fail(2, "--plugin: %s", escapeControl(err.Error()))
 		}
 		if !seen[src.String()] {
 			seen[src.String()] = true
@@ -301,11 +307,11 @@ func preparePlugins(o pluginPrep) int {
 	}
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
-		return pluginFail(2, "%v", err)
+		return o.fail(2, "%v", err)
 	}
 	cfg, err := loadConfigForWrite(dir)
 	if err != nil {
-		return pluginFail(1, "%v", err)
+		return o.fail(1, "%v", err)
 	}
 	if len(srcs) == 0 && len(cfg.Plugins) == 0 {
 		return 0
@@ -327,7 +333,7 @@ func preparePlugins(o pluginPrep) int {
 	// A plugin missing from the store is fetched before the lock is taken, and
 	// stored under it; a failure is a warning and the run goes on.
 	if cfg, err = loadConfigForWrite(dir); err != nil {
-		return pluginFail(1, "%v", err)
+		return o.fail(1, "%v", err)
 	}
 	if fetched := fetchMissingPlugins(st, cfg, o.DryRun); len(fetched) > 0 {
 		if release, err := lockClient(dir); err != nil {
@@ -369,44 +375,44 @@ func installPluginSources(o pluginPrep, dir string, cfg *clientconfig.Config, sr
 			continue
 		}
 		if storeErr != nil {
-			return fresh, pluginFail(1, "%v", storeErr)
+			return fresh, o.fail(1, "%v", storeErr)
 		}
 		files, sha, p, probs, err := pluginRead(src)
 		if err != nil {
-			return fresh, pluginFail(1, "cannot read plugin %s: %s", shown, escapeControl(err.Error()))
+			return fresh, o.fail(1, "cannot read plugin %s: %s", shown, escapeControl(err.Error()))
 		}
 		if len(probs) > 0 {
 			for _, pr := range probs {
 				fmt.Fprintln(o.Err, escapeControl(pr))
 			}
-			return fresh, pluginFail(1, "%s is not a valid plugin; nothing was installed from it", shown)
+			return fresh, o.fail(1, "%s is not a valid plugin; nothing was installed from it", shown)
 		}
 		name := p.Manifest.Name
 		release, err := lockClient(dir)
 		if err != nil {
-			return fresh, pluginFail(1, "%v", err)
+			return fresh, o.fail(1, "%v", err)
 		}
 		entry, code := func() (clientconfig.PluginEntry, int) {
 			defer release()
 			c, err := loadConfigForWrite(dir)
 			if err != nil {
-				return clientconfig.PluginEntry{}, pluginFail(1, "%v", err)
+				return clientconfig.PluginEntry{}, o.fail(1, "%v", err)
 			}
 			if cur, had := c.Plugin(name); had {
 				if cur.Source != recorded {
-					return cur, pluginFail(2, "%s is installed from %s: run `cartographer plugin remove %s` first", escapeControl(name), escapeControl(gitx.RedactRemoteURL(cur.Source)), escapeControl(name))
+					return cur, o.fail(2, "%s is installed from %s: run `cartographer plugin remove %s` first", escapeControl(name), escapeControl(gitx.RedactRemoteURL(cur.Source)), escapeControl(name))
 				}
 				return cur, -1 // configured meanwhile from the same source
 			}
 			if err := store.Put(name, files, p.Digest, pluginOpts()); err != nil {
-				return clientconfig.PluginEntry{}, pluginFail(1, "%v", err)
+				return clientconfig.PluginEntry{}, o.fail(1, "%v", err)
 			}
 			e := clientconfig.PluginEntry{Source: recorded, Ref: src.Ref, SHA: sha, Version: p.Manifest.Version, Installed: p.Digest, Enabled: true}
 			if err := c.SetPlugin(name, e); err != nil {
-				return e, pluginFail(1, "%v", err)
+				return e, o.fail(1, "%v", err)
 			}
 			if err := clientconfig.Save(dir, c); err != nil {
-				return e, pluginFail(1, "%v", err)
+				return e, o.fail(1, "%v", err)
 			}
 			*changed = true
 			cfg = c
@@ -444,7 +450,7 @@ func pluginsFromSource(cfg *clientconfig.Config, recorded string) []string {
 func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, changed *bool) int {
 	cfg, err := loadConfigForWrite(dir)
 	if err != nil {
-		return pluginFail(1, "%v", err)
+		return o.fail(1, "%v", err)
 	}
 	var yes []installedNow
 	for _, f := range fresh {
@@ -469,15 +475,15 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 	}
 	store, err := pluginStoreFn()
 	if err != nil {
-		return pluginFail(1, "%v", err)
+		return o.fail(1, "%v", err)
 	}
 	release, err := lockClient(dir)
 	if err != nil {
-		return pluginFail(1, "%v", err)
+		return o.fail(1, "%v", err)
 	}
 	defer release()
 	if cfg, err = loadConfigForWrite(dir); err != nil {
-		return pluginFail(1, "%v", err)
+		return o.fail(1, "%v", err)
 	}
 	// Still the tree the user was shown, else nothing is approved for it.
 	var todo []installedNow
@@ -505,7 +511,7 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 			cur, _ := cfg.Plugin(f.name)
 			cur.Approved = f.p.Digest
 			if err := cfg.SetPlugin(f.name, cur); err != nil {
-				return pluginFail(1, "%v", err)
+				return o.fail(1, "%v", err)
 			}
 			fmt.Fprintf(&report, "Enabled %s %s\n", escapeControl(f.name), escapeControl(f.p.Manifest.Version))
 		}
@@ -514,7 +520,7 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 				cur, _ := cfg.Plugin(f.name)
 				cur.Approved, cur.Enabled = f.p.Digest, false
 				if err := cfg.SetPlugin(f.name, cur); err != nil {
-					return pluginFail(1, "%v", err)
+					return o.fail(1, "%v", err)
 				}
 				fmt.Fprintf(&report, "Approved %s %s but did not enable it:\n", escapeControl(f.name), escapeControl(f.p.Manifest.Version))
 				for _, u := range unmetDepends(cfg, store, f.name, f.p) {
@@ -527,7 +533,7 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 		todo = next
 	}
 	if err := clientconfig.Save(dir, cfg); err != nil {
-		return pluginFail(1, "%v", err)
+		return o.fail(1, "%v", err)
 	}
 	*changed = true
 	fmt.Fprint(o.Out, report.String())

@@ -98,7 +98,8 @@ func TestPreparePluginsAsksOnATerminal(t *testing.T) {
 		dir := writePlugin(t, "team-"+strings.TrimSpace(answer), nil)
 		code, out, _ := prep(t, pluginPrep{Sources: []string{dir}, Ask: true})
 		os.Stdin = old
-		if code != 0 || !strings.Contains(out, "Enable team-") {
+		// The question itself goes to the terminal, not to the run's writer.
+		if code != 0 || !strings.Contains(out, "skill \"helper\"") {
 			t.Fatalf("%q: exit %d\n%s", answer, code, out)
 		}
 		if e := loadEntry(t, home, "team-"+strings.TrimSpace(answer)); (e.Approved != "") != approved {
@@ -279,6 +280,7 @@ func TestRunSetupPluginPendingBlocksNothing(t *testing.T) {
 func TestRunSetupDryRunNamesThePluginsAndWritesNothing(t *testing.T) {
 	calls := stubSetup(t, setupFacts{})
 	home := pluginFixture(t)
+	setupDetected = func() []string { return nil }
 	var code int
 	out := withStdout(t, func() {
 		code = runSetup(setupOptions{Remote: "git@h:me/wiki.git", Plugins: []string{providerPlugin(t, "team-forks")}}, false, true, true, setupPrompter{in: bufio.NewReader(strings.NewReader("")), out: os.Stdout})
