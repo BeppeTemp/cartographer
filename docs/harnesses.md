@@ -287,14 +287,15 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
   - `skill` in `~/.kiro/skills/` (project `.kiro/skills/`), `mcp` in
     `~/.kiro/settings/mcp.json`, `instructions` in `~/.kiro/steering/cartographer.md`.
   - session transcripts, read by the usage scan (D326): `~/.kiro/sessions/**/*.jsonl`.
-    When the model activates a skill it reads its `SKILL.md` with the built-in
-    file-read tool, recorded as `kind.BuiltIn.FileRead.operations[].path`; a shell
-    record carries the path in its command. The scan reads only the `kind` object. The
-    record shape is pinned by `internal/provisioning/testdata/usage/kiro-session.jsonl`
-    (home replaced by `$HOME`). It was observed on the operator's machine on
-    2026-10-05; **the Kiro version was not recorded then, so none is declared here**:
-    re-probe on a machine with Kiro, read the shape off a real record, and write the
-    version on this line.
+    Two shapes, tool records only. **V3** (the default engine since 3.0.0, observed on
+    3.0.0): `<hash>/sess_<id>/messages.jsonl`, the record's content under `payload`; a
+    `payload.type == "tool_call"` with `toolName` `disclose_context` (a skill activation,
+    `_meta.kiro.disclosedContext.uri` is the `file://` URL of its `SKILL.md`),
+    `read_file` (`args.path`) or `execute_bash` (`args.command`). **V2** (<= 2.x): a
+    top-level `kind` object, `kind.BuiltIn.FileRead.operations[].path` or a shell
+    command; the Kiro version it was observed on was not recorded. Fixtures (home
+    replaced by `$HOME`): `internal/provisioning/testdata/usage/kiro-v3-session.jsonl`
+    and `kiro-session.jsonl`.
 - **Watch items**:
   - the default `kiro-cli chat` starts firing standalone hooks (its KAS log shows
     `v2 hooks cache initialized`; on 3.0.0 the KAS logs load `cartographer.json` in every V3 session, but
