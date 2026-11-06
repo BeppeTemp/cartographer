@@ -343,7 +343,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			return syncResult{}, err
 		}
 		authorWarnings := setEntryAuthors(cfg, entriesByProvider, globalIdentFn)
-		_, warnings, err := applyMCPEntries(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
+		_, warnings, refusedMCP, err := applyMCPEntriesRefusals(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
 		}
@@ -364,7 +364,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			fmt.Fprintf(errw, "warning: %s\n", w)
 		}
 		printMCPEntryRemovals(out, targets, removedNames, allEntryNames(entriesByProvider), opts.DryRun)
-		writtenEntries := changedMCPEntries(targets, entriesByProvider, beforeSnap, dir, claudeDirs, cfg.Auth, cfg.TokenEnv())
+		// A refused provider's entry was not written: not announced (#1693).
+		writtenTargets := slices.DeleteFunc(slices.Clone(targets), func(p string) bool { return slices.Contains(refusedMCP, p) })
+		writtenEntries := changedMCPEntries(writtenTargets, entriesByProvider, beforeSnap, dir, claudeDirs, cfg.Auth, cfg.TokenEnv())
 		printMCPEntryLines(out, targets, writtenEntries, opts.DryRun)
 	}
 

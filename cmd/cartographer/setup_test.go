@@ -637,3 +637,29 @@ func TestServiceUsageNamesCron(t *testing.T) {
 		t.Errorf("usage:\n%s", sb.String())
 	}
 }
+
+// A connect step that ends with exit 3 (an agent partially or not connected,
+// #1693) is not a failed setup, but it does not announce success either.
+func TestRunSetup_ConnectExitThreeIsNotSetUp(t *testing.T) {
+	calls := stubSetup(t, setupFacts{})
+	setupConnect = func(a []string) int {
+		*calls = append(*calls, "connect")
+		connectNotWired = append(connectNotWired, "opencode (MCP entry skipped)")
+		return exitPartiallyConnected
+	}
+	var code int
+	out := withStdout(t, func() {
+		errs := withStderr(t, func() {
+			code = runSetup(setupOptions{NoRemote: true, Name: "kb-a"}, false, true, false, noPrompt())
+		})
+		if !strings.Contains(errs, "opencode (MCP entry skipped)") {
+			t.Errorf("stderr = %q, want the agent that is not wired named", errs)
+		}
+	})
+	if code != exitPartiallyConnected {
+		t.Errorf("runSetup = %d, want %d", code, exitPartiallyConnected)
+	}
+	if strings.Contains(out, "Cartographer is set up.") {
+		t.Errorf("output = %q, announces success", out)
+	}
+}

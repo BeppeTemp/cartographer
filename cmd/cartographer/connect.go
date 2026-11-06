@@ -529,8 +529,7 @@ func cmdConnect(args []string) int {
 				continue
 			}
 
-			printConnectResult(dir, providers, opts, res)
-			return 0
+			return printConnectResult(dir, providers, opts, res)
 		}
 	}
 
@@ -552,8 +551,7 @@ func cmdConnect(args []string) int {
 			}
 		}
 	}
-	printConnectResult(dir, providers, opts, res)
-	return 0
+	return printConnectResult(dir, providers, opts, res)
 }
 
 // isTransportErr reports whether err is a failure to reach the server at all
@@ -597,7 +595,10 @@ func deferralReason(err error) string {
 // apply summary or deferral warning, per-provider "connected:" lines) —
 // factored out so both the non-interactive path and the interactive retry
 // loop in cmdConnect (D64) share exactly one rendering of a successful result.
-func printConnectResult(dir string, providers []string, opts connectOptions, res connectResult) {
+// It returns the exit code: exitPartiallyConnected when a provider ended
+// partially or not connected (D148, #1693), 0 otherwise.
+func printConnectResult(dir string, providers []string, opts connectOptions, res connectResult) int {
+	code := 0
 	printMCPEntryLines(os.Stdout, providers, res.MCPEntries, opts.DryRun)
 	for _, p := range res.ConfigsWritten {
 		if opts.DryRun {
@@ -616,12 +617,12 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 		printApplySummary(os.Stdout, dir, res.Applied, opts.DryRun)
 	}
 
-	for _, p := range providers {
-		if opts.DryRun {
+	if opts.DryRun {
+		for _, p := range providers {
 			fmt.Printf("[dry-run] would connect: %s\n", p)
-			continue
 		}
-		fmt.Printf("connected: %s\n", p)
+	} else {
+		code = printProviderStatuses(os.Stdout, providers, res.Skipped)
 	}
 	if !opts.DryRun {
 		fmt.Printf("restart the %s sessions to load the MCP tools\n", strings.Join(providers, ", "))
@@ -638,6 +639,7 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	if !opts.DryRun {
 		ackSessionHookLimit(dir, providers)
 	}
+	return code
 }
 
 // ackSessionHookLimit records, for every provider whose session hook fires only
@@ -867,6 +869,9 @@ type connectResult struct {
 	ConfigsWritten []string
 	MCPEntries     []string
 	Warnings       []string
+	// Skipped: per provider, the parts of its wiring the write guard refused
+	// (D148, #1693): what the status lines and the exit code report.
+	Skipped map[string][]string
 }
 
 // insecureHTTPAllowed reports whether this connect may reach a non-loopback
@@ -1070,7 +1075,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		return connectResult{}, err
 	}
 	authorWarnings := setEntryAuthors(existing, entriesByProvider, globalIdentFn)
-	configsWritten, configWarnings, err := applyMCPEntries(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun)
+	configsWritten, configWarnings, refusedMCP, err := applyMCPEntriesRefusals(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun)
 	if err != nil {
 		return connectResult{}, err
 	}
@@ -1099,14 +1104,21 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	// written on those), but still when the fetch is deferred (server down at
 	// connect time), since it is exactly what lets a later session self-heal once
 	// the server comes back.
-	hookWarnings, err := ensureBootstrapForProviders(opts.Providers, opts.Dir, opts.DryRun)
+	hookWarnings, hookRefused, err := ensureBootstrapRefusals(opts.Providers, opts.Dir, opts.DryRun)
 	if err != nil {
 		return connectResult{}, fmt.Errorf("ensure bootstrap hook: %w", err)
 	}
 	configWarnings = appendUnique(configWarnings, hookWarnings...)
 
 	// 2b. Materialize what step 2 fetched (before any write, above).
-	mcpEntries := allEntryNames(entriesByProvider)
+	// An entry whose provider's config was refused was not written: not announced.
+	written := map[string][]mcpEntry{}
+	for p, es := range entriesByProvider {
+		if !slices.Contains(refusedMCP, p) {
+			written[p] = es
+		}
+	}
+	mcpEntries := allEntryNames(written)
 	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: mcpEntries, Warnings: configWarnings}
 	if pullErr != nil {
 		res.Deferred = true
@@ -1149,6 +1161,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		}
 		res.Applied = applied
 	}
+	res.Skipped = skippedParts(refusedMCP, hookRefused, res.Applied)
 
 	// 3. Persist .cartographer.yaml.
 	existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token

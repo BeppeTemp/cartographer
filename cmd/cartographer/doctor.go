@@ -33,6 +33,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 )
 
@@ -459,12 +460,13 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 			continue
 		}
 		configPath := filepath.Join(dir, d.ConfigPath())
+		fix := mcpEntriesFix(dir, configPath)
 		declared, err := provisioning.MCPServerEntryNames(dir, provider)
 		if err != nil {
 			out = append(out, doctorFinding{
 				Check: "mcp-entries", Severity: doctorError, Path: configPath,
 				Message: fmt.Sprintf("[%s] MCP configuration cannot be read: %s", p, err),
-				Fix:     "cartographer reconnect",
+				Fix:     fix,
 			})
 			continue
 		}
@@ -481,7 +483,7 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 				out = append(out, doctorFinding{
 					Check: "mcp-entries", Severity: doctorError, Path: configPath,
 					Message: fmt.Sprintf("[%s] MCP entry %q is for a KB the server no longer mounts", p, name),
-					Fix:     "cartographer reconnect",
+					Fix:     fix,
 				})
 			}
 		}
@@ -490,12 +492,45 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 				out = append(out, doctorFinding{
 					Check: "mcp-entries", Severity: doctorError, Path: configPath,
 					Message: fmt.Sprintf("[%s] MCP entry %q is missing", p, name),
-					Fix:     "cartographer reconnect",
+					Fix:     fix,
 				})
 			}
 		}
 	}
 	return out
+}
+
+// symlinkOnPath returns the first component of path under base that the write
+// guard refuses (a symlink or anything not a plain file or directory), "" when
+// the path is clean.
+func symlinkOnPath(base, path string) string {
+	rel, err := filepath.Rel(base, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if safewrite.IsUnsafe(path) {
+			return path
+		}
+		return ""
+	}
+	cur := base
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		if safewrite.IsUnsafe(cur) {
+			return cur
+		}
+	}
+	return ""
+}
+
+// mcpEntriesFix is the fix of an mcp-entries finding. `cartographer reconnect`
+// refuses a symlinked destination (D148) exactly as connect does, so when the
+// config sits behind one the fix names the link instead of a command that
+// cannot work (#1693). Writing through a link is the opt-in of #1692, not a
+// promise made here.
+func mcpEntriesFix(dir, configPath string) string {
+	if link := symlinkOnPath(dir, configPath); link != "" {
+		return fmt.Sprintf("replace the symlink %s with a regular file or directory (connect and reconnect refuse to write through it), then run cartographer reconnect", link)
+	}
+	return "cartographer reconnect"
 }
 
 // ownsMCPEntryName reports whether an MCP server entry belongs to this client:

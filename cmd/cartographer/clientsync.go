@@ -870,22 +870,31 @@ func resolveProjectionSet(ps []syncProjection, manifests map[string]provisioning
 // naming the refused path, left out of the lockfile so the next run retries it,
 // and the loop goes on. Any other error stays fatal.
 func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bool) ([]string, error) {
+	warnings, _, err := ensureBootstrapRefusals(providers, targetDir, dryRun)
+	return warnings, err
+}
+
+// ensureBootstrapRefusals is ensureBootstrapForProviders that also names, per
+// provider, the hooks the guard refused (#1693), for the connect summary.
+func ensureBootstrapRefusals(providers []string, targetDir string, dryRun bool) ([]string, map[string][]string, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
-		return nil, fmt.Errorf("read lockfile: %w", err)
+		return nil, nil, fmt.Errorf("read lockfile: %w", err)
 	}
 
 	var warnings []string
+	refused := map[string][]string{}
 	for _, p := range providers {
 		lock := lockFile.ForProvider(p)
 		newLock, err := provisioning.EnsureBootstrapHook(targetDir, configurator.Provider(p), lock, dryRun)
 		if provisioning.IsRefusal(err) {
 			warnings = append(warnings, fmt.Sprintf("%s: bootstrap hook not installed: %v", p, err))
+			refused[p] = append(refused[p], partBootstrapHook)
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
+			return nil, nil, fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
 		}
 		withFindings, note, err := provisioning.EnsureWriteFindingsHookNote(targetDir, configurator.Provider(p), newLock, true, dryRun)
 		if note != "" {
@@ -893,8 +902,9 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 		}
 		if provisioning.IsRefusal(err) {
 			warnings = append(warnings, fmt.Sprintf("%s: write-findings hook not installed: %v", p, err))
+			refused[p] = append(refused[p], partFindingsHook)
 		} else if err != nil {
-			return nil, fmt.Errorf("ensure write-findings hook (%s): %w", p, err)
+			return nil, nil, fmt.Errorf("ensure write-findings hook (%s): %w", p, err)
 		} else {
 			newLock = withFindings
 		}
@@ -903,10 +913,10 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 
 	if !dryRun {
 		if err := provisioning.WriteLockFile(lockPath, lockFile); err != nil {
-			return nil, fmt.Errorf("write lockfile: %w", err)
+			return nil, nil, fmt.Errorf("write lockfile: %w", err)
 		}
 	}
-	return warnings, nil
+	return warnings, refused, nil
 }
 
 // printApplySummary prints a one-line-per-file summary of a materialization pass.
@@ -1014,7 +1024,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		}
 		// A refusal is not one warning among others: the artifact is not
 		// installed, and only the operator can clear the condition (D148).
-		for _, rf := range r.Refused {
+		for _, rf := range append(slices.Clone(r.Refused), r.RefusedRemovals...) {
 			fmt.Fprintf(wr, "[%s] %s: %s/%s [%s] — its destination is a symlink, so the write would land outside the client\n",
 				p, verb("refused", "would refuse"), rf.Kind, rf.Name, rf.Source)
 		}

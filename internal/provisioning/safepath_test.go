@@ -97,3 +97,18 @@ func TestWriteFileNoFollow(t *testing.T) {
 		}
 	})
 }
+
+// A refused removal is recorded apart from Refused (a refused write), once per
+// artifact: only a refused write leaves a provider unwired (#1693).
+func TestRefusePrune_RecordsARemovalNotAWrite(t *testing.T) {
+	var res AppliedResult
+	mf := ManagedFile{Kind: "skill", Name: "old", Source: "kb-a"}
+	refusePrune(&res, mf, ErrSymlinkDestination)
+	refusePrune(&res, mf, ErrSymlinkDestination)
+	if len(res.Refused) != 0 {
+		t.Errorf("Refused = %v, want none", res.Refused)
+	}
+	if len(res.RefusedRemovals) != 1 || res.RefusedRemovals[0].Name != "old" {
+		t.Errorf("RefusedRemovals = %v, want old once", res.RefusedRemovals)
+	}
+}
