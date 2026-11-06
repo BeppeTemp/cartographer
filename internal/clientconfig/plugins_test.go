@@ -117,3 +117,39 @@ func TestHiddenKeyIsNotRendered(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadPluginsReadsOnlyThePluginsKey(t *testing.T) {
+	dir := t.TempDir()
+	if got, err := LoadPlugins(dir); err != nil || got != nil {
+		t.Errorf("no file: %v %v", got, err)
+	}
+	doc := "agents: [ghost-client]\nclients:\n  ghost-client: {kbs: []}\nplugins:\n  team-forks:\n    source: /tmp/x\n    enabled: true\n    approved: " + strings.Repeat("a", 64) + "\n    installed: " + strings.Repeat("a", 64) + "\n"
+	if err := os.WriteFile(Path(dir), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadPlugins(dir)
+	if err != nil || !got["team-forks"].Enabled || got["team-forks"].Approved == "" {
+		t.Errorf("LoadPlugins: %+v %v", got, err)
+	}
+}
+
+// With plugins configured and no registration run, nothing is dropped; a
+// complete registration restores the clean-up of names nobody knows (D898).
+func TestUnknownProvidersAreKeptWhileThePluginProvidersAreIncomplete(t *testing.T) {
+	dir := t.TempDir()
+	doc := "clients:\n  ghost-client: {kbs: []}\nplugins:\n  team-forks:\n    source: /tmp/x\n    enabled: true\n"
+	if err := os.WriteFile(Path(dir), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := PluginProvidersComplete
+	t.Cleanup(func() { PluginProvidersComplete = old })
+	cfg, err := Load(dir)
+	if err != nil || len(cfg.Clients) != 1 || len(cfg.Unsupported) != 0 {
+		t.Fatalf("default: %v clients %v unsupported %v", err, cfg.Clients, cfg.Unsupported)
+	}
+	PluginProvidersComplete = func(map[string]PluginEntry) bool { return true }
+	cfg, err = Load(dir)
+	if err != nil || len(cfg.Clients) != 0 || len(cfg.Unsupported) != 1 {
+		t.Fatalf("complete: %v clients %v unsupported %v", err, cfg.Clients, cfg.Unsupported)
+	}
+}

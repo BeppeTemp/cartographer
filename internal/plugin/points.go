@@ -40,6 +40,10 @@ type Contribution struct {
 	// Command, Event and Requires are what a hook declares in hook.json.
 	Command, Event string
 	Requires       []string
+	// Provider is the parsed descriptor of a providers/<id>.yaml; nil for every
+	// other kind. A provider is registered with the registries, never installed
+	// as an artifact.
+	Provider *ProviderSpec
 }
 
 // Point is a place of the plugin tree that contributes something.
@@ -86,6 +90,7 @@ func init() {
 	Register(Point{Dir: "skills", Side: SideClient, Load: loadSkills, Preview: previewArtifact})
 	Register(Point{Dir: "agents", Side: SideClient, Load: loadAgents, Preview: previewArtifact})
 	Register(Point{Dir: "hooks", Side: SideClient, Load: loadHooks, Preview: previewArtifact, Executable: true})
+	Register(Point{Dir: "providers", Side: SideClient, Load: loadProviders, Preview: previewProvider})
 }
 
 func previewArtifact(w io.Writer, c Contribution) {

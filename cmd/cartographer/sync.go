@@ -217,6 +217,13 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// Under the lock and before any pull, whose candidate set carries the
 	// plugins: the trees fetched above are stored (never approved).
 	storeFetchedPlugins(opts.Streams, cfg, fetchedPlugins)
+	// A disabled plugin's providers are retired here, before the targets are
+	// used; --client leaves every other provider untouched.
+	if len(opts.Clients) == 0 {
+		if targets = retirePluginProviders(opts.Streams, dir, cfg, targets, opts.DryRun); len(targets) == 0 {
+			return syncResult{}, nil
+		}
+	}
 
 	// A plan restricted to some providers must say so: read without the
 	// command line that produced it, a partial plan looks like a complete one

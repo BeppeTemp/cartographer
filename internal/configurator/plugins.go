@@ -118,6 +118,14 @@ func ReplacePlugins(specs []PluginSpec) (refused []string, err error) {
 	return refused, nil
 }
 
+// CheckPlugin reports whether RegisterPlugin would accept spec on its own
+// (the dry run of `plugin validate`); it registers nothing and does not look at
+// the providers already registered.
+func CheckPlugin(spec PluginSpec) error {
+	_, err := buildPlugin(spec)
+	return err
+}
+
 func buildPlugin(spec PluginSpec) (pluginEntry, error) {
 	name := Provider(spec.Name)
 	if spec.Name == "" {
