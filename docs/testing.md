@@ -715,9 +715,13 @@ of a relationship — the inspector lists every link.
   fixture (`generateSnapshot` in `web/src/test/fixtures.ts`, which carries the
   server's `pagerank`, `community` and `communities` fields), runs the
   deterministic layout and prints its timing
-  (`cd web && npx vitest run src/test/perf.test.tsx`). Communities are computed
+  (`make web-perf`). Communities are computed
   by the server (D244), so the browser spends no time on them. The
-  ceiling is 12 s: it catches a several-fold regression on any runner, not a
+  ceiling is 12 s and the test runs alone (#1744): `npm test` excludes it, and
+  `make web-perf` (`npm run test:perf`) runs it in a single worker, after
+  `make web-test` in `web-gate` and CI; `make signoff` runs it after the
+  Windows leg has finished, since a wall-clock budget measures the load of
+  anything beside it. The ceiling catches a several-fold regression on any runner, not a
   few percent. Reference measurement for 2,000 nodes / ~3,900 edges: the 3D
   warm-up (300 ticks) takes ~2.2 s on an Apple M5 and ~5.4 s on a
   GitHub-hosted runner.

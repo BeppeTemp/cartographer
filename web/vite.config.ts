@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // The UI is served from /ui/ inside the Cartographer binary, so every asset
@@ -11,6 +11,7 @@ import react from "@vitejs/plugin-react";
 // The static demo build (VITE_ATLAS_STATIC=1, demo/build.sh, D745) is served
 // from wherever the site puts it (a GitHub Pages sub-path), so its base is
 // relative; it is written to its own --outDir, never over the embedded bundle.
+const perfOnly = process.env.PERF_ONLY === "1";
 const staticDemo = process.env.VITE_ATLAS_STATIC === "1";
 
 export default defineConfig({
@@ -41,7 +42,12 @@ export default defineConfig({
     environmentOptions: { jsdom: { url: "http://localhost:39273/ui/" } },
     // Only the unit/component tests: the Playwright suite under e2e/ runs
     // against the built binary through `make e2e-web`, never under jsdom.
-    include: ["src/**/*.test.{ts,tsx}"],
+    // The wall-clock budget (src/test/perf.test.tsx) runs alone: `npm test`
+    // leaves it out, because beside vitest's other workers (or a signoff's
+    // Windows leg) its timing measured the load, not the code; `npm run
+    // test:perf` (PERF_ONLY) runs only it, in one worker.
+    include: perfOnly ? ["src/test/perf.test.tsx"] : ["src/**/*.test.{ts,tsx}"],
+    exclude: perfOnly ? [] : [...configDefaults.exclude, "src/test/perf.test.tsx"],
     setupFiles: ["./src/test/setup.ts"],
     css: true,
   },

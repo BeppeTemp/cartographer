@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run ready land land-status
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run ready land land-status
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -80,6 +80,11 @@ web: ## Build the embedded Atlas UI bundle into internal/webui/dist (needs Node,
 
 web-test: ## Run the frontend unit/component tests (needs Node)
 	@cd web && $(NPM_CI) npm test
+
+# The wall-clock budget of the 2,000-node fixture, alone: one worker, nothing else
+# running (#1744). `make signoff` runs it after the Windows leg has finished.
+web-perf: ## Run the frontend wall-clock budget test alone, in one worker (needs Node)
+	@cd web && $(NPM_CI) npm run test:perf
 
 # A clean locked build from the committed lockfile, plus one check on the
 # provenance manifest. It deliberately does NOT diff the rest of the bundle:
@@ -265,6 +270,7 @@ web-gate: ## Frontend checks and the browser suite as CI's web legs run them (ne
 	cd web && npm ci --silent && npx playwright install chromium
 	$(MAKE) web-check NPM_CI=
 	$(MAKE) web-test NPM_CI=
+	$(if $(SIGNOFF_DEFER_PERF),@echo "web-gate: web-perf deferred to the caller (after the Windows leg)",$(MAKE) web-perf NPM_CI=)
 	$(MAKE) e2e-web NPM_CI=
 
 # One decision is one file under docs/decisions/, and the index in

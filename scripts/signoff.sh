@@ -68,6 +68,10 @@ git fetch -q "$remote" main || die "cannot fetch $remote main (the merge-base mu
 web=$(git diff --name-only "$remote"/main...HEAD | "$here/ci-filters.sh" "$branch" | sed -n 's/^web=//p')
 targets=$TARGETS
 [ "$web" != true ] || targets="$targets $WEB_TARGET"
+# The wall-clock budget of the web tests must not share the machine with the Windows
+# leg (#1744): web-gate leaves it out and it runs after that leg has finished (step 4).
+defer=
+[ "$web" != true ] || [ -z "${SIGNOFF_WINDOWS:-}" ] || defer="SIGNOFF_DEFER_PERF=1"
 win_pkgs=
 if [ -n "${SIGNOFF_WINDOWS:-}" ]; then
   # Two steps, each status checked: a pipe into tr would hide a failure as an empty list.
@@ -150,7 +154,7 @@ fi
 trap '[ -z "$win_pid" ] || { pkill -TERM -P "$win_pid" 2>/dev/null; kill "$win_pid" 2>/dev/null; } || true; [ -z "$win_log" ] || rm -f "$win_log" "$win_log.end"' EXIT
 rc=0
 # shellcheck disable=SC2086  # the targets are a word list on purpose
-"${mk[@]}" $targets || rc=$?
+"${mk[@]}" $targets $defer || rc=$?
 secs=$(( $(date +%s) - start ))
 [ "$rc" != 75 ] || hosted
 [ "$rc" = 0 ] || die "make $targets failed (exit $rc): nothing pushed, nothing posted"
@@ -166,6 +170,12 @@ if [ -n "$win_pid" ]; then
     75) windows="windows unavailable"; echo "signoff: warning: the Windows machine is unavailable, leg skipped" >&2 ;;
     *) tail -n 40 "$win_log" >&2; die "the Windows leg failed (exit $wrc): nothing pushed, nothing posted" ;;
   esac
+fi
+
+# The deferred web budget test, now that nothing else is running.
+if [ -n "$defer" ]; then
+  echo "signoff: web-perf, alone" >&2
+  "${mk[@]}" web-perf NPM_CI= || die "make web-perf failed: nothing pushed, nothing posted"
 fi
 
 # 5. Still the same commit (the tree may differ: a web build rewrites tracked bundle files).
