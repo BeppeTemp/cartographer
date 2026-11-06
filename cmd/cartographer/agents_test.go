@@ -101,3 +101,21 @@ func TestWriteAgentsTable_NamesTheHeuristicNextToTheEvidence(t *testing.T) {
 		}
 	}
 }
+
+// A provider a plugin declares is labelled with the plugin and the client it forks.
+func TestWriteAgentsTable_LabelsAPluginProvider(t *testing.T) {
+	detected := []agents.Agent{
+		{Provider: configurator.Provider("claude"), Installed: true, Evidence: "/bin/claude", DetectedBy: agents.HeuristicBinary},
+		{Provider: configurator.Provider("fork-cli"), Plugin: "team", Base: configurator.ProviderCrush},
+	}
+	var buf bytes.Buffer
+	writeAgentsTable(&buf, detected, nil)
+	if !strings.Contains(buf.String(), "fork-cli (plugin team, base crush)") {
+		t.Fatalf("no label in:\n%s", buf.String())
+	}
+	label := "fork-cli (plugin team, base crush)"
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if !strings.HasPrefix(lines[2], label+" ") || strings.Index(lines[0], "INSTALLED") != len(label)+1 {
+		t.Fatalf("the label does not widen the column:\n%s", buf.String())
+	}
+}

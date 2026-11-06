@@ -198,3 +198,78 @@ an `active` one contributes its skills, agents and hooks with their files in mem
 - **Authorization.** A plugin artifact installs only while its plugin is in `ApplyOptions.ActivePlugins`, which a
   projection derives from the plugin artifacts in its own manifest (see `sync.md`); `D1732` holds the
   reasoning.
+
+## Providers
+
+A `providers/<id>.yaml` describes an agent client as data: a fork or an in-house build of a built-in client. `<id>` is
+the provider id and the file stem. The descriptor is read by `plugin.ParseProvider` and resolved for the running
+machine by `plugin.ResolveProvider`; the registry (`configurator.RegisterPlugin`) holds the result beside the
+built-in providers. Nothing in a plugin tree is read as a provider: the point is not in the registry of
+contribution points, so a `providers/` folder is an unknown entry of the tree.
+
+### Descriptor
+
+Strict like the manifest: the artifact file cap, no YAML alias, one document, an unknown key is an error, and every
+problem is listed as `path: reason`, sorted. `seed` and `allow_call` are not keys.
+
+| Key | Rule |
+|---|---|
+| `schema` | `1`. |
+| `name` | Equal to the file stem, `^[a-z][a-z0-9-]{1,30}$`, not `all`, not a built-in provider id. A second provider of the same plugin with the same name is reported by `plugin.ProviderNameClashes`. |
+| `display_name` | One line of printable characters, at most 40. |
+| `base` | A built-in provider id: the formats and emitters the provider shares. |
+| `detect` | `binaries` (bare names, at most 16, no `/`, `\` or leading `-`) and `dirs` per OS (at most 16 each); at least one binary or dir. |
+| `paths.global`, `paths.project` | Cells `skill` (`dir`), `agent` (`dir`, `format` one of `claude`, `opencode`, `antigravity`, `copilot`, `cline`, default `claude`), `instructions` (`file`, a `.md` file, the extension of every built-in provider's instructions file); the global scope adds `hook` (`dir`, `scan: base`). The project scope takes no `hook` and no MCP cell. |
+| `capabilities` | Map of capability id to `verified`, `unverified` or `absent`, at most 64. |
+| `mcp.mode` | `native` (default), `cli` or `none`. |
+| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the client derives from it and regenerates. Both take the base's extension, are refused with `cli` or `none`, and take no `{documents}`. |
+| `invoke_hint` | Optional, one line, at most 200. |
+
+A value is per OS (`darwin`, `linux`, `windows`, `default`, each key once) or one value for all. A global path starts with an anchor
+`{home}/`, `{xdg_config}/`, `{app_data}/`, `{local_app_data}/` or `{documents}/`; a project path is relative and
+takes none. A segment is not empty, `.` or `..`, does not end in a dot or a space, is not a Windows device name,
+does not start with `~` and holds none of `\ : ? [ ]` or a control character. A `*` is allowed in `detect.dirs`,
+`mcp.config` and `mcp.stale` only: in one segment, never the first, as `*` or `prefix*`, and never in the file name
+of an MCP path. No segment of any path reaches Cartographer's own state, by the rule of the manifest globs
+(`reachesOwnState`): the client config file, the `cartographer` config, state and cache directories, by name or through
+a wildcard.
+
+### The `{documents}` anchor
+
+`{documents}` is the Documents folder as Cline resolves it for its hooks (`safewrite.DocumentsDir`: the known folder
+on Windows, a redirected one followed, `$HOME/Documents` elsewhere). Cline's own dispatchers and the anchor share
+that one function. Only `detect.dirs` takes the anchor: Cline's dispatcher is the one file Cartographer writes in the
+Documents folder, so a skill, agent, hook, instructions, `mcp.config` or `mcp.stale` path under it is refused.
+
+### Resolving
+
+`ResolveProvider(spec, env)` picks the values of the running OS and expands the anchors. A path that cannot be
+used is left out with a reason and the rest still resolves: an anchor variable that is unset or that points outside
+the home directory, `{app_data}` and its kin off Windows, a path whose walk from its root meets a link
+(`safewrite.CheckPath`); a path with a `*` is checked up to the segment before the first one. Every path is rooted at
+the home directory (a project path at the project root). A detect dir under `{documents}` is kept only when the
+folder lies below home, and a link is not looked for in a detect dir, which is only read. A home that
+holds `[` or `*` is a literal path. `Paths(home)` lists the destinations of the machine, one line per cell, for the
+install preview.
+
+### Registry
+
+`configurator.RegisterPlugin` and `ReplacePlugins` register a provider beside the built-ins and never inside their
+lists: `Providers`, `ProviderList`, `DetectionOrder` and `EmitAll` stay built-in, `Lookup` falls back to the
+registered ones after the built-ins, and `AllProviders` lists both. A name that is a built-in or already registered,
+a base that is not a built-in, an MCP mode other than `native`, `cli` or `none`, a file with `cli` or `none`, and an
+MCP file whose extension disagrees with the base's format are refused. Each entry carries the plugin that declares
+it (`Origin`) and `Active`.
+
+`ReplacePlugins` swaps the whole set in one step. A provider name declared by two or more plugins is refused for every
+claimant, as `DropPluginCollisions` does for artifacts, and returned (sorted) for the caller to report; every other
+provider of those plugins and of the rest still registers. An invalid spec fails the whole call and changes nothing.
+
+An MCP file with a `*` segment (a version folder) is a pattern, carried in `Descriptor.MCPConfigGlob`.
+`MCPConfigPath`, which callers join onto the home directory literally, stays empty for it, so such a provider has no
+literal path and its entry is not emitted.
+
+Agent detection lists the registered providers after the built-ins, by the same probes (binaries, then directories,
+one segment of a directory may be a pattern); a binary is probed as the base's, since a name alone is no more
+evidence for a fork than for its base. A provider that is not `Active` is listed and never reported installed, and
+stays resolvable. `cartographer agents` labels such a row `<id> (plugin <name>, base <base>)`.

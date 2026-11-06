@@ -227,7 +227,12 @@ PROVIDER   INSTALLED  CONNECTED  DETECTION   EVIDENCE
 claude     yes        no         config-dir  /Users/u/.claude
 codex      yes        yes        binary      /opt/homebrew/bin/codex
 kiro       no         no         -           -
+fork-cli (plugin team, base crush)  yes  no  binary  /usr/local/bin/fork-cli
 ```
+
+A provider a plugin declares (`providers/<id>.yaml`, [plugins.md §Providers](plugins.md#providers)) is listed after
+the built-ins, its PROVIDER cell labelled `<id> (plugin <name>, base <base>)`. It is probed as its base is (a binary
+is looked up under the base's name) and one whose plugin is not active is never reported installed.
 
 The distinction the column carries is the one `INSTALLED` cannot: `binary` is a client that is
 on the machine now, while `config-dir`, `env-config-dir` and `app-dir` are
