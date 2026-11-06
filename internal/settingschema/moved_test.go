@@ -165,3 +165,49 @@ func TestMovedFillsABareDestinationKey(t *testing.T) {
 		t.Errorf("output:\n%s", out)
 	}
 }
+
+// A "*" segment moves every key the document holds there, to the same key in the
+// destination; an Except key is left to another move, and a key with a dot or a
+// "*" in it moves like any other, addressed literally.
+func TestMovedWildcard(t *testing.T) {
+	reg := Registry{Moved: []Moved{
+		{From: "mode.fallback", To: "defaults.mode"},
+		{From: "mode.*", To: "items.*.mode", Except: []string{"fallback"}},
+		{From: "tags.*", To: "items.*.tags"},
+	}}
+	in := "mode:\n  fallback: slow\n  a: fast\n  b: slow\n  \"c.d\": x\n  \"*\": y\ntags:\n  a: [t1]\n"
+	out, rep, err := movedSchema.Realign([]byte(in), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := decodeMap(t, string(out))
+	items := m["items"].(map[string]any)
+	if items["a"].(map[string]any)["mode"] != "fast" || items["b"].(map[string]any)["mode"] != "slow" {
+		t.Errorf("items = %v\n%s", items, out)
+	}
+	if tags := items["a"].(map[string]any)["tags"].([]any); len(tags) != 1 || tags[0] != "t1" {
+		t.Errorf("tags = %v", tags)
+	}
+	if m["defaults"].(map[string]any)["mode"] != "slow" {
+		t.Errorf("fallback not moved:\n%s", out)
+	}
+	if items["c.d"].(map[string]any)["mode"] != "x" || items["*"].(map[string]any)["mode"] != "y" {
+		t.Errorf("a dotted or star key did not move: %v\n%s", items, out)
+	}
+	if _, ok := m["mode"]; ok {
+		t.Errorf("mode is still at the root\n%s", out)
+	}
+	if again, _, err := movedSchema.Realign(out, reg); err != nil || string(again) != string(out) {
+		t.Errorf("a second realignment changed the file (err %v):\n%s", err, again)
+	}
+	if _, ok := m["tags"]; ok {
+		t.Errorf("tags is still at the root\n%s", out)
+	}
+	if len(rep.Changes) != 6 {
+		t.Errorf("changes = %v", rep.Lines())
+	}
+	// Set at both places with different values: refused, as for a plain move.
+	if c := reg.MovedConflicts([]byte("mode:\n  a: fast\nitems:\n  a:\n    mode: slow\n")); len(c) != 1 || !strings.Contains(c[0], "mode.a and items.a.mode") {
+		t.Errorf("conflicts = %v", c)
+	}
+}

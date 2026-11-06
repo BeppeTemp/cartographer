@@ -225,7 +225,7 @@ func TestWorkspaceResolveGolden(t *testing.T) {
 	other := t.TempDir()
 	got = renderWorkspaceResolve(cfg, other, []string{"claude"})
 	if !strings.Contains(got, "unbound: the provider's default set (every KB)") || !strings.Contains(got, "MCP roots") ||
-		!strings.Contains(got, "  access: read-only (default)\n") || !strings.Contains(got, "set `unbound_access` to write") {
+		!strings.Contains(got, "  access: read-only (default)\n") || !strings.Contains(got, "set `defaults.unbound_access` to write") {
 		t.Fatalf("unbound output:\n%s", got)
 	}
 	if strings.Contains(renderWorkspaceResolve(cfg, repo, []string{"claude"}), "access:") {
@@ -235,12 +235,12 @@ func TestWorkspaceResolveGolden(t *testing.T) {
 	// #1356: the setting, by origin.
 	cfg.UnboundModes = map[string]string{"default": "write", "claude": "read"}
 	got = renderWorkspaceResolve(cfg, other, []string{"claude"})
-	if !strings.Contains(got, "  access: read-only (unbound_access)\n") {
+	if !strings.Contains(got, "  access: read-only (providers.claude.unbound_access)\n") {
 		t.Fatalf("explicit read output:\n%s", got)
 	}
 	delete(cfg.UnboundModes, "claude")
 	got = renderWorkspaceResolve(cfg, other, []string{"claude"})
-	if !strings.Contains(got, "  access: read-write (unbound_access)\n") || !strings.Contains(got, "no KB artifact here; bind the folder for the KB's skills and agents") {
+	if !strings.Contains(got, "  access: read-write (defaults.unbound_access)\n") || !strings.Contains(got, "no KB artifact here; bind the folder for the KB's skills and agents") {
 		t.Fatalf("write output:\n%s", got)
 	}
 

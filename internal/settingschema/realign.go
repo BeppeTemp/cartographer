@@ -735,7 +735,7 @@ func (r Registry) retiredPaths() map[string]bool {
 		}
 	}
 	for _, e := range r.Moved {
-		out[e.From] = true
+		out[strings.TrimSuffix(e.From, ".*")] = true
 	}
 	return out
 }

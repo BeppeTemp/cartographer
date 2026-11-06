@@ -303,7 +303,7 @@ func hasConnectedAgent(rows []dashboardAgent) bool {
 // binding, and none for a provider bound to no KB. loaded may be nil (no client
 // config): the legacy shape is then assumed.
 //
-// A Claude entry written to the config_dirs of clients.claude is not looked for
+// A Claude entry written to the config_dirs of providers.claude is not looked for
 // there: the check reads the file under dir only.
 func mcpConfigStatusFor(dir string, provider configurator.Provider, loaded *clientconfig.Config, serverName string, mounted, bound []string) mcpConfigState {
 	if loaded == nil {

@@ -287,18 +287,14 @@ func (b ClientBinding) MarshalYAML() (interface{}, error) {
 // machine-written lists (agents, sync_timer_opt_out) live in the state file
 // (D747, D906) and are read from the YAML solely through legacyCaches.
 type yamlConfig struct {
-	Server       serverGroup                   `yaml:"server"`
-	Clients      map[string]ClientBinding      `yaml:"clients,omitempty"`
-	Scopes       map[string]string             `yaml:"scopes,omitempty"`
-	UnboundModes map[string]string             `yaml:"unbound_access,omitempty"`
-	KBOptions    map[string]KBOption           `yaml:"kb_options,omitempty"`
-	Plugins      map[string]PluginEntry        `yaml:"plugins,omitempty"`
-	Workspaces   map[string][]WorkspaceBinding `yaml:"workspaces,omitempty"`
-	Placeholders placeholderGroup              `yaml:"placeholders,omitempty"`
-	SigningKeys  map[string][]string           `yaml:"signing_keys,omitempty"`
-	Identities   map[string]string             `yaml:"identities,omitempty"`
-	UpdateCheck  *bool                         `yaml:"update_check,omitempty"`
-	UsageScan    *bool                         `yaml:"usage_scan,omitempty"`
+	Server         serverGroup              `yaml:"server"`
+	Defaults       defaultsGroup            `yaml:"defaults,omitempty"`
+	Providers      map[string]providerEntry `yaml:"providers,omitempty"`
+	KnowledgeBases map[string]kbEntry       `yaml:"knowledge_bases,omitempty"`
+	Placeholders   placeholderGroup         `yaml:"placeholders,omitempty"`
+	Plugins        map[string]PluginEntry   `yaml:"plugins,omitempty"`
+	UpdateCheck    *bool                    `yaml:"update_check,omitempty"`
+	UsageScan      *bool                    `yaml:"usage_scan,omitempty"`
 
 	// ApprovalsMigrated stays here after the migration, as a tombstone: an older
 	// client then finds the marker set and never re-approves what is installed
@@ -335,6 +331,16 @@ type flatLayout struct {
 	SearchRoots       []string          `yaml:"search_roots"`
 	Paths             map[string]string `yaml:"paths"`
 	IgnoredPaths      []string          `yaml:"ignored_paths"`
+
+	// The per-provider and per-KB maps, which providers:, knowledge_bases: and
+	// defaults: replaced.
+	Clients      map[string]ClientBinding      `yaml:"clients"`
+	Scopes       map[string]string             `yaml:"scopes"`
+	UnboundModes map[string]string             `yaml:"unbound_access"`
+	KBOptions    map[string]KBOption           `yaml:"kb_options"`
+	Workspaces   map[string][]WorkspaceBinding `yaml:"workspaces"`
+	SigningKeys  map[string][]string           `yaml:"signing_keys"`
+	Identities   map[string]string             `yaml:"identities"`
 }
 
 // readFlat fills what the grouped layout does not set from the flat keys.
@@ -539,7 +545,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &flat); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse %s: %w", Path(dir), err)
 	}
-	for provider, b := range y.Clients {
+	for provider, b := range flat.Clients {
 		if len(b.ConfigDirs) > 0 && provider != "claude" {
 			return nil, fmt.Errorf("clientconfig: %s: clients.%s.config_dirs is only valid under clients.claude", Path(dir), provider)
 		}
@@ -574,21 +580,24 @@ func Load(dir string) (*Config, error) {
 		ServerName:        y.Server.Name,
 		Auth:              y.Server.Auth,
 		Token:             y.Server.Token,
-		Clients:           y.Clients,
-		Scopes:            y.Scopes,
-		UnboundModes:      y.UnboundModes,
-		KBOptions:         y.KBOptions,
+		Clients:           flat.Clients,
+		Scopes:            flat.Scopes,
+		UnboundModes:      flat.UnboundModes,
+		KBOptions:         flat.KBOptions,
+		Workspaces:        flat.Workspaces,
 		Plugins:           y.Plugins,
-		Workspaces:        y.Workspaces,
 		AllowInsecureHTTP: y.Server.AllowInsecureHTTP,
 		UsageScan:         true, // absent `usage_scan` key defaults to true
 
 		SearchRoots:  y.Placeholders.SearchRoots,
 		Paths:        y.Placeholders.Paths,
 		IgnoredPaths: y.Placeholders.Ignored,
-		SigningKeys:  y.SigningKeys,
-		Identities:   y.Identities,
+		SigningKeys:  flat.SigningKeys,
+		Identities:   flat.Identities,
 		Extra:        extra,
+	}
+	if err := cfg.applyGroups(&y, Path(dir)); err != nil {
+		return nil, err
 	}
 	// token_env (removed, D906) is honoured as the token it became until the
 	// file is realigned, so a read-only file does not lose its credentials.
@@ -735,18 +744,12 @@ func SaveWouldRewrite(dir string, cfg *Config) (bool, error) {
 func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	y := yamlConfig{
 		Server:       serverGroup{URL: cfg.ServerURL, Name: cfg.ServerName, Auth: cfg.Auth, Token: cfg.Token, AllowInsecureHTTP: cfg.AllowInsecureHTTP},
-		Clients:      cfg.Clients,
-		Scopes:       cfg.Scopes,
-		UnboundModes: cfg.UnboundModes,
-		KBOptions:    cfg.KBOptions,
-		Plugins:      cfg.Plugins,
-		Workspaces:   cfg.Workspaces,
 		Placeholders: placeholderGroup{Paths: cfg.Paths, Ignored: cfg.IgnoredPaths},
-		SigningKeys:  cfg.SigningKeys,
-		Identities:   cfg.Identities,
+		Plugins:      cfg.Plugins,
 
 		ApprovalsMigrated: cfg.ApprovalsMigrated,
 	}
+	y.Defaults, y.Providers, y.KnowledgeBases = cfg.groups()
 	// The defaults are not written: a file that never set search_roots keeps
 	// getting whatever the defaults are (D906).
 	if !slices.Equal(cfg.SearchRoots, DefaultSearchRoots) {

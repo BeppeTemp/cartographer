@@ -119,13 +119,16 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
 // The keys read per KB in the client's Knowledge bases section. `clients` stays
 // in Agents as well: besides the KBs it holds each agent's config_dirs.
 const PER_KB = ["identities", "workspaces", "signing_keys", "mcp_approvals"];
+/** The keys of a file written before the groups; the groups carry the same settings. */
+const FLAT_AGENT_KEYS = ["scopes", "clients", "unbound_access"];
 
 const CLIENT_GROUPS: [Group, (key: string) => boolean][] = [
   [
     { title: "Connection", intro: "" },
     (k) => /^server\./.test(k) || ["server_url", "server_name", "auth", "token", "allow_insecure_http"].includes(k),
   ],
-  [{ title: "Agents", intro: "" }, (k) => k === "scopes" || k === "clients"],
+  [{ title: "Agents", intro: "" }, (k) => k === "providers" || k === "defaults.unbound_access" || FLAT_AGENT_KEYS.includes(k)],
+  [{ title: "KB options", intro: "" }, (k) => k === "knowledge_bases" || k === "kb_options"],
   [
     { title: "Local paths", intro: "" },
     (k) => /^placeholders\./.test(k) || ["search_roots", "paths", "ignored_paths"].includes(k),
@@ -557,9 +560,8 @@ function KBSetting({
 
 /**
  * The client side of every KB (D948). In .cartographer.yaml the settings that
- * concern one KB sit under the setting first and the KB second (identities,
- * clients, workspaces, signing_keys, mcp_approvals); here each KB gathers its
- * own, each named by the YAML key it lives under, so the section explains the
+ * concern one KB sit under the provider or the KB (providers, knowledge_bases,
+ * mcp_approvals); here each KB gathers its own, each named by the YAML key it lives under, so the section explains the
  * file without its comments.
  */
 function ClientKBs({
@@ -575,10 +577,22 @@ function ClientKBs({
   activeKB?: string;
   query: string;
 }) {
-  const identities = mapOf(entries, "identities");
-  const clientsMap = mapOf(entries, "clients") as Record<string, { kbs?: string[] }>;
-  const workspaces = mapOf(entries, "workspaces") as Record<string, { path: string; kbs?: string[] }[]>;
-  const signing = mapOf(entries, "signing_keys");
+  // The groups (knowledge_bases, providers) carry what identities, clients,
+  // workspaces and signing_keys did; a client from before them still reports those.
+  const kbMap = mapOf(entries, "knowledge_bases") as Record<string, { identity?: string; signing_keys?: unknown }>;
+  const providerMap = mapOf(entries, "providers") as Record<
+    string,
+    { kbs?: string[]; workspaces?: { path: string; kbs?: string[] }[] }
+  >;
+  const identities: Record<string, unknown> = { ...mapOf(entries, "identities") };
+  const signing: Record<string, unknown> = { ...mapOf(entries, "signing_keys") };
+  for (const [name, e] of Object.entries(kbMap ?? {})) {
+    if (typeof e?.identity === "string") identities[name] = e.identity;
+    if (e?.signing_keys !== undefined) signing[name] = e.signing_keys;
+  }
+  const clientsMap = { ...(mapOf(entries, "clients") as Record<string, { kbs?: string[] }>), ...providerMap };
+  const workspaces = { ...(mapOf(entries, "workspaces") as Record<string, { path: string; kbs?: string[] }[]>) };
+  for (const [name, e] of Object.entries(providerMap ?? {})) if (e?.workspaces) workspaces[name] = e.workspaces;
   const approvals = mapOf(entries, "mcp_approvals");
   const providers = client?.providers ?? [];
   const names = [...kbs];
@@ -654,17 +668,17 @@ function ClientKBs({
       </div>
       <ul className="settings__rows" aria-label={`Client settings of ${kb}`}>
         <KBSetting
-          yamlKey={`identities.${kb}`}
+          yamlKey={`knowledge_bases.${kb}.identity`}
           about="The git author of your writes to this KB."
           value={k.identity ?? "the repository's git identity"}
         />
         <KBSetting
-          yamlKey="clients.<agent>.kbs"
+          yamlKey="providers.<agent>.kbs"
           about="The agents that receive it: all of them unless their list names other KBs."
           value={client ? k.agents : "every connected agent"}
         />
         <KBSetting
-          yamlKey="workspaces"
+          yamlKey="providers.<agent>.workspaces"
           about="Where each agent gives it to a session: everywhere, or only in the folders bound to it."
           value={Object.keys(k.where).length ? null : client ? null : "everywhere"}
           map={Object.keys(k.where).length ? Object.entries(k.where) : undefined}
@@ -678,7 +692,7 @@ function ClientKBs({
           />
         )}
         <KBSetting
-          yamlKey={`signing_keys.${kb}`}
+          yamlKey={`knowledge_bases.${kb}.signing_keys`}
           about="Public keys pinned to verify the artifacts it signs."
           value={k.keys ? `${k.keys} pinned` : null}
         />

@@ -530,7 +530,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			continue // a provider whose MCPMode is cli reaches Cartographer through the shell: no entry, no warning
 		}
 		if cfg.ProfileIgnoresWorkspaces(p, routedPath) {
-			fmt.Fprintf(os.Stderr, "warning: %s has the read-only profile (clients.%s.access), so its workspace bindings are ignored and it keeps the HTTP entry; remove the key to use them\n", p, p)
+			fmt.Fprintf(os.Stderr, "warning: %s has the read-only profile (providers.%s.access and providers.%s.tools), so its workspace bindings are ignored and it keeps the HTTP entry; remove both keys to use them\n", p, p, p)
 		}
 		if cfg.UsesBridge(p, routedPath) {
 			// D737: a provider with a workspace binding gets the bridge, which
@@ -571,7 +571,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			}
 			for _, n := range cfg.ReadOnlyKBs() {
 				if slices.Contains(recv, n) {
-					return nil, fmt.Errorf("kb_options.%s.access is read, but this server has no routed endpoint, which is the only one that can connect a KB read-only (%s would be read-write): use a server with the routed endpoint, or remove the key with `cartographer client kb %s --access write`", n, p, n)
+					return nil, fmt.Errorf("knowledge_bases.%s.access is read, but this server has no routed endpoint, which is the only one that can connect a KB read-only (%s would be read-write): use a server with the routed endpoint, or remove the key with `cartographer client kb %s --access write`", n, p, n)
 				}
 			}
 		}
@@ -692,7 +692,7 @@ func setEntryAuthors(cfg *clientconfig.Config, byProvider map[string][]mcpEntry,
 		}
 	}
 	if fellToGit && perFolder {
-		warnings = append(warnings, fmt.Sprintf("the global git config picks the identity by folder (includeIf), which an MCP entry written once cannot follow, so writes through it are authored by the token: set identities.default in %s (empty to keep sending none), or bind a workspace so the bridge reads each folder's identity", clientconfig.FileName))
+		warnings = append(warnings, fmt.Sprintf("the global git config picks the identity by folder (includeIf), which an MCP entry written once cannot follow, so writes through it are authored by the token: set knowledge_bases.default.identity in %s (empty to keep sending none), or bind a workspace so the bridge reads each folder's identity", clientconfig.FileName))
 	}
 	return warnings
 }
@@ -1004,7 +1004,7 @@ func providerBaseDirs(provider, dir string, claudeDirs []string) []string {
 	return append([]string{dir}, claudeDirs...)
 }
 
-// claudeConfigDirs resolves clients.claude.config_dirs (D755) into the extra
+// claudeConfigDirs resolves providers.claude.config_dirs (D755) into the extra
 // directories the Claude MCP entry is written to besides home, plus the
 // warnings for what was skipped. A dir is skipped, never created, when it is
 // relative, does not exist, is not a directory, or holds a .claude.json that is
@@ -1020,7 +1020,7 @@ func claudeConfigDirs(home string, cfg *clientconfig.Config) (dirs []string, war
 			d = filepath.Join(home, strings.TrimPrefix(d, "~"))
 		}
 		if !filepath.IsAbs(d) {
-			warnings = append(warnings, fmt.Sprintf("clients.claude.config_dirs: %q is not an absolute path; skipped", raw))
+			warnings = append(warnings, fmt.Sprintf("providers.claude.config_dirs: %q is not an absolute path; skipped", raw))
 			continue
 		}
 		d = filepath.Clean(d)
@@ -1029,17 +1029,17 @@ func claudeConfigDirs(home string, cfg *clientconfig.Config) (dirs []string, war
 		}
 		seen[d] = true
 		if info, err := os.Stat(d); err != nil || !info.IsDir() {
-			warnings = append(warnings, fmt.Sprintf("clients.claude.config_dirs: %s does not exist or is not a directory; skipped (never created)", d))
+			warnings = append(warnings, fmt.Sprintf("providers.claude.config_dirs: %s does not exist or is not a directory; skipped (never created)", d))
 			continue
 		}
 		if info, err := os.Lstat(filepath.Join(d, ".claude.json")); err == nil && !info.Mode().IsRegular() {
-			warnings = append(warnings, fmt.Sprintf("clients.claude.config_dirs: %s/.claude.json is not a regular file (a symlink?); skipped", d))
+			warnings = append(warnings, fmt.Sprintf("providers.claude.config_dirs: %s/.claude.json is not a regular file (a symlink?); skipped", d))
 			continue
 		}
 		dirs = append(dirs, d)
 	}
 	if env := os.Getenv("CLAUDE_CONFIG_DIR"); env != "" && !seen[filepath.Clean(env)] {
-		warnings = append(warnings, fmt.Sprintf("CLAUDE_CONFIG_DIR=%s is not declared: its .claude.json is not updated; add it to clients.claude.config_dirs in %s", env, clientconfig.FileName))
+		warnings = append(warnings, fmt.Sprintf("CLAUDE_CONFIG_DIR=%s is not declared: its .claude.json is not updated; add it to providers.claude.config_dirs in %s", env, clientconfig.FileName))
 	}
 	return dirs, warnings
 }

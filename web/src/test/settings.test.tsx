@@ -135,10 +135,17 @@ describe("the Settings panel", () => {
                 { key: "placeholders.paths", value: {}, origin: "default", description: "Name to path.", default: "{}" },
                 { key: "update_check", value: true, origin: "default", description: "Look up releases.", default: "true" },
                 {
-                  key: "scopes",
-                  value: { codex: "workspace", kiro: "home" },
+                  key: "providers",
+                  value: { claude: { kbs: ["kb-a"] }, codex: { scope: "workspace" } },
                   origin: "file",
-                  description: "Where a provider receives KB artifacts.",
+                  description: "The settings of each provider.",
+                  default: "{}",
+                },
+                {
+                  key: "knowledge_bases",
+                  value: { "kb-a": { identity: "User <user@example.com>", signing_keys: ["k1"] } },
+                  origin: "file",
+                  description: "The settings of each KB.",
                   default: "{}",
                 },
               ],
@@ -156,15 +163,17 @@ describe("the Settings panel", () => {
     expect(screen.getByRole("list", { name: "Client Local paths settings" })).toHaveTextContent("placeholders.paths");
     expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update_check");
     // A map is a table under its row, its size beside the key.
-    expect(screen.getByLabelText("Value of scopes")).toHaveTextContent("2 entries");
-    const scopes = screen.getByLabelText("Entries of scopes");
-    expect(scopes).toHaveTextContent("codex");
-    expect(scopes).toHaveTextContent("home");
+    expect(screen.getByLabelText("Value of providers")).toHaveTextContent("2 entries");
+    expect(screen.getByLabelText("Entries of providers")).toHaveTextContent("codex");
+    expect(screen.getByRole("list", { name: "Client KB options settings" })).toHaveTextContent("knowledge_bases");
     // Below the settings, one section per KB with its own client settings, named by their YAML key.
     const kbA = screen.getByRole("list", { name: "Client settings of kb-a" });
-    expect(within(kbA).getByLabelText("Value of clients.<agent>.kbs")).toHaveTextContent("claude");
+    expect(within(kbA).getByLabelText("Value of providers.<agent>.kbs")).toHaveTextContent("claude");
+    // The identity and the pins of the KB come out of the knowledge_bases group.
+    expect(within(kbA).getByLabelText("Value of knowledge_bases.kb-a.identity")).toHaveTextContent("User <user@example.com>");
+    expect(within(kbA).getByLabelText("Value of knowledge_bases.kb-a.signing_keys")).toHaveTextContent("1 pinned");
     // A value with keys is a table under its row, one key a line.
-    const where = within(kbA).getByLabelText("Entries of workspaces");
+    const where = within(kbA).getByLabelText("Entries of providers.<agent>.workspaces");
     expect(where).toHaveTextContent("claude");
     expect(where).toHaveTextContent("$HOME/work");
     const paths = within(kbA).getByLabelText("Entries of paths");
@@ -190,7 +199,7 @@ describe("the Settings panel", () => {
     // workspaces is set per KB: it reads in each KB's section, under its YAML key.
     expect(screen.queryByRole("list", { name: "Client Agents settings" })).toBeNull();
     expect(
-      within(screen.getByRole("list", { name: "Client settings of kb-a" })).getByLabelText("Value of workspaces"),
+      within(screen.getByRole("list", { name: "Client settings of kb-a" })).getByLabelText("Value of providers.<agent>.workspaces"),
     ).toHaveTextContent("everywhere");
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("# workspaces:");

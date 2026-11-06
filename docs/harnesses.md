@@ -83,7 +83,7 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   - `skill`/`agent`/`hook` in `~/.claude/{skills,agents,hooks}/`, project-local in
     `.claude/…` (D137, D193); `mcp` in `~/.claude.json` (project: `.mcp.json`);
     `instructions` in `~/.claude/CLAUDE.md` (project: `CLAUDE.md`).
-    Under `CLAUDE_CONFIG_DIR` only the `cartographer` MCP entries follow `clients.claude.config_dirs`
+    Under `CLAUDE_CONFIG_DIR` only the `cartographer` MCP entries follow `providers.claude.config_dirs`
     (D755); everything else here stays `$HOME`-relative (symlink it per account).
   - Agent translation is a passthrough: Cartographer subagents are Claude
     subagents; Claude takes its own restriction fields (`tools`, also

@@ -99,7 +99,7 @@ func (b *Bridge) warnIdentity(kb, problem string) {
 		b.warnedIdentity = map[string]bool{}
 	}
 	b.warnedIdentity[kb] = true
-	b.logf("the identities entry that applies to %s is not a valid Name <email> (%s): its writes send no author", kb, problem)
+	b.logf("the identity that applies to %s (knowledge_bases.<kb>.identity, else knowledge_bases.default.identity) is not a valid Name <email> (%s): its writes send no author", kb, problem)
 }
 
 // soleKB is the KB a call naming none goes to: the only one of a restricted

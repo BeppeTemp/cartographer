@@ -21,7 +21,7 @@ func TestClientAccess_RoundTripAndIsNotABinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(clientconfig.Path(dir))
-	if !strings.Contains(string(raw), "access: read-min") {
+	if !strings.Contains(string(raw), "access: read\n") || !strings.Contains(string(raw), "tools: minimal") {
 		t.Fatalf("saved file = %s", raw)
 	}
 	got, err := clientconfig.Load(dir)

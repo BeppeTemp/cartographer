@@ -886,7 +886,7 @@ func TestClaudeConfigDirs_Warnings(t *testing.T) {
 	if _, err := os.Stat(missing); err == nil {
 		t.Error("a missing declared dir must never be created")
 	}
-	if !strings.Contains(warns[2], "clients.claude.config_dirs") || !strings.Contains(warns[2], undeclared) {
+	if !strings.Contains(warns[2], "providers.claude.config_dirs") || !strings.Contains(warns[2], undeclared) {
 		t.Errorf("undeclared env warning = %q", warns[2])
 	}
 	if _, err := os.Stat(filepath.Join(undeclared, ".claude.json")); err == nil {
@@ -1350,7 +1350,7 @@ func TestEntriesByProvider_ReadOnlyKBsPerProviderAndNonRouted(t *testing.T) {
 	// No routed endpoint: refuse, naming the KB, the key and the fix; a provider
 	// that does not receive the KB is not in the way.
 	if _, err := entriesByProviderForKBs(cfg, []string{"kiro"}, "wiki", cfg.ServerURL, mounted, ""); err == nil ||
-		!strings.Contains(err.Error(), "kb_options.b.access") || !strings.Contains(err.Error(), "routed") {
+		!strings.Contains(err.Error(), "knowledge_bases.b.access") || !strings.Contains(err.Error(), "routed") {
 		t.Errorf("non-routed refusal = %v", err)
 	}
 	if _, err := entriesByProviderForKBs(cfg, []string{"codex"}, "wiki", cfg.ServerURL, mounted, ""); err != nil {

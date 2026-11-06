@@ -298,7 +298,7 @@ func writeFallbackIdentityWarning(w io.Writer, name, email, dataDir string) {
 	fmt.Fprintf(w, "  - for the KBs only, the same \"Name <email>\" in three places:\n")
 	fmt.Fprintf(w, "      1. an includeIf \"gitdir/i:%s/\" in your global git config (commits made here by kb create and setup)\n", filepath.ToSlash(dataDir))
 	fmt.Fprintln(w, "      2. git.identities.default in the server file (commits the server makes with no writer)")
-	fmt.Fprintln(w, "      3. identities.default in .cartographer.yaml (writes through an HTTP entry)")
+	fmt.Fprintln(w, "      3. knowledge_bases.default.identity in .cartographer.yaml (writes through an HTTP entry)")
 }
 
 // printUnpushedScaffoldGuidance explains what to do with a KB whose scaffold is

@@ -36,12 +36,12 @@ func TestSavePreservesUserCommentsAndUnknownKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := readFile(t, clientconfig.Path(dir))
-	for _, want := range []string{"# my machine", "# I bind by hand\nclients:", "my_extension: 1 # note", "- beta"} {
+	for _, want := range []string{"# my machine", "# I bind by hand\nproviders:", "my_extension: 1 # note", "- beta"} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("lost %q:\n%s", want, raw)
 		}
 	}
-	if strings.Contains(raw, "# Which KBs each connected provider receives") {
+	if strings.Contains(raw, "# The settings of each connected provider") {
 		t.Errorf("documented a key the user had commented:\n%s", raw)
 	}
 	again, err := clientconfig.Load(dir)
@@ -249,7 +249,7 @@ func TestSaveUnboundAccessRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m, o := cfg.UnboundAccess("claude"); m != "read" || o != "unbound_access" {
+	if m, o := cfg.UnboundAccess("claude"); m != "read" || o != "providers.claude.unbound_access" {
 		t.Errorf("claude = %s/%s", m, o)
 	}
 	if m, _ := cfg.UnboundAccess("codex"); m != "write" {

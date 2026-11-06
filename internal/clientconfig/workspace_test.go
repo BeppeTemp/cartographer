@@ -331,12 +331,12 @@ func TestUnboundAccess(t *testing.T) {
 		mode, orig string
 	}{
 		{"unset", nil, "claude", "read", "default"},
-		{"default write", map[string]string{"default": "write"}, "claude", "write", "unbound_access"},
-		{"default write, kiro read", map[string]string{"default": "write", "kiro": "read"}, "kiro", "read", "unbound_access"},
-		{"default write, kiro read, other", map[string]string{"default": "write", "kiro": "read"}, "claude", "write", "unbound_access"},
-		{"default read, kiro write", map[string]string{"default": "read", "kiro": "write"}, "kiro", "write", "unbound_access"},
-		{"default read, kiro write, other", map[string]string{"default": "read", "kiro": "write"}, "claude", "read", "unbound_access"},
-		{"unknown value", map[string]string{"default": "yes"}, "claude", "read", "unbound_access"},
+		{"default write", map[string]string{"default": "write"}, "claude", "write", "defaults.unbound_access"},
+		{"default write, kiro read", map[string]string{"default": "write", "kiro": "read"}, "kiro", "read", "providers.kiro.unbound_access"},
+		{"default write, kiro read, other", map[string]string{"default": "write", "kiro": "read"}, "claude", "write", "defaults.unbound_access"},
+		{"default read, kiro write", map[string]string{"default": "read", "kiro": "write"}, "kiro", "write", "providers.kiro.unbound_access"},
+		{"default read, kiro write, other", map[string]string{"default": "read", "kiro": "write"}, "claude", "read", "defaults.unbound_access"},
+		{"unknown value", map[string]string{"default": "yes"}, "claude", "read", "defaults.unbound_access"},
 		{"unknown provider key", map[string]string{"nobody": "write"}, "claude", "read", "default"},
 	}
 	for _, c := range cases {

@@ -206,7 +206,7 @@ func TestClientRefsListsKeysHeldUnderTheKB(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := clientRefs("wiki")
-	want := []string{`signing_keys["wiki"]`, `approvals["wiki"] (machine file)`, `identities["wiki"]`}
+	want := []string{`knowledge_bases["wiki"].signing_keys`, `approvals["wiki"] (machine file)`, `knowledge_bases["wiki"].identity`}
 	if !slices.Equal(got, want) {
 		t.Errorf("clientRefs(wiki) = %q, want %q", got, want)
 	}
@@ -291,7 +291,7 @@ func TestCmdKBRename_RewritesClientBindings(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0:\n%s", code, out)
 	}
-	if !strings.Contains(out, "rewriting the clients.claude binding") || !strings.Contains(out, "rewrote 2 client binding(s)") {
+	if !strings.Contains(out, "rewriting the providers.claude binding") || !strings.Contains(out, "rewrote 2 client binding(s)") {
 		t.Errorf("the rewrite was not reported:\n%s", out)
 	}
 	cfg, err := clientconfig.Load(home)

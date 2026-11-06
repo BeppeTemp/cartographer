@@ -54,7 +54,7 @@ func (c *Config) identityWarnings() []string {
 			continue
 		}
 		if _, _, problem := gitx.ParseIdent(v); problem != "" {
-			out = append(out, fmt.Sprintf("identities.%s: %s, so writes to it send no author", k, problem))
+			out = append(out, fmt.Sprintf("knowledge_bases.%s.identity: %s, so writes to it send no author", k, problem))
 		}
 	}
 	return out

@@ -44,7 +44,7 @@ type renamePlan struct {
 	ClientKeys []string
 
 	// Bindings are this machine's client bindings that select the KB by its
-	// old name (clients.<p>.kbs, workspaces.<p>[].kbs). They are rewritten
+	// old name (providers.<p>.kbs, providers.<p>.workspaces[].kbs). They are rewritten
 	// after the move: sync treats a bound name the server no longer
 	// advertises as a stale selection and aborts, so leaving them would
 	// make every sync fail (D754). Empty when the client points at another
@@ -332,19 +332,19 @@ func clientRefs(old string) []string {
 	}
 	var refs []string
 	if _, ok := cfg.SigningKeys[old]; ok {
-		refs = append(refs, fmt.Sprintf("signing_keys[%q]", old))
+		refs = append(refs, fmt.Sprintf("knowledge_bases[%q].signing_keys", old))
 	}
 	if _, ok := cfg.MCPApprovals[old]; ok {
 		refs = append(refs, fmt.Sprintf("approvals[%q] (machine file)", old))
 	}
 	if _, ok := cfg.Identities[old]; ok && old != clientconfig.IdentityDefault {
-		refs = append(refs, fmt.Sprintf("identities[%q]", old))
+		refs = append(refs, fmt.Sprintf("knowledge_bases[%q].identity", old))
 	}
 	return refs
 }
 
 // bindingRefs lists this machine's client bindings that name the old KB, as
-// "clients.<p>" and "workspaces.<p> <path>". None when the client points at a
+// "providers.<p>" and "providers.<p>.workspaces <path>". None when the client points at a
 // non-loopback server: its bindings name that server's KBs, not the local one
 // being renamed (--local / --data on such a machine).
 func bindingRefs(old string) []string {
@@ -359,13 +359,13 @@ func bindingRefs(old string) []string {
 	var refs []string
 	for _, p := range slices.Sorted(maps.Keys(cfg.Clients)) {
 		if containsString(cfg.Clients[p].KBs, old) {
-			refs = append(refs, "clients."+p)
+			refs = append(refs, "providers."+p)
 		}
 	}
 	for _, p := range slices.Sorted(maps.Keys(cfg.Workspaces)) {
 		for _, w := range cfg.Workspaces[p] {
 			if containsString(w.KBs, old) {
-				refs = append(refs, "workspaces."+p+" "+w.Path)
+				refs = append(refs, "providers."+p+".workspaces "+w.Path)
 			}
 		}
 	}

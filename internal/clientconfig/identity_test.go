@@ -53,8 +53,8 @@ func TestIdentitiesSurviveACommandSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(cfg.Warnings, "\n"); !strings.Contains(got, "identities.typo: ") || strings.Contains(got, "identities.private") {
-		t.Errorf("warnings = %q, want one for identities.typo only", got)
+	if got := strings.Join(cfg.Warnings, "\n"); !strings.Contains(got, "knowledge_bases.typo.identity: ") || strings.Contains(got, "knowledge_bases.private.identity") {
+		t.Errorf("warnings = %q, want one for knowledge_bases.typo.identity only", got)
 	}
 	cfg.AddAgent("claude")
 	if err := clientconfig.Save(dir, cfg); err != nil {

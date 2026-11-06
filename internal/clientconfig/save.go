@@ -29,6 +29,8 @@ var droppedKeys = map[string]bool{
 	// by now; naming them keeps one that survives out of the extras.
 	"server_url": true, "server_name": true, "auth": true, "token": true, "allow_insecure_http": true,
 	"search_roots": true, "paths": true, "ignored_paths": true,
+	"clients": true, "scopes": true, "unbound_access": true, "kb_options": true, "workspaces": true,
+	"signing_keys": true, "identities": true,
 }
 
 // ErrUnparsable is what Save returns for an existing file that is not YAML: it
