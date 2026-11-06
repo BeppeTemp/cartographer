@@ -855,7 +855,7 @@ func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 	// someone else's, so it keeps its link and gets the emptied object instead.
 	if rel, relErr := filepath.Rel(baseDir, path); len(settings) == 0 && relErr == nil && ensureSafeDir(baseDir, filepath.Dir(rel)) == nil {
 		if fi, statErr := os.Lstat(path); statErr == nil && fi.Mode().IsRegular() {
-			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := safewrite.Remove(baseDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
 			pruneEmptyDirs(baseDir, rel)

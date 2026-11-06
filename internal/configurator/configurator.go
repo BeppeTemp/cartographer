@@ -558,24 +558,29 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 	// "$schema" hint, there is nothing worth keeping — delete the file outright
 	// instead of leaving an empty shell nobody reads.
 	if d, ok := Lookup(provider); ok && MayDeleteEmpty(d, baseDir, r.FilePath) && isEmptyProviderShell(root) {
-		if err := safewrite.Remove(baseDir, fullPath); err != nil {
-			return false, fmt.Errorf("remove %s: %w", fullPath, err)
+		rmErr := safewrite.Remove(baseDir, fullPath)
+		if rmErr != nil && !errors.Is(rmErr, safewrite.ErrLinkedLeaf) {
+			return false, fmt.Errorf("remove %s: %w", fullPath, rmErr)
 		}
-		if err := ForgetCreated(baseDir, r.FilePath); err != nil {
-			return false, err
+		// A listed leaf link is never removed: the reduced file is written
+		// through it below.
+		if rmErr == nil {
+			if err := ForgetCreated(baseDir, r.FilePath); err != nil {
+				return false, err
+			}
+			// Best-effort (D63): also drop the file's own parent directory if that
+			// leaves it empty too — kiro's mcp.json lives in ".kiro/settings/", a
+			// level provisioning creates solely to hold it. Never climb as far as
+			// baseDir itself (a file directly in baseDir has no such parent —
+			// filepath.Dir(fullPath) == baseDir there, guarded below) or above
+			// ".kiro" (a provisioning root boundary that may still hold skills/
+			// agents/hooks; os.Remove's own "not empty" error is the natural guard
+			// even without this check, but the guard keeps intent explicit).
+			if parent := filepath.Dir(fullPath); parent != baseDir {
+				_ = safewrite.RemoveEmptyDir(parent)
+			}
+			return true, nil
 		}
-		// Best-effort (D63): also drop the file's own parent directory if that
-		// leaves it empty too — kiro's mcp.json lives in ".kiro/settings/", a
-		// level provisioning creates solely to hold it. Never climb as far as
-		// baseDir itself (a file directly in baseDir has no such parent —
-		// filepath.Dir(fullPath) == baseDir there, guarded below) or above
-		// ".kiro" (a provisioning root boundary that may still hold skills/
-		// agents/hooks; os.Remove's own "not empty" error is the natural guard
-		// even without this check, but the guard keeps intent explicit).
-		if parent := filepath.Dir(fullPath); parent != baseDir {
-			_ = os.Remove(parent)
-		}
-		return true, nil
 	}
 
 	out, err := jsonorder.Marshal(root, layout)

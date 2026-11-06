@@ -14,6 +14,11 @@ modifies files a user did not ask about.
   (`safepath.go` here keeps `ensureSafeDir` and `writeFileNoFollow` as wrappers):
   a client-side write, mkdir or remove goes through it with the client base dir,
   as do the ones in `internal/configurator` and `internal/blocktext`.
+  Following a link the user listed (`clients.<provider>.allow_symlinks`) happens only
+  inside safewrite: a raw `os.Remove`/`os.Rename` after `CheckPath` would replace or
+  delete a followed link (use `safewrite.Remove`, and on `ErrLinkedLeaf` rewrite the file
+  through the link; an empty-directory cleanup uses `safewrite.RemoveEmptyDir`, which never
+  removes a link), and `TrustCodexProject` uses the strict `CheckPathStrict`.
 - **A hand-curated user file is never rewritten, only its managed block is.**
   `internal/blocktext` does marker-delimited substring replacement and nothing
   format-aware, on purpose: comments, ordering and every other byte survive

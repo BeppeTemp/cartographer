@@ -988,3 +988,49 @@ func TestDoDisconnect_ACorruptedCodexBlockIsARefusalNotFatal(t *testing.T) {
 		t.Errorf("config.toml changed:\n%s", got)
 	}
 }
+
+// A lockfile that is a link is unlinked itself (never its target) unless the
+// user listed it, in which case it is emptied through the link and kept.
+func TestRemoveLockFile_LinkedLockfile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	setup := func(t *testing.T) (link, target string) {
+		dir, real := t.TempDir(), t.TempDir()
+		target = filepath.Join(real, "lock.json")
+		if err := os.WriteFile(target, []byte(`{"keep":true}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		link = filepath.Join(dir, "lock.json")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		return link, target
+	}
+	t.Run("unlisted", func(t *testing.T) {
+		link, target := setup(t)
+		if err := removeLockFile(link, provisioning.LockFile{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(link); !os.IsNotExist(err) {
+			t.Errorf("the link should be gone: %v", err)
+		}
+		if b, _ := os.ReadFile(target); string(b) != `{"keep":true}` {
+			t.Errorf("the target changed: %q", b)
+		}
+	})
+	t.Run("listed", func(t *testing.T) {
+		link, target := setup(t)
+		safewrite.SetAllowedLinks([]string{link})
+		t.Cleanup(safewrite.ResetAllowedLinks)
+		if err := removeLockFile(link, provisioning.LockFile{}); err != nil {
+			t.Fatal(err)
+		}
+		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the listed link must stay: %v", err)
+		}
+		if b, _ := os.ReadFile(target); string(b) == `{"keep":true}` {
+			t.Error("the target should have been rewritten empty")
+		}
+	})
+}

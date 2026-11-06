@@ -11,6 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -1107,5 +1108,76 @@ func TestEmitServer_Crush_BracesStayWhenANameCharFollows(t *testing.T) {
 		if h[k] != v {
 			t.Errorf("%s = %v, want %q", k, h[k], v)
 		}
+	}
+}
+
+// The empty parent directory of a deleted MCP file is a directory the user may
+// list as a link (kiro's .kiro/settings): it must survive the cleanup.
+func TestRemove_ListedParentDirectoryLinkSurvivesTheEmptyShellCleanup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := t.TempDir()
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderKiro)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Dir(filepath.Join(dir, r.FilePath))
+	real := filepath.Join(t.TempDir(), "settings")
+	if err := os.Rename(parent, real); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, parent); err != nil {
+		t.Fatal(err)
+	}
+	safewrite.SetAllowedLinks([]string{parent})
+	t.Cleanup(safewrite.ResetAllowedLinks)
+
+	if ok, err := configurator.Remove(cfg, configurator.ProviderKiro, dir, false); err != nil || !ok {
+		t.Fatalf("Remove = %v, %v", ok, err)
+	}
+	if fi, err := os.Lstat(parent); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the listed directory link was unlinked: %v", err)
+	}
+}
+
+// A listed leaf link is never removed, even when the file would be deleted as an
+// empty shell: the entry leaves and the emptied object is written through it.
+func TestRemove_ListedLeafLinkIsKeptWhenTheFileWouldBeDeleted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := t.TempDir()
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, ".claude.json")
+	target := filepath.Join(t.TempDir(), "claude.json")
+	if err := os.Rename(link, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	safewrite.SetAllowedLinks([]string{link})
+	t.Cleanup(safewrite.ResetAllowedLinks)
+
+	if ok, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, dir, false); err != nil || !ok {
+		t.Fatalf("Remove = %v, %v", ok, err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link was removed: %v", err)
+	}
+	if b, err := os.ReadFile(target); err != nil || strings.Contains(string(b), "wiki") {
+		t.Errorf("target = %q, %v", b, err)
 	}
 }

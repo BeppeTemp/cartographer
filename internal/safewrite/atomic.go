@@ -25,7 +25,8 @@ var (
 // The file and every directory component between baseDir and it are checked as
 // CheckPath does; a destination behind a link is refused. The data goes to a
 // temp file in the same directory (created exclusively, O_EXCL), is fsynced, and
-// renamed over path; the rename replaces a link rather than following it. The
+// renamed over path; the rename replaces a link rather than following it, except for a link the
+// allow set lists, which is resolved and the target written, the link kept. The
 // mode of an existing file is kept, perm applies to a new one. When the file
 // already holds exactly data nothing is written, so its mtime and inode stay
 // (a client's file watcher is not woken at every sync). A failure removes the
@@ -33,6 +34,43 @@ var (
 func WriteFileAtomicNoFollow(baseDir, path string, data []byte, perm os.FileMode) error {
 	_, err := WriteFileAtomicNoFollowChanged(baseDir, path, data, perm)
 	return err
+}
+
+// maxLinkHops bounds the chain behind a listed link.
+const maxLinkHops = 32
+
+// resolveLink follows link through a chain of links to the first path that is
+// not one (it may not exist: a dangling link is created through). Every link of
+// the chain must be listed, else the chain stops there with the usual refusal.
+// A relative target is resolved as the kernel does, against the physical
+// directory of the link (a listed directory link above it changes what ".."
+// means); a hop is matched in its physical spelling against the allow set
+// (canonicalized when set, so a user may list the logical path they see).
+func resolveLink(link string) (string, error) {
+	phys := link
+	for range maxLinkHops {
+		info, err := os.Lstat(phys)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			return phys, nil
+		}
+		if phys != link && !isAllowedPhys(phys) {
+			return "", refusal(phys)
+		}
+		t, err := os.Readlink(phys)
+		if err != nil {
+			return "", err
+		}
+		if filepath.IsAbs(t) {
+			phys = canonicalPath(t)
+			continue
+		}
+		parent := filepath.Dir(phys)
+		if real, evalErr := filepath.EvalSymlinks(parent); evalErr == nil {
+			parent = real
+		}
+		phys = filepath.Join(parent, t)
+	}
+	return "", fmt.Errorf("%w: symlink %s leads through more than %d links", ErrSymlinkDestination, link, maxLinkHops)
 }
 
 // WriteFileAtomicNoFollowChanged is WriteFileAtomicNoFollow that also says
@@ -47,8 +85,22 @@ func WriteFileAtomicNoFollowChanged(baseDir, path string, data []byte, perm os.F
 	if err := CheckPath(baseDir, path); err != nil {
 		return false, err
 	}
+	// A listed leaf link is followed: the temp file and the rename act on the
+	// resolved target, so the link survives (a rename over path would replace it).
+	link := path
+	if info, lerr := os.Lstat(path); lerr == nil && info.Mode()&os.ModeSymlink != 0 && isAllowed(path) {
+		if path, err = resolveLink(path); err != nil {
+			return false, err
+		}
+		defer func() { err = notWritable(baseDir, link, err, true) }()
+	} else {
+		defer func() { err = notWritable(baseDir, link, err, false) }()
+	}
 	mode := perm
 	if info, statErr := os.Lstat(path); statErr == nil {
+		if !info.Mode().IsRegular() && link != path {
+			return false, refusal(link)
+		}
 		if info.Mode().IsRegular() {
 			mode = info.Mode().Perm()
 			if existing, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(existing, data) {
