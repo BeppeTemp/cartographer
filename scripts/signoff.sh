@@ -69,8 +69,12 @@ web=$(git diff --name-only "$remote"/main...HEAD | "$here/ci-filters.sh" "$branc
 targets=$TARGETS
 [ "$web" != true ] || targets="$targets $WEB_TARGET"
 win_pkgs=
-[ -z "${SIGNOFF_WINDOWS:-}" ] ||
-  win_pkgs=$(git diff --name-only "$remote"/main...HEAD | "$here/affected-pkgs.sh" --code | tr '\n' ' ')
+if [ -n "${SIGNOFF_WINDOWS:-}" ]; then
+  # Two steps, each status checked: a pipe into tr would hide a failure as an empty list.
+  win_paths=$(git diff --name-only "$remote"/main...HEAD) || die "cannot list the changed paths against $remote/main"
+  win_pkgs=$(printf '%s\n' "$win_paths" | "$here/affected-pkgs.sh" --code) || die "cannot compute the packages of the Windows leg"
+  win_pkgs=$(printf '%s' "$win_pkgs" | tr '\n' ' ')
+fi
 win_pkgs=${win_pkgs% }
 sha=$(git rev-parse HEAD)
 

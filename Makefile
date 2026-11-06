@@ -220,7 +220,9 @@ gate: fmt-check vet test race ## Everything that must be green before a PR is op
 CHECK_MAKE ?= $(MAKE)
 CHECK_LOCAL_FALLBACK ?= 1
 check: ## Fast tier: fmt-check, vet and the tests of the packages this branch affects (CHECK_MAKE runs them elsewhere)
-	@pkgs=$$(scripts/affected-pkgs.sh --changed | scripts/affected-pkgs.sh | tr '\n' ' '); \
+	@changed=$$(scripts/affected-pkgs.sh --changed) || { echo "check: cannot compute the changed paths (see above): not running a check that would test nothing" >&2; exit 1; }; \
+	pkgs=$$(printf '%s\n' "$$changed" | scripts/affected-pkgs.sh) || { echo "check: cannot compute the affected packages" >&2; exit 1; }; \
+	pkgs=$$(printf '%s' "$$pkgs" | tr '\n' ' '); \
 	echo "check: $${pkgs:-no Go package affected}"; \
 	rc=0; $(CHECK_MAKE) check-run CHECK_PKGS="$$pkgs" || rc=$$?; \
 	if [ "$$rc" = 75 ] && [ "$(CHECK_LOCAL_FALLBACK)" = 0 ]; then echo "check: the build host is unavailable and CHECK_LOCAL_FALLBACK=0: not running here" >&2; exit 75; \
