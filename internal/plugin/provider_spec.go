@@ -168,6 +168,11 @@ type pathTpl struct {
 // takes it, since nothing but Cline's own dispatcher may be written there
 // (internal/provisioning/AGENTS.md). Every segment is also kept off Cartographer's
 // own state, as a manifest glob is (reachesOwnState).
+// shortName matches a Windows 8.3 short-name marker (`SSH~1`): on a volume that
+// keeps short names it reaches .ssh or .claude under another spelling, so a
+// descriptor refuses it on every OS (it is portable).
+var shortName = regexp.MustCompile(`~[0-9]`)
+
 func parsePathTpl(s string, project bool, sh pathShape, allowDocs bool) (pathTpl, error) {
 	t := pathTpl{segs: strings.Split(s, "/")}
 	if project {
@@ -193,8 +198,8 @@ func parsePathTpl(s string, project bool, sh pathShape, allowDocs bool) (pathTpl
 		switch {
 		case seg == "" || seg == "." || seg == ".." || strings.HasSuffix(seg, ".") || strings.HasSuffix(seg, " ") || reservedDevice.MatchString(seg):
 			return t, fmt.Errorf("%s: segment %s is empty, dot-only, ends in a dot or space, or is a Windows device name", q(s), q(seg))
-		case strings.HasPrefix(seg, "~") || strings.ContainsAny(seg, `\:?[]`) || strings.IndexFunc(seg, unicode.IsControl) >= 0:
-			return t, fmt.Errorf("%s: segment %s starts with ~ or holds a character that is not allowed (\\ : ? [ ] or a control character)", q(s), q(seg))
+		case strings.HasPrefix(seg, "~") || shortName.MatchString(seg) || strings.ContainsAny(seg, `\:?[]`) || strings.IndexFunc(seg, unicode.IsControl) >= 0:
+			return t, fmt.Errorf("%s: segment %s starts with ~, holds ~ and a digit (a Windows 8.3 short name such as SSH~1) or holds a character that is not allowed (\\ : ? [ ] or a control character)", q(s), q(seg))
 		case strings.Contains(seg, "*"):
 			stars++
 			// A plain `*` or `prefix*`, in one segment, never the first.

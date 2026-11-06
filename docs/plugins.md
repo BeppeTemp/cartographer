@@ -228,7 +228,7 @@ problem is listed as `path: reason`, sorted. `seed` and `allow_call` are not key
 A value is per OS (`darwin`, `linux`, `windows`, `default`, each key once) or one value for all. A global path starts with an anchor
 `{home}/`, `{xdg_config}/`, `{app_data}/`, `{local_app_data}/` or `{documents}/`; a project path is relative and
 takes none. A segment is not empty, `.` or `..`, does not end in a dot or a space, is not a Windows device name,
-does not start with `~` and holds none of `\ : ? [ ]` or a control character. A `*` is allowed in `detect.dirs`,
+does not start with `~`, holds no `~` followed by a digit (a Windows 8.3 short name such as `SSH~1`, refused on every OS) and holds none of `\ : ? [ ]` or a control character. A `*` is allowed in `detect.dirs`,
 `mcp.config` and `mcp.stale` only: in one segment, never the first, as `*` or `prefix*`, and never in the file name
 of an MCP path. No segment of any path reaches Cartographer's own state, by the rule of the manifest globs
 (`reachesOwnState`): the client config file, the `cartographer` config, state and cache directories, by name or through
@@ -289,7 +289,7 @@ only when `mcp.config` is the provider's own literal file.
 
 The MCP paths (`mcp.config`, a pattern's fixed part, every `mcp.stale` entry) pass the same global-cell checks as a
 cell, in `configurator.CheckPluginMCPPaths`: below a client directory of their own, outside the denied directories,
-outside a built-in client's directory, no `.git*`. A pattern holds one `*`, in one segment, never within the client
+outside a built-in client's directory, no `.git*`. With `XDG_CONFIG_HOME` set to a directory under the home, the part of a `{xdg_config}` cell or MCP path below that root is checked as if it lay below `.config` (`{xdg_config}/git/x` is refused as `.config/git/x` is), and a provider whose `mcp.config` is left out for any reason writes no MCP entry (mode `none`). A pattern holds one `*`, in one segment, never within the client
 directory (`{home}/.config/*/config.json` would reach every application's file). No MCP path equals or matches the
 MCP file of a built-in provider, and a `stale` entry equal to `config` or matching it is refused. The check runs
 where the descriptor is resolved (`ResolveProvider`: a provider that fails it writes no MCP entry, and the install

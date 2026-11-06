@@ -287,3 +287,46 @@ func TestResolveProviderDropsUnsafeMCPPaths(t *testing.T) {
 		}
 	}
 }
+
+// An mcp.config the resolver drops (here: outside home) takes the MCP side out
+// with the mode: the registration must not fall back to the base's file.
+func TestResolveProviderDroppedMCPConfigWritesNothing(t *testing.T) {
+	spec := parsed(t, "fork-ext", swapText(t, swapText(t, forkExt, `default: "{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp.json"`, `default: "{xdg_config}/acme/mcp.json"`), `  stale:
+    default: ["{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp-cache.json"]
+`, ""))
+	r, reasons := ResolveProvider(spec, fakeEnv("linux", map[string]string{"XDG_CONFIG_HOME": "/mnt/other"}))
+	if r.MCPConfig != nil || r.MCPMode != configurator.MCPModeNone || !strings.Contains(strings.Join(reasons, "|"), "outside the home") {
+		t.Errorf("config %v mode %q reasons %v", r.MCPConfig, r.MCPMode, reasons)
+	}
+	if r.Registration("team", true).MCPMode != configurator.MCPModeNone {
+		t.Error("the registration still writes MCP")
+	}
+}
+
+// A custom XDG_CONFIG_HOME under home does not take a path out of the .config
+// denylist: the part below the root is checked as if below .config.
+func TestResolveProviderCustomXDGKeepsDenylist(t *testing.T) {
+	env := fakeEnv("linux", map[string]string{"XDG_CONFIG_HOME": "/home/user/cfg"})
+	for _, dir := range []string{"git/skills", "systemd/user", "autostart/x", "fish/conf.d", "environment.d/x", "crush/skills"} {
+		spec := parsed(t, "fork-cli", swapText(t, forkCLI, `linux: "{xdg_config}/fork-cli/skills"`, `linux: "{xdg_config}/`+dir+`"`))
+		r, reasons := ResolveProvider(spec, env)
+		// crush/skills is the client directory of a built-in provider.
+		if r.Global.Skill != nil {
+			t.Errorf("%s: the cell must be dropped: %+v", dir, r.Global.Skill)
+		}
+		if !strings.Contains(strings.Join(reasons, "|"), "below {xdg_config}") {
+			t.Errorf("%s: reasons %v", dir, reasons)
+		}
+	}
+	// An MCP file below the same root.
+	spec := parsed(t, "fork-ext", swapText(t, swapText(t, forkExt, `default: "{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp.json"`, `default: "{xdg_config}/git/mcp.json"`), `  stale:
+    default: ["{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp-cache.json"]
+`, ""))
+	if r, _ := ResolveProvider(spec, env); r.MCPConfig != nil || r.MCPMode != configurator.MCPModeNone {
+		t.Errorf("mcp.config below the root: %v %q", r.MCPConfig, r.MCPMode)
+	}
+	// A permitted directory still resolves, to the custom root.
+	if r, reasons := ResolveProvider(parsed(t, "fork-cli", forkCLI), env); r.Global.Skill == nil || strings.Join(r.Global.Skill.Dir, "/") != "cfg/fork-cli/skills" {
+		t.Errorf("fork-cli: %+v %v", r.Global.Skill, reasons)
+	}
+}

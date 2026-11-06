@@ -129,6 +129,20 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 		}
 		return true
 	}
+	// xdgBelowConfig applies the global-cell checks (denied directories, the
+	// client directory of a built-in) to the part below a custom XDG_CONFIG_HOME as
+	// if it lay below .config: with XDG_CONFIG_HOME=~/cfg, {xdg_config}/git/x would
+	// otherwise resolve to cfg/git/x and escape the .config/git denial.
+	xdgBelowConfig := func(key string, t pathTpl, pre []string) bool {
+		if t.anchor != "xdg_config" || len(pre) == 1 && pre[0] == ".config" {
+			return true
+		}
+		if err := configurator.CheckPluginGlobalPath(key, append([]string{".config"}, t.segs...)); err != nil {
+			reasons = append(reasons, key+": below {xdg_config}, as under .config: "+err.Error())
+			return false
+		}
+		return true
+	}
 	// cell resolves one path of a cell: the segments below home (global) or the
 	// project root.
 	cell := func(key, v string, project bool, sh pathShape) ([]string, bool) {
@@ -142,7 +156,7 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 			return nil, false
 		}
 		segs := append(append([]string(nil), pre...), t.segs...)
-		if !project && !contained(key, segs) {
+		if !project && (!contained(key, segs) || !xdgBelowConfig(key, t, pre)) {
 			return nil, false
 		}
 		return segs, true
@@ -168,7 +182,7 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 			return nil
 		}
 		segs := append(append([]string(nil), pre...), t.segs...)
-		if check && !contained(key, segs) {
+		if check && (!contained(key, segs) || !xdgBelowConfig(key, t, pre)) {
 			return nil
 		}
 		return segs
@@ -202,7 +216,9 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 	// path, since a provider left without mcp.config would write the base's file.
 	// A stale file whose mcp.config was left out above is dropped with it.
 	if _, declared := spec.MCP.Config.pick(env.GOOS); declared && spec.MCP.Mode == "native" && r.MCPConfig == nil {
+		// The reason is the one homePath recorded for mcp.config.
 		r.MCPStale = nil
+		r.MCPMode = configurator.MCPModeNone
 	} else if err := configurator.CheckPluginMCPPaths(spec.Name, r.MCPConfig, r.MCPStale); err != nil {
 		reasons = append(reasons, "mcp: "+err.Error()+": the provider writes no MCP entry")
 		r.MCPMode, r.MCPConfig, r.MCPStale = configurator.MCPModeNone, nil, nil
