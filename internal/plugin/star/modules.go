@@ -1,10 +1,13 @@
 package star
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 
+	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"go.starlark.net/lib/json"
 	"go.starlark.net/lib/math"
 	"go.starlark.net/lib/time"
@@ -29,6 +32,14 @@ const ctxKey = "cartographer.plugin.ctx"
 type callCtx struct {
 	phase phase
 	reg   *registry // only while loading plugin.star
+
+	// The rest is set for a CALL only.
+	plugin string
+	log    io.Writer // the call's log sink: log.* and, for a tool or event, print
+	ctx    context.Context
+	// perms are the manifest's granted permissions; the capability modules of
+	// the following changes read them here, never from the script.
+	perms *plugin.Permissions
 }
 
 func ctxOf(thread *starlark.Thread) *callCtx {
@@ -69,11 +80,10 @@ var capabilityFuncs = map[string][]string{
 	"http":  {"request"},
 	"files": {"read", "write", "remove", "glob"},
 	"env":   {"get"},
-	"log":   {"debug", "info", "warn", "error"},
 }
 
-func capabilityModules() starlark.StringDict {
-	out := starlark.StringDict{"settings": settingsValue{}}
+func capabilityModules(settings *settingsValue) starlark.StringDict {
+	out := starlark.StringDict{"settings": settings, "log": logModule()}
 	for mod, fns := range capabilityFuncs {
 		m := &starlarkstruct.Module{Name: mod, Members: starlark.StringDict{}}
 		for _, fn := range fns {
@@ -90,22 +100,29 @@ func capabilityModules() starlark.StringDict {
 	return out
 }
 
-// settingsValue is the `settings` name. A read like settings.x reaches
-// Attr, which has no thread: it cannot find the context of the call, so unlike
-// the functions above it cannot be late-bound through the thread. While loading
-// that is exactly right (a setting can change without a new approval, so the
-// registered set must not read one); the CALL phase has to give a function the
-// settings some other way, and must not rely on this type.
-type settingsValue struct{}
-
-var _ starlark.HasAttrs = settingsValue{}
-
-func (settingsValue) String() string        { return "<settings>" }
-func (settingsValue) Type() string          { return "settings" }
-func (settingsValue) Freeze()               {}
-func (settingsValue) Truth() starlark.Bool  { return true }
-func (settingsValue) Hash() (uint32, error) { return 0, errors.New("unhashable type: settings") }
-func (settingsValue) AttrNames() []string   { return nil }
-func (settingsValue) Attr(name string) (starlark.Value, error) {
-	return nil, fmt.Errorf("settings.%s is not available while plugin.star loads: a setting can change without a new approval, so what a plugin registers cannot read one", name)
+// logModule writes to the call's log sink, never to stdout (a bridge's stdout
+// is protocol). While loading there is no sink: the registered set must not
+// depend on a side effect.
+func logModule() *starlarkstruct.Module {
+	m := &starlarkstruct.Module{Name: "log", Members: starlark.StringDict{}}
+	for _, level := range []string{"info", "warn", "error"} {
+		full := "log." + level
+		m.Members[level] = starlark.NewBuiltin(full, func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var msg string
+			if err := starlark.UnpackPositionalArgs(full, args, kwargs, 1, &msg); err != nil {
+				return nil, err
+			}
+			c := ctxOf(thread)
+			if c == nil || c.phase != phaseCall {
+				return nil, fmt.Errorf("%s is not available while plugin.star loads: it only registers commands, tools and events", full)
+			}
+			prefix := "plugin " + c.plugin + ": "
+			if level != "info" {
+				prefix += level + ": "
+			}
+			emit(c.log, prefix, msg)
+			return starlark.None, nil
+		})
+	}
+	return m
 }

@@ -1,5 +1,7 @@
 package star
 
+import "time"
+
 // Limits of one run, named in one place. Memory is not bounded by Starlark: a
 // hostile script can exhaust its own process, and the tree reader loads it
 // before any approval, so it is bounded in CPU (MaxLoadSteps) but not in memory:
@@ -13,4 +15,21 @@ const (
 	MaxLoadSteps uint64 = 20_000_000
 	// MaxRegistrationText caps a help, usage or description string.
 	MaxRegistrationText = 1024
+
+	// Per-call step caps: a command is the user's own run, a tool or an event
+	// is a bridge request or a hook.
+	MaxCallStepsTool    uint64 = 20_000_000
+	MaxCallStepsCommand uint64 = 500_000_000
+	// MaxPrintBytes caps what print and log write in one call; the rest is
+	// dropped and a "truncated" line ends the output.
+	MaxPrintBytes = 64 << 10
+	// MaxResultBytes caps the text a tool or command returns.
+	MaxResultBytes = 1 << 20
+)
+
+// Wall clock of one call; a command has none (it ends when done or on Ctrl-C).
+// A caller's context can only shorten them.
+const (
+	ToolTimeout  = 30 * time.Second
+	EventTimeout = 10 * time.Second
 )
