@@ -368,18 +368,15 @@ func DetectionOrder() []Descriptor {
 	return out
 }
 
+// MCPModeCLI is the Descriptor.MCPMode of a provider that reaches Cartographer
+// through `cartographer call` instead of an MCP server entry.
+const MCPModeCLI = "cli"
+
 // Lookup returns the descriptor for p, or ok=false for an unknown provider.
-// A registered variant is found after the built-ins (RegisterVariant refuses a
-// built-in's name, so the order cannot shadow).
 func Lookup(p Provider) (Descriptor, bool) {
-	if d, ok := builtin(p); ok {
-		return d, true
-	}
-	variantsMu.RLock()
-	defer variantsMu.RUnlock()
-	for _, v := range variants {
-		if v.desc.Provider == p {
-			return v.desc.copyOf(), true
+	for _, d := range descriptors {
+		if d.Provider == p {
+			return d, true
 		}
 	}
 	return Descriptor{}, false

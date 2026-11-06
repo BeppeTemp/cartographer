@@ -783,3 +783,20 @@ func TestTrayOptOutRoundTripsThroughTheStateFile(t *testing.T) {
 		t.Error("clearing the opt-out did not stick")
 	}
 }
+
+// A path_fingerprint left in mcp_approvals by a build that had KB-declared
+// client variants is ignored: the field is gone and the decode is not strict.
+func TestLoadIgnoresALeftoverPathFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	body := "server_url: http://x/mcp\nmcp_approvals:\n  kb:\n    tools:\n      content_hash: abc\n      path_fingerprint: old\n"
+	if err := os.WriteFile(clientconfig.Path(dir), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ApprovedMCPHashes()["kb:kb\x00tools"]; got != "abc" {
+		t.Fatalf("hash = %q", got)
+	}
+}

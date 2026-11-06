@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -176,49 +175,5 @@ func TestInvalidClientConfigIsNamedBySyncAndWorkspace(t *testing.T) {
 	setHome(t, missing)
 	if _, _, err := loadWorkspaceConfig(); err == nil || !strings.Contains(err.Error(), "cartographer connect") {
 		t.Errorf("missing config: %v, want the connect advice", err)
-	}
-}
-
-// D1695: the approval is the control over where a variant writes, so the preview
-// and the --pending listing show every resolved destination, and the approval
-// is stored against the descriptor's hash.
-func TestCmdApprove_VariantShowsEveryResolvedPathAndBindsTheHash(t *testing.T) {
-	home, _ := approveFixture(t, false)
-	desc := "schema: 1\nname: fork-cli\ndisplay_name: Fork CLI\nbase: crush\ndetect:\n  binaries: [fork-cli]\nmcp:\n  mode: cli\npaths:\n  global:\n    skill:\n      dir: \"{home}/.fork-cli/skills\"\n    instructions:\n      file: \"{home}/.fork-cli/FORK.md\"\n  project:\n    skill:\n      dir: \".fork-cli/skills\"\n"
-	v := provisioning.Artifact{Kind: "variant", Name: "fork-cli", Source: "kb:kb-a", ContentHash: "variant-hash-0123456789", Files: []provisioning.ArtifactFile{{Path: "fork-cli.yaml", Content: []byte(desc)}}}
-	approveManifest = func(*clientconfig.Config) (provisioning.Manifest, error) {
-		return provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{v}}, nil
-	}
-	userHome, _ := os.UserHomeDir()
-	wants := []string{
-		filepath.Join(userHome, ".fork-cli", "skills"), filepath.Join(userHome, ".fork-cli", "FORK.md"),
-		"<project>/.fork-cli/skills", "mode: cli", "fork-cli",
-	}
-	out := withStdout(t, func() { cmdApprove([]string{"--pending", "--kb", "kb-a"}) })
-	for _, want := range wants {
-		if !strings.Contains(out, want) {
-			t.Errorf("the --pending listing must show %q:\n%s", want, out)
-		}
-	}
-	var code int
-	out = withStdout(t, func() { code = cmdApprove([]string{"variant", "fork-cli", "--kb", "kb-a", "--yes"}) })
-	if code != 0 {
-		t.Fatalf("exit %d:\n%s", code, out)
-	}
-	for _, want := range wants {
-		if !strings.Contains(out, want) {
-			t.Errorf("the preview must show %q:\n%s", want, out)
-		}
-	}
-	cfg, _ := clientconfig.Load(home)
-	if cfg.MCPApprovals["kb-a"]["variant/fork-cli"].PathFingerprint == "" {
-		t.Error("the approval must record the fingerprint of the paths it showed")
-	}
-	if got := cfg.MCPApprovals["kb-a"]["variant/fork-cli"].ContentHash; got != "variant-hash-0123456789" {
-		t.Fatalf("approval = %q (%+v)", got, cfg.MCPApprovals)
-	}
-	out = withStdout(t, func() { code = cmdApprove([]string{"revoke", "variant", "fork-cli"}) })
-	if code != 0 || !strings.Contains(out, "cartographer disconnect fork-cli") {
-		t.Fatalf("revoke = %d, output %q", code, out)
 	}
 }

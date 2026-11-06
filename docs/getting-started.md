@@ -183,10 +183,6 @@ agent made can be reviewed or reverted with ordinary git.
   (`install.ps1`: nothing is written outside your user profile), in
   `/usr/local/bin` or, when that is not writable, `~/.local/bin` (`install.sh`),
   or in `$GOBIN`/`$GOPATH/bin` (`go install`).
-- **Client variants**, if a KB declares them and you approve them (`cartographer connect --approve-variants`
-  or `cartographer setup --approve-variants`): `.cartographer-variants.json` next to `.cartographer.yaml`
-  caches the approved descriptors, and the variant's own skill, agent and instructions files are written
-  where its descriptor says (shown before you approve).
 - **A native per-user service**, if you run `cartographer service install`:
   `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS,
   `~/.config/systemd/user/cartographer.service` on Linux (a crontab block where there is

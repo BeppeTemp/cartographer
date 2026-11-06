@@ -767,27 +767,14 @@ func manifestsForProjections(cfg *clientconfig.Config, projections []syncProject
 // keeps its previous state — and the failures come back in KB order for the
 // caller to report. A projection that needs no failed KB is built exactly as
 // manifestsForProjections builds it.
-//
-// The variant artifacts the pulled KBs declared come back apart, unfiltered by
-// kb_options and by the projections' scoping: the variant cache reconciles
-// against what the KBs declare, not against what one projection receives
-// (D1698), and two KBs claiming one variant name must reach it (the strict
-// merge leaves both out of the manifests).
-func manifestsForProjectionsPartial(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, []provisioning.Artifact, error) {
-	return buildProjectionManifestsVariants(st, cfg, projections, true, pre)
+func manifestsForProjectionsPartial(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
+	return buildProjectionManifests(st, cfg, projections, true, pre)
 }
 
 // buildProjectionManifests builds one manifest per projection. pre, when it
 // covers every KB the projections ask for, replaces the pulls (D1019: the
 // derivation already made them); nil pulls here.
 func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
-	out, failed, _, err := buildProjectionManifestsVariants(st, cfg, projections, partial, pre)
-	return out, failed, err
-}
-
-// buildProjectionManifestsVariants is buildProjectionManifests plus the variant
-// artifacts of every KB that was pulled, as served.
-func buildProjectionManifestsVariants(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, []provisioning.Artifact, error) {
 	out := make(map[string]provisioning.Manifest, len(projections))
 
 	// Every KB any projection asks for, pulled once.
@@ -821,7 +808,7 @@ func buildProjectionManifestsVariants(st syncStreams, cfg *clientconfig.Config, 
 		// A bundle-only projection still needs the bundle, which lives on the
 		// server side of a sync_pull: with no KB to pull it from there is
 		// nothing to fetch, and an empty manifest is the honest answer.
-		return out, nil, nil, nil
+		return out, nil, nil
 	}
 
 	var cs candidateSet
@@ -844,7 +831,7 @@ func buildProjectionManifestsVariants(st syncStreams, cfg *clientconfig.Config, 
 		cs, err = fetchCandidates(cfg, union)
 	}
 	if err != nil {
-		return nil, nil, nil, annotateStaleBinding(err, requiredBy)
+		return nil, nil, annotateStaleBinding(err, requiredBy)
 	}
 	unavailable := make(map[string]bool, len(failed))
 	for _, f := range failed {
@@ -855,7 +842,7 @@ func buildProjectionManifestsVariants(st syncStreams, cfg *clientconfig.Config, 
 	}
 	pins, err := pinnedPublicKeys(cfg)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	for _, p := range projections {
 		if needsAny(p.KBs, unavailable) {
@@ -863,11 +850,11 @@ func buildProjectionManifestsVariants(st syncStreams, cfg *clientconfig.Config, 
 		}
 		merged, err := provisioning.MergeArtifactsStrict(cs.forProjection(cfg, p))
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
 		verified, err := provisioning.VerifiedManifest(merged, pins)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
 		verified = withoutCLISkill(p.Provider, withoutOptedOutSkillsLines(cfg, verified))
 		// Set after verification, which copies only the signed catalogue.
@@ -875,18 +862,7 @@ func buildProjectionManifestsVariants(st syncStreams, cfg *clientconfig.Config, 
 		verified.PathRegistries = cs.pathRegistriesForProjection(cfg, p)
 		out[projectionKey(p)] = verified
 	}
-	var variants []provisioning.Artifact
-	for _, kb := range union {
-		if unavailable[kb] {
-			continue
-		}
-		for _, a := range cs.Named[kb] {
-			if a.Kind == "variant" {
-				variants = append(variants, a)
-			}
-		}
-	}
-	return out, failed, variants, nil
+	return out, failed, nil
 }
 
 // needsAny reports whether a projection bound to kbs would receive any KB in

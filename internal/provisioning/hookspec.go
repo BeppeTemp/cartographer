@@ -74,7 +74,6 @@ func hookEventKnown(event string) bool {
 
 // hookEventReaches reports whether provider's mechanism can fire event.
 func hookEventReaches(event string, provider configurator.Provider) bool {
-	provider = nativeProvider(provider) // a variant fires what its base's dispatcher fires
 	for _, p := range hookEventReach[event] {
 		if p == provider {
 			return true

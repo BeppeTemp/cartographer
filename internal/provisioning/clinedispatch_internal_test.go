@@ -139,7 +139,7 @@ func TestClineHooksSkipsInvalidMatchersAndUnreadableSpecs(t *testing.T) {
 	if hs := clineHooks(base, ""); len(hs) != 1 || hs[0].name != "ok" {
 		t.Errorf("hooks = %+v", hs)
 	}
-	if hs := clineHooks(base, clineHookFilesPrefix+"ok"); len(hs) != 0 {
+	if hs := clineHooks(base, "ok"); len(hs) != 0 {
 		t.Errorf("exclude: %+v", hs)
 	}
 }

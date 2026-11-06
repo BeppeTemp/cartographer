@@ -2,6 +2,7 @@ package main
 
 import (
 	"io/fs"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -30,9 +31,9 @@ func TestWithoutCLISkill(t *testing.T) {
 		}
 	}
 	old := usesCLI
-	usesCLI = func(p configurator.Provider) bool { return p == "cli-variant" }
+	usesCLI = func(p configurator.Provider) bool { return p == "cli-provider" }
 	t.Cleanup(func() { usesCLI = old })
-	if got := names(withoutCLISkill("cli-variant", m)); len(got) != 3 {
+	if got := names(withoutCLISkill("cli-provider", m)); len(got) != 3 {
 		t.Errorf("a CLI provider keeps the skill, got %v", got)
 	}
 }
@@ -82,5 +83,34 @@ func TestCLISkillTextMatchesTheCommand(t *testing.T) {
 		if !dispatched[m[1]] {
 			t.Errorf("skill cites `cartographer %s`, which is not a command", m[1])
 		}
+	}
+}
+
+// A provider that reaches Cartographer through the command gets no MCP entry on
+// connect or sync, nothing to remove on disconnect, and no warning; the MCP
+// provider next to it is unaffected. The predicate is injected: no built-in is one.
+func TestCLIProviderHasNoMCPEntry(t *testing.T) {
+	old := usesCLI
+	usesCLI = func(p configurator.Provider) bool { return p == "codex" }
+	t.Cleanup(func() { usesCLI = old })
+	cfg := bridgeConfigFor(t, "claude", "codex")
+	entries, err := entriesByProviderForKBs(cfg, []string{"claude", "codex"}, "cartographer", cfg.ServerURL, cfg.KnownKBs, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries["codex"]) != 0 || len(entries["claude"]) == 0 {
+		t.Fatalf("entries = %v", entries)
+	}
+	dir := t.TempDir()
+	written, warnings, err := applyMCPEntries(map[string][]mcpEntry{"codex": {{Name: "cartographer", URL: cfg.ServerURL}}}, []string{"codex"}, dir, nil, false, "", false)
+	if err != nil || len(written) != 0 || len(warnings) != 0 {
+		t.Fatalf("applyMCPEntries = %v, %v, %v", written, warnings, err)
+	}
+	names, removed, err := removeMCPEntries("cartographer", cfg.KnownKBs, []string{"codex"}, dir, nil, false, "", false)
+	if err != nil || len(names) != 0 || len(removed) != 0 {
+		t.Fatalf("removeMCPEntries = %v, %v, %v", names, removed, err)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+		t.Fatalf("files were created: %v", ents)
 	}
 }

@@ -759,8 +759,7 @@ func hookProviderFromPath(path string) string {
 	case strings.HasPrefix(slash, clineHookFilesPrefix):
 		return "cline"
 	default:
-		// A variant's hook files are wired by its base's registrar.
-		return variantHookOwner(slash)
+		return ""
 	}
 }
 

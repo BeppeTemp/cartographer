@@ -26,19 +26,18 @@ func names(as []Artifact) string {
 	return strings.Join(out, ",")
 }
 
-// fork-ext has no skill cell in the global scope and has one in the project scope.
+// pi has no skill cell in the project scope and has one in the global scope.
 func TestUnplacedArtifacts_KeyedOnTheMissingCell(t *testing.T) {
-	registerTestVariant(t, testVariant(t, "fork-ext", testForkExt, "linux", nil))
-	p := configurator.Provider("fork-ext")
+	p := configurator.ProviderPi
 	m := Manifest{Artifacts: []Artifact{
 		kbSkill("kb-a", "zeta"), kbSkill("kb-a", "alpha"), kbAgent("kb-a", "scout"),
 		{Kind: "skill", Name: "cartographer-cli", Source: "bundle", BuiltIn: true},
 		{Kind: "hook", Name: "h", Source: "kb:kb-a"},
 	}}
-	if got := names(UnplacedArtifacts(m, p, ScopeGlobal)); got != "skill/zeta,skill/alpha,agent/scout" {
-		t.Errorf("global = %s", got)
+	if got := names(UnplacedArtifacts(m, p, ScopeProject)); got != "skill/zeta,skill/alpha,agent/scout" {
+		t.Errorf("project = %s", got)
 	}
-	if got := UnplacedArtifacts(m, p, ScopeProject); got != nil {
+	if got := UnplacedArtifacts(m, p, ScopeGlobal); got != nil {
 		t.Errorf("a scope with a skill cell lists %s", names(got))
 	}
 	if got := UnplacedArtifacts(m, configurator.ProviderClaudeCode, ScopeGlobal); got != nil {
@@ -80,22 +79,21 @@ func instructionsManifest(skills ...string) Manifest {
 	return m
 }
 
-// A fork with no skill cell gets the sentence in its block; a changed skill set
-// rewrites the block on the next Apply and a repeated one writes nothing.
+// A client scope with no skill cell gets the sentence in its block; a changed
+// skill set rewrites the block on the next Apply and a repeated one writes nothing.
 func TestApply_InstructionsNameUnplacedSkills(t *testing.T) {
-	registerTestVariant(t, testVariant(t, "fork-ext", testForkExt, "linux", nil))
-	p := configurator.Provider("fork-ext")
+	p := configurator.ProviderPi
 	base := t.TempDir()
 	m := instructionsManifest()
 	apply := func(unplaced ...Artifact) AppliedResult {
-		res, err := Apply(m, ApplyOptions{Provider: p, BaseDir: base, Lock: Lock{}, Unplaced: unplaced})
+		res, err := Apply(m, ApplyOptions{Provider: p, Scope: ScopeProject, BaseDir: base, Lock: Lock{}, Unplaced: unplaced})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return res
 	}
 	read := func() string {
-		b, err := os.ReadFile(filepath.Join(base, "Documents/Cline/Rules/cartographer.md"))
+		b, err := os.ReadFile(filepath.Join(base, "AGENTS.md"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,12 +104,12 @@ func TestApply_InstructionsNameUnplacedSkills(t *testing.T) {
 		t.Fatalf("block lacks the sentence:\n%s", body)
 	}
 	// Same inputs, same lock: nothing is rewritten.
-	again, err := Apply(m, ApplyOptions{Provider: p, BaseDir: base, Lock: first.NewLock, Unplaced: []Artifact{kbSkill("kb-a", "alpha")}})
+	again, err := Apply(m, ApplyOptions{Provider: p, Scope: ScopeProject, BaseDir: base, Lock: first.NewLock, Unplaced: []Artifact{kbSkill("kb-a", "alpha")}})
 	if err != nil || again.NewLock.PathsSectionHash != first.NewLock.PathsSectionHash {
 		t.Fatalf("a repeated apply moved the hash: %v", err)
 	}
 	// The skill set changed: the block follows (trigger: blockBodyIs, the body on disk against the body to write).
-	_, err = Apply(m, ApplyOptions{Provider: p, BaseDir: base, Lock: first.NewLock, Unplaced: []Artifact{kbSkill("kb-a", "alpha"), kbSkill("kb-a", "beta")}})
+	_, err = Apply(m, ApplyOptions{Provider: p, Scope: ScopeProject, BaseDir: base, Lock: first.NewLock, Unplaced: []Artifact{kbSkill("kb-a", "alpha"), kbSkill("kb-a", "beta")}})
 	if err != nil || !strings.Contains(read(), `"alpha", "beta"`) {
 		t.Fatalf("a changed skill set did not rewrite the block (%v):\n%s", err, read())
 	}

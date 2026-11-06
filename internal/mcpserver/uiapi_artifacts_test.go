@@ -177,7 +177,7 @@ func TestUIAPI_ArtifactsListsEveryKindEvenWhenTheKBHasNone(t *testing.T) {
 					t.Errorf("kind %q lacks its title, path or doc: %+v", k.Kind, k)
 				}
 			}
-			if got, want := strings.Join(order, " "), "skill agent hook mcp instructions variant template"; got != want {
+			if got, want := strings.Join(order, " "), "skill agent hook mcp instructions template"; got != want {
 				t.Fatalf("kinds = %s, want %s (secrets answer from /secrets)", got, want)
 			}
 			for kind, kinfo := range byKind {

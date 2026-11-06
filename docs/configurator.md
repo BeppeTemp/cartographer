@@ -183,10 +183,6 @@ decides every step **before** running any:
   choice error (nothing changed). A failed step prints `Setup stopped at …`; a rerun skips what is
   done. On Linux a freshly installed user unit without lingering gets the `loginctl enable-linger`
   hint (systemd only: cron has no logout problem). The run ends on the Atlas URL and on restarting the agent sessions.
-- **Client variants:** with no agent detected and a KB source (`--remote` or a mounted KB) the plan says the agents are
-  detected after the KB is mounted; `setup --approve-variants` then approves the variants the selected KBs declare (each
-  printed with the paths it writes), caches them and connects them with the agents; without the flag `setup` never asks
-  and reports `needs_approval`. A variant is connected with its declaring KB only ([D1702](decisions/D1702-variant-connect-scope.md)).
 
 ```bash
 cartographer setup                                                  # interview, plan, confirm
@@ -205,10 +201,6 @@ behind it or answers with no KB mounted.
 
 Lists the supported providers, whether they are installed on the machine and whether they are
 connected (recorded in the client state file `.cartographer-state.json`, beside the machine-wide `~/.cartographer.yaml`).
-
-A client variant a KB declared and the client config authorizes is listed as `<provider> (variant of <base>)`; a
-cached one waiting for approval is listed after the table with its `approve variant` command (`status` and the TUI name
-variants the same way; `doctor` reports a cached one that fails registration). The cache is `.cartographer-variants.json`.
 
 `internal/agents.Detect` probes, in this order, and stops at the first match; the heuristic that
 matched is reported in the DETECTION column, and as `detected_by` in JSON
@@ -244,11 +236,6 @@ providers a bare `connect` or `connect all` targets — is unchanged: it is stil
 match ([#305](https://github.com/BeppeTemp/cartographer/issues/305)).
 
 ### `cartographer connect [provider|all]`
-
-`--approve-variants` approves every client variant the `--kb`-selected KBs declare, printing the paths each will write; without it
-a terminal asks per variant and anything else reports `needs_approval` and connects the rest. For `all`/no target, an unknown name
-or the flag, `connect` first discovers the KBs' variants (server unreachable: the cache only, the reason printed); a variant is connected
-with its declaring KB only, narrowed by `--kb` ([D1702](decisions/D1702-variant-connect-scope.md)).
 
 Generates the MCP config (HTTP transport only), materializes artifacts via `sync_pull` (the full
 kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations with no known
@@ -343,8 +330,8 @@ server's own error is what the agent reads. Flags: `--output text|json` (`json` 
 **The command writes no file anywhere** (no cache, log, lock or audit file, `$TMPDIR` included) and
 works with a read-only `$HOME`: it only reads the client configuration and the token. The bundled
 `cartographer-cli` skill, which teaches this command, is filtered out of every provider's manifest
-client-side unless the provider reaches Cartographer through the command; no built-in provider does,
-a client variant in `cli` mode does (`sync.md` §Client variants).
+client-side unless the provider reaches Cartographer through the command; no built-in provider does
+today.
 
 Existing configurations are untouched: the scope is per provider, absent means the historical global
 catalogue, and no upgrade changes it. Full rules, the project-local destination matrix, the
@@ -1435,23 +1422,20 @@ a file with the execute bit, and a skill or agent whose frontmatter declares `ho
 `providers:` block) need the same approval because they run on this machine (D1141), signed or not. Nothing else the client installs
 waits for a decision (`sync` has no `trust` setting and no `--auto-trust`; the one explicit trust write is `workspace bind codex … --trust` for Codex project trust, D1074), and bundled artifacts never do.
 Inspect and record the current content with `cartographer approve <kind> <name> --kb <kb> --yes`
-(`kind` is `mcp`, `hook`, `skill`, `agent` or `variant`; interactive terminals default to no confirmation; for a
+(`kind` is `mcp`, `hook`, `skill` or `agent`; interactive terminals default to no confirmation; for a
 non-MCP kind the command lists the files and prints the `hook.json` and the content of the executable files). Approval records the source KB,
 artifact name (`<kind>/<name>` for everything but an MCP descriptor), content hash and timestamp in
 `.cartographer.yaml`; a content change requires reapproval. `cartographer approve revoke <kind> <name> --kb <kb>`
 takes effect on the next `cartographer sync` (revoking an approval that was never given is an error, exit 2, and without `--kb` it says whether there is nothing to revoke or the name is approved from several KBs): for an MCP descriptor it prunes the managed
 provider config; for a hook or an executable file it stops refreshing what is installed, which is left in
-place, registered and running (the command says how to remove it); for a client variant it keeps what is installed
-and names `cartographer disconnect <name>` to remove it (deregistration comes with variant discovery). A hook or executable file that is waiting is reported as pending on every sync and is not
+place, registered and running (the command says how to remove it). A hook or executable file that is waiting is reported as pending on every sync and is not
 refreshed, registered anew or removed until approved.
 
 `cartographer approve --pending [--kb <kb>] [--yes]` approves every hook, skill or agent `sync` would report as
 `needs_approval` after one confirmation, and before it prints each of them exactly as the single form does
 (the files with their size and execute bit, the `hook.json`, the content of every executable file and of a
 frontmatter that declares hooks or MCP servers), so the confirmation covers what will run. An MCP descriptor is
-never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. A client
-variant (D1695) is the same: `--pending` lists it with every path it resolves to on this machine but approves it only
-with `cartographer approve variant <name> --kb <kb>`, whose approval also records those paths. Without a
+never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. Without a
 terminal it needs `--yes`, like the single form. Names, paths and targets chosen by the server are printed with
 every non-printable character escaped (`\n`, `\x1b`, `\u202e`), so a name cannot forge a line, rewrite the screen or read as another command. Then run
 `cartographer sync`.

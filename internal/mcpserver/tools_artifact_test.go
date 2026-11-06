@@ -311,8 +311,6 @@ func TestClassifyArtifactPath(t *testing.T) {
 		{"agents/my-agent.md", true, "agent", "my-agent"},
 		{"hooks/my-hook/hook.json", true, "hook", "my-hook"},
 		{"mcp/my-server.json", true, "mcp", "my-server"},
-		{"variants/fork-cli.yaml", true, "variant", "fork-cli"},
-		{"variants/fork-cli.yml", false, "", ""},
 		{"instructions.md", true, "instructions", ""},
 		{"paths.yaml", true, "paths", ""},
 		// Only the canonical spelling is accepted: the form a join resolves is
@@ -901,5 +899,21 @@ func TestArtifactWrite_HookJSONIsValidated(t *testing.T) {
 	tr = write("hooks/other/hook.json", `{"event":"PreInvocation","command":"./run.sh"}`)
 	if tr.IsError || !strings.Contains(tr.Content[0].Text, "claude, codex, opencode") {
 		t.Fatalf("antigravity-only hook should be accepted with a warning: %+v", tr.Content)
+	}
+}
+
+func TestArtifactTools_VariantsPathIsNotWhitelisted(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	path := "variants/x.yaml"
+	resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{"path": path, "content": "name: x\n"})})
+	tr := decodeToolResult(t, resps[1])
+	if !tr.IsError || !containsText(tr, "not a whitelisted artifact path") {
+		t.Fatalf("variants/ write: %+v", tr.Content)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path))); !os.IsNotExist(err) {
+		t.Fatalf("variants/ write created a file: %v", err)
 	}
 }

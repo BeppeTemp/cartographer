@@ -1747,3 +1747,20 @@ func TestRun_BOMFrontmatterIsNotMissing(t *testing.T) {
 		}
 	}
 }
+
+// A file under variants/ is just a folder of the KB: no check reads it
+// (the KB-declared client variants were removed before they shipped).
+func TestRun_VariantsFolderIsIgnored(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.Root, "variants/x.yaml", "name: not-a-variant\nunknown: true\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, f := range findings {
+		if strings.HasPrefix(f.Path, "variants/") {
+			t.Errorf("finding on variants/: %+v", f)
+		}
+	}
+}

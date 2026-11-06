@@ -207,7 +207,6 @@ const LABELS: Record<string, string> = {
   missing_instructions: "No instructions for agents",
   artifact_unused: "Unused skills and agents",
   hook_invalid: "Invalid hooks",
-  variant_invalid: "Invalid client variants",
   unused_placeholder: "Placeholders nobody uses",
 };
 
@@ -304,7 +303,6 @@ const HELP: Record<string, string> = {
   skill_missing_perimeter: "Instructions that do not say which part of the KB they govern.",
   cross_kb_path: "An artifact hard-coding another KB's location.",
   hook_invalid: "A hook definition that does not parse.",
-  variant_invalid: "A client variant descriptor that does not parse.",
   // KB files
   junk_file: "A system or editor file tracked in git (.DS_Store, backups).",
   symlinked_path: "A symlink under data/ or services/. Concepts and assets never follow it, so what it points to is invisible.",
