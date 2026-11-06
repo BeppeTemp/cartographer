@@ -10,6 +10,9 @@ one version can behave differently per mode. Use only names the client documents
 or accepts; an unknown trigger or key may be silently ignored rather than reported.
 A probe that needs an install, upgrade or login stops and asks the operator.
 
+Each pass also checks **MCP tool visibility** per client: code mode, tool search,
+the keys that pin a tool or server, and how server instructions are shown.
+
 Probe the global location and the project-local one separately; a matrix cell is
 one or the other.
 
@@ -42,8 +45,10 @@ kiro none; antigravity none (no result in the payload). Per-client detail in
 
 ## Kiro
 
-Run the real binary, not the Homebrew symlink (it breaks the launcher):
-`KIRO="/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli"` on macOS. Version:
+Run the real binary: on 3.0.0 the Homebrew symlink works, and the binary is
+`/opt/homebrew/Caskroom/kiro-cli/<v>/kirocli/bin/kiro-cli` (on 2.x the symlink
+broke the launcher; the app bundle was `KIRO="/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli"`).
+`kiro-cli agent upgrade --dry-run` works without login. Version:
 `brew info --cask kiro-cli`. Kiro 2.2x carries three agent engines
 (`--agent-engine v1|v2|v3`, default `v2`); a feature present only in a
 non-default engine is not "supported" for a user who runs the default.
@@ -152,6 +157,14 @@ unique token; ask the client to repeat it.
   skills and agents must sit under (D360, `clientcompat_test.go`); `opencode
   debug agents` lists agents (2.x needs `opencode reload` first). `opencode agent
   list` no longer exists on 2.x.
+- Background service (2.x): any non-`--standalone` command (`debug agents`,
+  `reload`, the TUI) spawns a detached `opencode serve --service` that outlives the
+  probe, on the default port 49374 unless `service.json` sets one. Under a temp
+  `XDG_*` it squats the operator's port and their `opencode` fails with "Managed
+  service port … already in use" (2026-11-05). Before the first command run
+  `opencode service set port <free port>` with the probe's `XDG_*`; at cleanup run
+  `opencode service stop` with the same environment, then check that
+  `pgrep -f 'opencode serve --service'` shows no probe PID.
 - Skill and agent: `$HOME/.config/opencode/skills/<name>/` and `agents/<name>.md`.
 - Hook: the generated plugin in `$HOME/.config/opencode/plugins/` fires on
   `session.created`; sentinel plus negative control.
