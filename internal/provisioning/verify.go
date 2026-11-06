@@ -378,6 +378,12 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		finding.Reason, finding.Detail = DriftError, err.Error()
 		return finding, true
 	case onDisk != mf.MaterializedHash:
+		// Kiro 3.x upgraded our own bytes in place: not drift (#1717).
+		if mf.Kind == "agent" && provider == configurator.ProviderKiro {
+			if data, rerr := os.ReadFile(full); rerr == nil && kiroUpgradeAccepted(mf, full, data) {
+				return DriftFinding{}, false
+			}
+		}
 		finding.Reason = DriftModified
 		return finding, true
 	}

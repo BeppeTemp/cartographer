@@ -159,6 +159,33 @@ func ValidateAgentProviders(fm *okf.Frontmatter) error {
 	return err
 }
 
+// kiroV2OnlyKeys are the keys of a `providers.kiro` entry that only Kiro's V2
+// engine reads (#1717). Kiro CLI 3.x ignores `toolsSettings`, reads a shell
+// `allowedCommands` regex as a glob and refuses `autoAllowReadonly` together with
+// `denyByDefault`, and its session-start upgrade rewrites such a file in place.
+// The V3 replacement is `permissions`, copied verbatim like every native key
+// (D291); nothing is translated.
+var kiroV2OnlyKeys = []string{"allowedTools", "toolsSettings"}
+
+// KiroV2OnlyKeyWarnings names, for an agent that artifact_write accepted, the
+// V2-only keys its `providers.kiro` entry carries and the V3 key to write
+// instead. Advisory: V2 still runs them, so it informs and never rejects.
+func KiroV2OnlyKeyWarnings(fm *okf.Frontmatter) []string {
+	fields, err := nativeFieldsFor(fm, configurator.ProviderKiro)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, f := range fields {
+		for _, k := range kiroV2OnlyKeys {
+			if f.Key == k {
+				out = append(out, fmt.Sprintf("providers.kiro.%s is read by Kiro's V2 engine only: Kiro CLI 3.x ignores it or changes its meaning when it upgrades the agent; write the V3 `permissions` key instead (Cartographer copies it verbatim and translates nothing)", k))
+			}
+		}
+	}
+	return out
+}
+
 // nativeProvidersDeclared lists, sorted, the clients that have a non-empty
 // `providers:` entry; "" fields are skipped. Unparseable frontmatter yields nil
 // (the translation reports it on its own).

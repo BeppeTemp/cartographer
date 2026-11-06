@@ -923,3 +923,29 @@ func TestArtifactTools_VariantsPathIsNotWhitelisted(t *testing.T) {
 		t.Fatalf("variants/ write created a file: %v", err)
 	}
 }
+
+// A Kiro agent whose providers.kiro carries V2-only keys is accepted with a
+// warning naming the V3 replacement; `permissions` draws none (#1717).
+func TestArtifactWrite_AgentKiroV2KeysWarn(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	n := 0
+	write := func(providers string) ToolResult {
+		n++
+		name := fmt.Sprintf("kiroagent%d", n)
+		r := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{
+			"path": "agents/" + name + ".md", "content": "---\nname: " + name + "\ndescription: d\n" + providers + "---\nBody\n",
+		})})
+		return decodeToolResult(t, r[1])
+	}
+	tr := write("providers:\n  kiro:\n    allowedTools: [read]\n    toolsSettings: {}\n")
+	if tr.IsError || !containsText(tr, "warnings") || !containsText(tr, "providers.kiro.toolsSettings") || !containsText(tr, "permissions") {
+		t.Errorf("V2 keys must be accepted with a warning: %+v", tr.Content)
+	}
+	tr = write("providers:\n  kiro:\n    permissions:\n      rules: []\n")
+	if tr.IsError || containsText(tr, "warnings") {
+		t.Errorf("V3 permissions must be accepted without a warning: %+v", tr.Content)
+	}
+}

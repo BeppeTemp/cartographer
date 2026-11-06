@@ -628,8 +628,9 @@ func toolArtifactWrite(k *kb.KB) Tool {
 				"path":   params.Path,
 				"sha256": sha256Hex(data),
 			}
-			if w := hookClientWarnings(info, params.Path, data); len(w) > 0 {
-				result["warnings"] = w
+			warnings := append(hookClientWarnings(info, params.Path, data), agentClientWarnings(info, data)...)
+			if len(warnings) > 0 {
+				result["warnings"] = warnings
 			}
 			return jsonResult(result), nil
 		},
@@ -697,6 +698,24 @@ func hookClientWarnings(info artifactPathInfo, relPath string, data []byte) []st
 		return nil
 	}
 	return []string{fmt.Sprintf("this hook's event is not fired by: %s (it is not registered there at sync)", strings.Join(misses, ", "))}
+}
+
+// agentClientWarnings names, for an agent that passed validation, the keys of
+// its `providers.kiro` entry that only Kiro's V2 engine reads (#1717). Empty for
+// any other artifact.
+func agentClientWarnings(info artifactPathInfo, data []byte) []string {
+	if info.Kind != "agent" {
+		return nil
+	}
+	fmRaw, _, ok := okf.SplitFrontmatter(string(data))
+	if !ok {
+		return nil
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return nil
+	}
+	return provisioning.KiroV2OnlyKeyWarnings(fm)
 }
 
 func isStructuredArtifact(info artifactPathInfo, relPath string) bool {
