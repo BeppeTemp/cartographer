@@ -30,7 +30,10 @@ cd "$(git rev-parse --show-toplevel)"
 if [ "${1:-}" = --changed ]; then
   remote=origin
   git remote get-url upstream >/dev/null 2>&1 && remote=upstream
-  base=$(git merge-base "$remote/main" HEAD)
+  base=$(git merge-base "$remote/main" HEAD 2>/dev/null) || {
+    echo "affected-pkgs.sh: no merge-base with $remote/main (is the ref missing or the clone shallow?): run git fetch $remote main" >&2
+    exit 1
+  }
   { git diff --name-only "$base"; git ls-files --others --exclude-standard; } | sort -u
   exit 0
 fi

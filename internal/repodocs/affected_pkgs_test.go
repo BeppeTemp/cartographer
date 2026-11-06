@@ -150,3 +150,45 @@ func TestAffectedPackagesAlwaysRunsTheTreeScanningGuards(t *testing.T) {
 		t.Errorf("a markdown change does not select procattr, got %q", got)
 	}
 }
+
+// A checkout without <remote>/main (a copy synced to a build host, a shallow clone)
+// cannot tell what it changed: --changed and make check must fail, not report "no Go
+// package affected" and pass having tested nothing (#1748).
+func TestCheckFailsWithoutTheBaseRef(t *testing.T) {
+	needBash(t)
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not on PATH")
+	}
+	root := repoRoot(t)
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "x")
+	for _, f := range []string{"scripts/affected-pkgs.sh", "Makefile"} {
+		c := exec.Command("sh", "-c", "mkdir -p "+dir+"/scripts && cp "+root+"/"+f+" "+dir+"/"+f)
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("copy %s: %v\n%s", f, err, out)
+		}
+	}
+	for _, args := range [][]string{{"bash", "scripts/affected-pkgs.sh", "--changed"}, {"make", "check"}} {
+		c := exec.Command(args[0], args[1:]...)
+		c.Dir = dir
+		out, err := c.CombinedOutput()
+		if err == nil {
+			t.Fatalf("%v succeeded without origin/main:\n%s", args, out)
+		}
+		if !strings.Contains(string(out), "origin/main") && args[0] == "bash" {
+			t.Errorf("%v does not name the missing base:\n%s", args, out)
+		}
+		if strings.Contains(string(out), "no Go package affected") {
+			t.Errorf("%v claims nothing is affected:\n%s", args, out)
+		}
+	}
+}
