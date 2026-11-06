@@ -66,7 +66,7 @@ func cmdDisconnect(args []string) int {
 
 	printDisconnectSummary(res, *dryRun)
 	if kept := res.keptConnected(); len(kept) > 0 {
-		fmt.Fprintf(os.Stderr, "Error: kept connected because a destination is a symlink: %s (replace the link with a regular file or directory, then run disconnect again)\n", strings.Join(kept, ", "))
+		fmt.Fprintf(os.Stderr, "Error: kept connected because a destination is a symlink: %s (replace the link with a regular file or directory, or list it under providers.<provider>.allow_symlinks with cartographer client symlinks <provider> --add <link>, then run disconnect again)\n", strings.Join(kept, ", "))
 		return 1
 	}
 	return 0

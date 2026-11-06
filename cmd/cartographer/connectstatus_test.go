@@ -205,6 +205,9 @@ func TestRunDoctor_MCPEntryFixNamesTheSymlink(t *testing.T) {
 	if !strings.Contains(f[0].Fix, cfgDir) {
 		t.Errorf("fix = %q, want the link %s named", f[0].Fix, cfgDir)
 	}
+	if !strings.Contains(f[0].Fix, "cartographer client symlinks opencode --add") {
+		t.Errorf("fix = %q, want the allow_symlinks alternative", f[0].Fix)
+	}
 }
 
 // A kind the server chose reaches the connect status line: it is escaped, so a

@@ -247,7 +247,7 @@ kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations wi
 destination go to `unsupported` and are filtered upstream), and writes/updates `.cartographer.yaml`. If the
 server is unreachable, the MCP configs and `.cartographer.yaml` are still written; materialization
 is **deferred** (warning, exit 0) — it must be completed with `cartographer sync` once the
-server is up. A transport failure (dial, DNS, timeout) defers as "server unreachable"; any other answer that is not a rejection (a 404 or 5xx from `/health`) also defers, worded "the server did not serve the skills", and probe messages say "the server answered but the probe failed" for it; a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). A provider whose destination the symlink guard refuses ends `partially connected` or `not connected` and `connect` exits 3 ([§Symlinked config files and directories are refused](#symlinked-config-files-and-directories-are-refused)). Materialized hooks are also **automatically registered** in the
+server is up. A transport failure (dial, DNS, timeout) defers as "server unreachable"; any other answer that is not a rejection (a 404 or 5xx from `/health`) also defers, worded "the server did not serve the skills", and probe messages say "the server answered but the probe failed" for it; a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). A provider whose destination the symlink guard refuses ends `partially connected` or `not connected` and `connect` exits 3 ([§Symlinked config files and directories are refused unless listed](#symlinked-config-files-and-directories-are-refused-unless-listed)). Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job an earlier release installed, printing one line when there was one:
@@ -516,7 +516,7 @@ cartographer disconnect all --dry-run  # preview without writing
 Idempotent: exit 0 even if there was nothing to remove (no `.cartographer.yaml`, provider
 already disconnected, MCP entry already absent, ...). Exit 2 only on an actual error (I/O, malformed
 provider config JSON, ...). Exit 1 when a provider was kept connected because its config or managed
-files sit behind a symlink (§Symlinked config files and directories are refused); the other providers
+files sit behind a symlink (§Symlinked config files and directories are refused unless listed); the other providers
 are still disconnected.
 
 ### `cartographer status`
@@ -738,13 +738,13 @@ The checks:
 | `client-config` | `.cartographer.yaml` exists and loads (an existing file that does not load is reported with the real error and the fix `fix or remove <path>`, not `connect`); an agent is connected; every configured provider is still installed |
 | `lockfile` | present, readable, and in the v2 format — a v1 file on disk is migrated *in memory* by every read, but stays v1 until something rewrites it |
 | `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered`, `unrunnable` (a Claude Code hook whose registered command cannot run, with the reason — D267); `foreign` (an info line: a file inside a managed skill/hook directory that the lock does not own, which `sync` leaves and `status` does not count as drift, #1502); plus files sitting inside a managed skill/hook directory that no lock entry accounts for (D178) — reported only, since doctor cannot prove Cartographer wrote them |
-| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one. When the config is behind a symlink the fix names the link (replace it with a regular file or directory) instead of `cartographer reconnect`, which refuses it too (D148). Only the names `disconnect`/`reconnect` manage count (the server name and `<server>-<kb>` for the recorded KBs): a user's own `cartographer-dev` is left alone |
+| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one. When the config is behind a symlink the fix names the link (replace it with a regular file or directory, or list it with `cartographer client symlinks <provider> --add <link>`) instead of `cartographer reconnect`, which refuses an unlisted link too (D148, D1736). Only the names `disconnect`/`reconnect` manage count (the server name and `<server>-<kb>` for the recorded KBs): a user's own `cartographer-dev` is left alone |
 | `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts), **and** that the provider actually reads the file it was written into (D189) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite; for OpenCode, the plugin shape written against the installed major (D359) — a 1.x plugin on OpenCode 2.x is an error, an unsupported major a warning, an unreadable version a warning (the shape was guessed, D719) |
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |
 | `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140); a timer the operator uninstalled on purpose is info (D325) |
 | `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
-| `symlink` | no managed destination directory (global, or under a workspace binding) is a symlink, or anything else that is not a plain directory — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148, widened in D216) |
+| `symlink` | no managed destination directory (global, or under a workspace binding) is a symlink, or anything else that is not a plain directory — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148, widened in D216); the fix is to replace it or to list it with `cartographer client symlinks <provider> --add <path>`. A destination that is itself a **listed** link (`providers.<provider>.allow_symlinks`) is an `info` finding naming its target, with no fix |
 | `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
 | `legacy_steering_pattern` | the operator's own steering text — the provider's instructions file outside the managed block, plus, for Kiro, the other `*.md` files beside `~/.kiro/steering/cartographer.md` — names a pre-D288 prefixed tool (`<prefix>__<tool>`, where `<tool>` is a real Cartographer tool and `<prefix>` neither is `mcp` nor contains `__`, so Claude Code's `mcp__<server>__<tool>` names are not flagged), which `sync` never rewrites there. Warning severity; the fix names the unprefixed tool ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)) |
 | `update_available` | a newer release is in the update cache (D254). Info severity; the fix is the channel's upgrade command. Cache only, so doctor stays offline |
@@ -1609,7 +1609,7 @@ a failure.
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
 | `client realign [--reorder]` | realigns `.cartographer.yaml` to the current settings table, the same pass `sync` runs (the original is kept as `.cartographer.yaml.bak-<version>`); `--reorder` also writes the keys in the table's order, leaving a mapping as it is when one of its keys aliases (or merges) an anchor another of its keys defines |
-| `client symlinks <provider> [--add <path>] [--remove <path>]` | lists, adds or removes the provider's `allow_symlinks` entries (§Symlinked config files and directories are refused); entries are compared expanded and cleaned, a `--remove` that matches nothing exits 1, and an entry that is `~`, `$HOME`, `/`, the home directory or holds a control character is refused |
+| `client symlinks <provider> [--add <path>] [--remove <path>]` | lists, adds or removes the provider's `allow_symlinks` entries (§Symlinked config files and directories are refused unless listed); entries are compared expanded and cleaned, a `--remove` that matches nothing exits 1, and an entry that is `~`, `$HOME`, `/`, the home directory or holds a control character is refused |
 | `client kb <kb> [--artifacts=true\|false] [--access=read\|write]` | shows, or sets, the KB's per-KB options (the `knowledge_bases` map, D1408, D1409), for every provider; `--access=read` connects the KB read-only (below), `write` removes the key; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB the server does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
 
 `knowledge_bases.<kb>.artifacts: false` (D1408) is a narrowing, never a widening: it wins over `providers.<provider>.scope`, `providers.<provider>.kbs`, explicit workspace bindings and derived bindings, and changes neither which KBs a provider or folder reaches nor the KB's MCP tools. It does nothing on a server that does not name its KBs. `status` marks such a KB `artifacts: off (knowledge_bases)` under the provider's `kbs` line.
@@ -1745,7 +1745,7 @@ emitters refuse anything else: it is an entry key, a bare TOML key, a tool prefi
 inverse operation (`configurator.Remove`): removes only the server's key from the `mcpServers`/`mcp` map and
 rewrites the file, leaving everything else intact (other MCP servers, other top-level keys).
 
-### Symlinked config files and directories are refused
+### Symlinked config files and directories are refused unless listed
 
 Every write, mkdir and remove under a client directory goes through `internal/safewrite`, the same
 guard that protects the provisioned artifacts (`sync.md` §Security): the provider's MCP config file
@@ -1756,7 +1756,7 @@ Crush, Pi and OpenCode files), the files `disconnect` and a sync prune, and the 
 `os.MkdirAll` under a linked directory act in the target too, so a config file that is a link, or a
 directory above it under the client base dir that is one (a dotfile manager, a shared checkout), would send the
 operation somewhere else. Both are refused, with an error that names the path and says to replace the
-link with a regular file or directory; so is any other non-regular file or non-directory (device,
+link with a regular file or directory or to list it under `providers.<provider>.allow_symlinks`; so is any other non-regular file or non-directory (device,
 socket, named pipe, Windows reparse point). The base dir itself (`$HOME`, or the project dir in
 workspace scope) may be a link, and a path that does not exist yet is created.
 

@@ -1057,7 +1057,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		// A refusal is not one warning among others: the artifact is not
 		// installed, and only the operator can clear the condition (D148).
 		for _, rf := range append(slices.Clone(r.Refused), r.RefusedRemovals...) {
-			fmt.Fprintf(wr, "[%s] %s: %s/%s [%s] — its destination is a symlink, so the write would land outside the client\n",
+			fmt.Fprintf(wr, "[%s] %s: %s/%s [%s] — its destination is a symlink, so the write would land outside the client (list the link under providers.<provider>.allow_symlinks to follow it)\n",
 				p, verb("refused", "would refuse"), escapeControl(rf.Kind), escapeControl(rf.Name), escapeControl(rf.Source))
 		}
 		for _, w := range r.Warnings {

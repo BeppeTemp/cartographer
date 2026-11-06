@@ -56,6 +56,11 @@ func skippedParts(refusedMCP []string, hooks map[string][]string, applied map[st
 	return out
 }
 
+// symlinkHint names the opt-in beside the refusal in a status line.
+func symlinkHint(p string) string {
+	return fmt.Sprintf(" (replace the link or list it under providers.%s.allow_symlinks with cartographer client symlinks %s --add <link>)", p, p)
+}
+
 // providerStatusLine is the line `connect` prints for one provider after a real
 // run: connected (nothing refused), partially connected (some parts refused) or
 // not connected (the MCP entry was refused, whatever else was written). The
@@ -65,9 +70,9 @@ func providerStatusLine(p string, skipped []string) (string, bool) {
 	case len(skipped) == 0:
 		return "connected: " + p, true
 	case slices.Contains(skipped, partMCPEntry):
-		return fmt.Sprintf("not connected: %s (%s skipped: destination is a symlink)", p, strings.Join(skipped, ", ")), false
+		return fmt.Sprintf("not connected: %s (%s skipped: destination is a symlink)%s", p, strings.Join(skipped, ", "), symlinkHint(p)), false
 	default:
-		return fmt.Sprintf("partially connected: %s (skipped: %s: destination is a symlink)", p, strings.Join(skipped, ", ")), false
+		return fmt.Sprintf("partially connected: %s (skipped: %s: destination is a symlink)%s", p, strings.Join(skipped, ", "), symlinkHint(p)), false
 	}
 }
 

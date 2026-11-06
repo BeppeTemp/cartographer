@@ -19,6 +19,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -456,6 +457,73 @@ func TestCheckSymlinkedDestinations(t *testing.T) {
 		}
 		if findings[0].Check != "symlink" || !strings.Contains(findings[0].Message, foreign) {
 			t.Errorf("finding = %+v, want a symlink check naming %q", findings[0], foreign)
+		}
+	})
+
+	t.Run("an unlisted link names allow_symlinks in its fix", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(dir, ".claude", "skills")
+		if err := os.Symlink(t.TempDir(), link); err != nil {
+			t.Fatal(err)
+		}
+		f := checkSymlinkedDestinations(dir, []string{"claude"})
+		if len(f) != 1 || f[0].Severity != doctorWarning || !strings.Contains(f[0].Fix, "cartographer client symlinks claude --add '"+link+"'") {
+			t.Errorf("findings = %+v, want a warning whose fix lists the link", f)
+		}
+	})
+
+	t.Run("a listed link is info and has no fix", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(dir, ".claude", "skills")
+		target := t.TempDir()
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		safewrite.SetAllowedLinks([]string{link})
+		t.Cleanup(safewrite.ResetAllowedLinks)
+		f := checkSymlinkedDestinations(dir, []string{"claude"})
+		if len(f) != 1 || f[0].Severity != doctorInfo || f[0].Fix != "" ||
+			!strings.Contains(f[0].Message, "followed (listed in providers.claude.allow_symlinks)") || !strings.Contains(f[0].Message, target) {
+			t.Errorf("findings = %+v, want one info finding naming the target and no fix", f)
+		}
+	})
+
+	t.Run("a listed root under an unlisted link above it is not reported as followed", func(t *testing.T) {
+		dir := t.TempDir()
+		real := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(real, "inner"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(real, filepath.Join(dir, ".claude")); err != nil {
+			t.Fatal(err)
+		}
+		root := filepath.Join(dir, ".claude", "skills")
+		if err := os.Symlink(filepath.Join(real, "inner"), root); err != nil {
+			t.Fatal(err)
+		}
+		safewrite.SetAllowedLinks([]string{root})
+		t.Cleanup(safewrite.ResetAllowedLinks)
+		f := symlinkedDestinationFindings("claude", dir, []string{root})
+		if len(f) != 1 || f[0].Severity != doctorWarning || !strings.Contains(f[0].Fix, filepath.Join(dir, ".claude")) {
+			t.Errorf("findings = %+v, want a warning whose fix names the unlisted ancestor link", f)
+		}
+	})
+
+	t.Run("control characters in the path are escaped", func(t *testing.T) {
+		dir := t.TempDir()
+		root := filepath.Join(dir, "sk\x1b[2Jills")
+		if err := os.Symlink(t.TempDir(), root); err != nil {
+			t.Skip("filesystem refuses the name")
+		}
+		f := symlinkedDestinationFindings("claude", dir, []string{root})
+		if len(f) != 1 || strings.Contains(f[0].Message+f[0].Fix, "\x1b") {
+			t.Errorf("findings = %+v, want the escape byte escaped", f)
 		}
 	})
 
