@@ -558,6 +558,12 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 		if hasControlRune(pa.Kind) || hasControlRune(pa.Source) || hasControlRune(pa.Version) {
 			return pullResult{err: fmt.Errorf("sync_pull: invalid metadata for artifact %q: control characters are refused", pa.Name)}
 		}
+		// A server cannot speak for a client-side source: "plugin:<name>" is
+		// built here from an approved tree and never arrives over the wire
+		// (WP7). Only the bundle and the pulled KB's own artifacts do.
+		if pa.Source != "bundle" && !(target.Name == "" && strings.HasPrefix(pa.Source, "kb:")) && pa.Source != "kb:"+target.Name {
+			return pullResult{err: fmt.Errorf("sync_pull: %s/%s has source %q, which is neither the bundle nor the KB %q", escapeControl(pa.Kind), escapeControl(pa.Name), pa.Source, target.Name)}
+		}
 		if !provisioning.ValidArtifactName(pa.Name) {
 			return pullResult{err: fmt.Errorf("sync_pull: invalid artifact name %q for %s", pa.Name, pa.Kind)}
 		}

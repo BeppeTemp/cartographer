@@ -48,7 +48,7 @@ import (
 type Artifact struct {
 	Kind        string `json:"kind"` // "skill" (extensible)
 	Name        string `json:"name"`
-	Source      string `json:"source"` // "bundle" | "kb:<name>"
+	Source      string `json:"source"` // "bundle" | "kb:<name>" | "plugin:<name>"
 	Version     string `json:"version,omitempty"`
 	ContentHash string `json:"content_hash"` // sha256 hex of the whole skill folder
 	// Signed is true only after a cryptographic verification. It is never an
@@ -182,7 +182,7 @@ type ManagedFile struct {
 	// against the server, so drift is detectable only from the next server-side
 	// change onward. RFC3339, empty for a normally-recorded entry.
 	AdoptedAt string `json:"adopted_at,omitempty"`
-	// Source is the artifact's provenance ("kb:<name>" or "bundle"), recorded so
+	// Source is the artifact's provenance ("kb:<name>", "plugin:<name>" or "bundle"), recorded so
 	// `status` can attribute a materialized file to the KB it came from and
 	// `doctor` can spot one left behind by a KB that is no longer bound (D170).
 	// Empty means "unknown": every lockfile written before D170. That is not
@@ -328,6 +328,11 @@ type ApplyOptions struct {
 	// ProjectManifest drops them): the instructions block names them and how to
 	// read them through MCP (D1700). Client-side only.
 	Unplaced []Artifact
+
+	// ActivePlugins are the plugins whose artifacts may be installed: approved,
+	// enabled and read back from the store at the approved digest. Filled by
+	// the caller; a plugin artifact whose plugin is absent installs nothing.
+	ActivePlugins map[string]bool
 
 	// Scope selects which half of the destination matrix this apply writes
 	// through (D193). The zero value is ScopeGlobal, so every existing caller
@@ -666,6 +671,15 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 			own, _ := embeddedBundleArtifact(a.Kind, a.Name)
 			*a = own
 			a.BuiltIn = true
+			continue
+		}
+		if IsPluginSource(a.Source) {
+			// A plugin artifact is built on this client from an approved tree:
+			// nothing signs it, so a signature is a forged source label. It
+			// stays unsigned and unpinned; its gate is ActivePlugins.
+			if a.Signature != nil {
+				return Manifest{}, fmt.Errorf("provisioning: signature on plugin artifact %s/%s", a.Kind, a.Name)
+			}
 			continue
 		}
 		if a.Signature == nil {
@@ -1800,6 +1814,14 @@ func MergeArtifactsStrict(artifacts []Artifact) (Manifest, error) {
 // KBs this is a silent, unstable choice, which is why the client merges through
 // MergeArtifactsStrict and never reaches this branch (D171).
 func preferArtifact(a, b Artifact) Artifact {
+	// A plugin never beats a bundled or KB artifact (callers drop such a
+	// collision before they get here: DropPluginCollisions).
+	if aP, bP := IsPluginSource(a.Source), IsPluginSource(b.Source); aP != bP {
+		if aP {
+			return b
+		}
+		return a
+	}
 	aKB := strings.HasPrefix(a.Source, "kb:")
 	bKB := strings.HasPrefix(b.Source, "kb:")
 	if aKB != bKB {
@@ -3512,32 +3534,39 @@ func legacySkillWarnings(m Manifest) []string {
 func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []string {
 	type key struct{ kb, kind string }
 	counts := map[key]int{}
+	plugins := map[key]int{} // same count under the plugin's own label
 	for _, a := range m.Artifacts {
-		if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "instructions" {
+		if a.Kind == "instructions" || destDir(a.Kind, a.Name, provider) != "" {
 			continue
 		}
-		if destDir(a.Kind, a.Name, provider) != "" {
-			continue
+		switch {
+		case strings.HasPrefix(a.Source, "kb:"):
+			counts[key{strings.TrimPrefix(a.Source, "kb:"), a.Kind}]++
+		case IsPluginSource(a.Source):
+			plugins[key{PluginName(a.Source), a.Kind}]++
 		}
-		counts[key{strings.TrimPrefix(a.Source, "kb:"), a.Kind}]++
 	}
-	if len(counts) == 0 {
-		return nil
-	}
-	keys := make([]key, 0, len(counts))
-	for k := range counts {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].kb != keys[j].kb {
-			return keys[i].kb < keys[j].kb
+	sorted := func(counts map[key]int) []key {
+		keys := make([]key, 0, len(counts))
+		for k := range counts {
+			keys = append(keys, k)
 		}
-		return keys[i].kind < keys[j].kind
-	})
-	out := make([]string, 0, len(keys))
-	for _, k := range keys {
+		sort.Slice(keys, func(i, j int) bool {
+			if keys[i].kb != keys[j].kb {
+				return keys[i].kb < keys[j].kb
+			}
+			return keys[i].kind < keys[j].kind
+		})
+		return keys
+	}
+	var out []string
+	for _, k := range sorted(counts) {
 		out = append(out, fmt.Sprintf("KB %q declares %d %s artifact(s) that %s cannot receive (no destination for this kind) — they are not installed on this client",
 			k.kb, counts[k], k.kind, provider))
+	}
+	for _, k := range sorted(plugins) {
+		out = append(out, fmt.Sprintf("plugin %q declares %d %s artifact(s) that %s cannot receive (no destination for this kind) — they are not installed on this client",
+			k.kb, plugins[k], k.kind, provider))
 	}
 	return out
 }
@@ -3739,6 +3768,12 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 	a, _ = a.Origin() // the approval is bound to the agent's hash
 	if a.BuiltIn {
 		return true
+	}
+	if IsPluginSource(a.Source) {
+		// Fail closed: a plugin artifact installs while its plugin is active
+		// (approved, enabled, tree verified by the caller) and never on any
+		// other ground. Signed is not read and there is no per-artifact approval.
+		return opts.ActivePlugins[PluginName(a.Source)]
 	}
 	if ArtifactRequiresApproval(a, opts) {
 		// An MCP server receives the agent's data, so a KB descriptor always
@@ -5321,6 +5356,11 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 	// sync_pull on the remote client side (no filesystem shared with the server).
 	if len(a.Files) > 0 {
 		return a.Files, nil
+	}
+	if IsPluginSource(a.Source) {
+		// A plugin's bytes come from its approved tree, in memory, never from
+		// a KB: without them, "plugin:x" must not be looked up in KBRoots.
+		return nil, fmt.Errorf("provisioning: %s %s: plugin artifact without content", a.Kind, a.Name)
 	}
 
 	if a.Source == "bundle" {

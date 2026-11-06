@@ -88,3 +88,17 @@ func TestMergeUsage_RefusesPastTheFileCap(t *testing.T) {
 		t.Fatalf("a refused merge wrote %d entries", len(got))
 	}
 }
+
+func TestMergeUsage_SkipsAPluginSource(t *testing.T) {
+	t.Parallel()
+	k := usageTestKB(t)
+	n, err := k.MergeUsage([]UsageEntry{
+		{Name: "p", Kind: "skill", Provider: "claude", Source: "plugin:team-forks", LastUsed: time.Now(), Count: 1},
+	})
+	if err != nil || n != 0 {
+		t.Fatalf("a plugin sighting is client-local: changed %d, %v", n, err)
+	}
+	if got, _ := k.LoadUsage(); len(got) != 0 {
+		t.Errorf("stored %+v", got)
+	}
+}
