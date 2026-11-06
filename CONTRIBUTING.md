@@ -26,7 +26,8 @@ client and temporary git remotes without model credentials; see
 [`test/e2e/README.md`](test/e2e/README.md). CI runs `make gate` on a contributor's PR — the same
 command, so there is one answer to "what must be green" — followed by
 `make smoke-http`, `make smoke`, `make e2e` and `make test-install`; a maintainer's PR is
-attested by `make signoff` instead (§Pull requests).
+attested by `make signoff` instead (§Pull requests), which runs everything but `make test-install`
+before the push (D1750).
 
 The Atlas UI has its own loop (Node, outside `make gate`): `make web-test` for
 the frontend tests, `make web` to rebuild the committed bundle, `make e2e-web`
@@ -216,8 +217,9 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   frontend changed, `pr-title` and `plan-gate`, all collected by `gate`. **A maintainer's PR
   is pushed with `make signoff`** and CI runs only `changes`, `gate` (which looks for the
   `signoff` status of a maintainer on the head sha), `pr-title` and `plan-gate`. The heavy
-  legs (Windows, macOS, docker, demo-edge) and `smoke-http`, `e2e` and `test-install` run on
-  push to `main`, whose runs coalesce (one running, the newest pending; the `ci-red` issue
+  legs (Windows, macOS, docker, demo-edge) run on push to `main`, which also runs `smoke-http`,
+  `smoke`, `e2e` and `test-install`; `make signoff` runs `gate`, `smoke-http`, `smoke` and `e2e`
+  before the push too, so only `test-install` is first run on `main` (D1750). Runs on `main` coalesce (one running, the newest pending; the `ci-red` issue
   names the range since the last green commit), so a Windows- or macOS-only break is caught
   on `main` and fixed by a follow-up. The required checks are `gate`, `pr-title` and
   `plan-gate`. `SIGNOFF_MAKE` points `make signoff` at a wrapper that runs the make targets
