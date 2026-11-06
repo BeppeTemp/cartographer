@@ -417,6 +417,18 @@ func Compare(current, latest string) (bool, string) {
 	return true, KindMinor
 }
 
+// Cmp orders two versions by semver precedence (-1, 0, 1), the repository's
+// single authority for version order. ok is false when either side does not
+// parse, and the order is then meaningless.
+func Cmp(a, b string) (int, bool) {
+	pa, ok1 := parse(a)
+	pb, ok2 := parse(b)
+	if !ok1 || !ok2 {
+		return 0, false
+	}
+	return compare(pa, pb), true
+}
+
 type semver struct {
 	core  [3]int
 	pre   []string

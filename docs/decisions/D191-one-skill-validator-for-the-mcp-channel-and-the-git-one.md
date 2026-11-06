@@ -33,6 +33,7 @@ identical content would have been refused outright over MCP.
 - **One validator, called from both channels.** `skill.Validate` is the single authority.
   `validateSkillArtifact` delegates to it and keeps only the MCP-specific part (the path shape of
   the incoming write); `BuildManifest` calls it too.
+  (`validateSkillArtifact` has since moved: the file-level check is now `provisioning.ValidateSkillFile`.)
 - **The rule set is the intersection of what the clients accept**, not the most permissive union:
   lowercase `[a-z0-9]` segments separated by single `-`, no leading/trailing `-`, no `--`, at most
   64 characters, and frontmatter `name` equal to the directory. Adopting the strictest client rule
