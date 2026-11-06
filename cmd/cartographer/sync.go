@@ -82,7 +82,7 @@ func cmdSync(args []string) int {
 		return 2
 	}
 	for _, w := range cfg.Warnings {
-		fmt.Fprintf(os.Stderr, "warning: %s: %s\n", clientconfig.Path(dir), w)
+		fmt.Fprintf(os.Stderr, "warning: %s: %s\n", clientconfig.Path(dir), escapeControl(w))
 	}
 	if len(cfg.Agents) == 0 {
 		// Nothing left to sync, but a config that listed only a client the
@@ -361,7 +361,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			warnings = append(warnings, w)
 		}
 		for _, w := range warnings {
-			fmt.Fprintf(errw, "warning: %s\n", w)
+			fmt.Fprintf(errw, "warning: %s\n", escapeControl(w))
 		}
 		printMCPEntryRemovals(out, targets, removedNames, allEntryNames(entriesByProvider), opts.DryRun)
 		// A refused provider's entry was not written: not announced (#1693).
@@ -377,7 +377,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 	for _, w := range hookWarnings {
-		fmt.Fprintf(errw, "warning: %s\n", w)
+		fmt.Fprintf(errw, "warning: %s\n", escapeControl(w))
 	}
 
 	if err := commitDerived(); err != nil {
@@ -456,7 +456,7 @@ func (e partialSyncError) Error() string {
 		fmt.Fprintf(&b, "%d KBs could not be pulled:", len(e.Failures))
 	}
 	for _, f := range e.Failures {
-		fmt.Fprintf(&b, "\n  %s: %v", f.KB, f.Err)
+		fmt.Fprintf(&b, "\n  %s: %v", escapeControl(f.KB), f.Err)
 	}
 	if len(e.Skipped) > 0 {
 		fmt.Fprintf(&b, "\nproviders bound to it kept their previous state: %s", strings.Join(e.Skipped, ", "))

@@ -155,12 +155,12 @@ func repairManagedHashes(dir, only string) int {
 			return 2
 		}
 		for _, mf := range repaired {
-			fmt.Printf("[%s] re-recorded %s/%s from disk\n", providerName, mf.Kind, mf.Name)
+			fmt.Printf("[%s] re-recorded %s/%s from disk\n", providerName, escapeControl(mf.Kind), escapeControl(mf.Name))
 		}
 		for _, sk := range skipped {
 			// A missing file is real drift for `sync` to fix, not something to
 			// paper over with a hash of nothing.
-			fmt.Printf("[%s] skipped %s/%s: %s\n", providerName, sk.Kind, sk.Name, sk.Reason)
+			fmt.Printf("[%s] skipped %s/%s: %s\n", providerName, escapeControl(sk.Kind), escapeControl(sk.Name), escapeControl(sk.Reason))
 		}
 		total += len(repaired)
 		lf.Providers[providerName] = lock
@@ -390,15 +390,15 @@ func checkManagedFiles(dir string, providers []string, lockFile provisioning.Loc
 				// leaves it and verification does not count it as drift (#1502).
 				out = append(out, doctorFinding{
 					Check: "managed-files", Severity: doctorInfo, Path: full,
-					Message: fmt.Sprintf("[%s] %s %q holds a file the lockfile does not own (%s)", p, f.Kind, f.Name, f.Detail),
+					Message: fmt.Sprintf("[%s] %s %q holds a file the lockfile does not own (%s)", p, escapeControl(f.Kind), escapeControl(f.Name), escapeControl(f.Detail)),
 				})
 			case provisioning.DriftError:
 				out = append(out, doctorFinding{
 					Check: "managed-files", Severity: doctorError, Path: full,
-					Message: fmt.Sprintf("[%s] %s %q could not be verified: %s", p, f.Kind, f.Name, f.Detail),
+					Message: fmt.Sprintf("[%s] %s %q could not be verified: %s", p, escapeControl(f.Kind), escapeControl(f.Name), escapeControl(f.Detail)),
 				})
 			default:
-				message := fmt.Sprintf("[%s] %s %q is %s on disk", p, f.Kind, f.Name, f.Reason)
+				message := fmt.Sprintf("[%s] %s %q is %s on disk", p, escapeControl(f.Kind), escapeControl(f.Name), escapeControl(f.Reason))
 				if f.Detail != "" {
 					message += ": " + f.Detail
 				}
@@ -528,7 +528,7 @@ func symlinkOnPath(base, path string) string {
 // promise made here.
 func mcpEntriesFix(dir, configPath string) string {
 	if link := symlinkOnPath(dir, configPath); link != "" {
-		return fmt.Sprintf("replace the symlink %s with a regular file or directory (connect and reconnect refuse to write through it), then run cartographer reconnect", link)
+		return fmt.Sprintf("replace the symlink %s with a regular file or directory (connect and reconnect refuse to write through it), then run cartographer reconnect", escapeControl(link))
 	}
 	return "cartographer reconnect"
 }
@@ -904,7 +904,7 @@ func checkUnboundResidues(dir string, cfg *clientconfig.Config, providers []stri
 			reported[key] = true
 			out = append(out, doctorFinding{
 				Check: "unbound-residue", Severity: doctorError, Path: filepath.Join(baseDir, mf.Path),
-				Message: fmt.Sprintf("[%s] %s/%s comes from %s, which is not bound to this provider", p, mf.Kind, mf.Name, mf.Source),
+				Message: fmt.Sprintf("[%s] %s/%s comes from %s, which is not bound to this provider", p, escapeControl(mf.Kind), escapeControl(mf.Name), escapeControl(mf.Source)),
 				Fix:     fmt.Sprintf("cartographer sync --client %s", p),
 			})
 		}
@@ -934,7 +934,7 @@ func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string,
 		for _, c := range collisionsForProvider(dropKBArtifacts(cfg, candidates.forKBs(bound)), bound) {
 			out = append(out, doctorFinding{
 				Check: "kb-collisions", Severity: doctorError, Path: configPath,
-				Message: fmt.Sprintf("%s: %s/%s is claimed by %s — sync refuses to run", p, c.Kind, c.Name, strings.Join(c.Sources, ", ")),
+				Message: fmt.Sprintf("%s: %s/%s is claimed by %s — sync refuses to run", p, escapeControl(c.Kind), escapeControl(c.Name), escapeControl(strings.Join(c.Sources, ", "))),
 				Fix:     fmt.Sprintf("rename the artifact in all but one of those KBs, or cartographer client unbind %s <kb>", p),
 			})
 		}

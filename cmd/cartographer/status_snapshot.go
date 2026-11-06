@@ -375,6 +375,15 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		return s
 	}
+	if health.KBs != nil {
+		for _, kb := range *health.KBs {
+			if hasControlRune(kb.Name) {
+				s.State = "unavailable"
+				s.Error = &statusError{Code: "invalid_health", Message: fmt.Sprintf("the server advertised a KB name with control characters (%q): refused", kb.Name)}
+				return s
+			}
+		}
+	}
 	s.Reachable, s.Server, s.Ready = true, health.Version, health.Ready
 	if health.LatestVersion != "" && !isLoopbackURL(cfg.ServerURL) {
 		s.ServerLatest = health.LatestVersion

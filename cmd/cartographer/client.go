@@ -352,7 +352,7 @@ func warnProviderCollisions(cfg *clientconfig.Config, provider string, bound []s
 	}
 	for _, c := range collisionsForProvider(dropKBArtifacts(cfg, candidates.forKBs(bound)), bound) {
 		fmt.Fprintf(os.Stderr, "warning: %s/%s is claimed by %s — `cartographer sync` will refuse until one of them renames it\n",
-			c.Kind, c.Name, strings.Join(c.Sources, ", "))
+			escapeControl(c.Kind), escapeControl(c.Name), escapeControl(strings.Join(c.Sources, ", ")))
 	}
 }
 

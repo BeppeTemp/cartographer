@@ -331,6 +331,12 @@ func TestClassifyArtifactPath(t *testing.T) {
 		{"../etc/passwd", false, "", ""},
 		{"skills/../../etc/passwd", false, "", ""},
 		{"/etc/passwd", false, "", ""},
+		// Control characters, C0, DEL and C1, in any segment.
+		{"hooks/h\x1bx/hook.json", false, "", ""},
+		{"hooks/h/run\x7f.sh", false, "", ""},
+		{"skills/my-skill/a\u0085b.md", false, "", ""},
+		{"skills/my-skill/a\nb.md", false, "", ""},
+		{"agents/a\x1bb.md", false, "", ""},
 		// Kind not allowed / malformed.
 		{"data/some-concept.md", false, "", ""},
 		{"skills/my-skill", false, "", ""}, // no file, directory only

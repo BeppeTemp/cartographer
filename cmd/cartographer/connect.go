@@ -186,7 +186,7 @@ var connectServiceBackend = func() service.Backend { return service.NewManager()
 var installService = func(mgr *service.Manager, opts service.InstallOptions) error {
 	warnings, err := mgr.Install(opts)
 	for _, w := range warnings {
-		fmt.Fprintln(os.Stderr, "Warning:", w)
+		fmt.Fprintln(os.Stderr, "Warning:", escapeControl(w))
 	}
 	return err
 }
@@ -608,7 +608,7 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 		}
 	}
 	for _, w := range res.Warnings {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		fmt.Fprintf(os.Stderr, "warning: %s\n", escapeControl(w))
 	}
 
 	if res.Deferred {

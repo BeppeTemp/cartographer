@@ -6,11 +6,10 @@ import (
 	"io"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
@@ -242,18 +241,12 @@ func printApprovalPreview(w io.Writer, a provisioning.Artifact) error {
 // rewrites the screen, a bidi override or zero-width character that makes a
 // command read as another) is shown as its escape, tab excepted. Printable
 // text, accented letters included, is untouched.
-func escapeControl(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if !unicode.IsPrint(r) && r != '\t' {
-			q := strconv.QuoteToASCII(string(r))
-			b.WriteString(q[1 : len(q)-1])
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
+func escapeControl(s string) string { return client.Escape(s) }
+
+// hasControlRune reports whether s holds a control character (C0, DEL, C1): a
+// name or label a server sends is refused when it does, and printed escaped
+// (escapeControl) wherever it is shown.
+func hasControlRune(s string) bool { return client.HasControl(s) }
 
 // maxApprovalLines caps what is printed per file; the rest is counted, never hidden.
 const maxApprovalLines = 200
