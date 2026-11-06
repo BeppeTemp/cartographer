@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
-	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"gopkg.in/yaml.v3"
@@ -190,10 +189,6 @@ type Config struct {
 type MCPApproval struct {
 	ContentHash string    `yaml:"content_hash"`
 	ApprovedAt  time.Time `yaml:"approved_at"`
-	// PathFingerprint is set only for a client variant: the hash of the
-	// directories the descriptor resolved to when it was approved (D1695). An
-	// entry without one never authorizes a variant.
-	PathFingerprint string `yaml:"path_fingerprint,omitempty"`
 }
 
 // ClientBinding is one provider's per-client declaration. An entry carrying an
@@ -568,7 +563,7 @@ func Load(dir string) (*Config, error) {
 	} else if legacy.Update.Check != nil {
 		cfg.UpdateCheckOff = !*legacy.Update.Check
 	}
-	cfg.dropUnsupportedProviders(clientvariant.CachedNames(dir))
+	cfg.dropUnsupportedProviders(nil)
 	for _, h := range Retired.Find(&yamlDoc) {
 		cfg.Warnings = append(cfg.Warnings, h.Message())
 	}
@@ -723,35 +718,6 @@ func (c *Config) ApproveMCP(sourceKB, name, hash string, at time.Time) error {
 	}
 	c.MCPApprovals[sourceKB][name] = MCPApproval{ContentHash: hash, ApprovedAt: at.UTC()}
 	return nil
-}
-
-// ApproveVariant records the descriptor hash and the fingerprint of the paths it
-// resolved to for one source/name pair (D1695).
-func (c *Config) ApproveVariant(sourceKB, name, hash, fingerprint string, at time.Time) error {
-	if fingerprint == "" {
-		return fmt.Errorf("clientconfig: invalid variant approval")
-	}
-	if err := c.ApproveMCP(sourceKB, name, hash, at); err != nil {
-		return err
-	}
-	a := c.MCPApprovals[sourceKB][name]
-	a.PathFingerprint = fingerprint
-	c.MCPApprovals[sourceKB][name] = a
-	return nil
-}
-
-// ApprovedPathFingerprints returns ApplyOptions' source/name → path fingerprint
-// map, for the entries that carry one.
-func (c *Config) ApprovedPathFingerprints() map[string]string {
-	out := make(map[string]string)
-	for source, entries := range c.MCPApprovals {
-		for name, approval := range entries {
-			if approval.PathFingerprint != "" {
-				out["kb:"+source+"\x00"+name] = approval.PathFingerprint
-			}
-		}
-	}
-	return out
 }
 
 // RevokeMCP removes an approval. Missing records are intentionally a no-op.
@@ -950,11 +916,8 @@ func TargetDir() (string, error) {
 // A name the registry cannot resolve must never reach code that turns it into a
 // directory or a prune: a removed client leaves configurations naming it, and the generic answer is to skip it, not to guess. It
 // is a rule about the registry, not about one provider, so the next removal is
-// covered by the same path. No file is touched here.
-//
-// keep names providers the registry does not know but that must stay: the
-// cached client variants (internal/clientvariant), whose registration failed
-// this run. They are kept untouched, never dropped on a failure to register.
+// covered by the same path. keep names providers that are registered later
+// and must survive this pass (nil today). No file is touched here.
 func (c *Config) dropUnsupportedProviders(keep map[string]bool) {
 	known := func(name string) bool {
 		if keep[name] {

@@ -504,7 +504,6 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `missing_instructions` | artifact | - | - | - | - |
 | `artifact_unused` | artifact | - | - | - | - |
 | `hook_invalid` | kb | yes | - | - | - |
-| `variant_invalid` | kb | yes | - | - | - |
 | `missing_registry` | kb | - | - | - | - |
 | `unused_placeholder` | kb | - | - | - | - |
 | `duplicate_candidate` | kb | - | - | - | - |
@@ -836,7 +835,6 @@ client: `sync_pull` serves it as data, and the client uses it to resolve keys
 - `missing_registry` (KB level, D314): placeholders are cited but `paths.yaml` does not exist. One finding on `paths.yaml` with the count; creating the file closes it. A `paths.yaml` that exists but is unreadable gives `contract_malformed`, not this.
 - `unused_placeholder` (on `paths.yaml`, whole-KB lint only): a declared key no concept and no
   artifact (`skills/`, `agents/`, `hooks/`, `mcp/`, `instructions.md`) cites.
-- `variant_invalid` (on `variants/<name>.yaml`, whole-KB lint only): a client variant descriptor `artifact_write` would now refuse; at sync it is left out of the manifest.
 - `requires_invalid` and `degraded_name_collision` (artifact checks, whole-KB lint only, D1656): `requires_invalid` reports a `requires` declaration that `artifact_write` would refuse, with the very call the write gate makes (`provisioning.ValidateRequires`): in a skill's `SKILL.md`, an agent's frontmatter or a hook's `hook.json` (the hook still registers, only the declaration is ignored), and a `requires` key in `instructions.md` or an `mcp/*.json` descriptor, where it has no meaning. A reference to an artifact that exists nowhere is not a finding. `degraded_name_collision` reports `agents/X.md` next to `skills/X/`, on the agent path: on a client without subagents the real skill wins and the agent is not degraded.
 - `hook_invalid` (on `hooks/<name>/hook.json`, whole-KB lint only): a hook whose `hook.json` `artifact_write` would now refuse (invalid JSON, missing `event`/`command`, a command outside the hook's directory) or warn about (an event outside the declared vocabulary, which never fires if misspelled), so hooks written before that validation surface. Independent of `paths.yaml`: it applies to every KB with a `hooks/` directory ([D284](decisions/D284-hook-json-is-validated-against-one-declared-event-vocabulary.md)).
 - `contract_malformed` (on `paths.yaml`): a malformed entry, or a file that is not a YAML

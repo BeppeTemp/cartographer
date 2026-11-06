@@ -207,7 +207,6 @@ var registry = []CheckSpec{
 
 	// KB-level files.
 	{Name: "hook_invalid", Level: LevelKB, Panel: true, AvoidableAtWrite: true, Category: CategoryKB},
-	{Name: "variant_invalid", Level: LevelKB, Panel: true, AvoidableAtWrite: true, Category: CategoryKB},
 	{Name: "missing_registry", Level: LevelKB, Category: CategoryKB},
 	{Name: "unused_placeholder", Level: LevelKB, Category: CategoryKB},
 

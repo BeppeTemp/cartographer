@@ -365,7 +365,6 @@ func cmdConnect(args []string) int {
 	fs.Var(&kbSel, "kb", "KB this client may receive (repeatable, or comma-separated; 'all' for every mounted KB)")
 	allowInsecure := fs.Bool("allow-insecure-http", false, "Accept a plain http:// server URL that is not loopback (the bearer token then travels in clear)")
 	accessFlag := fs.String("access", "", "Connection profile: read-min (read-only, minimal tool list; routed server only). Empty keeps the persisted value; clear it by removing clients.<provider>.access")
-	approveVariants := fs.Bool("approve-variants", false, "Approve every client variant the selected KBs declare, printing the paths each will write (without it: asked in a terminal, otherwise reported needs_approval and skipped); a variant is connected with its declaring KB only")
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	if code := bindPositionals("connect", parseFlagsAnywhere(fs, args), &target); code != 0 {
 		return code
@@ -377,6 +376,16 @@ func cmdConnect(args []string) int {
 	}
 
 	interactive := wantsConnectForm(fs, *noInput)
+
+	providers, err := resolveTargetProviders(target, *agentsCSV)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	if len(providers) == 0 {
+		fmt.Fprintf(os.Stderr, "No agent detected on this machine; nothing to connect (pass an explicit provider name to force it: %s).\n", providerNamesJoined())
+		return 1
+	}
 
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
@@ -398,37 +407,6 @@ func cmdConnect(args []string) int {
 		existing = c
 	}
 	settings := resolveConnectSettings(passed, *serverURL, *auth, *tokenEnv, existing)
-
-	// The KBs' client variants are discovered before the providers are resolved:
-	// "all" means the detection with them, and a name that is only a variant
-	// resolves once it is registered. Unreachable server: the cache only.
-	var discovered []string
-	if !*dryRun && wantsVariantDiscovery(target, *agentsCSV, *approveVariants) {
-		fc := clientconfig.Config{}
-		if existing != nil {
-			fc = *existing
-		}
-		fc.ServerURL, fc.Auth, fc.Token = settings.ServerURL, settings.Auth, settings.Token
-		discovered = discoverVariants(&fc, dir, variantDiscovery{
-			Approve:     *approveVariants,
-			Interactive: !*noInput && isTerminal(os.Stdin.Fd()) && isTerminal(os.Stdout.Fd()),
-			KBs:         splitCommaList(kbSel),
-			Out:         os.Stdout, Err: os.Stderr,
-		})
-	}
-	providers, err := resolveTargetProviders(target, *agentsCSV)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
-	}
-	if *approveVariants && *agentsCSV != "" {
-		// An explicit list plus the flag: the variants it approved join it.
-		providers = mergeDiscovered(providers, discovered)
-	}
-	if len(providers) == 0 {
-		fmt.Fprintf(os.Stderr, "No agent detected on this machine; nothing to connect (pass an explicit provider name to force it: %s).\n", providerNamesJoined())
-		return 1
-	}
 
 	opts := connectOptions{
 		Providers: providers,
@@ -543,7 +521,7 @@ func cmdConnect(args []string) int {
 				}
 			}
 
-			res, err := doConnectScoped(opts)
+			res, err := doConnect(opts)
 			if err != nil {
 				formPrefill = formOpts
 				errMsg = fmt.Sprintf("connect failed: %v (connect is idempotent: no need to disconnect — fix the values and press Connect again, esc to quit)", err)
@@ -556,7 +534,7 @@ func cmdConnect(args []string) int {
 		}
 	}
 
-	res, err := doConnectScoped(opts)
+	res, err := doConnect(opts)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
@@ -1134,7 +1112,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		res.DeferredErr = pullErr
 	} else {
 		materialize := func() (map[string]provisioning.AppliedResult, error) {
-			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.ScanRoots(), Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes(), existing.ApprovedPathFingerprints())
+			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.ScanRoots(), Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
 		}
 		applied, err := materialize()
 		if err != nil {

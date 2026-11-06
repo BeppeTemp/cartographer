@@ -1953,3 +1953,31 @@ func TestBuildManifest_CLISkillOnlyOnRequest(t *testing.T) {
 		t.Fatalf("IncludeCLISkill must list it (err=%v)", err)
 	}
 }
+
+// A variants/ folder in a KB is just a folder: it builds no artifact and does
+// not move the manifest revision.
+func TestBuildManifest_VariantsFolderIsIgnored(t *testing.T) {
+	root := t.TempDir()
+	baseline, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "variants"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "variants", "x.yaml"), []byte("name: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Revision != baseline.Revision {
+		t.Fatalf("variants/x.yaml moved the revision: %q != %q", m.Revision, baseline.Revision)
+	}
+	for _, a := range m.Artifacts {
+		if a.Kind == "variant" {
+			t.Fatalf("variant artifact built: %+v", a)
+		}
+	}
+}

@@ -662,7 +662,7 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 			// so it is checked before Signed.
 			source := strings.TrimPrefix(a.Source, "kb:")
 			if approval, ok := cfg.MCPApprovals[source][provisioning.ApprovalName(o)]; ok {
-				if approval.ContentHash == o.ContentHash && !variantPathsMoved(cfg, o) {
+				if approval.ContentHash == o.ContentHash {
 					trust = "approved"
 				} else {
 					trust = "approval_stale"
@@ -687,7 +687,7 @@ func heldArtifacts(m provisioning.Manifest, d provisioning.Diff, cfg *clientconf
 	for _, a := range append(append([]provisioning.Artifact(nil), d.Added...), d.Updated...) {
 		inDiff[a.Kind+"\x00"+a.Name] = true
 	}
-	opts := provisioning.ApplyOptions{Provider: provider, ApprovedMCP: cfg.ApprovedMCPHashes(), ApprovedVariantPaths: cfg.ApprovedPathFingerprints()}
+	opts := provisioning.ApplyOptions{Provider: provider, ApprovedMCP: cfg.ApprovedMCPHashes()}
 	var out []provisioning.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "mcp" || a.Kind == "instructions" || inDiff[a.Kind+"\x00"+a.Name] || provisioning.ArtifactAuthorized(a, opts) {

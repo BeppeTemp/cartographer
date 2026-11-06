@@ -521,7 +521,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 	out := make(map[string][]mcpEntry, len(providers))
 	for _, p := range providers {
 		if usesCLI(configurator.Provider(p)) {
-			continue // a cli variant reaches Cartographer through the shell: no entry, no warning (WP7)
+			continue // a provider whose MCPMode is cli reaches Cartographer through the shell: no entry, no warning
 		}
 		if cfg.ProfileIgnoresWorkspaces(p, routedPath) {
 			fmt.Fprintf(os.Stderr, "warning: %s has the read-only profile (clients.%s.access), so its workspace bindings are ignored and it keeps the HTTP entry; remove the key to use them\n", p, p)
@@ -873,14 +873,6 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 			continue
 		}
 		entries := entriesByProvider[provider]
-		if _, ok := configurator.SeedOf(configurator.Provider(provider)); ok {
-			w, err := seedMCPEntries(provider, entries, dir, auth, tokenEnv, dryRun)
-			if err != nil {
-				return nil, nil, err
-			}
-			warnings = appendUnique(warnings, w...)
-			continue
-		}
 		results := make([]*configurator.EmitResult, 0, len(entries))
 		for _, entry := range entries {
 			r, w, err := emitMCPEntry(provider, entry, auth, tokenEnv)
@@ -943,21 +935,6 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 	for _, provider := range providers {
 		if usesCLI(configurator.Provider(provider)) {
 			continue // never had an entry: nothing to remove, and no file to open
-		}
-		if _, ok := configurator.SeedOf(configurator.Provider(provider)); ok {
-			res, err := configurator.UnseedMCP(configurator.Provider(provider), managedEntryNames(baseName, kbs), dir, dryRun)
-			if err != nil {
-				return nil, nil, fmt.Errorf("remove config for %s: %w", provider, err)
-			}
-			for _, w := range res.Warnings {
-				fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-			}
-			if len(res.Templates) > 0 {
-				removed[provider] = true
-				names[provider] = managedEntryNames(baseName, kbs)
-				fmt.Fprintf(os.Stderr, "note: %s: the entry is removed from the extension's template only; remove the server from the extension's own UI too\n", provider)
-			}
-			continue
 		}
 		// The codex block is one unit: Remove reports it for every name whether
 		// or not that name's table is in it, and the first removal takes the

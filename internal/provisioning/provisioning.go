@@ -33,7 +33,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
-	"github.com/BeppeTemp/cartographer/internal/clientvariant"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -315,12 +314,7 @@ type ApplyOptions struct {
 	// MCP descriptors, hooks and executable artifacts (D1141).
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
-	// ApprovedVariantPaths holds, for a client variant, the fingerprint of the
-	// paths its approval was given for (same keys as ApprovedMCP). The approval
-	// authorizes the variant only while the descriptor still resolves to them
-	// in this environment (D1695).
-	ApprovedVariantPaths map[string]string
-	Lock                 Lock // current lockfile
+	Lock        Lock // current lockfile
 	// Unplaced are the KB skills and agents this projection has no file for
 	// (UnplacedArtifacts, computed by the caller on the manifest before
 	// ProjectManifest drops them): the instructions block names them and how to
@@ -1153,44 +1147,6 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				})
 			}
 		}
-		// 5b. Client variants (kind "variant", declarative): variants/<name>.yaml.
-		// Unlike mcp, an invalid descriptor is left out with a named issue, so
-		// one typo does not stop the KB's skills (WP2). Inert until a client
-		// registers it.
-		varDir := filepath.Join(kbRoot, "variants")
-		varEntries, verr := os.ReadDir(varDir)
-		if verr == nil && !kindDirLinked("variants") {
-			for _, e := range varEntries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") || !tracked.has("variants/"+e.Name()) {
-					continue
-				}
-				name := strings.TrimSuffix(e.Name(), ".yaml")
-				if e.Type()&fs.ModeSymlink != 0 {
-					linkOut("variant variants/"+e.Name(), "variants/"+e.Name())
-					continue
-				}
-				varPath := filepath.Join(varDir, e.Name())
-				data, varSize, readErr := ReadFileCapped(varPath)
-				if errors.Is(readErr, ErrNotRegular) {
-					issues = append(issues, fmt.Sprintf("KB %q: variant %q left out: not a regular file", kbName, name))
-					continue
-				}
-				if readErr != nil {
-					return Manifest{}, fmt.Errorf("provisioning: read kb:%s/variants/%s: %w", kbName, name, readErr)
-				}
-				if varSize != 0 {
-					issues = append(issues, fmt.Sprintf("KB %q: variant %q left out: over the size cap", kbName, name))
-					continue
-				}
-				if _, parseErr := clientvariant.Parse(name, data); parseErr != nil {
-					issues = append(issues, fmt.Sprintf("KB %q: variant %q left out: %v", kbName, name, parseErr))
-					continue
-				}
-				// The bytes parsed above are the bytes hashed: no second read.
-				hash := hashArtifactFiles([]ArtifactFile{{Path: e.Name(), Content: data}})
-				artifacts = append(artifacts, Artifact{Kind: "variant", Name: name, Source: "kb:" + kbName, ContentHash: hash})
-			}
-		}
 		// 6. Instructions (kind "instructions", D56): an "imprinting" artifact
 		// per KB, always present (unlike skill/agent/hook it doesn't depend on
 		// an optional folder) — tells the LLM agent that this KB exists and how
@@ -1658,15 +1614,10 @@ type Collision struct {
 // The same source appearing twice is not a collision. That is the ordinary
 // shape of the client's merge, where every per-KB sync_pull response carries the
 // same bundled artifacts.
-//
-// A variant is exempt: a name two KBs declare is registered from neither and
-// reported by the variant cache, never an error (D1698, withoutClaimedVariants).
-// collisionsForProvider (connect, doctor) inherits the exemption on purpose:
-// printVariantSync already reports the collision on every sync.
 func DetectCollisions(artifacts []Artifact) []Collision {
 	sourcesByKey := make(map[string]map[string]bool)
 	for _, a := range artifacts {
-		if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "variant" {
+		if !strings.HasPrefix(a.Source, "kb:") {
 			continue
 		}
 		k := a.Kind + "\x00" + a.Name
@@ -1810,32 +1761,7 @@ func MergeArtifactsStrict(artifacts []Artifact) (Manifest, error) {
 	if len(collisions) > 0 || len(directives) > 0 {
 		return Manifest{}, &CollisionError{Collisions: collisions, Directives: directives}
 	}
-	return MergeArtifacts(withoutClaimedVariants(artifacts)), nil
-}
-
-// withoutClaimedVariants drops every variant two KBs declare. A variant name is
-// not a collision that stops a sync (D1698): nothing says which KB's descriptor
-// the operator approved, so the client registers it from neither and warns; the
-// declarations themselves reach the variant cache apart from this merge.
-func withoutClaimedVariants(artifacts []Artifact) []Artifact {
-	sources := map[string]map[string]bool{}
-	for _, a := range artifacts {
-		if a.Kind != "variant" || !strings.HasPrefix(a.Source, "kb:") {
-			continue
-		}
-		if sources[a.Name] == nil {
-			sources[a.Name] = map[string]bool{}
-		}
-		sources[a.Name][a.Source] = true
-	}
-	out := make([]Artifact, 0, len(artifacts))
-	for _, a := range artifacts {
-		if a.Kind == "variant" && len(sources[a.Name]) > 1 {
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
+	return MergeArtifacts(artifacts), nil
 }
 
 // preferArtifact chooses, between two artifacts with the same kind+name, the one
@@ -2411,15 +2337,6 @@ hookLoop:
 				"hook %q: name reserved by Cartographer (client-generated hook), KB artifact ignored", a.Name))
 			continue
 		}
-		// A client variant is data the client registers, never a file Apply writes
-		// (it has no destination in any provider): it only waits for its approval,
-		// and is reported once per run until it has one (D1695).
-		if a.Kind == "variant" {
-			if !artifactAuthorized(a, opts) {
-				result.NeedsApproval = append(result.NeedsApproval, heldArtifact(a))
-			}
-			continue
-		}
 		// No destination for this provider: no approval unblocks it, so it is
 		// Unsupported and never waits for one (D50).
 		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" {
@@ -2602,7 +2519,7 @@ hookLoop:
 					// the hook.json just materialized. Best-effort on a
 					// malformed hook.json (see registerHookSettings/
 					// registerCodexHook): doesn't fail materialization.
-					if mechanism, ok := mechanismFor(opts.Provider); ok {
+					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
 						// The files the update dropped are not pruned yet, so a
 						// dropped hook.json is removed first, or the registrar would
 						// read it again and register the old spec.
@@ -3167,17 +3084,6 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// kind: a release that edits it changes no artifact ContentHash, so no
 	// Added/Updated fires. It is folded into the hash recorded here, which
 	// rewrites the block once after such a release and converges.
-	// The cli sentence (D1695) is client-owned text of the same kind: it enters
-	// the recorded hash only when present, so a provider without one keeps the
-	// hash it had, while a mode flip or a text edit rewrites the block.
-	cliSentence := ""
-	if configurator.UsesCLI(opts.Provider) {
-		cliSentence = cliProviderSentence(opts.Provider)
-	}
-	cliHashPart := ""
-	if cliSentence != "" {
-		cliHashPart = "\x00cli\x00" + cliSentence
-	}
 	// The client environment section (D1697) is client-owned text too, and it
 	// moves with things no artifact hash records (a skill skipped or unskipped, a
 	// capability probed). It cannot join the paths-section hash: `status` judges
@@ -3196,7 +3102,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 	if opts.ExpandPlaceholders && len(signed) > 0 {
 		pathsSection = buildPathsSection(tracker.resolved)
-		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection + cliHashPart)
+		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection)
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
@@ -3205,7 +3111,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// but the shared operational section is still client-owned text of the
 		// block: without its hash a release that edits it left the block old
 		// until an instructions or agent artifact changed (#1502).
-		*pathsHash = pathsSectionHash(sharedSection + "\x00" + cliHashPart)
+		*pathsHash = pathsSectionHash(sharedSection + "\x00")
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
@@ -3256,9 +3162,6 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// derives it from destDir.
 		if envSection != "" {
 			body += "\n\n" + envSection
-		}
-		if cliSentence != "" {
-			body += "\n\n" + cliSentence
 		}
 	}
 	if !triggered && len(signed) > 0 {
@@ -3505,7 +3408,7 @@ func absentMCPServerWarnings(m Manifest, opts ApplyOptions) []string {
 		if err != nil {
 			continue
 		}
-		fields, err := nativeFieldsFor(fm, nativeProvider(opts.Provider))
+		fields, err := nativeFieldsFor(fm, opts.Provider)
 		if err != nil {
 			continue
 		}
@@ -3575,7 +3478,7 @@ func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []strin
 	type key struct{ kb, kind string }
 	counts := map[key]int{}
 	for _, a := range m.Artifacts {
-		if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "instructions" || a.Kind == "variant" {
+		if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "instructions" {
 			continue
 		}
 		if destDir(a.Kind, a.Name, provider) != "" {
@@ -3602,15 +3505,6 @@ func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []strin
 			k.kb, counts[k], k.kind, provider))
 	}
 	return out
-}
-
-// cliProviderSentence tells a client variant that reaches Cartographer through
-// the shell which provider name to pass: the bundled cartographer-cli skill says
-// to use the name "given in the client's instructions block". Client-side like
-// installedSubagentSentence, so it never enters an artifact hash, and emitted
-// only for a provider whose MCP mode is cli.
-func cliProviderSentence(p configurator.Provider) string {
-	return fmt.Sprintf("This client reaches Cartographer through the shell: run `cartographer call --provider %s ...` (see the `%s` skill).", p, CLISkillName)
 }
 
 // installedSubagentSentence names the KB agents this provider can actually
@@ -3818,18 +3712,7 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 		// one. What runs on this machine (a hook, any executable file, D1141)
 		// follows the same contract: the server signs whatever a token wrote, so
 		// Signed proves the origin and is never consent.
-		key := a.Source + "\x00" + ApprovalName(a)
-		if a.ContentHash == "" || opts.ApprovedMCP[key] != a.ContentHash {
-			return false
-		}
-		if a.Kind == "variant" {
-			// The hash binds the bytes, not where the anchors land: another
-			// $HOME or XDG_CONFIG_HOME resolves the same bytes to other
-			// directories, which the operator never saw (D1695).
-			want := opts.ApprovedVariantPaths[key]
-			return want != "" && want == VariantPathFingerprint(a, opts)
-		}
-		return true
+		return a.ContentHash != "" && opts.ApprovedMCP[a.Source+"\x00"+ApprovalName(a)] == a.ContentHash
 	}
 	// Everything else a KB ships is installed (D906): the pull has already
 	// rejected a path that escapes its directory and an artifact whose signature
@@ -3861,8 +3744,7 @@ func ApprovalName(a Artifact) string {
 
 // ArtifactRequiresApproval reports whether a KB artifact waits for the client's
 // hash-bound approval before it is installed (D906, D1141): an MCP descriptor, a
-// hook, a client variant (it decides where files are written, and no signature
-// substitutes for the approval: D1695), any artifact that ships a file with the execute bit, and a skill or
+// hook, any artifact that ships a file with the execute bit, and a skill or
 // agent whose frontmatter declares hooks or MCP servers. The bundle is
 // built into the binary and never asks. An artifact whose files cannot be read
 // is treated as executable: it fails closed.
@@ -3873,7 +3755,7 @@ func ArtifactRequiresApproval(a Artifact, opts ApplyOptions) bool {
 	if a.BuiltIn || !strings.HasPrefix(a.Source, "kb:") {
 		return false
 	}
-	if a.Kind == "mcp" || a.Kind == "hook" || a.Kind == "variant" {
+	if a.Kind == "mcp" || a.Kind == "hook" {
 		return true
 	}
 	files := a.Files
@@ -4197,7 +4079,7 @@ var provisioningRootDirs = map[string]bool{
 func pruneEmptyDirs(baseDir, relPath string) {
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != string(filepath.Separator) {
-		if provisioningRootDirs[dir] || isVariantBoundary(dir) {
+		if provisioningRootDirs[dir] {
 			return
 		}
 		// A symlinked directory, or one under a symlink, is someone else's:
@@ -4396,7 +4278,7 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 			err = fmt.Errorf("provisioning: prune Pi extension %s: %w", mf.Name, err)
 		}
 	case "cline":
-		if err = removeClineHookAt(baseDir, mf.Path); err != nil {
+		if err = removeClineHook(baseDir, mf.Name); err != nil {
 			err = fmt.Errorf("provisioning: prune Cline dispatchers of hook %s: %w", mf.Name, err)
 		}
 	case "crush":
@@ -4700,9 +4582,6 @@ type KindInfo struct {
 	// KBOnly marks a kind that never leaves the KB: it has no row in the
 	// destination matrix and no client receives it.
 	KBOnly bool
-	// Declarative marks a kind that travels in the manifest and is consumed by
-	// the client itself: it has no destination row and is not KBOnly (variant).
-	Declarative bool
 }
 
 // kindInfos is the list behind Kinds. The layout is what BuildManifest scans
@@ -4717,7 +4596,6 @@ var kindInfos = []KindInfo{
 	{Kind: "hook", Title: "Hooks", KBPath: "hooks/<name>/hook.json", Doc: "docs/sync.md#agents-and-hooks"},
 	{Kind: "mcp", Title: "MCP servers", KBPath: "mcp/<name>.json", Doc: "docs/sync.md#mcp-servers-d69-d116"},
 	{Kind: "instructions", Title: "Instructions", KBPath: "instructions.md", Doc: "docs/sync.md#instructions-imprinting"},
-	{Kind: "variant", Title: "Client variants", KBPath: "variants/<name>.yaml", Doc: "docs/sync.md#client-variants", Declarative: true},
 	{Kind: "template", Title: "Templates", KBPath: "templates/<slug>.md", Doc: "docs/data-plane.md#templates-are-page-schemas-d352", KBOnly: true},
 	{Kind: "secret", Title: "Secrets", KBPath: "secrets/<name>.sops.yaml", Doc: "docs/skills-services-secrets.md#sops-files", KBOnly: true},
 }
@@ -4738,8 +4616,8 @@ func Kinds() []KindInfo {
 func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, kind := range artifactKinds {
-		cell, ok := cellFor(ScopeGlobal, kind, provider)
+	for kind := range destinationMatrix {
+		cell, ok := destinationMatrix[kind][provider]
 		if !ok || cell.unsupported {
 			continue
 		}
@@ -4796,7 +4674,7 @@ func Destinations(kind, name string) []configurator.Provider {
 }
 
 func destDir(kind, name string, provider configurator.Provider) string {
-	cell, ok := cellFor(ScopeGlobal, kind, provider)
+	cell, ok := destinationMatrix[kind][provider]
 	if !ok || cell.unsupported {
 		return ""
 	}
@@ -4830,25 +4708,6 @@ func destDir(kind, name string, provider configurator.Provider) string {
 // reach here: destDir returns "" for them, so Apply routes them to Unsupported
 // before calling this function.
 func translateAgentForProvider(provider configurator.Provider, name string, content []byte) ([]byte, error) {
-	// A variant dispatches on its declared agent.format, not on its own id: the
-	// format names the provider whose file layout it reads, and a `providers.<base>`
-	// block of the agent is honoured through nativeProvider.
-	native := provider
-	if v, ok := variantFor(provider); ok {
-		native = v.base
-		switch v.agentFormat {
-		case "opencode":
-			provider = configurator.ProviderOpenCode
-		case "antigravity":
-			provider = configurator.ProviderAntigravity
-		case "copilot":
-			provider = configurator.ProviderCopilot
-		case "cline":
-			provider = configurator.ProviderCline
-		default: // claude: verbatim
-			return content, nil
-		}
-	}
 	switch provider {
 	case configurator.ProviderOpenCode:
 		// falls through to the OpenCode translation below
@@ -4869,7 +4728,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 
 	description := name
-	var fields []nativeField
+	var native []nativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -4880,13 +4739,13 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 				description = s
 			}
 		}
-		if fields, err = nativeFieldsFor(fm, native); err != nil {
+		if native, err = nativeFieldsFor(fm, provider); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
 		body = string(content)
 	}
-	extra, err := renderNativeYAML(fields)
+	extra, err := renderNativeYAML(native)
 	if err != nil {
 		return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 	}
@@ -5476,8 +5335,6 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 		artifactRel = "agents/" + a.Name + ".md"
 	case "mcp":
 		artifactRel = "mcp/" + a.Name + ".json"
-	case "variant":
-		artifactRel = "variants/" + a.Name + ".yaml"
 	case "hook":
 		artifactRel = "hooks/" + a.Name
 	default:
@@ -5512,16 +5369,6 @@ func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]stri
 			return nil, fmt.Errorf("provisioning: read mcp %s: %w", mcpPath, err)
 		}
 		return []ArtifactFile{{Path: a.Name + ".json", Content: data, Oversized: size}}, nil
-	case "variant":
-		if !tracked.has("variants/" + a.Name + ".yaml") {
-			return nil, fmt.Errorf("provisioning: variant %s is not tracked by git in KB %q", a.Name, kbName)
-		}
-		varPath := filepath.Join(kbRoot, "variants", a.Name+".yaml")
-		data, size, err := ReadFileCapped(varPath)
-		if err != nil {
-			return nil, fmt.Errorf("provisioning: read variant %s: %w", varPath, err)
-		}
-		return []ArtifactFile{{Path: a.Name + ".yaml", Content: data, Oversized: size}}, nil
 	case "hook":
 		files, err := readDirFiles(filepath.Join(kbRoot, "hooks", a.Name), tracked.under("hooks/"+a.Name))
 		if err != nil {

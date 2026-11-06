@@ -266,9 +266,6 @@ func buildRows(dir string) []dashboardAgent {
 
 	rows := make([]dashboardAgent, len(detected))
 	for i, a := range detected {
-		if a.Variant {
-			a.Name = agentLabel(a)
-		}
 		row := dashboardAgent{Agent: a}
 		if connected[string(a.Provider)] {
 			row.Connected = true

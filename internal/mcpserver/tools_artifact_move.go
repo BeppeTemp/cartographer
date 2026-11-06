@@ -88,7 +88,7 @@ func toolArtifactMove(src *kb.KB, deps Deps) Tool {
 	t := Tool{
 		Name: "artifact_move",
 		Description: "Moves artifacts to another KB on this server, in one commit per KB: a whole skill (skills/<slug>) or hook (hooks/<name>) directory, " +
-			"or a single agents/<slug>.md, mcp/<slug>.json, variants/<slug>.yaml or templates/<slug>.md. The path stays the same in the target and must be free there. " +
+			"or a single agents/<slug>.md, mcp/<slug>.json or templates/<slug>.md. The path stays the same in the target and must be free there. " +
 			"Bytes copied verbatim. instructions.md, paths.yaml and glossary.yaml describe their own KB and do not move.",
 		InputSchema: json.RawMessage(fmt.Sprintf(`{
 			"type": "object",
@@ -98,7 +98,7 @@ func toolArtifactMove(src *kb.KB, deps Deps) Tool {
 				"paths": {
 					"type": "array",
 					"maxItems": %d,
-					"items": {"type": "string", "description": "The artifact, not a file inside it: skills/<slug>, hooks/<name>, agents/<slug>.md, mcp/<slug>.json, variants/<slug>.yaml, templates/<slug>.md"}
+					"items": {"type": "string", "description": "The artifact, not a file inside it: skills/<slug>, hooks/<name>, agents/<slug>.md, mcp/<slug>.json, templates/<slug>.md"}
 				}
 			}
 		}`, artifactMoveMaxUnits)),
@@ -295,13 +295,13 @@ func parseArtifactUnit(raw string) (artifactUnit, error) {
 			return artifactUnit{}, err
 		}
 		switch info.Kind {
-		case "agent", "mcp", "variant", "template":
+		case "agent", "mcp", "template":
 			return artifactUnit{rel: clean, info: info}, nil
 		case "instructions", "paths", "glossary":
 			return artifactUnit{}, fmt.Errorf("%s describes the KB it is in and is not moved between KBs", clean)
 		}
 	}
-	return artifactUnit{}, fmt.Errorf("path %q is not a movable artifact (skills/<slug>, hooks/<name>, agents/<slug>.md, mcp/<slug>.json, variants/<slug>.yaml, templates/<slug>.md)", raw)
+	return artifactUnit{}, fmt.Errorf("path %q is not a movable artifact (skills/<slug>, hooks/<name>, agents/<slug>.md, mcp/<slug>.json, templates/<slug>.md)", raw)
 }
 
 // planArtifactMove validates every unit before any write. Nothing here mutates

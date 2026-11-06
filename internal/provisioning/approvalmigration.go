@@ -20,8 +20,6 @@ func ApprovalReason(a Artifact, files []ArtifactFile) string {
 		return "MCP server descriptor"
 	case "hook":
 		return "hook"
-	case "variant":
-		return "client variant"
 	}
 	for _, f := range files {
 		if f.Executable {
@@ -39,7 +37,7 @@ func ApprovalReason(a Artifact, files []ArtifactFile) string {
 // the lock decides: the file on disk is not read, and any later change to the
 // artifact asks as usual.
 func InstalledBeforeApprovals(a Artifact, lock Lock, opts ApplyOptions) bool {
-	if a.Kind == "mcp" || a.Kind == "variant" || a.ContentHash == "" || !PendingApproval(a, opts) {
+	if a.Kind == "mcp" || a.ContentHash == "" || !PendingApproval(a, opts) {
 		return false
 	}
 	if _, recorded := opts.ApprovedMCP[a.Source+"\x00"+ApprovalName(a)]; recorded {
