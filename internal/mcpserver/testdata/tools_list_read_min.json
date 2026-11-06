@@ -3,6 +3,10 @@
   "cacheScope": "public",
   "tools": [
     {
+      "_meta": {
+        "anthropic/alwaysLoad": true,
+        "antigravity/alwaysLoad": true
+      },
       "annotations": {
         "idempotentHint": false,
         "readOnlyHint": true
@@ -37,6 +41,10 @@
       "name": "search"
     },
     {
+      "_meta": {
+        "anthropic/alwaysLoad": true,
+        "antigravity/alwaysLoad": true
+      },
       "annotations": {
         "idempotentHint": false,
         "readOnlyHint": true
@@ -49,21 +57,21 @@
             "type": "integer"
           },
           "full": {
-            "description": "Body over 60 KB comes as outline; true forces it",
+            "description": "Force whole body over 60 KB",
             "type": "boolean"
           },
           "id": {
             "type": "string"
           },
           "match": {
-            "description": "Grep body (or section) lines, case-insensitive",
+            "description": "Grep lines, case-insensitive",
             "type": "string"
           },
           "outline": {
             "type": "boolean"
           },
           "rev": {
-            "description": "Past version SHA (concept_history); its hash is no if_match",
+            "description": "Past version SHA",
             "type": "string"
           },
           "section": {
@@ -107,6 +115,10 @@
       "name": "index_get"
     },
     {
+      "_meta": {
+        "anthropic/alwaysLoad": true,
+        "antigravity/alwaysLoad": true
+      },
       "annotations": {
         "idempotentHint": false,
         "readOnlyHint": true
@@ -203,6 +215,10 @@
       "name": "concept_list"
     },
     {
+      "_meta": {
+        "anthropic/alwaysLoad": true,
+        "antigravity/alwaysLoad": true
+      },
       "annotations": {
         "idempotentHint": false,
         "readOnlyHint": true

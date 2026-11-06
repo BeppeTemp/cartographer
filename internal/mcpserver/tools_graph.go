@@ -131,6 +131,7 @@ func acceptedVia(lg *kb.LinkGraph, dist, pred []int, node int, ok func(int) bool
 func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	return Tool{
 		Name:        "graph_context",
+		AlwaysLoad:  true,
 		ReadOnly:    true,
 		Description: "The concepts around a question or given concepts, ranked over links both ways: one call instead of chaining search, concept_read and graph_neighbors.",
 		InputSchema: json.RawMessage(`{

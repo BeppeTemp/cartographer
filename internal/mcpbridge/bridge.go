@@ -443,7 +443,8 @@ const rootsUnboundWriteNote = " If none of the roots is bound to a KB, the sessi
 
 // unboundWriteNote is the sentence the bridge adds to the initialize result of
 // an unbound read-write session (#1356). The server's own text for a bridge
-// session is empty (provisioned=1), so this is the only wording.
+// session is the entry paragraph only (provisioned=1), so this is the only
+// wording about the unbound folder.
 const unboundWriteNote = "this session was started in a folder bound to no KB and has write access to the provider's KBs. " +
 	"No KB skills, agents or instructions are installed here: pass `kb` explicitly to every tool and read the KB's guide before writing. " +
 	"`cartographer workspace bind` gives the folder a KB's skills."

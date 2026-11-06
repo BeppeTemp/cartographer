@@ -195,7 +195,7 @@ func TestRoutedReadMin_InstructionsAreGeneric(t *testing.T) {
 		}
 		return resp.Result.Instructions
 	}
-	if got := instr(readMinPath + "&provisioned=1"); got != readMinInstructions {
+	if got := instr(readMinPath + "&provisioned=1"); got != entryInstructions+"\n\n"+readMinInstructions {
 		t.Errorf("provisioned instructions = %q", got)
 	}
 	assertNoCLICommand(t, "read-min instructions", readMinInstructions)

@@ -164,8 +164,8 @@ func TestRoutedView_ReadOnlyTokenSeesItsOwnKBOnly(t *testing.T) {
 	if got := instructionsOf(t, init); !strings.Contains(got, "read-only") || !strings.Contains(got, `kb: "kb-a"`) || strings.Contains(got, "kb-b") {
 		t.Errorf("token view instructions = %q, want the read-only guide of kb-a alone", got)
 	}
-	if got := instructionsOf(t, f.post(t, tokRO, RoutedMountPath+"?provisioned=1", initializeBody)); got != "" {
-		t.Errorf("provisioned token view instructions = %q, want none", got)
+	if got := instructionsOf(t, f.post(t, tokRO, RoutedMountPath+"?provisioned=1", initializeBody)); got != entryInstructions {
+		t.Errorf("provisioned token view instructions = %q, want the entry paragraph only", got)
 	}
 	if got := init.Header().Get(AccessHeader); got != "" {
 		t.Errorf("token view carries %s = %q", AccessHeader, got)
@@ -191,7 +191,7 @@ func TestRoutedView_ReadOnlyTokenWithKBSAndBridge(t *testing.T) {
 	if got := instructionsOf(t, init); !strings.Contains(got, "read-only") || strings.Contains(got, "workspace bind") {
 		t.Errorf("unmarked bridge mode instructions = %q, want the guide's read-only wording, not the bridge's", got)
 	}
-	if got := instructionsOf(t, f.post(t, tokRO, path+"&provisioned=1", initializeBody)); got != readOnlyInstructions {
+	if got := instructionsOf(t, f.post(t, tokRO, path+"&provisioned=1", initializeBody)); got != entryInstructions+"\n\n"+readOnlyInstructions {
 		t.Errorf("provisioned bridge mode instructions = %q, want the workspace bind sentence", got)
 	}
 	if init.Header().Get(AccessHeader) != AccessReadValue {

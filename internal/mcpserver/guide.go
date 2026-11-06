@@ -125,13 +125,26 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 	return provisioning.RenderGuide(kbs, provisioning.GuideOptions{Routed: routed, ReadOnly: readOnly, Procedures: procedureLines(s.guideBundle)})
 }
 
-// handshakeInstructions is the `instructions` of one handshake: what a
-// provisioned connection gets as before (nothing, or the bridge's read-only
-// sentence), the guide for everyone else.
+// entryInstructions is what a provisioned connection receives first
+// (D1724, amending D1097). A client that hides MCP tools behind a
+// code mode or a tool search shows the model this text and little else of the
+// server, so it names the reading path in client-neutral words: the tools only,
+// never a call syntax (OpenCode prefixes its own, Pi uses the first line as the
+// server summary). A non-provisioned connection gets the full guide, which
+// carries the same advice. A test pins the byte budget.
+const entryInstructions = "Cartographer knowledge base: consult it before answering on history, decisions or architecture. " +
+	"Start with `search`, then `concept_read` on a hit; `graph_context` gathers the linked pages around a question and `atlas_overview` orients."
+
+// handshakeInstructions is the `instructions` of one handshake: the entry
+// paragraph and, when the session has one, the read-only sentence for a
+// provisioned connection; the guide for everyone else.
 func (s *Server) handshakeInstructions(ctx context.Context) string {
 	var out string
 	if isProvisioned(ctx) {
-		out = s.sessionInstructions()
+		out = entryInstructions
+		if session := s.sessionInstructions(); session != "" {
+			out += "\n\n" + session
+		}
 	} else {
 		out = s.connectionGuide(ctx)
 	}

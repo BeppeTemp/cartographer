@@ -77,6 +77,7 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   (dist-tags `latest`, `next`, `stable`); docs <https://code.claude.com/docs/en/memory>,
   `/sub-agents`, `/skills`, `/hooks`, `/mcp`, `/settings` under the same prefix.
 - **Depends on**:
+  - MCP tool hiding (D1724; read 2026-11-06, Claude Code 2.1.318, not probed in a session; read in the installed 2.1.318 binary): tools are deferred behind tool search. The binary builds an MCP tool with `alwaysLoad` true when the tool's listed `_meta["anthropic/alwaysLoad"] === true` (and the tool is not otherwise excluded), and a server-level `alwaysLoad` config key exists beside it, so the per-tool pin is honoured by the code; that a real session shows the tools declared is not yet observed (#1714). The server lists its entry tools (`atlas_overview`, `search`, `concept_read`, `graph_context`) with `_meta["anthropic/alwaysLoad"]: true`, which keeps them declared; the rest stay deferred. `initialize.instructions` (loaded at session start, 4096 characters) carries the entry paragraph on a provisioned connection.
   - Stdio bridge (D737): `cartographer mcp --provider claude` is spawned in the session's folder (probe 2026-10-17, Claude Code 2.1.302: working directory yes, `roots` declared with `[cwd]`). The token variable reaches the child (the process environment is inherited). Replaces the D717 project-entry shadowing, which is no longer used.
   - Writer header (D904): an HTTP entry carries `Cartographer-Author` in `headers`, next to `Authorization`.
   - `skill`/`agent`/`hook` in `~/.claude/{skills,agents,hooks}/`, project-local in
@@ -175,6 +176,7 @@ project hook.UserPromptSubmit verified 2026-11-05 claude-project
   <https://learn.chatgpt.com/docs/hooks>,
   <https://learn.chatgpt.com/docs/extend/mcp?surface=cli>.
 - **Depends on**:
+  - MCP tool hiding (D1724; read 2026-11-06, Codex 0.166.0): recent models run `code_mode_only` and MCP tools are always deferred behind tool search. There is no per-tool pin (only `code_mode.direct_only_tool_namespaces`, a whole-server opt-out Cartographer does not write): the entry tools carry the vendor `_meta` keys for other clients and Codex relies on the entry paragraph of `initialize.instructions` (whether it shows them is not established). Upstream request to file.
   - Stdio bridge (D737): spawned in the session's folder with `$PWD` unset (probe 2026-10-17, Codex 0.163.0); `roots` not declared. Codex filters the environment of an MCP server, so the entry lists the token variable in `env_vars`; every other client inherits it.
   - Writer header (D904): an HTTP entry carries it in `http_headers`, which Codex sends as written (config reference; not probed). Auth stays `bearer_token_env_var`.
   - `skill` global `~/.codex/skills/` (deliberate divergence from the documented
@@ -265,6 +267,7 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
   <https://kiro.dev/docs/hooks/> and <https://kiro.dev/docs/cli/v3/hooks-migration/>
   (all cited in D195/D140); version: `brew info --cask kiro-cli`.
 - **Depends on**:
+  - MCP tool hiding (D1724; read 2026-11-06, Kiro 3.x): tools are loaded on demand (tool search); no per-tool pin found. Cartographer writes nothing for it; the entry paragraph of `initialize.instructions` is the only hint. Upstream request to file; the Kiro 3.x matrix is a separate audit.
   - Stdio bridge (D737): spawned in the session's folder (probe 2026-10-17, Kiro CLI 2.32.0); `roots` not declared. Kiro IDE not probed: an IDE that spawns the server outside the workspace and declares no roots gets the provider's default set.
   - Writer header (D904): none. Kiro documents `headers` for a remote server (<https://kiro.dev/docs/mcp/configuration/>), but the emitter writes no headers for Kiro, `Authorization` included (an older gap), so a write over a Kiro HTTP entry is authored by the token; the bridge names the writer.
   - `agent` as JSON (`name`/`description`/`prompt`) in `~/.kiro/agents/`,
@@ -367,6 +370,7 @@ project hook.UserPromptSubmit absent
   <https://opencode.ai/docs/agents>, `/skills`, `/plugins`, `/mcp-servers`,
   `/rules`, `/config`.
 - **Depends on**:
+  - MCP tool hiding (D1724; read 2026-11-06, OpenCode 2.2.5): Code Mode wraps every MCP server, with an inline catalog of 2000 tokens filled shortest signature first, and no server-side pin for MCP (upstream anomalyco/opencode#62316). Cartographer does not write `codemode: false`. The entry tools keep short input schemas (a test caps them) so they stay in the inline catalog, and the entry paragraph of `initialize.instructions` names them (OpenCode prefixes its own "use through `execute`" line). Read in the installed 2.2.5 binary: its MCP client reads no per-tool `_meta` for exposure (the only `_meta` consumer found is the server-info key; Code Mode is switched per server by `codemode`), consistent with the missing pin. Not yet verified in a real 2.2.x session (#1714).
   - Stdio bridge (D737): spawned in the session's folder but with `$PWD` set to `$HOME` (probe 2026-10-17, OpenCode 2.0.30), which is why the bridge reads `os.Getwd`, never `$PWD`; `roots` declared with `[cwd]`.
   - Writer header (D904): an HTTP entry carries it in `headers`; the token's `${VAR}` becomes `{env:VAR}`, the author is a literal.
   - `agent` global `~/.config/opencode/agents/` (the `config` directory of
@@ -464,6 +468,7 @@ project hook.UserPromptSubmit absent
   there), `/docs/skills`, `/docs/subagents`, `/docs/hooks`, `/docs/mcp`; installed
   version source: `unverified`.
 - **Depends on** (what the matrix encodes; D193/D207, not re-probed):
+  - MCP tool hiding (D1724; read 2026-11-06, `agy` 1.4.0): tools are discovered on demand; `_meta["antigravity/alwaysLoad"]: true` per tool (since 1.3.3) keeps the entry tools declared. Whether `instructions` are shown is unknown.
   - Stdio bridge (D737): not probed (2026-10-17) for the IDE nor for `agy`. If the host spawns the server outside the workspace and declares no `roots`, the session gets the provider's default set; `cartographer workspace resolve` shows what the bridge would pick for a folder.
   - Writer header (D904): an HTTP entry carries it in `headers`.
   - Global, under `~/.gemini`: `skill` `config/skills`, `agent`
@@ -626,6 +631,7 @@ project hook.UserPromptSubmit absent
   Every cell below comes from a probe with `COPILOT_HOME` pointed at a scratch
   directory, not from these pages.
 - **Depends on**:
+  - MCP tool hiding (D1724; read 2026-11-06, Copilot CLI 1.0.106): tool search above a size threshold; no per-tool pin (`deferTools: "never"` is a whole-server opt-out Cartographer does not write). Only the entry paragraph of `initialize.instructions` helps; whether it is shown is not established.
   - Stdio bridge (D737): spawned in the session's folder (probe 2026-10-17, Copilot CLI 1.0.98); `roots` not declared.
   - Writer header (D904): an HTTP entry carries it in `headers`, next to `Authorization`.
   - `mcp` in `~/.copilot/mcp-config.json` (`mcpServers`, `type: "http"`, `headers`,
@@ -716,8 +722,18 @@ project hook.UserPromptSubmit absent
   - Stdio bridge (D737): spawned in the session's folder (probe 1 below). The token variable
     reaches the bridge: Pi does not filter the environment of an MCP server (probed with a stub
     server that recorded a variable exported to `pi mcp list`), so no `PassEnv` is emitted.
-  - `mcp` in `~/.pi/agent/mcp.json` (`mcpServers`), every entry `"exposure": "direct"`: the
-    default, `codemode`, would not declare the tools to the model. `${VAR}` in `env` and
+  - `mcp` in `~/.pi/agent/mcp.json` (`mcpServers`). Cartographer's own entry keeps Pi's default
+    exposure, `codemode`, and pins the entry tools with `"toolExposure": {"<tool>": "direct"}`
+    (D1724, which amends D1603): the entry tools are declared to the model, the
+    others are reachable from codemode (`inlineBudget` 3000 tokens, shortest first). A third-party
+    server of a KB `mcp` artifact keeps `"exposure": "direct"`. The `toolExposure` shape is from
+    Pi's `mcp.md` (1.5.0). The keys are the server's bare tool names, not the `mcp__<server>__<tool>`
+    form the model sees: read in the installed 1.5.0 package, `getMcpToolExposure(config, tool.name)`
+    (`dist/core/mcp-servers.js`) looks `tool.name` up in `toolExposure` (exact name first, then `*`
+    patterns), and the extension calls it with the name the server listed (`dist/extensions/mcp/index.js`,
+    `cli.js`); the prefixed name is only built afterwards for the declared tool. Pi has no `_meta` or
+    `alwaysLoad` handling for MCP tools (grep of `dist/extensions/mcp`). A session probe that the entry
+    tools are declared and the others reachable from codemode is not yet observed (#1714). `${VAR}` in `env` and
     `headers` is Pi's own interpolation, written verbatim; a value that is wholly `!command` runs
     at load and is refused. A server name outside letters, digits, `_` and `-` is skipped by Pi
     and refused by the emitter.
@@ -762,7 +778,7 @@ project hook.UserPromptSubmit absent
   also projects `.agents/skills` for codex, copilot and antigravity: same content, benign
   duplication, not suppressed); the `CLAUDE.md` global fallback order is unprobed; the Windows
   path `%USERPROFILE%\.pi\agent` is unverified; `pi` shims on `PATH`; an exposure changed by the
-  user in `/mcp` is rewritten to `direct` by the next sync.
+  user in `/mcp` is rewritten by the next sync.
 - **Probe notes**: `pi -p --no-session --model <provider/id> [-a|-na] "<prompt>"`, `pi mcp list`;
   a scratch `PI_CODING_AGENT_DIR` for probes only (copy `auth.json` when a model is needed),
   never `$HOME/.pi/agent`.

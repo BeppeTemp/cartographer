@@ -1190,7 +1190,7 @@ Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keep
 OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references;
 Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
 Copilot CLI uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
-Pi has no `type` key (it infers the transport) and every entry carries `"exposure": "direct"`.
+Pi has no `type` key (it infers the transport); Cartographer's own entry carries `toolExposure` for the entry tools and no `exposure` (below).
 Cline uses `type: "stdio"` (or `"streamableHttp"`) and never gets a `cwd`, `disabled`, `autoApprove` or `timeout`.
 Cartographer only preflights the local executable before writing: it never runs it, and never resolves
 an environment reference into its value.
@@ -1363,15 +1363,24 @@ hook locations are gated on folder trust and are unsupported ([D676](decisions/D
 
 **Pi** (`pi`, npm `@earendil-works/pi-coding-agent`; probed on 1.5.0) — with auth. The file is
 `~/.pi/agent/mcp.json`, key `mcpServers`. Pi interpolates `${VAR}` in `env` and `headers`, so the
-header is written verbatim, as for Claude Code. `"exposure": "direct"` is on every entry: Pi's default,
-`codemode`, would not declare the tools to the model:
+header is written verbatim, as for Claude Code. Pi's default exposure, `codemode`, does not declare a
+server's tools to the model, and Cartographer does not switch it off: its own entry pins only the entry
+tools (`atlas_overview`, `search`, `concept_read`, `graph_context`, the reading path) with
+`toolExposure`, so they are declared like built-ins and every other tool stays reachable from codemode
+([D1724](decisions/D1724-entry-tools.md), amending D1603). A third-party server of a KB `mcp`
+artifact keeps `"exposure": "direct"`:
 ```json
 {
   "mcpServers": {
     "cartographer": {
       "url": "http://127.0.0.1:39273/mcp",
       "headers": { "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}" },
-      "exposure": "direct"
+      "toolExposure": {
+        "atlas_overview": "direct",
+        "search": "direct",
+        "concept_read": "direct",
+        "graph_context": "direct"
+      }
     }
   }
 }
