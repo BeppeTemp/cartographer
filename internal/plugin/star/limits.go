@@ -33,3 +33,14 @@ const (
 	ToolTimeout  = 30 * time.Second
 	EventTimeout = 10 * time.Second
 )
+
+// Network caps of one call (http.request).
+const (
+	MaxHTTPResponseBytes = 8 << 20
+	MaxHTTPRequestBytes  = 4 << 20
+	MaxHTTPRequests      = 50
+	MaxHTTPRedirects     = 10
+	// HTTPTimeout is the default for one request; the call's own deadline can
+	// only shorten it.
+	HTTPTimeout = 30 * time.Second
+)

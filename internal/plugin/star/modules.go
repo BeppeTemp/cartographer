@@ -40,6 +40,9 @@ type callCtx struct {
 	// perms are the manifest's granted permissions; the capability modules of
 	// the following changes read them here, never from the script.
 	perms *plugin.Permissions
+
+	lookupEnv func(string) (string, bool)
+	net       *netState
 }
 
 func ctxOf(thread *starlark.Thread) *callCtx {
@@ -72,18 +75,16 @@ func pureModules() starlark.StringDict {
 	}
 }
 
-// capabilityFuncs lists the functions of each capability module. A later change
-// gives them bodies; until then, and always while loading, a call is refused
+// capabilityFuncs lists the functions of each capability module. Later changes
+// give them bodies; until then, and always while loading, a call is refused
 // with an error naming why.
 var capabilityFuncs = map[string][]string{
 	"kb":    {"call"},
-	"http":  {"request"},
 	"files": {"read", "write", "remove", "glob"},
-	"env":   {"get"},
 }
 
 func capabilityModules(settings *settingsValue) starlark.StringDict {
-	out := starlark.StringDict{"settings": settings, "log": logModule()}
+	out := starlark.StringDict{"settings": settings, "log": logModule(), "http": httpModule(), "env": envModule()}
 	for mod, fns := range capabilityFuncs {
 		m := &starlarkstruct.Module{Name: mod, Members: starlark.StringDict{}}
 		for _, fn := range fns {

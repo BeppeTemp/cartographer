@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -65,14 +66,20 @@ type limitError struct{ msg string }
 func (e *limitError) Error() string { return e.msg }
 
 // Host is what a call may reach outside the interpreter: the adapters of the
-// capability modules. It is empty until those modules have a body.
-type Host struct{}
+// capability modules.
+type Host struct {
+	// LookupEnv reads the environment for env.get; nil is os.LookupEnv. The
+	// manifest's list is checked before it is asked.
+	LookupEnv func(string) (string, bool)
+}
 
 // Request is one call of a registered function.
 type Request struct {
 	Kind   string // KindCommand, KindTool or KindEvent
 	Name   string // the command or tool name, or the event
 	Plugin string // the plugin's name, for the log prefix
+	// Version is the plugin's version, sent in http.request's User-Agent.
+	Version string
 
 	// Args are a command's arguments; Params a tool's arguments, a JSON
 	// object validated against the tool's schema; Event the fields of an
@@ -105,6 +112,7 @@ type Result struct {
 // callOpts are the seams of tests: lower caps and extra predeclared names.
 type callOpts struct {
 	steps uint64
+	net   *netSeams
 	extra starlark.StringDict
 }
 
@@ -172,7 +180,11 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (res Result
 	settings.open = true
 
 	logw := newCapped(req.Log)
-	cc := &callCtx{phase: phaseCall, plugin: req.Plugin, log: logw, ctx: ctx, perms: req.Permissions}
+	cc := &callCtx{phase: phaseCall, plugin: req.Plugin, log: logw, ctx: ctx, perms: req.Permissions, lookupEnv: req.Host.LookupEnv}
+	if cc.lookupEnv == nil {
+		cc.lookupEnv = os.LookupEnv
+	}
+	cc.net = newNetState(cc, req.Version, o.net)
 	var printw io.Writer = logw
 	prefix := "plugin " + req.Plugin + ": "
 	if req.Kind == KindCommand {
@@ -518,9 +530,9 @@ func classify(err error, ctx context.Context, stepsHit bool, steps uint64) *Call
 	var limit *limitError
 	switch {
 	case errors.As(err, &denied):
-		return &CallError{Kind: Denied, Msg: denied.msg}
+		return &CallError{Kind: Denied, Msg: escapeLines(denied.msg)}
 	case errors.As(err, &limit):
-		return &CallError{Kind: LimitExceeded, Msg: limit.msg}
+		return &CallError{Kind: LimitExceeded, Msg: escapeLines(limit.msg)}
 	}
 	var ev *starlark.EvalError
 	if !errors.As(err, &ev) {
