@@ -243,6 +243,11 @@ func RenderSyncLaunchdPlist(binPath, logPath string, interval time.Duration) str
 		<string>%s</string>
 		<string>sync</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>%s</string>
+	</dict>
 	<key>StartInterval</key>
 	<integer>%d</integer>
 	<key>RunAtLoad</key>
@@ -253,18 +258,22 @@ func RenderSyncLaunchdPlist(binPath, logPath string, interval time.Duration) str
 	<string>%s</string>
 </dict>
 </plist>
-`, xmlEscape(syncLaunchdLabel), xmlEscape(binPath), int(interval.Seconds()), xmlEscape(logPath), xmlEscape(logPath))
+`, xmlEscape(syncLaunchdLabel), xmlEscape(binPath), xmlEscape(syncServicePATH(binPath)), int(interval.Seconds()), xmlEscape(logPath), xmlEscape(logPath))
 }
 
-// RenderSyncSystemdService renders the oneshot unit the timer activates.
+// RenderSyncSystemdService renders the oneshot unit the timer activates. It sets
+// PATH (syncServicePATH): the manager's default lacks $HOME/.local/bin and the
+// provider binaries sync probes, and a failed lookup there used to drop the
+// MCP entries.
 func RenderSyncSystemdService(binPath string) string {
 	return fmt.Sprintf(`[Unit]
 Description=Cartographer client sync
 
 [Service]
 Type=oneshot
+Environment=PATH=%s
 ExecStart=%s sync
-`, systemdQuote(binPath))
+`, syncServicePATH(binPath), systemdQuote(binPath))
 }
 
 // RenderSyncSystemdTimer renders the timer that activates the unit above.

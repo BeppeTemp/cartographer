@@ -887,7 +887,10 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 		if err != nil {
 			return nil, fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
 		}
-		withFindings, err := provisioning.EnsureWriteFindingsHook(targetDir, configurator.Provider(p), newLock, true, dryRun)
+		withFindings, note, err := provisioning.EnsureWriteFindingsHookNote(targetDir, configurator.Provider(p), newLock, true, dryRun)
+		if note != "" {
+			warnings = append(warnings, note)
+		}
 		if provisioning.IsRefusal(err) {
 			warnings = append(warnings, fmt.Sprintf("%s: write-findings hook not installed: %v", p, err))
 		} else if err != nil {

@@ -12,6 +12,7 @@ package service
 import (
 	"fmt"
 	"net"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,24 @@ var platformDefaultPath = []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
 // `service install` itself generated. The binary's own directory comes first:
 // whatever installed Cartographer is the most likely place to hold its
 // companions.
-func servicePATH(binPath string) string {
+func servicePATH(binPath string) string { return buildPATH(binPath, nil) }
+
+// syncServicePATH is the PATH of the scheduled sync unit. The sync probes the
+// provider binaries (`opencode` lives in $HOME/.opencode/bin), which sit in the
+// installing user's shell PATH and in no default one: the binary's directory
+// first, then the absolute directories of the PATH of the shell that ran
+// `service sync-timer install`, then the same curated ones as the server unit.
+func syncServicePATH(binPath string) string {
+	var shell []string
+	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if strings.HasPrefix(d, "/") && !strings.ContainsAny(d, ":\n\r\t %\"'\\$") {
+			shell = append(shell, d)
+		}
+	}
+	return buildPATH(binPath, shell)
+}
+
+func buildPATH(binPath string, extra []string) string {
 	var dirs []string
 	seen := map[string]bool{}
 	add := func(d string) {
@@ -54,6 +72,9 @@ func servicePATH(binPath string) string {
 		// directory off with the host's separator would spell it with
 		// backslashes when the definition is generated from Windows.
 		add(path.Dir(filepath.ToSlash(binPath)))
+	}
+	for _, d := range extra {
+		add(d)
 	}
 	for _, d := range packageManagerPrefixes {
 		add(d)

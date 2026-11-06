@@ -33,9 +33,25 @@ func TestCronSchedule(t *testing.T) {
 }
 
 func TestRenderCronSyncBlock(t *testing.T) {
-	want := cronSyncBegin + "\n# interval=30m0s\n*/30 * * * * '/opt/bin/cartographer' sync --log-file '/s/sync.log'\n" + cronSyncEnd + "\n"
+	t.Setenv("PATH", "/home/user/.opencode/bin:/usr/bin")
+	want := cronSyncBegin + "\n# interval=30m0s\n*/30 * * * * PATH='" + syncServicePATH("/opt/bin/cartographer") + "' '/opt/bin/cartographer' sync --log-file '/s/sync.log'\n" + cronSyncEnd + "\n"
 	if got := renderCronSyncBlock("/opt/bin/cartographer", "/s", 30*time.Minute); got != want {
 		t.Errorf("block:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// The cron entry carries the PATH of the units: cron's own default holds
+// neither the binary's directory nor the provider binaries (#1715).
+func TestRenderCronSyncBlockCarriesPATH(t *testing.T) {
+	if os.PathListSeparator != ':' {
+		t.Skip("unix PATH list")
+	}
+	t.Setenv("PATH", "/home/user/.opencode/bin:/usr/bin")
+	got := renderCronSyncBlock("/home/user/.local/bin/cartographer", "/s", time.Hour)
+	for _, want := range []string{"0 */1 * * * PATH='/home/user/.local/bin:/home/user/.opencode/bin:", "/usr/bin", "' '/home/user/.local/bin/cartographer' sync"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("block lacks %q:\n%s", want, got)
+		}
 	}
 }
 

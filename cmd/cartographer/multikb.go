@@ -761,7 +761,10 @@ func emitMCPEntry(provider string, entry mcpEntry, auth bool, tokenEnv string) (
 			r, err := configurator.EmitServer(entry.Name, spec, configurator.Provider(provider))
 			return r, "", err
 		}
-		w := fmt.Sprintf("%s: %v; its workspace bindings do not narrow the tools until `cartographer` is on PATH and `cartographer sync` runs again", provider, err)
+		w := fmt.Sprintf("%s: %v; its workspace bindings do not narrow the tools until `cartographer` is on PATH and `cartographer sync` runs again; an existing entry is kept as it is", provider, err)
+		if onDiskBridgeMissing != "" {
+			w += fmt.Sprintf(" (the kept command %s no longer exists or is not executable, so the entry starts nothing until `cartographer sync` rewrites it)", onDiskBridgeMissing)
+		}
 		if entry.URL == "" {
 			return nil, w, nil
 		}
@@ -1029,10 +1032,15 @@ func claudeConfigDirs(home string, cfg *clientconfig.Config) (dirs []string, war
 // bridgeCommand finds the command a client starts for the bridge (D737).
 // TRAP: it is the path found on PATH, never os.Executable(): under Homebrew
 // that resolves to a versioned Cellar directory that the next upgrade deletes,
-// and every client's entry would then point at nothing. Indirected for tests.
+// and every client's entry would then point at nothing. Without PATH (a timer
+// unit's) it falls back to the command an entry already on disk names, when
+// that is still a usable file outside a Cellar. Indirected for tests.
 var bridgeCommand = func() (string, error) {
 	path, err := exec.LookPath("cartographer")
 	if err != nil {
+		if disk := usableOnDiskBridgeCommand(); disk != "" {
+			return disk, nil
+		}
 		return "", fmt.Errorf("the MCP bridge needs `cartographer` on PATH so a client can start it: %w", err)
 	}
 	return path, nil

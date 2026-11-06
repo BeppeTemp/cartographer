@@ -828,7 +828,7 @@ another remote ref (published history is never rewritten). Exit `0` is done or n
 
 The scheduled sync trigger (D140) for clients with no session-start hook, or one that fires only in
 some sessions (Kiro, D300). With `auth: true` it authenticates from the token file `connect` wrote
-(D699), since a timer inherits no shell exports. It is distinct from the
+(D699), since a timer inherits no shell exports; the units and the cron entry set `PATH` themselves (the binary's directory, the installing shell's, the package managers'). It is distinct from the
 **server** service below, with its own unit files:
 
 ```bash
