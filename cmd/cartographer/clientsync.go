@@ -912,6 +912,13 @@ func ensureBootstrapRefusals(providers []string, targetDir string, dryRun bool) 
 	refused := map[string][]string{}
 	for _, p := range providers {
 		lock := lockFile.ForProvider(p)
+		if dryRun {
+			for _, n := range provisioning.SyntheticHookDryRunNotes(targetDir, configurator.Provider(p)) {
+				if !slices.Contains(warnings, n) {
+					warnings = append(warnings, n)
+				}
+			}
+		}
 		newLock, err := provisioning.EnsureBootstrapHook(targetDir, configurator.Provider(p), lock, dryRun)
 		if provisioning.IsRefusal(err) {
 			warnings = append(warnings, fmt.Sprintf("%s: bootstrap hook not installed: %v", p, err))

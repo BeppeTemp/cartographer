@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -237,6 +238,12 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			continue
 		}
 		if dryRun {
+			for _, l := range safewrite.FollowedLinks(absoluteBaseDir, fullPath) {
+				note := fmt.Sprintf("would write through symlink %q -> %q", l.Path, l.Target)
+				if !slices.Contains(r.Warnings, note) {
+					r.Warnings = append(r.Warnings, note)
+				}
+			}
 			written = append(written, r.AbsolutePath)
 			migrateLegacyOpenCode(r, absoluteBaseDir, true)
 			continue

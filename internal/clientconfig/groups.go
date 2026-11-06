@@ -28,6 +28,7 @@ type providerEntry struct {
 	ConfigDirs    []string           `yaml:"config_dirs,omitempty"`
 	Access        string             `yaml:"access,omitempty"`
 	Tools         string             `yaml:"tools,omitempty"`
+	AllowSymlinks []string           `yaml:"allow_symlinks,omitempty"`
 	Workspaces    []WorkspaceBinding `yaml:"workspaces,omitempty"`
 }
 
@@ -60,7 +61,7 @@ func (c *Config) groups() (defaultsGroup, map[string]providerEntry, map[string]k
 	d := defaultsGroup{UnboundAccess: c.UnboundModes[unboundDefault]}
 	prov := map[string]providerEntry{}
 	for p, b := range c.Clients {
-		e := providerEntry{ConfigDirs: b.ConfigDirs}
+		e := providerEntry{ConfigDirs: b.ConfigDirs, AllowSymlinks: b.AllowSymlinks}
 		if b.Explicit() {
 			kbs := b.KBs
 			if kbs == nil {
@@ -135,7 +136,7 @@ func (c *Config) applyGroups(y *yamlConfig, path string) error {
 			return fmt.Errorf("clientconfig: %s: providers.%s: access %q with tools %q is not valid: the only combination is access: %s with tools: %s (remove both for the normal access)", path, p, e.Access, e.Tools, accessRead, toolsMinimal)
 		}
 		b, had := c.Clients[p]
-		set := e.KBs != nil || len(e.ConfigDirs) > 0 || e.Access != ""
+		set := e.KBs != nil || len(e.ConfigDirs) > 0 || e.Access != "" || len(e.AllowSymlinks) > 0
 		if e.KBs != nil {
 			b.KBs, b.KBsSet = *e.KBs, true
 		}
@@ -144,6 +145,9 @@ func (c *Config) applyGroups(y *yamlConfig, path string) error {
 		}
 		if e.Access != "" {
 			b.Access = AccessReadMin
+		}
+		if len(e.AllowSymlinks) > 0 {
+			b.AllowSymlinks = e.AllowSymlinks
 		}
 		// An entry that sets nothing at all is an empty binding, as clients: {p: {}} was.
 		if set || had || (e.Scope == "" && e.UnboundAccess == "" && len(e.Workspaces) == 0) {

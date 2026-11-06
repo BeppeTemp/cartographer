@@ -46,10 +46,10 @@ var lstat = os.Lstat
 // the refusal instead of a "-> (unreadable)" that reads like a broken link.
 func refusal(path string) error {
 	if target, err := os.Readlink(path); err == nil {
-		return fmt.Errorf("%w: refusing to write through symlink %s -> %s (replace the link with a regular file or directory; a dotfile manager or an earlier bootstrap may have linked it)",
-			ErrSymlinkDestination, path, target)
+		return fmt.Errorf("%w: refusing to write through symlink %q -> %q (replace the link with a regular file or directory, or list %q under providers.<provider>.allow_symlinks in .cartographer.yaml; a dotfile manager or an earlier bootstrap may have linked it)",
+			ErrSymlinkDestination, path, target, path)
 	}
-	return fmt.Errorf("%w: refusing to write through %s, which is neither a plain file nor a plain directory (replace it with a regular file or directory; a reparse point, junction, device or socket may be standing in for it)",
+	return fmt.Errorf("%w: refusing to write through %q, which is neither a plain file nor a plain directory (replace it with a regular file or directory; a reparse point, junction, device or socket may be standing in for it)",
 		ErrSymlinkDestination, path)
 }
 
@@ -183,7 +183,7 @@ func Remove(baseDir, path string) error {
 	}
 	if info, err := lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 && isAllowed(path) {
 		target, _ := os.Readlink(path)
-		return fmt.Errorf("%w: %w: %s -> %s is a link you listed, so it is your own wiring: remove it by hand",
+		return fmt.Errorf("%w: %w: %q -> %q is a link you listed, so it is your own wiring: remove it by hand",
 			ErrSymlinkDestination, ErrLinkedLeaf, path, target)
 	}
 	return notWritable(baseDir, path, os.Remove(path), false)

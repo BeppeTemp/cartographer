@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func TestRefusalDescribesANonSymlinkRefusal(t *testing.T) {
 	if strings.Contains(err.Error(), "unreadable") || strings.Contains(err.Error(), "->") {
 		t.Errorf("error %q describes a link target it does not have", err)
 	}
-	if !strings.Contains(err.Error(), plain) {
+	if !strings.Contains(err.Error(), strconv.Quote(plain)) {
 		t.Errorf("error %q does not name the path", err)
 	}
 }

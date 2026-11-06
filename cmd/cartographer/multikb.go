@@ -23,6 +23,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // mcpEntry is one Cartographer-owned MCP entry emitted for a provider.
@@ -1032,7 +1033,7 @@ func claudeConfigDirs(home string, cfg *clientconfig.Config) (dirs []string, war
 			warnings = append(warnings, fmt.Sprintf("providers.claude.config_dirs: %s does not exist or is not a directory; skipped (never created)", d))
 			continue
 		}
-		if info, err := os.Lstat(filepath.Join(d, ".claude.json")); err == nil && !info.Mode().IsRegular() {
+		if info, err := os.Lstat(filepath.Join(d, ".claude.json")); err == nil && !info.Mode().IsRegular() && !slices.Contains(safewrite.AllowedLinks(), filepath.Join(d, ".claude.json")) {
 			warnings = append(warnings, fmt.Sprintf("providers.claude.config_dirs: %s/.claude.json is not a regular file (a symlink?); skipped", d))
 			continue
 		}

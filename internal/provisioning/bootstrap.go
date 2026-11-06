@@ -454,6 +454,31 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 // registrars pick the file from that same path. A provider with no mechanism
 // has nothing to check.
 func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name, destRel string) error {
+	if _, ok := hookMechanisms[provider]; !ok {
+		return nil
+	}
+	if provider == configurator.ProviderCline {
+		// The dispatchers live in the Documents folder, which may sit outside the
+		// base dir (a redirected Windows folder) or be a link of the user's own:
+		// the walk is rooted there, so Documents itself is exempt and a link at
+		// Cline or Cline/Hooks is refused before any hook file is written.
+		docs := clineDocumentsDir(baseDir)
+		if err := safewrite.CheckPath(docs, clineHooksDir(baseDir)); err != nil {
+			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
+		}
+	}
+	for _, full := range hookRegistrationTargets(baseDir, provider, name, destRel) {
+		if err := safewrite.CheckPath(baseDir, full); err != nil {
+			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// hookRegistrationTargets lists the files a hook's registration writes under
+// baseDir (the settings file, the generated plugin file), for the guard above
+// and for a dry run's "would write through symlink" notes.
+func hookRegistrationTargets(baseDir string, provider configurator.Provider, name, destRel string) []string {
 	m, ok := hookMechanisms[provider]
 	if !ok {
 		return nil
@@ -467,25 +492,10 @@ func checkHookRegistrationTarget(baseDir string, provider configurator.Provider,
 	case len(m.settingsFile) > 0:
 		targets = append(targets, filepath.Join(baseDir, filepath.Join(m.settingsFile...)))
 	}
-	if provider == configurator.ProviderCline {
-		// The dispatchers live in the Documents folder, which may sit outside the
-		// base dir (a redirected Windows folder) or be a link of the user's own:
-		// the walk is rooted there, so Documents itself is exempt and a link at
-		// Cline or Cline/Hooks is refused before any hook file is written.
-		docs := clineDocumentsDir(baseDir)
-		if err := safewrite.CheckPath(docs, clineHooksDir(baseDir)); err != nil {
-			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
-		}
-	}
 	if m.pluginPath != nil {
 		targets = append(targets, filepath.Join(baseDir, filepath.FromSlash(m.pluginPath(name))))
 	}
-	for _, full := range targets {
-		if err := safewrite.CheckPath(baseDir, full); err != nil {
-			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
-		}
-	}
-	return nil
+	return targets
 }
 
 // hookInLock reports whether the previous lock owns a file of the hook name.
@@ -544,4 +554,24 @@ func HookPluginRelPath(provider configurator.Provider, name string) string {
 		return ""
 	}
 	return m.pluginPath(name)
+}
+
+// SyntheticHookDryRunNotes lists, for a dry run, the "would write through
+// symlink X -> Y" notes of the bootstrap and write-findings hooks of provider:
+// their files and their registration targets (providers.<provider>.allow_symlinks).
+func SyntheticHookDryRunNotes(baseDir string, provider configurator.Provider) []string {
+	hooks := []syntheticHook{bootstrapHook}
+	if SupportsWriteFindingsHook(provider) {
+		hooks = append(hooks, writeFindingsSyntheticFor(provider))
+	}
+	var notes []string
+	for _, h := range hooks {
+		destRel := destDir("hook", h.name, provider)
+		paths := hookRegistrationTargets(baseDir, provider, h.name, destRel)
+		paths = append(paths, filepath.Join(baseDir, destRel, "hook.json"), filepath.Join(baseDir, destRel, h.scriptName))
+		for _, p := range paths {
+			notes = appendFollowedLinkNotes(notes, baseDir, p)
+		}
+	}
+	return notes
 }

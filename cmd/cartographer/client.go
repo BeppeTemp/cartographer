@@ -69,6 +69,8 @@ func cmdClient(args []string) int {
 		return clientKB(dir, cfg, args[1:])
 	case "realign":
 		return clientRealign(dir, args[1:])
+	case "symlinks":
+		return clientSymlinks(dir, cfg, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown subcommand %q\n", args[0])
 		printClientUsage(os.Stderr)
@@ -84,6 +86,7 @@ func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "       cartographer client reset <provider>                   restores every known KB")
 	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
 	fmt.Fprintln(w, "       cartographer client realign [--reorder]   brings the file up to date; --reorder also writes its keys in the order of the settings table")
+	fmt.Fprintln(w, "       cartographer client symlinks <provider> [--add <path>] [--remove <path>]   lists or edits the links writes may follow")
 	fmt.Fprintln(w, "       cartographer client kb <kb> [--artifacts=true|false] [--access=read|write]   shows or sets the KB's options on every provider")
 }
 

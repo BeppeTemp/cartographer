@@ -1488,6 +1488,8 @@ providers:                      # one entry per provider (D1731); a provider wit
     workspaces:                 # explicit workspace bindings, [{path, kbs}] (D193); set by `cartographer workspace bind`
       - path: ~/projects/work
         kbs: [homelab]
+  opencode:
+    allow_symlinks: [$HOME/.config/opencode]   # links that writes may follow, the link itself (D148 refined); off by default; edit with `cartographer client symlinks`; does not make the binding explicit
 knowledge_bases:                # one entry per KB, for every provider; default holds the identity of every other KB
   default:
     identity: Ada Lovelace <ada@example.com>   # D904; the git author of this machine's writes; without one, the identity git resolves in the session's repository (an HTTP entry: the global one)
@@ -1546,7 +1548,7 @@ error naming the two keys, from `Load`, `Save` and the realignment, which leaves
 one. The report a client posts to the server and `cartographer config` mask a literal token at either place.
 
 The per-provider and per-KB keys follow the same path. The realignment moves `clients`, `scopes`, `unbound_access` and
-`workspaces` into `providers.<provider>` (`kbs`, `config_dirs`, `access`, `scope`, `unbound_access`, `workspaces`), with
+`workspaces` into `providers.<provider>` (`kbs`, `config_dirs`, `access`, `allow_symlinks`, `scope`, `unbound_access`, `workspaces`), with
 `unbound_access.default` going to `defaults.unbound_access`; `kb_options`, `identities` and `signing_keys` go into
 `knowledge_bases.<kb>` (`access`, `artifacts`, `identity`, `signing_keys`), with `identities.default` going to
 `knowledge_bases.default.identity`. `clients.<p>.access: read-min`, one value for two things, is written as
@@ -1558,7 +1560,7 @@ not part of the groups.
 
 **Key order.** The realignment that moves keys into their groups writes the whole file in the order of the
 `Schema` table (the root keys, the keys of `server` and `placeholders`) and, inside a provider, `kbs`, `scope`,
-`unbound_access`, `config_dirs`, `access`, `tools`, `workspaces`; inside a knowledge base, `access`, `artifacts`,
+`unbound_access`, `config_dirs`, `access`, `tools`, `allow_symlinks`, `workspaces`; inside a knowledge base, `access`, `artifacts`,
 `identity`, `signing_keys`. A comment travels with its key, an unknown key stays right after the key that preceded it
 in the file, and the order of the providers, the KBs and the list entries is the file's. A file that needs no move
 keeps its order until `cartographer client realign --reorder`, which rewrites it in that order (the original is kept
@@ -1607,6 +1609,7 @@ a failure.
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
 | `client realign [--reorder]` | realigns `.cartographer.yaml` to the current settings table, the same pass `sync` runs (the original is kept as `.cartographer.yaml.bak-<version>`); `--reorder` also writes the keys in the table's order, leaving a mapping as it is when one of its keys aliases (or merges) an anchor another of its keys defines |
+| `client symlinks <provider> [--add <path>] [--remove <path>]` | lists, adds or removes the provider's `allow_symlinks` entries (§Symlinked config files and directories are refused); entries are compared expanded and cleaned, a `--remove` that matches nothing exits 1, and an entry that is `~`, `$HOME`, `/`, the home directory or holds a control character is refused |
 | `client kb <kb> [--artifacts=true\|false] [--access=read\|write]` | shows, or sets, the KB's per-KB options (the `knowledge_bases` map, D1408, D1409), for every provider; `--access=read` connects the KB read-only (below), `write` removes the key; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB the server does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
 
 `knowledge_bases.<kb>.artifacts: false` (D1408) is a narrowing, never a widening: it wins over `providers.<provider>.scope`, `providers.<provider>.kbs`, explicit workspace bindings and derived bindings, and changes neither which KBs a provider or folder reaches nor the KB's MCP tools. It does nothing on a server that does not name its KBs. `status` marks such a KB `artifacts: off (knowledge_bases)` under the provider's `kbs` line.
@@ -1787,8 +1790,41 @@ The refusal is **per provider** (and, in a sync, per artifact):
   `disconnect` retries, removes the others, and **exits 1**. The TUI shows the same line. `reconnect`
   does not rebuild a provider its disconnect half kept, rebuilds the others, and also exits 1.
 
-Nothing is written through the link until the operator replaces it. The legacy `.codex/config.json`
+Nothing is written through the link until the operator replaces it or lists it (below). The legacy `.codex/config.json`
 that `disconnect` cleans up is checked before `config.toml`, so a refusal there leaves both untouched.
+
+#### Following a listed link: `providers.<provider>.allow_symlinks`
+
+The refusal stays the default. A user who keeps agent config in a dotfiles repository (GNU Stow,
+chezmoi) lists the links to follow, per provider, in `.cartographer.yaml`:
+
+```yaml
+providers:
+  opencode:
+    allow_symlinks: [$HOME/.config/opencode]
+```
+
+- An entry is the **link itself** (a file link such as `$HOME/.claude.json`, or a directory link),
+  absolute or starting with `~/` or `$HOME/`; anything else, an entry holding a control character, and `~`, `$HOME`, `/` or the home directory itself make the file fail to load. Matching is lexical on the
+  logical path the client addresses, so spell the link, not its target.
+- A listed **directory link covers everything below it**; a link nested below a listed one needs its own entry.
+- The set is the union of every provider's entries: safewrite does not know the provider, and a path listed
+  under one is a path the user listed.
+- When a listed link points at another link, every hop of the chain must be listed too.
+- The link is kept and the write lands on its target (a leaf link is resolved and the target replaced atomically, the
+  target's mode kept). A followed leaf link is never removed and its target never deleted: a cleanup that would delete
+  the file writes the emptied content through the link instead.
+- A target that is not writable (a read-only store or mount) is a per-artifact refusal naming the link and the target.
+- `TrustCodexProject` never follows a link, listed or not.
+- **The key is read only from the user's own `.cartographer.yaml` in the home directory**, never from a file in a
+  repository or the working directory: a cloned repository cannot choose which links are followed. An unreadable
+  config registers nothing, so the refusal stays.
+- `cartographer client symlinks <provider> [--add <path>] [--remove <path>]` edits the list (with no flag it lists
+  each entry and its target; `--add` warns when the path is missing or not a link, since a link may not exist yet)
+  and prints `run cartographer sync to apply`. A long-running process reads the key at its start.
+- `--dry-run` prints `would write through symlink X -> Y` once per followed link and writes nothing; it does not
+  probe whether the target is writable.
+- Lockfile paths stay logical (relative to the base dir), never a resolved target.
 
 ## Installation
 
