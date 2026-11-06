@@ -3,9 +3,12 @@
 package service
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -33,17 +36,45 @@ func unixStart(bin string, args, env []string) (int, error) {
 }
 
 // unixAlive is kill(pid, 0), a zombie counting as gone (a container's pid 1
-// may never reap it).
+// may never reap it). On Linux an exiting process goes through state Z, then
+// X, then loses its /proc entry (ENOENT, or ESRCH on a read already open)
+// while kill(pid, 0) still succeeds, the parent being reaping it: all three
+// are gone, none alive (#1705: the test reported "still alive" at random).
+// ENOENT/ESRCH is trusted only when /proc is this process's own namespace
+// view (procIsOurs): a /proc of another pid namespace (unshare --pid without
+// --mount-proc, a host /proc bind-mounted in a container) lacks live pids, and
+// reading one as dead would let ownPID drop server.pid of a running server.
+// Without /proc (macOS) or with a foreign one, kill alone answers; EPERM means
+// another user's process, which /proc may hide (hidepid), so it stays alive.
 func unixAlive(pid int) bool {
-	if err := syscall.Kill(pid, 0); err != nil && err != syscall.EPERM {
+	err := syscall.Kill(pid, 0)
+	if err != nil && err != syscall.EPERM {
 		return false
 	}
-	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); err == nil {
-		if i := strings.LastIndexByte(string(data), ')'); i >= 0 && strings.HasPrefix(strings.TrimSpace(string(data)[i+1:]), "Z") {
+	data, rerr := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if rerr != nil {
+		if (errors.Is(rerr, fs.ErrNotExist) || errors.Is(rerr, syscall.ESRCH)) && err == nil {
+			if procIsOurs() {
+				return false
+			}
+		}
+		return true
+	}
+	if i := strings.LastIndexByte(string(data), ')'); i >= 0 {
+		// Z zombie; X/x dead, the instant between the reap and the entry going.
+		if st := strings.TrimSpace(string(data)[i+1:]); st != "" && strings.ContainsRune("ZXx", rune(st[0])) {
 			return false
 		}
 	}
 	return true
+}
+
+// procIsOurs reports whether /proc is the view of this pid namespace: the
+// /proc/self link names our own pid there, and another namespace's /proc names
+// a different one (or none).
+func procIsOurs() bool {
+	l, err := os.Readlink("/proc/self")
+	return err == nil && l == strconv.Itoa(os.Getpid())
 }
 
 func procCmdline(pid int) (string, bool) {
