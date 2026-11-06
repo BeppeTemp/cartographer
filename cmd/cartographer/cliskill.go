@@ -12,6 +12,18 @@ const cliSkillName = provisioning.CLISkillName
 // usesCLI is the provider predicate, a variable so a test can inject one.
 var usesCLI = configurator.UsesCLI
 
+// usesNoMCP is the predicate of a provider that gets neither an MCP entry nor the
+// command route (MCPModeNone), a variable so a test can inject one.
+var usesNoMCP = configurator.UsesNoMCP
+
+// skipsMCPEntry reports whether connect, sync, disconnect and doctor leave the
+// provider's MCP entry alone, without a warning: it reaches Cartographer through
+// the shell (cli) or not at all (none).
+func skipsMCPEntry(provider string) bool {
+	p := configurator.Provider(provider)
+	return usesCLI(p) || usesNoMCP(p)
+}
+
 // withoutCLISkill drops the cartographer-cli bundle skill from a provider's
 // manifest unless the provider reaches Cartographer through the command.
 //

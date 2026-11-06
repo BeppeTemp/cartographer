@@ -143,6 +143,14 @@ type EmitResult struct {
 	// Surfaced by callers (internal/provisioning's "mcp" Apply path) instead of
 	// failing.
 	Warnings []string
+	// FileGlob is set instead of FilePath for a plugin provider whose MCP file
+	// holds a `*` (Descriptor.MCPConfigGlob): Apply writes the entry into every
+	// existing match under baseDir. FilePath is empty then, so nothing joins a
+	// literal `*`.
+	FileGlob string
+	// viaGlob marks one expansion of a FileGlob result: the stale files are
+	// removed once, after all of them.
+	viaGlob bool
 }
 
 // Emit generates the configuration for Cartographer's own MCP entry (cfg) for
@@ -231,6 +239,15 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 	// after them. A dry run refuses too, so it reports what the real run does.
 	var refused []error
 	for _, r := range results {
+		if r.FileGlob != "" {
+			w, rf, err := applyGlob(r, absoluteBaseDir, dryRun)
+			written = append(written, w...)
+			refused = append(refused, rf...)
+			if err != nil {
+				return written, err
+			}
+			continue
+		}
 		fullPath := filepath.Join(absoluteBaseDir, r.FilePath)
 		r.AbsolutePath = fullPath
 		if err := safewrite.CheckPath(absoluteBaseDir, fullPath); err != nil {
@@ -286,10 +303,19 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 				r.Warnings = append(r.Warnings, fmt.Sprintf(
 					"codex: removed a stale [%s] table left outside the managed block by Codex's own config.toml rewrite (it would have been a duplicate key)", key))
 			}
+			before := readBounded(fullPath)
 			if err := blocktext.Write(absoluteBaseDir, fullPath, codexMCPBlockBegin, codexMCPBlockEnd, string(r.Content)); err != nil {
 				return written, fmt.Errorf("write %s: %w", fullPath, err)
 			}
-			written = append(written, r.AbsolutePath)
+			changed := string(before) != string(readBounded(fullPath))
+			// A match of a pattern counts only when its bytes changed: applyGlob
+			// removes the stale files when anything was written.
+			if changed || !r.viaGlob {
+				written = append(written, r.AbsolutePath)
+			}
+			if !r.viaGlob && changed {
+				r.Warnings = append(r.Warnings, removeStale(r.Provider, absoluteBaseDir)...)
+			}
 			continue
 		}
 
@@ -334,6 +360,9 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// was not touched (#1502).
 		if wrote {
 			written = append(written, r.AbsolutePath)
+			if !r.viaGlob {
+				r.Warnings = append(r.Warnings, removeStale(r.Provider, absoluteBaseDir)...)
+			}
 		}
 		migrateLegacyOpenCode(r, absoluteBaseDir, false)
 	}
@@ -469,10 +498,19 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 
 // removeEntry is Remove on the provider's current config file only.
 func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (removed bool, err error) {
+	if d, ok := Lookup(provider); ok && d.MCPConfigGlob != "" {
+		return removeGlob(cfg, provider, d, baseDir, dryRun)
+	}
 	r, err := Emit(cfg, provider)
 	if err != nil {
 		return false, err
 	}
+	return removeEntryAt(cfg, provider, baseDir, r.FilePath, dryRun)
+}
+
+// removeEntryAt is removeEntry on the file at relPath (relative to baseDir).
+func removeEntryAt(cfg *ServerConfig, provider Provider, baseDir, relPath string, dryRun bool) (removed bool, err error) {
+	r := &EmitResult{Provider: provider, FilePath: relPath}
 	fullPath := filepath.Join(baseDir, r.FilePath)
 
 	// A destination that is a symlink, or under one, is refused (D148) only

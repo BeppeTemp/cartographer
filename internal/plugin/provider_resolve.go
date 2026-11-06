@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -128,6 +129,20 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 		}
 		return true
 	}
+	// xdgBelowConfig applies the global-cell checks (denied directories, the
+	// client directory of a built-in) to the part below a custom XDG_CONFIG_HOME as
+	// if it lay below .config: with XDG_CONFIG_HOME=~/cfg, {xdg_config}/git/x would
+	// otherwise resolve to cfg/git/x and escape the .config/git denial.
+	xdgBelowConfig := func(key string, t pathTpl, pre []string) bool {
+		if t.anchor != "xdg_config" || len(pre) == 1 && pre[0] == ".config" {
+			return true
+		}
+		if err := configurator.CheckPluginGlobalPath(key, append([]string{".config"}, t.segs...)); err != nil {
+			reasons = append(reasons, key+": below {xdg_config}, as under .config: "+err.Error())
+			return false
+		}
+		return true
+	}
 	// cell resolves one path of a cell: the segments below home (global) or the
 	// project root.
 	cell := func(key, v string, project bool, sh pathShape) ([]string, bool) {
@@ -141,7 +156,7 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 			return nil, false
 		}
 		segs := append(append([]string(nil), pre...), t.segs...)
-		if !project && !contained(key, segs) {
+		if !project && (!contained(key, segs) || !xdgBelowConfig(key, t, pre)) {
 			return nil, false
 		}
 		return segs, true
@@ -167,7 +182,7 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 			return nil
 		}
 		segs := append(append([]string(nil), pre...), t.segs...)
-		if check && !contained(key, segs) {
+		if check && (!contained(key, segs) || !xdgBelowConfig(key, t, pre)) {
 			return nil
 		}
 		return segs
@@ -195,6 +210,18 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 				r.MCPStale = append(r.MCPStale, segs)
 			}
 		}
+	}
+	// The MCP paths of a provider must pass the rules of a cell (CheckPluginMCPPaths):
+	// one that does not takes the whole MCP side out, never only the offending
+	// path, since a provider left without mcp.config would write the base's file.
+	// A stale file whose mcp.config was left out above is dropped with it.
+	if _, declared := spec.MCP.Config.pick(env.GOOS); declared && spec.MCP.Mode == "native" && r.MCPConfig == nil {
+		// The reason is the one homePath recorded for mcp.config.
+		r.MCPStale = nil
+		r.MCPMode = configurator.MCPModeNone
+	} else if err := configurator.CheckPluginMCPPaths(spec.Name, r.MCPConfig, r.MCPStale); err != nil {
+		reasons = append(reasons, "mcp: "+err.Error()+": the provider writes no MCP entry")
+		r.MCPMode, r.MCPConfig, r.MCPStale = configurator.MCPModeNone, nil, nil
 	}
 	dirOf := func(key string, p osValue[string], project bool) *ProviderCell {
 		v, ok := p.pick(env.GOOS)
@@ -296,4 +323,32 @@ func (r ResolvedProvider) Registration(origin string, active bool) configurator.
 		Binaries: r.Binaries, DetectDirs: r.DetectDirs,
 		MCPMode: r.MCPMode, MCPConfig: r.MCPConfig, MCPStale: r.MCPStale,
 	}
+}
+
+// Cells is what provisioning reads of the provider: its destination cells, the
+// agent layout, the capability row and the invoke hint. active is the state of
+// the plugin: an inactive provider's cells stay resolvable (what it installed is
+// retired through them) but its hook directory leaves the dispatcher. The MCP
+// file is a cell only when it is the provider's own literal file: the base's
+// file is the base's, and a pattern is written by the registry's own expansion
+// (configurator.Apply), never as a destination of the KB's MCP descriptors.
+func (r ResolvedProvider) Cells(active bool) provisioning.PluginCells {
+	conv := func(c *ProviderCell) *provisioning.PluginCell {
+		if c == nil {
+			return nil
+		}
+		return &provisioning.PluginCell{Dir: c.Dir, File: c.File, AgentFormat: c.AgentFormat}
+	}
+	scope := func(s ProviderScope) provisioning.PluginScopeCells {
+		return provisioning.PluginScopeCells{Skill: conv(s.Skill), Agent: conv(s.Agent), Instructions: conv(s.Instructions), Hook: conv(s.Hook)}
+	}
+	out := provisioning.PluginCells{
+		Name: r.Name, Base: r.Base, Active: active,
+		Global: scope(r.Global), Project: scope(r.Project),
+		Capabilities: r.Capabilities, InvokeHint: r.InvokeHint,
+	}
+	if r.MCPMode == "native" && len(r.MCPConfig) > 0 && !strings.Contains(strings.Join(r.MCPConfig, "/"), "*") {
+		out.MCPFile = r.MCPConfig
+	}
+	return out
 }

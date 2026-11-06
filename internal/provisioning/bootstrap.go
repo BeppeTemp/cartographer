@@ -157,7 +157,7 @@ func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lo
 		// Register in the provider's native mechanism, reusing exactly the
 		// D57/D58/D59 primitives — the very same code Apply uses for KB
 		// hooks, with the hook.json just written above acting as the bridge.
-		if mechanism, ok := hookMechanisms[provider]; ok {
+		if mechanism, ok := mechanismFor(provider); ok {
 			pluginRel, warning, _, err := mechanism.register(baseDir, h.name, fullDestDir)
 			if err != nil {
 				return Lock{}, err
@@ -258,6 +258,11 @@ type hookMechanism struct {
 	// it (SessionHookLimit), because a sync that runs only in some sessions
 	// is not a trigger an operator can rely on (D300).
 	sessionHookLimit string
+	// sharedDispatcher marks a mechanism whose registration is a dispatcher
+	// shared by every client of the family, which reads the hooks of every root
+	// it is given (Cline, clinedispatch.go). Only such a base lets a plugin provider
+	// contribute a hook directory: the generator takes no directory of its own.
+	sharedDispatcher bool
 	// writeFindingsHook marks a provider whose PostToolUse feedback channel
 	// was verified, so the write-findings hook (D353) is installed for it. The
 	// channel is per provider (writeFindingsCommandArgs): exit 2 + stderr for
@@ -411,6 +416,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 	},
 	configurator.ProviderCline: {
 		warningBlocksBootstrap: true,
+		sharedDispatcher:       true,
 		// No generated file per hook and no shared settings file: the
 		// registration is the per-event dispatcher in Documents/Cline/Hooks,
 		// derived from the hooks on disk (registerClineHook), so there is no
@@ -454,10 +460,10 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 // registrars pick the file from that same path. A provider with no mechanism
 // has nothing to check.
 func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name, destRel string) error {
-	if _, ok := hookMechanisms[provider]; !ok {
+	if _, ok := mechanismFor(provider); !ok {
 		return nil
 	}
-	if provider == configurator.ProviderCline {
+	if nativeProvider(provider) == configurator.ProviderCline {
 		// The dispatchers live in the Documents folder, which may sit outside the
 		// base dir (a redirected Windows folder) or be a link of the user's own:
 		// the walk is rooted there, so Documents itself is exempt and a link at
@@ -479,7 +485,7 @@ func checkHookRegistrationTarget(baseDir string, provider configurator.Provider,
 // baseDir (the settings file, the generated plugin file), for the guard above
 // and for a dry run's "would write through symlink" notes.
 func hookRegistrationTargets(baseDir string, provider configurator.Provider, name, destRel string) []string {
-	m, ok := hookMechanisms[provider]
+	m, ok := mechanismFor(provider)
 	if !ok {
 		return nil
 	}
@@ -517,7 +523,7 @@ func SupportsSessionHook(provider configurator.Provider) bool {
 	if destDir("hook", BootstrapHookName, provider) == "" {
 		return false
 	}
-	m, ok := hookMechanisms[provider]
+	m, ok := mechanismFor(provider)
 	return ok && !m.noSessionStartEvent
 }
 
@@ -529,7 +535,8 @@ func SessionHookLimit(provider configurator.Provider) string {
 	if !SupportsSessionHook(provider) {
 		return ""
 	}
-	return hookMechanisms[provider].sessionHookLimit
+	m, _ := mechanismFor(provider)
+	return m.sessionHookLimit
 }
 
 // HookRegistrationFile returns the provider-native file a hook registration is
@@ -538,7 +545,7 @@ func SessionHookLimit(provider configurator.Provider) string {
 // Exported for the client's own output: `cartographer sync` reports where a
 // hook was registered.
 func HookRegistrationFile(provider configurator.Provider) string {
-	m, ok := hookMechanisms[provider]
+	m, ok := mechanismFor(provider)
 	if !ok || len(m.settingsFile) == 0 {
 		return ""
 	}
@@ -549,7 +556,7 @@ func HookRegistrationFile(provider configurator.Provider) string {
 // dedicated registration artifact this provider generates for hook name — or
 // "" when it registers into a shared settings file instead.
 func HookPluginRelPath(provider configurator.Provider, name string) string {
-	m, ok := hookMechanisms[provider]
+	m, ok := mechanismFor(provider)
 	if !ok || m.pluginPath == nil {
 		return ""
 	}
