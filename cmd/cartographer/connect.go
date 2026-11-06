@@ -652,6 +652,20 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	}
 	if !opts.DryRun {
 		ackSessionHookLimit(dir, providers)
+		// doConnect released the client lock; connect, the interactive retry and
+		// reconnect all pass here. A connect has no lock snapshot to tell an
+		// update from an install, so what it wrote counts as installed.
+		if cfg, err := clientconfig.Load(dir); err == nil && len(cfg.Plugins) > 0 {
+			var errs []string
+			if res.Deferred && res.DeferredErr != nil {
+				errs = append(errs, res.DeferredErr.Error())
+			}
+			errs = append(errs, res.Warnings...)
+			// A partial connect fires too, with the providers that connected:
+			// the ones the write guard skipped are not among them.
+			connected := slices.DeleteFunc(slices.Clone(providers), func(p string) bool { _, skipped := res.Skipped[p]; return skipped })
+			firePluginEvent(cfg, eventConnectAfter, eventFields(eventConnectAfter, connected, nil, res.Applied, errs), os.Stderr)
+		}
 	}
 	return code
 }

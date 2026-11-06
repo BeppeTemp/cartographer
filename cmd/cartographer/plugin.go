@@ -30,6 +30,7 @@ const pluginUsage = `Usage: cartographer plugin new <name> [<dir>]
        cartographer plugin show <name> [--files] [--output table|json]
        cartographer plugin approve <name> [--yes] [--output table|json]
        cartographer plugin update [<name>] [--yes] [--output table|json]
+       cartographer plugin config <name> [<key>=<value> ...] [--unset <key> ...]
        cartographer plugin enable <name> [--output table|json]
        cartographer plugin disable <name> [--output table|json]
        cartographer plugin remove <name> [--output table|json]`
@@ -74,6 +75,8 @@ func cmdPlugin(args []string) int {
 		return pluginApprove(rest)
 	case "update":
 		return pluginUpdate(rest)
+	case "config":
+		return pluginConfig(rest)
 	case "enable":
 		return pluginEnable(rest)
 	case "disable":
@@ -472,6 +475,7 @@ func pluginShow(args []string) int {
 	}
 	fmt.Printf("state: %s; showing the %s tree\n", st, tree)
 	pluginPreview(os.Stdout, p, e, cfg)
+	printPluginSettings(os.Stdout, p, e)
 	if flags["--files"] {
 		var fs []provisioning.ArtifactFile
 		for _, f := range p.Files {
