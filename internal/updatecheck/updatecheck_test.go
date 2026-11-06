@@ -405,3 +405,25 @@ func TestCheckSkipsReleaseCandidates(t *testing.T) {
 		t.Error("a cached candidate must be rejected")
 	}
 }
+
+func TestCmp(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+		ok   bool
+	}{
+		{"0.28.0", "0.28.0", 0, true},
+		{"v0.28.1", "0.28.0", 1, true},
+		{"0.27.3", "0.28.0", -1, true},
+		{"0.28.0-rc.1", "0.28.0", -1, true},
+		{"0.10.0", "0.9.0", 1, true},
+		{"dev", "0.28.0", 0, false},
+		{"0.28.0", "", 0, false},
+	}
+	for _, c := range cases {
+		got, ok := Cmp(c.a, c.b)
+		if got != c.want || ok != c.ok {
+			t.Errorf("Cmp(%q, %q) = %d, %v; want %d, %v", c.a, c.b, got, ok, c.want, c.ok)
+		}
+	}
+}
