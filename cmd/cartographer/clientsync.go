@@ -139,6 +139,11 @@ type candidateSet struct {
 	// pathRegistriesForProjection, like the placeholder keys.
 	PathRegistries   map[string]provisioning.PathRegistry
 	BarePathRegistry *provisioning.PathRegistry
+	// Plugins are the skills, agents and hooks of the active plugins
+	// (loadActivePlugins). They are not a KB's: no binding selects them and
+	// kb_options does not apply, so they join each projection after the KB
+	// selection (forProvider, forProjection) and before the collision drop.
+	Plugins []provisioning.Artifact
 }
 
 // pathRegistriesForProjection returns the declared vocabularies of the KBs a
@@ -225,7 +230,7 @@ func (cs candidateSet) all() []provisioning.Artifact {
 	for _, name := range names {
 		out = append(out, cs.Named[name]...)
 	}
-	return out
+	return append(out, cs.Plugins...)
 }
 
 // forKBs concatenates the responses of the named KBs, in a deterministic order.
@@ -252,11 +257,14 @@ func (cs candidateSet) forProvider(cfg *clientconfig.Config, provider string) []
 	bound, explicit := cfg.BoundKBs(provider)
 	if cs.HasBare {
 		if explicit && len(bound) == 0 {
-			return nil
+			return append([]provisioning.Artifact(nil), cs.Plugins...)
 		}
-		return cs.Bare
+		return append(append([]provisioning.Artifact(nil), cs.Bare...), cs.Plugins...)
 	}
-	return dropKBArtifacts(cfg, provisioning.SelectForSources(cs.forKBs(bound), bound))
+	// SelectForSources drops every plugin artifact and dropKBArtifacts only
+	// touches kb: ones: the plugins are appended after both (decision 8).
+	kept := dropKBArtifacts(cfg, provisioning.SelectForSources(cs.forKBs(bound), bound))
+	return append(kept, cs.Plugins...)
 }
 
 // dropKBArtifacts removes the artifacts of every KB that has
@@ -366,7 +374,7 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 	if err != nil {
 		return provisioning.Manifest{}, err
 	}
-	merged, err := provisioning.MergeArtifactsStrict(cs.all())
+	merged, err := mergeAcrossPlugins(cs.all(), nil)
 	if err != nil {
 		return provisioning.Manifest{}, err
 	}
@@ -425,7 +433,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 // already holds the response (doctor, via serverFacts) passes it instead of
 // probing the server again.
 func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNames []string) (candidateSet, []kbPullFailure, error) {
-	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry)}
+	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry), Plugins: loadActivePlugins(cfg).Artifacts}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	targets, err := resolveKBTargets(health, kbNames)
@@ -655,6 +663,9 @@ type portabilityOptions struct {
 	Paths       map[string]string
 	// Streams is where the pass reports its warnings; zero is the process's.
 	Streams syncStreams
+	// HeldPlugins are the plugins that cannot be read this run: their lock
+	// entries are carried forward unchanged instead of pruned (heldPlugins).
+	HeldPlugins map[string]bool
 }
 
 // kbOrder, keyed by provider, is the KB names in that provider's explicit
@@ -753,21 +764,27 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			Placeholders:   manifest.Placeholders,
 			PathRegistries: manifest.PathRegistries,
 			KBOrder:        kbOrder[p.Provider],
+			// The plugins that contribute to this manifest, built from
+			// approved trees at this run (manifestPlugins).
+			ActivePlugins: manifestPlugins(manifest),
 		}
 		// What a derived projection leaves alone because git tracks the file
 		// is not its to prune either: those lock entries are held out of the
 		// diff Apply computes and carried forward unchanged.
-		var held []provisioning.ManagedFile
+		// A plugin that cannot be read this run retires nothing: its entries
+		// leave the diff and are carried forward (splitHeldPlugins).
+		lockForApply, held := splitHeldPlugins(previous, portability.HeldPlugins)
+		opts.Lock = lockForApply
 		if p.Derived && len(p.SkipKinds) > 0 {
 			var rest []provisioning.ManagedFile
-			for _, mf := range previous.Managed {
+			for _, mf := range lockForApply.Managed {
 				if slices.Contains(p.SkipKinds, mf.Kind) {
 					held = append(held, mf)
 				} else {
 					rest = append(rest, mf)
 				}
 			}
-			lockCopy := previous
+			lockCopy := lockForApply
 			lockCopy.Managed = rest
 			opts.Lock = lockCopy
 		}

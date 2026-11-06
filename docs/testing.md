@@ -195,6 +195,10 @@ and never as a required check. By hand, from the repository root, with Docker:
 `make build && test/forge/run.sh forgejo` (`FORGE_KEEP=1` leaves the container up;
 `FORGE_PORT`, `FORGE_SSH_PORT` and `FORGE_SERVER_PORT` move the ports).
 
+### Plugin delivery
+
+`cmd/cartographer/plugin_delivery_test.go` installs fixture plugins (`writePlugin`, folders in `t.TempDir()`, the store in a temporary directory) and syncs them against the in-process servers of `clientsync_test.go`: a plugin skill reaches the global scope and survives `kb_options.<kb>.artifacts: false`, a disabled plugin is pruned, a hook is registered only for an active plugin, a machine bound to no KB still receives its plugins, a pending plugin delivers nothing, a dry run writes nothing, a purged store with an unreachable source keeps what is installed and prunes nothing, a collision with a KB or another plugin installs neither claimant and is printed once, and KB against KB still stops the sync. `internal/provisioning/source_audit_test.go` lists every file that compares a source. E2E scenario `27_plugin_delivery` installs a folder plugin with the binary and syncs.
+
 ### Client upgrade from the previous release (#1173)
 
 `test/e2e/optional/26_upgrade_from_previous.sh` starts from the state a previous

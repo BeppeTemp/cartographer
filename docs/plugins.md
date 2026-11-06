@@ -170,3 +170,31 @@ range and whether this build meets it, `depends` and which are installed, the pe
 settings keys, every contribution through its point's `Preview`, and one "runs code on this machine" list of the
 files with the execute bit. Every plugin-supplied string goes through an escape, so a control character never
 reaches the terminal; a test pins it.
+
+## Delivery
+
+`sync`, `connect`, `status`, `approve` and `doctor` see the plugins through `loadActivePlugins`
+(`cmd/cartographer/plugins_local.go`): for each configured, enabled and approved plugin it calls `plugin.State`, and
+an `active` one contributes its skills, agents and hooks with their files in memory and the manifest version.
+
+- **Where they land.** In the global projection of every connected provider, including the bundle-only global
+  projection of a workspace-scoped provider, and in no workspace projection. They join after `SelectForSources` and
+  `kb_options.<kb>.artifacts` have run, so neither touches them, and a machine bound to no KB still receives them.
+  The lockfile records `plugin:<name>` as the source, and the next `sync` prunes a file whose plugin left the active
+  set (disabled or removed).
+- **Collisions.** A kind and name claimed by a plugin and by a KB or another plugin is installed from none of them,
+  and against a bundled artifact only the plugin's is dropped; each is printed once per run as `warning: skill x is declared by plugin a and KB b: installed
+  from neither`. KB against KB still stops the sync.
+- **A plugin that cannot be read** (not in the store, modified, invalid, no store) contributes nothing in that run,
+  is reported with a warning, and retires nothing: its lock entries are carried forward and nothing it installed is
+  pruned. A pending or disabled plugin is a state shown by `plugin list`, not a warning.
+- **A missing tree.** Before it takes the client lock, `sync` reads an approved plugin that is not in the store from
+  its configured source and ref (a network fetch must not eat the time the lock is waited for); under the lock it
+  stores the bytes only if their digest equals the approved one. A different digest is reported and nothing is
+  installed. `sync` never approves. `--dry-run` fetches nothing and says `would fetch`.
+- **Status.** `status`, `doctor` and the TUI judge a projection without the lock entries of an unreadable plugin
+  (`splitHeldPlugins`), so a purged store is not drift.
+- **Not announced.** The instructions block names no plugin agent or hook.
+- **Authorization.** A plugin artifact installs only while its plugin is in `ApplyOptions.ActivePlugins`, which a
+  projection derives from the plugin artifacts in its own manifest (see `sync.md`); `D1732` holds the
+  reasoning.
