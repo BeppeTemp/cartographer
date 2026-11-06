@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -65,10 +66,10 @@ func newLifecycle(action string, args []string, min, max int, yes bool) (lifecyc
 		c.out = io.Discard
 	}
 	if c.store, err = pluginStoreFn(); err != nil {
-		return c, nil, pluginFail(1, "%v", err)
+		return c, nil, pluginFail(1, "%s", escapeControl(err.Error()))
 	}
 	if c.dir, err = clientconfig.TargetDir(); err != nil {
-		return c, nil, pluginFail(2, "%v", err)
+		return c, nil, pluginFail(2, "%s", escapeControl(err.Error()))
 	}
 	return c, pos, -1
 }
@@ -94,12 +95,12 @@ func gcStore(c lifecycleCtx, cfg *clientconfig.Config) {
 func (c lifecycleCtx) locked(fn func(cfg *clientconfig.Config) int) int {
 	release, err := lockClient(c.dir)
 	if err != nil {
-		return pluginFail(1, "%v", err)
+		return pluginFail(1, "%s", escapeControl(err.Error()))
 	}
 	defer release()
 	cfg, err := clientconfig.Load(c.dir)
 	if err != nil {
-		return pluginFail(1, "%v", err)
+		return pluginFail(1, "%s", escapeControl(err.Error()))
 	}
 	return fn(cfg)
 }
@@ -164,19 +165,36 @@ func printConsent(w io.Writer, p plugin.Plugin, e clientconfig.PluginEntry, cfg 
 // finishApprove records the consent under the lock: Approved := digest, enabled.
 // It fails when the entry changed while the prompt was open.
 func (c lifecycleCtx) finishApprove(name, digest, version string) int {
+	enabled := false
 	code := c.locked(func(cfg *clientconfig.Config) int {
 		cur, ok := cfg.Plugin(name)
 		if !ok || cur.Installed != digest {
 			return pluginFail(1, "%s changed while waiting for the answer; nothing was approved, run the command again", name)
 		}
-		cur.Approved, cur.Enabled = digest, true
+		// Only the first approval enables; a disabled plugin stays disabled.
+		first := cur.Approved == ""
+		if first {
+			p, err := c.store.Open(name, digest, pluginOpts())
+			if err != nil {
+				return pluginFail(1, "%s", escapeControl(err.Error()))
+			}
+			if unmet := unmetDepends(cfg, c.store, name, p); len(unmet) > 0 {
+				for _, u := range unmet {
+					fmt.Fprintln(os.Stderr, "Error:", escapeControl(u))
+				}
+				return pluginFail(1, "%s was not approved: enable what it depends on, then run `cartographer plugin approve %s`", name, name)
+			}
+			cur.Enabled = true
+		}
+		enabled = cur.Enabled
+		cur.Approved = digest
 		if err := cfg.SetPlugin(name, cur); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		if err := clientconfig.Save(c.dir, cfg); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
-		// The previous approved tree is no longer kept.
+		// The superseded approved tree is dropped.
 		gcStore(c, cfg)
 		return -1
 	})
@@ -184,8 +202,13 @@ func (c lifecycleCtx) finishApprove(name, digest, version string) int {
 		return code
 	}
 	registerPluginProviders(os.Stderr)
-	fmt.Fprintf(c.out, "Enabled %s %s\n", name, version)
-	c.emit(pluginResult{Name: name, Changed: true, State: string(plugin.StatusActive)})
+	if enabled {
+		fmt.Fprintf(c.out, "Enabled %s %s\n", name, version)
+		c.emit(pluginResult{Name: name, Changed: true, State: string(plugin.StatusActive)})
+	} else {
+		fmt.Fprintf(c.out, "Approved %s %s; it stays disabled\n", name, version)
+		c.emit(pluginResult{Name: name, Changed: true, State: string(plugin.StatusDisabled)})
+	}
 	return 0
 }
 
@@ -212,9 +235,9 @@ func pluginApprove(args []string) int {
 	p, err := c.store.Open(name, e.Installed, pluginOpts())
 	if err != nil {
 		if errors.Is(err, plugin.ErrNotFetched) || errors.Is(err, plugin.ErrModified) || errors.Is(err, plugin.ErrInvalid) {
-			return pluginFail(1, "the stored tree of %s cannot be used (%v): run `cartographer plugin update %s`; nothing was approved", name, err, name)
+			return pluginFail(1, "the stored tree of %s cannot be used (%s): run `cartographer plugin update %s`; nothing was approved", name, escapeControl(err.Error()), name)
 		}
-		return pluginFail(1, "%v", err)
+		return pluginFail(1, "%s", escapeControl(err.Error()))
 	}
 	printConsent(c.out, p, e, cfg)
 	if !c.yes {
@@ -265,7 +288,7 @@ func pluginUpdate(args []string) int {
 func (c lifecycleCtx) updateOne(name string) int {
 	cfg, err := clientconfig.Load(c.dir)
 	if err != nil {
-		return pluginFail(1, "%v", err)
+		return pluginFail(1, "%s", escapeControl(err.Error()))
 	}
 	e, ok := cfg.Plugin(name)
 	if !ok {
@@ -278,21 +301,25 @@ func (c lifecycleCtx) updateOne(name string) int {
 	}
 	src, err := plugin.ParseSource(pluginSourceSpec(e, false))
 	if err != nil {
-		return fail("cannot update: %v", err)
+		return fail("cannot update: %s", escapeControl(err.Error()))
 	}
 	files, sha, p, probs, err := pluginRead(src)
 	switch {
 	case err != nil:
-		return fail("cannot fetch from %s: %v", gitx.RedactRemoteURL(e.Source), err)
+		return fail("cannot fetch from %s: %s", escapeControl(gitx.RedactRemoteURL(e.Source)), escapeControl(err.Error()))
 	case len(probs) > 0:
 		return fail("the fetched tree is not a valid plugin (%s)", escapeControl(joinProblems(probs)))
 	case p.Manifest.Name != name:
-		return fail("the source now names the plugin %q", p.Manifest.Name)
+		return fail("the source names the plugin %q", escapeControl(p.Manifest.Name))
 	}
 	if p.Digest == e.Approved && p.Digest == e.Installed {
 		fmt.Fprintf(c.out, "%s %s is up to date\n", name, e.Version)
 		c.emit(pluginResult{Name: name, Message: "up to date"})
 		return 0
+	}
+	if p.Digest == e.Approved {
+		// The source is back at the approved tree: drop the pending newer one.
+		return c.resetInstalled(name, e, sha)
 	}
 	code := c.locked(func(cfg *clientconfig.Config) int {
 		cur, ok := cfg.Plugin(name)
@@ -300,14 +327,14 @@ func (c lifecycleCtx) updateOne(name string) int {
 			return pluginFail(1, "%s changed while it was fetched; run the update again", name)
 		}
 		if err := c.store.Put(name, files, p.Digest, pluginOpts()); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		cur.SHA, cur.Version, cur.Installed = sha, p.Manifest.Version, p.Digest
 		if err := cfg.SetPlugin(name, cur); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		if err := clientconfig.Save(c.dir, cfg); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		gcStore(c, cfg)
 		e = cur
@@ -321,6 +348,7 @@ func (c lifecycleCtx) updateOne(name string) int {
 		env := plugin.DefaultProviderEnv()
 		env.Home = c.dir
 		plugin.DiffPrint(c.out, name, plugin.Diff(old, p, env))
+		printChangedContent(c.out, old, p)
 		fmt.Fprintf(c.out, "the approved version %s stays active until %s is approved\n", escapeControl(old.Manifest.Version), escapeControl(p.Manifest.Version))
 	} else {
 		printConsent(c.out, p, e, cfg)
@@ -333,6 +361,64 @@ func (c lifecycleCtx) updateOne(name string) int {
 		}
 	}
 	return c.finishApprove(name, p.Digest, p.Manifest.Version)
+}
+
+// resetInstalled points Installed back at the approved tree, which the source
+// yields again, without a prompt: nothing new is consented to.
+func (c lifecycleCtx) resetInstalled(name string, e clientconfig.PluginEntry, sha string) int {
+	code := c.locked(func(cfg *clientconfig.Config) int {
+		cur, ok := cfg.Plugin(name)
+		if !ok || cur.Source != e.Source || cur.Ref != e.Ref || cur.Approved != e.Approved {
+			return pluginFail(1, "%s changed while it was fetched; run the update again", name)
+		}
+		t, err := c.store.Open(name, cur.Approved, pluginOpts())
+		if err != nil {
+			return pluginFail(1, "%s", escapeControl(err.Error()))
+		}
+		cur.SHA, cur.Version, cur.Installed = sha, t.Manifest.Version, cur.Approved
+		if err := cfg.SetPlugin(name, cur); err != nil {
+			return pluginFail(1, "%s", escapeControl(err.Error()))
+		}
+		if err := clientconfig.Save(c.dir, cfg); err != nil {
+			return pluginFail(1, "%s", escapeControl(err.Error()))
+		}
+		gcStore(c, cfg)
+		return -1
+	})
+	if code >= 0 {
+		return code
+	}
+	fmt.Fprintf(c.out, "%s: the source yields the approved version again; the pending update was dropped\n", name)
+	c.emit(pluginResult{Name: name, Changed: true, Message: "pending update dropped"})
+	return 0
+}
+
+// printChangedContent prints, after the diff, the content of every artifact file
+// that is added or changed against the approved tree: what the consent covers
+// when the digest moves. Scripts, hook.json and command-declaring frontmatter
+// come out of printApprovalContent's rule; the other changed files in full.
+func printChangedContent(w io.Writer, old, next plugin.Plugin) {
+	for _, a := range next.Artifacts {
+		prev := map[string][]byte{}
+		for _, o := range old.Artifacts {
+			if o.Kind == a.Kind && o.Name == a.Name {
+				for _, f := range o.Files {
+					prev[f.Path] = f.Content
+				}
+			}
+		}
+		var files []provisioning.ArtifactFile
+		for _, f := range a.Files {
+			if was, ok := prev[f.Path]; !ok || !bytes.Equal(was, f.Content) {
+				files = append(files, f)
+			}
+		}
+		if len(files) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "%s %s, new or changed files:\n", escapeControl(a.Kind), escapeControl(fmt.Sprintf("%q", a.Name)))
+		printApprovalFiles(w, a, files, true)
+	}
 }
 
 func joinProblems(probs []string) string {
@@ -379,10 +465,10 @@ func pluginEnable(args []string) int {
 		}
 		e.Enabled = true
 		if err := cfg.SetPlugin(name, e); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		if err := clientconfig.Save(c.dir, cfg); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		registerPluginProviders(os.Stderr)
 		fmt.Fprintf(c.out, "Enabled %s %s\n", name, p.Manifest.Version)
@@ -408,14 +494,14 @@ func pluginDisable(args []string) int {
 			return 0
 		}
 		if deps := dependents(cfg, c.store, name); len(deps) > 0 {
-			return pluginFail(1, "%s is needed by enabled %s: disable that first", name, joinProblems(deps))
+			return pluginFail(1, "%s is needed by enabled %s: disable that first", name, escapeControl(joinProblems(deps)))
 		}
 		e.Enabled = false
 		if err := cfg.SetPlugin(name, e); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		if err := clientconfig.Save(c.dir, cfg); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		registerPluginProviders(os.Stderr)
 		fmt.Fprintf(c.out, "Disabled %s; it stays installed and its contributions are retracted at the next sync\n", name)
@@ -452,13 +538,13 @@ func pluginRemove(args []string) int {
 			return unknownPlugin(name)
 		}
 		if deps := dependents(cfg, c.store, name); len(deps) > 0 {
-			return pluginFail(1, "%s is needed by enabled %s: disable or remove that first", name, joinProblems(deps))
+			return pluginFail(1, "%s is needed by enabled %s: disable or remove that first", name, escapeControl(joinProblems(deps)))
 		}
 		var providers []string
 		if e.Approved != "" {
 			t, err := c.store.Open(name, e.Approved, pluginOpts())
 			if err != nil {
-				return pluginFail(1, "the approved tree of %s cannot be read (%v), so what it installed cannot be retired; run `cartographer sync` to fetch it again (or reinstall it), then remove it", name, err)
+				return pluginFail(1, "the approved tree of %s cannot be read (%s), so what it installed cannot be retired; run `cartographer sync` to fetch it again (or reinstall it), then remove it", name, escapeControl(err.Error()))
 			}
 			registered := map[string]bool{}
 			for _, rp := range configurator.RegisteredPlugins() {
@@ -468,7 +554,7 @@ func pluginRemove(args []string) int {
 			}
 			for _, pn := range pluginProviderNames(t) {
 				if !registered[pn] {
-					return pluginFail(1, "the provider %s of %s is not registered this run (see the warnings above), so it cannot be retired; nothing was removed", pn, name)
+					return pluginFail(1, "the provider %s of %s is not registered this run (see the warnings above), so it cannot be retired; nothing was removed", escapeControl(pn), name)
 				}
 				providers = append(providers, pn)
 			}
@@ -479,7 +565,7 @@ func pluginRemove(args []string) int {
 		if len(providers) > 0 {
 			res, err := doDisconnectLocked(disconnectOptions{Providers: providers, Dir: c.dir, KeepToken: true})
 			if err != nil {
-				return pluginFail(1, "%v", err)
+				return pluginFail(1, "%s", escapeControl(err.Error()))
 			}
 			for _, pr := range res.Providers {
 				for _, f := range pr.Pruned {
@@ -498,7 +584,7 @@ func pluginRemove(args []string) int {
 		lockPath := lockFilePath(c.dir)
 		lf, err := provisioning.ReadLockFile(lockPath)
 		if err != nil {
-			return pluginFail(1, "read lockfile: %v", err)
+			return pluginFail(1, "read lockfile: %s", escapeControl(err.Error()))
 		}
 		provs := make([]string, 0, len(lf.Providers))
 		for p := range lf.Providers {
@@ -520,7 +606,7 @@ func pluginRemove(args []string) int {
 			done, err := provisioning.PruneManaged(own, provisioning.LockBaseDir(lock, c.dir), false)
 			var refused *provisioning.PruneRefusedError
 			if err != nil && !errors.As(err, &refused) {
-				return pluginFail(1, "prune %s for %s: %v", p, name, err)
+				return pluginFail(1, "prune %s for %s: %s", escapeControl(p), name, escapeControl(err.Error()))
 			}
 			gone := map[string]bool{}
 			for _, mf := range done {
@@ -543,7 +629,7 @@ func pluginRemove(args []string) int {
 		}
 		if changed {
 			if err := provisioning.WriteLockFile(lockPath, lf); err != nil {
-				return pluginFail(1, "write lockfile: %v", err)
+				return pluginFail(1, "write lockfile: %s", escapeControl(err.Error()))
 			}
 		}
 		for _, l := range pruned {
@@ -556,11 +642,11 @@ func pluginRemove(args []string) int {
 		// (3) the entry (reloaded: the disconnect saved the config) and the stored trees.
 		fresh, err := clientconfig.Load(c.dir)
 		if err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		fresh.RemovePlugin(name)
 		if err := clientconfig.Save(c.dir, fresh); err != nil {
-			return pluginFail(1, "%v", err)
+			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		gcStore(c, fresh)
 		fmt.Fprintf(c.out, "Removed %s\n", name)

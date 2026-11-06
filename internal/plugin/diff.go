@@ -168,10 +168,10 @@ func DiffPrint(w io.Writer, name string, d Delta) {
 		fmt.Fprintf(w, "  depends removed: %s\n", esc(s))
 	}
 	for _, s := range d.PathsAdded {
-		fmt.Fprintf(w, "  writes on this machine, new: %s\n", esc(s))
+		fmt.Fprintf(w, "  writes on this machine, added: %s\n", esc(s))
 	}
 	for _, s := range d.PathsRemoved {
-		fmt.Fprintf(w, "  writes on this machine, no longer: %s\n", esc(s))
+		fmt.Fprintf(w, "  writes on this machine, removed: %s\n", esc(s))
 	}
 	for _, s := range d.Added {
 		fmt.Fprintf(w, "  file added: %s\n", esc(s))
