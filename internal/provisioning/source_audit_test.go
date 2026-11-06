@@ -10,7 +10,7 @@ import (
 )
 
 // sourceSites classifies every non-test Go file that compares an artifact's
-// source with "kb:" or "bundle" (D-new-plugin-trust). A plugin artifact has
+// source with "kb:" or "bundle" (D1729). A plugin artifact has
 // source "plugin:<name>": it is neither bundled nor a KB's, so each site must
 // have been looked at and its answer for a plugin is the value here. A new file,
 // or a new comparison in a listed file (the count is pinned), fails
@@ -25,9 +25,10 @@ var sourceSites = map[string]struct {
 	"cmd/cartographer/cliskill.go":               {1, "bundle only"},
 	"cmd/cartographer/doctor.go":                 {2, "a plugin lock entry is a residue only when its plugin is no longer configured"},
 	"cmd/cartographer/kbrename.go":               {1, "rename prefix of a KB, unrelated"},
+	"cmd/cartographer/plugins_local.go":          {3, "builds the plugin artifacts from approved trees; words a collision that names the bundle, a KB or a plugin"},
 	"cmd/cartographer/status_snapshot.go":        {2, "trust is `plugin`, never needs_approval"},
 	"cmd/cartographer/usagesync.go":              {1, "groups usage per KB and ignores other sources"},
-	"cmd/cartographer/workspace.go":              {2, "workspace projections permit bundle and bound KBs; plugin delivery decides separately"},
+	"cmd/cartographer/workspace.go":              {2, "workspace projections permit bundle and bound KBs; plugins join the global scope only (forProjection)"},
 	"internal/artifactsig/artifactsig.go":        {2, "identity requires kb:, so a plugin artifact can never be signed"},
 	"internal/clientconfig/clientconfig.go":      {1, "approval keys of KB sources"},
 	"internal/kb/usage.go":                       {1, "server-side usage skips bundle and plugin sources"},

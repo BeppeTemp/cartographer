@@ -166,7 +166,9 @@ func (cs candidateSet) forProjection(cfg *clientconfig.Config, p syncProjection)
 	if p.BundleOnly {
 		out := make([]provisioning.Artifact, 0, len(cs.Bare))
 		for _, a := range cs.all() {
-			if a.Source == "bundle" {
+			// The bundle and the plugins: a workspace-scoped provider still
+			// receives its plugins in the global scope (decision 8).
+			if a.Source == "bundle" || provisioning.IsPluginSource(a.Source) {
 				out = append(out, a)
 			}
 		}
@@ -801,9 +803,30 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 	}
 	sort.Strings(union)
 
+	reported := map[string]bool{}
+	report := func(c provisioning.PluginCollision) {
+		if line := describePluginCollision(c); !reported[line] {
+			reported[line] = true
+			fmt.Fprintln(st.err(), line)
+		}
+	}
 	if len(union) == 0 && !anyDefault {
+		// No KB to pull, but the machine's plugins still reach its global scope.
+		plugins := loadActivePlugins(cfg).Artifacts
 		for _, p := range projections {
-			out[projectionKey(p)] = provisioning.MergeArtifacts(nil)
+			if p.Workspace != "" || len(plugins) == 0 {
+				out[projectionKey(p)] = provisioning.MergeArtifacts(nil)
+				continue
+			}
+			merged, err := mergeAcrossPlugins(plugins, report)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+			}
+			verified, err := provisioning.VerifiedManifest(merged, nil)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+			}
+			out[projectionKey(p)] = verified
 		}
 		// A bundle-only projection still needs the bundle, which lives on the
 		// server side of a sync_pull: with no KB to pull it from there is
@@ -848,7 +871,7 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		if needsAny(p.KBs, unavailable) {
 			continue
 		}
-		merged, err := provisioning.MergeArtifactsStrict(cs.forProjection(cfg, p))
+		merged, err := mergeAcrossPlugins(cs.forProjection(cfg, p), report)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}

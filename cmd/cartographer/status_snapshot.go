@@ -485,7 +485,8 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			} else {
 				pm, _ = provisioning.ProjectManifest(manifests[p.Name], configurator.Provider(p.Name), provisioning.ScopeGlobal, provisioning.ProjectOptions{})
 			}
-			d = provisioning.ComputeDiffResolved(pm, lockFile.ForProvider(p.Name), statusResolveOptions(cfg, p.Name, manifests[p.Name]))
+			diffLock := statusLock(lockFile.ForProvider(p.Name), cfg, pm)
+			d = provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, p.Name, manifests[p.Name]))
 		}
 		p.Revision = pm.Revision
 		p.LockRevision = lockFile.ForProvider(p.Name).AppliedRevision
@@ -539,6 +540,19 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	return s
 }
 
+// statusLock is the lock a projection is judged against: without the entries
+// of a plugin that cannot be read (splitHeldPlugins), which sync carries
+// forward untouched, and with the revision those entries explain (the manifest
+// lacks the plugin's artifacts while the recorded revision has them) taken
+// from the manifest, so only a material difference is drift.
+func statusLock(lock provisioning.Lock, cfg *clientconfig.Config, pm provisioning.Manifest) provisioning.Lock {
+	rest, held := splitHeldPlugins(lock, heldPlugins(cfg))
+	if len(held) > 0 {
+		rest.AppliedRevision = pm.Revision
+	}
+	return rest
+}
+
 // statusResolveOptions is what sync resolves placeholders with for one
 // provider (materializeForProviders), so status reports the same resolution
 // drift sync would rewrite (#967). The manifest is the unfiltered one: the
@@ -573,8 +587,9 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 			// it deliberately leaves alone is neither pending nor drift, and
 			// the lock entries held out of its diff are not "removed".
 			if len(sp.SkipKinds) > 0 {
+				kept := diffLock.Managed
 				diffLock.Managed = nil
-				for _, mf := range lock.Managed {
+				for _, mf := range kept {
 					if !slices.Contains(sp.SkipKinds, mf.Kind) {
 						diffLock.Managed = append(diffLock.Managed, mf)
 					}
@@ -587,6 +602,7 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 			r = resolveProjectionSet([]syncProjection{sp}, manifests, provisioning.ProjectOptions{})[projectionKey(sp)]
 		}
 		pm := r.Manifest
+		diffLock = statusLock(diffLock, cfg, pm)
 		d := provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)]))
 		merged.Added = append(merged.Added, d.Added...)
 		merged.Updated = append(merged.Updated, d.Updated...)
@@ -699,7 +715,7 @@ func heldArtifacts(m provisioning.Manifest, d provisioning.Diff, cfg *clientconf
 	for _, a := range append(append([]provisioning.Artifact(nil), d.Added...), d.Updated...) {
 		inDiff[a.Kind+"\x00"+a.Name] = true
 	}
-	opts := provisioning.ApplyOptions{Provider: provider, ApprovedMCP: cfg.ApprovedMCPHashes()}
+	opts := provisioning.ApplyOptions{Provider: provider, ApprovedMCP: cfg.ApprovedMCPHashes(), ActivePlugins: manifestPlugins(m)}
 	var out []provisioning.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "mcp" || a.Kind == "instructions" || inDiff[a.Kind+"\x00"+a.Name] || provisioning.ArtifactAuthorized(a, opts) {

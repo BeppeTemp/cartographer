@@ -185,6 +185,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if err := preflightEnvironment(cfg); err != nil {
 		return syncResult{}, err
 	}
+	// Before the lock too: fetching a missing plugin tree can take longer than
+	// the lock is waited for (fetchMissingPlugins).
+	fetchedPlugins := fetchMissingPlugins(opts.Streams, cfg, opts.DryRun)
 
 	// One writer at a time across PROCESSES: the session-start bootstrap hook
 	// runs `cartographer sync` per agent session, so several are routinely in
@@ -211,6 +214,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 	// Under the lock: it rewrites the config and the lockfile (D898).
 	handleUnsupportedProviders(errw, dir, cfg, !opts.DryRun)
+	// Under the lock and before any pull, whose candidate set carries the
+	// plugins: the trees fetched above are stored (never approved).
+	storeFetchedPlugins(opts.Streams, cfg, fetchedPlugins)
 
 	// A plan restricted to some providers must say so: read without the
 	// command line that produced it, a partial plan looks like a complete one
@@ -411,7 +417,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams}, kbOrderForProviders(cfg, targets), approvals)
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg)}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
 	}
