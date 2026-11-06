@@ -2,7 +2,7 @@
 
 A **plugin** is a folder or a git repository with a manifest, `cartographer-plugin.yaml`, at its root. It extends
 the client of one machine; a server never loads it. This page describes what the code reads today: the manifest
-and the version ranges it speaks (`internal/plugin`).
+the version ranges it speaks, the contribution points and the tree reader (`internal/plugin`).
 
 ## Manifest
 
@@ -52,3 +52,35 @@ Each key matches `^[a-z][a-z0-9_]{0,40}$` and maps to `type` (`string`, `bool` o
 
 A skill file and an agent file are checked by `provisioning.ValidateSkillFile` and `provisioning.ValidateAgentFile`,
 the same functions the MCP artifact tools call, so a plugin and a KB cannot disagree on what a valid skill is.
+
+## Contribution points
+
+A point is a top-level folder of the plugin that contributes something, registered in code (`plugin.Register`; a
+duplicate or invalid name panics at start). A point has a side: `client` points are loaded, `server` is declared
+and never loaded. 0.28 registers `skills`, `agents` and `hooks`, and a test pins the exact set.
+
+| Point | Layout | Check |
+|---|---|---|
+| `skills` | `skills/<name>/SKILL.md` plus any files; the whole folder is the artifact, the executable bit is kept | `provisioning.ValidateSkillFile` |
+| `agents` | `agents/<name>.md` | `provisioning.ValidateAgentFile` |
+| `hooks` | `hooks/<name>/hook.json` plus the files it runs | `ValidateHookJSON` and `ValidateHookRequires`; unlike in a KB, a failure is an error, not a warning. The install preview shows the hook's command, event and `requires`, and lists every file with the executable bit (in a hook, every file but `hook.json`, as the client materializes it, so the artifact hash equals the one sync computes). `cartographer-bootstrap` and `cartographer-write-findings` are refused. |
+
+Every artifact name is a valid artifact name, and a plugin cannot shadow the bundle: a skill or agent named like a
+bundled one (the CLI skill included) is refused. Reserved and bundled names are compared ignoring case, since a filesystem may fold it.
+
+## The tree reader
+
+`plugin.ReadTree` takes the files of a plugin in memory (`TreeFile`: slash path, content, executable bit and a
+flag for a symlink or non-regular file) and returns the validated `Plugin` and every problem found, sorted; the
+order of the files does not matter. It is the one function that knows the tree rules, so validating, installing and
+loading share them.
+
+- At the top: the manifest and one folder per registered point. `README*`, `LICENSE*`, `CHANGELOG*` and `.git*`
+  are ignored and never stored or checked. `plugin.star` and `lib/` are refused (plugin scripts are not supported yet), `mcp/`
+  and `instructions.md` are not contribution points in this version, and any other entry is an error naming it.
+- Paths are canonical slash paths (`provisioning.ValidArtifactFilePath`) without control or format characters (bidi overrides, zero-width), unique ignoring case; a symlink or
+  non-regular file, a file over the artifact file cap, more than 2000 files or 8 MiB in all is an error.
+- Each contribution becomes an artifact with source `plugin:<name>`, its files in memory and
+  `provisioning.ContentHashFiles` as hash, the same function the client applies to pulled files.
+- `Digest` is the sha256 of the sorted (path, executable bit, sha256 of content) of every stored file, manifest
+  included: it identifies the validated tree.
