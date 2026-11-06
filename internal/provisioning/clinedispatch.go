@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
@@ -25,7 +26,7 @@ import (
 // The logic behind the Cline dispatcher files (clinehooks.go): `cartographer
 // hook dispatch --provider cline --event <Event>` reads Cline's hook payload,
 // runs the Cartographer hooks of that event (the bootstrap hook, write-findings
-// and the KB's, all materialized under clineHookRoots) as Claude-style commands,
+// and the KB's, all materialized under clineHookRoots()) as Claude-style commands,
 // and answers in Cline's three-field result (cancel, contextModification,
 // errorMessage). A hook must never break a session: every outcome other than a
 // stated block is an empty result.
@@ -48,8 +49,14 @@ var clineHookEvents = map[string]string{
 var clineEventNames = []string{"PostToolUse", "PreToolUse", "TaskStart", "UserPromptSubmit"}
 
 // clineHookRoots are the directories (slash form, relative to the base dir)
-// whose subdirectories are hooks. A variant of Cline appends its own.
-var clineHookRoots = []string{strings.TrimSuffix(clineHookFilesPrefix, "/")}
+// whose subdirectories are hooks: Cline's own, then the hook directory of every
+// ACTIVE plugin provider whose base is Cline. They come from the cell registry,
+// which is filled only from the providers of approved, active plugins before
+// any command, `hook dispatch` included: a provider whose plugin is retracted
+// or disabled is not enumerated even when its files remain on disk.
+func clineHookRoots() []string {
+	return append([]string{strings.TrimSuffix(clineHookFilesPrefix, "/")}, pluginHookRoots(configurator.ProviderCline)...)
+}
 
 // Seams: the budget Cline's 30 s kill leaves us, and where the SessionStart
 // markers live.
@@ -83,11 +90,13 @@ type clineHook struct {
 
 // clineHooks lists the hooks on disk that a Cline dispatcher can run: a
 // hook.json that loads, whose event Cline fires, and whose matcher is a valid
-// regular expression. exclude is a hook name left out (the one being removed).
-// Sorted by root, then name: the order is deterministic.
+// regular expression. exclude is the slash path, relative to baseDir, of the one
+// hook directory left out (the one being removed): a hook is identified by its
+// root and its name, since Cline's and a plugin provider's may share a name. Sorted by
+// root, then name: the order is deterministic.
 func clineHooks(baseDir, exclude string) []clineHook {
 	var out []clineHook
-	for _, root := range clineHookRoots {
+	for _, root := range clineHookRoots() {
 		rootDir := filepath.Join(baseDir, filepath.FromSlash(root))
 		entries, err := os.ReadDir(rootDir)
 		if err != nil {
@@ -95,7 +104,7 @@ func clineHooks(baseDir, exclude string) []clineHook {
 		}
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 		for _, e := range entries {
-			if !e.IsDir() || e.Name() == exclude {
+			if !e.IsDir() || (exclude != "" && root+"/"+e.Name() == exclude) {
 				continue
 			}
 			dir := filepath.Join(rootDir, e.Name())

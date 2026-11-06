@@ -217,8 +217,9 @@ func mcpProviderFromPath(path string) configurator.Provider {
 		// entry recorded there is pruned from it when the entry relocates.
 		return configurator.ProviderOpenCode
 	}
-	for _, d := range configurator.Providers() {
-		if slash == d.MCPConfigPath {
+	// Registered plugin providers too: one with its own MCP file keeps its entry there.
+	for _, d := range configurator.AllProviders() {
+		if d.MCPConfigPath != "" && slash == d.MCPConfigPath {
 			return d.Provider
 		}
 	}

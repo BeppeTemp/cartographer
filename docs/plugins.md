@@ -267,9 +267,38 @@ provider of those plugins and of the rest still registers. An invalid spec fails
 
 An MCP file with a `*` segment (a version folder) is a pattern, carried in `Descriptor.MCPConfigGlob`.
 `MCPConfigPath`, which callers join onto the home directory literally, stays empty for it, so such a provider has no
-literal path and its entry is not emitted.
+literal path; its emitted result carries `FileGlob` instead of `FilePath`, `configurator.Apply` expands it, and a
+caller that needs the files asks `Descriptor.MCPFiles` (see MCP modes and hooks below).
 
 Agent detection lists the registered providers after the built-ins, by the same probes (binaries, then directories,
 one segment of a directory may be a pattern); a binary is probed as the base's, since a name alone is no more
 evidence for a fork than for its base. A provider that is not `Active` is listed and never reported installed, and
 stays resolvable. `cartographer agents` labels such a row `<id> (plugin <name>, base <base>)`.
+
+### Destination cells
+
+`provisioning.ReplacePluginCells` (data built by `ResolvedProvider.Cells`) makes the cells of the registered
+providers visible to every destination lookup: `cellFor` answers from the static matrix first, then from these. The
+static matrices and the capability table stay built-in. A provider whose global roots equal, contain or lie under a
+built-in's or another provider's is refused whole (both, when two candidates collide); a global cell may not sit in
+the home directly, in a built-in client's directory or in a credential, shell or CI path, and no cell may lie in the
+folder of the Cline dispatchers (`Documents/Cline/Hooks`, also the redirected Documents folder). A provider writes one
+agent layout for both scopes. Its capability rows stay `absent` or `unverified` until probed; a fork of a probed base
+is probed as its base where the layout is the same. The MCP file is a destination cell (for the KB's MCP descriptors)
+only when `mcp.config` is the provider's own literal file.
+
+### MCP modes and hooks
+
+`native` writes Cartographer's entry in the base's format: at the base's path, at `mcp.config`, or, when
+`mcp.config` holds a `*`, into every existing regular file it matches (one file per installed version of the client;
+a symlinked entry is not a match, no match is the warning "open the client once"). The files in `mcp.stale` are
+removed after a write that changed bytes, never after a no-op, and only when at most three exist and none lies
+behind a link; servers added through the client's UI are dropped at its next start. Disconnect edits only the files
+the entry is in. `cli` writes no entry and projects the bundled `cartographer-cli` skill, and the instructions block
+names the provider to pass to `cartographer call`; `none` writes neither, and `connect`, `sync`, `disconnect` and
+`doctor` skip it without a warning.
+
+A provider whose base has a shared hook dispatcher (Cline) contributes its `hook` cell as one more root of the
+dispatcher, which stays shared and is never written by the plugin. The roots come from the registry and only for a
+provider of an active plugin, so retracting a plugin stops its hooks at once, even with files on disk. On any other
+base the hook cell is dropped with a note.

@@ -454,10 +454,10 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 // registrars pick the file from that same path. A provider with no mechanism
 // has nothing to check.
 func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name, destRel string) error {
-	if _, ok := hookMechanisms[provider]; !ok {
+	if _, ok := mechanismFor(provider); !ok {
 		return nil
 	}
-	if provider == configurator.ProviderCline {
+	if nativeProvider(provider) == configurator.ProviderCline {
 		// The dispatchers live in the Documents folder, which may sit outside the
 		// base dir (a redirected Windows folder) or be a link of the user's own:
 		// the walk is rooted there, so Documents itself is exempt and a link at
@@ -479,7 +479,7 @@ func checkHookRegistrationTarget(baseDir string, provider configurator.Provider,
 // baseDir (the settings file, the generated plugin file), for the guard above
 // and for a dry run's "would write through symlink" notes.
 func hookRegistrationTargets(baseDir string, provider configurator.Provider, name, destRel string) []string {
-	m, ok := hookMechanisms[provider]
+	m, ok := mechanismFor(provider)
 	if !ok {
 		return nil
 	}
