@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -250,4 +252,291 @@ func splitHeldPlugins(lock provisioning.Lock, held map[string]bool) (rest provis
 		}
 	}
 	return rest, heldEntries
+}
+
+// pluginPrep is what `setup` and `connect` hand to preparePlugins.
+type pluginPrep struct {
+	Sources []string // the --plugin values
+	Approve bool     // --approve-plugins
+	// Ask: a question may be put to the user (not --no-input); it also needs a terminal.
+	Ask      bool
+	DryRun   bool
+	Out, Err io.Writer
+}
+
+// installedNow is a plugin this run put in the store and the config: the only
+// plugins --approve-plugins and the prompt can approve.
+type installedNow struct {
+	name  string
+	p     plugin.Plugin
+	entry clientconfig.PluginEntry
+}
+
+// preparePlugins is the plugin step shared by `setup` and `connect`, run before
+// the providers are resolved: it installs each source not yet configured,
+// fetches an approved plugin missing from the store, collects the consent for
+// what it installed, and registers the providers again so this very process
+// sees the approved ones. It returns an exit code (0 when nothing blocks the
+// rest of the run). A plugin is approved only here and only if it was installed
+// in this run, after its full approval content was printed; a plugin that is
+// already configured is never approved, re-enabled or updated by it.
+func preparePlugins(o pluginPrep) int {
+	if o.Out == nil {
+		o.Out = os.Stdout
+	}
+	if o.Err == nil {
+		o.Err = os.Stderr
+	}
+	srcs := make([]plugin.Source, 0, len(o.Sources))
+	seen := map[string]bool{}
+	for _, s := range o.Sources {
+		src, err := plugin.ParseSource(s)
+		if err != nil {
+			return pluginFail(2, "--plugin: %s", escapeControl(err.Error()))
+		}
+		if !seen[src.String()] {
+			seen[src.String()] = true
+			srcs = append(srcs, src)
+		}
+	}
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return pluginFail(2, "%v", err)
+	}
+	cfg, err := loadConfigForWrite(dir)
+	if err != nil {
+		return pluginFail(1, "%v", err)
+	}
+	if len(srcs) == 0 && len(cfg.Plugins) == 0 {
+		return 0
+	}
+	st := syncStreams{Out: o.Out, Err: o.Err}
+	changed := false
+	// The providers are registered again after any state change, even on a failure further down.
+	defer func() {
+		if changed {
+			registerPluginProviders(o.Err)
+		}
+	}()
+
+	fresh, code := installPluginSources(o, dir, cfg, srcs, &changed)
+	if code != 0 {
+		return code
+	}
+
+	// A plugin missing from the store is fetched before the lock is taken, and
+	// stored under it; a failure is a warning and the run goes on.
+	if cfg, err = loadConfigForWrite(dir); err != nil {
+		return pluginFail(1, "%v", err)
+	}
+	if fetched := fetchMissingPlugins(st, cfg, o.DryRun); len(fetched) > 0 {
+		if release, err := lockClient(dir); err != nil {
+			fmt.Fprintf(o.Err, "warning: %s\n", escapeControl(err.Error()))
+		} else {
+			if c2, err := loadConfigForWrite(dir); err == nil {
+				storeFetchedPlugins(st, c2, fetched)
+				changed = true
+			}
+			release()
+		}
+	}
+	if o.DryRun || len(fresh) == 0 {
+		return 0
+	}
+	return consentInstalledPlugins(o, dir, fresh, &changed)
+}
+
+// installPluginSources installs each source that is not configured yet, as
+// `plugin install` does without approving: the tree is stored and the entry
+// written enabled but unapproved. A source already configured is skipped
+// whatever its ref (moving it is `plugin update`); another source under a name
+// already installed stops the run with the `plugin install` error.
+func installPluginSources(o pluginPrep, dir string, cfg *clientconfig.Config, srcs []plugin.Source, changed *bool) ([]installedNow, int) {
+	var fresh []installedNow
+	store, storeErr := pluginStoreFn()
+	for _, src := range srcs {
+		recorded := src.Remote
+		if !src.Git {
+			recorded = src.Path
+		}
+		shown := escapeControl(gitx.RedactRemoteURL(src.String()))
+		if names := pluginsFromSource(cfg, recorded); len(names) > 0 {
+			fmt.Fprintf(o.Out, "plugin %s is already installed from %s\n", escapeControl(strings.Join(names, ", ")), shown)
+			continue
+		}
+		if o.DryRun {
+			fmt.Fprintf(o.Out, "[dry-run] would install plugin from %s\n", shown)
+			continue
+		}
+		if storeErr != nil {
+			return fresh, pluginFail(1, "%v", storeErr)
+		}
+		files, sha, p, probs, err := pluginRead(src)
+		if err != nil {
+			return fresh, pluginFail(1, "cannot read plugin %s: %s", shown, escapeControl(err.Error()))
+		}
+		if len(probs) > 0 {
+			for _, pr := range probs {
+				fmt.Fprintln(o.Err, escapeControl(pr))
+			}
+			return fresh, pluginFail(1, "%s is not a valid plugin; nothing was installed from it", shown)
+		}
+		name := p.Manifest.Name
+		release, err := lockClient(dir)
+		if err != nil {
+			return fresh, pluginFail(1, "%v", err)
+		}
+		entry, code := func() (clientconfig.PluginEntry, int) {
+			defer release()
+			c, err := loadConfigForWrite(dir)
+			if err != nil {
+				return clientconfig.PluginEntry{}, pluginFail(1, "%v", err)
+			}
+			if cur, had := c.Plugin(name); had {
+				if cur.Source != recorded {
+					return cur, pluginFail(2, "%s is installed from %s: run `cartographer plugin remove %s` first", escapeControl(name), escapeControl(gitx.RedactRemoteURL(cur.Source)), escapeControl(name))
+				}
+				return cur, -1 // configured meanwhile from the same source
+			}
+			if err := store.Put(name, files, p.Digest, pluginOpts()); err != nil {
+				return clientconfig.PluginEntry{}, pluginFail(1, "%v", err)
+			}
+			e := clientconfig.PluginEntry{Source: recorded, Ref: src.Ref, SHA: sha, Version: p.Manifest.Version, Installed: p.Digest, Enabled: true}
+			if err := c.SetPlugin(name, e); err != nil {
+				return e, pluginFail(1, "%v", err)
+			}
+			if err := clientconfig.Save(dir, c); err != nil {
+				return e, pluginFail(1, "%v", err)
+			}
+			*changed = true
+			cfg = c
+			return e, -2
+		}()
+		switch code {
+		case -2:
+			fresh = append(fresh, installedNow{name: name, p: p, entry: entry})
+		case -1:
+		default:
+			return fresh, code
+		}
+	}
+	return fresh, 0
+}
+
+// pluginsFromSource names the configured plugins whose recorded source is recorded.
+func pluginsFromSource(cfg *clientconfig.Config, recorded string) []string {
+	var out []string
+	for n, e := range cfg.Plugins {
+		if e.Source == recorded {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// consentInstalledPlugins puts each plugin installed in this run to its consent.
+// The full approval content is printed before any approval: with
+// --approve-plugins the flag is the consent and the printed block its record,
+// on a terminal each block is followed by the question, and with neither
+// nothing is approved and the plugin stays pending. Plugins are approved in one
+// locked pass that reloads the config.
+func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, changed *bool) int {
+	cfg, err := loadConfigForWrite(dir)
+	if err != nil {
+		return pluginFail(1, "%v", err)
+	}
+	var yes []installedNow
+	for _, f := range fresh {
+		shown := escapeControl(f.name)
+		switch {
+		case o.Approve:
+			printConsent(o.Out, f.p, f.entry, cfg)
+			yes = append(yes, f)
+		case o.Ask && pluginInteractive():
+			printConsent(o.Out, f.p, f.entry, cfg)
+			if promptYesNo(fmt.Sprintf("Enable %s %s? [y/N] ", shown, escapeControl(f.p.Manifest.Version))) {
+				yes = append(yes, f)
+			} else {
+				fmt.Fprintf(o.Out, "not approved: run `cartographer plugin approve %s` to enable it\n", shown)
+			}
+		default:
+			fmt.Fprintf(o.Out, "pending approval: cartographer plugin approve %s\n", shown)
+		}
+	}
+	if len(yes) == 0 {
+		return 0
+	}
+	store, err := pluginStoreFn()
+	if err != nil {
+		return pluginFail(1, "%v", err)
+	}
+	release, err := lockClient(dir)
+	if err != nil {
+		return pluginFail(1, "%v", err)
+	}
+	defer release()
+	if cfg, err = loadConfigForWrite(dir); err != nil {
+		return pluginFail(1, "%v", err)
+	}
+	// Still the tree the user was shown, else nothing is approved for it.
+	var todo []installedNow
+	failed := false
+	for _, f := range yes {
+		if cur, ok := cfg.Plugin(f.name); !ok || cur.Installed != f.p.Digest {
+			fmt.Fprintf(o.Err, "warning: %s changed while waiting for the answer; nothing was approved for it\n", escapeControl(f.name))
+			failed = true
+			continue
+		}
+		todo = append(todo, f)
+	}
+	// What is reported is printed once the file is saved.
+	var report strings.Builder
+	// A plugin whose dependency is not enabled yet waits for the others of this
+	// run; what stays unmet is approved but not enabled (a first approval enables
+	// only when `depends` is met), and enabling it is `plugin enable`.
+	for len(todo) > 0 {
+		var next []installedNow
+		for _, f := range todo {
+			if len(unmetDepends(cfg, store, f.name, f.p)) > 0 {
+				next = append(next, f)
+				continue
+			}
+			cur, _ := cfg.Plugin(f.name)
+			cur.Approved = f.p.Digest
+			if err := cfg.SetPlugin(f.name, cur); err != nil {
+				return pluginFail(1, "%v", err)
+			}
+			fmt.Fprintf(&report, "Enabled %s %s\n", escapeControl(f.name), escapeControl(f.p.Manifest.Version))
+		}
+		if len(next) == len(todo) {
+			for _, f := range next {
+				cur, _ := cfg.Plugin(f.name)
+				cur.Approved, cur.Enabled = f.p.Digest, false
+				if err := cfg.SetPlugin(f.name, cur); err != nil {
+					return pluginFail(1, "%v", err)
+				}
+				fmt.Fprintf(&report, "Approved %s %s but did not enable it:\n", escapeControl(f.name), escapeControl(f.p.Manifest.Version))
+				for _, u := range unmetDepends(cfg, store, f.name, f.p) {
+					fmt.Fprintf(&report, "  %s\n", escapeControl(u))
+				}
+				fmt.Fprintf(&report, "  run `cartographer plugin enable %s` once they are met\n", escapeControl(f.name))
+			}
+			break
+		}
+		todo = next
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		return pluginFail(1, "%v", err)
+	}
+	*changed = true
+	fmt.Fprint(o.Out, report.String())
+	// The previous trees are no longer kept; best effort, like every lifecycle command.
+	if err := store.GC(keepMap(cfg)); err != nil {
+		fmt.Fprintf(o.Err, "warning: plugin store cleanup: %s\n", escapeControl(err.Error()))
+	}
+	if failed {
+		return 1
+	}
+	return 0
 }
