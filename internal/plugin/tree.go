@@ -63,6 +63,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	var manifest []byte
 	seen := map[string]bool{}
 	var total int
+	var scripts []TreeFile
 	for _, f := range files {
 		first, _, nested := strings.Cut(f.Path, "/")
 		if !provisioning.ValidArtifactFilePath(f.Path) || strings.IndexFunc(f.Path, unprintable) >= 0 {
@@ -85,9 +86,12 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 			continue
 		case !nested && f.Path == ManifestFile:
 			manifest = f.Content
-		case first == "plugin.star" || first == "lib":
-			add("%q: plugin scripts are not supported yet", f.Path)
-			continue
+		case IsScriptPath(f.Path):
+			if msg := scriptProblem(f.Path, len(f.Content)); msg != "" {
+				add("%q: %s", f.Path, msg)
+				continue
+			}
+			scripts = append(scripts, f)
 		case first == "mcp" || (!nested && f.Path == "instructions.md"):
 			add("%q: not a plugin contribution point in this version", f.Path)
 			continue
@@ -100,6 +104,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		stored = append(stored, f)
 		total += len(f.Content)
 	}
+	problems = append(problems, scriptTreeProblems(scripts)...)
 	if len(stored) > MaxFiles {
 		add("%d files, over the %d cap", len(stored), MaxFiles)
 	}
@@ -131,6 +136,11 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 				ContentHash: provisioning.ContentHashFiles(c.Files), Files: c.Files,
 			})
 		}
+	}
+	// The scripts run only on a tree with no other problem: a tree over a cap
+	// or with a bad manifest never reaches the interpreter.
+	if len(scripts) > 0 && len(problems) == 0 && opts.CheckScripts != nil {
+		problems = append(problems, opts.CheckScripts(scripts)...)
 	}
 	sort.Slice(p.Artifacts, func(i, j int) bool {
 		a, b := p.Artifacts[i], p.Artifacts[j]
