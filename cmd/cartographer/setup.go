@@ -69,6 +69,10 @@ type setupOptions struct {
 	Agents    []string
 	KBs       []string
 	Workspace string
+	// Plugins are the --plugin sources; ApprovePlugins is --approve-plugins.
+	// Both exist only while pluginsEnabled().
+	Plugins        []string
+	ApprovePlugins bool
 }
 
 // setupFacts is everything planSetup reads, gathered once. Kept as plain data
@@ -88,7 +92,10 @@ type setupFacts struct {
 	DataDir         string
 	KBs             []kbRow // direct subdirectories of the data dir
 	Detected        []string
-	ProvidersBound  bool // every target provider already carries an explicit KB binding
+	// PluginsConfigured: the client config already lists plugins, whose
+	// providers may be the only clients on this machine.
+	PluginsConfigured bool
+	ProvidersBound    bool // every target provider already carries an explicit KB binding
 	// BoundProviders are the providers of the client config that carry an
 	// explicit KB binding, whichever of them the run ends up connecting.
 	BoundProviders []string
@@ -102,14 +109,22 @@ type setupFacts struct {
 
 // setupPlan is the decided sequence, rendered before it runs.
 type setupPlan struct {
-	Service   setupServiceAction
-	KB        setupKBAction
-	KBName    string
-	Remote    string
-	Existing  []string // KB names already in the data dir
-	Agents    []string
-	KBs       []string // the --kb selection handed to connect; nil lets connect decide
-	Workspace string
+	Service  setupServiceAction
+	KB       setupKBAction
+	KBName   string
+	Remote   string
+	Existing []string // KB names already in the data dir
+	Agents   []string
+	// Plugins are installed by the plugins step, before the agents are
+	// detected; AgentsAfterPlugins says so in the plan when nothing is
+	// detected yet and Agents is empty.
+	Plugins            []string
+	ApprovePlugins     bool
+	AgentsAfterPlugins bool
+	// AskPlugins: the plugins step may ask for consent (a terminal, no --no-input).
+	AskPlugins bool
+	KBs        []string // the --kb selection handed to connect; nil lets connect decide
+	Workspace  string
 	// KeepAgents are the agents that already carry an explicit binding when the
 	// KB selection is implicit (the KB this run adds): they are connected
 	// without --kb, because connect resets the binding of every provider it is
@@ -239,8 +254,14 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 	if len(p.Agents) == 0 {
 		p.Agents = f.Detected
 	}
+	p.Plugins, p.ApprovePlugins = o.Plugins, o.ApprovePlugins
 	if len(p.Agents) == 0 {
-		return p, fmt.Errorf("no agent client detected on this machine: install one, or name it with --agents (%s)", providerNamesJoined())
+		if len(o.Plugins) == 0 && !f.PluginsConfigured {
+			return p, fmt.Errorf("no agent client detected on this machine: install one, or name it with --agents (%s)", providerNamesJoined())
+		}
+		// A plugin may bring the only client of this machine: the plugins
+		// step installs them, then detection runs again (runSetupPlan).
+		p.AgentsAfterPlugins = true
 	}
 	p.Workspace = o.Workspace
 
@@ -326,6 +347,9 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 	case kbClone:
 		line("KB           mount %q from %s (the repository already has content)", p.KBName, p.Remote)
 	}
+	if len(p.Plugins) > 0 {
+		line("plugins      install %s (approved only with --approve-plugins or on your answer)", escapeControl(strings.Join(p.Plugins, ", ")))
+	}
 	kbs := "every mounted KB"
 	switch {
 	case len(p.KBs) > 0:
@@ -337,7 +361,9 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 	if p.Workspace != "" {
 		scope = "only inside " + p.Workspace
 	}
-	if len(p.KeepAgents) > 0 {
+	if p.AgentsAfterPlugins {
+		line("agents       detected after the plugins are installed — KBs: %s; visible in %s", kbs, scope)
+	} else if len(p.KeepAgents) > 0 {
 		receiving := slices.DeleteFunc(slices.Clone(p.Agents), func(a string) bool { return slices.Contains(p.KeepAgents, a) })
 		line("agents       connect %s — KBs: %s; visible in %s", strings.Join(receiving, ", "), kbs, scope)
 		line("             connect %s — they keep their existing KB binding", strings.Join(p.KeepAgents, ", "))
@@ -350,7 +376,7 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 	// D325: the timer is a background job connect installs on its own, so the
 	// plan is where the operator sees it before it runs.
 	if !f.TimerOptOut {
-		if hookless, _ := providersNeedingSyncTimer(p.Agents); len(hookless) > 0 {
+		if hookless, _ := providersNeedingSyncTimer(p.Agents); !p.AgentsAfterPlugins && len(hookless) > 0 {
 			line("sync timer   install (every %s) — %s", service.DefaultSyncInterval, describeHookless(hookless))
 		}
 	}
@@ -458,6 +484,7 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 		if cfg, err := clientconfig.Load(dir); err == nil {
 			f.ClientURL = cfg.ServerURL
 			f.TimerOptOut = cfg.SyncTimerOptOut
+			f.PluginsConfigured = len(cfg.Plugins) > 0
 			agents := o.Agents
 			if len(agents) == 0 {
 				agents = setupDetected()
@@ -562,8 +589,16 @@ func cmdSetup(args []string) int {
 	yes := fs.Bool("yes", false, "Do not ask for confirmation before running the plan")
 	dryRun := fs.Bool("dry-run", false, "Print the plan and stop, changing nothing")
 	noInput := fs.Bool("no-input", false, "Never ask questions, even in a terminal")
+	var pluginSrcs repeatedString
+	var approvePlugins *bool
+	pluginFlags := ""
+	if pluginsEnabled() {
+		fs.Var(&pluginSrcs, "plugin", "Install a plugin (git URL[@ref] or folder) before the agents are detected (repeatable)")
+		approvePlugins = fs.Bool("approve-plugins", false, "Approve the plugins installed by this run, after printing what each one runs")
+		pluginFlags = " [--plugin <src>] [--approve-plugins]"
+	}
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer setup [--remote <url> | --no-remote] [--name <kb>] [--agents a,b] [--kb <name>] [--workspace <repo>] [--yes] [--dry-run] [--no-input]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer setup [--remote <url> | --no-remote] [--name <kb>] [--agents a,b] [--kb <name>] [--workspace <repo>]"+pluginFlags+" [--yes] [--dry-run] [--no-input]")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
@@ -578,6 +613,10 @@ func cmdSetup(args []string) int {
 		Name:      strings.TrimSpace(*name),
 		KBs:       splitCommaList(kbSel),
 		Workspace: *workspace,
+		Plugins:   pluginSrcs,
+	}
+	if approvePlugins != nil {
+		o.ApprovePlugins = *approvePlugins
 	}
 	if *agentsCSV != "" {
 		agents, err := resolveProviderCSV(*agentsCSV)
@@ -673,6 +712,7 @@ func runSetup(o setupOptions, interactive, yes, dryRun bool, ask setupPrompter) 
 		fmt.Println("cancelled — nothing was changed")
 		return 1
 	}
+	plan.AskPlugins = interactive
 	return runSetupPlan(plan)
 }
 
@@ -777,40 +817,67 @@ func runSetupPlan(p setupPlan) int {
 		return 1
 	}
 
-	fmt.Println("==> agents")
-	connect := func(agents []string, kbs []string) int {
-		args := []string{"--no-input", "--agents", strings.Join(agents, ",")}
-		if p.ServerURL != "" {
-			args = append(args, "--server-url", p.ServerURL)
+	skipAgents := false
+	if len(p.Plugins) > 0 || p.AgentsAfterPlugins {
+		fmt.Println("==> plugins")
+		if code := preparePlugins(pluginPrep{Sources: p.Plugins, Approve: p.ApprovePlugins, Ask: p.AskPlugins}); code != 0 {
+			fmt.Fprintln(os.Stderr, "Setup stopped at the plugins step: fix the cause above, then rerun `cartographer setup`: finished steps are skipped.")
+			return 1
 		}
-		for _, kb := range kbs {
-			args = append(args, "--kb", kb)
+		if p.AgentsAfterPlugins {
+			// The providers of the approved plugins are registered by now.
+			if p.Agents = setupDetected(); len(p.Agents) == 0 {
+				pending := pendingPluginNames()
+				if len(pending) == 0 {
+					fmt.Fprintf(os.Stderr, "Error: no agent client detected on this machine: install one, or name it with --agents (%s)\n", providerNamesJoined())
+					return 1
+				}
+				// Nothing else is blocked: the server is up and the KB mounted.
+				fmt.Printf("no agent client detected yet; waiting for the approval of %s: run `cartographer plugin approve <name>`, then `cartographer connect`\n", escapeControl(strings.Join(pending, ", ")))
+				skipAgents = true
+			}
 		}
-		if p.Workspace != "" {
-			args = append(args, "--workspace", p.Workspace)
-		}
-		return setupConnect(args)
 	}
-	receiving := slices.DeleteFunc(slices.Clone(p.Agents), func(a string) bool { return slices.Contains(p.KeepAgents, a) })
-	groups := [][]string{receiving}
-	if len(p.KeepAgents) > 0 {
-		groups = append(groups, p.KeepAgents)
-	}
-	connectNotWired = nil
+
 	partial := false
-	for i, agents := range groups {
-		kbs := p.KBs
-		if i == 1 {
-			kbs = nil // the agents that keep their binding
+	if !skipAgents {
+		fmt.Println("==> agents")
+		connect := func(agents []string, kbs []string) int {
+			args := []string{"--no-input", "--agents", strings.Join(agents, ",")}
+			if p.ServerURL != "" {
+				args = append(args, "--server-url", p.ServerURL)
+			}
+			for _, kb := range kbs {
+				args = append(args, "--kb", kb)
+			}
+			if p.Workspace != "" {
+				args = append(args, "--workspace", p.Workspace)
+			}
+			if p.ApprovePlugins {
+				args = append(args, "--approve-plugins")
+			}
+			return setupConnect(args)
 		}
-		// 3: some agent is partially or not connected (a refused destination);
-		// the others went through, so the step goes on and the end says so.
-		code := connect(agents, kbs)
-		if code == exitPartiallyConnected {
-			partial = true
-		} else if code != 0 {
-			fmt.Fprintln(os.Stderr, "Setup stopped at the connect step: fix the cause above, then rerun `cartographer setup`.")
-			return 1 // not the step's own code: 2 means "nothing changed", and the service and the KB exist now
+		receiving := slices.DeleteFunc(slices.Clone(p.Agents), func(a string) bool { return slices.Contains(p.KeepAgents, a) })
+		groups := [][]string{receiving}
+		if len(p.KeepAgents) > 0 {
+			groups = append(groups, p.KeepAgents)
+		}
+		connectNotWired = nil
+		for i, agents := range groups {
+			kbs := p.KBs
+			if i == 1 {
+				kbs = nil // the agents that keep their binding
+			}
+			// 3: some agent is partially or not connected (a refused destination);
+			// the others went through, so the step goes on and the end says so.
+			code := connect(agents, kbs)
+			if code == exitPartiallyConnected {
+				partial = true
+			} else if code != 0 {
+				fmt.Fprintln(os.Stderr, "Setup stopped at the connect step: fix the cause above, then rerun `cartographer setup`.")
+				return 1 // not the step's own code: 2 means "nothing changed", and the service and the KB exist now
+			}
 		}
 	}
 
@@ -939,4 +1006,24 @@ func printNoServiceManager(w io.Writer, configPath string, nothingChanged bool) 
 	fmt.Fprintf(w, "    nohup cartographer serve --config %s --log-file %s &\n", configPath, logPath)
 	fmt.Fprintln(w, "  (examples for rc.local, OpenRC, runit and a container entrypoint: docs/deployment.md, \"Hosts without a service manager\")")
 	fmt.Fprintln(w, "  Then rerun `cartographer setup`: it keeps a server that already answers.")
+}
+
+// pendingPluginNames names the configured plugins that wait for an approval.
+func pendingPluginNames() []string {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return nil
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for n, e := range cfg.Plugins {
+		if e.Installed != "" && e.Approved == "" {
+			out = append(out, n)
+		}
+	}
+	slices.Sort(out)
+	return out
 }

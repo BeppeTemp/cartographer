@@ -180,6 +180,33 @@ settings keys, every contribution through its point's `Preview`, and one "runs c
 files with the execute bit. Every plugin-supplied string goes through an escape, so a control character never
 reaches the terminal; a test pins it.
 
+## Onboarding: `setup` and `connect`
+
+`setup --plugin <src>` (repeatable) and `connect --plugin <src>`, with `--approve-plugins`, install plugins as part of
+the normal run. The flags exist only while `pluginsEnabled()` (`plugin_gate.go`) is true, so they are in no usage text
+until the turn-on change. Both call `preparePlugins` (`plugins_local.go`) before the providers are resolved:
+
+1. Each source not yet configured is installed as `plugin install` does, without approving. A source already
+   configured (whatever its ref) is skipped: moving it is `plugin update`. Another source under an installed name
+   stops the run (exit 2). A source that does not read or validate stops the run (exit 1) naming it.
+2. An approved plugin missing from the store is fetched (a warning on failure, the run goes on).
+3. Consent covers only the plugins installed **in this run**. With `--approve-plugins` each one's full approval content
+   (preview, hook scripts, `hook.json`, frontmatter that declares commands) is printed first and then the plugin is
+   approved: the flag is the consent, the printed block its record. Without it, on a terminal and without
+   `--no-input`, each block is followed by `Enable <name> <version>? [y/N]`; otherwise nothing is approved and the
+   run prints `pending approval: cartographer plugin approve <name>` and goes on. A plugin left pending by an
+   earlier run is not approved by the flag of a later one; `plugin approve` is the way.
+4. Approval is one locked pass over a reloaded config. A first approval enables a plugin only when its `depends` are
+   met, in dependency order across the sources of the run; one that stays unmet is approved but not enabled and the
+   dependency is named. Then the store is collected and `registerPluginProviders` runs again, so
+   `agents.Detect` and `--agents` see the approved providers in the same process.
+
+`setup` runs the step as `==> plugins` after the KB and before the agents. With plugins named or configured and no
+client detected, `planSetup` no longer stops: the plan says `agents: detected after the plugins are installed`, the
+step detects again, and only an empty result fails with the existing message (or, while a plugin is pending, setup
+finishes without connecting any agent and says which approval is awaited). `--dry-run` prints the sources and writes
+nothing. The agents step forwards `--approve-plugins` to `connect`. `sync` never approves.
+
 ## Delivery
 
 `sync`, `connect`, `status`, `approve` and `doctor` see the plugins through `loadActivePlugins`

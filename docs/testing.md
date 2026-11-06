@@ -199,6 +199,8 @@ and never as a required check. By hand, from the repository root, with Docker:
 
 `cmd/cartographer/plugin_delivery_test.go` installs fixture plugins (`writePlugin`, folders in `t.TempDir()`, the store in a temporary directory) and syncs them against the in-process servers of `clientsync_test.go`: a plugin skill reaches the global scope and survives `kb_options.<kb>.artifacts: false`, a disabled plugin is pruned, a hook is registered only for an active plugin, a machine bound to no KB still receives its plugins, a pending plugin delivers nothing, a dry run writes nothing, a purged store with an unreachable source keeps what is installed and prunes nothing, a collision with a KB or another plugin installs neither claimant and is printed once, and KB against KB still stops the sync. `internal/provisioning/source_audit_test.go` lists every file that compares a source. E2E scenario `27_plugin_delivery` installs a folder plugin with the binary and syncs.
 
+`cmd/cartographer/plugin_onboarding_test.go` drives `preparePlugins` and `runSetup` with fixture plugins: `--approve-plugins` prints the hook script before it approves and registers the provider in the same process, no flag or terminal leaves the plugin pending, a prompt answer decides, a second run is a no-op, another source under an installed name fails, a dry run writes nothing, a failing fetch of a configured plugin is a warning, dependency order and an unmet `depends`, a plugin-only machine completes `setup`, and the flags stay undefined while `pluginsEnabled()` is false.
+
 ### Client upgrade from the previous release (#1173)
 
 `test/e2e/optional/26_upgrade_from_previous.sh` starts from the state a previous
