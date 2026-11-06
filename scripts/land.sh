@@ -23,7 +23,9 @@
 # twice: bisection over the train's prefixes finds the first failing change, which is
 # rejected, and the green prefix before it lands. Green: one PR, title
 # `chore(dev): train <id>, <k> changes`, rebase-merged by auto-merge so every change stays
-# its own conventional commit on main; once merged, the landed queue entries are deleted.
+# its own conventional commit on main; once merged, the landed queue entries are deleted
+# (a queued change whose diff main already holds is dequeued, not rejected). On macOS the
+# lander holds `caffeinate -i` while it runs: an idle Mac on battery would sleep through it.
 #
 # A rejected change moves to `refs/heads/failed/<slug>`: a commit on top of it whose
 # message is the reason, readable from any clone (`git log -1 origin/failed/<slug>`).
@@ -89,6 +91,11 @@ if ! $dry; then
   if running && [ "$(cat "$state/pid")" != $$ ]; then echo "land: a lander already runs here"; exit 0; fi
   echo $$ >"$state/pid"
   trap 'rm -f "$state/pid"' EXIT
+  # The lander mostly waits (on the gate, on GitHub). A Mac on battery sleeps when idle, and
+  # asleep the lander advances only in its dark wakes, a quarter of an hour apart, waking
+  # with the network still down: caffeinate keeps it awake (not a closed lid) until the
+  # lander exits.
+  if command -v caffeinate >/dev/null 2>&1; then caffeinate -i -w $$ >/dev/null 2>&1 </dev/null & fi
   perm=$(gh repo view "$repo" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
   case "$perm" in ADMIN | MAINTAIN | WRITE) ;; *) die "permission on $repo is $perm: only a maintainer lands" ;; esac
 fi
@@ -101,6 +108,23 @@ reject() {
   f=$(git -C "$main_repo" commit-tree "$2^{tree}" -p "$2" -m "lander: $3" -m "Fix it on the branch and run make ready again; this ref is replaced then.")
   g push -q --force origin "$f:refs/heads/failed/$1" "--force-with-lease=refs/heads/ready/$1:$2" ":refs/heads/ready/$1" ||
     log "warning: could not move ready/$1 to failed/$1"
+}
+
+# dequeue <slug> <sha>: deletes ready/<slug> once its train landed, if it still holds <sha>.
+# A push also fails for a reason that is not the lease (the network, just after a wake):
+# that is retried, since a landed change left queued would come back as a conflict.
+dequeue() {
+  local try cur
+  for try in 1 2 3 4 5; do
+    g push -q origin "--force-with-lease=refs/heads/ready/$1:$2" ":refs/heads/ready/$1" >/dev/null 2>&1 && return 0
+    if cur=$(g ls-remote origin "refs/heads/ready/$1" 2>/dev/null); then
+      cur=${cur%%[[:space:]]*}
+      [ -n "$cur" ] || return 0
+      if [ "$cur" != "$2" ]; then log "warning: ready/$1 was queued again during the train: left in the queue"; return 0; fi
+    fi
+    [ "$try" = 5 ] || sleep $((poll * try))
+  done
+  return 1
 }
 
 breaking() { # a feat, perf or refactor title, or a breaking change: held while the freeze is open
@@ -220,7 +244,17 @@ while :; do
   while read -r s sha; do
     if ! git cherry-pick --allow-empty "$sha" >/dev/null 2>&1; then
       git cherry-pick --abort >/dev/null 2>&1 || true
-      reject "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train"
+      # Its train landed and the queue entry outlived it: the same diff is on main.
+      if [ "$(g cherry origin/main "$sha" "$sha^" 2>/dev/null | cut -c1)" = - ]; then
+        log "$s is already on main: dequeued"
+        $dry || dequeue "$s" "$sha" || log "warning: could not delete ready/$s"
+        continue
+      fi
+      hint= # grep without -q reads all of git log: an early exit would fail it under pipefail
+      if g log --format=%s "$sha^..origin/main" | grep -xF "$(title "$sha")" >/dev/null; then
+        hint=" (main already holds a commit with its title: landed, its decision numbered?)"
+      fi
+      reject "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
       continue
     fi
     msg=$(git log -1 --format=%B | grep -vE '^(Lander-[A-Za-z]+|Review): ' || true)
@@ -235,7 +269,11 @@ while :; do
     commits+=("$(git rev-parse HEAD)")
   done <<<"$TRAIN"
   k=${#commits[@]}
-  if [ "$k" = 0 ]; then continue; fi
+  if [ "$k" = 0 ]; then
+    # A dry run moves nothing out of the queue: composing again would find the same train.
+    if $dry; then log "dry run: no queued change applies on main"; exit 0; fi
+    continue
+  fi
   log "train $branch: $k change(s): $(cut -d' ' -f1 <<<"$landed" | tr '\n' ' ')"
   if $dry; then
     git log --oneline "origin/main..HEAD"
@@ -311,9 +349,10 @@ while :; do
   log "train PR #$num merged"
   git checkout -q --detach && git branch -q -D "$branch" || true
   g push -q origin --delete "$branch" >/dev/null 2>&1 || true
+  stuck=
   while read -r s sha; do
-    g push -q origin "--force-with-lease=refs/heads/ready/$s:$sha" ":refs/heads/ready/$s" >/dev/null 2>&1 ||
-      log "warning: ready/$s moved during the train (queued again?): left in the queue"
+    dequeue "$s" "$sha" || stuck="$stuck $s"
     g push -q origin --delete "failed/$s" >/dev/null 2>&1 || true
   done <<<"$landed"
+  [ -z "$stuck" ] || die "train PR #$num landed, but the queue entries of$stuck could not be deleted (network?): delete them with git push origin :refs/heads/ready/<slug> before the lander runs again"
 done

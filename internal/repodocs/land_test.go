@@ -1,6 +1,7 @@
 package repodocs
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // landEnv is a maintainer's clone of a repository `up/proj` (a bare repository
@@ -343,6 +345,100 @@ func TestLanderRejectsConflictsAndUnknownPlaceholders(t *testing.T) {
 	}
 	if r := e.upGit("log", "-1", "--format=%s", "failed/orphan"); !strings.Contains(r, "D-new-nobody") {
 		t.Errorf("the reason of orphan names the placeholder, got %q", r)
+	}
+}
+
+// A queued change whose diff main already holds (its train landed, the queue entry
+// outlived it) leaves the queue without a failed/ ref, and the train goes on.
+func TestLanderDequeuesAChangeAlreadyOnMain(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("dup", "fix(kb): dup\n", "2026-01-01T10:00:00Z", map[string]string{"dup.txt": "dup\n"})
+	e.queue("ok", "fix(kb): ok\n", "2026-01-01T11:00:00Z", map[string]string{"ok.txt": "ok\n"})
+	e.landByHand("dup")
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if !strings.Contains(out, "dup is already on main: dequeued") {
+		t.Errorf("the lander must say why dup left the queue\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): dup | fix(kb): ok" {
+		t.Fatalf("main holds %q\n%s", got, out)
+	}
+	if q, f := e.refs("ready/"), e.refs("failed/"); q != "" || f != "" {
+		t.Fatalf("queue %q and failed %q must be empty\n%s", q, f, out)
+	}
+}
+
+// landByHand puts the diff of ready/<slug> on main, leaving the queue entry behind.
+func (e *landEnv) landByHand(slug string) {
+	e.t.Helper()
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "landed", "origin/main")
+	e.git("cherry-pick", "origin/ready/"+slug)
+	e.git("push", "-q", "origin", "landed:main")
+	e.git("checkout", "-q", "main")
+}
+
+// A dry run whose train has nothing that applies ends, and leaves the queue as it was
+// (it moves nothing out of it, so composing again would find the same train forever).
+func TestLanderDryRunEndsWhenNothingApplies(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("dup", "fix(kb): dup\n", "2026-01-01T10:00:00Z", map[string]string{"dup.txt": "dup\n"})
+	e.landByHand("dup")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", filepath.Join(e.work, "scripts", "land.sh"), "--dry-run")
+	cmd.Dir, cmd.Env, cmd.WaitDelay = e.work, e.env, 5*time.Second
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("the dry run did not end\n%s", out)
+	}
+	if err != nil || !strings.Contains(string(out), "no queued change applies") {
+		t.Fatalf("dry run: %v\n%s", err, out)
+	}
+	if q := e.refs("ready/"); q != "dup" {
+		t.Fatalf("a dry run leaves the queue alone, got %q\n%s", q, out)
+	}
+}
+
+// After the merge, a deletion of a queue entry that fails for a reason that is not the
+// lease (the network after a wake, here a hook refusing it) is retried; still failing,
+// the lander stops instead of leaving a landed change in the queue for the next train.
+func TestLanderRetriesTheQueueDeletionAfterTheMerge(t *testing.T) {
+	for _, tc := range []struct {
+		deny   string
+		landed bool
+	}{{"2", true}, {"99", false}} {
+		t.Run("deny="+tc.deny, func(t *testing.T) {
+			e := newLandEnv(t)
+			e.write(filepath.Join(e.up, "hooks", "pre-receive"), `#!/bin/sh
+while read old new ref; do
+  case "$ref:$new" in refs/heads/ready/*:0000000000000000000000000000000000000000)
+    n=$(cat "$FAKE_STATE.denied" 2>/dev/null || echo 0)
+    if [ "$n" -lt "$FAKE_DENY" ]; then echo $((n + 1)) > "$FAKE_STATE.denied"; exit 1; fi ;;
+  esac
+done
+`)
+			e.queue("one", "fix(kb): one\n", "2026-01-01T10:00:00Z", map[string]string{"one.txt": "one\n"})
+			out, ok := e.land("FAKE_DENY=" + tc.deny)
+			if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): one" {
+				t.Fatalf("main holds %q\n%s", got, out)
+			}
+			if f := e.refs("failed/"); f != "" {
+				t.Fatalf("nothing may be rejected, got %q\n%s", f, out)
+			}
+			q := e.refs("ready/")
+			if tc.landed {
+				if !ok || q != "" {
+					t.Fatalf("two refusals then the deletion: ok=%v queue=%q\n%s", ok, q, out)
+				}
+				return
+			}
+			if ok || q != "one" || !strings.Contains(out, "could not be deleted") {
+				t.Fatalf("the lander must stop and leave ready/one: ok=%v queue=%q\n%s", ok, q, out)
+			}
+		})
 	}
 }
 

@@ -922,8 +922,11 @@ to 8 changes. A red train is gated a second time on the same tree: green then is
 test, the train lands and a `bug` issue names the failing tests; red again, the lander
 bisects over the train's prefixes (one signoff each) and rejects the first change whose
 prefix is red. A gate that fails for a reason that is not a test (the signoff stops before
-the targets) stops the lander and leaves the queue untouched. `internal/repodocs/land_test.go`
-runs the lander against a local bare repository with fake `make` and `gh`.
+the targets) stops the lander and leaves the queue untouched. Once the train PR merged, a
+queue entry whose deletion fails for a reason that is not the lease is retried, then stops
+the lander; a queued change whose diff `main` already holds is dequeued, not rejected.
+`internal/repodocs/land_test.go` runs the lander against a local bare repository with fake
+`make` and `gh`.
 
 What CI runs for a contributor's PR, in the same order: `make gate` is the one place that
 defines "green", so a step added here has to be added to `gate` or to
