@@ -188,8 +188,10 @@ number_decisions() {
     ph=${pair%%=*} num=${pair#*=}
     while IFS= read -r f; do
       [ -n "$f" ] && [ -f "$f" ] || continue
-      # A placeholder is a whole word: the one for slug `a` must not rewrite the one for `ab`.
-      PH=$ph NUM=$num perl -pi -e 's/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' "$f"
+      # The file name D-new-<slug>.md becomes D<n>-<slug>.md, so the path form (a link) is
+      # rewritten first; then the bare word. A placeholder is a whole word: the one for
+      # slug `a` must not rewrite the one for `ab`.
+      PH=$ph NUM=$num perl -pi -e 'BEGIN { ($s = $ENV{PH}) =~ s/^D-new-//; } s/\Q$ENV{PH}\E(?=\.md(?![a-z0-9-]))/$ENV{NUM}-$s/g; s/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' "$f"
     done <<<"$touched"
   done
   git add -A

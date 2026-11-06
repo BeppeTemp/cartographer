@@ -202,6 +202,7 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 		dec + "D-new-one.md":     "---\ntopic: x\n---\n\n# D-new-one — One\n",
 		dec + "D-new-one-two.md": "---\ntopic: x\n---\n\n# D-new-one-two — One two\n",
 		"notes.md":               "see D-new-one and D-new-one-two\n",
+		"links.md":               "[a](decisions/" + "D-new-one.md) and [b](decisions/" + "D-new-one-two.md#x), D-new-one\n",
 	})
 	out, ok := e.land()
 	if !ok {
@@ -219,6 +220,10 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 	}
 	if got := e.upGit("show", "main:notes.md"); got != "see D12 and D11" {
 		t.Errorf("a citation is rewritten as a whole word only, got %q", got)
+	}
+	// A link names the file, which is D<n>-<slug>.md, not the bare number.
+	if got := e.upGit("show", "main:links.md"); got != "[a](decisions/D12-one.md) and [b](decisions/D11-one-two.md#x), D12" {
+		t.Errorf("a link to a pending decision must follow the renamed file, got %q", got)
 	}
 	if got := e.upGit("show", "main:two.txt"); got != "follows D12" {
 		t.Errorf("a later change's citation follows the number, got %q", got)

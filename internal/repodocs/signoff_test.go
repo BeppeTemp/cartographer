@@ -365,7 +365,8 @@ func (e *signoffEnv) goModule() {
 }
 
 // SIGNOFF_WINDOWS gets the sharded run of the affected packages: the changed one and
-// its reverse dependencies, not the unrelated one; the status names the leg.
+// its reverse dependencies and the tree-scanning procattr guard, not the unrelated one;
+// the status names the leg.
 func TestSignoffRunsTheWindowsLegOnTheAffectedPackages(t *testing.T) {
 	e := newSignoffEnv(t)
 	e.goModule()
@@ -377,7 +378,7 @@ func TestSignoffRunsTheWindowsLegOnTheAffectedPackages(t *testing.T) {
 		t.Fatalf("signoff failed\n%s", out)
 	}
 	got := strings.TrimSpace(e.log(e.winLog))
-	if got != "bash scripts/test-shard.sh 4 all ./internal/a ./internal/b" {
+	if got != "bash scripts/test-shard.sh 4 all ./internal/a ./internal/b ./internal/procattr" {
 		t.Errorf("the Windows leg must test the affected packages, got %q", got)
 	}
 	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " - windows ") || strings.Contains(p[0], "not run") {

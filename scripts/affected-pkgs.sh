@@ -40,10 +40,17 @@ fi
 # the tool names the markdown cites; internal/webui hashes web/.
 repo_readers="internal/repodocs"
 md_readers="internal/repodocs internal/mcpserver"
+# Every test that scans the source of the whole tree: internal/procattr
+# (TestEveryChildProcessIsHidden) and internal/repodocs read every package, so a Go
+# file changed anywhere can break them while no dependency edge says so. The
+# procattr guard is platform behaviour (Windows console windows), so --code keeps it.
+guards_code="internal/procattr"
+guards_reader="internal/repodocs"
 
 all=false
-seeds="" readers=""
+seeds="" readers="" guards=""
 add() { case " $seeds " in *" $1 "*) ;; *) seeds="$seeds $1" ;; esac; }
+guard() { case " $guards " in *" $1 "*) ;; *) guards="$guards $1" ;; esac; }
 reader() { case " $readers " in *" $1 "*) ;; *) readers="$readers $1" ;; esac; }
 
 while IFS= read -r p; do
@@ -60,6 +67,12 @@ while IFS= read -r p; do
         d=$(dirname "$d")
       done
       [ -z "$d" ] || add "$d"
+      case "$p" in
+        *.go)
+          for g in $guards_code; do guard "$g"; done
+          for r in $guards_reader; do reader "$r"; done
+          ;;
+      esac
       ;;
     web/*) reader internal/webui ;;
     *.md) for r in $md_readers; do reader "$r"; done ;;
@@ -77,10 +90,10 @@ drop=
 [ "${1:-}" != --code ] || { readers=; drop=./internal/repodocs; }
 
 if [ "${1:-}" = --seeds ]; then
-  for s in $seeds $readers; do echo "./$s"; done | awk '!seen[$0]++'
+  for s in $seeds $guards $readers; do echo "./$s"; done | awk '!seen[$0]++'
   exit 0
 fi
-[ -n "$seeds" ] || { for r in $readers; do echo "./$r"; done | sort -u; exit 0; }
+[ -n "$seeds" ] || { for r in $guards $readers; do echo "./$r"; done | sort -u; exit 0; }
 
 mod=$(go list -m)
 # Every package and every test binary `<pkg>.test` (go list reports one only for a
@@ -96,5 +109,5 @@ go list -test -f '{{if .ForTest}}{{else}}{{.ImportPath}} {{join .Deps " "}}{{end
       for (i = 2; i <= NF && !hit; i++) if ($i in want) hit = 1
       if (hit) print "./" substr(pkg, length(mod) + 2)
     }
-    END { n = split(readers, r, " "); for (i = 1; i <= n; i++) print "./" r[i] }' readers="$readers" |
+    END { n = split(readers, r, " "); for (i = 1; i <= n; i++) print "./" r[i] }' readers="$guards $readers" |
   { grep -vxF "${drop:-./-none-}" || true; } | sort -u

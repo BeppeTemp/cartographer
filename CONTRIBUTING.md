@@ -273,7 +273,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   (an invariant, an interface, a rejected alternative a reader would otherwise
   re-propose) gets **one** decision file. A maintainer's change writes it as pending,
   `make decisions-new SLUG=<slug> TOPIC=<topic>` → `docs/decisions/D-new-<slug>.md`, and cites
-  it as `D-new-<slug>`: the lander gives it the next free number and rewrites the citations
+  it as `D-new-<slug>` (a link as `D-new-<slug>.md`): the lander gives it the next free number and rewrites the citations
   in the change's own files (D1706). A contributor's PR numbers it after the PR (D672):
   `make decisions-new N=<n> SLUG=<slug> TOPIC=<topic>`.
   Smaller choices need no file — the PR is
