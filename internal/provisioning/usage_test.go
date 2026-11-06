@@ -215,6 +215,34 @@ func TestScanUsage_Kiro_FileRead(t *testing.T) {
 	}
 }
 
+// The Kiro V3 shape (3.0.0) comes from testdata/usage/kiro-v3-session.jsonl:
+// the content sits under payload, in <hash>/sess_<id>/messages.jsonl. Without
+// the payload branch of scanKiro every skill reads as unused (#1716).
+func TestScanUsage_Kiro_V3(t *testing.T) {
+	home, lf := usageHome(t, "kiro", ".kiro/skills", "ops-tool", "read-tool", "other-tool", "never-used")
+	raw, err := os.ReadFile("testdata/usage/kiro-v3-session.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.NewReplacer("$HOME", filepath.ToSlash(home), "__NOW__", ts(2*time.Hour)).Replace(string(raw))
+	dir := filepath.Join(home, ".kiro/sessions/h/sess_1")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "messages.jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := provisioning.ScanUsage(lf, home, 90*24*time.Hour, true)
+	for _, name := range []string{"ops-tool", "read-tool", "other-tool"} {
+		if u := got[provisioning.UsageKey("skill", name)]; u.Count != 1 || u.Provider != "kiro" {
+			t.Errorf("%s = %+v, want one V3 use (disclose_context, read_file, execute_bash)", name, u)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("a message or a non-skill read produced usage: %+v", got)
+	}
+}
+
 // The Copilot event shape is the one probed on 1.0.94 (D676): a skill
 // activation is a tool.execution_start whose toolName is "skill"; an MCP call
 // (toolName "<server>-<tool>") names no managed artifact and counts for nothing.

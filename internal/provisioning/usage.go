@@ -550,12 +550,17 @@ func scanCodex(base string, targets []usageTarget, cutoff time.Time) []usageEven
 
 // --- Kiro ---
 
-// scanKiro reads <base>/.kiro/sessions/**/*.jsonl. When the model activates a
-// skill it reads the SKILL.md with the built-in file-read tool, recorded as
-// kind.BuiltIn.FileRead.operations[].path (a shell tool record carries the
-// path in its command instead). Only the `kind` object of a record is looked
-// at; message text is not. The record shape is pinned by a fixture and the
-// Kiro version it was seen on is declared in docs/harnesses.md.
+// scanKiro reads <base>/.kiro/sessions/**/*.jsonl, in the two shapes Kiro
+// writes. V2 (<=2.x): a record with a top-level `kind` object; a skill
+// activation reads the SKILL.md with the built-in file-read tool,
+// kind.BuiltIn.FileRead.operations[].path (a shell record carries the path in
+// its command). V3 (default since 3.0.0, <hash>/sess_<id>/messages.jsonl): the
+// record's content sits under `payload`; a tool call is payload.type
+// "tool_call" with payload.toolName "disclose_context" (the activation:
+// payload._meta.kiro.disclosedContext.uri is a file:// URL of the SKILL.md),
+// "read_file" (args.path) or "execute_bash" (args.command). Only tool records
+// are looked at; message text is not. Both shapes are pinned by fixtures and
+// the Kiro versions they were seen on are declared in docs/harnesses.md.
 func scanKiro(base string, targets []usageTarget, cutoff time.Time) []usageEvent {
 	m := newPathMatcher(targets)
 	var events []usageEvent
@@ -563,28 +568,21 @@ func scanKiro(base string, targets []usageTarget, cutoff time.Time) []usageEvent
 	for _, file := range files {
 		mtime := fileMTime(file)
 		eachLine(file, func(line []byte) {
-			if !bytes.Contains(line, []byte(`"kind"`)) {
+			if !bytes.Contains(line, []byte(`"kind"`)) && !bytes.Contains(line, []byte(`"tool_call"`)) {
 				return
 			}
 			var rec struct {
 				Timestamp json.RawMessage `json:"timestamp"`
 				CreatedAt json.RawMessage `json:"created_at"`
 				Kind      json.RawMessage `json:"kind"`
+				Payload   json.RawMessage `json:"payload"`
 			}
-			if json.Unmarshal(line, &rec) != nil || len(rec.Kind) == 0 {
-				return
-			}
-			at, ok := parseTranscriptTime(rec.Timestamp)
-			if !ok {
-				at, ok = parseTranscriptTime(rec.CreatedAt)
-			}
-			if !ok {
-				at = mtime
-			}
-			if at.Before(cutoff) {
+			if json.Unmarshal(line, &rec) != nil {
 				return
 			}
 			var blobs [][]byte
+			// V2: kind is an object. A V3 record has no top-level kind, so a
+			// failed or empty decode here is not an error.
 			var kind struct {
 				BuiltIn struct {
 					FileRead struct {
@@ -600,13 +598,52 @@ func scanKiro(base string, targets []usageTarget, cutoff time.Time) []usageEvent
 					} `json:"Shell"`
 				} `json:"BuiltIn"`
 			}
-			if json.Unmarshal(rec.Kind, &kind) != nil {
+			if len(rec.Kind) > 0 && json.Unmarshal(rec.Kind, &kind) == nil {
+				for _, op := range kind.BuiltIn.FileRead.Operations {
+					blobs = append(blobs, []byte(op.Path))
+				}
+				blobs = append(blobs, []byte(kind.BuiltIn.ExecuteBash.Command), []byte(kind.BuiltIn.Shell.Command))
+			}
+			if len(rec.Payload) > 0 {
+				var p struct {
+					Type     string `json:"type"`
+					ToolName string `json:"toolName"`
+					Args     struct {
+						Path    string `json:"path"`
+						Command string `json:"command"`
+					} `json:"args"`
+					Meta struct {
+						Kiro struct {
+							Disclosed struct {
+								URI string `json:"uri"`
+							} `json:"disclosedContext"`
+						} `json:"kiro"`
+					} `json:"_meta"`
+				}
+				if json.Unmarshal(rec.Payload, &p) == nil && p.Type == "tool_call" {
+					switch p.ToolName {
+					case "disclose_context":
+						blobs = append(blobs, []byte(fileURLPath(p.Meta.Kiro.Disclosed.URI)))
+					case "read_file":
+						blobs = append(blobs, []byte(p.Args.Path))
+					case "execute_bash":
+						blobs = append(blobs, []byte(p.Args.Command))
+					}
+				}
+			}
+			if len(blobs) == 0 {
 				return
 			}
-			for _, op := range kind.BuiltIn.FileRead.Operations {
-				blobs = append(blobs, []byte(op.Path))
+			at, ok := parseTranscriptTime(rec.Timestamp)
+			if !ok {
+				at, ok = parseTranscriptTime(rec.CreatedAt)
 			}
-			blobs = append(blobs, []byte(kind.BuiltIn.ExecuteBash.Command), []byte(kind.BuiltIn.Shell.Command))
+			if !ok {
+				at = mtime
+			}
+			if at.Before(cutoff) {
+				return
+			}
 			seen := map[string]bool{}
 			for _, blob := range blobs {
 				if len(blob) == 0 {
@@ -622,6 +659,19 @@ func scanKiro(base string, targets []usageTarget, cutoff time.Time) []usageEvent
 		})
 	}
 	return events
+}
+
+// fileURLPath turns a file:// URL into the path it names ("" for anything
+// else), dropping the slash before a Windows drive letter.
+func fileURLPath(uri string) string {
+	p, ok := strings.CutPrefix(uri, "file://")
+	if !ok {
+		return ""
+	}
+	if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+		p = p[1:]
+	}
+	return p
 }
 
 // --- GitHub Copilot CLI ---
