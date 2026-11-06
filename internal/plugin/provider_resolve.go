@@ -58,61 +58,9 @@ type ResolvedProvider struct {
 // counts when the Documents folder lies below home.
 func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []string) {
 	var reasons []string
-	slash := func(s string) string {
-		if env.GOOS == "windows" {
-			s = strings.ReplaceAll(s, `\`, "/")
-		}
-		return strings.TrimSuffix(path.Clean(s), "/")
-	}
-	home := slash(env.Home)
-	eq := func(a, b string) bool { return a == b || env.GOOS != "linux" && strings.EqualFold(a, b) }
-	under := func(base string) ([]string, bool) {
-		if eq(base, home) {
-			return nil, true
-		}
-		if len(base) > len(home) && base[len(home)] == '/' && eq(base[:len(home)], home) {
-			return strings.Split(base[len(home)+1:], "/"), true
-		}
-		return nil, false
-	}
-	docs := func() string {
-		if env.Documents != nil {
-			return slash(env.Documents(env.Home))
-		}
-		return slash(safewrite.DocumentsDir(env.Home))
-	}
-	// anchor returns the root ("" for home) and the segments below home it adds.
-	anchor := func(a string) (root string, pre []string, err error) {
-		if env.Home == "" {
-			return "", nil, fmt.Errorf("the home directory is unknown")
-		}
-		base := ""
-		if env.Getenv != nil {
-			base = env.Getenv(anchorEnv[a])
-		}
-		switch {
-		case a == "home":
-			return "", nil, nil
-		case a == "documents":
-			d := docs()
-			if d == "" || d == "." {
-				return "", nil, fmt.Errorf("the Documents folder is unknown")
-			}
-			segs, _ := under(d)
-			return d, segs, nil
-		case a == "xdg_config" && base == "":
-			return "", []string{".config"}, nil
-		case a != "xdg_config" && env.GOOS != "windows":
-			return "", nil, fmt.Errorf("{%s} exists on windows only", a)
-		case base == "":
-			return "", nil, fmt.Errorf("{%s} is not set", a)
-		}
-		segs, ok := under(slash(base))
-		if !ok {
-			return "", nil, fmt.Errorf("{%s} resolves outside the home directory", a)
-		}
-		return "", segs, nil
-	}
+	ar := newAnchors(env)
+	under, anchor := ar.under, ar.anchor
+
 	// contained reports whether segs below home walks through no link; a path
 	// holding a `*` is checked up to the segment before the first one, the part
 	// that is not a pattern.

@@ -44,3 +44,14 @@ const (
 	// only shorten it.
 	HTTPTimeout = 30 * time.Second
 )
+
+// File caps of one call (files.*).
+const (
+	// MaxFileBytes caps one files.read and one files.write.
+	MaxFileBytes = 8 << 20
+	// MaxGlobResults caps what files.glob returns; the walk stops there.
+	MaxGlobResults = 1000
+	// MaxGlobVisits caps the directory entries one files.glob looks at.
+	MaxGlobVisits = 100_000
+	maxGlobDepth  = 32
+)

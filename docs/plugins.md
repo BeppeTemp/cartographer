@@ -467,6 +467,27 @@ header the script set is dropped. Caps per call: 50 requests (every redirect hop
 and never beyond the call's deadline. `Host` and the framing and hop-by-hop headers cannot be set. `env.get` returns a
 listed variable or `None`; there is no way to list the environment.
 
+## Files for scripts
+
+`files.read(path, binary=False)`, `files.write(path, data)`, `files.remove(path)` and `files.glob(pattern)` exist with
+`permissions.files`: `read` grants `read` and `glob`, `write` grants `write` and `remove`; without the list the call is
+an error naming it, and in a read-only session `write` and `remove` are refused whatever the manifest says. A path is
+only the placeholder form of the manifest, `{home}/...`, `{xdg_config}/...`, `{app_data}/...`, `{local_app_data}/...` or
+`{documents}/...` (the anchors expand as for providers, under the home directory only); an absolute path, `~`, a `..`,
+empty or dot segment, a backslash, a colon, a segment ending in a dot or space and a Windows device name are refused on
+every OS. The path must match a granted glob (`*`, `?`, `[..]` inside a segment, `**` for whole segments). Whatever the
+grant, these are never reachable: a `.ssh`, `.gnupg` or `.git` component (a write into `.git/hooks` would run code),
+any component starting with `.cartographer` (config, lock files, token, state, approvals, a KB's own directory), every place a plugin provider may not write into (`.aws`, `.kube`, `.docker`, Desktop, LaunchAgents, `.config/git`, autostart and shell directories, `.cargo`, `.local/bin`), the shell start-up files (`.zshrc`, `.bashrc`, `.profile`, ...), the server's default data (`~/cartographer-data`, `~/.local/share/cartographer`) and the
+`cartographer` directory under the user config and cache directories, `$HOME/.config`, `{xdg_config}`, `{app_data}` and
+`{local_app_data}` (server config, update cache, plugin store). A link anywhere below home, in a directory or as the
+file, is refused, and a path whose resolution leaves home or lands in a denied place too; the final open does not
+follow a link where the OS has the flag. The check and the open are not atomic, as for every writer in the client.
+`read` returns text (invalid UTF-8 is an error naming the file; `binary=True` returns `bytes`); `write` creates parent
+directories (0700), replaces the file atomically, makes a new file 0600 and keeps the mode of an existing one; `remove`
+deletes a file, never a directory, and returns `False` for a missing one. `glob` returns the regular files a pattern
+matches, as placeholder paths, sorted, never entering a denied directory or following a link, at most 1000 (the walk
+stops there) and at most 100000 entries looked at. Caps: 8 MiB per read and per write.
+
 ## Limits
 
 - No workspace projection: a plugin's skills, agents and hooks reach the global scope of every connected client and no
