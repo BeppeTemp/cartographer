@@ -586,7 +586,7 @@ endpoint and artifact detail. Failures keep the current selection and entered
 connect-form values. Both syncs are `cartographer sync --client <provider>` (the same `runSync`, so
 the known-KB refresh, the MCP entry reconciliation and the partial sync come with them), and what the
 run would print goes into the dashboard's message, never to the terminal (D1612). Connecting from the
-dashboard asks the same KB choice as `cartographer connect` (D190) after a successful probe, when the
+dashboard does the same (`connectOptions.Out`: the machine-wide scope note and the notices land in the message, #1713), names a provider whose parts were refused as `connect` does (`partially connected`, `not connected`, #1693), and asks the same KB choice as `cartographer connect` (D190) after a successful probe, when the
 server mounts several KBs and the provider has no binding yet (`esc` goes back to the form), and keeps a
 recorded `allow_insecure_http`.
 

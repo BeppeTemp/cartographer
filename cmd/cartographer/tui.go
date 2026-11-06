@@ -184,7 +184,9 @@ type remoteStatusMsg struct {
 type connectDoneMsg struct {
 	provider string
 	res      connectResult
-	err      error
+	// notes is what doConnect reported, held back from the terminal (#1713).
+	notes string
+	err   error
 }
 
 // probeDoneMsg carries the result of a probeCmd run (D64): the pre-connect
@@ -491,8 +493,10 @@ func probeCmd(provider string, opts connectOptions) tea.Cmd {
 func connectCmd(provider string, opts connectOptions) tea.Cmd {
 	return func() tea.Msg {
 		opts.Providers = []string{provider}
+		var out bytes.Buffer
+		opts.Out = &out
 		res, err := doConnect(opts)
-		return connectDoneMsg{provider: provider, res: res, err: err}
+		return connectDoneMsg{provider: provider, res: res, notes: strings.TrimSpace(out.String()), err: err}
 	}
 }
 
@@ -788,11 +792,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		configsMsg := fmt.Sprintf("%d config(s) written", len(msg.res.ConfigsWritten))
-		if msg.res.Deferred {
-			m.message = fmt.Sprintf("connected %s: %s (skill sync deferred: server unreachable)", msg.provider, configsMsg)
-		} else {
-			m.message = fmt.Sprintf("connected %s: %s, %s", msg.provider, configsMsg, summarizeApplied(msg.res.Applied[msg.provider]))
+		// The CLI's status for this provider (#1693): a refused part is not
+		// "connected".
+		head := "connected " + msg.provider
+		if line, ok := providerStatusLine(msg.provider, msg.res.Skipped[msg.provider]); !ok {
+			head = line
 		}
+		if msg.res.Deferred {
+			m.message = fmt.Sprintf("%s: %s (skill sync deferred: server unreachable)", head, configsMsg)
+		} else {
+			m.message = fmt.Sprintf("%s: %s, %s", head, configsMsg, summarizeApplied(msg.res.Applied[msg.provider]))
+		}
+		m.message = withNotes(m.message, msg.notes)
 		m.screen = screenList
 		m.rows = buildRows(m.dir)
 		m.loading = true
