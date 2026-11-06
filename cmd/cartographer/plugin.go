@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/star"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -42,7 +43,7 @@ var (
 // pluginOpts is what the manifest check needs from this binary. A plugin may not
 // take the name of a command: the table plus the commands dispatched but not listed.
 func pluginOpts() plugin.Options {
-	return plugin.Options{RunningVersion: version, ReservedName: func(n string) bool {
+	return plugin.Options{RunningVersion: version, CheckScripts: star.Check, ReservedName: func(n string) bool {
 		return n == "hook" || n == "plugin" || slices.ContainsFunc(subcommands, func(c subcommand) bool { return c.name == n })
 	}}
 }
@@ -193,10 +194,26 @@ func pluginValidate(args []string) int {
 	if err != nil {
 		return pluginFail(1, "%v", err)
 	}
+	// A tree with problems is not loaded again here: ReadTree already ran the
+	// scripts and put their load error among the problems.
+	var prog *star.Program
+	if len(probs) == 0 {
+		if prog, err = pluginProgram(p); err != nil {
+			return pluginFail(1, "%s", escapeControl(err.Error()))
+		}
+	}
 	if output == "json" {
-		printJSON(map[string]any{"schema": pluginSchema, "valid": len(probs) == 0, "name": p.Manifest.Name, "digest": p.Digest, "problems": append([]string{}, probs...)})
+		doc := map[string]any{"schema": pluginSchema, "valid": len(probs) == 0, "name": p.Manifest.Name, "digest": p.Digest, "problems": append([]string{}, probs...)}
+		if prog != nil {
+			doc["scripts"] = prog.Files
+			doc["registers"] = registrationLines(p.Manifest.Name, prog)
+		}
+		printJSON(doc)
 	} else if len(probs) == 0 {
 		fmt.Printf("%s %s is valid (digest %.12s)\n", escapeControl(p.Manifest.Name), escapeControl(p.Manifest.Version), p.Digest)
+		if prog != nil {
+			previewScripts(os.Stdout, p)
+		}
 	} else {
 		for _, pr := range probs {
 			fmt.Println(escapeControl(pr))
@@ -285,6 +302,7 @@ func pluginInstall(args []string) int {
 		fmt.Printf("%s %q:\n", a.Kind, a.Name)
 		printApprovalContent(os.Stdout, a, a.Files)
 	}
+	printScriptContent(os.Stdout, p)
 	if entry.Approved == p.Digest && entry.Enabled {
 		fmt.Printf("%s %s is already approved and enabled\n", name, entry.Version)
 		return 0
@@ -320,6 +338,7 @@ func pluginInstall(args []string) int {
 func pluginPreview(w io.Writer, p plugin.Plugin, e clientconfig.PluginEntry, cfg *clientconfig.Config) {
 	have := func(n string) (string, bool) { o, ok := cfg.Plugin(n); return o.Version, ok }
 	plugin.Preview(w, p, plugin.PreviewInfo{Source: gitx.RedactRemoteURL(e.Source), Ref: e.Ref, SHA: e.SHA, Have: have}, pluginOpts())
+	previewScripts(w, p)
 }
 
 // pluginView is the tree a command shows for an entry: the approved one when the
@@ -453,6 +472,7 @@ func pluginShow(args []string) int {
 			fs = append(fs, provisioning.ArtifactFile{Path: f.Path, Content: f.Content, Executable: f.Executable})
 		}
 		printApprovalContent(os.Stdout, provisioning.Artifact{Kind: "plugin", Name: pos[0]}, fs)
+		printScriptContent(os.Stdout, p)
 	}
 	return 0
 }

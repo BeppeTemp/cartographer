@@ -82,8 +82,11 @@ func TestReadTreeProblems(t *testing.T) {
 		{"unknown entry", []TreeFile{tf("docs/page.txt", "x")}, "unknown entry `docs`: a plugin holds agents/, hooks/, providers/, skills/"},
 		{"mcp", []TreeFile{tf("mcp/x.json", "{}")}, `"mcp/x.json": not a plugin contribution point in this version`},
 		{"instructions", []TreeFile{tf("instructions.md", "x")}, `"instructions.md": not a plugin contribution point`},
-		{"plugin.star", []TreeFile{tf("plugin.star", "x")}, "plugin scripts are not supported yet"},
-		{"lib", []TreeFile{tf("lib/a.star", "x")}, "plugin scripts are not supported yet"},
+		{"lib without plugin.star", []TreeFile{tf("lib/a.star", "x")}, "a plugin with lib files needs a plugin.star"},
+		{"lib subdirectory", []TreeFile{tf("plugin.star", ""), tf("lib/sub/a.star", "x")}, `"lib/sub/a.star": a plugin holds plugin.star`},
+		{"lib other extension", []TreeFile{tf("plugin.star", ""), tf("lib/a.py", "x")}, `"lib/a.py": a plugin holds plugin.star`},
+		{"nested plugin.star", []TreeFile{tf("plugin.star/x", "x")}, `"plugin.star/x": a plugin holds plugin.star`},
+		{"script over the cap", []TreeFile{tf("plugin.star", strings.Repeat("#", MaxScriptBytes+1))}, "over the 262144 cap"},
 		{"symlink", []TreeFile{{Path: "skills/helper/link", Special: true}}, `"skills/helper/link": a symlink or non-regular file`},
 		{"oversized", []TreeFile{tf("skills/helper/big.txt", big)}, "over the 262144 cap of a file"},
 		{"bad hook.json", []TreeFile{tf("hooks/bad/hook.json", "{")}, `hook "bad": hook.json:`},
@@ -231,5 +234,43 @@ func TestRegisterPanics(t *testing.T) {
 			}()
 			Register(pt)
 		}()
+	}
+}
+
+// A script file is part of the digest: one byte of plugin.star or of a lib file
+// moves it, so an approval of the old digest does not cover the new tree.
+func TestScriptBytesMoveTheDigest(t *testing.T) {
+	read := func(entry, lib string) string {
+		t.Helper()
+		p, probs := ReadTree(append(goodTree(), tf("plugin.star", entry), tf("lib/util.star", lib)), testOpts)
+		if len(probs) != 0 {
+			t.Fatal(probs)
+		}
+		return p.Digest
+	}
+	base := read("x = 1\n", "y = 1\n")
+	if read("x = 2\n", "y = 1\n") == base || read("x = 1\n", "y = 2\n") == base {
+		t.Error("a changed script byte left the digest alone")
+	}
+	if read("x = 1\n", "y = 1\n") != base {
+		t.Error("the digest is not stable")
+	}
+}
+
+func TestCheckScriptsRunsOnScriptTreesOnly(t *testing.T) {
+	var got []string
+	opts := testOpts
+	opts.CheckScripts = func(files []TreeFile) []string {
+		for _, f := range files {
+			got = append(got, f.Path)
+		}
+		return []string{"plugin.star:1:1: boom"}
+	}
+	if _, probs := ReadTree(goodTree(), opts); len(probs) != 0 || got != nil {
+		t.Fatalf("a tree without scripts was checked: %v %v", probs, got)
+	}
+	_, probs := ReadTree(append(goodTree(), tf("plugin.star", "x"), tf("lib/a.star", "y")), opts)
+	if strings.Join(got, ",") != "plugin.star,lib/a.star" || strings.Join(probs, "") != "plugin.star:1:1: boom" {
+		t.Errorf("checked %v, problems %v", got, probs)
 	}
 }

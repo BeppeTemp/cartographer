@@ -89,6 +89,7 @@ internal/mcpbridge      is the local stdio MCP server that scopes one agent sess
 internal/mcpserver      implements the control plane
 internal/okf            parser/serializer for the YAML subset used in OKF frontmatter
 internal/plugin         reads and checks a Cartographer plugin
+internal/plugin/star    runs the Starlark script of a plugin
 internal/procattr       sets the process attributes every child of Cartographer shares
 internal/provisioning   manages the synchronization of artifacts (skill, agent, hook — D48
 internal/repodocs       holds the deterministic checks that keep this repository navigable by a coding agent, plus the…

@@ -160,6 +160,7 @@ func printConsent(w io.Writer, p plugin.Plugin, e clientconfig.PluginEntry, cfg 
 		fmt.Fprintf(w, "%s %q:\n", a.Kind, a.Name)
 		printApprovalContent(w, a, a.Files)
 	}
+	printScriptContent(w, p)
 }
 
 // finishApprove records the consent under the lock: Approved := digest, enabled.
@@ -349,6 +350,7 @@ func (c lifecycleCtx) updateOne(name string) int {
 		env.Home = c.dir
 		plugin.DiffPrint(c.out, name, plugin.Diff(old, p, env))
 		printChangedContent(c.out, old, p)
+		printScriptChanges(c.out, old, p)
 		fmt.Fprintf(c.out, "the approved version %s stays active until %s is approved\n", escapeControl(old.Manifest.Version), escapeControl(p.Manifest.Version))
 	} else {
 		printConsent(c.out, p, e, cfg)

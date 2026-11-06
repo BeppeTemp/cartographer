@@ -88,6 +88,11 @@ type Options struct {
 	// ReservedName reports a built-in command name a plugin must not take;
 	// nil reserves none.
 	ReservedName func(string) bool
+	// CheckScripts loads the script files of a tree (plugin.star and lib/) and
+	// returns why they do not, one problem each; nil checks nothing. It is a hook
+	// because the Starlark runtime lives in internal/plugin/star, which imports
+	// this package.
+	CheckScripts func(files []TreeFile) []string
 }
 
 // ParseManifest reads and checks manifest bytes. The returned problems are every

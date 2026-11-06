@@ -63,6 +63,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	var manifest []byte
 	seen := map[string]bool{}
 	var total int
+	var scripts []TreeFile
 	for _, f := range files {
 		first, _, nested := strings.Cut(f.Path, "/")
 		if !provisioning.ValidArtifactFilePath(f.Path) || strings.IndexFunc(f.Path, unprintable) >= 0 {
@@ -85,9 +86,12 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 			continue
 		case !nested && f.Path == ManifestFile:
 			manifest = f.Content
-		case first == "plugin.star" || first == "lib":
-			add("%q: plugin scripts are not supported yet", f.Path)
-			continue
+		case IsScriptPath(f.Path):
+			if msg := scriptProblem(f.Path, len(f.Content)); msg != "" {
+				add("%q: %s", f.Path, msg)
+				continue
+			}
+			scripts = append(scripts, f)
 		case first == "mcp" || (!nested && f.Path == "instructions.md"):
 			add("%q: not a plugin contribution point in this version", f.Path)
 			continue
@@ -100,6 +104,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		stored = append(stored, f)
 		total += len(f.Content)
 	}
+	problems = append(problems, scriptTreeProblems(scripts, opts)...)
 	if len(stored) > MaxFiles {
 		add("%d files, over the %d cap", len(stored), MaxFiles)
 	}
