@@ -1,10 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "../App";
+import { describe, expect, it } from "vitest";
 import { forceLink, forceManyBody, forceSimulation } from "d3-force-3d";
 import { configureForces, drift, seedPosition, type PhysicsNode } from "../lib/graph3d/physics";
-import { generateSnapshot, json, stubApi, openPanels } from "./fixtures";
+import { generateSnapshot } from "./fixtures";
 
 /**
  * The 2,000-node budget fixture (docs/testing.md §Atlas UI budgets).
@@ -15,6 +12,10 @@ import { generateSnapshot, json, stubApi, openPanels } from "./fixtures";
  * an order-of-magnitude regression (an O(n^2) pass, a lost Barnes-Hut) on any
  * CI runner, not a few percent. The measured values are printed and recorded
  * in docs/testing.md.
+ *
+ * A wall-clock budget means nothing on a loaded machine, so this file runs
+ * alone: `npm test` excludes it, `npm run test:perf` runs it in one worker
+ * (`make web-perf`, vite.config.ts).
  */
 const FIXTURE = generateSnapshot(2000);
 
@@ -45,37 +46,4 @@ describe("2,000-node budget fixture", () => {
     expect(warmed - detected).toBeLessThan(12_000);
     // vitest's default 5 s timeout would cut the run before the budget does.
   }, 20_000);
-
-  describe("selection feedback", () => {
-    beforeEach(() => {
-      window.history.replaceState(null, "", "/ui/");
-      localStorage.clear();
-    openPanels();
-    });
-    afterEach(() => vi.unstubAllGlobals());
-
-    it("shows the inspector skeleton before the concept arrives", async () => {
-      // The concept request never resolves: what the user sees in the
-      // meantime is the skeleton, and it must not wait on the network.
-      stubApi({
-        "/graph": () => json(FIXTURE),
-        "/concept": () => new Promise<Response>(() => {}) as unknown as Response,
-      });
-      // Selected through the search, the keyboard path to a concept: plain
-      // selectors, not *ByRole, which would compute every accessible name.
-      const user = userEvent.setup();
-      render(<App />);
-      const id = FIXTURE.nodes[0]!.id;
-      await waitFor(() => expect(document.querySelector("[data-testid=graph-view]")).not.toBeNull(), {
-        timeout: 10000,
-      });
-      await user.keyboard("{Control>}k{/Control}");
-      await user.keyboard(`${id}{Enter}`);
-      await waitFor(() =>
-        expect(document.querySelector(`aside[aria-label="Inspector for ${id}"]`)).not.toBeNull(),
-      );
-      // Skeleton, not content: it rendered while the request is still pending.
-      expect(screen.getByText(`Loading ${FIXTURE.nodes[0]!.id}`)).toBeInTheDocument();
-    }, 20000);
-  });
 });

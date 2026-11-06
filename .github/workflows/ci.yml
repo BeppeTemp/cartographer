@@ -263,6 +263,9 @@ jobs:
         run: make web-check NPM_CI=
       - if: matrix.leg == 'video'
         run: make web-test NPM_CI=
+      - if: matrix.leg == 'video'
+        name: Web wall-clock budget (alone)
+        run: make web-perf NPM_CI=
       # The browser suite (D228) drives bin/cartographer, which commits to the
       # fixture KBs it initialises, so git needs an identity here too.
       - name: Configure git for tests

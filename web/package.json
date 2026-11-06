@@ -12,6 +12,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:perf": "PERF_ONLY=1 vitest run --no-file-parallelism",
     "test:watch": "vitest",
     "budget": "node scripts/budget.mjs"
   },
