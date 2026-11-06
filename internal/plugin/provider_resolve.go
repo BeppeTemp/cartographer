@@ -197,6 +197,16 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 			}
 		}
 	}
+	// The MCP paths of a provider must pass the rules of a cell (CheckPluginMCPPaths):
+	// one that does not takes the whole MCP side out, never only the offending
+	// path, since a provider left without mcp.config would write the base's file.
+	// A stale file whose mcp.config was left out above is dropped with it.
+	if _, declared := spec.MCP.Config.pick(env.GOOS); declared && spec.MCP.Mode == "native" && r.MCPConfig == nil {
+		r.MCPStale = nil
+	} else if err := configurator.CheckPluginMCPPaths(spec.Name, r.MCPConfig, r.MCPStale); err != nil {
+		reasons = append(reasons, "mcp: "+err.Error()+": the provider writes no MCP entry")
+		r.MCPMode, r.MCPConfig, r.MCPStale = configurator.MCPModeNone, nil, nil
+	}
 	dirOf := func(key string, p osValue[string], project bool) *ProviderCell {
 		v, ok := p.pick(env.GOOS)
 		if !ok {

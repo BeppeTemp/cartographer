@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -584,5 +585,29 @@ func TestPluginHookPruneDoesNotHideAClineHookOfTheSameName(t *testing.T) {
 	}
 	if got := DispatchClineHooks(base, "PostToolUse", []byte(postToolPayload)).ContextModification; got != "from x" {
 		t.Fatalf("Cline's own x no longer runs: %q", got)
+	}
+}
+
+// Colliding registrations made at once: validation and swap are one critical
+// section, so exactly one is accepted whatever the interleaving.
+func TestRegisterPluginCells_ConcurrentCollisionsAcceptOne(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		a, b := forkCLI(), forkCLI()
+		b.Name = "fork-two"
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for n, c := range []PluginCells{a, b} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, errs[n] = RegisterPluginCells(c, testHome)
+			}()
+		}
+		wg.Wait()
+		UnregisterPluginCells("fork-cli")
+		UnregisterPluginCells("fork-two")
+		if (errs[0] == nil) == (errs[1] == nil) {
+			t.Fatalf("round %d: both or neither accepted: %v %v", i, errs[0], errs[1])
+		}
 	}
 }

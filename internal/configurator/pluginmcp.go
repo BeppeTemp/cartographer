@@ -82,15 +82,28 @@ func expandVersionGlob(home string, segs []string) (paths, warnings []string) {
 }
 
 // globMatches expands the MCP pattern of a registered plugin provider into
-// home-relative paths (OS separators).
-func globMatches(d Descriptor, home string) (rels []string, warnings []string) {
+// home-relative paths (OS separators). A match that is a built-in provider's MCP
+// file is skipped with a warning; more than maxVersionMatches matches return
+// none, with a warning naming the pattern and the count (over is that count).
+func globMatches(d Descriptor, home string) (rels []string, warnings []string, over int) {
 	abs, warns := expandVersionGlob(home, strings.Split(d.MCPConfigGlob, "/"))
+	warnings = warns
 	for _, p := range abs {
-		if rel, err := filepath.Rel(home, p); err == nil {
-			rels = append(rels, rel)
+		rel, err := filepath.Rel(home, p)
+		if err != nil {
+			continue
 		}
+		if IsBuiltinMCPFile(rel) {
+			warnings = append(warnings, fmt.Sprintf("%s: %s matches %s, the MCP file of a built-in provider: skipped", d.Provider, d.MCPConfigGlob, rel))
+			continue
+		}
+		rels = append(rels, rel)
 	}
-	return rels, warns
+	if len(rels) > maxVersionMatches {
+		warnings = append(warnings, fmt.Sprintf("%s: %s matches %d files (at most %d are written): none written", d.Provider, d.MCPConfigGlob, len(rels), maxVersionMatches))
+		return nil, warnings, len(rels)
+	}
+	return rels, warnings, 0
 }
 
 // applyGlob writes r, whose FileGlob names a pattern, into every file the pattern
@@ -102,9 +115,12 @@ func applyGlob(r *EmitResult, baseDir string, dryRun bool) (written []string, re
 	if !ok || d.MCPConfigGlob == "" {
 		return nil, nil, fmt.Errorf("%s has no MCP file pattern", r.Provider)
 	}
-	rels, warns := globMatches(d, baseDir)
+	rels, warns, over := globMatches(d, baseDir)
 	r.Warnings = append(r.Warnings, warns...)
 	if len(rels) == 0 {
+		if over > 0 {
+			return nil, nil, nil
+		}
 		r.Warnings = append(r.Warnings, fmt.Sprintf("no MCP config of %s found: open the client once", r.Provider))
 		return nil, nil, nil
 	}
@@ -138,6 +154,11 @@ func removeStale(p Provider, home string) []string {
 	if !ok || len(spec.MCPStale) == 0 {
 		return nil
 	}
+	// The registry validated these at registration; a descriptor that reached
+	// here some other way is checked again, because this is a delete.
+	if err := CheckPluginMCPPaths(string(p), spec.MCPConfig, spec.MCPStale); err != nil {
+		return []string{fmt.Sprintf("%s: mcp.stale refused, none removed: %v", p, err)}
+	}
 	var matches, notes []string
 	for _, tpl := range spec.MCPStale {
 		paths, warns := expandVersionGlob(home, tpl)
@@ -152,6 +173,10 @@ func removeStale(p Provider, home string) []string {
 	}
 	var removed []string
 	for _, path := range matches {
+		if rel, err := filepath.Rel(home, path); err != nil || IsBuiltinMCPFile(rel) {
+			notes = append(notes, fmt.Sprintf("%s: %s is the MCP file of a built-in provider: not removed", p, path))
+			continue
+		}
 		if err := safewrite.Remove(home, path); err != nil {
 			notes = append(notes, fmt.Sprintf("%s: %v", p, err))
 			continue
@@ -178,7 +203,7 @@ func readBounded(path string) []byte {
 // removeGlob is removeEntry for a provider whose MCP file is a pattern: the entry
 // is taken out of every match. Stale files are not touched again.
 func removeGlob(cfg *ServerConfig, provider Provider, d Descriptor, baseDir string, dryRun bool) (bool, error) {
-	rels, _ := globMatches(d, baseDir)
+	rels, _, _ := globMatches(d, baseDir)
 	removed := false
 	for _, rel := range rels {
 		ok, err := removeEntryAt(cfg, provider, baseDir, rel, dryRun)

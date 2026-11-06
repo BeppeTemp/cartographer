@@ -307,8 +307,13 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			if err := blocktext.Write(absoluteBaseDir, fullPath, codexMCPBlockBegin, codexMCPBlockEnd, string(r.Content)); err != nil {
 				return written, fmt.Errorf("write %s: %w", fullPath, err)
 			}
-			written = append(written, r.AbsolutePath)
-			if !r.viaGlob && string(before) != string(readBounded(fullPath)) {
+			changed := string(before) != string(readBounded(fullPath))
+			// A match of a pattern counts only when its bytes changed: applyGlob
+			// removes the stale files when anything was written.
+			if changed || !r.viaGlob {
+				written = append(written, r.AbsolutePath)
+			}
+			if !r.viaGlob && changed {
 				r.Warnings = append(r.Warnings, removeStale(r.Provider, absoluteBaseDir)...)
 			}
 			continue
