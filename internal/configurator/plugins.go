@@ -149,6 +149,9 @@ func buildPlugin(spec PluginSpec) (pluginEntry, error) {
 	default:
 		return pluginEntry{}, fmt.Errorf("plugin provider %q: unknown MCP mode %q", spec.Name, spec.MCPMode)
 	}
+	if err := CheckPluginMCPPaths(spec.Name, spec.MCPConfig, spec.MCPStale); err != nil {
+		return pluginEntry{}, err
+	}
 	if len(spec.MCPConfig) > 0 {
 		// The fork's own file. A `*` segment makes it a pattern, kept out of
 		// MCPConfigPath (left empty) so that no caller joins it literally.

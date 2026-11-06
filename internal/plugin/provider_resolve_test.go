@@ -264,3 +264,26 @@ func TestResolvedProviderCellsRegisterWithProvisioning(t *testing.T) {
 		t.Error("Active is the plugin's, not the descriptor's")
 	}
 }
+
+// An MCP path the cell rules refuse takes the provider's whole MCP side out with
+// a reason, never only that path: a provider left without mcp.config would write
+// the base's file.
+func TestResolveProviderDropsUnsafeMCPPaths(t *testing.T) {
+	cfg := `default: "{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp.json"`
+	stale := `default: ["{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp-cache.json"]`
+	for name, c := range map[string]struct{ cfg, stale, want string }{
+		"claude settings as stale": {cfg, `default: ["{home}/.claude.json"]`, "no path below its client directory"},
+		"credentials as stale":     {cfg, `default: ["{home}/.docker/config.json"]`, "no plugin provider may write"},
+		"glob in a denied dir":     {`default: "{home}/.aws/ext-*/mcp.json"`, stale, "no plugin provider may write"},
+		"stale outside the config": {cfg, `default: ["{home}/.config/gcloud/credentials.json"]`, "does not lie below"},
+	} {
+		spec := parsed(t, "fork-ext", swapText(t, swapText(t, forkExt, cfg, c.cfg), stale, c.stale))
+		r, reasons := ResolveProvider(spec, fakeEnv("linux", nil))
+		if r.MCPConfig != nil || r.MCPStale != nil || r.MCPMode != configurator.MCPModeNone || !strings.Contains(strings.Join(reasons, "|"), c.want) {
+			t.Errorf("%s: config %v stale %v mode %q reasons %v", name, r.MCPConfig, r.MCPStale, r.MCPMode, reasons)
+		}
+		if r.Registration("team", true).MCPMode != configurator.MCPModeNone {
+			t.Errorf("%s: the registration still writes MCP", name)
+		}
+	}
+}

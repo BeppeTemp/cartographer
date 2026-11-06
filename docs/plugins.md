@@ -222,7 +222,7 @@ problem is listed as `path: reason`, sorted. `seed` and `allow_call` are not key
 | `paths.global`, `paths.project` | Cells `skill` (`dir`), `agent` (`dir`, `format` one of `claude`, `opencode`, `antigravity`, `copilot`, `cline`, default `claude`), `instructions` (`file`, a `.md` file, the extension of every built-in provider's instructions file); the global scope adds `hook` (`dir`, `scan: base`). The project scope takes no `hook` and no MCP cell. |
 | `capabilities` | Map of capability id to `verified`, `unverified` or `absent`, at most 64. |
 | `mcp.mode` | `native` (default), `cli` or `none`. |
-| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the client derives from it and regenerates. Both take the base's extension, are refused with `cli` or `none`, and take no `{documents}`. |
+| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the client derives from it and regenerates. Both take the base's extension, are refused with `cli` or `none`, and take no `{documents}`. The MCP paths follow the rules of a global cell (below); a `stale` file lies below the directory of `config` (the part before any `*`), is never `config` itself, and exists only with a `config` of its own. |
 | `invoke_hint` | Optional, one line, at most 200. |
 
 A value is per OS (`darwin`, `linux`, `windows`, `default`, each key once) or one value for all. A global path starts with an anchor
@@ -287,11 +287,22 @@ agent layout for both scopes. Its capability rows stay `absent` or `unverified` 
 is probed as its base where the layout is the same. The MCP file is a destination cell (for the KB's MCP descriptors)
 only when `mcp.config` is the provider's own literal file.
 
+The MCP paths (`mcp.config`, a pattern's fixed part, every `mcp.stale` entry) pass the same global-cell checks as a
+cell, in `configurator.CheckPluginMCPPaths`: below a client directory of their own, outside the denied directories,
+outside a built-in client's directory, no `.git*`. A pattern holds one `*`, in one segment, never within the client
+directory (`{home}/.config/*/config.json` would reach every application's file). No MCP path equals or matches the
+MCP file of a built-in provider, and a `stale` entry equal to `config` or matching it is refused. The check runs
+where the descriptor is resolved (`ResolveProvider`: a provider that fails it writes no MCP entry, and the install
+preview shows the reason), where it is registered (`RegisterPlugin` refuses it) and again before any stale file is
+removed.
+
 ### MCP modes and hooks
 
 `native` writes Cartographer's entry in the base's format: at the base's path, at `mcp.config`, or, when
 `mcp.config` holds a `*`, into every existing regular file it matches (one file per installed version of the client;
-a symlinked entry is not a match, no match is the warning "open the client once"). The files in `mcp.stale` are
+a symlinked entry is not a match, no match is the warning "open the client once"). A pattern writes at most three
+files: over that it writes none and warns with the pattern and the count; a match that is a built-in provider's MCP
+file is skipped with a warning. The files in `mcp.stale` are
 removed after a write that changed bytes, never after a no-op, and only when at most three exist and none lies
 behind a link; servers added through the client's UI are dropped at its next start. Disconnect edits only the files
 the entry is in. `cli` writes no entry and projects the bundled `cartographer-cli` skill, and the instructions block

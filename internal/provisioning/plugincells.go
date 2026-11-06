@@ -65,6 +65,11 @@ type pluginEntry struct {
 }
 
 var (
+	// pluginRegMu serialises the registrations (validate against the registered
+	// set, then swap): two colliding providers registered at once cannot both be
+	// accepted. pluginCellsMu guards the map and is held only briefly, because
+	// the validation reads cells through cellFor, which takes its read lock.
+	pluginRegMu   sync.Mutex
 	pluginCellsMu sync.RWMutex
 	pluginCells   = map[configurator.Provider]pluginEntry{}
 )
@@ -180,41 +185,12 @@ func fold(s string) string {
 	return s
 }
 
-// clientDir is the directory a global path belongs to a client: the first
-// segment under the home, or the first two where one directory per client sits
-// under a shared parent (.config, Documents), or the first three under the
-// per-user data roots (.local/share, Library/Application Support, AppData/Local).
-func clientDir(segs []string) []string {
-	n := 1
-	if len(segs) > 0 {
-		switch strings.ToLower(segs[0]) {
-		case ".config", "documents":
-			n = 2
-		case ".local", "library", "appdata":
-			n = 3
-		}
-	}
-	return segs[:min(n, len(segs))]
-}
-
-// The denylists below are defence in depth, not the control: a plugin provider
+// The project denylists are defence in depth, not the control: a plugin provider
 // is applied only after the explicit, digest-bound approval of its plugin, whose
-// preview prints every resolved cell path. They name the places where a write is
-// code execution or credentials theft the user would not think to look for in a
-// client's own directory. Matching is segment-wise and case-insensitive on every
-// OS, after anchor resolution.
+// preview prints every resolved cell path. The global ones live in
+// configurator (DeniedClientDir). Matching is segment-wise and case-insensitive
+// on every OS.
 var (
-	// deniedGlobalPrefixes: a global cell path starting with one of these
-	// segment lists is refused (home-relative, so .config/git is ~/.config/git).
-	deniedGlobalPrefixes = [][]string{
-		{".ssh"}, {".gnupg"}, {".aws"}, {".kube"}, {".docker"}, {"desktop"},
-		{"documents", "powershell"}, {"documents", "windowspowershell"},
-		{"appdata", "roaming", "microsoft"}, {"library", "launchagents"}, {"library", "launchdaemons"},
-		{".config", "git"}, {".config", "autostart"}, {".config", "systemd"}, {".config", "environment.d"},
-		{".config", "fish"}, {".config", "powershell"}, {".config", "nushell"},
-		{".oh-my-zsh"}, {".bashrc.d"}, {".zshrc.d"}, {".profile.d"}, {".config.d"},
-		{".cargo"}, {".npm-global"}, {".local", "bin"},
-	}
 	// deniedProjectFirst: a project cell whose first segment is one of these
 	// (a file or a directory) is refused; .git is refused at any depth.
 	deniedProjectFirst = []string{
@@ -236,23 +212,6 @@ func hasPrefixFold(segs, prefix []string) bool {
 	return true
 }
 
-// deniedClientDir reports whether a global path is one no plugin provider may
-// write under: the lists above, git configuration (.git*), and Cartographer's own
-// state and config (a client directory whose last segment starts with
-// cartographer).
-func deniedClientDir(segs, dir []string) bool {
-	if len(dir) == 0 {
-		return true
-	}
-	for _, p := range deniedGlobalPrefixes {
-		if hasPrefixFold(segs, p) {
-			return true
-		}
-	}
-	first, last := strings.ToLower(dir[0]), strings.ToLower(dir[len(dir)-1])
-	return strings.HasPrefix(first, ".git") || strings.HasPrefix(last, ".cartographer") || strings.HasPrefix(last, "cartographer")
-}
-
 // checkGlobalCells refuses a global cell outside a client directory of its own:
 // one that sits directly in the home (an rc file), in a directory of a built-in
 // client or a denied one (settings, hooks, credentials).
@@ -260,7 +219,7 @@ func checkGlobalCells(name string, cells map[string]destination) error {
 	builtin := map[string]string{}
 	for _, d := range configurator.Providers() {
 		for _, r := range globalRootRels(d.Provider) {
-			builtin[fold(strings.Join(clientDir(strings.Split(r, "/")), "/"))] = string(d.Provider)
+			builtin[fold(strings.Join(configurator.ClientDir(strings.Split(r, "/")), "/"))] = string(d.Provider)
 		}
 	}
 	kinds := make([]string, 0, len(cells))
@@ -270,11 +229,11 @@ func checkGlobalCells(name string, cells map[string]destination) error {
 	sort.Strings(kinds)
 	for _, kind := range kinds {
 		segs := cells[kind].dir
-		cd := clientDir(segs)
+		cd := configurator.ClientDir(segs)
 		switch {
 		case len(segs) <= len(cd):
 			return fmt.Errorf("plugin provider %q: the %s cell %q names no path below its client directory (a cell is never a file or directory directly in the home or in a shared parent)", name, kind, strings.Join(segs, "/"))
-		case deniedClientDir(segs, cd):
+		case configurator.DeniedClientDir(segs, cd):
 			return fmt.Errorf("plugin provider %q: the %s cell %q is under %q, a directory no plugin provider may write into", name, kind, strings.Join(segs, "/"), strings.Join(cd, "/"))
 		}
 		if owner, ok := builtin[fold(strings.Join(cd, "/"))]; ok {
@@ -470,7 +429,9 @@ func buildPluginEntry(c PluginCells, home string, others map[configurator.Provid
 // to show once (an ignored hook cell). Registering a name again replaces its
 // entry.
 func RegisterPluginCells(c PluginCells, home string) ([]string, error) {
-	// Validated on a copy, outside the lock: the checks read the cells of the
+	pluginRegMu.Lock()
+	defer pluginRegMu.Unlock()
+	// Validated on a copy, outside the map lock: the checks read the cells of the
 	// built-ins through cellFor, which takes the read lock.
 	pluginCellsMu.RLock()
 	others := make(map[configurator.Provider]pluginEntry, len(pluginCells))
@@ -500,6 +461,8 @@ type PluginCellsRefusal struct {
 // refused, whatever their order, and every other provider still registers. The
 // refusals come back sorted by name, with the notes of the ones registered.
 func ReplacePluginCells(cs []PluginCells, home string) (notes []string, refused []PluginCellsRefusal) {
+	pluginRegMu.Lock()
+	defer pluginRegMu.Unlock()
 	cand := map[configurator.Provider]pluginEntry{}
 	for _, c := range cs {
 		if e, _, err := buildPluginEntry(c, home, nil); err == nil {
@@ -526,6 +489,8 @@ func ReplacePluginCells(cs []PluginCells, home string) (notes []string, refused 
 
 // UnregisterPluginCells drops a plugin provider's cells and boundaries.
 func UnregisterPluginCells(name string) {
+	pluginRegMu.Lock()
+	defer pluginRegMu.Unlock()
 	pluginCellsMu.Lock()
 	defer pluginCellsMu.Unlock()
 	delete(pluginCells, configurator.Provider(name))
