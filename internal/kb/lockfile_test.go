@@ -279,3 +279,21 @@ func TestSyncRefusesWhileARebaseStateExists(t *testing.T) {
 		}
 	})
 }
+
+func TestAcquireProcessLockRefusesALinkedLockFile(t *testing.T) {
+	k := newTestKB(t)
+	target := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(target, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(k.Root, LockFileName)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if release, err := k.AcquireProcessLock(time.Second, "test"); err == nil {
+		release()
+		t.Fatal("a lock file that is a link must be refused")
+	}
+	if b, _ := os.ReadFile(target); string(b) != "keep me" {
+		t.Fatalf("the link target was modified: %q", b)
+	}
+}

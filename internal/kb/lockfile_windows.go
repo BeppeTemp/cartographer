@@ -9,6 +9,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// openLockFileNoFollow has no O_NOFOLLOW to ask for: openLockFile's Lstat
+// refusal of a link or reparse point is the guard.
+func openLockFileNoFollow(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+}
+
 // The Windows lock takes a single byte 4 GiB into the lock file, and the offset
 // is the point of the exercise.
 //

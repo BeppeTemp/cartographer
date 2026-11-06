@@ -56,7 +56,13 @@ func (k *KB) conflictsFilePath() string {
 // excluded from git via .git/info/exclude (ensureInfoExclude, D62) — never a
 // versioned .gitignore.
 func (k *KB) ensureCartographerDir() error {
+	if err := k.checkStatePath(""); err != nil {
+		return fmt.Errorf("ensureCartographerDir: %w", err)
+	}
 	if err := os.MkdirAll(k.cartographerDirPath(), 0o755); err != nil {
+		return fmt.Errorf("ensureCartographerDir: %w", err)
+	}
+	if err := k.checkStatePath(""); err != nil {
 		return fmt.Errorf("ensureCartographerDir: %w", err)
 	}
 	return ensureInfoExclude(k.Root, ".cartographer/")
@@ -64,6 +70,9 @@ func (k *KB) ensureCartographerDir() error {
 
 // loadConflicts reads the current conflict registry. Returns nil, nil if not present.
 func (k *KB) loadConflicts() ([]Conflict, error) {
+	if err := k.checkStatePath(k.conflictsFilePath()); err != nil {
+		return nil, fmt.Errorf("loadConflicts: %w", err)
+	}
 	data, err := os.ReadFile(k.conflictsFilePath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -86,6 +95,9 @@ func (k *KB) saveConflicts(conflicts []Conflict) error {
 	data, err := json.MarshalIndent(conflicts, "", "  ")
 	if err != nil {
 		return fmt.Errorf("saveConflicts: marshal: %w", err)
+	}
+	if err := k.checkStatePath(k.conflictsFilePath()); err != nil {
+		return fmt.Errorf("saveConflicts: %w", err)
 	}
 	return writeFileAtomic(k.conflictsFilePath(), data)
 }

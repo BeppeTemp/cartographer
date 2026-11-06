@@ -705,8 +705,10 @@ func lintInputsStamp(k *kb.KB) string {
 		fmt.Fprintf(h, "%s\x00%d\x00%d\n", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano())
 		return nil
 	})
-	if info, err := os.Stat(filepath.Join(root, ".cartographer", "usage.json")); err == nil && info.Mode().IsRegular() {
-		fmt.Fprintf(h, "%s\x00%d\x00%d\n", ".cartographer/usage.json", info.Size(), info.ModTime().UnixNano())
+	if info, err := os.Lstat(filepath.Join(root, ".cartographer", "usage.json")); err == nil && info.Mode().IsRegular() {
+		if checkLocalStatePath(filepath.Join(root, ".cartographer", "usage.json")) == nil {
+			fmt.Fprintf(h, "%s\x00%d\x00%d\n", ".cartographer/usage.json", info.Size(), info.ModTime().UnixNano())
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
