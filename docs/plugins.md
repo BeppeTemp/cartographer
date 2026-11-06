@@ -67,7 +67,7 @@ and never loaded. 0.28 registers `skills`, `agents`, `hooks` and `providers`, an
 | `providers` | `providers/<id>.yaml` | `plugin.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
 | `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
 | `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
-| `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); registered only, nothing is called yet |
+| `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); registered only, nothing is called yet; a call reaches the network and the environment only as the manifest grants (below) |
 
 Every artifact name is a valid artifact name, and a plugin cannot shadow the bundle: a skill or agent named like a
 bundled one (the CLI skill included) is refused. Reserved and bundled names are compared ignoring case, since a filesystem may fold it.
@@ -449,6 +449,23 @@ A plugin that declares a client of its own (a fork or an in-house build of a bui
 `providers/<id>.yaml` as described in Providers above. Two worked examples are the fixtures the tests use,
 `fork-cli` (a CLI fork that takes the `cli` MCP mode: skill, agent and instructions, no MCP entry) and `fork-ext` (an
 editor extension that keeps its own MCP file in a versioned folder).
+
+## Network and environment for scripts
+
+`http.request(method, url, headers={}, body="", timeout=30)` exists only with `permissions.net`, `env.get(name)` only
+with `permissions.env`; without them the call is an error naming the permission. `http.request` accepts GET, HEAD, POST,
+PUT, PATCH, DELETE and OPTIONS and returns `status`, `headers` (lowercase names, repeated values joined by `, `) and
+`body` (text; a body that is not UTF-8 is an error). The scheme is `https`; plain `http` only to a loopback host. The
+host must match a `net` pattern, and so must every redirect target (at most 10; a redirect outside the list is not
+followed, and Go drops `Authorization` on a change of host). A name can resolve anywhere, so the dial refuses
+loopback, private, carrier-grade NAT, link-local, multicast and unspecified addresses unless the manifest lists that very
+literal, and connects to the address it checked. The system proxy variables are honoured, and the allowlist is on the
+request host, not on the proxy; behind a proxy Cartographer resolves the target and refuses a forbidden answer, but the
+proxy may resolve differently, so the final address check is the proxy's. Addresses that embed IPv4 (NAT64, 6to4) are
+judged by it. On a redirect to another host only `Accept`, `Accept-Language`, `Content-Type` and `User-Agent` follow; every other
+header the script set is dropped. Caps per call: 50 requests (every redirect hop counts), 8 MiB of response, 4 MiB of request body, 30 s per request
+and never beyond the call's deadline. `Host` and the framing and hop-by-hop headers cannot be set. `env.get` returns a
+listed variable or `None`; there is no way to list the environment.
 
 ## Limits
 
