@@ -30,6 +30,7 @@ import (
 // process, at start; calling it again replaces the whole registered set, which a
 // command that changes a plugin's state does to re-register after the change.
 func registerPluginProviders(errw io.Writer) {
+	pluginProviderIssues = nil
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return
@@ -88,6 +89,7 @@ func registerPluginProviders(errw io.Writer) {
 			if err := configurator.CheckPlugin(r.Registration(n, e.Enabled)); err != nil {
 				complete = false
 				fmt.Fprintf(errw, "warning: plugin %s: %s\n", escapeControl(n), escapeControl(err.Error()))
+				pluginProviderIssues = append(pluginProviderIssues, pluginProviderIssue{Plugin: n, Provider: r.Registration(n, e.Enabled).Name, Reason: err.Error()})
 				continue
 			}
 			specs = append(specs, r.Registration(n, e.Enabled))
@@ -104,6 +106,7 @@ func registerPluginProviders(errw io.Writer) {
 	for _, r := range refusedCells {
 		complete = false
 		drop[r.Name] = true
+		pluginProviderIssues = append(pluginProviderIssues, pluginProviderIssue{Provider: r.Name, Reason: r.Err.Error()})
 		fmt.Fprintf(errw, "warning: plugin provider %s is not registered: %s\n", escapeControl(r.Name), escapeControl(r.Err.Error()))
 	}
 	specs = slices.DeleteFunc(specs, func(s configurator.PluginSpec) bool { return drop[s.Name] })
@@ -111,10 +114,12 @@ func registerPluginProviders(errw io.Writer) {
 	if err != nil {
 		complete = false
 		fmt.Fprintln(errw, "warning: plugin providers are not registered:", escapeControl(err.Error()))
+		pluginProviderIssues = append(pluginProviderIssues, pluginProviderIssue{Reason: err.Error()})
 	}
 	for _, name := range refused {
 		complete = false
 		fmt.Fprintf(errw, "warning: plugin provider %s is declared by two plugins: neither is registered\n", escapeControl(name))
+		pluginProviderIssues = append(pluginProviderIssues, pluginProviderIssue{Provider: name, Reason: "declared by two plugins: neither is registered"})
 	}
 	// A claimed name lost in the registry must not keep cells either.
 	for _, name := range refused {
@@ -122,6 +127,18 @@ func registerPluginProviders(errw io.Writer) {
 	}
 	clientconfig.PluginProvidersComplete = func(map[string]clientconfig.PluginEntry) bool { return complete }
 }
+
+// pluginProviderIssue is one provider a registration refused, kept for doctor
+// (check plugin-provider): the warning on stderr scrolls away, the reason stays.
+type pluginProviderIssue struct {
+	Plugin   string // empty when the registry cannot say which plugin
+	Provider string
+	Reason   string
+}
+
+// pluginProviderIssues is what the last registerPluginProviders refused. Like
+// the registry it describes, it is replaced by each registration.
+var pluginProviderIssues []pluginProviderIssue
 
 // retiredPluginProviders names the registered providers of a plugin that is no
 // longer active and that this client still has connected (an agents entry or a

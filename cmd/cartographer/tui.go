@@ -1195,7 +1195,7 @@ func (m Model) viewList() string {
 			badge = styleNotInstalled.Render("not installed")
 		}
 
-		line := fmt.Sprintf("%s%-14s %s", cursor, row.Name, badge)
+		line := fmt.Sprintf("%s%-14s %s", cursor, tuiRowName(row.Agent), badge)
 		if i == m.cursor {
 			line = styleSelected.Render(line)
 		}
@@ -1242,7 +1242,23 @@ func (m Model) viewList() string {
 	if len(lines) == 0 {
 		lines = append(lines, "no agents detected")
 	}
+	if pl := pluginLines(m.snapshot); len(pl) > 0 {
+		lines = append(lines, "")
+		for _, l := range pl {
+			lines = append(lines, truncateForWidth(l, m.detailWidth()+rowLabelWidth))
+		}
+	}
 	return strings.Join(lines, "\n")
+}
+
+// tuiRowName is the name column of a provider card. A provider a plugin declares
+// shows its display name, which the plugin wrote, so it is escaped, with the
+// plugin that brings it.
+func tuiRowName(a agents.Agent) string {
+	if a.Plugin == "" {
+		return a.Name
+	}
+	return escapeControl(a.Name) + " (plugin " + escapeControl(a.Plugin) + ")"
 }
 
 // rowIndentWidth and rowLabelWidth define the two-column grid of a provider
