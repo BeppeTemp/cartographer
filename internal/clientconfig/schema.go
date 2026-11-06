@@ -75,12 +75,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "identities", Scope: settingschema.ScopeClient, Type: "map", Values: "<kb> | default: Name <email>", Default: "{}",
 		Example:     "default: User <user@example.com>\nwork-kb: User <user@work.example.com>",
 		Description: "The git author of this machine's writes, per KB name, with default for every other KB; without an entry, the identity git resolves in the session's repository. An empty value sends no author, and the server then names the token."},
-	{Path: "mcp_approvals", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
-		Example:     "kb-a:\n  docs-server:\n    content_hash: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\n    approved_at: 2026-01-01T00:00:00Z",
-		Description: "Local approvals of third-party MCP descriptors, hooks and executable artifacts (stored as <kind>/<name>), bound to the exact content hash. Written by the approval commands; do not edit by hand.",
-		Previous: []string{
-			"Local approvals of third-party MCP descriptors, bound to the exact content hash. Written by the approval commands; do not edit by hand.",
-		}},
 	{Path: "approvals_migrated", Scope: settingschema.ScopeClient, Type: "bool", Default: "false",
 		Description: "Set by the first sync, which approves the hooks and executable artifacts already installed with the content the KB serves now. Never cleared, so a revoked approval is not granted again. Do not edit by hand."},
 	{Path: "allow_insecure_http", Scope: settingschema.ScopeClient, Type: "bool", Default: "false",

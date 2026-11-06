@@ -17,7 +17,6 @@ client	paths	Manual name-to-directory mapping for {{path:<name>}}, and an overri
 client	ignored_paths	Placeholder ids known to be absent on this machine, for example repo:work-tools; sync stops reporting them. Edit it with `cartographer paths ignore`.
 client	signing_keys	Ed25519 public keys pinned per source KB, to verify the signed artifacts it serves. Pins are configured out of band, never learned from a sync.
 client	identities	The git author of this machine's writes, per KB name, with default for every other KB; without an entry, the identity git resolves in the session's repository. An empty value sends no author, and the server then names the token.
-client	mcp_approvals	Local approvals of third-party MCP descriptors, hooks and executable artifacts (stored as <kind>/<name>), bound to the exact content hash. Written by the approval commands; do not edit by hand.
 client	approvals_migrated	Set by the first sync, which approves the hooks and executable artifacts already installed with the content the KB serves now. Never cleared, so a revoked approval is not granted again. Do not edit by hand.
 client	allow_insecure_http	Accept a plain http:// server_url that is not loopback, sending the bearer token in clear. Off by default: the client refuses such a URL. Set by `connect --allow-insecure-http`; CARTOGRAPHER_ALLOW_INSECURE_HTTP=1 allows one run.
 client	update_check	Look up the latest release once a day and tell when a newer one exists. false makes no lookup at all. The client never replaces itself.

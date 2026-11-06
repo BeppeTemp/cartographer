@@ -492,7 +492,7 @@ lockfile and from the client state, its workspace bindings and projection scope 
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
 preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
-The client state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`,
+The client state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`, `.cartographer-machine.json`,
 `.cartographer-client.lock` (in the config directory), `.cartographer-created.json` (in the home or workspace, only while a Claude Code file it created is kept because it holds other keys) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). `.cartographer-client.lock` is an empty lock file, not state: the first sync or connect creates it and a dry run does not announce it. To remove every trace, delete them by hand once the last provider is disconnected.
 
 ```bash
@@ -853,7 +853,7 @@ and the sync timer write their unit files under `$HOME` and register nothing,
 so a sandbox never replaces the account's own jobs (#683); `connect` and `setup` then print `sync timer not installed: HOME is not this account's home (expected in tests)` as a plain line, not a warning. The timer runs plain `cartographer sync`: `sync` has no trust flag to give it (D906; `workspace bind codex --trust` is a separate, explicit command),
 and an MCP descriptor still needs the local approval an unattended job cannot give. `setup` and `connect` install the timer themselves when a connected provider has no
 session hook, or one limited to some sessions (D325); `setup` lists it in its plan. `uninstall` is
-the explicit opt-out, remembered as `sync_timer_opt_out` in the client state file (so `connect` does
+the explicit opt-out, remembered as `sync_timer_opt_out` in the machine file (so `connect` does
 not reinstall it, and `doctor`'s `trigger` check is info rather than a warning); `install` clears
 it. `disconnect` removes the timer when no remaining client needs it, without an opt-out. `status`
 only names the command.
@@ -907,7 +907,7 @@ instead and the command says so (D266).
 LaunchAgent `com.cartographer.tray` on macOS, a Scheduled Task `\Cartographer\Tray` on Windows, started
 at once so the icon appears without logging off; Linux has none. A failure to register it (an SSH
 session has no GUI) is a warning, never an install failure. `--no-tray` or `service tray uninstall`
-opts out and the choice is remembered (`tray_opt_out` in the client state file), so `upgrade-repair` does
+opts out and the choice is remembered (`tray_opt_out` in the machine file), so `upgrade-repair` does
 not bring it back; `service tray install` clears it. `service uninstall` removes the tray with the
 server. `upgrade-repair` re-renders and restarts the tray (also when the service is stopped, and for
 installs that predate it) so a tray running the previous binary picks up the new one; a tray failure
@@ -1454,7 +1454,7 @@ by itself, a hook, skill or agent that needs approval, has no approval recorded 
 with the same content hash the KB serves now (the lockfile entry says so), and prints one line per artifact:
 `approved <kind>/<name> [kb:<kb>]: installed before approvals existed, unchanged`. An artifact whose hash differs
 from its lock entry, or that is not in the lockfile, stays `needs_approval`. The migration runs once: its
-marker, `approvals_migrated`, is a key of `.cartographer.yaml` beside `mcp_approvals` (so losing the state file cannot re-arm it), is never cleared, and is not set by a dry run or
+marker, `approvals_migrated`, lives in the machine file `.cartographer-machine.json` beside the approvals, and stays in `.cartographer.yaml` as a tombstone (so losing the state file or the machine file cannot re-arm it), is never cleared, and is not set by a dry run or
 by a sync that could not pull every KB, so a later `approve revoke` is never undone. A `sync -dry-run` before it
 previews it: `would approve <kind>/<name> [kb:<kb>]: installed before approvals existed, unchanged` for what the real
 sync would approve, `needs_approval` only for the rest, and the marker stays untouched (#1176). A first `connect` of a client with no agent and no install yet writes the marker itself, so its first sync does not rewrite `.cartographer.yaml` (#1302); a client that is already connected keeps it unset until its own first sync.
@@ -1485,8 +1485,7 @@ kb_options: {}                  # D1408; per-KB settings for every provider: <kb
 scopes: {}                      # per-provider scope, provider | workspace (D193); set by `cartographer workspace bind`
 workspaces: {}                  # per-provider explicit workspace bindings, [{path, kbs}] (D193); set by `cartographer workspace bind`
 signing_keys: {}                # Ed25519 public keys pinned per source KB (`connect --pin-key`); never learned from a sync
-mcp_approvals: {}               # local approvals of MCP descriptors, bound to the content hash; written by `cartographer approve`, not edited by hand
-approvals_migrated: false       # set by the first sync once it has approved what was already installed unchanged (D1166); never cleared, do not edit
+approvals_migrated: false       # set by the first sync once it has approved what was already installed unchanged (D1166); never cleared, do not edit. Stays true after the approvals moved to the machine file (D1728)
 ```
 
 Every key, with its values and default, is the `Schema` table in `internal/clientconfig/schema.go`.
@@ -1521,23 +1520,26 @@ is ignored with a warning that names its replacement; it is never an error.
 
 The registry holds the client keys `token_env` (rewritten as `token: ${NAME}`, comments kept),
 `trust`, `write_findings_hook`, `search_depth`, `update.check` and `update.policy` (`update_check`, which an
-`auto-patch` policy turns into `true`), and `agents` and `sync_timer_opt_out`, whose **values move** to the
-client state file before the YAML drops them. A realignment that cannot write the state file stops and
-leaves the keys where they are. Until a file is realigned (a read-only mount), `Load` honours the old
-`token_env`, `update.check`, `agents` and `sync_timer_opt_out`.
+`auto-patch` policy turns into `true`), `agents`, whose **value moves** to the client state file, and
+`sync_timer_opt_out` and `mcp_approvals`, whose **values move** to the machine file (below)
+before the YAML drops them. A realignment that cannot write those files stops and leaves the keys where they are. Until a file is realigned (a read-only mount), `Load` honours the old
+`token_env`, `update.check`, `agents` and `sync_timer_opt_out`, and `mcp_approvals` while the machine file is absent.
 
 **Machine-written records live in `.cartographer-state.json`**, next to `.cartographer-client.lock` and
 `.cartographer-sync.lock.json` (D747). `known_kbs` (the KB names `/health` advertised at the last
 `connect`/`sync`), `server_mount_mode` and `server_routed_path` are rewritten wholesale by every
 sync, which is why they left the file you edit; since D906 it also holds `agents` (the connected clients,
-maintained by `connect` and `disconnect`) and `sync_timer_opt_out` (a record of `service sync-timer
-uninstall`), for the same reason: they are written by commands, never by a person. Because of them it is
+maintained by `connect` and `disconnect`), for the same reason: they are written by commands, never by a person. Because of them it is
 **not disposable**: a deleted state file means no connected client until the next `connect`. A sync that only refreshes them writes the state file
 and leaves `.cartographer.yaml` byte-identical, mtime included. The state file is JSON, never
 hand-edited. An installation from before keeps these keys in `.cartographer.yaml`; `Load` reads them
 from there while the state file is absent, and the next save moves them (the legacy `kbs` key, read
 since D169, goes the same way). An unreadable or corrupt state file is treated as absent, with one
-line on stderr that names what to redo: the known KBs come back with the next `sync`, but the connected agents and the sync-timer and tray opt-outs do not (`connect`, `service sync-timer uninstall`, `service tray uninstall`); the next save keeps the unreadable bytes as `state.json.bak` before replacing the file. `clients` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
+line on stderr that names what to redo: the known KBs come back with the next `sync`, but the connected agents do not (`connect`); the next save keeps the unreadable bytes as `state.json.bak` before replacing the file. 
+
+**The machine file, `.cartographer-machine.json` (D1728).** What the client's own commands record and no sync can rebuild: the local approvals (`cartographer approve`; hooks, executable artifacts and MCP descriptors, under `<kind>/<name>` for the first two), the `approvals_migrated` marker and the opt-outs `sync_timer_opt_out` and `tray_opt_out`. JSON, mode 0600, never hand-edited, and **fail closed**, unlike the state file: if it exists and cannot be read or parsed, `Load` approves nothing, treats the pre-approval migration as done (so nothing installed is approved in its place) and warns that the file is unreadable; `Save` leaves it untouched, and a command that would record an approval or an opt-out stops with an error until the file is fixed or removed (removing it asks for every approval again). A machine with nothing to record has no such file. An installation from before keeps these keys in `.cartographer.yaml` (the approvals and the marker) and in the state file (the opt-outs): `Load` reads them while the machine file is absent, and the first save or `client realign` writes the machine file, then drops the old keys, after keeping `.cartographer.yaml.bak-pre-machine`. Once the machine file exists the old keys are ignored. `approvals_migrated: true` stays in the YAML as a tombstone and the two opt-outs are still copied into the state file for this minor, so an older client after a downgrade sees the marker set (it never re-approves what is installed), no approvals (it asks again) and its opt-outs. If the machine file later disappears (deleted, a dangling link) the tombstone makes `Load` approve nothing, migrate nothing and warn to give the approvals again with `cartographer approve`; the pre-migration YAML is the `.bak-pre-machine` copy. While the file is unreadable, `Save` and `client realign` keep the old YAML keys and stop rather than drop them.
+
+`clients` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
 
 `.cartographer.yaml` is written atomically (a temporary file beside it, `fsync`, rename) and the operator's own file keeps what they gave it: a **symlink** (stow, yadm) is followed and its target replaced, so the link survives; an existing **mode** is kept (a literal token only ever takes group and other access away, never gives it). This differs from the no-follow rule of the client directories (D148) because it is the operator's own file, written on their own command, not a path inside somebody else's checkout. A key the file does not carry (`server_url`, `server_name`, `token`) loads as the schema's default, as `Default()` does; an explicit empty value stays empty.
 

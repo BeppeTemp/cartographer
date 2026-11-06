@@ -188,7 +188,10 @@ func TestAgentsAndTimerOptOutLiveInTheStateFile(t *testing.T) {
 	}
 	state := readFile(t, clientconfig.StatePath(dir))
 	if !strings.Contains(state, `"claude"`) || !strings.Contains(state, `"sync_timer_opt_out": true`) {
-		t.Errorf("the state file lacks them:\n%s", state)
+		t.Errorf("the state file must hold the agents and a copy of the opt-out for older clients:\n%s", state)
+	}
+	if machine := readFile(t, clientconfig.MachinePath(dir)); !strings.Contains(machine, `"sync_timer_opt_out": true`) {
+		t.Errorf("the machine file lacks the opt-out:\n%s", machine)
 	}
 	again, err := clientconfig.Load(dir)
 	if err != nil || len(again.Agents) != 2 || !again.SyncTimerOptOut {
@@ -616,7 +619,7 @@ func TestEveryYamlFieldIsWrittenBySave(t *testing.T) {
 	for _, key := range []string{
 		"server_url", "server_name", "auth", "token",
 		"clients", "search_roots",
-		"paths", "signing_keys", "mcp_approvals",
+		"paths", "signing_keys",
 	} {
 		if !hasKey(raw, key) {
 			t.Errorf("Save omitted %q:\n%s", key, raw)
@@ -757,16 +760,16 @@ func TestConfigDirsRejectedOutsideClaude(t *testing.T) {
 }
 
 // TrayOptOut (D1482) is a record of a command like SyncTimerOptOut: it lives
-// in the state file and survives a save and a load.
-func TestTrayOptOutRoundTripsThroughTheStateFile(t *testing.T) {
+// in the machine file and survives a save and a load.
+func TestTrayOptOutRoundTripsThroughTheMachineFile(t *testing.T) {
 	dir := t.TempDir()
 	cfg := clientconfig.Default()
 	cfg.TrayOptOut = true
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if state := readFile(t, clientconfig.StatePath(dir)); !strings.Contains(state, `"tray_opt_out": true`) {
-		t.Errorf("state file lacks the opt-out:\n%s", state)
+	if machine := readFile(t, clientconfig.MachinePath(dir)); !strings.Contains(machine, `"tray_opt_out": true`) {
+		t.Errorf("machine file lacks the opt-out:\n%s", machine)
 	}
 	if raw := readFile(t, clientconfig.Path(dir)); hasKey(raw, "tray_opt_out") {
 		t.Errorf("the YAML holds the opt-out:\n%s", raw)

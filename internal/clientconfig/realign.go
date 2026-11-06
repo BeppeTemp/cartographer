@@ -35,8 +35,13 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 		Description: "What to do about a newer release: notify says so; auto-patch installs patch releases by itself when installed with Homebrew, install.sh or install.ps1."},
 	{Path: "agents", Plan: 906, Note: "the connected clients are a record of the connect commands, kept in the client state file (.cartographer-state.json)",
 		Description: "The agent clients connected to the server, for example claude or opencode. connect and disconnect maintain it."},
-	{Path: "sync_timer_opt_out", Plan: 906, Note: "it is a record of `service sync-timer uninstall`, kept in the client state file (.cartographer-state.json)",
+	{Path: "sync_timer_opt_out", Plan: 906, Note: "it is a record of `service sync-timer uninstall`, kept in the client machine file (.cartographer-machine.json)",
 		Description: "Set by `service sync-timer uninstall`: connect and setup then stop installing the sync timer themselves."},
+	{Path: "mcp_approvals", Note: "the local approvals are kept in the client machine file (.cartographer-machine.json), which fails closed when unreadable",
+		Description: "Local approvals of third-party MCP descriptors, hooks and executable artifacts (stored as <kind>/<name>), bound to the exact content hash. Written by the approval commands; do not edit by hand.",
+		Previous: []string{
+			"Local approvals of third-party MCP descriptors, bound to the exact content hash. Written by the approval commands; do not edit by hand.",
+		}},
 }}
 
 // RealignFile brings the client config in dir up to date (D903): the removed
@@ -90,14 +95,27 @@ func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, er
 	root := doc.Content[0]
 	var changes []settingschema.Change
 
-	// agents and sync_timer_opt_out: into the state file, then the registry
-	// drops them from the YAML.
-	if pairIndex(root, "agents") >= 0 || pairIndex(root, "sync_timer_opt_out") >= 0 {
+	// agents into the state file, and the approvals and the opt-outs into the
+	// machine file (D1728); then the registry drops them from the
+	// YAML. The machine file is written first, with its backups.
+	if pairIndex(root, "agents") >= 0 || pairIndex(root, "sync_timer_opt_out") >= 0 || pairIndex(root, "mcp_approvals") >= 0 {
 		cfg, err := Load(dir)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return data, nil, fmt.Errorf("moving agents to the state file: %w", err)
 		}
 		if err == nil {
+			if cfg.machineBroken != nil {
+				// Never drop the old keys while the file that should hold their
+				// values cannot be read: they are all that is left of them.
+				return data, nil, fmt.Errorf("the machine file is unreadable (%v): not moving the approvals, fix or remove it first", cfg.machineBroken)
+			}
+			movedMachine, err := writeMachineChanged(dir, cfg)
+			if err != nil {
+				return data, nil, fmt.Errorf("moving the approvals to the machine file: %w", err)
+			}
+			if movedMachine {
+				changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "mcp_approvals, sync_timer_opt_out", Detail: "their values are in " + MachinePath(dir)})
+			}
 			wrote, err := writeStateChanged(dir, cfg)
 			if err != nil {
 				return data, nil, fmt.Errorf("moving agents to the state file: %w", err)

@@ -191,8 +191,11 @@ func TestRealignFileD906(t *testing.T) {
 
 	// agents and the timer opt-out moved to the state file, they were not dropped.
 	state := readFile(t, clientconfig.StatePath(dir))
-	if !strings.Contains(state, "claude") || !strings.Contains(state, "codex") || !strings.Contains(state, `"sync_timer_opt_out": true`) {
-		t.Errorf("the state file does not hold the moved values:\n%s", state)
+	if !strings.Contains(state, "claude") || !strings.Contains(state, "codex") {
+		t.Errorf("the state file does not hold the moved agents:\n%s", state)
+	}
+	if machine := readFile(t, clientconfig.MachinePath(dir)); !strings.Contains(machine, `"sync_timer_opt_out": true`) {
+		t.Errorf("the machine file does not hold the moved opt-out:\n%s", machine)
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {

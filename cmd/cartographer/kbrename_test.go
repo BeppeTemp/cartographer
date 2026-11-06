@@ -206,7 +206,7 @@ func TestClientRefsListsKeysHeldUnderTheKB(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := clientRefs("wiki")
-	want := []string{`signing_keys["wiki"]`, `mcp_approvals["wiki"]`, `identities["wiki"]`}
+	want := []string{`signing_keys["wiki"]`, `approvals["wiki"] (machine file)`, `identities["wiki"]`}
 	if !slices.Equal(got, want) {
 		t.Errorf("clientRefs(wiki) = %q, want %q", got, want)
 	}
