@@ -284,8 +284,8 @@ func TestApply_RefusedPruneIsReportedKeptInTheLockAndRetried(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply = %v, want the refusal reported, not fatal", err)
 	}
-	if len(res.Refused) != 1 || res.Refused[0].Name != "s" || len(res.Pruned) != 0 {
-		t.Errorf("Refused = %+v, Pruned = %+v; want the skill refused and nothing pruned", res.Refused, res.Pruned)
+	if len(res.RefusedRemovals) != 1 || res.RefusedRemovals[0].Name != "s" || len(res.Pruned) != 0 {
+		t.Errorf("Refused = %+v, Pruned = %+v; want the skill refused and nothing pruned", res.RefusedRemovals, res.Pruned)
 	}
 	if len(res.NewLock.Managed) != 1 || res.NewLock.Managed[0].Name != "s" {
 		t.Errorf("NewLock.Managed = %+v, want the refused file kept", res.NewLock.Managed)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -795,12 +796,19 @@ func runSetupPlan(p setupPlan) int {
 	if len(p.KeepAgents) > 0 {
 		groups = append(groups, p.KeepAgents)
 	}
+	connectNotWired = nil
+	partial := false
 	for i, agents := range groups {
 		kbs := p.KBs
 		if i == 1 {
 			kbs = nil // the agents that keep their binding
 		}
-		if code := connect(agents, kbs); code != 0 {
+		// 3: some agent is partially or not connected (a refused destination);
+		// the others went through, so the step goes on and the end says so.
+		code := connect(agents, kbs)
+		if code == exitPartiallyConnected {
+			partial = true
+		} else if code != 0 {
 			fmt.Fprintln(os.Stderr, "Setup stopped at the connect step: fix the cause above, then rerun `cartographer setup`.")
 			return 1 // not the step's own code: 2 means "nothing changed", and the service and the KB exist now
 		}
@@ -813,6 +821,11 @@ func runSetupPlan(p setupPlan) int {
 		return 1
 	}
 	fmt.Println("server ready")
+
+	if partial || len(connectNotWired) > 0 {
+		fmt.Fprintf(os.Stderr, "Setup finished, but not every agent is wired: %s. Replace the symlink named in the warnings above with a regular file or directory, then rerun `cartographer setup` (finished steps are skipped).\n", cmp.Or(strings.Join(connectNotWired, "; "), "see the connect output above"))
+		return exitPartiallyConnected
+	}
 
 	fmt.Println()
 	fmt.Println("Cartographer is set up.")

@@ -440,6 +440,13 @@ type AppliedResult struct {
 	// retries and reports again, which is right for a condition only the
 	// operator can clear.
 	Refused []Artifact
+	// RefusedRemovals: managed artifacts that could not be removed because
+	// they, or their registration, sit behind a symlink (D148). Kept apart from
+	// Refused on purpose: a refused write leaves the provider unwired, a
+	// refused removal leaves something stale behind a provider that works, so
+	// only Refused counts as a skipped part of a connect (#1693). They stay in
+	// the lockfile and the next sync retries.
+	RefusedRemovals []Artifact
 	// Healed: artifacts restored because their files on disk had diverged
 	// from what the lockfile recorded (D139). Reported separately from
 	// Written: a restore means someone's local change was discarded, which

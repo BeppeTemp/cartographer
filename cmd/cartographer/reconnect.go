@@ -66,8 +66,9 @@ func cmdReconnect(args []string) int {
 		fmt.Println("no connected provider matches; nothing to reconnect (name a provider explicitly to rebuild it anyway)")
 		return 0
 	}
+	code := 0
 	if res.Connected != nil {
-		printConnectResult(dir, res.ConnectOptions.Providers, res.ConnectOptions, *res.Connected)
+		code = printConnectResult(dir, res.ConnectOptions.Providers, res.ConnectOptions, *res.Connected)
 	}
 	if res.Disconnected != nil {
 		if kept := res.Disconnected.keptConnected(); len(kept) > 0 {
@@ -75,7 +76,7 @@ func cmdReconnect(args []string) int {
 			return 1
 		}
 	}
-	return 0
+	return code
 }
 
 // reconnectOptions bundles what a rebuild needs: the same provider selectors

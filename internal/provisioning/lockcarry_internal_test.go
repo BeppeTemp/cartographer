@@ -612,8 +612,8 @@ func TestApply_RefusedInstructionsRemovalKeepsThePathsHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
-	if len(res2.Refused) != 1 {
-		t.Fatalf("Refused = %+v, want the instructions", res2.Refused)
+	if len(res2.RefusedRemovals) != 1 {
+		t.Fatalf("Refused = %+v, want the instructions", res2.RefusedRemovals)
 	}
 	var got []ManagedFile
 	for _, mf := range res2.NewLock.Managed {

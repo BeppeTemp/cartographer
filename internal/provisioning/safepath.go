@@ -60,11 +60,11 @@ func mkdirAllNoFollow(baseDir, dir string, perm os.FileMode) error {
 // retries and reports again; one artifact is reported once however many of its
 // files were refused.
 func refusePrune(result *AppliedResult, mf ManagedFile, err error) {
-	for _, a := range result.Refused {
+	for _, a := range result.RefusedRemovals {
 		if a.Kind == mf.Kind && a.Name == mf.Name {
 			return
 		}
 	}
-	result.Refused = append(result.Refused, Artifact{Kind: mf.Kind, Name: mf.Name, Source: mf.Source})
+	result.RefusedRemovals = append(result.RefusedRemovals, Artifact{Kind: mf.Kind, Name: mf.Name, Source: mf.Source})
 	result.Warnings = append(result.Warnings, fmt.Sprintf("%s/%s not removed: %v", mf.Kind, mf.Name, err))
 }

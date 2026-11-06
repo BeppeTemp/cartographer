@@ -179,7 +179,7 @@ decides every step **before** running any:
 - **Interactive** (a TTY, no `--no-input`): asks for the remote when none is mounted — blank means
   a local-only KB, confirmed explicitly (D134) — then which of the detected agents to connect, prints
   the plan and asks `Proceed? [Y/n]` (skipped by `--yes`). `--dry-run` prints the plan and exits 0.
-- **Exit codes:** 0 set up; 1 a step failed (whatever code the step itself returned: the service and the KB may exist by then) or the operator cancelled; 2 usage, preflight or
+- **Exit codes:** 0 set up; 3 every step ran but an agent is partially or not connected because a destination is a symlink (`connect`'s exit 3: setup names the agents and what was skipped instead of "Cartographer is set up."); 1 a step failed (whatever code the step itself returned: the service and the KB may exist by then) or the operator cancelled; 2 usage, preflight or
   choice error (nothing changed). A failed step prints `Setup stopped at …`; a rerun skips what is
   done. On Linux a freshly installed user unit without lingering gets the `loginctl enable-linger`
   hint (systemd only: cron has no logout problem). The run ends on the Atlas URL and on restarting the agent sessions.
@@ -242,7 +242,7 @@ kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations wi
 destination go to `unsupported` and are filtered upstream), and writes/updates `.cartographer.yaml`. If the
 server is unreachable, the MCP configs and `.cartographer.yaml` are still written; materialization
 is **deferred** (warning, exit 0) — it must be completed with `cartographer sync` once the
-server is up. A transport failure (dial, DNS, timeout) defers as "server unreachable"; any other answer that is not a rejection (a 404 or 5xx from `/health`) also defers, worded "the server did not serve the skills", and probe messages say "the server answered but the probe failed" for it; a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). Materialized hooks are also **automatically registered** in the
+server is up. A transport failure (dial, DNS, timeout) defers as "server unreachable"; any other answer that is not a rejection (a 404 or 5xx from `/health`) also defers, worded "the server did not serve the skills", and probe messages say "the server answered but the probe failed" for it; a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). A provider whose destination the symlink guard refuses ends `partially connected` or `not connected` and `connect` exits 3 ([§Symlinked config files and directories are refused](#symlinked-config-files-and-directories-are-refused)). Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job an earlier release installed, printing one line when there was one:
@@ -733,7 +733,7 @@ The checks:
 | `client-config` | `.cartographer.yaml` exists and loads (an existing file that does not load is reported with the real error and the fix `fix or remove <path>`, not `connect`); an agent is connected; every configured provider is still installed |
 | `lockfile` | present, readable, and in the v2 format — a v1 file on disk is migrated *in memory* by every read, but stays v1 until something rewrites it |
 | `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered`, `unrunnable` (a Claude Code hook whose registered command cannot run, with the reason — D267); `foreign` (an info line: a file inside a managed skill/hook directory that the lock does not own, which `sync` leaves and `status` does not count as drift, #1502); plus files sitting inside a managed skill/hook directory that no lock entry accounts for (D178) — reported only, since doctor cannot prove Cartographer wrote them |
-| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one. Only the names `disconnect`/`reconnect` manage count (the server name and `<server>-<kb>` for the recorded KBs): a user's own `cartographer-dev` is left alone |
+| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one. When the config is behind a symlink the fix names the link (replace it with a regular file or directory) instead of `cartographer reconnect`, which refuses it too (D148). Only the names `disconnect`/`reconnect` manage count (the server name and `<server>-<kb>` for the recorded KBs): a user's own `cartographer-dev` is left alone |
 | `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts), **and** that the provider actually reads the file it was written into (D189) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite; for OpenCode, the plugin shape written against the installed major (D359) — a 1.x plugin on OpenCode 2.x is an error, an unsupported major a warning, an unreadable version a warning (the shape was guessed, D719) |
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |
@@ -1708,7 +1708,14 @@ The refusal is **per provider** (and, in a sync, per artifact):
 - `connect` and `sync` report it as a warning (`mcp config left unchanged: …`, or
   `<kind>/<name> not installed: …` / `not removed: …` for a provisioned artifact: a skill, an MCP
   entry, the instructions block, a hook and its registration) and still write every other provider and
-  artifact. The bootstrap and write-findings hooks are no exception: a provider whose
+  artifact. After the warnings `connect` names the outcome per provider ([D1722](decisions/D1722-connect-status-exit-three.md)):
+  `connected: <p>` when nothing was refused; `partially connected: <p> (skipped: <parts>: destination is a symlink)` when some
+  parts were written and some refused; `not connected: <p> (<parts> skipped: destination is a symlink)` when the MCP entry was
+  refused, whatever else was written, because without it the agent cannot reach Cartographer. The parts are what the run
+  refused: `MCP entry`, `bootstrap hook`, `write-findings hook`, and the kinds of artifact (`skills`, `agents`, `hooks`,
+  `instructions`). A refused *removal* (`<kind>/<name> not removed`) stays a warning and does not count as a skipped part: the provider is still wired. `wrote MCP entry <name>` is printed (by `connect` and `sync`) only for an entry that was written. **`connect`
+  exits 3** when at least one provider ended partially or not connected; the others are still wired, so 3 is the signal, not an
+  abort (0 and 1 keep their meaning, 2 stays configuration/operational); `reconnect` exits 3 the same way. The bootstrap and write-findings hooks are no exception: a provider whose
   destination for them is behind a link gets a `<provider>: bootstrap hook not installed: …` warning and the
   others are still set up. A refused write of a new artifact is not recorded as installed, a refused update keeps the previous
   lockfile entry (its files on disk are still ours), and one whose removal was refused stays in the
