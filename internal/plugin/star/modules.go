@@ -43,6 +43,7 @@ type callCtx struct {
 
 	lookupEnv func(string) (string, bool)
 	net       *netState
+	files     *filesState
 }
 
 func ctxOf(thread *starlark.Thread) *callCtx {
@@ -79,12 +80,11 @@ func pureModules() starlark.StringDict {
 // give them bodies; until then, and always while loading, a call is refused
 // with an error naming why.
 var capabilityFuncs = map[string][]string{
-	"kb":    {"call"},
-	"files": {"read", "write", "remove", "glob"},
+	"kb": {"call"},
 }
 
 func capabilityModules(settings *settingsValue) starlark.StringDict {
-	out := starlark.StringDict{"settings": settings, "log": logModule(), "http": httpModule(), "env": envModule()}
+	out := starlark.StringDict{"settings": settings, "log": logModule(), "http": httpModule(), "env": envModule(), "files": filesModule()}
 	for mod, fns := range capabilityFuncs {
 		m := &starlarkstruct.Module{Name: mod, Members: starlark.StringDict{}}
 		for _, fn := range fns {

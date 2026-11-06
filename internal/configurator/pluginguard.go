@@ -25,6 +25,12 @@ var deniedGlobalPrefixes = [][]string{
 	{".config", "fish"}, {".config", "powershell"}, {".config", "nushell"},
 	{".oh-my-zsh"}, {".bashrc.d"}, {".zshrc.d"}, {".profile.d"}, {".config.d"},
 	{".cargo"}, {".npm-global"}, {".local", "bin"},
+	// Shell start-up files: a write is code execution at the next shell.
+	{".zshrc"}, {".zshenv"}, {".zprofile"}, {".zlogin"}, {".zlogout"}, {".bashrc"}, {".bash_profile"},
+	{".bash_login"}, {".bash_logout"}, {".profile"}, {".inputrc"},
+	// The server's data (KB clones, audit log, credentials, index) at its default
+	// places; the client cannot know a configured data directory.
+	{"cartographer-data"}, {".local", "share", "cartographer"},
 }
 
 // foldCase lowercases a path off Linux, where the default file systems do not
@@ -259,4 +265,11 @@ func IsBuiltinMCPFile(rel string) bool {
 		}
 	}
 	return false
+}
+
+// DeniedHomePath reports whether a home-relative path (segments) lies in a place
+// no plugin may reach: the list above, git configuration and Cartographer's own
+// state. The provider cells and the file capabilities of plugin scripts share it.
+func DeniedHomePath(segs []string) bool {
+	return len(segs) > 0 && DeniedClientDir(segs, ClientDir(segs))
 }

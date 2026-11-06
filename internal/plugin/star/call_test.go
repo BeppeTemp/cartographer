@@ -394,8 +394,8 @@ tool("go", go, "go")
 	}
 }
 
-// Until the capability modules have a body, they refuse in CALL too, and no
-// name reaches the filesystem or a process.
+// Without a grant a capability refuses in CALL, and no name reaches the
+// filesystem or a process.
 func TestCallNeverTouchesTheOutsideWorld(t *testing.T) {
 	p := mustLoad(t, `
 def go(a):
@@ -403,7 +403,7 @@ def go(a):
 tool("go", go, "go")
 `)
 	_, err := p.Call(context.Background(), toolReq("go", `{}`))
-	callErr(t, err, Failed)
+	callErr(t, err, Denied)
 	for _, name := range []string{"open", "os", "exec"} {
 		if _, err := Load(entry(name + "\n")); err == nil {
 			t.Errorf("%s exists", name)

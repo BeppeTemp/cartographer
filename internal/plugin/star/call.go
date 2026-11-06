@@ -71,6 +71,10 @@ type Host struct {
 	// LookupEnv reads the environment for env.get; nil is os.LookupEnv. The
 	// manifest's list is checked before it is asked.
 	LookupEnv func(string) (string, bool)
+	// Home, ConfigDir and CacheDir place files.*: the home directory every
+	// path stays under and the user's config and cache directories, whose
+	// "cartographer" directory is denied. Empty is the OS's.
+	Home, ConfigDir, CacheDir string
 }
 
 // Request is one call of a registered function.
@@ -87,6 +91,10 @@ type Request struct {
 	Args   []string
 	Params json.RawMessage
 	Event  map[string]any
+
+	// ReadOnly is a read-only session: files.write and files.remove are
+	// denied whatever the manifest grants.
+	ReadOnly bool
 
 	// Permissions are the manifest's, nil for none.
 	Permissions *plugin.Permissions
@@ -185,6 +193,7 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (res Result
 		cc.lookupEnv = os.LookupEnv
 	}
 	cc.net = newNetState(cc, req.Version, o.net)
+	cc.files = &filesState{cc: cc, host: req.Host, readOnly: req.ReadOnly}
 	var printw io.Writer = logw
 	prefix := "plugin " + req.Plugin + ": "
 	if req.Kind == KindCommand {
