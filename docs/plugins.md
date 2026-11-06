@@ -204,8 +204,8 @@ an `active` one contributes its skills, agents and hooks with their files in mem
 A `providers/<id>.yaml` describes an agent client as data: a fork or an in-house build of a built-in client. `<id>` is
 the provider id and the file stem. The descriptor is read by `plugin.ParseProvider` and resolved for the running
 machine by `plugin.ResolveProvider`; the registry (`configurator.RegisterPlugin`) holds the result beside the
-built-in providers. Nothing in a plugin tree is read as a provider: the point is not in the registry of
-contribution points, so a `providers/` folder is an unknown entry of the tree.
+built-in providers. `providers` is a contribution point of the tree: a provider is registered at start (below) and
+installs no artifact.
 
 ### Descriptor
 
@@ -313,3 +313,34 @@ A provider whose base has a shared hook dispatcher (Cline) contributes its `hook
 dispatcher, which stays shared and is never written by the plugin. The roots come from the registry and only for a
 provider of an active plugin, so retracting a plugin stops its hooks at once, even with files on disk. On any other
 base the hook cell is dropped with a note.
+
+### Registration at start
+
+`registerPluginProviders` (`cmd/cartographer`) runs in `main`, before any command loads the client config, because
+`Load` drops every provider name the registry does not know (D898). It reads the `plugins` key alone
+(`clientconfig.LoadPlugins`), opens the tree of every approved digest from the store (no git, no network, no lock) and
+registers each provider with the registry and the destination cells: active when the plugin is enabled, inactive
+when it is disabled (so what it installed can be retired). A plugin that is pending approval registers nothing.
+It runs at every process start, for every subcommand (`serve` and the MCP bridge included), reads each approved tree
+once, writes nothing and reports its problems on stderr. Registration happens once per process; calling it again
+replaces the whole registered set, which a command that changes a plugin's state does after the change.
+
+A plugin whose approved tree is missing, modified or invalid registers nothing, and a provider the registries refuse
+is not registered (two plugins declaring one name, a colliding cell, a spec this machine cannot resolve); the run
+warns, and the registration is **incomplete**. While it is incomplete `clientconfig.PluginProvidersComplete` answers
+false and neither `Load` (agents, clients, scopes, unbound modes, workspaces) nor the lock-section clean-up drops any
+name: a purged store never costs the user a provider. With no plugin configured the answer is true and an unknown name
+is cleaned as before; with plugins configured and no registration run (`serve`, a test) the default answers false.
+
+`sync` retires the providers of a disabled plugin before it computes its targets: `doDisconnectLocked` removes their
+MCP entry, their managed files and their lock section, and drops them from `agents`, scopes and workspaces. `--client`
+leaves it to the next full sync. A plugin whose tree cannot be read has registered nothing and retires nothing.
+
+### Preview
+
+The install preview prints, per provider, the detection (binaries and the directories as absolute paths on this
+machine, `{documents}` included), every path it writes (global ones absolute, project ones relative to the project
+root), the MCP mode with the file it writes and the stale files it removes, the hook root, the capabilities it claims
+and the paths the resolver left out with the reason. Every string passes through `esc`. `plugin validate` runs the
+registry and cell checks as a dry run against the built-ins, so a provider whose roots collide with one is a problem
+of the tree.

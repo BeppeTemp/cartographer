@@ -449,6 +449,14 @@ func RegisterPluginCells(c PluginCells, home string) ([]string, error) {
 	return notes, nil
 }
 
+// CheckPluginCells reports whether RegisterPluginCells would accept c against
+// the built-ins (the dry run of `plugin validate`); it registers nothing and does
+// not look at the providers already registered.
+func CheckPluginCells(c PluginCells, home string) error {
+	_, _, err := buildPluginEntry(c, home, nil)
+	return err
+}
+
 // PluginCellsRefusal names a provider ReplacePluginCells left out and why.
 type PluginCellsRefusal struct {
 	Name string

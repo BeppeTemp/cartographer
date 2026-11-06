@@ -79,7 +79,7 @@ func TestReadTreeProblems(t *testing.T) {
 		extra []TreeFile
 		want  string
 	}{
-		{"unknown entry", []TreeFile{tf("docs/page.txt", "x")}, "unknown entry `docs`: a plugin holds agents/, hooks/, skills/"},
+		{"unknown entry", []TreeFile{tf("docs/page.txt", "x")}, "unknown entry `docs`: a plugin holds agents/, hooks/, providers/, skills/"},
 		{"mcp", []TreeFile{tf("mcp/x.json", "{}")}, `"mcp/x.json": not a plugin contribution point in this version`},
 		{"instructions", []TreeFile{tf("instructions.md", "x")}, `"instructions.md": not a plugin contribution point`},
 		{"plugin.star", []TreeFile{tf("plugin.star", "x")}, "plugin scripts are not supported yet"},
@@ -211,7 +211,7 @@ func TestRegisteredPoints(t *testing.T) {
 	for _, p := range RegisteredPoints() {
 		got = append(got, p.Dir)
 	}
-	if !reflect.DeepEqual(got, []string{"agents", "hooks", "skills"}) {
+	if !reflect.DeepEqual(got, []string{"agents", "hooks", "providers", "skills"}) {
 		t.Errorf("registered points: %v", got)
 	}
 }

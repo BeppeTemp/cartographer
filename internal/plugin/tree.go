@@ -123,6 +123,9 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 			p.Contributions[pt.Dir] = cs
 		}
 		for _, c := range cs {
+			if c.Provider != nil {
+				continue // registered by the host, not materialized as a file set
+			}
 			p.Artifacts = append(p.Artifacts, provisioning.Artifact{
 				Kind: c.Kind, Name: c.Name, Source: "plugin:" + p.Manifest.Name,
 				ContentHash: provisioning.ContentHashFiles(c.Files), Files: c.Files,
