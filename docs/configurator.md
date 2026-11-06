@@ -1487,17 +1487,17 @@ knowledge_bases:                # one entry per KB, for every provider; default 
   default:
     identity: Ada Lovelace <ada@example.com>   # D904; the git author of this machine's writes; without one, the identity git resolves in the session's repository (an HTTP entry: the global one)
   work-kb:
-    identity: Ada Lovelace <ada@corp.example>  # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
     access: read                # D1409; connects the KB read-only on every provider that receives it; edit with `cartographer client kb`
     artifacts: false            # D1408; stops the KB's skills, subagents, hooks and MCP descriptors (it stays connected)
+    identity: Ada Lovelace <ada@corp.example>  # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
     signing_keys: []            # Ed25519 public keys pinned per source KB (`connect --pin-key`); never learned from a sync
 placeholders:                   # how {{repo:<key>}} and {{path:<name>}} resolve (D75, D1731)
   search_roots: ["~/Documents", "~/src", "~/code", "~/projects"]   # where repoindex.Scan looks for git clones for {{repo:<key>}}; the default, 4 levels deep (a constant, D906); a default root that does not exist is skipped silently; consulted only for a key with no `placeholders.paths` entry
   paths: {}                     # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}); edit with `cartographer paths set`
   ignored: []                   # placeholder ids known to be absent on this machine, e.g. repo:work-tools (D282); edit with `cartographer paths ignore`
+approvals_migrated: false       # set by the first sync once it has approved what was already installed unchanged (D1166); never cleared, do not edit. Stays true after the approvals moved to the machine file (D1728)
 update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
-approvals_migrated: false       # set by the first sync once it has approved what was already installed unchanged (D1166); never cleared, do not edit. Stays true after the approvals moved to the machine file (D1728)
 ```
 
 Every key, with its values and default, is the `Schema` table in `internal/clientconfig/schema.go`.
@@ -1549,7 +1549,16 @@ The per-provider and per-KB keys follow the same path. The realignment moves `cl
 `tools: minimal` is an error naming the provider). A `*` segment in a `Moved` entry stands for every provider or KB the
 file names, so one entry moves them all; a KB name with a dot or a `*` in it moves like any other (a KB is named after its folder), each key addressed literally. `Grouped`
 renders a flat file in the current layout in memory, for the settings report and `cartographer config`. `mcp_approvals` and `plugins` are
-not part of the groups. The key order of a migrated file is kept: a moved group lands at the end.
+not part of the groups.
+
+**Key order.** The realignment that moves keys into their groups writes the whole file in the order of the
+`Schema` table (the root keys, the keys of `server` and `placeholders`) and, inside a provider, `kbs`, `scope`,
+`unbound_access`, `config_dirs`, `access`, `tools`, `workspaces`; inside a knowledge base, `access`, `artifacts`,
+`identity`, `signing_keys`. A comment travels with its key, an unknown key stays right after the key that preceded it
+in the file, and the order of the providers, the KBs and the list entries is the file's. A file that needs no move
+keeps its order until `cartographer client realign --reorder`, which rewrites it in that order (the original is kept
+as `.cartographer.yaml.bak-<version>`, a second run changes nothing); `cartographer client realign` alone is the
+realignment of `sync` on demand. A KB name with a dot in it is an ordinary key for the reorder.
 
 The registry holds the client keys `token_env` (rewritten as `token: ${NAME}`, comments kept),
 `trust`, `write_findings_hook`, `search_depth`, `update.check` and `update.policy` (`update_check`, which an
@@ -1592,6 +1601,7 @@ a failure.
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
+| `client realign [--reorder]` | realigns `.cartographer.yaml` to the current settings table, the same pass `sync` runs (the original is kept as `.cartographer.yaml.bak-<version>`); `--reorder` also writes the keys in the table's order, leaving a mapping as it is when one of its keys aliases (or merges) an anchor another of its keys defines |
 | `client kb <kb> [--artifacts=true\|false] [--access=read\|write]` | shows, or sets, the KB's per-KB options (the `knowledge_bases` map, D1408, D1409), for every provider; `--access=read` connects the KB read-only (below), `write` removes the key; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB the server does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
 
 `knowledge_bases.<kb>.artifacts: false` (D1408) is a narrowing, never a widening: it wins over `providers.<provider>.scope`, `providers.<provider>.kbs`, explicit workspace bindings and derived bindings, and changes neither which KBs a provider or folder reaches nor the KB's MCP tools. It does nothing on a server that does not name its KBs. `status` marks such a KB `artifacts: off (knowledge_bases)` under the provider's `kbs` line.

@@ -67,6 +67,8 @@ func cmdClient(args []string) int {
 		return clientUpdate(dir, cfg, args[1:])
 	case "kb":
 		return clientKB(dir, cfg, args[1:])
+	case "realign":
+		return clientRealign(dir, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown subcommand %q\n", args[0])
 		printClientUsage(os.Stderr)
@@ -81,7 +83,42 @@ func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "       cartographer client unbind <provider> <kb>[,<kb>...]   removes KBs from it")
 	fmt.Fprintln(w, "       cartographer client reset <provider>                   restores every known KB")
 	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
+	fmt.Fprintln(w, "       cartographer client realign [--reorder]   brings the file up to date; --reorder also writes its keys in the order of the settings table")
 	fmt.Fprintln(w, "       cartographer client kb <kb> [--artifacts=true|false] [--access=read|write]   shows or sets the KB's options on every provider")
+}
+
+// clientRealign is `sync`'s realignment of the client file on demand
+// (D903), with --reorder also writing the keys in the order of the settings
+// table. The client lock is held by cmdClient; the original is kept beside the
+// file, and a file already in that form is left alone.
+func clientRealign(dir string, args []string) int {
+	fs := flag.NewFlagSet("client realign", flag.ContinueOnError)
+	reorder := fs.Bool("reorder", false, "write the keys in the order of the settings table")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "Error: unexpected argument %q\n", fs.Arg(0))
+		return 2
+	}
+	realign := clientconfig.RealignFile
+	if *reorder {
+		realign = clientconfig.ReorderFile
+	}
+	rep, backup, err := realign(dir, version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s is not realigned: %v\n", clientconfig.Path(dir), err)
+		return 1
+	}
+	if rep.Empty() {
+		fmt.Printf("%s is up to date\n", clientconfig.Path(dir))
+		return 0
+	}
+	fmt.Printf("%s realigned (the original is kept as %s):\n", clientconfig.Path(dir), backup)
+	for _, l := range rep.Lines() {
+		fmt.Printf("  - %s\n", l)
+	}
+	return 0
 }
 
 // clientUpdate shows or sets `update_check` (D254, D906): whether the daily
