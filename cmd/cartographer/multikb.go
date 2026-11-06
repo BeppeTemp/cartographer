@@ -112,6 +112,9 @@ func resolveKBTargets(health *client.Health, selectedNames []string) ([]kbTarget
 					return nil, fmt.Errorf("server advertised an invalid tool_prefix %q for KB %q: %w", kb.ToolPrefix, kb.Name, err)
 				}
 			}
+			if hasControlRune(kb.Name) {
+				return nil, fmt.Errorf("server advertised a KB name with control characters (%q): refused", kb.Name)
+			}
 			prefixByName[kb.Name] = kb.ToolPrefix
 		}
 	}
@@ -186,6 +189,9 @@ func enumerateKBs(serverURL string, auth bool, tokenSpec string, allowInsecure b
 	for _, kb := range *health.KBs {
 		if kb.Name == "" {
 			return facts, fmt.Errorf("health response contains a KB without a name")
+		}
+		if hasControlRune(kb.Name) {
+			return facts, fmt.Errorf("health response contains a KB name with control characters (%q): refused", kb.Name)
 		}
 		facts.Names = append(facts.Names, kb.Name)
 		facts.KBs = append(facts.KBs, kb)

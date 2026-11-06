@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
@@ -775,7 +776,7 @@ func contentHashDirManaged(mf ManagedFile, dirPath string, owned map[string]bool
 // validArtifactName reports whether name can be the single directory or file
 // segment an agent or hook is materialized under: not empty, one local segment
 // (no separator of either kind, no "..", no Windows reserved name where
-// filepath.IsLocal knows them), no control character, no surrounding blanks.
+// filepath.IsLocal knows them), no control character (C0, DEL and C1: unicode.IsControl), no surrounding blanks.
 // BuildManifest excludes an artifact with a bad name (D191 for skills) and Apply
 // refuses one per artifact, since a manifest can come from a remote server.
 func validArtifactName(name string) bool {
@@ -788,7 +789,7 @@ func validArtifactName(name string) bool {
 	// Windows drops a trailing dot or blank and reads ":" as an NTFS stream:
 	// "foo." would be written as "foo", so none of them is a spelling of a
 	// different name on any OS.
-	return !strings.ContainsAny(name, "\\/:\x00\n\r\t") && strings.TrimSpace(name) == name && !strings.HasSuffix(name, ".")
+	return !strings.ContainsAny(name, "\\/:") && strings.IndexFunc(name, unicode.IsControl) < 0 && strings.TrimSpace(name) == name && !strings.HasSuffix(name, ".")
 }
 
 // ValidArtifactName is validArtifactName for the client's sync_pull decode.
@@ -824,7 +825,7 @@ func ValidArtifactFilePath(p string) bool {
 		return false
 	}
 	local := filepath.FromSlash(p)
-	if !filepath.IsLocal(local) || filepath.ToSlash(filepath.Clean(local)) != p || strings.ContainsAny(p, "\x00:") {
+	if !filepath.IsLocal(local) || filepath.ToSlash(filepath.Clean(local)) != p || strings.ContainsAny(p, "\x00:") || strings.IndexFunc(p, unicode.IsControl) >= 0 {
 		return false
 	}
 	// Windows writes "SKILL.md." and "SKILL.md " as "SKILL.md" and resolves a

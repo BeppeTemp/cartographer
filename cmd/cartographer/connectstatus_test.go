@@ -206,3 +206,18 @@ func TestRunDoctor_MCPEntryFixNamesTheSymlink(t *testing.T) {
 		t.Errorf("fix = %q, want the link %s named", f[0].Fix, cfgDir)
 	}
 }
+
+// A kind the server chose reaches the connect status line: it is escaped, so a
+// control character in it cannot drive the terminal (#1693).
+func TestSkippedParts_AServerChosenKindIsEscaped(t *testing.T) {
+	applied := map[string]provisioning.AppliedResult{
+		"claude": {Refused: []provisioning.Artifact{{Kind: "sk\x1b[2Jill", Name: "x"}}},
+	}
+	for _, parts := range skippedParts(nil, nil, applied) {
+		for _, part := range parts {
+			if strings.ContainsRune(part, '\x1b') {
+				t.Errorf("skipped part %q carries a raw ESC", part)
+			}
+		}
+	}
+}

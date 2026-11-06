@@ -82,7 +82,7 @@ func TestApply_ArtifactNamedDotNeverTouchesTheUsersOwnSkill(t *testing.T) {
 }
 
 func TestValidArtifactFilePath_RefusesWindowsSpellings(t *testing.T) {
-	for _, p := range []string{"SKILL.md.", "SKILL.md ", "SKILL.md./x", "SKILL.md /x", "a/SKILL.md..", "SKILL.md:stream", "SKILL.md::$DATA", "con", "a/NUL.txt", "notes/com1/x.txt", "a/aux.txt"} {
+	for _, p := range []string{"SKILL.md.", "SKILL.md ", "SKILL.md./x", "SKILL.md /x", "a/SKILL.md..", "SKILL.md:stream", "SKILL.md::$DATA", "con", "a/NUL.txt", "notes/com1/x.txt", "a/aux.txt", "a\x1bb", "a/b\x7f.md", "a/\u0085.md", "a/b\nc.md", "a/\u009b[2J"} {
 		if ValidArtifactFilePath(p) {
 			t.Errorf("%q must be refused", p)
 		}
@@ -146,5 +146,16 @@ func TestApply_RefusedFilePathSkipsOnlyThatArtifactAndLeavesNoDir(t *testing.T) 
 	}
 	if !IsRefusal(CheckArtifactFilePaths(bad.Files)) {
 		t.Fatal("a refused file path must be a refusal")
+	}
+}
+
+func TestValidArtifactName_RefusesEveryControlCharacter(t *testing.T) {
+	for _, n := range []string{"a\x1bb", "a\x1b]0;x\x07", "a\x7fb", "a\u0085b", "a\u009bb", "a\x00b", "a\nb", "a\tb"} {
+		if validArtifactName(n) || ValidArtifactName(n) {
+			t.Errorf("%q must not be a valid artifact name", n)
+		}
+	}
+	if !validArtifactName("café-agent_1") {
+		t.Error("a printable non-ASCII name must stay valid")
 	}
 }

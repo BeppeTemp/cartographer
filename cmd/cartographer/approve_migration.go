@@ -61,7 +61,7 @@ func migratePreApprovals(w io.Writer, verb string, cfg *clientconfig.Config, loc
 				continue
 			}
 			done[key] = true
-			fmt.Fprintf(w, "%s %s/%s [kb:%s]: installed before approvals existed, unchanged\n", verb, a.Kind, a.Name, source)
+			fmt.Fprintf(w, "%s %s/%s [kb:%s]: installed before approvals existed, unchanged\n", verb, escapeControl(a.Kind), escapeControl(a.Name), escapeControl(source))
 		}
 	}
 	return true

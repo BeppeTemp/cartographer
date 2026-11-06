@@ -239,7 +239,7 @@ func cmdServiceInstall(args []string) int {
 	}
 	warnings, err := m.Install(opts)
 	for _, w := range warnings {
-		fmt.Fprintln(os.Stderr, "Warning:", w)
+		fmt.Fprintln(os.Stderr, "Warning:", escapeControl(w))
 	}
 	if errors.Is(err, service.ErrNoServiceManager) {
 		printNoServiceManager(os.Stderr, *configFlag, false)
@@ -266,7 +266,7 @@ func cmdServiceInstall(args []string) int {
 func serviceInstallConfigOnly(m *service.Manager, opts service.InstallOptions) int {
 	warnings, configPath, dataDir, err := m.PrepareConfig(opts)
 	for _, w := range warnings {
-		fmt.Fprintln(os.Stderr, "Warning:", w)
+		fmt.Fprintln(os.Stderr, "Warning:", escapeControl(w))
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

@@ -64,7 +64,7 @@ func unsupportedProviderNotice(name, baseDir string, removed bool) string {
 	if removed {
 		entry = "its entry was removed from .cartographer.yaml"
 	}
-	return fmt.Sprintf("%s: this agent client is no longer supported; %s. Files Cartographer delivered earlier are left in place%s; remove them by hand.", name, entry, where)
+	return fmt.Sprintf("%s: this agent client is no longer supported; %s. Files Cartographer delivered earlier are left in place%s; remove them by hand.", escapeControl(name), entry, escapeControl(where))
 }
 
 // recordedBaseDir is the base dir the lock recorded for a provider's global

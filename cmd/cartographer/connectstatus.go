@@ -46,7 +46,7 @@ func skippedParts(refusedMCP []string, hooks map[string][]string, applied map[st
 	for p, r := range applied {
 		var kinds []string
 		for _, a := range r.Refused {
-			kinds = appendUnique(kinds, a.Kind+"s")
+			kinds = appendUnique(kinds, escapeControl(a.Kind)+"s")
 		}
 		sort.Strings(kinds)
 		if len(kinds) > 0 {

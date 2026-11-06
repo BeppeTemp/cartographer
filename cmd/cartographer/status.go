@@ -139,11 +139,11 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			continue
 		}
 		if p.State == "in_sync" {
-			fmt.Printf("[%s] in-sync (revision %s)\n", p.Name, p.Revision)
+			fmt.Printf("[%s] in-sync (revision %s)\n", escapeControl(p.Name), escapeControl(p.Revision))
 			printBindingLine(p)
 			printWorkspaceLines(p.Workspaces)
 			if p.Kinds != "" {
-				fmt.Printf("  %s\n", p.Kinds)
+				fmt.Printf("  %s\n", escapeControl(p.Kinds))
 			}
 			printShadowedInstructionsLine(p)
 			printInstructionsSizeLines(p)
@@ -160,12 +160,12 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		printBindingLine(p)
 		printWorkspaceLines(p.Workspaces)
 		if p.Kinds != "" {
-			fmt.Printf("  %s\n", p.Kinds)
+			fmt.Printf("  %s\n", escapeControl(p.Kinds))
 		}
 		printShadowedInstructionsLine(p)
 		printInstructionsSizeLines(p)
 		for _, d := range p.Diverged {
-			fmt.Printf("  diverged on disk (%s): %s/%s at %s\n", d.Trust, d.Kind, d.Name, d.Path)
+			fmt.Printf("  diverged on disk (%s): %s/%s at %s\n", escapeControl(d.Trust), escapeControl(d.Kind), escapeControl(d.Name), escapeControl(d.Path))
 			if d.Detail != "" {
 				fmt.Printf("    %s\n", d.Detail)
 			}
@@ -173,7 +173,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		approvalPending := false
 		for _, a := range p.Added {
 			trust := statusArtifactTrust(a)
-			fmt.Printf("  + %s/%s [%s] trust=%s\n", a.Kind, a.Name, a.Source, trust)
+			fmt.Printf("  + %s/%s [%s] trust=%s\n", escapeControl(a.Kind), escapeControl(a.Name), escapeControl(a.Source), trust)
 			if trust == "needs_approval" || trust == "approval_stale" {
 				approvalPending = true
 			}
@@ -183,7 +183,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		}
 		for _, a := range p.Updated {
 			trust := statusArtifactTrust(a)
-			fmt.Printf("  ~ %s/%s [%s] trust=%s\n", a.Kind, a.Name, a.Source, trust)
+			fmt.Printf("  ~ %s/%s [%s] trust=%s\n", escapeControl(a.Kind), escapeControl(a.Name), escapeControl(a.Source), trust)
 			if trust == "needs_approval" || trust == "approval_stale" {
 				approvalPending = true
 			}
@@ -192,7 +192,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			}
 		}
 		for _, a := range p.Removed {
-			fmt.Printf("  - %s/%s (%s)\n", a.Kind, a.Name, a.Path)
+			fmt.Printf("  - %s/%s (%s)\n", escapeControl(a.Kind), escapeControl(a.Name), escapeControl(a.Path))
 		}
 		if approvalPending {
 			fmt.Println("  approval required: cartographer approve <kind> <name> --kb <kb>")

@@ -441,12 +441,12 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 			var rpcResp rpcResponse
 			if err := json.Unmarshal(respBody, &rpcResp); err == nil && rpcResp.Error != nil {
 				return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-					Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)}
+					Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, Escape(rpcResp.Error.Message))}
 			}
 		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", reqURL, resp.StatusCode),
-			Cause:   fmt.Errorf("%s", bodyPrefix(respBody)), HTTPStatus: resp.StatusCode}
+			Cause:   fmt.Errorf("%s", Escape(bodyPrefix(respBody))), HTTPStatus: resp.StatusCode}
 	}
 
 	// Checked after the status switch: a 401 or a 5xx with a big body keeps
@@ -462,7 +462,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 	}
 	if rpcResp.Error != nil {
 		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-			Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)}
+			Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, Escape(rpcResp.Error.Message))}
 	}
 	return rpcResp.Result, nil
 }
@@ -571,7 +571,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 			msg += mcpSubpathHint(c.ServerURL)
 		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
-			Message: msg, Cause: fmt.Errorf("%s", body), HTTPStatus: resp.StatusCode}
+			Message: msg, Cause: fmt.Errorf("%s", Escape(string(body))), HTTPStatus: resp.StatusCode}
 	}
 
 	var health Health
@@ -698,7 +698,7 @@ func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 	}
 	if tr.IsError {
 		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-			Message: fmt.Sprintf("tool %q returned an error: %s", tool, tr.Content[0].Text)}
+			Message: fmt.Sprintf("tool %q returned an error: %s", tool, Escape(tr.Content[0].Text))}
 	}
 	texts := make([]string, 0, len(tr.Content))
 	for _, block := range tr.Content {

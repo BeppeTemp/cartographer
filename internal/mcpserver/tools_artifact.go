@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -128,6 +129,9 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	clean := filepath.ToSlash(filepath.Clean(relPath))
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
 		return artifactPathInfo{}, fmt.Errorf("path not allowed: %q escapes the KB root", relPath)
+	}
+	if strings.IndexFunc(relPath, unicode.IsControl) >= 0 {
+		return artifactPathInfo{}, fmt.Errorf("path not allowed: %q holds a control character", relPath)
 	}
 	if seg, hidden := hiddenPathSegment(clean); hidden {
 		return artifactPathInfo{}, fmt.Errorf("path not allowed: %q has the hidden segment %q: an artifact path has no segment starting with a dot", relPath, seg)

@@ -139,7 +139,7 @@ func cmdCall(args []string) int {
 			}
 			if *list {
 				for _, t := range tools {
-					fmt.Fprintf(os.Stdout, "%s\t%s\n", t.Name, firstSentence(t.Description))
+					fmt.Fprintf(os.Stdout, "%s\t%s\n", escapeControl(t.Name), escapeControl(firstSentence(t.Description)))
 				}
 				return 0
 			}
@@ -235,7 +235,7 @@ func responseResult(resp json.RawMessage) (json.RawMessage, error) {
 		return nil, fmt.Errorf("unreadable response: %w", err)
 	}
 	if m.Error != nil {
-		return nil, errors.New(m.Error.Message)
+		return nil, errors.New(escapeControl(m.Error.Message))
 	}
 	if len(m.Result) == 0 {
 		return nil, errors.New("empty response")
@@ -269,8 +269,11 @@ func printToolResult(tool string, result json.RawMessage, output string) int {
 		}
 	}
 	text := strings.Join(texts, "\n")
+	// A failed result is a diagnostic from the server, escaped like every other
+	// server-chosen message. The success path below is the tool's normal output
+	// (KB content the caller asked for) and is printed as it is.
 	if r.IsError {
-		fmt.Fprintln(os.Stderr, text)
+		fmt.Fprintln(os.Stderr, escapeControl(text))
 		return 1
 	}
 	if output == "json" {

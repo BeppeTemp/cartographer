@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
@@ -465,10 +464,10 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 				if target.Name == "" {
 					err = fmt.Errorf("sync_pull: %w", res.callErr)
 				} else {
-					err = fmt.Errorf("sync_pull (kb=%s): %w", target.Name, res.callErr)
+					err = fmt.Errorf("sync_pull (kb=%s): %w", escapeControl(target.Name), res.callErr)
 				}
 			} else if target.Name != "" {
-				err = fmt.Errorf("kb=%s: %w", target.Name, res.err)
+				err = fmt.Errorf("kb=%s: %w", escapeControl(target.Name), res.err)
 			}
 			// The unnamed endpoint is not a KB a provider is bound to, so
 			// there is nothing to skip around: it stays fatal.
@@ -481,7 +480,7 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 		for _, a := range res.artifacts {
 			key := a.Kind + "\x00" + a.Name + "\x00" + a.Source
 			if previous, exists := seen[key]; exists && !sameSignature(previous.Signature, a.Signature) {
-				return cs, failed, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
+				return cs, failed, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", escapeControl(a.Kind), escapeControl(a.Name))
 			}
 			seen[key] = a
 			if target.Name == "" {
@@ -552,18 +551,21 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 		for i, pf := range pa.Files {
 			data, err := base64.StdEncoding.DecodeString(pf.ContentB64)
 			if err != nil {
-				return pullResult{err: fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", pa.Kind, pa.Name, pf.Path, err)}
+				return pullResult{err: fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", escapeControl(pa.Kind), escapeControl(pa.Name), escapeControl(pf.Path), err)}
 			}
 			files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
+		}
+		if hasControlRune(pa.Kind) || hasControlRune(pa.Source) || hasControlRune(pa.Version) {
+			return pullResult{err: fmt.Errorf("sync_pull: invalid metadata for artifact %q: control characters are refused", pa.Name)}
 		}
 		if !provisioning.ValidArtifactName(pa.Name) {
 			return pullResult{err: fmt.Errorf("sync_pull: invalid artifact name %q for %s", pa.Name, pa.Kind)}
 		}
 		if err := provisioning.CheckArtifactFilePaths(files); err != nil {
-			return pullResult{err: fmt.Errorf("sync_pull: %s/%s: %w", pa.Kind, pa.Name, err)}
+			return pullResult{err: fmt.Errorf("sync_pull: %s/%s: %w", escapeControl(pa.Kind), escapeControl(pa.Name), err)}
 		}
 		if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
-			return pullResult{err: fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)}
+			return pullResult{err: fmt.Errorf("sync_pull: content hash mismatch for %s/%s", escapeControl(pa.Kind), escapeControl(pa.Name))}
 		}
 		art := provisioning.Artifact{
 			Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,
@@ -957,7 +959,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 				}
 				reportedInstructions[w.Path] = true
 			}
-			fmt.Fprintf(wr, "[%s] %s %s\n", p, verb("wrote", "would write"), w.Path)
+			fmt.Fprintf(wr, "[%s] %s %s\n", p, verb("wrote", "would write"), escapeControl(w.Path))
 			// The registration line reports a side effect on a shared file
 			// that a dry run does not perform either.
 			if !dryRun && hookRegistrationManagedFile(provider, w) {
@@ -971,7 +973,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 				continue
 			}
 			reportedPruned[cleanPath] = true
-			fmt.Fprintf(wr, "[%s] %s %s\n", p, verb("pruned", "would prune"), cleanPath)
+			fmt.Fprintf(wr, "[%s] %s %s\n", p, verb("pruned", "would prune"), escapeControl(cleanPath))
 		}
 		// A heal means a local change was discarded (D139): say so on its own
 		// line instead of folding it into the ordinary writes above.
@@ -982,7 +984,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 				continue
 			}
 			healedArtifacts[key] = true
-			fmt.Fprintf(wr, "[%s] %s %s from the server (local changes discarded)\n", p, verb("restored", "would restore"), key)
+			fmt.Fprintf(wr, "[%s] %s %s from the server (local changes discarded)\n", p, verb("restored", "would restore"), escapeControl(key))
 		}
 		movedArtifacts := map[string]bool{}
 		for _, h := range r.Relocated {
@@ -991,19 +993,19 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 				continue
 			}
 			movedArtifacts[key] = true
-			fmt.Fprintf(wr, "[%s] %s %s to its current location\n", p, verb("moved", "would move"), key)
+			fmt.Fprintf(wr, "[%s] %s %s to its current location\n", p, verb("moved", "would move"), escapeControl(key))
 		}
 		for _, d := range r.Divergent {
-			fmt.Fprintf(wr, "[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, d.Reason, d.Kind, d.Name, d.Path)
+			fmt.Fprintf(wr, "[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, escapeControl(d.Reason), escapeControl(d.Kind), escapeControl(d.Name), escapeControl(d.Path))
 		}
 		for _, na := range r.NeedsApproval {
 			// An MCP descriptor, a hook and an executable file wait for an approval
 			// (D906, D1141): the rest of what a KB ships is installed.
 			needsMCPApproval = true
-			fmt.Fprintf(wr, "[%s] needs_approval: %s/%s [%s]\n", p, na.Kind, na.Name, na.Source)
+			fmt.Fprintf(wr, "[%s] needs_approval: %s/%s [%s]\n", p, escapeControl(na.Kind), escapeControl(na.Name), escapeControl(na.Source))
 		}
 		for _, ua := range r.Unsupported {
-			fmt.Fprintf(wr, "[%s] unsupported: %s/%s [%s] (kind has no destination for this provider)\n", p, ua.Kind, ua.Name, ua.Source)
+			fmt.Fprintf(wr, "[%s] unsupported: %s/%s [%s] (kind has no destination for this provider)\n", p, escapeControl(ua.Kind), escapeControl(ua.Name), escapeControl(ua.Source))
 		}
 		// What the resolver decided for this client (D1656): an agent installed as
 		// a skill, an artifact left out for a requirement, and the capabilities
@@ -1026,10 +1028,10 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		// installed, and only the operator can clear the condition (D148).
 		for _, rf := range append(slices.Clone(r.Refused), r.RefusedRemovals...) {
 			fmt.Fprintf(wr, "[%s] %s: %s/%s [%s] — its destination is a symlink, so the write would land outside the client\n",
-				p, verb("refused", "would refuse"), rf.Kind, rf.Name, rf.Source)
+				p, verb("refused", "would refuse"), escapeControl(rf.Kind), escapeControl(rf.Name), escapeControl(rf.Source))
 		}
 		for _, w := range r.Warnings {
-			fmt.Fprintf(wr, "[%s] warning: %s\n", p, w)
+			fmt.Fprintf(wr, "[%s] warning: %s\n", p, escapeControl(w))
 		}
 	}
 	// One line for every placeholder no provider could resolve (D262), not
@@ -1041,12 +1043,12 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 	}
 	unresolved, fresh := unresolvedAcross(results, ignored)
 	if w := provisioning.UnresolvedPlaceholdersWarning(unresolved, fresh); w != "" {
-		fmt.Fprintf(wr, "warning: %s\n", w)
+		fmt.Fprintf(wr, "warning: %s\n", escapeControl(w))
 	}
 	// Two KBs declaring one key differently (D263): the same conflict for
 	// every provider bound to both, so each is printed once.
 	for _, w := range registryWarningsAcross(results) {
-		fmt.Fprintf(wr, "warning: %s\n", w)
+		fmt.Fprintf(wr, "warning: %s\n", escapeControl(w))
 	}
 	if needsMCPApproval {
 		fmt.Fprintln(wr, "Pending artifacts (MCP descriptors, hooks, executable files) require an approval: cartographer approve <kind> <name> --kb <kb>, then cartographer sync")
@@ -1358,29 +1360,9 @@ func syncServerChangeNotice(dir string, providers []string, liveVersion string) 
 // maxPrintedField caps one KB-derived field in a summary line.
 const maxPrintedField = 200
 
-// safeField makes a KB-derived string safe to print on a terminal: every control
-// rune (ESC included, so no escape or OSC sequence survives) becomes \xNN or
-// \u00NN, and a field over maxPrintedField runes is cut with an ellipsis.
-func safeField(s string) string {
-	var b strings.Builder
-	n := 0
-	for _, r := range s {
-		if n == maxPrintedField {
-			b.WriteString("...")
-			break
-		}
-		n++
-		switch {
-		case r < 0x80 && unicode.IsControl(r):
-			fmt.Fprintf(&b, "\\x%02x", r)
-		case unicode.IsControl(r):
-			fmt.Fprintf(&b, "\\u%04x", r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
+// safeField is escapeControl (one sanitiser: internal/termsafe) with a field over
+// maxPrintedField runes cut with an ellipsis.
+func safeField(s string) string { return client.EscapeCap(s, maxPrintedField) }
 
 // syncPullArgs always asks the server for the bundled cartographer-cli skill
 // (D1700): a current client filters it per provider (withoutCLISkill), so only

@@ -333,7 +333,7 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 			printPrunedFiles(pr.Provider, pr.Pruned, prefix)
 			printPrunedWorkspaces(pr, prefix)
 			for _, w := range pr.Refused {
-				fmt.Printf("%s[%s] kept connected: %s\n", prefix, pr.Provider, w)
+				fmt.Printf("%s[%s] kept connected: %s\n", prefix, pr.Provider, escapeControl(w))
 			}
 			continue
 		}
