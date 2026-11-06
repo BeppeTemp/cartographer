@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
@@ -380,6 +381,9 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 			if err != nil {
 				return refuse("%s: %v", u.rel, err)
 			}
+			if err := execFromIndex(src, srcAbs, u.files); err != nil {
+				return refuse("%s: read the tracked file modes: %s", u.rel, relPathErr(err, src.Root))
+			}
 			// Junk (a Finder .DS_Store, a .pyc) is no part of an artifact: it is
 			// never carried and never a reason to refuse (#1377). The source
 			// directory is removed whole, so it goes with it.
@@ -388,7 +392,10 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 				return refuse("%s has no files: git cannot carry an empty directory", u.rel)
 			}
 		case !u.isDir && info.Mode().IsRegular() && u.info.Kind != "skill":
-			u.files = []transferFile{{rel: "", size: info.Size(), exec: info.Mode()&0o111 != 0}}
+			u.files = []transferFile{{rel: "", size: info.Size(), exec: execbit.IsExecutable(info.Mode())}}
+			if err := execFromIndex(src, srcAbs, u.files); err != nil {
+				return refuse("%s: read the tracked file mode: %s", u.rel, relPathErr(err, src.Root))
+			}
 		default:
 			return refuse("%s is not the kind of file or directory a %s is", u.rel, u.info.Kind)
 		}
@@ -656,12 +663,24 @@ func unitFilePath(k *kb.KB, u artifactUnit, f transferFile) string {
 // and a rename would remove the source before the target is committed. Any
 // error leaves a half-written tree for the caller to discard.
 func applyArtifactMoveTarget(src, dst *kb.KB, pl *artifactMovePlan) error {
+	var execs []string
 	for _, u := range pl.units {
 		for _, f := range u.files {
 			if err := copyTransferFile(unitFilePath(src, u, f), unitFilePath(dst, u, f), f.exec); err != nil {
 				return fmt.Errorf("copy %s: %w", u.rel, err)
 			}
+			if f.exec {
+				p := u.rel
+				if f.rel != "" {
+					p += "/" + f.rel
+				}
+				execs = append(execs, p)
+			}
 		}
+	}
+	// The index carries the bit too: a filesystem without it would commit 100644.
+	if err := stageExecutable(dst, execs); err != nil {
+		return fmt.Errorf("stage the execute bit: %w", err)
 	}
 	return nil
 }
