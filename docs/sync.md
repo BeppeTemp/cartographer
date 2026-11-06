@@ -190,15 +190,15 @@ trains people to ignore warnings. Two ways out (D162):
 
 The repo scan descends **4** directory levels from each root (a constant since D906; it was the
 `search_depth` setting, D162). A workspace organised deeper than that is served by a closer root in
-`search_roots` or a `paths` entry, which is also what the not-found message tells. `search_roots`
+`placeholders.search_roots` or a `placeholders.paths` entry, which is also what the not-found message tells. `placeholders.search_roots`
 defaults to `~/Documents`, `~/src`, `~/code` and `~/projects` (a default root that does not exist on the
-machine is skipped without a warning), and is consulted only for a key with no `paths` entry. Keying stays on the **normalised git
+machine is skipped without a warning), and is consulted only for a key with no `placeholders.paths` entry. Keying stays on the **normalised git
 remote**, never on a directory name: that is what makes a `repo:` key identical for every operator.
 
 A cache hit is not trusted blindly (D181): before a cached path is returned, `repoindex` checks
 that it still holds a live clone (a directory with a `.git` entry) whose `origin` is still the
 repository looked up — a moved or removed clone, or a path now holding another repository, behaves as a cache miss and triggers a rescan, instead of resolving to a location that no longer
-exists (or, worse, to a leftover clone left behind at the old path). Editing `search_roots` in
+exists (or, worse, to a leftover clone left behind at the old path). Editing `placeholders.search_roots` in
 `.cartographer.yaml` also invalidates the cache — a changed root set is a rescan even for a key
 that is still present under the old roots, since root order decides which clone wins when more
 than one exists.
@@ -553,7 +553,7 @@ whose directory is gone or whose git remote changed serves no KB and says why. A
 MCP `roots` while the working directory is under no binding is scoped by the union of the bindings its
 roots resolve to; the scope is fixed once, at the start of the session. A provider with no binding keeps
 its HTTP entry, and unbinding the last workspace returns to it on the next `sync`. The bridge reads
-the token the way `sync` does: a literal `token` in `.cartographer.yaml`, else the environment variable that `token: ${NAME}` names (`CARTOGRAPHER_TOKENS` by default), else the private token file; the entry never holds it, and for
+the token the way `sync` does: a literal `server.token` in `.cartographer.yaml`, else the environment variable that `token: ${NAME}` names (`CARTOGRAPHER_TOKENS` by default), else the private token file; the entry never holds it, and for
 Codex, which filters the environment of an MCP server, names the variable in `env_vars`. The command
 is the one found on `PATH`, never the path of the running binary (a versioned Cellar directory). `sync`
 removes the project entries that an earlier version wrote into repositories (D717).
@@ -812,11 +812,11 @@ Shared content (concepts and provisioning artifacts) must never contain machine-
 - `{{repo:<name>}}` (short form) / `{{repo:<host>/<owner>/<name>}}` (full, canonical form) —
   resolved **automatically**: the key is the normalized git remote (`internal/repoindex`,
   handles ssh scp-like, `ssh://`, `https://`, `.git` suffix), identical on every machine of
-  the team. `repoindex.Scan` walks `search_roots` (client config, default `~/Documents`, `~/src`, `~/code` and `~/projects`) up to
+  the team. `repoindex.Scan` walks `placeholders.search_roots` (client config, default `~/Documents`, `~/src`, `~/code` and `~/projects`) up to
   depth 4, reads each repo's `.git/config` (no `git` exec) and caches the result in
   `~/.config/cartographer/repos.json`, refreshed on-miss. A cache hit is validated before use
   (D181): the candidate path must still be a directory containing a `.git` entry, or it is
-  treated as a miss and a rescan follows; a change of `search_roots` also invalidates the
+  treated as a miss and a rescan follows; a change of `placeholders.search_roots` also invalidates the
   cache, even for a key whose old path is still perfectly live.
 - `{{path:<name>}}` — manual `paths:` mapping in `.cartographer.yaml`, a fallback for directories that
   aren't git repos (and an override for `{{repo:<key>}}` too: `repoindex.Resolve` checks `paths:`
@@ -888,7 +888,7 @@ passing `cfg.SearchRoots`/`cfg.Paths`.
   cartographer paths list`), followed by detail only for the keys that were not already unresolved in
   the lock the projection started from (`AppliedResult.PriorUnresolved`), with a reason shared by
   several keys printed once and the two fixes, `cartographer paths set` and `cartographer paths
-  ignore`. A key the operator marked absent (`ignored_paths:` in `.cartographer.yaml`) is left out of
+  ignore`. A key the operator marked absent (`placeholders.ignored` in `.cartographer.yaml`) is left out of
   the warning and of `status`; it is still resolved like any other and still recorded in the lock.
 - **Placeholder state in the lock** (D262): each `Lock` records `resolved_placeholders` (key → local
   path), `unresolved_placeholders` (key → reason), `placeholder_sources` (key → citing KBs) and
@@ -908,7 +908,7 @@ passing `cfg.SearchRoots`/`cfg.Paths`.
   that starts citing a key, or a new `paths:` entry, is not in the manifest diff.
 - **Repo ambiguity**: a short name matching several distinct remotes is an explicit error (it asks
   for the full form `host/owner/name`); multiple clones of the same remote resolve to the first match in
-  `search_roots` order, with a warning.
+  `placeholders.search_roots` order, with a warning.
 
 ## MCP servers (D69, D116)
 

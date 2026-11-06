@@ -9,7 +9,7 @@ import (
 
 func TestReportMarksFileKeysAndDefaults(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(Path(dir), []byte("server_url: http://example.com/mcp\nupdate_check: false\n"), 0o600); err != nil {
+	if err := os.WriteFile(Path(dir), []byte("server:\n  url: http://example.com/mcp\nupdate_check: false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r, err := Report(dir, "1.2.3")
@@ -35,7 +35,7 @@ func TestReportMarksFileKeysAndDefaults(t *testing.T) {
 	if e := by["update_check"]; e.Origin != "file" || e.Value != false {
 		t.Errorf("update_check = %+v", e)
 	}
-	if e := by["search_roots"]; e.Origin != "default" || len(e.Value.([]any)) != 4 {
+	if e := by["placeholders.search_roots"]; e.Origin != "default" || len(e.Value.([]any)) != 4 {
 		t.Errorf("search_roots = %+v", e)
 	}
 }
@@ -57,7 +57,7 @@ func TestReportWithoutAFileIsAllDefaults(t *testing.T) {
 // secrets are in its settings view.
 func TestReportMasksTheTokenInEntriesAndYAML(t *testing.T) {
 	dir := t.TempDir()
-	file := "# the bearer token\ntoken: s3cret # s3cret\nserver_url: http://example.com/mcp\n# token: s3cret-old\n"
+	file := "# the bearer token\nserver:\n  token: s3cret # s3cret\n  url: http://example.com/mcp\n  # token: s3cret-old\n"
 	if err := os.WriteFile(Path(dir), []byte(file), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -68,16 +68,16 @@ func TestReportMasksTheTokenInEntriesAndYAML(t *testing.T) {
 	if strings.Contains(r.YAML, "s3cret") {
 		t.Errorf("the token is in the report's yaml: %q", r.YAML)
 	}
-	for _, want := range []string{"# the bearer token", "token: " + SecretRedacted, "server_url: http://example.com/mcp", "# token: " + SecretRedacted} {
+	for _, want := range []string{"# the bearer token", "token: " + SecretRedacted, "url: http://example.com/mcp", "# token: " + SecretRedacted} {
 		if !strings.Contains(r.YAML, want) {
 			t.Errorf("yaml lost %q: %q", want, r.YAML)
 		}
 	}
 	for _, e := range r.Entries {
 		switch {
-		case e.Key == "token" && (e.Value != SecretSet || e.Origin != "file"):
+		case e.Key == "server.token" && (e.Value != SecretSet || e.Origin != "file"):
 			t.Errorf("token entry = %+v, want %q from the file", e, SecretSet)
-		case e.Key == "server_url" && e.Value != "http://example.com/mcp":
+		case e.Key == "server.url" && e.Value != "http://example.com/mcp":
 			t.Errorf("a key that is no secret was changed: %+v", e)
 		}
 	}
@@ -90,7 +90,7 @@ func TestReportKeepsAFileWithoutASecretAsItIs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"", "update_check: false\n", "token: \"\"\n", "token:\n", string(listed)} {
+	for _, file := range []string{"", "update_check: false\n", "token: \"\"\n", "token:\n", "server:\n  token: \"\"\n", string(listed)} {
 		r, err := report([]byte(file), "m", "dev")
 		if err != nil {
 			t.Fatal(err)
@@ -99,7 +99,7 @@ func TestReportKeepsAFileWithoutASecretAsItIs(t *testing.T) {
 			t.Errorf("yaml of %q = %q", file, r.YAML)
 		}
 		for _, e := range r.Entries {
-			if e.Key == "token" && e.Value != SecretUnset {
+			if e.Key == "server.token" && e.Value != SecretUnset {
 				t.Errorf("token entry of %q = %+v, want %q", file, e, SecretUnset)
 			}
 		}
@@ -116,6 +116,8 @@ func TestRedactYAMLMasksEveryWayOfWritingTheToken(t *testing.T) {
 		"alias":      "other: &t s3cret\ntoken: *t\n",
 		"duplicated": "token: first\ntoken: s3cret\n",
 		"number":     "token: 123456\n",
+		"grouped":    "server:\n  token: s3cret\n",
+		"flowgroup":  "server: {token: s3cret}\n",
 	} {
 		out, err := RedactYAML([]byte(file))
 		if err != nil {
@@ -184,5 +186,28 @@ func TestRedactYAMLRefusesWhatTheMaskCannotSee(t *testing.T) {
 		if strings.Contains(string(out), "s3cret") || string(out) != OpaqueYAML {
 			t.Fatalf("RedactYAML(%q) = %q", in, out)
 		}
+	}
+}
+
+// A flat file the realignment has not reached yet is reported by what it sets,
+// not by the defaults of the grouped keys: server_url shows under server.url.
+func TestReportReadsAFlatKeyTheRealignmentHasNotMoved(t *testing.T) {
+	flat := "server_url: http://example.com/mcp\nsearch_roots: [/srv/clones]\n"
+	r, err := report([]byte(flat), "m", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ServerURL != "http://example.com/mcp" {
+		t.Errorf("ServerURL = %q, want the flat server_url", r.ServerURL)
+	}
+	by := map[string]ReportEntry{}
+	for _, e := range r.Entries {
+		by[e.Key] = e
+	}
+	if e := by["server.url"]; e.Origin != "file" || e.Value != "http://example.com/mcp" {
+		t.Errorf("server.url = %+v, want the flat value from the file", e)
+	}
+	if e := by["placeholders.search_roots"]; e.Origin != "file" || len(e.Value.([]any)) != 1 {
+		t.Errorf("placeholders.search_roots = %+v", e)
 	}
 }

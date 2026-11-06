@@ -287,19 +287,14 @@ func (b ClientBinding) MarshalYAML() (interface{}, error) {
 // machine-written lists (agents, sync_timer_opt_out) live in the state file
 // (D747, D906) and are read from the YAML solely through legacyCaches.
 type yamlConfig struct {
-	ServerURL    string                        `yaml:"server_url"`
-	ServerName   string                        `yaml:"server_name"`
-	Auth         bool                          `yaml:"auth"`
-	Token        string                        `yaml:"token"`
+	Server       serverGroup                   `yaml:"server"`
 	Clients      map[string]ClientBinding      `yaml:"clients,omitempty"`
 	Scopes       map[string]string             `yaml:"scopes,omitempty"`
 	UnboundModes map[string]string             `yaml:"unbound_access,omitempty"`
 	KBOptions    map[string]KBOption           `yaml:"kb_options,omitempty"`
 	Plugins      map[string]PluginEntry        `yaml:"plugins,omitempty"`
 	Workspaces   map[string][]WorkspaceBinding `yaml:"workspaces,omitempty"`
-	SearchRoots  []string                      `yaml:"search_roots,omitempty"`
-	Paths        map[string]string             `yaml:"paths,omitempty"`
-	IgnoredPaths []string                      `yaml:"ignored_paths,omitempty"`
+	Placeholders placeholderGroup              `yaml:"placeholders,omitempty"`
 	SigningKeys  map[string][]string           `yaml:"signing_keys,omitempty"`
 	Identities   map[string]string             `yaml:"identities,omitempty"`
 	UpdateCheck  *bool                         `yaml:"update_check,omitempty"`
@@ -309,8 +304,80 @@ type yamlConfig struct {
 	// client then finds the marker set and never re-approves what is installed
 	// (D1728). The machine file holds the authoritative copy.
 	ApprovalsMigrated bool `yaml:"approvals_migrated,omitempty"`
+}
 
-	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
+// serverGroup is the server: group of the file (D1731): what
+// the machine needs to reach the server.
+type serverGroup struct {
+	URL               string `yaml:"url"`
+	Name              string `yaml:"name"`
+	Auth              bool   `yaml:"auth"`
+	Token             string `yaml:"token"`
+	AllowInsecureHTTP bool   `yaml:"allow_insecure_http,omitempty"`
+}
+
+// placeholderGroup is the placeholders: group: how {{repo:}} and {{path:}} resolve.
+type placeholderGroup struct {
+	SearchRoots []string          `yaml:"search_roots,omitempty"`
+	Paths       map[string]string `yaml:"paths,omitempty"`
+	Ignored     []string          `yaml:"ignored,omitempty"`
+}
+
+// flatLayout is the layout before the groups (D1731): read
+// for as long as a file holds it, so one on a read-only mount keeps working. A
+// key set at both places with different values is refused (layoutConflicts).
+type flatLayout struct {
+	ServerURL         string            `yaml:"server_url"`
+	ServerName        string            `yaml:"server_name"`
+	Auth              bool              `yaml:"auth"`
+	Token             string            `yaml:"token"`
+	AllowInsecureHTTP bool              `yaml:"allow_insecure_http"`
+	SearchRoots       []string          `yaml:"search_roots"`
+	Paths             map[string]string `yaml:"paths"`
+	IgnoredPaths      []string          `yaml:"ignored_paths"`
+}
+
+// readFlat fills what the grouped layout does not set from the flat keys.
+func (y *yamlConfig) readFlat(doc *yaml.Node, f flatLayout) {
+	has := func(path string) bool { return lookup(doc, path) != nil }
+	if !has("server.url") {
+		y.Server.URL = f.ServerURL
+	}
+	if !has("server.name") {
+		y.Server.Name = f.ServerName
+	}
+	if !has("server.auth") {
+		y.Server.Auth = f.Auth
+	}
+	if !has("server.token") {
+		y.Server.Token = f.Token
+	}
+	if !has("server.allow_insecure_http") {
+		y.Server.AllowInsecureHTTP = f.AllowInsecureHTTP
+	}
+	if !has("placeholders.search_roots") {
+		y.Placeholders.SearchRoots = f.SearchRoots
+	}
+	if !has("placeholders.paths") {
+		y.Placeholders.Paths = f.Paths
+	}
+	if !has("placeholders.ignored") {
+		y.Placeholders.Ignored = f.IgnoredPaths
+	}
+}
+
+// absentKey reports whether the file sets neither path of a key of the layout:
+// the grouped one nor, until the realignment, the flat one it replaced.
+func absentKey(doc *yaml.Node, path string) bool {
+	if lookup(doc, path) != nil {
+		return false
+	}
+	for _, m := range Retired.Moved {
+		if m.To == path {
+			return lookup(doc, m.From) == nil
+		}
+	}
+	return true
 }
 
 // legacyCaches are the keys older versions kept in .cartographer.yaml and that
@@ -465,6 +532,13 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &y); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse %s: %w", Path(dir), err)
 	}
+	if c := layoutConflicts(data); len(c) > 0 {
+		return nil, fmt.Errorf("clientconfig: %s: %s", Path(dir), strings.Join(c, "; "))
+	}
+	var flat flatLayout
+	if err := yaml.Unmarshal(data, &flat); err != nil {
+		return nil, fmt.Errorf("clientconfig: parse %s: %w", Path(dir), err)
+	}
 	for provider, b := range y.Clients {
 		if len(b.ConfigDirs) > 0 && provider != "claude" {
 			return nil, fmt.Errorf("clientconfig: %s: clients.%s.config_dirs is only valid under clients.claude", Path(dir), provider)
@@ -488,6 +562,7 @@ func Load(dir string) (*Config, error) {
 	}
 	var yamlDoc yaml.Node
 	_ = yaml.Unmarshal(data, &yamlDoc) // parsed above: it cannot fail here
+	y.readFlat(&yamlDoc, flat)
 	var legacy legacyCaches
 	if err := yaml.Unmarshal(data, &legacy); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse caches %s: %w", Path(dir), err)
@@ -495,22 +570,22 @@ func Load(dir string) (*Config, error) {
 	cfg := Config{
 		// The pre-#329 default is migrated on read, so the next connect or
 		// sync writes the working URL into every client's MCP config.
-		ServerURL:         defaults.MigrateLegacyMCPURL(y.ServerURL),
-		ServerName:        y.ServerName,
-		Auth:              y.Auth,
-		Token:             y.Token,
+		ServerURL:         defaults.MigrateLegacyMCPURL(y.Server.URL),
+		ServerName:        y.Server.Name,
+		Auth:              y.Server.Auth,
+		Token:             y.Server.Token,
 		Clients:           y.Clients,
 		Scopes:            y.Scopes,
 		UnboundModes:      y.UnboundModes,
 		KBOptions:         y.KBOptions,
 		Plugins:           y.Plugins,
 		Workspaces:        y.Workspaces,
-		AllowInsecureHTTP: y.AllowInsecureHTTP,
+		AllowInsecureHTTP: y.Server.AllowInsecureHTTP,
 		UsageScan:         true, // absent `usage_scan` key defaults to true
 
-		SearchRoots:  y.SearchRoots,
-		Paths:        y.Paths,
-		IgnoredPaths: y.IgnoredPaths,
+		SearchRoots:  y.Placeholders.SearchRoots,
+		Paths:        y.Placeholders.Paths,
+		IgnoredPaths: y.Placeholders.Ignored,
 		SigningKeys:  y.SigningKeys,
 		Identities:   y.Identities,
 		Extra:        extra,
@@ -528,19 +603,19 @@ func Load(dir string) (*Config, error) {
 	// report would show "default: cartographer" for an empty value. Only an
 	// absent key: an explicit empty one is the operator's.
 	root := documentMapping(&yamlDoc)
-	absent := func(key string) bool { return root == nil || pairIndex(root, key) < 0 }
+	absent := func(path string) bool { return root == nil || absentKey(&yamlDoc, path) }
 	cfg.loadDefaulted = map[string]string{}
-	if absent("server_url") {
+	if absent("server.url") {
 		cfg.ServerURL = defaultServerURL()
-		cfg.loadDefaulted["server_url"] = cfg.ServerURL
+		cfg.loadDefaulted["server.url"] = cfg.ServerURL
 	}
-	if absent("server_name") {
+	if absent("server.name") {
 		cfg.ServerName = "cartographer"
-		cfg.loadDefaulted["server_name"] = cfg.ServerName
+		cfg.loadDefaulted["server.name"] = cfg.ServerName
 	}
-	if absent("token") && cfg.Token == "" {
+	if absent("server.token") && cfg.Token == "" {
 		cfg.Token = EnvRefToken(DefaultTokenEnv)
-		cfg.loadDefaulted["token"] = cfg.Token
+		cfg.loadDefaulted["server.token"] = cfg.Token
 	}
 	if cfg.LiteralToken() != "" && !fileIsPrivate(Path(dir)) {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s holds a literal token and is readable by other users: run `chmod 600 %s`", Path(dir), Path(dir)))
@@ -659,28 +734,23 @@ func SaveWouldRewrite(dir string, cfg *Config) (bool, error) {
 // yamlDocument is the document Save writes for cfg over what dir holds now.
 func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	y := yamlConfig{
-		ServerURL:    cfg.ServerURL,
-		ServerName:   cfg.ServerName,
-		Auth:         cfg.Auth,
-		Token:        cfg.Token,
+		Server:       serverGroup{URL: cfg.ServerURL, Name: cfg.ServerName, Auth: cfg.Auth, Token: cfg.Token, AllowInsecureHTTP: cfg.AllowInsecureHTTP},
 		Clients:      cfg.Clients,
 		Scopes:       cfg.Scopes,
 		UnboundModes: cfg.UnboundModes,
 		KBOptions:    cfg.KBOptions,
 		Plugins:      cfg.Plugins,
 		Workspaces:   cfg.Workspaces,
-		Paths:        cfg.Paths,
-		IgnoredPaths: cfg.IgnoredPaths,
+		Placeholders: placeholderGroup{Paths: cfg.Paths, Ignored: cfg.IgnoredPaths},
 		SigningKeys:  cfg.SigningKeys,
 		Identities:   cfg.Identities,
 
-		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
 		ApprovalsMigrated: cfg.ApprovalsMigrated,
 	}
 	// The defaults are not written: a file that never set search_roots keeps
 	// getting whatever the defaults are (D906).
 	if !slices.Equal(cfg.SearchRoots, DefaultSearchRoots) {
-		y.SearchRoots = cfg.SearchRoots
+		y.Placeholders.SearchRoots = cfg.SearchRoots
 	}
 	// Emitted only when off: a default machine's file stays free of them.
 	if !cfg.UsageScan {
@@ -695,6 +765,9 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("clientconfig: read %s: %w", Path(dir), err)
 	}
+	if existing, err = migrateLayout(existing); err != nil {
+		return nil, fmt.Errorf("clientconfig: %s: %w", Path(dir), err)
+	}
 	doc, err := buildDocument(existing, &y, cfg.Extra, cfg.keptLegacyKeys())
 	if errors.Is(err, ErrUnparsable) {
 		return nil, fmt.Errorf("clientconfig: %s: %w (fix or remove it)", Path(dir), err)
@@ -707,21 +780,24 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	if yaml.Unmarshal(existing, &old) == nil {
 		oldRoot := documentMapping(&old)
 		root := documentMapping(doc)
-		current := map[string]string{"server_url": cfg.ServerURL, "server_name": cfg.ServerName, "token": cfg.Token}
+		current := map[string]string{"server.url": cfg.ServerURL, "server.name": cfg.ServerName, "server.token": cfg.Token}
 		for key, def := range cfg.loadDefaulted {
-			if current[key] != def || root == nil || (oldRoot != nil && pairIndex(oldRoot, key) >= 0) {
+			if current[key] != def || root == nil || (oldRoot != nil && lookup(&old, key) != nil) {
 				continue
 			}
-			if idx := pairIndex(root, key); idx >= 0 {
-				removePair(doc, root, idx)
+			group, leaf, _ := strings.Cut(key, ".")
+			if g := lookup(doc, group); g != nil && g.Kind == yaml.MappingNode {
+				if idx := pairIndex(g, leaf); idx >= 0 {
+					removePair(doc, g, idx)
+				}
 			}
 		}
 	}
 	return doc, nil
 }
 
-// Assigned records that a command set the named keys (server_url, server_name,
-// token) on purpose: Save then writes them even when the value equals the
+// Assigned records that a command set the named keys (server.url, server.name,
+// server.token) on purpose: Save then writes them even when the value equals the
 // default Load applied, since an explicit choice must survive a later change of
 // the default.
 func (c *Config) Assigned(keys ...string) {

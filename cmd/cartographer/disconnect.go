@@ -160,7 +160,7 @@ func (r disconnectResult) keptConnected() []string {
 //
 // If the lockfile ends up with no providers, the lockfile is removed.
 // .cartographer.yaml is never removed (D64): with no agents left it is saved
-// with an empty agents list, preserving server_url/server_name/auth/token/
+// with an empty agents list, preserving server.url/server.name/server.auth/server.token/
 // kbs as the defaults for the next connect. DryRun computes everything
 // without writing.
 func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
@@ -286,8 +286,8 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 		return disconnectResult{}, err
 	}
 
-	// cfg (server_url/server_name/auth/token/kbs) is preserved even
-	// when Agents ends up empty (D64): it seeds the next `connect` — server_url
+	// cfg (server.url/name/auth/token/kbs) is preserved even
+	// when Agents ends up empty (D64): it seeds the next `connect` — server.url
 	// in particular, so a disconnect-then-reconnect doesn't fall back to
 	// the local default when the user was pointed at a real server. Only
 	// the agents list is zeroed; the file itself is never deleted.

@@ -120,11 +120,11 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
    commits with git by hand.
 8. If a sync warns that a `{{repo:…}}`/`{{path:…}}` placeholder is not resolved, run
    `cartographer paths list`: it shows each key, the KBs citing it, what the KB's `paths.yaml`
-   says it points at and its declared default (D263). A key resolves from `paths:` in
-   `.cartographer.yaml` first, then (repo keys) from a clone under `search_roots`, found by the
+   says it points at and its declared default (D263). A key resolves from `placeholders.paths` in
+   `.cartographer.yaml` first, then (repo keys) from a clone under `placeholders.search_roots`, found by the
    declared `remote` when there is one, then from the declared default if it exists on this
    machine. Fix it with `cartographer paths set <kind>:<key> <path>` — or, for a repo, add a closer
-   `search_roots` entry (the scan goes 4 levels down from each root; the defaults are `~/Documents`,
+   `placeholders.search_roots` entry (the scan goes 4 levels down from each root; the defaults are `~/Documents`,
    `~/src`, `~/code`, `~/projects`) — then `cartographer sync`. A key missing
    from the KB's `paths.yaml` is fixed in the KB, not on the client: declare it there with a
    `~/`-anchored default so every machine resolves it with no configuration.

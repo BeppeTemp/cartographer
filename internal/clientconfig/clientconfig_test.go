@@ -313,7 +313,7 @@ func TestSave_DefaultSearchRootsAreNotWritten(t *testing.T) {
 	if err := clientconfig.Save(dir, clientconfig.Default()); err != nil {
 		t.Fatal(err)
 	}
-	if raw := readFile(t, clientconfig.Path(dir)); hasKey(raw, "search_roots") {
+	if raw := readFile(t, clientconfig.Path(dir)); strings.Contains(raw, "\n  search_roots:") {
 		t.Errorf("the defaults were written:\n%s", raw)
 	}
 }
@@ -616,13 +616,14 @@ func TestEveryYamlFieldIsWrittenBySave(t *testing.T) {
 		t.Fatalf("read back: %v", err)
 	}
 	raw := string(data)
-	for _, key := range []string{
-		"server_url", "server_name", "auth", "token",
-		"clients", "search_roots",
-		"paths", "signing_keys",
-	} {
+	for _, key := range []string{"server", "clients", "placeholders", "signing_keys"} {
 		if !hasKey(raw, key) {
 			t.Errorf("Save omitted %q:\n%s", key, raw)
+		}
+	}
+	for _, key := range []string{"url", "name", "auth", "token", "search_roots", "paths"} {
+		if !strings.Contains(raw, "\n  "+key+":") {
+			t.Errorf("Save omitted the grouped %q:\n%s", key, raw)
 		}
 	}
 }

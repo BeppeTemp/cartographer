@@ -42,7 +42,56 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 		Previous: []string{
 			"Local approvals of third-party MCP descriptors, bound to the exact content hash. Written by the approval commands; do not edit by hand.",
 		}},
+}, Moved: []settingschema.Moved{
+	movedTo("server_url", "server.url"),
+	movedTo("server_name", "server.name"),
+	movedTo("auth", "server.auth"),
+	movedTo("token", "server.token"),
+	movedTo("allow_insecure_http", "server.allow_insecure_http"),
+	movedTo("search_roots", "placeholders.search_roots"),
+	movedTo("paths", "placeholders.paths"),
+	movedTo("ignored_paths", "placeholders.ignored"),
 }}
+
+// movedTo is the move of a key into a group (D1731). The
+// comment the schema wrote above the old key is told from a person's by the
+// wordings the new key's entry holds: the move changes the path, not the text.
+func movedTo(from, to string) settingschema.Moved {
+	k, _ := Schema.Lookup(to)
+	return settingschema.Moved{From: from, To: to, Description: k.Description, Previous: k.Previous}
+}
+
+// layoutConflicts lists the keys that data sets at both the old and the new
+// path of the layout with different values: Load and Save refuse such a file
+// (the operator keeps one), and the realignment leaves it as it is.
+func layoutConflicts(data []byte) []string { return Retired.MovedConflicts(data) }
+
+// migrateLayout moves the keys of the old flat layout into their groups in
+// data, comments kept, for a save over a file the realignment has not reached
+// yet (a sync runs RealignFile first, which keeps the backup). Bytes without an
+// old key are returned as they are; a conflict is an error.
+func migrateLayout(data []byte) ([]byte, error) {
+	var doc yaml.Node
+	if yaml.Unmarshal(data, &doc) != nil {
+		return data, nil // buildDocument reports it
+	}
+	root := documentMapping(&doc)
+	if root == nil {
+		return data, nil
+	}
+	pending := false
+	for _, m := range Retired.Moved {
+		pending = pending || pairIndex(root, m.From) >= 0
+	}
+	if !pending {
+		return data, nil
+	}
+	if c := layoutConflicts(data); len(c) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(c, "; "))
+	}
+	out, _, err := Schema.Realign(data, settingschema.Registry{Moved: Retired.Moved})
+	return out, err
+}
 
 // RealignFile brings the client config in dir up to date (D903): the removed
 // keys dropped, off values reset to the default, the schema's comments written,
@@ -62,9 +111,12 @@ func RealignFile(dir, version string) (rep settingschema.Report, backup string, 
 	// with a literal token in it, close the file first so neither is open.
 	if data, rerr := os.ReadFile(Path(dir)); rerr == nil {
 		var y struct {
-			Token string `yaml:"token"`
+			Token  string `yaml:"token"`
+			Server struct {
+				Token string `yaml:"token"`
+			} `yaml:"server"`
 		}
-		if yaml.Unmarshal(data, &y) == nil && (&Config{Token: y.Token}).LiteralToken() != "" {
+		if yaml.Unmarshal(data, &y) == nil && ((&Config{Token: y.Token}).LiteralToken() != "" || (&Config{Token: y.Server.Token}).LiteralToken() != "") {
 			if terr := tightenFile(Path(dir)); terr != nil {
 				return settingschema.Report{}, "", terr
 			}
@@ -133,9 +185,15 @@ func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, er
 	// that names what was lost (the registry would drop it silently).
 	if i := pairIndex(root, "token_env"); i >= 0 {
 		v := root.Content[i+1]
-		j := pairIndex(root, "token")
+		// The token sits at the root or, in the grouped layout, under server.
+		tokParent, j := root, pairIndex(root, "token")
+		if g := lookup(&doc, "server"); j < 0 && g != nil && g.Kind == yaml.MappingNode {
+			if k := pairIndex(g, "token"); k >= 0 {
+				tokParent, j = g, k
+			}
+		}
 		valid := v.Kind == yaml.ScalarNode && tokenEnvRef.MatchString(EnvRefToken(v.Value))
-		tokenEmpty := j < 0 || (root.Content[j+1].Kind == yaml.ScalarNode && strings.TrimSpace(root.Content[j+1].Value) == "")
+		tokenEmpty := j < 0 || (tokParent.Content[j+1].Kind == yaml.ScalarNode && strings.TrimSpace(tokParent.Content[j+1].Value) == "")
 		switch {
 		case valid && j < 0:
 			name := v.Value
@@ -144,13 +202,13 @@ func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, er
 			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "token_env", Detail: "now token: ${…}, the variable token_env named"})
 			edited = true
 		case valid && tokenEmpty:
-			tv := root.Content[j+1]
+			tv := tokParent.Content[j+1]
 			ref := EnvRefToken(v.Value)
 			tv.Kind, tv.Value, tv.Tag, tv.Style = yaml.ScalarNode, ref, "!!str", 0
 			removePair(&doc, root, i)
 			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "token_env", Detail: "now token: ${…}, the variable token_env named (token was empty)"})
 			edited = true
-		case valid && root.Content[j+1].Value == EnvRefToken(v.Value):
+		case valid && tokParent.Content[j+1].Value == EnvRefToken(v.Value):
 			removePair(&doc, root, i)
 			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeRemoved, Path: "token_env", Detail: "token already is " + EnvRefToken(v.Value)})
 			edited = true
@@ -159,11 +217,11 @@ func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, er
 			// into token_env, and an alphanumeric token passes as a name.
 			var detail string
 			if valid {
-				detail = fmt.Sprintf("token_env was dropped because token is already set (%s); to read that variable instead, set token: ${NAME}", tokenLabel(root.Content[j+1].Value))
+				detail = fmt.Sprintf("token_env was dropped because token is already set (%s); to read that variable instead, set token: ${NAME}", tokenLabel(tokParent.Content[j+1].Value))
 			} else {
 				detail = "token_env is not an environment variable name and cannot become token: ${NAME}; set token to the reference you want"
 				if !tokenEmpty {
-					detail += fmt.Sprintf(" (token stays %s)", tokenLabel(root.Content[j+1].Value))
+					detail += fmt.Sprintf(" (token stays %s)", tokenLabel(tokParent.Content[j+1].Value))
 				}
 			}
 			removePair(&doc, root, i)

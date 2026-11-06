@@ -291,7 +291,7 @@ func repairProviderSync(serviceHTTPAddr string) int {
 }
 
 // upgradeRepairSyncEligible decides whether upgrade-repair may run provider
-// sync against the local native service: the client's server_url must use
+// sync against the local native service: the client's server.url must use
 // HTTP on a loopback host, carry no embedded credentials or fragment, and
 // its effective port must match the native service's bind port. Anything
 // else — HTTPS, a non-loopback host, a malformed URL, or a port mismatch —
@@ -299,19 +299,19 @@ func repairProviderSync(serviceHTTPAddr string) int {
 func upgradeRepairSyncEligible(clientURL, serviceHTTPAddr string) (bool, string) {
 	u, err := url.Parse(clientURL)
 	if err != nil {
-		return false, fmt.Sprintf("client server_url is malformed: %v", err)
+		return false, fmt.Sprintf("client server.url is malformed: %v", err)
 	}
 	if u.Scheme != "http" {
-		return false, fmt.Sprintf("client server_url uses %q, not a loopback http endpoint", u.Scheme)
+		return false, fmt.Sprintf("client server.url uses %q, not a loopback http endpoint", u.Scheme)
 	}
 	if u.User != nil {
-		return false, "client server_url has embedded credentials"
+		return false, "client server.url has embedded credentials"
 	}
 	if u.Fragment != "" {
-		return false, "client server_url has a fragment"
+		return false, "client server.url has a fragment"
 	}
 	if !isLoopbackHost(u.Hostname()) {
-		return false, fmt.Sprintf("client server_url host %q is not loopback", u.Hostname())
+		return false, fmt.Sprintf("client server.url host %q is not loopback", u.Hostname())
 	}
 
 	clientPort := u.Port()

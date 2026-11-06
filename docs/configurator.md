@@ -249,7 +249,7 @@ scheduled headless doctor job an earlier release installed, printing one line wh
 Cartographer never starts an agent by itself (D704). `sync` matters after a Homebrew upgrade, which
 runs neither of the others; `doctor run|schedule|unschedule|status` fail as unknown arguments.
 
-**Token file (D699).** With `auth: true` and a `token: ${NAME}` reference (the default is `${CARTOGRAPHER_TOKENS}`),
+**Token file (D699).** With `server.auth: true` and a `server.token: ${NAME}` reference (the default is `${CARTOGRAPHER_TOKENS}`),
 `connect` (so `reconnect` and `setup`) also copies the token to a `.cartographer-token` file next to `.cartographer.yaml` (`0600`, atomic, never through a symlink), because the sync
 timer runs without a login shell's exports. The environment variable stays the source
 whenever it is set; rotate it and run `cartographer reconnect` to refresh the copy. A file readable by group or
@@ -404,7 +404,7 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}`. Anything that is not a variable name (`$NAME`, `my-token`, a pasted token) is refused (exit 2), here and in the form |
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
-| `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
+| `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `server.allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
 | `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, nothing written: the manifest is fetched and verified before the agents' MCP entries, the bootstrap hook or `.cartographer.yaml` are touched, and the same holds for a rejected token), not a "server unreachable" deferral; a server that is down still defers and writes |
 | `--no-input` | `false` | Never opens the interactive form, even in a TTY |
@@ -424,7 +424,7 @@ scheme is refused. The check is in the client transport, so `connect`, `sync`,
 `status`, `doctor`, `kb repair`, `kb reauthor`, `reindex`, the usage sync and the stdio bridge
 all obey it, and `connect` and `sync` fail before writing anything.
 
-The explicit opt-in is the `allow_insecure_http: true` key, set by
+The explicit opt-in is the `server.allow_insecure_http: true` key, set by
 `connect --allow-insecure-http` (re-run `connect` with the same flags; it only
 adds the key), or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1` for one run. A machine
 already connected to a plain-http remote is refused at its next `sync` with an
@@ -490,7 +490,7 @@ as `kept <path>: changed since sync`, a lockfile path that is not inside the rep
 another provider's projection of the same repository still records stays too), prints which repositories it cleaned, then removes the provider from the
 lockfile and from the client state, its workspace bindings and projection scope included (#1324). If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
-preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
+preserving `server:` (`url`/`name`/`auth`/`token`) and `clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
 The client state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`, `.cartographer-machine.json`,
 `.cartographer-client.lock` (in the config directory), `.cartographer-created.json` (in the home or workspace, only while a Claude Code file it created is kept because it holds other keys) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). `.cartographer-client.lock` is an empty lock file, not state: the first sync or connect creates it and a dry run does not announce it. To remove every trace, delete them by hand once the last provider is disconnected.
@@ -588,7 +588,7 @@ the known-KB refresh, the MCP entry reconciliation and the partial sync come wit
 run would print goes into the dashboard's message, never to the terminal (D1612). Connecting from the
 dashboard does the same (`connectOptions.Out`: the machine-wide scope note and the notices land in the message, #1713), names a provider whose parts were refused as `connect` does (`partially connected`, `not connected`, #1693), and asks the same KB choice as `cartographer connect` (D190) after a successful probe, when the
 server mounts several KBs and the provider has no binding yet (`esc` goes back to the form), and keeps a
-recorded `allow_insecure_http`.
+recorded `server.allow_insecure_http`.
 
 ### `cartographer sync`
 
@@ -1044,7 +1044,7 @@ write failures it commits only successful paths and reports that the batch had e
 ### `cartographer resolve repo:<key>|path:<name>`
 
 Resolves a path portability placeholder (D75) and prints the local path to stdout. It doesn't talk to the
-server: it only reads `.cartographer.yaml` (`search_roots`, `paths`) and, if needed, scans the
+server: it only reads `.cartographer.yaml` (`placeholders.search_roots`, `placeholders.paths`) and, if needed, scans the
 filesystem (`internal/repoindex`) — it works even before a `connect`. It's the runtime fallback
 for an agent that encounters, in a concept's body, a placeholder missing from the "Local
 paths" table materialized in the instructions block — the block's placeholder paragraph points
@@ -1059,7 +1059,7 @@ cartographer resolve repo:github.com/org/nome   # full form: host/owner/name
 cartographer resolve path:design-assets         # manual paths: mapping
 ```
 
-A leading `~` is expanded in both `search_roots` and `paths` entries, followed by either
+A leading `~` is expanded in both `placeholders.search_roots` and `placeholders.paths` entries, followed by either
 separator: `~/repos` and `~\repos` mean the same directory wherever the config is read. `~name` is
 not expanded — another user's home is not something a config entry means.
 
@@ -1071,7 +1071,7 @@ mistaken for a depth problem ([D216](decisions/D216-the-client-half-reaches-pari
 surface in `AppliedResult.Warnings` when a `{{repo:…}}` placeholder is resolved during `sync`.
 
 Exit code: `0` resolved (path on stdout), `1` not resolved (no `paths:` entry, no clone
-found under `search_roots`, or an ambiguous key across several distinct remotes — error message on
+found under `placeholders.search_roots`, or an ambiguous key across several distinct remotes — error message on
 stderr with the full form to use), `2` usage error (missing argument or not in the
 `repo:...`/`path:...` form).
 
@@ -1112,7 +1112,7 @@ cartographer paths --help                   # the usage above, on stdout, exit 0
 - `suggest` reads the same unresolved, not ignored keys and prints, per key, its KBs, its
   description and one `cartographer paths set <key> <path>` line per candidate — or a line saying
   there is none. Candidates, in order: the `paths.yaml` default, when it exists on this machine;
-  for a `repo:` key, every clone under `search_roots` whose origin remote contains the key name or
+  for a `repo:` key, every clone under `placeholders.search_roots` whose origin remote contains the key name or
   whose directory is named after it (the near misses sync's exact match refused); for a `path:`
   key, `~/<name>`, `~/.config/<name>` and `~/.<name>`. It writes nothing.
 - `list` shows every key recorded in the lockfile, resolved or not, with the KBs citing it (from
@@ -1127,7 +1127,7 @@ cartographer paths --help                   # the usage above, on stdout, exit 0
   not exist is recorded anyway with a warning (you may be about to clone it); for a `repo:` key, a
   path that is not a git clone is a warning too, never an error.
 - `ignore` marks a key as deliberately absent on this machine (D282), for a work repo on a personal
-  laptop or a folder that exists on another host only. It is stored in `ignored_paths:` in
+  laptop or a folder that exists on another host only. It is stored in `placeholders.ignored` in
   `.cartographer.yaml` with its kind prefix (`repo:work-tools`); an unprefixed argument is qualified
   from the lockfile and refused (exit `2`) when the lockfile does not know it. Resolution is
   untouched — the placeholder stays verbatim, and a key that does resolve still does — only the
@@ -1464,21 +1464,23 @@ Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml
 connected in one repo but not another.
 
 ```yaml
-server_url: http://127.0.0.1:39273/mcp
-server_name: cartographer  # name under which the server is registered in the MCP configs (always "cartographer", overridden only by editing this file)
-auth: false
-token: ${CARTOGRAPHER_TOKENS}   # a literal token or ${ENV}; a literal keeps this file at mode 0600 (D906). Unattended runs fall back to the private token file
+server:                         # what the machine needs to reach the server (D1731)
+  url: http://127.0.0.1:39273/mcp
+  name: cartographer            # name under which the server is registered in the MCP configs (always "cartographer", overridden only by editing this file)
+  auth: false
+  token: ${CARTOGRAPHER_TOKENS} # a literal token or ${ENV}; a literal keeps this file at mode 0600 (D906). Unattended runs fall back to the private token file
+  allow_insecure_http: false    # D1023; written only when true. true: accept a plain http:// server.url that is not loopback (the token then travels in clear); set by `connect --allow-insecure-http`
 clients:         # per-provider KB binding (D169); absent provider = every known KB
   claude:
     kbs: [homelab]
     config_dirs: [~/.claude/accounts/b]   # extra Claude Code config dirs (CLAUDE_CONFIG_DIR) whose .claude.json also gets the MCP entry (D755); claude only; does not make the binding explicit
-search_roots: ["~/Documents", "~/src", "~/code", "~/projects"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75); the default, 4 levels deep (a constant, D906); a default root that does not exist is skipped silently; consulted only for a key with no `paths` entry
-paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75); edit with `cartographer paths set`
-ignored_paths: []               # placeholder ids known to be absent on this machine, e.g. repo:work-tools (D282); edit with `cartographer paths ignore`
+placeholders:                   # how {{repo:<key>}} and {{path:<name>}} resolve (D75, D1731)
+  search_roots: ["~/Documents", "~/src", "~/code", "~/projects"]   # where repoindex.Scan looks for git clones for {{repo:<key>}}; the default, 4 levels deep (a constant, D906); a default root that does not exist is skipped silently; consulted only for a key with no `placeholders.paths` entry
+  paths: {}                     # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}); edit with `cartographer paths set`
+  ignored: []                   # placeholder ids known to be absent on this machine, e.g. repo:work-tools (D282); edit with `cartographer paths ignore`
 identities:                     # D904; the git author of this machine's writes, by KB name or default; without an entry, the identity git resolves in the session's repository (an HTTP entry: the global one)
   default: Ada Lovelace <ada@example.com>
   work-kb: Ada Lovelace <ada@corp.example>   # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
-allow_insecure_http: false      # D1023; written only when true. true: accept a plain http:// server_url that is not loopback (the token then travels in clear); set by `connect --allow-insecure-http`
 update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
 kb_options: {}                  # D1408; per-KB settings for every provider: <kb>: {artifacts: false} stops that KB's skills, subagents, hooks and MCP descriptors (it stays connected); `<kb>: {access: read}` connects that KB read-only on every provider that receives it (D1409); edit with `cartographer client kb`
@@ -1518,6 +1520,16 @@ backup, and `sync --dry-run` writes nothing. The registry of removed keys is `Re
 `internal/clientconfig/realign.go`, next to the schema. A removed key met later, edited back in by hand,
 is ignored with a warning that names its replacement; it is never an error.
 
+**The groups (D1731).** The eight flat keys `server_url`, `server_name`, `auth`, `token`,
+`allow_insecure_http`, `search_roots`, `paths` and `ignored_paths` moved into the `server:` group (`url`, `name`,
+`auth`, `token`, `allow_insecure_http`) and the `placeholders:` group (`search_roots`, `paths`, `ignored`) through
+the `Moved` entries of `Retired`: the first `sync` after the upgrade moves each value with the comment a person
+wrote above it and keeps the original as `.cartographer.yaml.bak-<version>`; `Save` over a file it has not
+reached moves them too (no backup, as for the keys `Save` drops). `Load` reads both layouts for at least one
+minor, so a file on a read-only mount keeps working. A key set at both places with different values is an
+error naming the two keys, from `Load`, `Save` and the realignment, which leaves the file as it is: keep
+one. The report a client posts to the server and `cartographer config` mask a literal token at either place.
+
 The registry holds the client keys `token_env` (rewritten as `token: ${NAME}`, comments kept),
 `trust`, `write_findings_hook`, `search_depth`, `update.check` and `update.policy` (`update_check`, which an
 `auto-patch` policy turns into `true`), `agents`, whose **value moves** to the client state file, and
@@ -1541,7 +1553,7 @@ line on stderr that names what to redo: the known KBs come back with the next `s
 
 `clients` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
 
-`.cartographer.yaml` is written atomically (a temporary file beside it, `fsync`, rename) and the operator's own file keeps what they gave it: a **symlink** (stow, yadm) is followed and its target replaced, so the link survives; an existing **mode** is kept (a literal token only ever takes group and other access away, never gives it). This differs from the no-follow rule of the client directories (D148) because it is the operator's own file, written on their own command, not a path inside somebody else's checkout. A key the file does not carry (`server_url`, `server_name`, `token`) loads as the schema's default, as `Default()` does; an explicit empty value stays empty.
+`.cartographer.yaml` is written atomically (a temporary file beside it, `fsync`, rename) and the operator's own file keeps what they gave it: a **symlink** (stow, yadm) is followed and its target replaced, so the link survives; an existing **mode** is kept (a literal token only ever takes group and other access away, never gives it). This differs from the no-follow rule of the client directories (D148) because it is the operator's own file, written on their own command, not a path inside somebody else's checkout. A key the file does not carry (`server.url`, `server.name`, `server.token`) loads as the schema's default, as `Default()` does; an explicit empty value stays empty.
 
 ### `cartographer client`
 

@@ -108,7 +108,7 @@ func TestClientSettingsRepeatedKeyIsStoredRawAndBoundsTheRead(t *testing.T) {
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{{Token: "tok-a", Principal: "user-a", Policy: auth.Policy{Admin: true}}})
 	handler := settingsHandler(t, config.Default(), ts, "docs")
 
-	posted := strings.Repeat("server_url: a\n", 8000)
+	posted := strings.Repeat("update_check: a\n", 8000)
 	postClientSettings(t, handler, "tok-a", map[string]any{"machine": "laptop", "yaml": posted})
 
 	// Without the bound this renders to megabytes.

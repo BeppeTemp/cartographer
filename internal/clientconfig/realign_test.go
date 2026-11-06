@@ -15,6 +15,7 @@ import (
 func withRetired(t *testing.T, r settingschema.Registry) {
 	t.Helper()
 	old := clientconfig.Retired
+	r.Moved = old.Moved // the layout moves stay: the test files are flat
 	clientconfig.Retired = r
 	t.Cleanup(func() { clientconfig.Retired = old })
 }
@@ -168,7 +169,7 @@ func TestRealignFileD906(t *testing.T) {
 		t.Errorf("the backup is not the original")
 	}
 	raw := readFile(t, clientconfig.Path(dir))
-	if !regexp.MustCompile(`(?m)^token: \$\{MY_CARTO_TOKEN\}`).MatchString(raw) {
+	if !regexp.MustCompile(`(?m)^  token: \$\{MY_CARTO_TOKEN\}`).MatchString(raw) {
 		t.Errorf("token_env was not rewritten as token: ${MY_CARTO_TOKEN}:\n%s", raw)
 	}
 	if !strings.Contains(raw, "# my token variable") {

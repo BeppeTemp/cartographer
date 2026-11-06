@@ -1226,7 +1226,7 @@ func fetchHealth(baseURL string) (*healthInfo, error) {
 // serverBaseURL resolves the LOCAL server's base HTTP URL (no /mcp or /health
 // suffix): the `http:` field of the service config (service.ConfigPath, D85),
 // which is what `serve` actually binds to, else the local default listen
-// address. It never reads the client's server_url: the `kb` subcommands act on
+// address. It never reads the client's server.url: the `kb` subcommands act on
 // this machine's data directory, and on a machine whose client points at a
 // remote server that URL made `kb list` fill MOUNTED from the remote and
 // `--restart` restart the local service while waiting on the remote's
