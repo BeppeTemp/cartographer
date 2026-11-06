@@ -186,13 +186,28 @@ func pluginSourceSpec(e clientconfig.PluginEntry, redact bool) string {
 	return src
 }
 
+// scriptFiles are the script files of a tree.
+func scriptFiles(files []plugin.TreeFile) []plugin.TreeFile {
+	var out []plugin.TreeFile
+	for _, f := range files {
+		if plugin.IsScriptPath(f.Path) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // fetchApproved reads the plugin's tree again and returns it only if it is the approved one.
 func fetchApproved(name string, e clientconfig.PluginEntry) (fetchedPlugin, error) {
 	src, err := plugin.ParseSource(pluginSourceSpec(e, false))
 	if err != nil {
 		return fetchedPlugin{}, fmt.Errorf("cannot fetch: %v", err)
 	}
-	files, _, p, probs, err := pluginRead(src)
+	// The scripts do not run until the digest matches: a modified source is
+	// reported as modified without executing anything it carries.
+	opts := pluginOpts()
+	opts.CheckScripts = nil
+	files, _, p, probs, err := pluginReadWith(src, opts)
 	switch {
 	case err != nil:
 		return fetchedPlugin{}, fmt.Errorf("cannot fetch from %s: %v", redactPluginSource(e), err)
@@ -200,6 +215,9 @@ func fetchApproved(name string, e clientconfig.PluginEntry) (fetchedPlugin, erro
 		return fetchedPlugin{}, fmt.Errorf("the fetched tree is not a valid plugin (%s): nothing is installed from it", strings.Join(probs, "; "))
 	case p.Digest != e.Approved:
 		return fetchedPlugin{}, fmt.Errorf("the source no longer yields the approved version: reported as modified, run `cartographer plugin update %s` to review it", name)
+	}
+	if probs := pluginOpts().CheckScripts(scriptFiles(files)); len(probs) > 0 {
+		return fetchedPlugin{}, fmt.Errorf("the fetched tree is not a valid plugin (%s): nothing is installed from it", strings.Join(probs, "; "))
 	}
 	return fetchedPlugin{name: name, files: files, p: p}, nil
 }

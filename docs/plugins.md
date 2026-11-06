@@ -67,7 +67,7 @@ and never loaded. 0.28 registers `skills`, `agents`, `hooks` and `providers`, an
 | `providers` | `providers/<id>.yaml` | `plugin.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
 | `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
 | `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
-| `plugin.star`, `lib/` | planned (plugin scripts) | refused today with "plugin scripts are not supported yet" |
+| `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); registered only, nothing is called yet |
 
 Every artifact name is a valid artifact name, and a plugin cannot shadow the bundle: a skill or agent named like a
 bundled one (the CLI skill included) is refused. Reserved and bundled names are compared ignoring case, since a filesystem may fold it.
@@ -80,7 +80,7 @@ order of the files does not matter. It is the one function that knows the tree r
 loading share them.
 
 - At the top: the manifest and one folder per registered point. `README*`, `LICENSE*`, `CHANGELOG*` and `.git*`
-  are ignored and never stored or checked. `plugin.star` and `lib/` are refused (plugin scripts are not supported yet), `mcp/`
+  are ignored and never stored or checked. `plugin.star` and flat `lib/*.star` files are read and loaded (Starlark, 20 million steps at most; `load()` reaches only `lib/` files of the tree, and the capability modules refuse every call at load in this version), and run only on an otherwise valid tree (after the caps and the manifest); a script that does not load is a problem of the tree, and the approval preview shows each script in full with its registrations. `mcp/`
   and `instructions.md` are not contribution points in this version, and any other entry is an error naming it.
 - Paths are canonical slash paths (`provisioning.ValidArtifactFilePath`) without control or format characters (bidi overrides, zero-width), unique ignoring case; a symlink or
   non-regular file, a file over the artifact file cap, more than 2000 files or 8 MiB in all is an error.
