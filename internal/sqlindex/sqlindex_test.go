@@ -750,3 +750,36 @@ func TestIDsContaining(t *testing.T) {
 		t.Error("a deleted concept is still a candidate")
 	}
 }
+
+func TestOpen_RefusesLinkedStateDirAndSidecars(t *testing.T) {
+	outside := t.TempDir()
+	root := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".cartographer")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if ix, err := Open(filepath.Join(root, ".cartographer", "index.db")); err == nil {
+		ix.Close()
+		t.Fatal("Open through a linked directory must fail")
+	}
+	if ents, _ := os.ReadDir(outside); len(ents) != 0 {
+		t.Fatalf("index files created outside: %v", ents)
+	}
+
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		dir := filepath.Join(t.TempDir(), ".cartographer")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "victim")
+		if err := os.Symlink(target, filepath.Join(dir, "index.db"+suffix)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if ix, err := Open(filepath.Join(dir, "index.db")); err == nil {
+			ix.Close()
+			t.Fatalf("Open with index.db%s as a link must fail", suffix)
+		}
+		if _, err := os.Lstat(target); err == nil {
+			t.Fatalf("index.db%s: the link target was created", suffix)
+		}
+	}
+}

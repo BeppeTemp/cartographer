@@ -58,7 +58,7 @@ func (k *KB) AcquireProcessLock(timeout time.Duration, command string) (release 
 	deadline := time.Now().Add(timeout)
 
 	for {
-		f, openErr := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+		f, openErr := openLockFile(path)
 		if openErr != nil {
 			return nil, fmt.Errorf("kb: open lock %s: %w", path, openErr)
 		}
@@ -98,6 +98,19 @@ func (k *KB) AcquireProcessLock(timeout time.Duration, command string) (release 
 		}
 		time.Sleep(lockPollInterval)
 	}
+}
+
+// openLockFile opens the lock file, creating it. The KB comes from a remote and
+// git stores symlinks, so the lock path may be a link to a file outside the KB,
+// which the owner record would then truncate and overwrite: a path that exists
+// and is not a regular file is refused, and the open itself never follows a
+// link where the OS can say so (openLockFileNoFollow), which closes the window
+// between the check and the open.
+func openLockFile(path string) (*os.File, error) {
+	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file, refusing to use it", path)
+	}
+	return openLockFileNoFollow(path)
 }
 
 func writeLockOwner(f *os.File, command string) error {

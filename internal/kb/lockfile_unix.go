@@ -8,6 +8,11 @@ import (
 	"syscall"
 )
 
+// openLockFileNoFollow opens path read-write, creating it, and fails on a link.
+func openLockFileNoFollow(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o644)
+}
+
 // tryLockFile takes a non-blocking exclusive flock. The retry loop lives in
 // AcquireProcessLock so the wait is bounded and its failure can name the holder.
 func tryLockFile(f *os.File) error {

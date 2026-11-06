@@ -24,6 +24,7 @@ package sqlindex
 import (
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,9 +60,15 @@ func Open(dbPath string) (*Index, error) {
 	// Ensure the parent directory exists: the SQLite driver cannot create the
 	// database (or its WAL sidecar) inside a missing directory. The KB's
 	// .cartographer/ dir is created lazily elsewhere, so do not rely on it here.
+	if err := checkPaths(dbPath); err != nil {
+		return nil, err
+	}
 	if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("sqlindex: mkdir %s: %w", dir, err)
+		}
+		if err := checkPaths(dbPath); err != nil {
+			return nil, err
 		}
 	}
 
@@ -85,6 +92,25 @@ func Open(dbPath string) (*Index, error) {
 	}
 
 	return &Index{db: db, path: dbPath}, nil
+}
+
+// checkPaths refuses to open dbPath when its directory is a link or not a
+// directory, or when the database or a sidecar SQLite derives from its name
+// (-wal, -shm, -journal) exists as anything but a regular file: the index lives
+// inside a KB that comes from a remote, git stores symlinks, and SQLite opens
+// and creates those files by following them. A missing entry passes.
+func checkPaths(dbPath string) error {
+	dir := filepath.Dir(dbPath)
+	if fi, err := os.Lstat(dir); err == nil && (fi.Mode()&fs.ModeSymlink != 0 || !fi.IsDir()) {
+		return fmt.Errorf("sqlindex: %s is not a real directory, refusing to use it", dir)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		p := dbPath + suffix
+		if fi, err := os.Lstat(p); err == nil && !fi.Mode().IsRegular() {
+			return fmt.Errorf("sqlindex: %s is not a regular file, refusing to use it", p)
+		}
+	}
+	return nil
 }
 
 // dsn is the SQLite URI of dbPath with the per-connection pragmas every

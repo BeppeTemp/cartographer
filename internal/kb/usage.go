@@ -57,6 +57,9 @@ func (k *KB) usageFilePath() string {
 
 // LoadUsage reads the usage store. A KB nothing has reported to has none: nil.
 func (k *KB) LoadUsage() ([]UsageEntry, error) {
+	if err := k.checkStatePath(k.usageFilePath()); err != nil {
+		return nil, fmt.Errorf("LoadUsage: %w", err)
+	}
 	data, err := os.ReadFile(k.usageFilePath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -130,6 +133,9 @@ func (k *KB) MergeUsage(in []UsageEntry) (int, error) {
 	}
 	if len(data) > maxUsageFile {
 		return 0, ErrUsageTooLarge
+	}
+	if err := k.checkStatePath(k.usageFilePath()); err != nil {
+		return 0, err
 	}
 	if err := writeFileAtomic(k.usageFilePath(), data); err != nil {
 		return 0, err
