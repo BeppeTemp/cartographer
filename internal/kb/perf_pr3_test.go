@@ -2,6 +2,9 @@ package kb
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -68,7 +71,18 @@ reason: r
 `, i))
 	}
 	writeTestFile(t, k.DataRoot(), "conflicts/gap.md", "---\ntype: Contradiction\nresolution_status: open\ninvolves: [arch/n0]\ncontradiction_kind: open_question\n---\n# G\n")
-	time.Sleep(2200 * time.Millisecond) // past the graph cache's racy window
+	// A file is racy when its mtime is not before observed-racyWindow
+	// (graphcache.go); backdate every file past it instead of sleeping, which
+	// a loaded host does not honour.
+	old := time.Now().Add(-time.Hour)
+	if err := filepath.WalkDir(k.DataRoot(), func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		return os.Chtimes(p, old, old)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := k.GraphGeneration(); err != nil {
 		t.Fatal(err)
 	}
