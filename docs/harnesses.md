@@ -65,7 +65,10 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
 
 ## claude
 
-- **Aligned with**: `2.1.286` — 2026-10-01. Documentary review of the changelog
+- **Aligned with**: `2.1.318` — 2026-11-06, documentary review of the MCP tool visibility: MCP tools are
+  deferred behind tool search by default; per-tool `_meta["anthropic/alwaysLoad"]` and per-server
+  `alwaysLoad` pin them; server instructions are loaded at start, capped at 4 096 chars.
+  `2.1.286` — 2026-10-01. Documentary review of the changelog
   from 2.1.246 (about 40 releases) and of the vendor docs; one cell probed (the
   project `CLAUDE.md` vs `AGENTS.md` precedence, below), the others not re-probed.
 - **Sources** (reachable on 2026-10-01): changelog
@@ -152,7 +155,10 @@ project hook.UserPromptSubmit verified 2026-11-05 claude-project
 
 ## codex
 
-- **Aligned with**: `0.162.0` — 2026-10-09 for the write-findings probe (#637,
+- **Aligned with**: `0.166.0` — 2026-11-06, MCP tool visibility: recent models run
+  `tool_mode: code_mode_only`; MCP tools are always deferred behind tool search; there is no per-tool pin
+  (`code_mode.direct_only_tool_namespaces` is whole-namespace).
+  `0.162.0` — 2026-10-09 for the write-findings probe (#637,
   below); `0.159.3` — 2026-10-01 (documentary review). Probed on
   `0.158.0` — 2026-10-01: `codex debug prompt-input` catalogues skills from both
   `~/.codex/skills` and `~/.agents/skills` (D192 still holds); a user-layer
@@ -246,7 +252,9 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
 
 ## kiro
 
-- **Aligned with**: `2.28.0` — 2026-10-09 for the write-findings probe (#640,
+- **Aligned with**: `3.0.0` — 2026-11-06 (`3.1.0` seen, not in the changelog): V3 is the default; tool
+  search is on with no pin (only the global `toolSearch.enabled`); workspace trust gates the project cells
+  (2.33); V3 session store (#1716); agent auto-upgrade (#1717). `2.28.0` — 2026-10-09 for the write-findings probe (#640,
   below; `chat` without flags still runs the v2 engine and announces V3 as an
   early release); `2.27.0` — 2026-10-02 for the `hook` cell (D300: the default
   interactive TUI, `--no-interactive`, `--v3 --tui`, the default-agent probe);
@@ -289,7 +297,10 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
     version on this line.
 - **Watch items**:
   - the default `kiro-cli chat` starts firing standalone hooks (its KAS log shows
-    `v2 hooks cache initialized`). Then drop the `sessionHookLimit` on the Kiro
+    `v2 hooks cache initialized`; on 3.0.0 the KAS logs load `cartographer.json` in every V3 session, but
+    execution is not proven: probe with a sentinel, then revisit `sessionHookLimit` in
+    `internal/provisioning/bootstrap.go:443`, `hookspec.go:29`, `workspacescope.go:155`,
+    `docs/interoperability.md:137,158`, `docs/configurator.md:297`). Then drop the `sessionHookLimit` on the Kiro
     hook mechanism, and the timer advice with it;
   - the usage scan's record shape (above) changes: a new Kiro release that renames
     `kind.BuiltIn.FileRead` makes every Kiro skill look unused, silently;
@@ -299,8 +310,9 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
 
   Probe both on a machine that has them before any matrix cell claims them.
 - **Probe notes**: run the real binary
-  (`"/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli"` on macOS; the Homebrew
-  symlink breaks its launcher). The V3 TUI asks before running an MCP tool, and a
+  (`/opt/homebrew/Caskroom/kiro-cli/<v>/kirocli/bin/kiro-cli`, or the app bundle
+  `"/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli"`; the Homebrew symlink works now on 3.0.0).
+  `kiro-cli agent upgrade --dry-run` works without login. The V3 TUI asks before running an MCP tool, and a
   scripted `\r` does not answer it; use `-a` and accept its warning (down arrow,
   then Enter) before typing the prompt. A first run on a clean profile creates
   `~/.kiro/{logs,sessions,session-index,agents}`: remove them afterwards. Three agent engines coexist (`--agent-engine
@@ -340,7 +352,10 @@ project hook.UserPromptSubmit absent
 
 ## opencode
 
-- **Aligned with**: `2.0.30` — 2026-10-17, probed: project agents in `.opencode/agents/`
+- **Aligned with**: `2.2.5` — 2026-11-06, MCP tool visibility (#1714): Code Mode is on by default for MCP
+  servers; `codemode` is per server (a flat `mcp.<name>` entry keeps it since 2.2.0); the inline catalog is
+  2 000 tokens, shortest signatures first, with no MCP pin (anomalyco/opencode#62316); server instructions
+  are shown under "use through `execute`". `2.0.30` — 2026-10-17, probed: project agents in `.opencode/agents/`
   (`opencode debug agents` lists them; it does not load `.claude/agents/`) and
   `.agents/skills/` found, `.opencode/skills/` winning. `2.0.25` — 2026-10-09, probed (#478, #638): global skill and
   agent discovery, agent `permission`, the write-findings channel. `1.18.34` —
@@ -436,7 +451,9 @@ project hook.UserPromptSubmit absent
 
 ## antigravity
 
-- **Aligned with**: CLI `agy` `1.3.2` — 2026-10-09, probed (#478, #639). App
+- **Aligned with**: CLI `agy` `1.4.0` — 2026-11-06, MCP tool visibility: per-tool
+  `_meta["antigravity/alwaysLoad"]` (since 1.3.3); `enabledTools`/`disabledTools` in `mcp_config.json`.
+  `1.3.2` — 2026-10-09, probed (#478, #639). App
   `2.19.1` — 2026-10-01 (documentary review; the app was not available for the
   probe). The CLI is versioned separately (`agy --version`).
 - **Sources**: changelog <https://antigravity.google/docs/changelog/>; CLI
@@ -520,7 +537,10 @@ project hook.UserPromptSubmit absent
 
 ## crush
 
-- **Aligned with**: `v0.98.0` — 2026-10-09, probed (#478).
+- **Aligned with**: `v0.100.0` — 2026-11-06, MCP tool visibility: all MCP tools are sent; server
+  instructions are appended in `<mcp-instructions>`. v0.99.0 added lifecycle hook events (session, turn,
+  permission, compaction, `PostToolUseFailure`) and v0.100.0 background subagents: check them against the
+  crush hook cell (D363) in a follow-up probe. `v0.98.0` — 2026-10-09, probed (#478).
 - **Sources**: releases <https://github.com/charmbracelet/crush/releases>; README
   <https://github.com/charmbracelet/crush>; config
   <https://github.com/charmbracelet/crush/tree/main/docs/config>; hooks
@@ -593,7 +613,9 @@ project hook.UserPromptSubmit absent
 
 ## copilot
 
-- **Aligned with**: `1.0.98` — 2026-10-17, probed: project agents in
+- **Aligned with**: `1.0.98` — 2026-10-17, probed (latest seen `1.0.106`, 2026-11-06, not re-probed: tool
+  search once the tool set is large, `deferTools: "never"` per server, `toolSearch: false` to disable; re-align after a
+  probe on 1.0.106): project agents in
   `.github/agents/<name>.agent.md` load once the folder is trusted, the `model` key is
   honoured and an unavailable model falls back to `auto` with a warning.
   `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
@@ -682,7 +704,9 @@ project hook.UserPromptSubmit absent
 
 ## pi
 
-- **Aligned with**: `1.5.0` — 2026-11-03, probed. Pi (`pi`), npm
+- **Aligned with**: `1.5.0` — 2026-11-03, probed; unchanged on 2026-11-06 (MCP tool visibility: modes
+  `codemode|deferred|direct|hidden`, per-tool `toolExposure`, `codemode.inlineBudget` 3 000, feeding #1714
+  item 4). Pi (`pi`), npm
   `@earendil-works/pi-coding-agent`.
 - **Sources**: repository <https://github.com/earendil-works/pi>; docs
   `packages/coding-agent/docs/{configuration,mcp,extensions,skills,cli}.md` of the installed
@@ -775,7 +799,7 @@ project hook.UserPromptSubmit absent
 
 ## cline
 
-- **Aligned with**: `4.1.26` — 2026-11-04, read from the bundle (`dist/extension.js` of the VS Code
+- **Aligned with**: `4.1.26` — 2026-11-04, unchanged on 2026-11-06 (every MCP tool is sent; no deferral), read from the bundle (`dist/extension.js` of the VS Code
   extension `saoudrizwan.claude-dev`); nothing was exercised on a live Cline except where a note says so.
 - **Sources**: `unverified` vendor documentation; the cells come from the extension bundle and the npm
   package `cline` (3.0.74, `bin = { cline: 'bin/cline' }`).
