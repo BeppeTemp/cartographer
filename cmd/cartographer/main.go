@@ -93,6 +93,7 @@ var (
 func main() {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.Ltime | log.Lshortfile)
+	registerAllowedSymlinks()
 	os.Exit(run(os.Args[1:]))
 }
 

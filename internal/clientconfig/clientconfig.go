@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -227,6 +228,10 @@ type ClientBinding struct {
 	// provider's entry URL carries access=read-min (D1184). It is not a KB
 	// binding: Explicit and BoundKBs ignore it.
 	Access string
+	// AllowSymlinks lists the links client-side writes may follow
+	// (providers.<provider>.allow_symlinks, D148 refined): each entry is the link
+	// itself, as the client addresses it. Not a KB binding either.
+	AllowSymlinks []string
 }
 
 // AccessReadMin is the one value of ClientBinding.Access: the routed mount's
@@ -240,6 +245,8 @@ type clientBindingYAML struct {
 	KBs        []string `yaml:"kbs"`
 	ConfigDirs []string `yaml:"config_dirs,omitempty"`
 	Access     string   `yaml:"access,omitempty"`
+
+	AllowSymlinks []string `yaml:"allow_symlinks,omitempty"`
 }
 
 // UnmarshalYAML tells an absent `kbs` key from an empty one.
@@ -248,7 +255,7 @@ func (b *ClientBinding) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
-	*b = ClientBinding{KBs: raw.KBs, ConfigDirs: raw.ConfigDirs, Access: raw.Access}
+	*b = ClientBinding{KBs: raw.KBs, ConfigDirs: raw.ConfigDirs, Access: raw.Access, AllowSymlinks: raw.AllowSymlinks}
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			if node.Content[i].Value == "kbs" {
@@ -275,6 +282,9 @@ func (b ClientBinding) MarshalYAML() (interface{}, error) {
 	}
 	if b.Access != "" {
 		out["access"] = b.Access
+	}
+	if len(b.AllowSymlinks) > 0 {
+		out["allow_symlinks"] = b.AllowSymlinks
 	}
 	return out, nil
 }
@@ -598,6 +608,18 @@ func Load(dir string) (*Config, error) {
 	}
 	if err := cfg.applyGroups(&y, Path(dir)); err != nil {
 		return nil, err
+	}
+	for _, provider := range sortedNames(cfg.Clients) {
+		b := cfg.Clients[provider]
+		for _, e := range b.AllowSymlinks {
+			if !validSymlinkEntry(e, dir, homeOrEmpty()) {
+				return nil, fmt.Errorf("clientconfig: %s: providers.%s.allow_symlinks entry %q must be an absolute path, or start with ~/ or $HOME/, hold no control character and not be the home directory or /", Path(dir), provider, e)
+			}
+		}
+		if len(b.AllowSymlinks) > 0 {
+			b.AllowSymlinks = dedupeSymlinks(dir, b.AllowSymlinks)
+			cfg.Clients[provider] = b
+		}
 	}
 	// token_env (removed, D906) is honoured as the token it became until the
 	// file is realigned, so a read-only file does not lose its credentials.
@@ -986,13 +1008,121 @@ func (c *Config) SetAccess(provider, access string) error {
 	return nil
 }
 
+// validSymlinkEntry: an allow_symlinks entry is absolute or starts with a home
+// prefix, holds no control character (it is printed to terminals) and is not a
+// root: ~, $HOME, / or the home directory itself (home, dir).
+func validSymlinkEntry(e string, homes ...string) bool {
+	if e == "" || strings.IndexFunc(e, unicode.IsControl) >= 0 {
+		return false
+	}
+	for _, seg := range strings.FieldsFunc(e, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if seg == ".." {
+			return false
+		}
+	}
+	if !(e == "~" || e == "$HOME" || strings.HasPrefix(e, "~/") || strings.HasPrefix(e, "$HOME/") || filepath.IsAbs(e)) {
+		return false
+	}
+	for _, h := range homes {
+		if h != "" && normSymlink(h, e) == filepath.Clean(h) {
+			return false
+		}
+	}
+	n := normSymlink("/", e)
+	return filepath.Dir(n) != n // a filesystem root has no parent
+}
+
+// ValidSymlinkEntry reports whether e is acceptable as an allow_symlinks entry
+// when home is the client's home directory.
+func ValidSymlinkEntry(home, e string) bool { return validSymlinkEntry(e, home, homeOrEmpty()) }
+
+// normSymlink is the comparison form of an entry: expanded, then cleaned.
+func normSymlink(home, e string) string { return filepath.Clean(ExpandSymlinkPath(home, e)) }
+
+func homeOrEmpty() string {
+	h, _ := os.UserHomeDir()
+	return h
+}
+
+func dedupeSymlinks(home string, in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range in {
+		if k := normSymlink(home, e); !seen[k] {
+			seen[k] = true
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// ExpandSymlinkPath expands a leading ~ or $HOME against home.
+func ExpandSymlinkPath(home, e string) string {
+	switch {
+	case e == "~" || e == "$HOME":
+		return home
+	case strings.HasPrefix(e, "~/"):
+		return filepath.Join(home, e[2:])
+	case strings.HasPrefix(e, "$HOME/"):
+		return filepath.Join(home, e[6:])
+	}
+	return e
+}
+
+// AllowedSymlinks returns provider's allow_symlinks entries as written.
+func (c *Config) AllowedSymlinks(provider string) []string {
+	return c.Clients[provider].AllowSymlinks
+}
+
+// SetAllowSymlink adds path to provider's allow_symlinks (idempotent: entries
+// are compared expanded and cleaned), creating an entry that is not an explicit
+// KB binding when there was none.
+func (c *Config) SetAllowSymlink(provider, path string) {
+	if c.Clients == nil {
+		c.Clients = make(map[string]ClientBinding)
+	}
+	b := c.Clients[provider]
+	b.AllowSymlinks = dedupeSymlinks(homeOrEmpty(), append(b.AllowSymlinks, path))
+	c.Clients[provider] = b
+}
+
+// UnsetAllowSymlink removes path (compared expanded and cleaned) from
+// provider's allow_symlinks and reports whether an entry was found; an entry
+// left with nothing at all is dropped, as ResetBinding does.
+func (c *Config) UnsetAllowSymlink(provider, path string) bool {
+	b, ok := c.Clients[provider]
+	if !ok {
+		return false
+	}
+	home := homeOrEmpty()
+	var kept []string
+	found := false
+	for _, e := range b.AllowSymlinks {
+		if normSymlink(home, e) == normSymlink(home, path) {
+			found = true
+			continue
+		}
+		kept = append(kept, e)
+	}
+	b.AllowSymlinks = kept
+	if !b.Explicit() && len(b.ConfigDirs) == 0 && b.Access == "" && len(kept) == 0 {
+		delete(c.Clients, provider)
+		if len(c.Clients) == 0 {
+			c.Clients = nil
+		}
+		return found
+	}
+	c.Clients[provider] = b
+	return found
+}
+
 // ResetBinding deletes provider's binding, returning it to the default (every
 // known KB). Missing entries are a no-op.
 func (c *Config) ResetBinding(provider string) {
 	// config_dirs is not part of the KB binding (D755): keep it.
 	// access is the connection's profile (D1184), not a KB binding: keep it too.
-	if b, ok := c.Clients[provider]; ok && (len(b.ConfigDirs) > 0 || b.Access != "") {
-		c.Clients[provider] = ClientBinding{ConfigDirs: b.ConfigDirs, Access: b.Access}
+	if b, ok := c.Clients[provider]; ok && (len(b.ConfigDirs) > 0 || b.Access != "" || len(b.AllowSymlinks) > 0) {
+		c.Clients[provider] = ClientBinding{ConfigDirs: b.ConfigDirs, Access: b.Access, AllowSymlinks: b.AllowSymlinks}
 		return
 	}
 	delete(c.Clients, provider)

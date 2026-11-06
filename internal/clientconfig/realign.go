@@ -90,7 +90,7 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 // entry, which the table leaves to the file (the root and the groups follow the
 // table): `Schema.Reorder` and `client realign --reorder` write it.
 var layoutOrder = map[string][]string{
-	"providers":       {"kbs", "scope", "unbound_access", "config_dirs", "access", "tools", "workspaces"},
+	"providers":       {"kbs", "scope", "unbound_access", "config_dirs", "access", "tools", "allow_symlinks", "workspaces"},
 	"knowledge_bases": {"access", "artifacts", "identity", "signing_keys"},
 }
 

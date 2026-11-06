@@ -26,6 +26,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -2498,6 +2499,8 @@ hookLoop:
 				relPaths = []string{rp}
 			} else {
 				relPaths = []string{destRel}
+				// The MCP config file the real run edits (.claude.json, opencode.json…).
+				result.Warnings = appendFollowedLinkNotes(result.Warnings, opts.BaseDir, filepath.Join(opts.BaseDir, destRel))
 			}
 		} else if a.Kind == "agent" {
 			// agent: a single file, destRel is the file's full path (not a
@@ -2630,6 +2633,11 @@ hookLoop:
 			} else {
 				// DryRun: simulate the main file's path without writing.
 				relPaths = []string{filepath.Join(destRel, principalFile(a.Kind))}
+				if a.Kind == "hook" {
+					for _, full := range hookRegistrationTargets(opts.BaseDir, opts.Provider, a.Name, destRel) {
+						result.Warnings = appendFollowedLinkNotes(result.Warnings, opts.BaseDir, full)
+					}
+				}
 			}
 		}
 
@@ -2803,6 +2811,12 @@ hookLoop:
 		}
 	}
 
+	if opts.DryRun {
+		for _, mf := range append(slices.Clone(result.Written), result.Pruned...) {
+			result.Warnings = appendFollowedLinkNotes(result.Warnings, opts.BaseDir, filepath.Join(opts.BaseDir, mf.Path))
+		}
+	}
+
 	// Write the v1 lockfile (only if not DryRun and not SkipLockWrite — the
 	// multi-provider clients handle their own persistence to the v2 LockFile, see
 	// ApplyOptions.SkipLockWrite).
@@ -2814,6 +2828,18 @@ hookLoop:
 	}
 
 	return result, nil
+}
+
+// appendFollowedLinkNotes adds "would write through symlink X -> Y" for each
+// listed link on path (providers.<provider>.allow_symlinks), once per link.
+func appendFollowedLinkNotes(warnings []string, baseDir, path string) []string {
+	for _, l := range safewrite.FollowedLinks(baseDir, path) {
+		note := fmt.Sprintf("would write through symlink %q -> %q", l.Path, l.Target)
+		if !slices.Contains(warnings, note) {
+			warnings = append(warnings, note)
+		}
+	}
+	return warnings
 }
 
 // declaredRelPaths is where the artifact's files would land under destDirRel,
