@@ -203,7 +203,7 @@ func TestGroupedShowsTheCurrentLayout(t *testing.T) {
 }
 
 // A KB is named after its folder, so a name can hold a dot or be "*": the
-// migration carries it like any other, addressed literally (D-new-client-file-layout).
+// migration carries it like any other, addressed literally (D1731).
 const flatDottedYAML = `kb_options:
   notes.v2:
     access: read

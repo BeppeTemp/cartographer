@@ -187,3 +187,97 @@ func TestRedactYAMLMasksTheTokenOfBothLayouts(t *testing.T) {
 		}
 	}
 }
+
+const unorderedLayoutYAML = `# my machine
+usage_scan: false
+custom_key: keep-me
+knowledge_bases:
+  work-kb:
+    identity: User <user@example.com>
+    access: read
+  notes.v2:
+    identity: User <user@example.com>
+    artifacts: false
+providers:
+  claude:
+    workspaces:
+      - path: $HOME/projects/work
+        kbs: [work-kb]
+    # which KBs
+    kbs: [work-kb]
+    access: read
+    tools: minimal
+placeholders:
+  # my roots
+  search_roots:
+    - ~/work
+server:
+  token: ${MY_TOKENS}
+  url: https://cartographer.example.com/mcp
+`
+
+// The migration writes the schema order, comments and unknown keys kept; a file
+// that needs no migration keeps its order until `client realign --reorder`.
+func TestMigrationWritesSchemaOrderAndReorderFileRewritesAnExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, flatLayoutYAML)
+	if _, _, err := clientconfig.RealignFile(dir, "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	raw := readFile(t, clientconfig.Path(dir))
+	if i, j := strings.Index(raw, "\nserver:"), strings.Index(raw, "\nplaceholders:"); i < 0 || j < i {
+		t.Errorf("a migrated file is not in schema order:\n%s", raw)
+	}
+	if !strings.Contains(raw, "# my roots") || !strings.Contains(raw, "custom_key: keep-me") {
+		t.Errorf("the migration lost a comment or an unknown key:\n%s", raw)
+	}
+
+	other := t.TempDir()
+	writeConfigFile(t, other, unorderedLayoutYAML)
+	if rep, _, err := clientconfig.RealignFile(other, "1.0.0"); err != nil {
+		t.Fatal(err)
+	} else if strings.Contains(strings.Join(rep.Lines(), "\n"), "order") {
+		t.Errorf("a realignment with nothing to move reordered the file: %v", rep.Lines())
+	}
+	before := readFile(t, clientconfig.Path(other))
+	rep, backup, err := clientconfig.ReorderFile(other, "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backup == "" || readFile(t, backup) != before || !strings.Contains(strings.Join(rep.Lines(), "\n"), "order") {
+		t.Errorf("backup %q, report %v", backup, rep.Lines())
+	}
+	got := readFile(t, clientconfig.Path(other))
+	// The comments and blank lines the schema writes are set aside: the keys alone.
+	var keys []string
+	for _, l := range strings.Split(got, "\n") {
+		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") {
+			keys = append(keys, l)
+		}
+	}
+	flat := strings.Join(keys, "\n")
+	last := -1
+	for _, key := range []string{"server:", "\nproviders:", "\nknowledge_bases:", "\nplaceholders:", "\nusage_scan:", "\ncustom_key:"} {
+		i := strings.Index("\n"+flat, "\n"+strings.TrimPrefix(key, "\n"))
+		if i <= last {
+			t.Fatalf("%q out of order in\n%s", key, got)
+		}
+		last = i
+	}
+	for _, want := range []string{"  url: https://cartographer.example.com/mcp\n  token:", "    kbs: [work-kb]\n    access: read\n    tools: minimal\n    workspaces:", "    access: read\n    identity:", "  notes.v2:\n    artifacts: false\n    identity:", "  search_roots:"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("missing %q in\n%s", want, flat)
+		}
+	}
+	for _, want := range []string{"# my machine", "# my roots", "# which KBs\n    kbs: [work-kb]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lost comment %q in\n%s", want, got)
+		}
+	}
+	if again, backup, err := clientconfig.ReorderFile(other, "1.0.0"); err != nil || !again.Empty() || backup != "" {
+		t.Errorf("second run: %v %q %v", again.Lines(), backup, err)
+	}
+	if _, err := clientconfig.Load(other); err != nil {
+		t.Errorf("the reordered file does not load: %v", err)
+	}
+}

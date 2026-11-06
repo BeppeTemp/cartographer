@@ -86,6 +86,13 @@ type Registry struct {
 	Off     []Off
 	// Moved are the keys that changed path with their value kept (Moved).
 	Moved []Moved
+	// Order names, per map of entries the table does not describe key by key
+	// ("providers"), the order of the keys of each entry (Schema.Reorder).
+	Order map[string][]string
+	// Reorder makes Realign write the keys in the order of the table;
+	// ReorderOnMove does so only when it moved a key, so a file that is not
+	// migrated keeps the order its owner gave it.
+	Reorder, ReorderOnMove bool
 }
 
 // Kinds of Change.
@@ -94,6 +101,7 @@ const (
 	ChangeReset      = "reset"      // an off value was reset to the default
 	ChangeDocumented = "documented" // the file was rewritten into the commented form
 	ChangeMoved      = "moved"      // a key took another name or home (Prepare), its value kept
+	ChangeReordered  = "reordered"  // the keys were written in the order of the table
 )
 
 // Change is one thing a realignment did to a file.
@@ -427,6 +435,11 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 	if len(touched) > 0 {
 		s.pruneEmpty(&doc, touched)
 	}
+	reordered := false
+	if (reg.Reorder || (reg.ReorderOnMove && len(moves) > 0)) && s.Reorder(&doc, reg) {
+		reordered = true
+		rep.Changes = append(rep.Changes, Change{Kind: ChangeReordered, Detail: "keys written in the order of the settings table"})
+	}
 	// The block of unset settings may list a removed key, with the description
 	// it had: Render keeps a line it does not know, so it is taken out first.
 	dropRetiredFromBlocks(&doc, reg.retiredPaths())
@@ -438,6 +451,13 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 	}
 	if wasEmpty {
 		enc = append(commentOnlyPrefix(data), enc...)
+	}
+	if reordered {
+		// Nothing leaves this function that does not parse back.
+		var check yaml.Node
+		if err := yaml.Unmarshal(enc, &check); err != nil {
+			return data, Report{}, fmt.Errorf("writing the keys in the order of the table gives a file that does not parse (%v): nothing is written", err)
+		}
 	}
 	if bytes.Equal(enc, data) {
 		return data, Report{}, nil

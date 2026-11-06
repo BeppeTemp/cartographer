@@ -84,7 +84,15 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 		Description: "Ed25519 public keys pinned per source KB, to verify the signed artifacts it serves. Pins are configured out of band, never learned from a sync."},
 	{From: "identities.*", To: "knowledge_bases.*.identity",
 		Description: "The git author of this machine's writes, per KB name, with default for every other KB; without an entry, the identity git resolves in the session's repository. An empty value sends no author, and the server then names the token."},
-}}
+}, Order: layoutOrder, ReorderOnMove: true}
+
+// layoutOrder is the order of the keys inside a provider and a knowledge base
+// entry, which the table leaves to the file (the root and the groups follow the
+// table): `Schema.Reorder` and `client realign --reorder` write it.
+var layoutOrder = map[string][]string{
+	"providers":       {"kbs", "scope", "unbound_access", "config_dirs", "access", "tools", "workspaces"},
+	"knowledge_bases": {"access", "artifacts", "identity", "signing_keys"},
+}
 
 // movedTo is the move of a key into a group (D1731). The
 // comment the schema wrote above the old key is told from a person's by the
@@ -126,7 +134,7 @@ func migrateLayout(data []byte) ([]byte, error) {
 	if c := layoutConflicts(data); len(c) > 0 {
 		return nil, fmt.Errorf("%s", strings.Join(c, "; "))
 	}
-	out, _, err := Schema.Realign(data, settingschema.Registry{Moved: Retired.Moved})
+	out, _, err := Schema.Realign(data, settingschema.Registry{Moved: Retired.Moved, Order: layoutOrder, ReorderOnMove: true})
 	return out, err
 }
 
@@ -181,6 +189,20 @@ func splitReadMin(root *yaml.Node) []string {
 // state file is written before the YAML loses them, and a state that cannot be
 // written stops the realignment: the keys stay where they are, and still work.
 func RealignFile(dir, version string) (rep settingschema.Report, backup string, err error) {
+	return realignFile(dir, version, Retired)
+}
+
+// ReorderFile is RealignFile that also writes the keys of the file in the order
+// of the table (`cartographer client realign --reorder`): comments and unknown
+// keys travel with their neighbour, nothing else changes. Without it the order
+// is rewritten only by a realignment that moves keys into their groups.
+func ReorderFile(dir, version string) (rep settingschema.Report, backup string, err error) {
+	reg := Retired
+	reg.Reorder = true
+	return realignFile(dir, version, reg)
+}
+
+func realignFile(dir, version string, reg settingschema.Registry) (rep settingschema.Report, backup string, err error) {
 	// The realignment copies the file's mode to the rewrite and to the backup:
 	// with a literal token in it, close the file first so neither is open.
 	if data, rerr := os.ReadFile(Path(dir)); rerr == nil {
@@ -196,7 +218,7 @@ func RealignFile(dir, version string) (rep settingschema.Report, backup string, 
 			}
 		}
 	}
-	return Schema.RealignFileWith(Path(dir), Retired, version, func(data []byte) ([]byte, []settingschema.Change, error) {
+	return Schema.RealignFileWith(Path(dir), reg, version, func(data []byte) ([]byte, []settingschema.Change, error) {
 		return prepareRealign(dir, data)
 	})
 }
