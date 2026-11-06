@@ -194,17 +194,22 @@ until the turn-on change. Both call `preparePlugins` (`plugins_local.go`) before
    (preview, hook scripts, `hook.json`, frontmatter that declares commands) is printed first and then the plugin is
    approved: the flag is the consent, the printed block its record. Without it, on a terminal and without
    `--no-input`, each block is followed by `Enable <name> <version>? [y/N]`; otherwise nothing is approved and the
-   run prints `pending approval: cartographer plugin approve <name>` and goes on. A plugin left pending by an
-   earlier run is not approved by the flag of a later one; `plugin approve` is the way.
+   run prints `pending approval: cartographer plugin approve <name>` and goes on. A plugin pending from other
+   sources is not approved by the flag; `plugin approve` is the way. A rerun of the same `--plugin` source counts
+   as this run's when the plugin was installed and never approved and the source still yields the stored tree, so a
+   run that stopped at a later source does not strand the earlier ones.
 4. Approval is one locked pass over a reloaded config. A first approval enables a plugin only when its `depends` are
-   met, in dependency order across the sources of the run; one that stays unmet is approved but not enabled and the
-   dependency is named. Then the store is collected and `registerPluginProviders` runs again, so
+   met, in dependency order across the sources of the run; one that stays unmet is not approved (the message of
+   `plugin approve`: enable what it depends on, then approve it) and the run exits 1 after saving the others. Then the store is collected and `registerPluginProviders` runs again, so
    `agents.Detect` and `--agents` see the approved providers in the same process.
 
 `setup` runs the step as `==> plugins` after the KB and before the agents. With plugins named or configured and no
-client detected, `planSetup` no longer stops: the plan says `agents: detected after the plugins are installed`, the
-step detects again, and only an empty result fails with the existing message (or, while a plugin is pending, setup
-finishes without connecting any agent and says which approval is awaited). `--dry-run` prints the sources and writes
+client detected, `planSetup` does not stop: the plan says `agents: detected after the plugins are installed`, the
+step detects again, and only an empty result fails with the existing message. Without `--agents` the step detects
+again whenever plugins are named or configured, and connects the union of the clients found before and after it. A
+name given to `--agents` together with `--plugin` that no provider has yet is checked after the step, with the usual
+unknown-provider message. While a plugin of this run is pending and nothing is detected, setup finishes without
+connecting an agent, says so, and names `cartographer plugin approve <name>` then `cartographer setup`. `--dry-run` prints the sources and writes
 nothing. The agents step forwards `--approve-plugins` to `connect`. `sync` never approves.
 
 ## Delivery

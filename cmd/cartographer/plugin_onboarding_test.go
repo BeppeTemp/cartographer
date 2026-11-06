@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,12 +73,15 @@ func TestPreparePluginsWithoutTheFlagOrATerminalApprovesNothing(t *testing.T) {
 	if registered("fork-cli") {
 		t.Error("a pending plugin registered its provider")
 	}
-	// A second run changes nothing and, with the flag, still does not approve what a previous run left pending.
+	// A second run without the flag changes nothing; with it, the same source takes the pending plugin over.
 	before, _ := os.ReadFile(clientconfig.Path(home))
-	code, out, _ = prep(t, pluginPrep{Sources: []string{dir}, Approve: true})
+	code, out, _ = prep(t, pluginPrep{Sources: []string{dir}})
 	after, _ := os.ReadFile(clientconfig.Path(home))
 	if code != 0 || !bytes.Equal(before, after) || !strings.Contains(out, "already installed") {
 		t.Errorf("second run: exit %d changed=%v\n%s", code, !bytes.Equal(before, after), out)
+	}
+	if code, _, _ = prep(t, pluginPrep{Sources: []string{dir}, Approve: true}); code != 0 || loadEntry(t, home, "team-forks").Approved == "" {
+		t.Errorf("the flag of a rerun of the same source left it pending")
 	}
 }
 
@@ -168,12 +172,75 @@ func TestPreparePluginsApprovesInDependencyOrderAndHoldsAnUnmetOne(t *testing.T)
 			t.Errorf("%s: %+v", n, e)
 		}
 	}
-	// Alone, the dependent is approved but not enabled and the dependency is named.
+	// Alone, the dependent is refused as `plugin approve` refuses it: nothing is approved and the dependency is named.
 	home2 := pluginFixture(t)
-	code, out, _ = prep(t, pluginPrep{Sources: []string{dependsPlugin(t, "uses-base", "base-plugin")}, Approve: true})
+	code, out, errOut = prep(t, pluginPrep{Sources: []string{dependsPlugin(t, "uses-base", "base-plugin")}, Approve: true})
 	e := loadEntry(t, home2, "uses-base")
-	if code != 0 || e.Enabled || e.Approved == "" || !strings.Contains(out, "base-plugin") {
-		t.Errorf("exit %d entry %+v\n%s", code, e, out)
+	if code != 1 || e.Approved != "" || !strings.Contains(errOut, "base-plugin") ||
+		!strings.Contains(errOut, "uses-base was not approved: enable what it depends on, then run `cartographer plugin approve uses-base`") {
+		t.Errorf("exit %d entry %+v\n%s\n%s", code, e, out, errOut)
+	}
+}
+
+// A run that stops at a later source leaves the earlier ones installed and
+// pending: the rerun of the same sources approves them, and only them.
+func TestPreparePluginsRerunTakesOverWhatAFailedRunLeftPending(t *testing.T) {
+	home := pluginFixture(t)
+	other := writePlugin(t, "other-plugin", nil)
+	if code, _, errOut := prep(t, pluginPrep{Sources: []string{other}}); code != 0 {
+		t.Fatal(errOut)
+	}
+	good := writePlugin(t, "team-forks", nil)
+	bad := t.TempDir() // no manifest
+	code, _, _ := prep(t, pluginPrep{Sources: []string{good, bad}, Approve: true})
+	if code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if e := loadEntry(t, home, "team-forks"); e.Installed == "" || e.Approved != "" {
+		t.Fatalf("after the failed run: %+v", e)
+	}
+	var names []string
+	code, out, errOut := prep(t, pluginPrep{Sources: []string{good}, Approve: true, Names: &names})
+	if code != 0 {
+		t.Fatalf("rerun: exit %d\n%s\n%s", code, out, errOut)
+	}
+	if e := loadEntry(t, home, "team-forks"); !e.Enabled || e.Approved != e.Installed {
+		t.Errorf("rerun left %+v", e)
+	}
+	if !strings.Contains(out, "Enabled team-forks 1.0.0") || !strings.Contains(out, "skill \"helper\"") {
+		t.Errorf("the consent block and the result are printed:\n%s", out)
+	}
+	if len(names) != 1 || names[0] != "team-forks" {
+		t.Errorf("this run's plugins: %v", names)
+	}
+	if e := loadEntry(t, home, "other-plugin"); e.Approved != "" {
+		t.Errorf("a plugin pending from another source was approved: %+v", e)
+	}
+}
+
+// A source that now yields another tree is not the stored one: it stays pending.
+func TestPreparePluginsRerunDoesNotApproveAChangedTree(t *testing.T) {
+	home := pluginFixture(t)
+	dir := writePlugin(t, "team-forks", nil)
+	if code, _, errOut := prep(t, pluginPrep{Sources: []string{dir}}); code != 0 {
+		t.Fatal(errOut)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "skills", "helper", "SKILL.md"), []byte("---\nname: helper\ndescription: Helps with another thing, use it when asked.\n---\n\n# Helper\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := prep(t, pluginPrep{Sources: []string{dir}, Approve: true}); code != 0 {
+		t.Fatal(errOut)
+	}
+	if e := loadEntry(t, home, "team-forks"); e.Approved != "" {
+		t.Errorf("approved a tree the user was not shown: %+v", e)
+	}
+}
+
+func TestWarnPluginEscapesTheErrorItQuotes(t *testing.T) {
+	var b bytes.Buffer
+	warnPlugin(&b, "team-forks", errors.New("tree entry \x1b[31mred and git said \x1b]0;title\a"))
+	if got := b.String(); strings.ContainsAny(got, "\x1b\a") || !strings.HasPrefix(got, "warning: plugin team-forks: ") {
+		t.Errorf("%q", got)
 	}
 }
 
@@ -274,6 +341,135 @@ func TestRunSetupPluginPendingBlocksNothing(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(*calls, " "), "verify") {
 		t.Errorf("the verify step did not run: %q", *calls)
+	}
+	// Nothing is connected, and the end says so instead of "restart your sessions".
+	if strings.Contains(out, "Restart your agent sessions") || strings.Contains(out, "Cartographer is set up.") ||
+		!strings.Contains(out, "no agent is connected yet") || !strings.Contains(out, "cartographer plugin approve team-forks") || !strings.Contains(out, "cartographer setup") {
+		t.Errorf("the closing message:\n%s", out)
+	}
+}
+
+// Only this run's plugins are named as awaited: one pending from elsewhere is not.
+func TestRunSetupPendingNamesOnlyThisRunsPlugins(t *testing.T) {
+	stubSetup(t, setupFacts{})
+	home := pluginFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	freshProcess(t, home)
+	if code, _, errOut := prep(t, pluginPrep{Sources: []string{writePlugin(t, "elsewhere", nil)}}); code != 0 {
+		t.Fatal(errOut)
+	}
+	setupDetected = func() []string { return nil }
+	var code int
+	out := withStdout(t, func() {
+		code = runSetup(setupOptions{Remote: "git@h:me/wiki.git", Plugins: []string{providerPlugin(t, "team-forks")}}, false, true, false, noPrompt())
+	})
+	if code != 0 || !strings.Contains(out, "plugin approve team-forks") || strings.Contains(out, "plugin approve elsewhere") {
+		t.Fatalf("runSetup = %d\n%s", code, out)
+	}
+}
+
+func detectedWith(extra string) func() []string {
+	return func() []string {
+		out := []string{"claude"}
+		if registered(extra) {
+			out = append(out, extra)
+		}
+		return out
+	}
+}
+
+// A client already detected must not hide the one a plugin brings.
+func TestRunSetupConnectsThePluginProviderNextToTheDetectedClient(t *testing.T) {
+	calls := stubSetup(t, setupFacts{})
+	home := pluginFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	freshProcess(t, home)
+	setupDetected = detectedWith("fork-cli")
+	var code int
+	out := withStdout(t, func() {
+		code = runSetup(setupOptions{Remote: "git@h:me/wiki.git", Plugins: []string{providerPlugin(t, "team-forks")}, ApprovePlugins: true}, false, true, false, noPrompt())
+	})
+	if code != 0 {
+		t.Fatalf("runSetup = %d\n%s", code, out)
+	}
+	if got := strings.Join(*calls, "\n"); !strings.Contains(got, "connect --no-input --agents claude,fork-cli ") {
+		t.Errorf("calls:\n%s", got)
+	}
+}
+
+// --agents naming a provider that only a plugin registers is checked after the plugins step.
+func TestRunSetupAgentsNamingAPluginProviderAreCheckedAfterThePluginsStep(t *testing.T) {
+	calls := stubSetup(t, setupFacts{})
+	home := pluginFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	freshProcess(t, home)
+	var code int
+	out := withStdout(t, func() {
+		code = runSetup(setupOptions{Remote: "git@h:me/wiki.git", Plugins: []string{providerPlugin(t, "team-forks")}, ApprovePlugins: true, Agents: []string{"fork-cli"}, AgentsDeferred: true}, false, true, false, noPrompt())
+	})
+	if code != 0 || !strings.Contains(strings.Join(*calls, "\n"), "connect --no-input --agents fork-cli ") {
+		t.Fatalf("runSetup = %d\n%s\n%v", code, out, *calls)
+	}
+
+	// Still unknown once the plugins are registered: the usual message, nothing connected.
+	calls = stubSetup(t, setupFacts{})
+	freshProcess(t, home)
+	errOut := withStderr(t, func() {
+		out = withStdout(t, func() {
+			code = runSetup(setupOptions{Remote: "git@h:me/wiki.git", Plugins: []string{writePlugin(t, "plain", nil)}, Agents: []string{"nonesuch"}, AgentsDeferred: true}, false, true, false, noPrompt())
+		})
+	})
+	if code != 1 || !strings.Contains(errOut, `unknown provider "nonesuch"`) {
+		t.Fatalf("runSetup = %d\n%s\n%s", code, out, errOut)
+	}
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "connect") {
+			t.Errorf("connected: %q", c)
+		}
+	}
+}
+
+func TestSplitProviderCSVValidatesNothingButTheShape(t *testing.T) {
+	got, err := splitProviderCSV("fork-cli, claude,fork-cli")
+	if err != nil || strings.Join(got, ",") != "fork-cli,claude" {
+		t.Errorf("%v %v", got, err)
+	}
+	if _, err := splitProviderCSV("claude,"); err == nil {
+		t.Error("an empty name is an error")
+	}
+}
+
+func TestRenderSetupPlanRedactsThePluginSources(t *testing.T) {
+	facts := setupFacts{GitFound: true, RemoteProbed: true, Backend: "launchd", Detected: []string{"claude"}}
+	o := setupOptions{Remote: "git@github.com:me/wiki.git", Plugins: []string{"https://user:s3cret@git.example.com/team/forks@v1"}}
+	plan, err := planSetup(facts, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b bytes.Buffer
+	renderSetupPlan(&b, plan, facts)
+	if strings.Contains(b.String(), "s3cret") || !strings.Contains(b.String(), "git.example.com/team/forks") {
+		t.Errorf("plan:\n%s", b.String())
+	}
+}
+
+// With nothing detected before the plugins step and the narrow KB choice, the agents it brings are connected to the KB this run adds.
+func TestRunSetupNarrowKBAppliesToTheAgentsDetectedAfterThePlugins(t *testing.T) {
+	calls := stubSetup(t, setupFacts{})
+	home := pluginFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	freshProcess(t, home)
+	setupDetected = func() []string {
+		if registered("fork-cli") {
+			return []string{"fork-cli"}
+		}
+		return nil
+	}
+	plan := setupPlan{KB: kbAlreadyThere, KBName: "new-kb", Existing: []string{"old-kb"}, Plugins: []string{providerPlugin(t, "team-forks")}, ApprovePlugins: true, AgentsAfterPlugins: true, Redetect: true, NarrowKB: true}
+	var code int
+	withStdout(t, func() { code = runSetupPlan(plan) })
+	if code != 0 || !strings.Contains(strings.Join(*calls, "\n"), "--agents fork-cli --kb new-kb") {
+		t.Errorf("exit %d calls:\n%s", code, strings.Join(*calls, "\n"))
 	}
 }
 

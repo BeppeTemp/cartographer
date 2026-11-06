@@ -73,6 +73,10 @@ type setupOptions struct {
 	// Both exist only while pluginsEnabled().
 	Plugins        []string
 	ApprovePlugins bool
+	// AgentsDeferred: Agents holds names that are not all validated, because
+	// --plugin may register a provider by that name; runSetupPlan checks them
+	// after the plugins step.
+	AgentsDeferred bool
 }
 
 // setupFacts is everything planSetup reads, gathered once. Kept as plain data
@@ -121,6 +125,16 @@ type setupPlan struct {
 	Plugins            []string
 	ApprovePlugins     bool
 	AgentsAfterPlugins bool
+	// Redetect: --agents was not given and plugins take part, so the clients
+	// detected after the plugins step join Agents.
+	Redetect bool
+	// AgentsDeferred: see setupOptions.
+	AgentsDeferred bool
+	// NarrowKB: the KB selection is the narrowest one (the KB this run adds, the
+	// bound agents kept as they are); BoundProviders feeds it again when the
+	// agents change after the plugins step.
+	NarrowKB       bool
+	BoundProviders []string
 	// AskPlugins: the plugins step may ask for consent (a terminal, no --no-input).
 	AskPlugins bool
 	KBs        []string // the --kb selection handed to connect; nil lets connect decide
@@ -255,8 +269,11 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 		p.Agents = f.Detected
 	}
 	p.Plugins, p.ApprovePlugins = o.Plugins, o.ApprovePlugins
+	p.AgentsDeferred = o.AgentsDeferred
+	pluginRun := len(o.Plugins) > 0 || f.PluginsConfigured
+	p.Redetect = len(o.Agents) == 0 && pluginRun
 	if len(p.Agents) == 0 {
-		if len(o.Plugins) == 0 && !f.PluginsConfigured {
+		if !pluginRun {
 			return p, fmt.Errorf("no agent client detected on this machine: install one, or name it with --agents (%s)", providerNamesJoined())
 		}
 		// A plugin may bring the only client of this machine: the plugins
@@ -277,19 +294,27 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 	case p.KB == kbCreate || p.KB == kbClone:
 		// The narrowest choice that does the job: the KB this run adds, for the
 		// agents that have no binding yet; a bound agent keeps what it has.
-		p.KBs = []string{p.KBName}
-		for _, a := range p.Agents {
-			if slices.Contains(f.BoundProviders, a) {
-				p.KeepAgents = append(p.KeepAgents, a)
-			}
-		}
-		if len(p.KeepAgents) == len(p.Agents) {
-			p.KBs, p.KeepAgents = nil, nil
-		}
+		p.NarrowKB, p.BoundProviders = true, f.BoundProviders
+		p.narrowKBs()
 	default:
 		return p, errSetupNeedsKBChoice
 	}
 	return p, nil
+}
+
+// narrowKBs sets the KB selection of the narrowest choice for the current
+// Agents: the KB this run adds, and the agents that already carry a binding
+// kept out of it (connect resets the binding of every provider it is given).
+func (p *setupPlan) narrowKBs() {
+	p.KBs, p.KeepAgents = []string{p.KBName}, nil
+	for _, a := range p.Agents {
+		if slices.Contains(p.BoundProviders, a) {
+			p.KeepAgents = append(p.KeepAgents, a)
+		}
+	}
+	if len(p.KeepAgents) == len(p.Agents) {
+		p.KBs, p.KeepAgents = nil, nil
+	}
 }
 
 // sameRemote compares two remote URLs the way an operator means them: a
@@ -348,7 +373,11 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 		line("KB           mount %q from %s (the repository already has content)", p.KBName, p.Remote)
 	}
 	if len(p.Plugins) > 0 {
-		line("plugins      install %s (approved only with --approve-plugins or on your answer)", escapeControl(strings.Join(p.Plugins, ", ")))
+		shown := make([]string, len(p.Plugins))
+		for i, src := range p.Plugins {
+			shown[i] = redactPluginArg(src)
+		}
+		line("plugins      install %s (approved only with --approve-plugins or on your answer)", escapeControl(strings.Join(shown, ", ")))
 	}
 	kbs := "every mounted KB"
 	switch {
@@ -368,7 +397,11 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 		line("agents       connect %s — KBs: %s; visible in %s", strings.Join(receiving, ", "), kbs, scope)
 		line("             connect %s — they keep their existing KB binding", strings.Join(p.KeepAgents, ", "))
 	} else {
-		line("agents       connect %s — KBs: %s; visible in %s", strings.Join(p.Agents, ", "), kbs, scope)
+		more := ""
+		if p.Redetect {
+			more = ", and the clients the plugins add"
+		}
+		line("agents       connect %s%s — KBs: %s; visible in %s", escapeControl(strings.Join(p.Agents, ", ")), more, kbs, scope)
 	}
 	if p.ServerURL != "" {
 		line("             server URL %s", p.ServerURL)
@@ -620,6 +653,12 @@ func cmdSetup(args []string) int {
 	}
 	if *agentsCSV != "" {
 		agents, err := resolveProviderCSV(*agentsCSV)
+		if err != nil && len(o.Plugins) > 0 {
+			// A name no provider has yet may be a provider the plugins register: it is
+			// checked after the plugins step.
+			agents, err = splitProviderCSV(*agentsCSV)
+			o.AgentsDeferred = err == nil
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 2
@@ -818,22 +857,38 @@ func runSetupPlan(p setupPlan) int {
 	}
 
 	skipAgents := false
-	if len(p.Plugins) > 0 || p.AgentsAfterPlugins {
+	var waiting []string // this run's plugins still waiting for an approval
+	if len(p.Plugins) > 0 || p.AgentsAfterPlugins || p.Redetect {
 		fmt.Println("==> plugins")
-		if code := preparePlugins(pluginPrep{Sources: p.Plugins, Approve: p.ApprovePlugins, Ask: p.AskPlugins}); code != 0 {
+		var thisRun []string
+		if code := preparePlugins(pluginPrep{Sources: p.Plugins, Approve: p.ApprovePlugins, Ask: p.AskPlugins, Names: &thisRun}); code != 0 {
 			fmt.Fprintln(os.Stderr, "Setup stopped at the plugins step: fix the cause above, then rerun `cartographer setup`: finished steps are skipped.")
 			return 1
 		}
-		if p.AgentsAfterPlugins {
-			// The providers of the approved plugins are registered by now.
-			if p.Agents = setupDetected(); len(p.Agents) == 0 {
-				pending := pendingPluginNames()
-				if len(pending) == 0 {
+		waiting = pendingPluginNames(thisRun)
+		// The providers of the approved plugins are registered once the step returns.
+		if p.AgentsDeferred {
+			if _, err := resolveProviderCSV(strings.Join(p.Agents, ",")); err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", escapeControl(err.Error()))
+				return 1 // the service and the KB exist: 2 means "nothing changed"
+			}
+		}
+		if p.Redetect || p.AgentsAfterPlugins {
+			for _, a := range setupDetected() {
+				if !slices.Contains(p.Agents, a) {
+					p.Agents = append(p.Agents, a)
+				}
+			}
+			if p.NarrowKB {
+				p.narrowKBs()
+			}
+			if len(p.Agents) == 0 {
+				if len(waiting) == 0 {
 					fmt.Fprintf(os.Stderr, "Error: no agent client detected on this machine: install one, or name it with --agents (%s)\n", providerNamesJoined())
 					return 1
 				}
 				// Nothing else is blocked: the server is up and the KB mounted.
-				fmt.Printf("no agent client detected yet; waiting for the approval of %s: run `cartographer plugin approve <name>`, then `cartographer connect`\n", escapeControl(strings.Join(pending, ", ")))
+				fmt.Printf("no agent client detected yet; waiting for the approval of %s\n", escapeControl(strings.Join(waiting, ", ")))
 				skipAgents = true
 			}
 		}
@@ -895,6 +950,17 @@ func runSetupPlan(p setupPlan) int {
 	}
 
 	fmt.Println()
+	if skipAgents {
+		fmt.Println("The server and the KB are set up, but no agent is connected yet.")
+		if st.UIURL != "" {
+			fmt.Printf("  Atlas (read-only view of your KBs): %s\n", st.UIURL)
+		}
+		for _, n := range waiting {
+			fmt.Printf("  Approve the plugin: cartographer plugin approve %s\n", escapeControl(n))
+		}
+		fmt.Println("  Then run `cartographer setup` again to connect the agent clients it brings.")
+		return 0
+	}
 	fmt.Println("Cartographer is set up.")
 	if st.UIURL != "" {
 		fmt.Printf("  Atlas (read-only view of your KBs): %s\n", st.UIURL)
@@ -1008,8 +1074,9 @@ func printNoServiceManager(w io.Writer, configPath string, nothingChanged bool) 
 	fmt.Fprintln(w, "  Then rerun `cartographer setup`: it keeps a server that already answers.")
 }
 
-// pendingPluginNames names the configured plugins that wait for an approval.
-func pendingPluginNames() []string {
+// pendingPluginNames keeps, of the plugins this run installed or took over,
+// those that still wait for an approval.
+func pendingPluginNames(names []string) []string {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return nil
@@ -1019,8 +1086,8 @@ func pendingPluginNames() []string {
 		return nil
 	}
 	var out []string
-	for n, e := range cfg.Plugins {
-		if e.Installed != "" && e.Approved == "" {
+	for _, n := range names {
+		if e, ok := cfg.Plugin(n); ok && e.Installed != "" && e.Approved == "" {
 			out = append(out, n)
 		}
 	}
