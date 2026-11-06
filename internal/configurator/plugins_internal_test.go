@@ -196,8 +196,9 @@ func TestPluginMCPGlobStaysOutOfThePath(t *testing.T) {
 	if !ok || d.MCPConfigPath != "" || d.ConfigPath() != "" || d.MCPConfigGlob != ".vscode/extensions/acme.fork-*/mcp.json" {
 		t.Fatalf("glob provider = %+v, %v", d, ok)
 	}
-	if _, err := EmitServer("kb", ServerSpec{Type: "http", URL: "http://example.com/mcp"}, "fork-glob"); err == nil {
-		t.Error("a pattern was emitted as a file path")
+	// The emitted result names the pattern, never a path a caller could join.
+	if r, err := EmitServer("kb", ServerSpec{Type: "http", URL: "http://example.com/mcp"}, "fork-glob"); err != nil || r.FilePath != "" || r.FileGlob != d.MCPConfigGlob {
+		t.Errorf("a pattern was emitted as %+v, %v", r, err)
 	}
 	if b, _ := Lookup(ProviderCrush); b.MCPConfigGlob != "" {
 		t.Error("a built-in carries a glob")

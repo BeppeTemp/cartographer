@@ -303,7 +303,8 @@ func TestPluginCells_ApplyAndPrune(t *testing.T) {
 	if _, err := Apply(FilterForProvider(empty, p), ApplyOptions{KBRoots: roots, Provider: p, BaseDir: home, Lock: res.NewLock}); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{".fork-cli/skills", ".fork-cli/agents/a1.md"} {
+	// The skills folder is itself a prune boundary: it stays, empty.
+	for _, rel := range []string{".fork-cli/skills/s1", ".fork-cli/agents/a1.md"} {
 		if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Errorf("%s survived the prune: %v", rel, err)
 		}
