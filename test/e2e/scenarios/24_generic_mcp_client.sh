@@ -431,10 +431,14 @@ else
     _assert_pass "G1 no response of the generic connections carries the doctor nudge"
 fi
 INIT_P="$(rpc "$WRITER_TOKEN" "$P_QUERY" "$INIT_BODY")"
-if [[ -z "$(printf '%s' "$INIT_P" | instructions)" ]]; then
-    _assert_pass "G2 a provisioned connection gets no guide in initialize"
+INS_P="$(printf '%s' "$INIT_P" | instructions)"
+# The entry paragraph (entryInstructions, D1724) is what a provisioned
+# connection gets; concept_batch is a marker only the full guide (B W above)
+# carries, so the guide leaking to a provisioned connection fails here.
+if [[ "$INS_P" == *"Start with \`search\`, then \`concept_read\`"* && "$INS_P" != *concept_batch* ]]; then
+    _assert_pass "G2 a provisioned connection gets the entry paragraph, not the guide, in initialize"
 else
-    _assert_fail "G2 the provisioned connection got instructions"
+    _assert_fail "G2 the provisioned initialize lacks the entry paragraph or carries the guide: ${INS_P:0:300}"
 fi
 G2="$(tcall "$WRITER_TOKEN" "$P_QUERY" atlas_overview '{}')"
 if [[ "$(printf '%s' "$G2" | blocks)" -ge 2 ]] && printf '%s' "$G2" | texts | grep -qF "$NUDGE"; then
