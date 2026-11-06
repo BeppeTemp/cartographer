@@ -97,6 +97,10 @@ func provenanceBlock(a Artifact) string {
 		fmt.Fprintf(&sb, "Artifact content hash: %s\n", a.ContentHash)
 		fmt.Fprintf(&sb, "Local edits to this file are replaced on the next `cartographer sync`. To change it for good, call artifact_write on the %q KB with path %s.\n",
 			kb, artifactSourcePath(a))
+	} else if plugin := PluginName(a.Source); plugin != "" {
+		fmt.Fprintf(&sb, "Source: plugin %q %s (installed with cartographer plugin install)\n", plugin, a.Version)
+		fmt.Fprintf(&sb, "Artifact content hash: %s\n", a.ContentHash)
+		sb.WriteString("Local edits to this file are replaced on the next `cartographer sync`; change the plugin's source and run `cartographer plugin update`.\n")
 	} else {
 		// Bundled artifacts ship inside the Cartographer binary: there is no
 		// KB to write back to, and no artifact_write instruction to give.

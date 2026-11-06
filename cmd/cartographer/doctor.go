@@ -881,11 +881,6 @@ func checkUnboundResidues(dir string, cfg *clientconfig.Config, providers []stri
 	var out []doctorFinding
 	for _, p := range providers {
 		bound, explicit := cfg.BoundKBs(p)
-		if !explicit {
-			// Bound to every known KB: a residue can only come from a KB the
-			// server dropped, which checkMCPEntries already covers.
-			continue
-		}
 		allowed := make(map[string]bool, len(bound))
 		for _, kb := range bound {
 			allowed["kb:"+kb] = true
@@ -899,6 +894,25 @@ func checkUnboundResidues(dir string, cfg *clientconfig.Config, providers []stri
 			}
 			key := mf.Kind + "\x00" + mf.Name
 			if reported[key] {
+				continue
+			}
+			if name := provisioning.PluginName(mf.Source); name != "" {
+				// A plugin's file is a residue only once its entry is gone
+				// from the config, whatever the KB bindings say.
+				if _, configured := cfg.Plugins[name]; configured {
+					continue
+				}
+				reported[key] = true
+				out = append(out, doctorFinding{
+					Check: "unbound-residue", Severity: doctorError, Path: filepath.Join(baseDir, mf.Path),
+					Message: fmt.Sprintf("[%s] %s/%s comes from plugin %s, which is no longer installed", p, mf.Kind, mf.Name, name),
+					Fix:     fmt.Sprintf("cartographer sync --client %s", p),
+				})
+				continue
+			}
+			if !explicit {
+				// Bound to every known KB: a residue can only come from a KB
+				// the server dropped, which checkMCPEntries already covers.
 				continue
 			}
 			reported[key] = true

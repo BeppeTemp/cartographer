@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -96,8 +97,9 @@ func (k *KB) MergeUsage(in []UsageEntry) (int, error) {
 	changed := 0
 	for _, e := range in {
 		// A bundled skill ships with the binary: the operator cannot retire it,
-		// so a finding about it would have no one to act on it.
-		if e.Name == "" || e.Kind == "" || e.LastUsed.IsZero() || e.Source == "bundle" {
+		// so a finding about it would have no one to act on it; a plugin's
+		// artifact is client-local and no KB page can retire it.
+		if e.Name == "" || e.Kind == "" || e.LastUsed.IsZero() || e.Source == "bundle" || strings.HasPrefix(e.Source, "plugin:") {
 			continue
 		}
 		e.LastUsed = e.LastUsed.UTC()

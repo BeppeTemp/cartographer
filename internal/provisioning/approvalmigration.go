@@ -37,7 +37,9 @@ func ApprovalReason(a Artifact, files []ArtifactFile) string {
 // the lock decides: the file on disk is not read, and any later change to the
 // artifact asks as usual.
 func InstalledBeforeApprovals(a Artifact, lock Lock, opts ApplyOptions) bool {
-	if a.Kind == "mcp" || a.ContentHash == "" || !PendingApproval(a, opts) {
+	// Only a KB artifact had a pre-D1141 install to grandfather: a plugin
+	// artifact that merely sits in the lockfile must never be approved by it.
+	if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "mcp" || a.ContentHash == "" || !PendingApproval(a, opts) {
 		return false
 	}
 	if _, recorded := opts.ApprovedMCP[a.Source+"\x00"+ApprovalName(a)]; recorded {

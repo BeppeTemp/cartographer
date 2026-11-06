@@ -665,6 +665,9 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 		trust := "needs_approval"
 		if a.BuiltIn {
 			trust = "built_in"
+		} else if provisioning.IsPluginSource(a.Source) {
+			// Gated by the plugin's own approval, never a per-artifact one.
+			trust = "plugin"
 		} else if provisioning.ArtifactRequiresApproval(o, provisioning.ApplyOptions{}) {
 			// A signature never installs an MCP descriptor, a hook or an
 			// executable file (D906, D1141): only the hash-bound approval does,
