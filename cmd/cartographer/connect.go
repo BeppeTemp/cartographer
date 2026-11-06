@@ -813,6 +813,12 @@ func describeHookless(hookless []string) string {
 // CLI `connect` subcommand and the connect form (connectform.go, used both
 // standalone by cmdConnect and embedded in the TUI dashboard, tui.go).
 type connectOptions struct {
+	// Out is where doConnect reports what it would otherwise print (the KB
+	// scope note, the unsupported-client notice, the portability warnings). Nil
+	// is the process: stdout for the note, stderr for the notices. The dashboard
+	// passes a buffer, because a line written under the inline frame lands in
+	// the middle of it (#1713).
+	Out       io.Writer
 	Providers []string
 	Dir       string
 	ServerURL string
@@ -874,6 +880,22 @@ type connectResult struct {
 	Skipped map[string][]string
 }
 
+func (o connectOptions) out() io.Writer {
+	if o.Out == nil {
+		return os.Stdout
+	}
+	return o.Out
+}
+
+// errw is where the notices that belong on stderr go: the process's, unless Out
+// redirects the whole run.
+func (o connectOptions) errw() io.Writer {
+	if o.Out == nil {
+		return os.Stderr
+	}
+	return o.Out
+}
+
 // insecureHTTPAllowed reports whether this connect may reach a non-loopback
 // http:// URL: the opt-in, or CARTOGRAPHER_ALLOW_INSECURE_HTTP.
 func (o connectOptions) insecureHTTPAllowed() bool {
@@ -932,7 +954,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	if _, statErr := os.Stat(clientconfig.Path(opts.Dir)); statErr == nil {
 		// connect saves the config itself, which drops the name; the lockfile
 		// section goes with the next sync.
-		handleUnsupportedProviders(os.Stderr, opts.Dir, existing, false)
+		handleUnsupportedProviders(opts.errw(), opts.Dir, existing, false)
 	}
 	// A client that installed nothing yet has no pre-approval install for the
 	// first sync to migrate: connect writes the marker itself, so that sync
@@ -1001,8 +1023,8 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	} else if len(selected) > 0 && len(kbs) > 1 && !opts.DryRun {
 		// Name the alternative once, where the operator is deciding. Silence
 		// here is how a machine-wide catalogue becomes the default nobody chose.
-		fmt.Println("note: these KBs will be readable from every directory on this machine.")
-		fmt.Println("      pass --workspace <repo> to confine them to one repository instead (docs/sync.md §Workspace scope).")
+		fmt.Fprintln(opts.out(), "note: these KBs will be readable from every directory on this machine.")
+		fmt.Fprintln(opts.out(), "      pass --workspace <repo> to confine them to one repository instead (docs/sync.md §Workspace scope).")
 	}
 
 	// entryKBs stays the server's full mount list: it tells entriesForKBs that
@@ -1125,7 +1147,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		res.DeferredErr = pullErr
 	} else {
 		materialize := func() (map[string]provisioning.AppliedResult, error) {
-			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.ScanRoots(), Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
+			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.ScanRoots(), Paths: existing.Paths, Streams: syncStreams{Out: opts.Out, Err: opts.Out}}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
 		}
 		applied, err := materialize()
 		if err != nil {

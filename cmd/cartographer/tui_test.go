@@ -1558,3 +1558,51 @@ func TestSyncAllPartialFailureNamesAppliedProviders(t *testing.T) {
 		t.Errorf("the applied provider must be named: err=%v message=%q", m.err, m.message)
 	}
 }
+
+// A dashboard connect on a multi-KB selection prints the machine-wide scope
+// note (#1713): into the done message's notes, never to the process streams
+// under the inline frame.
+func TestConnectCmd_WritesNothingToTheProcessStreams(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	opts := connectOptions{Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", KBs: []string{"all"}}
+
+	var msg tea.Msg
+	stdout := withStdout(t, func() {
+		stderr := withStderr(t, func() { msg = connectCmd("claude", opts)() })
+		if stderr != "" {
+			t.Errorf("the dashboard connect wrote to stderr: %q", stderr)
+		}
+	})
+	if stdout != "" {
+		t.Errorf("the dashboard connect wrote to stdout: %q", stdout)
+	}
+	done, ok := msg.(connectDoneMsg)
+	if !ok || done.err != nil {
+		t.Fatalf("msg = %#v", msg)
+	}
+	if !strings.Contains(done.notes, "readable from every directory") {
+		t.Errorf("notes = %q, want the scope note", done.notes)
+	}
+}
+
+// The done card names a provider whose parts were refused as the CLI does
+// (#1693), and does not say "connected".
+func TestUpdate_ConnectDoneMsgUsesTheProviderStatus(t *testing.T) {
+	m := testModel()
+	m = m.openConnectForm(m.rows[0])
+	res := connectResult{
+		Providers: []string{"claude"},
+		Applied:   map[string]provisioning.AppliedResult{"claude": {}},
+		Skipped:   map[string][]string{"claude": {"hooks"}},
+	}
+	next, _ := m.Update(connectDoneMsg{provider: "claude", res: res, notes: "note: first\nsecond"})
+	m = next.(Model)
+	if !strings.Contains(m.message, "partially connected: claude") || strings.Contains(m.message, "connected claude") {
+		t.Errorf("message = %q, want the partial status", m.message)
+	}
+	if !strings.Contains(m.message, "note: first (…)") {
+		t.Errorf("message = %q, want the notes", m.message)
+	}
+}
