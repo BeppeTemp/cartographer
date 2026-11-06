@@ -189,7 +189,7 @@ func TestClientReport(t *testing.T) {
 		got[e.Key] = e
 	}
 	for _, k := range clientconfig.Schema.Keys {
-		if _, ok := got[k.Path]; !ok {
+		if _, ok := got[k.Path]; !ok && !k.Hidden {
 			t.Errorf("no entry for the client key %s", k.Path)
 		}
 	}

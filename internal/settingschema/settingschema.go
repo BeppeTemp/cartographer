@@ -69,6 +69,11 @@ type Key struct {
 	Flag        string // command-line flag that overrides it
 	Restart     bool   // a running process only picks it up after a restart
 	Secret      bool   // the value must be redacted on display
+	// Hidden keeps the key out of everything that shows keys to a person: the
+	// comments written into the file, the available-settings block, the example
+	// file and the config views. The table still lists it, so the guard that
+	// compares the table to the file's struct passes. Clear it to turn the key on.
+	Hidden bool
 	// Example is a YAML value that shows how the key is written. An unset key is
 	// listed with it, commented out and ready to uncomment (a map or a list in
 	// block style, indented under the key); without one the line shows Default.
@@ -368,6 +373,9 @@ func (n *node) child(name string) *node {
 func (s Schema) tree() *node {
 	root := &node{byName: map[string]*node{}}
 	for i := range s.Keys {
+		if s.Keys[i].Hidden {
+			continue
+		}
 		n := root
 		for _, seg := range strings.Split(s.Keys[i].Path, ".") {
 			list := strings.HasSuffix(seg, "[]")
@@ -1230,7 +1238,7 @@ func (s Schema) Document() (*yaml.Node, error) {
 	doc := &yaml.Node{Kind: yaml.DocumentNode}
 	root := docMapping(doc)
 	for _, k := range s.Keys {
-		if k.Example == "" {
+		if k.Example == "" || k.Hidden {
 			continue
 		}
 		var val yaml.Node
