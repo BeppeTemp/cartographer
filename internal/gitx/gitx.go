@@ -1420,6 +1420,51 @@ func TrackedPaths(dir string, paths ...string) (map[string]bool, error) {
 	return out, nil
 }
 
+// TrackedModes returns the index mode ("100644", "100755", ...) of every file
+// git tracks at or below pathspecs (taken literally, slash-separated, relative
+// to dir). It is the source of truth for the execute bit of a tracked file:
+// a filesystem without the bit (NTFS) reads every file as non-executable, the
+// index does not.
+func TrackedModes(dir string, paths ...string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(paths) == 0 {
+		return out, nil
+	}
+	cmd := procattr.Hide(exec.Command("git", append([]string{"--literal-pathspecs", "-C", dir, "ls-files", "-s", "-z", "--"}, paths...)...))
+	cmd.Env = gitEnv(nil)
+	b, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files -s: %w", err)
+	}
+	for _, rec := range strings.Split(string(b), "\x00") {
+		// "<mode> <sha> <stage>\t<path>"
+		meta, path, ok := strings.Cut(rec, "\t")
+		if !ok {
+			continue
+		}
+		if f := strings.Fields(meta); len(f) == 3 && f[2] == "0" {
+			out[path] = f[0]
+		}
+	}
+	return out, nil
+}
+
+// StageExecutable stages paths (literal, relative to dir, existing files) with
+// the execute bit set in the index ("git add --chmod=+x"), so the next commit
+// records 100755 even where the filesystem cannot carry the bit. A later
+// "git add -A" keeps the index mode of a file whose content it restages when
+// core.fileMode is false, and sets the same one when the filesystem has it.
+func StageExecutable(dir string, paths ...string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	args := append([]string{"--literal-pathspecs", "add", "--chmod=+x", "--"}, paths...)
+	if out, err := runGit(dir, args...); err != nil {
+		return fmt.Errorf("git add --chmod=+x: %w: %s", err, out)
+	}
+	return nil
+}
+
 // Untrack removes paths from the index and leaves the working tree alone
 // ("git rm --cached"). The next commit records the removal.
 func Untrack(dir string, paths ...string) error {

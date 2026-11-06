@@ -436,6 +436,9 @@ func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult
 			// carried, never a reason to refuse; the source directory is removed
 			// whole, so it goes with it (#1377, as artifact_move).
 			files = slices.DeleteFunc(files, func(f transferFile) bool { return kb.IsJunkPath(f.rel) })
+			if err := execFromIndex(src, srcLoc.Dir, files); err != nil {
+				return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: %q: read the tracked file modes: %s", m.SourceID, relPathErr(err, src.Root))))
+			}
 			// TRAP: a gitignored file (a decrypted secret, a local .env) would be
 			// committed and pushed by the target, whose ignore rules may differ,
 			// and deleted from the source beyond git's reach: refuse instead.
@@ -573,6 +576,43 @@ func collectTransferFilesBounded(dir string, maxFiles int, maxBytes int64) ([]tr
 	return files, err
 }
 
+// execFromIndex lets the tracked mode in src's index, not only the filesystem,
+// decide whether each file is executable: NTFS reads every file as
+// non-executable, so a script tracked as 100755 would be committed at its new
+// path as 100644. The rule: where the filesystem carries the bit (execbit.Supported,
+// POSIX) a file is executable when the index says 100755 OR the filesystem bit
+// is set, so a chmod +x not yet in the index is not lost on the move; where it
+// does not (NTFS) the index alone decides. A file git does not track keeps what
+// the filesystem said. base is the absolute directory of the files, or the file
+// itself when their rel is "".
+func execFromIndex(src *kb.KB, base string, files []transferFile) error {
+	rel, err := filepath.Rel(src.Root, base)
+	if err != nil {
+		return err
+	}
+	rel = filepath.ToSlash(rel)
+	modes, err := gitx.TrackedModes(src.Root, rel)
+	if err != nil {
+		return err
+	}
+	for i, f := range files {
+		p := rel
+		if f.rel != "" {
+			p += "/" + f.rel
+		}
+		if mode, ok := modes[p]; ok {
+			files[i].exec = mode == "100755" || (execbit.Supported && f.exec)
+		}
+	}
+	return nil
+}
+
+// stageExecutable records the execute bit in dst's index for the copied files
+// that carry it, whatever the filesystem keeps of it (see execFromIndex).
+func stageExecutable(dst *kb.KB, rels []string) error {
+	return gitx.StageExecutable(dst.Root, rels...)
+}
+
 // scan reads what is about to travel and fills the reports that never refuse:
 // placeholder keys the target's paths.yaml does not declare, sops material,
 // secret references and links to pages that stay behind.
@@ -703,12 +743,23 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan, view *callerView) (t
 			// rename would also remove the source before the target is committed.
 			// Bytes are copied verbatim, an encrypted file included: nothing is
 			// decrypted or re-encrypted on the way.
+			var execs []string
 			for _, f := range it.files {
 				from := filepath.Join(it.srcLoc.Dir, filepath.FromSlash(f.rel))
 				to := filepath.Join(it.dstLoc.Dir, filepath.FromSlash(f.rel))
 				if err := copyTransferFile(from, to, f.exec); err != nil {
 					return out, fmt.Errorf("copy %s of %q: %w", f.rel, it.fromID, err)
 				}
+				if f.exec {
+					rel, rerr := filepath.Rel(dst.Root, to)
+					if rerr != nil {
+						return out, rerr
+					}
+					execs = append(execs, filepath.ToSlash(rel))
+				}
+			}
+			if err := stageExecutable(dst, execs); err != nil {
+				return out, fmt.Errorf("stage the execute bit of %q: %w", it.toID, err)
 			}
 			continue
 		}
