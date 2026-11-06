@@ -114,10 +114,22 @@ const (
 	SecretRedacted = "<redacted>"
 )
 
-// IsSecret reports whether key is a secret of the client schema (the token).
+// IsSecret reports whether key is a secret of the client schema (the token),
+// under its path or under the flat one a client of an earlier release reports.
 func IsSecret(key string) bool {
-	k, ok := Schema.Lookup(key)
+	k, ok := Schema.Lookup(ReportedKey(key))
 	return ok && k.Secret
+}
+
+// ReportedKey is the schema key a report entry names: the key itself, or the
+// key a client of an earlier release reported under its flat name.
+func ReportedKey(key string) string {
+	for _, m := range Retired.Moved {
+		if m.From == key {
+			return m.To
+		}
+	}
+	return key
 }
 
 // SecretValue is the value a report shows for a secret key given its origin and
@@ -163,7 +175,19 @@ func redactDoc(doc *yaml.Node, data []byte) ([]byte, error) {
 		if !k.Secret {
 			continue
 		}
-		for _, n := range lookupAll(doc, strings.Split(k.Path, ".")) {
+		// A file the realignment has not reached still holds the flat key (the
+		// bearer token at the root): it is a secret there too.
+		paths := []string{k.Path}
+		for _, m := range Retired.Moved {
+			if m.To == k.Path {
+				paths = append(paths, m.From)
+			}
+		}
+		var nodes []*yaml.Node
+		for _, p := range paths {
+			nodes = append(nodes, lookupAll(doc, strings.Split(p, "."))...)
+		}
+		for _, n := range nodes {
 			if n.Kind == yaml.ScalarNode && (n.Tag == "!!null" || n.Value == "") {
 				continue
 			}
@@ -283,13 +307,20 @@ func report(data []byte, machine, version string) (*SettingsReport, error) {
 			continue
 		}
 		e := ReportEntry{Key: k.Path, Origin: "default", Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values}
-		if n := lookup(&doc, k.Path); n != nil {
+		n := lookup(&doc, k.Path)
+		// A file the realignment has not reached still holds the flat key.
+		for _, m := range Retired.Moved {
+			if n == nil && m.To == k.Path {
+				n = lookup(&doc, m.From)
+			}
+		}
+		if n != nil {
 			e.Origin = "file"
 			_ = n.Decode(&e.Value)
 		} else {
 			_ = yaml.Unmarshal([]byte(k.Default), &e.Value)
 		}
-		if k.Path == "server_url" {
+		if k.Path == "server.url" {
 			r.ServerURL, _ = e.Value.(string)
 		}
 		if k.Secret {

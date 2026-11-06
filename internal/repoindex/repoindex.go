@@ -28,7 +28,7 @@ var userHomeDir = os.UserHomeDir
 // DefaultDepth and MaxDepth bound how many directory levels Scan descends from
 // each root (D162). DefaultDepth is the depth every client scans: since D906 it
 // is a constant and no longer the `search_depth` setting, because a layout deeper
-// than 4 is served by a closer entry in search_roots or by `paths`, without
+// than 4 is served by a closer entry in placeholders.search_roots or by `placeholders.paths`, without
 // slowing every resolution. MaxDepth stays the ceiling Scan clamps a caller's
 // depth to: Scan walks the filesystem on every unresolved placeholder, and an
 // unbounded depth on a large home directory is a multi-second stall in the
@@ -495,7 +495,7 @@ func (r *Resolver) ResolveDeclared(key, remote string) (string, []string, error)
 	warnings = append(warnings, lookupWarnings...)
 	if err != nil {
 		if errors.Is(err, errNotIndexed) {
-			return "", warnings, notFoundError{fmt.Sprintf("repoindex: repo %q not found within %d directory levels of search roots %v — add a closer root to search_roots in .cartographer.yaml, or map it with `cartographer paths set`", key, EffectiveDepth(r.maxDepth), r.roots)}
+			return "", warnings, notFoundError{fmt.Sprintf("repoindex: repo %q not found within %d directory levels of search roots %v — add a closer root to placeholders.search_roots in .cartographer.yaml, or map it with `cartographer paths set`", key, EffectiveDepth(r.maxDepth), r.roots)}
 		}
 		return "", warnings, err
 	}
@@ -531,7 +531,7 @@ func rootsMatch(cached, configured []string) bool {
 // `~\x` is accepted on every platform, not only Windows, so the two spellings
 // agree wherever the config is read; a literal directory named `~\x` on unix is
 // pathological. What follows the separator is left in the spelling it was
-// written in — a search_roots or paths entry names this machine's filesystem, so
+// written in — a placeholders.search_roots or placeholders.paths entry names this machine's filesystem, so
 // there is nothing to translate, and a wrong one is now reported by name (Scan).
 //
 // It is exported because internal/provisioning needs exactly this function and

@@ -824,7 +824,7 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string, facts
 		// false` — name the cause instead.
 		if noLocalServiceFor(cfg.ServerURL) {
 			f.Message = fmt.Sprintf("server %s is unreachable and no local cartographer service is installed to serve it", cfg.ServerURL)
-			f.Fix = "cartographer service install, or point server_url at a running server"
+			f.Fix = "cartographer service install, or point server.url at a running server"
 		}
 		return []doctorFinding{f}
 	}

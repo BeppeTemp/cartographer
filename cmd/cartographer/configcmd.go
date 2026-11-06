@@ -157,7 +157,13 @@ func clientEntries(dir string) []config.Entry {
 		}
 		e := config.Entry{Key: k.Path, Value: k.Default, Origin: config.OriginDefault,
 			Description: k.Description, Default: k.Default, Env: k.Env, Flag: k.Flag, Restart: k.Restart, Secret: k.Secret}
-		if v, ok := lookupPath(doc, k.Path); ok {
+		v, ok := lookupPath(doc, k.Path)
+		for _, m := range clientconfig.Retired.Moved {
+			if !ok && m.To == k.Path {
+				v, ok = lookupPath(doc, m.From) // a file the realignment has not reached
+			}
+		}
+		if ok {
 			e.Value, e.Origin = v, config.OriginFile
 			// A literal secret is never printed; a ${NAME} reference names a
 			// variable, not a secret, and is shown as written.

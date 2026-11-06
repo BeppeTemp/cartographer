@@ -131,7 +131,8 @@ describe("the Settings panel", () => {
               ],
               placeholders: [{ key: "repo:infra", kbs: ["kb-a"], path: "$HOME/src/infra" }],
               entries: [
-                { key: "server_url", value: "http://example.com/mcp", origin: "file", description: "MCP endpoint.", default: "x" },
+                { key: "server.url", value: "http://example.com/mcp", origin: "file", description: "MCP endpoint.", default: "x" },
+                { key: "placeholders.paths", value: {}, origin: "default", description: "Name to path.", default: "{}" },
                 { key: "update_check", value: true, origin: "default", description: "Look up releases.", default: "true" },
                 {
                   key: "scopes",
@@ -151,7 +152,8 @@ describe("the Settings panel", () => {
     await user.click(within(tabs).getByRole("tab", { name: /^Client/ }));
     expect(screen.getByRole("heading", { name: "laptop" })).toBeInTheDocument();
     expect(screen.getByText(/Client v-client · reported/)).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server_url");
+    expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server.url");
+    expect(screen.getByRole("list", { name: "Client Local paths settings" })).toHaveTextContent("placeholders.paths");
     expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update_check");
     // A map is a table under its row, its size beside the key.
     expect(screen.getByLabelText("Value of scopes")).toHaveTextContent("2 entries");

@@ -21,7 +21,7 @@ approvals_migrated: true
 `
 
 // Approvals, the migration marker and the opt-outs live in the machine file,
-// never in the YAML (D-new-approvals-file).
+// never in the YAML (D1728).
 func TestMachineFileHoldsApprovalsAndOptOuts(t *testing.T) {
 	dir := t.TempDir()
 	cfg := clientconfig.Default()

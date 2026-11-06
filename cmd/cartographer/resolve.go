@@ -44,7 +44,7 @@ func cmdResolve(args []string) int {
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		// No .cartographer.yaml written yet (`connect` never run): the defaults
-		// (search_roots: ~/Documents, paths: empty) remain a reasonable base
+		// (placeholders.search_roots: ~/Documents, placeholders.paths: empty) remain a reasonable base
 		// for resolving — resolve must not depend on connect.
 		cfg = clientconfig.Default()
 	}

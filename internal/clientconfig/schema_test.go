@@ -14,7 +14,11 @@ func structPaths(t reflect.Type, prefix string, out *[]string) {
 			continue
 		}
 		// Every key is a leaf, described by one entry: the maps and lists of
-		// structs are not descended into.
+		// structs are not descended into, a group (server, placeholders) is.
+		if f.Type.Kind() == reflect.Struct {
+			structPaths(f.Type, prefix+tag+".", out)
+			continue
+		}
 		*out = append(*out, prefix+tag)
 	}
 }

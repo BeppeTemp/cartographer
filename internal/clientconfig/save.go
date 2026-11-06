@@ -25,6 +25,10 @@ var droppedKeys = map[string]bool{
 	"agents": true, "sync_timer_opt_out": true, "update": true,
 	// Moved to the machine file (D1728) by the same Save.
 	"mcp_approvals": true,
+	// The flat layout (D1731): migrateLayout has moved them
+	// by now; naming them keeps one that survives out of the extras.
+	"server_url": true, "server_name": true, "auth": true, "token": true, "allow_insecure_http": true,
+	"search_roots": true, "paths": true, "ignored_paths": true,
 }
 
 // ErrUnparsable is what Save returns for an existing file that is not YAML: it

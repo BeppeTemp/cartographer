@@ -98,13 +98,13 @@ func TestUIAPI_SettingsClientTemplate(t *testing.T) {
 		}
 		byKey[row["key"].(string)] = row
 	}
-	if row := byKey["server_url"]; row == nil || row["value"] != row["default"] {
-		t.Errorf("server_url = %v, want its default as value", row)
+	if row := byKey["server.url"]; row == nil || row["value"] != row["default"] {
+		t.Errorf("server.url = %v, want its default as value", row)
 	}
-	if row := byKey["token"]; row == nil || row["value"] != "(unset)" {
+	if row := byKey["server.token"]; row == nil || row["value"] != "(unset)" {
 		t.Errorf("token = %v, want the masked marker", row)
 	}
-	if y, _ := tmpl["yaml"].(string); !strings.Contains(y, "# --- available settings: uncomment a key to set it ---") || !strings.Contains(y, "server_url") {
+	if y, _ := tmpl["yaml"].(string); !strings.Contains(y, "# --- available settings: uncomment a key to set it ---") || !strings.Contains(y, "server:") {
 		t.Errorf("client_template yaml = %q", y)
 	}
 }

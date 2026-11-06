@@ -612,7 +612,7 @@ func TestDoConnect_ExplicitDefaultURLIsPersisted(t *testing.T) {
 		t.Fatalf("doConnect: %v", err)
 	}
 	data, _ := os.ReadFile(clientconfig.Path(dir))
-	if !strings.Contains(string(data), "\nserver_url: "+defaults.DefaultMCPURL) {
-		t.Errorf("the explicit server_url was not persisted:\n%s", data)
+	if !strings.Contains(string(data), "\n  url: "+defaults.DefaultMCPURL) {
+		t.Errorf("the explicit server.url was not persisted:\n%s", data)
 	}
 }

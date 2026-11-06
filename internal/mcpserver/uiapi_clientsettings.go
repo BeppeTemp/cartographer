@@ -146,7 +146,7 @@ func scrubClientReport(entries []config.Entry, yamlText string) ([]config.Entry,
 		e.Value = clientconfig.SecretValue(string(e.Origin), e.Value)
 		e.Secret = true
 		// The default is the schema's, not the sender's.
-		if k, ok := clientconfig.Schema.Lookup(e.Key); ok {
+		if k, ok := clientconfig.Schema.Lookup(clientconfig.ReportedKey(e.Key)); ok {
 			e.Default = k.Default
 		}
 	}

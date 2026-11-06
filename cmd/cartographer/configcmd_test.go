@@ -42,7 +42,7 @@ func TestConfigShowsClientOriginsAndServerSection(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	got := out.String()
-	for _, want := range []string{"server_url", "(file)", "usage_scan", "false", "git.sync", "(env, restart required)", "auth.tokens", "(set)", "KB kb-a", "kbs[].usage_stale_days"} {
+	for _, want := range []string{"server.url", "(file)", "usage_scan", "false", "git.sync", "(env, restart required)", "auth.tokens", "(set)", "KB kb-a", "kbs[].usage_stale_days"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}
@@ -66,7 +66,7 @@ func TestConfigUnreachableServerPrintsClientAndANote(t *testing.T) {
 	if code := runConfig(&out, configDir(t, url), false, false); code != 0 {
 		t.Fatalf("exit %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), "server_url") || !strings.Contains(out.String(), "not reachable") {
+	if !strings.Contains(out.String(), "server.url") || !strings.Contains(out.String(), "not reachable") {
 		t.Errorf("output:\n%s", out.String())
 	}
 }
@@ -80,7 +80,7 @@ func TestConfigJSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &v); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, out.String())
 	}
-	if len(v.Client) == 0 || v.Client[0].Key != "server_url" || v.Note == "" {
+	if len(v.Client) == 0 || v.Client[0].Key != "server.url" || v.Note == "" {
 		t.Errorf("view = %+v", v)
 	}
 }

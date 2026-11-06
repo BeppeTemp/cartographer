@@ -38,7 +38,7 @@ func TestSaveFollowsASymlinkedConfig(t *testing.T) {
 	if fi, err := os.Lstat(Path(home)); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("the link was replaced by a regular file (err %v)", err)
 	}
-	if got, _ := os.ReadFile(target); !strings.Contains(string(got), "server_name: renamed") {
+	if got, _ := os.ReadFile(target); !strings.Contains(string(got), "  name: renamed") {
 		t.Errorf("the target was not updated:\n%s", got)
 	}
 }
@@ -146,15 +146,15 @@ func TestAssignedDefaultsArePersisted(t *testing.T) {
 	}
 	url := cfg.ServerURL
 	cfg.ServerURL = url // chosen on purpose, equal to the default
-	cfg.Assigned("server_url")
+	cfg.Assigned("server.url")
 	if err := Save(home, cfg); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(Path(home))
-	if !strings.Contains(string(got), "\nserver_url: "+url) && !strings.HasPrefix(string(got), "server_url: "+url) {
+	if !strings.Contains(string(got), "\n  url: "+url) {
 		t.Errorf("explicit server_url not persisted:\n%s", got)
 	}
-	if strings.Contains(string(got), "\nserver_name:") || strings.Contains(string(got), "\ntoken:") {
+	if strings.Contains(string(got), "\n  name:") || strings.Contains(string(got), "\n  token:") {
 		t.Errorf("untouched defaults were written:\n%s", got)
 	}
 	// Changed and changed back, without Assigned: the value moved, so it is kept.
@@ -167,12 +167,12 @@ func TestAssignedDefaultsArePersisted(t *testing.T) {
 	}
 	cfg, _ = Load(home2)
 	cfg.ServerName = "cartographer"
-	cfg.Assigned("server_name")
+	cfg.Assigned("server.name")
 	if err := Save(home2, cfg); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = os.ReadFile(Path(home2))
-	if !strings.Contains(string(got), "\nserver_name: cartographer") {
+	if !strings.Contains(string(got), "\n  name: cartographer") {
 		t.Errorf("change and change-back not persisted:\n%s", got)
 	}
 }

@@ -61,7 +61,7 @@ func TestSaveRemovesNewlySetKeyFromTheCommentedBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := readFile(t, clientconfig.Path(dir))
-	if !strings.Contains(raw, "# search_roots:") {
+	if !strings.Contains(raw, "#   search_roots:") {
 		t.Fatalf("an unset key should be listed commented out:\n%s", raw)
 	}
 	cfg.SearchRoots = []string{"~/work"}
@@ -69,14 +69,15 @@ func TestSaveRemovesNewlySetKeyFromTheCommentedBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw = readFile(t, clientconfig.Path(dir))
-	if strings.Contains(raw, "# search_roots:") {
+	if strings.Contains(raw, "#   search_roots:") {
 		t.Errorf("search_roots is set and still listed as available:\n%s", raw)
 	}
-	if !hasKey(raw, "search_roots") {
+	if !strings.Contains(raw, "\n  search_roots:") {
 		t.Errorf("search_roots not written:\n%s", raw)
 	}
-	if strings.Count(raw, "# --- available settings: uncomment a key to set it ---") != 1 {
-		t.Errorf("want one block:\n%s", raw)
+	// One block per mapping that has unset keys: server, placeholders and the root.
+	if strings.Count(raw, "# --- available settings: uncomment a key to set it ---") != 3 {
+		t.Errorf("want one block per mapping:\n%s", raw)
 	}
 }
 
@@ -201,9 +202,9 @@ func TestRemovedKeyKeepsItsUserComment(t *testing.T) {
 // it. The comment the schema generated goes with its key, in the wording this
 // version writes and in the one every file written before it carries.
 func TestDroppedKeyTakesItsGeneratedCommentInAnyWording(t *testing.T) {
-	sk, ok := clientconfig.Schema.Lookup("paths")
+	sk, ok := clientconfig.Schema.Lookup("placeholders.paths")
 	if !ok {
-		t.Fatal("paths is not in the schema")
+		t.Fatal("placeholders.paths is not in the schema")
 	}
 	current := strings.Join(settingschema.Comment(sk), "\n")
 	for name, comment := range map[string]string{
@@ -212,7 +213,7 @@ func TestDroppedKeyTakesItsGeneratedCommentInAnyWording(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeConfigFile(t, dir, "server_url: http://127.0.0.1:39273/mcp\n"+comment+"\npaths:\n  work-tools: /x\nignored_paths:\n  - repo:a\n")
+			writeConfigFile(t, dir, "server:\n  url: http://127.0.0.1:39273/mcp\nplaceholders:\n"+comment+"\n  paths:\n    work-tools: /x\n  ignored:\n    - repo:a\n")
 			cfg, err := clientconfig.Load(dir)
 			if err != nil {
 				t.Fatal(err)
@@ -226,13 +227,13 @@ func TestDroppedKeyTakesItsGeneratedCommentInAnyWording(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
 				t.Fatal(err)
 			}
-			root := doc.Content[0]
-			for i := 0; i+1 < len(root.Content); i += 2 {
-				if k := root.Content[i]; k.Value == "ignored_paths" && strings.Contains(k.HeadComment, "Manual name-to-directory") {
-					t.Errorf("the comment of the dropped key moved to ignored_paths as if a person wrote it:\n%s", raw)
+			group := doc.Content[0].Content[pairIdx(doc.Content[0], "placeholders")+1]
+			for i := 0; i+1 < len(group.Content); i += 2 {
+				if k := group.Content[i]; k.Value == "ignored" && strings.Contains(k.HeadComment, "Manual name-to-directory") {
+					t.Errorf("the comment of the dropped key moved to ignored as if a person wrote it:\n%s", raw)
 				}
 			}
-			if strings.Contains(raw, "\npaths:") {
+			if strings.Contains(raw, "\n  paths:") {
 				t.Errorf("paths was not dropped:\n%s", raw)
 			}
 		})
@@ -280,4 +281,13 @@ func TestSaveUnboundAccessRoundTrip(t *testing.T) {
 	if raw := readFile(t, clientconfig.Path(dir2)); strings.Contains(raw, "unbound_access:\n  ") {
 		t.Errorf("a file without the key gained one:\n%s", raw)
 	}
+}
+
+func pairIdx(m *yaml.Node, key string) int {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return i
+		}
+	}
+	return -1
 }

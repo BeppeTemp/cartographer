@@ -193,8 +193,8 @@ func TestClientReport(t *testing.T) {
 			t.Errorf("no entry for the client key %s", k.Path)
 		}
 	}
-	if strings.TrimSpace(r.YAML) == "" || got["server_name"].Origin != "file" {
-		t.Errorf("the report is not built from a written file: origin %q, yaml %d bytes", got["server_name"].Origin, len(r.YAML))
+	if strings.TrimSpace(r.YAML) == "" || got["server.name"].Origin != "file" {
+		t.Errorf("the report is not built from a written file: origin %q, yaml %d bytes", got["server.name"].Origin, len(r.YAML))
 	}
 	if r.ServerURL == "" {
 		t.Error("no server_url")

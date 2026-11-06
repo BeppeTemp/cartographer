@@ -121,9 +121,15 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
 const PER_KB = ["identities", "workspaces", "signing_keys", "mcp_approvals"];
 
 const CLIENT_GROUPS: [Group, (key: string) => boolean][] = [
-  [{ title: "Connection", intro: "" }, (k) => ["server_url", "server_name", "auth", "token"].includes(k)],
+  [
+    { title: "Connection", intro: "" },
+    (k) => /^server\./.test(k) || ["server_url", "server_name", "auth", "token", "allow_insecure_http"].includes(k),
+  ],
   [{ title: "Agents", intro: "" }, (k) => k === "scopes" || k === "clients"],
-  [{ title: "Local paths", intro: "" }, (k) => ["search_roots", "paths", "ignored_paths"].includes(k)],
+  [
+    { title: "Local paths", intro: "" },
+    (k) => /^placeholders\./.test(k) || ["search_roots", "paths", "ignored_paths"].includes(k),
+  ],
   [{ title: "Updates & sync", intro: "" }, () => true],
 ];
 

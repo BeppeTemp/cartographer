@@ -294,7 +294,7 @@ func validateTokenEnvName(v string) error {
 // settings persisted in .cartographer.yaml. A form flag NOT passed explicitly
 // (absent from passed) inherits the value already in existing rather than the
 // hard-coded flag default — so a bare `connect <agent>` on a machine already
-// pointed at a remote server never silently rewrites server_url/auth/token
+// pointed at a remote server never silently rewrites server.url/auth/token
 // to the local default / auth:false. existing is nil on a first-ever
 // connect, where the flag defaults (and Name "cartographer") apply as-is. The
 // interactive form, when opened, overrides ServerURL/Auth/Token afterwards with
@@ -1188,7 +1188,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	// 3. Persist .cartographer.yaml.
 	existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token
 	// Set on purpose, even when equal to the default Load applied.
-	existing.Assigned("server_url", "server_name", "token")
+	existing.Assigned("server.url", "server.name", "server.token")
 	existing.AllowInsecureHTTP = opts.AllowInsecureHTTP
 	if healthErr == nil {
 		existing.KnownKBs = withRetainedKBs(kbs, retainedKBs)
