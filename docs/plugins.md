@@ -57,13 +57,17 @@ the same functions the MCP artifact tools call, so a plugin and a KB cannot disa
 
 A point is a top-level folder of the plugin that contributes something, registered in code (`plugin.Register`; a
 duplicate or invalid name panics at start). A point has a side: `client` points are loaded, `server` is declared
-and never loaded. 0.28 registers `skills`, `agents` and `hooks`, and a test pins the exact set.
+and never loaded. 0.28 registers `skills`, `agents`, `hooks` and `providers`, and a test pins the exact set.
 
 | Point | Layout | Check |
 |---|---|---|
 | `skills` | `skills/<name>/SKILL.md` plus any files; the whole folder is the artifact, the executable bit is kept | `provisioning.ValidateSkillFile` |
 | `agents` | `agents/<name>.md` | `provisioning.ValidateAgentFile` |
 | `hooks` | `hooks/<name>/hook.json` plus the files it runs | `ValidateHookJSON` and `ValidateHookRequires`; unlike in a KB, a failure is an error, not a warning. The install preview shows the hook's command, event and `requires`, and lists every file with the executable bit (in a hook, every file but `hook.json`, as the client materializes it, so the artifact hash equals the one sync computes). `cartographer-bootstrap` and `cartographer-write-findings` are refused. |
+| `providers` | `providers/<id>.yaml` | `plugin.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
+| `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
+| `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
+| `plugin.star`, `lib/` | planned (plugin scripts) | refused today with "plugin scripts are not supported yet" |
 
 Every artifact name is a valid artifact name, and a plugin cannot shadow the bundle: a skill or agent named like a
 bundled one (the CLI skill included) is refused. Reserved and bundled names are compared ignoring case, since a filesystem may fold it.
@@ -385,3 +389,73 @@ root), the MCP mode with the file it writes and the stale files it removes, the 
 and the paths the resolver left out with the reason. Every string passes through `esc`. `plugin validate` runs the
 registry and cell checks as a dry run against the built-ins, so a provider whose roots collide with one is a problem
 of the tree.
+
+## Seeing plugins: `status`, `agents`, `doctor`
+
+None of the three prints anything about plugins while the `plugins` key is empty, and the JSON carries nothing for them.
+
+**`status` and `agents`.** With at least one plugin configured they print a `plugins:` section, one line per plugin
+sorted by name: name, version, state, the short commit (seven characters, or the short digest of the installed tree
+for a folder), the redacted source with its ref, and `update available` when the installed tree differs from the
+approved one. A plugin that waits for consent adds `pending approval: cartographer plugin approve <name>`, and each
+provider it declares adds `provider <id> (plugin <name>, base <base>): connected | detected | not detected`.
+`status` prints the section also when no agent is connected. The state is the one of `plugin list`, plus
+`store unavailable` when the user cache directory the store lives in cannot be used. In `agents` the provider column
+labels a plugin provider `<id> (plugin <name>, base <base>)`, and the dashboard (`cartographer` with no arguments)
+shows the same section under the agents, with the plugin and its display name escaped.
+
+The JSON snapshot keeps its schema (`cartographer.status/v1`) and adds, additively, `plugins` (name, version, source,
+ref, sha, installed, approved, state, `update_available`) and, on a provider a plugin declares, `plugin` and `base`.
+Every string of the table output is escaped for the terminal; JSON carries it as is.
+
+**`doctor`.** Read-only like the rest of it; each finding names the command that fixes it. A disabled plugin is a
+state and produces none, except for a pending or invalid installed tree.
+
+| Check | Severity | When | Fix |
+|---|---|---|---|
+| `plugin-store` | error | the plugin store cannot be used at all | make the user cache directory usable |
+| `plugin-store` | warning | an enabled, approved plugin is not in the store, or its stored tree was modified | `cartographer plugin update <name>` |
+| `plugin-invalid` | error | the approved tree does not pass the tree reader, with the reason (for example a `cartographer` range this build does not satisfy) | `cartographer plugin update <name>` |
+| `plugin-invalid` | warning | the installed tree, newer than the approved one, does not validate: it cannot be approved | `cartographer plugin update <name>` |
+| `plugin-pending` | warning | the plugin was never approved | `cartographer plugin show <name>`, then `plugin approve <name>` |
+| `plugin-pending` | info | the installed tree is newer than the approved one, which stays active | the same |
+| `plugin-collision` | warning | a skill, agent or hook name is claimed by an active plugin and by another plugin, the bundle or a KB file the lockfile records | rename it, or disable the plugin |
+| `plugin-provider` | warning | a provider was not registered (a name two plugins claim, colliding cells, a spec the machine cannot resolve), with the reason the registration recorded | fix the provider and `plugin update` |
+
+`doctor` does not ask the server, so a collision with a KB artifact is seen only while the lockfile still records the
+KB file; the sync that dropped both claimants printed it, and the file is gone from the lockfile after it.
+`--provider <id>` narrows the plugin findings to the refusals about that provider.
+
+## Write your first plugin
+
+A plugin that gives every connected client one skill, and that you can try without a server or a git host.
+
+1. Scaffold it: `cartographer plugin new team-tools` creates `./team-tools` with the manifest (schema 1, version
+   0.1.0, `cartographer: ">=<this version>"`), a README and one example skill under `skills/team-tools-example/`.
+2. Edit `skills/team-tools-example/SKILL.md`: its `name` is the folder name and its `description` says when an agent
+   should use it. Add `agents/<name>.md` for an agent, or `hooks/<name>/hook.json` plus its script for a hook; the
+   Contribution points table says what each is checked against.
+3. Check it as often as you like: `cartographer plugin validate ./team-tools` lists every problem as `path: reason`
+   and stores nothing.
+4. Install it from the folder: `cartographer plugin install ./team-tools`. The preview shows what it contributes and
+   every file that would run; answering `y` (or `--yes`) approves exactly that version. A folder is snapshotted, so
+   after an edit run `cartographer plugin update team-tools`: the changed content is shown before you are asked again.
+5. Run `cartographer sync`: the skill reaches the global scope of every connected client. `cartographer status` lists
+   the plugin as `active`; `cartographer plugin disable team-tools` and the next sync take it away.
+6. Share it by pushing the folder to a git repository and giving colleagues `cartographer plugin install
+   https://gitlab.example.com/team/team-tools.git@v0.1.0`; they approve what they read, and nobody else can.
+
+A plugin that declares a client of its own (a fork or an in-house build of a built-in one) adds a
+`providers/<id>.yaml` as described in Providers above. Two worked examples are the fixtures the tests use,
+`fork-cli` (a CLI fork that takes the `cli` MCP mode: skill, agent and instructions, no MCP entry) and `fork-ext` (an
+editor extension that keeps its own MCP file in a versioned folder).
+
+## Limits
+
+- No workspace projection: a plugin's skills, agents and hooks reach the global scope of every connected client and no
+  project scope.
+- No `mcp/` and no `instructions.md` contribution point, and no plugin scripts.
+- The instructions block does not announce a plugin's agents and hooks.
+- A server never hosts or loads a plugin; `sync_pull` refuses an artifact whose source is `plugin:`. There is no
+  plugin catalog and a KB cannot recommend a plugin.
+- Plugins are never signed; the approval of one digest is the only consent, and it is per version.

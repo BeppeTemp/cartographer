@@ -206,6 +206,11 @@ func runDoctor(dir, only string) doctorReport {
 	if cfgErr == nil {
 		providers := doctorProviders(cfg, only)
 		lockFile, lockErr := provisioning.ReadLockFile(lockFilePath(dir))
+		var lockForPlugins *provisioning.LockFile
+		if lockErr == nil {
+			lockForPlugins = &lockFile
+		}
+		findings = append(findings, checkPlugins(cfg, only, lockForPlugins)...)
 		findings = append(findings, checkLockfile(dir, providers, lockErr)...)
 		if lockErr == nil {
 			findings = append(findings, checkManagedFiles(dir, providers, lockFile)...)

@@ -201,6 +201,8 @@ and never as a required check. By hand, from the repository root, with Docker:
 
 `cmd/cartographer/plugin_onboarding_test.go` drives `preparePlugins` and `runSetup` with fixture plugins: `--approve-plugins` prints the hook script before it approves and registers the provider in the same process, no flag or terminal leaves the plugin pending, a prompt answer decides, a second run is a no-op, another source under an installed name fails, a dry run writes nothing, a failing fetch of a configured plugin is a warning, dependency order and an unmet `depends`, a plugin-only machine completes `setup`, and the flags stay undefined while `pluginsEnabled()` is false.
 
+`cmd/cartographer/plugin_visibility_test.go` pins what `status`, `agents` and `doctor` print about plugins: the snapshot of a plugin in each state (active, pending approval, disabled, not fetched, modified, invalid, store unavailable) and its JSON keys, `update available`, the pending-approval hint, the provider rows (connected / detected / not detected), each `doctor` finding with its fix text (`plugin-store`, `plugin-invalid`, `plugin-pending`, `plugin-collision`, `plugin-provider`), the escape of every plugin-supplied string, and that nothing at all is printed or encoded while no plugin is configured.
+
 ### Client upgrade from the previous release (#1173)
 
 `test/e2e/optional/26_upgrade_from_previous.sh` starts from the state a previous
