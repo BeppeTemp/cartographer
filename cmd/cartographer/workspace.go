@@ -1186,7 +1186,7 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 			continue
 		}
 		for _, w := range workspaceStatuses(cfg, provider, dir) {
-			out = append(out, symlinkedDestinationFindings(provider, provisioning.ManagedProjectRoots(configurator.Provider(provider), w.Path))...)
+			out = append(out, symlinkedDestinationFindings(provider, w.Path, provisioning.ManagedProjectRoots(configurator.Provider(provider), w.Path))...)
 			if w.Derived && w.State == "ok" {
 				out = append(out, trackedClaudeHookSettings(provider, w.Path, lockFile)...)
 			}

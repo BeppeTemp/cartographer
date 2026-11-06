@@ -72,7 +72,7 @@ func cmdReconnect(args []string) int {
 	}
 	if res.Disconnected != nil {
 		if kept := res.Disconnected.keptConnected(); len(kept) > 0 {
-			fmt.Fprintf(os.Stderr, "Error: kept connected because a destination is a symlink, not rebuilt: %s (replace the link with a regular file or directory, then run reconnect again)\n", strings.Join(kept, ", "))
+			fmt.Fprintf(os.Stderr, "Error: kept connected because a destination is a symlink, not rebuilt: %s (replace the link with a regular file or directory, or list it under providers.<provider>.allow_symlinks with cartographer client symlinks <provider> --add <link>, then run reconnect again)\n", strings.Join(kept, ", "))
 			return 1
 		}
 	}

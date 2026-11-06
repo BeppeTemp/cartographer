@@ -460,7 +460,7 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 			continue
 		}
 		configPath := filepath.Join(dir, d.ConfigPath())
-		fix := mcpEntriesFix(dir, configPath)
+		fix := mcpEntriesFix(dir, configPath, p)
 		declared, err := provisioning.MCPServerEntryNames(dir, provider)
 		if err != nil {
 			out = append(out, doctorFinding{
@@ -524,11 +524,11 @@ func symlinkOnPath(base, path string) string {
 // mcpEntriesFix is the fix of an mcp-entries finding. `cartographer reconnect`
 // refuses a symlinked destination (D148) exactly as connect does, so when the
 // config sits behind one the fix names the link instead of a command that
-// cannot work (#1693). Writing through a link is the opt-in of #1692, not a
-// promise made here.
-func mcpEntriesFix(dir, configPath string) string {
+// cannot work (#1693), and names the opt-in as the alternative to replacing it
+// (#1692).
+func mcpEntriesFix(dir, configPath, provider string) string {
 	if link := symlinkOnPath(dir, configPath); link != "" {
-		return fmt.Sprintf("replace the symlink %s with a regular file or directory (connect and reconnect refuse to write through it), then run cartographer reconnect", escapeControl(link))
+		return fmt.Sprintf("replace the symlink %s with a regular file or directory, or list it: %s (connect and reconnect refuse to write through an unlisted link), then run cartographer reconnect", escapeControl(link), symlinksAddCommand(provider, link))
 	}
 	return "cartographer reconnect"
 }
@@ -1002,15 +1002,23 @@ func checkCapabilities(dir string, cfg *clientconfig.Config, facts serverFacts, 
 func checkSymlinkedDestinations(dir string, providers []string) []doctorFinding {
 	var out []doctorFinding
 	for _, p := range providers {
-		out = append(out, symlinkedDestinationFindings(p, provisioning.ManagedDestinationRoots(configurator.Provider(p), dir))...)
+		out = append(out, symlinkedDestinationFindings(p, dir, provisioning.ManagedDestinationRoots(configurator.Provider(p), dir))...)
 	}
 	return out
 }
 
+// symlinksAddCommand is the command that lists link under provider's
+// providers.<provider>.allow_symlinks, quoted for the shell.
+func symlinksAddCommand(provider, link string) string {
+	return escapeControl("cartographer client symlinks " + provider + " --add " + shellQuote(link))
+}
+
 // symlinkedDestinationFindings reports each of roots (the managed destinations
-// of provider, global or under a workspace) that is a symlink. A root that
-// does not exist is not a finding.
-func symlinkedDestinationFindings(provider string, roots []string) []doctorFinding {
+// of provider, global or under a workspace) that is a symlink: a warning when
+// the guard refuses it, info when it is listed and the guard accepts the whole
+// path under base (an unlisted link above it still refuses: every hop must be
+// listed). A root that does not exist is not a finding.
+func symlinkedDestinationFindings(provider, base string, roots []string) []doctorFinding {
 	var out []doctorFinding
 	for _, path := range roots {
 		info, err := os.Lstat(path)
@@ -1021,10 +1029,22 @@ func symlinkedDestinationFindings(provider string, roots []string) []doctorFindi
 		if readErr != nil {
 			target = "(unreadable)"
 		}
+		// The writer's own decision: the first component it refuses, "" when none.
+		blocker := symlinkOnPath(base, path)
+		if blocker == "" && len(safewrite.FollowedLinks(base, path)) > 0 {
+			out = append(out, doctorFinding{
+				Check: "symlink", Severity: doctorInfo, Path: path,
+				Message: fmt.Sprintf("[%s] %q is a symlink followed (listed in providers.%s.allow_symlinks) -> %q", provider, escapeControl(path), provider, escapeControl(target)),
+			})
+			continue
+		}
+		if blocker == "" {
+			blocker = path
+		}
 		out = append(out, doctorFinding{
 			Check: "symlink", Severity: doctorWarning, Path: path,
-			Message: fmt.Sprintf("[%s] %s is a symlink: provisioning writes would land in %s, so Cartographer refuses them", provider, path, target),
-			Fix:     "replace the symlink with the real directory or file",
+			Message: fmt.Sprintf("[%s] %q is a symlink: provisioning writes would land in %q, so Cartographer refuses them", provider, escapeControl(path), escapeControl(target)),
+			Fix:     "replace the symlink " + escapeControl(blocker) + " with the real directory or file, or: " + symlinksAddCommand(provider, blocker),
 		})
 	}
 	return out
