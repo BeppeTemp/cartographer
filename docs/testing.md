@@ -917,7 +917,8 @@ make test-install
 A maintainer runs `make signoff` instead of `make gate` + `git push`: it runs `gate` (and `web-gate` when the
 diff touches what the web legs cover), pushes with `--force-with-lease` to `origin` and posts the `signoff`
 status CI's `gate` job looks for (`scripts/signoff.sh`; `SIGNOFF_MAKE` points it at a wrapper that runs
-make elsewhere). The four commands after `gate` then run on `main` after the merge.
+make elsewhere). It runs `gate`, `smoke-http`, `smoke` and `e2e` (D1750): a broken scenario never
+lands. `ci.yml` still runs all four on every push to `main`; only `make test-install` is first run there.
 `SIGNOFF_WINDOWS`, when set, is a command that runs its arguments natively on Windows from the same tree:
 the signoff gives it `scripts/test-shard.sh` with every shard at once (`SIGNOFF_WINDOWS_SHARDS`, default 4,
 as the CI's `test-windows` legs, D785) over the packages a code change can break (`scripts/affected-pkgs.sh

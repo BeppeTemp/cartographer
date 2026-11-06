@@ -248,6 +248,24 @@ func TestSignoffFailingTargetPushesAndPostsNothing(t *testing.T) {
 	}
 }
 
+// A broken e2e scenario makes `make` exit 2 (#1743): signoff must say "failed (exit 2):
+// nothing pushed, nothing posted", the wording scripts/land.sh's gate() reads as a red
+// test (exit 1: re-run, then bisect), not as infrastructure (exit 2: the lander stops).
+func TestSignoffRedE2EIsATestFailureForTheLander(t *testing.T) {
+	e := newSignoffEnv(t)
+	e.branch(e.work, "feat/x", "x.txt")
+	out, ok := e.signoff(e.work, "FAKE_MAKE_RC=2")
+	if ok {
+		t.Fatalf("a failing e2e must fail signoff\n%s", out)
+	}
+	if !strings.Contains(out, "gate smoke-http smoke e2e failed (exit 2): nothing pushed, nothing posted") {
+		t.Errorf("the failure line must name the targets and keep the wording land.sh classifies as red\n%s", out)
+	}
+	if got := strings.TrimSpace(e.log(e.makeLog)); got != "gate smoke-http smoke e2e" {
+		t.Errorf("the e2e runs in the signoff's make invocation, got %q", got)
+	}
+}
+
 func TestSignoffPushesAndAttestsTheSha(t *testing.T) {
 	e := newSignoffEnv(t)
 	e.branch(e.work, "feat/x", "notes/a.txt")
@@ -264,7 +282,7 @@ func TestSignoffPushesAndAttestsTheSha(t *testing.T) {
 		t.Fatalf("want exactly one POST, got %v", posts)
 	}
 	p := posts[0]
-	for _, want := range []string{"POST", "repos/up/proj/statuses/" + head, "state=success", "context=signoff", "make gate - linux/amd64 - "} {
+	for _, want := range []string{"POST", "repos/up/proj/statuses/" + head, "state=success", "context=signoff", "make gate smoke-http smoke e2e - linux/amd64 - "} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the POST lacks %q: %s", want, p)
 		}
@@ -280,8 +298,8 @@ func TestSignoffPushesAndAttestsTheSha(t *testing.T) {
 			t.Errorf("the description %q carries %q: the repository is public", desc, private)
 		}
 	}
-	if got := strings.TrimSpace(e.log(e.makeLog)); got != "gate" {
-		t.Errorf("a diff without web paths runs gate alone, got %q", got)
+	if got := strings.TrimSpace(e.log(e.makeLog)); got != "gate smoke-http smoke e2e" {
+		t.Errorf("a diff without web paths runs gate, smoke-http, smoke and e2e (test-install stays post-merge, #1743), got %q", got)
 	}
 }
 
@@ -292,10 +310,10 @@ func TestSignoffAddsWebGateWhenTheDiffNeedsIt(t *testing.T) {
 	if out, ok := e.signoff(e.work); !ok {
 		t.Fatalf("signoff failed\n%s", out)
 	}
-	if got := strings.TrimSpace(e.log(e.makeLog)); got != "gate web-gate" {
-		t.Errorf("a web/src change runs gate and web-gate, got %q", got)
+	if got := strings.TrimSpace(e.log(e.makeLog)); got != "gate smoke-http smoke e2e web-gate" {
+		t.Errorf("a web/src change adds web-gate to the default targets, got %q", got)
 	}
-	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], "make gate web-gate - ") {
+	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], "make gate smoke-http smoke e2e web-gate - ") {
 		t.Errorf("the status names both targets: %v", p)
 	}
 }

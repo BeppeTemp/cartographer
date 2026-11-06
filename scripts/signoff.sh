@@ -30,9 +30,10 @@
 # Plain bash 3.2 (the macOS default): no associative arrays, no GNU-only flags.
 set -euo pipefail
 
-# The targets a signoff runs; `web-gate` is added when the diff needs it. The four
-# post-merge targets (smoke-http, smoke, e2e, test-install) run on push to main.
-TARGETS="gate"
+# The targets a signoff runs; `web-gate` is added when the diff needs it. Only
+# test-install stays post-merge (it runs on push to main); a broken e2e scenario must
+# never land (D1750, #1743).
+TARGETS="gate smoke-http smoke e2e"
 WEB_TARGET="web-gate"
 
 die() { echo "signoff: $*" >&2; exit 1; }
