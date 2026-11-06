@@ -215,13 +215,16 @@ gate: fmt-check vet test race ## Everything that must be green before a PR is op
 # (the changed packages and their reverse test dependencies). `make gate` still runs
 # everything. CHECK_MAKE runs check-run elsewhere, like SIGNOFF_MAKE (the package list
 # travels as a make variable); an exit 75 from it means "host unavailable" and the
-# check runs here instead.
+# check runs here instead, unless CHECK_LOCAL_FALLBACK=0 keeps this machine free of
+# Go builds: the check then exits 75 itself.
 CHECK_MAKE ?= $(MAKE)
+CHECK_LOCAL_FALLBACK ?= 1
 check: ## Fast tier: fmt-check, vet and the tests of the packages this branch affects (CHECK_MAKE runs them elsewhere)
 	@pkgs=$$(scripts/affected-pkgs.sh --changed | scripts/affected-pkgs.sh | tr '\n' ' '); \
 	echo "check: $${pkgs:-no Go package affected}"; \
 	rc=0; $(CHECK_MAKE) check-run CHECK_PKGS="$$pkgs" || rc=$$?; \
-	if [ "$$rc" = 75 ]; then echo "check: the build host is unavailable, running here"; $(MAKE) check-run CHECK_PKGS="$$pkgs"; \
+	if [ "$$rc" = 75 ] && [ "$(CHECK_LOCAL_FALLBACK)" = 0 ]; then echo "check: the build host is unavailable and CHECK_LOCAL_FALLBACK=0: not running here" >&2; exit 75; \
+	elif [ "$$rc" = 75 ]; then echo "check: the build host is unavailable, running here"; $(MAKE) check-run CHECK_PKGS="$$pkgs"; \
 	else exit $$rc; fi
 
 check-run: fmt-check vet
