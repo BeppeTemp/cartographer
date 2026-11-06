@@ -23,7 +23,9 @@ func TestRequestTrayClose(t *testing.T) {
 
 	got := make(chan struct{}, 1)
 	ready := make(chan error, 1)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 		u32 := windows.NewLazySystemDLL("user32.dll")
@@ -32,6 +34,7 @@ func TestRequestTrayClose(t *testing.T) {
 		proc := syscall.NewCallback(func(hwnd, msg, wp, lp uintptr) uintptr {
 			if msg == wmClose {
 				got <- struct{}{}
+				u32.NewProc("DestroyWindow").Call(hwnd) // leave no window behind for other tests
 				u32.NewProc("PostQuitMessage").Call(0)
 				return 0
 			}
@@ -52,6 +55,7 @@ func TestRequestTrayClose(t *testing.T) {
 			iconSm      uintptr
 		}{wndProc: proc, instance: inst, className: cls}
 		wc.size = uint32(unsafe.Sizeof(wc))
+		defer u32.NewProc("UnregisterClassW").Call(uintptr(unsafe.Pointer(cls)), inst)
 		if a, _, e := u32.NewProc("RegisterClassExW").Call(uintptr(unsafe.Pointer(&wc))); a == 0 {
 			ready <- e
 			return
@@ -81,5 +85,10 @@ func TestRequestTrayClose(t *testing.T) {
 	case <-got:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the window never received WM_CLOSE")
+	}
+	select { // the window is destroyed and its class unregistered
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the test window was not torn down")
 	}
 }

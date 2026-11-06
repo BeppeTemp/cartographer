@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/xml"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,6 +73,21 @@ func installTraySetup(t *testing.T, platform string) {
 	oldUser := windowsTaskUser
 	windowsTaskUser = func() string { return "HOST\\user" }
 	t.Cleanup(func() { windowsTaskUser = oldUser })
+	// No tray test reaches the host's desktop: the real requestTrayClose posts
+	// WM_CLOSE to any tray window there, a developer's own included (#1734).
+	// A test that exercises the close overrides this stub.
+	oldClose := closeTrayWindow
+	closeTrayWindow = func() error { return errors.New("no tray window (test stub)") }
+	t.Cleanup(func() { closeTrayWindow = oldClose })
+}
+
+// installTraySetup must leave closeTrayWindow failing, so a test that forgets
+// to stub it falls back to Stop-ScheduledTask instead of the host's desktop.
+func TestInstallTraySetup_StubsCloseTrayWindow(t *testing.T) {
+	installTraySetup(t, "windows")
+	if err := closeTrayWindow(); err == nil {
+		t.Fatal("closeTrayWindow must fail by default under installTraySetup")
+	}
 }
 
 func callNames(s *stubRunner) []string {
