@@ -526,8 +526,8 @@ func withRetainedKBs(current, retained []string) []string {
 func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseName, serverURL string, mounted []string, routedPath string) (map[string][]mcpEntry, error) {
 	out := make(map[string][]mcpEntry, len(providers))
 	for _, p := range providers {
-		if usesCLI(configurator.Provider(p)) {
-			continue // a provider whose MCPMode is cli reaches Cartographer through the shell: no entry, no warning
+		if skipsMCPEntry(p) {
+			continue // a provider whose MCPMode is cli or none has no entry: no entry, no warning
 		}
 		if cfg.ProfileIgnoresWorkspaces(p, routedPath) {
 			fmt.Fprintf(os.Stderr, "warning: %s has the read-only profile (providers.%s.access and providers.%s.tools), so its workspace bindings are ignored and it keeps the HTTP entry; remove both keys to use them\n", p, p, p)
@@ -786,12 +786,13 @@ func emitMCPEntry(provider string, entry mcpEntry, auth bool, tokenEnv string) (
 func snapshotMCPConfigFiles(targets []string, dir string, claudeDirs []string) map[string][]byte {
 	snap := make(map[string][]byte)
 	for _, p := range targets {
-		if d, ok := configurator.Lookup(configurator.Provider(p)); ok && d.MCPConfigPath != "" {
+		if d, ok := configurator.Lookup(configurator.Provider(p)); ok {
 			for _, base := range providerBaseDirs(p, dir, claudeDirs) {
-				fp := filepath.Join(base, d.ConfigPath())
-				if _, seen := snap[fp]; !seen {
-					data, _ := os.ReadFile(fp)
-					snap[fp] = data
+				for _, fp := range d.MCPFiles(base) {
+					if _, seen := snap[fp]; !seen {
+						data, _ := os.ReadFile(fp)
+						snap[fp] = data
+					}
 				}
 			}
 		}
@@ -810,17 +811,19 @@ func changedMCPEntries(targets []string, entriesByProvider map[string][]mcpEntry
 	seen := map[string]bool{}
 	for _, p := range targets {
 		d, ok := configurator.Lookup(configurator.Provider(p))
-		if !ok || d.MCPConfigPath == "" {
+		if !ok || (d.MCPConfigPath == "" && d.MCPConfigGlob == "") {
 			continue
 		}
 		entries := entriesByProvider[p]
 		for _, e := range entries {
+		bases:
 			for _, base := range providerBaseDirs(p, dir, claudeDirs) {
-				fp := filepath.Join(base, d.ConfigPath())
-				if !isEntryUnchangedIn(p, d, entries, e, beforeSnap[fp], auth, tokenEnv) && !seen[e.Name] {
-					seen[e.Name] = true
-					changed = append(changed, e.Name)
-					break
+				for _, fp := range d.MCPFiles(base) {
+					if !isEntryUnchangedIn(p, d, entries, e, beforeSnap[fp], auth, tokenEnv) && !seen[e.Name] {
+						seen[e.Name] = true
+						changed = append(changed, e.Name)
+						break bases
+					}
 				}
 			}
 		}
@@ -886,7 +889,7 @@ func applyMCPEntriesRefusals(entriesByProvider map[string][]mcpEntry, providers 
 	written = make([]string, 0, len(providers))
 	seenPaths := map[string]bool{}
 	for _, provider := range providers {
-		if usesCLI(configurator.Provider(provider)) {
+		if skipsMCPEntry(provider) {
 			continue
 		}
 		entries := entriesByProvider[provider]
@@ -951,7 +954,7 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 	names := make(map[string][]string, len(providers))
 	var refused []error
 	for _, provider := range providers {
-		if usesCLI(configurator.Provider(provider)) {
+		if skipsMCPEntry(provider) {
 			continue // never had an entry: nothing to remove, and no file to open
 		}
 		// The codex block is one unit: Remove reports it for every name whether

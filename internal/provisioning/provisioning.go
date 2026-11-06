@@ -2576,7 +2576,7 @@ hookLoop:
 					// the hook.json just materialized. Best-effort on a
 					// malformed hook.json (see registerHookSettings/
 					// registerCodexHook): doesn't fail materialization.
-					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
+					if mechanism, ok := mechanismFor(opts.Provider); ok {
 						// The files the update dropped are not pruned yet, so a
 						// dropped hook.json is removed first, or the registrar would
 						// read it again and register the old spec.
@@ -3141,6 +3141,17 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// kind: a release that edits it changes no artifact ContentHash, so no
 	// Added/Updated fires. It is folded into the hash recorded here, which
 	// rewrites the block once after such a release and converges.
+	// The cli sentence (D1695) is client-owned text of the same kind: it enters
+	// the recorded hash only when present, so a provider without one keeps the
+	// hash it had, while a mode flip or a text edit rewrites the block.
+	cliSentence := ""
+	if configurator.UsesCLI(opts.Provider) {
+		cliSentence = cliProviderSentence(opts.Provider)
+	}
+	cliHashPart := ""
+	if cliSentence != "" {
+		cliHashPart = "\x00cli\x00" + cliSentence
+	}
 	// The client environment section (D1697) is client-owned text too, and it
 	// moves with things no artifact hash records (a skill skipped or unskipped, a
 	// capability probed). It cannot join the paths-section hash: `status` judges
@@ -3159,7 +3170,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 	if opts.ExpandPlaceholders && len(signed) > 0 {
 		pathsSection = buildPathsSection(tracker.resolved)
-		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection)
+		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection + cliHashPart)
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
@@ -3168,7 +3179,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// but the shared operational section is still client-owned text of the
 		// block: without its hash a release that edits it left the block old
 		// until an instructions or agent artifact changed (#1502).
-		*pathsHash = pathsSectionHash(sharedSection + "\x00")
+		*pathsHash = pathsSectionHash(sharedSection + "\x00" + cliHashPart)
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
@@ -3219,6 +3230,9 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// derives it from destDir.
 		if envSection != "" {
 			body += "\n\n" + envSection
+		}
+		if cliSentence != "" {
+			body += "\n\n" + cliSentence
 		}
 	}
 	if !triggered && len(signed) > 0 {
@@ -3465,7 +3479,7 @@ func absentMCPServerWarnings(m Manifest, opts ApplyOptions) []string {
 		if err != nil {
 			continue
 		}
-		fields, err := nativeFieldsFor(fm, opts.Provider)
+		fields, err := nativeFieldsFor(fm, nativeProvider(opts.Provider))
 		if err != nil {
 			continue
 		}
@@ -3569,6 +3583,15 @@ func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []strin
 			k.kb, plugins[k], k.kind, provider))
 	}
 	return out
+}
+
+// cliProviderSentence tells a plugin provider that reaches Cartographer through
+// the shell which provider name to pass: the bundled cartographer-cli skill says
+// to use the name "given in the client's instructions block". Client-side like
+// installedSubagentSentence, so it never enters an artifact hash, and emitted
+// only for a provider whose MCP mode is cli.
+func cliProviderSentence(p configurator.Provider) string {
+	return fmt.Sprintf("This client reaches Cartographer through the shell: run `cartographer call --provider %s ...` (see the `%s` skill).", p, CLISkillName)
 }
 
 // installedSubagentSentence names the KB agents this provider can actually
@@ -4152,7 +4175,7 @@ var provisioningRootDirs = map[string]bool{
 func pruneEmptyDirs(baseDir, relPath string) {
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != string(filepath.Separator) {
-		if provisioningRootDirs[dir] {
+		if provisioningRootDirs[dir] || isPluginBoundary(dir) {
 			return
 		}
 		// A symlinked directory, or one under a symlink, is someone else's:
@@ -4351,7 +4374,7 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 			err = fmt.Errorf("provisioning: prune Pi extension %s: %w", mf.Name, err)
 		}
 	case "cline":
-		if err = removeClineHook(baseDir, mf.Name); err != nil {
+		if err = removeClineHookAt(baseDir, mf.Path); err != nil {
 			err = fmt.Errorf("provisioning: prune Cline dispatchers of hook %s: %w", mf.Name, err)
 		}
 	case "crush":
@@ -4689,8 +4712,8 @@ func Kinds() []KindInfo {
 func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for kind := range destinationMatrix {
-		cell, ok := destinationMatrix[kind][provider]
+	for _, kind := range artifactKinds {
+		cell, ok := cellFor(ScopeGlobal, kind, provider)
 		if !ok || cell.unsupported {
 			continue
 		}
@@ -4747,7 +4770,7 @@ func Destinations(kind, name string) []configurator.Provider {
 }
 
 func destDir(kind, name string, provider configurator.Provider) string {
-	cell, ok := destinationMatrix[kind][provider]
+	cell, ok := cellFor(ScopeGlobal, kind, provider)
 	if !ok || cell.unsupported {
 		return ""
 	}
@@ -4781,6 +4804,25 @@ func destDir(kind, name string, provider configurator.Provider) string {
 // reach here: destDir returns "" for them, so Apply routes them to Unsupported
 // before calling this function.
 func translateAgentForProvider(provider configurator.Provider, name string, content []byte) ([]byte, error) {
+	// A plugin provider dispatches on its declared agent.format, not on its own
+	// id: the format names the built-in whose file layout it reads, and a
+	// `providers.<base>` block of the agent is honoured through nativeProvider.
+	nativeID := provider
+	if v, ok := pluginFor(provider); ok {
+		nativeID = v.base
+		switch v.agentFormat {
+		case "opencode":
+			provider = configurator.ProviderOpenCode
+		case "antigravity":
+			provider = configurator.ProviderAntigravity
+		case "copilot":
+			provider = configurator.ProviderCopilot
+		case "cline":
+			provider = configurator.ProviderCline
+		default: // claude: verbatim
+			return content, nil
+		}
+	}
 	switch provider {
 	case configurator.ProviderOpenCode:
 		// falls through to the OpenCode translation below
@@ -4812,7 +4854,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 				description = s
 			}
 		}
-		if native, err = nativeFieldsFor(fm, provider); err != nil {
+		if native, err = nativeFieldsFor(fm, nativeID); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
