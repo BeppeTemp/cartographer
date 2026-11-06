@@ -13,7 +13,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 // ErrSymlinkDestination is returned when a destination — the file itself or any
@@ -66,12 +69,23 @@ func Refusal(path string) error { return refusal(path) }
 // A regular file where a directory is expected stays *accepted* here on
 // purpose: MkdirAll already fails on it with an accurate error, and reporting it
 // as a hostile destination would be a false accusation.
-func IsUnsafe(path string) bool {
+func IsUnsafe(path string) bool { return isUnsafe(path, false) }
+
+// isUnsafe is IsUnsafe with the allow set honored (strict false) or ignored.
+func isUnsafe(path string, strict bool) bool {
 	info, err := lstat(path)
 	if err != nil {
 		return false
 	}
 	mode := info.Mode()
+	if mode&os.ModeSymlink != 0 && !strict && isAllowed(path) {
+		// A listed link is followed when its target is plain or not there yet.
+		ti, serr := os.Stat(path)
+		if serr != nil {
+			return !errors.Is(serr, os.ErrNotExist)
+		}
+		return !ti.Mode().IsRegular() && !ti.Mode().IsDir()
+	}
 	return !mode.IsRegular() && !mode.IsDir()
 }
 
@@ -79,7 +93,9 @@ func IsUnsafe(path string) bool {
 // one IsUnsafe rejects. baseDir itself is deliberately exempt: it may
 // legitimately be a link (a symlinked $HOME), so the walk starts below it. A
 // component that does not exist yet is fine.
-func EnsureSafeDir(baseDir, relDir string) error {
+func EnsureSafeDir(baseDir, relDir string) error { return ensureSafeDir(baseDir, relDir, false) }
+
+func ensureSafeDir(baseDir, relDir string, strict bool) error {
 	relDir = filepath.Clean(relDir)
 	if relDir == "." || relDir == string(filepath.Separator) {
 		return nil
@@ -90,7 +106,7 @@ func EnsureSafeDir(baseDir, relDir string) error {
 			continue
 		}
 		current = filepath.Join(current, part)
-		if IsUnsafe(current) {
+		if isUnsafe(current, strict) {
 			return refusal(current)
 		}
 	}
@@ -100,15 +116,21 @@ func EnsureSafeDir(baseDir, relDir string) error {
 // CheckPath refuses path when it, or any component between baseDir and it, is
 // unsafe. A path outside baseDir is checked as the file itself only, since no
 // base anchors a walk for it.
-func CheckPath(baseDir, path string) error {
+func CheckPath(baseDir, path string) error { return checkPath(baseDir, path, false) }
+
+// CheckPathStrict is CheckPath that ignores the allow set: for a writer that
+// must never go through a link (TrustCodexProject).
+func CheckPathStrict(baseDir, path string) error { return checkPath(baseDir, path, true) }
+
+func checkPath(baseDir, path string, strict bool) error {
 	rel, err := filepath.Rel(baseDir, path)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		if IsUnsafe(path) {
+		if isUnsafe(path, strict) {
 			return refusal(path)
 		}
 		return nil
 	}
-	return EnsureSafeDir(baseDir, rel)
+	return ensureSafeDir(baseDir, rel, strict)
 }
 
 // WriteFileNoFollow is os.WriteFile that refuses to follow a symlinked — or
@@ -118,7 +140,7 @@ func WriteFileNoFollow(path string, data []byte, perm os.FileMode) error {
 	if IsUnsafe(path) {
 		return refusal(path)
 	}
-	return os.WriteFile(path, data, perm)
+	return notWritable("", path, os.WriteFile(path, data, perm), false)
 }
 
 // MkdirAllNoFollow is os.MkdirAll with the component walk in front of it, so a
@@ -136,7 +158,7 @@ func MkdirAllNoFollow(baseDir, dir string, perm os.FileMode) error {
 		// as CheckPath does.
 		return refusal(dir)
 	}
-	return os.MkdirAll(dir, perm)
+	return notWritable(baseDir, dir, os.MkdirAll(dir, perm), false)
 }
 
 // WriteFile writes path after checking the file and every directory component
@@ -145,7 +167,7 @@ func WriteFile(baseDir, path string, data []byte, perm os.FileMode) error {
 	if err := CheckPath(baseDir, path); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, perm)
+	return notWritable(baseDir, path, os.WriteFile(path, data, perm), false)
 }
 
 // Remove removes path after checking the file and every directory component
@@ -159,5 +181,142 @@ func Remove(baseDir, path string) error {
 	if err := CheckPath(baseDir, path); err != nil {
 		return err
 	}
+	if info, err := lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 && isAllowed(path) {
+		target, _ := os.Readlink(path)
+		return fmt.Errorf("%w: %w: %s -> %s is a link you listed, so it is your own wiring: remove it by hand",
+			ErrSymlinkDestination, ErrLinkedLeaf, path, target)
+	}
+	return notWritable(baseDir, path, os.Remove(path), false)
+}
+
+// RemoveEmptyDir removes the directory at path if it is empty, and never a
+// link: os.Remove would unlink a directory link (listed or not) whatever its
+// target holds. A non-empty directory or a missing one is os.Remove's own error.
+func RemoveEmptyDir(path string) error {
+	if info, err := lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
 	return os.Remove(path)
+}
+
+// ErrLinkedLeaf is wrapped (with ErrSymlinkDestination) by Remove when the path
+// is a listed link: the link and its target are never deleted, so a caller that
+// wanted the file gone writes the reduced content through the link instead.
+var ErrLinkedLeaf = errors.New("destination is a followed symlink")
+
+// Link is a followed symlink and where it points.
+type Link struct{ Path, Target string }
+
+var (
+	allowMu sync.Mutex
+	allowed = map[string]bool{}
+	// canonical holds each entry with the symlinks of its parent resolved: the
+	// physical spelling a hop of a chain is matched against.
+	canonical = map[string]bool{}
+)
+
+func cleanAbs(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	return filepath.Clean(p)
+}
+
+// SetAllowedLinks replaces the set of links writes may follow (D148 refined):
+// absolute logical paths, the link itself, matched lexically. Empty by default.
+func SetAllowedLinks(paths []string) {
+	allowMu.Lock()
+	defer allowMu.Unlock()
+	allowed = map[string]bool{}
+	canonical = map[string]bool{}
+	for _, p := range paths {
+		if p != "" {
+			allowed[cleanAbs(p)] = true
+			canonical[canonicalPath(p)] = true
+		}
+	}
+}
+
+// AllowedLinks returns the set, sorted by path.
+func AllowedLinks() []string {
+	allowMu.Lock()
+	defer allowMu.Unlock()
+	out := make([]string, 0, len(allowed))
+	for p := range allowed {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ResetAllowedLinks empties the set (tests).
+func ResetAllowedLinks() { SetAllowedLinks(nil) }
+
+// canonicalPath is path with the symlinks of its parent directory resolved (the
+// last component is left alone: it is the link itself).
+func canonicalPath(path string) string {
+	path = cleanAbs(path)
+	if real, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		return filepath.Join(real, filepath.Base(path))
+	}
+	return path
+}
+
+// isAllowedPhys reports whether path, in its physical spelling, is a listed link.
+func isAllowedPhys(path string) bool {
+	allowMu.Lock()
+	defer allowMu.Unlock()
+	return len(canonical) > 0 && canonical[canonicalPath(path)]
+}
+
+func isAllowed(path string) bool {
+	allowMu.Lock()
+	defer allowMu.Unlock()
+	return len(allowed) > 0 && allowed[cleanAbs(path)]
+}
+
+// FollowedLinks lists, shortest path first, the listed links that are links on
+// disk and sit on path (the path itself included). baseDir, when set, is exempt
+// as everywhere else.
+func FollowedLinks(baseDir, path string) []Link {
+	var out []Link
+	path = cleanAbs(path)
+	base := ""
+	if baseDir != "" {
+		base = cleanAbs(baseDir)
+	}
+	for _, p := range AllowedLinks() {
+		if p == base || (p != path && !strings.HasPrefix(path, p+string(filepath.Separator))) {
+			continue
+		}
+		if info, err := lstat(p); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			t, _ := os.Readlink(p)
+			if !filepath.IsAbs(t) {
+				t = filepath.Join(filepath.Dir(p), t)
+			}
+			out = append(out, Link{Path: p, Target: t})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return len(out[i].Path) < len(out[j].Path) })
+	return out
+}
+
+// notWritable turns a permission, read-only or (with missing) not-found failure
+// of a write that went through a followed link into a per-artifact refusal
+// naming the link and its target; any other error, and a write through no
+// followed link, keeps its raw error.
+func notWritable(baseDir, path string, err error, missing bool) error {
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, os.ErrPermission) && !errors.Is(err, syscall.EROFS) && !(missing && errors.Is(err, os.ErrNotExist)) {
+		return err
+	}
+	links := FollowedLinks(baseDir, path)
+	if len(links) == 0 {
+		return err
+	}
+	l := links[len(links)-1]
+	return fmt.Errorf("%w: the target of symlink %s -> %s is not writable (a read-only store or mount?): %w",
+		ErrSymlinkDestination, l.Path, l.Target, err)
 }

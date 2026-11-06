@@ -4044,7 +4044,10 @@ func removeInstructionsBlock(baseDir, path string) error {
 		return err
 	}
 	if strings.TrimSpace(stripped) == "" {
-		return os.Remove(path)
+		// A listed leaf link is never removed: the file is rewritten through it.
+		if err := safewrite.Remove(baseDir, path); !errors.Is(err, safewrite.ErrLinkedLeaf) {
+			return err
+		}
 	}
 	return writeFileAtomicNoFollow(baseDir, path, []byte(stripped), 0o644)
 }
@@ -4160,7 +4163,7 @@ func pruneEmptyDirs(baseDir, relPath string) {
 		if fi, err := os.Lstat(filepath.Join(baseDir, dir)); err == nil && !fi.IsDir() {
 			return
 		}
-		err := os.Remove(filepath.Join(baseDir, dir))
+		err := safewrite.RemoveEmptyDir(filepath.Join(baseDir, dir))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return
 		}
@@ -5196,7 +5199,7 @@ func singleArtifactContent(a Artifact, opts ApplyOptions) ([]byte, error) {
 // that is refused: os.Remove refuses a non-empty directory, so an earlier
 // successful delivery survives untouched.
 func removeEmptyDestDir(baseDir, fullDestDir string) {
-	_ = os.Remove(fullDestDir)
+	_ = safewrite.RemoveEmptyDir(fullDestDir)
 	if rel, relErr := filepath.Rel(baseDir, fullDestDir); relErr == nil {
 		pruneEmptyDirs(baseDir, rel)
 	}

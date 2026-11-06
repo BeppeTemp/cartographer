@@ -185,7 +185,7 @@ func TrustCodexProject(codexConfigPath, workspaceDir string) (TrustResult, error
 	}
 	codexDir := filepath.Dir(codexConfigPath)
 	base := filepath.Dir(codexDir)
-	if err := safewrite.CheckPath(base, codexConfigPath); err != nil {
+	if err := safewrite.CheckPathStrict(base, codexConfigPath); err != nil {
 		return refuse(err.Error() + " (a dotfile manager often links this file; add the lines yourself)")
 	}
 

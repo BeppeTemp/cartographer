@@ -100,7 +100,10 @@ func Remove(baseDir, path, begin, end string, dryRun bool) (bool, error) {
 		return true, nil
 	}
 	if strings.TrimSpace(stripped) == "" {
-		return true, os.Remove(path)
+		// A listed leaf link is never removed: the file is rewritten through it.
+		if err := safewrite.Remove(baseDir, path); !errors.Is(err, safewrite.ErrLinkedLeaf) {
+			return true, err
+		}
 	}
 	return true, safewrite.WriteFileAtomicNoFollow(baseDir, path, []byte(stripped), 0o644)
 }

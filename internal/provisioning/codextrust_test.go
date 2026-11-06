@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // TestCodexProjectTrusted: a Codex workspace projection is only active when the
@@ -299,5 +301,33 @@ func TestMentionsPath_SentencePunctuationIsNotPathContinuation(t *testing.T) {
 		if got := mentionsPath(content, "/h/repo"); got != want {
 			t.Errorf("mentionsPath(%q) = %v, want %v", content, got, want)
 		}
+	}
+}
+
+// A listed link is followed by safewrite everywhere except here: the Codex
+// config is renamed over, so TrustCodexProject uses the strict check.
+func TestTrustCodexProjectRefusesAListedLink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	base, cfg := trustCfg(t)
+	target := filepath.Join(t.TempDir(), "real.toml")
+	if err := os.WriteFile(target, []byte("model = \"o3\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, cfg); err != nil {
+		t.Fatal(err)
+	}
+	safewrite.SetAllowedLinks([]string{cfg})
+	t.Cleanup(safewrite.ResetAllowedLinks)
+	res, err := TrustCodexProject(cfg, "/some/work")
+	if err != nil || res.Status != TrustRefused {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if b, _ := os.ReadFile(target); string(b) != "model = \"o3\"\n" {
+		t.Error("the link target was written through")
 	}
 }

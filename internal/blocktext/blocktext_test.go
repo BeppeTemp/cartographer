@@ -383,3 +383,33 @@ func TestUpsert(t *testing.T) {
 		t.Errorf("corrupted: got %q, %v", got, err)
 	}
 }
+
+// A listed leaf link is never removed: a file that held only our block is
+// rewritten through it, empty, and the link and its target stay.
+func TestRemove_RewritesAListedLeafLinkInsteadOfRemovingIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	base, real := t.TempDir(), t.TempDir()
+	target := filepath.Join(real, "cfg.toml")
+	if err := os.WriteFile(target, []byte("# begin\nbody\n# end\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "cfg.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	safewrite.SetAllowedLinks([]string{link})
+	t.Cleanup(safewrite.ResetAllowedLinks)
+
+	removed, err := blocktext.Remove(base, link, begin, end, false)
+	if err != nil || !removed {
+		t.Fatalf("removed=%v err=%v", removed, err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link was removed: %v", err)
+	}
+	if b, err := os.ReadFile(target); err != nil || strings.TrimSpace(string(b)) != "" {
+		t.Errorf("target = %q, %v", b, err)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // cmdDisconnect removes the requested agent provider(s) — default "all" = every
@@ -278,8 +279,8 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 	// The lockfile goes with the last provider too, unless a workspace section
 	// of a provider kept connected (a refusal) is still in it.
 	if len(lockFile.Providers) == 0 && len(lockFile.Workspaces) == 0 && len(disconnected) == len(opts.Providers) {
-		if err := os.Remove(lockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return disconnectResult{}, fmt.Errorf("remove lockfile: %w", err)
+		if err := removeLockFile(lockPath, lockFile); err != nil {
+			return disconnectResult{}, err
 		}
 	} else if err := provisioning.WriteLockFile(lockPath, lockFile); err != nil {
 		return disconnectResult{}, err
@@ -489,4 +490,26 @@ func printPrunedWorkspaces(pr disconnectProviderResult, prefix string) {
 			fmt.Printf("%s[%s] kept %s\n", prefix, pr.Provider, k)
 		}
 	}
+}
+
+// removeLockFile deletes the lockfile once no provider is left. A lockfile that
+// is a link the user listed is their wiring: it is emptied through the link, not
+// removed. One that is a link nobody listed is unlinked itself (never its
+// target), as it always was.
+func removeLockFile(lockPath string, empty provisioning.LockFile) error {
+	err := safewrite.Remove(filepath.Dir(lockPath), lockPath)
+	switch {
+	case err == nil || errors.Is(err, os.ErrNotExist):
+		return nil
+	case errors.Is(err, safewrite.ErrLinkedLeaf):
+		return provisioning.WriteLockFile(lockPath, empty)
+	case errors.Is(err, safewrite.ErrSymlinkDestination):
+		if fi, lerr := os.Lstat(lockPath); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			if rerr := os.Remove(lockPath); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+				return fmt.Errorf("remove lockfile: %w", rerr)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("remove lockfile: %w", err)
 }
