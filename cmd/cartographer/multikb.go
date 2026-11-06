@@ -1064,7 +1064,7 @@ func bridgeServerSpec(provider string, auth bool, tokenEnv string) (configurator
 	if err != nil {
 		return configurator.ServerSpec{}, err
 	}
-	spec := configurator.ServerSpec{Type: "stdio", Command: command, Args: []string{"mcp", "--provider", provider}}
+	spec := configurator.ServerSpec{Type: "stdio", Command: command, Args: []string{"mcp", "--provider", provider}, EntryTools: true}
 	if auth && tokenEnv != "" {
 		spec.PassEnv = []string{tokenEnv}
 	}

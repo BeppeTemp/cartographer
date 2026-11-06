@@ -64,13 +64,13 @@ func TestGuide_KBSNarrowsTheGuide(t *testing.T) {
 	}
 }
 
-func TestGuide_ProvisionedGetsNone(t *testing.T) {
+func TestGuide_ProvisionedGetsOnlyTheEntryParagraph(t *testing.T) {
 	t.Parallel()
 	f := newViewFixture(t, nil, "kb-a")
-	if got := f.instructions(t, tokAdmin, RoutedMountPath+"?provisioned=1"); got != "" {
-		t.Errorf("provisioned instructions = %q, want none", got)
+	if got := f.instructions(t, tokAdmin, RoutedMountPath+"?provisioned=1"); got != entryInstructions {
+		t.Errorf("provisioned instructions = %q, want the entry paragraph only", got)
 	}
-	if got := f.instructions(t, tokAdmin, RoutedMountPath+"?provisioned=1&access=read"); got != readOnlyInstructions {
+	if got := f.instructions(t, tokAdmin, RoutedMountPath+"?provisioned=1&access=read"); got != entryInstructions+"\n\n"+readOnlyInstructions {
 		t.Errorf("provisioned read-only instructions = %q, want readOnlyInstructions", got)
 	}
 }
@@ -225,8 +225,8 @@ func TestGuide_DiscoverCarriesTheSameTextPrivately(t *testing.T) {
 	if _, err := view.guideMiddleware()(next)(withProvisioned(ctx), "server/discover", nil); err != nil {
 		t.Fatal(err)
 	}
-	if res.Instructions != "" {
-		t.Errorf("provisioned discover instructions = %q", res.Instructions)
+	if res.Instructions != entryInstructions {
+		t.Errorf("provisioned discover instructions = %q, want the entry paragraph only", res.Instructions)
 	}
 }
 

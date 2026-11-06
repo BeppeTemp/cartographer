@@ -52,6 +52,11 @@ type Tool struct {
 	// as the `map` alias of map_create (#836). The unknown-argument check
 	// (#1279) lets them through; they stay out of tools/list.
 	HiddenArguments []string
+	// AlwaysLoad marks an entry tool (configurator.EntryTools, D1724):
+	// buildSDKServer lists it with the vendor `alwaysLoad` _meta keys, so a
+	// client that hides MCP tools behind a tool search or a code mode still
+	// declares it. A test pins the flag to the one list.
+	AlwaysLoad bool
 	// Handler receives the request context and raw parameters (JSON object)
 	// and returns a result and application error. Application errors go in
 	// the ToolResult (isError:true), not as Go errors.

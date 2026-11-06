@@ -5,9 +5,14 @@ package configurator
 // Pi reads <agent-dir>/mcp.json, key "mcpServers". Three properties shape the
 // entry:
 //
-//   - "exposure": "direct" is written on every entry. The default, "codemode",
-//     does not declare the server's tools to the model, so an entry without it
-//     would connect and still be useless. A test pins it.
+//   - Pi's default exposure, "codemode", does not declare a server's tools to
+//     the model. Cartographer's own entry keeps that default and pins the entry
+//     tools with "toolExposure": {"<tool>": "direct"} (entrytools.go), so the
+//     rest of the tools stay reachable from codemode and nothing is switched off
+//     (D1724; D1603 had written "exposure": "direct" on the whole
+//     entry). A third-party server of a KB "mcp" artifact still gets
+//     "exposure": "direct": without it the entry would connect and be useless.
+//     A test pins both.
 //   - "${VAR}" in env and headers is Pi's own interpolation and the form
 //     Cartographer writes itself (Authorization: Bearer ${TOKEN}): it is kept
 //     verbatim, encoding it would break authentication.
@@ -39,7 +44,12 @@ func emitPiServer(name string, spec ServerSpec) (*EmitResult, error) {
 	if !piServerNamePattern.MatchString(name) {
 		return nil, fmt.Errorf("mcp %q: pi accepts only letters, digits, '_' and '-' in a server name and would skip this entry", name)
 	}
-	entry := map[string]any{"exposure": "direct"}
+	entry := map[string]any{}
+	if spec.EntryTools {
+		entry["toolExposure"] = piToolExposure()
+	} else {
+		entry["exposure"] = "direct"
+	}
 	switch spec.Type {
 	case "http":
 		entry["url"] = spec.URL

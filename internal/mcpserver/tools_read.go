@@ -23,6 +23,7 @@ import (
 func toolAtlasOverview(k *kb.KB) Tool {
 	return Tool{
 		Name:        "atlas_overview",
+		AlwaysLoad:  true,
 		Description: "Root index.md plus the Maps and Journals with concept counts. structure: true adds the most central concepts and link-graph communities: where to start reading. How to work in this KB: kb_guide.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"structure":{"type":"boolean"}}}`),
@@ -196,6 +197,7 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 	return Tool{
 		Name:        "concept_read",
+		AlwaysLoad:  true,
 		Description: "Reads a concept: content_hash, frontmatter (parsed; frontmatter_raw only if it does not parse), body. with_content: true returns content (exact bytes) instead of body. section returns one section; outline: true only the headings; match greps lines.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
@@ -214,14 +216,14 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 				},
 				"full": {
 					"type": "boolean",
-					"description": "Body over 60 KB comes as outline; true forces it"
+					"description": "Force whole body over 60 KB"
 				},
 				"with_content": {
 					"type": "boolean"
 				},
 				"match": {
 					"type": "string",
-					"description": "Grep body (or section) lines, case-insensitive"
+					"description": "Grep lines, case-insensitive"
 				},
 				"context": {
 					"type": "integer",
@@ -229,7 +231,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 				},
 				"rev": {
 					"type": "string",
-					"description": "Past version SHA (concept_history); its hash is no if_match"
+					"description": "Past version SHA"
 				}
 			}
 		}`),

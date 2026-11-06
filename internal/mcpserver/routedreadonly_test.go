@@ -146,14 +146,14 @@ func TestRoutedReadOnly_InstructionsSayReadOnly(t *testing.T) {
 	if got := instr(readOnlyPath); !strings.Contains(got, "read-only") || strings.Contains(got, "workspace bind") {
 		t.Errorf("unmarked read-only instructions = %q", got)
 	}
-	if got := instr(readOnlyPath + "&provisioned=1"); got != readOnlyInstructions {
+	if got := instr(readOnlyPath + "&provisioned=1"); got != entryInstructions+"\n\n"+readOnlyInstructions {
 		t.Errorf("provisioned read-only instructions = %q, want readOnlyInstructions", got)
 	}
 	if got := instr(RoutedMountPath); !strings.Contains(got, "concept_write") {
 		t.Errorf("read-write guide = %q, want the operational bullets", got)
 	}
-	if got := instr(RoutedMountPath + "?provisioned=1"); got != "" {
-		t.Errorf("provisioned read-write instructions = %q, want none", got)
+	if got := instr(RoutedMountPath + "?provisioned=1"); got != entryInstructions {
+		t.Errorf("provisioned read-write instructions = %q, want the entry paragraph only", got)
 	}
 }
 

@@ -98,6 +98,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 
 	return Tool{
 		Name:        "search",
+		AlwaysLoad:  true,
 		ReadOnly:    true,
 		Description: description,
 		InputSchema: searchInputSchema,

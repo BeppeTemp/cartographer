@@ -18,6 +18,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
 // This file is the seam between Cartographer's tool registry and the official
@@ -130,7 +131,12 @@ func (s *Server) buildSDKServer() *sdk.Server {
 		if t.ReadOnly {
 			annotations = &sdk.ToolAnnotations{ReadOnlyHint: true}
 		}
+		var meta sdk.Meta
+		if t.AlwaysLoad {
+			meta = sdk.Meta(configurator.AlwaysLoadMeta())
+		}
 		srv.AddTool(&sdk.Tool{
+			Meta:        meta,
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: schema,

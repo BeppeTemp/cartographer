@@ -89,12 +89,15 @@ var fixedCostToolsListBudget = map[string]map[int]int{
 	// 29 KiB since D906: the measured registry counts artifact_write and
 	// artifact_delete. 31 KiB since D1191: secret_set, secret_resolve and
 	// service_get joined the agent profile (31138 bytes).
+	// 32 KiB since D-new-entry-tools: the four entry tools carry the
+	// alwaysLoad _meta (about 440 bytes), net of the trimmed concept_read
+	// property descriptions (31926 bytes).
 	//
 	// Measured on v0.27.0 (#1206), after #1183, #1184, #1185 and #1207: 1 KB
 	// 31430 bytes, byte for byte the unprefixed single mount the old budget
 	// measured (one KB carries no `kb` property, D288), so its 31 KiB stays;
 	// 9 KBs 36609.
-	"agent": {1: 31 * 1024, 9: 40000},
+	"agent": {1: 32 * 1024, 9: 40000},
 	// Measured on v0.27.0 (#1206): 1 KB 13065 bytes, 9 KBs 15895.
 	"access=read": {1: 14300, 9: 17400},
 	// Measured on v0.27.0 (#1206): 1 KB 5027 bytes, 9 KBs 6001. The 1-KB cell

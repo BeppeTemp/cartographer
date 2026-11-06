@@ -68,6 +68,12 @@ type ServerSpec struct {
 	// environment and need nothing; Codex filters it and lists the variables in
 	// `env_vars` (D737). Never a value: a secret is not written into a config.
 	PassEnv []string
+	// EntryTools marks Cartographer's own entry (set by toSpec and by the
+	// bridge spec): a client with a per-tool pin in its config, Pi today, keeps
+	// the entry tools in view and leaves the rest of the server in the
+	// client's default exposure (entrytools.go). A third-party server of a KB
+	// "mcp" artifact leaves it false and keeps what its emitter always wrote.
+	EntryTools bool
 }
 
 // Spec is the exported form of toSpec, for callers that write the entry into a
@@ -76,7 +82,7 @@ func (cfg *ServerConfig) Spec() ServerSpec { return cfg.toSpec() }
 
 // toSpec converts cfg into the provider-neutral ServerSpec EmitServer consumes.
 func (cfg *ServerConfig) toSpec() ServerSpec {
-	spec := ServerSpec{Type: "http", URL: cfg.URL}
+	spec := ServerSpec{Type: "http", URL: cfg.URL, EntryTools: true}
 	if cfg.AuthEnabled {
 		spec.Headers = map[string]string{
 			"Authorization": "Bearer ${" + cfg.TokenEnv + "}",
