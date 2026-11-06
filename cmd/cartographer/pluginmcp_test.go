@@ -10,7 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
-func registerPluginProviders(t *testing.T, specs ...configurator.PluginSpec) {
+func registerTestProviders(t *testing.T, specs ...configurator.PluginSpec) {
 	t.Helper()
 	if _, err := configurator.ReplacePlugins(specs); err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func shellAndNone() []configurator.PluginSpec {
 // A cli or none provider gets no MCP entry on connect or sync, nothing to remove
 // on disconnect, and no warning; the MCP provider next to it is unaffected.
 func TestCLIAndNoneProvidersHaveNoMCPEntry(t *testing.T) {
-	registerPluginProviders(t, shellAndNone()...)
+	registerTestProviders(t, shellAndNone()...)
 	names := []string{"claude", "fork-shell", "fork-none"}
 	cfg := bridgeConfigFor(t, names...)
 	entries, err := entriesByProviderForKBs(cfg, names, "cartographer", cfg.ServerURL, cfg.KnownKBs, "")
@@ -62,7 +62,7 @@ func TestCLIAndNoneProvidersHaveNoMCPEntry(t *testing.T) {
 
 // The bundled cartographer-cli skill goes to a cli provider and to no other.
 func TestCLISkillGoesToTheCLIProviderOnly(t *testing.T) {
-	registerPluginProviders(t, shellAndNone()...)
+	registerTestProviders(t, shellAndNone()...)
 	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "skill", Name: cliSkillName, Source: "bundle"}}}
 	if got := len(withoutCLISkill("fork-shell", m).Artifacts); got != 1 {
 		t.Errorf("the cli provider has %d artifacts, want the skill kept", got)
@@ -82,7 +82,7 @@ func TestCLISkillGoesToTheCLIProviderOnly(t *testing.T) {
 // disconnect takes it out of each; nothing is created where the client is absent.
 func TestGlobMCPProviderIsWrittenAndRemovedThroughTheCommonPath(t *testing.T) {
 	stubBridgeCommand(t)
-	registerPluginProviders(t, configurator.PluginSpec{
+	registerTestProviders(t, configurator.PluginSpec{
 		Name: "fork-ext", Base: string(configurator.ProviderCrush), MCPMode: "native", Active: true,
 		MCPConfig: []string{".fork", "ext-*", "mcp.json"},
 	})

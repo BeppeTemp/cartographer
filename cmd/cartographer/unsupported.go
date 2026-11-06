@@ -47,7 +47,12 @@ func handleUnsupportedProviders(errw io.Writer, dir string, cfg *clientconfig.Co
 		}
 		cfg.Unsupported = nil
 	}
-	if lockErr == nil && dropUnsupportedLockSections(&lf, nil) {
+	var plugins map[string]clientconfig.PluginEntry
+	if cfg != nil {
+		plugins = cfg.Plugins
+	}
+	// Like the config: nothing is dropped while a plugin's providers are not all registered.
+	if lockErr == nil && clientconfig.PluginProvidersComplete(plugins) && dropUnsupportedLockSections(&lf, nil) {
 		if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 			fmt.Fprintf(errw, "warning: could not drop the unsupported agent clients from the lockfile: %v\n", err)
 		}

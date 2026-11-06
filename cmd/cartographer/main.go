@@ -93,6 +93,9 @@ var (
 func main() {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.Ltime | log.Lshortfile)
+	// Before any command loads the client config, which drops the provider
+	// names the registry does not know (D898).
+	registerPluginProviders(os.Stderr)
 	registerAllowedSymlinks()
 	os.Exit(run(os.Args[1:]))
 }

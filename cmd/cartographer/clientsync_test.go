@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1603,5 +1604,30 @@ func TestPrintApplySummary_ReportLinesAreSanitised(t *testing.T) {
 	}
 	if len(out) > 1000 || !strings.Contains(out, "...") {
 		t.Errorf("a 10k-rune reason must be capped, got %d bytes", len(out))
+	}
+}
+
+// A sync with no connected provider still enumerates the server's KBs: the
+// plugin retirement returns early only when it removed the last provider.
+func TestSyncWithoutProvidersStillEnumeratesKBs(t *testing.T) {
+	var health atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			health.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "kbs": []map[string]any{{"name": "one"}}})
+			return
+		}
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "cartographer"}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = runSync(dir, cfg, syncOptions{})
+	if health.Load() == 0 {
+		t.Error("a sync with no providers returned before it enumerated the KBs")
 	}
 }
