@@ -8,8 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 func pluginFixture(t *testing.T) (home string) {
@@ -20,7 +23,13 @@ func pluginFixture(t *testing.T) (home string) {
 	oldStore, oldTTY := pluginStoreFn, pluginInteractive
 	pluginStoreFn = func() (plugin.Store, error) { return store, nil }
 	pluginInteractive = func() bool { return false }
-	t.Cleanup(func() { pluginStoreFn, pluginInteractive = oldStore, oldTTY })
+	t.Cleanup(func() {
+		pluginStoreFn, pluginInteractive = oldStore, oldTTY
+		// The plugin commands register providers (registerPluginProviders): leave no registry behind.
+		_, _ = configurator.ReplacePlugins(nil)
+		provisioning.ReplacePluginCells(nil, home)
+		clientconfig.PluginProvidersComplete = func(p map[string]clientconfig.PluginEntry) bool { return len(p) == 0 }
+	})
 	return home
 }
 
