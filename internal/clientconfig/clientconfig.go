@@ -136,8 +136,9 @@ type Config struct {
 	// User-owned: never written by a command.
 	Identities map[string]string `yaml:"identities,omitempty"`
 	// MCPApprovals is keyed by source KB then artifact name. Each entry binds
-	// consent to one exact descriptor content hash.
-	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
+	// consent to one exact descriptor content hash. Kept in the machine file
+	// (MachineFileName), not in the YAML.
+	MCPApprovals map[string]map[string]MCPApproval `yaml:"-"`
 	// UsageScan is the opt-out of the session-transcript scan that tells the
 	// server which skills and agents this machine actually loads (D326).
 	// Defaults to true — brand-new configs (Default()) and files written
@@ -151,17 +152,17 @@ type Config struct {
 	// uninstall` (D325): connect and setup then stop installing the timer
 	// themselves. Cleared by an explicit `sync-timer install`. A removal
 	// because no client needs the timer any more does not set it. Kept in the
-	// state file with Agents (D906).
+	// machine file (D1728).
 	SyncTimerOptOut bool `yaml:"-"`
 	// TrayOptOut remembers that the operator removed the tray (`service tray
 	// uninstall`, `service install --no-tray`); upgrade-repair then leaves it
-	// out (D1482). State file only.
+	// out (D1482). Kept in the machine file.
 	TrayOptOut bool `yaml:"-"`
 	// ApprovalsMigrated is set once the sync that approves what a pre-D1141
-	// client had installed has run (D1166). It is the YAML key
-	// `approvals_migrated`, beside mcp_approvals: the marker and the approvals
-	// it protects live and die together, so it cannot be lost alone and re-arm
-	// the migration over a revoke. Never cleared.
+	// client had installed has run (D1166). It lives in the machine file beside
+	// the approvals: the marker and the approvals it protects live and die
+	// together, so it cannot be lost alone and re-arm the migration over a
+	// revoke. Never cleared.
 	ApprovalsMigrated bool `yaml:"-"`
 	// UpdateCheckOff is the `update_check: false` opt-out of the daily release
 	// lookup (D254, D906). Held as the negation so a Config built from the zero
@@ -175,6 +176,13 @@ type Config struct {
 	// while its value is still that default: a default is a load-time value, and
 	// writing it back would pin it (#1501).
 	loadDefaulted map[string]string
+	// machineBroken is why the machine file could not be read, nil when it was
+	// read or absent: Save then leaves the file alone (machine.go).
+	machineBroken error
+	// machineBase is the opt-outs (sync timer, tray) a broken machine file would
+	// have held as far as the state file's copy says: Save refuses only a change
+	// against it.
+	machineBase [2]bool
 
 	// Extra retains unknown top-level YAML keys across approval updates.
 	Extra map[string]interface{} `yaml:"-"`
@@ -193,8 +201,8 @@ type Config struct {
 }
 
 type MCPApproval struct {
-	ContentHash string    `yaml:"content_hash"`
-	ApprovedAt  time.Time `yaml:"approved_at"`
+	ContentHash string    `yaml:"content_hash" json:"content_hash"`
+	ApprovedAt  time.Time `yaml:"approved_at" json:"approved_at"`
 }
 
 // ClientBinding is one provider's per-client declaration. An entry carrying an
@@ -279,25 +287,27 @@ func (b ClientBinding) MarshalYAML() (interface{}, error) {
 // machine-written lists (agents, sync_timer_opt_out) live in the state file
 // (D747, D906) and are read from the YAML solely through legacyCaches.
 type yamlConfig struct {
-	ServerURL    string                            `yaml:"server_url"`
-	ServerName   string                            `yaml:"server_name"`
-	Auth         bool                              `yaml:"auth"`
-	Token        string                            `yaml:"token"`
-	Clients      map[string]ClientBinding          `yaml:"clients,omitempty"`
-	Scopes       map[string]string                 `yaml:"scopes,omitempty"`
-	UnboundModes map[string]string                 `yaml:"unbound_access,omitempty"`
-	KBOptions    map[string]KBOption               `yaml:"kb_options,omitempty"`
-	Plugins      map[string]PluginEntry            `yaml:"plugins,omitempty"`
-	Workspaces   map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
-	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
-	Paths        map[string]string                 `yaml:"paths,omitempty"`
-	IgnoredPaths []string                          `yaml:"ignored_paths,omitempty"`
-	SigningKeys  map[string][]string               `yaml:"signing_keys,omitempty"`
-	Identities   map[string]string                 `yaml:"identities,omitempty"`
-	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
-	UpdateCheck  *bool                             `yaml:"update_check,omitempty"`
-	UsageScan    *bool                             `yaml:"usage_scan,omitempty"`
+	ServerURL    string                        `yaml:"server_url"`
+	ServerName   string                        `yaml:"server_name"`
+	Auth         bool                          `yaml:"auth"`
+	Token        string                        `yaml:"token"`
+	Clients      map[string]ClientBinding      `yaml:"clients,omitempty"`
+	Scopes       map[string]string             `yaml:"scopes,omitempty"`
+	UnboundModes map[string]string             `yaml:"unbound_access,omitempty"`
+	KBOptions    map[string]KBOption           `yaml:"kb_options,omitempty"`
+	Plugins      map[string]PluginEntry        `yaml:"plugins,omitempty"`
+	Workspaces   map[string][]WorkspaceBinding `yaml:"workspaces,omitempty"`
+	SearchRoots  []string                      `yaml:"search_roots,omitempty"`
+	Paths        map[string]string             `yaml:"paths,omitempty"`
+	IgnoredPaths []string                      `yaml:"ignored_paths,omitempty"`
+	SigningKeys  map[string][]string           `yaml:"signing_keys,omitempty"`
+	Identities   map[string]string             `yaml:"identities,omitempty"`
+	UpdateCheck  *bool                         `yaml:"update_check,omitempty"`
+	UsageScan    *bool                         `yaml:"usage_scan,omitempty"`
 
+	// ApprovalsMigrated stays here after the migration, as a tombstone: an older
+	// client then finds the marker set and never re-approves what is installed
+	// (D1728). The machine file holds the authoritative copy.
 	ApprovalsMigrated bool `yaml:"approvals_migrated,omitempty"`
 
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
@@ -319,8 +329,11 @@ type legacyCaches struct {
 	// update.check as the keys that replaced them.
 	Agents          *[]string `yaml:"agents"`
 	SyncTimerOptOut bool      `yaml:"sync_timer_opt_out"`
-	TokenEnv        string    `yaml:"token_env"`
-	Update          struct {
+	// mcp_approvals, which the machine file took out of the YAML
+	// (D1728), read only while that file is absent.
+	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals"`
+	TokenEnv     string                            `yaml:"token_env"`
+	Update       struct {
 		Check *bool `yaml:"check"`
 	} `yaml:"update"`
 }
@@ -495,14 +508,12 @@ func Load(dir string) (*Config, error) {
 		AllowInsecureHTTP: y.AllowInsecureHTTP,
 		UsageScan:         true, // absent `usage_scan` key defaults to true
 
-		SearchRoots:       y.SearchRoots,
-		Paths:             y.Paths,
-		IgnoredPaths:      y.IgnoredPaths,
-		SigningKeys:       y.SigningKeys,
-		Identities:        y.Identities,
-		MCPApprovals:      y.MCPApprovals,
-		ApprovalsMigrated: y.ApprovalsMigrated,
-		Extra:             extra,
+		SearchRoots:  y.SearchRoots,
+		Paths:        y.Paths,
+		IgnoredPaths: y.IgnoredPaths,
+		SigningKeys:  y.SigningKeys,
+		Identities:   y.Identities,
+		Extra:        extra,
 	}
 	// token_env (removed, D906) is honoured as the token it became until the
 	// file is realigned, so a read-only file does not lose its credentials.
@@ -534,12 +545,11 @@ func Load(dir string) (*Config, error) {
 	if cfg.LiteralToken() != "" && !fileIsPrivate(Path(dir)) {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s holds a literal token and is readable by other users: run `chmod 600 %s`", Path(dir), Path(dir)))
 	}
-	if state, ok := loadState(dir); ok {
+	state, ok := loadState(dir)
+	if ok {
 		cfg.KnownKBs = state.KnownKBs
 		cfg.ServerMountMode = state.ServerMountMode
 		cfg.ServerRoutedPath = state.ServerRoutedPath
-		cfg.SyncTimerOptOut = state.SyncTimerOptOut
-		cfg.TrayOptOut = state.TrayOptOut
 		if state.Agents != nil {
 			cfg.Agents = *state.Agents
 		}
@@ -560,7 +570,7 @@ func Load(dir string) (*Config, error) {
 	if cfg.Agents == nil && legacy.Agents != nil {
 		cfg.Agents = *legacy.Agents
 	}
-	cfg.SyncTimerOptOut = cfg.SyncTimerOptOut || legacy.SyncTimerOptOut
+	cfg.loadMachine(dir, &legacy, state, y.ApprovalsMigrated, !absent("mcp_approvals"))
 	if y.UsageScan != nil {
 		cfg.UsageScan = *y.UsageScan
 	}
@@ -617,8 +627,12 @@ func Save(dir string, cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	// The state file first: agents and sync_timer_opt_out leave the YAML in this
-	// same save (D906), so a failure here must not cost the values.
+	// The machine file first, then the state file: the approvals and the opt-outs
+	// leave the YAML and the state file in this same save, so a failure here must
+	// not cost the values.
+	if _, err := writeMachineChanged(dir, cfg); err != nil {
+		return err
+	}
 	if err := writeState(dir, cfg); err != nil {
 		return err
 	}
@@ -659,10 +673,9 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 		IgnoredPaths: cfg.IgnoredPaths,
 		SigningKeys:  cfg.SigningKeys,
 		Identities:   cfg.Identities,
-		MCPApprovals: cfg.MCPApprovals,
 
-		ApprovalsMigrated: cfg.ApprovalsMigrated,
 		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
+		ApprovalsMigrated: cfg.ApprovalsMigrated,
 	}
 	// The defaults are not written: a file that never set search_roots keeps
 	// getting whatever the defaults are (D906).
@@ -682,7 +695,7 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("clientconfig: read %s: %w", Path(dir), err)
 	}
-	doc, err := buildDocument(existing, &y, cfg.Extra)
+	doc, err := buildDocument(existing, &y, cfg.Extra, cfg.keptLegacyKeys())
 	if errors.Is(err, ErrUnparsable) {
 		return nil, fmt.Errorf("clientconfig: %s: %w (fix or remove it)", Path(dir), err)
 	}

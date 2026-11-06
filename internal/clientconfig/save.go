@@ -23,6 +23,8 @@ var droppedKeys = map[string]bool{
 	// sync_timer_opt_out are written to the state file by the same Save.
 	"token_env": true, "trust": true, "write_findings_hook": true, "search_depth": true,
 	"agents": true, "sync_timer_opt_out": true, "update": true,
+	// Moved to the machine file (D1728) by the same Save.
+	"mcp_approvals": true,
 }
 
 // ErrUnparsable is what Save returns for an existing file that is not YAML: it
@@ -50,7 +52,9 @@ var keepWhenDefault = map[string]bool{"usage_scan": true}
 // unknown key and the order of the file survive. This is a node round-trip, not
 // a marshal of a map, because a map has no room for comments: marshalling one
 // dropped every comment on every save (D747).
-func buildDocument(existing []byte, y *yamlConfig, extra map[string]interface{}) (*yaml.Node, error) {
+//
+// keep names the dropped keys to leave in place this time (see Config.keptLegacyKeys).
+func buildDocument(existing []byte, y *yamlConfig, extra map[string]interface{}, keep map[string]bool) (*yaml.Node, error) {
 	var doc yaml.Node
 	if len(existing) > 0 {
 		if err := yaml.Unmarshal(existing, &doc); err != nil {
@@ -89,6 +93,9 @@ func buildDocument(existing []byte, y *yamlConfig, extra map[string]interface{})
 		}
 	}
 	for key := range droppedKeys {
+		if keep[key] {
+			continue
+		}
 		if idx := pairIndex(root, key); idx >= 0 {
 			removePair(&doc, root, idx)
 		}

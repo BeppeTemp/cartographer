@@ -16,8 +16,11 @@ import (
 const StateFileName = ".cartographer-state.json"
 
 // stateFile is the JSON shape of StateFileName: the server-owned caches and, since
-// D906, the two lists the client's own commands maintain (agents, the sync-timer
-// opt-out), which a person never edits.
+// D906, the list of connected agents, which a person never edits. The two
+// opt-outs below were here before the machine file (D1728): the
+// machine file is their source of truth, and they are still written here, a copy
+// for the older clients that read them from here, until the minor after the one
+// that introduced it.
 type stateFile struct {
 	// KnownKBs is the KB names advertised at the last successful connect/sync.
 	KnownKBs []string `json:"known_kbs"`
@@ -29,9 +32,11 @@ type stateFile struct {
 	// list (every client disconnected).
 	Agents *[]string `json:"agents,omitempty"`
 	// SyncTimerOptOut is the operator's `service sync-timer uninstall` (D325).
+	// A copy: the machine file holds it now.
 	SyncTimerOptOut bool `json:"sync_timer_opt_out,omitempty"`
 	// TrayOptOut is the operator's `service tray uninstall` or `service install
 	// --no-tray` (D1482): upgrade-repair then does not bring the tray back.
+	// A copy, like SyncTimerOptOut.
 	TrayOptOut bool `json:"tray_opt_out,omitempty"`
 }
 
@@ -51,9 +56,9 @@ func loadState(dir string) (s stateFile, ok bool) {
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		// Not "the next sync rebuilds it": since D906 the file holds the
-		// connected agents and the timer and tray opt-outs, which no sync can
-		// rebuild. The next save keeps a copy as .bak before replacing it.
-		fmt.Fprintf(os.Stderr, "clientconfig: ignoring %s (%v); the known KBs come back with the next sync, but the connected agents and the sync-timer and tray opt-outs it held do not: run `cartographer connect` again, and `cartographer service sync-timer uninstall` or `cartographer service tray uninstall` for an opt-out (a copy is kept as %s.bak)\n", StatePath(dir), err, StateFileName)
+		// connected agents, which no sync can rebuild. The next save keeps a copy
+		// as .bak before replacing it. The opt-outs are in the machine file.
+		fmt.Fprintf(os.Stderr, "clientconfig: ignoring %s (%v); the known KBs come back with the next sync, but the connected agents it held do not: run `cartographer connect` again (a copy is kept as %s.bak)\n", StatePath(dir), err, StateFileName)
 	}
 	return stateFile{}, false
 }

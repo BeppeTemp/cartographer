@@ -285,10 +285,10 @@ func TestSyncTimerUninstall_SetsOptOutAndInstallClearsIt(t *testing.T) {
 	if err != nil || !cfg.SyncTimerOptOut {
 		t.Fatalf("uninstall must remember the opt-out: cfg=%+v err=%v", cfg, err)
 	}
-	// A record of a command, not a setting: it lives in the state file (D906).
-	data, _ := os.ReadFile(clientconfig.StatePath(home))
+	// A record of a command, not a setting: it lives in the machine file.
+	data, _ := os.ReadFile(clientconfig.MachinePath(home))
 	if !strings.Contains(string(data), `"sync_timer_opt_out": true`) {
-		t.Errorf("opt-out not persisted in the state file: %s", data)
+		t.Errorf("opt-out not persisted in the machine file: %s", data)
 	}
 	if yml, _ := os.ReadFile(clientconfig.Path(home)); strings.Contains(string(yml), "sync_timer_opt_out") {
 		t.Errorf("opt-out leaked into .cartographer.yaml: %s", yml)

@@ -672,7 +672,7 @@ func TestDoDisconnect_EmptyHomeLeavesOnlyDocumentedState(t *testing.T) {
 	if _, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir}); err != nil {
 		t.Fatalf("doDisconnect: %v", err)
 	}
-	allowed := map[string]bool{".cartographer.yaml": true, ".cartographer-state.json": true, ".cartographer-client.lock": true}
+	allowed := map[string]bool{".cartographer.yaml": true, ".cartographer-state.json": true, ".cartographer-machine.json": true, ".cartographer-client.lock": true}
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil

@@ -335,7 +335,7 @@ func clientRefs(old string) []string {
 		refs = append(refs, fmt.Sprintf("signing_keys[%q]", old))
 	}
 	if _, ok := cfg.MCPApprovals[old]; ok {
-		refs = append(refs, fmt.Sprintf("mcp_approvals[%q]", old))
+		refs = append(refs, fmt.Sprintf("approvals[%q] (machine file)", old))
 	}
 	if _, ok := cfg.Identities[old]; ok && old != clientconfig.IdentityDefault {
 		refs = append(refs, fmt.Sprintf("identities[%q]", old))
