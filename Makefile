@@ -25,8 +25,12 @@ test: ## Run all tests
 race: ## Run the concurrency tests (name contains Race or Concurrent) under the race detector
 	# A data race seldom fails an assertion: only -race reports it. The whole
 	# suite under -race is several times slower, so only the tests written to
-	# exercise concurrency run here; name a new one accordingly.
-	go test -race -count=1 -run 'Race|Concurren' ./...
+	# exercise concurrency run here; name a new one accordingly. Only the packages
+	# that hold one are built under -race: building all of them cost more than running.
+	@pkgs=$$(grep -rlE --include='*_test.go' '^func (Test|Example|Fuzz)[A-Za-z0-9_]*(Race|Concurren)' cmd internal | \
+	  xargs -n1 dirname | sort -u | sed 's|^|./|' | tr '\n' ' '); \
+	if [ -n "$$pkgs" ]; then echo "go test -race -count=1 -run 'Race|Concurren' $$pkgs"; \
+	  go test -race -count=1 -run 'Race|Concurren' $$pkgs; fi
 
 vet: ## Run go vet (also for Windows and macOS: the platform jobs skip PRs outside platform-specific code, so a PR catches its compile errors here)
 	go vet ./...

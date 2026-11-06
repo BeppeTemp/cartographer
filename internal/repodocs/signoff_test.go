@@ -364,8 +364,8 @@ func (e *signoffEnv) goModule() {
 	e.run(e.work, "git", "push", "-q", "upstream", "main")
 }
 
-// SIGNOFF_WINDOWS gets `go test` of the affected packages: the changed one and its
-// reverse dependencies, not the unrelated one; the status names the leg.
+// SIGNOFF_WINDOWS gets the sharded run of the affected packages: the changed one and
+// its reverse dependencies, not the unrelated one; the status names the leg.
 func TestSignoffRunsTheWindowsLegOnTheAffectedPackages(t *testing.T) {
 	e := newSignoffEnv(t)
 	e.goModule()
@@ -377,11 +377,26 @@ func TestSignoffRunsTheWindowsLegOnTheAffectedPackages(t *testing.T) {
 		t.Fatalf("signoff failed\n%s", out)
 	}
 	got := strings.TrimSpace(e.log(e.winLog))
-	if got != "go test -timeout 20m ./internal/a ./internal/b" {
+	if got != "bash scripts/test-shard.sh 4 all ./internal/a ./internal/b" {
 		t.Errorf("the Windows leg must test the affected packages, got %q", got)
 	}
 	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " - windows ") || strings.Contains(p[0], "not run") {
 		t.Errorf("the status names the Windows leg: %v", p)
+	}
+}
+
+// A branch that changes only documents has no Windows leg: what a reader of the
+// repository checks is not platform behaviour, and the Linux gate runs it.
+func TestSignoffSkipsTheWindowsLegForDocuments(t *testing.T) {
+	e := newSignoffEnv(t)
+	e.goModule()
+	e.branch(e.work, "feat/x", "docs/"+"x.md") // split: a whole path would be read as a citation
+	out, ok := e.signoff(e.work, "SIGNOFF_WINDOWS="+filepath.Join(filepath.Dir(e.winLog), "bin", "fakewin"))
+	if !ok {
+		t.Fatalf("signoff failed\n%s", out)
+	}
+	if got := strings.TrimSpace(e.log(e.winLog)); got != "" {
+		t.Errorf("a documents-only branch must not run the Windows leg, got %q", got)
 	}
 }
 

@@ -222,8 +222,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   on `main` and fixed by a follow-up. The required checks are `gate`, `pr-title` and
   `plan-gate`. `SIGNOFF_MAKE` points `make signoff` at a wrapper that runs the make targets
   on another machine (its exit 75 means the machine is unavailable: the signoff then lets
-  `ci.yml` run the gate on the pushed branch), `SIGNOFF_WINDOWS` at one that runs the affected
-  packages' tests on Windows beside them; the push is `--force-with-lease` and names its remote
+  `ci.yml` run the gate on the pushed branch), `SIGNOFF_WINDOWS` at one that runs the tests of
+  the packages a code change affects on Windows beside them, sharded; the push is `--force-with-lease` and names its remote
   and branch. `make check` is the fast tier to run while iterating (the affected packages only).
   `docs/testing.md` has the table.
 - **A maintainer's change lands in a train** (D1706): finished and reviewed on its

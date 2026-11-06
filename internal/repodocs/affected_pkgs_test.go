@@ -87,3 +87,39 @@ func TestAffectedPackagesAddsReverseTestDependencies(t *testing.T) {
 		}
 	}
 }
+
+// affected runs scripts/affected-pkgs.sh with args on paths and returns its packages.
+func affected(t *testing.T, paths []string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("bash", append([]string{"scripts/affected-pkgs.sh"}, args...)...)
+	cmd.Dir = repoRoot(t)
+	cmd.Stdin = strings.NewReader(strings.Join(paths, "\n") + "\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("affected-pkgs.sh %v: %v\n%s", args, err, out)
+	}
+	return strings.Join(strings.Fields(string(out)), " ")
+}
+
+// A reader seed selects only itself: a changed document changes what its test reads,
+// not what the importers of its package run (a docs-only change used to pull every
+// importer of internal/mcpserver into the Windows leg). --code, the Windows leg's
+// selection, leaves the readers out.
+func TestAffectedPackagesDoesNotExpandReaders(t *testing.T) {
+	needBash(t)
+	if got := affected(t, []string{"docs/testing.md", "scripts/land.sh"}); got != "./internal/mcpserver ./internal/repodocs" {
+		t.Errorf("docs and scripts select %q, want only their readers", got)
+	}
+	if got := affected(t, []string{"docs/testing.md", "web/src/lib/health.ts"}, "--code"); got != "" {
+		t.Errorf("--code on docs and frontend selects %q, want nothing", got)
+	}
+	got := " " + affected(t, []string{"docs/testing.md", "internal/execbit/execbit.go"}, "--code") + " "
+	for _, want := range []string{"./internal/execbit", "./internal/provisioning", "./cmd/cartographer"} {
+		if !strings.Contains(got, " "+want+" ") {
+			t.Errorf("--code on a code change must keep %s, got%s", want, got)
+		}
+	}
+	if strings.Contains(got, " ./internal/repodocs ") {
+		t.Errorf("--code must leave the docs reader out, got%s", got)
+	}
+}
