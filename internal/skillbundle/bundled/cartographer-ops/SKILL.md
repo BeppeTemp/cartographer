@@ -112,7 +112,7 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
    to another one. Do not retry in a loop: the remote's answer will not change.
    If instead `last_error` says the remote refused the push because of who authored or committed
    the commits (a membership or private-email rule; it names the identities, D1063), the branch is
-   not the problem. Check that `git.identity` (or `git.identities`) is set in the server file and
+   not the problem. Check that `git.identities.default` (or a `git.identities` entry per KB) is set in the server file and
    the service restarted; commits made by the server identity are re-authored by the next sync, but
    commits authored by a token need `cartographer kb reauthor <kb>` on the server host. Run it
    without `--apply` first, show the user the list of commits it would change, and run it with

@@ -778,7 +778,7 @@ type ErrIdentityRejected struct {
 	// the commits ahead of the upstream, at most three, those that differ from
 	// the configured identity first; empty when the range cannot be read.
 	Identities []string
-	// Configured says whether git.identity (or git.identities) applies to the KB.
+	// Configured says whether git.identities applies to the KB.
 	Configured bool
 }
 
@@ -789,7 +789,7 @@ func (e *ErrIdentityRejected) Error() string {
 		fmt.Fprintf(&b, " The unpushed commits are by: %s.", strings.Join(e.Identities, ", "))
 	}
 	if !e.Configured {
-		b.WriteString(" No git identity is configured: set `git.identity` (or `git.identities`) in the server file to a user the remote accepts, and restart.")
+		b.WriteString(" No git identity is configured: set `git.identities.default` (or a `git.identities` entry per KB) in the server file to a user the remote accepts, and restart.")
 	}
 	b.WriteString(" Commits made by the server identity are re-authored by the next sync; commits authored by a token need `cartographer kb reauthor <kb>` run on the server host (a preview first, then `--apply`).")
 	fmt.Fprintf(&b, " The changes are committed and safe in the local clone. Git said: %s", firstLines(e.Git, 3))

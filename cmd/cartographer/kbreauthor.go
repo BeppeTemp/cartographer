@@ -91,7 +91,7 @@ func runKBReauthor(name, dataDir, configPath string, apply, asJSON bool, out, er
 	}
 	idName, idEmail, ok := cfg.IdentityFor(name)
 	if !ok {
-		return fail("no git identity is configured for %q: set `git.identity` (or `git.identities`) in the server file, "+
+		return fail("no git identity is configured for %q: set `git.identities.default` (or a `git.identities` entry per KB) in the server file, "+
 			"then run this again. Re-authoring with the fallback identity would reproduce the problem", name)
 	}
 	root := filepath.Join(dataDir, name)

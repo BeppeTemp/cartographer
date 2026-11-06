@@ -17,11 +17,12 @@ import (
 // its own.
 const IdentityDefault = "default"
 
-// loadGitIdentities sets GitIdentity and GitIdentities from the git: block
-// (D950). An invalid value is dropped with a warning, never a refusal to start:
-// the server identity applies to that KB. A file that still has the retired
-// git.author_name and git.author_email, and no git.identity, is read as if they
-// were its git.identity, until the realignment has written the new key.
+// loadGitIdentities sets GitIdentities from the git: block (D950). An invalid
+// value is dropped with a warning, never a refusal to start: the server identity
+// applies to that KB. The retired git.identity, and the retired git.author_name
+// and git.author_email, are read as git.identities.default until the
+// realignment has written the new key (Retired.Moved); a file that sets both
+// with different values is refused by Load before this runs.
 func (c *Config) loadGitIdentities(data []byte, g rawGit) {
 	valid := func(key, v string) (string, bool) {
 		if strings.TrimSpace(v) == "" {
@@ -34,14 +35,16 @@ func (c *Config) loadGitIdentities(data []byte, g rawGit) {
 		}
 		return name + " <" + email + ">", true
 	}
-	if v, ok := valid("git.identity", g.Identity); ok {
-		c.GitIdentity = v
+	_, hasDefault := g.Identities[IdentityDefault]
+	if v, ok := valid("git.identity", g.Identity); ok && v != "" && !hasDefault {
+		c.setIdentity(IdentityDefault, v)
+		c.Warnings = append(c.Warnings, "git.identity is read as git.identities.default; the realignment moves it")
 	}
-	if c.GitIdentity == "" && strings.TrimSpace(g.Identity) == "" {
+	if _, set := c.GitIdentities[IdentityDefault]; !set && !hasDefault && strings.TrimSpace(g.Identity) == "" {
 		if legacy := legacyGitIdentity(data); legacy != "" {
 			if v, ok := valid("git.author_name/git.author_email", legacy); ok {
-				c.GitIdentity = v
-				c.Warnings = append(c.Warnings, "git.author_name and git.author_email are read as git.identity; the realignment writes the new key")
+				c.setIdentity(IdentityDefault, v)
+				c.Warnings = append(c.Warnings, "git.author_name and git.author_email are read as git.identities.default; the realignment writes the new key")
 			}
 		}
 	}
@@ -52,26 +55,27 @@ func (c *Config) loadGitIdentities(data []byte, g rawGit) {
 	sort.Strings(keys)
 	for _, k := range keys {
 		if v, ok := valid("git.identities."+k, g.Identities[k]); ok {
-			if c.GitIdentities == nil {
-				c.GitIdentities = map[string]string{}
-			}
 			// A present empty entry is kept: it says this KB has none.
-			c.GitIdentities[k] = v
+			c.setIdentity(k, v)
 		}
 	}
 }
 
+func (c *Config) setIdentity(kb, v string) {
+	if c.GitIdentities == nil {
+		c.GitIdentities = map[string]string{}
+	}
+	c.GitIdentities[kb] = v
+}
+
 // IdentityFor is the git identity the server commits as in the KB named kb
-// (D950): its git.identities entry, else the default entry, else git.identity.
+// (D950): its git.identities entry, else the default entry.
 // An entry that is present and empty means none: the server identity. ok is
 // false when there is none to apply.
 func (c *Config) IdentityFor(kb string) (name, email string, ok bool) {
 	v, found := c.GitIdentities[kb]
 	if !found {
 		v, found = c.GitIdentities[IdentityDefault]
-	}
-	if !found {
-		v = c.GitIdentity
 	}
 	if v == "" {
 		return "", "", false
@@ -102,9 +106,9 @@ func legacyGitIdentity(data []byte) string {
 	return n + " <" + e + ">"
 }
 
-// MigrateGitIdentity writes git.identity into the server YAML at configPath
-// from the retired git.author_name and git.author_email, when the file has the
-// two and no git.identity, keeping the rest of the file (comments and key order)
+// MigrateGitIdentity writes git.identities.default into the server YAML at
+// configPath from the retired git.author_name and git.author_email, when the
+// file has the two and neither git.identity nor that entry, keeping the rest of the file (comments and key order)
 // as it is. The realignment drops the retired keys right after, so the identity
 // must be in place first. It reports whether it wrote the key.
 func MigrateGitIdentity(configPath string) (bool, error) {
@@ -139,14 +143,38 @@ func MigrateGitIdentity(configPath string) (bool, error) {
 	if git == nil {
 		return false, nil
 	}
+	var ids *yaml.Node
 	for i := 0; i+1 < len(git.Content); i += 2 {
-		if git.Content[i].Value == "identity" {
+		switch git.Content[i].Value {
+		case "identity":
+			return false, nil // Retired.Moved carries it
+		case "identities":
+			switch v := git.Content[i+1]; {
+			case v.Kind == yaml.MappingNode:
+				ids = v
+			case v.Kind == yaml.ScalarNode && v.ShortTag() == "!!null":
+				// A bare `identities:` is an empty mapping that was not written out:
+				// fill it, never add a second key of the same name.
+				*v = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", HeadComment: v.HeadComment, FootComment: v.FootComment}
+				ids = v
+			default:
+				return false, nil // not a mapping: leave the file to the operator
+			}
+		}
+	}
+	str := func(v string, style yaml.Style) *yaml.Node {
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v, Style: style}
+	}
+	if ids == nil {
+		ids = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		git.Content = append(git.Content, str("identities", 0), ids)
+	}
+	for i := 0; i+1 < len(ids.Content); i += 2 {
+		if ids.Content[i].Value == IdentityDefault {
 			return false, nil
 		}
 	}
 	name, email, _ := gitx.ParseIdent(ident)
-	git.Content = append(git.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "identity"},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name + " <" + email + ">", Style: yaml.DoubleQuotedStyle})
+	ids.Content = append(ids.Content, str(IdentityDefault, 0), str(name+" <"+email+">", yaml.DoubleQuotedStyle))
 	return true, WriteYAML(configPath, &doc)
 }

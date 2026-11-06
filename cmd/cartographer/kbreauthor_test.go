@@ -46,7 +46,7 @@ type reauthorEnv struct {
 
 // newReauthorEnv is a data dir with one KB clone "kb-a" whose first commit is
 // pushed to a bare remote guarded by a membership rule that only lets ada in,
-// and a server file carrying git.identity (withIdentity).
+// and a server file carrying git.identities.default (withIdentity).
 func newReauthorEnv(t *testing.T, withIdentity bool) reauthorEnv {
 	t.Helper()
 	base := t.TempDir()
@@ -74,7 +74,7 @@ func newReauthorEnv(t *testing.T, withIdentity bool) reauthorEnv {
 	must(os.WriteFile(filepath.Join(e.bare, "hooks", "allowed-identities"), []byte("ada@example.test\n"), 0o644))
 	yaml := "http: \"127.0.0.1:0\"\n"
 	if withIdentity {
-		yaml += "git:\n  identity: \"" + reauthorAda + "\"\n"
+		yaml += "git:\n  identities:\n    default: \"" + reauthorAda + "\"\n"
 	}
 	must(os.WriteFile(e.config, []byte(yaml), 0o644))
 	return e
@@ -158,7 +158,7 @@ func TestKBReauthorRefusals(t *testing.T) {
 	t.Run("no identity", func(t *testing.T) {
 		e := newReauthorEnv(t, false)
 		commitInKB(t, e.root, "a.md", "tok-1", "cartographer@host.example.test")
-		refused(t, e, "git.identity")
+		refused(t, e, "git.identities.default")
 	})
 	t.Run("no upstream", func(t *testing.T) {
 		e := newReauthorEnv(t, true)

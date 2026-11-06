@@ -84,6 +84,8 @@ type Off struct {
 type Registry struct {
 	Removed []Removed
 	Off     []Off
+	// Moved are the keys that changed path with their value kept (Moved).
+	Moved []Moved
 }
 
 // Kinds of Change.
@@ -398,8 +400,13 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 	// realignment moved them to, which is what a removal below would do.
 	s.dropFossils(&doc, reg)
 
+	moves, touched, err := s.relocate(&doc, reg)
+	if err != nil {
+		return data, Report{}, err
+	}
+	rep.Changes = append(rep.Changes, moves...)
+
 	hits := reg.Find(&doc)
-	var touched []*yaml.Node
 	for _, h := range hits {
 		if h.shared {
 			continue
@@ -417,7 +424,7 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 			rep.Changes = append(rep.Changes, Change{Kind: ChangeReset, Path: h.Path, Detail: fmt.Sprintf("%s switched a feature off; the default is back", h.Value)})
 		}
 	}
-	if len(hits) > 0 {
+	if len(touched) > 0 {
 		s.pruneEmpty(&doc, touched)
 	}
 	// The block of unset settings may list a removed key, with the description
@@ -446,6 +453,13 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 func (r Registry) wordings() [][]string {
 	var out [][]string
 	for _, e := range r.Removed {
+		for _, d := range append([]string{e.Description}, e.Previous...) {
+			if w := wording(d); len(w) > 0 {
+				out = append(out, w)
+			}
+		}
+	}
+	for _, e := range r.Moved {
 		for _, d := range append([]string{e.Description}, e.Previous...) {
 			if w := wording(d); len(w) > 0 {
 				out = append(out, w)
@@ -719,6 +733,9 @@ func (r Registry) retiredPaths() map[string]bool {
 		if !strings.Contains(e.Path, "[]") {
 			out[e.Path] = true
 		}
+	}
+	for _, e := range r.Moved {
+		out[e.From] = true
 	}
 	return out
 }

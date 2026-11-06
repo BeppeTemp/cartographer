@@ -160,7 +160,7 @@ branch included) and `protected-branch` (a glob, with the GH006 wording). It is 
 sh and LF, so it runs under git's bundled sh on the Windows shards too. The writer
 path is tested against it: a write that names its author (`Cartographer-Author`)
 reaches a remote that checks membership, one that does not is refused with the hook's
-message and stays committed locally, a KB with `git.identity` publishes, and a commit
+message and stays committed locally, a KB with a configured identity publishes, and a commit
 made with no writer is re-committed by that identity (`gitwrap_author_test.go`,
 `memberrule_test.go`). A membership refusal is an identity error and not a protected branch (`internal/kb/identityreject_test.go`), the neutral rendering a generic connection reads (`TestErrIdentityRejected_NeutralText`, D1101), and `kb reauthor` (D1063) is covered by unit tests of the rewrite (`internal/gitx/reauthor_test.go`), by the command's preview, apply and refusals against this hook (`cmd/cartographer/kbreauthor_test.go`) and by e2e scenario 21 section c. Authentication is tested against the real `git http-backend` The text a generic MCP connection receives is guarded by `internal/mcpserver/operatortext_test.go` (D1101): no `cartographer <subcommand>` in the tool descriptions, the routed refusals, the hints, the conflict and identity messages, with a provisioned twin that pins the unchanged texts.
 behind basic auth, in process (`internal/gitx/gitxtest`): clone, fetch and push with

@@ -94,6 +94,11 @@ func TestDescriptionsAreRecordedWhenTheyChange(t *testing.T) {
 					recorded = true
 				}
 			}
+			for _, e := range r.retired.Moved {
+				if e.From == path && (e.Description == old || slices.Contains(e.Previous, old)) {
+					recorded = true
+				}
+			}
 			if !recorded {
 				problems = append(problems, fmt.Sprintf("%s %s is no longer in the table and its last description is not recorded. Add it to its entry in %s:\n\t\tDescription: %q,", r.name, path, r.retiredIn, old))
 			}

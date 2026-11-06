@@ -84,7 +84,7 @@ func TestSyncOut_MembershipRefusalIsAnIdentityError(t *testing.T) {
 		t.Errorf("Identities = %v, want the token identity", ie.Identities)
 	}
 	msg := err.Error()
-	for _, want := range []string{"tok-1 <cartographer@host.example.test>", "git.identity", "cartographer kb reauthor", "safe in the local clone"} {
+	for _, want := range []string{"tok-1 <cartographer@host.example.test>", "git.identities.default", "cartographer kb reauthor", "safe in the local clone"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q does not say %q", msg, want)
 		}

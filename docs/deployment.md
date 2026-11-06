@@ -114,7 +114,7 @@ client-side counterpart, used by the scheduled sync task. It is not in the YAML 
 to *this invocation*, not to the served configuration: two services sharing one config file must
 still be able to log to two files.
 
-Every key (listen address `http`, `auth`, `data`, `credentials_dir`, `audit`, `git.identity`/`git.identities`,
+Every key (listen address `http`, `auth`, `data`, `credentials_dir`, `audit`, `git.identities`,
 `web.enabled`, `update_check`, `kbs[]`) is in `config.example.yaml`, with its default and its environment variable
 and flag. Notes the example cannot carry: `data` is a directory whose subfolders are auto-discovered as KBs, and
 paths already mounted explicitly (`kbs[]`, including remote KBs cloned into it) are excluded from discovery, so
@@ -253,25 +253,24 @@ else `<token id> <cartographer@<host>>`; every write also carries `Cartographer-
 <token id>` trailers, the latter unforgeable (see [control plane](control-plane.md)).
 
 The identity the server commits as is a **server setting**, because it is the machine's and not the KB's (a
-KB's `settings.yaml` is committed and shared by everyone who writes to it): `git.identity: "Name <email>"`
-for every KB, and `git.identities: {<kb>: "Name <email>", default: "Name <email>"}` per KB name (the entry
-`default` for the KBs without one; a present empty entry means that KB has none). It is the author and the
+KB's `settings.yaml` is committed and shared by everyone who writes to it): `git.identities: {<kb>: "Name <email>", default: "Name <email>"}` per KB name (the entry
+`default` for every KB without one; a present empty entry means that KB has none). It is the author and the
 committer of what has no writer of its own — the unattended repair, the `external changes` commit, a sync
 merge, conflict resolution — and of a write whose client sends no valid header (Kiro's MCP config has no
 headers). Without it the server identity `Cartographer <cartographer@<host>>` applies. An invalid value is
 dropped with a warning. A sync that rebases local commits gives each its author back as committer, and
 re-commits one the server made before the identity was configured as that identity (`gitx.RealignCommitters`).
-`git.author_name` and `git.author_email` are read as `git.identity` and moved to it by the
-realignment; the other `author_*`/`committer_*` keys are removed settings (a file that still has them loads
+`git.identity` (a retired key), and `git.author_name` with `git.author_email`, are read as `git.identities.default` and moved to it by the
+realignment (a file that sets both `git.identity` and `git.identities.default` to different values is refused at load, D1725); the other `author_*`/`committer_*` keys are removed settings (a file that still has them loads
 with a warning). The git config of the machine, `GIT_AUTHOR_*` and `GIT_COMMITTER_*` in the environment do
 not influence any of it. A KB's own SSH key, `<kb>.ssh`, and its token helper (`<kb>.token` or
 `default.token`) **override** the server's process environment (the reverse of the "environment wins" rule that
 applies to `default.ssh` and `GIT_SSH_COMMAND` above) — see `internal/gitx.runGitEnv`.
 
 If your forge enforces author or committer push rules (GitLab `member_check`), the server identity and the
-token-id author are not forge accounts and the push is refused: set `git.identity` (or `git.identities`) to
+token-id author are not forge accounts and the push is refused: set `git.identities.default` (or an entry per KB) to
 a real account. Commits already pushed under another identity stay as they are. Commits that are still
-only local when `git.identity` is set are another matter, and two cases (D1063): the sync itself
+only local when a `git.identities` entry is set are another matter, and two cases (D1063): the sync itself
 re-authors those made by exactly the server identity (`gitx.RealignCommitters`, D950), but leaves a
 commit authored by a token alone, and refuses to touch a range that holds a merge. The refusal is
 reported in `last_error` as an identity refusal (it names the identities found, and is not a protected
@@ -303,7 +302,7 @@ and the generated instructions block, not those. `cartographer kb rename` never 
 
 ### Environment variables
 
-The options listed here have an environment variable (the CLI flag takes precedence over it). The YAML-only options (`auth.roles`, `git.identity`, `git.identities`, the `audit.*` retention and segment keys, `kbs[].*`) have none: the Schema lists every key with its variable and flag (§Configuration: flags, env, YAML, and `config.example.yaml`):
+The options listed here have an environment variable (the CLI flag takes precedence over it). The YAML-only options (`auth.roles`, `git.identities`, the `audit.*` retention and segment keys, `kbs[].*`) have none: the Schema lists every key with its variable and flag (§Configuration: flags, env, YAML, and `config.example.yaml`):
 
 | Variable | Equivalent flag | Description |
 |---|---|---|

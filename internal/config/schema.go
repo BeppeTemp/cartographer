@@ -73,10 +73,9 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "kbs[].branch", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true, Example: "try-cartographer",
 		Description: "Branch this server alone commits and pushes to, in place of the KB's own branch setting (which is then not read); the first push creates it. Empty keeps the KB's setting, and without one the remote's default branch. Only here, in the file: CARTOGRAPHER_KB_REMOTES has no per-entry option."},
 
-	{Path: "git.identity", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true, Example: `"Ada Example <ada@example.com>"`,
-		Description: "The git identity, Name <email>, the server commits as in every KB without its own entry in git.identities: the author and the committer of the commits it makes with no writer of their own (the unattended repair, merges, conflict resolution) and of a write whose client sends no valid Cartographer-Author. Set it when the remote's forge rejects commits whose author or committer is not one of its accounts. Empty keeps the server identity, Cartographer <cartographer@host>."},
 	{Path: "git.identities", Scope: settingschema.ScopeServer, Type: "map", Default: "{}", Restart: true, Example: "kb-a: Ada Example <ada@work.example.com>\ndefault: Ada Example <ada@example.com>",
-		Description: "The identity of git.identity, per KB name; the key default stands for every KB without an entry. A present empty entry means that KB has none and commits as the server identity."},
+		Description: "The git identity, Name <email>, the server commits as, per KB name; the key default stands for every KB without an entry. A present empty entry means that KB has none and commits as the server identity. The identities are the author and the committer of the commits the server makes with no writer of their own (the unattended repair, merges, conflict resolution) and of a write whose client sends no valid Cartographer-Author. Set one when the remote's forge rejects commits whose author or committer is not one of its accounts. Without an entry the server identity applies, Cartographer <cartographer@host>.",
+		Previous:    []string{"The identity of git.identity, per KB name; the key default stands for every KB without an entry. A present empty entry means that KB has none and commits as the server identity."}},
 
 	{Path: "audit.log", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_AUDIT_LOG", Restart: true,
 		Description: "Path of the append-only operation log, which is always on and signed with audit.key from credentials_dir (generated at the first start). Empty keeps it at <data>/audit/audit.log.",
@@ -153,8 +152,8 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].github_api_url", Plan: 903, Note: kb.ServerProfileRemoved},
 	{Path: "kbs[].github_token_env", Plan: 903, Note: kb.ServerProfileRemoved},
 	{Path: "kbs[].git_branch", Plan: 903, Replacement: "kbs[].branch (this server only) or branch in the KB's settings.yaml (the team's, committed on the default branch)", RefuseAny: true},
-	{Path: "git.author_name", Plan: 904, Replacement: "git.identity", Note: kb.AuthorSettingRemoved + "; the realignment writes git.identity from git.author_name and git.author_email"},
-	{Path: "git.author_email", Plan: 904, Replacement: "git.identity", Note: kb.AuthorSettingRemoved + "; the realignment writes git.identity from git.author_name and git.author_email"},
+	{Path: "git.author_name", Plan: 904, Replacement: "git.identities.default", Note: kb.AuthorSettingRemoved + "; the realignment writes git.identities.default from git.author_name and git.author_email"},
+	{Path: "git.author_email", Plan: 904, Replacement: "git.identities.default", Note: kb.AuthorSettingRemoved + "; the realignment writes git.identities.default from git.author_name and git.author_email"},
 	{Path: "git.committer_name", Plan: 904, Note: kb.AuthorSettingRemoved},
 	{Path: "git.committer_email", Plan: 904, Note: kb.AuthorSettingRemoved},
 	{Path: "kbs[].author_name", Plan: 904, Replacement: "git.identities", Note: kb.AuthorSettingRemoved},
@@ -189,4 +188,7 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "tools.profile", Plan: 906, Env: "CARTOGRAPHER_TOOLS_PROFILE", Flag: "--tools-profile", FlagValue: true, Note: "tools/list always shows the core set, and the other tools stay callable by name"},
 	{Path: "mcp.allowed_origins", Plan: 906, Env: "CARTOGRAPHER_MCP_ALLOWED_ORIGINS", Note: "a request with an Origin header is accepted only when the origin's host and port are the request's Host; one without an Origin header is accepted"},
 	{Path: "kb_aliases", Plan: 906, Note: "the old names of renamed KBs live in .cartographer/state.json under data, written by `kb rename`; the realignment moves the list there"},
+}, Moved: []settingschema.Moved{
+	// git.identity said what git.identities.default says (D1725).
+	{From: "git.identity", To: "git.identities.default", Description: "The git identity, Name <email>, the server commits as in every KB without its own entry in git.identities: the author and the committer of the commits it makes with no writer of their own (the unattended repair, merges, conflict resolution) and of a write whose client sends no valid Cartographer-Author. Set it when the remote's forge rejects commits whose author or committer is not one of its accounts. Empty keeps the server identity, Cartographer <cartographer@host>."},
 }}

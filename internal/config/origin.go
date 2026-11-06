@@ -278,8 +278,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 			names = append(names, s.MountName())
 		}
 		return names, len(names) > 0
-	case "git.identity":
-		return str(c.GitIdentity)
 	case "git.identities":
 		return c.GitIdentities, len(c.GitIdentities) > 0
 	case "audit.log":

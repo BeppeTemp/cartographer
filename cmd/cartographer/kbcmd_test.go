@@ -1368,7 +1368,7 @@ func TestCmdKBCreateWarnsWhenGitHasNoIdentity(t *testing.T) {
 		t.Fatalf("a missing identity warns and does not stop: kb create = %d\n%s", code, stderr)
 	}
 	fbName, fbEmail := kb.ServerIdentity()
-	for _, want := range []string{"Warning", fbName + " <" + fbEmail + ">", "git config --global user.email", "includeIf", "git.identity", "identities.default"} {
+	for _, want := range []string{"Warning", fbName + " <" + fbEmail + ">", "git config --global user.email", "includeIf", "identities.default"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("warning lacks %q:\n%s", want, stderr)
 		}
