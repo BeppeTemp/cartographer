@@ -87,6 +87,7 @@ var (
 	updateFn        = cmdUpdate
 	hookFn          = cmdHook
 	trayFn          = cmdTray
+	pluginFn        = cmdPlugin
 )
 
 func main() {
@@ -165,6 +166,9 @@ func run(args []string) int {
 		return workspaceFn(rest)
 	case "tray":
 		return trayFn(rest)
+	case "plugin":
+		// Dispatched, not listed in subcommands: dark until the turn-on change of the plugins plan.
+		return pluginFn(rest)
 	case "mcp":
 		return mcpFn(rest)
 	case "call":

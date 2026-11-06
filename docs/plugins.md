@@ -150,3 +150,23 @@ example-file line shows it.
 | `active` | none of the above; the only status that yields the `*Plugin` |
 
 A newer `installed` digest never affects it. Why: `D1727`.
+
+## The `plugin` command
+
+`cartographer plugin` is dispatched but not yet listed in `help`, in the usage table or in `docs/configurator.md`.
+
+| Command | What it does |
+|---|---|
+| `plugin new <name> [<dir>]` | Scaffolds a plugin: manifest (schema 1, version 0.1.0, `cartographer: ">=<running>"`), a README and one example skill. It checks the name with the manifest rules (and the names of the commands) and the scaffold with `ReadTree` before writing, and refuses a non-empty `<dir>` (default `./<name>`). A point other than `skills/` gets no folder: git does not keep an empty one, and a `.gitkeep` in a point is a file the reader refuses. |
+| `plugin validate <dir>` | Runs `ReadTree` on the folder as it is, offline, storing nothing, and lists **every** problem as `path: reason`. Exit 0 clean, 1 with problems, 2 on usage. Run it before pushing. |
+| `plugin install <git-url>[@<ref>] \| <folder> [--yes]` | Acquires, validates, stores and records the plugin as `installed`, then prints the preview and asks `Enable <name> <version>? [y/N]` on a terminal. `y` or `--yes` sets `approved` to `installed` and `enabled`. Before asking it prints the content of what runs (hook scripts, `hook.json`, frontmatter that declares commands). Otherwise it stays pending (exit 0, last line `pending approval: run cartographer plugin install <arg> again on a terminal, or with --yes`); a declined update keeps the approved version active. A name installed from another source is refused with exit 2 and nothing written; the same source is an update and keeps the approval. |
+| `plugin list` | One row per configured plugin: version, `State`, short digest, redacted source, contributions per point, `update available` when `installed` differs from a non-empty `approved`. |
+| `plugin show <name> [--files]` | The preview again, from the store: the approved tree when active, else the installed one, and it says which. `--files` adds every file with its size and execute bit, and the content of the files that run, capped per file. |
+
+`validate`, `list` and `show` take `--output table|json`; the JSON carries `"schema": "cartographer.plugin/v1"`.
+
+The preview prints the identity, the redacted source with ref and short commit, the short digest, the `cartographer`
+range and whether this build meets it, `depends` and which are installed, the permissions in plain words, the
+settings keys, every contribution through its point's `Preview`, and one "runs code on this machine" list of the
+files with the execute bit. Every plugin-supplied string goes through an escape, so a control character never
+reaches the terminal; a test pins it.
