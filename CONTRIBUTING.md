@@ -236,7 +236,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   branch is queued with its own diff only), `HOLD=1` keeps it queued, `REVIEW=`
   records the review. The lander (`scripts/land.sh`, started by `make ready`, stopping when
   nothing is landable) cherry-picks up to 8 queued changes onto `main`, numbers their pending
-  decisions, gates the train **once** with `make signoff` (red twice: bisection rejects the
+  decisions, gates the train **once** with `make signoff` (the package of a named Go test that fails
+  runs once more inside it, and a pass is filed as flaky; red twice, or red on that retry: bisection rejects the
   change that breaks it to `failed/<slug>`, whose last commit message says why), and opens one
   PR `chore(dev): train <id>, <k> change(s)`, **rebase-merged** so each change stays its own
   commit on `main`. `make land-status` shows the queue; `make land` runs the lander in the

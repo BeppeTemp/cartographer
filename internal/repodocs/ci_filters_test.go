@@ -149,6 +149,8 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		"decisions-index": true, "decisions-new": true, "changelog-areas": true, "codemap": true,
 		"settings-example": true, "demo-kb": true, "demo-image": true,
 		"signoff": true, "signoff-platform": true, "web-gate": true,
+		// The signoff's targeted retry of the Go tests a red run named (scripts/signoff.sh).
+		"test-rerun": true,
 		// The fast tier: what an implementer runs while iterating; make gate is CI's.
 		"check": true, "check-run": true,
 		// The lander queues and lands from a maintainer's machine (scripts/land.sh).

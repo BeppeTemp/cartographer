@@ -9,22 +9,27 @@
 # A contributor just pushes the branch and opens the PR: CI tests it.
 #
 # In order: refuse (detached HEAD, main, a dirty tree, a contributor) -> run the
-# targets -> check HEAD did not move -> push (explicit remote and refspec) -> post
-# the status -> re-run a failed ci.yml run of that sha. Any failure before the push
-# changes nothing on the remote; any failure before the POST posts nothing.
+# targets (make -k: all of them, even after one fails) -> retry once the packages of the
+# Go tests a red run names, when nothing else failed (step 4c) -> check HEAD did not move -> push
+# (explicit remote and refspec) -> post the status -> re-run a failed ci.yml run of
+# that sha. Any failure before the push changes nothing on the remote; any failure
+# before the POST posts nothing.
 #
 #   SIGNOFF_MAKE  the command that runs make targets, split on whitespace (default
 #                 `make`). A command that takes make's arguments and runs them on
 #                 another machine from the same tree (for instance a wrapper that
 #                 syncs the clean tree to a build host and runs make there); it
-#                 must exit non-zero when make does, and exit 75 (EX_TEMPFAIL) when
-#                 the machine is unavailable: the gate then runs in CI instead (step 4b).
+#                 must exit with make's code (2 for failed targets, which alone are
+#                 retried: step 4c), and exit 75 (EX_TEMPFAIL) when the machine is
+#                 unavailable: the gate then runs in CI instead (step 4b). It gets
+#                 plain words: `-k` and the targets, `test-rerun RERUN_PKGS=<a,b>`.
 #   SIGNOFF_WINDOWS a command that runs its arguments natively on Windows from the
 #                 same tree (empty: no Windows leg). It gets scripts/test-shard.sh, every
 #                 shard at once (SIGNOFF_WINDOWS_SHARDS, default 4), over the packages a
 #                 code change of the branch can break (scripts/affected-pkgs.sh --code:
 #                 a change of documents or scripts has no Windows leg), in parallel with
-#                 the targets; a failure fails the signoff, an exit 75 is reported and
+#                 the targets, and `go test -count=1 -timeout 20m <packages>` for the
+#                 retry; a failure fails the signoff, an exit 75 is reported and
 #                 skipped (test-windows on main stays the net).
 #
 # Plain bash 3.2 (the macOS default): no associative arrays, no GNU-only flags.
@@ -128,6 +133,43 @@ hosted() {
   exit 0
 }
 
+# 4c. The targeted retry (D1755). When every failure of a red log is a
+# named Go test (scripts/test-failures.sh: not a build, vet, smoke, e2e or web failure,
+# a timeout, a panic or a data race), the packages of those tests run once more, whole
+# and uncached, where they failed: the race ones as the `race` target runs them. Green:
+# the tests are flaky, named on a `signoff: flaky:` line the lander files as a bug, and
+# the signoff goes on, as the rest of the run (make -k) was green. Red: a `signoff:
+# confirmed on a targeted retry:` line, which the lander reads as no flake. A retry
+# that cannot run (exit 75) fails the signoff like a red one, but without that line:
+# the lander then gates the train again. Only plain words reach the wrappers: the
+# packages joined by commas (RERUN_PKGS), never a regular expression.
+uniq_words() { printf '%s\n' "$@" | sort -u | paste -sd ' ' -; }
+flaky=
+retry() { # $1 = linux|windows, $2 = the red log; 0 when the retry is green
+  local plan prc=0 names= p0= p1= race pkg name rrc=0
+  plan=$("$here/test-failures.sh" "$2") || prc=$?
+  [ "$prc" = 0 ] && [ -n "$plan" ] || return 1
+  while read -r race pkg name; do
+    names="$names ${pkg##*/}.$name"
+    if [ "$race" = 1 ]; then p1="$p1 $pkg"; else p0="$p0 $pkg"; fi
+  done <<<"$plan"
+  # shellcheck disable=SC2086  # the package lists are word lists on purpose
+  p0=$(uniq_words $p0) p1=$(uniq_words $p1)
+  echo "signoff: retrying once on $1, the packages of:$names" >&2
+  # shellcheck disable=SC2086
+  if [ "$1" = windows ]; then
+    "${wmk[@]}" go test -count=1 -timeout 20m $p0 || rrc=$?
+  else
+    [ -z "$p0" ] || "${mk[@]}" test-rerun RERUN_PKGS="${p0// /,}" || rrc=$?
+    [ "$rrc" != 0 ] || [ -z "$p1" ] || "${mk[@]}" test-rerun RERUN_PKGS="${p1// /,}" RERUN_RACE=1 || rrc=$?
+  fi
+  case "$rrc" in
+    0) echo "signoff: flaky:$names failed and passed on a targeted retry" >&2; flaky="$flaky$names"; return 0 ;;
+    75) echo "signoff: the targeted retry could not run (machine unavailable)" >&2; return 1 ;;
+    *) echo "signoff: confirmed on a targeted retry:$names" >&2; return 1 ;;
+  esac
+}
+
 # 4. Targets. First the platform probe, so a broken wrapper is found before the gate is spent.
 read -r -a mk <<<"${SIGNOFF_MAKE:-make}"
 prc=0
@@ -151,13 +193,19 @@ if [ -n "$win_pkgs" ]; then
   win_pid=$!
 fi
 # The leg's wrapper is a child of the subshell: stop it too, or it keeps the machine busy.
-trap '[ -z "$win_pid" ] || { pkill -TERM -P "$win_pid" 2>/dev/null; kill "$win_pid" 2>/dev/null; } || true; [ -z "$win_log" ] || rm -f "$win_log" "$win_log.end"' EXIT
-rc=0
+mlog=$(mktemp "${TMPDIR:-/tmp}/signoff-make.XXXXXX")
+trap '[ -z "$win_pid" ] || { pkill -TERM -P "$win_pid" 2>/dev/null; kill "$win_pid" 2>/dev/null; } || true; [ -z "$win_log" ] || rm -f "$win_log" "$win_log.end"; rm -f "$mlog"' EXIT
+# -k: a red run still runs every other target, so its log is the whole evidence (4c).
+# Only make's own failure (exit 2) is retried, and on Windows the shards' (exit 1): any
+# other exit is the wrapper's, and the log may then stop before the targets did.
+set +e
 # shellcheck disable=SC2086  # the targets are a word list on purpose
-"${mk[@]}" $targets $defer || rc=$?
+"${mk[@]}" -k $targets $defer 2>&1 | tee "$mlog"
+rc=${PIPESTATUS[0]}
+set -e
 secs=$(( $(date +%s) - start ))
 [ "$rc" != 75 ] || hosted
-[ "$rc" = 0 ] || die "make $targets failed (exit $rc): nothing pushed, nothing posted"
+[ "$rc" = 0 ] || { [ "$rc" = 2 ] && retry linux "$mlog"; } || die "make $targets failed (exit $rc): nothing pushed, nothing posted"
 duration=$(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))
 windows="windows not run"
 if [ -n "$win_pid" ]; then
@@ -168,7 +216,8 @@ if [ -n "$win_pid" ]; then
   case "$wrc" in
     0) windows="windows $(printf '%dm%02ds' $((wsecs / 60)) $((wsecs % 60)))" ;;
     75) windows="windows unavailable"; echo "signoff: warning: the Windows machine is unavailable, leg skipped" >&2 ;;
-    *) tail -n 40 "$win_log" >&2; die "the Windows leg failed (exit $wrc): nothing pushed, nothing posted" ;;
+    *) tail -n 40 "$win_log" >&2
+       { [ "$wrc" = 1 ] && retry windows "$win_log"; } || die "the Windows leg failed (exit $wrc): nothing pushed, nothing posted" ;;
   esac
 fi
 
@@ -185,7 +234,8 @@ still_head
 push
 
 # 7. Status.
-post "make $targets - $platform - $duration - $windows"
+set -- $flaky
+post "make $targets - $platform - $duration - $windows${flaky:+ - $# flaky retried}"
 
 # 8. Re-run a failed ci.yml run of this sha: its gate ran before the status existed.
 # A run in progress is left alone, its gate is polling. Warnings only from here on.

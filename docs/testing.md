@@ -934,10 +934,24 @@ before the merge instead of on `main`. An exit 75 from `SIGNOFF_MAKE` (the platf
 means its machine is unavailable: the signoff pushes the branch, dispatches `ci.yml` on it, waits for that
 run's `gate` job and posts the status only when it is green, naming the run.
 
+The targets run under `make -k`, so a red run still runs every other target and its log is
+the whole evidence. When every failure in it is a named Go test (`scripts/test-failures.sh`:
+not a build, vet, smoke, `e2e` or web failure, not a timeout, a panic or a data race report),
+the signoff runs their packages once more, whole, uncached and where they failed (`make
+test-rerun`, the race ones as `race` does, or `go test -count=1` through `SIGNOFF_WINDOWS` for the
+Windows leg). Only make's own failure (exit 2) is retried: another exit is the wrapper's. The
+log holds the tests' output too, so the script reads only lines in `go test`'s exact shape, and
+a line that looks like one but is not gets no retry. Green, the tests are flaky:
+the signoff goes on, names them on a `signoff: flaky:` line and in the status (`<n> flaky
+retried`); red, it prints `signoff: confirmed on a targeted retry:` and fails (D1755).
+
 A maintainer's queued changes (`make ready`, `CONTRIBUTING.md` §Pull requests) are gated by
 the lander as a **train**: `scripts/land.sh` runs `scripts/signoff.sh` once on `main` plus up
-to 8 changes. A red train is gated a second time on the same tree: green then is a flaky
-test, the train lands and a `bug` issue names the failing tests; red again, the lander
+to 8 changes. A train whose signoff retried flaky tests lands on that gate, with a `bug`
+issue naming them. A red train whose failure the signoff's targeted retry confirmed goes
+straight to bisection; any other red train is gated a second time on the same tree: green
+then is a flaky test, the train lands and a `bug` issue names the failing tests (Go, vitest
+and Playwright names read from the log); red again, the lander
 bisects over the train's prefixes (one signoff each) and rejects the first change whose
 prefix is red. A gate that fails for a reason that is not a test (the signoff stops before
 the targets) stops the lander and leaves the queue untouched. Once the train PR merged, a

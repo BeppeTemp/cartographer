@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run ready land land-status
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run ready land land-status test-rerun
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -10,6 +10,10 @@ VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 # `git ls-files` it still sees a file that has been written but not yet staged —
 # a gate that passes locally and fails in CI is worse than no gate (D209).
 GO_DIRS = cmd internal
+
+# The tests `race` runs under the race detector, by name; `test-rerun` runs them again.
+RACE_RUN = Race|Concurren
+comma := ,
 
 help: ## Show this message
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -29,8 +33,14 @@ race: ## Run the concurrency tests (name contains Race or Concurrent) under the 
 	# that hold one are built under -race: building all of them cost more than running.
 	@pkgs=$$(grep -rlE --include='*_test.go' '^func (Test|Example|Fuzz)[A-Za-z0-9_]*(Race|Concurren)' cmd internal | \
 	  xargs -n1 dirname | sort -u | sed 's|^|./|' | tr '\n' ' '); \
-	if [ -n "$$pkgs" ]; then echo "go test -race -count=1 -run 'Race|Concurren' $$pkgs"; \
-	  go test -race -count=1 -run 'Race|Concurren' $$pkgs; fi
+	if [ -n "$$pkgs" ]; then echo "go test -race -count=1 -run '$(RACE_RUN)' $$pkgs"; \
+	  go test -race -count=1 -run '$(RACE_RUN)' $$pkgs; fi
+
+# The targeted retry of `make signoff` (scripts/signoff.sh step 4c): the packages of the Go
+# tests a red run named (RERUN_PKGS, comma-separated), whole, once more and uncached;
+# RERUN_RACE=1 runs their concurrency tests under the race detector, as `race` does.
+test-rerun:
+	go test -count=1 -timeout 20m $(if $(RERUN_RACE),-race -run '$(RACE_RUN)') $(subst $(comma), ,$(RERUN_PKGS))
 
 vet: ## Run go vet (also for Windows and macOS: the platform jobs skip PRs outside platform-specific code, so a PR catches its compile errors here)
 	go vet ./...

@@ -58,6 +58,8 @@ func newSignoffEnv(t *testing.T) *signoffEnv {
 	e.write(filepath.Join(bin, "fakemake"), `#!/bin/sh
 case "$*" in *signoff-platform*) echo "make: Entering directory"; echo "$FAKE_PLATFORM"; exit 0 ;; esac
 echo "$*" >> "$FAKE_MAKE_LOG"
+case "$*" in test-rerun*) exit "${FAKE_RERUN_RC:-0}" ;; esac
+[ -z "${FAKE_MAKE_OUT:-}" ] || printf '%b' "$FAKE_MAKE_OUT"
 exit "${FAKE_MAKE_RC:-0}"
 `, 0o755)
 	// --jq is applied as gh applies it; the hosted fallback's calls answer from
@@ -83,6 +85,8 @@ exit 0
 	e.winLog = filepath.Join(tmp, "win.log")
 	e.write(filepath.Join(bin, "fakewin"), `#!/bin/sh
 echo "$*" >> "$FAKE_WIN_LOG"
+case "$*" in "go test -count=1 "*) exit "${FAKE_WIN_RERUN_RC:-0}" ;; esac
+[ -z "${FAKE_WIN_OUT:-}" ] || printf '%b' "$FAKE_WIN_OUT"
 exit "${FAKE_WIN_RC:-0}"
 `, 0o755)
 	e.env = append(e.env, "FAKE_WIN_LOG="+e.winLog, "SIGNOFF_POLL=0")
@@ -95,7 +99,7 @@ exit "${FAKE_WIN_RC:-0}"
 	e.run(tmp, "git", "init", "-q", "-b", "main", e.work)
 	e.run(e.work, "git", "remote", "add", "upstream", e.up)
 	e.run(e.work, "git", "remote", "add", "origin", e.origin)
-	for _, s := range []string{"signoff.sh", "upstream-repo.sh", "ci-filters.sh", "affected-pkgs.sh"} {
+	for _, s := range []string{"signoff.sh", "upstream-repo.sh", "ci-filters.sh", "affected-pkgs.sh", "test-failures.sh"} {
 		e.write(filepath.Join(e.work, "scripts", s), readFile(t, root, "scripts/"+s), 0o755)
 	}
 	e.write(filepath.Join(e.work, "README"), "x\n", 0o644)
@@ -261,8 +265,78 @@ func TestSignoffRedE2EIsATestFailureForTheLander(t *testing.T) {
 	if !strings.Contains(out, "gate smoke-http smoke e2e failed (exit 2): nothing pushed, nothing posted") {
 		t.Errorf("the failure line must name the targets and keep the wording land.sh classifies as red\n%s", out)
 	}
-	if got := strings.TrimSpace(e.log(e.makeLog)); got != "gate smoke-http smoke e2e" {
+	if got := strings.TrimSpace(e.log(e.makeLog)); got != "-k gate smoke-http smoke e2e" {
 		t.Errorf("the e2e runs in the signoff's make invocation, got %q", got)
+	}
+}
+
+// A red run whose only failures are named Go tests runs their packages once more, uncached
+// (D-new-targeted-retry): green, the signoff goes on and names them as flaky; red, it
+// says the failure is confirmed, the line scripts/land.sh reads to skip its own re-run.
+func TestSignoffRetriesNamedGoTestsOnce(t *testing.T) {
+	red := "go test -timeout 20m ./...\\n--- FAIL: TestA (0.01s)\\nFAIL\\tgithub.com/x/p/internal/kb\\t0.2s\\n" +
+		"go test -race -count=1 -run Race ./internal/mcpserver\\n--- FAIL: TestRaceB (0.1s)\\nFAIL\\tgithub.com/x/p/internal/mcpserver\\t1.1s\\n" +
+		"make: *** [Makefile:23: test] Error 1\\nmake: *** [Makefile:33: race] Error 1\\n"
+	t.Run("flaky", func(t *testing.T) {
+		e := newSignoffEnv(t)
+		e.branch(e.work, "feat/x", "x.txt")
+		out, ok := e.signoff(e.work, "FAKE_MAKE_RC=2", "FAKE_MAKE_OUT="+red)
+		if !ok {
+			t.Fatalf("a green retry must let the signoff go on\n%s", out)
+		}
+		want := "-k gate smoke-http smoke e2e\n" +
+			"test-rerun RERUN_PKGS=github.com/x/p/internal/kb\n" +
+			"test-rerun RERUN_PKGS=github.com/x/p/internal/mcpserver RERUN_RACE=1"
+		if got := strings.TrimSpace(e.log(e.makeLog)); got != want {
+			t.Errorf("the retry runs the named tests' packages, the race one under -race:\ngot  %q\nwant %q", got, want)
+		}
+		if !strings.Contains(out, "signoff: flaky: kb.TestA mcpserver.TestRaceB failed and passed on a targeted retry") {
+			t.Errorf("the flaky tests are named on the line the lander reads\n%s", out)
+		}
+		if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " - 2 flaky retried") {
+			t.Errorf("the status says tests were retried: %v", p)
+		}
+	})
+	t.Run("confirmed", func(t *testing.T) {
+		e := newSignoffEnv(t)
+		e.branch(e.work, "feat/x", "x.txt")
+		out, ok := e.signoff(e.work, "FAKE_MAKE_RC=2", "FAKE_MAKE_OUT="+red, "FAKE_RERUN_RC=1")
+		if ok {
+			t.Fatalf("a red retry must fail the signoff\n%s", out)
+		}
+		for _, want := range []string{"signoff: confirmed on a targeted retry: kb.TestA mcpserver.TestRaceB",
+			"gate smoke-http smoke e2e failed (exit 2): nothing pushed, nothing posted"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("the output lacks %q\n%s", want, out)
+			}
+		}
+		if e.remoteTip("origin", "feat/x") != "" || len(e.posts()) != 0 {
+			t.Errorf("nothing may be pushed or posted\n%s", out)
+		}
+	})
+}
+
+// A failure that is not a named Go test gets no targeted retry: a broken e2e
+// scenario, a build failure, a timeout. Nor does a red run make did not report itself
+// (exit 2): the wrapper's own failure may cut the log short. The lander's whole re-run
+// decides those.
+func TestSignoffDoesNotRetryWhatItCannotName(t *testing.T) {
+	named := "--- FAIL: TestA (0.01s)\\nFAIL\\tgithub.com/x/p/a\\t0.2s\\nmake: *** [Makefile:23: test] Error 1\\n"
+	for name, c := range map[string]struct{ rc, log string }{
+		"e2e":     {"2", named + "make: *** [Makefile:160: e2e] Error 1\\n"},
+		"build":   {"2", "FAIL\\tgithub.com/x/p/a [build failed]\\nmake: *** [Makefile:23: test] Error 1\\n"},
+		"web":     {"2", "make[1]: *** [Makefile:83: web-test] Error 1\\nmake: *** [Makefile:271: web-gate] Error 2\\n"},
+		"timeout": {"2", "--- FAIL: TestA (600s)\\npanic: test timed out after 20m0s\\nFAIL\\tgithub.com/x/p/a\\t600.1s\\nmake: *** [Makefile:23: test] Error 1\\n"},
+		"wrapper": {"255", named},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newSignoffEnv(t)
+			e.branch(e.work, "feat/x", "x.txt")
+			out, ok := e.signoff(e.work, "FAKE_MAKE_RC="+c.rc, "FAKE_MAKE_OUT="+c.log)
+			if ok || strings.Contains(e.log(e.makeLog), "test-rerun") || strings.Contains(out, "targeted retry") {
+				t.Errorf("no targeted retry, and the signoff fails: ok=%v\n%s\n%s", ok, e.log(e.makeLog), out)
+			}
+		})
 	}
 }
 
@@ -298,7 +372,7 @@ func TestSignoffPushesAndAttestsTheSha(t *testing.T) {
 			t.Errorf("the description %q carries %q: the repository is public", desc, private)
 		}
 	}
-	if got := strings.TrimSpace(e.log(e.makeLog)); got != "gate smoke-http smoke e2e" {
+	if got := strings.TrimSpace(e.log(e.makeLog)); got != "-k gate smoke-http smoke e2e" {
 		t.Errorf("a diff without web paths runs gate, smoke-http, smoke and e2e (test-install stays post-merge, #1743), got %q", got)
 	}
 }
@@ -310,7 +384,7 @@ func TestSignoffAddsWebGateWhenTheDiffNeedsIt(t *testing.T) {
 	if out, ok := e.signoff(e.work); !ok {
 		t.Fatalf("signoff failed\n%s", out)
 	}
-	if got := strings.TrimSpace(e.log(e.makeLog)); got != "gate smoke-http smoke e2e web-gate" {
+	if got := strings.TrimSpace(e.log(e.makeLog)); got != "-k gate smoke-http smoke e2e web-gate" {
 		t.Errorf("a web/src change adds web-gate to the default targets, got %q", got)
 	}
 	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], "make gate smoke-http smoke e2e web-gate - ") {
@@ -440,6 +514,31 @@ func TestSignoffWindowsLegFailurePushesAndPostsNothing(t *testing.T) {
 	}
 	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], "windows unavailable") {
 		t.Errorf("the status says the leg was skipped: %v", p)
+	}
+}
+
+// A red Windows leg whose failures are named Go tests runs their packages once more on Windows.
+func TestSignoffRetriesNamedWindowsTestsOnce(t *testing.T) {
+	e := newSignoffEnv(t)
+	e.goModule()
+	e.branch(e.work, "feat/x", "internal/a/a2.go")
+	e.write(filepath.Join(e.work, "internal", "a", "a2.go"), "package a\n", 0o644)
+	e.run(e.work, "git", "commit", "-q", "-am", "a2")
+	fakewin := filepath.Join(filepath.Dir(e.winLog), "bin", "fakewin")
+	red := "--- FAIL: TestW (1.0s)\\r\\nFAIL\\tgithub.com/x/p/internal/a\\t2.0s\\r\\n"
+	out, ok := e.signoff(e.work, "SIGNOFF_WINDOWS="+fakewin, "FAKE_WIN_RC=1", "FAKE_WIN_OUT="+red)
+	if !ok {
+		t.Fatalf("a green Windows retry must let the signoff go on\n%s", out)
+	}
+	if got := e.log(e.winLog); !strings.Contains(got, "go test -count=1 -timeout 20m github.com/x/p/internal/a") {
+		t.Errorf("the retry runs the named test's package on Windows, got %q", got)
+	}
+	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " - 1 flaky retried") {
+		t.Errorf("the status says a test was retried: %v", p)
+	}
+	_, ok = e.signoff(e.work, "SIGNOFF_WINDOWS="+fakewin, "FAKE_WIN_RC=1", "FAKE_WIN_OUT="+red, "FAKE_WIN_RERUN_RC=1")
+	if ok {
+		t.Errorf("a red Windows retry must fail the signoff")
 	}
 }
 
