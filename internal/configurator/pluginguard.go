@@ -177,6 +177,13 @@ func checkPluginGlobalPath(label string, segs []string, builtin map[string]strin
 	return nil
 }
 
+// CheckPluginGlobalPath applies the global-cell checks to a home-relative path:
+// the resolver uses it for the part below a custom XDG_CONFIG_HOME, as if it lay
+// below .config.
+func CheckPluginGlobalPath(label string, segs []string) error {
+	return checkPluginGlobalPath(label, segs, builtinClientDirs())
+}
+
 // configFixedDir is the directory part of an MCP file before any `*`: the
 // directory a stale file must lie in.
 func configFixedDir(config []string) []string {
