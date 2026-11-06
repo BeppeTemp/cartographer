@@ -426,6 +426,10 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 
+	var lockedBefore map[string]bool
+	if !opts.DryRun && len(cfg.Plugins) > 0 {
+		lockedBefore = lockedKeys(dir)
+	}
 	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg)}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
@@ -443,6 +447,21 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		unlock()
 		reportUsageThrottled(cfg, dir)
 		reportClientSettings(cfg, dir)
+	}
+	// sync.after runs outside the client lock (unlock is idempotent), after the
+	// reports and before the returns: a handler takes seconds and every
+	// concurrent session-start sync waits for that lock. A caller that holds the
+	// lock with no Unlock (the dashboard) fires none, nor does a dry run.
+	unlock()
+	if !opts.DryRun && !(opts.Locked && opts.Unlock == nil) && len(cfg.Plugins) > 0 {
+		var errs []string
+		for _, f := range pullFailures {
+			errs = append(errs, fmt.Sprintf("%s: %v", f.KB, f.Err))
+		}
+		for _, f := range providerFailures {
+			errs = append(errs, fmt.Sprintf("%s: %v", f.Provider, f.Err))
+		}
+		firePluginEvent(cfg, eventSyncAfter, eventFields(eventSyncAfter, targets, lockedBefore, results, errs), errw)
 	}
 	if len(pullFailures) > 0 || len(providerFailures) > 0 {
 		return syncResult{Revision: commonRevision(results, targets), Applied: results}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}

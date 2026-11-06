@@ -168,6 +168,7 @@ A newer `installed` digest never affects it. Why: `D1727`.
 | `plugin show <name> [--files]` | The preview again, from the store: the approved tree when active, else the installed one, and it says which. `--files` adds every file with its size and execute bit, and the content of the files that run, capped per file. |
 | `plugin approve <name> [--yes]` | Approves the **installed** digest: reads that tree back from the store (a tree that is not stored, modified or invalid is refused with `run cartographer plugin update <name>` and nothing is approved), prints the preview and the content of what runs, asks `Enable <name> <version>? [y/N]`. Without a terminal it needs `--yes` (exit 2 otherwise). Sets `approved` to `installed` and `enabled`, then collects the store. Nothing waiting: says so, exit 0. |
 | `plugin update [<name>] [--yes]` | Fetches again from the configured source and ref (a folder is re-snapshotted), validates, stores and moves `installed`, `sha` and `version` only. **It never resets `approved`: the approved version stays active until a new digest is approved.** It prints the diff against the approved tree: files added, removed and changed (sizes; an executable-bit change counts), the `cartographer` range and `depends`, **permissions added flagged `!! PERMISSION ADDED`** and removed, and the provider destinations added and removed on this machine. It asks the same question as `approve`; on a terminal-less run without `--yes` it stops there (exit 0, `not approved`) rather than failing, so a scheduled update never approves. A tree that fails validation, or a source whose manifest names another plugin, leaves the entry untouched, is reported, the others go on and the exit is 1. A digest equal to the approved one changes nothing. |
+| `plugin config <name> [<key>=<value> ...] [--unset <key> ...]` | Writes `plugins.<name>.settings` only, under the client lock from the load to the save. A value is parsed as the manifest declares (`bool` is `true` or `false`, `int` base 10 that fits the platform int); an unknown plugin, an unknown key or a bad value is exit 2 naming the manifest's keys. With no argument it prints every setting with its value and `set` or `default`; `plugin show` prints the same. It never changes the digest, the approval or the permissions, so it asks for no approval, and a setting never widens a grant. Settings live in `.cartographer.yaml`: put no credential there, use the `env` permission. |
 | `plugin enable <name>` | `enabled = true`. Refused, naming the state, when there is no approval or the approved tree is `not fetched`, `modified` or `invalid`, and when a `depends` entry is unmet (`<name> needs <dep> <range>: <dep> is not enabled`, or `is <version>`). |
 | `plugin disable <name>` | `enabled = false`; the plugin stays installed. Its artifacts leave the active set and are pruned by the next sync; its providers are retired by the next sync (registered inactive). Refused naming the enabled plugin that `depends` on it. |
 | `plugin remove <name>` | Under the client lock, in an order a failure can be retried from: (1) every registered provider of the plugin through the disconnect path (MCP entry, managed files, lock section); (2) in every other provider section, `PruneManaged` on the lock entries whose `source` is `plugin:<name>` against the section's base dir, then the entries are dropped from the lockfile; a refused prune (a symlinked destination) is reported, exits 1 and **stops there**, the refused entries staying in the lockfile; (3) the config entry and the stored trees. Paths come from the lockfile, never from a tree. A plugin whose approved tree cannot be read, or one of whose providers is not registered this run, is refused: its providers are unknown and what it installed could not be retired. Refused naming an enabled dependent. Unknown name: exit 2. |
@@ -499,9 +500,35 @@ classification, not a copy kept in the plugin code). With `kb: write` every tool
 read-only session is `read` whatever the manifest says. The gate is the plugin's declared limit, not the security
 boundary: the server still enforces the token's scopes and the session's access. The `kb` argument is not
 restricted by the plugin layer: the token's scopes and the session's KB set, on the server, decide which KBs a script
-reaches (the bridge adapter must apply the session's KB set when it is wired). A successful result reaches the script
+reaches (commands and events apply the client's `known_kbs`, see Commands and events; the bridge adapter must apply the session's KB set when it is wired). A successful result reaches the script
 as the KB wrote it, unescaped: KB content is data to treat as such. When the call's deadline ends or Ctrl-C comes, the
 request is abandoned, but a write the server had already received may still complete.
+
+## Commands and events
+
+`cartographer <plugin> <command> [args...]` runs a command an **active** plugin registered; a built-in name always
+wins, and a word that names no installed plugin gives the usual unknown-command error. `cartographer <plugin>` lists
+the commands, `<command> -h` prints its usage and help, and `help` and the unknown-command text carry a `Plugins`
+group. The remaining arguments reach the script as a list of strings. `print` goes to stdout, `log` to stderr, a
+returned string is printed, a returned int is the exit code, `fail()` and a denial or limit print to stderr and exit 1,
+Ctrl-C exits 130; everything a script or a limit message supplies is escaped line by line. An installed plugin that is
+not active exits 2 naming its state. The config is read without the client lock. Until a newer tree is approved the
+approved one runs.
+
+`kb.call` from a command or an event goes to the routed endpoint with the user's token, and the adapter refuses a `kb`
+argument that is missing or not one of `known_kbs` of the client config: a command has no provider, so that list is
+the client's perimeter on top of the server's scopes.
+
+Events run after the work they follow, outside the client lock, in plugin-name order, one handler per plugin, each with
+the event deadline. A failure (including an unloadable script) is a warning on stderr naming the plugin and the event
+and never changes an exit code. `sync.after` fires at the end of `runSync` (after the reports, the lock released), not
+in `--dry-run`, not for a run that fails before the apply, not for the dashboard's sync (it holds the lock itself); a
+partial sync fires it with the failures in `errors`. `connect.after` fires from the one place `connect`, the
+interactive retry and `reconnect` print their result, not in `--dry-run`. The handler receives `ctx.event`,
+`ctx.providers`, `ctx.installed`, `ctx.updated`, `ctx.removed`, `ctx.pending` and `ctx.errors`; for `connect` there is
+no earlier lockfile to compare with, so what was written counts as installed. `connect.after` also fires on a partial
+connect, with the providers that connected (not those the write guard skipped). The dashboard fires no plugin event,
+for sync or for connect.
 
 ## Limits
 

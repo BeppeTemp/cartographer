@@ -178,6 +178,9 @@ func run(args []string) int {
 	case "call":
 		return callFn(rest)
 	default:
+		if code, handled := pluginCommandFn(cmd, rest); handled {
+			return code
+		}
 		fmt.Fprintf(os.Stderr, "Error: unknown command %q", cmd)
 		if suggestion := commandSuggestion(cmd); suggestion != "" {
 			fmt.Fprintf(os.Stderr, "; did you mean %q", suggestion)
@@ -214,6 +217,12 @@ func printUsage(w io.Writer) {
 			group = sc.group
 		}
 		fmt.Fprintf(w, "  %-10s %s\n", sc.name, sc.desc)
+	}
+	if lines := pluginHelpLines(); len(lines) > 0 {
+		fmt.Fprintln(w, "\nPlugins:")
+		for _, l := range lines {
+			fmt.Fprintln(w, l)
+		}
 	}
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Run 'cartographer <command> -h' for flags of a specific command.")
