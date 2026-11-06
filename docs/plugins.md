@@ -84,3 +84,30 @@ loading share them.
   `provisioning.ContentHashFiles` as hash, the same function the client applies to pulled files.
 - `Digest` is the sha256 of the sorted (path, executable bit, sha256 of content) of every stored file, manifest
   included: it identifies the validated tree.
+
+## Acquisition
+
+`plugin.ParseSource` reads the text a user typed (a command-line argument or their own config, never a KB or a
+plugin) and `plugin.Fetch` brings the files into memory as `[]TreeFile` for `ReadTree`. Nothing is stored yet.
+
+| Spelling | Source |
+|---|---|
+| An existing directory | A folder, whatever it is called. The path is made absolute and symlink-resolved and recorded as such. |
+| `https://host/path.git`, `ssh://…`, `git://…`, `file://…`, `git@host:path.git` | A git remote, at its default branch. |
+| any remote followed by `@<ref>` | The same at a branch, a tag or a full commit sha. The text splits at the **last** `@`, and only when what follows holds neither `:` nor `/`, so `git@host:team/x.git` stays whole and `git@host:team/x.git@v1.2` has ref `v1.2`. An empty ref is an error. |
+
+Anything else, and any remote `gitx.ValidateRemote` refuses (an option, a `ext::` helper, a scheme outside
+`https`, `http`, `ssh`, `git`, `file`), is an error.
+
+**Git.** `gitx.FetchTree` makes a throwaway repository under the directory the caller names, runs
+`git fetch --depth 1 -- <remote> <ref>` (no ref: `HEAD`) and reads the tree from the object database with
+`git ls-tree -r -z -l` and `git cat-file --batch`; it is never checked out. The bytes approved are therefore the
+committed bytes, whatever `core.autocrlf`, `.gitattributes` (`eol`, `filter`, `export-subst`) or the host say. The
+fetch uses the machine's own git and ssh configuration and credentials, as `kb clone` does, with no token helper
+and no prompt. A symlink, a submodule, a blob over the artifact file cap or more than 2000 files is refused naming
+the path before any blob is read; `README*`, `LICENSE*`, `CHANGELOG*` and `.git*` at the top are skipped. The
+executable bit is mode `100755`. The resolved commit (40 hex) is returned. Without `git` on PATH a git source
+fails with a message saying so; a folder never needs git.
+
+**Folder.** Walked with `Lstat`: a symlink or non-regular file is an error naming it, the same entries are skipped,
+and the files are read once, a snapshot: a later edit of the folder needs an update to be seen.
