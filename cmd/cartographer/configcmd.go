@@ -152,6 +152,9 @@ func clientEntries(dir string) []config.Entry {
 	}
 	out := []config.Entry{}
 	for _, k := range clientconfig.Schema.Keys {
+		if k.Hidden {
+			continue
+		}
 		e := config.Entry{Key: k.Path, Value: k.Default, Origin: config.OriginDefault,
 			Description: k.Description, Default: k.Default, Env: k.Env, Flag: k.Flag, Restart: k.Restart, Secret: k.Secret}
 		if v, ok := lookupPath(doc, k.Path); ok {

@@ -279,6 +279,9 @@ func report(data []byte, machine, version string) (*SettingsReport, error) {
 	}
 	r := &SettingsReport{Machine: machine, Version: version, Entries: []ReportEntry{}}
 	for _, k := range Schema.Keys {
+		if k.Hidden {
+			continue
+		}
 		e := ReportEntry{Key: k.Path, Origin: "default", Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values}
 		if n := lookup(&doc, k.Path); n != nil {
 			e.Origin = "file"

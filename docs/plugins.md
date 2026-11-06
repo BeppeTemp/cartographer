@@ -111,3 +111,42 @@ fails with a message saying so; a folder never needs git.
 
 **Folder.** Walked with `Lstat`: a symlink or non-regular file is an error naming it, the same entries are skipped,
 and the files are read once, a snapshot: a later edit of the folder needs an update to be seen.
+
+## The store and the `plugins` key
+
+`plugin.Store` keeps fetched trees in `<user cache dir>/plugins/<name>/<digest>/`, exactly the files `ReadTree`
+validated, manifest included. It is a cache: it can be deleted and fetched again from the recorded source.
+
+- `Put` validates the files, writes them to `plugins/.tmp-<name>-<random>/` through `safewrite`, reads that
+  directory back through `ReadTree`, requires the expected digest, and renames it into place, never over an
+  existing directory (an existing one that verifies is kept; a corrupt one of the same digest is replaced). An
+  interrupted write leaves only a `.tmp-*` directory, swept by the next `Put` or `GC` once it is an hour old.
+- `Open(name, digest)` reads the tree back and compares the digest: `ErrNotFetched` (nothing there),
+  `ErrModified` (the digest differs, or the directory holds a link or a special file), `ErrInvalid` (same digest,
+  but `ReadTree` now refuses it, for example because the running version no longer satisfies `cartographer`).
+  Readers take no lock. `Put` and `GC` run under the client lock, held by the caller.
+- `GC` keeps the `installed` and `approved` digest of each configured plugin and removes the rest, and any plugin
+  directory that is not configured. It is best effort and never removes the approved tree.
+- A name is checked again at every path join, so `../x` never reaches `filepath.Join`. A host without the POSIX
+  execute bit cannot record it and refuses to store a tree with an executable file.
+
+The user's `.cartographer.yaml` holds a `plugins` map, `name -> {source, ref, sha, version, installed, approved,
+enabled, settings}`, written only by the plugin commands, never by `sync`. `source` is a git remote or an absolute
+folder, `ref` as typed (empty is the default branch), `sha` the resolved commit (40 hex, empty for a folder),
+`installed` and `approved` tree digests (64 hex; `approved` empty is pending), `settings` scalars. A malformed
+entry, an empty `source`, or an `approved` without an `installed` is a load error naming the key. The key is
+`Hidden` in `internal/clientconfig/schema.go`: no comment, `cartographer config` row, settings report entry or
+example-file line shows it.
+
+`plugin.State(name, entry, store, opts)` is the one rule for whether a plugin runs:
+
+| Status | When |
+|---|---|
+| `disabled` | `enabled` is false |
+| `pending approval` | `approved` is empty |
+| `not fetched` | the approved digest is not in the store |
+| `modified` | the stored tree no longer has that digest |
+| `invalid` | the tree fails `ReadTree` now |
+| `active` | none of the above; the only status that yields the `*Plugin` |
+
+A newer `installed` digest never affects it. Why: `D1727`.

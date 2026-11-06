@@ -84,6 +84,12 @@ type Config struct {
 	// entry and an absent key are the default, never a "false".
 	KBOptions map[string]KBOption `yaml:"kb_options,omitempty"`
 
+	// Plugins records the plugins installed and approved on this machine, by
+	// name. USER-owned, written only by the plugin commands, never by sync. Read
+	// it through Plugin, never directly: only an approved, enabled entry whose
+	// tree is in the store is active (plugin.State).
+	Plugins map[string]PluginEntry `yaml:"plugins,omitempty"`
+
 	// Workspaces is the per-provider workspace↔KB binding (D193): which KBs a
 	// provider receives while working in a given directory. USER-owned. Read it
 	// through WorkspaceBindings/ResolveWorkspace, never directly: an unbound
@@ -281,6 +287,7 @@ type yamlConfig struct {
 	Scopes       map[string]string                 `yaml:"scopes,omitempty"`
 	UnboundModes map[string]string                 `yaml:"unbound_access,omitempty"`
 	KBOptions    map[string]KBOption               `yaml:"kb_options,omitempty"`
+	Plugins      map[string]PluginEntry            `yaml:"plugins,omitempty"`
 	Workspaces   map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
 	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
 	Paths        map[string]string                 `yaml:"paths,omitempty"`
@@ -483,6 +490,7 @@ func Load(dir string) (*Config, error) {
 		Scopes:            y.Scopes,
 		UnboundModes:      y.UnboundModes,
 		KBOptions:         y.KBOptions,
+		Plugins:           y.Plugins,
 		Workspaces:        y.Workspaces,
 		AllowInsecureHTTP: y.AllowInsecureHTTP,
 		UsageScan:         true, // absent `usage_scan` key defaults to true
@@ -576,6 +584,9 @@ func Load(dir string) (*Config, error) {
 	if err := cfg.validateKBOptions(Path(dir)); err != nil {
 		return nil, err
 	}
+	if err := cfg.validatePlugins(Path(dir)); err != nil {
+		return nil, err
+	}
 	cfg.derived = LoadDerived(dir)
 	return &cfg, nil
 }
@@ -642,6 +653,7 @@ func yamlDocument(dir string, cfg *Config) (*yaml.Node, error) {
 		Scopes:       cfg.Scopes,
 		UnboundModes: cfg.UnboundModes,
 		KBOptions:    cfg.KBOptions,
+		Plugins:      cfg.Plugins,
 		Workspaces:   cfg.Workspaces,
 		Paths:        cfg.Paths,
 		IgnoredPaths: cfg.IgnoredPaths,

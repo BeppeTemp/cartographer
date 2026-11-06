@@ -23,8 +23,14 @@ func TestReportMarksFileKeysAndDefaults(t *testing.T) {
 	for _, e := range r.Entries {
 		by[e.Key] = e
 	}
-	if len(by) != len(Schema.Keys) {
-		t.Fatalf("%d entries, want one per schema key (%d)", len(by), len(Schema.Keys))
+	visible := 0
+	for _, k := range Schema.Keys {
+		if !k.Hidden {
+			visible++
+		}
+	}
+	if len(by) != visible {
+		t.Fatalf("%d entries, want one per visible schema key (%d)", len(by), visible)
 	}
 	if e := by["update_check"]; e.Origin != "file" || e.Value != false {
 		t.Errorf("update_check = %+v", e)
