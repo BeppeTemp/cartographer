@@ -10,8 +10,8 @@ import (
 // writer (mcpserver.gitWrap); every other commit Cartographer makes (sync
 // merges, the external-changes commit, conflict resolution, a rebase's
 // replayed commits), and a write that names no writer, by the KB's default
-// identity — the one the operator configured for it (git.identity and
-// git.identities in the server file, SetDefaultIdentity), else the server
+// identity — the one the operator configured for it (git.identities in
+// the server file, SetDefaultIdentity), else the server
 // identity. TRAP: a forge with a membership push rule (GitLab member_check)
 // checks the committer as well as the author, so the committer is never the
 // server while a writer or a configured identity is known; which instance
@@ -20,7 +20,7 @@ const serverIdentityName = "Cartographer"
 
 // AuthorSettingRemoved is the reason given wherever a removed author or
 // committer setting is met again (D904), and what takes its place.
-const AuthorSettingRemoved = "the author and the committer of a write are the writer's own git identity, sent by the client; a commit with no writer is by git.identity (or git.identities) of the server file, else by the server identity (D950)"
+const AuthorSettingRemoved = "the author and the committer of a write are the writer's own git identity, sent by the client; a commit with no writer is by git.identities of the server file, else by the server identity (D950)"
 
 var (
 	serverIdentityOnce  sync.Once

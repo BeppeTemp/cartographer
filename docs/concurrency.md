@@ -122,7 +122,7 @@ hosting workflow, and a remote that protects the branch Cartographer writes to i
 
 Each commit names the writer as author and committer (D904, D950): the request's
 `Cartographer-Author` header, else the identity configured for the KB in the server file
-(`git.identity`, `git.identities`), else the token (`<token id> <cartographer@<host>>`). A forge with a membership push rule checks the
+(`git.identities`), else the token (`<token id> <cartographer@<host>>`). A forge with a membership push rule checks the
 committer too, so it is the writer, not the server; the instance that recorded the commit is in a
 `Cartographer-Host` trailer, and a write's message ends with a `Cartographer-Token: <token id>`
 trailer, both appended by the server. A call that commits to two KBs (`concept_transfer`,

@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
 )
 
 func loadGitYAML(t *testing.T, body string) *Config {
@@ -21,13 +23,13 @@ func loadGitYAML(t *testing.T, body string) *Config {
 	return cfg
 }
 
-// A KB's entry wins, then the default entry, then git.identity; a present empty
+// A KB's entry wins, then the default entry; a present empty
 // entry means the KB has none (D950).
 func TestIdentityFor_Precedence(t *testing.T) {
 	t.Parallel()
 	cfg := loadGitYAML(t, `git:
-  identity: "Base One <base@example.test>"
   identities:
+    default: "Base One <base@example.test>"
     kb-a: "Work Me <me@work.example.test>"
     kb-none: ""
 `)
@@ -45,9 +47,9 @@ func TestIdentityFor_Precedence(t *testing.T) {
 			t.Errorf("%s: %q, want %q", kb, got, want)
 		}
 	}
-	cfg = loadGitYAML(t, "git:\n  identity: \"Base One <base@example.test>\"\n  identities:\n    default: \"Def One <def@example.test>\"\n")
-	if n, e, ok := cfg.IdentityFor("kb-x"); !ok || n != "Def One" || e != "def@example.test" {
-		t.Errorf("default entry: %q <%q> %v", n, e, ok)
+	cfg = loadGitYAML(t, "git:\n  identity: \"Base One <base@example.test>\"\n")
+	if n, e, ok := cfg.IdentityFor("kb-x"); !ok || n != "Base One" || e != "base@example.test" {
+		t.Errorf("the retired git.identity is read as the default entry: %q <%q> %v", n, e, ok)
 	}
 	if _, _, ok := loadGitYAML(t, "http: \":1\"\n").IdentityFor("kb-a"); ok {
 		t.Error("nothing configured: the server identity applies")
@@ -72,7 +74,7 @@ func TestLoad_InvalidGitIdentityIsDroppedWithAWarning(t *testing.T) {
 	}
 }
 
-// The retired git.author_name and git.author_email are read as git.identity
+// The retired git.author_name and git.author_email are read as git.identities.default
 // until the realignment writes the new key; MigrateGitIdentity writes it,
 // keeping the file's comments, once.
 func TestMigrateGitIdentity_FromAuthorKeys(t *testing.T) {
@@ -80,7 +82,7 @@ func TestMigrateGitIdentity_FromAuthorKeys(t *testing.T) {
 	body := "# my server\nhttp: \":39273\"\ngit:\n  author_name: \"Ada Example\"\n  author_email: ada@example.test\n"
 	cfg := loadGitYAML(t, body)
 	if n, e, ok := cfg.IdentityFor("kb-a"); !ok || n != "Ada Example" || e != "ada@example.test" {
-		t.Errorf("legacy keys read as git.identity: %q <%q> %v", n, e, ok)
+		t.Errorf("legacy keys read as git.identities.default: %q <%q> %v", n, e, ok)
 	}
 	p := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(p, []byte(body), 0o640); err != nil {
@@ -91,7 +93,7 @@ func TestMigrateGitIdentity_FromAuthorKeys(t *testing.T) {
 		t.Fatalf("MigrateGitIdentity = %v, %v, want it to write", wrote, err)
 	}
 	out, _ := os.ReadFile(p)
-	if !strings.Contains(string(out), "# my server") || !strings.Contains(string(out), `identity: "Ada Example <ada@example.test>"`) {
+	if !strings.Contains(string(out), "# my server") || !strings.Contains(string(out), `default: "Ada Example <ada@example.test>"`) {
 		t.Errorf("file after migration:\n%s", out)
 	}
 	if info, _ := os.Stat(p); runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 { // no POSIX modes on Windows
@@ -100,7 +102,7 @@ func TestMigrateGitIdentity_FromAuthorKeys(t *testing.T) {
 	if wrote, err := MigrateGitIdentity(p); err != nil || wrote {
 		t.Errorf("second run = %v, %v, want nothing to do", wrote, err)
 	}
-	// An existing git.identity is never replaced.
+	// An existing git.identity (moved by the realignment) is never replaced.
 	q := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(q, []byte("git:\n  author_name: A\n  author_email: a@example.test\n  identity: \"Keep Me <keep@example.test>\"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -148,7 +150,132 @@ func TestMigrateGitIdentity_FollowsASymlink(t *testing.T) {
 	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Error("the symlink must stay a symlink")
 	}
-	if got, _ := os.ReadFile(real); !strings.Contains(string(got), "identity:") {
+	if got, _ := os.ReadFile(real); !strings.Contains(string(got), "default:") {
 		t.Errorf("the target was not rewritten:\n%s", got)
+	}
+}
+
+// git.identity and git.identities.default say the same thing: set to different
+// values, Load refuses rather than choose one (Moved); equal values load.
+func TestLoad_GitIdentityAndDefaultConflictIsRefused(t *testing.T) {
+	t.Parallel()
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	body := "git:\n  identity: \"One <one@example.test>\"\n  identities:\n    default: \"Two <two@example.test>\"\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "git.identity") || !strings.Contains(err.Error(), "git.identities.default") {
+		t.Fatalf("Load = %v, want a refusal naming both keys", err)
+	}
+	same := "git:\n  identity: \"One <one@example.test>\"\n  identities:\n    default: \"One <one@example.test>\"\n"
+	if n, _, ok := loadGitYAML(t, same).IdentityFor("kb-a"); !ok || n != "One" {
+		t.Errorf("equal values must load: %q %v", n, ok)
+	}
+}
+
+// The realignment moves git.identity under git.identities.default, keeps a
+// comment a person wrote, and refuses a file where the two disagree.
+func TestRealignServerFile_MovesGitIdentity(t *testing.T) {
+	t.Parallel()
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	body := "git:\n  # mine\n  identity: \"One <one@example.test>\"\n  identities:\n    kb-a: \"Two <two@example.test>\"\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, _, err := RealignServerFile(p, "0.0.0")
+	if err != nil || !rep.Substantive() {
+		t.Fatalf("RealignServerFile = %v, %v", rep, err)
+	}
+	out, _ := os.ReadFile(p)
+	got := string(out)
+	if strings.Contains(got, "identity:") || !strings.Contains(got, "# mine") || !strings.Contains(got, `default: "One <one@example.test>"`) || !strings.Contains(got, "kb-a:") {
+		t.Errorf("file after realignment:\n%s", got)
+	}
+	if n, _, ok := loadGitYAML(t, got).IdentityFor("kb-z"); !ok || n != "One" {
+		t.Errorf("the moved value must still apply: %q %v", n, ok)
+	}
+	if rep2, _, err := RealignServerFile(p, "0.0.0"); err != nil || !rep2.Empty() {
+		t.Errorf("second run = %v, %v, want nothing to do", rep2, err)
+	}
+
+	q := filepath.Join(t.TempDir(), "config.yaml")
+	conflict := "git:\n  identity: \"One <one@example.test>\"\n  identities:\n    default: \"Two <two@example.test>\"\n"
+	if err := os.WriteFile(q, []byte(conflict), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RealignServerFile(q, "0.0.0"); err == nil {
+		t.Error("a conflicting pair must be refused")
+	}
+	if got, _ := os.ReadFile(q); string(got) != conflict {
+		t.Errorf("a refused realignment changed the file:\n%s", got)
+	}
+}
+
+// A bare `identities:` is filled, not duplicated, by the author-key migration
+// and by the realignment of git.identity.
+func TestGitIdentityMigrationsFillABareIdentities(t *testing.T) {
+	t.Parallel()
+	for name, body := range map[string]string{
+		"author keys":  "git:\n  author_name: A\n  author_email: a@example.test\n  identities:\n",
+		"git.identity": "git:\n  identity: \"A <a@example.test>\"\n  identities:\n",
+	} {
+		p := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := MigrateGitIdentity(p); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, _, err := RealignServerFile(p, "0.0.0"); err != nil {
+			t.Fatalf("%s: realign: %v", name, err)
+		}
+		out, _ := os.ReadFile(p)
+		if strings.Count(string(out), "identities:") != 1 || strings.Contains(string(out), "identity:") {
+			t.Errorf("%s: file:\n%s", name, out)
+		}
+		if n, _, ok := loadGitYAML(t, string(out)).IdentityFor("kb-a"); !ok || n != "A" {
+			t.Errorf("%s: identity lost: %q %v\n%s", name, n, ok, out)
+		}
+	}
+}
+
+// With the real schema: a git.identity that carries the comment the schema
+// wrote realigns to identities.default, that comment goes, a person's note stays,
+// and an empty default next to a set git.identity is refused.
+func TestRealignServerFile_GeneratedCommentOfGitIdentity(t *testing.T) {
+	t.Parallel()
+	gen := ""
+	for _, m := range Retired.Moved {
+		if m.From == "git.identity" {
+			// The comment the schema wrote above the key in the last release.
+			for _, l := range settingschema.Comment(settingschema.Key{Path: "git.identity", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true, Description: m.Description}) {
+				gen += "  " + l + "\n"
+			}
+		}
+	}
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	body := "git:\n" + gen + "  # my note\n  identity: \"A <a@example.test>\"\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RealignServerFile(p, "0.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := os.ReadFile(p)
+	got := string(out)
+	if strings.Contains(got, "server commits as in every KB without its own entry") || !strings.Contains(got, "# my note") || !strings.Contains(got, `default: "A <a@example.test>"`) {
+		t.Errorf("file:\n%s", got)
+	}
+
+	q := filepath.Join(t.TempDir(), "config.yaml")
+	empty := "git:\n  identity: \"A <a@example.test>\"\n  identities:\n    default: \"\"\n"
+	if err := os.WriteFile(q, []byte(empty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RealignServerFile(q, "0.0.0"); err == nil {
+		t.Error("an empty default next to a set git.identity must be refused")
+	}
+	if _, err := Load(q); err == nil {
+		t.Error("Load must refuse the same pair")
 	}
 }

@@ -49,6 +49,9 @@ Rules to keep the code consistent. New code should resemble the existing code.
   file written before the change keeps the old comment for good, and a retired key's comment moves onto its neighbour.
   `TestDescriptionsAreRecordedWhenTheyChange` compares `internal/settingschema/testdata/descriptions.tsv` with the
   schemas and names the line to add; `-update` refreshes the list once the history is recorded.
+- A key that changed path with its value kept is a `Moved{From, To}` entry in the file's `Registry` (D1725),
+  not a `Removed` plus hand-written code: the realignment moves the value and a person's comment, a loader keeps reading
+  `From` for at least one minor, and a file that sets both paths to different values is refused (`Registry.MovedConflicts`).
 
 ## Tests
 

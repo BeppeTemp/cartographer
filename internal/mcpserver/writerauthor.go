@@ -84,7 +84,7 @@ func hasLetterOrDigit(s string) bool {
 
 // writerAuthor is the writer of a write made under ctx on k, its author and
 // committer (D950): the header's identity when valid; else the identity the
-// operator configured for k (git.identity, git.identities), which is what makes
+// operator configured for k (git.identities), which is what makes
 // a client that cannot send the header publishable; else the calling token's id
 // at the server's email; else (a context with no principal id) "" so the commit
 // takes the server identity. The Cartographer-Token trailer names the token

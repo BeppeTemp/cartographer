@@ -226,10 +226,10 @@ func TestUIAPI_SettingsNarrowedCallerSeesOnlyItsKBs(t *testing.T) {
 	cfg.CredentialsDir = "/srv/private-credentials"
 	cfg.Audit.Log = "/srv/private-audit.log"
 	cfg.Auth.Roles = []config.RoleSpec{{Name: "private-role"}}
-	cfg.GitIdentity = "Default Person <default@example.com>"
 	cfg.GitIdentities = map[string]string{
-		"kb-a": "Person A <a@example.com>",
-		"kb-b": "Person B <b@example.com>",
+		"default": "Default Person <default@example.com>",
+		"kb-a":    "Person A <a@example.com>",
+		"kb-b":    "Person B <b@example.com>",
 	}
 	cfg.KBs = []config.KBSpec{{Name: "kb-a"}, {Name: "kb-b"}}
 	handler := settingsHandler(t, cfg, ts, "kb-a", "kb-b")

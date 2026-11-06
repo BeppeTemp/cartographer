@@ -34,11 +34,9 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
-	// GitIdentity is the git identity ("Name <email>") the server commits as in
-	// every KB without an entry of its own in GitIdentities, and GitIdentities
-	// one per KB name, "default" included (D950). Read them through IdentityFor.
-	// Empty means the server identity.
-	GitIdentity   string
+	// GitIdentities is the git identity ("Name <email>") the server commits as,
+	// one per KB name and "default" for every KB without an entry (D950). Read
+	// it through IdentityFor. Without an entry the server identity applies.
 	GitIdentities map[string]string
 	// legacyAliases are the kb_aliases the server YAML still carries (D906):
 	// the list moved to the server state file, and the realignment moves
@@ -314,8 +312,9 @@ type rawConfig struct {
 	UpdateCheck *bool `yaml:"update_check"`
 }
 
-// rawGit mirrors the `git:` block: the identity the server commits as (D950).
-// Every other key it once held is retired.
+// rawGit mirrors the `git:` block: the identities the server commits as (D950).
+// Every other key it once held is retired; Identity is read as
+// Identities["default"] until the realignment moves it.
 type rawGit struct {
 	Identity   string            `yaml:"identity"`
 	Identities map[string]string `yaml:"identities"`
@@ -544,6 +543,9 @@ func Load(path string) (*Config, error) {
 		} else {
 			cfg.legacyAliases = legacy.KBAliases
 		}
+	}
+	if conflicts := Retired.MovedConflicts(data); len(conflicts) > 0 {
+		return nil, fmt.Errorf("config: %s", strings.Join(conflicts, "; "))
 	}
 	cfg.loadGitIdentities(data, raw.Git)
 	cfg.Audit.Log = raw.Audit.Log

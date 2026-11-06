@@ -39,6 +39,17 @@ func yamlPaths(t reflect.Type, prefix string, out *[]string) {
 // groups are mappings that only hold other keys: they need no entry of their own.
 var groups = map[string]bool{"auth": true, "git": true, "audit": true, "sops": true, "tools": true, "mcp": true, "web": true}
 
+// movedAway reports whether p is the old path of a Moved key: the parser still
+// reads it, the schema documents its new home.
+func movedAway(p string) bool {
+	for _, m := range Retired.Moved {
+		if m.From == p {
+			return true
+		}
+	}
+	return false
+}
+
 // The schema is the source of the comments written into config files, so a key
 // the parser accepts without an entry here is a key that goes undocumented.
 func TestSchemaMatchesStructs(t *testing.T) {
@@ -57,6 +68,9 @@ func TestSchemaMatchesStructs(t *testing.T) {
 			continue
 		}
 		real[p] = true
+		if movedAway(p) {
+			continue // still read until the realignment moves it (Retired.Moved)
+		}
 		if !have[p] {
 			t.Errorf("YAML key %s is accepted by the parser but has no entry in Schema (internal/config/schema.go)", p)
 		}
@@ -154,7 +168,6 @@ func TestExampleLoadsAsDefaultsPlusExplicitValues(t *testing.T) {
 	want.Data = "/data"
 	want.CredentialsDir = "/etc/cartographer/credentials"
 	want.KBs = []KBSpec{{Remote: "https://git.example.com/user/kb-a.git", Name: "kb-a", BranchOverride: "try-cartographer"}}
-	want.GitIdentity = "Ada Example <ada@example.com>"
 	want.Origins = got.Origins // origins are covered in origin_test.go
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Load(example) = %+v\nwant %+v", got, want)

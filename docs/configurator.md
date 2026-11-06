@@ -134,7 +134,7 @@ decides every step **before** running any:
   machine with no identity gets the server's `Cartographer <cartographer@host>`, and with `--remote`
   the command warns before committing (it does not stop), naming that author and both routes: a global
   `user.name`/`user.email`, or an identity for the KBs only, which takes the same `Name <email>` in three
-  places: an `includeIf "gitdir/i:<data dir>/"` in the global git config, `git.identity` in the server
+  places: an `includeIf "gitdir/i:<data dir>/"` in the global git config, `git.identities.default` in the server
   file, `identities.default` in `.cartographer.yaml`. A first push the remote refuses is classified like
   the server's sync does: a refused author names that author and the identity to set (with the server
   identity, `commit --amend --reset-author --no-edit` re-authors the kept scaffold), a protected branch
@@ -798,7 +798,7 @@ Exit codes: `0` nothing left to do, `3` only judgement work or checks that are n
 
 Recovery for a push a remote refused because of who authored or committed its commits (a membership
 push rule, a private-email rule; D1063). It re-authors, under the identity the server file configures
-for the KB (`git.identity` / `git.identities`, the rule `serve` applies at mount), the commits that exist
+for the KB (`git.identities`, the rule `serve` applies at mount), the commits that exist
 only in the local clone, then pushes. Without an identity configured it refuses: rewriting with the
 fallback identity would reproduce the problem. The sync alone already re-authors a commit made by
 exactly the server identity (D950); this command is for what it leaves alone, a commit authored by a
