@@ -61,7 +61,13 @@ func newLandEnv(t *testing.T) *landEnv {
 	e.write(filepath.Join(e.bin, "fakemake"), `#!/bin/sh
 case "$*" in *signoff-platform*) echo linux/amd64; exit 0 ;; esac
 echo "$*" >> "$FAKE_STATE.make"
+case "$*" in test-rerun*) [ -e CONFIRMED ] && exit 1; exit 0 ;; esac
 [ -e BAD ] && exit 2
+if [ -e CONFIRMED ] || { [ -e FLAKYGO ] && [ ! -e "$FAKE_STATE.flakedgo" ]; }; then
+  touch "$FAKE_STATE.flakedgo"
+  printf -- '--- FAIL: TestNamed (0.01s)\nFAIL\tgithub.com/x/p/internal/kb\t0.1s\nmake: *** [Makefile:23: test] Error 1\n'
+  exit 2
+fi
 if [ -e FLAKY ] && [ ! -e "$FAKE_STATE.flaked" ]; then touch "$FAKE_STATE.flaked"; echo "--- FAIL: TestSometimes"; exit 2; fi
 exit 0
 `)
@@ -304,6 +310,46 @@ func TestLanderLandsOnAFlakyRerunAndOpensAnIssue(t *testing.T) {
 	}
 }
 
+// A named Go test that fails and passes on the signoff's targeted retry lands the
+// train on its first gate, with a bug naming the test (D-new-targeted-retry).
+func TestLanderLandsOnATargetedRetryAndOpensAnIssue(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("f", "fix(kb): f\n", "2026-01-01T10:00:00Z", map[string]string{"FLAKYGO": "x\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): f" {
+		t.Fatalf("main holds %q\n%s", got, out)
+	}
+	if runs := strings.Count(e.makeLog(), "-k gate"); runs != 1 {
+		t.Errorf("one gate, its retry inside the signoff: %d gates\n%s", runs, e.makeLog())
+	}
+	if gh := e.log(); !strings.Contains(gh, "--title flaky: kb.TestNamed failed and passed on a targeted retry") {
+		t.Errorf("a flaky issue must name the test:\n%s", gh)
+	}
+}
+
+// A named Go test that fails again on the targeted retry is no flake: the lander
+// rejects the change without re-running the whole gate.
+func TestLanderSkipsTheRerunWhenTheRetryConfirms(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("c", "fix(kb): c\n", "2026-01-01T10:00:00Z", map[string]string{"CONFIRMED": "x\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if e.refs("failed/") != "c" {
+		t.Fatalf("c must be rejected: failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if runs := strings.Count(e.makeLog(), "-k gate"); runs != 1 {
+		t.Errorf("a confirmed failure is not gated again: %d gates\n%s", runs, e.makeLog())
+	}
+	if strings.Contains(e.log(), "issue create") {
+		t.Errorf("a confirmed failure opens no flaky issue:\n%s", e.log())
+	}
+}
+
 // A held change, and a feat while the freeze is open, stay queued; a fix lands.
 func TestLanderKeepsHeldAndFrozenChangesQueued(t *testing.T) {
 	e := newLandEnv(t)
@@ -522,5 +568,11 @@ func (e *landEnv) log() string { b, _ := os.ReadFile(e.ghLog); return string(b) 
 func readTmp(t *testing.T, dir, name string) string {
 	t.Helper()
 	b, _ := os.ReadFile(filepath.Join(dir, name))
+	return string(b)
+}
+
+// makeLog is what the fake make was asked, one invocation per line.
+func (e *landEnv) makeLog() string {
+	b, _ := os.ReadFile(filepath.Join(e.tmp, "gh-state.make"))
 	return string(b)
 }

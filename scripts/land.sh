@@ -18,10 +18,12 @@
 #
 # The train branch `train/<UTC time>` is gated by scripts/signoff.sh (the gate, the web
 # legs and the Windows leg when needed, the CI fallback on exit 75, the push and the
-# `signoff` status: one gate for the whole train). Red: one re-run of the same tree; green
-# then means a flaky test, so the train lands and a `bug` issue names the tests. Red
-# twice: bisection over the train's prefixes finds the first failing change, which is
-# rejected, and the green prefix before it lands. Green: one PR, title
+# `signoff` status: one gate for the whole train). The signoff itself retries once the
+# Go tests a red run names (its step 4c): green, the train lands on that gate and a `bug`
+# issue names them; red, the failure is confirmed and bisection starts without a re-run.
+# Any other red: one re-run of the same tree; green then means a flaky test, so the train
+# lands and a `bug` issue names the tests. Red twice: bisection over the train's prefixes
+# finds the first failing change, which is rejected, and the green prefix before it lands. Green: one PR, title
 # `chore(dev): train <id>, <k> changes`, rebase-merged by auto-merge so every change stays
 # its own conventional commit on main; once merged, the landed queue entries are deleted
 # (a queued change whose diff main already holds is dequeued, not rejected). On macOS the
@@ -214,6 +216,29 @@ gate() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2
   return 2
 }
 
+# The tests a red gate log names: Go top-level tests, vitest cases, Playwright specs.
+failing() { # $1 = gate log; vitest and Playwright colour their lines
+  sed "s/$(printf '\033')\[[0-9;]*m//g" "$1" | sed -n \
+    -e 's/^--- FAIL: \([A-Za-z0-9_]*\).*/\1/p' \
+    -e 's/^ FAIL  \([^ ]*\) > .*/\1/p' \
+    -e 's/^ *✘ *[0-9]* *\([^ ]*\) .*/\1/p' | sort -u | head -n 10 | tr '\n' ' ' | sed 's/ $//' || true
+}
+issue_flaky() { # $1 = names, $2 = what happened, $3 = body
+  gh issue create -R "$repo" --label bug --title "flaky: $1 $2" --body "$3" >/dev/null ||
+    log "warning: could not open the flaky issue"
+}
+# A green gate whose signoff retried named tests: they are flaky, the train lands, a bug names them.
+# The line is in the log among the tests' own output: only package.Test names make the title.
+flaky_issue() { # $1 = gate log, $2 = what happened
+  local names
+  names=$(sed -n 's/^signoff: flaky: \(.*\) failed and passed on a targeted retry$/\1/p' "$1" |
+    grep -E '^[A-Za-z0-9_.-]+( [A-Za-z0-9_.-]+)*$' | tr '\n' ' ' | sed 's/ $//' || true)
+  [ -n "$names" ] || return 0
+  log "green after the signoff's targeted retry: flaky $names"
+  issue_flaky "$names" "$2" \
+    "The gate of the train \`$branch\` failed on $names and passed when the signoff ran their packages once more, the rest of the gate green. A retry is not a fix: find why they fail."
+}
+
 wt=$state/train
 while :; do
   fetch || die "cannot fetch origin"
@@ -283,20 +308,25 @@ while :; do
     exit 0
   fi
 
-  # The gate: once, again on red (flaky?), then bisection over prefixes.
+  # The gate: once; on red, again (flaky?) unless the signoff's targeted retry already
+  # confirmed the failure (D1755); then bisection over prefixes.
   glog=$state/gate-$id.log
   rc=0; gate "$glog" || rc=$?
   [ "$rc" != 2 ] || die "the gate of $branch failed for a reason that is not a test (see $glog): the queue is untouched"
+  [ "$rc" != 0 ] || flaky_issue "$glog" "failed and passed on a targeted retry of the signoff"
   if [ "$rc" = 1 ]; then
-    fails=$(grep -oE -- '--- FAIL: [A-Za-z0-9_/]+' "$glog" | sort -u | head -n 10 | sed 's/--- FAIL: //' | tr '\n' ' ' || true)
-    rc2=0; gate "$glog.2" || rc2=$?
-    [ "$rc2" != 2 ] || die "the gate of $branch failed for a reason that is not a test (see $glog.2): the queue is untouched"
+    fails=$(failing "$glog")
+    rc2=1
+    if grep -q '^signoff: confirmed on a targeted retry:' "$glog"; then
+      log "red, and red again on the signoff's targeted retry of${fails:+ $fails}: not a flake"
+    else
+      rc2=0; gate "$glog.2" || rc2=$?
+      [ "$rc2" != 2 ] || die "the gate of $branch failed for a reason that is not a test (see $glog.2): the queue is untouched"
+    fi
     if [ "$rc2" = 0 ]; then
-      fails=${fails% }
       log "red once, green on the re-run: a flaky test (${fails:-not named})"
-      gh issue create -R "$repo" --label bug --title "flaky: ${fails:-the gate of a train} failed once and passed on a re-run" \
-        --body "The gate of the train \`$branch\` failed, then passed on the same tree. Failing tests: ${fails:-none named in the log}. A re-run is not a fix: find why it fails." >/dev/null ||
-        log "warning: could not open the flaky issue"
+      issue_flaky "${fails:-the gate of a train}" "failed once and passed on a re-run" \
+        "The gate of the train \`$branch\` failed, then passed on the same tree. Failing tests: ${fails:-none named in the log}. A re-run is not a fix: find why it fails."
     else
       lo=0 hi=$k good=
       while [ $((hi - lo)) -gt 1 ]; do
