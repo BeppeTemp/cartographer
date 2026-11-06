@@ -43,17 +43,17 @@ func TestAffectedPackagesSeedTable(t *testing.T) {
 		paths []string
 		want  string
 	}{
-		{"go file", []string{"internal/kb/kb.go"}, "./internal/kb"},
-		{"test file", []string{"internal/audit/audit_test.go"}, "./internal/audit"},
+		{"go file also selects the tree-scanning guards", []string{"internal/kb/kb.go"}, "./internal/kb ./internal/procattr ./internal/repodocs"},
+		{"test file", []string{"internal/audit/audit_test.go"}, "./internal/audit ./internal/procattr ./internal/repodocs"},
 		{"testdata belongs to its package", []string{"internal/kb/testdata/x/y.md"}, "./internal/kb"},
 		{"embedded skill belongs to the embedding package", []string{"internal/skillbundle/bundled/cartographer-ops/SKILL.md"}, "./internal/skillbundle"},
-		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen"},
+		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen ./internal/procattr ./internal/repodocs"},
 		{"frontend is hashed by webui", []string{"web/src/lib/health.ts"}, "./internal/webui"},
 		{"markdown is read by repodocs and the tool-citation check", []string{"docs/testing.md"}, "./internal/repodocs ./internal/mcpserver"},
 		{"scripts and workflows are read by repodocs", []string{"scripts/signoff.sh", ".github/workflows/ci.yml", "Makefile"}, "./internal/repodocs"},
 		{"the module selects everything", []string{"docs/testing.md", "go.sum"}, "./..."},
-		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb"},
-		{"a deleted package selects nothing", []string{"internal/gone-for-good/x.go"}, ""},
+		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb ./internal/procattr ./internal/repodocs"},
+		{"a deleted package still selects the guards", []string{"internal/gone-for-good/x.go"}, "./internal/procattr ./internal/repodocs"},
 		{"nothing in, nothing out", nil, ""},
 	}
 	for _, c := range cases {
@@ -121,5 +121,32 @@ func TestAffectedPackagesDoesNotExpandReaders(t *testing.T) {
 	}
 	if strings.Contains(got, " ./internal/repodocs ") {
 		t.Errorf("--code must leave the docs reader out, got%s", got)
+	}
+}
+
+// TestEveryChildProcessIsHidden (internal/procattr) and the repodocs checks scan the
+// source of every package: a Go file changed anywhere must select them, in the fast
+// tier and, for procattr (Windows console windows), in the Windows leg too. A new
+// exec.Command without procattr.Hide in internal/gitx once passed make check and
+// failed only the train gate.
+func TestAffectedPackagesAlwaysRunsTheTreeScanningGuards(t *testing.T) {
+	needBash(t)
+	for _, args := range [][]string{nil, {"--seeds"}} {
+		got := " " + affected(t, []string{"internal/gitx/gitx.go"}, args...) + " "
+		for _, want := range []string{"./internal/gitx", "./internal/procattr", "./internal/repodocs"} {
+			if !strings.Contains(got, " "+want+" ") {
+				t.Errorf("%v: a Go change must select %s, got%s", args, want, got)
+			}
+		}
+	}
+	got := " " + affected(t, []string{"internal/gitx/gitx.go"}, "--code") + " "
+	if !strings.Contains(got, " ./internal/procattr ") {
+		t.Errorf("--code must keep the procattr guard, got%s", got)
+	}
+	if strings.Contains(got, " ./internal/repodocs ") {
+		t.Errorf("--code must leave repodocs out, got%s", got)
+	}
+	if got := affected(t, []string{"docs/testing.md"}); strings.Contains(got, "procattr") {
+		t.Errorf("a markdown change does not select procattr, got %q", got)
 	}
 }
