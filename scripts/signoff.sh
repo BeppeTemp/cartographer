@@ -20,9 +20,11 @@
 #                 must exit non-zero when make does, and exit 75 (EX_TEMPFAIL) when
 #                 the machine is unavailable: the gate then runs in CI instead (step 4b).
 #   SIGNOFF_WINDOWS a command that runs its arguments natively on Windows from the
-#                 same tree (empty: no Windows leg). It gets `go test` of the packages
-#                 the branch affects (scripts/affected-pkgs.sh), in parallel with the
-#                 targets; a failure fails the signoff, an exit 75 is reported and
+#                 same tree (empty: no Windows leg). It gets scripts/test-shard.sh, every
+#                 shard at once (SIGNOFF_WINDOWS_SHARDS, default 4), over the packages a
+#                 code change of the branch can break (scripts/affected-pkgs.sh --code:
+#                 a change of documents or scripts has no Windows leg), in parallel with
+#                 the targets; a failure fails the signoff, an exit 75 is reported and
 #                 skipped (test-windows on main stays the net).
 #
 # Plain bash 3.2 (the macOS default): no associative arrays, no GNU-only flags.
@@ -67,7 +69,7 @@ targets=$TARGETS
 [ "$web" != true ] || targets="$targets $WEB_TARGET"
 win_pkgs=
 [ -z "${SIGNOFF_WINDOWS:-}" ] ||
-  win_pkgs=$(git diff --name-only "$remote"/main...HEAD | "$here/affected-pkgs.sh" | tr '\n' ' ')
+  win_pkgs=$(git diff --name-only "$remote"/main...HEAD | "$here/affected-pkgs.sh" --code | tr '\n' ' ')
 win_pkgs=${win_pkgs% }
 sha=$(git rev-parse HEAD)
 
@@ -134,7 +136,9 @@ if [ -n "$win_pkgs" ]; then
   win_log=$(mktemp "${TMPDIR:-/tmp}/signoff-windows.XXXXXX")
   echo "signoff: Windows leg on $(printf '%s\n' $win_pkgs | wc -l | tr -d ' ') package(s)" >&2
   # shellcheck disable=SC2086  # the packages are a word list on purpose
-  ( r=0; "${wmk[@]}" go test -timeout 20m $win_pkgs >"$win_log" 2>&1 || r=$?; echo "$r $(date +%s)" >"$win_log.end" ) &
+  # Sharded as the CI's test-windows legs are (D785): internal/mcpserver alone is most of it.
+  ( r=0; "${wmk[@]}" bash scripts/test-shard.sh "${SIGNOFF_WINDOWS_SHARDS:-4}" all $win_pkgs >"$win_log" 2>&1 || r=$?
+    echo "$r $(date +%s)" >"$win_log.end" ) &
   win_pid=$!
 fi
 # The leg's wrapper is a child of the subshell: stop it too, or it keeps the machine busy.
