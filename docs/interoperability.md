@@ -113,7 +113,7 @@ block (`opencode`, `codex`, `kiro`, `antigravity`, `copilot`), copied **verbatim
 agent file; a client with an entry is not widened, so it is neither warned about nor skipped
 ([D291](decisions/D291-an-agent-can-carry-each-clients-own-restriction-verbatim.md)). Cartographer
 does not infer the syntax, and which native keys each client honours has **not been verified
-against the real clients**: the author writes them and owns their correctness.
+against the real clients**: the author writes them and owns their correctness. For Kiro CLI 3.x that means `permissions`, not the V2 `allowedTools`/`toolsSettings`, which `artifact_write` warns about.
 
 Two consequences are worth stating plainly. Kiro receives subagents in both
 scopes since [D195](decisions/D195-kiro-receives-subagents-its-hooks-are-documented-but.md),

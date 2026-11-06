@@ -209,6 +209,13 @@ type ManagedFile struct {
 	// what every pre-existing lockfile already meant for every other kind. No
 	// migration runs.
 	ExecutablePaths []string `json:"executable_paths,omitempty"`
+	// UpgradedHash is, for a Kiro agent only, the hash of the file as Kiro CLI
+	// 3.x upgraded it in place, recorded the first time a sync accepts that
+	// upgrade (#1717, kiroupgrade.go). While it is set the file is not drift
+	// only if it still hashes to it; any later edit is DriftModified. Empty for
+	// every other entry and before the first acceptance: a lockfile written
+	// without it reads as it always did.
+	UpgradedHash string `json:"upgraded_hash,omitempty"`
 }
 
 // Lock is the client's lockfile: applied revision + managed files.
@@ -2301,6 +2308,11 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		k := mf.Kind + "\x00" + mf.Name
 		// Keep the managed entries that are unchanged and not removed.
 		if manifestKeys[k] && (!toWriteKeys[k] || heldKeys[k]) {
+			if mf.Kind == "agent" && opts.Provider == configurator.ProviderKiro && mf.UpgradedHash == "" {
+				if _, full, ok := managedDest(mf, opts.Provider, opts.BaseDir, opts.Lock.ScopeOf()); ok {
+					mf = recordKiroUpgrade(mf, full)
+				}
+			}
 			newManaged = append(newManaged, mf)
 		}
 	}

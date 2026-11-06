@@ -198,3 +198,30 @@ func TestSyncWarnsAbsentMCPServer(t *testing.T) {
 		t.Errorf("configured server must not warn: %v", w)
 	}
 }
+
+// Kiro CLI 3.x ignores `toolsSettings` and changes what `allowedTools` means
+// when it upgrades the agent (#1717): the V2-only keys are named, the V3
+// `permissions` is not, and `permissions` reaches the file verbatim.
+func TestKiroV2OnlyKeyWarnings(t *testing.T) {
+	parse := func(providers string) *okf.Frontmatter {
+		fmRaw, _, _ := okf.SplitFrontmatter("---\nname: a\ndescription: d\n" + providers + "---\nBody\n")
+		fm, err := okf.ParseFrontmatter(fmRaw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fm
+	}
+	w := provisioning.KiroV2OnlyKeyWarnings(parse("providers:\n  kiro:\n    tools: [read]\n    allowedTools: [read]\n    toolsSettings:\n      shell: {}\n"))
+	if len(w) != 2 || !strings.Contains(w[0], "allowedTools") || !strings.Contains(w[1], "toolsSettings") || !strings.Contains(w[0], "permissions") {
+		t.Errorf("V2 keys not named: %q", w)
+	}
+	for _, ok := range []string{
+		"providers:\n  kiro:\n    permissions:\n      rules: []\n",
+		"providers:\n  codex: { allowedTools: [x] }\n",
+		"",
+	} {
+		if w := provisioning.KiroV2OnlyKeyWarnings(parse(ok)); len(w) != 0 {
+			t.Errorf("warned for %q: %q", ok, w)
+		}
+	}
+}
