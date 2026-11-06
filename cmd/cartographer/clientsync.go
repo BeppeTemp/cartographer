@@ -1215,6 +1215,22 @@ func resolveTargetProviders(target, csv string) ([]string, error) {
 	return resolveProvider(target)
 }
 
+// splitProviderCSV splits a --agents value into its names, validating none:
+// setup checks them after the plugins step, which may register a provider.
+func splitProviderCSV(csv string) ([]string, error) {
+	var names []string
+	for _, part := range strings.Split(csv, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			return nil, fmt.Errorf("invalid --agents value %q (want comma-separated %s)", csv, providerNamesJoined())
+		}
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
 // resolveProviderCSV validates a non-empty comma-separated provider list while
 // preserving its order. Repeating a provider is harmless but redundant, so it
 // is represented only once in the resulting operation.

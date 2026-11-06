@@ -84,7 +84,7 @@ func TestPlanSetup(t *testing.T) {
 			},
 			opts: setupOptions{Remote: "git@h:me/new.git"},
 			want: setupPlan{Service: serviceInstall, KB: kbCreate, KBName: "new", Remote: "git@h:me/new.git",
-				Existing: []string{"old"}, Agents: []string{"claude"}, ServerURL: "http://127.0.0.1:39273/mcp", KBs: []string{"new"}},
+				Existing: []string{"old"}, Agents: []string{"claude"}, ServerURL: "http://127.0.0.1:39273/mcp", KBs: []string{"new"}, NarrowKB: true},
 		},
 		{
 			name:    "two existing KBs and unbound agents need a choice",

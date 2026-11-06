@@ -134,7 +134,7 @@ func fetchMissingPlugins(st syncStreams, cfg *clientconfig.Config, dryRun bool) 
 		}
 		f, err := fetchApproved(n, e)
 		if err != nil {
-			fmt.Fprintf(st.err(), "warning: plugin %s: %v\n", n, err)
+			warnPlugin(st.err(), n, err)
 			continue
 		}
 		out = append(out, f)
@@ -155,13 +155,19 @@ func storeFetchedPlugins(st syncStreams, cfg *clientconfig.Config, fetched []fet
 				continue
 			}
 			if err := store.Put(f.name, f.files, f.p.Digest, pluginOpts()); err != nil {
-				fmt.Fprintf(st.err(), "warning: plugin %s: %v\n", f.name, err)
+				warnPlugin(st.err(), f.name, err)
 			}
 		}
 	}
 	for _, issue := range loadActivePlugins(cfg).Issues {
 		fmt.Fprintf(st.err(), "warning: %s\n", escapeControl(issue))
 	}
+}
+
+// warnPlugin prints a warning that quotes an error: it carries names from the
+// plugin's tree and raw git output, so a control character is escaped.
+func warnPlugin(w io.Writer, name string, err error) {
+	fmt.Fprintf(w, "warning: %s\n", escapeControl(fmt.Sprintf("plugin %s: %v", name, err)))
 }
 
 func redactPluginSource(e clientconfig.PluginEntry) string {
@@ -262,6 +268,9 @@ type pluginPrep struct {
 	Ask      bool
 	DryRun   bool
 	Out, Err io.Writer
+	// Names, when set, receives the plugins this run installed or took over
+	// from an earlier run of the same sources: the ones it can approve.
+	Names *[]string
 }
 
 // fail reports on the run's error stream and returns the exit code.
@@ -298,7 +307,7 @@ func preparePlugins(o pluginPrep) int {
 	for _, s := range o.Sources {
 		src, err := plugin.ParseSource(s)
 		if err != nil {
-			return o.fail(2, "--plugin: %s", escapeControl(err.Error()))
+			return o.fail(2, "--plugin: %s", escapeControl(strings.ReplaceAll(err.Error(), s, redactPluginArg(s))))
 		}
 		if !seen[src.String()] {
 			seen[src.String()] = true
@@ -326,6 +335,11 @@ func preparePlugins(o pluginPrep) int {
 	}()
 
 	fresh, code := installPluginSources(o, dir, cfg, srcs, &changed)
+	if o.Names != nil {
+		for _, f := range fresh {
+			*o.Names = append(*o.Names, f.name)
+		}
+	}
 	if code != 0 {
 		return code
 	}
@@ -355,8 +369,11 @@ func preparePlugins(o pluginPrep) int {
 // installPluginSources installs each source that is not configured yet, as
 // `plugin install` does without approving: the tree is stored and the entry
 // written enabled but unapproved. A source already configured is skipped
-// whatever its ref (moving it is `plugin update`); another source under a name
-// already installed stops the run with the `plugin install` error.
+// whatever its ref (moving it is `plugin update`), except that one installed by
+// a run that failed later and still waiting for its approval counts as this
+// run's when the source still yields the stored tree: the consent then covers
+// it. Another source under a name already installed stops the run with the
+// `plugin install` error.
 func installPluginSources(o pluginPrep, dir string, cfg *clientconfig.Config, srcs []plugin.Source, changed *bool) ([]installedNow, int) {
 	var fresh []installedNow
 	store, storeErr := pluginStoreFn()
@@ -365,9 +382,12 @@ func installPluginSources(o pluginPrep, dir string, cfg *clientconfig.Config, sr
 		if !src.Git {
 			recorded = src.Path
 		}
-		shown := escapeControl(gitx.RedactRemoteURL(src.String()))
+		shown := escapeControl(redactSource(src))
 		if names := pluginsFromSource(cfg, recorded); len(names) > 0 {
 			fmt.Fprintf(o.Out, "plugin %s is already installed from %s\n", escapeControl(strings.Join(names, ", ")), shown)
+			if !o.DryRun && storeErr == nil {
+				fresh = append(fresh, pendingSameTree(o, dir, store, cfg, names, src)...)
+			}
 			continue
 		}
 		if o.DryRun {
@@ -427,6 +447,68 @@ func installPluginSources(o pluginPrep, dir string, cfg *clientconfig.Config, sr
 		}
 	}
 	return fresh, 0
+}
+
+// pendingSameTree returns, of the plugins named, those installed from src that
+// were never approved and whose stored digest is the one src yields at this call: the
+// leftover of a run that stopped before the consent. A source that cannot be
+// read, or yields another tree, leaves them pending (`plugin approve`, `plugin update`).
+func pendingSameTree(o pluginPrep, dir string, store plugin.Store, cfg *clientconfig.Config, names []string, src plugin.Source) []installedNow {
+	var waiting []string
+	for _, n := range names {
+		if e := cfg.Plugins[n]; e.Installed != "" && e.Approved == "" {
+			waiting = append(waiting, n)
+		}
+	}
+	if len(waiting) == 0 {
+		return nil
+	}
+	files, _, p, probs, err := pluginRead(src)
+	if err != nil || len(probs) > 0 {
+		return nil
+	}
+	var out []installedNow
+	for _, n := range waiting {
+		e := cfg.Plugins[n]
+		if p.Manifest.Name != n || p.Digest != e.Installed {
+			continue
+		}
+		// The store is a cache: put the tree back when it is gone.
+		release, err := lockClient(dir)
+		if err != nil {
+			continue
+		}
+		err = store.Put(n, files, p.Digest, pluginOpts())
+		release()
+		if err != nil {
+			warnPlugin(o.Err, n, err)
+			continue
+		}
+		out = append(out, installedNow{name: n, p: p, entry: e})
+	}
+	return out
+}
+
+// redactSource is a source as printed: the credentials of a remote are cut and
+// the ref stays (RedactRemoteURL alone reads the "@" of a ref as the end of the
+// credentials).
+func redactSource(src plugin.Source) string {
+	if !src.Git {
+		return src.Path
+	}
+	out := gitx.RedactRemoteURL(src.Remote)
+	if src.Ref != "" {
+		out += "@" + src.Ref
+	}
+	return out
+}
+
+// redactPluginArg is redactSource for a --plugin value as typed.
+func redactPluginArg(arg string) string {
+	if src, err := plugin.ParseSource(arg); err == nil {
+		return redactSource(src)
+	}
+	return gitx.RedactRemoteURL(arg)
 }
 
 // pluginsFromSource names the configured plugins whose recorded source is recorded.
@@ -499,8 +581,8 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 	// What is reported is printed once the file is saved.
 	var report strings.Builder
 	// A plugin whose dependency is not enabled yet waits for the others of this
-	// run; what stays unmet is approved but not enabled (a first approval enables
-	// only when `depends` is met), and enabling it is `plugin enable`.
+	// run. What stays unmet is not approved, as with `plugin approve`: enable
+	// what it depends on, then approve it.
 	for len(todo) > 0 {
 		var next []installedNow
 		for _, f := range todo {
@@ -509,7 +591,7 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 				continue
 			}
 			cur, _ := cfg.Plugin(f.name)
-			cur.Approved = f.p.Digest
+			cur.Approved, cur.Enabled = f.p.Digest, true
 			if err := cfg.SetPlugin(f.name, cur); err != nil {
 				return o.fail(1, "%v", err)
 			}
@@ -517,17 +599,12 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 		}
 		if len(next) == len(todo) {
 			for _, f := range next {
-				cur, _ := cfg.Plugin(f.name)
-				cur.Approved, cur.Enabled = f.p.Digest, false
-				if err := cfg.SetPlugin(f.name, cur); err != nil {
-					return o.fail(1, "%v", err)
-				}
-				fmt.Fprintf(&report, "Approved %s %s but did not enable it:\n", escapeControl(f.name), escapeControl(f.p.Manifest.Version))
 				for _, u := range unmetDepends(cfg, store, f.name, f.p) {
-					fmt.Fprintf(&report, "  %s\n", escapeControl(u))
+					fmt.Fprintln(o.Err, "Error:", escapeControl(u))
 				}
-				fmt.Fprintf(&report, "  run `cartographer plugin enable %s` once they are met\n", escapeControl(f.name))
+				fmt.Fprintf(o.Err, "Error: %s was not approved: enable what it depends on, then run `cartographer plugin approve %s`\n", escapeControl(f.name), escapeControl(f.name))
 			}
+			failed = true
 			break
 		}
 		todo = next
@@ -537,7 +614,7 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 	}
 	*changed = true
 	fmt.Fprint(o.Out, report.String())
-	// The previous trees are no longer kept; best effort, like every lifecycle command.
+	// Trees other than the approved one are collected; best effort, like every lifecycle command.
 	if err := store.GC(keepMap(cfg)); err != nil {
 		fmt.Fprintf(o.Err, "warning: plugin store cleanup: %s\n", escapeControl(err.Error()))
 	}
