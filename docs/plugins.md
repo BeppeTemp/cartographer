@@ -488,6 +488,21 @@ deletes a file, never a directory, and returns `False` for a missing one. `glob`
 matches, as placeholder paths, sorted, never entering a denied directory or following a link, at most 1000 (the walk
 stops there) and at most 100000 entries looked at. Caps: 8 MiB per read and per write.
 
+## KB tools for scripts
+
+`kb.call(tool, **args)` (or `kb.call(tool, {args})`) exists with `permissions.kb`; without it the call is an error naming
+the permission. The script passes `kb` itself, as every routed tool requires. It returns the tool's text parsed as JSON
+when it parses, else the string; a server error is a script error carrying the server's message, and a result over 1 MiB
+is a limit error. With `kb: read` only a tool the server annotates read-only (`readOnlyHint` of its `tools/list`, kept
+for 5 minutes and refetched at most every 5 seconds for a name it does not know) runs: an unannotated or unknown tool is denied, matched on the exact name (the list is the server's own
+classification, not a copy kept in the plugin code). With `kb: write` every tool the session may call is allowed, and a
+read-only session is `read` whatever the manifest says. The gate is the plugin's declared limit, not the security
+boundary: the server still enforces the token's scopes and the session's access. The `kb` argument is not
+restricted by the plugin layer: the token's scopes and the session's KB set, on the server, decide which KBs a script
+reaches (the bridge adapter must apply the session's KB set when it is wired). A successful result reaches the script
+as the KB wrote it, unescaped: KB content is data to treat as such. When the call's deadline ends or Ctrl-C comes, the
+request is abandoned, but a write the server had already received may still complete.
+
 ## Limits
 
 - No workspace projection: a plugin's skills, agents and hooks reach the global scope of every connected client and no

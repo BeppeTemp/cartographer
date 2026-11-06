@@ -44,6 +44,7 @@ type callCtx struct {
 	lookupEnv func(string) (string, bool)
 	net       *netState
 	files     *filesState
+	kb        *kbState
 }
 
 func ctxOf(thread *starlark.Thread) *callCtx {
@@ -76,29 +77,8 @@ func pureModules() starlark.StringDict {
 	}
 }
 
-// capabilityFuncs lists the functions of each capability module. Later changes
-// give them bodies; until then, and always while loading, a call is refused
-// with an error naming why.
-var capabilityFuncs = map[string][]string{
-	"kb": {"call"},
-}
-
 func capabilityModules(settings *settingsValue) starlark.StringDict {
-	out := starlark.StringDict{"settings": settings, "log": logModule(), "http": httpModule(), "env": envModule(), "files": filesModule()}
-	for mod, fns := range capabilityFuncs {
-		m := &starlarkstruct.Module{Name: mod, Members: starlark.StringDict{}}
-		for _, fn := range fns {
-			full := mod + "." + fn
-			m.Members[fn] = starlark.NewBuiltin(full, func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-				if loading(thread) != nil {
-					return nil, fmt.Errorf("%s is not available while plugin.star loads: it only registers commands, tools and events", full)
-				}
-				return nil, fmt.Errorf("%s is not available yet", full)
-			})
-		}
-		out[mod] = m
-	}
-	return out
+	return starlark.StringDict{"settings": settings, "log": logModule(), "http": httpModule(), "env": envModule(), "files": filesModule(), "kb": kbModule()}
 }
 
 // logModule writes to the call's log sink, never to stdout (a bridge's stdout

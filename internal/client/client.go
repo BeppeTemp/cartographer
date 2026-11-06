@@ -6,6 +6,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -367,6 +368,11 @@ func RequestMeta(version string) map[string]any {
 
 // do sends a single JSON-RPC 2.0 request and returns the raw "result" field.
 func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
+	return c.doCtx(context.Background(), method, params)
+}
+
+// doCtx is do under a context: when it ends the request is abandoned.
+func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
 		return nil, err
 	}
@@ -380,7 +386,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		return nil, fmt.Errorf("client: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, reqURL, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("client: build request: %w", err)
 	}
@@ -682,7 +688,13 @@ func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time
 
 // Call invokes an MCP tool via tools/call and preserves all text content blocks.
 func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
-	raw, err := c.do("tools/call", map[string]any{"name": tool, "arguments": args})
+	return c.CallContext(context.Background(), tool, args)
+}
+
+// CallContext is Call under a context: when it ends the request is abandoned,
+// so a caller that reports a deadline does not leave a write running.
+func (c *MCPClient) CallContext(ctx context.Context, tool string, args any) (json.RawMessage, error) {
+	raw, err := c.doCtx(ctx, "tools/call", map[string]any{"name": tool, "arguments": args})
 	if err != nil {
 		return nil, err
 	}
@@ -711,6 +723,58 @@ func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 	}
 	combined, _ := json.Marshal(texts)
 	return combined, nil
+}
+
+// ToolInfo is a tool of tools/list as a plugin's kb.call needs it: the name and
+// whether the server annotates it read-only.
+type ToolInfo struct {
+	Name     string
+	ReadOnly bool
+}
+
+// ListTools returns every tool of tools/list, following nextCursor. ReadOnly is
+// the server's own readOnlyHint, so the classification is never copied here;
+// an absent annotation is false.
+func (c *MCPClient) ListTools() ([]ToolInfo, error) {
+	return c.ListToolsContext(context.Background())
+}
+
+// ListToolsContext is ListTools under a context.
+func (c *MCPClient) ListToolsContext(ctx context.Context) ([]ToolInfo, error) {
+	var out []ToolInfo
+	cursor := ""
+	for page := 0; page < 100; page++ {
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		raw, err := c.doCtx(ctx, "tools/list", params)
+		if err != nil {
+			return nil, err
+		}
+		var res struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				Annotations *struct {
+					ReadOnlyHint bool `json:"readOnlyHint"`
+				} `json:"annotations"`
+			} `json:"tools"`
+			NextCursor string `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, Message: "invalid tool list", Cause: err}
+		}
+		for _, t := range res.Tools {
+			out = append(out, ToolInfo{Name: t.Name, ReadOnly: t.Annotations != nil && t.Annotations.ReadOnlyHint})
+		}
+		if res.NextCursor == "" || res.NextCursor == cursor {
+			return out, nil
+		}
+		cursor = res.NextCursor
+	}
+	// A server that never stops paging is not trusted with a partial list: a
+	// missing tool would read as a write, but a caller must not run on half a list.
+	return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, Message: "the tool list never ends"}
 }
 
 // UnreachableMessage is the text of a request that never got an answer, for

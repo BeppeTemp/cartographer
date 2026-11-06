@@ -75,6 +75,9 @@ type Host struct {
 	// path stays under and the user's config and cache directories, whose
 	// "cartographer" directory is denied. Empty is the OS's.
 	Home, ConfigDir, CacheDir string
+	// KB reaches the KB's tools for kb.call; nil means no KB is reachable
+	// (kb.call fails, saying so).
+	KB KBCaller
 }
 
 // Request is one call of a registered function.
@@ -93,7 +96,8 @@ type Request struct {
 	Event  map[string]any
 
 	// ReadOnly is a read-only session: files.write and files.remove are
-	// denied whatever the manifest grants.
+	// denied and kb.call is limited to read-only tools, whatever the manifest
+	// grants.
 	ReadOnly bool
 
 	// Permissions are the manifest's, nil for none.
@@ -194,6 +198,7 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (res Result
 	}
 	cc.net = newNetState(cc, req.Version, o.net)
 	cc.files = &filesState{cc: cc, host: req.Host, readOnly: req.ReadOnly}
+	cc.kb = &kbState{cc: cc, caller: req.Host.KB, readOnly: req.ReadOnly}
 	var printw io.Writer = logw
 	prefix := "plugin " + req.Plugin + ": "
 	if req.Kind == KindCommand {
