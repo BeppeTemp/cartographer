@@ -222,13 +222,13 @@ problem is listed as `path: reason`, sorted. `seed` and `allow_call` are not key
 | `paths.global`, `paths.project` | Cells `skill` (`dir`), `agent` (`dir`, `format` one of `claude`, `opencode`, `antigravity`, `copilot`, `cline`, default `claude`), `instructions` (`file`, a `.md` file, the extension of every built-in provider's instructions file); the global scope adds `hook` (`dir`, `scan: base`). The project scope takes no `hook` and no MCP cell. |
 | `capabilities` | Map of capability id to `verified`, `unverified` or `absent`, at most 64. |
 | `mcp.mode` | `native` (default), `cli` or `none`. |
-| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the client derives from it and regenerates. Both take the base's extension, are refused with `cli` or `none`, and take no `{documents}`. |
+| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the client derives from it and regenerates. Both take the base's extension, are refused with `cli` or `none`, and take no `{documents}`. The MCP paths follow the rules of a global cell (below); a `stale` file lies below the directory of `config` (the part before any `*`), is never `config` itself, and exists only with a `config` of its own. |
 | `invoke_hint` | Optional, one line, at most 200. |
 
 A value is per OS (`darwin`, `linux`, `windows`, `default`, each key once) or one value for all. A global path starts with an anchor
 `{home}/`, `{xdg_config}/`, `{app_data}/`, `{local_app_data}/` or `{documents}/`; a project path is relative and
 takes none. A segment is not empty, `.` or `..`, does not end in a dot or a space, is not a Windows device name,
-does not start with `~` and holds none of `\ : ? [ ]` or a control character. A `*` is allowed in `detect.dirs`,
+does not start with `~`, holds no `~` followed by a digit (a Windows 8.3 short name such as `SSH~1`, refused on every OS) and holds none of `\ : ? [ ]` or a control character. A `*` is allowed in `detect.dirs`,
 `mcp.config` and `mcp.stale` only: in one segment, never the first, as `*` or `prefix*`, and never in the file name
 of an MCP path. No segment of any path reaches Cartographer's own state, by the rule of the manifest globs
 (`reachesOwnState`): the client config file, the `cartographer` config, state and cache directories, by name or through
@@ -267,9 +267,49 @@ provider of those plugins and of the rest still registers. An invalid spec fails
 
 An MCP file with a `*` segment (a version folder) is a pattern, carried in `Descriptor.MCPConfigGlob`.
 `MCPConfigPath`, which callers join onto the home directory literally, stays empty for it, so such a provider has no
-literal path and its entry is not emitted.
+literal path; its emitted result carries `FileGlob` instead of `FilePath`, `configurator.Apply` expands it, and a
+caller that needs the files asks `Descriptor.MCPFiles` (see MCP modes and hooks below).
 
 Agent detection lists the registered providers after the built-ins, by the same probes (binaries, then directories,
 one segment of a directory may be a pattern); a binary is probed as the base's, since a name alone is no more
 evidence for a fork than for its base. A provider that is not `Active` is listed and never reported installed, and
 stays resolvable. `cartographer agents` labels such a row `<id> (plugin <name>, base <base>)`.
+
+### Destination cells
+
+`provisioning.ReplacePluginCells` (data built by `ResolvedProvider.Cells`) makes the cells of the registered
+providers visible to every destination lookup: `cellFor` answers from the static matrix first, then from these. The
+static matrices and the capability table stay built-in. A provider whose global roots equal, contain or lie under a
+built-in's or another provider's is refused whole (both, when two candidates collide); a global cell may not sit in
+the home directly, in a built-in client's directory or in a credential, shell or CI path, and no cell may lie in the
+folder of the Cline dispatchers (`Documents/Cline/Hooks`, also the redirected Documents folder). A provider writes one
+agent layout for both scopes. Its capability rows stay `absent` or `unverified` until probed; a fork of a probed base
+is probed as its base where the layout is the same. The MCP file is a destination cell (for the KB's MCP descriptors)
+only when `mcp.config` is the provider's own literal file.
+
+The MCP paths (`mcp.config`, a pattern's fixed part, every `mcp.stale` entry) pass the same global-cell checks as a
+cell, in `configurator.CheckPluginMCPPaths`: below a client directory of their own, outside the denied directories,
+outside a built-in client's directory, no `.git*`. With `XDG_CONFIG_HOME` set to a directory under the home, the part of a `{xdg_config}` cell or MCP path below that root is checked as if it lay below `.config` (`{xdg_config}/git/x` is refused as `.config/git/x` is), and a provider whose `mcp.config` is left out for any reason writes no MCP entry (mode `none`). A pattern holds one `*`, in one segment, never within the client
+directory (`{home}/.config/*/config.json` would reach every application's file). No MCP path equals or matches the
+MCP file of a built-in provider, and a `stale` entry equal to `config` or matching it is refused. The check runs
+where the descriptor is resolved (`ResolveProvider`: a provider that fails it writes no MCP entry, and the install
+preview shows the reason), where it is registered (`RegisterPlugin` refuses it) and again before any stale file is
+removed.
+
+### MCP modes and hooks
+
+`native` writes Cartographer's entry in the base's format: at the base's path, at `mcp.config`, or, when
+`mcp.config` holds a `*`, into every existing regular file it matches (one file per installed version of the client;
+a symlinked entry is not a match, no match is the warning "open the client once"). A pattern writes at most three
+files: over that it writes none and warns with the pattern and the count; a match that is a built-in provider's MCP
+file is skipped with a warning. The files in `mcp.stale` are
+removed after a write that changed bytes, never after a no-op, and only when at most three exist and none lies
+behind a link; servers added through the client's UI are dropped at its next start. Disconnect edits only the files
+the entry is in. `cli` writes no entry and projects the bundled `cartographer-cli` skill, and the instructions block
+names the provider to pass to `cartographer call`; `none` writes neither, and `connect`, `sync`, `disconnect` and
+`doctor` skip it without a warning.
+
+A provider whose base has a shared hook dispatcher (Cline) contributes its `hook` cell as one more root of the
+dispatcher, which stays shared and is never written by the plugin. The roots come from the registry and only for a
+provider of an active plugin, so retracting a plugin stops its hooks at once, even with files on disk. On any other
+base the hook cell is dropped with a note.

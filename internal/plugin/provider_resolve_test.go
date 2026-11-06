@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 func parsed(t *testing.T, stem, src string) ProviderSpec {
@@ -232,5 +233,100 @@ func TestResolvedProviderRegisters(t *testing.T) {
 	}
 	if len(configurator.ProviderList()) != builtins {
 		t.Error("a registration entered a built-in list")
+	}
+}
+
+// The resolved fixtures register their cells with provisioning: the cells keep
+// their scope and kind, the hook directory joins the base's dispatcher, and an
+// MCP file that is a pattern is no destination cell.
+func TestResolvedProviderCellsRegisterWithProvisioning(t *testing.T) {
+	var cells []provisioning.PluginCells
+	for _, tc := range []struct{ name, src string }{{"fork-cli", forkCLI}, {"fork-ext", forkExt}} {
+		r, _ := ResolveProvider(parsed(t, tc.name, tc.src), fakeEnv("linux", nil))
+		c := r.Cells(true)
+		if c.Name != tc.name || c.Base != r.Base || !c.Active {
+			t.Fatalf("%s: %+v", tc.name, c)
+		}
+		if tc.name == "fork-ext" && c.MCPFile != nil {
+			t.Errorf("a pattern became a cell: %v", c.MCPFile)
+		}
+		cells = append(cells, c)
+	}
+	_, refused := provisioning.ReplacePluginCells(cells, "/home/user")
+	t.Cleanup(func() { provisioning.ReplacePluginCells(nil, "/home/user") })
+	if len(refused) != 0 {
+		t.Fatalf("refused: %+v", refused)
+	}
+	if cells[1].Global.Hook == nil || cells[1].Global.Instructions == nil || cells[0].Global.Skill == nil {
+		t.Errorf("a cell was lost in the conversion: %+v", cells)
+	}
+	if r, _ := ResolveProvider(parsed(t, "fork-ext", forkExt), fakeEnv("linux", nil)); r.Cells(false).Active {
+		t.Error("Active is the plugin's, not the descriptor's")
+	}
+}
+
+// An MCP path the cell rules refuse takes the provider's whole MCP side out with
+// a reason, never only that path: a provider left without mcp.config would write
+// the base's file.
+func TestResolveProviderDropsUnsafeMCPPaths(t *testing.T) {
+	cfg := `default: "{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp.json"`
+	stale := `default: ["{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp-cache.json"]`
+	for name, c := range map[string]struct{ cfg, stale, want string }{
+		"claude settings as stale": {cfg, `default: ["{home}/.claude.json"]`, "no path below its client directory"},
+		"credentials as stale":     {cfg, `default: ["{home}/.docker/config.json"]`, "no plugin provider may write"},
+		"glob in a denied dir":     {`default: "{home}/.aws/ext-*/mcp.json"`, stale, "no plugin provider may write"},
+		"stale outside the config": {cfg, `default: ["{home}/.config/gcloud/credentials.json"]`, "does not lie below"},
+	} {
+		spec := parsed(t, "fork-ext", swapText(t, swapText(t, forkExt, cfg, c.cfg), stale, c.stale))
+		r, reasons := ResolveProvider(spec, fakeEnv("linux", nil))
+		if r.MCPConfig != nil || r.MCPStale != nil || r.MCPMode != configurator.MCPModeNone || !strings.Contains(strings.Join(reasons, "|"), c.want) {
+			t.Errorf("%s: config %v stale %v mode %q reasons %v", name, r.MCPConfig, r.MCPStale, r.MCPMode, reasons)
+		}
+		if r.Registration("team", true).MCPMode != configurator.MCPModeNone {
+			t.Errorf("%s: the registration still writes MCP", name)
+		}
+	}
+}
+
+// An mcp.config the resolver drops (here: outside home) takes the MCP side out
+// with the mode: the registration must not fall back to the base's file.
+func TestResolveProviderDroppedMCPConfigWritesNothing(t *testing.T) {
+	spec := parsed(t, "fork-ext", swapText(t, swapText(t, forkExt, `default: "{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp.json"`, `default: "{xdg_config}/acme/mcp.json"`), `  stale:
+    default: ["{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp-cache.json"]
+`, ""))
+	r, reasons := ResolveProvider(spec, fakeEnv("linux", map[string]string{"XDG_CONFIG_HOME": "/mnt/other"}))
+	if r.MCPConfig != nil || r.MCPMode != configurator.MCPModeNone || !strings.Contains(strings.Join(reasons, "|"), "outside the home") {
+		t.Errorf("config %v mode %q reasons %v", r.MCPConfig, r.MCPMode, reasons)
+	}
+	if r.Registration("team", true).MCPMode != configurator.MCPModeNone {
+		t.Error("the registration still writes MCP")
+	}
+}
+
+// A custom XDG_CONFIG_HOME under home does not take a path out of the .config
+// denylist: the part below the root is checked as if below .config.
+func TestResolveProviderCustomXDGKeepsDenylist(t *testing.T) {
+	env := fakeEnv("linux", map[string]string{"XDG_CONFIG_HOME": "/home/user/cfg"})
+	for _, dir := range []string{"git/skills", "systemd/user", "autostart/x", "fish/conf.d", "environment.d/x", "crush/skills"} {
+		spec := parsed(t, "fork-cli", swapText(t, forkCLI, `linux: "{xdg_config}/fork-cli/skills"`, `linux: "{xdg_config}/`+dir+`"`))
+		r, reasons := ResolveProvider(spec, env)
+		// crush/skills is the client directory of a built-in provider.
+		if r.Global.Skill != nil {
+			t.Errorf("%s: the cell must be dropped: %+v", dir, r.Global.Skill)
+		}
+		if !strings.Contains(strings.Join(reasons, "|"), "below {xdg_config}") {
+			t.Errorf("%s: reasons %v", dir, reasons)
+		}
+	}
+	// An MCP file below the same root.
+	spec := parsed(t, "fork-ext", swapText(t, swapText(t, forkExt, `default: "{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp.json"`, `default: "{xdg_config}/git/mcp.json"`), `  stale:
+    default: ["{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp-cache.json"]
+`, ""))
+	if r, _ := ResolveProvider(spec, env); r.MCPConfig != nil || r.MCPMode != configurator.MCPModeNone {
+		t.Errorf("mcp.config below the root: %v %q", r.MCPConfig, r.MCPMode)
+	}
+	// A permitted directory still resolves, to the custom root.
+	if r, reasons := ResolveProvider(parsed(t, "fork-cli", forkCLI), env); r.Global.Skill == nil || strings.Join(r.Global.Skill.Dir, "/") != "cfg/fork-cli/skills" {
+		t.Errorf("fork-cli: %+v %v", r.Global.Skill, reasons)
 	}
 }

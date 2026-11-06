@@ -149,6 +149,9 @@ func buildPlugin(spec PluginSpec) (pluginEntry, error) {
 	default:
 		return pluginEntry{}, fmt.Errorf("plugin provider %q: unknown MCP mode %q", spec.Name, spec.MCPMode)
 	}
+	if err := CheckPluginMCPPaths(spec.Name, spec.MCPConfig, spec.MCPStale); err != nil {
+		return pluginEntry{}, err
+	}
 	if len(spec.MCPConfig) > 0 {
 		// The fork's own file. A `*` segment makes it a pattern, kept out of
 		// MCPConfigPath (left empty) so that no caller joins it literally.
@@ -180,12 +183,17 @@ func buildPlugin(spec PluginSpec) (pluginEntry, error) {
 	d.EnvConfigDirs, d.AppDirs, d.InstructionsPrecedence, d.HookPluginMajors = nil, nil, nil, nil
 	baseEmit := base.emit
 	d.emit = func(n string, s ServerSpec) (*EmitResult, error) {
-		if d.MCPConfigPath == "" {
-			return nil, fmt.Errorf("plugin provider %q writes no MCP entry at a literal path", name)
+		if d.MCPConfigPath == "" && d.MCPConfigGlob == "" {
+			return nil, fmt.Errorf("plugin provider %q writes no MCP entry (mode %s)", name, d.MCPMode)
 		}
 		r, err := baseEmit(n, s)
 		if err != nil {
 			return nil, err
+		}
+		if d.MCPConfigGlob != "" {
+			// Apply expands the pattern; FilePath stays empty so no caller joins it.
+			r.Provider, r.FilePath, r.FileGlob = name, "", d.MCPConfigGlob
+			return r, nil
 		}
 		// The base's emitter names the base's file: the result is the fork's, so
 		// Apply writes the overridden path and Lookup(r.Provider) finds it.

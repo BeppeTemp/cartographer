@@ -128,7 +128,9 @@ var codexMCPTableHeader = regexp.MustCompile(`(?m)^\s*\[mcp_servers\.([^\[\]]+)\
 // (D99), so the table is the durable identity.
 func MCPServerEntryNames(baseDir string, provider configurator.Provider) ([]string, error) {
 	d, ok := configurator.Lookup(provider)
-	if !ok {
+	if !ok || d.MCPConfigPath == "" {
+		// No literal file: a cli or none provider has no entry, and a provider
+		// whose file is a pattern (MCPConfigGlob) has no single one to read.
 		return nil, nil
 	}
 	full := filepath.Join(baseDir, d.ConfigPath())

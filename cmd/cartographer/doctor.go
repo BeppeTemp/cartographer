@@ -456,7 +456,12 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 		}
 		provider := configurator.Provider(p)
 		d, ok := configurator.Lookup(provider)
-		if !ok {
+		if !ok || skipsMCPEntry(p) {
+			continue // a cli or none provider has no entry to check
+		}
+		if d.MCPConfigGlob != "" {
+			// One file per installed version of the client: sync writes into each
+			// existing match; there is no single file to read for a finding.
 			continue
 		}
 		configPath := filepath.Join(dir, d.ConfigPath())

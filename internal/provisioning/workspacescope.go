@@ -190,15 +190,15 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 	},
 }
 
-// cellFor is the one read of a destination cell of a scope: the static matrix
-// today. A kind or provider the matrix does not hold is not found, which every
-// caller treats as unsupported.
+// cellFor is the one read of a destination cell of a scope: the static matrix,
+// then the cells a registered plugin provider declared (plugincells.go). A kind
+// or provider neither holds is not found, which every caller treats as
+// unsupported.
 func cellFor(scope Scope, kind string, provider configurator.Provider) (destination, bool) {
-	cell, ok := matrixFor(scope)[kind][provider]
-	if !ok {
-		return unsupportedDest, false
+	if cell, ok := matrixFor(scope)[kind][provider]; ok {
+		return cell, true
 	}
-	return cell, true
+	return pluginCell(scope, kind, provider)
 }
 
 // matrixFor returns the destination matrix for a scope.
@@ -232,7 +232,7 @@ func destDirScoped(kind, name string, provider configurator.Provider, scope Scop
 // that cannot project must be reported as unsupported rather than quietly
 // served from the global catalogue (decision 11).
 func SupportsProjectScope(provider configurator.Provider) bool {
-	for kind := range projectDestinationMatrix {
+	for _, kind := range artifactKinds {
 		if cell, ok := cellFor(ScopeProject, kind, provider); ok && !cell.unsupported {
 			return true
 		}
@@ -297,7 +297,7 @@ func ProjectRegistrationFiles(provider configurator.Provider) []string {
 func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for kind := range projectDestinationMatrix {
+	for _, kind := range artifactKinds {
 		cell, ok := cellFor(ScopeProject, kind, provider)
 		if !ok || cell.unsupported {
 			continue

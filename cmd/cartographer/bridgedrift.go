@@ -29,7 +29,7 @@ type staleBridgeEntry struct {
 // stale. A config behind a symlink is skipped, as sync would refuse it (D148).
 func staleBridgeEntries(provider string, entries []mcpEntry, dir string, claudeDirs []string) []staleBridgeEntry {
 	d, ok := configurator.Lookup(configurator.Provider(provider))
-	if !ok || d.MCPConfigPath == "" {
+	if !ok || (d.MCPConfigPath == "" && d.MCPConfigGlob == "") {
 		return nil
 	}
 	want, err := bridgeCommand()
@@ -42,20 +42,22 @@ func staleBridgeEntries(provider string, entries []mcpEntry, dir string, claudeD
 			continue
 		}
 		for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
-			fp := filepath.Join(base, d.ConfigPath())
-			if safewrite.CheckPath(base, fp) != nil {
-				continue
+			// MCPFiles: the literal file, or every existing match of a pattern.
+			for _, fp := range d.MCPFiles(base) {
+				if safewrite.CheckPath(base, fp) != nil {
+					continue
+				}
+				data, err := os.ReadFile(fp)
+				if err != nil {
+					continue
+				}
+				have, ok := bridgeCommandOnDisk(d, data, e.Name, provider)
+				if !ok || have == want {
+					continue
+				}
+				_, statErr := os.Stat(have)
+				out = append(out, staleBridgeEntry{Name: e.Name, Path: fp, Have: have, Want: want, Missing: os.IsNotExist(statErr)})
 			}
-			data, err := os.ReadFile(fp)
-			if err != nil {
-				continue
-			}
-			have, ok := bridgeCommandOnDisk(d, data, e.Name, provider)
-			if !ok || have == want {
-				continue
-			}
-			_, statErr := os.Stat(have)
-			out = append(out, staleBridgeEntry{Name: e.Name, Path: fp, Have: have, Want: want, Missing: os.IsNotExist(statErr)})
 		}
 	}
 	return out
@@ -149,7 +151,7 @@ func noteOnDiskBridgeCommand(targets []string, entriesByProvider map[string][]mc
 	onDiskBridgeCommand, onDiskBridgeMissing = "", ""
 	for _, p := range targets {
 		d, ok := configurator.Lookup(configurator.Provider(p))
-		if !ok || d.MCPConfigPath == "" {
+		if !ok || (d.MCPConfigPath == "" && d.MCPConfigGlob == "") {
 			continue
 		}
 		for _, e := range entriesByProvider[p] {
@@ -157,21 +159,22 @@ func noteOnDiskBridgeCommand(targets []string, entriesByProvider map[string][]mc
 				continue
 			}
 			for _, base := range providerBaseDirs(p, dir, claudeDirs) {
-				fp := filepath.Join(base, d.ConfigPath())
-				if safewrite.CheckPath(base, fp) != nil {
-					continue
-				}
-				data, err := os.ReadFile(fp)
-				if err != nil {
-					continue
-				}
-				if have, ok := bridgeCommandOnDisk(d, data, e.Name, p); ok {
-					if usableBridgeFile(have) {
-						onDiskBridgeCommand = have
-						return
+				for _, fp := range d.MCPFiles(base) {
+					if safewrite.CheckPath(base, fp) != nil {
+						continue
 					}
-					if onDiskBridgeMissing == "" {
-						onDiskBridgeMissing = have
+					data, err := os.ReadFile(fp)
+					if err != nil {
+						continue
+					}
+					if have, ok := bridgeCommandOnDisk(d, data, e.Name, p); ok {
+						if usableBridgeFile(have) {
+							onDiskBridgeCommand = have
+							return
+						}
+						if onDiskBridgeMissing == "" {
+							onDiskBridgeMissing = have
+						}
 					}
 				}
 			}
