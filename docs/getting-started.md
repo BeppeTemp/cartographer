@@ -96,6 +96,17 @@ changes:
    agent configuration, then a health check. It ends on the Atlas URL and on
    the one thing left to you: restarting your agent sessions.
 
+> **A team KB you can read but not push to.** Setup proves that the remote
+> answers and that your credentials reach it, not that you may push to its
+> branch. A forge checks a protected branch only when a push really arrives
+> (`git push --dry-run` never reaches that check), so setup cannot ask ahead
+> without a forge token. On GitLab a `Developer` on a protected default branch
+> mounts the KB, the agent writes, and the first push is refused:
+> `cartographer status` and `sync_status` say the branch is protected, the
+> commits stay on this machine and the push is not retried (D903). Ask for the
+> `Maintainer` role or for Developers to be allowed to push to that branch, or
+> use the KB as a read-only reference.
+
 A step that fails stops setup with its cause; fix it and run `cartographer
 setup` again — finished steps are skipped. For a scripted or agent-driven
 install, every answer is a flag:
