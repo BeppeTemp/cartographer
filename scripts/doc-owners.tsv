@@ -32,3 +32,4 @@ internal/okf/*.go	docs/data-plane.md	Change to the KB model / OKF / filesystem l
 Makefile	docs/testing.md	New test level or pre-release checklist change
 .github/workflows/*	docs/testing.md	New test level or pre-release checklist change
 scripts/*	docs/testing.md	New test level or pre-release checklist change
+internal/plugin/*.go	docs/plugins.md	Plugin manifest, contribution points or store

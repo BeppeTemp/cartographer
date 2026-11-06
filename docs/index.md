@@ -79,6 +79,7 @@ page that was not touched; the table and the file change together, and a test
 | Change to concurrency / git-sync logic | `concurrency.md` |
 | New skill, service or secret handling | `skills-services-secrets.md` |
 | Client provisioning/sync logic | `sync.md` |
+| Plugin manifest, contribution points or store (`internal/plugin`) | `plugins.md` (not linked from this index or the nav until the feature is turned on) |
 | Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/`service`/TUI…) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `provisioning.Kinds` (the Atlas lists it; a test fails without it, D864) |
