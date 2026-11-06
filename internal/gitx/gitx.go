@@ -326,7 +326,11 @@ func lsRemoteProbe(ctx context.Context, remote string) (RemoteRefs, error) {
 			return RemoteRefs{}, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, shown, ctx.Err())
 		}
 		output := RedactRemoteText(strings.TrimSpace(stderr.String()), remote)
-		if remedy := remoteRemedy(output); remedy != "" {
+		remedy := sshRemedy(ctx, remote, output)
+		if remedy == "" {
+			remedy = remoteRemedy(output)
+		}
+		if remedy != "" {
 			return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %s\n%s", shown, remedy, output)
 		}
 		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", shown, redactedErr(err, remote), output)
