@@ -63,6 +63,15 @@ func cmdAgents(args []string) int {
 	return 0
 }
 
+// agentLabel is the provider column: the id, and for a provider a plugin
+// declares the plugin and the built-in client it forks.
+func agentLabel(a agents.Agent) string {
+	if a.Plugin == "" {
+		return string(a.Provider)
+	}
+	return fmt.Sprintf("%s (plugin %s, base %s)", a.Provider, escapeControl(a.Plugin), a.Base)
+}
+
 // writeAgentsTable prints the agents table with the PROVIDER and DETECTION
 // columns sized on the widest value they actually print, header included: a
 // fixed width silently loses the alignment of every following column as soon as
@@ -77,7 +86,7 @@ func cmdAgents(args []string) int {
 func writeAgentsTable(w io.Writer, detected []agents.Agent, connected map[string]bool) {
 	provider, detectedBy := len("PROVIDER"), len("DETECTION")
 	for _, a := range detected {
-		if n := len(a.Provider); n > provider {
+		if n := len(agentLabel(a)); n > provider {
 			provider = n
 		}
 		if n := len(a.DetectedBy); n > detectedBy {
@@ -86,7 +95,7 @@ func writeAgentsTable(w io.Writer, detected []agents.Agent, connected map[string
 	}
 	fmt.Fprintf(w, "%-*s %-10s %-10s %-*s %s\n", provider, "PROVIDER", "INSTALLED", "CONNECTED", detectedBy, "DETECTION", "EVIDENCE")
 	for _, a := range detected {
-		fmt.Fprintf(w, "%-*s %-10s %-10s %-*s %s\n", provider, a.Provider, yesNo(a.Installed), yesNo(connected[string(a.Provider)]), detectedBy, dashIfEmpty(string(a.DetectedBy)), dashIfEmpty(a.Evidence))
+		fmt.Fprintf(w, "%-*s %-10s %-10s %-*s %s\n", provider, agentLabel(a), yesNo(a.Installed), yesNo(connected[string(a.Provider)]), detectedBy, dashIfEmpty(string(a.DetectedBy)), dashIfEmpty(a.Evidence))
 	}
 }
 

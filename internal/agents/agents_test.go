@@ -619,3 +619,117 @@ func TestDetect_ClineHomeWithGlobCharacters(t *testing.T) {
 	}
 	t.Fatal("cline missing")
 }
+
+func TestDetect_PluginProviders(t *testing.T) {
+	_, _ = configurator.ReplacePlugins(nil)
+	t.Cleanup(func() { _, _ = configurator.ReplacePlugins(nil) })
+	for _, name := range []string{"fork-bin", "fork-dir", "fork-glob", "fork-mid", "fork-none"} {
+		spec := configurator.PluginSpec{Name: name, Base: string(configurator.ProviderCrush), Origin: "team", Active: true}
+		switch name {
+		case "fork-bin":
+			spec.Binaries = []string{"forkbin"}
+		case "fork-dir":
+			spec.DetectDirs = [][]string{{".forkdir"}}
+		case "fork-glob":
+			spec.DetectDirs = [][]string{{".ext", "acme.fork-*"}}
+		case "fork-mid":
+			spec.DetectDirs = [][]string{{".mid", "acme.fork-*", "settings"}}
+		}
+		if err := configurator.RegisterPlugin(spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := t.TempDir()
+	for _, d := range []string{".forkdir", filepath.Join(".ext", "acme.fork-1.2.3"), filepath.Join(".mid", "acme.fork-2", "settings")} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A version folder without the literal tail behind the pattern is no evidence.
+	if err := os.MkdirAll(filepath.Join(home, ".mid", "acme.fork-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, map[string]string{"forkbin": "/bin/forkbin"}, "linux")
+
+	got := Detect()
+	builtins := len(configurator.DetectionOrder())
+	if len(got) != builtins+5 {
+		t.Fatalf("got %d agents", len(got))
+	}
+	want := map[string]Heuristic{"fork-bin": HeuristicBinary, "fork-dir": HeuristicConfigDir, "fork-glob": HeuristicConfigDir, "fork-mid": HeuristicConfigDir, "fork-none": ""}
+	for _, a := range got[builtins:] {
+		if a.Plugin != "team" || a.Base != configurator.ProviderCrush || a.DetectedBy != want[string(a.Provider)] {
+			t.Errorf("%s: %+v", a.Provider, a)
+		}
+	}
+	for _, a := range got[:builtins] {
+		if a.Plugin != "" || a.Base != "" {
+			t.Errorf("built-in %s marked as a plugin provider", a.Provider)
+		}
+	}
+	if mid := got[builtins+3]; mid.Evidence != filepath.Join(home, ".mid", "acme.fork-2", "settings") {
+		t.Errorf("fork-mid evidence = %q", mid.Evidence)
+	}
+}
+
+// A provider of a plugin that is not active is listed and never installed.
+func TestDetect_InactivePluginProviderIsNotInstalled(t *testing.T) {
+	_, _ = configurator.ReplacePlugins(nil)
+	t.Cleanup(func() { _, _ = configurator.ReplacePlugins(nil) })
+	if err := configurator.RegisterPlugin(configurator.PluginSpec{Name: "fork-off", Base: string(configurator.ProviderCrush), Origin: "team", Binaries: []string{"forkoff"}, DetectDirs: [][]string{{".forkoff"}}}); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".forkoff"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, map[string]string{"forkoff": "/bin/forkoff"}, "linux")
+	got := Detect()
+	a := got[len(got)-1]
+	if a.Provider != "fork-off" || a.Installed || a.Evidence != "" || a.Plugin != "team" {
+		t.Fatalf("inactive provider = %+v", a)
+	}
+}
+
+// A fork of Pi is probed as Pi: a `pi` shim that fails --version is not the fork.
+func TestDetect_PluginBinaryProbedAsBase(t *testing.T) {
+	_, _ = configurator.ReplacePlugins(nil)
+	t.Cleanup(func() { _, _ = configurator.ReplacePlugins(nil) })
+	if err := configurator.RegisterPlugin(configurator.PluginSpec{Name: "fork-pi", Base: string(configurator.ProviderPi), Origin: "team", Active: true, Binaries: []string{"forkpi"}}); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, t.TempDir(), map[string]string{"forkpi": "/bin/forkpi"}, "linux")
+	orig := runVersion
+	t.Cleanup(func() { runVersion = orig })
+	for out, want := range map[string]bool{"1.2.3\n": true, "not a version": false} {
+		runVersion = func(string) (string, error) { return out, nil }
+		got := Detect()
+		if a := got[len(got)-1]; a.Installed != want {
+			t.Errorf("version %q: Installed=%v, want %v", out, a.Installed, want)
+		}
+	}
+}
+
+// A home that holds pattern characters is a literal directory for a registered
+// provider's glob too.
+func TestDetect_PluginHomeWithGlobCharacters(t *testing.T) {
+	_, _ = configurator.ReplacePlugins(nil)
+	t.Cleanup(func() { _, _ = configurator.ReplacePlugins(nil) })
+	if err := configurator.RegisterPlugin(configurator.PluginSpec{Name: "fork-glob", Base: string(configurator.ProviderCrush), Origin: "team", Active: true, DetectDirs: [][]string{{".ext", "acme.fork-*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	name := "home[1]"
+	if runtime.GOOS != "windows" {
+		name += "*?"
+	}
+	home := filepath.Join(t.TempDir(), name)
+	dir := filepath.Join(home, ".ext", "acme.fork-1.0.0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, nil, "linux")
+	got := Detect()
+	if a := got[len(got)-1]; !a.Installed || a.Evidence != dir {
+		t.Fatalf("fork-glob = %+v, want evidence %s", a, dir)
+	}
+}

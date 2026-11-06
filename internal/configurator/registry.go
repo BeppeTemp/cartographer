@@ -47,6 +47,11 @@ type Descriptor struct {
 	// path, not the field. Anything else that joins this onto a directory is a
 	// bug on Windows.
 	MCPConfigPath string
+	// MCPConfigGlob is the pattern of a plugin provider whose MCP file lies in a
+	// folder with a variable name (a `*` segment, home-relative, slash form). It
+	// is never a path: MCPConfigPath stays empty for such a provider, so a caller
+	// that joins MCPConfigPath finds nothing to write instead of a literal `*`.
+	MCPConfigGlob string
 	MCPFormat     ConfigFormat
 	// MCPServerKey is the top-level JSON key holding the map of MCP server
 	// entries. Empty for FormatTOMLBlock providers.
@@ -73,9 +78,10 @@ type Descriptor struct {
 	FlatToolNamespace bool
 
 	// MCPMode is "" for a provider that reaches Cartographer through an MCP
-	// server entry (every built-in) and MCPModeCLI for a client variant that
-	// reaches it through `cartographer call`: it gets no entry and the bundled
-	// cartographer-cli skill is projected to it (UsesCLI).
+	// server entry (every built-in), MCPModeCLI for a plugin provider that
+	// reaches it through `cartographer call` (no entry; the bundled
+	// cartographer-cli skill is projected to it, UsesCLI) and MCPModeNone for one
+	// that gets neither.
 	MCPMode string
 
 	// ToolIdentifierLimit, when non-zero, is the longest tool identifier the
@@ -98,7 +104,7 @@ type Descriptor struct {
 	// ConfigDirs are directories relative to the user's home, probed in this
 	// order when the binary is absent.
 	ConfigDirs [][]string
-	// ConfigDirGlobs are home-relative segment lists whose last segment is a
+	// ConfigDirGlobs are home-relative segment lists in which one segment is a
 	// filepath.Match pattern, probed after ConfigDirs and before EnvConfigDirs:
 	// the evidence of a client that is an editor extension, whose directory name
 	// carries a version.
@@ -373,13 +379,13 @@ func DetectionOrder() []Descriptor {
 const MCPModeCLI = "cli"
 
 // Lookup returns the descriptor for p, or ok=false for an unknown provider.
+// A registered plugin provider is found after the built-ins (RegisterPlugin
+// refuses a built-in's name, so the order cannot shadow).
 func Lookup(p Provider) (Descriptor, bool) {
-	for _, d := range descriptors {
-		if d.Provider == p {
-			return d, true
-		}
+	if d, ok := builtin(p); ok {
+		return d, true
 	}
-	return Descriptor{}, false
+	return lookupPlugin(p)
 }
 
 // UsesCLI reports whether the provider reaches Cartographer through `cartographer

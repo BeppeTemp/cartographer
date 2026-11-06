@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,6 +38,10 @@ type Agent struct {
 	Installed  bool
 	Evidence   string    // what triggered detection (binary path or config dir), empty if not installed
 	DetectedBy Heuristic // which probe produced Evidence, empty if not installed
+	// Plugin is the name of the plugin that declares the provider and Base the
+	// built-in provider it forks; both are zero for a built-in.
+	Plugin string
+	Base   configurator.Provider
 }
 
 // found records a positive detection: the three fields move together, and this
@@ -118,14 +123,33 @@ func Detect() []Agent {
 	for _, d := range configurator.DetectionOrder() {
 		out = append(out, detect(d, home))
 	}
+	// Registered plugin providers come after the built-ins and are detected by
+	// the same probes: their binaries, and their directories (plain or glob) in
+	// the descriptor. One whose plugin is not active is listed and never installed.
+	for _, p := range configurator.RegisteredPlugins() {
+		base := configurator.Provider(p.Spec.Base)
+		a := Agent{Provider: p.Descriptor.Provider, Name: p.Descriptor.DisplayName}
+		if p.Spec.Active {
+			a = detectAs(p.Descriptor, home, base)
+		}
+		a.Plugin, a.Base = p.Spec.Origin, base
+		out = append(out, a)
+	}
 	return out
 }
 
 func detect(d configurator.Descriptor, home string) Agent {
+	return detectAs(d, home, d.Provider)
+}
+
+// detectAs probes d; its binary is checked with probeFor's probe, the base's for
+// a plugin provider: a name match alone is no more evidence for a fork than for
+// its base.
+func detectAs(d configurator.Descriptor, home string, probeFor configurator.Provider) Agent {
 	a := Agent{Provider: d.Provider, Name: d.DisplayName}
 	for _, binary := range d.Binaries {
 		if path, err := lookPath(binary); err == nil {
-			if probe := binaryProbes[d.Provider]; probe != nil && !probe(path) {
+			if probe := binaryProbes[probeFor]; probe != nil && !probe(path) {
 				continue
 			}
 			return a.found(HeuristicBinary, path)
@@ -149,17 +173,25 @@ func detect(d configurator.Descriptor, home string) Agent {
 		if home == "" {
 			break
 		}
-		// ReadDir on the fixed parent and Match on the last segment only: a home
-		// path holding '[', '*' or '?' must not be read as part of a pattern.
-		last := len(segments) - 1
-		parent := filepath.Join(append([]string{home}, segments[:last]...)...)
+		// ReadDir on the fixed parent and Match on the pattern segment only: a home
+		// path holding '[', '*' or '?' must not be read as part of a pattern. The
+		// segments after the pattern are literal.
+		at := slices.IndexFunc(segments, func(s string) bool { return strings.ContainsAny(s, "*?[") })
+		if at < 0 {
+			continue
+		}
+		parent := filepath.Join(append([]string{home}, segments[:at]...)...)
 		entries, err := os.ReadDir(parent)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			if ok, _ := filepath.Match(segments[last], e.Name()); ok && dirExists(filepath.Join(parent, e.Name())) {
-				return a.found(HeuristicConfigDir, filepath.Join(parent, e.Name()))
+			if ok, _ := filepath.Match(segments[at], e.Name()); !ok {
+				continue
+			}
+			dir := filepath.Join(append([]string{parent, e.Name()}, segments[at+1:]...)...)
+			if dirExists(dir) {
+				return a.found(HeuristicConfigDir, dir)
 			}
 		}
 	}
