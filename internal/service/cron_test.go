@@ -561,11 +561,38 @@ func TestRealProcOps(t *testing.T) {
 	if err := ops.signal(pid, syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 100 && ops.alive(pid); i++ {
-		time.Sleep(50 * time.Millisecond)
+	// A deadline, not a poll count: the wait is wall-clock under any load.
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline) && ops.alive(pid); {
+		time.Sleep(10 * time.Millisecond)
 	}
 	if ops.alive(pid) {
 		t.Error("still alive after SIGTERM")
+	}
+}
+
+// Once alive reports a process gone it stays gone: a process exiting between
+// the kill probe and the /proc read used to read as alive for that one call
+// (#1705), which made the test above report "still alive" at random.
+func TestUnixAlive_NeverFlapsBackWhileAProcessExits(t *testing.T) {
+	for n := 0; n < 20; n++ {
+		pid, err := unixStart("/bin/sh", []string{"-c", "exit 0"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Wait for the first gone reading on a wall-clock deadline (a child
+		// slow to exit under -race or a loaded CI), then it must stay gone.
+		deadline := time.Now().Add(30 * time.Second)
+		for unixAlive(pid) {
+			if time.Now().After(deadline) {
+				t.Fatalf("pid %d never reported gone (round %d)", pid, n)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		for i := 0; i < 2000; i++ {
+			if unixAlive(pid) {
+				t.Fatalf("pid %d reported alive again after it was reported gone (round %d)", pid, n)
+			}
+		}
 	}
 }
 
