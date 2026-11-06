@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -33,6 +34,9 @@ type Contribution struct {
 	// Executable lists the paths (relative to the artifact) of every file with
 	// the executable bit, for the install preview.
 	Executable []string
+	// Description is the frontmatter description of a skill or agent: what the
+	// agent reads to decide to use it, so the install preview shows it.
+	Description string
 	// Command, Event and Requires are what a hook declares in hook.json.
 	Command, Event string
 	Requires       []string
@@ -86,6 +90,9 @@ func init() {
 
 func previewArtifact(w io.Writer, c Contribution) {
 	fmt.Fprintf(w, "%s %q (%d files)\n", c.Kind, c.Name, len(c.Files))
+	if c.Description != "" {
+		fmt.Fprintf(w, "  description: %s\n", esc(c.Description))
+	}
 	if c.Command != "" {
 		fmt.Fprintf(w, "  command: %q on event %q\n", c.Command, c.Event)
 	}
@@ -162,6 +169,11 @@ func load(dir, kind string, files []TreeFile, dirs bool, check func(name string,
 		}
 		if len(probs) == 0 {
 			c := Contribution{Point: dir, Kind: kind, Name: name, Files: fs, Executable: exec}
+			if data, ok := find(fs, "SKILL.md"); ok && kind == "skill" {
+				c.Description = descriptionOf(data)
+			} else if kind == "agent" {
+				c.Description = descriptionOf(fs[0].Content)
+			}
 			if data, ok := find(fs, "hook.json"); ok && kind == "hook" {
 				var spec hookSpec
 				if json.Unmarshal(data, &spec) == nil {
@@ -242,4 +254,16 @@ type hookSpec struct {
 	Event    string   `json:"event"`
 	Command  string   `json:"command"`
 	Requires []string `json:"requires"`
+}
+
+// descriptionOf reads the frontmatter description of a validated skill or agent.
+func descriptionOf(data []byte) string {
+	raw, _, _ := okf.SplitFrontmatter(string(data))
+	fm, err := okf.ParseFrontmatter(raw)
+	if err != nil {
+		return ""
+	}
+	v, _ := fm.Get("description")
+	d, _ := v.(string)
+	return strings.TrimSpace(d)
 }

@@ -338,7 +338,9 @@ func dispatchedCommands(t *testing.T) []string {
 // The usage table (subcommands), the dispatch switch of run() and the documented
 // commands are three lists kept by hand; this compares them (D1124).
 func TestCommandTableMatchesDispatchAndDocs(t *testing.T) {
-	const internal = "hook" // dispatched, deliberately absent from the table (D353)
+	// Dispatched, deliberately absent from the table: hook (D353); plugin until the
+	// turn-on change of the plugins plan.
+	internal := map[string]bool{"hook": true, "plugin": true}
 
 	dispatched := map[string]bool{}
 	for _, n := range dispatchedCommands(t) {
@@ -352,7 +354,7 @@ func TestCommandTableMatchesDispatchAndDocs(t *testing.T) {
 		}
 	}
 	for n := range dispatched {
-		if !table[n] && n != internal {
+		if !table[n] && !internal[n] {
 			t.Errorf("run() dispatches %q but the usage table (main.go) does not list it: add it, "+
 				"or — if it is internal — document the exception next to hook", n)
 		}
