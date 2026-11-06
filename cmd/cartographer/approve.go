@@ -256,6 +256,13 @@ const maxApprovalLines = 200
 // runs (hook.json, every executable file, the frontmatter of a skill or agent
 // that declares hooks or MCP servers) (D1141).
 func printApprovalContent(w io.Writer, a provisioning.Artifact, files []provisioning.ArtifactFile) {
+	printApprovalFiles(w, a, files, false)
+}
+
+// printApprovalFiles is printApprovalContent; all also prints the content of the
+// files that do not decide what runs (a skill or agent body), for an update that
+// asks consent for a changed text.
+func printApprovalFiles(w io.Writer, a provisioning.Artifact, files []provisioning.ArtifactFile, all bool) {
 	fmt.Fprintln(w, "files:")
 	for _, f := range files {
 		mark := ""
@@ -265,7 +272,7 @@ func printApprovalContent(w io.Writer, a provisioning.Artifact, files []provisio
 		fmt.Fprintf(w, "  %s  %d bytes%s\n", escapeControl(f.Path), len(f.Content), mark)
 	}
 	for _, f := range files {
-		if !(f.Executable || (a.Kind == "hook" && f.Path == "hook.json") || provisioning.FrontmatterDeclaresCommands(f.Content)) {
+		if !(all || f.Executable || (a.Kind == "hook" && f.Path == "hook.json") || provisioning.FrontmatterDeclaresCommands(f.Content)) {
 			continue
 		}
 		lines := strings.Split(strings.TrimRight(string(f.Content), "\n"), "\n")

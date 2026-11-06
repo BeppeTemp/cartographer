@@ -26,7 +26,12 @@ const pluginUsage = `Usage: cartographer plugin new <name> [<dir>]
        cartographer plugin validate <dir> [--output table|json]
        cartographer plugin install <git-url>[@<ref>] | <folder> [--yes]
        cartographer plugin list [--output table|json]
-       cartographer plugin show <name> [--files] [--output table|json]`
+       cartographer plugin show <name> [--files] [--output table|json]
+       cartographer plugin approve <name> [--yes] [--output table|json]
+       cartographer plugin update [<name>] [--yes] [--output table|json]
+       cartographer plugin enable <name> [--output table|json]
+       cartographer plugin disable <name> [--output table|json]
+       cartographer plugin remove <name> [--output table|json]`
 
 // Seams for the tests: the store lives in the user cache dir and the prompt needs a terminal.
 var (
@@ -64,6 +69,16 @@ func cmdPlugin(args []string) int {
 		return pluginList(rest)
 	case "show":
 		return pluginShow(rest)
+	case "approve":
+		return pluginApprove(rest)
+	case "update":
+		return pluginUpdate(rest)
+	case "enable":
+		return pluginEnable(rest)
+	case "disable":
+		return pluginDisable(rest)
+	case "remove":
+		return pluginRemove(rest)
 	}
 	return pluginFail(2, "%s", pluginUsage)
 }
@@ -263,6 +278,7 @@ func pluginInstall(args []string) int {
 		return pluginFail(1, "%v", err)
 	}
 	unlock()
+	registerPluginProviders(os.Stderr)
 	pluginPreview(os.Stdout, p, entry, cfg)
 	// The consent covers what runs: the hook scripts, hook.json and any frontmatter that declares commands.
 	for _, a := range p.Artifacts {
@@ -296,6 +312,7 @@ func pluginInstall(args []string) int {
 	if err := save(cfg); err != nil {
 		return pluginFail(1, "%v", err)
 	}
+	registerPluginProviders(os.Stderr)
 	fmt.Printf("Enabled %s %s\n", name, entry.Version)
 	return 0
 }
