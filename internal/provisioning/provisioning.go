@@ -728,6 +728,21 @@ func embeddedBundleArtifact(kind, name string) (Artifact, bool) {
 	return a, ok
 }
 
+// IsBundledArtifact reports whether the binary embeds a bundled artifact of
+// this kind and name, compared ignoring case: what a plugin must not shadow.
+func IsBundledArtifact(kind, name string) bool {
+	if _, ok := embeddedBundleArtifact(kind, name); ok {
+		return true
+	}
+	// Filesystems that fold case would make "Name" the bundled directory.
+	for k := range embeddedBundleArtifacts {
+		if strings.EqualFold(k, kind+"\x00"+name) {
+			return true
+		}
+	}
+	return false
+}
+
 // matchesEmbeddedBundle reports whether an artifact labelled "bundle" is this
 // client's embedded artifact: same kind, name and content hash, and, when files
 // are carried, files that hash to it.
