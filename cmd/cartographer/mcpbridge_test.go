@@ -518,3 +518,47 @@ func TestApplyMCPEntriesKeepsClineSettings(t *testing.T) {
 		t.Errorf("a global entry must not pin a cwd:\n%s", data)
 	}
 }
+
+// A provider with no binding and an active plugin tool: the bridge, with the
+// isolation of the HTTP entry, a resolve line that says why, and --access refused
+// with the plugin as the reason.
+func TestPluginOnlyBridgeIsReportedAsSuch(t *testing.T) {
+	cfg := bridgeConfigFor(t, "claude")
+	cfg.Plugins = map[string]clientconfig.PluginEntry{"team": {Source: "/p", Enabled: true, Approved: "a", Tools: []string{"team_x"}}}
+	p := reportProviders(cfg)[0]
+	if p.Entry != "bridge" || p.Isolation != "none" {
+		t.Fatalf("report = %+v", p)
+	}
+	got := renderWorkspaceResolve(cfg, t.TempDir(), []string{"claude"})
+	if !strings.Contains(got, "global MCP entry: bridge") || !strings.Contains(got, "plugin tools only") || strings.Contains(got, "access: read-only") {
+		t.Errorf("resolve:\n%s", got)
+	}
+	err := applyConnectAccess(cfg, connectOptions{Providers: []string{"claude"}, Access: "read-min"}, cfg.ServerRoutedPath)
+	if err == nil || !strings.Contains(err.Error(), "an active plugin provides tools") {
+		t.Errorf("--access: %v", err)
+	}
+	// With a binding too, the report is the workspace one again.
+	if err := cfg.BindWorkspace("claude", t.TempDir(), []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := reportProviders(cfg)[0]; p.Isolation != "workspace" {
+		t.Errorf("bound: %+v", p)
+	}
+}
+
+func TestPluginToolsSelectTheBridgeEntry(t *testing.T) {
+	cfg := &clientconfig.Config{ServerName: "wiki", Agents: []string{"claude"}, KnownKBs: []string{"a", "b"},
+		Plugins: map[string]clientconfig.PluginEntry{"team": {Source: "/p", Enabled: true, Approved: "a", Tools: []string{"team_x"}}}}
+	byProvider, err := entriesByProviderForKBs(cfg, cfg.Agents, "wiki", "https://example.test/mcp", cfg.KnownKBs, "/mcp/routed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := byProvider["claude"]; len(e) != 1 || !e[0].Bridge || e[0].URL == "" {
+		t.Fatalf("entries = %+v, want one bridge entry carrying the HTTP fallback URL", e)
+	}
+	// Without the routed endpoint the HTTP entry stays.
+	byProvider, err = entriesByProviderForKBs(cfg, cfg.Agents, "wiki", "https://example.test/mcp", cfg.KnownKBs, "")
+	if err != nil || len(byProvider["claude"]) == 0 || byProvider["claude"][0].Bridge {
+		t.Fatalf("no routed path: %+v %v", byProvider["claude"], err)
+	}
+}

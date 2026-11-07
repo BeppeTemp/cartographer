@@ -112,7 +112,30 @@ func Resolve(cfg *clientconfig.Config, provider, dir string) Scope {
 			Binding:     &w,
 		}
 	}
+	if cfg.BridgeIsHTTPEquivalent(provider) {
+		return pluginOnlyScope(cfg, provider)
+	}
 	return providerScope(cfg, provider)
+}
+
+// pluginOnlyScope is the scope of a provider with no workspace binding and no
+// access profile whose session runs in the bridge. It is decided from that, not
+// from the plugin state: the entry changes only at the next sync, so after
+// `plugin disable` or `remove` the bridge entry outlives the plugin and must
+// not turn read-only meanwhile. It is exactly what its HTTP entry gave (the
+// provider's own KB set, read-write, kb_options read-only KBs kept), so
+// switching the entry to the bridge changes nothing a session can do. It is
+// not Unbound: no roots question and no "unbound folder" note, and
+// unbound_access is not applied (it never was for a provider on the HTTP entry).
+// Do not route this through providerScope: that scope is read-only by default
+// and would silently make every such session read-only.
+func pluginOnlyScope(cfg *clientconfig.Config, provider string) Scope {
+	bound, explicit := cfg.BoundKBs(provider)
+	if !explicit {
+		return Scope{All: true, ReadOnlyKBs: cfg.ReadOnlyKBs(), Source: "provider default"}
+	}
+	kbs := clientconfig.RoutedBinding(cfg.KnownKBs, bound)
+	return Scope{KBs: kbs, ReadOnlyKBs: intersect(cfg.ReadOnlyKBs(), kbs), Source: "provider binding"}
 }
 
 // providerScope is the unbound answer: the provider's own binding (D169),

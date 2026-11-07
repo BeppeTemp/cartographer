@@ -610,6 +610,7 @@ func consentInstalledPlugins(o pluginPrep, dir string, fresh []installedNow, cha
 			}
 			cur, _ := cfg.Plugin(f.name)
 			cur.Approved, cur.Enabled = f.p.Digest, true
+			cur.Tools = pluginToolNames(f.p) // every site that sets Approved sets the transport hint with it
 			if err := cfg.SetPlugin(f.name, cur); err != nil {
 				return o.fail(1, "%v", err)
 			}

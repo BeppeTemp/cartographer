@@ -386,15 +386,41 @@ func RoutedBinding(mounted, bound []string) []string {
 }
 
 // UsesBridge reports whether provider's global MCP entry is the local stdio
-// bridge (D737) rather than the HTTP URL: it has at least one workspace binding
-// (explicit or derived, D1019) and the server has the routed endpoint the bridge proxies to. The single rule
-// both the entry writer and the Atlas report apply.
+// bridge (D737) rather than the HTTP URL: the server has the routed endpoint
+// the bridge proxies to and either the provider has at least one workspace
+// binding (explicit or derived, D1019) or an active plugin provides tools
+// (D1757). The single rule both the entry
+// writer and the Atlas report apply.
 //
 // A provider with an access profile (clients.<provider>.access, D1184) never
 // gets the bridge, which does not carry the profile and would run read-write in
 // a bound folder: it keeps its HTTP entry (see ProfileIgnoresWorkspaces).
 func (c *Config) UsesBridge(provider, routedPath string) bool {
-	return routedPath != "" && c.Clients[provider].Access == "" && len(c.effectiveWorkspaces(provider)) > 0
+	return routedPath != "" && c.Clients[provider].Access == "" && (len(c.effectiveWorkspaces(provider)) > 0 || c.PluginProvidesTools())
+}
+
+// PluginOnlyBridge reports whether provider is served by the bridge only for
+// plugin tools: UsesBridge is true and the provider has no workspace binding.
+// It describes the entry sync writes now; the session scope is decided by
+// BridgeIsHTTPEquivalent, not by this, so it survives a plugin change that the
+// entry has not caught up with.
+func (c *Config) PluginOnlyBridge(provider, routedPath string) bool {
+	return c.UsesBridge(provider, routedPath) && len(c.effectiveWorkspaces(provider)) == 0
+}
+
+// BridgeIsHTTPEquivalent reports whether a bridge session of provider should
+// get the scope its HTTP entry would give: no effective workspace binding and
+// no access profile. The bridge can then only be running for plugin tools, or
+// as a stale entry that the next sync rewrites (after plugin disable/remove or
+// an unbind); either way it must grant nothing less or more than the HTTP entry.
+//
+// A workspace-scope provider is never equivalent: its bindings may all be
+// derived from a KB's paths.yaml, and a lost, foreign or outdated derived file
+// loads as an empty state (LoadDerived), which would read as "no binding" and
+// open the whole KB set read-write in the very folder it was bound to. It keeps
+// the read-only unbound default instead.
+func (c *Config) BridgeIsHTTPEquivalent(provider string) bool {
+	return c.Clients[provider].Access == "" && c.WorkspaceScope(provider) != ScopeWorkspace && len(c.effectiveWorkspaces(provider)) == 0
 }
 
 // ProfileIgnoresWorkspaces reports whether provider has workspace bindings

@@ -624,6 +624,10 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 				fmt.Fprintf(&sb, "  access: read-write (%s)\n  no KB artifact here; bind the folder for the KB's skills and agents\n", scope.AccessOrigin)
 			}
 		}
+		if entry == "bridge" && cfg.PluginOnlyBridge(p, cfg.ServerRoutedPath) {
+			fmt.Fprintf(&sb, "  the bridge is here for plugin tools only: this session has the access of the http entry\n")
+			continue
+		}
 		if entry == "bridge" && scope.Binding == nil && scope.Err == nil {
 			fmt.Fprintf(&sb, "  a client that declares MCP roots can still bind this session through them\n")
 		}

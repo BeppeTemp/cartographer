@@ -261,7 +261,9 @@ func (b *Bridge) noteInitialize(params json.RawMessage) {
 }
 
 // wantsRoots is true when the client declares roots and the working directory
-// matched no binding: only then can a root change the answer.
+// matched no binding: only then can a root change the answer. The plugin-only
+// scope (pluginOnlyScope) is not Unbound: it is the HTTP entry's scope, which
+// never asked for roots, so it never does.
 func (b *Bridge) wantsRoots() bool {
 	b.mu.Lock()
 	aware := b.rootsAware
@@ -270,7 +272,7 @@ func (b *Bridge) wantsRoots() bool {
 		return false
 	}
 	s := b.currentScope()
-	return s.Binding == nil && s.Err == nil
+	return s.Binding == nil && s.Err == nil && s.Unbound
 }
 
 // askRoots asks the client for its roots and, when one is bound, narrows the

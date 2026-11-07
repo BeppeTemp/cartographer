@@ -59,6 +59,11 @@ type PluginEntry struct {
 	Installed string `yaml:"installed,omitempty"`
 	Approved  string `yaml:"approved,omitempty"`
 	Enabled   bool   `yaml:"enabled"`
+	// Tools names the tools of the approved tree, written by plugin approve and
+	// update from the load they already run for the preview. It only selects the
+	// transport (Config.UsesBridge) and grants nothing: the bridge loads the real
+	// plugin, so a stale or hand-edited value changes the entry type, never what runs.
+	Tools []string `yaml:"tools,omitempty"`
 	// Settings holds scalar values (string, bool, number) for the manifest's settings.
 	Settings map[string]any `yaml:"settings,omitempty"`
 }
@@ -90,6 +95,21 @@ func (c *Config) SetPlugin(name string, e PluginEntry) error {
 	}
 	c.Plugins[name] = e
 	return nil
+}
+
+// PluginProvidesTools reports whether an enabled, approved plugin lists tools
+// (the hint of PluginEntry.Tools). Approved, not Installed: the approved tree
+// is what runs while a newer one waits.
+func (c *Config) PluginProvidesTools() bool {
+	if c == nil {
+		return false
+	}
+	for _, e := range c.Plugins {
+		if e.Enabled && e.Approved != "" && len(e.Tools) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // RemovePlugin drops name and reports whether it was there; the map goes once empty.

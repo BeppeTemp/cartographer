@@ -275,3 +275,20 @@ func TestPluginConfigShowsAnUnsetSettingAsUnset(t *testing.T) {
 		t.Errorf("%q", b.String())
 	}
 }
+
+// plugin approve records the tools of the approved tree as the transport hint;
+// a plugin without tools records none.
+func TestApproveRecordsTheToolsHint(t *testing.T) {
+	installScripted(t, "team-tools", "def t(args):\n    return \"x\"\n\ndef w(args):\n    return \"y\"\n\ntool(\"bone\", t, \"one\")\ntool(\"atwo\", w, \"two\", writes=True)\ncommand(\"c\", t, \"c\")\n", true)
+	cfg, _, code := pluginLoad()
+	if code >= 0 {
+		t.Fatal("load")
+	}
+	e, _ := cfg.Plugin("team-tools")
+	if got := strings.Join(e.Tools, ","); got != "team-tools_atwo,team-tools_bone" {
+		t.Fatalf("tools = %q", got)
+	}
+	if !cfg.PluginProvidesTools() {
+		t.Error("PluginProvidesTools is false for an approved plugin with tools")
+	}
+}

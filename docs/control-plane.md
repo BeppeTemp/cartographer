@@ -452,7 +452,7 @@ auth chain as `/mcp`, with or without the web UI, not an MCP tool.
 
 The body is one JSON object (at most 256 KiB): `machine` (required), `version`, `server_url`, `entries` (the client schema
 keys in the shape of the settings entries above), `yaml` (the file as it is on disk, `""` when there is none),
-`providers` (per connected agent client: `name`, `scope` `provider` or `workspace`, `entry` `bridge` or `http` (D737, the kind of global MCP entry), `isolation` `workspace` for the bridge or `none`, and
+`providers` (per connected agent client: `name`, `scope` `provider` or `workspace`, `entry` `bridge` or `http` (D737, the kind of global MCP entry), `isolation` `workspace` for a bridge that narrows by binding or `none` (also for a bridge serving only plugin tools), and
 `workspaces`, each `{path, remote?, kbs}`, listed whatever the artifact scope) and `placeholders` (each `{key, kbs?, path?, …}`:
 where the `{{repo:…}}`/`{{path:…}}` keys of the connected KBs resolve on that machine). The answer is `{received: true}`;
 an unreadable body or one without `machine` is `400`, a larger one `413`, a non-POST `405`.

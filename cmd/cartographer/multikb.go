@@ -768,7 +768,7 @@ func emitMCPEntry(provider string, entry mcpEntry, auth bool, tokenEnv string) (
 			r, err := configurator.EmitServer(entry.Name, spec, configurator.Provider(provider))
 			return r, "", err
 		}
-		w := fmt.Sprintf("%s: %v; its workspace bindings do not narrow the tools until `cartographer` is on PATH and `cartographer sync` runs again; an existing entry is kept as it is", provider, err)
+		w := fmt.Sprintf("%s: %v; its workspace bindings do not narrow the tools, and its plugin tools are not served, until `cartographer` is on PATH and `cartographer sync` runs again; an existing entry is kept as it is", provider, err)
 		if onDiskBridgeMissing != "" {
 			w += fmt.Sprintf(" (the kept command %s no longer exists or is not executable, so the entry starts nothing until `cartographer sync` rewrites it)", onDiskBridgeMissing)
 		}

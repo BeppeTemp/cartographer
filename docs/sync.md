@@ -538,6 +538,12 @@ with `$PWD` set to `$HOME`) with the binding table, **deepest binding wins**, so
 and one on `$HOME/projects/<area>` coexist, and proxies the whole session to the routed endpoint with
 `?kbs=<set>`. The server already enforces the set and refuses any other `kb`. Nothing is written into
 the workspace for this: no `.mcp.json`, no project entry, whichever client.
+A provider with no binding gets the bridge too when an enabled, approved plugin lists tools in its
+`plugins.<name>.tools` hint (D1757, amends D737): its sessions keep the
+access the HTTP entry gave (the provider's KB set, read-write, `kb_options` read-only KBs kept, no roots
+question, no unbound note, `unbound_access` not applied), and `workspace resolve` says the bridge is
+there for plugin tools. A provider with an access profile keeps the HTTP entry and sees no plugin tool;
+without `cartographer` on `PATH` the entry stays HTTP and sync warns.
 Rules: a folder under no binding, `$HOME` included, gets the provider's default set **read-only**
 (D1018): the bridge sends `access=read` and the server lists no write tool and refuses a call to one,
 naming `cartographer workspace bind` and a KB's `paths.yaml` as the ways to write; the folder also
