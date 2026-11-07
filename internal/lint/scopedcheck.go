@@ -154,6 +154,11 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 					Message: "broken link to " + okf.IDToPath(id),
 				}))
 			}
+			// The curated index that listed it is not in the graph: a line still
+			// linking the gone id is a broken link there (#1764).
+			if f, ok := goneIndexLink(k, id, contractOf); ok {
+				findings = append(findings, f)
+			}
 			continue
 		}
 		data, err := k.ReadConcept(id)
@@ -263,6 +268,37 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		return out[i].Message < out[j].Message
 	})
 	return out
+}
+
+// goneIndexLink reports a broken_link on the curated index of the map that held id when one of its lines still links it. A
+// generated index, or one that is not there, reports nothing.
+func goneIndexLink(k *kb.KB, id okf.ConceptID, contractOf func(string) (kb.MapContract, bool)) (Finding, bool) {
+	parts := strings.Split(string(id), "/")
+	if len(parts) != 2 {
+		// A satellite is listed in a concept of the graph, whose linkers are
+		// reported above.
+		return Finding{}, false
+	}
+	folder := parts[0]
+	contract, ok := contractOf(folder)
+	if !ok || contract.Index == kb.IndexGenerated {
+		return Finding{}, false
+	}
+	content, err := k.ReadIndex(folder)
+	if err != nil {
+		return Finding{}, false
+	}
+	indexPath := folder + "/index.md"
+	_, body, _ := okf.SplitFrontmatter(content)
+	for _, t := range kb.ExtractLinks(body, indexPath, k.AssetExists) {
+		if t == id || strings.TrimSuffix(string(t), "/index") == string(id) {
+			return newFinding("broken_link", Finding{
+				Path:    indexPath,
+				Message: "broken link to " + okf.IDToPath(id) + ": a line of the index that cites it beside other concepts is kept, edit it with index_patch, then delete",
+			}), true
+		}
+	}
+	return Finding{}, false
 }
 
 func sortedIDs(set map[okf.ConceptID]struct{}) []okf.ConceptID {
