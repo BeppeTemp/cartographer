@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -232,6 +233,7 @@ const workspaceUsage = `usage: cartographer workspace bind <provider> <path> --k
        cartographer workspace bind codex <path> --kb <name>[,<name>...] [--trust]
        cartographer workspace bind <provider> <path> --no-kb
        cartographer workspace unbind <provider> <path>
+       cartographer workspace unbind <provider> --all
        cartographer workspace list [provider]
        cartographer workspace resolve [<path>] [--provider <name>]`
 
@@ -367,6 +369,9 @@ func cmdWorkspaceBind(args []string) int {
 	}
 
 	canonical, _ := clientconfig.CanonicalWorkspacePath(path)
+	if switched {
+		warnNoWorkspaceDestination(os.Stderr, provider)
+	}
 	if len(kbs) == 0 {
 		fmt.Printf("bound %s in %s to no KBs\n", provider, canonical)
 	} else {
@@ -382,6 +387,19 @@ func cmdWorkspaceBind(args []string) int {
 		return codexTrustStep(dir, canonical, trust)
 	}
 	return 0
+}
+
+// warnNoWorkspaceDestination tells, when provider enters workspace scope, which
+// artifact kinds the client has globally but no workspace destination for: the
+// global projection is bundle-only, so the KBs' artifacts of those kinds are
+// installed nowhere (#1785). Shared by `workspace bind` and `connect --workspace`.
+func warnNoWorkspaceDestination(w io.Writer, provider string) {
+	kinds := provisioning.WorkspaceLacksKinds(configurator.Provider(provider))
+	if len(kinds) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "warning: %s has no workspace destination for %s: the KBs' artifacts of those kinds are not installed in workspace scope\n",
+		provider, strings.Join(kinds, ", "))
 }
 
 // codexTrustStep is the Codex project-trust part of `workspace bind` (D1074),
@@ -418,6 +436,9 @@ func codexTrustStep(dir, workspace string, trust bool) int {
 }
 
 func cmdWorkspaceUnbind(args []string) int {
+	if len(args) == 2 && args[1] == "--all" {
+		return cmdWorkspaceUnbindAll(args[0])
+	}
 	if len(args) != 2 {
 		fmt.Fprintln(os.Stderr, workspaceUsage)
 		return 2
@@ -457,6 +478,11 @@ func cmdWorkspaceUnbind(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
+	if len(cfg.Workspaces[provider]) == 0 && len(cfg.WorkspaceBindings(provider)) > 0 {
+		// Derived bindings are the KB's own ask: the scope stays (#1784).
+		fmt.Printf("note: %s stays in workspace scope through %d bindings derived from KB paths.yaml; run cartographer workspace unbind %s --all to return it to the global scope\n",
+			provider, len(cfg.WorkspaceBindings(provider)), provider)
+	}
 	if len(cfg.WorkspaceBindings(provider)) == 0 {
 		// The last workspace: the provider goes back to the global catalogue,
 		// which is the only other state that exists. Leaving it in workspace
@@ -473,6 +499,49 @@ func cmdWorkspaceUnbind(args []string) int {
 	}
 	fmt.Printf("unbound %s from %s\n", provider, path)
 	fmt.Println("run `cartographer sync` to remove what was projected there")
+	return 0
+}
+
+// cmdWorkspaceUnbindAll removes every explicit binding of provider and returns
+// it to the global scope; derived bindings exist only in workspace scope, so
+// they go with it.
+func cmdWorkspaceUnbindAll(provider string) int {
+	dir, cfg, release, err := loadWorkspaceConfigLocked()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	defer release()
+	if _, ok := configurator.Lookup(configurator.Provider(provider)); !ok {
+		fmt.Fprintf(os.Stderr, "Error: unknown provider %q\n", provider)
+		return 1
+	}
+	inScope := cfg.WorkspaceScope(provider) == clientconfig.ScopeWorkspace
+	if !inScope && len(cfg.Workspaces[provider]) == 0 {
+		fmt.Printf("%s is not in workspace scope: nothing to unbind\n", provider)
+		return 0
+	}
+	if !inScope {
+		// A hand-edited file: explicit entries outside workspace scope would
+		// come alive again at the next bind.
+		fmt.Printf("%s is not in workspace scope, but holds %d explicit bindings: removing them\n", provider, len(cfg.Workspaces[provider]))
+	}
+	for _, w := range append([]clientconfig.WorkspaceBinding(nil), cfg.Workspaces[provider]...) {
+		if err := cfg.UnbindWorkspace(provider, w.Path); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+	}
+	if err := cfg.SetWorkspaceScope(provider, clientconfig.ScopeProvider); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	fmt.Printf("unbound every workspace of %s: it returns to the global scope.\n", provider)
+	fmt.Println("run `cartographer sync` to prune the workspace projections and restore the global catalogue")
 	return 0
 }
 

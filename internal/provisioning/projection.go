@@ -73,6 +73,32 @@ type ProjectionNote struct {
 	Reason   string
 }
 
+// NoWorkspaceDestinationReason is the reason of the note for a kind that a
+// client carries in the global scope and has no project destination for.
+func NoWorkspaceDestinationReason(kind string) string {
+	if kind == "hook" {
+		return "no workspace destination for this client: hooks run only in the global scope"
+	}
+	return "no workspace destination for this client: " + kind + "s exist only in the global scope"
+}
+
+// WorkspaceLacksKinds lists the artifact kinds that provider carries in the
+// global scope and has no workspace destination for, the ones projectOne
+// reports as skipped. An agent a workspace degrades to a skill is not one.
+func WorkspaceLacksKinds(provider configurator.Provider) []string {
+	var out []string
+	for _, kind := range artifactKinds {
+		if destDirScoped(kind, "x", provider, ScopeProject) != "" || destDirScoped(kind, "x", provider, ScopeGlobal) == "" {
+			continue
+		}
+		if kind == "agent" && destDirScoped("skill", "x", provider, ScopeProject) != "" {
+			continue
+		}
+		out = append(out, kind)
+	}
+	return out
+}
+
 // degradedTag versions the derivation: a change of it changes every derived
 // hash, so the skills are rewritten.
 const degradedTag = "degraded-v1"
@@ -114,6 +140,11 @@ func projectOne(m Manifest, provider configurator.Provider, scope Scope, opts Pr
 			degradable = append(degradable, a)
 		default:
 			dropped[id] = "no destination"
+			if scope == ScopeProject && destDirScoped(a.Kind, a.Name, provider, ScopeGlobal) != "" {
+				// The client carries this kind globally but a workspace has no
+				// place for it: say so instead of dropping it silently (#1785).
+				notes = append(notes, ProjectionNote{NoteSkipped, id, NoWorkspaceDestinationReason(a.Kind)})
+			}
 		}
 	}
 	for _, a := range degradable {

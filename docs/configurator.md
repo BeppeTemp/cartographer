@@ -304,7 +304,7 @@ provider from one machine-wide catalogue to one projection per bound repository:
 that repository's own project-local directories and nothing KB-sourced is written under `$HOME`. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
 it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
 them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
-prunes what was projected there; a path never bound for that provider is an error (exit 1). `workspace bind` refuses a provider that is not connected (`<provider> is not connected`, exit 2, as `client bind` does), dedupes `--kb` and,
+prunes what was projected there (`workspace unbind <provider> --all` removes every explicit binding of the provider and returns it to the global scope even when KB-derived bindings exist; a single-path unbind of the last explicit binding keeps the scope while derived ones remain and prints a note); a path never bound for that provider is an error (exit 1). `workspace bind` refuses a provider that is not connected (`<provider> is not connected`, exit 2, as `client bind` does), dedupes `--kb` and,
 like `client bind`, refuses a KB the server does not mount when the server answers with its list (exit 2); with the server unreachable it warns and binds. For Codex, `workspace bind codex <path> --kb <name>… --trust` also records the
 folder as trusted in `~/.codex/config.toml`, so the projection is not born `inactive` (one explicit, narrow
 write; without the flag `bind` prints the line to add; `unbind` and a derived binding never touch it; refusal

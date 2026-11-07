@@ -277,3 +277,21 @@ func TestDegradedWidenedWarning(t *testing.T) {
 		t.Errorf("a degraded agent with tools must be reported as widened: %v", res.Warnings)
 	}
 }
+
+// #1785: a hook the client carries globally but has no workspace destination
+// for is reported, not dropped silently; a client with the cell is quiet.
+func TestProjectReportsHookWithoutWorkspaceDestination(t *testing.T) {
+	hook := Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a"}
+	m := manifestOf(hook)
+	_, notes := ProjectManifest(m, configurator.ProviderKiro, ScopeProject, ProjectOptions{})
+	if len(notes) != 1 || notes[0].Kind != NoteSkipped || notes[0].Artifact != "hook/guard" ||
+		!strings.Contains(notes[0].Reason, "no workspace destination") {
+		t.Errorf("kiro project notes = %+v", notes)
+	}
+	if _, notes := ProjectManifest(m, configurator.ProviderKiro, ScopeGlobal, ProjectOptions{}); len(notes) != 0 {
+		t.Errorf("global scope must be quiet: %+v", notes)
+	}
+	if _, notes := ProjectManifest(m, configurator.ProviderClaudeCode, ScopeProject, ProjectOptions{}); len(notes) != 0 {
+		t.Errorf("claude has a project hook cell: %+v", notes)
+	}
+}

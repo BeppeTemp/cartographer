@@ -1039,8 +1039,12 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 			if err := existing.BindWorkspace(provider, opts.Workspace, selected); err != nil {
 				return connectResult{}, err
 			}
+			switched := existing.WorkspaceScope(provider) != clientconfig.ScopeWorkspace
 			if err := existing.SetWorkspaceScope(provider, clientconfig.ScopeWorkspace); err != nil {
 				return connectResult{}, err
+			}
+			if switched && !opts.DryRun {
+				warnNoWorkspaceDestination(os.Stderr, provider)
 			}
 		}
 	} else if len(selected) > 0 && len(kbs) > 1 && !opts.DryRun {
