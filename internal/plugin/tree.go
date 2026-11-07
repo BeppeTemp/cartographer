@@ -40,7 +40,7 @@ type Plugin struct {
 func ignored(first string) bool {
 	u := strings.ToUpper(first)
 	return strings.HasPrefix(u, "README") || strings.HasPrefix(u, "LICENSE") ||
-		strings.HasPrefix(u, "CHANGELOG") || strings.HasPrefix(first, ".git")
+		strings.HasPrefix(u, "CHANGELOG") || u == "DOCS" || strings.HasPrefix(first, ".git")
 }
 
 // ReadTree validates a plugin tree and returns every problem it finds, sorted.
@@ -50,13 +50,13 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	var problems []string
 	add := func(format string, a ...any) { problems = append(problems, fmt.Sprintf(format, a...)) }
 
-	var names []string
+	names := []string{ManifestFile, "plugin.star", "lib/"}
 	for _, pt := range RegisteredPoints() {
 		if pt.Side == SideClient {
 			names = append(names, pt.Dir+"/")
 		}
 	}
-	held := strings.Join(names, ", ")
+	held := strings.Join(names, ", ") + " (README*, LICENSE*, CHANGELOG*, docs/ and .git* are ignored)"
 
 	byPoint := map[string][]TreeFile{}
 	var stored []TreeFile
