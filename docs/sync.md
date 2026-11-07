@@ -761,6 +761,14 @@ A projection writes into a directory the user version-controls, so two rules hol
 `git status` is clean after a sync. That is asserted end-to-end by the `18_workspace_projection`
 E2E scenario, along with the rest of this section.
 
+A kind the client has globally but not in a workspace (e.g. Cline hooks) is not projected into a workspace,
+and the global projection is bundle-only, so the KB's artifacts of that kind are installed nowhere in that scope.
+It is never silent: `workspace bind` and `connect --workspace` print a warning naming the kinds when they switch
+such a provider to workspace scope, `sync` reports each such artifact as `skipped` (`no workspace destination for
+this client: hooks run only in the global scope`, #1785), and the workspace instructions block gains a
+"Not installed on this client: …" line on the next sync. `status` resolves the same projection, so the artifact is
+neither pending nor drift there; it does not list the skipped note.
+
 `status` judges the provider the way sync applies it: the global projection against the bundle
 only, each bound workspace against its own manifest and lock, so a clean sync is `in-sync` (exit 0)
 ([D1011](decisions/D1011-status-judges-workspace-projections.md)).
@@ -768,8 +776,12 @@ only, each bound workspace against its own manifest and lock, so a clean sync is
 ### Unbinding
 
 `cartographer workspace unbind <provider> <path>` removes the declaration; the next `sync` prunes
-what was projected there and removes the exclusion block. Unbinding the last workspace returns the
-provider to the global scope — the only other state there is. Neither ever touches another
+what was projected there and removes the exclusion block. Unbinding the last explicit workspace returns the
+provider to the global scope — the only other state there is — unless bindings derived from a KB's `paths.yaml`
+(D1019) remain: those exist only in workspace scope and the KB asked for them, so the scope stays and `unbind`
+prints a note. `cartographer workspace unbind <provider> --all` removes every explicit binding and returns the
+provider to the global scope (the derived bindings go with the scope); the next `sync` prunes the workspace
+projections and restores the global catalogue. On a provider in provider scope it is a no-op that exits 0. Neither ever touches another
 workspace's files: the lockfile keys workspace projections in a separate namespace, so a prune
 cannot reach past its own projection.
 

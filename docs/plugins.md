@@ -349,6 +349,8 @@ removed.
 
 ### MCP modes and hooks
 
+A plugin provider's project scope takes no `hook` cell, so in workspace scope its KB hooks are not projected anywhere: `workspace bind` and `connect --workspace` warn and `sync` reports them as skipped (sync.md §Workspace scope).
+
 `native` writes Cartographer's entry in the base's format: at the base's path, at `mcp.config`, or, when
 `mcp.config` holds a `*`, into every existing regular file it matches (one file per installed version of the client;
 a symlinked entry is not a match, no match is the warning "open the client once"). A pattern writes at most three
