@@ -562,3 +562,29 @@ func TestPluginToolsSelectTheBridgeEntry(t *testing.T) {
 		t.Fatalf("no routed path: %+v %v", byProvider["claude"], err)
 	}
 }
+
+// #1804: a cli provider has no MCP entry; resolve names its mode, shows the
+// binding that narrows `cartographer call`, and does not claim its bindings are
+// inert.
+func TestWorkspaceResolveLabelsACLIProvider(t *testing.T) {
+	registerTestProviders(t, configurator.PluginSpec{Name: "fork-cli", Base: string(configurator.ProviderCrush), MCPMode: configurator.MCPModeCLI, Active: true})
+	area := t.TempDir()
+	canon, err := clientconfig.CanonicalWorkspacePath(area)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := bridgeConfigFor(t, "fork-cli")
+	if err := cfg.BindWorkspace("fork-cli", area, []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	got := renderWorkspaceResolve(cfg, area, []string{"fork-cli"})
+	want := "folder " + area + "\n" +
+		"fork-cli  (MCP mode: cli, served by `cartographer call`)\n" +
+		"  bound by " + canon + "  ->  kb-a\n"
+	if got != want {
+		t.Fatalf("resolve output:\n%s\nwant:\n%s", got, want)
+	}
+	if got := renderWorkspaceResolve(cfg, t.TempDir(), []string{"fork-cli"}); strings.Contains(got, "global MCP entry") || strings.Contains(got, "no bridge entry") {
+		t.Errorf("unbound output:\n%s", got)
+	}
+}

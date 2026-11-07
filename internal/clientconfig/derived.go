@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
@@ -218,10 +219,19 @@ func (c *Config) RenameDerivedKB(old, newName string) bool {
 	return changed
 }
 
+// DerivesBindings reports whether provider has derived workspace bindings: it
+// is in workspace scope, or its MCP mode is cli. A cli provider reaches the KBs
+// only through `cartographer call`, which always runs the bridge, so the folder's
+// bindings narrow it whatever its projection scope; that scope still decides what
+// sync writes (#1804).
+func (c *Config) DerivesBindings(provider string) bool {
+	return c.WorkspaceScope(provider) == ScopeWorkspace || configurator.UsesCLI(configurator.Provider(provider))
+}
+
 // DerivedUnresolved returns, for provider, the declared repositories that
-// resolved to no usable clone. Empty unless provider is in workspace scope.
+// resolved to no usable clone. Empty unless provider DerivesBindings.
 func (c *Config) DerivedUnresolved(provider string) []DerivedUnresolved {
-	if c.WorkspaceScope(provider) != ScopeWorkspace {
+	if !c.DerivesBindings(provider) {
 		return nil
 	}
 	return append([]DerivedUnresolved(nil), c.derived.Unresolved[provider]...)
@@ -230,11 +240,11 @@ func (c *Config) DerivedUnresolved(provider string) []DerivedUnresolved {
 // effectiveWorkspaces is provider's explicit bindings plus the derived ones.
 // An explicit binding replaces the derived one on the same canonical path
 // entirely, `kbs: []` included: that is the local opt-out. Derived bindings
-// exist only for a provider in workspace scope, so a provider in provider scope
-// reads exactly what it always read.
+// exist only for a provider that DerivesBindings, so an MCP provider in provider
+// scope reads exactly what it always read.
 func (c *Config) effectiveWorkspaces(provider string) []WorkspaceBinding {
 	out := append([]WorkspaceBinding(nil), c.Workspaces[provider]...)
-	if c.WorkspaceScope(provider) != ScopeWorkspace {
+	if !c.DerivesBindings(provider) {
 		return out
 	}
 	explicit := make(map[string]bool, len(out))

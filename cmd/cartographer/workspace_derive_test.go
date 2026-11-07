@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
@@ -341,5 +342,16 @@ func TestDerivedGitErrorSkipsOnlyThatBinding(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(repo, ".claude")); statErr == nil {
 		t.Error("the unreadable repository was written into")
+	}
+}
+
+// #1804: a cli provider derives bindings at the default scope, so they narrow
+// the bridge `call` runs; an MCP provider at that scope still does not.
+func TestDerivationScope_CLIProviderDerivesAtProviderScope(t *testing.T) {
+	registerTestProviders(t, configurator.PluginSpec{Name: "fork-cli", Base: string(configurator.ProviderCrush), MCPMode: configurator.MCPModeCLI, Active: true})
+	cfg := &clientconfig.Config{}
+	providers, _ := derivationScope(cfg, []string{"claude", "fork-cli"})
+	if len(providers) != 1 || providers[0] != "fork-cli" {
+		t.Fatalf("providers = %v, want only fork-cli", providers)
 	}
 }

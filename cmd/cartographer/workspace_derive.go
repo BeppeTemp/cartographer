@@ -102,7 +102,10 @@ func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir str
 func derivationScope(cfg *clientconfig.Config, targets []string) (providers, candidates []string) {
 	seen := map[string]bool{}
 	for _, p := range targets {
-		if cfg.WorkspaceScope(p) != clientconfig.ScopeWorkspace || !provisioning.SupportsProjectScope(configurator.Provider(p)) {
+		// A cli provider derives whatever its scope: its bindings narrow the
+		// bridge `call` runs, and need no project-local destination (#1804).
+		inWorkspace := cfg.WorkspaceScope(p) == clientconfig.ScopeWorkspace && provisioning.SupportsProjectScope(configurator.Provider(p))
+		if !inWorkspace && !configurator.UsesCLI(configurator.Provider(p)) {
 			continue
 		}
 		providers = append(providers, p)

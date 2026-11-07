@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 )
 
@@ -328,5 +329,58 @@ func TestResolveLastUnbindBeforeSyncServesReadWrite(t *testing.T) {
 	}
 	if s := Resolve(cfg, "claude", t.TempDir()); !s.All || s.ReadOnly || s.Unbound {
 		t.Fatalf("after unbind: %+v, want the read-write provider default", s)
+	}
+}
+
+// A provider whose MCP mode is cli reaches the KBs only through `call`, which
+// runs this resolution: its folder bindings, explicit and derived, narrow it
+// although its projection scope is the default (#1804). An unbound folder keeps
+// the global set.
+func TestResolveCLIProviderIsNarrowedByBindings(t *testing.T) {
+	if _, err := configurator.ReplacePlugins([]configurator.PluginSpec{
+		{Name: "fork-cli", Base: string(configurator.ProviderCrush), MCPMode: configurator.MCPModeCLI, Active: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = configurator.ReplacePlugins(nil) })
+
+	root := mkdir(t, t.TempDir())
+	explicit := mkdir(t, root, "explicit")
+	derived := mkdir(t, root, "derived")
+	free := mkdir(t, root, "free")
+
+	cfg := unboundConfig()
+	if err := cfg.BindWorkspace("fork-cli", explicit, []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SetDerived(clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{
+		"fork-cli": {{Path: derived, KBs: []string{"kb-b"}}},
+	}})
+	if cfg.WorkspaceScope("fork-cli") == clientconfig.ScopeWorkspace {
+		t.Fatal("the test needs the default scope")
+	}
+
+	for _, c := range []struct {
+		name, dir string
+		want      []string
+	}{
+		{"explicit", explicit, []string{"kb-a"}},
+		{"derived", derived, []string{"kb-b"}},
+	} {
+		got := Resolve(cfg, "fork-cli", c.dir)
+		if got.All || got.Err != nil || !reflect.DeepEqual(got.KBs, c.want) {
+			t.Errorf("%s: scope = %+v, want only %v", c.name, got, c.want)
+		}
+	}
+	if got := Resolve(cfg, "fork-cli", free); !got.All {
+		t.Errorf("unbound folder: scope = %+v, want the global set", got)
+	}
+	// An MCP provider in the same configuration is not given derived bindings
+	// at provider scope: the rule is the cli mode's.
+	cfg.SetDerived(clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{
+		"claude": {{Path: derived, KBs: []string{"kb-b"}}},
+	}})
+	if got := Resolve(cfg, "claude", derived); got.Binding != nil {
+		t.Errorf("claude at provider scope got a derived binding: %+v", got)
 	}
 }

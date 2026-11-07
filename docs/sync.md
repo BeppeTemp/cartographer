@@ -539,6 +539,7 @@ with `$PWD` set to `$HOME`) with the binding table, **deepest binding wins**, so
 and one on `$HOME/projects/<area>` coexist, and proxies the whole session to the routed endpoint with
 `?kbs=<set>`. The server already enforces the set and refuses any other `kb`. Nothing is written into
 the workspace for this: no `.mcp.json`, no project entry, whichever client.
+A provider whose MCP mode is `cli` (a plugin provider, plugins.md §MCP modes) has no entry: `cartographer call` always runs the bridge, so the folder's bindings, explicit and derived, narrow it as they do an MCP provider, whatever its projection scope (#1804); a folder under no binding keeps the provider's global set. The scope still decides only what `sync` projects.
 A provider with no binding gets the bridge too when an enabled, approved plugin lists tools in its
 `plugins.<name>.tools` hint (D1757, amends D737): its sessions keep the
 access the HTTP entry gave (the provider's KB set, read-write, `kb_options` read-only KBs kept, no roots
