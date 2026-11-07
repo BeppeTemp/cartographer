@@ -219,12 +219,23 @@ gate() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2
   return 2
 }
 
-# The tests a red gate log names: Go top-level tests, vitest cases, Playwright specs.
+# The tests a red gate log names: the ones a signoff retry confirmed (the Windows leg's output
+# has no `--- FAIL` line of the linux shape; they are what the change broke) first, then Go
+# top-level tests, vitest cases, Playwright specs. At most 10, `pkg.Test` and `Test` once.
 failing() { # $1 = gate log; vitest and Playwright colour their lines
-  sed "s/$(printf '\033')\[[0-9;]*m//g" "$1" | sed -n \
+  local clean confirmed others
+  clean=$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$1" | tr -d '\r')
+  confirmed=$(sed -n 's/^signoff: confirmed on a targeted retry: *//p' <<<"$clean" | tr ' ' '\n' | grep -E '^[A-Za-z0-9_.-]+$' | awk '!s[$0]++' || true)
+  others=$(sed -n \
     -e 's/^--- FAIL: \([A-Za-z0-9_]*\).*/\1/p' \
     -e 's/^ FAIL  \([^ ]*\) > .*/\1/p' \
-    -e 's/^ *✘ *[0-9]* *\([^ ]*\) .*/\1/p' | sort -u | head -n 10 | tr '\n' ' ' | sed 's/ $//' || true
+    -e 's/^ *✘ *[0-9]* *\([^ ]*\) .*/\1/p' <<<"$clean" | LC_ALL=C sort -u || true)
+  printf '%s\n' "$others" | awk -v c="$confirmed" '
+    BEGIN {
+      n = split(c, a, "\n")
+      for (i = 1; i <= n; i++) if (a[i] != "") { print a[i]; t = a[i]; sub(/^.*\./, "", t); seen[t] = 1 }
+    }
+    $0 != "" && !($0 in seen) { print }' | head -n 10 | tr '\n' ' ' | sed 's/ $//' || true
 }
 issue_flaky() { # $1 = names, $2 = what happened, $3 = body
   gh issue create -R "$repo" --label bug --title "flaky: $1 $2" --body "$3" >/dev/null ||

@@ -144,7 +144,24 @@ awk -F'\t' -v b="$b" '$1 == b { print $2 "\t" $3 "\t" $4 }' "$FAKE_GH_PRS"
 	unlandedPath, _ := branch("feat/9-unlanded", "9-unlanded")
 	reusedPath, _ := branch("feat/10-reused", "10-reused")
 	plantedPath, _ := branch("feat/11-planted", "11-planted")
+	// A change stacked on another one: the base merged into its branch after `make ready`
+	// (head past the Lander-Tip, by landed work and a merge), and a slug queued twice.
+	baseBranchPath, baseTip := branch("feat/13-base", "13-base")
+	stackedPath, stackedTip := branch("feat/12-stacked", "12-stacked")
+	run(stackedPath, "git", "merge", "-q", "--no-ff", "-m", "merge the base", "feat/13-base")
+	extraTipPath, extraTipTip := branch("feat/14-extra", "14-extra")
+	write(filepath.Join(extraTipPath, "unlanded.txt"), "never queued\n", 0o644)
+	run(extraTipPath, "git", "add", ".")
+	run(extraTipPath, "git", "commit", "-q", "-m", "work after the tip")
+	requeuedPath, requeuedTip := branch("feat/15-requeued", "15-requeued")
 	pair := func(slug, tip string) []string { return []string{"Lander-Slug: " + slug, "Lander-Tip: " + tip} }
+	land("13-base", baseTip, pair("13-base", baseTip)...)
+	land("12-stacked", stackedTip, pair("12-stacked", stackedTip)...)
+	// The head is past the tip by a commit no train carried.
+	land("14-extra", extraTipTip, pair("14-extra", extraTipTip)...)
+	// Queued, rejected, queued again: two tips, only the second on main (the first by a pair of its own).
+	land("15-requeued-first-try", "", pair("15-requeued", strings.Repeat("b", 40))...)
+	land("15-requeued", requeuedTip, pair("15-requeued", requeuedTip)...)
 	land("6-landed", trainTip, pair("6-landed", trainTip)...)
 	land("7-queued", queuedTip, pair("7-queued", queuedTip)...)
 	land("8-guarded", guardedTip, pair("8-guarded", guardedTip)...)
@@ -210,7 +227,13 @@ awk -F'\t' -v b="$b" '$1 == b { print $2 "\t" $3 "\t" $4 }' "$FAKE_GH_PRS"
 	if exists(trainPath) || hasBranch("feat/6-landed") {
 		t.Errorf("feat/6-landed: its slug is a Lander-Slug on main and it is not queued: it must go\n%s", out)
 	}
+	for _, p := range []string{baseBranchPath, stackedPath, requeuedPath} {
+		if exists(p) {
+			t.Errorf("%s landed (a merge of landed work past its Lander-Tip, or a slug queued twice): it must go\n%s", p, out)
+		}
+	}
 	for _, c := range []struct{ name, path, why string }{
+		{"feat/14-extra", extraTipPath, "a commit after the Lander-Tip that no landed tip holds"},
 		{"feat/7-queued", queuedPath, "still queued as ready/7-queued"},
 		{"exp/8-guarded", guardedPath, "a running lander started from it"},
 		{"feat/9-unlanded", unlandedPath, "no Lander-Slug on main"},
