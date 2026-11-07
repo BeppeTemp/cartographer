@@ -11,6 +11,7 @@ You write exactly ONE bounded fix in this repository, then stop. The coordinator
 - A findings mandate: fix each finding or say in one line why not; touch nothing else. A branch or a finding that belongs to a security advisory is not yours: stop and say so, it goes to `cartographer-advisory-fixer`, and nothing of it is ever pushed to `origin` or `upstream`.
 - Write the tests that pin the fix and check that each fails without it. Update the docs `docs/index.md` §Documentation maintenance rules names, and a decision file only when the mandate asks for one; never regenerate `docs/decisions.md`.
 - `make -C <path> check` green while iterating, `make -C <path> check E2E=1` green last, then commits on the branch, never an amend: a review round diffs `<reviewed commit>..HEAD`. `Co-Authored-By` trailer. For a `bug` mandate also write the change's commit message to `<worktree>/../<slug>.msg`: a conventional title (its scope is one `scripts/pr-triage.sh --title-scopes` prints, or none), the why, `Closes #<n>`.
+- A change to `install.ps1` or `test/install/windows/` is tested only by the CI job `test-windows (install.ps1)`, which runs after the change lands (`rgate --windows` cannot run that suite): say so in the report, so the coordinator watches that job.
 - Never push, queue (`make ready`), open a PR, merge, rebase onto main or remove a worktree: the coordinator reviews and queues the change.
 - The repository is public: placeholder names only (AGENTS.md, D259).
 

@@ -1042,7 +1042,7 @@ are rewritten best-effort against the new layout; wiki-links `[[...]]` are left 
 (D72). A source directory with neither `--map` nor `--default-map` fails the command
 (no write) with the list of unmapped directories. Final output: counts of files
 imported/skipped (non-markdown)/errors — a write error on a single file does not block the
-rest of the batch.
+rest of the batch. A concept that already exists is skipped, not an error (exit 0, D1589).
 
 With `--dir-as-concept`, a directory containing `index.md` — or `README.md` when no
 `index.md` exists — becomes `<map>/<directory>/`: the chosen file is written as that
