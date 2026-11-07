@@ -24,6 +24,9 @@ type Delta struct {
 	Changed        []FileChange
 	// OldVersion and NewVersion are the manifest versions.
 	OldVersion, NewVersion string
+	// OldDigest and NewDigest are the tree digests; DiffPrint shows 12 hex of each
+	// when the versions are equal, so an edit without a bump is visible.
+	OldDigest, NewDigest string
 	// CartographerFrom and CartographerTo are the `cartographer` ranges, equal when unchanged.
 	CartographerFrom, CartographerTo string
 	// DependsAdded and DependsRemoved are "name range" lines; a changed range is one of each.
@@ -45,6 +48,7 @@ func (d Delta) Empty() bool {
 // destinations against env (the machine's home).
 func Diff(old, next Plugin, env ProviderEnv) Delta {
 	d := Delta{OldVersion: old.Manifest.Version, NewVersion: next.Manifest.Version,
+		OldDigest: old.Digest, NewDigest: next.Digest,
 		CartographerFrom: old.Manifest.Cartographer, CartographerTo: next.Manifest.Cartographer}
 	oldFiles := map[string]TreeFile{}
 	for _, f := range old.Files {
@@ -147,7 +151,12 @@ func setDelta(old, next []string) (added, removed []string) {
 // listed first: it is the line the consent turns on. Every plugin-supplied
 // string goes through esc.
 func DiffPrint(w io.Writer, name string, d Delta) {
-	fmt.Fprintf(w, "changes in %s, approved %s -> new %s:\n", esc(name), esc(d.OldVersion), esc(d.NewVersion))
+	oldV, newV := esc(d.OldVersion), esc(d.NewVersion)
+	if d.OldVersion == d.NewVersion {
+		oldV += " (" + short(d.OldDigest) + ")"
+		newV += " (" + short(d.NewDigest) + ")"
+	}
+	fmt.Fprintf(w, "changes in %s, approved %s -> new %s:\n", esc(name), oldV, newV)
 	if d.Empty() {
 		fmt.Fprintln(w, "  no file, permission, range or destination differs")
 		return
@@ -187,3 +196,6 @@ func DiffPrint(w io.Writer, name string, d Delta) {
 		fmt.Fprintf(w, "  file changed: %s (%d -> %d bytes)\n", esc(c.Path), c.OldSize, c.NewSize)
 	}
 }
+
+// short is the first 12 characters of a digest, as the preview shows it.
+func short(d string) string { return d[:min(12, len(d))] }

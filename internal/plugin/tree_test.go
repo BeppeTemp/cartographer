@@ -80,7 +80,7 @@ func TestReadTreeProblems(t *testing.T) {
 		extra []TreeFile
 		want  string
 	}{
-		{"unknown entry", []TreeFile{tf("docs/page.txt", "x")}, "unknown entry `docs`: a plugin holds agents/, hooks/, providers/, skills/"},
+		{"unknown entry", []TreeFile{tf("foo/page.txt", "x")}, "unknown entry `foo`: a plugin holds cartographer-plugin.yaml, plugin.star, lib/, agents/, hooks/, providers/, skills/ (README*, LICENSE*, CHANGELOG*, docs/ and .git* are ignored)"},
 		{"mcp", []TreeFile{tf("mcp/x.json", "{}")}, `"mcp/x.json": not a plugin contribution point in this version`},
 		{"instructions", []TreeFile{tf("instructions.md", "x")}, `"instructions.md": not a plugin contribution point`},
 		{"lib without plugin.star", []TreeFile{tf("lib/a.star", "x")}, "a plugin with lib files needs a plugin.star"},
@@ -157,9 +157,9 @@ func TestPreviewListsSkillExecutable(t *testing.T) {
 }
 
 func TestReadTreeManifestMissingAndTwoProblems(t *testing.T) {
-	_, probs := ReadTree([]TreeFile{tf("docs/page", "x"), tf("mcp/b", "x")}, testOpts)
+	_, probs := ReadTree([]TreeFile{tf("foo/page", "x"), tf("mcp/b", "x")}, testOpts)
 	joined := strings.Join(probs, "\n")
-	for _, w := range []string{ManifestFile + ": missing", "unknown entry `docs`", "mcp/b"} {
+	for _, w := range []string{ManifestFile + ": missing", "unknown entry `foo`", "mcp/b"} {
 		if !strings.Contains(joined, w) {
 			t.Errorf("problems %q lack %q", joined, w)
 		}
@@ -302,5 +302,19 @@ func TestScriptsDoNotRunOnATreeWithOtherProblems(t *testing.T) {
 
 	if _, probs := ReadTree(append(goodTree(), script), opts); len(probs) != 0 || !ran {
 		t.Errorf("a valid tree did not run its script (ran=%v, problems %v)", ran, probs)
+	}
+}
+
+func TestReadTreeDocsFolderIsIgnored(t *testing.T) {
+	base, probs := ReadTree(goodTree(), testOpts)
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	with, probs := ReadTree(append(goodTree(), tf("docs/page.txt", "x"), tf("Docs/img/b.png", "y")), testOpts)
+	if len(probs) != 0 {
+		t.Fatalf("a docs folder breaks validation: %v", probs)
+	}
+	if with.Digest != base.Digest || len(with.Files) != len(base.Files) {
+		t.Errorf("docs/ is stored or digested: %s vs %s", with.Digest, base.Digest)
 	}
 }

@@ -84,6 +84,7 @@ func TestFolderSnapshot(t *testing.T) {
 	put(ManifestFile, validManifest, 0o644)
 	put("skills/helper/SKILL.md", skillMD, 0o644)
 	put("README.md", "ignored", 0o644)
+	put("docs/page.txt", "ignored", 0o644)
 	put(".git/config", "ignored", 0o644)
 	put(".gitignore", "ignored", 0o644)
 	src, err := ParseSource(dir)
@@ -98,7 +99,7 @@ func TestFolderSnapshot(t *testing.T) {
 	for _, f := range files {
 		paths = append(paths, f.Path)
 	}
-	if got := strings.Join(paths, ","); !strings.Contains(got, ManifestFile) || !strings.Contains(got, "skills/helper/SKILL.md") || strings.Contains(got, "README") || strings.Contains(got, ".git") {
+	if got := strings.Join(paths, ","); !strings.Contains(got, ManifestFile) || !strings.Contains(got, "skills/helper/SKILL.md") || strings.Contains(got, "README") || strings.Contains(got, "docs/") || strings.Contains(got, ".git") {
 		t.Errorf("paths = %s", got)
 	}
 	if _, probs := ReadTree(files, Options{}); len(probs) != 0 {
@@ -131,7 +132,7 @@ func TestFetchGit(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	for p, c := range map[string]string{ManifestFile: validManifest, "skills/helper/SKILL.md": skillMD, "README.md": "x"} {
+	for p, c := range map[string]string{ManifestFile: validManifest, "skills/helper/SKILL.md": skillMD, "README.md": "x", "docs/page.txt": "x"} {
 		full := filepath.Join(work, filepath.FromSlash(p))
 		_ = os.MkdirAll(filepath.Dir(full), 0o755)
 		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
@@ -153,6 +154,11 @@ func TestFetchGit(t *testing.T) {
 	}
 	if _, probs := ReadTree(files, Options{}); len(probs) != 0 {
 		t.Errorf("fetched tree does not validate: %v", probs)
+	}
+	for _, f := range files {
+		if strings.HasPrefix(f.Path, "docs/") {
+			t.Errorf("git fetch kept %s", f.Path)
+		}
 	}
 
 	t.Setenv("PATH", "")

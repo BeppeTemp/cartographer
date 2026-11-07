@@ -34,3 +34,31 @@ func TestDiffReportsPermissionsFilesAndRanges(t *testing.T) {
 		t.Error("identical trees must give an empty delta")
 	}
 }
+
+func TestDiffPrintShowsDigestsWhenVersionsEqual(t *testing.T) {
+	old, probs := ReadTree(goodTree(), testOpts)
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	next := old
+	next.Digest = strings.Repeat("a", 64)
+	next.Files = append([]TreeFile{}, old.Files...)
+	next.Files[0].Content = append([]byte("x"), next.Files[0].Content...)
+	d := Diff(old, next, ProviderEnv{})
+	if d.OldDigest != old.Digest || d.NewDigest != next.Digest {
+		t.Fatalf("digests not carried: %+v", d)
+	}
+	var buf bytes.Buffer
+	DiffPrint(&buf, "p", d)
+	want := "approved " + old.Manifest.Version + " (" + old.Digest[:12] + ") -> new " + next.Manifest.Version + " (" + strings.Repeat("a", 12) + "):"
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("want %q in:\n%s", want, buf.String())
+	}
+
+	next.Manifest.Version = "9.9.9"
+	buf.Reset()
+	DiffPrint(&buf, "p", Diff(old, next, ProviderEnv{}))
+	if !strings.Contains(buf.String(), "approved "+old.Manifest.Version+" -> new 9.9.9:") {
+		t.Errorf("different versions must print versions only:\n%s", buf.String())
+	}
+}
