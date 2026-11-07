@@ -61,6 +61,10 @@ type Bridge struct {
 	// Plugins are the tools of the active plugins, served beside the server's
 	// (plugintools.go). Empty means the bridge is the plain proxy it was.
 	Plugins []PluginTool
+	// OneShot marks a bridge that serves a single `cartographer call`: there is
+	// no agent session to restart, so kb_status.connection.hint drops its
+	// "start a new agent session" tail (withOneShotHint).
+	OneShot bool
 
 	outMu sync.Mutex
 	logMu sync.Mutex // logf is called from the read loop and from plugin calls
@@ -684,7 +688,10 @@ func (b *Bridge) newRequest(ctx context.Context, scope Scope, reqURL string, raw
 			req.Header.Set("Mcp-Name", name)
 		}
 	}
-	if m.Method == "tools/call" {
+	// Only a write names an author: the two git processes behind it cost about
+	// 140 ms, nearly half of a one-shot `cartographer call`, and a read never
+	// commits. An unknown or plugin tool counts as a write (fail closed).
+	if m.Method == "tools/call" && client.ToolRequiresWrite(mirroredName(m)) {
 		if a := b.author(scope, m.Params); a != "" {
 			req.Header.Set(client.AuthorHeader, client.EncodeAuthor(a))
 		}
@@ -699,6 +706,8 @@ func (b *Bridge) responseRewriter(scope Scope, m message, unboundNote bool) func
 	switch {
 	case unboundNote:
 		return withUnboundNote
+	case b.OneShot && m.Method == "tools/call" && mirroredName(m) == "kb_status":
+		return withOneShotHint
 	case m.Method == "tools/list" && len(b.Plugins) > 0:
 		return func(body []byte) []byte { return b.mergePluginTools(scope, m, body) }
 	}
@@ -890,4 +899,57 @@ func (b *Bridge) closeSession() {
 	if resp, err := client.HTTPClient(b.HTTP, b.Cfg.InsecureHTTPAllowed()).Do(req); err == nil {
 		resp.Body.Close()
 	}
+}
+
+// SessionHintTail is the end of the server's kb_status.connection.hint
+// (mcpserver routedConnectionHint) that only an agent session can act on;
+// TestOneShotHintTailIsTheServers pins it to the server's text.
+const SessionHintTail = ", then start a new agent session."
+
+// withOneShotHint rewrites connection.hint in the kb_status result of body so
+// that it ends at the command: a one-shot call has no session to restart. Any
+// other body, or one that cannot be decoded, comes back untouched.
+func withOneShotHint(body []byte) []byte {
+	var env map[string]json.RawMessage
+	if json.Unmarshal(body, &env) != nil || env["result"] == nil {
+		return body
+	}
+	var res map[string]json.RawMessage
+	if json.Unmarshal(env["result"], &res) != nil || res == nil {
+		return body
+	}
+	var content []map[string]json.RawMessage
+	if json.Unmarshal(res["content"], &content) != nil || len(content) == 0 {
+		return body
+	}
+	var text string
+	if json.Unmarshal(content[0]["text"], &text) != nil {
+		return body
+	}
+	var st map[string]json.RawMessage
+	if json.Unmarshal([]byte(text), &st) != nil || st["connection"] == nil {
+		return body
+	}
+	var conn map[string]json.RawMessage
+	if json.Unmarshal(st["connection"], &conn) != nil || conn["hint"] == nil {
+		return body
+	}
+	var hint string
+	if json.Unmarshal(conn["hint"], &hint) != nil || !strings.Contains(hint, SessionHintTail) {
+		return body
+	}
+	conn["hint"], _ = json.Marshal(strings.ReplaceAll(hint, SessionHintTail, "."))
+	st["connection"], _ = json.Marshal(conn)
+	t, err := json.Marshal(st)
+	if err != nil {
+		return body
+	}
+	content[0]["text"], _ = json.Marshal(string(t))
+	res["content"], _ = json.Marshal(content)
+	env["result"], _ = json.Marshal(res)
+	out, err := json.Marshal(env)
+	if err != nil {
+		return body
+	}
+	return out
 }

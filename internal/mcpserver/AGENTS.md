@@ -27,7 +27,7 @@ test or a decision record: none of them is a preference.
   `CommitPaths` refuse a gitlink (`gitx.ErrGitlink`). A new tool that writes under `skills/` or
   `hooks/` goes through the guard; one that renames or copies a directory checks its contents.
 - **A tool's `ReadOnly` field and `readOnlyToolNames` are two halves of one fact.**
-  `readonly.go` carries the source-of-truth list; `TestReadOnlyToolsGolden` builds
+  `client.ReadOnlyToolNames` (`internal/client/readonly.go`, where a tool author adds the name) is the source-of-truth list; `TestReadOnlyToolsGolden` builds
   a real registry and fails if they diverge. A new read-only tool that is not in
   the list is refused for a `kb:<name>:r` token; a mutating tool wrongly in it is
   a privilege escalation.

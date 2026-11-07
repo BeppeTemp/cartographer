@@ -441,7 +441,7 @@ func callBridge(ctx context.Context, cfg *clientconfig.Config, token, provider, 
 	log := &lockedBuf{}
 	w := &responseWatcher{done: func() { _ = pw.Close() }}
 	b := &mcpbridge.Bridge{
-		Cfg: cfg, Provider: provider, Dir: dir, Token: token, Version: version,
+		Cfg: cfg, Provider: provider, Dir: dir, Token: token, Version: version, OneShot: true,
 		In: pr, Out: w, Log: log,
 	}
 	b.Plugins = bridgePluginTools(cfg, log)

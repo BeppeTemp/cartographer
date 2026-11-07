@@ -13,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/mcpbridge"
 )
 
 // routedTestToken is the bearer token the fixtures below grant rw on every
@@ -784,5 +785,13 @@ func TestRoutedMount_KBStatusHint_ThreeSentencesInOrder(t *testing.T) {
 	want := routedConnectionHint + " " + routedUnknownHint + " " + routedRenamedHint
 	if h, _ := conn["hint"].(string); h != want {
 		t.Errorf("hint = %q, want %q", h, want)
+	}
+}
+
+// The one-shot bridge cuts this tail off the hint (#1803): it must stay the
+// end of the server's text.
+func TestRoutedConnectionHintEndsWithTheBridgesSessionTail(t *testing.T) {
+	if !strings.HasSuffix(routedConnectionHint, mcpbridge.SessionHintTail) {
+		t.Errorf("routedConnectionHint no longer ends with %q", mcpbridge.SessionHintTail)
 	}
 }

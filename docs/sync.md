@@ -644,6 +644,7 @@ session (a folder with no identity again after 30s). A call that writes to two K
 carries one author for both commits, so it is sent only when both KBs resolve to the same one. The
 `knowledge_bases` keys are the client's KB names: a renamed KB's old name, which the server resolves through its state file, is not one.
 Without a header the server authors the write as the identity configured for the KB in the server file (`git.identities`), else the token.
+Only a write names an author: the bridge sends the header when `client.ToolRequiresWrite(<tool>)` holds (the read-only list shared with the server; an unknown or plugin tool counts as a write) and never asks git for a read, so a one-shot `cartographer call` of a read spends no ~140 ms on it (#1803). The bridge of a `call` also drops "then start a new agent session" from `kb_status.connection.hint`, which ends at `run cartographer sync`.
 
 **Who an HTTP entry's writes are authored as (D904).** A provider without a workspace binding (or
 whose bridge cannot start) keeps an HTTP entry, written once into a file every folder shares, so
