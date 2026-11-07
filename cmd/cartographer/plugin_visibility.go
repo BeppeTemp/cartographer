@@ -112,6 +112,11 @@ func printPluginSection(w io.Writer, s statusSnapshot) {
 				state = "detected"
 			}
 			fmt.Fprintf(w, "    provider %s (plugin %s, base %s): %s\n", escapeControl(pr.Name), escapeControl(pr.Plugin), escapeControl(pr.Base), state)
+			for _, is := range pluginProviderIssues {
+				if is.LeftOut && is.Provider == pr.Name {
+					fmt.Fprintf(w, "    [%s] warning: cell left out: %s\n", escapeControl(is.Provider), escapeControl(is.Reason))
+				}
+			}
 		}
 	}
 }

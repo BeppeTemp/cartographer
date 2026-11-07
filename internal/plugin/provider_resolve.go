@@ -47,6 +47,10 @@ type ResolvedProvider struct {
 	MCPStale                [][]string // home-relative
 	Capabilities            map[string]string
 	InvokeHint              string
+	// LeftOut is the reasons ResolveProvider dropped paths, one per path: a
+	// cell behind a link, a path outside its root. The caller says them; a
+	// provider that lost a cell resolves all the same.
+	LeftOut []string
 }
 
 // ResolveProvider picks the per-OS values of spec, expands the anchors against
@@ -228,6 +232,7 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 	if g.Hook != nil {
 		r.Global.Hook = dirOf("paths.global.hook.dir", g.Hook.Dir, false)
 	}
+	r.LeftOut = reasons
 	return r, reasons
 }
 

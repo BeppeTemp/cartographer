@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"sort"
 
@@ -165,4 +166,58 @@ func (c *Config) validatePlugins(path string) error {
 		}
 	}
 	return nil
+}
+
+// LoadAllowedSymlinks reads only the allow_symlinks entries of dir's client
+// config, expanded, for the start of a command that resolves plugin providers
+// before the full Load (D898). It never exceeds what Load gives: the two keys
+// of one provider set to different values, or one entry Load would refuse, make
+// the whole answer empty, as Load fails. A missing
+// file is none. It never reads a file outside dir: a project-level
+// .cartographer.yaml must not decide which links are followed.
+func LoadAllowedSymlinks(dir string) ([]string, error) {
+	data, err := os.ReadFile(Path(dir))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("clientconfig: read %s: %w", Path(dir), err)
+	}
+	type entry struct {
+		AllowSymlinks *[]string `yaml:"allow_symlinks"`
+	}
+	var doc struct {
+		Providers map[string]entry `yaml:"providers"`
+		Clients   map[string]entry `yaml:"clients"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("clientconfig: parse %s: %w", Path(dir), err)
+	}
+	merged := map[string][]string{}
+	for p, b := range doc.Clients {
+		if b.AllowSymlinks != nil {
+			merged[p] = *b.AllowSymlinks
+		}
+	}
+	for p, b := range doc.Providers {
+		if b.AllowSymlinks == nil {
+			continue
+		}
+		// Both keys set with different values is a Load error (settingschema
+		// moved keys): the answer is empty, as Load gives nothing.
+		if old, both := merged[p]; both && len(old) > 0 && !reflect.DeepEqual(old, *b.AllowSymlinks) {
+			return nil, nil
+		}
+		merged[p] = *b.AllowSymlinks
+	}
+	var out []string
+	for _, entries := range merged {
+		for _, e := range entries {
+			if !ValidSymlinkEntry(dir, e) {
+				return nil, nil
+			}
+			out = append(out, ExpandSymlinkPath(dir, e))
+		}
+	}
+	return out, nil
 }

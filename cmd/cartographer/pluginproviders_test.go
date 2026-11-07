@@ -13,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 const forkProviderYAML = `schema: 1
@@ -273,5 +274,106 @@ func TestRegistrationPrecedesRunInMain(t *testing.T) {
 	}
 	if reg < 0 || run < 0 || reg > run {
 		t.Errorf("main must call registerPluginProviders before run (calls: %v)", calls)
+	}
+}
+
+// A skill directory that is a dangling link is left out of the provider (#1790).
+// The registration stays complete, the reason is an issue, sync and status say it
+// once and doctor reports it; a link listed under allow_symlinks keeps the cell,
+// although the listing is read before the full Load.
+func TestRegisterPluginProvidersSaysTheCellItLeftOut(t *testing.T) {
+	home := pluginFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	freshProcess(t, home)
+	t.Cleanup(safewrite.ResetAllowedLinks)
+	if err := os.MkdirAll(filepath.Join(home, ".fork-cli"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, ".fork-cli", "skills")
+	if err := os.Symlink(filepath.Join(home, "missing"), link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if code, out := runPlugin(t, "install", providerPlugin(t, "team-forks"), "--yes"); code != 0 {
+		t.Fatalf("install: %d\n%s", code, out)
+	}
+	var errw bytes.Buffer
+	registerPluginProviders(&errw)
+	if !registered("fork-cli") || !clientconfig.PluginProvidersComplete(nil) || errw.Len() != 0 {
+		t.Fatalf("registered=%v complete=%v stderr=%q", registered("fork-cli"), clientconfig.PluginProvidersComplete(nil), errw.String())
+	}
+	if len(pluginProviderIssues) != 1 || !pluginProviderIssues[0].LeftOut || pluginProviderIssues[0].Provider != "fork-cli" ||
+		!strings.Contains(pluginProviderIssues[0].Reason, "paths.global.skill.dir") {
+		t.Fatalf("issues: %+v", pluginProviderIssues)
+	}
+
+	// sync and connect: one line, from the summary they share.
+	results := map[string]provisioning.AppliedResult{
+		"claude": {Written: []provisioning.ManagedFile{{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md"}}},
+	}
+	out := withStdout(t, func() { printApplySummary(os.Stdout, home, results, false) })
+	if n := strings.Count(out, "[fork-cli] warning: cell left out: paths.global.skill.dir"); n != 1 || !strings.Contains(out, "[claude] wrote") {
+		t.Errorf("sync warning printed %d times, or the summary is missing:\n%s", n, out)
+	}
+	// status
+	var st bytes.Buffer
+	printPluginSection(&st, statusSnapshot{
+		Plugins:   []pluginStatus{{Name: "team-forks", State: "active"}},
+		Providers: []providerStatus{{Name: "fork-cli", Plugin: "team-forks"}},
+	})
+	if !strings.Contains(st.String(), "[fork-cli] warning: cell left out") {
+		t.Errorf("status:\n%s", st.String())
+	}
+	// doctor
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range checkPlugins(cfg, "", nil) {
+		if f.Check == "plugin-provider" && strings.Contains(f.Message, "provider fork-cli") && strings.Contains(f.Message, "without a cell") &&
+			f.Severity == doctorWarning && strings.Contains(f.Fix, "providers.fork-cli.allow_symlinks") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no doctor finding: %+v", checkPlugins(cfg, "", nil))
+	}
+
+	// Listed: the cell is kept.
+	path := clientconfig.Path(home)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "\nproviders:") {
+		t.Fatalf("fixture already has providers:\n%s", b)
+	}
+	if err := os.WriteFile(path, append(b, []byte("\nproviders:\n  fork-cli:\n    allow_symlinks: [\"~/.fork-cli/skills\"]\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The allow set in place is not touched by a registration (it is restored).
+	sentinel := filepath.Join(home, "sentinel-link")
+	safewrite.SetAllowedLinks([]string{sentinel})
+	registerPluginProviders(&errw)
+	if len(pluginProviderIssues) != 0 {
+		t.Errorf("a listed link keeps the cell: %+v", pluginProviderIssues)
+	}
+	if got := safewrite.AllowedLinks(); len(got) != 1 || got[0] != sentinel {
+		t.Errorf("the registration left the allow set at %v", got)
+	}
+}
+
+// Only a link reason gets the allow_symlinks fix; any other left-out path names
+// the descriptor (C2).
+func TestLeftOutFindingFixMatchesTheReason(t *testing.T) {
+	link := providerIssueFinding(pluginProviderIssue{Plugin: "team-forks", Provider: "fork-cli", LeftOut: true,
+		Reason: "paths.global.skill.dir: safewrite: refusing to write through symlink \"/h/x\" -> \"/y\" (replace it)"})
+	if !strings.Contains(link.Fix, "providers.fork-cli.allow_symlinks") {
+		t.Errorf("link fix: %q", link.Fix)
+	}
+	out := providerIssueFinding(pluginProviderIssue{Plugin: "team-forks", Provider: "fork-cli", LeftOut: true,
+		Reason: "paths.global.skill.dir: path escapes the home directory"})
+	if strings.Contains(out.Fix, "allow_symlinks") || !strings.Contains(out.Fix, "descriptor") || !strings.Contains(out.Fix, "plugin update team-forks") {
+		t.Errorf("non-link fix: %q", out.Fix)
 	}
 }
