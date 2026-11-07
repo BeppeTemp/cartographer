@@ -199,7 +199,7 @@ worktree-add: ## Isolated worktree for a plan branch (from upstream/main when th
 	@test -n "$(SLUG)" || (echo "worktree-add: SLUG is required" && exit 1)
 	@./scripts/upstream-repo.sh --require-remote >/dev/null
 	@base=origin; git remote get-url upstream >/dev/null 2>&1 && base=upstream; \
-	git fetch $$base && git worktree add -b "$(BRANCH_PREFIX)/$(SLUG)" ".worktrees/$(SLUG)" $$base/main
+	git fetch --no-tags $$base main && git worktree add -b "$(BRANCH_PREFIX)/$(SLUG)" ".worktrees/$(SLUG)" $$base/main
 	@echo "worktree: $(CURDIR)/.worktrees/$(SLUG) on $(BRANCH_PREFIX)/$(SLUG)"
 
 worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree-rm SLUG=my-change (the branch is read from the worktree: feat/ or exp/)
