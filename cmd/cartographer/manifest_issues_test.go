@@ -233,9 +233,9 @@ func TestIssuesForProjection_Selection(t *testing.T) {
 		p    syncProjection
 		want []string
 	}{
-		{"one bound KB, no prefix", cs, syncProjection{Provider: "claude"}, []string{"ia"}},
-		{"two bound KBs, prefixed", cs, syncProjection{Provider: "codex"}, []string{"a: ia", "b: ib"}},
-		{"workspace reads its own KBs", cs, syncProjection{Provider: "codex", Workspace: "/w", KBs: []string{"b"}}, []string{"ib"}},
+		{"one bound KB", cs, syncProjection{Provider: "claude"}, []string{"a|ia"}},
+		{"two bound KBs", cs, syncProjection{Provider: "codex"}, []string{"a|ia", "b|ib"}},
+		{"workspace reads its own KBs", cs, syncProjection{Provider: "codex", Workspace: "/w", KBs: []string{"b"}}, []string{"b|ib"}},
 		{"bundle only", cs, syncProjection{Provider: "claude", BundleOnly: true}, nil},
 		{"bound to no KB", cs, syncProjection{Provider: "none"}, nil},
 	}
@@ -247,7 +247,7 @@ func TestIssuesForProjection_Selection(t *testing.T) {
 			cs   candidateSet
 			p    syncProjection
 			want []string
-		}{"bare endpoint", bare, syncProjection{Provider: "claude"}, []string{"bare"}},
+		}{"bare endpoint", bare, syncProjection{Provider: "claude"}, []string{"|bare"}},
 		struct {
 			name string
 			cs   candidateSet
@@ -262,9 +262,33 @@ func TestIssuesForProjection_Selection(t *testing.T) {
 		}{"bare endpoint, bound to no KB", bare, syncProjection{Provider: "none"}, nil},
 	)
 	for _, c := range cases {
-		got := c.cs.issuesForProjection(cfg, c.p)
-		if strings.Join(got, "|") != strings.Join(c.want, "|") {
+		issues, _ := c.cs.issuesForProjection(cfg, c.p)
+		var got []string
+		for _, is := range issues {
+			got = append(got, is.KB+"|"+is.Text)
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// #1799: a global projection over several KBs and a workspace projection bound
+// to one of them report the same issue: it is printed once, with the KB's name
+// because the run as a whole reads more than one.
+func TestManifestIssues_SameIssueAcrossProjectionsIsOneLine(t *testing.T) {
+	is := provisioning.KBIssue{KB: "kb-a", Text: "skill \"x\" excluded"}
+	got := manifestIssues(map[string]provisioning.Manifest{
+		"claude":    {KBIssues: []provisioning.KBIssue{is}, ReadKBs: []string{"kb-a", "kb-b"}},
+		"claude@/w": {KBIssues: []provisioning.KBIssue{is}, ReadKBs: []string{"kb-a"}},
+	})
+	if len(got) != 1 || got[0] != "kb-a: skill \"x\" excluded" {
+		t.Errorf("got %q, want one prefixed line", got)
+	}
+	single := manifestIssues(map[string]provisioning.Manifest{
+		"claude@/w": {KBIssues: []provisioning.KBIssue{is}, ReadKBs: []string{"kb-a"}},
+	})
+	if len(single) != 1 || single[0] != "skill \"x\" excluded" {
+		t.Errorf("single-KB run: got %q, want the bare issue", single)
 	}
 }

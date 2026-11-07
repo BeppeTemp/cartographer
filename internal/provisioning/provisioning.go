@@ -127,6 +127,9 @@ const ArtifactMaxFileSize = 256 * 1024
 // the hash must not need the file, and a changed size still changes it.
 func oversizedMarker(size int64) []byte { return []byte(fmt.Sprintf("oversized:%d", size)) }
 
+// KBIssue is one manifest issue and the KB whose sync_pull reported it.
+type KBIssue struct{ KB, Text string }
+
 // Manifest is the server-side source of truth.
 // Revision changes if even a single artifact changes: O(1) drift detection.
 // GeneratedAt must be set by the caller if needed; BuildManifest leaves it empty
@@ -141,6 +144,12 @@ type Manifest struct {
 	// list that fed the hash would make a message edit look like a catalogue
 	// change.
 	Issues []string `json:"issues,omitempty"`
+	// KBIssues is client-side only: the issues of the KBs a projection reads,
+	// each with its KB ("" for the unnamed endpoint), and ReadKBs those KBs.
+	// The run-level list deduplicates on (KB, issue) and prefixes the KB only
+	// when the run as a whole reads more than one (#1799).
+	KBIssues []KBIssue `json:"-"`
+	ReadKBs  []string  `json:"-"`
 	// Skipped is client-side only: the reasons VerifiedManifest dropped
 	// artifacts from this manifest (a "bundle" artifact that does not match the
 	// bundle embedded in this client). Apply reports them as warnings.

@@ -305,3 +305,16 @@ func TestWebGateRunsEveryWebLegTarget(t *testing.T) {
 		}
 	}
 }
+
+// #1800: `make worktree-add` fetches only the base's main, without tags. A bare
+// `git fetch <remote>` also fetches tags and refuses to move one a release
+// candidate re-cut on the same day moved, which stopped the target.
+func TestWorktreeAddFetchesWithoutTags(t *testing.T) {
+	m := regexp.MustCompile(`(?m)^worktree-add:.*\n((?:\t.*\n)+)`).FindStringSubmatch(readFile(t, repoRoot(t), "Makefile"))
+	if m == nil {
+		t.Fatal("Makefile has no worktree-add recipe")
+	}
+	if !regexp.MustCompile(`git fetch --no-tags \$\$base main\b`).MatchString(m[1]) {
+		t.Errorf("worktree-add must run `git fetch --no-tags $$base main` (a bare fetch also fetches tags and stops on a moved release candidate tag):\n%s", m[1])
+	}
+}

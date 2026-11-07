@@ -228,22 +228,25 @@ func (cs candidateSet) placeholdersForProjection(cfg *clientconfig.Config, p syn
 }
 
 // issuesForProjection returns the manifest issues of the KBs a projection
-// reads, following placeholdersForProjection's selection. When the client
-// projection reads more than one KB each line is prefixed with the KB's name. nil when
-// there is none.
-func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProjection) []string {
+// reads, following placeholdersForProjection's selection, each with its KB
+// ("" for the unnamed endpoint), and the KBs read. The KB is kept so that the
+// run-level list can decide the prefix once (manifestIssues, #1799).
+func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProjection) ([]provisioning.KBIssue, []string) {
 	if p.BundleOnly {
-		return nil
+		return nil, nil
 	}
-	var out []string
+	var out []provisioning.KBIssue
 	if cs.HasBare {
 		if p.Workspace != "" {
-			return nil
+			return nil, nil
 		}
 		if bound, explicit := cfg.BoundKBs(p.Provider); explicit && len(bound) == 0 {
-			return nil
+			return nil, nil
 		}
-		return append(out, cs.BareIssues...)
+		for _, is := range cs.BareIssues {
+			out = append(out, provisioning.KBIssue{Text: is})
+		}
+		return out, nil
 	}
 	kbs := p.KBs
 	if p.Workspace == "" {
@@ -253,29 +256,42 @@ func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProje
 	sort.Strings(sorted)
 	for _, kb := range sorted {
 		for _, is := range cs.Issues[kb] {
-			if len(sorted) > 1 {
-				is = kb + ": " + is
-			}
-			out = append(out, is)
+			out = append(out, provisioning.KBIssue{KB: kb, Text: is})
 		}
 	}
-	return out
+	return out, sorted
 }
 
 // manifestIssues is the distinct issues of every manifest of a run, in
-// projection-key order: the same KB read by three providers is one line.
+// projection-key order: the same KB read by three providers is one line, and
+// the same issue reached through a global and a workspace projection too. A
+// line carries its KB's name when the run as a whole reads more than one KB.
 func manifestIssues(manifests map[string]provisioning.Manifest) []string {
 	keys := make([]string, 0, len(manifests))
 	for k := range manifests {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var out []string
+	read := map[string]bool{}
+	var distinct []provisioning.KBIssue
 	for _, k := range keys {
-		for _, is := range manifests[k].Issues {
-			if !slices.Contains(out, is) {
-				out = append(out, is)
+		for _, kb := range manifests[k].ReadKBs {
+			read[kb] = true
+		}
+		for _, is := range manifests[k].KBIssues {
+			if !slices.Contains(distinct, is) {
+				distinct = append(distinct, is)
 			}
+		}
+	}
+	var out []string
+	for _, is := range distinct {
+		text := is.Text
+		if is.KB != "" && len(read) > 1 {
+			text = is.KB + ": " + text
+		}
+		if !slices.Contains(out, text) {
+			out = append(out, text)
 		}
 	}
 	return out
