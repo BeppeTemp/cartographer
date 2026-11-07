@@ -67,7 +67,9 @@ cartographer import --source <src-dir> --kb <kb-clone> \
   [--default-map <map>] [--map <srcdir>=<map>]... --dry-run
 ```
 
-Review the printed plan with the operator, then re-run without `--dry-run`. The scaffold:
+Review the printed plan with the operator, then re-run without `--dry-run`. Re-running an import is
+safe: a concept already in the KB is left untouched (stderr names it, the summary counts it as
+skipped, exit 0, D1589); pass `--overwrite` only to replace pages nobody has curated yet. The scaffold:
 synthesizes minimal frontmatter (title from the first H1 or the filename), preserves existing
 frontmatter adding only missing fields, marks every concept `status: imported`, maps relative
 source directories to a map, rewrites relative markdown links best-effort

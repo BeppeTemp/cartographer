@@ -26,7 +26,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 ## Data-plane security
 
 - Every file access goes through `kb.ResolvePath`: rejects absolute paths and any escape from the root (`../`).
-- **Atomic** writes (write to temp + rename): use `kb.WriteFileAtomic`, never `os.WriteFile` directly on content.
+- **Atomic** writes (write to temp + rename), never `os.WriteFile` directly on content: inside a KB `writeFileAtomic` of `internal/kb` (file and directory fsync, mode kept); a file the user shares (client config, provider directories) `safewrite.WriteFileAtomicNoFollow` (symlink guard, D148); a cache or state file may use a plain temp file + rename. The helpers differ on purpose (symlink policy, durability, mode), so there is no single one.
 - `log.md` is append-only, newest-on-top (`kb.AppendLog`).
 
 ## MCP server
