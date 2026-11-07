@@ -2,6 +2,7 @@ package configurator
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -190,6 +191,108 @@ func CheckPluginGlobalPath(label string, segs []string) error {
 	return checkPluginGlobalPath(label, segs, builtinClientDirs())
 }
 
+var (
+	// editorDotDirs hold an editor's extensions folder: <dir>/extensions/<id>-<version>.
+	editorDotDirs = []string{".vscode", ".vscode-insiders", ".cursor", ".windsurf", ".vscode-oss"}
+	// editorUserDirs are the per-user data folders of those editors.
+	editorUserDirs = []string{"Code", "Code - Insiders", "Cursor", "Windsurf", "VSCodium"}
+	// editorDataRoots are where those folders sit: macOS, Linux, Windows (Roaming).
+	editorDataRoots = [][]string{{"Library", "Application Support"}, {".config"}, {"AppData", "Roaming"}}
+)
+
+// extensionStorage reports whether stale is the storage of the editor extension
+// whose folder holds config: config is <editor dir>/extensions/<id>-<anything or
+// *>/..., stale is <data root>/<editor user dir>/User/globalStorage/<id>/<more>,
+// with the same literal <id> (case-folded) and no `*` up to it. It is the one
+// place outside its own directory where a stale file may lie: a rule by depth
+// would reach any user file that deep.
+func extensionStorage(config, stale []string) bool {
+	if len(config) < 3 || !asciiEq(config[1], "extensions") {
+		return false
+	}
+	known := false
+	for _, d := range editorDotDirs {
+		known = known || asciiEq(config[0], d)
+	}
+	if !known {
+		return false
+	}
+	for _, root := range editorDataRoots {
+		for _, ed := range editorUserDirs {
+			pre := append(append([]string(nil), root...), ed, "User", "globalStorage")
+			n := len(pre)
+			if len(stale) < n+2 || !asciiPrefix(stale, pre) {
+				continue
+			}
+			id := asciiLower(stale[n])
+			// The id is literal ASCII: Unicode folding (U+212A is a `k`) is not a tie.
+			if id == "" || strings.ContainsAny(strings.Join(stale[:n+1], "/"), "*") || !isASCII(id) {
+				continue
+			}
+			// Editors name the folder <publisher.name>-<version>: what follows the
+			// id is a version or the pattern's `*`, so vendor.ext-evil-1 is another
+			// extension than vendor.ext.
+			rest, ok := strings.CutPrefix(asciiLower(config[2]), id+"-")
+			if !ok || rest == "" || rest != "*" && (rest[0] < '0' || rest[0] > '9') {
+				continue
+			}
+			if ownedExtensions()[id] {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// ownedExtensions lists the ids (ASCII-lowercased) of the editor extensions a
+// built-in provider owns, from the extension folders it is detected by: a stale
+// file in their storage is never a plugin provider's.
+func ownedExtensions() map[string]bool {
+	out := map[string]bool{}
+	for _, d := range Providers() {
+		for _, g := range d.ConfigDirGlobs {
+			if len(g) >= 3 && asciiEq(g[1], "extensions") {
+				out[strings.TrimSuffix(asciiLower(g[2]), "-*")] = true
+			}
+		}
+	}
+	return out
+}
+
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b)
+}
+
+func asciiEq(a, b string) bool { return asciiLower(a) == asciiLower(b) }
+
+func asciiPrefix(segs, prefix []string) bool {
+	if len(segs) < len(prefix) {
+		return false
+	}
+	for i, p := range prefix {
+		if !asciiEq(segs[i], p) {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
 // configFixedDir is the directory part of an MCP file before any `*`: the
 // directory a stale file must lie in.
 func configFixedDir(config []string) []string {
@@ -203,8 +306,10 @@ func configFixedDir(config []string) []string {
 // segments): config is its own MCP file or pattern (nil keeps the base's), stale
 // the files it asks to have removed after a write. Each must pass the global-cell
 // checks; neither may equal or match a built-in provider's MCP file; and a stale
-// file must lie below the fixed directory of config (the part before any `*`),
-// never be config itself, and exists only with a config of its own. It is applied
+// file must lie below the fixed directory of config (the part before any `*`) or
+// in the globalStorage of the editor extension whose folder holds config
+// (extensionStorage), hold no .git segment, never be config itself, and exists
+// only with a config of its own. It is applied
 // where the descriptor is resolved and where it is registered, and again before
 // anything is removed.
 func CheckPluginMCPPaths(name string, config []string, stale [][]string) error {
@@ -245,8 +350,20 @@ func CheckPluginMCPPaths(name string, config []string, stale [][]string) error {
 		if err := notBuiltin("mcp.stale", s); err != nil {
 			return err
 		}
-		if len(s) <= len(dir) || !hasPrefixFold(s, dir) {
-			return fmt.Errorf("plugin provider %q: mcp.stale %q does not lie below %q, the directory of mcp.config", name, strings.Join(s, "/"), strings.Join(dir, "/"))
+		for _, seg := range s {
+			if strings.EqualFold(seg, ".git") {
+				return fmt.Errorf("plugin provider %q: mcp.stale %q holds a .git segment: a repository's files are never a derived file", name, strings.Join(s, "/"))
+			}
+		}
+		below := len(s) > len(dir) && hasPrefixFold(s, dir)
+		// Below the directory of config a stale file has config's extension (the
+		// rule `mcp.stale` always had); the extension's storage holds a derived
+		// file in any format (.enc).
+		if below && !strings.EqualFold(path.Ext(s[len(s)-1]), path.Ext(config[len(config)-1])) {
+			return fmt.Errorf("plugin provider %q: mcp.stale %q lies below the directory of mcp.config and must have its extension (%s)", name, strings.Join(s, "/"), path.Ext(config[len(config)-1]))
+		}
+		if !below && !extensionStorage(config, s) {
+			return fmt.Errorf("plugin provider %q: mcp.stale %q lies neither below %q, the directory of mcp.config, nor in the globalStorage of the editor extension whose folder holds mcp.config (<editor user dir>/User/globalStorage/<id>/..., <id> being the extension id that starts the folder name under <editor>/extensions)", name, strings.Join(s, "/"), strings.Join(dir, "/"))
 		}
 		if pathsOverlap(s, config) {
 			return fmt.Errorf("plugin provider %q: mcp.stale %q is mcp.config itself", name, strings.Join(s, "/"))

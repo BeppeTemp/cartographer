@@ -611,3 +611,52 @@ func TestRegisterPluginCells_ConcurrentCollisionsAcceptOne(t *testing.T) {
 		}
 	}
 }
+
+// A stale file is deleted, so it obeys the overlap rule of a cell: it may not
+// equal, contain or lie under the global root of a built-in or of another
+// registered provider.
+func TestPluginCells_StaleOverlapRefusals(t *testing.T) {
+	registerCells(t, forkCLI())
+	for name, stale := range map[string][]string{
+		"under a built-in root":     {".claude", "skills", "a", "b", "x.enc"},
+		"under another plugin root": {".fork-cli", "skills", "a", "b", "x.enc"},
+		"containing a root":         {".fork-cli", "skills"},
+	} {
+		c := forkExt()
+		c.MCPStale = [][]string{stale}
+		if _, err := RegisterPluginCells(c, testHome); err == nil || !strings.Contains(err.Error(), "mcp.stale") {
+			UnregisterPluginCells(c.Name)
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	c := forkExt()
+	c.MCPStale = [][]string{{".fork-data", "a", "b", "c", "x.enc"}}
+	registerCells(t, c)
+}
+
+// The overlap is checked both ways: a provider registered later whose cell root
+// contains an already registered provider's stale file is refused too.
+func TestPluginCells_StaleOverlapIsCheckedBothWays(t *testing.T) {
+	c := forkExt()
+	c.MCPStale = [][]string{{".fork-data", "a", "b", "c", "x.enc"}}
+	registerCells(t, c)
+	later := forkCLI()
+	later.Global.Skill = cellDir(".fork-data", "a")
+	if _, err := RegisterPluginCells(later, testHome); err == nil || !strings.Contains(err.Error(), "mcp.stale") {
+		UnregisterPluginCells(later.Name)
+		t.Fatalf("a root containing a registered stale file: %v", err)
+	}
+}
+
+// An instructions cell under Documents is still kept out of the folder of the
+// shared Cline hook dispatchers.
+func TestPluginCells_DocumentsInstructionsStayOutOfTheDispatcherFolder(t *testing.T) {
+	c := forkCLI()
+	c.Global.Instructions = &PluginCell{File: []string{"Documents", "Cline", "Hooks", "x.md"}}
+	if _, err := RegisterPluginCells(c, testHome); err == nil {
+		UnregisterPluginCells(c.Name)
+		t.Fatal("an instructions cell in Documents/Cline/Hooks was accepted")
+	}
+	c.Global.Instructions = &PluginCell{File: []string{"Documents", "VendorExt", "Rules", "cartographer.md"}}
+	registerCells(t, c)
+}

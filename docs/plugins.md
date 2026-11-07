@@ -270,10 +270,10 @@ problem is listed as `path: reason`, sorted. `seed` and `allow_call` are not key
 | `display_name` | One line of printable characters, at most 40. |
 | `base` | A built-in provider id: the formats and emitters the provider shares. |
 | `detect` | `binaries` (bare names, at most 16, no `/`, `\` or leading `-`) and `dirs` per OS (at most 16 each); at least one binary or dir. |
-| `paths.global`, `paths.project` | Cells `skill` (`dir`), `agent` (`dir`, `format` one of `claude`, `opencode`, `antigravity`, `copilot`, `cline`, default `claude`), `instructions` (`file`, a `.md` file, the extension of every built-in provider's instructions file); the global scope adds `hook` (`dir`, `scan: base`). The project scope takes no `hook` and no MCP cell. |
+| `paths.global`, `paths.project` | Cells `skill` (`dir`), `agent` (`dir`, `format` one of `claude`, `opencode`, `antigravity`, `copilot`, `cline`, default `claude`), `instructions` (`file`, a `.md` file, the extension of every built-in provider's instructions file; the global one may start with `{documents}`); the global scope adds `hook` (`dir`, `scan: base`). The project scope takes no `hook` and no MCP cell. |
 | `capabilities` | Map of capability id to `verified`, `unverified` or `absent`, at most 64. |
 | `mcp.mode` | `native` (default), `cli` or `none`. |
-| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the client derives from it and regenerates. Both take the base's extension, are refused with `cli` or `none`, and take no `{documents}`. The MCP paths follow the rules of a global cell (below); a `stale` file lies below the directory of `config` (the part before any `*`), is never `config` itself, and exists only with a `config` of its own. |
+| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the client derives from it and regenerates, in any format (a stale file is only deleted, never parsed, so it need not carry the base's extension). Both are refused with `cli` or `none` and take no `{documents}`. The MCP paths follow the rules of a global cell (below); a `stale` file lies below the directory of `config` (the part before any `*`) with the extension of `config`, or is the storage of the editor extension whose folder holds `config`, and holds no `.git` segment. The storage tie: `config` is `<.vscode|.vscode-insiders|.cursor|.windsurf|.vscode-oss>/extensions/<id>-<anything or *>/...` and the stale path is `<editor user dir>/User/globalStorage/<id>/<...>/<file>` with the same `<id>` (literal ASCII, compared after ASCII lowercasing, no `*` up to it, at least one segment after it), where what follows `<id>-` in the folder name is `*` or a version starting with a digit (`vendor.ext-evil-*` is another extension) and `<id>` is not an extension a built-in provider owns; the editor user dir is `Code`, `Code - Insiders`, `Cursor`, `Windsurf` or `VSCodium` under `Library/Application Support` (macOS), `.config` (Linux) or `AppData/Roaming` (Windows). Any other path outside the directory of `config` is refused. A stale file is never `config` itself, and exists only with a `config` of its own. |
 | `invoke_hint` | Optional, one line, at most 200. |
 
 A value is per OS (`darwin`, `linux`, `windows`, `default`, each key once) or one value for all. A global path starts with an anchor
@@ -289,8 +289,7 @@ a wildcard.
 
 `{documents}` is the Documents folder as Cline resolves it for its hooks (`safewrite.DocumentsDir`: the known folder
 on Windows, a redirected one followed, `$HOME/Documents` elsewhere). Cline's own dispatchers and the anchor share
-that one function. Only `detect.dirs` takes the anchor: Cline's dispatcher is the one file Cartographer writes in the
-Documents folder, so a skill, agent, hook, instructions, `mcp.config` or `mcp.stale` path under it is refused.
+that one function. Only `detect.dirs` and the global `instructions.file` take the anchor; a skill, agent, hook, project instructions, `mcp.config` or `mcp.stale` path under it is refused, because a skill or hook directory in the Documents folder would be executable content next to Cline's dispatchers. A global instructions file under `{documents}` resolves only when the folder lies below the home directory (otherwise the cell is left out with the reason `{documents} resolves outside the home directory`), passes the global-cell checks as if the folder were the literal `Documents` (a redirected `OneDrive/Documents/PowerShell` is refused like `Documents/PowerShell`), and stays out of `Documents/Cline/Hooks`. Base Cline's loader also reads `Documents/Cline/Rules`, so a file there is loaded by Cline sessions too.
 
 ### Resolving
 
@@ -298,7 +297,7 @@ Documents folder, so a skill, agent, hook, instructions, `mcp.config` or `mcp.st
 used is left out with a reason and the rest still resolves: an anchor variable that is unset or that points outside
 the home directory, `{app_data}` and its kin off Windows, a path whose walk from its root meets a link
 (`safewrite.CheckPath`); a path with a `*` is checked up to the segment before the first one. Every path is rooted at
-the home directory (a project path at the project root). A detect dir under `{documents}` is kept only when the
+the home directory (a project path at the project root). A detect dir or global instructions file under `{documents}` is kept only when the
 folder lies below home, and a link is not looked for in a detect dir, which is only read. A home that
 holds `[` or `*` is a literal path. `Paths(home)` lists the destinations of the machine, one line per cell, for the
 install preview.
@@ -342,7 +341,7 @@ The MCP paths (`mcp.config`, a pattern's fixed part, every `mcp.stale` entry) pa
 cell, in `configurator.CheckPluginMCPPaths`: below a client directory of their own, outside the denied directories,
 outside a built-in client's directory, no `.git*`. With `XDG_CONFIG_HOME` set to a directory under the home, the part of a `{xdg_config}` cell or MCP path below that root is checked as if it lay below `.config` (`{xdg_config}/git/x` is refused as `.config/git/x` is), and a provider whose `mcp.config` is left out for any reason writes no MCP entry (mode `none`). A pattern holds one `*`, in one segment, never within the client
 directory (`{home}/.config/*/config.json` would reach every application's file). No MCP path equals or matches the
-MCP file of a built-in provider, and a `stale` entry equal to `config` or matching it is refused. The check runs
+MCP file of a built-in provider, and a `stale` entry equal to `config` or matching it is refused. Every `stale` entry also may not equal, contain or lie under the global root of a built-in or of another registered provider (`RegisterPlugin` checks it with the cells). The check runs
 where the descriptor is resolved (`ResolveProvider`: a provider that fails it writes no MCP entry, and the install
 preview shows the reason), where it is registered (`RegisterPlugin` refuses it) and again before any stale file is
 removed.

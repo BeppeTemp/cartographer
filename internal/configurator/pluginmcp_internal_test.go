@@ -235,3 +235,37 @@ func TestMCPFilesAndNoneMode(t *testing.T) {
 		t.Error("none is not cli")
 	}
 }
+
+// A stale file may be the storage of the extension whose folder holds mcp.config
+// (another format, another directory): it goes after a write that changed bytes
+// and stays after a no-op write.
+func TestApplyGlob_RemovesAStaleFileInTheExtensionStorage(t *testing.T) {
+	spec := globPlugin()
+	spec.MCPConfig = []string{".vscode", "extensions", "vendor.ext-*", "mcp.json"}
+	spec.MCPStale = [][]string{{".config", "Code", "User", "globalStorage", "vendor.ext", "settings", "cache.enc"}}
+	registeredPlugins(t, spec)
+	home := t.TempDir()
+	tpl := filepath.Join(home, ".vscode", "extensions", "vendor.ext-1", "mcp.json")
+	stale := filepath.Join(home, ".config", "Code", "User", "globalStorage", "vendor.ext", "settings", "cache.enc")
+	writeAll(t, map[string]string{tpl: `{}`, stale: `x`})
+	emit := func() *EmitResult {
+		r, err := EmitServer("cartographer", ServerSpec{Type: "http", URL: "https://example.com/mcp"}, "fork-ext")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	if written, err := Apply([]*EmitResult{emit()}, home, false); err != nil || len(written) != 1 {
+		t.Fatalf("Apply = %v, %v", written, err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("the storage file stayed after a changing write")
+	}
+	writeAll(t, map[string]string{stale: `y`})
+	if written, err := Apply([]*EmitResult{emit()}, home, false); err != nil || len(written) != 0 {
+		t.Fatalf("second Apply = %v, %v", written, err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Errorf("a no-op write removed the stale file: %v", err)
+	}
+}

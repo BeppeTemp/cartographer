@@ -275,7 +275,7 @@ func TestResolveProviderDropsUnsafeMCPPaths(t *testing.T) {
 		"claude settings as stale": {cfg, `default: ["{home}/.claude.json"]`, "no path below its client directory"},
 		"credentials as stale":     {cfg, `default: ["{home}/.docker/config.json"]`, "no plugin provider may write"},
 		"glob in a denied dir":     {`default: "{home}/.aws/ext-*/mcp.json"`, stale, "no plugin provider may write"},
-		"stale outside the config": {cfg, `default: ["{home}/.config/gcloud/credentials.json"]`, "does not lie below"},
+		"stale outside the config": {cfg, `default: ["{home}/.config/gcloud/credentials.json"]`, "lies neither below"},
 	} {
 		spec := parsed(t, "fork-ext", swapText(t, swapText(t, forkExt, cfg, c.cfg), stale, c.stale))
 		r, reasons := ResolveProvider(spec, fakeEnv("linux", nil))
@@ -328,5 +328,68 @@ func TestResolveProviderCustomXDGKeepsDenylist(t *testing.T) {
 	// A permitted directory still resolves, to the custom root.
 	if r, reasons := ResolveProvider(parsed(t, "fork-cli", forkCLI), env); r.Global.Skill == nil || strings.Join(r.Global.Skill.Dir, "/") != "cfg/fork-cli/skills" {
 		t.Errorf("fork-cli: %+v %v", r.Global.Skill, reasons)
+	}
+}
+
+// instrFile is the global instructions block of forkCLI, one value for every OS.
+const instrFile = "      file:\n        darwin: \"{xdg_config}/fork-cli/FORK-CLI.md\"\n        linux: \"{xdg_config}/fork-cli/FORK-CLI.md\"\n        windows: \"{local_app_data}/fork-cli/FORK-CLI.md\"\n"
+
+// A global instructions file under {documents} resolves below home; a Documents
+// folder outside home drops the cell with a reason; a redirected one obeys the
+// denials of Documents/<x>. The paths are strings of each OS (fakeEnv), so the
+// test holds on every host: a Windows home is `C:\Users\user` and its separators
+// are converted only for GOOS windows.
+func TestResolveProviderDocumentsInstructions(t *testing.T) {
+	vars := map[string]string{"LOCALAPPDATA": `C:\Users\user\AppData\Local`}
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		env := fakeEnv(goos, vars)
+		spec := parsed(t, "fork-cli", swapText(t, forkCLI, instrFile, "      file: \"{documents}/VendorExt/Rules/cartographer.md\"\n"))
+		r, reasons := ResolveProvider(spec, env)
+		if r.Global.Instructions == nil || !reflect.DeepEqual(r.Global.Instructions.File, []string{"Documents", "VendorExt", "Rules", "cartographer.md"}) {
+			t.Fatalf("%s: instructions = %+v, reasons %v", goos, r.Global.Instructions, reasons)
+		}
+		if r.Global.Skill == nil {
+			t.Errorf("%s: the other cells must survive", goos)
+		}
+
+		out := fakeEnv(goos, vars)
+		out.Documents = func(string) string {
+			return map[string]string{"windows": `D:\Docs`, "darwin": "/Volumes/Docs", "linux": "/mnt/docs"}[goos]
+		}
+		r, reasons = ResolveProvider(spec, out)
+		if r.Global.Instructions != nil || !strings.Contains(strings.Join(reasons, "|"), "{documents} resolves outside the home directory") {
+			t.Errorf("%s outside home: %+v %v", goos, r.Global.Instructions, reasons)
+		}
+
+		// A redirected folder below home (OneDrive), spelled with the OS's separators.
+		red := fakeEnv(goos, vars)
+		red.Documents = func(h string) string {
+			return h + map[bool]string{true: `\OneDrive\Documents`, false: "/OneDrive/Documents"}[goos == "windows"]
+		}
+		r, reasons = ResolveProvider(spec, red)
+		if r.Global.Instructions == nil || !reflect.DeepEqual(r.Global.Instructions.File, []string{"OneDrive", "Documents", "VendorExt", "Rules", "cartographer.md"}) {
+			t.Fatalf("%s redirected: %+v %v", goos, r.Global.Instructions, reasons)
+		}
+		denied := parsed(t, "fork-cli", swapText(t, forkCLI, instrFile, "      file: \"{documents}/PowerShell/x.md\"\n"))
+		r, reasons = ResolveProvider(denied, red)
+		if r.Global.Instructions != nil || !strings.Contains(strings.Join(reasons, "|"), "below {documents}") {
+			t.Errorf("%s redirected PowerShell: %+v %v", goos, r.Global.Instructions, reasons)
+		}
+	}
+}
+
+// An MCP path under a redirected {documents} obeys the denials of Documents/<x>.
+func TestResolveProviderRedirectedDocumentsMCPPathIsChecked(t *testing.T) {
+	spec := parsed(t, "fork-ext", forkExt)
+	spec.MCP.Config.byOS = map[string]string{"default": "{documents}/PowerShell/x/mcp.json"}
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		env := fakeEnv(goos, nil)
+		env.Documents = func(h string) string {
+			return h + map[bool]string{true: `\OneDrive\Documents`, false: "/OneDrive/Documents"}[goos == "windows"]
+		}
+		r, reasons := ResolveProvider(spec, env)
+		if r.MCPConfig != nil || !strings.Contains(strings.Join(reasons, "|"), "below {documents}") {
+			t.Errorf("%s: config = %v, reasons %v", goos, r.MCPConfig, reasons)
+		}
 	}
 }

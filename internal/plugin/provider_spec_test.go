@@ -138,10 +138,10 @@ func TestParseProviderRejects(t *testing.T) {
 		{"mcp cell is not a key", ext("    instructions:\n      file:\n        default: \"{home}", "    mcp: {file: x}\n    instructions:\n      file:\n        default: \"{home}"), "fork-ext", "mcp"},
 		{"documents in a global skill", cli(`darwin: "{xdg_config}/fork-cli/skills"`, `darwin: "{documents}/skills"`), "fork-cli", "paths.global.skill.dir.darwin"},
 		{"documents in a global agent", cli(`darwin: "{xdg_config}/fork-cli/agents"`, `darwin: "{documents}/agents"`), "fork-cli", "paths.global.agent.dir.darwin"},
-		{"documents in an instructions file", cli(`darwin: "{xdg_config}/fork-cli/FORK-CLI.md"`, `darwin: "{documents}/FORK-CLI.md"`), "fork-cli", "paths.global.instructions.file.darwin"},
+		{"documents in a project instructions file", cli(`file: "AGENTS.md"`, `file: "{documents}/AGENTS.md"`), "fork-cli", "takes no anchor"},
 		{"documents in a hook dir", ext(`default: "{home}/.fork-ext/cartographer-hooks"`, `default: "{documents}/hooks"`), "fork-ext", "paths.global.hook.dir.default"},
 		{"documents in mcp.stale", ext(`default: ["{home}/.vscode/extensions/acme.fork-ext-*/settings/mcp-cache.json"]`, `default: ["{documents}/x/c.json"]`), "fork-ext", "mcp.stale.default[0]"},
-		{"stale extension", ext("settings/mcp-cache.json", "settings/mcp-cache.txt"), "fork-ext", "mcp.stale.default[0]"},
+		{"stale with a star in its file name", ext("settings/mcp-cache.json", "settings/*.enc"), "fork-ext", "mcp.stale.default[0]"},
 		{"instructions without .md", cli("FORK-CLI.md\"\n        linux", ".bashrc\"\n        linux"), "fork-cli", "must be a .md file"},
 		{"instructions file is a dotfile", cli(`file: "AGENTS.md"`, `file: ".zshrc"`), "fork-cli", "paths.project.instructions.file.default"},
 		{"own state in a skill dir", cli(`".fork-cli/skills"`, `".cartographer/skills"`), "fork-cli", "own state"},
@@ -201,9 +201,12 @@ func TestParseProviderRejects(t *testing.T) {
 	}
 }
 
-// {documents} is read by a detect dir and by no cell that is written: the only
-// file Cartographer writes there is Cline's own dispatcher.
+// {documents} is read by a detect dir and by a global instructions file (a
+// Markdown file nothing runs); no skill, agent, hook or project cell takes it.
 func TestProviderDocumentsAnchor(t *testing.T) {
+	if _, problems := ParseProvider("fork-cli", []byte(swapText(t, forkCLI, `darwin: "{xdg_config}/fork-cli/FORK-CLI.md"`, `darwin: "{documents}/VendorExt/Rules/FORK-CLI.md"`))); len(problems) != 0 {
+		t.Fatalf("a global instructions file under {documents}: %v", problems)
+	}
 	if _, problems := ParseProvider("fork-ext", []byte(swapText(t, forkExt, `["{home}/.vscode/extensions/acme.fork-ext-*"]`, `["{documents}/Cline"]`))); len(problems) != 0 {
 		t.Fatalf("a detect dir under {documents}: %v", problems)
 	}
@@ -273,5 +276,14 @@ func TestProviderNameClashes(t *testing.T) {
 	}
 	if got := ProviderNameClashes([]ProviderSpec{a, b, a}); len(got) != 1 || !strings.Contains(got[0], "fork-cli") {
 		t.Fatalf("clashes = %v", got)
+	}
+}
+
+// A stale file is only deleted, never parsed: its extension need not be the
+// base's MCP extension.
+func TestParseProviderStaleTakesAnyExtension(t *testing.T) {
+	src := swapText(t, forkExt, "settings/mcp-cache.json", "settings/mcp-cache.enc")
+	if _, problems := ParseProvider("fork-ext", []byte(src)); len(problems) != 0 {
+		t.Fatalf("a .enc stale: %v", problems)
 	}
 }
