@@ -9,9 +9,14 @@ import (
 const WrapMessage = "a conventional line in the body must be one unwrapped line: release-please keeps only its first line"
 
 var (
+	// conventionalLine is a changelog entry: the types release-please lists.
 	conventionalLine = regexp.MustCompile(`^(feat|fix|perf|revert)(\([a-z_-]+\))?!?: `)
-	listItem         = regexp.MustCompile(`^\s*([*+-]|\d+[.)])\s`)
-	heading          = regexp.MustCompile(`^#{1,6}(\s|$)`) // not "#123": an issue reference is a continuation
+	// headerLine is any header release-please splits the message at, entry or
+	// not: the line after an entry that matches it is a header of its own,
+	// never the wrapped tail of the entry.
+	headerLine = regexp.MustCompile(`^(feat|fix|perf|revert|docs|test|ci|chore|refactor|build|style)(\([a-z_-]+\))?!?: `)
+	listItem   = regexp.MustCompile(`^\s*([*+-]|\d+[.)])\s`)
+	heading    = regexp.MustCompile(`^#{1,6}(\s|$)`) // not "#123": an issue reference is a continuation
 )
 
 // WrappedLines returns the 1-based numbers of the lines of a PR body that look
@@ -24,7 +29,7 @@ var (
 // and 0.25.0 changelogs have a dozen entries cut mid-sentence), and nothing
 // downstream can tell. Hence this check on the PR, before the squash.
 //
-// A header may be followed by a blank line, another header, a list item or a
+// A header may be followed by a blank line, another header of any type, a list item or a
 // heading; anything else is a continuation.
 func WrappedLines(body string) []int {
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
@@ -35,7 +40,7 @@ func WrappedLines(body string) []int {
 		}
 		next := lines[i+1]
 		if strings.TrimSpace(next) == "" ||
-			conventionalLine.MatchString(next) ||
+			headerLine.MatchString(next) ||
 			heading.MatchString(next) ||
 			listItem.MatchString(next) {
 			continue
