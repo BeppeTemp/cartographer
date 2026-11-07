@@ -117,6 +117,22 @@ func TestKBCallWriteAndReadOnlySession(t *testing.T) {
 	}
 }
 
+func TestKBCallReadOnlyForAToolRegisteredWritesFalse(t *testing.T) {
+	f := newFakeKB()
+	src := "def go(a):\n    return kb.call(\"concept_write\", kb=\"kb-a\")\ntool(\"go\", go, \"go\")\n"
+	r := toolReq("go", `{}`)
+	r.Permissions = &plugin.Permissions{KB: "write"}
+	r.KBReadOnly = true
+	r.Host.KB = f
+	_, err := mustLoad(t, src).call(context.Background(), r, callOpts{})
+	if ce := callErr(t, err, Denied); !strings.Contains(ce.Msg, "writes=False") {
+		t.Errorf("message %q", ce.Msg)
+	}
+	if len(f.calls) != 0 {
+		t.Error("a write reached the adapter from a writes=False tool")
+	}
+}
+
 func TestKBCallAbsentAndErrors(t *testing.T) {
 	f := newFakeKB()
 	_, err := kbCallWith(t, f, "", false, `kb.call("search")`)

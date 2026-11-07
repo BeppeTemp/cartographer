@@ -40,5 +40,12 @@ workspace is unbound keeps its bridge entry until the next sync, and in that win
 read-write (the HTTP entry's access) where before it was read-only with the roots question. `cartographer` must be on `PATH` at sync time, or the provider keeps the HTTP
 entry and sync warns (naming plugin tools). Any new place that records `approved` must record
 `tools` with it (a test pins the install path). A bridge scope that made unbound sessions
-read-only must never be reached for a plugin-only provider. Completed by the change that serves the
-tools themselves (collision rules, read-only sessions).
+read-only must never be reached for a plugin-only provider. **Serving.** The bridge lists a plugin tool as
+`<plugin>_<tool>` (hyphens to underscores, at most 64 characters, a longer name dropped and never truncated) on the last
+page of `tools/list`, whichever framing the server used, and runs a `tools/call` for it in the bridge process; the
+message never reaches the server. A name equal to a server tool of the listing, or taken by an earlier plugin in name order,
+is dropped and logged once, so the server's tool always wins; a call before any listing settles the names with one internal
+listing. Write tools are neither listed nor run in a read-only session. The tool's `kb.call` is a bridge adapter built on the
+request construction `forward` uses (token, session id, protocol version, author), under the session's scope, and refuses a
+`kb` outside the session's KB set. A plugin's `print` goes to the bridge log, never to stdout. A session keeps the tool
+list it started with. The served names are settled per session scope and recomputed when it changes; a name served as a plugin tool under an earlier scope that the server owns now is refused, not forwarded. A `writes=False` tool's `kb.call` is read-only, because the client is told the tool is read-only.
