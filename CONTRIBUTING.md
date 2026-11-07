@@ -146,6 +146,15 @@ make worktree-clean DRY=1           # or: list what a merged PR left behind (wor
 make worktree-clean                 # ... and remove it, each only after its PR is verified MERGED
 ```
 
+A maintainer's change lands as a commit of a train PR, not as a PR of its branch, so `make worktree-clean` also
+removes a clean `feat/<slug>` or `exp/<slug>` worktree whose slug and current head are the `Lander-Slug: <slug>` and
+`Lander-Tip: <sha>` trailers of one commit of the upstream `main` (`make ready` records the head it squashed, the lander
+keeps both on the landed commit, a copy in the message is dropped) once `ready/<slug>` is gone from the upstream (a
+failing `ls-remote` counts as still there); a reused slug, or a branch with a commit after the queued one, is kept;
+worktrees landed before the trailer existed are removed by hand. `make worktree-rm` and `make worktree-clean` refuse
+the worktree a running lander was started from (`scripts/lander-guard.sh`): removing it deletes the scripts under the
+lander, whose next gate would fail; wait for it to exit (`make land-status`).
+
 ## Adding a lint check
 
 A check is declared once, in `internal/lint/registry.go` (D354); every table (who may accept it, whether `kb_repair` can fix it, whether the unattended repairs run it,

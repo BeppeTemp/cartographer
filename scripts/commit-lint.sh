@@ -7,7 +7,7 @@
 #
 # The title is a conventional commit whose scope, when present, is one of
 # `pr-triage.sh --title-scopes`; the body's conventional lines are one unwrapped line
-# (`internal/changelog/gen -check-body`). Trailers of the lander (`Lander-*`,
+# (`internal/changelog/gen -check-body`). Trailers of the lander (`Lander-*`, `Lander-Slug` included,
 # `Review:`) are ignored. Exit 1 with the reason on stderr.
 set -euo pipefail
 
