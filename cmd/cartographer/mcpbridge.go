@@ -60,6 +60,7 @@ func cmdMCP(args []string) int {
 		Token: resolveToken(cfg), Version: version,
 		In: mcpStdin, Out: mcpStdout, Log: os.Stderr,
 	}
+	b.Plugins = bridgePluginTools(cfg, os.Stderr)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if err := b.Run(ctx); err != nil {

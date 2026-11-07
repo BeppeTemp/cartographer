@@ -283,7 +283,7 @@ func (f *failingReader) Read(p []byte) (int, error) {
 func TestRelayEventsBrokenStreamAnswersTheRequest(t *testing.T) {
 	var out bytes.Buffer
 	b := &Bridge{Out: &out, Log: io.Discard}
-	b.relayEvents(&failingReader{data: "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"resu"}, false, message{ID: json.RawMessage("7"), Method: "tools/call"})
+	b.relayEvents(&failingReader{data: "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"resu"}, nil, message{ID: json.RawMessage("7"), Method: "tools/call"})
 	var m map[string]any
 	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &m); err != nil {
 		t.Fatalf("output %q: %v", out.String(), err)
@@ -304,7 +304,7 @@ func TestRelayEventsNotificationDoesNotAnswerTheRequest(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
 			b := &Bridge{Out: &out, Log: io.Discard}
-			b.relayEvents(r, false, message{ID: json.RawMessage("7"), Method: "tools/call"})
+			b.relayEvents(r, nil, message{ID: json.RawMessage("7"), Method: "tools/call"})
 			lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 			if len(lines) != 2 || strings.Contains(out.String(), "resu\"") {
 				t.Fatalf("output %q, want the notification then one error", out.String())

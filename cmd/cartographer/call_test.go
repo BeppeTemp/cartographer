@@ -15,6 +15,9 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/testtree"
 )
 
@@ -316,5 +319,131 @@ func TestCallNoKBInScope(t *testing.T) {
 		if code != 2 || out != "" || !strings.Contains(e, "no KB is served") {
 			t.Errorf("%v: exit %d stdout %q stderr %q", args, code, out, e)
 		}
+	}
+}
+
+const toolScript = `def hi(args):
+    print("script output")
+    return "hello " + args.get("who", "you")
+
+def status(args):
+    return json.encode(kb.call("kb_status", kb="kb-a"))
+
+tool("hi", hi, "greets", params={"type": "object", "properties": {"who": {"type": "string"}}})
+tool("status", status, "reads the KB")
+`
+
+// installCallPlugin installs an approved plugin with tools into the call
+// environment's config (newCallEnv has already set HOME).
+func installCallPlugin(t *testing.T, name, script string) {
+	t.Helper()
+	store := plugin.Store{Root: filepath.Join(t.TempDir(), "plugins")}
+	oldStore, oldTTY, oldEnabled := pluginStoreFn, pluginInteractive, pluginsEnabled
+	pluginStoreFn = func() (plugin.Store, error) { return store, nil }
+	pluginInteractive = func() bool { return false }
+	pluginsEnabled = func() bool { return true }
+	t.Cleanup(func() {
+		pluginStoreFn, pluginInteractive, pluginsEnabled = oldStore, oldTTY, oldEnabled
+		_, _ = configurator.ReplacePlugins(nil)
+		provisioning.ReplacePluginCells(nil, os.Getenv("HOME"))
+		clientconfig.PluginProvidersComplete = func(p map[string]clientconfig.PluginEntry) bool { return len(p) == 0 }
+	})
+	manifest := strings.Replace(cmdManifest, "%s", name, 1) + "permissions:\n  kb: read\n"
+	dir := writePlugin(t, name, map[string]string{"cartographer-plugin.yaml": manifest, "plugin.star": script})
+	if code, out := runPlugin(t, "install", dir, "--yes"); code != 0 {
+		t.Fatalf("install: %d\n%s", code, out)
+	}
+}
+
+func TestCallListsAndRunsAPluginTool(t *testing.T) {
+	cs, _, ws := newCallEnv(t, func(method string, p map[string]any) any {
+		if method == "tools/list" {
+			return map[string]any{"tools": []any{map[string]any{"name": "kb_status", "annotations": map[string]any{"readOnlyHint": true}}}}
+		}
+		return textResult(`{"ok":true}`, false)
+	})
+	installCallPlugin(t, "team-cmds", toolScript)
+	code, out, errOut := runCall(t, "", "--provider", "claude", "--dir", ws, "--list")
+	if code != 0 || !strings.Contains(out, "team_cmds_hi\t[plugin team-cmds] greets") || !strings.Contains(out, "kb_status") {
+		t.Fatalf("--list: %d %q %q", code, out, errOut)
+	}
+	code, out, errOut = runCall(t, "", "--provider", "claude", "--dir", ws, "--verbose", "team_cmds_hi", "who=ann")
+	if code != 0 || out != "hello ann\n" {
+		t.Fatalf("call: %d %q %q", code, out, errOut)
+	}
+	if strings.Contains(out, "script output") {
+		t.Error("a plugin's print reached stdout")
+	}
+	code, out, errOut = runCall(t, "", "--provider", "claude", "--dir", ws, "team_cmds_status")
+	if code != 0 || !strings.Contains(out, "ok") {
+		t.Fatalf("kb.call tool: %d %q %q", code, out, errOut)
+	}
+	// The kb.call went out under the session scope.
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	seen := false
+	for i, b := range cs.bodies {
+		if p, _ := b["params"].(map[string]any); p["name"] == "kb_status" && cs.reqs[i].URL.Query().Get("kbs") == "kb-a" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Error("the plugin's kb.call did not carry kbs=kb-a")
+	}
+}
+
+func TestCallWithAFailingPluginStillListsTheServersTools(t *testing.T) {
+	_, _, ws := newCallEnv(t, func(method string, p map[string]any) any {
+		return map[string]any{"tools": []any{map[string]any{"name": "kb_status"}}}
+	})
+	installCallPlugin(t, "team-cmds", toolScript)
+	// Break the stored script after approval: the digest no longer matches, so the plugin is not active.
+	store, _ := pluginStoreFn()
+	_ = filepath.Walk(store.Root, func(p string, fi os.FileInfo, err error) error {
+		if err == nil && !fi.IsDir() && filepath.Base(p) == "plugin.star" {
+			_ = os.WriteFile(p, []byte("this is not starlark ("), 0o644)
+		}
+		return nil
+	})
+	code, out, errOut := runCall(t, "", "--provider", "claude", "--dir", ws, "--list")
+	if code != 0 || !strings.Contains(out, "kb_status") || strings.Contains(out, "team_cmds") {
+		t.Fatalf("%d %q %q", code, out, errOut)
+	}
+}
+
+// A plugin tool without files.write runs under the same guarantee as the rest
+// of `call`: nothing is written under $HOME, the working directory or $TMPDIR.
+func TestCallWritesNothingForAPluginTool(t *testing.T) {
+	_, home, ws := newCallEnv(t, func(string, map[string]any) any { return textResult("ok", false) })
+	installCallPlugin(t, "team-cmds", toolScript)
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	snap := func() []testtree.Tree {
+		var all []testtree.Tree
+		for _, d := range []string{ws, tmp} {
+			tr, err := testtree.Capture(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			all = append(all, tr)
+		}
+		return all
+	}
+	_ = home
+	before := snap()
+	runCall(t, "", "--provider", "claude", "--dir", ws, "team_cmds_hi")
+	runCall(t, "", "--provider", "claude", "--dir", ws, "--list")
+	if !reflect.DeepEqual(before, snap()) {
+		t.Error("a plugin tool wrote under the working directory or $TMPDIR")
+	}
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		return
+	}
+	if err := os.Chmod(home, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(home, 0o755) })
+	if code, out, e := runCall(t, "", "--provider", "claude", "--dir", ws, "team_cmds_hi"); code != 0 || out != "hello you\n" {
+		t.Errorf("read-only HOME: exit %d %q %s", code, out, e)
 	}
 }

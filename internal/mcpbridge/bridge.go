@@ -58,8 +58,13 @@ type Bridge struct {
 	In      io.Reader
 	Out     io.Writer
 	Log     io.Writer
+	// Plugins are the tools of the active plugins, served beside the server's
+	// (plugintools.go). Empty means the bridge is the plain proxy it was.
+	Plugins []PluginTool
 
 	outMu sync.Mutex
+	logMu sync.Mutex // logf is called from the read loop and from plugin calls
+	pl    pluginState
 
 	mu         sync.Mutex // guards the fields below
 	scope      *Scope
@@ -114,6 +119,8 @@ func (b *Bridge) currentScope() Scope {
 
 func (b *Bridge) logf(format string, args ...any) {
 	if b.Log != nil {
+		b.logMu.Lock()
+		defer b.logMu.Unlock()
 		fmt.Fprintf(b.Log, "cartographer mcp: "+format+"\n", args...)
 	}
 }
@@ -325,6 +332,8 @@ func (b *Bridge) askRoots(ctx context.Context, lines <-chan line, stash [][]byte
 }
 
 // write emits one message on stdout, atomically with respect to other writers.
+// Stdout is protocol only: a plugin's print and log go to b.Log (stderr), never
+// here (PluginCall.Log), or the client would read them as a malformed message.
 func (b *Bridge) write(raw []byte) {
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, raw); err != nil {
@@ -356,12 +365,19 @@ func (b *Bridge) writeResult(id json.RawMessage, result any) {
 // dispatch answers a message locally (a session with no KB) or forwards it on
 // its own goroutine, so a slow tool call never blocks a cancellation.
 func (b *Bridge) dispatch(ctx context.Context, wg *sync.WaitGroup, raw []byte, m message) {
+	if m.Method == "notifications/cancelled" {
+		b.cancelPluginCall(m.Params) // the notification is still forwarded below
+	}
 	scope := b.currentScope()
 	if b.isServerTooOld() {
 		scope = serverTooOldScope(scope)
 	}
 	if scope.None() {
 		b.answerLocally(scope, m)
+		return
+	}
+	if b.isPluginCall(m) {
+		b.dispatchPluginCall(ctx, wg, scope, raw, m)
 		return
 	}
 	if b.awaitingAccess(scope) {
@@ -636,19 +652,14 @@ func (b *Bridge) endpoint(scope Scope) (string, error) {
 	return u.String(), nil
 }
 
-// forward POSTs one message to the routed endpoint and writes what comes back.
-// release is called once the access check of a response that opens an event
-// stream has passed, before the stream is relayed.
-func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message, release func()) {
-	reqURL, err := b.endpoint(scope)
-	if err != nil {
-		b.writeError(m.ID, -32000, err.Error())
-		return
-	}
+// newRequest is the POST of one message to the routed endpoint: the token, the
+// session id, the protocol version, the mirrored method and name headers and,
+// for a tools/call, the author (D904). forward and the bridge's own exchanges
+// (plugintools.go) build their requests here, so they cannot differ.
+func (b *Bridge) newRequest(ctx context.Context, scope Scope, reqURL string, raw []byte, m message) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(raw))
 	if err != nil {
-		b.writeError(m.ID, -32000, err.Error())
-		return
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
@@ -678,9 +689,40 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 			req.Header.Set(client.AuthorHeader, client.EncodeAuthor(a))
 		}
 	}
+	return req, nil
+}
+
+// responseRewriter is what forward applies to the response of m: the unbound
+// note on the handshake of an unbound read-write session, the plugin tools on
+// the last page of tools/list. Nil when the response goes through untouched.
+func (b *Bridge) responseRewriter(scope Scope, m message, unboundNote bool) func([]byte) []byte {
+	switch {
+	case unboundNote:
+		return withUnboundNote
+	case m.Method == "tools/list" && len(b.Plugins) > 0:
+		return func(body []byte) []byte { return b.mergePluginTools(scope, m, body) }
+	}
+	return nil
+}
+
+// forward POSTs one message to the routed endpoint and writes what comes back.
+// release is called once the access check of a response that opens an event
+// stream has passed, before the stream is relayed.
+func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message, release func()) {
+	reqURL, err := b.endpoint(scope)
+	if err != nil {
+		b.writeError(m.ID, -32000, err.Error())
+		return
+	}
+	req, err := b.newRequest(ctx, scope, reqURL, raw, m)
+	if err != nil {
+		b.writeError(m.ID, -32000, err.Error())
+		return
+	}
 
 	// The handshake of an unbound read-write session says it is unbound.
 	rewrite := m.Method == "initialize" && scope.Unbound && !scope.ReadOnly
+	fix := b.responseRewriter(scope, m, rewrite)
 
 	resp, err := client.HTTPClient(b.HTTP, b.Cfg.InsecureHTTPAllowed()).Do(req)
 	if err != nil {
@@ -713,7 +755,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		if confirmed {
 			release()
 		}
-		b.relayEvents(resp.Body, rewrite, m)
+		b.relayEvents(resp.Body, fix, m)
 	default:
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024))
 		if err != nil {
@@ -729,8 +771,8 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 			if m.Method == "initialize" && resp.StatusCode == http.StatusOK {
 				b.noteInitializeResult(body)
 			}
-			if rewrite {
-				body = withUnboundNote(body)
+			if fix != nil {
+				body = fix(body)
 			}
 			b.write(body)
 		}
@@ -741,7 +783,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 // When the stream ends (broken or cut) without m's own response having been
 // forwarded, m gets a -32000 error like the JSON branch does, so the client is
 // never left waiting for an id.
-func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool, m message) {
+func (b *Bridge) relayEvents(r io.Reader, fix func([]byte) []byte, m message) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), maxLine)
 	var data []string
@@ -756,8 +798,8 @@ func (b *Bridge) relayEvents(r io.Reader, rewriteInit bool, m message) {
 			if m.Method == "initialize" {
 				b.noteInitializeResult(ev)
 			}
-			if rewriteInit {
-				ev = withUnboundNote(ev)
+			if fix != nil {
+				ev = fix(ev)
 			}
 			b.write(ev)
 			data = nil

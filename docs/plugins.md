@@ -500,7 +500,7 @@ classification, not a copy kept in the plugin code). With `kb: write` every tool
 read-only session is `read` whatever the manifest says. The gate is the plugin's declared limit, not the security
 boundary: the server still enforces the token's scopes and the session's access. The `kb` argument is not
 restricted by the plugin layer: the token's scopes and the session's KB set, on the server, decide which KBs a script
-reaches (commands and events apply the client's `known_kbs`, see Commands and events; the bridge adapter must apply the session's KB set when it is wired). A successful result reaches the script
+reaches (commands and events apply the client's `known_kbs`, see Commands and events; the bridge adapter applies the session's KB set: a `kb` outside it is refused before any request). A successful result reaches the script
 as the KB wrote it, unescaped: KB content is data to treat as such. When the call's deadline ends or Ctrl-C comes, the
 request is abandoned, but a write the server had already received may still complete.
 
@@ -529,6 +529,24 @@ interactive retry and `reconnect` print their result, not in `--dry-run`. The ha
 no earlier lockfile to compare with, so what was written counts as installed. `connect.after` also fires on a partial
 connect, with the providers that connected (not those the write guard skipped). The dashboard fires no plugin event,
 for sync or for connect.
+
+## Tools in a session
+
+A tool a plugin registers is served by the local stdio bridge (D737) as `<plugin>_<tool>`, hyphens turned into
+underscores, at most 64 characters (a longer name is dropped, never truncated). `tools/list` carries it after the
+server's tools, on the last page, with the description prefixed `[plugin <name>] ` and `readOnlyHint` true unless the
+tool is registered `writes=True`. A name equal to a server tool, or already taken by an earlier plugin in name order
+(`a` + `b_c` against `a_b` + `c`), is dropped and one line goes to the bridge log; `cartographer call --verbose` shows it.
+The served names are settled per session scope and again whenever the scope changes (a read-only listing omits the server's write tools); a name the client saw as a plugin tool and the server owns after a change is refused with "list the tools again", never forwarded. A write tool is neither listed nor run in a read-only session, and a folder bound to no KB lists nothing. The tool runs
+in the bridge process, with the 30 s limit; its `print` and `log` go to the bridge's stderr, never to the protocol on
+stdout; `notifications/cancelled` stops it. Its `kb.call` carries the session's `kbs=`/`access=`/`readonly=`, the token and the
+`Cartographer-Author`. `cartographer call <plugin>_<tool>` runs the same path and writes nothing. `kb.call` of a tool registered `writes=False` runs read-only whatever `permissions.kb` says (the client is told the tool is
+read-only and may run it unasked); a denied write names `writes=False`. A server tool called without a `kb` argument is
+refused (the session's KB set is applied to the `kb` argument). `cartographer call --list` asks the bridge one page at a time,
+so a collision with a server tool listed on an earlier page is not seen there. A session started
+before an approval keeps its tool list. A client with a direct HTTP entry (an access profile, `cartographer` not on `PATH`,
+a hand-written client) does not see plugin tools; D737's probe covered Claude Code, Codex, Kiro CLI, OpenCode, Crush and
+Copilot CLI, not Antigravity or Kiro IDE.
 
 ## Limits
 

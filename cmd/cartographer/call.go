@@ -351,6 +351,7 @@ func callBridge(ctx context.Context, cfg *clientconfig.Config, token, provider, 
 		Cfg: cfg, Provider: provider, Dir: dir, Token: token, Version: version,
 		In: pr, Out: w, Log: log,
 	}
+	b.Plugins = bridgePluginTools(cfg, log)
 	go func() {
 		_, _ = pw.Write(append(append([]byte(nil), line...), '\n'))
 	}()

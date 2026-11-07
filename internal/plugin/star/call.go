@@ -99,6 +99,10 @@ type Request struct {
 	// denied and kb.call is limited to read-only tools, whatever the manifest
 	// grants.
 	ReadOnly bool
+	// KBReadOnly limits kb.call to read-only tools without touching files.*: a
+	// tool registered writes=False is advertised read-only to the client, so it
+	// must not write through the KB whatever the manifest grants.
+	KBReadOnly bool
 
 	// Permissions are the manifest's, nil for none.
 	Permissions *plugin.Permissions
@@ -198,7 +202,10 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (res Result
 	}
 	cc.net = newNetState(cc, req.Version, o.net)
 	cc.files = &filesState{cc: cc, host: req.Host, readOnly: req.ReadOnly}
-	cc.kb = &kbState{cc: cc, caller: req.Host.KB, readOnly: req.ReadOnly}
+	cc.kb = &kbState{cc: cc, caller: req.Host.KB, readOnly: req.ReadOnly || req.KBReadOnly}
+	if !req.ReadOnly && req.KBReadOnly {
+		cc.kb.why = "this tool is registered writes=False"
+	}
 	var printw io.Writer = logw
 	prefix := "plugin " + req.Plugin + ": "
 	if req.Kind == KindCommand {

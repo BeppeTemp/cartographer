@@ -32,6 +32,8 @@ type kbState struct {
 	cc       *callCtx
 	caller   KBCaller
 	readOnly bool
+	// why names what made the call read-only when it is not the session.
+	why string
 }
 
 func kbModule() *starlarkstruct.Module {
@@ -90,6 +92,9 @@ func kbCall(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, k
 		}
 		if !ro {
 			why := "this session is read-only"
+			if k.why != "" {
+				why = k.why
+			}
 			if !k.readOnly {
 				why = "permissions.kb is read"
 			}
