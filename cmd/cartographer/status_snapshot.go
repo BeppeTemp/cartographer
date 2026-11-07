@@ -218,13 +218,16 @@ func newServiceSnapshot(st service.Status) *serviceSnapshot {
 // read used by status and the dashboard. Provider states are explicit so one
 // server failure cannot turn into several conflicting error messages.
 type statusSnapshot struct {
-	Schema    string           `json:"schema_version"`
-	ServerURL string           `json:"server_url,omitempty"`
-	Client    string           `json:"client_version"`
-	Server    string           `json:"server_version,omitempty"`
-	Reachable bool             `json:"reachable"`
-	Ready     *bool            `json:"ready,omitempty"`
-	KBs       []string         `json:"kbs,omitempty"`
+	Schema    string   `json:"schema_version"`
+	ServerURL string   `json:"server_url,omitempty"`
+	Client    string   `json:"client_version"`
+	Server    string   `json:"server_version,omitempty"`
+	Reachable bool     `json:"reachable"`
+	Ready     *bool    `json:"ready,omitempty"`
+	KBs       []string `json:"kbs,omitempty"`
+	// Issues are the artifacts the server left out of the catalogue and why
+	// (sync_pull issues, #1775); they are not drift: the artifact stays out.
+	Issues    []string         `json:"issues,omitempty"`
 	Providers []providerStatus `json:"providers"`
 	// Plugins lists the configured plugins (additive, schema unchanged); absent
 	// when none is configured.
@@ -447,6 +450,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		return s
 	}
+	s.Issues = manifestIssues(manifests)
 	// The count keeps its meaning: distinct artifacts per provider, summed. An
 	// artifact in two workspaces of one provider is one artifact.
 	for _, name := range connectedProviders {

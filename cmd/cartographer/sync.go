@@ -435,6 +435,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 	printApplySummary(out, dir, results, opts.DryRun)
+	// What the server left out of its catalogue (#1775): once per run, not once
+	// per provider.
+	for _, is := range manifestIssues(manifests) {
+		fmt.Fprintf(errw, "warning: %s\n", escapeControl(is))
+	}
 	printInstructionsSizeWarnings(out, dir, results, opts.DryRun)
 	printSyncRevisions(out, results, targets, opts.DryRun)
 	// D326: after the apply, so the lockfile names what was just materialised.

@@ -204,6 +204,12 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 
 	printPluginSection(os.Stdout, s)
 
+	// #1775: informational — the artifact is not in the catalogue, so the
+	// counts above do not miss it.
+	for _, is := range s.Issues {
+		fmt.Printf("not in the catalogue: %s\n", escapeControl(is))
+	}
+
 	// D262: informational, never a drift — the sync left the keys verbatim.
 	if n := len(s.UnresolvedPlaceholders); n > 0 {
 		fmt.Printf("%d placeholder(s) unresolved — run `cartographer paths`\n", n)
