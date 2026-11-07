@@ -1,8 +1,15 @@
 # Plugins
 
 A **plugin** is a folder or a git repository with a manifest, `cartographer-plugin.yaml`, at its root. It extends
-the client of one machine; a server never loads it. This page describes what the code reads today: the manifest
-the version ranges it speaks, the contribution points and the tree reader (`internal/plugin`).
+the client of one machine; a server never loads it. A plugin adds agent clients (a fork or an in-house build of one
+Cartographer does not know), skills, subagents and hooks, and, with a script, commands, MCP tools and sync handlers.
+It is installed with one command, pinned to a commit, and enabled only after the user approves what it does, version
+by version. This page describes the manifest, the version ranges it speaks, the contribution points, the tree
+reader, the store, the plugin commands, the script model and a worked example (`internal/plugin`).
+
+A plugin is trusted to the extent it was approved: the approval preview lists every permission, every file that runs
+and every script in full, and a script can reach nothing its approved manifest does not grant. Nothing about it
+runs, and nothing is delivered, before that approval.
 
 ## Manifest
 
@@ -67,7 +74,7 @@ and never loaded. 0.28 registers `skills`, `agents`, `hooks` and `providers`, an
 | `providers` | `providers/<id>.yaml` | `plugin.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
 | `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
 | `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
-| `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); registered only, nothing is called yet; a call reaches the network and the environment only as the manifest grants (below) |
+| `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); a call reaches the network, the environment, files and KB tools only as the manifest grants (below) |
 
 Every artifact name is a valid artifact name, and a plugin cannot shadow the bundle: a skill or agent named like a
 bundled one (the CLI skill included) is refused. Reserved and bundled names are compared ignoring case, since a filesystem may fold it.
@@ -139,8 +146,7 @@ enabled, settings}`, written only by the plugin commands, never by `sync`. `sour
 folder, `ref` as typed (empty is the default branch), `sha` the resolved commit (40 hex, empty for a folder),
 `installed` and `approved` tree digests (64 hex; `approved` empty is pending), `settings` scalars. A malformed
 entry, an empty `source`, or an `approved` without an `installed` is a load error naming the key. The key is
-`Hidden` in `internal/clientconfig/schema.go`: no comment, `cartographer config` row, settings report entry or
-example-file line shows it.
+a row of the schema in `internal/clientconfig/schema.go`, so `cartographer config` and the settings report list it.
 
 `plugin.State(name, entry, store, opts)` is the one rule for whether a plugin runs:
 
@@ -157,7 +163,7 @@ A newer `installed` digest never affects it. Why: `D1727`.
 
 ## The `plugin` command
 
-`cartographer plugin` is dispatched but not yet listed in `help`, in the usage table or in `docs/configurator.md`.
+`cartographer plugin` is listed in `help` and documented in [configurator.md](configurator.md#cartographer-plugin-subcommand).
 
 | Command | What it does |
 |---|---|
@@ -188,8 +194,7 @@ reaches the terminal; a test pins it.
 ## Onboarding: `setup` and `connect`
 
 `setup --plugin <src>` (repeatable) and `connect --plugin <src>`, with `--approve-plugins`, install plugins as part of
-the normal run. The flags exist only while `pluginsEnabled()` (`plugin_gate.go`) is true, so they are in no usage text
-until the turn-on change. Both call `preparePlugins` (`plugins_local.go`) before the providers are resolved:
+the normal run. Both call `preparePlugins` (`plugins_local.go`) before the providers are resolved:
 
 1. Each source not yet configured is installed as `plugin install` does, without approving. A source already
    configured (whatever its ref) is skipped: moving it is `plugin update`. Another source under an installed name
@@ -446,10 +451,84 @@ A plugin that gives every connected client one skill, and that you can try witho
 6. Share it by pushing the folder to a git repository and giving colleagues `cartographer plugin install
    https://gitlab.example.com/team/team-tools.git@v0.1.0`; they approve what they read, and nobody else can.
 
+### Add a script: the example plugin
+
+The repository ships a plugin that does everything above, `test/e2e/fixtures/plugin-example/` (named `example-forks`,
+for the fictitious fork Acme Code): a skill, a client descriptor, the command `hello`, the tool `echo` and a
+`sync.after` handler. Its manifest asks for the least it needs, `kb: read` and `files.write` for
+`{home}/.example-forks/*.txt`. Its `plugin.star` loads `lib/greeting.star`, registers the three scripts, and `hello`
+greets with the `greeting` setting. Try it from a checkout of the repository; the end-to-end scenario
+`28_plugin_scripts` runs exactly these steps.
+
+1. `cartographer plugin validate test/e2e/fixtures/plugin-example` lists the registrations: the command, the tool
+   (as `example_forks_echo`, the name it is served and called by) and the event.
+2. `cartographer plugin install test/e2e/fixtures/plugin-example`, answering `n`, leaves it pending:
+   `cartographer example-forks hello` exits 2 with "installed but not approved".
+3. `cartographer plugin show example-forks --files` shows the permissions and the scripts; then
+   `cartographer plugin approve example-forks` and answer `y`.
+4. `cartographer plugin config example-forks greeting=hi`, then `cartographer example-forks hello ada` prints
+   `hi, ada!`; no re-approval was asked.
+5. `cartographer sync` fires the `sync.after` handler, which writes `~/.example-forks/last-sync.txt`;
+   `cartographer sync --dry-run` fires nothing.
+6. `cartographer call example_forks_echo --provider claude --json '{"kb":"kb-a","text":"hello"}'` runs the tool the way the bridge serves it; `plugin validate` printed its served name, with the hyphens of
+   the plugin name turned into underscores.
+7. Change one byte of the stored `plugin.star` and the plugin stops: the state is `modified` and the command exits 2.
+
+A script is written like the example: declare the least in the manifest, register in `plugin.star`, read the preview
+as the user will, and keep secrets out of settings.
+
 A plugin that declares a client of its own (a fork or an in-house build of a built-in one) adds a
 `providers/<id>.yaml` as described in Providers above. Two worked examples are the fixtures the tests use,
 `fork-cli` (a CLI fork that takes the `cli` MCP mode: skill, agent and instructions, no MCP entry) and `fork-ext` (an
 editor extension that keeps its own MCP file in a versioned folder).
+
+## The script model
+
+`plugin.star` at the root is the entry; flat `lib/*.star` files are loadable only from the plugin's own tree with
+`load("lib/<x>.star", "name")`, no other source. The language is Starlark (Python-like, `go.starlark.net`, D1746):
+no `while`, no recursion, no top-level control flow, globals frozen after load, so every loop is over a finite value.
+The pure modules `json`, `math` and `time` are always there. A script runs in two phases:
+
+- **LOAD** runs `plugin.star` once, with the registration builtins and nothing that does I/O. It reads no clock
+  (`time.now` is unavailable), no setting and no file, so what is registered is a pure function of the tree: what the
+  user approved is what runs. `plugin validate` runs the load and lists the registrations; the approval preview
+  lists them with the script files in full.
+- **CALL** runs a registered function on demand, on a fresh thread, with the capability builtins the approved
+  manifest grants and nothing else.
+
+Registration builtins, valid only while loading; a duplicate or invalid name is a load error:
+
+| Builtin | Registers |
+|---|---|
+| `command(name, impl, help, usage="")` | `cartographer <plugin> <name>`; `impl(args)` gets the arguments as a list of strings |
+| `tool(name, impl, description, params={...}, writes=False)` | the MCP tool `<plugin>_<name>`; `params` is a JSON schema of type `object`, `impl(params)` gets the validated arguments as a dict; `writes=True` makes read-only sessions refuse it |
+| `on(event, impl)` | a handler of `sync.after` or `connect.after`; `impl(ctx)` gets the summary |
+
+Capability builtins exist only if the manifest grants them, and a denied one is an error naming the permission, never
+a silent no-op:
+
+| Builtin | Needs | Described in |
+|---|---|---|
+| `kb.call(tool, **args)` | `permissions.kb` | KB tools for scripts |
+| `http.request(method, url, ...)` | `permissions.net` | Network and environment for scripts |
+| `env.get(name)` | `permissions.env` | Network and environment for scripts |
+| `files.read`, `files.write`, `files.remove`, `files.glob` | `permissions.files` | Files for scripts |
+
+Always available: `settings` (the values of the manifest's `settings`, typed, defaults applied; set with
+`plugin config`, never re-approved, never a widening of a permission), `log` (to stderr), `print` and `fail`. **There
+is no process execution of any kind**: a plugin runs a program only through a hook it ships, approved with the plugin.
+
+A tool returns a string (sent as text) or any JSON-able value (sent as its JSON text); `None` is `ok`. A tool error
+(`fail`, a runtime error, a denied capability or a cap hit) is an MCP result with `isError: true` and the message, so
+the model reads it. A command returns `None` (exit 0), an int (the exit code) or a string (printed). An event's
+return value is ignored.
+
+Limits per call are named constants in `internal/plugin/star/limits.go`: 20 million steps for a tool or an event and
+500 million for a command (and for a load: 20 million), 30 s wall clock for a tool and 10 s for an event (a command
+runs until done or Ctrl-C), 64 KiB of captured `print`, 1 MiB of tool result text, and the HTTP and file caps below.
+**Memory is not bounded**: a hostile script can exhaust its own process, so approve a script as you would run it.
+The runtime itself writes nothing (no cache, no log file), which is why `cartographer call` still works with a
+read-only home.
 
 ## Network and environment for scripts
 
@@ -530,6 +609,21 @@ no earlier lockfile to compare with, so what was written counts as installed. `c
 connect, with the providers that connected (not those the write guard skipped). The dashboard fires no plugin event,
 for sync or for connect.
 
+## Tools in the bridge
+
+A plugin's tools are served by the local stdio bridge (`cartographer mcp`) that a connected client starts, never by
+the server; how a session lists and runs them is in Tools in a session below.
+
+A provider with no workspace binding keeps the same access it had through its HTTP entry: when an enabled, approved
+plugin lists tools, the provider's global MCP entry becomes the bridge at the next `sync` (it needs `cartographer` on
+`PATH`; otherwise the entry stays HTTP and sync warns), with the provider's KB set, read-write, and no question about
+folders (D1757 amends D737; sync.md §Workspace scope). The limits, by design:
+
+- A provider with an access profile (`clients.<provider>.access`) keeps the HTTP entry and sees no plugin tool.
+- A client connected by hand with a direct URL ([mcp-clients](mcp-clients.md)) never receives a plugin tool; the
+  server has no plugin tools of its own.
+- A plugin tool is invisible until `sync` has switched the entry; a client restarts to load it.
+
 ## Tools in a session
 
 A tool a plugin registers is served by the local stdio bridge (D737) as `<plugin>_<tool>`, hyphens turned into
@@ -552,7 +646,8 @@ Copilot CLI, not Antigravity or Kiro IDE.
 
 - No workspace projection: a plugin's skills, agents and hooks reach the global scope of every connected client and no
   project scope.
-- No `mcp/` and no `instructions.md` contribution point, and no plugin scripts.
+- No `mcp/` and no `instructions.md` contribution point.
+- A script runs no process, and a plugin tool reaches a client only through the stdio bridge (above).
 - The instructions block does not announce a plugin's agents and hooks.
 - A server never hosts or loads a plugin; `sync_pull` refuses an artifact whose source is `plugin:`. There is no
   plugin catalog and a KB cannot recommend a plugin.

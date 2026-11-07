@@ -151,9 +151,6 @@ func cliKB(cfg *clientconfig.Config) star.KBCaller {
 var pluginCommandFn = runPluginCommand
 
 func runPluginCommand(name string, args []string) (code int, handled bool) {
-	if !pluginsEnabled() {
-		return 0, false
-	}
 	// Read-only and without the client lock, as the bridge reads it.
 	_, cfg, err := loadWorkspaceConfig()
 	if err != nil {
@@ -248,9 +245,6 @@ func runScriptCommand(cfg *clientconfig.Config, s scripted, args []string) int {
 // "<plugin> <command>  help". It reads the config itself and returns nothing
 // on any error, so usage never fails because of it.
 func pluginHelpLines() []string {
-	if !pluginsEnabled() {
-		return nil
-	}
 	_, cfg, err := loadWorkspaceConfig()
 	if err != nil {
 		return nil

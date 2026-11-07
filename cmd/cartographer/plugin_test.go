@@ -206,9 +206,9 @@ func TestPluginValidateListsEveryProblem(t *testing.T) {
 	}
 }
 
-func TestPluginCommandIsNotInTheUsage(t *testing.T) {
+func TestPluginCommandIsInTheUsage(t *testing.T) {
 	out := withStdout(t, func() { run([]string{"help"}) })
-	if strings.Contains(out, "plugin") {
-		t.Errorf("the plugin command must stay out of help until it is turned on:\n%s", out)
+	if !strings.Contains(out, "plugin     Install, approve and manage plugins") {
+		t.Errorf("the plugin command is not listed in help:\n%s", out)
 	}
 }

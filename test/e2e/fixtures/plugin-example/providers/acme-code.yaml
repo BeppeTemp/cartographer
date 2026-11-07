@@ -1,0 +1,16 @@
+schema: 1
+name: acme-code
+display_name: Acme Code
+base: crush
+detect:
+  binaries: [acme-code]
+mcp:
+  mode: cli
+paths:
+  global:
+    skill: {dir: "{home}/.acme-code/skills"}
+    agent: {dir: "{home}/.acme-code/agents", format: opencode}
+    instructions: {file: "{home}/.acme-code/ACME-CODE.md"}
+  project:
+    skill: {dir: ".acme-code/skills"}
+    instructions: {file: "AGENTS.md"}

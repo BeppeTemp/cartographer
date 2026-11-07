@@ -72,7 +72,7 @@ func eventFields(event string, providers []string, before map[string]bool, resul
 // firePluginEvent runs every handler of event of the active plugins, sequentially.
 // The caller has released the client lock.
 func firePluginEvent(cfg *clientconfig.Config, event string, fields map[string]any, errw io.Writer) {
-	if !pluginsEnabled() || cfg == nil || len(cfg.Plugins) == 0 {
+	if cfg == nil || len(cfg.Plugins) == 0 {
 		return
 	}
 	for _, s := range scriptedPlugins(cfg, errw) {

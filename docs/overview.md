@@ -74,6 +74,12 @@ flowchart TB
     V --> G
 ```
 
+Plugins are the extension layer of the client, not of the server: a plugin is a git repository or a folder that
+contributes agent clients, skills, subagents, hooks, commands, MCP tools and sync handlers to one machine. It is
+installed from a source, pinned to a digest and enabled only after the user approves that exact version; a script
+in it (Starlark) can reach only what its manifest grants. A server never hosts or loads a plugin. See
+[plugins](plugins.md).
+
 ## Where to continue
 
 - [Data plane](data-plane.md): KB layout, concept model, and non-Markdown dossier assets.
@@ -82,4 +88,5 @@ flowchart TB
 - [Concurrency](concurrency.md): commits, remote sync and conflicts.
 - [Configurator](configurator.md) and [synchronization](sync.md): client-side
   provider setup and provisioned artifacts.
+- [Plugins](plugins.md): the client-side extension layer.
 - [Decision records](decisions.md): historical rationale, split by topic.

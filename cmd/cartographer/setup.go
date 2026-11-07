@@ -70,7 +70,6 @@ type setupOptions struct {
 	KBs       []string
 	Workspace string
 	// Plugins are the --plugin sources; ApprovePlugins is --approve-plugins.
-	// Both exist only while pluginsEnabled().
 	Plugins        []string
 	ApprovePlugins bool
 	// AgentsDeferred: Agents holds names that are not all validated, because
@@ -623,13 +622,9 @@ func cmdSetup(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "Print the plan and stop, changing nothing")
 	noInput := fs.Bool("no-input", false, "Never ask questions, even in a terminal")
 	var pluginSrcs repeatedString
-	var approvePlugins *bool
-	pluginFlags := ""
-	if pluginsEnabled() {
-		fs.Var(&pluginSrcs, "plugin", "Install a plugin (git URL[@ref] or folder) before the agents are detected (repeatable)")
-		approvePlugins = fs.Bool("approve-plugins", false, "Approve the plugins installed by this run, after printing what each one runs")
-		pluginFlags = " [--plugin <src>] [--approve-plugins]"
-	}
+	fs.Var(&pluginSrcs, "plugin", "Install a plugin (git URL[@ref] or folder) before the agents are detected (repeatable)")
+	approvePlugins := fs.Bool("approve-plugins", false, "Approve the plugins installed by this run, after printing what each one runs")
+	pluginFlags := " [--plugin <src>] [--approve-plugins]"
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer setup [--remote <url> | --no-remote] [--name <kb>] [--agents a,b] [--kb <name>] [--workspace <repo>]"+pluginFlags+" [--yes] [--dry-run] [--no-input]")
 		fs.PrintDefaults()
@@ -648,9 +643,7 @@ func cmdSetup(args []string) int {
 		Workspace: *workspace,
 		Plugins:   pluginSrcs,
 	}
-	if approvePlugins != nil {
-		o.ApprovePlugins = *approvePlugins
-	}
+	o.ApprovePlugins = *approvePlugins
 	if *agentsCSV != "" {
 		agents, err := resolveProviderCSV(*agentsCSV)
 		if err != nil && len(o.Plugins) > 0 {

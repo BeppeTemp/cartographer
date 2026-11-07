@@ -369,3 +369,43 @@ func TestIngestWritesFirstAndReportsAfter(t *testing.T) {
 		t.Error("the served ingest procedure disagrees with the bundled skill (D1318)")
 	}
 }
+
+// TestPluginsSkillStopsAtApproval pins the invariant of cartographer-plugins:
+// the agent shows the preview and waits, and the two consent flags appear only
+// in the one sentence that forbids passing them unasked.
+func TestPluginsSkillStopsAtApproval(t *testing.T) {
+	t.Parallel()
+	data, err := fs.ReadFile(FS, "bundled/cartographer-plugins/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.HasPrefix(text, "---\nname: cartographer-plugins\n") {
+		t.Error("the frontmatter name is not the directory name")
+	}
+	sentence := 0
+	for i, line := range strings.Split(text, "\n") {
+		for _, flag := range []string{"--yes", "--approve-plugins"} {
+			if !strings.Contains(line, flag) {
+				continue
+			}
+			if !strings.Contains(line, "never") {
+				t.Errorf("line %d passes %s outside the never sentence: %q", i+1, flag, line)
+			}
+			sentence++
+		}
+	}
+	if sentence != 2 {
+		t.Errorf("the never sentence must name both flags exactly once, found %d occurrences", sentence)
+	}
+	for _, want := range []string{"Stop", "plugin show"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the plugins skill lost %q", want)
+		}
+	}
+	for _, real := range []string{"gitlab.com/", "github.com/BeppeTemp"} {
+		if strings.Contains(text, real) {
+			t.Errorf("the plugins skill names %q: placeholders only", real)
+		}
+	}
+}

@@ -36,9 +36,6 @@ const cmdManifest = "schema: 1\nname: %s\nversion: 1.0.0\ndisplay_name: Team\nde
 func installScripted(t *testing.T, name, script string, approve bool) string {
 	t.Helper()
 	home := pluginFixture(t)
-	old := pluginsEnabled
-	pluginsEnabled = func() bool { return true }
-	t.Cleanup(func() { pluginsEnabled = old })
 	dir := writePlugin(t, name, map[string]string{
 		"cartographer-plugin.yaml": strings.Replace(cmdManifest, "%s", name, 1),
 		"plugin.star":              script,
@@ -122,10 +119,6 @@ func TestPluginCommandNotDispatchedUntilApprovedOrWhenUnknown(t *testing.T) {
 	}
 	if _, handled, _, _ = runCmd(t, "no-such-plugin"); handled {
 		t.Error("a word that names no plugin must fall through to the unknown-command error")
-	}
-	pluginsEnabled = func() bool { return false }
-	if _, handled, _, _ = runCmd(t, "team-cmds"); handled {
-		t.Error("dispatch is off until the turn-on")
 	}
 }
 
@@ -285,7 +278,7 @@ func TestApproveRecordsTheToolsHint(t *testing.T) {
 		t.Fatal("load")
 	}
 	e, _ := cfg.Plugin("team-tools")
-	if got := strings.Join(e.Tools, ","); got != "team-tools_atwo,team-tools_bone" {
+	if got := strings.Join(e.Tools, ","); got != "team_tools_atwo,team_tools_bone" {
 		t.Fatalf("tools = %q", got)
 	}
 	if !cfg.PluginProvidesTools() {

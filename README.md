@@ -98,6 +98,9 @@ through MCP tools**, behind a server that enforces the rules, and the same knowl
 - 🧩 **One KB configures every agent**<br>
   Skills, subagents, hooks and standing instructions live in the KB and reach each client in its native format ([below](#one-kb-every-agent)). Edit once, every machine converges.
 
+- 🔌 **Extend it with plugins**<br>
+  A plugin is a git repository or a folder that adds clients, skills, subagents, hooks, commands and MCP tools, installed with one command, pinned to a commit and enabled only after you approve what it does.
+
 - 👥 **Built for teams**<br>
   Several KBs behind one server — a native user service, a container or a Kubernetes workload — per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, Ed25519-signed artifacts.
 
@@ -154,6 +157,8 @@ Subagents and hooks are **translated**, not copied. Every `—` is a gap declare
 never a silent omission. Cartographer re-syncs at session start (or on a timer where a client has
 no hook), restores files edited or deleted by hand, and only ever touches what it created. Exact
 paths and reasons: [`docs/sync.md`](docs/sync.md#kind--provider-matrix).
+A client missing from the table (a fork, an in-house build) is added by a plugin, without waiting for a release:
+see [`docs/plugins.md`](docs/plugins.md).
 
 ## Install
 
@@ -185,6 +190,7 @@ map is [`docs/index.md`](docs/index.md).
 - [MCP tools](docs/control-plane.md) — the full tool API
 - [Deployment](docs/deployment.md) — topologies, configuration, backup
 - [Sync](docs/sync.md) — how artifacts reach each agent client
+- [Plugins](docs/plugins.md) — add clients, commands and MCP tools, approved per version
 
 ## Contributing
 

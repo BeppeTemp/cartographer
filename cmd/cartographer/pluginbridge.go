@@ -21,9 +21,6 @@ import (
 // star.MCPKB is shared by every tool so the server's read-only classification
 // is fetched once per session.
 func bridgePluginTools(cfg *clientconfig.Config, warn io.Writer) []mcpbridge.PluginTool {
-	if !pluginsEnabled() {
-		return nil
-	}
 	var (
 		once sync.Once
 		kb   star.KBCaller

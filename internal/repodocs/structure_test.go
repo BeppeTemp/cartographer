@@ -27,13 +27,11 @@ import (
 // like sectionRefAllow. Starts empty.
 var repoPathAllow = map[string]string{}
 
-// unlistedPages are docs pages deliberately absent from docs/index.md and the
+// unlistedPages are docs pages (none today; a page written ahead of its feature goes here until it is turned on) deliberately absent from docs/index.md and the
 // mkdocs.yml nav (and excluded from the site by exclude_docs). Key: path under
 // docs/; value: the reason, mandatory. Checked both ways: an entry whose page
 // is gone, or that is linked after all, fails.
-var unlistedPages = map[string]string{
-	"plugins.md": "the plugin host is not announced to users yet; the page is written as the code lands and is linked when the feature is turned on",
-}
+var unlistedPages = map[string]string{}
 
 func TestDocumentationStructure(t *testing.T) {
 	root := repoRoot(t)

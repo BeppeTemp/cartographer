@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/repodocs"
 )
 
@@ -338,9 +339,8 @@ func dispatchedCommands(t *testing.T) []string {
 // The usage table (subcommands), the dispatch switch of run() and the documented
 // commands are three lists kept by hand; this compares them (D1124).
 func TestCommandTableMatchesDispatchAndDocs(t *testing.T) {
-	// Dispatched, deliberately absent from the table: hook (D353); plugin until the
-	// turn-on change of the plugins plan.
-	internal := map[string]bool{"hook": true, "plugin": true}
+	// Dispatched, deliberately absent from the table: hook (D353).
+	internal := map[string]bool{"hook": true}
 
 	dispatched := map[string]bool{}
 	for _, n := range dispatchedCommands(t) {
@@ -385,10 +385,18 @@ func TestCommandTableMatchesDispatchAndDocs(t *testing.T) {
 	span := regexp.MustCompile("`([^`\n]+)`")
 	invoke := regexp.MustCompile(`(?:^|[\s(])(?:\./bin/)?cartographer\s+([a-z][a-z0-9-]*)`)
 	fenceLine := regexp.MustCompile(`^\s*(?:\$ )?(?:\./bin/)?cartographer\s+([a-z][a-z0-9-]*)`)
+	// `cartographer <plugin> <command>` is dispatched to an installed plugin, not a
+	// case of run(): the docs tutorial cites the example plugin's, so its name is accepted.
+	examplePlugin := ""
+	if m, err := plugin.ParseManifest([]byte(read("test/e2e/fixtures/plugin-example/cartographer-plugin.yaml")), plugin.Options{}); len(err) == 0 {
+		examplePlugin = m.Name
+	} else {
+		t.Fatalf("the example plugin's manifest: %v", err)
+	}
 	cited := 0
 	check := func(rel string, line int, word string) {
 		cited++
-		if !dispatched[word] {
+		if !dispatched[word] && word != examplePlugin {
 			t.Errorf("%s:%d cites \"cartographer %s\" which is not a command (the commands are the cases of run() in "+
 				"cmd/cartographer/main.go). Fix the text: reword a line that merely mentions the binary.", rel, line, word)
 		}

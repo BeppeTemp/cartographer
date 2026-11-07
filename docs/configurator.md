@@ -141,6 +141,10 @@ decides every step **before** running any:
   says so, and only otherwise the hint is about authentication.
 - **Workspace.** `--workspace <repo>` is passed through to `connect --workspace` (D193): the KBs are
   confined to that repository instead of every directory.
+- **Plugins.** `--plugin <source>` (repeatable; a git URL, optionally `@<ref>`, or a folder) installs a plugin
+  before the agents are detected, and `--approve-plugins` approves the ones installed by this run after printing
+  what each runs; without it nothing is approved ([plugins.md §Onboarding](plugins.md#onboarding-setup-and-connect)).
+  A plugin may bring the client `setup` then connects.
 - **KB binding (D190).** `--kb` is passed through. Without it: one KB binds itself; agents that
   already carry a binding keep it; a KB this run adds next to existing ones is bound alone (the
   narrowest choice); otherwise, with two or more KBs and nothing to go on, an interactive run
@@ -414,6 +418,8 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 | `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, nothing written: the manifest is fetched and verified before the agents' MCP entries, the bootstrap hook or `.cartographer.yaml` are touched, and the same holds for a rejected token), not a "server unreachable" deferral; a server that is down still defers and writes |
 | `--no-input` | `false` | Never opens the interactive form, even in a TTY |
 | `--workspace` | *(unset)* | Projects the selected KBs into this repository instead of the global catalogue (D193) |
+| `--plugin` | *(repeatable)* | Installs a plugin (git URL`[@ref]` or folder) before the agents are resolved; it is not approved by this flag |
+| `--approve-plugins` | `false` | Approves the plugins installed by this run, after printing what each one runs; the flag is the consent, the printed block its record |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906) |
 
 **An unloadable `.cartographer.yaml` is never replaced** (D1514). `reindex`, `kb repair`, `reconnect`, `client` and `usage` print that error too, instead of "no client config found" or a silent fallback to the local default server. `connect`, `disconnect` and the dashboard's connect form fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `providers.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
@@ -1145,6 +1151,30 @@ cartographer paths --help                   # the usage above, on stdout, exit 0
 
 The TUI dashboard's per-provider sync reports the unresolved count in its done message; editing
 happens here, not in the TUI.
+
+### `cartographer plugin <subcommand>`
+
+Installs, approves and manages plugins: a git repository or a folder with a `cartographer-plugin.yaml` manifest that
+adds agent clients, skills, subagents, hooks, commands, MCP tools and sync handlers to this machine. Nothing runs
+before the user approves the exact version (its digest). The full reference is [plugins.md](plugins.md); the
+subcommands are:
+
+| Subcommand | What it does |
+|---|---|
+| `plugin new <name> [<dir>]` | Scaffolds a plugin |
+| `plugin validate <dir> [--output table\|json]` | Checks a folder offline and lists every problem; prints what its scripts register |
+| `plugin install <git-url>[@<ref>] \| <folder> [--yes]` | Fetches, validates and stores it, prints the preview and asks before enabling; `--yes` is the consent |
+| `plugin list`, `plugin show <name> [--files]` | The plugins and their state; the preview again, from the store |
+| `plugin approve <name> [--yes]` | Approves the installed version after printing what runs; without a terminal it needs `--yes` |
+| `plugin update [<name>] [--yes]` | Fetches again and prints the diff; the approved version stays active until the new one is approved |
+| `plugin config <name> [key=value ...] [--unset <key>]` | Sets a setting the manifest declares; needs no approval and never widens a permission |
+| `plugin enable <name>`, `plugin disable <name>` | Turns an approved plugin on or off |
+| `plugin remove <name>` | Retires what it installed, then forgets it |
+
+An active plugin's commands run as `cartographer <plugin> <command> [args...]` (`cartographer <plugin>` lists them,
+and `help` shows a `Plugins` group); its `sync.after` and `connect.after` handlers run after `sync` and `connect`,
+never in `--dry-run` and never changing their exit code; its tools are served by the stdio bridge and by
+`cartographer call`. The `plugins` key of `.cartographer.yaml` is written only by these commands.
 
 ## Adding a provider
 

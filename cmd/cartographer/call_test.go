@@ -338,12 +338,11 @@ tool("status", status, "reads the KB")
 func installCallPlugin(t *testing.T, name, script string) {
 	t.Helper()
 	store := plugin.Store{Root: filepath.Join(t.TempDir(), "plugins")}
-	oldStore, oldTTY, oldEnabled := pluginStoreFn, pluginInteractive, pluginsEnabled
+	oldStore, oldTTY := pluginStoreFn, pluginInteractive
 	pluginStoreFn = func() (plugin.Store, error) { return store, nil }
 	pluginInteractive = func() bool { return false }
-	pluginsEnabled = func() bool { return true }
 	t.Cleanup(func() {
-		pluginStoreFn, pluginInteractive, pluginsEnabled = oldStore, oldTTY, oldEnabled
+		pluginStoreFn, pluginInteractive = oldStore, oldTTY
 		_, _ = configurator.ReplacePlugins(nil)
 		provisioning.ReplacePluginCells(nil, os.Getenv("HOME"))
 		clientconfig.PluginProvidersComplete = func(p map[string]clientconfig.PluginEntry) bool { return len(p) == 0 }

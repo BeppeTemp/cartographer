@@ -42,6 +42,7 @@ var subcommands = []subcommand{
 	{"Client", "workspace", "Bind a repository to the KBs a client receives there"},
 	{"Client", "call", "Call one MCP tool from the command line"},
 	{"Client", "mcp", "Run the stdio bridge a client starts for a workspace-bound provider"},
+	{"Client", "plugin", "Install, approve and manage plugins"},
 	{"Server", "serve", "Run the MCP server"},
 	{"Server", "service", "Manage the native server service"},
 	{"Server", "upgrade-repair", "Repair the native service and provider sync after an upgrade"},
@@ -171,7 +172,6 @@ func run(args []string) int {
 	case "tray":
 		return trayFn(rest)
 	case "plugin":
-		// Dispatched, not listed in subcommands: dark until the turn-on change of the plugins plan.
 		return pluginFn(rest)
 	case "mcp":
 		return mcpFn(rest)
