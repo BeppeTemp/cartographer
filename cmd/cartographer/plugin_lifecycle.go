@@ -189,6 +189,13 @@ func (c lifecycleCtx) finishApprove(name, digest, version string) int {
 		}
 		enabled = cur.Enabled
 		cur.Approved = digest
+		// The transport hint (Config.UsesBridge) comes from the tree being
+		// approved; it is never read to decide what runs.
+		if t, err := c.store.Open(name, digest, pluginOpts()); err == nil {
+			cur.Tools = pluginToolNames(t)
+		} else {
+			cur.Tools = nil
+		}
 		if err := cfg.SetPlugin(name, cur); err != nil {
 			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}

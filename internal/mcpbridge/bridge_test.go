@@ -75,7 +75,10 @@ func (rs *routedServer) seen() []string {
 	return append([]string(nil), rs.urls...)
 }
 
-func bridgeConfig(rs *routedServer) *clientconfig.Config {
+// bridgeConfig has a binding elsewhere; unboundBridgeConfig has none.
+func bridgeConfig(rs *routedServer) *clientconfig.Config { return withBinding(unboundBridgeConfig(rs)) }
+
+func unboundBridgeConfig(rs *routedServer) *clientconfig.Config {
 	return &clientconfig.Config{
 		ServerName: "cartographer", ServerURL: rs.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
 		Auth: true, Token: "${CARTOGRAPHER_TOKEN}",
@@ -259,10 +262,10 @@ func TestBridgeServerWithoutConfirmationServesNoTools(t *testing.T) {
 		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"concept_write","inputSchema":{"type":"object"}}]}}`)
 	}))
 	defer srv.Close()
-	cfg := &clientconfig.Config{
+	cfg := withBinding(&clientconfig.Config{
 		ServerName: "cartographer", ServerURL: srv.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
 		KnownKBs: []string{"kb-a"},
-	}
+	})
 	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir()}
 	got := exchange(t, b, initMsg, initedMsg, listMsg, callMsg(3, "concept_write", "kb-a"))
 
@@ -571,10 +574,10 @@ func TestBridgeReadOnlyListenWithoutConfirmationServesNoTools(t *testing.T) {
 		_, _ = io.WriteString(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/subscriptions/acknowledged\"}\n\n")
 	}))
 	defer srv.Close()
-	cfg := &clientconfig.Config{
+	cfg := withBinding(&clientconfig.Config{
 		ServerName: "cartographer", ServerURL: srv.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
 		KnownKBs: []string{"kb-a"},
-	}
+	})
 	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir()}
 	got := exchange(t, b, listenMsg, listMsg)
 
@@ -615,10 +618,10 @@ func TestBridgeReadOnlyUnconfirmedStreamKeepsTheSerialization(t *testing.T) {
 		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}`)
 	}))
 	defer srv.Close()
-	cfg := &clientconfig.Config{
+	cfg := withBinding(&clientconfig.Config{
 		ServerName: "cartographer", ServerURL: srv.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
 		KnownKBs: []string{"kb-a"},
-	}
+	})
 	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir()}
 	exchange(t, b, listenMsg, listMsg)
 

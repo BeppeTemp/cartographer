@@ -183,6 +183,9 @@ func reportProviders(cfg *clientconfig.Config) []clientconfig.ReportProvider {
 		p := clientconfig.ReportProvider{Name: name, Scope: cfg.WorkspaceScope(name), Entry: "http", Isolation: "none"}
 		if cfg.UsesBridge(name, cfg.ServerRoutedPath) {
 			p.Entry, p.Isolation = "bridge", "workspace"
+			if cfg.PluginOnlyBridge(name, cfg.ServerRoutedPath) {
+				p.Isolation = "none" // the bridge serves plugin tools only; the scope is the HTTP entry's
+			}
 		}
 		for _, b := range cfg.WorkspaceBindings(name) {
 			p.Workspaces = append(p.Workspaces, clientconfig.ReportWorkspace{Path: b.Path, Remote: b.Remote, KBs: b.KBs})

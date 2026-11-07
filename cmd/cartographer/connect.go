@@ -1421,13 +1421,25 @@ func applyConnectAccess(cfg *clientconfig.Config, opts connectOptions, routedPat
 	}
 	for _, provider := range opts.Providers {
 		if cfg.UsesBridge(provider, routedPath) {
-			return fmt.Errorf("--access %s: %s has a workspace binding, so it runs through the bridge, which does not carry the read-only profile: a read-only agent runs on the provider-global scope (remove the binding with `cartographer workspace unbind`, or connect another provider)", opts.Access, provider)
+			return fmt.Errorf("--access %s: %s runs through the bridge (%s), which does not carry the read-only profile: a read-only agent runs on the provider-global scope (remove the binding with `cartographer workspace unbind`, or connect another provider)", opts.Access, provider, bridgeReason(cfg, provider, routedPath))
 		}
 		if err := cfg.SetAccess(provider, opts.Access); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// bridgeReason says why provider's entry is the bridge: a workspace binding, an
+// active plugin's tools, or both.
+func bridgeReason(cfg *clientconfig.Config, provider, routedPath string) string {
+	switch {
+	case cfg.PluginOnlyBridge(provider, routedPath):
+		return "an active plugin provides tools"
+	case cfg.PluginProvidesTools():
+		return "it has a workspace binding and an active plugin provides tools"
+	}
+	return "it has a workspace binding"
 }
 
 // lockHoldsNothing reports whether dir's lockfile records no projection: absent

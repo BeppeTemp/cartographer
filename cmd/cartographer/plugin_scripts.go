@@ -14,6 +14,22 @@ import (
 // error here is a tree that bypassed it.
 func pluginProgram(p plugin.Plugin) (*star.Program, error) { return star.Load(p.Files) }
 
+// pluginToolNames are the names of the tools a plugin registers, sorted: the
+// `tools` hint recorded at approval. A tree that does not load yields none.
+func pluginToolNames(p plugin.Plugin) []string {
+	prog, err := pluginProgram(p)
+	if err != nil || prog == nil {
+		return nil
+	}
+	var out []string
+	for _, r := range prog.Sorted() {
+		if r.Kind == star.KindTool {
+			out = append(out, p.Manifest.Name+"_"+r.Name)
+		}
+	}
+	return out
+}
+
 // registrationLines are the "command/tool/event" lines of a program with their
 // positions: what `plugin validate` and the approval preview print.
 func registrationLines(name string, prog *star.Program) []string {

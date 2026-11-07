@@ -138,11 +138,11 @@ func TestBridgeUnboundWriteHandshakeOverSSE(t *testing.T) {
 		_, _ = io.WriteString(w, "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\",\"instructions\":\"\"}}\n\n")
 	}))
 	defer srv.Close()
-	cfg := &clientconfig.Config{
+	cfg := withBinding(&clientconfig.Config{
 		ServerName: "cartographer", ServerURL: srv.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
 		Auth: true, Token: "${CARTOGRAPHER_TOKEN}", KnownKBs: []string{"kb-a"},
 		UnboundModes: map[string]string{"default": "write"},
-	}
+	})
 	got := exchange(t, &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir(), Token: testToken}, initMsg)
 	if in := instructionsOf(got["1"]); !strings.Contains(in, "has write access") {
 		t.Errorf("SSE initialize instructions = %q", in)
@@ -168,5 +168,33 @@ func TestScopeUnboundAccessMatrix(t *testing.T) {
 	cfg.UnboundModes = map[string]string{"default": "yes"}
 	if s := Resolve(cfg, "claude", dir); !s.ReadOnly {
 		t.Error("an invalid value opened write access")
+	}
+}
+
+// A provider with no binding served by the bridge only for plugin tools is the
+// HTTP entry it replaced: no roots question even for a client that declares
+// roots, write tools listed, no access/kbs query, no unbound sentence.
+func TestBridgePluginOnlyScopeKeepsWriteAndSkipsRoots(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a", "kb-b")
+	cfg := unboundBridgeConfig(rs)
+	cfg.Plugins = map[string]clientconfig.PluginEntry{"team": {Source: "/p", Enabled: true, Approved: "a", Tools: []string{"team_x"}}}
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir(), Token: testToken}
+	rootsInit := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{}},"clientInfo":{"name":"t","version":"1"}}}`
+	got := exchange(t, b, rootsInit, initedMsg, listMsg)
+	for _, m := range got {
+		if m["method"] == "roots/list" {
+			t.Fatal("the bridge asked for roots")
+		}
+	}
+	if !listsWriteTool(t, got["2"]) {
+		t.Fatal("no write tool listed")
+	}
+	if in := instructionsOf(got["1"]); strings.Contains(in, "unbound") || strings.Contains(in, "roots") {
+		t.Errorf("instructions = %q", in)
+	}
+	for _, u := range rs.seen() {
+		if strings.Contains(u, "access=read") {
+			t.Fatalf("read-only query %q", u)
+		}
 	}
 }

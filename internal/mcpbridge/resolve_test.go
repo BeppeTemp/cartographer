@@ -26,7 +26,10 @@ func mkdir(t *testing.T, parts ...string) string {
 	return c
 }
 
-func baseConfig() *clientconfig.Config {
+// baseConfig is a provider with a binding elsewhere; unboundConfig has none.
+func baseConfig() *clientconfig.Config { return withBinding(unboundConfig()) }
+
+func unboundConfig() *clientconfig.Config {
 	return &clientconfig.Config{
 		ServerName: "cartographer", ServerURL: "https://example.com/mcp", ServerRoutedPath: "/mcp/routed",
 		KnownKBs: []string{"kb-a", "kb-b", "kb-c"},
@@ -220,5 +223,110 @@ func TestAccessConstantsMatchTheServer(t *testing.T) {
 	}
 	if provisionedParam != mcpserver.ProvisionedParam || provisionedValue != mcpserver.ProvisionedValue {
 		t.Fatalf("bridge %q=%q, server %q=%q", provisionedParam, provisionedValue, mcpserver.ProvisionedParam, mcpserver.ProvisionedValue)
+	}
+}
+
+// A provider with no binding that the bridge serves only for plugin tools
+// behaves like the HTTP entry it replaced: read-write, the provider's KB set,
+// kb_options read-only KBs kept, no roots question, no unbound note. The
+// unbound default (read-only) must not leak into it.
+func TestResolvePluginOnlyScopeIsTheHTTPEntrys(t *testing.T) {
+	plugins := map[string]clientconfig.PluginEntry{"team": {Source: "/p", Enabled: true, Approved: "a", Tools: []string{"team_x"}}}
+	t.Run("provider default", func(t *testing.T) {
+		cfg := unboundConfig()
+		cfg.Plugins = plugins
+		cfg.KBOptions = map[string]clientconfig.KBOption{"kb-b": {Access: clientconfig.KBAccessRead}}
+		s := Resolve(cfg, "claude", t.TempDir())
+		if !s.All || s.ReadOnly || s.Unbound || !reflect.DeepEqual(s.ReadOnlyKBs, []string{"kb-b"}) {
+			t.Fatalf("scope = %+v", s)
+		}
+		if got := s.Query(); strings.Contains(got, "access=read&") || got == "access=read" {
+			t.Fatalf("query %q must not be read-only", got)
+		}
+	})
+	t.Run("provider binding", func(t *testing.T) {
+		cfg := unboundConfig()
+		cfg.Plugins = plugins
+		cfg.Clients = map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"kb-b", "kb-c"}, KBsSet: true}}
+		cfg.KBOptions = map[string]clientconfig.KBOption{"kb-b": {Access: clientconfig.KBAccessRead}, "kb-a": {Access: clientconfig.KBAccessRead}}
+		s := Resolve(cfg, "claude", t.TempDir())
+		if s.All || s.ReadOnly || s.Unbound || !reflect.DeepEqual(s.KBs, []string{"kb-b", "kb-c"}) || !reflect.DeepEqual(s.ReadOnlyKBs, []string{"kb-b"}) {
+			t.Fatalf("scope = %+v", s)
+		}
+	})
+	t.Run("unbound_access is not applied", func(t *testing.T) {
+		cfg := unboundConfig()
+		cfg.Plugins = plugins
+		cfg.UnboundModes = map[string]string{"default": "read"}
+		if s := Resolve(cfg, "claude", t.TempDir()); s.ReadOnly || s.Unbound {
+			t.Fatalf("scope = %+v", s)
+		}
+	})
+	t.Run("a provider with bindings is unchanged", func(t *testing.T) {
+		with, without := unboundConfig(), unboundConfig()
+		with.Plugins = plugins
+		dir := mkdir(t, t.TempDir())
+		bind(t, with, dir, "kb-a")
+		bind(t, without, dir, "kb-a")
+		other := t.TempDir()
+		if a, b := Resolve(with, "claude", other), Resolve(without, "claude", other); !reflect.DeepEqual(a, b) || !a.ReadOnly || !a.Unbound {
+			t.Fatalf("with plugin %+v, without %+v", a, b)
+		}
+	})
+}
+
+// The scope follows the shape of the provider, not the live plugin state: after
+// `plugin disable` and before the next sync the entry is still the bridge, and
+// its sessions must stay read-write.
+func TestResolvePluginOnlyScopeSurvivesDisableBeforeSync(t *testing.T) {
+	cfg := unboundConfig()
+	cfg.Plugins = map[string]clientconfig.PluginEntry{"team": {Source: "/p", Enabled: true, Approved: "a", Tools: []string{"team_x"}}}
+	if !cfg.UsesBridge("claude", cfg.ServerRoutedPath) {
+		t.Fatal("precondition: the plugin selects the bridge")
+	}
+	cfg.Plugins["team"] = clientconfig.PluginEntry{Source: "/p", Enabled: false, Approved: "a", Tools: []string{"team_x"}}
+	if cfg.UsesBridge("claude", cfg.ServerRoutedPath) {
+		t.Fatal("precondition: sync would now write the HTTP entry")
+	}
+	if s := Resolve(cfg, "claude", t.TempDir()); !s.All || s.ReadOnly || s.Unbound {
+		t.Fatalf("scope = %+v, want the read-write provider default", s)
+	}
+	// A provider with workspaces started in an unbound folder keeps the read-only unbound scope.
+	bind(t, cfg, mkdir(t, t.TempDir()), "kb-a")
+	if s := Resolve(cfg, "claude", t.TempDir()); !s.ReadOnly || !s.Unbound {
+		t.Fatalf("bound provider, unbound folder: %+v", s)
+	}
+}
+
+// A workspace-scope provider whose derived bindings are lost (the derived file
+// is missing, foreign or of another version: an empty state) must not read as
+// "no binding": it keeps the read-only unbound scope, never the whole KB set
+// read-write.
+func TestResolveWorkspaceScopeWithLostDerivedStateStaysReadOnly(t *testing.T) {
+	cfg := unboundConfig()
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SetDerived(clientconfig.DerivedState{})
+	if s := Resolve(cfg, "claude", t.TempDir()); !s.ReadOnly || !s.Unbound {
+		t.Fatalf("scope = %+v, want the read-only unbound provider scope", s)
+	}
+}
+
+// Bind, then unbind with no sync: the bridge entry is still there and the
+// session is the HTTP entry's (read-write, no roots question), the documented
+// consequence of deciding the scope from the provider's shape.
+func TestResolveLastUnbindBeforeSyncServesReadWrite(t *testing.T) {
+	cfg := unboundConfig()
+	dir := mkdir(t, t.TempDir())
+	bind(t, cfg, dir, "kb-a")
+	if s := Resolve(cfg, "claude", t.TempDir()); !s.ReadOnly || !s.Unbound {
+		t.Fatalf("bound provider, unbound folder: %+v", s)
+	}
+	if err := cfg.UnbindWorkspace("claude", dir); err != nil {
+		t.Fatal(err)
+	}
+	if s := Resolve(cfg, "claude", t.TempDir()); !s.All || s.ReadOnly || s.Unbound {
+		t.Fatalf("after unbind: %+v, want the read-write provider default", s)
 	}
 }

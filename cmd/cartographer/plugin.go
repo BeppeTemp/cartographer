@@ -336,6 +336,7 @@ func pluginInstall(args []string) int {
 	}
 	entry, _ = cfg.Plugin(name)
 	entry.Approved, entry.Enabled = p.Digest, true
+	entry.Tools = pluginToolNames(p) // every site that sets Approved sets the transport hint with it
 	if err := save(cfg); err != nil {
 		return pluginFail(1, "%v", err)
 	}
