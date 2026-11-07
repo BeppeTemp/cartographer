@@ -22,6 +22,7 @@ type runLimits struct {
 	mu      sync.Mutex
 	threads []*starlark.Thread
 	stepHit atomic.Bool
+	stepCap atomic.Uint64 // the cap of the thread that ran out of steps
 	memHit  atomic.Bool
 	base    uint64 // live heap at the start of the call: one baseline for the whole call
 }
@@ -36,11 +37,13 @@ func (l *runLimits) start(t *starlark.Thread) uint64 {
 		t.Cancel("context done")
 	}
 	left := l.budget - min(l.budget, l.used)
+	limit := min(left, MaxLoadSteps)
 	t.OnMaxSteps = func(t *starlark.Thread) {
+		l.stepCap.Store(limit)
 		l.stepHit.Store(true)
-		t.Cancel("too many steps")
+		t.Cancel(stepsCancel)
 	}
-	return min(left, MaxLoadSteps)
+	return limit
 }
 
 // charge adds the steps a finished thread used.
@@ -78,7 +81,7 @@ func (l *runLimits) failure() *CallError {
 		return &CallError{Kind: LimitExceeded, Msg: memoryMsg()}
 	}
 	if l.stepHit.Load() {
-		return &CallError{Kind: LimitExceeded, Msg: "the script used up its step budget"}
+		return &CallError{Kind: LimitExceeded, Msg: fmt.Sprintf("the script ran more than %d steps", l.stepCap.Load())}
 	}
 	return nil
 }

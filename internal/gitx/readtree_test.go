@@ -79,8 +79,14 @@ func TestFetchTreeRefs(t *testing.T) {
 			t.Errorf("ref %q: executable bits wrong", c.ref)
 		}
 	}
-	if _, _, err := fetch(t, remote, "nope"); err == nil {
-		t.Error("a missing ref must fail")
+	tmpParent := filepath.Join(t.TempDir(), "tmp")
+	_, _, err := FetchTree(context.Background(), remote, "nope", tmpParent, lim)
+	if err == nil {
+		t.Fatal("a missing ref must fail")
+	}
+	// The error names the source and the ref, not the throwaway directory.
+	if msg := err.Error(); !strings.Contains(msg, "nope") || !strings.Contains(msg, "git fetch") || strings.Contains(msg, tmpParent) {
+		t.Errorf("error = %q, want the ref named and no temp path", msg)
 	}
 }
 
@@ -162,6 +168,41 @@ func TestFetchTreeTotalCap(t *testing.T) {
 	l.MaxTotal = 1201
 	if _, _, err := FetchTree(context.Background(), remote, "", filepath.Join(t.TempDir(), "tmp"), l); err != nil {
 		t.Errorf("at the total cap: %v", err)
+	}
+}
+
+// A failure git's output explains (the remedy branch) still names the fetch and
+// the ref, and neither the message nor git's output carries the temp directory.
+func TestFetchTreeRemedyErrorNamesFetch(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmpParent := filepath.Join(t.TempDir(), "tmp")
+	_, _, err := FetchTree(context.Background(), "file:///nonexistent/example/repo", "main", tmpParent, lim)
+	if err == nil {
+		t.Fatal("a missing repository must fail")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "git fetch") || !strings.Contains(msg, "main") || strings.Contains(msg, "git clone") || strings.Contains(msg, tmpParent) {
+		t.Errorf("error = %q", msg)
+	}
+}
+
+func TestFetchErrorRemedyBranch(t *testing.T) {
+	tmp := "/tmp/.tmp-123"
+	out := "fatal: unable to access '/tmp/.tmp-123/x': Could not resolve host: example.com"
+	err := gitNetError(context.Background(), "https://example.com/r.git", "fetch", "v1", errors.New("exit 128"), strings.ReplaceAll(out, tmp, "<temp>"))
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "git fetch https://example.com/r.git v1: ") || strings.Contains(msg, tmp) || strings.Contains(msg, "git clone") {
+		t.Errorf("error = %q", msg)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if msg := gitNetError(ctx, "https://example.com/r.git", "fetch", "v1", nil, "").Error(); !strings.Contains(msg, "while fetching") {
+		t.Errorf("timeout error = %q", msg)
+	}
+	if msg := cloneError(ctx, "https://example.com/r.git", "/d", nil, "").Error(); !strings.Contains(msg, "while cloning https://example.com/r.git") {
+		t.Errorf("clone timeout error = %q", msg)
 	}
 }
 

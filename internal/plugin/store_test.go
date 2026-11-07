@@ -257,3 +257,21 @@ func TestConfigNameRuleMatchesManifest(t *testing.T) {
 		}
 	}
 }
+
+// A symlink planted in an approved stored tree is a modified tree (ErrModified,
+// the doctor's "modified or unreadable"), not an invalid one, though the digest
+// of what is left still matches.
+func TestOpenSymlinkInStoredTreeIsModified(t *testing.T) {
+	s := testStore(t)
+	d := putGood(t, s)
+	link := filepath.Join(s.Root, "team-forks", d, "skills", "helper", "link.md")
+	if err := os.Symlink("SKILL.md", link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if _, err := s.Open("team-forks", d, testOpts); !errors.Is(err, ErrModified) {
+		t.Errorf("Open = %v, want ErrModified", err)
+	}
+	if err := checkDir(filepath.Join(s.Root, "team-forks", d), d, testOpts); err == nil {
+		t.Error("checkDir accepted a tree holding a symlink")
+	}
+}

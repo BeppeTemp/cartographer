@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,8 +108,14 @@ func TestFolderSnapshot(t *testing.T) {
 	if err := os.Symlink("SKILL.md", filepath.Join(dir, "skills/helper/link.md")); err != nil {
 		t.Skipf("no symlinks here: %v", err)
 	}
-	if _, _, err := Fetch(context.Background(), src, t.TempDir()); err == nil || !strings.Contains(err.Error(), "skills/helper/link.md") {
-		t.Errorf("symlink: %v", err)
+	// A symlink is a finding of the tree list, like every other (`"path": reason`).
+	files, _, err = Fetch(context.Background(), src, t.TempDir())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	_, probs := ReadTree(files, Options{})
+	if want := `"skills/helper/link.md": a symlink or non-regular file`; !slices.Contains(probs, want) {
+		t.Errorf("problems = %q, want %q", probs, want)
 	}
 }
 

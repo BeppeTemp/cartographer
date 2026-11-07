@@ -940,7 +940,7 @@ func runSetupPlan(p setupPlan) int {
 	fmt.Println("server ready")
 
 	if partial || len(connectNotWired) > 0 {
-		fmt.Fprintf(os.Stderr, "Setup finished, but not every agent is wired: %s. Replace the symlink named in the warnings above with a regular file or directory, then rerun `cartographer setup` (finished steps are skipped).\n", cmp.Or(strings.Join(connectNotWired, "; "), "see the connect output above"))
+		fmt.Fprintf(os.Stderr, "Setup finished, but not every agent is wired: %s. Replace the symlink named in the warnings above with a regular file or directory, or list it under providers.<provider>.allow_symlinks with `cartographer client symlinks <provider> --add <link>`, then rerun `cartographer setup` (finished steps are skipped).\n", cmp.Or(strings.Join(connectNotWired, "; "), "see the connect output above"))
 		return exitPartiallyConnected
 	}
 

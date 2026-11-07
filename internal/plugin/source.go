@@ -122,8 +122,10 @@ func Fetch(ctx context.Context, s Source, tmpParent string) ([]TreeFile, string,
 	return files, sha, nil
 }
 
-// readFolder walks root with Lstat: a symlink or any non-regular file is an
-// error naming it, and the entries ReadTree ignores are not read.
+// readFolder walks root with Lstat: a symlink or any non-regular file is
+// returned as a Special entry, for ReadTree to list among the findings (a stored
+// tree holding one is ErrModified, see specialIn), and the entries ReadTree
+// ignores are not read.
 func readFolder(root string) ([]TreeFile, error) {
 	var files []TreeFile
 	total := 0
@@ -151,7 +153,9 @@ func readFolder(root string) ([]TreeFile, error) {
 			return err
 		}
 		if !fi.Mode().IsRegular() {
-			return fmt.Errorf("%s: a symlink or non-regular file", rel)
+			// Not an error here: ReadTree reports it in the list of tree findings.
+			files = append(files, TreeFile{Path: rel, Special: true})
+			return nil
 		}
 		if fi.Size() > int64(provisioning.ArtifactMaxFileSize) {
 			return fmt.Errorf("%s: %d bytes, over the %d cap of a file", rel, fi.Size(), provisioning.ArtifactMaxFileSize)

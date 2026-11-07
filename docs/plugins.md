@@ -87,7 +87,7 @@ order of the files does not matter. It is the one function that knows the tree r
 loading share them.
 
 - At the top: the manifest and one folder per registered point. `README*`, `LICENSE*`, `CHANGELOG*` and `.git*`
-  are ignored and never stored or checked. `plugin.star` and flat `lib/*.star` files are read and loaded (Starlark, 20 million steps and 256 MiB of heap growth at most; `load()` reaches only `lib/` files of the tree, and the capability modules refuse every call at load in this version), and run only on an otherwise valid tree (after the caps and the manifest); a script that does not load is a problem of the tree, and the approval preview shows each script in full with its registrations. `mcp/`
+  are ignored and never stored or checked. `plugin.star` and flat `lib/*.star` files are read and loaded (Starlark, 20 million steps and 256 MiB of heap growth at most; `load()` reaches only `lib/` files of the tree, and the capability modules refuse every call at load in this version), and run only on an otherwise valid tree (after the caps and the manifest); a script that does not load is a problem of the tree (a step cap reads as at a call, `plugin.star:4:11: the script ran more than N steps`), and the approval preview shows each script in full with its registrations. `mcp/`
   and `instructions.md` are not contribution points in this version, and any other entry is an error naming it.
 - Paths are canonical slash paths (`provisioning.ValidArtifactFilePath`) without control or format characters (bidi overrides, zero-width), unique ignoring case; a symlink or
   non-regular file, a file over the artifact file cap, more than 2000 files or 8 MiB in all is an error.
@@ -120,7 +120,7 @@ the path before any blob is read; `README*`, `LICENSE*`, `CHANGELOG*` and `.git*
 executable bit is mode `100755`. The resolved commit (40 hex) is returned. Without `git` on PATH a git source
 fails with a message saying so; a folder never needs git.
 
-**Folder.** Walked with `Lstat`: a symlink or non-regular file is an error naming it, the same entries are skipped,
+**Folder.** Walked with `Lstat`: a symlink or non-regular file is read as a `Special` entry, so `ReadTree` lists it (`"path": a symlink or non-regular file`) with the other findings, the same entries are skipped,
 and the files are read once, a snapshot: a later edit of the folder needs an update to be seen.
 
 ## The store and the `plugins` key

@@ -155,7 +155,7 @@ func TestLoadRefusals(t *testing.T) {
 		{"top level loop", entry("for i in [1]:\n    pass\n"), "for"},
 		{"global reassign", entry("x = 1\nx = 2\n"), "reassign"},
 		{"over the cap", entry("# " + strings.Repeat("x", plugin.MaxScriptBytes)), "over the"},
-		{"endless at top level", entry("def f():\n    for i in range(1000000000):\n        pass\nf()\n"), "too many steps"},
+		{"endless at top level", entry("def f():\n    for i in range(1000000000):\n        pass\nf()\n"), "plugin.star:2:5: the script ran more than 20000000 steps"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
