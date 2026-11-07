@@ -210,7 +210,7 @@ func parsePathTpl(s string, project bool, sh pathShape, allowDocs bool) (pathTpl
 			}
 		}
 	}
-	if reachesOwnState(strings.Join(t.segs, "/")) {
+	if reachesOwnState(t.anchor, strings.Join(t.segs, "/")) {
 		return t, fmt.Errorf("%s: the path reaches Cartographer's own state (the client config file or the cartographer config, state and cache directories), by name or through a wildcard", q(s))
 	}
 	return t, nil

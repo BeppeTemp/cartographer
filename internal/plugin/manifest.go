@@ -345,7 +345,7 @@ func globProblem(g string) string {
 			}
 		}
 	}
-	if reachesOwnState(rest) {
+	if reachesOwnState(anchor, rest) {
 		return "reaches Cartographer's own state (its config file, config, state and cache directories, the plugin store)"
 	}
 	return ""
@@ -451,21 +451,64 @@ func envProblem(e string) string {
 
 // ownStateNames are the path segments that are Cartographer's own state: the
 // client config file and the config, state and cache directories (the plugin
-// store lives in the cache one), under any anchor and any platform spelling.
+// store lives in the cache one). A literal one is refused under any anchor and
+// at any depth, on any platform spelling.
 var ownStateNames = []string{".cartographer.yaml", "cartographer"}
 
-// reachesOwnState reports whether a glob's segment can name Cartographer's own
-// state: literally, as a ".cartographer*" dotfile, or through a wildcard.
-func reachesOwnState(rest string) bool {
-	for _, seg := range strings.Split(strings.ToLower(rest), "/") {
+// ownStateLocations are the places of Cartographer's own state, per anchor,
+// lowercased and split in segments. A wildcard segment is refused only where
+// it can still lead into one of them; below a client's own folder it is not.
+// A custom XDG_CONFIG_HOME under an arbitrary folder is not visible to this
+// lexical rule: the runtime enforcer's state directories cover it.
+var ownStateLocations = map[string][][]string{
+	"home": {
+		{"cartographer-data"}, {".config", "cartographer"}, {".cache", "cartographer"},
+		{".local", "share", "cartographer"}, {"library", "application support", "cartographer"},
+		{"library", "caches", "cartographer"}, {"appdata", "roaming", "cartographer"},
+		{"appdata", "local", "cartographer"}, {".cartographer"}, {".cartographer.yaml"},
+	},
+	"xdg_config":     {{"cartographer"}},
+	"app_data":       {{"cartographer"}},
+	"local_app_data": {{"cartographer"}},
+}
+
+// reachesOwnState reports whether a glob below the anchor ("home", "xdg_config",
+// ... , with or without braces) can name Cartographer's own state: literally,
+// as a ".cartographer*" dotfile or a "cartographer" segment at any depth, or
+// through a wildcard segment that, with the segments before it, matches the
+// start of a known location of it (ownStateLocations). The runtime enforcer is
+// the real control (star/files.go); this is the early answer of the preview.
+func reachesOwnState(anchor, rest string) bool {
+	segs := strings.Split(strings.ToLower(strings.Trim(rest, "/")), "/")
+	locs := ownStateLocations[strings.Trim(anchor, "{}")]
+	for i := range segs {
 		// Windows drops trailing dots and spaces from a name: "cartographer. "
 		// is the "cartographer" directory.
-		seg = strings.TrimRight(seg, " .")
+		segs[i] = strings.TrimRight(segs[i], " .")
+	}
+	for i, seg := range segs {
 		if strings.HasPrefix(seg, ".cartographer") {
 			return true
 		}
-		for _, n := range ownStateNames {
-			if ok, _ := path.Match(seg, n); ok {
+		if !strings.ContainsAny(seg, "*?[") {
+			if slices.Contains(ownStateNames, seg) {
+				return true
+			}
+			continue
+		}
+	loc:
+		for _, l := range locs {
+			// A wildcard below a location its preceding segments fully match
+			// (i >= len(l)) is inside that location: it reaches state too.
+			for j := 0; j < min(i, len(l)); j++ {
+				if ok, _ := path.Match(segs[j], l[j]); !ok {
+					continue loc
+				}
+			}
+			if i >= len(l) {
+				return true
+			}
+			if ok, _ := path.Match(seg, l[i]); ok {
 				return true
 			}
 		}
