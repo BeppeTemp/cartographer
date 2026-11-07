@@ -92,10 +92,14 @@ func cmdCall(args []string) int {
 
 	jsonSet := false
 	fs.Visit(func(f *flag.Flag) { jsonSet = jsonSet || f.Name == "json" })
+	if !isKnownProvider(*provider) {
+		return fail("unknown provider %q (valid: %s)", *provider, strings.Join(knownProviderNames(), ", "))
+	}
 	var callArgs map[string]any
+	var rawPairs map[string]string
 	if len(pos) > 0 {
 		var err error
-		if callArgs, err = parseCallArgs(pos[1:], jsonSet, *jsonArg, mcpStdin); err != nil {
+		if callArgs, rawPairs, err = parseCallArgs(pos[1:], jsonSet, *jsonArg, mcpStdin); err != nil {
 			return fail("%v", err)
 		}
 	} else if jsonSet {
@@ -111,6 +115,8 @@ func cmdCall(args []string) int {
 		if *dir, err = os.Getwd(); err != nil {
 			return fail("%v", err)
 		}
+	} else if st, serr := os.Stat(*dir); serr != nil || !st.IsDir() {
+		return fail("--dir %q is not an existing directory", *dir)
 	}
 	token, err := resolveTokenErr(cfg)
 	if err != nil {
@@ -152,14 +158,34 @@ func cmdCall(args []string) int {
 			}
 			return fail("unknown tool %q; run \"cartographer call --list\"", *describe)
 		}
+		if len(rawPairs) > 0 {
+			// The schema types the key=value words (#1802). A bridge that
+			// cannot list tools, or a tool it does not know, leaves the
+			// JSON-typed values as parsed: the call's own error is the answer.
+			if tools, log, lerr := listTools(send); lerr == nil {
+				blog += log
+				for _, t := range tools {
+					if t.Name == pos[0] {
+						coerceCallArgs(callArgs, rawPairs, t.InputSchema)
+					}
+				}
+			} else {
+				blog += log
+			}
+		}
 		resp, log, err := send("tools/call", map[string]any{"name": pos[0], "arguments": callArgs})
-		blog = log
+		blog += log
 		if err != nil {
 			return fail("%v", err)
 		}
 		result, err := responseResult(resp)
 		if err != nil {
-			return fail("%v", err)
+			code := 2
+			if errors.Is(err, errInvalidParams) {
+				code = 1
+			}
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return code
 		}
 		return printToolResult(pos[0], result, *output)
 	}()
@@ -223,11 +249,15 @@ func firstSentence(s string) string {
 	return s
 }
 
+// errInvalidParams marks a JSON-RPC -32602 answer.
+var errInvalidParams = errors.New("invalid params")
+
 // responseResult is the result of a JSON-RPC response, or its error.
 func responseResult(resp json.RawMessage) (json.RawMessage, error) {
 	var m struct {
 		Result json.RawMessage `json:"result"`
 		Error  *struct {
+			Code    int    `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
@@ -235,7 +265,15 @@ func responseResult(resp json.RawMessage) (json.RawMessage, error) {
 		return nil, fmt.Errorf("unreadable response: %w", err)
 	}
 	if m.Error != nil {
-		return nil, errors.New(escapeControl(m.Error.Message))
+		msg := escapeControl(m.Error.Message)
+		if m.Error.Code == -32602 && strings.HasPrefix(m.Error.Message, "invalid params:") {
+			// An argument error (the server's "invalid params: ..."), like a
+			// tool's own refusal: exit 1. The other -32602 answers, "unknown
+			// tool" and "no Cartographer tool is available in this folder",
+			// are not arguments and stay exit 2.
+			return nil, fmt.Errorf("%w: %s", errInvalidParams, msg)
+		}
+		return nil, errors.New(msg)
 	}
 	if len(m.Result) == 0 {
 		return nil, errors.New("empty response")
@@ -290,24 +328,25 @@ func printToolResult(tool string, result json.RawMessage, output string) int {
 //
 // jsonSet is whether --json was given at all: an empty value (an unset shell
 // variable) is a usage error, never "no arguments".
-func parseCallArgs(words []string, jsonSet bool, jsonArg string, stdin io.Reader) (map[string]any, error) {
+func parseCallArgs(words []string, jsonSet bool, jsonArg string, stdin io.Reader) (map[string]any, map[string]string, error) {
 	args := map[string]any{}
+	raw := map[string]string{}
 	if jsonSet {
 		raw := []byte(jsonArg)
 		if jsonArg == "-" {
 			var err error
 			if raw, err = io.ReadAll(io.LimitReader(stdin, maxCallJSON+1)); err != nil {
-				return nil, fmt.Errorf("read --json from stdin: %w", err)
+				return nil, nil, fmt.Errorf("read --json from stdin: %w", err)
 			}
 			if len(raw) > maxCallJSON {
-				return nil, errors.New("--json input is larger than 16 MiB")
+				return nil, nil, errors.New("--json input is larger than 16 MiB")
 			}
 			if len(bytes.TrimSpace(raw)) == 0 {
-				return nil, errors.New("--json - read an empty stdin")
+				return nil, nil, errors.New("--json - read an empty stdin")
 			}
 		}
 		if err := json.Unmarshal(raw, &args); err != nil || args == nil {
-			return nil, errors.New("--json must be a JSON object")
+			return nil, nil, errors.New("--json must be a JSON object")
 		}
 	}
 	fromJSON := map[string]bool{}
@@ -318,23 +357,77 @@ func parseCallArgs(words []string, jsonSet bool, jsonArg string, stdin io.Reader
 	for _, w := range words {
 		k, v, ok := strings.Cut(w, "=")
 		if !ok {
-			return nil, fmt.Errorf("argument %q is not key=value", w)
+			return nil, nil, fmt.Errorf("argument %q is not key=value", w)
 		}
 		if !callKeyRE.MatchString(k) {
-			return nil, fmt.Errorf("argument name %q is not valid", k)
+			return nil, nil, fmt.Errorf("argument name %q is not valid", k)
 		}
 		if seen[k] || fromJSON[k] {
-			return nil, fmt.Errorf("argument %q is given twice", k)
+			return nil, nil, fmt.Errorf("argument %q is given twice", k)
 		}
 		seen[k] = true
 		var typed any
 		if err := json.Unmarshal([]byte(v), &typed); err == nil {
 			args[k] = typed
+			raw[k] = v
 		} else {
 			args[k] = v
+			raw[k] = v
 		}
 	}
-	return args, nil
+	return args, raw, nil
+}
+
+// coerceCallArgs retypes the key=value words against the tool's input schema
+// (#1802): a string property keeps the raw text (`query=2026`, `query=null`;
+// a quoted value is already a string),
+// an array property wraps a value that is not already an array (`where=a=b`).
+// Every key=value word asks for the schema, since a plain string may need wrapping. A key the
+// schema does not declare, or a type it does not know, keeps the parsed JSON.
+func coerceCallArgs(args map[string]any, raw map[string]string, schema json.RawMessage) {
+	var sc struct {
+		Properties map[string]struct {
+			Type  json.RawMessage `json:"type"`
+			Items struct {
+				Type json.RawMessage `json:"type"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if json.Unmarshal(schema, &sc) != nil {
+		return
+	}
+	for k, text := range raw {
+		p, ok := sc.Properties[k]
+		if !ok {
+			continue
+		}
+		switch schemaType(p.Type) {
+		case "string":
+			// A quoted value (title="2026") is already the string.
+			if _, isStr := args[k].(string); !isStr {
+				args[k] = text
+			}
+		case "array":
+			if _, isArr := args[k].([]any); !isArr {
+				if _, isStr := args[k].(string); isStr {
+					args[k] = []any{args[k]}
+				} else if schemaType(p.Items.Type) == "string" {
+					args[k] = []any{text}
+				} else {
+					args[k] = []any{args[k]}
+				}
+			}
+		}
+	}
+}
+
+// schemaType is the one type of a JSON Schema "type", or "" for none or a union.
+func schemaType(raw json.RawMessage) string {
+	var one string
+	if json.Unmarshal(raw, &one) == nil {
+		return one
+	}
+	return ""
 }
 
 // callBridge sends one JSON-RPC line through a mcpbridge.Bridge and returns the
