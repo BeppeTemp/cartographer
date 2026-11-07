@@ -420,3 +420,88 @@ func TestUIClientsForCarriesTheMode(t *testing.T) {
 		t.Errorf("modes not carried: %+v", got)
 	}
 }
+
+// #1777: the modes the Atlas shows for a KB come from the artifacts as the
+// catalog lists them (file paths prefixed with the KB layout), and must say
+// what a sync does with them: a skill requiring a strict_tools agent is not
+// installed where the agent is skipped.
+func TestClientModesForSkillRequiringStrictAgent(t *testing.T) {
+	t.Parallel()
+	k := uiFixtureKB(t, "docs")
+	write := func(rel, body string) {
+		t.Helper()
+		full := filepath.Join(k.Root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("agents/auditor.md", "---\nname: auditor\ndescription: d\ntools: Read\nstrict_tools: true\n---\nb\n")
+	write("skills/needs/SKILL.md", "---\nname: needs\ndescription: d\nrequires: [agent:auditor]\n---\nb\n")
+	write("skills/needs/extra.md", "more\n")
+	write("hooks/guarded/hook.json", `{"event":"SessionStart","requires":["agent:auditor"]}`)
+	commitFixtures(t, k.Root)
+	cat, err := listKBArtifacts(k, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modes := clientModesFor(cat)
+	var crush, claude provisioning.ClientMode
+	for _, m := range modes["skill/needs"] {
+		switch m.Provider {
+		case configurator.ProviderCrush:
+			crush = m
+		case configurator.ProviderClaudeCode:
+			claude = m
+		}
+	}
+	if crush.Mode != provisioning.ModeSkipped || crush.Reason != "requires agent/auditor (skipped: strict_tools)" {
+		t.Errorf("crush = %+v, want skipped with sync's reason", crush)
+	}
+	if claude.Mode == provisioning.ModeSkipped || claude.Mode == "" {
+		t.Errorf("claude = %+v, want installed", claude)
+	}
+
+	// Every provider, every judged artifact: the Atlas says what the resolver
+	// gives a sync over the artifacts with their own relative file paths.
+	m, err := provisioning.BuildManifest(nil, map[string]string{artifactManifestKBKey: k.Root}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var arts []provisioning.Artifact
+	for _, a := range m.Artifacts {
+		if a.Kind != "skill" && a.Kind != "agent" && a.Kind != "hook" && a.Kind != "mcp" {
+			continue
+		}
+		files, err := provisioning.ReadArtifactFilesCapped(a, nil, map[string]string{artifactManifestKBKey: k.Root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.Files = files
+		arts = append(arts, a)
+	}
+	for _, d := range configurator.Providers() {
+		key := string(d.Provider)
+		res := provisioning.ResolveProjections([]provisioning.ProjectionInput{{Key: key, Provider: d.Provider, Scope: provisioning.ScopeGlobal, Manifest: provisioning.Manifest{Artifacts: arts}}}, provisioning.ProjectOptions{})[key]
+		skipped := map[string]string{}
+		for _, n := range res.Notes {
+			if n.Kind == provisioning.NoteSkipped {
+				skipped[n.Artifact] = n.Reason
+			}
+		}
+		for _, id := range []string{"skill/needs", "hook/guarded"} {
+			var got provisioning.ClientMode
+			for _, cm := range modes[id] {
+				if cm.Provider == d.Provider {
+					got = cm
+				}
+			}
+			reason, isSkipped := skipped[id]
+			if isSkipped != (got.Mode == provisioning.ModeSkipped) || (isSkipped && got.Reason != reason) {
+				t.Errorf("%s %s: sync skipped=%v %q, Atlas %+v", key, id, isSkipped, reason, got)
+			}
+		}
+	}
+}
