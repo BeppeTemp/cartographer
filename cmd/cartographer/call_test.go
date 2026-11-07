@@ -57,6 +57,8 @@ func newCallEnv(t *testing.T, reply func(method string, params map[string]any) a
 		switch v := reply(method, params).(type) {
 		case rpcErr:
 			out["error"] = map[string]any{"code": -32000, "message": string(v)}
+		case rpcInvalid:
+			out["error"] = map[string]any{"code": -32602, "message": string(v)}
 		default:
 			out["result"] = v
 		}
@@ -88,6 +90,9 @@ func newCallEnv(t *testing.T, reply func(method string, params map[string]any) a
 
 type rpcErr string
 
+// rpcInvalid is a JSON-RPC -32602 answer (an argument error).
+type rpcInvalid string
+
 func textResult(s string, isErr bool) map[string]any {
 	return map[string]any{"content": []any{map[string]any{"type": "text", "text": s}}, "isError": isErr}
 }
@@ -104,16 +109,21 @@ func runCall(t *testing.T, stdin string, args ...string) (int, string, string) {
 }
 
 func TestCallTypedArgumentsAndRequestShape(t *testing.T) {
-	cs, _, ws := newCallEnv(t, func(string, map[string]any) any { return textResult("hello", false) })
+	cs, _, ws := newCallEnv(t, func(method string, _ map[string]any) any {
+		if method == "tools/list" {
+			return map[string]any{"tools": []any{}}
+		}
+		return textResult("hello", false)
+	})
 	code, out, errOut := runCall(t, "", "--provider", "claude", "--dir", ws,
 		"concept_list", "kb=kb-a", "limit=5", "flag=true", `title="2026"`, "query=hello world", `ids=["a","b"]`, "empty=")
 	if code != 0 || out != "hello\n" {
 		t.Fatalf("exit %d stdout %q stderr %q", code, out, errOut)
 	}
-	if cs.count() != 1 {
-		t.Fatalf("%d requests, want exactly one (no initialize)", cs.count())
+	if cs.count() != 2 {
+		t.Fatalf("%d requests, want the schema fetch and the call (no initialize)", cs.count())
 	}
-	r, body := cs.reqs[0], cs.bodies[0]
+	r, body := cs.reqs[1], cs.bodies[1]
 	if r.Header.Get("Authorization") != "Bearer tok-123" || r.URL.Path != "/mcp/routed" || r.URL.Query().Get("kbs") != "kb-a" {
 		t.Errorf("request %s %s auth %q", r.Method, r.URL, r.Header.Get("Authorization"))
 	}
@@ -152,6 +162,9 @@ func TestCallExitCodes(t *testing.T) {
 	}{
 		{"tool error", textResult("refused", true), []string{"x"}, 1, "", "refused"},
 		{"rpc error", rpcErr("boom"), []string{"x"}, 2, "", "boom"},
+		{"rpc invalid params", rpcInvalid("invalid params: unknown argument(s) z for tool x"), []string{"x"}, 1, "", "unknown argument"},
+		{"rpc unknown tool", rpcInvalid("unknown tool x"), []string{"x"}, 2, "", "unknown tool"},
+		{"rpc no KB in scope", rpcInvalid("no Cartographer tool is available in this folder: bind one"), []string{"x"}, 2, "", "no Cartographer tool"},
 		{"no content", map[string]any{"content": []any{}}, []string{"x"}, 2, "", "returned no content"},
 		{"json output", textResult("hi", false), []string{"--output", "json", "x"}, 0, `"text": "hi"`, ""},
 		{"no tool", nil, nil, 2, "", "usage"},
@@ -185,7 +198,7 @@ func TestCallJSONFromStdinMergesWithPairs(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, e)
 	}
-	args := cs.bodies[0]["params"].(map[string]any)["arguments"].(map[string]any)
+	args := cs.bodies[len(cs.bodies)-1]["params"].(map[string]any)["arguments"].(map[string]any)
 	if args["body"] != "multi\nline" || args["kb"] != "kb-a" {
 		t.Errorf("arguments = %v", args)
 	}
@@ -444,5 +457,76 @@ func TestCallWritesNothingForAPluginTool(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(home, 0o755) })
 	if code, out, e := runCall(t, "", "--provider", "claude", "--dir", ws, "team_cmds_hi"); code != 0 || out != "hello you\n" {
 		t.Errorf("read-only HOME: exit %d %q %s", code, out, e)
+	}
+}
+
+// schemaEnv serves one tool, "probe", whose schema types a string, an array of
+// strings, a number and a boolean; it returns the arguments of each tools/call.
+func schemaEnv(t *testing.T, callReply func(args map[string]any) any) (*callServer, string) {
+	t.Helper()
+	schema := map[string]any{"type": "object", "properties": map[string]any{
+		"query": map[string]any{"type": "string"},
+		"where": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"limit": map[string]any{"type": "integer"},
+		"flag":  map[string]any{"type": "boolean"},
+	}}
+	cs, _, ws := newCallEnv(t, func(method string, p map[string]any) any {
+		if method == "tools/list" {
+			return map[string]any{"tools": []any{map[string]any{"name": "probe", "inputSchema": schema}}}
+		}
+		a, _ := p["arguments"].(map[string]any)
+		return callReply(a)
+	})
+	return cs, ws
+}
+
+// Pins #1802: a value is typed by the tool's schema, not by how it parses.
+func TestCallCoercesAgainstTheSchema(t *testing.T) {
+	var got map[string]any
+	cs, ws := schemaEnv(t, func(a map[string]any) any { got = a; return textResult("ok", false) })
+	code, _, e := runCall(t, "", "--provider", "claude", "--dir", ws, "probe",
+		"query=2026", "where=status=open", "limit=5", "flag=true")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, e)
+	}
+	want := map[string]any{"query": "2026", "where": []any{"status=open"}, "limit": 5.0, "flag": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("arguments = %#v, want %#v", got, want)
+	}
+	for _, c := range []struct {
+		word string
+		want any
+	}{
+		{"query=null", "null"}, {"query=true", "true"}, {"query=1e3", "1e3"}, {`query=["x"]`, `["x"]`},
+		{"where=2026", []any{"2026"}}, {`where=["a","b"]`, []any{"a", "b"}},
+	} {
+		if code, _, e := runCall(t, "", "--provider", "claude", "--dir", ws, "probe", c.word); code != 0 {
+			t.Fatalf("%s: exit %d: %s", c.word, code, e)
+		}
+		k, _, _ := strings.Cut(c.word, "=")
+		if !reflect.DeepEqual(got[k], c.want) {
+			t.Errorf("%s -> %#v, want %#v", c.word, got[k], c.want)
+		}
+	}
+	// --json stays verbatim and asks for no schema.
+	before := cs.count()
+	if code, _, e := runCall(t, "", "--provider", "claude", "--dir", ws, "probe", "--json", `{"query":2026}`); code != 0 {
+		t.Fatalf("exit %d: %s", code, e)
+	}
+	if cs.count() != before+1 || got["query"] != 2026.0 {
+		t.Errorf("--json: %d requests, arguments %#v", cs.count()-before, got)
+	}
+}
+
+func TestCallRefusesAnUnknownProviderAndAMissingDir(t *testing.T) {
+	cs, _, ws := newCallEnv(t, func(string, map[string]any) any { return textResult("ok", false) })
+	if code, _, e := runCall(t, "", "--provider", "nope", "--dir", ws, "kb_status"); code == 0 || !strings.Contains(e, "unknown provider") {
+		t.Errorf("unknown provider: exit %d %q", code, e)
+	}
+	if code, _, e := runCall(t, "", "--provider", "claude", "--dir", filepath.Join(ws, "missing"), "kb_status"); code == 0 || !strings.Contains(e, "not an existing directory") {
+		t.Errorf("missing dir: exit %d %q", code, e)
+	}
+	if cs.count() != 0 {
+		t.Errorf("%d requests for a refused command", cs.count())
 	}
 }

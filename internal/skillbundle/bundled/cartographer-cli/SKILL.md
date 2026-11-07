@@ -32,9 +32,11 @@ all of them: it prints the description and the input schema.
 cartographer call --provider <name> <tool> key=value key=value
 ```
 
-- A value that parses as JSON is typed: `limit=5` is a number, `flag=true` a boolean,
-  `ids=["a","b"]` an array. Anything else is a string: `query=hello world`.
-- A string that looks like a number or a boolean is passed quoted: `id='"2026"'`.
+- Values are typed by the tool's input schema: a string property keeps your text as it is
+  (`query=2026`, `query=true` stay strings), an array property takes one value as a one-element
+  array (`where=status=open`) or a JSON array (`ids=["a","b"]`), a number or boolean property parses
+  `limit=5`, `flag=true`. Anything else is a string: `query=hello world`.
+- `--json` is sent as it is, with no typing.
 - In a POSIX shell single-quote every value that has spaces or special characters.
 - A complex or multi-line body goes through stdin as one JSON object, not as `key=value`:
 
@@ -45,19 +47,40 @@ JSON
 ```
 
 - The same key twice, in pairs or in `--json`, is an error.
-- `--output json` prints the raw MCP result instead of the text.
+- `--output json` prints the raw MCP result instead of the text; it is for scripts, read the text yourself.
 - Never put a secret on the command line: it ends up in the process list and the shell history.
   Use the `secret_set` tool through `--json -`, or ask the user.
 
 ## 5. Exit codes
 
 - `0`: the result is on stdout.
-- `1`: the tool ran and refused or failed; its message is on stderr. Read it and act on it.
+- `1`: the tool refused or failed, or an argument was invalid; its message is on stderr. Read it and
+  act on it.
 - `2`: the command failed (usage, configuration, no KB in scope, transport, authorization,
   timeout); the message is on stderr after `Error:`. Fix the command or report it to the user; do
   not retry blindly.
 
-## 6. Rules
+## 6. Quick reference
+
+Run `--describe <tool>` for the exact fields. The core read calls:
+
+```
+cartographer call --provider <name> search kb=kb-a query='backup policy'
+cartographer call --provider <name> graph_context kb=kb-a query='backup policy'
+cartographer call --provider <name> concept_read kb=kb-a id=infra/backups section='Restore'
+cartographer call --provider <name> concept_read kb=kb-a id=infra/backups outline=true
+cartographer call --provider <name> concept_read kb=kb-a id=infra/backups match='retention'
+cartographer call --provider <name> work_list kb=kb-a where=status=open
+cartographer call --provider <name> concept_list kb=kb-a scope=infra
+```
+
+- Prefer `graph_context` to reading page after page: it ranks the linked pages in one call.
+- Read the section, the outline or the matches of a page, not the whole page, unless it is a
+  procedure, runbook or incident.
+- Run independent calls in parallel, as separate commands in the same step.
+- When the client's instructions list no KB, a call without `kb` lists the KBs in scope.
+
+## 7. Rules
 
 - Pass `kb` explicitly to every tool that takes it, as `kb=<name>`, and never infer it.
 - Read procedures, runbooks and incidents whole with `concept_read`, never answer from a `search`

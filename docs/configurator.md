@@ -326,16 +326,21 @@ entry with a warning; a client with `roots` in an unbound folder gets a handshak
 description and input schema. It drives the same bridge as `cartographer mcp`, so the scope is
 identical: the provider plus the working directory (`--dir` overrides it), with the unbound read-only
 default and `knowledge_bases` access. A value that parses as JSON (`limit=5`, `ids=["a"]`, `title="2026"`)
-is passed typed, anything else as a string; `--json` takes an object (`-` reads stdin, 16 MiB), and a
-key given twice, in pairs or with `--json`, is a usage error. No client-side schema validation: the
-server's own error is what the agent reads. Flags: `--output text|json` (`json` is the raw MCP result),
+is passed typed, anything else as a string, then retyped by the tool's input schema (one `tools/list`,
+fetched when the call has `key=value` words): a `string` property keeps the raw text (`query=2026`,
+`query=null`), an `array` property wraps a value that is not an array (`where=status=open`); a key the
+schema does not declare, or a bridge that cannot list tools, keeps the parsed value. `--json` takes an
+object (`-` reads stdin, 16 MiB) and stays verbatim; a key given twice, in pairs or with `--json`, is a
+usage error. No other client-side validation: the server's own error is what the agent reads. An unknown
+`--provider` and a `--dir` that is not a directory are refused before the bridge starts (exit 2).
+Flags: `--output text|json` (`json` is the raw MCP result),
 `--timeout` (default 5m, bounds the whole call), `--verbose` (print the bridge log on success too).
 
 | Exit | Meaning | Output |
 |---|---|---|
 | 0 | the tool succeeded | text content on stdout |
-| 1 | the tool returned `isError` | its text on stderr, nothing on stdout |
-| 2 | usage, no client configuration, unusable token, no KB in scope, transport, server too old for read-only, HTTP 401, JSON-RPC error, timeout | `Error: …` on stderr |
+| 1 | the tool returned `isError`, or the server answered "invalid params" (JSON-RPC -32602 for a bad argument) | its text on stderr, nothing on stdout |
+| 2 | usage, no client configuration, unusable token, no KB in scope, transport, server too old for read-only, HTTP 401, any other JSON-RPC error (an unknown tool included), timeout | `Error: …` on stderr |
 
 **The command writes no file anywhere** (no cache, log, lock or audit file, `$TMPDIR` included) and
 works with a read-only `$HOME`: it only reads the client configuration and the token. The bundled
