@@ -117,3 +117,35 @@ func TestApply_ForgedBundleMCPStillNeedsApproval(t *testing.T) {
 		t.Fatal("MCP config written for an unapproved descriptor")
 	}
 }
+
+// The server lists the CLI skill (include_cli_skill, D1700): it is part of this
+// client's embedded set, so it verifies as built-in with no warning (#1774).
+func TestVerifiedManifest_CLISkillMatchesEmbeddedBundle(t *testing.T) {
+	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{IncludeCLISkill: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := provisioning.VerifiedManifest(m, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Skipped) != 0 {
+		t.Fatalf("warnings: %v", v.Skipped)
+	}
+	found := false
+	for _, a := range v.Artifacts {
+		if a.Kind == "skill" && a.Name == provisioning.CLISkillName {
+			found = a.BuiltIn && len(a.Files) > 0
+		}
+	}
+	if !found {
+		t.Fatalf("%s is not a built-in artifact with files", provisioning.CLISkillName)
+	}
+}
+
+// A plugin cannot ship a skill that shadows the bundled CLI skill.
+func TestIsBundledArtifact_CLISkill(t *testing.T) {
+	if !provisioning.IsBundledArtifact("skill", provisioning.CLISkillName) {
+		t.Fatal("the CLI skill is embedded")
+	}
+}
