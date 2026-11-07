@@ -8,6 +8,8 @@ import (
 	"sort"
 
 	"go.starlark.net/starlark"
+
+	pluginpkg "github.com/BeppeTemp/cartographer/internal/plugin"
 )
 
 // File is a script file of the tree.
@@ -47,7 +49,7 @@ func (r Registration) Line(plugin string) string {
 	case KindCommand:
 		return fmt.Sprintf("command %s %s", plugin, r.Name)
 	case KindTool:
-		s := fmt.Sprintf("tool %s_%s", plugin, r.Name)
+		s := "tool " + pluginpkg.ToolName(plugin, r.Name)
 		if r.Writes {
 			s += " (writes)"
 		}

@@ -58,6 +58,12 @@ The names of the settings below are generic: host UIs change.
 - No live refresh: a KB added or a token changed shows up when the host re-reads `tools/list`.
 - Everything operator-side (the health system, service restarts, re-authoring) is done on the server host.
 
+## Plugin tools are not served here
+
+A plugin's MCP tools are served by the local stdio bridge a connected client starts, never by the server. A host that
+connects with a direct URL (this page) sees only the server's tools, with or without plugins on some machine. See
+[plugins](plugins.md#tools-in-the-bridge).
+
 ## Do not copy a provisioned entry
 
 An entry written by `cartographer connect` or `sync` carries `provisioned=1`: that client has the managed instructions block, so it receives no guide in `initialize`. A URL copied from such an entry into a generic host loses the guide. See [transport-auth.md](transport-auth.md) and [sync.md](sync.md).

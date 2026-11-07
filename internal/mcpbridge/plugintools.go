@@ -14,13 +14,15 @@ import (
 	"sync/atomic"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/plugin"
 )
 
 // maxToolName is the longest tool name MCP clients accept.
 const maxToolName = 64
 
 // ToolClient is the part of an MCP client a plugin's kb.call uses; it is the
-// method set of star.ToolClient, so the bridge need not import the plugin layer.
+// method set of star.ToolClient, so the bridge need not import the script runtime
+// (it imports internal/plugin only for the tool name rule).
 type ToolClient interface {
 	CallContext(ctx context.Context, tool string, args any) (json.RawMessage, error)
 	ListToolsContext(ctx context.Context) ([]client.ToolInfo, error)
@@ -49,9 +51,9 @@ type PluginCall struct {
 	Log io.Writer
 }
 
-// exposedName is <plugin>_<tool> with hyphens turned into underscores.
+// exposedName is plugin.ToolName: the one rule the preview and the hint share.
 func (t PluginTool) exposedName() string {
-	return strings.ReplaceAll(t.Plugin+"_"+t.Name, "-", "_")
+	return plugin.ToolName(t.Plugin, t.Name)
 }
 
 // servedSet is the plugin tools that survived the collision rules against one

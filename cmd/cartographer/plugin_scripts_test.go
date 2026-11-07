@@ -25,7 +25,7 @@ func TestPluginValidateListsTheScriptsAndWhatTheyRegister(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	for _, want := range []string{
-		"command team-forks hello  (plugin.star:4)", "tool team-forks_lookup (writes)  (plugin.star:5)", "event sync.after  (plugin.star:6)",
+		"command team-forks hello  (plugin.star:4)", "tool team_forks_lookup (writes)  (plugin.star:5)", "event sync.after  (plugin.star:6)",
 		"plugin.star  6 lines  sha256 ", "lib/util.star  1 lines  sha256 ",
 	} {
 		if !strings.Contains(out, want) {
@@ -59,7 +59,7 @@ func TestPluginInstallShowsTheScriptsBeforeTheApproval(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "pending approval") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	for _, want := range []string{"scripts (they run", "registers:", "tool team-forks_lookup (writes)", "--- plugin.star ---", `tool("lookup", hello`} {
+	for _, want := range []string{"scripts (they run", "registers:", "tool team_forks_lookup (writes)", "--- plugin.star ---", `tool("lookup", hello`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("install lacks %q:\n%s", want, out)
 		}
@@ -84,7 +84,7 @@ func TestPluginUpdateShowsTheChangedScriptAndRegistrations(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	for _, want := range []string{"file changed: plugin.star", "registers, added: tool team-forks_fetch", "registers, removed: event sync.after", "# NEW-LINE", "stays active"} {
+	for _, want := range []string{"file changed: plugin.star", "registers, added: tool team_forks_fetch", "registers, removed: event sync.after", "# NEW-LINE", "stays active"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("update lacks %q:\n%s", want, out)
 		}
@@ -127,7 +127,7 @@ func TestPluginUpdateListsAChangedRegistration(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	for _, want := range []string{"registers, changed: tool team-forks_lookup (writes)", "registers, changed: command team-forks hello"} {
+	for _, want := range []string{"registers, changed: tool team_forks_lookup (writes)", "registers, changed: command team-forks hello"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("update lacks %q:\n%s", want, out)
 		}

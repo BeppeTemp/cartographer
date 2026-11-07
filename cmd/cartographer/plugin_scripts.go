@@ -24,7 +24,7 @@ func pluginToolNames(p plugin.Plugin) []string {
 	var out []string
 	for _, r := range prog.Sorted() {
 		if r.Kind == star.KindTool {
-			out = append(out, p.Manifest.Name+"_"+r.Name)
+			out = append(out, plugin.ToolName(p.Manifest.Name, r.Name))
 		}
 	}
 	return out

@@ -83,12 +83,12 @@ func indent(s string) string {
 	return strings.Join(out, "\n") + "\n"
 }
 
-// A hidden key is in the table but in nothing a person reads: not in the comment
-// block of a saved file and not in the settings report.
-func TestHiddenKeyIsNotRendered(t *testing.T) {
+// The plugins key is a visible schema row: the settings report lists it and the
+// saved file documents it.
+func TestPluginsKeyIsRendered(t *testing.T) {
 	k, ok := Schema.Lookup("plugins")
-	if !ok || !k.Hidden {
-		t.Fatal("plugins must be a hidden schema row")
+	if !ok || k.Hidden {
+		t.Fatal("plugins must be a visible schema row")
 	}
 	dir := t.TempDir()
 	cfg := Default()
@@ -99,22 +99,19 @@ func TestHiddenKeyIsNotRendered(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(Path(dir))
-	for _, l := range strings.Split(string(b), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(l), "#") && strings.Contains(l, "plugins") {
-			t.Errorf("a comment mentions the hidden key: %q", l)
-		}
-	}
-	if !strings.Contains(string(b), "knowledge_bases") {
-		t.Errorf("the other keys lost their block:\n%s", b)
+	if !strings.Contains(string(b), "knowledge_bases") || !strings.Contains(string(b), "team-forks") {
+		t.Errorf("the saved file lost a block:\n%s", b)
 	}
 	r, err := Report(dir, "v")
 	if err != nil {
 		t.Fatal(err)
 	}
+	found := false
 	for _, e := range r.Entries {
-		if e.Key == "plugins" {
-			t.Error("the settings report lists the hidden key")
-		}
+		found = found || e.Key == "plugins"
+	}
+	if !found {
+		t.Error("the settings report does not list plugins")
 	}
 }
 

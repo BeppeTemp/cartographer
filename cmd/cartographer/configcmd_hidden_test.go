@@ -6,15 +6,16 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 )
 
-// A hidden schema row (the plugins key, until it is turned on) is not an entry
-// of `cartographer config`.
-func TestClientEntriesSkipHiddenKeys(t *testing.T) {
+// The plugins key is a visible schema row, so `cartographer config` lists it.
+func TestClientEntriesListPlugins(t *testing.T) {
+	found := false
 	for _, e := range clientEntries(t.TempDir()) {
-		if e.Key == "plugins" {
-			t.Errorf("config lists the hidden key: %+v", e)
-		}
+		found = found || e.Key == "plugins"
 	}
-	if k, _ := clientconfig.Schema.Lookup("plugins"); !k.Hidden {
-		t.Error("plugins is not hidden")
+	if !found {
+		t.Error("config does not list the plugins key")
+	}
+	if k, _ := clientconfig.Schema.Lookup("plugins"); k.Hidden {
+		t.Error("plugins is still hidden")
 	}
 }

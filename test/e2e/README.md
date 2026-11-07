@@ -44,6 +44,7 @@ overrides the default base port.
 | `24_generic_mcp_client` | D1102 a host with no Cartographer client side, with curl only: `/health` and the tool surface follow the token, the guide in `initialize` and `kb_guide`, a first page accepted, authorship, non-disclosure, no doctor nudge and no CLI command for a generic connection |
 | `25_search_section` | D1354 a `search` hit names no `##` section; a journal entry and a type listed in the map's `read_whole` carry `read: "whole"` (D1207); a search without `limit` returns up to 20 hits with a `related` block of 5 |
 | `27_plugin_delivery` | an approved plugin's skill is materialized for a connected client by `sync`, recorded as `plugin:<name>`, and kept when the plugin cannot be read |
+| `28_plugin_scripts` | the example plugin's scripts with the binary: the command is refused before approval, runs after `plugin approve` and `plugin config`, `sync` fires its `sync.after` handler (not in `--dry-run`), its tool answers through `cartographer call`, and a modified stored script stops it |
 | `26_upgrade_from_previous` (optional) | #1173 a client of the previous stable release, fully installed and approved, switched to this build: one sync asks no approval again, leaves no file under a retired name and no dangling local path, a second sync writes nothing and `status` is in sync, a revoked hook stays revoked |
 
 The numbering is stable, so the gaps are intentional: model behavior is

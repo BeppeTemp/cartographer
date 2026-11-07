@@ -367,11 +367,8 @@ func cmdConnect(args []string) int {
 	accessFlag := fs.String("access", "", "Connection profile: read-min (read-only, minimal tool list; routed server only). Empty keeps the persisted value; clear it by removing providers.<provider>.access and providers.<provider>.tools")
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	var pluginSrcs repeatedString
-	var approvePlugins *bool
-	if pluginsEnabled() {
-		fs.Var(&pluginSrcs, "plugin", "Install a plugin (git URL[@ref] or folder) before the agents are resolved (repeatable)")
-		approvePlugins = fs.Bool("approve-plugins", false, "Approve the plugins installed by this run, after printing what each one runs")
-	}
+	fs.Var(&pluginSrcs, "plugin", "Install a plugin (git URL[@ref] or folder) before the agents are resolved (repeatable)")
+	approvePlugins := fs.Bool("approve-plugins", false, "Approve the plugins installed by this run, after printing what each one runs")
 	if code := bindPositionals("connect", parseFlagsAnywhere(fs, args), &target); code != 0 {
 		return code
 	}
@@ -384,11 +381,9 @@ func cmdConnect(args []string) int {
 	interactive := wantsConnectForm(fs, *noInput)
 
 	// Plugins first: the providers they bring are registered by now, so the
-	// resolution below sees them (the flags exist only when pluginsEnabled).
-	if pluginsEnabled() {
-		if code := preparePlugins(pluginPrep{Sources: pluginSrcs, Approve: *approvePlugins, Ask: !*noInput, DryRun: *dryRun}); code != 0 {
-			return code
-		}
+	// resolution below sees them.
+	if code := preparePlugins(pluginPrep{Sources: pluginSrcs, Approve: *approvePlugins, Ask: !*noInput, DryRun: *dryRun}); code != 0 {
+		return code
 	}
 
 	providers, err := resolveTargetProviders(target, *agentsCSV)

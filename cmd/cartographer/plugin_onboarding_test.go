@@ -256,12 +256,6 @@ func TestPreparePluginsEscapesWhatAFailureQuotes(t *testing.T) {
 	}
 }
 
-func TestPluginFlagsExistOnlyWhenEnabled(t *testing.T) {
-	if pluginsEnabled() {
-		t.Fatal("the plugin flags of setup and connect are dark until the turn-on change")
-	}
-}
-
 func TestPlanSetupWithPluginsAndNoDetectedClient(t *testing.T) {
 	facts := setupFacts{GitFound: true, RemoteProbed: true, Backend: "launchd"}
 	o := setupOptions{Remote: "git@github.com:me/wiki.git"}

@@ -17,7 +17,6 @@ not_in_nav: |
 
 exclude_docs: |
   decisions/TEMPLATE.md
-  plugins.md
 
 theme:
   name: material
@@ -85,6 +84,7 @@ nav:
       - Data plane (KB model): data-plane.md
       - Skills, services, secrets: skills-services-secrets.md
       - Provisioning sync: sync.md
+      - Plugins: plugins.md
       - Use cases: use-cases.md
   - Internals & contributing:
       - Overview: overview.md
