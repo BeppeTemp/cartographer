@@ -178,7 +178,7 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (res Result
 
 	// The same sources run again for this call, so the functions bind this
 	// call's settings (see settingsValue). It is charged to the call's budget.
-	lim := &runLimits{ctx: ctx, budget: steps}
+	lim := &runLimits{ctx: ctx, budget: steps, base: liveHeap()}
 	inst, lerr := run(p.srcs, settings, o.extra, lim)
 	if lerr != nil {
 		if ce := lim.failure(); ce != nil {
@@ -239,7 +239,10 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (res Result
 	var stopOnce sync.Once
 	stop := func() { stopOnce.Do(func() { close(done); watcher.Wait() }) }
 	defer stop()
+	mem := watchHeap(lim.base, thread.Cancel)
+	defer mem.stop() // also on a panic
 	v, cerr := starlark.Call(thread, impl, arg, nil)
+	mem.stop()
 	stop()
 	// Flush a truncation mark even when the output was capped after the last write.
 	logw.finish()
@@ -248,6 +251,9 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (res Result
 	}
 
 	if cerr != nil {
+		if mem.hit.Load() {
+			return Result{}, &CallError{Kind: LimitExceeded, Msg: memoryMsg()}
+		}
 		return Result{}, classify(cerr, ctx, stepsHit.Load(), steps)
 	}
 	return result(ctx, req.Kind, v)

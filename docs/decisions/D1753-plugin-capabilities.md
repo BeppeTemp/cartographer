@@ -73,5 +73,5 @@ it, nothing here claims more. `files.glob` is bounded (1000 results, 100000 entr
 looked at, 32 levels) and silently stops there. A new capability module must decide
 from the thread's context at call time and be listed in the approval preview; a new
 state file of Cartographer's under home must keep the `.cartographer` prefix or be
-added to the deny list in the same change. The memory a script uses is not bounded
-(see D1746, #1741).
+added to the deny list in the same change. The memory a script uses is bounded by a heap
+watchdog (see D1746, #1741).

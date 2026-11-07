@@ -2,8 +2,11 @@ package star
 
 import (
 	"context"
+	"fmt"
+	"runtime/metrics"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.starlark.net/starlark"
 )
@@ -19,6 +22,8 @@ type runLimits struct {
 	mu      sync.Mutex
 	threads []*starlark.Thread
 	stepHit atomic.Bool
+	memHit  atomic.Bool
+	base    uint64 // live heap at the start of the call: one baseline for the whole call
 }
 
 // start registers a thread of the run; it returns the cap to give it, 0 if the
@@ -69,8 +74,64 @@ func (l *runLimits) failure() *CallError {
 	if err := l.ctx.Err(); err != nil {
 		return ctxError(err)
 	}
+	if l.memHit.Load() {
+		return &CallError{Kind: LimitExceeded, Msg: memoryMsg()}
+	}
 	if l.stepHit.Load() {
 		return &CallError{Kind: LimitExceeded, Msg: "the script used up its step budget"}
 	}
 	return nil
+}
+
+func memoryMsg() string {
+	return fmt.Sprintf("the script's memory use grew past %d MiB", MaxHeapGrowth>>20)
+}
+
+func liveHeap() uint64 {
+	s := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
+	metrics.Read(s)
+	if s[0].Value.Kind() != metrics.KindUint64 {
+		return 0
+	}
+	return s[0].Value.Uint64()
+}
+
+// heapWatch is the memory watchdog of one run.
+type heapWatch struct {
+	hit  atomic.Bool
+	once sync.Once
+	done chan struct{}
+	end  chan struct{}
+}
+
+// watchHeap starts the watchdog: a goroutine that samples the live heap every
+// HeapSampleEvery and, once it has grown more than MaxHeapGrowth past base (the
+// live heap at the start of the run, see liveHeap), sets hit and calls cancel with the reason (once). The caller must call
+// stop when the run ends, however it ends: it stops the goroutine and waits.
+func watchHeap(base uint64, cancel func(reason string)) *heapWatch {
+	w := &heapWatch{done: make(chan struct{}), end: make(chan struct{})}
+	limit, every := MaxHeapGrowth, HeapSampleEvery
+	go func() {
+		defer close(w.end)
+		tick := time.NewTicker(every)
+		defer tick.Stop()
+		for {
+			select {
+			case <-w.done:
+				return
+			case <-tick.C:
+				if cur := liveHeap(); cur > base && cur-base > limit {
+					w.hit.Store(true)
+					cancel(memoryMsg())
+					return
+				}
+			}
+		}
+	}()
+	return w
+}
+
+func (w *heapWatch) stop() {
+	w.once.Do(func() { close(w.done) })
+	<-w.end
 }
