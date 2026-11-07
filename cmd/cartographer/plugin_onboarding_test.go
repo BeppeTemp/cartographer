@@ -362,6 +362,27 @@ func TestRunSetupPendingNamesOnlyThisRunsPlugins(t *testing.T) {
 	}
 }
 
+// connectNotWired is process-global: a run that skips the agents step must not
+// report the agents an earlier connect of the process left unwired (#1757).
+func TestRunSetupSkippingAgentsIgnoresStaleNotWiredEntries(t *testing.T) {
+	stubSetup(t, setupFacts{})
+	home := pluginFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	freshProcess(t, home)
+	setupDetected = func() []string { return nil }
+	connectNotWired = []string{"claude (bootstrap hook, skills skipped)"}
+	var code int
+	var errs string
+	withStdout(t, func() {
+		errs = withStderr(t, func() {
+			code = runSetup(setupOptions{Remote: "git@h:me/wiki.git", Plugins: []string{providerPlugin(t, "team-forks")}}, false, true, false, noPrompt())
+		})
+	})
+	if code != 0 || strings.Contains(errs, "not every agent is wired") {
+		t.Errorf("runSetup = %d, stderr %q", code, errs)
+	}
+}
+
 func detectedWith(extra string) func() []string {
 	return func() []string {
 		out := []string{"claude"}

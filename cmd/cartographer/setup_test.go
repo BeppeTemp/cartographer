@@ -157,9 +157,12 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 	t.Helper()
 	calls := &[]string{}
 	record := func(s string) { *calls = append(*calls, s) }
+	savedNotWired := connectNotWired
+	connectNotWired = nil // a test starts from a clean list, whatever an earlier connect left (#1757)
 	saved := []any{setupProbeRemote, setupLookGit, setupServiceStatus, setupInstallSvc, setupStartSvc,
 		setupKBCreate, setupKBClone, setupConnect, setupDetected, setupWaitReady, setupProbeAuth, setupWaitBootstrapped, setupBackend, setupProbeListener, setupFailureHint, setupMountedKBs}
 	t.Cleanup(func() {
+		connectNotWired = savedNotWired
 		setupProbeRemote = saved[0].(func(context.Context, string) (gitx.RemoteProbe, error))
 		setupLookGit = saved[1].(func() bool)
 		setupServiceStatus = saved[2].(func() (service.Status, error))
@@ -642,6 +645,7 @@ func TestServiceUsageNamesCron(t *testing.T) {
 // #1693) is not a failed setup, but it does not announce success either.
 func TestRunSetup_ConnectExitThreeIsNotSetUp(t *testing.T) {
 	calls := stubSetup(t, setupFacts{})
+	t.Cleanup(func() { connectNotWired = nil })
 	setupConnect = func(a []string) int {
 		*calls = append(*calls, "connect")
 		connectNotWired = append(connectNotWired, "opencode (MCP entry skipped)")

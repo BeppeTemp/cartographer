@@ -669,6 +669,9 @@ func runSetup(o setupOptions, interactive, yes, dryRun bool, ask setupPrompter) 
 		plan  setupPlan
 		err   error
 	)
+	// The exit-3 check below reflects only the connects of this run, also in a
+	// process that ran setup or connect before (#1757).
+	connectNotWired = nil
 	for {
 		facts, err = gatherSetupFacts(o)
 		if err == nil {
@@ -911,7 +914,6 @@ func runSetupPlan(p setupPlan) int {
 		if len(p.KeepAgents) > 0 {
 			groups = append(groups, p.KeepAgents)
 		}
-		connectNotWired = nil
 		for i, agents := range groups {
 			kbs := p.KBs
 			if i == 1 {
