@@ -299,7 +299,7 @@ the home directory, `{app_data}` and its kin off Windows, a path whose walk from
 (`safewrite.CheckPath`); a path with a `*` is checked up to the segment before the first one. Every path is rooted at
 the home directory (a project path at the project root). A detect dir or global instructions file under `{documents}` is kept only when the
 folder lies below home, and a link is not looked for in a detect dir, which is only read. A home that
-holds `[` or `*` is a literal path. `Paths(home)` lists the destinations of the machine, one line per cell, for the
+holds `[` or `*` is a literal path. The reasons stay in `ResolvedProvider.LeftOut`, and a cell left out never makes the registration incomplete: the provider is registered without it, and `sync`, `connect` and `status` print `[<provider>] warning: cell left out: <reason>` once per run (never at process start, which `serve` and the bridge share), `doctor` reports it as a `plugin-provider` warning. A link the user lists under `providers.<provider>.allow_symlinks` is followed: the start of a command reads that key alone (`clientconfig.LoadAllowedSymlinks`) before the providers are resolved, because the full load that validates it must wait for them (D898). `Paths(home)` lists the destinations of the machine, one line per cell, for the
 install preview.
 
 ### Registry
@@ -427,7 +427,7 @@ state and produces none, except for a pending or invalid installed tree.
 | `plugin-pending` | warning | the plugin was never approved | `cartographer plugin show <name>`, then `plugin approve <name>` |
 | `plugin-pending` | info | the installed tree is newer than the approved one, which stays active | the same |
 | `plugin-collision` | warning | a skill, agent or hook name is claimed by an active plugin and by another plugin, the bundle or a KB file the lockfile records | rename it, or disable the plugin |
-| `plugin-provider` | warning | a provider was not registered (a name two plugins claim, colliding cells, a spec the machine cannot resolve), with the reason the registration recorded | fix the provider and `plugin update` |
+| `plugin-provider` | warning | a provider was not registered (a name two plugins claim, colliding cells, a spec the machine cannot resolve), or is registered without a cell the resolver left out (a symlink not listed under `providers.<provider>.allow_symlinks`, a path outside its root), with the reason | fix the provider and `plugin update`; for a link, list it under `allow_symlinks` or replace it |
 
 `doctor` does not ask the server, so a collision with a KB artifact is seen only while the lockfile still records the
 KB file; the sync that dropped both claimants printed it, and the file is gone from the lockfile after it.

@@ -2,6 +2,9 @@ package clientconfig
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -148,5 +151,60 @@ func TestUnknownProvidersAreKeptWhileThePluginProvidersAreIncomplete(t *testing.
 	cfg, err = Load(dir)
 	if err != nil || len(cfg.Clients) != 0 || len(cfg.Unsupported) != 1 {
 		t.Fatalf("complete: %v clients %v unsupported %v", err, cfg.Clients, cfg.Unsupported)
+	}
+}
+
+// The light reader finds the entries of both layouts, expanded, skips what Load
+// would refuse and a missing file is none.
+func TestLoadAllowedSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	if got, err := LoadAllowedSymlinks(dir); err != nil || got != nil {
+		t.Fatalf("no file: %v %v", got, err)
+	}
+	src := "providers:\n  fork-cli:\n    allow_symlinks: [\"~/.fork-cli/skills\"]\nclients:\n  claude:\n    allow_symlinks: [\"$HOME/.claude/agents\"]\n"
+	if err := os.WriteFile(Path(dir), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadAllowedSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(got)
+	want := []string{filepath.Join(dir, ".claude", "agents"), filepath.Join(dir, ".fork-cli", "skills")}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// The light set never exceeds what Load gives (C1): providers.<p> replaces
+// clients.<p> for the same provider, and one invalid entry empties it as Load
+// fails.
+func TestLoadAllowedSymlinksNeverExceedsLoad(t *testing.T) {
+	dir := t.TempDir()
+	write := func(src string) {
+		t.Helper()
+		if err := os.WriteFile(Path(dir), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The same value under both keys loads; different ones are refused by Load.
+	write("clients:\n  fork-cli:\n    allow_symlinks: [\"~/same\"]\nproviders:\n  fork-cli:\n    allow_symlinks: [\"~/same\"]\n")
+	got, err := LoadAllowedSymlinks(dir)
+	if _, lerr := Load(dir); err != nil || lerr != nil || !reflect.DeepEqual(got, []string{filepath.Join(dir, "same")}) {
+		t.Fatalf("same value: %v %v %v", got, err, lerr)
+	}
+	write("clients:\n  fork-cli:\n    allow_symlinks: [\"~/old\"]\nproviders:\n  fork-cli:\n    allow_symlinks: [\"~/new\"]\n")
+	if _, lerr := Load(dir); lerr == nil {
+		t.Fatal("Load accepts two different values")
+	}
+	if got, err := LoadAllowedSymlinks(dir); err != nil || got != nil {
+		t.Errorf("both keys differing must empty the set, got %v %v", got, err)
+	}
+	write("providers:\n  fork-cli:\n    allow_symlinks: [\"~/ok\", \"relative/x\"]\n")
+	if _, lerr := Load(dir); lerr == nil {
+		t.Fatal("Load accepts an invalid entry")
+	}
+	if got, err := LoadAllowedSymlinks(dir); err != nil || got != nil {
+		t.Errorf("an invalid entry must empty the set, got %v %v", got, err)
 	}
 }

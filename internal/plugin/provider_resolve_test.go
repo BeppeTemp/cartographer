@@ -378,6 +378,38 @@ func TestResolveProviderDocumentsInstructions(t *testing.T) {
 	}
 }
 
+// A skill directory that is a dangling link is left out, and the reason reaches
+// the caller through LeftOut (#1790): Providers() used to discard it.
+func TestResolveProviderKeepsTheReasonOfADroppedCell(t *testing.T) {
+	spec := parsed(t, "fork-cli", `schema: 1
+name: fork-cli
+display_name: Fork CLI
+base: crush
+detect:
+  binaries: [fork-cli]
+mcp:
+  mode: cli
+paths:
+  global:
+    skill: {dir: "{home}/.fork-cli/skills"}
+`)
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".fork-cli"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkOrSkip(t, filepath.Join(home, "missing"), filepath.Join(home, ".fork-cli", "skills"))
+	env := ProviderEnv{GOOS: "linux", Home: home, Getenv: func(string) string { return "" }}
+	r, reasons := ResolveProvider(spec, env)
+	if r.Global.Skill != nil || len(r.LeftOut) != 1 || !reflect.DeepEqual(r.LeftOut, reasons) ||
+		!strings.Contains(r.LeftOut[0], "paths.global.skill.dir") || !strings.Contains(r.LeftOut[0], "symlink") {
+		t.Fatalf("skill=%v leftOut=%v reasons=%v", r.Global.Skill, r.LeftOut, reasons)
+	}
+	p := Plugin{Contributions: map[string][]Contribution{"providers": {{Provider: &spec}}}}
+	if got := p.Providers(env); len(got) != 1 || len(got[0].LeftOut) != 1 {
+		t.Errorf("Providers() lost the reasons: %+v", got)
+	}
+}
+
 // An MCP path under a redirected {documents} obeys the denials of Documents/<x>.
 func TestResolveProviderRedirectedDocumentsMCPPathIsChecked(t *testing.T) {
 	spec := parsed(t, "fork-ext", forkExt)

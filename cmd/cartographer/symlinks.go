@@ -16,6 +16,9 @@ import (
 // .cartographer.yaml in a repository or the working directory must never decide
 // which links are followed. An unreadable config registers nothing (fail closed).
 func registerAllowedSymlinks() {
+	// The light set registerPluginProviders filled is dropped first: a config
+	// Load refuses registers nothing.
+	safewrite.ResetAllowedLinks()
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return

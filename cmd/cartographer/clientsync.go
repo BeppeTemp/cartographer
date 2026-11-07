@@ -1035,6 +1035,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		}
 		return done
 	}
+	printLeftOutCells(wr)
 	for _, key := range sortedKeys(results) {
 		r := results[key]
 		p := projectionLabel(key)

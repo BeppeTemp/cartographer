@@ -79,3 +79,16 @@ func TestClientSymlinks_AddListRemove(t *testing.T) {
 		t.Errorf("entries after remove = %v", e)
 	}
 }
+
+// The set the plugin registration used is replaced, not merged, by the full
+// load: with no config behind it nothing stays followed.
+func TestRegisterAllowedSymlinks_ResetsTheLightSet(t *testing.T) {
+	t.Cleanup(safewrite.ResetAllowedLinks)
+	home := t.TempDir()
+	setHome(t, home)
+	safewrite.SetAllowedLinks([]string{filepath.Join(home, "left-by-registration")})
+	registerAllowedSymlinks()
+	if got := safewrite.AllowedLinks(); len(got) != 0 {
+		t.Errorf("allowed = %v", got)
+	}
+}

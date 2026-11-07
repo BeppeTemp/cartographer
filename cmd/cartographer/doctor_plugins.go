@@ -149,6 +149,17 @@ func providerIssueFinding(is pluginProviderIssue) doctorFinding {
 	if is.Plugin != "" {
 		who += " of plugin " + escapeControl(is.Plugin)
 	}
+	if is.LeftOut {
+		fix := "fix the provider descriptor in the plugin"
+		if is.Plugin != "" {
+			fix = "cartographer plugin show " + escapeControl(is.Plugin) + ", fix the provider descriptor in the plugin and run cartographer plugin update " + escapeControl(is.Plugin)
+		}
+		if strings.Contains(is.Reason, "refusing to write through symlink") {
+			fix = "list the link under providers." + escapeControl(is.Provider) + ".allow_symlinks in .cartographer.yaml (cartographer client symlinks " + escapeControl(is.Provider) + " --add <link>) or replace the link, then run cartographer sync"
+		}
+		return doctorFinding{Check: "plugin-provider", Severity: doctorWarning,
+			Message: who + " is registered without a cell: " + escapeControl(is.Reason), Fix: fix}
+	}
 	fix := "fix the provider in the plugin and run cartographer plugin update <name>"
 	if is.Plugin != "" {
 		fix = "cartographer plugin show " + escapeControl(is.Plugin) + ", fix the provider in the plugin and run cartographer plugin update " + escapeControl(is.Plugin)

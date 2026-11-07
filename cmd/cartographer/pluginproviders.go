@@ -10,6 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // registerPluginProviders registers the providers of the approved plugin trees
@@ -34,6 +35,17 @@ func registerPluginProviders(errw io.Writer) {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return
+	}
+	// The allow set is needed before resolution: the resolver refuses a link
+	// the user listed otherwise. Load cannot run yet (D898), so the light reader
+	// fills it; registerAllowedSymlinks replaces it with the validated set.
+	// It holds for this registration only: the set in place is restored on the
+	// way out, since a re-registration after a plugin change runs in a process
+	// whose full Load already decided it.
+	if paths, err := clientconfig.LoadAllowedSymlinks(dir); err == nil {
+		saved := safewrite.AllowedLinks()
+		safewrite.SetAllowedLinks(paths)
+		defer safewrite.SetAllowedLinks(saved)
 	}
 	plugins, err := clientconfig.LoadPlugins(dir)
 	if err != nil {
@@ -86,6 +98,14 @@ func registerPluginProviders(errw io.Writer) {
 			continue
 		}
 		for _, r := range tree.Providers(env) {
+			if e.Enabled {
+				// A cell left out does not make the registration incomplete: the
+				// provider is registered without it. It is said by sync, connect
+				// and status, and by doctor, never at process start.
+				for _, why := range r.LeftOut {
+					pluginProviderIssues = append(pluginProviderIssues, pluginProviderIssue{Plugin: n, Provider: r.Registration(n, true).Name, Reason: why, LeftOut: true})
+				}
+			}
 			if err := configurator.CheckPlugin(r.Registration(n, e.Enabled)); err != nil {
 				complete = false
 				fmt.Fprintf(errw, "warning: plugin %s: %s\n", escapeControl(n), escapeControl(err.Error()))
@@ -134,6 +154,9 @@ type pluginProviderIssue struct {
 	Plugin   string // empty when the registry cannot say which plugin
 	Provider string
 	Reason   string
+	// LeftOut marks a path the provider lost at resolution (a cell behind a
+	// link): the provider is registered without it.
+	LeftOut bool
 }
 
 // pluginProviderIssues is what the last registerPluginProviders refused. Like
@@ -209,4 +232,16 @@ func retirePluginProviders(st syncStreams, dir string, cfg *clientconfig.Config,
 		}
 	}
 	return removeStrings(targets, gone)
+}
+
+// printLeftOutCells says, once per run, every cell a registered provider lost at
+// resolution (a symlink not listed under allow_symlinks, a path outside its
+// root), one line per reason. Only the commands that report on providers call
+// it: registration also runs for serve and the bridge, which must stay quiet.
+func printLeftOutCells(w io.Writer) {
+	for _, is := range pluginProviderIssues {
+		if is.LeftOut {
+			fmt.Fprintf(w, "[%s] warning: cell left out: %s\n", escapeControl(is.Provider), escapeControl(is.Reason))
+		}
+	}
 }
