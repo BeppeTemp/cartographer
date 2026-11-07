@@ -720,10 +720,14 @@ var (
 
 // embeddedBundleArtifact returns this client's own artifact for a bundled
 // skill, built by BuildManifest from the embedded bundle (files included).
+// The set includes the CLI skill: it is embedded whatever a server lists, and
+// the per-provider choice is the client's filter (withoutCLISkill), after this
+// verification. Without it VerifiedManifest dropped the skill with a warning
+// and a cli provider never received it (#1774).
 func embeddedBundleArtifact(kind, name string) (Artifact, bool) {
 	embeddedBundleOnce.Do(func() {
 		embeddedBundleArtifacts = map[string]Artifact{}
-		m, err := BuildManifest(skillbundle.FS, nil, BuildOptions{})
+		m, err := BuildManifest(skillbundle.FS, nil, BuildOptions{IncludeCLISkill: true})
 		if err != nil {
 			return
 		}

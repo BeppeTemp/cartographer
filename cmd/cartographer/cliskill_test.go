@@ -114,3 +114,37 @@ func TestCLIProviderHasNoMCPEntry(t *testing.T) {
 		t.Fatalf("files were created: %v", ents)
 	}
 }
+
+// A sync verifies the manifest the server built with the CLI skill, then the
+// per-provider filter decides: no warning, none installed for a non-cli
+// provider, installed for a cli one (#1774).
+func TestCLISkillSurvivesVerificationAndIsFilteredPerProvider(t *testing.T) {
+	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{IncludeCLISkill: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := provisioning.VerifiedManifest(m, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Skipped) != 0 {
+		t.Fatalf("warnings: %v", v.Skipped)
+	}
+	has := func(m provisioning.Manifest) bool {
+		for _, a := range m.Artifacts {
+			if a.Kind == "skill" && a.Name == cliSkillName {
+				return true
+			}
+		}
+		return false
+	}
+	if has(withoutCLISkill("claude", v)) {
+		t.Error("a non-cli provider must not receive the skill")
+	}
+	old := usesCLI
+	usesCLI = func(p configurator.Provider) bool { return p == "cli-provider" }
+	t.Cleanup(func() { usesCLI = old })
+	if !has(withoutCLISkill("cli-provider", v)) {
+		t.Error("a cli provider must receive the skill")
+	}
+}
