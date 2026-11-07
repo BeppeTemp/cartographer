@@ -237,9 +237,7 @@ awk -F'\t' -v b="$b" '$1 == b { print $2 "\t" $3 "\t" $4 }' "$FAKE_GH_PRS"
 // The guard refuses the worktree a running lander started from, also the main checkout,
 // and lets any other go; a lander that is not running guards nothing.
 func TestLanderGuardRefusesTheRootOfARunningLander(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("bash script, run by the Unix legs")
-	}
+	needBash(t) // the docker job's alpine image has no bash
 	root := repoRoot(t)
 	tmp, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
