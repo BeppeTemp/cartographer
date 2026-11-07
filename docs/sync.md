@@ -292,14 +292,17 @@ declared each — the same "error, not warning" stance D171 takes for a structur
 collision. Two KBs bound to two different providers cannot collide on a directive, for the same reason
 they cannot collide on `kind`+`name`.
 
-**Section order follows the provider's KB binding, with an alphabetical fallback** (D182 WP2):
-a provider with an explicit binding (`clientconfig.ClientBinding.KBs`, D170) gets its sections in that
-declared order — the operator's own choice, not an accident of directory naming; a provider with no
-binding (the default, every known KB) keeps the alphabetical order as its documented, deterministic
-default. A KB present in the manifest but absent from the binding list sorts alphabetically after the
-declared ones, so an ordering change never drops a section. Position was already known to matter
-(D154, the English-preamble-first case below): with several KBs, whichever one sorted first
-alphabetically occupied that position by accident of naming rather than by anyone's choice. A pure
+**Section order follows the KB binding the file serves, with an alphabetical fallback** (D182 WP2):
+a global projection takes its provider's explicit binding (`clientconfig.ClientBinding.KBs`, D170) as
+written; a **workspace projection takes the order of the folder binding it serves** (`syncProjection.KBs`:
+the explicit `workspace bind` list as written, a derived binding's KB list), never the provider's global
+`kbs:` order (#1809: Codex and OpenCode both write a workspace `AGENTS.md`, and their different global
+orders made each sync write it twice). Without a binding order the sections are alphabetical, the
+documented default. A KB present in the manifest but absent from the list sorts alphabetically after
+the declared ones, so an ordering change never drops a section. Two providers bound to one folder with
+the same list render the same bytes and the second finds nothing to write; if their folder bindings list
+the same KBs in different orders, they alternate on a shared file, each rewriting it on its turn (give
+both the same order). A pure
 reorder of a binding — same KB set, different sequence — still rewrites the block even though no
 artifact's `ContentHash` changed: `applyInstructionsGroup` compares the previous run's recorded
 section order (carried in the lockfile's `instructions` entries) against the newly computed one and
@@ -823,7 +826,7 @@ Materialization: a **managed block** delimited by markers (`<!-- cartographer:in
 - **a corrupted block is refused, never edited** (#1502): markers are whole lines, and the block must be exactly one begin line followed by one end line. A begin whose end was lost, a second begin before the end, or an end before the begin leaves the file untouched; the artifact is reported (`refused`, with a warning that points to `cartographer doctor`), the lockfile keeps its previous entries, and the next sync retries. The same rule covers the Codex `config.toml` blocks (`internal/blocktext`: `Write` and `Remove` return `ErrCorruptedBlock`). A KB whose text quotes a marker opener (`<!-- cartographer:instructions:` or `<!-- cartographer:kb:`) has it rewritten to `<!-- cartographer-quoted:…` in the block, so it cannot forge a boundary;
 - managed as a **group**: the block is the ordered concatenation of the snippets of *all* currently signed instructions — a removed KB disappears on the next rewrite; zero artifacts → block removed;
 - **each snippet is individually wrapped and attributed** (D182): `wrapKBSection` delimits it with `<!-- cartographer:kb:<name>:begin -->` / `:end -->` — a marker family distinct from the outer `cartographer:instructions:` one, so the malformed-block check (which counts occurrences of the outer pair) still counts exactly one of each no matter how many KBs contribute. `generateKBInstructions` additionally emits a one-line scope sentence right before the curated body, when curated content exists, naming the KB and stating that the more specific source wins on a conflict — the sentence is generated content, so it is part of `ContentHash` like the rest of the block;
-- **order follows `ApplyOptions.KBOrder`** (D182 WP2), set by the client from the provider's explicit binding (`clientconfig.ClientBinding.KBs`) when there is one, alphabetical by KB name otherwise; a KB outside the declared order sorts alphabetically after the declared ones. A pure reorder — same KB set, only the sequence changed — is invisible to `ComputeDiff` (no `ContentHash` differs), so `applyInstructionsGroup` separately compares the previous run's recorded order (the sequence of `instructions` entries in the incoming `Lock`) against the newly computed one and treats a mismatch as its own trigger;
+- **order follows `ApplyOptions.KBOrder`** (D182 WP2), which the client sets from the provider's explicit binding for a global projection and from the folder binding for a workspace one (#1809), alphabetical by KB name otherwise; a KB outside the declared order sorts alphabetically after the declared ones. A pure reorder — same KB set, only the sequence changed — is invisible to `ComputeDiff` (no `ContentHash` differs), so `applyInstructionsGroup` separately compares the previous run's recorded order (the sequence of `instructions` entries in the incoming `Lock`) against the newly computed one and treats a mismatch as its own trigger;
 - the signature gate applies as usual; lockfile: one `ManagedFile` per artifact (not per physical file);
 - pruning: removes only the block, never the file — except when the file is left empty (this covers kiro's dedicated file).
 

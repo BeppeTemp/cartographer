@@ -410,6 +410,19 @@ func boundKBUnion(cfg *clientconfig.Config, providers []string) (names []string,
 	return names, requiredBy, anyDefault
 }
 
+// projectionKBOrder is the KB order that sorts p's instructions sections. A
+// workspace projection follows the order of the folder binding it serves
+// (p.KBs: the explicit binding as written, a derived one's list), never the
+// provider's global binding: Codex and OpenCode share a workspace AGENTS.md,
+// and two different global orders made every sync rewrite it twice (#1809). A
+// global projection keeps the provider's binding order (D182).
+func projectionKBOrder(p syncProjection, global map[string][]string) []string {
+	if p.Workspace != "" {
+		return p.KBs
+	}
+	return global[p.Provider]
+}
+
 // kbOrderForProviders returns, for each provider in providers that has an
 // EXPLICIT KB binding (D169/D170), that binding's declared KB order —
 // clientconfig.ClientBinding.KBs is already an ordered YAML sequence. A
@@ -846,7 +859,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			// which — like every Manifest copy — does not carry it (D262).
 			Placeholders:   manifest.Placeholders,
 			PathRegistries: manifest.PathRegistries,
-			KBOrder:        kbOrder[p.Provider],
+			KBOrder:        projectionKBOrder(p, kbOrder),
 			// The plugins that contribute to this manifest, built from
 			// approved trees at this run (manifestPlugins).
 			ActivePlugins: manifestPlugins(manifest),
