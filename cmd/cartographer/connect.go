@@ -634,7 +634,7 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 		code = printProviderStatuses(os.Stdout, providers, res.Skipped)
 	}
 	if !opts.DryRun {
-		fmt.Printf("restart the %s sessions to load the MCP tools\n", strings.Join(providers, ", "))
+		printRestartHints(os.Stdout, providers)
 	}
 	if res.Deferred {
 		fmt.Printf("warning: skill sync deferred (%s); run `cartographer sync` once the server is up\n", deferralReason(res.DeferredErr))
@@ -1446,4 +1446,25 @@ func bridgeReason(cfg *clientconfig.Config, provider, routedPath string) string 
 func lockHoldsNothing(dir string) bool {
 	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
 	return err == nil && len(lf.Projections()) == 0
+}
+
+// printRestartHints says which sessions to restart: the MCP tools only exist
+// for a provider that got an MCP entry, a cli provider loads the skills and
+// instructions, and a provider with neither gets no line.
+func printRestartHints(w io.Writer, providers []string) {
+	var mcp, cli []string
+	for _, p := range providers {
+		switch {
+		case usesCLI(configurator.Provider(p)):
+			cli = append(cli, p)
+		case !skipsMCPEntry(p):
+			mcp = append(mcp, p)
+		}
+	}
+	if len(mcp) > 0 {
+		fmt.Fprintf(w, "restart the %s sessions to load the MCP tools\n", strings.Join(mcp, ", "))
+	}
+	if len(cli) > 0 {
+		fmt.Fprintf(w, "restart the %s sessions to load the skills and instructions\n", strings.Join(cli, ", "))
+	}
 }

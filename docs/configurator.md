@@ -484,7 +484,7 @@ materialization to a loopback URL only adds a hint on stderr suggesting
 `cartographer service install` when the server does not answer at all (never when `/health` replied, e.g. a 404 on a `/mcp/<segment>` URL); a reachable 0-KB server instead prints
 `cartographer kb create <name> --remote <url>` followed by `cartographer service restart`. A successful connect
 prints the absolute paths of generated MCP configs and reminds the user to restart the selected
-agent sessions to load the MCP tools.
+agent sessions to load the MCP tools (a `cli` provider is told to restart to load the skills and instructions, a `none` provider gets no line).
 
 ### `cartographer disconnect [provider|all]`
 

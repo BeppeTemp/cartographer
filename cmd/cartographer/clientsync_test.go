@@ -1631,3 +1631,28 @@ func TestSyncWithoutProvidersStillEnumeratesKBs(t *testing.T) {
 		t.Error("a sync with no providers returned before it enumerated the KBs")
 	}
 }
+
+// A warning built on several lines keeps its lines on the terminal, and what a
+// reason carries is still escaped (#1786).
+func TestPrintApplySummary_UnresolvedPlaceholderWarningKeepsItsLines(t *testing.T) {
+	results := map[string]provisioning.AppliedResult{
+		"claude": {
+			NewLock: provisioning.Lock{UnresolvedPlaceholders: map[string]string{
+				"repo:x": "no clone \x1b[31mfound",
+			}},
+		},
+	}
+	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
+	if strings.Contains(out, `\n`) {
+		t.Errorf("output = %q, want no literal \\n", out)
+	}
+	if n := strings.Count(out, "\n"); n < 4 {
+		t.Errorf("output = %q, want the warnings on separate lines (got %d)", out, n)
+	}
+	if strings.Contains(out, "\x1b") || !strings.Contains(out, `\x1b`) {
+		t.Errorf("output = %q, want the ESC escaped", out)
+	}
+	if !strings.Contains(out, "\n  fix: cartographer paths set") {
+		t.Errorf("output = %q, want the fix line on its own line", out)
+	}
+}

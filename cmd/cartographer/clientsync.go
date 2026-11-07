@@ -1140,7 +1140,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 	}
 	unresolved, fresh := unresolvedAcross(results, ignored)
 	if w := provisioning.UnresolvedPlaceholdersWarning(unresolved, fresh); w != "" {
-		fmt.Fprintf(wr, "warning: %s\n", escapeControl(w))
+		fmt.Fprintf(wr, "warning: %s\n", escapeText(w))
 	}
 	// Two KBs declaring one key differently (D263): the same conflict for
 	// every provider bound to both, so each is printed once.
