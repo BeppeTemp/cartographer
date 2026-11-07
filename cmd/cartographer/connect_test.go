@@ -18,6 +18,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -614,5 +615,29 @@ func TestDoConnect_ExplicitDefaultURLIsPersisted(t *testing.T) {
 	data, _ := os.ReadFile(clientconfig.Path(dir))
 	if !strings.Contains(string(data), "\n  url: "+defaults.DefaultMCPURL) {
 		t.Errorf("the explicit server.url was not persisted:\n%s", data)
+	}
+}
+
+// The MCP restart hint names only providers that got an MCP entry; a cli
+// provider is told to load skills, a none provider gets nothing (#1787).
+func TestPrintConnectResult_RestartHintSkipsProvidersWithoutMCPEntry(t *testing.T) {
+	oldCLI, oldNone := usesCLI, usesNoMCP
+	usesCLI = func(p configurator.Provider) bool { return p == "cli-provider" }
+	usesNoMCP = func(p configurator.Provider) bool { return p == "none-provider" }
+	t.Cleanup(func() { usesCLI, usesNoMCP = oldCLI, oldNone })
+
+	run := func(ps ...string) string {
+		return withStdout(t, func() {
+			printConnectResult(t.TempDir(), ps, connectOptions{}, connectResult{Providers: ps})
+		})
+	}
+	if out := run("cli-provider", "none-provider"); strings.Contains(out, "MCP tools") || strings.Contains(out, "none-provider sessions") {
+		t.Errorf("output = %q, want no MCP hint and no none-provider hint", out)
+	} else if !strings.Contains(out, "restart the cli-provider sessions to load the skills and instructions") {
+		t.Errorf("output = %q, want the skills hint for the cli provider", out)
+	}
+	out := run("claude", "cli-provider")
+	if !strings.Contains(out, "restart the claude sessions to load the MCP tools") || strings.Contains(out, "claude, cli-provider") {
+		t.Errorf("output = %q, want the MCP hint naming only claude", out)
 	}
 }
