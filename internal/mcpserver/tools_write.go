@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -2571,35 +2572,111 @@ func conceptMapName(id string) (string, bool) {
 // alongside other concepts, or when a nested item under the entry cites another
 // concept: dropping that item would remove an entry that is not id's (D344).
 func removeCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) (removed bool, kept string, err error) {
+	removed, kept, _, err = removeCuratedEntryAt(k, mapName, id)
+	return removed, kept, err
+}
+
+// removeCuratedEntryAt is removeCuratedEntry that also says the line of the
+// index file (1-based) the kept entry sits on, for a caller that must not
+// quote the line itself.
+func removeCuratedEntryAt(k *kb.KB, mapName string, id okf.ConceptID) (removed bool, kept string, keptLine int, err error) {
 	content, hash, err := k.IndexHash(mapName)
 	if err != nil {
-		return false, "", fmt.Errorf("unreadable: %w", err)
+		return false, "", 0, fmt.Errorf("unreadable: %w", err)
 	}
 	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
-	indexPath := mapName + "/index.md"
+	newBody, removed, kept, bodyLine := dropEntryLines(k, mapName+"/index.md", body, id)
+	if kept != "" {
+		keptLine = strings.Count(content, "\n") - strings.Count(body, "\n") + bodyLine
+	}
+	if !removed {
+		return false, kept, keptLine, nil
+	}
+	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, newBody))
+	return err == nil, kept, keptLine, err
+}
+
+// dropEntryLines is the line removal of removeCuratedEntry on an index body
+// (indexPath resolves its relative links): the entry whose only link is id goes,
+// with the lines that continue it; kept is a line that cites id alongside other
+// concepts, left as written (keptLine is its 1-based line of the body). Links are
+// read from the body with its fenced blocks and code spans masked once, the
+// reading lint's own link check uses, so an example in a fence is no entry.
+func dropEntryLines(k *kb.KB, indexPath, body string, id okf.ConceptID) (newBody string, removed bool, kept string, keptLine int) {
 	lines := strings.Split(body, "\n")
+	masked := strings.Split(kb.MaskCodeSpans(body), "\n")
 	var out []string
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		targets := kb.ExtractLinks(line, indexPath, k.AssetExists)
+		targets := kb.ExtractLinks(masked[i], indexPath, k.AssetExists)
 		if !targetsInclude(targets, id) {
 			out = append(out, line)
 			continue
 		}
 		end := entryEnd(lines, i)
-		if len(targets) > 1 || continuationCitesOther(k, indexPath, lines[i+1:end], id) {
-			kept = strings.TrimSpace(line)
+		if len(targets) > 1 || continuationCitesOther(k, indexPath, masked[i+1:end], id) {
+			kept, keptLine = strings.TrimSpace(line), i+1
 			out = append(out, line)
 			continue
 		}
 		removed = true
 		i = end - 1
 	}
-	if !removed {
-		return false, kept, nil
+	return strings.Join(out, "\n"), removed, kept, keptLine
+}
+
+// mayRewriteIndex says whether the caller may rewrite the curated index of a
+// map, as index_patch asks (policy.go): a grant on the map with no type, since
+// the index lists pages of every type. No principal is a trusted local caller.
+func mayRewriteIndex(ctx requestContext, k *kb.KB, mapName string) bool {
+	p := auth.PrincipalFromContext(ctx)
+	if p.ID == "" || p.Policy.Admin {
+		return true
 	}
-	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, strings.Join(out, "\n")))
-	return err == nil, kept, err
+	journalName := ""
+	if meta, err := k.ReadArchiveMeta(mapName); err == nil {
+		if kind, _ := meta.Get("kind"); kind == "journal" {
+			mapName, journalName = "", mapName
+		}
+	}
+	return p.Policy.Allows(kbName(k), mapName, journalName, "", true)
+}
+
+// dropDeletedEntry removes the line that links a deleted concept from its map's
+// curated index, in the same commit as the delete (D714, #1764). A generated
+// index is the server's and is left alone, and so is the index of a caller
+// whose grant is narrower than the map (type-narrowed): the delete stands and a
+// note says the line is still there. An expanded concept's own index is a
+// concept in the graph: a satellite still listed there is an inbound link that
+// refuses the delete, and the index of a deleted expanded concept goes with it.
+// Returns one note, or "" when there was nothing to do; a failed edit is a note,
+// not an error: the delete stands and the write gate's broken_link names it.
+func dropDeletedEntry(ctx requestContext, k *kb.KB, id string) string {
+	mapName, ok := conceptMapName(id)
+	if !ok || strings.Count(id, "/") != 1 {
+		return ""
+	}
+	contract, err := k.ReadMapContract(mapName)
+	if err != nil || contract.Index == kb.IndexGenerated {
+		return ""
+	}
+	indexPath := mapName + "/index.md"
+	if !mayRewriteIndex(ctx, k, mapName) {
+		if content, _, err := k.IndexHash(mapName); err == nil && indexLinks(k, mapName, content, okf.ConceptID(id)) {
+			return fmt.Sprintf("curated index %s: still lists %s, not edited: rewriting it needs a token for the whole map", indexPath, id)
+		}
+		return ""
+	}
+	removed, kept, keptLine, err := removeCuratedEntryAt(k, mapName, okf.ConceptID(id))
+	switch {
+	case err != nil:
+		return fmt.Sprintf("curated index %s: %v", indexPath, err)
+	case removed:
+		return fmt.Sprintf("curated index %s: removed the entry for %s", indexPath, id)
+	case kept != "":
+		return fmt.Sprintf("curated index %s: line %d cites %s alongside other concepts, kept: edit it by hand", indexPath, keptLine, id)
+	}
+	return ""
 }
 
 // entryEnd returns the index just past the list item that starts at lines[i]:
@@ -3381,8 +3458,21 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 			// TRAP (D714): WriteConceptBatch restores only the files and log it
 			// wrote; applyIndexEntries restores the indexes it patched itself
 			// before returning its error, which then rolls the rest back.
+			var dropNotes []string
 			results, err := k.WriteConceptBatch(ops, logMessage, func([]kb.BatchWriteResult) error {
-				return applyIndexEntries(k, indexPending)
+				if err := applyIndexEntries(k, indexPending); err != nil {
+					return err
+				}
+				// The deleted concepts' lines leave their curated indexes in the
+				// same commit (#1764); a failed edit is a note, so it needs no undo.
+				for _, op := range ops {
+					if op.Delete {
+						if note := dropDeletedEntry(ctx, k, string(op.ID)); note != "" {
+							dropNotes = append(dropNotes, note)
+						}
+					}
+				}
+				return nil
 			})
 			if err != nil {
 				return errorResult(batchWriteError(ctx, k, ops, err)), nil
@@ -3405,7 +3495,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				entries[i] = batchResultEntry{ID: r.ID, ContentHash: hash, Findings: findings, Repaired: repaired}
 			}
 			response := map[string]interface{}{"results": entries}
-			if notes := indexEntryNotes(indexPending); len(notes) > 0 {
+			if notes := append(indexEntryNotes(indexPending), dropNotes...); len(notes) > 0 {
 				response["curated_indexes"] = notes
 			}
 			return jsonResult(response), nil
@@ -3534,7 +3624,7 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 func toolConceptDelete(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_delete",
-		Description: "Permanently removes a concept (git commit). Refuses with inbound_links (listing the linkers) while other concepts link to it: relink them in the same concept_batch, or use supersede to retire the page; to rename, concept_move. Links are never rewritten. In a git KB force does not lift this: the write gate refuses a delete that leaves a broken link; force only matters in a KB without git, and for an expanded concept that owns assets (it also needs force=true).",
+		Description: "Permanently removes a concept (git commit) and the line that lists it in its curated index (reported in the result). Refuses with inbound_links (listing the linkers) while other concepts link to it: relink them in the same concept_batch, or use supersede to retire the page; to rename, concept_move. Links are never rewritten. In a git KB force does not lift this: the write gate refuses a delete that leaves a broken link; force only matters in a KB without git, and for an expanded concept that owns assets (it also needs force=true).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
@@ -3603,6 +3693,9 @@ func toolConceptDelete(k *kb.KB) Tool {
 
 			_ = k.AppendLog("concept_delete: "+params.ID, time.Now())
 			msg := fmt.Sprintf("deleted %s", params.ID)
+			if note := dropDeletedEntry(ctx, k, params.ID); note != "" {
+				msg += "\n" + note
+			}
 			if len(linkers) > 0 {
 				msg += fmt.Sprintf("\nWarning: %d concept(s) still link to %s: %s", len(linkers), params.ID, formatIDList(linkers))
 			}
