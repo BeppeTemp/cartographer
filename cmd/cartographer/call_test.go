@@ -127,7 +127,8 @@ func TestCallTypedArgumentsAndRequestShape(t *testing.T) {
 	if r.Header.Get("Authorization") != "Bearer tok-123" || r.URL.Path != "/mcp/routed" || r.URL.Query().Get("kbs") != "kb-a" {
 		t.Errorf("request %s %s auth %q", r.Method, r.URL, r.Header.Get("Authorization"))
 	}
-	if r.Header.Get("Cartographer-Author") == "" || r.Header.Get("MCP-Protocol-Version") == "" || r.Header.Get("Mcp-Name") != "concept_list" {
+	// concept_list is a read: it names no author (#1803).
+	if r.Header.Get("Cartographer-Author") != "" || r.Header.Get("MCP-Protocol-Version") == "" || r.Header.Get("Mcp-Name") != "concept_list" {
 		t.Errorf("headers: %v", r.Header)
 	}
 	params := body["params"].(map[string]any)

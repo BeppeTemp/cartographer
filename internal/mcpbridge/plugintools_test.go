@@ -182,6 +182,8 @@ func TestPluginKBCallCarriesTheSessionScopeAuthorAndSetOnly(t *testing.T) {
 			return "", err
 		}
 		inside = string(raw)
+		// A write carries the author (a read does not); its own error is beside the point.
+		_, _ = c.KB.CallContext(ctx, "concept_write", map[string]any{"kb": "kb-a"})
 		_, err = c.KB.CallContext(ctx, "kb_status", map[string]any{"kb": "kb-b"})
 		outside = err.Error()
 		return "done", nil

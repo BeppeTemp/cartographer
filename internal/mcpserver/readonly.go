@@ -1,49 +1,18 @@
 package mcpserver
 
-// readOnlyToolNames is the source-of-truth list of tool names that never mutate
-// KB content and are therefore safe to call with a read-only ("kb:<name>:r")
-// scope token. It must be kept in sync with the ReadOnly field set on each
+import "github.com/BeppeTemp/cartographer/internal/client"
+
+// readOnlyToolNames is the list of tool names that never mutate KB content and
+// are therefore safe to call with a read-only ("kb:<name>:r") scope token. The
+// source of truth is client.ReadOnlyToolNames (internal/client/readonly.go: a
+// tool author adds the name there); this is an alias of it. It must be kept in sync with the ReadOnly field set on each
 // tool's Tool{} literal in tools_*.go — TestReadOnlyToolsGolden (httpserver_auth_test.go)
 // builds a real registry via RegisterKBTools and fails if the two diverge.
 
-var readOnlyToolNames = map[string]bool{
-	"atlas_overview":  true,
-	"index_get":       true,
-	"concept_read":    true,
-	"concept_history": true,
-	"log_tail":        true,
-	"changes_since":   true,
-	"validate":        true,
-	"map_list":        true,
-	"concept_list":    true,
-	"graph_neighbors": true,
-	"graph_context":   true,
-	"link_suggest":    true,
-	"graph_path":      true,
-	"search":          true,
-	"lint":            true,
-	"gate_check":      true,
-	"kb_status":       true,
-	"kb_review":       true,
-	"work_list":       true,
-	"kb_guide":        true,
-	"conflicts_list":  true,
-	"service_get":     true,
-	"service_list":    true,
-	"skill_list":      true,
-	"sync_check":      true,
-	"sync_pull":       true,
-	"sync_status":     true,
-	"artifact_read":   true,
-	"artifact_list":   true,
-	"template_list":   true,
-	"asset_read":      true,
-	"asset_list":      true,
-	"source_list":     true,
-}
+var readOnlyToolNames = client.ReadOnlyToolNames
 
 // ToolRequiresWrite reports whether calling the named tool requires write
 // access to the KB. Fail-closed: unknown tool names require write.
 func ToolRequiresWrite(name string) bool {
-	return !readOnlyToolNames[name]
+	return client.ToolRequiresWrite(name)
 }

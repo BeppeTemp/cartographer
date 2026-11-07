@@ -29,7 +29,7 @@ func TestBridgeSendsTheAuthorOnToolCallsOnly(t *testing.T) {
 	bind(t, cfg, ws, "kb-a")
 	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: ws, Token: testToken,
 		workTreeIdent: gitAnswers(map[string]string{ws: "Git Person <git@example.test>"})}
-	exchange(t, b, initMsg, initedMsg, listMsg, callMsg(3, "kb_status", "kb-a"), callMsg(4, "kb_status", ""))
+	exchange(t, b, initMsg, initedMsg, listMsg, callMsg(3, "concept_write", "kb-a"), callMsg(4, "concept_write", ""))
 
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -182,12 +182,42 @@ func TestBridgeEncodesANonASCIIAuthor(t *testing.T) {
 	const who = "Zoë Pérez <zoe@example.test>"
 	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: ws, Token: testToken,
 		workTreeIdent: gitAnswers(map[string]string{ws: who})}
-	exchange(t, b, initMsg, initedMsg, callMsg(2, "kb_status", "kb-a"))
+	exchange(t, b, initMsg, initedMsg, callMsg(2, "concept_write", "kb-a"))
 
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 	want := "=?base64?" + base64.StdEncoding.EncodeToString([]byte(who)) + "?="
 	if got := rs.authors["tools/call 2"]; len(got) != 1 || got[0] != want {
 		t.Errorf("author header = %q, want %q", got, want)
+	}
+}
+
+// A read never commits, so it carries no author and spares the two git
+// processes behind it (#1803); a write, and a tool the list does not know
+// (a plugin tool, fail closed), carry it.
+func TestBridgeSendsTheAuthorOnlyWithAWrite(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a")
+	cfg := bridgeConfig(rs)
+	ws := mkdir(t, t.TempDir())
+	bind(t, cfg, ws, "kb-a")
+	asked := 0
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: ws, Token: testToken,
+		workTreeIdent: func(string) string { asked++; return "Git Person <git@example.test>" }}
+	exchange(t, b, initMsg, initedMsg,
+		callMsg(2, "concept_read", "kb-a"), callMsg(3, "kb_status", "kb-a"),
+		callMsg(4, "concept_write", "kb-a"), callMsg(5, "some_plugin_tool", "kb-a"))
+
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	for key, want := range map[string]string{
+		"tools/call 2": "", "tools/call 3": "",
+		"tools/call 4": "Git Person <git@example.test>", "tools/call 5": "Git Person <git@example.test>",
+	} {
+		if got := strings.Join(rs.authors[key], "|"); got != want {
+			t.Errorf("%s carried the author %q, want %q", key, got, want)
+		}
+	}
+	if asked != 1 {
+		t.Errorf("git was asked %d times, want once (reads must not ask)", asked)
 	}
 }
