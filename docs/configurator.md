@@ -555,6 +555,8 @@ Placeholder keys the last sync could not resolve and the operator did not `paths
 ``N placeholder(s) unresolved — run `cartographer paths` `` to the table and an additive
 `unresolved_placeholders: [{key, kbs, reason}]` to the JSON, present only when non-empty; neither
 changes the state or the exit code — an unresolved key is left verbatim, not a failed sync (D262).
+The artifacts the server left out of the catalogue (the `sync_pull` `issues`, `sync.md`) add one `not in the catalogue: …` line each and an additive
+`issues: [string]` to the JSON, present only when non-empty, raw like every server text in the JSON (the table escapes it); they change neither the state nor the exit code (#1775). `connect` reports them among its warnings.
 For an unavailable endpoint, the table names the configured endpoint once and
 suggests checking that URL (or `cartographer service status` for loopback);
 connected providers are reported as `unknown`, rather than repeating a network

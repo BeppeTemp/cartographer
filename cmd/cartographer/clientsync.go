@@ -55,6 +55,9 @@ type pulledManifestJSON struct {
 	// D263), unsigned and outside revision. nil when the KB has none or the
 	// server predates it.
 	PathRegistry *provisioning.PathRegistry `json:"path_registry,omitempty"`
+	// Issues are the artifacts the server left out of this response and why
+	// (Manifest.Issues); server text, escaped wherever it is printed.
+	Issues []string `json:"issues,omitempty"`
 }
 
 // lockFilePath returns the path to the v2 multi-provider lockfile inside targetDir.
@@ -134,6 +137,11 @@ type candidateSet struct {
 	// projection exactly like the artifacts, by placeholdersForProjection.
 	Placeholders     map[string][]string
 	BarePlaceholders []string
+	// Issues is, per KB, what its sync_pull said it left out of the response
+	// (#1775); BareIssues the unnamed endpoint's. Selected per projection by
+	// issuesForProjection, like the placeholder keys.
+	Issues     map[string][]string
+	BareIssues []string
 	// PathRegistries is, per KB, the paths.yaml its sync_pull served (D263);
 	// BarePathRegistry the unnamed endpoint's. Selected per projection by
 	// pathRegistriesForProjection, like the placeholder keys.
@@ -215,6 +223,60 @@ func (cs candidateSet) placeholdersForProjection(cfg *clientconfig.Config, p syn
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+// issuesForProjection returns the manifest issues of the KBs a projection
+// reads, following placeholdersForProjection's selection. When the client
+// projection reads more than one KB each line is prefixed with the KB's name. nil when
+// there is none.
+func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProjection) []string {
+	if p.BundleOnly {
+		return nil
+	}
+	var out []string
+	if cs.HasBare {
+		if p.Workspace != "" {
+			return nil
+		}
+		if bound, explicit := cfg.BoundKBs(p.Provider); explicit && len(bound) == 0 {
+			return nil
+		}
+		return append(out, cs.BareIssues...)
+	}
+	kbs := p.KBs
+	if p.Workspace == "" {
+		kbs, _ = cfg.BoundKBs(p.Provider)
+	}
+	sorted := append([]string(nil), kbs...)
+	sort.Strings(sorted)
+	for _, kb := range sorted {
+		for _, is := range cs.Issues[kb] {
+			if len(sorted) > 1 {
+				is = kb + ": " + is
+			}
+			out = append(out, is)
+		}
+	}
+	return out
+}
+
+// manifestIssues is the distinct issues of every manifest of a run, in
+// projection-key order: the same KB read by three providers is one line.
+func manifestIssues(manifests map[string]provisioning.Manifest) []string {
+	keys := make([]string, 0, len(manifests))
+	for k := range manifests {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out []string
+	for _, k := range keys {
+		for _, is := range manifests[k].Issues {
+			if !slices.Contains(out, is) {
+				out = append(out, is)
+			}
+		}
 	}
 	return out
 }
@@ -433,7 +495,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 // already holds the response (doctor, via serverFacts) passes it instead of
 // probing the server again.
 func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNames []string) (candidateSet, []kbPullFailure, error) {
-	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry), Plugins: loadActivePlugins(cfg).Artifacts}
+	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry), Issues: make(map[string][]string), Plugins: loadActivePlugins(cfg).Artifacts}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	targets, err := resolveKBTargets(health, kbNames)
@@ -501,7 +563,11 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 		if target.Name == "" {
 			cs.BarePlaceholders = append(cs.BarePlaceholders, res.placeholders...)
 			cs.BarePathRegistry = res.pathRegistry
+			cs.BareIssues = append(cs.BareIssues, res.issues...)
 		} else {
+			if len(res.issues) > 0 {
+				cs.Issues[target.Name] = res.issues
+			}
 			if len(res.placeholders) > 0 {
 				cs.Placeholders[target.Name] = res.placeholders
 			}
@@ -537,6 +603,7 @@ type pullResult struct {
 	artifacts    []provisioning.Artifact
 	placeholders []string
 	pathRegistry *provisioning.PathRegistry
+	issues       []string
 	callErr      error
 	err          error
 }
@@ -592,7 +659,7 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 		}
 		arts = append(arts, art)
 	}
-	return pullResult{artifacts: arts, placeholders: pm.Placeholders, pathRegistry: pm.PathRegistry}
+	return pullResult{artifacts: arts, placeholders: pm.Placeholders, pathRegistry: pm.PathRegistry, issues: pm.Issues}
 }
 
 // collisionsForProvider narrows DetectCollisions to the ones a single provider

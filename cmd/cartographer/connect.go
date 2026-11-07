@@ -1205,6 +1205,8 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 			}
 		}
 		res.Applied = applied
+		// What the server left out of its catalogue (#1775), once per run.
+		res.Warnings = appendUnique(res.Warnings, manifestIssues(manifests)...)
 	}
 	res.Skipped = skippedParts(refusedMCP, hookRefused, res.Applied)
 
