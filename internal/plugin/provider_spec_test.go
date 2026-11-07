@@ -279,6 +279,19 @@ func TestProviderNameClashes(t *testing.T) {
 	}
 }
 
+// A wildcard deep in a client's own folder is a valid detect dir; one that can
+// still reach Cartographer's state is not (#1783).
+func TestProviderDetectWildcardBelowAClientFolder(t *testing.T) {
+	for _, d := range []string{"{home}/.vscode/extensions/c*", "{home}/.vscode/extensions/*"} {
+		if _, problems := ParseProvider("fork-ext", []byte(swapText(t, forkExt, `["{home}/.vscode/extensions/acme.fork-ext-*"]`, `["`+d+`"]`))); len(problems) != 0 {
+			t.Errorf("%s: %v", d, problems)
+		}
+	}
+	if _, problems := ParseProvider("fork-ext", []byte(swapText(t, forkExt, `["{home}/.vscode/extensions/acme.fork-ext-*"]`, `["{home}/.config/c*"]`))); len(problems) == 0 {
+		t.Error("{home}/.config/c* accepted")
+	}
+}
+
 // A stale file is only deleted, never parsed: its extension need not be the
 // base's MCP extension.
 func TestParseProviderStaleTakesAnyExtension(t *testing.T) {

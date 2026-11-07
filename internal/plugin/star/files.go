@@ -18,6 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
+	"github.com/BeppeTemp/cartographer/internal/service"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
@@ -180,8 +181,8 @@ func deniedComponent(seg string) bool {
 }
 
 // stateDirs are the directories named cartographer under the places a config or
-// a cache lives (the server config, the update cache and the plugin store),
-// below home, lowercased.
+// a cache lives (the server config, the update cache and the plugin store) and
+// the cron backend's state directory, below home, lowercased.
 func (s *filesState) stateDirs(home, homeReal string) [][]string {
 	bases := []string{filepath.Join(home, ".config")}
 	if s.host.ConfigDir != "" {
@@ -199,10 +200,20 @@ func (s *filesState) stateDirs(home, homeReal string) [][]string {
 			bases = append(bases, filepath.FromSlash(d))
 		}
 	}
-	var out [][]string
+	dirs := make([]string, 0, len(bases)+2)
 	for _, b := range bases {
+		dirs = append(dirs, filepath.Join(b, "cartographer"))
+	}
+	// The cron backend's pidfile, lock and logs: $XDG_STATE_HOME/cartographer,
+	// which a custom XDG_STATE_HOME can put anywhere below home.
+	dirs = append(dirs, filepath.Join(home, ".local", "state", "cartographer"))
+	if d, err := service.StateDir(); err == nil {
+		dirs = append(dirs, d)
+	}
+	var out [][]string
+	for _, d := range dirs {
 		for _, h := range []string{home, homeReal} {
-			if segs, ok := relSegs(h, filepath.Join(b, "cartographer")); ok {
+			if segs, ok := relSegs(h, d); ok {
 				for i := range segs {
 					segs[i] = strings.ToLower(segs[i])
 				}

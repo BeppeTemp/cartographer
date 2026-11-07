@@ -363,3 +363,45 @@ func TestFilesLinkErrorsLeakNothing(t *testing.T) {
 		}
 	}
 }
+
+// A grant that the manifest now accepts below a client folder still cannot
+// read Cartographer's state under it: the enforcer, not the lexical check, decides (#1783).
+func TestFilesGrantBelowAFolderStillDeniesOwnState(t *testing.T) {
+	e := newFileEnv(t, []string{"{home}/x/**"}, nil)
+	e.put(t, "x/ok.txt", "ok")
+	e.put(t, "x/.cartographer/secret", "s")
+	e.put(t, "x/.cartographer.yaml", "s")
+	if res, err := e.run(t, `return files.read("{home}/x/ok.txt")`); err != nil || !strings.Contains(res.Text, "ok") {
+		t.Fatalf("granted read: %q, %v", res.Text, err)
+	}
+	for _, rel := range []string{"x/.cartographer/secret", "x/.cartographer.yaml"} {
+		ce := callErr(t, mustErr(e.run(t, fmt.Sprintf(`files.read("{home}/%s")`, rel))), Denied)
+		if !strings.Contains(ce.Msg, "denied") {
+			t.Errorf("%s: %q", rel, ce.Msg)
+		}
+	}
+	res, err := e.run(t, `return files.glob("{home}/x/**")`)
+	if err != nil || strings.Contains(res.Text, ".cartographer") || !strings.Contains(res.Text, "x/ok.txt") {
+		t.Errorf("glob %q, %v", res.Text, err)
+	}
+}
+
+// The cron backend's state directory ($XDG_STATE_HOME/cartographer) is denied
+// even when a custom XDG_STATE_HOME puts it under a granted folder (#1783).
+func TestFilesDenyTheCronStateDir(t *testing.T) {
+	e := newFileEnv(t, []string{"{home}/state/**", "{home}/.local/**"}, []string{"{home}/state/**"})
+	t.Setenv("XDG_STATE_HOME", filepath.Join(e.home, "state"))
+	e.put(t, "state/cartographer/server.pid", "1")
+	e.put(t, "state/other/ok.txt", "ok")
+	e.put(t, ".local/state/cartographer/server.pid", "1")
+	if res, err := e.run(t, `return files.read("{home}/state/other/ok.txt")`); err != nil || !strings.Contains(res.Text, "ok") {
+		t.Fatalf("granted read: %q, %v", res.Text, err)
+	}
+	for _, rel := range []string{"state/cartographer/server.pid", ".local/state/cartographer/server.pid"} {
+		callErr(t, mustErr(e.run(t, fmt.Sprintf(`files.read("{home}/%s")`, rel))), Denied)
+	}
+	callErr(t, mustErr(e.run(t, `files.write("{home}/state/cartographer/new", "x")`)), Denied)
+	if _, err := os.Lstat(filepath.Join(e.home, "state", "cartographer", "new")); err == nil {
+		t.Error("written into the cron state dir")
+	}
+}

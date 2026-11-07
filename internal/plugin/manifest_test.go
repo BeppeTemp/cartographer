@@ -317,3 +317,31 @@ func TestParseManifestNoReservedNameFunc(t *testing.T) {
 		t.Errorf("problems = %v", probs)
 	}
 }
+
+// A wildcard is refused only while it can still lead into a known location of
+// Cartographer's own state; deeper inside a client's own folder it passes (#1783).
+// A literal "cartographer" or ".cartographer*" segment is refused at any depth.
+func TestGlobProblemWildcardsInsideAClientFolder(t *testing.T) {
+	for _, g := range []string{
+		"{xdg_config}/vendor-cli/**", "{xdg_config}/x/**", "{home}/.x/*/y", "{home}/.x/c*",
+		"{home}/.vendor-cli/*/y", "{home}/.vendor-cli/c*",
+		"{home}/.vscode/extensions/vendor.ext-*/package.json", "{home}/.config/vendor-cli/*",
+		"{app_data}/vendor/*", "{local_app_data}/vendor/c*", "{documents}/*", "{documents}/Rules/c*",
+	} {
+		if why := globProblem(g); why != "" {
+			t.Errorf("%q refused: %s", g, why)
+		}
+	}
+	for _, g := range []string{
+		"{home}/*", "{home}/**", "{home}/.config/*", "{home}/.config/c*", "{home}/c*", "{home}/.c*",
+		"{xdg_config}/*", "{xdg_config}/c*", "{app_data}/*", "{local_app_data}/c*",
+		"{home}/Library/*/cartographer", "{home}/Library/Application Support/*", "{home}/x/.cartographer.yaml",
+		"{home}/x/cartographer", "{home}/x/.cartographer-*", "{xdg_config}/x/cartographer/**", "{documents}/x/cartographer",
+		"{home}/*.yaml", "{home}/cartographer-data/**", "{home}/cartographer-data/*", "{home}/.local/share/cartographer/*",
+		"{xdg_config}/cartographer/*", "{app_data}/cartographer/**",
+	} {
+		if why := globProblem(g); why == "" {
+			t.Errorf("%q accepted", g)
+		}
+	}
+}
