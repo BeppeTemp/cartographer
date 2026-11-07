@@ -598,3 +598,35 @@ func (e *landEnv) makeLog() string {
 	b, _ := os.ReadFile(filepath.Join(e.tmp, "gh-state.make"))
 	return string(b)
 }
+
+// A red gate log names two kinds of failure: the linux leg's own lines (a vitest flake)
+// and the `signoff: confirmed on a targeted retry:` line of the Windows leg. The reason
+// of a rejection names the confirmed tests first, each once, then the rest (#1794).
+func TestLanderNamesTheConfirmedTestsFirstInTheRejection(t *testing.T) {
+	needBash(t)
+	root := repoRoot(t)
+	script := readFile(t, root, "scripts/land.sh")
+	start := strings.Index(script, "\nfailing() {")
+	end := strings.Index(script[start+1:], "\n}\n")
+	if start < 0 || end < 0 {
+		t.Fatal("failing() not found in scripts/land.sh")
+	}
+	fn := script[start : start+1+end+3]
+	logFile := filepath.Join(t.TempDir(), "gate.log")
+	body := " FAIL  src/test/releases.test.tsx > shows the releases\n" +
+		"--- FAIL: TestLinuxOnly (0.01s)\n" +
+		"--- FAIL: TestResolveProviderDocumentsInstructions (0.01s)\n" +
+		"signoff: confirmed on a targeted retry: plugin.TestResolveProviderDocumentsInstructions plugin.TestOther\n"
+	if err := os.WriteFile(logFile, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "-c", fn+"\nfailing \"$1\"", "bash", logFile)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failing: %v\n%s", err, out)
+	}
+	want := "plugin.TestResolveProviderDocumentsInstructions plugin.TestOther TestLinuxOnly src/test/releases.test.tsx"
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Errorf("failing() = %q, want %q", got, want)
+	}
+}

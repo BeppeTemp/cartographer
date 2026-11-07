@@ -275,10 +275,13 @@ else
     assert_file_contains "${SANDBOX_DIR}/.cartographer.yaml" 'approvals_migrated'
 fi
 
-# The approvals recorded by the old client survive the upgrade unchanged:
-# mcp_approvals keys the hook as hook/<name>, the descriptor by its name.
-assert_file_contains "${SANDBOX_DIR}/.cartographer.yaml" 'hook/upgrade-guard:'
-assert_file_contains "${SANDBOX_DIR}/.cartographer.yaml" 'upgrade-tools:'
+# The approvals recorded by the old client survive the upgrade unchanged, now in the
+# machine file (D1728): approvals.<kb> keys the hook as hook/<name>, the descriptor by
+# its name. The YAML no longer holds them, and keeps the old copy as a backup.
+assert_file_contains "${SANDBOX_DIR}/.cartographer-machine.json" '"hook/upgrade-guard":'
+assert_file_contains "${SANDBOX_DIR}/.cartographer-machine.json" '"upgrade-tools":'
+assert_file_not_contains "${SANDBOX_DIR}/.cartographer.yaml" 'mcp_approvals'
+assert_file_exists "${SANDBOX_DIR}/.cartographer.yaml.bak-pre-machine"
 
 if grep -E '\] (diverged locally|moved |unsupported)' "${WORK_DIR}/head-sync.out"; then
     _assert_fail "HEAD sync reports a diverged, moved or unsupported artifact"
@@ -386,7 +389,7 @@ client "$BIN" approve revoke hook upgrade-guard --kb kb >/dev/null
 client "$BIN" sync >"${WORK_DIR}/head-sync-revoked.out"
 assert_file_contains "${WORK_DIR}/head-sync-revoked.out" 'needs_approval: hook/upgrade-guard [kb:kb]'
 assert_file_not_contains "${WORK_DIR}/head-sync-revoked.out" "$migration_line"
-assert_file_not_contains "${SANDBOX_DIR}/.cartographer.yaml" 'hook/upgrade-guard:'
+assert_file_not_contains "${SANDBOX_DIR}/.cartographer-machine.json" '"hook/upgrade-guard":'
 
 # --- Report ---
 echo ""

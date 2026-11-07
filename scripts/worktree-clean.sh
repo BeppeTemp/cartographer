@@ -22,7 +22,7 @@
 # branch: a worktree on feat/<slug> or exp/<slug> is also removed when the upstream main
 # holds a commit with both `Lander-Slug: <slug>` and `Lander-Tip: <the branch head>` trailers
 # (the lander keeps them), ready/<slug> is gone from the upstream (an ls-remote failure
-# counts as still there), and the worktree is clean. Worktrees landed before the trailer are removed by
+# counts as still there), and the worktree is clean (a head past the tip, by merges of landed work only, counts). Worktrees landed before the trailer are removed by
 # hand. The worktree a running lander was started from is never removed (lander-guard.sh).
 set -euo pipefail
 
@@ -67,13 +67,33 @@ if [ -n "$landed_main" ]; then
   landed_pairs=$(git log --format='%(trailers:key=Lander-Slug,valueonly,separator=%x2C)%x09%(trailers:key=Lander-Tip,valueonly,separator=%x2C)' "$landed_main") || landed_pairs=""
 fi
 
+# landed_tips: the Lander-Tip of every landed commit that exists in this clone, one per line.
+landed_tips() {
+  [ -n "$landed_pairs" ] || return 0
+  cut -f2 <<<"$landed_pairs" | grep -E '^[0-9a-f]{40}$' | sort -u |
+    git cat-file --batch-check | awk '$2 == "commit" { print $1 }'
+}
+
 # landed_slug <slug> <head>: a commit of the upstream main carries both `Lander-Slug: <slug>`
 # and `Lander-Tip: <head>` (the slug alone proves nothing: it can be reused, or copied into
-# a PR body), and the change is no longer queued there. Fails closed: a failing ls-remote
-# reads as "still queued".
+# a PR body), and the change is no longer queued there. The head may be past the tip the
+# change was queued from (a slug queued again after a rejection, a change it is stacked on
+# merged into the branch after `make ready`): then that tip must be an ancestor of the head
+# and every non-merge commit after it already part of some landed tip. Fails closed: a
+# failing ls-remote reads as "still queued".
 landed_slug() {
-  local queued
-  grep -qxF "$1"$'\t'"$2" <<<"$landed_pairs" || return 1
+  local queued s tip tips ok=0
+  if grep -qxF "$1"$'\t'"$2" <<<"$landed_pairs"; then
+    ok=1
+  else
+    tips=$(landed_tips)
+    while IFS=$'\t' read -r s tip; do
+      [ "$s" = "$1" ] && [[ "$tip" =~ ^[0-9a-f]{40}$ ]] || continue
+      git merge-base --is-ancestor "$tip" "$2" 2>/dev/null || continue
+      if [ -z "$({ echo "$2"; echo "^$tip"; sed 's/^/^/' <<<"$tips"; } | git rev-list --no-merges --stdin 2>/dev/null | head -n 1)" ]; then ok=1; break; fi
+    done <<<"$landed_pairs"
+  fi
+  [ "$ok" = 1 ] || return 1
   queued=$(git ls-remote --heads "$up_remote" "refs/heads/ready/$1" 2>/dev/null) || return 1
   [ -z "$queued" ]
 }
