@@ -358,7 +358,7 @@ file is skipped with a warning. The files in `mcp.stale` are
 removed after a write that changed bytes, never after a no-op, and only when at most three exist and none lies
 behind a link; servers added through the client's UI are dropped at its next start. Disconnect edits only the files
 the entry is in. `cli` writes no entry and projects the bundled `cartographer-cli` skill, and the instructions block
-names the provider to pass to `cartographer call`; `none` writes neither, and `connect`, `sync`, `disconnect` and
+names the provider to pass to `cartographer call`, whose KB set the folder's workspace bindings narrow, derived ones included, with the projection scope unchanged (#1804); `none` writes neither, and `connect`, `sync`, `disconnect` and
 `doctor` skip it without a warning.
 
 A provider whose base has a shared hook dispatcher (Cline) contributes its `hook` cell as one more root of the

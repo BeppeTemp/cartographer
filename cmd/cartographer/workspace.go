@@ -656,11 +656,16 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 	fmt.Fprintf(&sb, "folder %s\n", path)
 	for _, p := range providers {
 		scope := mcpbridge.Resolve(cfg, p, path)
-		entry := "http"
-		if cfg.UsesBridge(p, cfg.ServerRoutedPath) {
-			entry = "bridge"
+		entry, label := "http", "global MCP entry: http"
+		switch {
+		case configurator.UsesCLI(configurator.Provider(p)):
+			// No MCP entry: `cartographer call` runs the bridge itself, so the
+			// folder's bindings narrow it (#1804).
+			entry, label = "cli", "MCP mode: cli, served by `cartographer call`"
+		case cfg.UsesBridge(p, cfg.ServerRoutedPath):
+			entry, label = "bridge", "global MCP entry: bridge"
 		}
-		fmt.Fprintf(&sb, "%s  (global MCP entry: %s)\n", p, entry)
+		fmt.Fprintf(&sb, "%s  (%s)\n", p, label)
 		switch {
 		case scope.Err != nil:
 			fmt.Fprintf(&sb, "  unusable binding: %v\n  no KB is served here until it is fixed\n", scope.Err)
