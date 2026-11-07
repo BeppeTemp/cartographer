@@ -217,7 +217,7 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (res Result
 		Print: func(_ *starlark.Thread, msg string) { emit(printw, prefix, msg) },
 		OnMaxSteps: func(t *starlark.Thread) {
 			stepsHit.Store(true)
-			t.Cancel("too many steps")
+			t.Cancel(stepsCancel)
 		},
 	}
 	thread.SetLocal(ctxKey, cc)

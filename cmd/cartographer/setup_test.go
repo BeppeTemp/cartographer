@@ -656,6 +656,9 @@ func TestRunSetup_ConnectExitThreeIsNotSetUp(t *testing.T) {
 		errs := withStderr(t, func() {
 			code = runSetup(setupOptions{NoRemote: true, Name: "kb-a"}, false, true, false, noPrompt())
 		})
+		if !strings.Contains(errs, "providers.<provider>.allow_symlinks") {
+			t.Errorf("stderr = %q, want the allow_symlinks key named as connect names it", errs)
+		}
 		if !strings.Contains(errs, "opencode (MCP entry skipped)") {
 			t.Errorf("stderr = %q, want the agent that is not wired named", errs)
 		}

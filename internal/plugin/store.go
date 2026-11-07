@@ -167,6 +167,9 @@ func (s Store) Open(name, digest string, opts Options) (Plugin, error) {
 	if err != nil {
 		return Plugin{}, fmt.Errorf("%w: %v", ErrModified, err)
 	}
+	if sp := specialIn(files); sp != "" {
+		return Plugin{}, fmt.Errorf("%w: %s: a symlink or non-regular file", ErrModified, sp)
+	}
 	p, problems := ReadTree(files, opts)
 	if p.Digest != digest {
 		return Plugin{}, fmt.Errorf("%w: digest is %s", ErrModified, p.Digest)
@@ -177,10 +180,25 @@ func (s Store) Open(name, digest string, opts Options) (Plugin, error) {
 	return p, nil
 }
 
+// specialIn names the first symlink or non-regular file of a tree read back from
+// the store, or "": a stored tree never holds one, so it was changed after the
+// write (ErrModified), whatever its digest says.
+func specialIn(files []TreeFile) string {
+	for _, f := range files {
+		if f.Special {
+			return f.Path
+		}
+	}
+	return ""
+}
+
 func checkDir(dir, want string, opts Options) error {
 	files, err := readFolder(dir)
 	if err != nil {
 		return err
+	}
+	if sp := specialIn(files); sp != "" {
+		return fmt.Errorf("plugin: %s in the tree written to the store is a symlink or non-regular file", sp)
 	}
 	p, problems := ReadTree(files, opts)
 	if len(problems) > 0 || p.Digest != want {

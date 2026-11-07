@@ -88,7 +88,8 @@ func FetchTree(ctx context.Context, remote, ref, tmpParent string, lim TreeLimit
 	fetch := netCommand(fctx, env, "-C", tmp, "-c", "core.autocrlf=false", "fetch", "-q", "--depth", "1",
 		"--no-tags", "--no-recurse-submodules", "--", remote, ref)
 	if out, err := fetch.CombinedOutput(); err != nil {
-		return nil, "", cloneError(fctx, remote, tmp, err, string(out))
+		// Names the source and the ref, not the throwaway directory.
+		return nil, "", gitNetError(fctx, remote, "fetch", ref, err, strings.ReplaceAll(string(out), tmp, "<temp>"))
 	}
 	out, err := local("rev-parse", "--verify", "FETCH_HEAD^{commit}").Output()
 	sha := strings.TrimSpace(string(out))

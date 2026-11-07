@@ -456,7 +456,11 @@ tool("go", go, "go")
 	extra = counting()
 	prog, _ = run(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, extra, nil)
 	_, err = prog.call(context.Background(), toolReq("go", `{}`), callOpts{extra: extra, steps: 100000})
-	callErr(t, err, LimitExceeded)
+	ce := callErr(t, err, LimitExceeded)
+	// The load inside a call says the cap that applied to it, not MaxLoadSteps.
+	if !strings.Contains(ce.Msg, "the script ran more than ") || !strings.Contains(ce.Msg, " steps") || strings.Contains(ce.Msg, "20000000") {
+		t.Errorf("message = %q", ce.Msg)
+	}
 }
 
 func TestCallRefusesAScriptThatRegistersDifferently(t *testing.T) {

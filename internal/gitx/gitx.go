@@ -268,18 +268,32 @@ func isSSHRemote(remote string) bool {
 // convenience, not a filter, and an unrecognised failure must not be reduced
 // to "git clone failed".
 func cloneError(ctx context.Context, remote, dest string, err error, output string) error {
+	return gitNetError(ctx, remote, "clone", dest, err, output)
+}
+
+// gitNetError is cloneError for the network call verb ("clone", "fetch"); what
+// is the argument the message names after the remote: the destination of a
+// clone, the ref of a fetch.
+func gitNetError(ctx context.Context, remote, verb, what string, err error, output string) error {
 	// The remote may carry credentials (https://user:token@host/...): the
 	// error text reaches logs and agent transcripts, so it names the
 	// redacted form and git's output is scrubbed of the raw one.
 	shown := RedactRemoteURL(remote)
 	output = RedactRemoteText(output, remote)
 	if ctx.Err() != nil {
-		return fmt.Errorf("%w while cloning %s: %v", ErrCloneTimeout, shown, ctx.Err())
+		gerund := map[string]string{"clone": "cloning", "fetch": "fetching"}[verb]
+		return fmt.Errorf("%w while %s %s: %v", ErrCloneTimeout, gerund, shown, ctx.Err())
+	}
+	// A clone names its remote, a fetch its remote and the ref; the clone's
+	// destination stays out of the remedy line as it always has.
+	label := "git " + verb + " " + shown
+	if verb == "fetch" {
+		label += " " + what
 	}
 	if remedy := remoteRemedy(output); remedy != "" {
-		return fmt.Errorf("git clone %s: %s\n%s", shown, remedy, strings.TrimSpace(output))
+		return fmt.Errorf("%s: %s\n%s", label, remedy, strings.TrimSpace(output))
 	}
-	return fmt.Errorf("git clone %s %s: %w: %s", shown, dest, redactedErr(err, remote), strings.TrimSpace(output))
+	return fmt.Errorf("git %s %s %s: %w: %s", verb, shown, what, redactedErr(err, remote), strings.TrimSpace(output))
 }
 
 // remoteRemedy maps git's output for a failed network operation to the one

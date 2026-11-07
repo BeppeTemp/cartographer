@@ -27,14 +27,23 @@ type LoadError struct {
 
 func (e *LoadError) Error() string { return e.Msg }
 
+// stepsCancel is the reason a thread is cancelled with when it runs out of steps.
+const stepsCancel = "too many steps"
+
 func loadError(err error) *LoadError {
 	var ev *starlark.EvalError
 	if errors.As(err, &ev) {
 		msg := ev.Msg
+		// The cap of a first Load; a load inside a call is reported by
+		// runLimits.failure, with the cap that thread had.
+		if strings.HasSuffix(msg, "cancelled: "+stepsCancel) {
+			// Said as a call says it; the position below stays.
+			msg = fmt.Sprintf("the script ran more than %d steps", MaxLoadSteps)
+		}
 		for i := len(ev.CallStack) - 1; i >= 0; i-- {
 			// The innermost frame of a builtin error is the builtin itself, which has no source.
 			if p := ev.CallStack[i].Pos; p.IsValid() && p.Filename() != "<builtin>" {
-				msg = fmt.Sprintf("%s:%d:%d: %s", p.Filename(), p.Line, p.Col, ev.Msg)
+				msg = fmt.Sprintf("%s:%d:%d: %s", p.Filename(), p.Line, p.Col, msg)
 				break
 			}
 		}
