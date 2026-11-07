@@ -17,6 +17,13 @@
 # (that is GitHub's own "delete head branch"), and only while it is still at the
 # commit that was merged. A failure to delete it is reported and exits 1: the
 # local cleanup is done anyway.
+#
+# A maintainer's change lands as a commit of a train PR (D1706), never as a PR of its
+# branch: a worktree on feat/<slug> or exp/<slug> is also removed when the upstream main
+# holds a commit with both `Lander-Slug: <slug>` and `Lander-Tip: <the branch head>` trailers
+# (the lander keeps them), ready/<slug> is gone from the upstream (an ls-remote failure
+# counts as still there), and the worktree is clean. Worktrees landed before the trailer are removed by
+# hand. The worktree a running lander was started from is never removed (lander-guard.sh).
 set -euo pipefail
 
 dry=0
@@ -45,13 +52,55 @@ for r in $(git remote); do
   fi
 done
 
+# The upstream remote, and its main (fetched once) for the Lander-Slug trailers.
+up_remote=""
+for r in $(git remote); do
+  [ "$(lower "$(slug_of "$r")")" = "$(lower "$upstream")" ] && { up_remote=$r; break; }
+done
+landed_main=""
+if [ -n "$up_remote" ] && git fetch -q "$up_remote" main 2>/dev/null; then landed_main=$(git rev-parse FETCH_HEAD); fi
+
+# The trailers of the upstream main, read once: "<Lander-Slug>\t<Lander-Tip>" per commit.
+# (A `git log | grep -q` pipe fails with SIGPIPE on a long history under pipefail.)
+landed_pairs=""
+if [ -n "$landed_main" ]; then
+  landed_pairs=$(git log --format='%(trailers:key=Lander-Slug,valueonly,separator=%x2C)%x09%(trailers:key=Lander-Tip,valueonly,separator=%x2C)' "$landed_main") || landed_pairs=""
+fi
+
+# landed_slug <slug> <head>: a commit of the upstream main carries both `Lander-Slug: <slug>`
+# and `Lander-Tip: <head>` (the slug alone proves nothing: it can be reused, or copied into
+# a PR body), and the change is no longer queued there. Fails closed: a failing ls-remote
+# reads as "still queued".
+landed_slug() {
+  local queued
+  grep -qxF "$1"$'\t'"$2" <<<"$landed_pairs" || return 1
+  queued=$(git ls-remote --heads "$up_remote" "refs/heads/ready/$1" 2>/dev/null) || return 1
+  [ -z "$queued" ]
+}
+
 removed=0 skipped=0 failed=0
 skip() { echo "skip   $1: $2"; skipped=$((skipped + 1)); }
 
 clean_one() {
-  local path=$1 branch=$2 tip pr oid owner state remote remote_tip
+  local path=$1 branch=$2 why slug tip pr oid owner state remote remote_tip
   if [ -n "$(git -C "$path" status --porcelain)" ]; then skip "$branch" "uncommitted changes in $path"; return; fi
   case "$cwd/" in "$path"/*) skip "$branch" "you are inside $path"; return ;; esac
+
+  if ! why=$("$here/lander-guard.sh" "$path" 2>&1); then skip "$branch" "${why#lander-guard: }"; return; fi
+
+  case "$branch" in feat/*|exp/*) slug=${branch#*/} ;; *) slug="" ;; esac
+  if [ -n "$slug" ] && landed_slug "$slug" "$(git -C "$path" rev-parse HEAD)"; then
+    if [ "$dry" = 1 ]; then
+      echo "would  remove $branch (landed in a train as $slug): worktree $path and local branch"
+      removed=$((removed + 1)); return
+    fi
+    if ! git worktree remove "$path" || ! git branch -D "$branch" >/dev/null; then
+      echo "fail   $branch: git could not remove its worktree or local branch" >&2
+      failed=$((failed + 1)); return
+    fi
+    echo "removed $branch (landed in a train as $slug): worktree and local branch"
+    removed=$((removed + 1)); return
+  fi
 
   if ! pr=$(gh pr list -R "$upstream" --head "$branch" --state merged --limit 20 \
     --json number,headRefOid,headRepositoryOwner \

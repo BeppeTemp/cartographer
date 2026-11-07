@@ -25,7 +25,7 @@ make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
-make worktree-clean [DRY=1]        # remove worktrees of merged PRs, each checked
+make worktree-clean [DRY=1]        # remove worktrees of merged PRs and landed trains, each checked
 make dev [DATA=<data dir>]         # live instance: Go rebuilt on change, UI hot-reloaded
 ```
 

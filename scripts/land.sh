@@ -92,7 +92,10 @@ dry=false
 if ! $dry; then
   if running && [ "$(cat "$state/pid")" != $$ ]; then echo "land: a lander already runs here"; exit 0; fi
   echo $$ >"$state/pid"
-  trap 'rm -f "$state/pid"' EXIT
+  # The root this lander runs from: removing that worktree deletes the scripts under it
+  # (scripts/lander-guard.sh, used by worktree-rm and worktree-clean, reads this file).
+  (cd "$here/.." && pwd -P) >"$state/root"
+  trap 'rm -f "$state/pid" "$state/root"' EXIT
   # The lander mostly waits (on the gate, on GitHub). A Mac on battery sleeps when idle, and
   # asleep the lander advances only in its dark wakes, a quarter of an hour apart, waking
   # with the network still down: caffeinate keeps it awake (not a closed lid) until the
@@ -284,8 +287,14 @@ while :; do
       reject "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
       continue
     fi
+    tip=$(trailer Lander-Tip "$sha")
     msg=$(git log -1 --format=%B | grep -vE '^(Lander-[A-Za-z]+|Review): ' || true)
-    printf '%s\n' "$msg" | git commit -q --amend --allow-empty -F -
+    # The lander's other trailers stay off main; the slug and the branch head ready.sh
+    # squashed stay, so `make worktree-clean` can tell that the work of a feat/<slug>
+    # worktree landed (the train PR is not its PR). Any copy in the message was dropped above.
+    targs=(--trailer "Lander-Slug: $s")
+    [ -z "$tip" ] || targs+=(--trailer "Lander-Tip: $tip")
+    printf '%s\n' "$msg" | git interpret-trailers "${targs[@]}" | git commit -q --amend --allow-empty -F -
     number_decisions
     if [ -n "$LEFT" ]; then
       git reset -q --hard HEAD~1

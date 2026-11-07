@@ -204,7 +204,7 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 	dec := "docs/" + "decisions/"
 	e.queue("two", "fix(kb): two\n\nLander-After: one\nReview: standard, 1 rounds\n", "2026-01-01T10:00:00Z",
 		map[string]string{"two.txt": "follows D-new-one\n"})
-	e.queue("one", "feat(client): one\n\nCloses #5\n", "2026-01-01T11:00:00Z", map[string]string{
+	e.queue("one", "feat(client): one\n\nCloses #5\n\nLander-Slug: planted\nLander-Tip: 1111111111111111111111111111111111111111\n", "2026-01-01T11:00:00Z", map[string]string{
 		dec + "D-new-one.md":     "---\ntopic: x\n---\n\n# D-new-one — One\n",
 		dec + "D-new-one-two.md": "---\ntopic: x\n---\n\n# D-new-one-two — One two\n",
 		"notes.md":               "see D-new-one and D-new-one-two\n",
@@ -238,8 +238,27 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 	if got := e.upGit("show", "--name-only", "--format=", "main~1"); !strings.Contains(got, dec+"D12-one.md") {
 		t.Errorf("the numbered file must be in change one's commit, got %s", got)
 	}
-	if msgs := e.upGit("log", "--format=%B", "main"); strings.Contains(msgs, "Lander-") || strings.Contains(msgs, "Review:") {
+	msgs := e.upGit("log", "--format=%B", "main")
+	if strings.Contains(msgs, "Lander-After") || strings.Contains(msgs, "Review:") {
 		t.Errorf("the lander's trailers must not reach main:\n%s", msgs)
+	}
+	// Only the slug stays, for make worktree-clean (a train PR is not the PR of feat/<slug>).
+	for _, slug := range []string{"one", "two"} {
+		if !strings.Contains(msgs, "Lander-Slug: "+slug+"\n") {
+			t.Errorf("the commit of %s must keep its Lander-Slug trailer:\n%s", slug, msgs)
+		}
+	}
+	// A copy of the trailers in the queued message is dropped: the lander's values, one each.
+	if strings.Contains(msgs, "planted") || strings.Count(msgs, "Lander-Tip: 1111111111111111111111111111111111111111\n") != 1 || strings.Count(msgs, "Lander-Tip:") != 1 {
+		t.Errorf("one Lander-Tip (the queued one), no copied Lander-Slug:\n%s", msgs)
+	}
+	if n := strings.Count(msgs, "Lander-Slug:"); n != 2 {
+		t.Errorf("one Lander-Slug per landed commit, got %d:\n%s", n, msgs)
+	}
+	for _, f := range []string{"pid", "root"} {
+		if _, err := os.Stat(filepath.Join(e.tmp, "lander", f)); err == nil {
+			t.Errorf("the lander must remove its %s file on exit", f)
+		}
 	}
 	if e.refs("ready/") != "" || e.refs("train/") != "" {
 		t.Errorf("the queue and the train branch must be gone: ready=%q train=%q", e.refs("ready/"), e.refs("train/"))
@@ -527,6 +546,9 @@ func TestReadyQueuesOneCommitWithTheMessage(t *testing.T) {
 		t.Errorf("one commit on the merge-base: parent %s, want %s", parent, base)
 	}
 	msg := e.upGit("log", "-1", "--format=%B", "ready/my-change")
+	if want := "Lander-Tip: " + e.git("rev-parse", "HEAD"); !strings.Contains(msg, want) {
+		t.Errorf("the queued commit must record the branch head squashed (%s):\n%s", want, msg)
+	}
 	for _, want := range []string{"feat(client): my change", "Closes #7", "Lander-After: other", "Review: light, 1 rounds"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the queued message lacks %q:\n%s", want, msg)

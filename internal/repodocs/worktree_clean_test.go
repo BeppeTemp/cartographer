@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -42,7 +43,7 @@ func TestWorktreeCleanRemovesOnlyWhatAMergedPRCovers(t *testing.T) {
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=user", "GIT_AUTHOR_EMAIL=user@example.com",
 		"GIT_COMMITTER_NAME=user", "GIT_COMMITTER_EMAIL=user@example.com",
-		"FAKE_GH_PRS="+prs,
+		"FAKE_GH_PRS="+prs, "LAND_STATE="+filepath.Join(tmp, "lander"),
 		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 	run := func(dir string, name string, args ...string) string {
@@ -79,7 +80,7 @@ awk -F'\t' -v b="$b" '$1 == b { print $2 "\t" $3 "\t" $4 }' "$FAKE_GH_PRS"
 	run(tmp, "git", "init", "-q", "-b", "main", work)
 	run(work, "git", "remote", "add", "upstream", up)
 	run(work, "git", "remote", "add", "fork", fork)
-	for _, s := range []string{"worktree-clean.sh", "upstream-repo.sh"} {
+	for _, s := range []string{"worktree-clean.sh", "upstream-repo.sh", "lander-guard.sh"} {
 		write(filepath.Join(work, "scripts", s), readFile(t, root, "scripts/"+s), 0o755)
 	}
 	write(filepath.Join(work, "README"), "x\n", 0o644)
@@ -126,6 +127,36 @@ awk -F'\t' -v b="$b" '$1 == b { print $2 "\t" $3 "\t" $4 }' "$FAKE_GH_PRS"
 	merged("fix/5-moved", movedTip)
 	later := run(movedPath, "git", "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "pushed after the merge")
 	run(movedPath, "git", "push", "-q", "fork", later+":refs/heads/fix/5-moved")
+
+	// A maintainer's change lands in a train: no PR of its branch, only the
+	// Lander-Slug and Lander-Tip trailers on the upstream main.
+	land := func(slug, tip string, trailers ...string) {
+		t.Helper()
+		write(filepath.Join(work, "landed-"+slug+".txt"), slug+"\n", 0o644)
+		run(work, "git", "add", ".")
+		args := []string{"commit", "-q", "-m", "feat: " + slug, "-m", strings.Join(trailers, "\n")}
+		run(work, "git", args...)
+		run(work, "git", "push", "-q", "upstream", "main")
+	}
+	trainPath, trainTip := branch("feat/6-landed", "6-landed")
+	queuedPath, queuedTip := branch("feat/7-queued", "7-queued")
+	guardedPath, guardedTip := branch("exp/8-guarded", "8-guarded")
+	unlandedPath, _ := branch("feat/9-unlanded", "9-unlanded")
+	reusedPath, _ := branch("feat/10-reused", "10-reused")
+	plantedPath, _ := branch("feat/11-planted", "11-planted")
+	pair := func(slug, tip string) []string { return []string{"Lander-Slug: " + slug, "Lander-Tip: " + tip} }
+	land("6-landed", trainTip, pair("6-landed", trainTip)...)
+	land("7-queued", queuedTip, pair("7-queued", queuedTip)...)
+	land("8-guarded", guardedTip, pair("8-guarded", guardedTip)...)
+	// The slug landed before, from another head: the branch of today holds work that never landed.
+	land("10-reused", "", pair("10-reused", strings.Repeat("a", 40))...)
+	// A commit of any PR body can carry a Lander-Slug line; without the Lander-Tip it proves nothing.
+	land("11-planted", "", "Lander-Slug: 11-planted")
+	// 7-queued is still queued upstream; 9-unlanded has no trailer on main.
+	run(work, "git", "push", "-q", "upstream", "HEAD:refs/heads/ready/7-queued")
+	// A lander running from 8-guarded's root.
+	write(filepath.Join(tmp, "lander", "pid"), strconv.Itoa(os.Getpid())+"\n", 0o644)
+	write(filepath.Join(tmp, "lander", "root"), guardedPath+"\n", 0o644)
 
 	clean := func(args ...string) (string, bool) {
 		t.Helper()
@@ -176,6 +207,23 @@ awk -F'\t' -v b="$b" '$1 == b { print $2 "\t" $3 "\t" $4 }' "$FAKE_GH_PRS"
 			t.Errorf("%s: the fork branch must be kept (%s)\n%s", c.name, c.why, out)
 		}
 	}
+	if exists(trainPath) || hasBranch("feat/6-landed") {
+		t.Errorf("feat/6-landed: its slug is a Lander-Slug on main and it is not queued: it must go\n%s", out)
+	}
+	for _, c := range []struct{ name, path, why string }{
+		{"feat/7-queued", queuedPath, "still queued as ready/7-queued"},
+		{"exp/8-guarded", guardedPath, "a running lander started from it"},
+		{"feat/9-unlanded", unlandedPath, "no Lander-Slug on main"},
+		{"feat/10-reused", reusedPath, "the slug landed from another head"},
+		{"feat/11-planted", plantedPath, "a Lander-Slug without the branch head as Lander-Tip"},
+	} {
+		if !exists(c.path) || !hasBranch(c.name) {
+			t.Errorf("%s must be kept (%s)\n%s", c.name, c.why, out)
+		}
+	}
+	if !strings.Contains(out, "skip   exp/8-guarded: the lander (pid") {
+		t.Errorf("the skip must name the lander's worktree\n%s", out)
+	}
 	// Merged and clean locally, but the fork branch moved after the merge:
 	// the local side goes, the fork branch stays.
 	if exists(movedPath) || hasBranch("fix/5-moved") {
@@ -183,5 +231,68 @@ awk -F'\t' -v b="$b" '$1 == b { print $2 "\t" $3 "\t" $4 }' "$FAKE_GH_PRS"
 	}
 	if forkTip("fix/5-moved") != later {
 		t.Errorf("fix/5-moved: the fork branch moved after the merge and must be kept\n%s", out)
+	}
+}
+
+// The guard refuses the worktree a running lander started from, also the main checkout,
+// and lets any other go; a lander that is not running guards nothing.
+func TestLanderGuardRefusesTheRootOfARunningLander(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash script, run by the Unix legs")
+	}
+	root := repoRoot(t)
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_AUTHOR_NAME=user", "GIT_AUTHOR_EMAIL=user@example.com",
+		"GIT_COMMITTER_NAME=user", "GIT_COMMITTER_EMAIL=user@example.com",
+		"LAND_STATE="+filepath.Join(tmp, "state"))
+	run := func(dir string, name string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(name, args...)
+		cmd.Dir, cmd.Env = dir, env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s %v: %v\n%s", name, args, err, out)
+		}
+	}
+	main := filepath.Join(tmp, "main")
+	run(tmp, "git", "init", "-q", "-b", "main", main)
+	run(main, "git", "commit", "-q", "--allow-empty", "-m", "init")
+	run(main, "git", "worktree", "add", "-q", "-b", "feat/x", filepath.Join(main, ".worktrees", "x"))
+	if err := os.MkdirAll(filepath.Join(main, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(main, "scripts", "lander-guard.sh"), []byte(readFile(t, root, "scripts/lander-guard.sh")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	guard := func(path string) bool {
+		cmd := exec.Command("bash", filepath.Join(main, "scripts", "lander-guard.sh"), path)
+		cmd.Dir, cmd.Env = main, env
+		return cmd.Run() == nil
+	}
+	state := filepath.Join(tmp, "state")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pid := filepath.Join(state, "pid")
+	rootFile := filepath.Join(state, "root")
+	os.WriteFile(rootFile, []byte(main+"\n"), 0o644)
+	if !guard(main) {
+		t.Fatal("no lander runs: nothing is guarded")
+	}
+	os.WriteFile(pid, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644)
+	if guard(main) {
+		t.Error("the main checkout a running lander started from must be refused")
+	}
+	if !guard(filepath.Join(main, ".worktrees", "x")) {
+		t.Error("another worktree must be allowed")
 	}
 }

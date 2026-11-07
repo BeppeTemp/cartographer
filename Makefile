@@ -205,6 +205,7 @@ worktree-add: ## Isolated worktree for a plan branch (from upstream/main when th
 worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree-rm SLUG=my-change (the branch is read from the worktree: feat/ or exp/)
 	@test -n "$(SLUG)" || (echo "worktree-rm: SLUG is required" && exit 1)
 	@test -d ".worktrees/$(SLUG)" || (echo "worktree-rm: no worktree at .worktrees/$(SLUG)" && exit 1)
+	@./scripts/lander-guard.sh ".worktrees/$(SLUG)"
 	@br=$$(git -C ".worktrees/$(SLUG)" branch --show-current); \
 	git worktree remove --force ".worktrees/$(SLUG)"; \
 	test -z "$$br" || git branch -D "$$br" 2>/dev/null || true

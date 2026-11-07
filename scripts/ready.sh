@@ -19,6 +19,9 @@
 # Trailers the lander reads: `Lander-After: <slug>` (land after that change),
 # `Lander-Hold: yes` (queued, not landed until queued again without it) and
 # `Review: <tier>, <n> rounds` (the review record, copied into the train PR).
+# The lander keeps two trailers on the landed commit, `Lander-Slug: <slug>` and
+# `Lander-Tip: <the branch head squashed>` (added here), which `make worktree-clean`
+# reads; any of them in the message is dropped first.
 #
 # A contributor does not queue: they open a PR, and CI tests it.
 # Plain bash 3.2 (the macOS default).
@@ -71,6 +74,9 @@ args=()
 [ -z "${AFTER:-}" ] || args+=(--trailer "Lander-After: $AFTER")
 [ -z "${HOLD:-}" ] || args+=(--trailer "Lander-Hold: yes")
 [ -z "${REVIEW:-}" ] || args+=(--trailer "Review: $REVIEW")
+# The branch head this commit squashes: with the slug it lets `make worktree-clean` prove
+# the work of a worktree landed (a reused slug or a copied trailer has another head).
+args+=(--trailer "Lander-Tip: $(git rev-parse HEAD)")
 [ ${#args[@]} -eq 0 ] || git interpret-trailers --in-place "${args[@]}" "$full"
 
 # The size cap, as plan-gate applies it to a PR: a `Size exception: <why>` line in the
