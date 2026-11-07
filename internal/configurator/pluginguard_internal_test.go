@@ -29,8 +29,14 @@ func TestCheckPluginMCPPaths_Refusals(t *testing.T) {
 		"stale in a credentials directory":          {cfg, []string{".docker/config.json"}, "no plugin provider may write"},
 		"stale in an ssh directory":                 {cfg, []string{".ssh/known.json"}, "no plugin provider may write"},
 		"stale in a built-in client directory":      {cfg, []string{".codex/config.toml"}, "client directory of codex"},
-		"stale in another application's directory":  {cfg, []string{".config/gcloud/credentials.json"}, "does not lie below"},
-		"stale beside, not below, the config dir":   {cfg, []string{".other/x.json"}, "does not lie below"},
+		"stale in another application's directory":  {cfg, []string{".config/gcloud/credentials.json"}, "lies neither below"},
+		"stale beside, not below, the config dir":   {cfg, []string{".other/x.json"}, "lies neither below"},
+		"stale one directory below a client dir":    {cfg, []string{"Library/Application Support/Code/User/settings.json"}, "lies neither below"},
+		"stale two directories below a client dir":  {cfg, []string{"Library/Application Support/Code/User/globalStorage/state.vscdb"}, "lies neither below"},
+		"stale outside, in a built-in client dir":   {cfg, []string{".claude/a/b/c/x.enc"}, "client directory of claude"},
+		"stale outside, in a denied directory":      {cfg, []string{".ssh/a/b/c/x.enc"}, "no plugin provider may write"},
+		"stale outside, directly in the home":       {cfg, []string{"x.enc"}, "no path below its client directory"},
+		"stale outside, a built-in MCP file":        {cfg, []string{".kiro/settings/mcp.json"}, "client directory of kiro"},
 		"stale is the config":                       {cfg, []string{".fork/ext-*/mcp.json"}, "mcp.config itself"},
 		"stale pattern matching the config":         {cfg, []string{".fork/*/mcp.json"}, "mcp.config itself"},
 		"stale without a config of its own":         {"", []string{".fork/st/x.json"}, "needs an mcp.config"},
@@ -67,6 +73,12 @@ func TestCheckPluginMCPPaths_Accepts(t *testing.T) {
 		{".vscode/extensions/acme.fork-*/settings/mcp.json", []string{".vscode/extensions/acme.fork-*/settings/cache.json"}},
 		{".fork/mcp.json", []string{".fork/derived.json"}},
 		{"Library/Application Support/Fork/*/mcp.json", nil},
+		{".vscode/extensions/vendor.ext-*/mcp.json", []string{"Library/Application Support/Code/User/globalStorage/vendor.ext/settings/x.enc"}},
+		{".vscode/extensions/vendor.ext-*/mcp.json", []string{".config/Code/User/globalStorage/vendor.ext/settings/x.enc"}},
+		{".vscode/extensions/vendor.ext-*/mcp.json", []string{"AppData/Roaming/Code/User/globalStorage/vendor.ext/x.enc"}},
+		{".vscode/extensions/vendor.ext-1.2.3/mcp.json", []string{".config/Code/User/globalStorage/vendor.ext/x.enc"}},
+		{".fork/ext-*/m.json", []string{".fork/st-*/servers.json"}},
+		{".cursor/extensions/vendor.ext-1.2.3/mcp.json", []string{".config/Cursor/User/globalStorage/Vendor.Ext/x.enc"}},
 	} {
 		var config []string
 		if c.config != "" {
@@ -203,5 +215,37 @@ func TestApplyGlob_NoOpTOMLSyncRemovesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); err != nil {
 		t.Errorf("a no-op sync removed the stale file: %v", err)
+	}
+}
+
+// A stale file outside the directory of config is accepted only as the storage
+// of the editor extension whose folder holds config; a rule by depth would let a
+// descriptor delete any user file that deep.
+func TestCheckPluginMCPPaths_StaleOutsideConfigDir(t *testing.T) {
+	for name, c := range map[string]struct {
+		config, stale, want string
+	}{
+		"a repository's object": {".config/myplug/mcp.json", "code/repo/.git/objects/ab/cd", ".git segment"},
+		"a picture":             {".config/myplug/mcp.json", "Pictures/2020/a/b/c.jpg", "lies neither below"},
+		"a browser's logins":    {".config/myplug/mcp.json", ".mozilla/firefox/p/x/logins.json", "lies neither below"},
+		"an editor profile":     {".config/myplug/mcp.json", "Library/Application Support/Code/User/profiles/x/settings.json", "lies neither below"},
+		"storage of a config that is not an extension's": {".config/myplug/mcp.json", "Library/Application Support/Code/User/globalStorage/vendor.ext/x.enc", "lies neither below"},
+		"a mismatched id":               {".vscode/extensions/vendor.ext-*/mcp.json", "Library/Application Support/Code/User/globalStorage/other.ext/x.enc", "lies neither below"},
+		"a prefix of the id only":       {".vscode/extensions/vendor.ext-*/mcp.json", "Library/Application Support/Code/User/globalStorage/vendor/x.enc", "lies neither below"},
+		"id given as *":                 {".vscode/extensions/vendor.ext-*/mcp.json", "Library/Application Support/Code/User/globalStorage/*/x.enc", "lies neither below"},
+		"a star before the id":          {".vscode/extensions/vendor.ext-*/mcp.json", "Library/Application Support/*/User/globalStorage/vendor.ext/x.enc", "replaces part of the client directory"},
+		"no segment after the id":       {".vscode/extensions/vendor.ext-*/mcp.json", "Library/Application Support/Code/User/globalStorage/vendor.ext", "lies neither below"},
+		"another editor's user dir":     {".vscode/extensions/vendor.ext-*/mcp.json", "Library/Application Support/Other/User/globalStorage/vendor.ext/x.enc", "lies neither below"},
+		"a longer name sharing the id":  {".vscode/extensions/vendor.ext-evil-*/x.json", "Library/Application Support/Code/User/globalStorage/vendor.ext/x.enc", "lies neither below"},
+		"an extension a built-in owns":  {".vscode/extensions/saoudrizwan.claude-dev-*/x.json", "Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/x.enc", "lies neither below"},
+		"a Unicode-folded id (Kelvin)":  {".vscode/extensions/vendor.\u212Aext-*/x.json", "Library/Application Support/Code/User/globalStorage/vendor.\u212Aext/x.enc", "lies neither below"},
+		"a Unicode-folded id vs ASCII":  {".vscode/extensions/vendor.kext-*/x.json", "Library/Application Support/Code/User/globalStorage/vendor.\u212Aext/x.enc", "lies neither below"},
+		"a name of another extension":   {".fork/ext-*/m.json", ".fork/x/anything.jpg", "must have its extension"},
+		"a .git segment in the storage": {".vscode/extensions/vendor.ext-*/mcp.json", "Library/Application Support/Code/User/globalStorage/vendor.ext/.git/x", ".git segment"},
+	} {
+		err := CheckPluginMCPPaths("fork", segs(c.config), staleList(c.stale))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v (want %q)", name, err, c.want)
+		}
 	}
 }

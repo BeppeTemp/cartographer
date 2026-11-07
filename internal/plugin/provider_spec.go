@@ -358,7 +358,10 @@ func (s *ProviderSpec) validateCells(v *validator, k string, skill *dirCell, a *
 		}
 	}
 	if instr != nil {
-		s.dirKey(v, k+"instructions.file", instr.File, project, shPlain, false)
+		// A global instructions file may lie under {documents}: it is a Markdown
+		// file nothing runs. A skill, agent or hook directory there would be
+		// executable content next to the Cline dispatchers.
+		s.dirKey(v, k+"instructions.file", instr.File, project, shPlain, !project)
 		// Every built-in provider's instructions file is Markdown: a shell rc
 		// file or a dotfile can never be one.
 		instr.File.each(func(os, val string) {
@@ -407,8 +410,6 @@ func (s *ProviderSpec) validateMCP(v *validator, base bool) {
 		for i, p := range l[:min(len(l), maxStale)] {
 			if _, err := parsePathTpl(p, false, shFile, false); err != nil {
 				v.add(fmt.Sprintf("mcp.stale.%s[%d]", os, i), "%v", err)
-			} else if want != "" && strings.ToLower(path.Ext(p)) != want {
-				v.add(fmt.Sprintf("mcp.stale.%s[%d]", os, i), "%s must have the extension of the base's MCP file (%s)", q(p), want)
 			}
 		}
 	})

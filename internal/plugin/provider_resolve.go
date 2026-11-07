@@ -93,11 +93,24 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 	}
 	// cell resolves one path of a cell: the segments below home (global) or the
 	// project root.
-	cell := func(key, v string, project bool, sh pathShape) ([]string, bool) {
-		t, err := parsePathTpl(v, project, sh, false)
+	cell := func(key, v string, project bool, sh pathShape, docs bool) ([]string, bool) {
+		t, err := parsePathTpl(v, project, sh, docs)
 		var pre []string
 		if err == nil && !project {
-			_, pre, err = anchor(t.anchor)
+			var root string
+			root, pre, err = anchor(t.anchor)
+			if err == nil && root != "" {
+				// {documents}: a folder outside the home is not a cell, and a
+				// redirected one (OneDrive/Documents) obeys the denials of
+				// Documents/<x> as the literal folder does.
+				var ok bool
+				if pre, ok = under(root); !ok {
+					err = fmt.Errorf("{documents} resolves outside the home directory")
+				} else if gerr := configurator.CheckPluginGlobalPath(key, append([]string{"Documents"}, t.segs...)); gerr != nil {
+					reasons = append(reasons, key+": below {documents}, as under Documents: "+gerr.Error())
+					return nil, false
+				}
+			}
 		}
 		if err != nil {
 			reasons = append(reasons, key+": "+err.Error())
@@ -124,6 +137,13 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 				err = fmt.Errorf("{documents} resolves outside the home directory")
 			}
 			pre = segs
+			// A redirected folder is checked as the literal Documents is (see cell).
+			if err == nil && check {
+				if gerr := configurator.CheckPluginGlobalPath(key, append([]string{"Documents"}, t.segs...)); gerr != nil {
+					reasons = append(reasons, key+": below {documents}, as under Documents: "+gerr.Error())
+					return nil
+				}
+			}
 		}
 		if err != nil {
 			reasons = append(reasons, key+": "+err.Error())
@@ -176,7 +196,7 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 		if !ok {
 			return nil
 		}
-		segs, ok := cell(key, v, project, shPlain)
+		segs, ok := cell(key, v, project, shPlain, false)
 		if !ok {
 			return nil
 		}
@@ -195,7 +215,7 @@ func ResolveProvider(spec ProviderSpec, env ProviderEnv) (ResolvedProvider, []st
 		}
 		if instr != nil {
 			if v, ok := instr.File.pick(env.GOOS); ok {
-				if segs, ok := cell(k+"instructions.file", v, project, shPlain); ok {
+				if segs, ok := cell(k+"instructions.file", v, project, shPlain, !project); ok {
 					sc.Instructions = &ProviderCell{File: segs}
 				}
 			}
@@ -297,6 +317,9 @@ func (r ResolvedProvider) Cells(active bool) provisioning.PluginCells {
 	}
 	if r.MCPMode == "native" && len(r.MCPConfig) > 0 && !strings.Contains(strings.Join(r.MCPConfig, "/"), "*") {
 		out.MCPFile = r.MCPConfig
+	}
+	if r.MCPMode == "native" {
+		out.MCPStale = r.MCPStale
 	}
 	return out
 }

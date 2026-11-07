@@ -47,7 +47,11 @@ type PluginCells struct {
 	// nil when it writes the base's file or one that holds a `*` (those have no
 	// "mcp" cell: the KB's MCP descriptors are not written into a file the
 	// provider shares with its base or into every match of a pattern).
-	MCPFile      []string
+	MCPFile []string
+	// MCPStale are the home-relative files the client derives from its MCP file
+	// and regenerates; removed after a changed write. They are no cell, but may
+	// lie outside the directory of the MCP file, so they obey the overlap rule.
+	MCPStale     [][]string
 	Capabilities map[string]string
 	InvokeHint   string
 }
@@ -62,6 +66,8 @@ type pluginEntry struct {
 	invokeHint   string
 	// roots are the prune boundaries the cells add (pluginBoundaries).
 	roots []string
+	// stale are the fixed prefixes of the provider's mcp.stale files, as slash paths.
+	stale []string
 }
 
 var (
@@ -144,6 +150,22 @@ func pluginDestinations(c PluginCells) (map[Scope]map[string]destination, []stri
 		}
 	}
 	return cells, notes
+}
+
+// staleRels turns stale files into slash paths cut before the first `*`.
+func staleRels(stale [][]string) []string {
+	out := make([]string, 0, len(stale))
+	for _, s := range stale {
+		fixed := s
+		for i, seg := range s {
+			if strings.Contains(seg, "*") {
+				fixed = s[:i]
+				break
+			}
+		}
+		out = append(out, path.Join(fixed...))
+	}
+	return out
 }
 
 // pluginRoots lists the global-scope directory roots a plugin provider's cells
@@ -349,8 +371,25 @@ func validatePluginCells(c PluginCells, home string, others map[configurator.Pro
 		}
 		return nil
 	}
+	// A stale file is deleted, so it must not lie in, contain or equal a root of
+	// a built-in or of another provider either (configurator checks it against the
+	// client directories; the roots, which include a plugin's, are known here).
+	stale := staleRels(c.MCPStale)
+	checkStale := func(owner string, theirs []string) error {
+		for _, m := range stale {
+			for _, t := range theirs {
+				if m != "" && pathsCollide(m, t) {
+					return fmt.Errorf("plugin provider %q: mcp.stale %q overlaps %q, which belongs to %s", c.Name, m, t, owner)
+				}
+			}
+		}
+		return nil
+	}
 	for _, d := range configurator.Providers() {
 		if err := check(string(d.Provider), globalRootRels(d.Provider)); err != nil {
+			return err
+		}
+		if err := checkStale(string(d.Provider), globalRootRels(d.Provider)); err != nil {
 			return err
 		}
 	}
@@ -362,8 +401,20 @@ func validatePluginCells(c PluginCells, home string, others map[configurator.Pro
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		if err := check("plugin provider "+n, pluginRoots(others[configurator.Provider(n)].cells[ScopeGlobal])); err != nil {
+		theirs := pluginRoots(others[configurator.Provider(n)].cells[ScopeGlobal])
+		if err := check("plugin provider "+n, theirs); err != nil {
 			return err
+		}
+		if err := checkStale("plugin provider "+n, theirs); err != nil {
+			return err
+		}
+		// The other direction: my roots against their stale files.
+		for _, m := range mine {
+			for _, t := range others[configurator.Provider(n)].stale {
+				if t != "" && pathsCollide(m, t) {
+					return fmt.Errorf("plugin provider %q: %q overlaps the mcp.stale file %q of plugin provider %s", c.Name, m, t, n)
+				}
+			}
 		}
 	}
 	return nil
@@ -417,7 +468,7 @@ func buildPluginEntry(c PluginCells, home string, others map[configurator.Provid
 	}
 	return pluginEntry{
 		base: configurator.Provider(c.Base), agentFormat: format, active: c.Active, cells: cells,
-		capabilities: c.Capabilities, invokeHint: c.InvokeHint, roots: pluginBoundaries(cells),
+		capabilities: c.Capabilities, invokeHint: c.InvokeHint, roots: pluginBoundaries(cells), stale: staleRels(c.MCPStale),
 	}, notes, nil
 }
 
