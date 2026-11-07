@@ -2,12 +2,18 @@ package star
 
 import "time"
 
-// Limits of one run, named in one place. Memory is not bounded by Starlark: a
-// hostile script can exhaust its own process, and the tree reader loads it
-// before any approval, so it is bounded in CPU (MaxLoadSteps) but not in memory:
-// a denial of service of the user's own client, accepted for now (the decision
-// D1746, follow-up #1741). A plugin is trusted only as
-// far as it was approved; ReadTree runs the scripts only on an otherwise valid
+// Limits of one run, named in one place. Starlark has no allocation cap, and
+// the tree reader loads a script before any approval, so memory is bounded by
+// a watchdog (watchHeap, D1746, #1741): while a thread runs it samples the live
+// heap and cancels the thread when the heap has grown past MaxHeapGrowth over
+// its value at the start (one baseline for a whole call, its re-run of
+// plugin.star included). It is approximate by design, in both directions: the
+// metric counts garbage not yet swept and the allocations of every other
+// goroutine, so it can fire on a script that did little in a process with a
+// large or busy heap, and one huge allocation between two samples can pass the
+// cap. It bounds the common case, a script that keeps allocating, not a single
+// hostile allocation. A plugin is trusted only as far
+// as it was approved; ReadTree runs the scripts only on an otherwise valid
 // tree, and sync compares the digest first.
 const (
 	// MaxLoadSteps caps the interpreter steps of loading plugin.star and each
@@ -25,6 +31,14 @@ const (
 	MaxPrintBytes = 64 << 10
 	// MaxResultBytes caps the text a tool or command returns.
 	MaxResultBytes = 1 << 20
+)
+
+// MaxHeapGrowth is how far the live heap may grow during one run (a load, or the
+// thread of a call) before it is cancelled. HeapSampleEvery is how often the
+// watchdog looks. Variables, not constants, so a test can use a small cap.
+var (
+	MaxHeapGrowth   uint64 = 256 << 20
+	HeapSampleEvery        = 5 * time.Millisecond
 )
 
 // Wall clock of one call; a command has none (it ends when done or on Ctrl-C).

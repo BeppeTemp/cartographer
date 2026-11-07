@@ -87,7 +87,7 @@ order of the files does not matter. It is the one function that knows the tree r
 loading share them.
 
 - At the top: the manifest and one folder per registered point. `README*`, `LICENSE*`, `CHANGELOG*` and `.git*`
-  are ignored and never stored or checked. `plugin.star` and flat `lib/*.star` files are read and loaded (Starlark, 20 million steps at most; `load()` reaches only `lib/` files of the tree, and the capability modules refuse every call at load in this version), and run only on an otherwise valid tree (after the caps and the manifest); a script that does not load is a problem of the tree, and the approval preview shows each script in full with its registrations. `mcp/`
+  are ignored and never stored or checked. `plugin.star` and flat `lib/*.star` files are read and loaded (Starlark, 20 million steps and 256 MiB of heap growth at most; `load()` reaches only `lib/` files of the tree, and the capability modules refuse every call at load in this version), and run only on an otherwise valid tree (after the caps and the manifest); a script that does not load is a problem of the tree, and the approval preview shows each script in full with its registrations. `mcp/`
   and `instructions.md` are not contribution points in this version, and any other entry is an error naming it.
 - Paths are canonical slash paths (`provisioning.ValidArtifactFilePath`) without control or format characters (bidi overrides, zero-width), unique ignoring case; a symlink or
   non-regular file, a file over the artifact file cap, more than 2000 files or 8 MiB in all is an error.
@@ -526,7 +526,11 @@ return value is ignored.
 Limits per call are named constants in `internal/plugin/star/limits.go`: 20 million steps for a tool or an event and
 500 million for a command (and for a load: 20 million), 30 s wall clock for a tool and 10 s for an event (a command
 runs until done or Ctrl-C), 64 KiB of captured `print`, 1 MiB of tool result text, and the HTTP and file caps below.
-**Memory is not bounded**: a hostile script can exhaust its own process, so approve a script as you would run it.
+Memory is bounded by a watchdog, not by the language: while a load or a call runs, the live heap is sampled every
+few milliseconds and the run is cancelled (a tree that does not load, or a `limit exceeded` call) when it has grown
+256 MiB past its value at the start. It is approximate in both directions: the heap is the whole process's and counts garbage not yet
+swept, so it can fire on a script that did little in a busy process, and one huge allocation between two samples can
+pass it. A call has one baseline, taken before its private re-run of `plugin.star`. It stops a script that keeps allocating; approve a script as you would run it.
 The runtime itself writes nothing (no cache, no log file), which is why `cartographer call` still works with a
 read-only home.
 

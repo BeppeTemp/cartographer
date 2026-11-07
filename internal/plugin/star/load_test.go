@@ -1,9 +1,12 @@
 package star
 
 import (
+	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"go.starlark.net/starlark"
@@ -272,5 +275,82 @@ func TestCheckReportsTheLoadError(t *testing.T) {
 	got := Check(entry("x = 1\ny = z\n"))
 	if len(got) != 1 || !strings.HasPrefix(got[0], "plugin.star:2:") {
 		t.Errorf("got %q", got)
+	}
+}
+
+// A script that keeps allocating is cancelled by the memory watchdog instead of
+// exhausting the process. The cap is lowered so the test is quick.
+const allocSrc = `
+def grow():
+    keep = []
+    big = "x" * 1000000
+    for i in range(1000000):
+        keep.append(big + str(i))
+    return len(keep)
+`
+
+func lowHeapCap(t *testing.T) {
+	old := MaxHeapGrowth
+	MaxHeapGrowth = 32 << 20
+	t.Cleanup(func() { MaxHeapGrowth = old })
+}
+
+func TestLoadMemoryCap(t *testing.T) {
+	lowHeapCap(t)
+	for _, files := range map[string][]plugin.TreeFile{
+		"entry": entry(allocSrc + "grow()\n"),
+		"lib":   tree("plugin.star", `load("lib/a.star", "a")`, "lib/a.star", allocSrc+"a = grow()\n"),
+	} {
+		_, err := Load(files)
+		if err == nil || !strings.Contains(err.Error(), "memory use grew past") {
+			t.Errorf("error %v, want the memory cap", err)
+		}
+	}
+}
+
+func TestCallMemoryCap(t *testing.T) {
+	lowHeapCap(t)
+	p := mustLoad(t, allocSrc+"tool(\"grow\", lambda p: grow(), \"grow\")\n")
+	_, err := p.Call(context.Background(), toolReq("grow", `{}`))
+	ce := callErr(t, err, LimitExceeded)
+	if !strings.Contains(ce.Msg, "memory use grew past") {
+		t.Errorf("message %q", ce.Msg)
+	}
+}
+
+// A call whose registered run of plugin.star allocates is stopped too.
+func TestCallRerunMemoryCap(t *testing.T) {
+	p := mustLoad(t, "def f(p):\n    return \"ok\"\ntool(\"f\", f, \"f\")\n")
+	lowHeapCap(t)
+	p.srcs[plugin.ScriptEntry] = []byte(allocSrc + "grow()\ndef f(p):\n    return \"ok\"\ntool(\"f\", f, \"f\")\n")
+	_, err := p.Call(context.Background(), toolReq("f", `{}`))
+	ce := callErr(t, err, LimitExceeded)
+	if !strings.Contains(ce.Msg, "memory use grew past") {
+		t.Errorf("message %q", ce.Msg)
+	}
+}
+
+// The cap is one for the whole call: a re-run of plugin.star that keeps ~24 MB
+// and a call that allocates ~24 MB more, each under the 32 MiB cap, trip it.
+func TestCallMemoryCapIsOneBaseline(t *testing.T) {
+	const tail = `
+def f(p):
+    keep = ["x" * 1000000 for i in range(24)]
+    for i in range(3000000):
+        pass
+    return str(len(keep))
+tool("f", f, "f")
+`
+	p := mustLoad(t, tail) // registers the same line numbers as the re-run below
+	lowHeapCap(t)
+	old := HeapSampleEvery
+	HeapSampleEvery = time.Millisecond
+	t.Cleanup(func() { HeapSampleEvery = old })
+	p.srcs[plugin.ScriptEntry] = []byte(tail + `held = ["y" * 1000000 for i in range(24)]` + "\n")
+	runtime.GC() // the baseline must not carry the garbage of earlier tests
+	_, err := p.call(context.Background(), toolReq("f", `{}`), callOpts{steps: 1 << 40})
+	ce := callErr(t, err, LimitExceeded)
+	if !strings.Contains(ce.Msg, "memory use grew past") {
+		t.Errorf("message %q", ce.Msg)
 	}
 }

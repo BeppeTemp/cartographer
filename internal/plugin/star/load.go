@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"go.starlark.net/starlark"
@@ -98,9 +99,23 @@ func run(srcs map[string][]byte, settings *settingsValue, extra starlark.StringD
 		defer lim.watch()()
 	}
 	l := &loader{srcs: srcs, ctx: ctx, lim: lim, cache: map[string]*loaded{}, predeclared: merge(pure, caps)}
+	base := uint64(0)
+	if lim != nil {
+		base = lim.base // a call has one baseline, taken before its re-run
+	} else {
+		base = liveHeap()
+	}
+	mem := watchHeap(base, l.cancelAll)
+	defer mem.stop()
 	thread := l.newThread(plugin.ScriptEntry)
 	entryEnv := merge(pure, caps, registrars())
 	globals, err := l.exec(thread, plugin.ScriptEntry, entry, entryEnv)
+	if mem.hit.Load() {
+		if lim != nil {
+			lim.memHit.Store(true)
+		}
+		return nil, &LoadError{Msg: memoryMsg()}
+	}
 	if err != nil {
 		return nil, loadError(err)
 	}
@@ -132,6 +147,21 @@ type loader struct {
 	cache       map[string]*loaded
 	stack       []string
 	predeclared starlark.StringDict // pure and capability modules, no registrars
+
+	mu      sync.Mutex
+	threads []*starlark.Thread // every thread of the run, for the memory watchdog
+	over    bool               // the watchdog fired: later threads start cancelled
+}
+
+// cancelAll is the memory watchdog's cancel: it stops every thread of the run,
+// those still to start included.
+func (l *loader) cancelAll(reason string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.over = true
+	for _, t := range l.threads {
+		t.Cancel(reason)
+	}
 }
 
 type loaded struct {
@@ -143,6 +173,12 @@ type loaded struct {
 func (l *loader) newThread(name string) *starlark.Thread {
 	t := &starlark.Thread{Name: name, Load: l.load, Print: func(*starlark.Thread, string) {}}
 	t.SetLocal(ctxKey, l.ctx)
+	l.mu.Lock()
+	l.threads = append(l.threads, t)
+	if l.over {
+		t.Cancel(memoryMsg())
+	}
+	l.mu.Unlock()
 	max := MaxLoadSteps
 	if l.lim != nil {
 		// 0 would mean unlimited: a spent budget leaves one step.
