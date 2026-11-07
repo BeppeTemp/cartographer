@@ -74,6 +74,8 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 			if err != nil {
 				continue // best-effort: skip an artifact that fails to read
 			}
+			// clientModesFor (uiapi_artifacts.go) strips this same prefix to hand
+			// the resolver the paths a sync's manifest carries.
 			prefix := artifactFilePrefix(a.Kind, a.Name)
 			entry := kbArtifact{Kind: a.Kind, Name: a.Name, Manifest: &a}
 			for _, f := range files {

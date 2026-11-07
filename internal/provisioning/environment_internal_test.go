@@ -194,3 +194,34 @@ func TestAuthorizedSkippedDropsAPendingArtifact(t *testing.T) {
 		t.Errorf("authorized = %+v, want only skill/ok (a hook awaits approval, an unknown note has no artifact)", got)
 	}
 }
+
+// #1777: the Atlas says what sync does. A skill that requires a strict_tools
+// agent is not installed where the agent is skipped, so its mode there is
+// skipped with the reason sync reports; the other clients are unchanged.
+func TestClientModesSkillRequiringStrictAgentMatchesSync(t *testing.T) {
+	strict := agentArt("auditor", "---\nname: auditor\ndescription: d\ntools: Read\nstrict_tools: true\n---\nb\n")
+	arts := []Artifact{strict, reqSkill("s", "agent:auditor")}
+	modes := ClientModes(arts, ProjectOptions{})
+	crush := configurator.ProviderCrush
+	want := "requires agent/auditor (skipped: strict_tools)"
+	for _, d := range configurator.Providers() {
+		key := string(d.Provider)
+		res := ResolveProjections([]ProjectionInput{{Key: key, Provider: d.Provider, Scope: ScopeGlobal, Manifest: Manifest{Artifacts: arts}}}, ProjectOptions{})[key]
+		installed := false
+		for _, a := range res.Manifest.Artifacts {
+			if a.Kind == "skill" && a.Name == "s" {
+				installed = true
+			}
+		}
+		got := modeOf(modes, "skill/s", d.Provider)
+		if !installed && got.Mode == ModeNative {
+			t.Errorf("%s: sync skips skill/s but the Atlas says %+v", key, got)
+		}
+		if installed && got.Mode == ModeSkipped {
+			t.Errorf("%s: sync installs skill/s but the Atlas says %+v", key, got)
+		}
+	}
+	if m := modeOf(modes, "skill/s", crush); m.Mode != ModeSkipped || m.Reason != want {
+		t.Errorf("crush skill = %+v, want skipped %q", m, want)
+	}
+}

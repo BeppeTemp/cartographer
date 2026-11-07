@@ -122,7 +122,15 @@ func clientModesFor(catalog kbArtifactCatalog) map[string][]provisioning.ClientM
 			continue
 		}
 		pa := *a.Manifest
-		pa.Files = a.Files
+		// The catalog lists paths in the KB's layout ("skills/<name>/SKILL.md");
+		// the resolver reads them relative to the artifact, as a sync's manifest
+		// carries them: with the prefix it finds no `requires` and no body.
+		prefix := artifactFilePrefix(a.Kind, a.Name)
+		pa.Files = nil
+		for _, f := range a.Files {
+			f.Path = strings.TrimPrefix(f.Path, prefix)
+			pa.Files = append(pa.Files, f)
+		}
 		arts = append(arts, pa)
 	}
 	if len(arts) == 0 {
