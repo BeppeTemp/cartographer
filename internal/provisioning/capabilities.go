@@ -151,6 +151,10 @@ var capabilityInvokeHint = map[configurator.Provider]map[Scope]string{
 	configurator.ProviderKiro: {
 		ScopeProject: "Ask for it by name: \"use the <name> subagent\".",
 	},
+	configurator.ProviderAntigravity: {
+		ScopeGlobal:  "Ask for it by name: \"use the <name> subagent\".",
+		ScopeProject: "Ask for it by name: \"use the <name> subagent\".",
+	},
 }
 
 // capabilityOverride replaces the table in tests (nil in production), so a

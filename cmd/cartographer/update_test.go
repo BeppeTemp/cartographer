@@ -138,6 +138,49 @@ func TestUpdateNoticeOneParagraphWhenBehind(t *testing.T) {
 	}
 }
 
+func TestUpdateNoticeAntigravityChannel(t *testing.T) {
+	// Behind: returns JSON with injectSteps containing the notice.
+	stubUpdate(t, available, updatecheck.ChannelHomebrew, true)
+	out := withStdout(t, func() {
+		if code := cmdUpdate([]string{"notice", "--channel", "antigravity"}); code != 0 {
+			t.Errorf("exit %d", code)
+		}
+	})
+	var parsed struct {
+		InjectSteps []struct {
+			SystemMessage struct {
+				SystemMessage string `json:"systemMessage"`
+			} `json:"systemMessage"`
+		} `json:"injectSteps"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal antigravity notice output: %v\noutput: %q", err, out)
+	}
+	if len(parsed.InjectSteps) != 1 {
+		t.Fatalf("expected 1 injectStep, got %d", len(parsed.InjectSteps))
+	}
+	msg := parsed.InjectSteps[0].SystemMessage.SystemMessage
+	if !strings.Contains(msg, "Cartographer update available:") {
+		t.Errorf("expected update text in systemMessage, got %q", msg)
+	}
+
+	// Up to date: returns "{}\n".
+	stubUpdate(t, updatecheck.Result{Current: "v0.17.0", Latest: "v0.17.0"}, updatecheck.ChannelHomebrew, true)
+	outUpToDate := withStdout(t, func() {
+		if code := cmdUpdate([]string{"notice", "--channel", "antigravity"}); code != 0 {
+			t.Errorf("exit %d", code)
+		}
+	})
+	if strings.TrimSpace(outUpToDate) != "{}" {
+		t.Fatalf("up to date notice for antigravity must be '{}', got %q", outUpToDate)
+	}
+
+	// Bad flag returns 2
+	if code := cmdUpdate([]string{"notice", "--channel", "invalid"}); code != 2 {
+		t.Errorf("expected exit 2 for invalid channel, got %d", code)
+	}
+}
+
 func TestUpdateNoticeWithoutACommand(t *testing.T) {
 	for ch, want := range map[updatecheck.Channel]string{
 		updatecheck.ChannelContainer: "image tag",

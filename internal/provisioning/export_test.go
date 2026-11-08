@@ -33,6 +33,11 @@ const BootstrapScriptNameForTest = bootstrapScriptName
 // resolvable) per platform without pinning the exact text.
 const BootstrapScriptContentForTest = bootstrapScriptContent
 
+// BootstrapScriptContentForProvider exports bootstrapScriptContentFor for tests.
+func BootstrapScriptContentForProvider(p configurator.Provider) string {
+	return bootstrapScriptContentFor(p)
+}
+
 // WriteFindingsScriptNameForTest and WriteFindingsScriptContentForTest are the
 // write-findings hook's platform script (D353), for the same reason as above.
 const WriteFindingsScriptNameForTest = writeFindingsScriptName

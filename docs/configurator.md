@@ -93,7 +93,7 @@ no release is cached; the not-yet-installable tag is remembered for an hour (`up
 | Command | Effect |
 |---|---|
 | `update check [--output table\|json]` | Refreshes regardless of the cache age, prints current, latest, channel and command. Always exit 0 (2 on usage errors). JSON: `{current, latest, available, kind, channel, command}`, additive |
-| `update notice` | What the session-start hook runs. Prints **nothing** unless an update exists, then one paragraph for the agent: the versions, the upgrade command, and the instruction to tell the user once and run it only on consent. Always exit 0 |
+| `update notice [--channel text\|antigravity]` | What the session-start hook runs. Prints **nothing** unless an update exists, then one paragraph for the agent: the versions, the upgrade command, and the instruction to tell the user once and run it only on consent. `--channel antigravity` outputs protojson (`injectSteps`, or `{}` when up to date). Always exit 0 |
 
 The command depends on the channel the running binary came from: `homebrew` (Caskroom, or the
 `/opt/homebrew/bin`/`/usr/local/bin` symlink into it) → `brew upgrade --cask beppetemp/tap/cartographer`;
