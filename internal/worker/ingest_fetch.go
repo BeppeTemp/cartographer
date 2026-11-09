@@ -183,11 +183,17 @@ func (f *fetcher) fetch(ctx context.Context) client.ToolOutput {
 	return client.ToolOutput{Text: fetchBanner + "\n\n" + text}
 }
 
+// sourceReader reads the claimed unit's Source: the built-in HTTP fetcher or the
+// git reader, chosen by the Source's connector.
+type sourceReader interface {
+	fetch(ctx context.Context) client.ToolOutput
+}
+
 // ingestTools is the ToolCaller of one unit's loop: the MCP caller plus
 // source_fetch, remembering which concepts the loop wrote.
 type ingestTools struct {
 	inner ToolCaller
-	fetch *fetcher
+	fetch sourceReader
 	ctx   context.Context // the run's: a cancelled worker stops its fetch
 	unit  string          // the claimed unit: only the worker writes it
 	types map[string]string

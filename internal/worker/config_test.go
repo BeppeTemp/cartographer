@@ -419,7 +419,7 @@ func yamlPaths(t reflect.Type, prefix string, out *[]string) {
 }
 
 // groups hold only other keys and need no row of their own.
-var cfgGroups = map[string]bool{"models[].budget": true, "schedule": true, "schedule.window": true}
+var cfgGroups = map[string]bool{"models[].budget": true, "schedule": true, "schedule.window": true, "git": true}
 
 // The key table is the one list of known keys, so a field of the file without a
 // row would load but go undocumented, and a row without a field would be
@@ -561,5 +561,46 @@ func TestLoadConfigConnectorErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLoadConfigRecipesAndGitHosts(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("WORKER_TOKEN", "x")
+	t.Setenv("CLOUD_API_KEY", "y")
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	load := func(extra string) (*Config, error) {
+		write("worker.yaml", cfgGolden+extra)
+		return LoadConfig(filepath.Join(dir, "worker.yaml"), cfgKinds())
+	}
+	write("mine.md", "my text")
+	write("big.md", strings.Repeat("x", 17<<10))
+	write("bad.md", "\xff\xfe")
+	c, err := load("git:\n  allow_hosts: [git.example.com, \"*.corp.example.com\"]\nrecipes:\n  git-docs:\n    instructions_file: mine.md\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.RecipeInstructions["git-docs"] != "my text" || len(c.GitAllowHosts) != 2 {
+		t.Fatalf("config = %+v %v", c.RecipeInstructions, c.GitAllowHosts)
+	}
+	if c, err = load(""); err != nil || len(c.GitAllowHosts) != 0 || len(c.RecipeInstructions) != 0 {
+		t.Fatalf("defaults: %v %+v", err, c)
+	}
+	for name, tc := range map[string]struct{ yaml, want string }{
+		"other name":    {"recipes:\n  http-pages:\n    instructions_file: mine.md\n", "recipes.http-pages (line "},
+		"other key":     {"recipes:\n  git-docs:\n    exec: ./x\n", "unknown key"},
+		"missing file":  {"recipes:\n  git-docs:\n    instructions_file: nope.md\n", "recipes.git-docs.instructions_file (line "},
+		"escapes dir":   {"recipes:\n  git-docs:\n    instructions_file: ../mine.md\n", "inside the config file's directory"},
+		"too big":       {"recipes:\n  git-docs:\n    instructions_file: big.md\n", "16 KiB"},
+		"not utf8":      {"recipes:\n  git-docs:\n    instructions_file: bad.md\n", "UTF-8"},
+		"host with url": {"git:\n  allow_hosts: [\"https://git.example.com\"]\n", "git.allow_hosts (line "},
+	} {
+		if _, err := load(tc.yaml); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want %q", name, err, tc.want)
+		}
 	}
 }
