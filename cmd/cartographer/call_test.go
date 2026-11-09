@@ -221,7 +221,7 @@ func TestCallListAndDescribe(t *testing.T) {
 		t.Fatalf("list: %d %q %q", code, out, e)
 	}
 	code, out, _ = runCall(t, "", "--provider", "claude", "--dir", ws, "--describe", "zeta")
-	if code != 0 || !strings.Contains(out, `"inputSchema"`) || !strings.Contains(out, `"type": "object"`) {
+	if code != 0 || !strings.HasPrefix(out, "{") || !strings.Contains(out, `"inputSchema"`) || !strings.Contains(out, `"type": "object"`) {
 		t.Errorf("describe: %d %q", code, out)
 	}
 	code, _, e = runCall(t, "", "--provider", "claude", "--dir", ws, "--describe", "nope")
@@ -233,17 +233,25 @@ func TestCallListAndDescribe(t *testing.T) {
 // A slow tool is answered, and the pipe is closed only by the response: the
 // bridge aborts in-flight calls a grace after its stdin ends (see callBridge).
 func TestCallBridgeKeepsThePipeOpen(t *testing.T) {
-	closed := false
-	w := &responseWatcher{done: func() { closed = true }}
+	w := &responseRouter{}
+	ch := w.expect(3)
+	got := func() bool {
+		select {
+		case <-ch:
+			return true
+		default:
+			return false
+		}
+	}
 	_, _ = w.Write([]byte(`{"jsonrpc":"2.0","method":"notifications/message","params":{}}` + "\n"))
 	_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{}}` + "\n"))
-	if closed || w.response() != nil {
-		t.Fatal("the pipe closed before the response with the request's id")
+	_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":3,`))
+	if got() {
+		t.Fatal("the wait ended before the response with the request's id")
 	}
-	_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,`))
 	_, _ = w.Write([]byte(`"result":{}}` + "\n"))
-	if !closed || w.response() == nil {
-		t.Fatal("the response did not close the pipe")
+	if !got() {
+		t.Fatal("the response did not end the wait")
 	}
 
 	_, _, ws := newCallEnv(t, func(string, map[string]any) any {

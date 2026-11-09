@@ -478,6 +478,29 @@ func TestEndpointCarriesTheProvisionedMarker(t *testing.T) {
 	}
 }
 
+// Guide omits the marker so the server sends its operating guide; the scope
+// parts of the query stay.
+func TestEndpointGuideOmitsTheProvisionedMarker(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a")
+	b := &Bridge{Cfg: bridgeConfig(rs), Provider: "claude", Dir: t.TempDir(), Token: testToken, Guide: true}
+	for _, c := range []struct {
+		scope Scope
+		want  string
+	}{
+		{Scope{All: true}, "/mcp/routed"},
+		{Scope{KBs: []string{"kb-a", "kb-b"}}, "/mcp/routed?kbs=kb-a,kb-b"},
+		{Scope{All: true, ReadOnly: true}, "/mcp/routed?access=read"},
+		{Scope{KBs: []string{"kb-a"}, ReadOnly: true}, "/mcp/routed?kbs=kb-a&access=read"},
+		{Scope{All: true, Unbound: true}, "/mcp/routed"},
+		{Scope{KBs: []string{"kb-a"}, Unbound: true}, "/mcp/routed?kbs=kb-a"},
+	} {
+		got, err := b.endpoint(c.scope)
+		if err != nil || !strings.HasSuffix(got, c.want) || strings.Contains(got, "provisioned") {
+			t.Errorf("endpoint(%+v) = %q, %v; want suffix %q and no marker", c.scope, got, err, c.want)
+		}
+	}
+}
+
 const listenMsg = `{"jsonrpc":"2.0","id":"listen:0","method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true}}}`
 
 // lockedBuffer is a stdout the test can read while the bridge still writes.

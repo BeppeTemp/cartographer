@@ -65,6 +65,11 @@ type Bridge struct {
 	// no agent session to restart, so kb_status.connection.hint drops its
 	// "start a new agent session" tail (withOneShotHint).
 	OneShot bool
+	// Guide leaves the "provisioned" marker (D1097) out of the routed URL, so
+	// the server's initialize answer carries the operating guide. For a caller
+	// that has no managed instructions block and wants initialize.instructions
+	// (`cartographer call --instructions`); only `call` sets it.
+	Guide bool
 
 	outMu sync.Mutex
 	logMu sync.Mutex // logf is called from the read loop and from plugin calls
@@ -652,7 +657,12 @@ func (b *Bridge) endpoint(scope Scope) (string, error) {
 	if q != "" {
 		q += "&"
 	}
-	u.RawQuery = q + provisionedParam + "=" + provisionedValue
+	if b.Guide {
+		// No marker: the server answers initialize with its guide (D1097).
+		u.RawQuery = strings.TrimSuffix(q, "&")
+	} else {
+		u.RawQuery = q + provisionedParam + "=" + provisionedValue
+	}
 	return u.String(), nil
 }
 

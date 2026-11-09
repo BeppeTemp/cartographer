@@ -23,15 +23,24 @@ import (
 
 const callUsage = `usage: cartographer call --provider <name> <tool> [key=value ...] [--json '<object>'|-]
        cartographer call --provider <name> --list
-       cartographer call --provider <name> --describe <tool>
+       cartographer call --provider <name> --describe <tool>[,<tool>...]
+       cartographer call --provider <name> --instructions
+       cartographer call --provider <name> --batch -  [--output text|json]
 
 Calls one MCP tool and exits, for agents that cannot use MCP. The KBs served
 are the ones the stdio bridge would serve for the provider and the working
 directory. A value that parses as JSON (5, true, ["a"], "2026") is passed
 typed, anything else as a string.
 
+--instructions prints the instructions the server sends an MCP client at
+initialize. --batch - reads one JSON request per line from stdin
+({"tool": "<name>", "arguments": {...}, "id": <any>}) and writes one JSON result
+per line to stdout, in input order, through one connection; a failing line does
+not stop the batch.
+
 flags: --dir <path>  --output text|json  --timeout <duration>  --verbose
-exit:  0 ok, 1 the tool returned an error, 2 usage, configuration or transport`
+exit:  0 ok, 1 the tool returned an error, 2 usage, configuration or transport
+       (--batch: the worst class among the lines)`
 
 // maxCallJSON bounds --json - (same limit as a bridge line).
 const maxCallJSON = 16 * 1024 * 1024
@@ -49,7 +58,9 @@ func cmdCall(args []string) int {
 	provider := fs.String("provider", "", "provider whose bindings apply (required)")
 	dir := fs.String("dir", "", "folder to resolve (default: the working directory)")
 	list := fs.Bool("list", false, "list the tools")
-	describe := fs.String("describe", "", "print a tool's description and input schema")
+	describe := fs.String("describe", "", "print the description and input schema of a tool, or of several (a,b)")
+	instructions := fs.Bool("instructions", false, "print the instructions the server sends at initialize")
+	batch := fs.String("batch", "", "run JSONL requests read from stdin (the value -) through one connection")
 	output := fs.String("output", "text", "text or json")
 	timeout := fs.Duration("timeout", 5*time.Minute, "bound on the whole invocation")
 	jsonArg := fs.String("json", "", "arguments as a JSON object, or - to read it from stdin")
@@ -77,7 +88,7 @@ func cmdCall(args []string) int {
 		return 2
 	}
 	modes := 0
-	for _, on := range []bool{*list, *describe != "", len(pos) > 0} {
+	for _, on := range []bool{*list, *describe != "", *instructions, *batch != "", len(pos) > 0} {
 		if on {
 			modes++
 		}
@@ -90,6 +101,9 @@ func cmdCall(args []string) int {
 		return fail("--output must be text or json")
 	}
 
+	if *batch != "" && *batch != "-" {
+		return fail("--batch takes only - (JSON lines on stdin)")
+	}
 	jsonSet := false
 	fs.Visit(func(f *flag.Flag) { jsonSet = jsonSet || f.Name == "json" })
 	if !isKnownProvider(*provider) {
@@ -102,6 +116,8 @@ func cmdCall(args []string) int {
 		if callArgs, rawPairs, err = parseCallArgs(pos[1:], jsonSet, *jsonArg, mcpStdin); err != nil {
 			return fail("%v", err)
 		}
+	} else if jsonSet && *batch != "" {
+		return fail("--json does not go with --batch (each line carries its arguments)")
 	} else if jsonSet {
 		return fail("--json goes with a tool call")
 	}
@@ -127,13 +143,30 @@ func cmdCall(args []string) int {
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
 
+	// One bridge per invocation, started at the first request: a batch with
+	// no request at all never starts one.
+	var sess *callSession
+	session := func() *callSession {
+		if sess == nil {
+			sess = newCallSession(ctx, cfg, token, *provider, *dir, *instructions)
+		}
+		return sess
+	}
 	send := func(method string, params map[string]any) (json.RawMessage, string, error) {
-		params["_meta"] = client.RequestMeta(version)
-		line, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-		return callBridge(ctx, cfg, token, *provider, *dir, line)
+		resp, err := session().Do(ctx, method, params)
+		return resp, "", err
 	}
 	var blog string
 	code := func() int {
+		if *batch != "" {
+			c, log := runBatch(ctx, session, mcpStdin, os.Stdout, os.Stderr, *output)
+			sess = nil
+			blog = log
+			return c
+		}
+		if *instructions {
+			return printInstructions(ctx, session(), *output)
+		}
 		if len(pos) == 0 {
 			tools, log, err := listTools(send)
 			blog = log
@@ -149,14 +182,7 @@ func cmdCall(args []string) int {
 				}
 				return 0
 			}
-			for _, t := range tools {
-				if t.Name == *describe {
-					out, _ := json.MarshalIndent(map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema}, "", "  ")
-					fmt.Fprintln(os.Stdout, string(out))
-					return 0
-				}
-			}
-			return fail("unknown tool %q; run \"cartographer call --list\"", *describe)
+			return describeTools(tools, *describe, fail)
 		}
 		if len(rawPairs) > 0 {
 			// The schema types the key=value words (#1802). A bridge that
@@ -189,6 +215,9 @@ func cmdCall(args []string) int {
 		}
 		return printToolResult(pos[0], result, *output)
 	}()
+	if sess != nil {
+		blog += sess.Close()
+	}
 	if blog != "" && (code != 0 || *verbose) {
 		fmt.Fprint(os.Stderr, blog)
 	}
@@ -281,8 +310,17 @@ func responseResult(resp json.RawMessage) (json.RawMessage, error) {
 	return m.Result, nil
 }
 
-// printToolResult writes a tools/call result and returns the exit code.
-func printToolResult(tool string, result json.RawMessage, output string) int {
+// toolOutcome is a tools/call result read: its text (the text content joined),
+// whether the tool reported an error, and the types of the content left out.
+type toolOutcome struct {
+	text    string
+	isError bool
+	omitted []string
+}
+
+// readToolResult is what printToolResult and a batch line share, so the two
+// cannot differ on isError, an empty content or non-text content.
+func readToolResult(tool string, result json.RawMessage) (toolOutcome, error) {
 	var r struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -291,27 +329,40 @@ func printToolResult(tool string, result json.RawMessage, output string) int {
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(result, &r); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: unreadable result: %v\n", err)
-		return 2
+		return toolOutcome{}, fmt.Errorf("unreadable result: %v", err)
 	}
 	if len(r.Content) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: tool %q returned no content\n", tool)
-		return 2
+		return toolOutcome{}, fmt.Errorf("tool %q returned no content", tool)
 	}
 	var texts []string
+	var o toolOutcome
 	for _, c := range r.Content {
 		if c.Type == "text" {
 			texts = append(texts, c.Text)
 		} else {
-			fmt.Fprintf(os.Stderr, "[%s content omitted]\n", c.Type)
+			o.omitted = append(o.omitted, c.Type)
 		}
 	}
-	text := strings.Join(texts, "\n")
+	o.text = strings.Join(texts, "\n")
+	o.isError = r.IsError
+	return o, nil
+}
+
+// printToolResult writes a tools/call result and returns the exit code.
+func printToolResult(tool string, result json.RawMessage, output string) int {
+	o, err := readToolResult(tool, result)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 2
+	}
+	for _, typ := range o.omitted {
+		fmt.Fprintf(os.Stderr, "[%s content omitted]\n", typ)
+	}
 	// A failed result is a diagnostic from the server, escaped like every other
 	// server-chosen message. The success path below is the tool's normal output
 	// (KB content the caller asked for) and is printed as it is.
-	if r.IsError {
-		fmt.Fprintln(os.Stderr, escapeControl(text))
+	if o.isError {
+		fmt.Fprintln(os.Stderr, escapeControl(o.text))
 		return 1
 	}
 	if output == "json" {
@@ -320,7 +371,7 @@ func printToolResult(tool string, result json.RawMessage, output string) int {
 		fmt.Fprintln(os.Stdout, out.String())
 		return 0
 	}
-	fmt.Fprintln(os.Stdout, text)
+	fmt.Fprintln(os.Stdout, o.text)
 	return 0
 }
 
@@ -430,54 +481,129 @@ func schemaType(raw json.RawMessage) string {
 	return ""
 }
 
-// callBridge sends one JSON-RPC line through a mcpbridge.Bridge and returns the
-// response with the same id, plus the bridge log.
+// callSession is one mcpbridge.Bridge serving the requests of one invocation:
+// one for a single call, many for --batch.
 //
-// Trap: In must not reach EOF right after the request. Run aborts in-flight
-// calls a grace after stdin closes, which would cut a long reindex or sync. The
-// pipe stays open until the response is seen (TestCallBridgeKeepsThePipeOpen).
-func callBridge(ctx context.Context, cfg *clientconfig.Config, token, provider, dir string, line []byte) (json.RawMessage, string, error) {
+// Trap: In must not reach EOF between requests, nor right after the last one.
+// Run aborts in-flight calls a grace after stdin closes, which would cut a long
+// reindex or sync. The pipe stays open until the last response is seen, and
+// Close closes it (TestCallBridgeKeepsThePipeOpen).
+//
+// One request is outstanding at a time: the bridge dispatches each line on its
+// own goroutine, so overlapping requests could be answered out of order, and a
+// batch is a script (a write must be seen by the read after it), not a set.
+type callSession struct {
+	pw   *io.PipeWriter
+	pr   *io.PipeReader
+	out  *responseRouter
+	log  *lockedBuf
+	done chan struct{} // closed when Run returned
+	err  error         // Run's error, valid after done
+	next int
+}
+
+// newCallSession starts the bridge. guide asks the server for its operating
+// guide in initialize (mcpbridge.Bridge.Guide).
+func newCallSession(ctx context.Context, cfg *clientconfig.Config, token, provider, dir string, guide bool) *callSession {
 	pr, pw := io.Pipe()
-	log := &lockedBuf{}
-	w := &responseWatcher{done: func() { _ = pw.Close() }}
+	s := &callSession{pr: pr, pw: pw, out: &responseRouter{}, log: &lockedBuf{}, done: make(chan struct{})}
 	b := &mcpbridge.Bridge{
-		Cfg: cfg, Provider: provider, Dir: dir, Token: token, Version: version, OneShot: true,
-		In: pr, Out: w, Log: log,
+		Cfg: cfg, Provider: provider, Dir: dir, Token: token, Version: version, OneShot: true, Guide: guide,
+		In: pr, Out: s.out, Log: s.log,
 	}
-	b.Plugins = bridgePluginTools(cfg, log)
+	b.Plugins = bridgePluginTools(cfg, s.log)
 	go func() {
-		_, _ = pw.Write(append(append([]byte(nil), line...), '\n'))
+		s.err = b.Run(ctx)
+		close(s.done)
+		// A write to a bridge that stopped must fail, not block.
+		_ = pr.CloseWithError(io.ErrClosedPipe)
 	}()
-	err := b.Run(ctx)
-	_ = pw.Close()
-	_ = pr.Close()
+	return s
+}
+
+// Do sends one JSON-RPC request and returns the response with the same id.
+func (s *callSession) Do(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
+	s.next++
+	id := s.next
+	params["_meta"] = client.RequestMeta(version)
+	line, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+	ch := s.out.expect(id)
+	// A failed write means the bridge stopped: done is closed then.
+	go func() { _, _ = s.pw.Write(append(line, '\n')) }()
+	var resp json.RawMessage
+	select {
+	case resp = <-ch:
+	case <-ctx.Done():
+	case <-s.done:
+		select { // the answer may have raced the end of Run
+		case resp = <-ch:
+		default:
+		}
+	}
 	// A deadline wins over a response: the bridge answers an aborted request
 	// with a transport error that would hide the cause.
-	if resp := w.response(); resp != nil && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return resp, log.String(), nil
+	if resp != nil && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return resp, nil
 	}
 	if cerr := ctx.Err(); cerr != nil {
 		if errors.Is(cerr, context.DeadlineExceeded) {
-			return nil, log.String(), errors.New("timed out waiting for the server")
+			return nil, errors.New("timed out waiting for the server")
 		}
-		return nil, log.String(), cerr
+		return nil, cerr
 	}
-	if err != nil {
-		return nil, log.String(), err
+	select {
+	case <-s.done:
+		if s.err != nil {
+			return nil, s.err
+		}
+	default:
 	}
-	return nil, log.String(), errors.New("no response from the bridge")
+	return nil, errors.New("no response from the bridge")
 }
 
-// responseWatcher is the bridge's Out: it keeps the response with id 1 and
-// signals done once it has it. The bridge writes one compact line per Write.
-type responseWatcher struct {
-	mu   sync.Mutex
-	buf  []byte
-	resp json.RawMessage
-	done func()
+// stopped reports whether Run has returned, and why.
+func (s *callSession) stopped() (bool, error) {
+	select {
+	case <-s.done:
+		if s.err != nil {
+			return true, s.err
+		}
+		return true, errors.New("no response from the bridge")
+	default:
+		return false, nil
+	}
 }
 
-func (w *responseWatcher) Write(p []byte) (int, error) {
+// Close ends the session: it closes the pipe, waits for Run (the closing
+// DELETE and the in-flight grace happen there) and returns the bridge log.
+func (s *callSession) Close() string {
+	_ = s.pw.Close()
+	<-s.done
+	_ = s.pr.Close()
+	return s.log.String()
+}
+
+// responseRouter is the bridge's Out: it hands the response with an awaited id
+// to the caller waiting for it. The bridge writes one compact line per Write.
+type responseRouter struct {
+	mu      sync.Mutex
+	buf     []byte
+	waiters map[int]chan json.RawMessage
+}
+
+// expect registers a wait for the response with this id.
+func (w *responseRouter) expect(id int) <-chan json.RawMessage {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.waiters == nil {
+		w.waiters = map[int]chan json.RawMessage{}
+	}
+	ch := make(chan json.RawMessage, 1)
+	w.waiters[id] = ch
+	return ch
+}
+
+func (w *responseRouter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.buf = append(w.buf, p...)
@@ -492,18 +618,19 @@ func (w *responseWatcher) Write(p []byte) (int, error) {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
 		}
-		if json.Unmarshal(raw, &m) == nil && m.Method == "" && string(m.ID) == "1" && w.resp == nil {
-			w.resp = append(json.RawMessage(nil), raw...)
-			w.done()
+		if json.Unmarshal(raw, &m) != nil || m.Method != "" {
+			continue
+		}
+		var id int
+		if json.Unmarshal(m.ID, &id) != nil {
+			continue
+		}
+		if ch, ok := w.waiters[id]; ok {
+			delete(w.waiters, id)
+			ch <- append(json.RawMessage(nil), raw...)
 		}
 	}
 	return len(p), nil
-}
-
-func (w *responseWatcher) response() json.RawMessage {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.resp
 }
 
 // lockedBuf is a bytes.Buffer safe for the bridge's goroutines.

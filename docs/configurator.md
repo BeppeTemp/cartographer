@@ -323,7 +323,8 @@ entry with a warning; a client with `roots` in an unbound folder gets a handshak
 **`cartographer call` (no MCP).** For an agent that has a shell but cannot use MCP,
 `cartographer call --provider <p> <tool> [key=value…] [--json '<object>'|-]` sends one stateless
 `tools/call` and exits; `--list` prints `name<TAB>first sentence` per tool, `--describe <tool>` the
-description and input schema. It drives the same bridge as `cartographer mcp`, so the scope is
+description and input schema (`--describe a,b` several tools at once: one JSON array in the order asked,
+one `tools/list`; an empty, repeated or unknown name is exit 2 with nothing on stdout). It drives the same bridge as `cartographer mcp`, so the scope is
 identical: the provider plus the working directory (`--dir` overrides it), with the unbound read-only
 default and `knowledge_bases` access. A value that parses as JSON (`limit=5`, `ids=["a"]`, `title="2026"`)
 is passed typed, anything else as a string, then retyped by the tool's input schema (one `tools/list`,
@@ -334,7 +335,26 @@ object (`-` reads stdin, 16 MiB) and stays verbatim; a key given twice, in pairs
 usage error. No other client-side validation: the server's own error is what the agent reads. An unknown
 `--provider` and a `--dir` that is not a directory are refused before the bridge starts (exit 2).
 Flags: `--output text|json` (`json` is the raw MCP result),
-`--timeout` (default 5m, bounds the whole call), `--verbose` (print the bridge log on success too).
+`--timeout` (default 5m, bounds the whole invocation), `--verbose` (print the bridge log on success too).
+
+`--instructions` prints what the server sends an MCP client at `initialize` (`result.instructions`;
+`--output json` the raw result). The bridge normally declares its session provisioned, and the server
+then withholds the operating guide (D1097); this mode asks for it (`Bridge.Guide`), as a client with no
+managed instructions block would. An empty guide is exit 2; a folder bound to no KB prints the bridge's
+own answer.
+
+`--batch -` runs many requests through one bridge: JSON lines on stdin (`{"tool": "<name>", "arguments":
+{...}, "id": <any>}`; `arguments` and `id` optional, any other key is an error), one JSON result per
+non-empty line on stdout, in input order and as soon as each is ready. Arguments are sent verbatim (no
+`key=value` words, no schema fetch). Requests run one at a time, so a write is seen by the read after
+it; a result line has `line` (1-based, blank lines count), `id` (echoed), `tool`, `ok` and `text`
+(`--output json`: `result`) or `error` = `{code, message}`, `code` being the exit class a single call
+would have (1 the tool or its arguments, 2 anything else). A failing or malformed line yields its error
+and the batch continues; the exit code is the worst class among the lines, 2 also when the batch stopped
+early (a line over 16 MiB, `--timeout` or an interrupt: the line in flight and the next one read get a
+code-2 result, the rest of the input is not read). An input with no request is exit 2 and starts no
+bridge. Scope, token, author rule and plugin tools are those of a single call; a plugin's tools work in a
+batch. `--batch` excludes a tool, `--json`, `--list`, `--describe` and `--instructions`.
 
 | Exit | Meaning | Output |
 |---|---|---|
@@ -342,7 +362,9 @@ Flags: `--output text|json` (`json` is the raw MCP result),
 | 1 | the tool returned `isError`, or the server answered "invalid params" (JSON-RPC -32602 for a bad argument) | its text on stderr, nothing on stdout |
 | 2 | usage, no client configuration, unusable token, no KB in scope, transport, server too old for read-only, HTTP 401, any other JSON-RPC error (an unknown tool included), timeout | `Error: …` on stderr |
 
-**The command writes no file anywhere** (no cache, log, lock or audit file, `$TMPDIR` included) and
+`--batch`: the worst class among the lines; the per-line codes are in the result lines.
+
+**The command writes no file anywhere** (no cache, log, lock or audit file, `$TMPDIR` included; a batch and `--instructions` too) and
 works with a read-only `$HOME`: it only reads the client configuration and the token. The bundled
 `cartographer-cli` skill, which teaches this command, is filtered out of every provider's manifest
 client-side unless the provider reaches Cartographer through the command; no built-in provider does
