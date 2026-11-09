@@ -291,7 +291,9 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
     stderr, plain stdout, `additionalContext` JSON and `{"decision":"block"}` all
     left the agent unaware.
   - `skill` in `~/.kiro/skills/` (project `.kiro/skills/`), `mcp` in
-    `~/.kiro/settings/mcp.json`, `instructions` in `~/.kiro/steering/cartographer.md`.
+    `~/.kiro/settings/mcp.json` (a server of the same name in the project
+    `.kiro/settings/mcp.json` replaces the global one: the session sees only the project
+    server's tools; probe 2026-11-09, Kiro CLI 3.0.0, recipe in `probes.md` §Kiro, MCP shadow probe), `instructions` in `~/.kiro/steering/cartographer.md`.
   - session transcripts, read by the usage scan (D326): `~/.kiro/sessions/**/*.jsonl`.
     Two shapes, tool records only. **V3** (the default engine since 3.0.0, observed on
     3.0.0): `<hash>/sess_<id>/messages.jsonl`, the record's content under `payload`; a
