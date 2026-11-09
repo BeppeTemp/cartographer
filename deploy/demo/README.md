@@ -89,6 +89,11 @@ and the Pages Atlas shows the live astronomy KB only.
   `terraform apply` (a new secret version; the next cold start reads it). An expired token leaves the
   guestbook unmounted at the next cold start and astronomy up; `demo.yml` warns when `tools/list` stops
   listing the guestbook.
+- **Why moderation is unavailable**. Every classifier failure shows the visitor the same refusal. The
+  Worker logs one line, `classify failed: <kind>` (`timeout`, `unrecognised answer`, or the binding's
+  error name and the start of its message; never the message, the client name or the IP), kept by the
+  Worker's observability (Cloudflare dashboard, Workers & Pages, `cartographer-demo`, Logs). A quota
+  error there means the Workers AI daily allowance is spent (table below).
 - **Free-tier budget**. Nothing here needs a paid plan; each limit and what happens at it:
 
   | Resource | Free limit | How it is kept | When exceeded |

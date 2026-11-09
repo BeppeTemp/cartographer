@@ -275,6 +275,11 @@ resource "cloudflare_workers_script" "proxy" {
   content     = file("${path.module}/worker.js")
   main_module = "worker.js"
 
+  # Stores the console.log lines (the classifier's failure kind, worker.js).
+  observability = {
+    enabled = true
+  }
+
   # DEMO_TOKEN is the read token; GUESTBOOK_TOKEN is attached only to a
   # moderated concept_new (worker.js).
   bindings = concat([{
