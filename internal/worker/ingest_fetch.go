@@ -206,6 +206,8 @@ type ingestTools struct {
 	conns     *connector.Set
 	connTools []connector.Tool
 	types     map[string]string
+	// inline: the unit carries its content (WP7); source_fetch is not offered.
+	inline bool
 
 	mu   sync.Mutex
 	ids  []string
@@ -222,6 +224,9 @@ func (t *ingestTools) ListTools() ([]client.ToolInfo, error) {
 		schema, _ := json.Marshal(ct.InputSchema)
 		l = append(l, client.ToolInfo{Name: ct.Name, Description: ct.Description, InputSchema: schema})
 	}
+	if t.inline {
+		return l, nil
+	}
 	return append(l, client.ToolInfo{
 		Name:        sourceFetchTool,
 		Description: "Returns the content of this unit's Source (text; HTML as plain text). Takes no argument and fetches nothing else.",
@@ -232,6 +237,9 @@ func (t *ingestTools) ListTools() ([]client.ToolInfo, error) {
 // CallTool serves source_fetch locally and passes the rest through.
 func (t *ingestTools) CallTool(name string, args any) (client.ToolOutput, error) {
 	if name == sourceFetchTool {
+		if t.inline {
+			return client.ToolOutput{IsError: true, Text: "refused: this unit carries its content; source_fetch is not available"}, nil
+		}
 		return t.fetch.fetch(t.ctx), nil
 	}
 	// Routing by the separator is safe because no KB tool name contains it
