@@ -90,7 +90,7 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		"server":  view.Server,
 		"kbs":     kbs,
 		"clients": clients,
-		// Worker perimeters the caller sees whole, and the template (D22).
+		// Worker perimeters the caller sees whole, and the template (D1259).
 		"workers": m.workerSettingsViews(r),
 	}
 	payload["worker_template"] = map[string]any{"entries": workerconfig.Template()}

@@ -2689,7 +2689,7 @@ button.row {
   color: var(--border-strong);
 }
 
-/* Work's strip of workers and feeds in error (design D22), read-only. */
+/* Work's strip of workers and feeds in error (D1259), read-only. */
 .workers {
   display: grid;
   gap: var(--space-2);

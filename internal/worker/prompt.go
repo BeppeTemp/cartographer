@@ -15,7 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 )
 
-// The prompt task kind (D23): the operator's own recurring chore. Its
+// The prompt task kind (D1374): the operator's own recurring chore. Its
 // instructions are a file the operator deployed next to the worker config, read
 // once at load; it runs on a cadence rebuilt from the KB's log, with exactly the
 // tools the operator listed, inside the budget and triggers of every other task.
@@ -141,7 +141,7 @@ func loadPrompt(env LoadEnv, opts map[string]any) error {
 
 // hiddenText carries the operator's instructions through TaskSpec.Options
 // without any way to print them: every formatting verb shows a placeholder, so
-// a settings report or a %+v of the config cannot leak the text (D15).
+// a settings report or a %+v of the config cannot leak the text (D1374).
 type hiddenText struct{ s string }
 
 func (hiddenText) String() string               { return "[redacted]" }

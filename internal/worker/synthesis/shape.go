@@ -1,4 +1,4 @@
-// Package synthesis is the third task kind of the Surveyor (D11): with nothing
+// Package synthesis is the third task kind of the Surveyor (D1263): with nothing
 // left to ingest or repair it reads what the KB holds and proposes what it
 // infers, as Contradiction concepts of a gap kind (a hypothesis is a gap, never
 // a claim). This part is the pure shape of a hypothesis, the guard every model
@@ -154,7 +154,7 @@ func (h Hypothesis) evidenceLine(e Evidence) string {
 	return fmt.Sprintf("- [[%s]]: %s", e.ID, strings.Join(strings.Fields(e.Says), " "))
 }
 
-// Frontmatter is the concept's frontmatter, the keys of D11's convention.
+// Frontmatter is the concept's frontmatter, the keys of D1263's convention.
 func (h Hypothesis) Frontmatter() map[string]any {
 	return map[string]any{
 		"type":               "Contradiction",

@@ -57,7 +57,7 @@ type LoadEnv struct {
 	Warn      func(format string, args ...any)
 }
 
-// repeatable reports whether the kind may appear more than once in tasks (D23):
+// repeatable reports whether the kind may appear more than once in tasks (D1374):
 // only when it declares a name option to tell its entries apart.
 func (k Kind) repeatable() bool {
 	_, ok := k.option("name")

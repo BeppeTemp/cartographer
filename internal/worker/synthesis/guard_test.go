@@ -10,7 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/worker/synthesis"
 )
 
-// store is a tiny in-memory KB behind the fake: the D11 test compares it
+// store is a tiny in-memory KB behind the fake: the D1263 test compares it
 // byte for byte before and after a hostile run.
 func store(pages map[string]map[string]any) *fake {
 	f := &fake{handler: map[string]func(map[string]any) client.ToolOutput{}}
@@ -84,7 +84,7 @@ func TestGuard_RefusesEverythingOutsideTheAllowlist(t *testing.T) {
 	}
 	after, _ := json.Marshal(pages)
 	if string(before) != string(after) {
-		t.Fatalf("D11: the store changed\nbefore %s\nafter  %s", before, after)
+		t.Fatalf("D1263: the store changed\nbefore %s\nafter  %s", before, after)
 	}
 	for _, w := range []string{"concept_write", "concept_patch", "concept_delete", "concept_merge", "artifact_write"} {
 		if f.count(w) != 0 {

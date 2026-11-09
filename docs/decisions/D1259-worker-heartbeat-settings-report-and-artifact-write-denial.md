@@ -10,8 +10,8 @@ keeps both in memory and shows them read-only in the Atlas; it never acts on the
 the idle signal, `last_activity_at` per KB: the last authorized tool call by a principal with no live worker
 declaration, other than `sync_pull`. The settings report is typed scalar `entries` (schema keys, JSON scalars)
 and the `kbs`, rebuilt and scrubbed by the leaf package `internal/workerconfig`, never a YAML file. A role rule
-gains `artifacts: r`, an allow that grants whole-KB access except artifact writes. This implements design D16,
-D17, D21 and D22, keeps D285 (no tool budget spent) and D369 (a declaration is a hint, validated, bounded in
+gains `artifacts: r`, an allow that grants whole-KB access except artifact writes. It builds on D1258 (model
+profiles and their budgets), keeps D285 (no tool budget spent) and D369 (a declaration is a hint, validated, bounded in
 time and ignored when stale), and **amends D948**: Health carries one read-only line saying which worker
 maintains the KB and when its doctor last ran, which is upkeep and not a finding.
 

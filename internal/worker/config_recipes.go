@@ -122,7 +122,7 @@ func (v *validator) instructions(at, name, f string, ln int) (string, error) {
 }
 
 // execRecipe validates recipes.<name> of kind exec. The command comes from this
-// file and from nowhere else: nothing a KB contains selects it (D1262, design D19).
+// file and from nowhere else: nothing a KB contains selects it (D1262).
 // connectors() runs first, so a connector named here is already known.
 func (v *validator) execRecipe(name string, r rawRecipe) error {
 	at := "recipes." + name

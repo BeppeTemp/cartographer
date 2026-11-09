@@ -263,7 +263,7 @@ export function fetchMaintenanceReview(kb: string, signal?: AbortSignal): Promis
   return get<MaintenanceReview>(`/kbs/${encodeURIComponent(kb)}/maintenance/review`, signal);
 }
 
-/** The live workers that declared this KB (design D22); 404 for a caller that does not see the whole KB. */
+/** The live workers that declared this KB (D1259); 404 for a caller that does not see the whole KB. */
 export function fetchWorkers(kb: string, signal?: AbortSignal): Promise<{ workers: WorkerRow[] }> {
   return get<{ workers: WorkerRow[] }>(`/kbs/${encodeURIComponent(kb)}/workers`, signal);
 }

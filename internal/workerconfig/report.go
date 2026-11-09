@@ -14,7 +14,7 @@ import (
 const Redacted = "<redacted>"
 
 // Entry is one worker key with its effective value and origin ("file" or
-// "default"), in the JSON shape of the server's settings entries (D22).
+// "default"), in the JSON shape of the server's settings entries (D1259).
 type Entry struct {
 	Key         string `json:"key"`
 	Value       any    `json:"value"`

@@ -534,7 +534,7 @@ function ClientPanel({
   );
 }
 
-/** A worker perimeter's reported settings (D22), keys grouped by first path segment so a new task kind needs no entry here. */
+/** A worker perimeter's reported settings (D1259), keys grouped by first path segment so a new task kind needs no entry here. */
 function WorkerPanel({
   worker,
   template,

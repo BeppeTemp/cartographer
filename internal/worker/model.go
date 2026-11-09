@@ -1,4 +1,4 @@
-// Package worker is the model client and agent loop of the Surveyor (D9).
+// Package worker is the model client and agent loop of the Surveyor (D1257).
 //
 // A worker is a headless MCP client of the public HTTP contract plus its own
 // loop calling the model API directly: the Anthropic Messages API and

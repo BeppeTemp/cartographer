@@ -386,7 +386,7 @@ export interface MaintenanceReview {
   items: ReviewItem[];
 }
 
-/** GET /kbs/{kb}/workers (design D22): a live `cartographer surveyor` that declared this KB. Read-only. */
+/** GET /kbs/{kb}/workers (D1259): a live `cartographer surveyor` that declared this KB. Read-only. */
 export type WorkerState = "idle" | "running" | "waiting" | "budget_exhausted" | "stopped";
 export interface WorkerBudget {
   profile: string;
@@ -659,7 +659,7 @@ export interface SettingsView {
   clients?: SettingsClient[];
   /** What a client can set, every key at its default: shown until a client reports. */
   client_template?: { entries: SettingEntry[]; yaml?: string };
-  /** The workers whose whole perimeter the viewer sees, as each last reported (D22). */
+  /** The workers whose whole perimeter the viewer sees, as each last reported (D1259). */
   workers?: SettingsWorker[];
   /** What a worker can set, every key at its default: shown until a worker reports. */
   worker_template?: { entries: SettingEntry[] };

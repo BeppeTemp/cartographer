@@ -192,7 +192,7 @@ func TestSynthesisWritesOneGapThenDedups(t *testing.T) {
 	}
 }
 
-// D11 through the whole loop: a model told to overwrite, patch and delete an
+// D1263 through the whole loop: a model told to overwrite, patch and delete an
 // active page changes nothing, and the refusals are the model's to read.
 func TestSynthesisNeverTouchesAnActivePage(t *testing.T) {
 	k := newSKB()
