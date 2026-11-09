@@ -70,9 +70,11 @@ const (
 //     instructions cell is the AGENTS.md block instead.
 //
 //   - Copilot CLI and VS Code's Copilot harness (D676, 1.0.94; VS Code 1.145.2): AGENTS.md ("Repository instructions") and
-//     .agents/skills/ ("Project skills") are listed natively. The mcp, agent
-//     and hook cells are documented under .mcp.json / .github/ but were not
-//     observed working without folder trust, so they stay unsupported.
+//     .agents/skills/ ("Project skills") are listed natively; in a trusted
+//     workspace VS Code also loads .github/agents/*.agent.md and
+//     .github/hooks/*.json (2026-11-09), the agent and hook cells. The mcp cell
+//     stays unsupported: .mcp.json is not loaded with VS Code's default
+//     settings and the CLI does not list it in an untrusted folder.
 //
 //   - Cline (bundle 4.1.26): every cell is unsupported. Cline declares no MCP
 //     roots and starts the bridge with the extension host's cwd, so every
@@ -98,8 +100,10 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderAntigravity: at(".agents", "mcp_config.json"),
 		configurator.ProviderCrush:       at(".crush.json"),
 		// copilot: `.mcp.json` / `.github/mcp.json` are documented but
-		// `copilot mcp list` does not list them in an untrusted folder, and a
-		// destination is declared, never invented (probed on 1.0.94, D676).
+		// `copilot mcp list` does not list them in an untrusted folder
+		// (1.0.94, D676), and VS Code 1.145.2 did not load `.mcp.json` with
+		// its default settings in a trusted workspace (2026-11-09): it reads
+		// it only behind an experimental setting, so no cell is declared.
 		configurator.ProviderCopilot: unsupportedDest,
 		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
 		configurator.ProviderPi:    unsupportedDest,
@@ -140,9 +144,10 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:        perName(".json", ".kiro", "agents"),
 		configurator.ProviderAntigravity: perName(".md", ".agents", "agents"),
 		configurator.ProviderCrush:       unsupportedDest,
-		// copilot: .github/agents is gated on folder trust (`copilot --help`),
-		// so nothing is observed working without it (D676).
-		configurator.ProviderCopilot: unsupportedDest,
+		// copilot: .github/agents is gated on folder trust (`copilot --help`,
+		// D676); in a trusted workspace VS Code 1.145.2 lists the agent and
+		// answers as it (2026-11-09). The untrusted control was not run.
+		configurator.ProviderCopilot: perName(".agent.md", ".github", "agents"),
 		// pi: no subagents.
 		configurator.ProviderPi:    unsupportedDest,
 		configurator.ProviderCline: unsupportedDest,
@@ -162,8 +167,13 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// file is picked from the hook's path (antigravitySettingsRel).
 		configurator.ProviderAntigravity: perName("", ".agents", "hooks"),
 		configurator.ProviderCrush:       perName("", ".crush", "hooks"),
-		// copilot: .github/hooks is gated on folder trust (`copilot --help`) (D676).
-		configurator.ProviderCopilot: unsupportedDest,
+		// copilot: .github/hooks is gated on folder trust (`copilot --help`,
+		// D676); in a trusted workspace VS Code 1.145.2 fires
+		// .github/hooks/*.json for the three events (2026-11-09). Copilot parses
+		// every *.json below that directory, so as in the global cell only the
+		// registration .github/hooks/cartographer-<n>.json lives there and the
+		// hook's files are here (registerCopilotHook).
+		configurator.ProviderCopilot: perName("", ".github", "cartographer-hooks"),
 		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
 		configurator.ProviderPi:    unsupportedDest,
 		configurator.ProviderCline: unsupportedDest,

@@ -659,10 +659,16 @@ project hook.UserPromptSubmit absent
     `hooks/`: Copilot loads `~/.copilot/hooks/` recursively and parses every
     `*.json` below it (probed: a non-Copilot JSON in a subdirectory logged
     "Invalid hook configuration … hooks must be an object").
-  - Project `mcp`, `agent` and `hook` cells unsupported: `.mcp.json` /
-    `.github/mcp.json` are documented but not listed by `copilot mcp list` in an
-    untrusted folder, and `.github/agents` and `.github/hooks` are gated on folder
-    trust (`--help`).
+  - Project `agent` in `.github/agents/<name>.agent.md` and `hook` as the registration
+    `.github/hooks/cartographer-<name>.json` with the hook's own files in
+    `.github/cartographer-hooks/<name>/` (the same split as the global cell, for the same
+    reason). Both are gated on folder trust (`--help`) and were observed only in a trusted
+    workspace; the untrusted control was not run (the Codex precedent). A CLI user who binds
+    a workspace gets the files too, inert until the folder is trusted. A hook registered in
+    both `$HOME/.copilot/hooks` and `.github/hooks` fires twice.
+  - Project `mcp` unsupported: `.mcp.json` / `.github/mcp.json` are documented but not
+    listed by `copilot mcp list` in an untrusted folder, and VS Code 1.145.2 did not load
+    `.mcp.json` with its default settings in a trusted workspace.
   - `COPILOT_HOME` is not honoured by Cartographer: paths are `$HOME/.copilot`, like every provider.
     The CLI and VS Code both honour it (VS Code's `session-state/` and `logs/` follow it),
     so a user who exports it gets cells the client does not read.
@@ -672,7 +678,7 @@ project hook.UserPromptSubmit absent
     `additionalContext` reaches the model. In the workspace `.github/agents/<name>.agent.md`,
     `.github/hooks/*.json`, `AGENTS.md`, `.github/copilot-instructions.md`, `.agents/skills/`
     and `.github/skills/` are read; `.mcp.json` is not loaded with default settings.
-    Cartographer does not project `.github/agents` and `.github/hooks` yet. Global and workspace
+    Cartographer projects `.github/agents` and `.github/hooks`; global and workspace
     hook files both fire in the same session. VS Code sessions are
     `session-state/<id>/events.jsonl` under the Copilot home, so `scanCopilot` counts them. Hooks
     are labelled Preview. Detection: Copilot is built into VS Code; `globalStorage/github.copilot-chat`
@@ -696,8 +702,9 @@ project hook.UserPromptSubmit absent
     `data.arguments.skill`.
   - non-interactive: `copilot -p "<prompt>" -s`; tools need a grant
     (`--allow-tool <server_name>`, `--allow-all-tools`), passed with `--client-flag`.
-- **Watch items**: project cells under folder trust (they would flip the three
-  unsupported project cells); whether `sessionStart` output reaches the model (the
+- **Watch items**: the untrusted-folder control of the project agent and hook cells (not run
+  on VS Code); `.mcp.json` loading under default settings (it would flip the project `mcp`
+  cell); whether `sessionStart` output reaches the model (the
   bootstrap hook only needs its side effect); a matcher field; hooks leaving Preview in VS Code;
   further hook events (`userPromptSubmitted`, `agentStop`, `preCompact`, `subagentStart`/`subagentStop`,
   `sessionEnd` exist and are not claimed); the Local harness converging with or retired in favour of the
@@ -724,14 +731,14 @@ global hook.SubagentStop absent
 global hook.UserPromptSubmit absent
 project skill unverified
 project mcp absent
-project agent.delegate absent
-project agent.invoke absent
+project agent.delegate unverified
+project agent.invoke unverified
 project hook.PostInvocation absent
-project hook.PostToolUse absent
+project hook.PostToolUse unverified
 project hook.PreCompact absent
 project hook.PreInvocation absent
-project hook.PreToolUse absent
-project hook.SessionStart absent
+project hook.PreToolUse unverified
+project hook.SessionStart unverified
 project hook.Stop absent
 project hook.SubagentStop absent
 project hook.UserPromptSubmit absent

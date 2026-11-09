@@ -109,13 +109,14 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"hook", configurator.ProviderAntigravity, ".agents/hooks/demo"},
 		{"mcp", configurator.ProviderAntigravity, ".agents/mcp_config.json"},
 		{"instructions", configurator.ProviderAntigravity, "AGENTS.md"},
-		// copilot (D676, 1.0.94): AGENTS.md and .agents/skills are read natively;
-		// the other cells are gated on folder trust and fail closed.
+		// copilot (D676, 1.0.94; VS Code 1.145.2): AGENTS.md and .agents/skills
+		// are read natively; .github/agents and .github/hooks load in a trusted
+		// workspace; .mcp.json is not loaded with default settings.
 		{"instructions", configurator.ProviderCopilot, "AGENTS.md"},
 		{"skill", configurator.ProviderCopilot, ".agents/skills/demo"},
 		{"mcp", configurator.ProviderCopilot, ""},
-		{"agent", configurator.ProviderCopilot, ""},
-		{"hook", configurator.ProviderCopilot, ""},
+		{"agent", configurator.ProviderCopilot, ".github/agents/demo.agent.md"},
+		{"hook", configurator.ProviderCopilot, ".github/cartographer-hooks/demo"},
 		// pi (1.5.0): AGENTS.md is read untrusted; project .pi/* and
 		// .agents/skills load only after trust, so they fail closed.
 		{"instructions", configurator.ProviderPi, "AGENTS.md"},

@@ -168,7 +168,7 @@ func TestHookRegistrationFiles_RefuseALinkedDirectory(t *testing.T) {
 	}
 	before := treeOf(t, elsewhere)
 
-	if err := removeCopilotHook(base, "h"); !errors.Is(err, ErrSymlinkDestination) {
+	if err := removeCopilotHookAt(base, "h", ""); !errors.Is(err, ErrSymlinkDestination) {
 		t.Errorf("removeCopilotHook = %v, want ErrSymlinkDestination", err)
 	}
 	if err := removeOpenCodePlugin(base, "h", []ManagedFile{{Kind: "hook", Name: "h", Path: ".config/opencode/plugins/cartographer-h.js"}}); !errors.Is(err, ErrSymlinkDestination) {
@@ -184,7 +184,7 @@ func TestHookRegistrationFiles_RefuseALinkedDirectory(t *testing.T) {
 		t.Errorf("saveJSONObject into a new subdirectory = %v, want ErrSymlinkDestination", err)
 	}
 	// Nothing registered: no-ops stay clean.
-	if err := removeCopilotHook(base, "absent"); err != nil {
+	if err := removeCopilotHookAt(base, "absent", ""); err != nil {
 		t.Errorf("removeCopilotHook of an absent hook = %v, want nil", err)
 	}
 	if err := removeOpenCodePlugin(base, "absent", nil); err != nil {

@@ -131,6 +131,10 @@ Copilot piece has one KB artifact; Cartographer writes it into `$HOME/.copilot`:
 | MCP servers | `mcp/<slug>.json` | |
 | prompt files (`.prompt.md`) | a user-invocable skill | no equivalent is generated; whether a skill appears as a `/` command in the Copilot harness is not observed |
 
+In a bound workspace (read once the folder is trusted) agents go to `.github/agents/<name>.agent.md` and hooks to
+`.github/hooks/cartographer-<name>.json` with their files in `.github/cartographer-hooks/<name>/`; skills go to
+`.agents/skills/` and instructions to `AGENTS.md`. MCP has no project cell.
+
 VS Code's Local harness is not written to, and the VS Code profile folder is never touched.
 
 ### `paths.yaml`

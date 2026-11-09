@@ -1450,8 +1450,11 @@ VS Code's **Copilot harness** (the chat runs the embedded Copilot CLI runtime) r
 VS Code creates that directory when Copilot is first used, so a VS Code install whose Copilot never ran is
 not detected, and neither the app bundle nor `code` on PATH is evidence. VS Code's **Local** harness is not
 written to and Cartographer never writes or reads the VS Code profile folder (`Code/User/…`). VS Code also
-reads `.github/agents` and `.github/hooks` in a trusted workspace; the project-local MCP, agent and hook
-locations are unsupported ([D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
+reads `.github/agents` and `.github/hooks` in a trusted workspace, and a workspace bound to the provider
+gets `.github/agents/<name>.agent.md` and `.github/hooks/cartographer-<name>.json` (the hook's files in
+`.github/cartographer-hooks/<name>/`), observed in a trusted workspace only; the project-local MCP location
+is unsupported (VS Code does not load `.mcp.json` with default settings,
+[D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
 
 **Pi** (`pi`, npm `@earendil-works/pi-coding-agent`; probed on 1.5.0) — with auth. The file is
 `~/.pi/agent/mcp.json`, key `mcpServers`. Pi interpolates `${VAR}` in `env` and `headers`, so the

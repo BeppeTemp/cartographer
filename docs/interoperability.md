@@ -97,7 +97,7 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 | OpenCode | `.opencode/skills`, `.opencode/agent`, `.opencode/hooks`, `opencode.json`, `AGENTS.md` | [skills](https://opencode.ai/docs/skills), [rules](https://opencode.ai/docs/rules), [agents](https://opencode.ai/docs/agents), [plugins](https://opencode.ai/docs/plugins) |
 | Antigravity | `.agents/skills`, `.agents/agents`, `.agents/hooks`, `.agents/hooks.json`, `.agents/mcp_config.json`, `AGENTS.md` | probed on the real client (D364) |
 | Crush | `.crush/skills`, `.crush/hooks`, `.crush.json` (mcp, hooks) | agents and instructions unsupported (D363) |
-| Copilot (CLI, VS Code) | `AGENTS.md`, `.agents/skills` | the project mcp, agent and hook locations are gated on folder trust (D676); VS Code reads `.github/agents` and `.github/hooks` in a trusted workspace, which Cartographer does not project yet, and `.mcp.json` is not loaded with default settings. To map a Copilot piece to a KB artifact, see the Copilot table in the `cartographer-kb-create` skill reference `artifacts.md` |
+| Copilot (CLI, VS Code) | `AGENTS.md`, `.agents/skills` | the project agent and hook cells (`.github/agents`, `.github/hooks`, registration `cartographer-<name>.json`) are gated on folder trust (D676) and were observed in a trusted workspace; the project mcp location is unsupported (VS Code does not load `.mcp.json` with default settings). To map a Copilot piece to a KB artifact, see the Copilot table in the `cartographer-kb-create` skill reference `artifacts.md` |
 | Pi | `AGENTS.md` | project `.pi/*` and `.agents/skills` load only after project trust |
 | Cline | none | every project cell is unsupported: Cline declares no MCP roots, so its sessions are unbound |
 
