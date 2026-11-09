@@ -37,4 +37,4 @@ workflows) are listed in `docs/deployment.md` for the maintainer. Docker
 Dependabot PRs are not auto-merged, because the `docker` job is not a required
 check.
 
-The same rule covers every job that holds a write token, `hero.yml` and the image push of `preview.yml` included: no dependency or browser cache (the setup actions say `cache: false`), and an image cache only scoped to the run. A test pins it (`TestWriteTokenJobsRestoreNoSharedCache`). Python tools are installed from a hash lock in `.github/pip/`.
+The same rule covers every job that holds a write token, `hero.yml` and the image push of `preview.yml` included: no dependency or browser cache (the setup actions say `cache: false`; `setup-node` v7 refuses that value, its switch is `package-manager-cache: false`), and an image cache only scoped to the run. A test pins it (`TestWriteTokenJobsRestoreNoSharedCache`). Python tools are installed from a hash lock in `.github/pip/`.

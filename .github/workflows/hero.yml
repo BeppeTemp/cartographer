@@ -80,7 +80,8 @@ jobs:
         with:
           node-version-file: web/.nvmrc
           # No dependency cache: this job publishes with a write token (D1020).
-          cache: false
+          # setup-node v7 refuses `cache: false`; this is its off switch.
+          package-manager-cache: false
       - if: steps.needed.outputs.record == 'true'
         run: cd web && npm ci --silent
       # No browser cache either (D1020): the browser and its OS packages are
