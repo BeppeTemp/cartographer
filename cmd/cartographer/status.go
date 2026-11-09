@@ -241,7 +241,11 @@ func printHookRegistrationHint(provider string, a statusArtifact, lead string) {
 	p := configurator.Provider(provider)
 	// The same resolution sync prints with (#1300): a derived workspace binding
 	// registers in its untracked .claude/settings.local.json.
-	rel, plugin := hookRegistrationTarget(p, a.Name, provisioning.HookPluginRelPath(p, a.Name), a.HookSettings)
+	scope := provisioning.ScopeGlobal
+	if a.ProjectScope {
+		scope = provisioning.ScopeProject
+	}
+	rel, plugin := hookRegistrationTarget(p, a.Name, provisioning.HookPluginRelPath(p, a.Name, scope), a.HookSettings)
 	switch {
 	case rel == "":
 	case plugin:

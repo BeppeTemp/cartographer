@@ -108,5 +108,7 @@ func OpenCodePluginShape(content string) int {
 }
 
 // OpenCodePluginRelPath is a hook's generated plugin path relative to the base
-// directory, in slash form.
-func OpenCodePluginRelPath(hookName string) string { return openCodePluginRelPath(hookName) }
+// directory of scope, in slash form.
+func OpenCodePluginRelPath(hookName string, scope Scope) string {
+	return openCodePluginRelPath(hookName, scope)
+}

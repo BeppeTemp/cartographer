@@ -387,8 +387,10 @@ project hook.UserPromptSubmit absent
     still work but is undocumented (D320).
   - `skill` global `~/.config/opencode/skills/` (probed on 2.0.25, D360); project
     `.opencode/skills/` (documented, not probed on 2.x). Hooks fire through a
-    generated JS plugin in `~/.config/opencode/plugins/` (documented, autoloaded;
-    D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape; an unreadable version writes the newest shape with a warning, D719; both shapes bind the command to a JS `const` and run ``sh -c ${command}``, so a backtick or `${VAR}` in it reaches the shell untouched;
+    generated JS plugin in `~/.config/opencode/plugins/` (documented, autoloaded) and, in a workspace,
+    `<workspace>/.opencode/plugins/` (probed on 2.2.5, 2026-11-06; 1.x documented, not probed; the user path is not
+    read from a project; D1841)
+    (D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape; an unreadable version writes the newest shape with a warning, D719; both shapes bind the command to a JS `const` and run ``sh -c ${command}``, so a backtick or `${VAR}` in it reaches the shell untouched;
     sources `opencode.ai/v2/docs/build/plugins/` and `/migrate-v1`), files kept in `~/.opencode/hooks/` (never discovered by the client, run by path); sync layer 1 is the documented
     `session.created` event. A hook command whose executable has a character outside `[A-Za-z0-9_./:@%+=,-]` is single-quoted on a POSIX host in every registrar (`'\''` for an apostrophe); Kiro on Windows keeps the host's spelling, its command shell (PowerShell or cmd.exe) not being verified.
   - `mcp` under the `mcp` key of `~/.config/opencode/opencode.json`, the global

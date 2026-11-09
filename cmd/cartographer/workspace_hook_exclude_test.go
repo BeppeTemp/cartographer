@@ -58,7 +58,7 @@ func TestWorkspaceSync_ExcludeBlockCoversEveryWrittenPath(t *testing.T) {
 			written[filepath.ToSlash(w.Path)] = true
 		}
 	}
-	for _, must := range []string{".codex/hooks/greet/hook.json", ".config/opencode/plugins/cartographer-greet.js"} {
+	for _, must := range []string{".codex/hooks/greet/hook.json", ".opencode/plugins/cartographer-greet.js"} {
 		if !written[must] {
 			t.Fatalf("fixture drifted: %s not reported as written (got %v)", must, written)
 		}
@@ -109,7 +109,7 @@ func TestWorkspaceSync_TrackedCodexHooksFileIsNotExcluded(t *testing.T) {
 // cover, and not a repository's own untracked artifact beside them.
 func TestUncoveredProjectionFiles(t *testing.T) {
 	ws := trackedRepo(t, map[string]string{"README.md": "x\n"})
-	for _, rel := range []string{".codex/hooks.json", ".config/opencode/plugins/cartographer-x.js", ".opencode/skills/mine/SKILL.md", ".opencode/skills/kb/SKILL.md"} {
+	for _, rel := range []string{".codex/hooks.json", ".opencode/plugins/cartographer-x.js", ".opencode/skills/mine/SKILL.md", ".opencode/skills/kb/SKILL.md"} {
 		abs := filepath.Join(ws, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			t.Fatal(err)
@@ -123,14 +123,14 @@ func TestUncoveredProjectionFiles(t *testing.T) {
 		t.Errorf("codex: %v, want .codex/hooks.json", got)
 	}
 	oc := provisioning.Lock{Managed: []provisioning.ManagedFile{
-		{Kind: "hook", Name: "x", Path: ".config/opencode/plugins/cartographer-x.js"},
+		{Kind: "hook", Name: "x", Path: ".opencode/plugins/cartographer-x.js"},
 		{Kind: "skill", Name: "kb", Path: ".opencode/skills/kb/SKILL.md"},
 	}}
 	got := strings.Join(uncoveredProjectionFiles(configurator.ProviderOpenCode, ws, oc), ",")
-	if got != ".config/opencode/plugins/cartographer-x.js,.opencode/skills/kb/SKILL.md" {
+	if got != ".opencode/plugins/cartographer-x.js,.opencode/skills/kb/SKILL.md" {
 		t.Errorf("opencode: %s (the repository's own skill must not be reported)", got)
 	}
-	if err := provisioning.EnsureWorkspaceExcluded(ws, []string{".config/opencode/plugins/cartographer-x.js", ".opencode/skills/kb/SKILL.md"}); err != nil {
+	if err := provisioning.EnsureWorkspaceExcluded(ws, []string{".opencode/plugins/cartographer-x.js", ".opencode/skills/kb/SKILL.md"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := uncoveredProjectionFiles(configurator.ProviderOpenCode, ws, oc); len(got) != 0 {

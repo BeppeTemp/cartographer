@@ -177,6 +177,10 @@ type statusArtifact struct {
 	// when a derived binding receives it (#1300), resolved by sync's own
 	// function; empty otherwise. Only the human output reads it.
 	HookSettings string `json:"-"`
+	// ProjectScope marks a pending hook the sync writes into a workspace, so the
+	// hint names the workspace path of its generated plugin. Only the human
+	// output reads it.
+	ProjectScope bool `json:"-"`
 }
 
 // serviceSnapshot is part of the `service status --output json` contract:
@@ -543,6 +547,8 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.Updated = append(p.Updated, snapshotArtifacts(held, cfg)...)
 		tagHookSettings(p.Added, provProjections[p.Name], manifests)
 		tagHookSettings(p.Updated, provProjections[p.Name], manifests)
+		tagProjectScope(p.Added, provProjections[p.Name], manifests)
+		tagProjectScope(p.Updated, provProjections[p.Name], manifests)
 		s.State = "drift"
 	}
 	if s.Server != "" && s.Client != "" && s.Client != "dev" && s.Server != "dev" && s.Client != s.Server && s.State == "in_sync" {
@@ -659,6 +665,27 @@ func snapshotDiverged(findings []provisioning.DriftFinding) []statusArtifact {
 		out = append(out, statusArtifact{Kind: f.Kind, Name: f.Name, Path: f.Path, Trust: f.Reason, Detail: f.Detail})
 	}
 	return out
+}
+
+// tagProjectScope marks the pending hooks that a project-scope projection
+// (a bound or a derived workspace) receives: the very projections sync applies,
+// so the hint names the workspace path of the generated plugin.
+func tagProjectScope(arts []statusArtifact, ps []syncProjection, manifests map[string]provisioning.Manifest) {
+	for i, a := range arts {
+		if a.Kind != "hook" {
+			continue
+		}
+		for _, sp := range ps {
+			if sp.Scope != provisioning.ScopeProject {
+				continue
+			}
+			for _, m := range manifests[projectionKey(sp)].Artifacts {
+				if m.Kind == "hook" && m.Name == a.Name {
+					arts[i].ProjectScope = true
+				}
+			}
+		}
+	}
 }
 
 // tagHookSettings records on each pending hook the settings file the sync

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -366,5 +367,206 @@ func TestOpenCodeRegistry_DeclaresPluginMajors(t *testing.T) {
 	d, ok := configurator.Lookup(configurator.ProviderOpenCode)
 	if !ok || len(d.HookPluginMajors) != 2 || d.HookPluginMajors[0] != 1 || d.HookPluginMajors[1] != 2 {
 		t.Errorf("HookPluginMajors = %v, want [1 2]", d.HookPluginMajors)
+	}
+}
+
+// #1827: OpenCode reads a project's plugins from <project>/.opencode/plugins/,
+// never from <project>/.config/opencode/plugins/. The workspace scope writes
+// the first, the global scope keeps the second, and a prune removes the file
+// wherever the lock recorded it.
+func TestApply_OpenCode_Hook_ProjectScopeWritesProjectPluginDir(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	ws := t.TempDir()
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		Scope:    provisioning.ScopeProject,
+		BaseDir:  ws,
+	}
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".opencode", "plugins", "cartographer-notify.js")); err != nil {
+		t.Errorf("project plugin not at .opencode/plugins: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".config")); !os.IsNotExist(err) {
+		t.Errorf("the workspace got a .config directory: %v", err)
+	}
+
+	// Prune: the hook leaves the KB, the plugin goes with it.
+	if err := os.RemoveAll(filepath.Join(kbRoot, "hooks", "notify")); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest (2): %v", err)
+	}
+	opts.Lock = res.NewLock
+	if _, err := provisioning.Apply(m2, opts); err != nil {
+		t.Fatalf("Apply (removal): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".opencode", "plugins", "cartographer-notify.js")); !os.IsNotExist(err) {
+		t.Error("project plugin not removed with its hook")
+	}
+}
+
+// A lock written before the fix records the workspace plugin under
+// .config/opencode/plugins: one sync writes the new file, removes the old one
+// and reports the hook as moved; the next sync changes nothing.
+func TestApply_OpenCode_Hook_ProjectScopeRelocatesOldPlugin(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	ws := t.TempDir()
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		Scope:    provisioning.ScopeProject,
+		BaseDir:  ws,
+	}
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	// Rewind to the old layout: plugin file and lock entry at the old path.
+	newRel := ".opencode/plugins/cartographer-notify.js"
+	oldRel := ".config/opencode/plugins/cartographer-notify.js"
+	oldFull := filepath.Join(ws, filepath.FromSlash(oldRel))
+	if err := os.MkdirAll(filepath.Dir(oldFull), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(ws, filepath.FromSlash(newRel)), oldFull); err != nil {
+		t.Fatal(err)
+	}
+	lock := res.NewLock
+	for i, mf := range lock.Managed {
+		if filepath.ToSlash(mf.Path) == newRel {
+			lock.Managed[i].Path = oldRel
+		}
+	}
+
+	opts.Lock = lock
+	res2, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply (relocation): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, filepath.FromSlash(newRel))); err != nil {
+		t.Errorf("plugin not written at the new path: %v", err)
+	}
+	if _, err := os.Stat(oldFull); !os.IsNotExist(err) {
+		t.Errorf("old plugin still on disk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".config", "opencode", "plugins")); !os.IsNotExist(err) {
+		t.Errorf("empty .config/opencode/plugins left behind: %v", err)
+	}
+	moved := false
+	for _, mf := range res2.Relocated {
+		moved = moved || (mf.Kind == "hook" && mf.Name == "notify")
+	}
+	if !moved {
+		t.Errorf("Relocated = %+v, want hook/notify", res2.Relocated)
+	}
+	pruned := false
+	for _, mf := range res2.Pruned {
+		pruned = pruned || filepath.ToSlash(mf.Path) == oldRel
+	}
+	if !pruned {
+		t.Errorf("Pruned = %+v, want %s", res2.Pruned, oldRel)
+	}
+	for _, mf := range res2.NewLock.Managed {
+		if filepath.ToSlash(mf.Path) == oldRel {
+			t.Errorf("the new lock still records %s", oldRel)
+		}
+	}
+
+	opts.Lock = res2.NewLock
+	res3, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply (again): %v", err)
+	}
+	if len(res3.Written) != 0 || len(res3.Relocated) != 0 || len(res3.Pruned) != 0 {
+		t.Errorf("second sync not a no-op: written %v relocated %v pruned %v", res3.Written, res3.Relocated, res3.Pruned)
+	}
+}
+
+// #1827: a symlinked .opencode/plugins in a workspace is refused before the
+// hook's script is written: the guard checks the project plugin path, not the
+// global one (the hook script itself sits in a real .opencode/hooks).
+func TestApply_OpenCode_Hook_ProjectScopeSymlinkedPluginsRefusedBeforeWrite(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	ws, elsewhere := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(ws, ".opencode", "plugins")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		Scope:    provisioning.ScopeProject,
+		BaseDir:  ws,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(res.Refused) != 1 || res.Refused[0].Name != "notify" {
+		t.Fatalf("Refused = %+v, want the notify hook", res.Refused)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".opencode", "hooks", "notify")); !os.IsNotExist(err) {
+		t.Errorf("the hook's files were written before the refusal: %v", err)
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+		t.Errorf("files written through the symlinked plugins directory: %v", entries)
+	}
+}
+
+// #1827: a script of the KB's own named cartographer-<name>.js in the hook's
+// directory is not the generated plugin: it is never read as a moved plugin.
+func TestApply_OpenCode_Hook_OwnScriptNamedLikePluginIsNotMoved(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	ws := t.TempDir()
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		Scope:    provisioning.ScopeProject,
+		BaseDir:  ws,
+	}
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	lock := res.NewLock
+	lock.Managed = append(lock.Managed, provisioning.ManagedFile{Kind: "hook", Name: "notify", Path: ".opencode/hooks/notify/cartographer-notify.js"})
+	opts.Lock = lock
+	res2, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply (2): %v", err)
+	}
+	for _, mf := range res2.Relocated {
+		t.Errorf("relocated %+v", mf)
 	}
 }

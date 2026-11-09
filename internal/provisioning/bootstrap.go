@@ -119,7 +119,7 @@ func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lo
 			filepath.Join(destRel, "hook.json"),
 			filepath.Join(destRel, h.scriptName),
 		}
-		if pluginRel := HookPluginRelPath(provider, h.name); pluginRel != "" {
+		if pluginRel := HookPluginRelPath(provider, h.name, ScopeGlobal); pluginRel != "" {
 			relPaths = append(relPaths, pluginRel)
 		}
 	} else {
@@ -158,7 +158,7 @@ func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lo
 		// D57/D58/D59 primitives — the very same code Apply uses for KB
 		// hooks, with the hook.json just written above acting as the bridge.
 		if mechanism, ok := mechanismFor(provider); ok {
-			pluginRel, warning, _, err := mechanism.register(baseDir, h.name, fullDestDir)
+			pluginRel, warning, _, err := mechanism.register(baseDir, h.name, fullDestDir, ScopeGlobal)
 			if err != nil {
 				return Lock{}, err
 			}
@@ -236,7 +236,7 @@ type hookMechanism struct {
 	settingsFile []string
 	// pluginPath derives that generated artifact's path, relative to the base
 	// dir. Nil when the provider has none.
-	pluginPath func(name string) string
+	pluginPath func(name string, scope Scope) string
 	// noSessionStartEvent marks a provider whose hook engine has no event
 	// firing once at session start. It registers KB hooks normally, but the
 	// bootstrap hook (D60) cannot exist for it: its trigger is the scheduled
@@ -276,17 +276,17 @@ type hookMechanism struct {
 	// the registrar skipped the hook (no usable hook.json, an event the client
 	// never fires): nothing was written, so a registration left by an earlier
 	// version of the hook is stale and the caller strips it.
-	register func(baseDir, name, fullDestDir string) (relPath, warning string, registered bool, err error)
+	register func(baseDir, name, fullDestDir string, scope Scope) (relPath, warning string, registered bool, err error)
 }
 
 // claudeHookRegistrar registers a Claude Code hook in the settings file
 // settingsRel names ("" for settings.json; see registerHookSettings).
-func claudeHookRegistrar(settingsRel string) func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+func claudeHookRegistrar(settingsRel string) func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 	file := settingsRel
 	if file == "" {
 		file = "settings.json"
 	}
-	return func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+	return func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 		warning, registered, err := registerHookSettings(baseDir, settingsRel, name, fullDestDir)
 		if err != nil {
 			return "", "", false, fmt.Errorf("provisioning: register hook %s in %s: %w", name, file, err)
@@ -300,9 +300,9 @@ func claudeHookRegistrar(settingsRel string) func(baseDir, name, fullDestDir str
 // (strip[1:], an untracked settings.json), then registers it in strip[0]. A
 // hook a tracked settings.json still registers is left there, with a warning,
 // and not registered twice.
-func claudeMovingRegistrar(strip []string) func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+func claudeMovingRegistrar(strip []string) func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 	register := claudeHookRegistrar(strip[0])
-	return func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+	return func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 		if len(strip) == 1 && claudeHookRegisteredIn(baseDir, claudeSettingsFiles[0], name) {
 			return "", fmt.Sprintf("hook %q: still registered in the tracked %s by an earlier version, so not registered in %s; remove that entry (`cartographer doctor`)", name, claudeSettingsFiles[0], strip[0]), true, nil
 		}
@@ -311,7 +311,7 @@ func claudeMovingRegistrar(strip []string) func(baseDir, name, fullDestDir strin
 				return "", "", false, err
 			}
 		}
-		return register(baseDir, name, fullDestDir)
+		return register(baseDir, name, fullDestDir, scope)
 	}
 }
 
@@ -328,7 +328,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// agent, reading a failed call, repeats the write and loses its
 		// content_hash. The hook uses `--channel context` (additionalContext).
 		writeFindingsHook: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			warning, registered, err := registerCodexHook(baseDir, name, fullDestDir)
 			if err != nil {
 				return "", "", false, fmt.Errorf("provisioning: register hook %s in hooks.json: %w", name, err)
@@ -341,7 +341,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		warningBlocksBootstrap: true,
 		// writeFindingsHook stays false: support depends on the installed major
 		// (SupportsWriteFindingsHook, D362) and the hook is a dedicated plugin.
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			// Unlike claude/codex (patching an existing shared file), here the
 			// registration produces a NEW dedicated file (the generated
 			// plugin, D59) — the caller appends it to the managed files so it
@@ -354,7 +354,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			// reusing the shared helper verbatim keeps registration and
 			// removal (removeOpenCodePlugin, driven by PruneManaged/mf.Name)
 			// on the exact same path-derivation logic.
-			pluginRel, warning, registered, err := registerOpenCodePlugin(baseDir, name, fullDestDir)
+			pluginRel, warning, registered, err := registerOpenCodePlugin(baseDir, name, fullDestDir, scope)
 			if err != nil {
 				return "", "", false, fmt.Errorf("provisioning: register hook %s as opencode plugin: %w", name, err)
 			}
@@ -363,7 +363,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 	},
 	configurator.ProviderAntigravity: {
 		settingsFile: []string{".gemini", "config", "hooks.json"},
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			warning, registered, err := registerAntigravityHook(baseDir, name, fullDestDir)
 			if err != nil {
 				return "", "", false, fmt.Errorf("provisioning: register hook %s in Antigravity hooks.json: %w", name, err)
@@ -376,7 +376,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// Probed on v0.98.0 (D363): of six events only PreToolUse fires, so there
 		// is no session-start event, and no PostToolUse for the write-findings hook.
 		noSessionStartEvent: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			warning, registered, err := registerCrushHook(baseDir, name, fullDestDir)
 			if err != nil {
 				return "", "", false, fmt.Errorf("provisioning: register hook %s in crush.json: %w", name, err)
@@ -388,9 +388,9 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// A dedicated file of our own, never ~/.copilot/settings.json (D676).
 		// It is returned as a managed file, so it is pruned like OpenCode's
 		// generated plugin.
-		pluginPath:        copilotHookRelPath,
+		pluginPath:        func(name string, _ Scope) string { return copilotHookRelPath(name) },
 		writeFindingsHook: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			rel, warning, registered, err := registerCopilotHook(baseDir, name, fullDestDir)
 			if err != nil {
 				return "", "", false, fmt.Errorf("provisioning: register hook %s as a Copilot hook file: %w", name, err)
@@ -403,10 +403,10 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// file so it is pruned (probed on Pi 1.5.0: session_start fires in
 		// every session, -p included, so no timer is advised). SessionStart is
 		// always mapped: a warning for the bootstrap hook would be a regression.
-		pluginPath:             piExtensionRelPath,
+		pluginPath:             func(name string, _ Scope) string { return piExtensionRelPath(name) },
 		writeFindingsHook:      true,
 		warningBlocksBootstrap: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			rel, warning, registered, err := registerPiHook(baseDir, name, fullDestDir)
 			if err != nil {
 				return "", "", false, fmt.Errorf("provisioning: register hook %s as a Pi extension: %w", name, err)
@@ -426,7 +426,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// the bootstrap must fail instead of recording it as installed.
 		// writeFindingsHook stays false until probe P2 shows that
 		// postToolUse.result carries the response text.
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			rel, warning, registered, err := registerClineHook(baseDir, name, fullDestDir)
 			if err != nil {
 				return "", "", false, fmt.Errorf("provisioning: register hook %s as a Cline dispatcher: %w", name, err)
@@ -441,7 +441,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// new TUI since 2.27.0, over the v2 engine) and every
 		// --no-interactive run never build the hook cache.
 		sessionHookLimit: "kiro-cli chat --v3 --tui",
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			warning, registered, err := registerKiroHook(baseDir, name, fullDestDir)
 			if err != nil {
 				return "", "", false, fmt.Errorf("provisioning: register hook %s in Kiro cartographer.json: %w", name, err)
@@ -459,7 +459,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 // global one (Antigravity's .agents/hooks.json, Crush's .crush.json), and the
 // registrars pick the file from that same path. A provider with no mechanism
 // has nothing to check.
-func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name, destRel string) error {
+func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name, destRel string, scope Scope) error {
 	if _, ok := mechanismFor(provider); !ok {
 		return nil
 	}
@@ -473,7 +473,7 @@ func checkHookRegistrationTarget(baseDir string, provider configurator.Provider,
 			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
 		}
 	}
-	for _, full := range hookRegistrationTargets(baseDir, provider, name, destRel) {
+	for _, full := range hookRegistrationTargets(baseDir, provider, name, destRel, scope) {
 		if err := safewrite.CheckPath(baseDir, full); err != nil {
 			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
 		}
@@ -484,7 +484,7 @@ func checkHookRegistrationTarget(baseDir string, provider configurator.Provider,
 // hookRegistrationTargets lists the files a hook's registration writes under
 // baseDir (the settings file, the generated plugin file), for the guard above
 // and for a dry run's "would write through symlink" notes.
-func hookRegistrationTargets(baseDir string, provider configurator.Provider, name, destRel string) []string {
+func hookRegistrationTargets(baseDir string, provider configurator.Provider, name, destRel string, scope Scope) []string {
 	m, ok := mechanismFor(provider)
 	if !ok {
 		return nil
@@ -499,7 +499,7 @@ func hookRegistrationTargets(baseDir string, provider configurator.Provider, nam
 		targets = append(targets, filepath.Join(baseDir, filepath.Join(m.settingsFile...)))
 	}
 	if m.pluginPath != nil {
-		targets = append(targets, filepath.Join(baseDir, filepath.FromSlash(m.pluginPath(name))))
+		targets = append(targets, filepath.Join(baseDir, filepath.FromSlash(m.pluginPath(name, scope))))
 	}
 	return targets
 }
@@ -555,12 +555,12 @@ func HookRegistrationFile(provider configurator.Provider) string {
 // HookPluginRelPath returns the path, relative to the client base dir, of the
 // dedicated registration artifact this provider generates for hook name — or
 // "" when it registers into a shared settings file instead.
-func HookPluginRelPath(provider configurator.Provider, name string) string {
+func HookPluginRelPath(provider configurator.Provider, name string, scope Scope) string {
 	m, ok := mechanismFor(provider)
 	if !ok || m.pluginPath == nil {
 		return ""
 	}
-	return m.pluginPath(name)
+	return m.pluginPath(name, scope)
 }
 
 // SyntheticHookDryRunNotes lists, for a dry run, the "would write through
@@ -574,7 +574,7 @@ func SyntheticHookDryRunNotes(baseDir string, provider configurator.Provider) []
 	var notes []string
 	for _, h := range hooks {
 		destRel := destDir("hook", h.name, provider)
-		paths := hookRegistrationTargets(baseDir, provider, h.name, destRel)
+		paths := hookRegistrationTargets(baseDir, provider, h.name, destRel, ScopeGlobal)
 		paths = append(paths, filepath.Join(baseDir, destRel, "hook.json"), filepath.Join(baseDir, destRel, h.scriptName))
 		for _, p := range paths {
 			notes = appendFollowedLinkNotes(notes, baseDir, p)

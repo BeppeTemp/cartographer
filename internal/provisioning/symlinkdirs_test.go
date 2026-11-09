@@ -171,7 +171,7 @@ func TestHookRegistrationFiles_RefuseALinkedDirectory(t *testing.T) {
 	if err := removeCopilotHook(base, "h"); !errors.Is(err, ErrSymlinkDestination) {
 		t.Errorf("removeCopilotHook = %v, want ErrSymlinkDestination", err)
 	}
-	if err := removeOpenCodePlugin(base, "h"); !errors.Is(err, ErrSymlinkDestination) {
+	if err := removeOpenCodePlugin(base, "h", []ManagedFile{{Kind: "hook", Name: "h", Path: ".config/opencode/plugins/cartographer-h.js"}}); !errors.Is(err, ErrSymlinkDestination) {
 		t.Errorf("removeOpenCodePlugin = %v, want ErrSymlinkDestination", err)
 	}
 	if err := removeKiroHook(base, "h"); !errors.Is(err, ErrSymlinkDestination) {
@@ -187,8 +187,12 @@ func TestHookRegistrationFiles_RefuseALinkedDirectory(t *testing.T) {
 	if err := removeCopilotHook(base, "absent"); err != nil {
 		t.Errorf("removeCopilotHook of an absent hook = %v, want nil", err)
 	}
-	if err := removeOpenCodePlugin(base, "absent"); err != nil {
+	if err := removeOpenCodePlugin(base, "absent", nil); err != nil {
 		t.Errorf("removeOpenCodePlugin of an absent hook = %v, want nil", err)
+	}
+	// No recorded plugin: nothing to remove, whatever sits at the global path.
+	if err := removeOpenCodePlugin(base, "h", nil); err != nil {
+		t.Errorf("removeOpenCodePlugin with no recorded plugin = %v, want nil", err)
 	}
 	if err := removeKiroHook(base, "absent"); err != nil {
 		t.Errorf("removeKiroHook of an absent hook = %v, want nil", err)

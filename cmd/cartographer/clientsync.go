@@ -1240,7 +1240,7 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 		return false
 	}
 	p := configurator.Provider(provider)
-	if plugin := provisioning.HookPluginRelPath(p, w.Name); plugin != "" {
+	if plugin := provisioning.HookPluginRelPath(p, w.Name, provisioning.ScopeGlobal); plugin != "" {
 		return filepath.Base(w.Path) == filepath.Base(plugin)
 	}
 	if provisioning.HookRegistrationFile(p) != "" {
@@ -1270,7 +1270,7 @@ func printHookRegistered(wr io.Writer, label, provider, dir string, w provisioni
 // file. Empty when the provider has no registration of its own.
 func hookRegistrationTarget(p configurator.Provider, hook, managedPath, settingsRel string) (rel string, plugin bool) {
 	switch {
-	case provisioning.HookPluginRelPath(p, hook) != "":
+	case provisioning.HookPluginRelPath(p, hook, provisioning.ScopeGlobal) != "":
 		// The generated plugin *is* the registration (D59): its own path.
 		return managedPath, true
 	case settingsRel != "":

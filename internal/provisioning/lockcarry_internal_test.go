@@ -45,7 +45,7 @@ func registrationFiles(p configurator.Provider, name string) []string {
 		out = append(out, filepath.Join(m.settingsFile...))
 	}
 	if m.pluginPath != nil {
-		out = append(out, m.pluginPath(name))
+		out = append(out, m.pluginPath(name, ScopeGlobal))
 	}
 	return out
 }
@@ -374,7 +374,7 @@ func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T
 					t.Errorf("the lock lost the remaining script: %+v", res2.NewLock.Managed)
 				}
 				if pluginPath := hookMechanisms[p].pluginPath; pluginPath != nil {
-					companion := filepath.FromSlash(pluginPath("guard"))
+					companion := filepath.FromSlash(pluginPath("guard", ScopeGlobal))
 					inLock := func(l Lock) bool {
 						for _, mf := range l.Managed {
 							if filepath.Clean(filepath.FromSlash(mf.Path)) == companion {
