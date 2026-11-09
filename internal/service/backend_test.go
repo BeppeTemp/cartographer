@@ -48,7 +48,7 @@ func TestInstall_NoServiceManagerWritesNothing(t *testing.T) {
 	if ents, _ := os.ReadDir(home); len(ents) != 0 {
 		t.Errorf("HOME is not empty: %v", ents)
 	}
-	if err := m.Uninstall(); err != nil {
+	if err := m.Uninstall(false); err != nil {
 		t.Errorf("uninstall with nothing installed and no service manager: %v", err)
 	}
 }
@@ -101,7 +101,7 @@ func TestUninstall_InstalledUnitIsRemovedEvenIfProbeFails(t *testing.T) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return "", nil
 	}}
-	if err := m.Uninstall(); err != nil {
+	if err := m.Uninstall(false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(unit); !os.IsNotExist(err) {

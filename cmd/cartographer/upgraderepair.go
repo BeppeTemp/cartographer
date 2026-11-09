@@ -77,6 +77,13 @@ func cmdUpgradeRepair(args []string) int {
 	}
 
 	if !st.Installed {
+		// A client-only machine's tray may still run the previous binary (an
+		// in-place update moves the exe aside): refresh it, never create one.
+		if trayInstalledFn() {
+			if err := repairEnsureTrayFn(); err != nil {
+				fmt.Fprintln(os.Stderr, "Warning: could not refresh the status icon:", err)
+			}
+		}
 		fmt.Println("native service not installed — nothing to repair")
 		return exitRepairOK
 	}

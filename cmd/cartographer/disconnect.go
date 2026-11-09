@@ -99,6 +99,9 @@ type disconnectOptions struct {
 	// KeepToken leaves the private token file in place when the last provider
 	// goes (reconnect, D699).
 	KeepToken bool
+	// KeepTray leaves the status icon in place when the last provider goes
+	// (reconnect): it must not flap between the two halves of the cycle.
+	KeepTray bool
 }
 
 // disconnectProviderResult is the per-provider outcome of a disconnect pass.
@@ -134,6 +137,9 @@ type disconnectResult struct {
 	// TimerUninstalled is set when the sync timer was removed because no
 	// remaining client needs it (D325). It is not an operator opt-out.
 	TimerUninstalled bool
+	// TrayUninstalled is set when the status icon was removed because no agent
+	// is connected and no local service is installed. Not an operator opt-out.
+	TrayUninstalled bool
 }
 
 // keptConnected lists the providers a refusal (D148) left connected.
@@ -291,6 +297,7 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 	// in particular, so a disconnect-then-reconnect doesn't fall back to
 	// the local default when the user was pointed at a real server. Only
 	// the agents list is zeroed; the file itself is never deleted.
+	agentsBefore := len(cfg.Agents)
 	cfg.Agents = removeStrings(cfg.Agents, disconnected)
 	// The bindings of a disconnected provider go too: what they pointed at has
 	// just been cleaned, and a binding of a provider that is not connected
@@ -313,6 +320,18 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 			if err := syncTimerUninstallFn(); err == nil {
 				res.TimerUninstalled = true
 			}
+		}
+	}
+
+	// The status icon follows the client's server when there is no local
+	// service; with no agent left it has nothing to show. Only when this run
+	// removed an agent: a no-op disconnect must not remove a hand-installed tray. TrayOptOut is left
+	// alone, as for the timer: the next connect installs it again.
+	if !opts.KeepTray && len(cfg.Agents) < agentsBefore && len(cfg.Agents) == 0 && !localServiceInstalledFn() && trayInstalledFn() {
+		if err := trayUninstallFn(); err != nil {
+			fmt.Fprintln(os.Stderr, "Warning: the status icon was not removed:", err)
+		} else {
+			res.TrayUninstalled = true
 		}
 	}
 
@@ -351,6 +370,9 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 	}
 	if res.TimerUninstalled {
 		fmt.Println("sync timer uninstalled (no remaining client needs it)")
+	}
+	if res.TrayUninstalled {
+		fmt.Println("removed the status icon: no agent is connected")
 	}
 }
 

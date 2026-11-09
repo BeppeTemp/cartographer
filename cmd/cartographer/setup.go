@@ -103,6 +103,7 @@ type setupFacts struct {
 	// explicit KB binding, whichever of them the run ends up connecting.
 	BoundProviders []string
 	TimerOptOut    bool // the operator uninstalled the sync timer on purpose (D325)
+	TrayOptOut     bool // the operator opted out of the status icon (D1482)
 	RemoteProbed   bool
 	RemoteHasRefs  bool
 	// RemoteForgeInit: the refs are only a forge's initial commit, which kb
@@ -412,6 +413,9 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 			line("sync timer   install (every %s) — %s", service.DefaultSyncInterval, describeHookless(hookless))
 		}
 	}
+	if traySupported() && !f.TrayOptOut && !trayInstalledFn() {
+		line("status icon  install")
+	}
 	line("verify       the server reports ready")
 }
 
@@ -516,6 +520,7 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 		if cfg, err := clientconfig.Load(dir); err == nil {
 			f.ClientURL = cfg.ServerURL
 			f.TimerOptOut = cfg.SyncTimerOptOut
+			f.TrayOptOut = cfg.TrayOptOut
 			f.PluginsConfigured = len(cfg.Plugins) > 0
 			agents := o.Agents
 			if len(agents) == 0 {

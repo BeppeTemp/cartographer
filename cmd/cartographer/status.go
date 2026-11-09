@@ -227,7 +227,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	// D140: a connected provider with no session hook syncs only on demand.
 	// Once per invocation, not once per provider.
 	var connected []string
+	anyConnected := false
 	for _, p := range s.Providers {
+		anyConnected = anyConnected || p.Connected
 		// D320: a SessionHookLimit connect already showed is not repeated
 		// here; doctor still reports it. A provider with no hook at all is
 		// always named.
@@ -236,6 +238,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		}
 	}
 	printSyncTimerHint(connected)
+	printTrayHint(anyConnected)
 
 	return code
 }

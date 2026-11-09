@@ -249,7 +249,7 @@ func TestUninstallRemovesTheTrayFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub.calls = nil
-	if err := m.Uninstall(); err != nil {
+	if err := m.Uninstall(false); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 	calls := callNames(stub)
@@ -335,5 +335,32 @@ func TestStopTray_ClosesTheWindowBeforeStoppingTheTask(t *testing.T) {
 				t.Errorf("Stop-ScheduledTask called = %v, want %v: %v", got, tc.wantStop, callNames(stub))
 			}
 		})
+	}
+}
+
+// connect installs the tray on its own, so a symlink planted where the
+// definition goes must be refused, not written through.
+func TestInstallTray_RefusesASymlinkedDefinition(t *testing.T) {
+	installTraySetup(t, "darwin")
+	m, _ := newTestManager()
+	p, err := TrayLaunchdPlistPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(target, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, p); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := m.InstallTray(); err == nil {
+		t.Fatal("InstallTray wrote through a symlinked definition")
+	}
+	if b, _ := os.ReadFile(target); string(b) != "keep" {
+		t.Fatalf("the link target was overwritten: %q", b)
 	}
 }

@@ -312,17 +312,26 @@ func cmdServiceEnsure(args []string) int {
 	return 0
 }
 
+// serviceUninstallFn is Manager.Uninstall behind a test seam.
+var serviceUninstallFn = func(keepTray bool) error { return service.NewManager().Uninstall(keepTray) }
+
 func cmdServiceUninstall(args []string) int {
 	fs := flag.NewFlagSet("service uninstall", flag.ExitOnError)
 	if code := noExtraArgs(fs, args); code != 0 {
 		return code
 	}
 
-	if err := service.NewManager().Uninstall(); err != nil {
+	// A tray a client still uses survives the service: with no local service
+	// it shows the server of the client config (the tray decides by itself).
+	keepTray := trayInUseByClient()
+	if err := serviceUninstallFn(keepTray); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return exitStatusError
 	}
 	fmt.Println("service uninstalled")
+	if keepTray && trayInstalledFn() {
+		fmt.Println("status icon kept: it now shows the server of the client config (cartographer service tray uninstall removes it)")
+	}
 	return exitStatusRunning
 }
 
@@ -495,4 +504,15 @@ func clientServerURL() string {
 // cannot be resolved.
 func defaultDataDir() string {
 	return config.DefaultDataDir()
+}
+
+// trayInUseByClient reports whether the client config has a connected agent,
+// the case in which `service uninstall` keeps the status icon.
+func trayInUseByClient() bool {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return false
+	}
+	cfg, err := clientconfig.Load(dir)
+	return err == nil && len(cfg.Agents) > 0
 }

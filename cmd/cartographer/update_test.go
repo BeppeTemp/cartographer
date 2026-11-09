@@ -97,6 +97,14 @@ func TestMain(m *testing.M) {
 	syncTimerInstallFn = func(time.Duration) error { return nil }
 	syncTimerUninstallFn = func() error { return nil }
 	syncTimerStatusFn = func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }
+	// Nor the status icon connect, disconnect, setup and upgrade-repair look
+	// after: installed by default, so none of them prints or acts on it unless a
+	// test stubs it (stubTray).
+	trayStableBinaryFn = func() error { return nil }
+	trayInstallFn = func() error { return nil }
+	trayUninstallFn = func() error { return nil }
+	trayInstalledFn = func() bool { return true }
+	localServiceInstalledFn = func() bool { return false }
 	// Same for the leftover doctor job connect and upgrade-repair remove (D704).
 	removeLegacyDoctorTimerFn = func() (bool, error) { return false, nil }
 	// Nor the developer's global git identity, which connect and sync would

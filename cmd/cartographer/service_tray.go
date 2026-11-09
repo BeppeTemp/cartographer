@@ -12,9 +12,14 @@ import (
 // trayInstallFn and friends are indirected so the dispatch is testable without
 // launchctl or PowerShell.
 var (
-	trayInstallFn   = func() error { return service.NewManager().InstallTray() }
-	trayUninstallFn = func() error { return service.NewManager().UninstallTray() }
-	trayInstalledFn = func() bool { return service.NewManager().TrayInstalled() }
+	// trayStableBinaryFn refuses a binary that must not become a login item (a
+	// `go run` or temp-dir build, a version-pinned Caskroom path): connect
+	// installs the tray on its own, so the check that upgrade-repair applies to
+	// the service applies here too.
+	trayStableBinaryFn = service.CheckStableBinary
+	trayInstallFn      = func() error { return service.NewManager().InstallTray() }
+	trayUninstallFn    = func() error { return service.NewManager().UninstallTray() }
+	trayInstalledFn    = func() bool { return service.NewManager().TrayInstalled() }
 )
 
 const trayUnsupportedMsg = "the status icon is supported on Windows and macOS only"
@@ -62,6 +67,74 @@ func installTrayWithService(noTray bool) {
 	}
 }
 
+// localServiceInstalledFn reports whether the native service's definition is on
+// disk (a file read: no scheduler command), which is what the tray itself uses
+// to choose between the local server and the client's.
+var localServiceInstalledFn = func() bool {
+	st, err := service.NewManager().TrayView("")
+	return err == nil && st.Installed
+}
+
+// allSkipped reports whether the write guard refused every provider of a
+// connect: nothing was connected, so there is nothing to show an icon for.
+func allSkipped(providers []string, skipped map[string][]string) bool {
+	if len(providers) == 0 {
+		return false
+	}
+	for _, p := range providers {
+		if _, ok := skipped[p]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// ensureClientTray is the tray half of `connect`: on by default on macOS and
+// Windows, --no-tray is remembered. An installed tray is left alone, running
+// as it is: InstallTray would stop and restart it, and upgrade-repair is what
+// refreshes it. `sync` never calls this. A failure is a warning only (a session
+// with no GUI, such as ssh, cannot show an icon).
+func ensureClientTray(opts connectOptions, res connectResult) {
+	if !traySupported() || allSkipped(opts.Providers, res.Skipped) {
+		return
+	}
+	if opts.NoTray {
+		installTrayWithService(true)
+		return
+	}
+	if !clientTrayNeeded() {
+		return
+	}
+	if err := trayStableBinaryFn(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: the status icon was not installed: %v; run `cartographer service tray install` from a stable install of cartographer\n", err)
+		return
+	}
+	if err := trayInstallFn(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: the status icon was not installed (a session with no GUI, such as ssh, cannot show one); run `cartographer service tray install` from the desktop session: %v\n", err)
+		return
+	}
+	fmt.Println("tray installed (status icon at logon; remove it with `cartographer service tray uninstall`)")
+}
+
+// clientTrayNeeded: not opted out and not installed yet.
+func clientTrayNeeded() bool { return !trayOptedOut() && !trayInstalledFn() }
+
+// wouldInstallClientTray is the dry-run question of ensureClientTray: the same
+// guards, in the same order, so a dry run never promises what the real run skips.
+func wouldInstallClientTray(opts connectOptions, res connectResult) bool {
+	return traySupported() && !allSkipped(opts.Providers, res.Skipped) && !opts.NoTray &&
+		clientTrayNeeded() && trayStableBinaryFn() == nil
+}
+
+// printTrayHint tells an already connected client that has no status icon how
+// to get one. `status` only reports (D325): installing is connect's job.
+func printTrayHint(anyConnected bool) {
+	if !anyConnected || !traySupported() || trayOptedOut() || trayInstalledFn() {
+		return
+	}
+	fmt.Println("the status icon is not installed \u2014 run `cartographer service tray install` (silence this hint with `cartographer service tray uninstall`)")
+}
+
 // cmdServiceTray manages the status icon's autostart (D1482). `uninstall` is
 // the explicit opt-out, remembered so upgrade-repair does not bring it back;
 // `install` clears it.
@@ -100,6 +173,9 @@ func cmdServiceTray(args []string) int {
 		}
 		setTrayOptOut(false)
 		fmt.Println("tray installed")
+		if !localServiceInstalledFn() && !clientConfigExists() {
+			fmt.Println("no server to show yet: the icon follows `cartographer connect` or a local service")
+		}
 		return 0
 	case "uninstall":
 		if err := trayUninstallFn(); err != nil {
@@ -134,4 +210,14 @@ var repairEnsureTrayFn = func() error {
 		return nil
 	}
 	return trayInstallFn()
+}
+
+// clientConfigExists reports whether the client config file is on disk.
+func clientConfigExists() bool {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(clientconfig.Path(dir))
+	return err == nil
 }

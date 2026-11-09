@@ -104,14 +104,18 @@ func TestCmdUpgradeRepair_TrayStepPlacementAndExitCode(t *testing.T) {
 		name      string
 		installed bool
 		running   bool
+		trayThere bool
 		wantTray  int
 	}{
-		{"not installed skips the tray", false, false, 0},
-		{"stopped service still gets the tray", true, false, 1},
+		{"no service and no tray skips the tray", false, false, false, 0},
+		{"no service refreshes a tray already installed", false, false, true, 1},
+		{"stopped service still gets the tray", true, false, false, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			saveRepairFns(t)
+			stubTray(t)
+			trayInstalledFn = func() bool { return tc.trayThere }
 			calls := 0
 			repairEnsureTrayFn = func() error { calls++; return errors.New("boom") }
 			repairEffectiveConfigFn = func(string) (string, error) { return "/cfg.yaml", nil }

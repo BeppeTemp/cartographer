@@ -285,7 +285,7 @@ func TestCronInstallUninstall_PreservesForeignLines(t *testing.T) {
 	if !st.Installed || !st.Running || st.ServiceBinPath != "/opt/bin/cartographer" {
 		t.Errorf("status = %+v", st)
 	}
-	if err := e.m.Uninstall(); err != nil {
+	if err := e.m.Uninstall(false); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 	if e.ct.text != foreign {
@@ -298,7 +298,7 @@ func TestCronInstallUninstall_PreservesForeignLines(t *testing.T) {
 	if st, _ := e.m.Status(e.cfg); st.Installed {
 		t.Errorf("after uninstall: %+v", st)
 	}
-	if err := e.m.Uninstall(); err != nil {
+	if err := e.m.Uninstall(false); err != nil {
 		t.Errorf("second uninstall: %v", err)
 	}
 }
@@ -306,7 +306,7 @@ func TestCronInstallUninstall_PreservesForeignLines(t *testing.T) {
 func TestCronUninstall_EmptyRemainderRemovesCrontab(t *testing.T) {
 	e := newCronEnv(t)
 	e.install(t)
-	if err := e.m.Uninstall(); err != nil {
+	if err := e.m.Uninstall(false); err != nil {
 		t.Fatal(err)
 	}
 	if e.ct.has {
@@ -348,7 +348,7 @@ func TestCronUninstall_VerifiesRemoval(t *testing.T) {
 	def, _ := CronServerDefinitionPath()
 
 	e.ct.failWrite = true
-	if err := e.m.Uninstall(); err == nil {
+	if err := e.m.Uninstall(false); err == nil {
 		t.Fatal("uninstall succeeded with the block still in the crontab")
 	}
 	if !fileExists(def) {
@@ -357,7 +357,7 @@ func TestCronUninstall_VerifiesRemoval(t *testing.T) {
 
 	// The write "fails" but the block is gone (changed behind our back).
 	e.ct.text, e.ct.has = "", false
-	if err := e.m.Uninstall(); err != nil {
+	if err := e.m.Uninstall(false); err != nil {
 		t.Fatalf("block gone: %v", err)
 	}
 	if fileExists(def) {
@@ -644,7 +644,7 @@ func TestUninstall_BothDefinitionsPresentRemovesBoth(t *testing.T) {
 	unit, _ := SystemdUnitPath()
 	os.MkdirAll(filepath.Dir(unit), 0o755)
 	os.WriteFile(unit, []byte("x"), 0o644)
-	if err := e.m.Uninstall(); err != nil {
+	if err := e.m.Uninstall(false); err != nil {
 		t.Fatal(err)
 	}
 	def, _ := CronServerDefinitionPath()
@@ -670,7 +670,7 @@ func TestCron_SandboxedHomeIgnoresXDGStateAndTouchesNothing(t *testing.T) {
 		t.Errorf("StateDir = %s follows the inherited XDG_STATE_HOME", d)
 	}
 	before := len(e.procs.signals)
-	for name, err := range map[string]error{"stop": e.m.Stop(), "start": e.m.Start(), "uninstall": e.m.Uninstall()} {
+	for name, err := range map[string]error{"stop": e.m.Stop(), "start": e.m.Start(), "uninstall": e.m.Uninstall(false)} {
 		if !errors.Is(err, errSandboxHome) {
 			t.Errorf("%s: %v, want errSandboxHome", name, err)
 		}

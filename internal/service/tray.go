@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 const trayLaunchdLabel = "com.cartographer.tray"
@@ -177,13 +179,19 @@ func (m *Manager) InstallTray() error {
 	if err != nil {
 		return fmt.Errorf("service: resolve tray paths: %w", err)
 	}
+	// connect installs the tray on its own, so these writes refuse a symlink
+	// planted at the destination or in a parent (internal/safewrite).
+	base, err := userHomeDir()
+	if err != nil {
+		return fmt.Errorf("service: resolve home: %w", err)
+	}
 	for _, d := range []string{filepath.Dir(logPath), filepath.Dir(defPath)} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := safewrite.MkdirAllNoFollow(base, d, 0o755); err != nil {
 			return fmt.Errorf("service: create %s: %w", d, err)
 		}
 	}
 	if goos == "darwin" {
-		if err := os.WriteFile(defPath, []byte(RenderTrayLaunchdPlist(binPath, logPath)), 0o644); err != nil {
+		if err := safewrite.WriteFile(base, defPath, []byte(RenderTrayLaunchdPlist(binPath, logPath)), 0o644); err != nil {
 			return fmt.Errorf("service: write tray plist: %w", err)
 		}
 		if err := m.bootoutAndWait(trayLaunchdLabel, defPath); err != nil {
@@ -194,7 +202,7 @@ func (m *Manager) InstallTray() error {
 		}
 		return nil
 	}
-	if err := os.WriteFile(defPath, []byte(RenderWindowsTrayTaskXML(binPath, logPath, windowsTaskUser())), 0o644); err != nil {
+	if err := safewrite.WriteFile(base, defPath, []byte(RenderWindowsTrayTaskXML(binPath, logPath, windowsTaskUser())), 0o644); err != nil {
 		return fmt.Errorf("service: write tray task definition: %w", err)
 	}
 	// IgnoreNew turns a start on a running task into a no-op, so a tray that
