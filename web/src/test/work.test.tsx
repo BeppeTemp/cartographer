@@ -93,4 +93,48 @@ describe("the Work panel", () => {
       await screen.findByText("No open work: no concept in an open status and no unchecked item."),
     ).toBeInTheDocument();
   });
+
+  const worker = {
+    worker: "w-1",
+    perimeter: "team-a",
+    state: "running",
+    last_beat_at: new Date().toISOString(),
+    interval_seconds: 60,
+    last_run: { at: new Date().toISOString(), units_done: 3, tokens_spent: 900, commits: 2 },
+    budgets: [
+      { profile: "cloud", tier: "large", spent: 50, limit: 50 },
+      { profile: "local", tier: "small", spent: 10, limit: 100 },
+    ],
+  };
+
+  it("lists a live worker with a budget at its limit, and a failing feed that opens its concept", async () => {
+    // "/workers" first: the "/work" fragment also matches it.
+    stubApi({
+      "/workers": () => json({ workers: [worker] }),
+      "/feeds": () =>
+        json({ feeds: [{ id: "feeds/news", title: "News feed", source_shape: "feed", feed_error: "HTTP 500", feed_checked_at: "2026-01-02T00:00:00Z" }], total: 1 }),
+      "/work": () => json(work),
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const strip = await screen.findByRole("region", { name: "Workers and feeds" });
+    expect(within(strip).getByText("team-a · w-1")).toBeInTheDocument();
+    expect(within(strip).getByText("50 / 50")).toBeInTheDocument();
+    expect(within(strip).getByText("10 / 100")).toBeInTheDocument();
+    expect(within(strip).getByText("HTTP 500")).toBeInTheDocument();
+    await user.click(within(strip).getByRole("button", { name: "News feed" }));
+    expect(window.location.search).toContain("concept=feeds%2Fnews");
+  });
+
+  it("renders nothing for empty lists, and the page as before when the routes fail", async () => {
+    stubApi({
+      "/workers": () => json({ error: { code: "not_found", message: "not found" } }, 404),
+      "/feeds": () => json({ error: { code: "internal", message: "boom" } }, 500),
+      "/work": () => json(work),
+    });
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Open work" });
+    await waitFor(() => expect(within(panel).getByRole("heading", { level: 1 })).toHaveTextContent("3 concepts carry open work"));
+    expect(screen.queryByRole("region", { name: "Workers and feeds" })).not.toBeInTheDocument();
+  });
 });
