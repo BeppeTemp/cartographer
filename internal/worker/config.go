@@ -98,6 +98,9 @@ type Config struct {
 	Window            *Window // nil when only the idle trigger is set
 	IdleMinutes       int     // 0 when unset
 	PollSeconds       int
+	// FetchAllowPrivate is fetch.allow_private: the ingest task's built-in fetch
+	// may reach private, loopback and link-local destinations.
+	FetchAllowPrivate bool
 	Tasks             []TaskSpec
 	// Warnings are conditions worth one line at start that do not stop it.
 	Warnings []string
@@ -145,7 +148,10 @@ type rawConfig struct {
 	KBs               []string    `yaml:"kbs"`
 	Models            []rawModel  `yaml:"models"`
 	Schedule          rawSchedule `yaml:"schedule"`
-	Tasks             []yaml.Node `yaml:"tasks"`
+	Fetch             struct {
+		AllowPrivate bool `yaml:"allow_private"`
+	} `yaml:"fetch"`
+	Tasks []yaml.Node `yaml:"tasks"`
 }
 
 type rawModel struct {
@@ -402,6 +408,7 @@ func (v *validator) envValue(path string, line int, name string) (string, error)
 func (v *validator) run() error {
 	r, c := v.raw, v.c
 	c.Name, c.ServerURL, c.AllowInsecureHTTP, c.TokenEnv = r.Name, r.ServerURL, r.AllowInsecureHTTP, r.TokenEnv
+	c.FetchAllowPrivate = r.Fetch.AllowPrivate
 
 	if !nameRE.MatchString(r.Name) {
 		return v.errf("name", v.line("name"), "required, 1 to 40 characters of a-z, 0-9 and -")

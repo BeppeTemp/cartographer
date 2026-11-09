@@ -132,6 +132,10 @@ func NewRunner(cfg *Config, kinds *Kinds, opt RunnerOptions) (*Runner, error) {
 		if err != nil {
 			return nil, fmt.Errorf("tasks[%d] (kind %q, line %d): %w", i, t.Kind, t.Line, err)
 		}
+		if b, ok := inst.(Binder); ok {
+			prof, _ := cfg.Profile(t.Profile)
+			b.Bind(cfg, prof)
+		}
 		if _, ok := opt.Models[t.Profile]; !ok {
 			return nil, fmt.Errorf("tasks[%d]: no model built for profile %q", i, t.Profile)
 		}
