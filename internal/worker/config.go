@@ -106,6 +106,10 @@ type Config struct {
 	Tasks             []TaskSpec
 	// Connectors are the external MCP servers of the perimeter, by name (D1262).
 	Connectors []connector.Config
+	// RecipeInstructions are the recipes.<name>.instructions_file texts, read at
+	// load; GitAllowHosts is git.allow_hosts (empty: no feed uses the git reader).
+	RecipeInstructions map[string]string
+	GitAllowHosts      []string
 	// Warnings are conditions worth one line at start that do not stop it.
 	Warnings []string
 
@@ -160,6 +164,8 @@ type rawConfig struct {
 	} `yaml:"fetch"`
 	Tasks      []yaml.Node             `yaml:"tasks"`
 	Connectors map[string]rawConnector `yaml:"connectors"`
+	Recipes    map[string]rawRecipe    `yaml:"recipes"`
+	Git        rawGit                  `yaml:"git"`
 }
 
 type rawModel struct {
@@ -473,6 +479,9 @@ func (v *validator) run() error {
 		return err
 	}
 	if err := v.connectors(); err != nil {
+		return err
+	}
+	if err := v.recipes(); err != nil {
 		return err
 	}
 	return v.tasks()

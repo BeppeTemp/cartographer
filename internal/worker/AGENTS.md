@@ -33,3 +33,6 @@ money and writes to KBs when nobody is looking.
   `__` (a test in `internal/mcpserver` pins it). A child process gets only the variables the config lists
   (`connector.ChildEnv`), so the model key never reaches third-party code. A feed's cursor is written only
   with `if_match` (`feed/`).
+  A Source can name only a recipe or connector in the binary or the config, never code, a command or a
+  path (`recipe/`); the git reader refuses any host outside `git.allow_hosts` before a clone, and
+  `recipe_test.go` pins the refusals (file, ssh, userinfo, local path, `..`, symlinks).
