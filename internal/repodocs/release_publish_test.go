@@ -60,8 +60,9 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 		Jobs map[string]struct {
 			Needs yaml.Node `yaml:"needs"`
 			Steps []struct {
-				Run  string `yaml:"run"`
-				Name string `yaml:"name"`
+				Run  string            `yaml:"run"`
+				Name string            `yaml:"name"`
+				Env  map[string]string `yaml:"env"`
 				With struct {
 					Tags      string `yaml:"tags"`
 					Name      string `yaml:"name"`
@@ -130,5 +131,25 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 	}
 	if !slices.Contains(needs("mcp-registry"), "publish") {
 		t.Error("release.yml: mcp-registry announces the version and must need publish")
+	}
+
+	// The published notes are the CHANGELOG.md section of the tag (#1819), set in the
+	// PATCH that un-drafts; the step that runs the tag's code holds no secret.
+	for _, s := range pub.Steps {
+		if strings.Contains(s.Run, "go run") {
+			if !strings.Contains(s.Run, "-section") {
+				t.Error("release.yml: the publish step that runs go run must extract the notes with gen -section")
+			}
+			for k, v := range s.Env {
+				if strings.Contains(v, "secrets.") || strings.Contains(k, "TOKEN") {
+					t.Errorf("release.yml: the step running go run has %s in its environment: it runs the tag's code (D1020)", k)
+				}
+			}
+		}
+		if strings.Contains(s.Run, "draft=false") {
+			if !strings.Contains(s.Run, "-F body=@") || strings.Contains(s.Run, "go run") {
+				t.Error("release.yml: publish must set the body (-F body=@file) in the PATCH that sets draft=false, in a step that runs gh only")
+			}
+		}
 	}
 }

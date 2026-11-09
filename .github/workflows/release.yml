@@ -149,6 +149,31 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The release notes are the CHANGELOG.md section of the tag, already grouped
+      # by area: release-please's own notes file is ungrouped, and past the PR body
+      # limit its placeholder has nothing to group (#1819). The next three steps run
+      # the tag's own code (`go run`) and hold no secret and no credential (D1020);
+      # only the last one holds GH_TOKEN, and runs `gh` only.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Extract the release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          go run ./internal/changelog/gen -file CHANGELOG.md -section "${TAG#v}" > "$RUNNER_TEMP/release-notes.md"
+          # GitHub rejects a release body over 125000 characters: fail here, the release stays a draft.
+          n=$(wc -m < "$RUNNER_TEMP/release-notes.md")
+          if [ "$n" -gt 125000 ]; then
+            echo "::error::the notes of $TAG are $n characters, over GitHub's 125000 limit" >&2
+            exit 1
+          fi
       - name: Publish the release, and verify it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -165,8 +190,9 @@ jobs:
             echo "::error::no single release for $TAG" >&2
             exit 1
           fi
-          # By id: the tag endpoint does not return a draft.
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f tag_name="$TAG" -F draft=false > /dev/null
+          # By id: the tag endpoint does not return a draft. The body goes in the same
+          # PATCH, so the release is never public with the ungrouped notes.
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f tag_name="$TAG" -F draft=false -F body=@"$RUNNER_TEMP/release-notes.md" > /dev/null
           got=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '"\(.draft) \(.prerelease)"')
           if [ "$got" != "false $want" ]; then
             echo "::error::$TAG is isDraft/isPrerelease=$got, want false $want (D1350, D82)" >&2
