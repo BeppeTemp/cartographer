@@ -2717,6 +2717,7 @@ hookLoop:
 	result.Warnings = append(result.Warnings, degradedWidenedWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, legacySkillWarnings(m)...)
 	result.Warnings = append(result.Warnings, widenedAgentWarnings(m, opts)...)
+	result.Warnings = append(result.Warnings, kiroToollessAgentWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, absentMCPServerWarnings(m, opts)...)
 
 	// Prune: remove stale managed entries from BaseDir. The "instructions" kind
@@ -3476,7 +3477,9 @@ func containsAgentsMDImport(text string) bool {
 func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
 	var out []string
 	for _, a := range m.Artifacts {
-		if !agentWidened(a, opts.Provider) || a.Restriction.Strict {
+		// Kiro has its own warning (kiroToollessAgentWarnings): "unrestricted"
+		// would be the opposite of what it receives.
+		if opts.Provider == configurator.ProviderKiro || !agentWidened(a, opts.Provider) || a.Restriction.Strict {
 			continue
 		}
 		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
@@ -3485,6 +3488,42 @@ func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
 		out = append(out, fmt.Sprintf(
 			"agent %[1]q declares tools: %[2]s; %[3]s cannot express that restriction, so it receives the agent unrestricted (write that client's own restriction under `providers.%[3]s` in its frontmatter, or add `strict_tools: true` to skip it there instead)",
 			a.Name, a.Restriction.Tools, opts.Provider))
+	}
+	return out
+}
+
+// kiroToollessAgentWarnings names, on every run, each KB agent installed on
+// Kiro without any `providers.kiro` field (#1826): translateAgentForKiro drops
+// `tools`, and a Kiro agent file without a tools list has none (D300). Any
+// non-empty `providers.kiro` block counts as giving tools, as agentWidened
+// counts it as the author's own restriction. Read from the source because
+// Restriction is nil for an agent without `tools`. An agent skipped by
+// strict_tools is not installed and is not reported.
+func kiroToollessAgentWarnings(m Manifest, opts ApplyOptions) []string {
+	if opts.Provider != configurator.ProviderKiro {
+		return nil
+	}
+	var out []string
+	for _, a := range m.Artifacts {
+		if a.Kind != "agent" || destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) || strictAgentSkipped(a, opts.Provider) {
+			continue
+		}
+		content, err := singleArtifactContent(a, opts)
+		if err != nil {
+			continue
+		}
+		if fmRaw, _, ok := okf.SplitFrontmatter(string(content)); ok {
+			fm, err := okf.ParseFrontmatter(fmRaw)
+			if err != nil {
+				continue
+			}
+			if fields, err := nativeFieldsFor(fm, configurator.ProviderKiro); err != nil || len(fields) > 0 {
+				continue
+			}
+		}
+		out = append(out, fmt.Sprintf(
+			"agent %q reaches kiro with no tools (Kiro gives an agent without a tools list none, D300); declare them under providers.kiro.tools in its frontmatter (a tools: list is not translated for Kiro)",
+			a.Name))
 	}
 	return out
 }
@@ -5011,8 +5050,9 @@ func translateAgentForCopilot(name string, content []byte) ([]byte, error) {
 //
 // `tools` and `model` are dropped, as they are for Codex and Antigravity: their
 // names are not portable across clients, and inventing a mapping would hand the
-// agent capabilities its author never granted. Omitting `tools` leaves Kiro's
-// own default in force.
+// agent capabilities its author never granted. An agent file without `tools`
+// has no tools in Kiro (D300): only the author's `providers.kiro` fields can
+// give it some, and kiroToollessAgentWarnings says so on every sync.
 func translateAgentForKiro(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name

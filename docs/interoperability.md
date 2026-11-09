@@ -108,6 +108,8 @@ clients receive the agent without it, and therefore with every tool that client
 has; each `sync` warns per agent, and `strict_tools: true` in the agent's
 frontmatter skips it on those clients instead
 ([D283](decisions/D283-a-dropped-tools-allow-list-is-reported-and-can-opt-out.md)).
+Kiro is the exception: it drops `tools` too, but an agent without a tools list has none there,
+so each `sync` warns instead per agent that has no `providers.kiro` block (#1826).
 An agent can instead carry each client's own restriction in a `providers:` frontmatter
 block (`opencode`, `codex`, `kiro`, `antigravity`, `copilot`), copied **verbatim** into that client's native
 agent file; a client with an entry is not widened, so it is neither warned about nor skipped
