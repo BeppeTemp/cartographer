@@ -3280,14 +3280,8 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// The cli sentence (D1695) is client-owned text of the same kind: it enters
 	// the recorded hash only when present, so a provider without one keeps the
 	// hash it had, while a mode flip or a text edit rewrites the block.
-	cliSentence := ""
-	if configurator.UsesCLI(opts.Provider) {
-		cliSentence = cliProviderSentence(opts.Provider)
-	}
-	cliHashPart := ""
-	if cliSentence != "" {
-		cliHashPart = "\x00cli\x00" + cliSentence
-	}
+	cliSentence := cliSentenceFor(opts.Provider)
+	cliHashPart := cliHashPartOf(cliSentence)
 	// The client environment section (D1697) is client-owned text too, and it
 	// moves with things no artifact hash records (a skill skipped or unskipped, a
 	// capability probed). It cannot join the paths-section hash: `status` judges
@@ -5387,7 +5381,9 @@ func instructionsResolutionDrift(m Manifest, opts ApplyOptions, tracker *expansi
 	if sharedSectionWanted(sections) {
 		shared = SharedOperationalSection()
 	}
-	if pathsSectionHash(shared+"\x00"+buildPathsSection(tracker.resolved)) == opts.Lock.PathsSectionHash {
+	// The cli sentence is in the hash Apply records, so it is in this one (#1846).
+	cliPart := cliHashPartOf(cliSentenceFor(opts.Provider))
+	if pathsSectionHash(shared+"\x00"+buildPathsSection(tracker.resolved)+cliPart) == opts.Lock.PathsSectionHash {
 		return nil
 	}
 	return signed
@@ -5826,4 +5822,24 @@ func agentWidened(a Artifact, provider configurator.Provider) bool {
 // (strict_tools) and provider cannot enforce its restriction.
 func strictAgentSkipped(a Artifact, provider configurator.Provider) bool {
 	return agentWidened(a, provider) && a.Restriction.Strict
+}
+
+// cliSentenceFor is the cli sentence of the instructions block, "" for a
+// provider that reaches Cartographer through MCP. Apply and the status side
+// (instructionsResolutionDrift) both ask it, so the hash one records is the
+// hash the other compares (#1846).
+func cliSentenceFor(p configurator.Provider) string {
+	if configurator.UsesCLI(p) {
+		return cliProviderSentence(p)
+	}
+	return ""
+}
+
+// cliHashPartOf is what the cli sentence adds to the recorded paths-section
+// hash: nothing for a provider without one, so its hash is unchanged.
+func cliHashPartOf(sentence string) string {
+	if sentence == "" {
+		return ""
+	}
+	return "\x00cli\x00" + sentence
 }
