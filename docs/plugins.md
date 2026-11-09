@@ -361,6 +361,18 @@ the entry is in. `cli` writes no entry and projects the bundled `cartographer-cl
 names the provider to pass to `cartographer call`, whose KB set the folder's workspace bindings narrow, derived ones included, with the projection scope unchanged (#1804); `none` writes neither, and `connect`, `sync`, `disconnect` and
 `doctor` skip it without a warning.
 
+In `cli` mode the provider name reaches the agent only through the instructions block, so a `cli` provider needs:
+
+1. a global `instructions` cell (`paths.global.instructions`), the file Cartographer writes the block into;
+2. a file there that the client loads in every session (check the client's own docs; for a base client,
+   `docs/harnesses.md` lists where it reads its instructions), otherwise
+3. the plugin adds the file to the client's own context setting from a `sync.after` handler, which needs
+   `permissions.files.write` on that settings file (a `sync.after` handler with `files.write` looks like the one in
+   `test/e2e/fixtures/plugin-example/`, see "Add a script" below; that one writes its own file, not a client setting).
+
+Without it the agent never sees the name: the `cartographer-cli` skill has none to pass to `cartographer call`, so the
+agent guesses and may call another installed provider, which is a different scope.
+
 A provider whose base has a shared hook dispatcher (Cline) contributes its `hook` cell as one more root of the
 dispatcher, which stays shared and is never written by the plugin. The roots come from the registry and only for a
 provider of an active plugin, so retracting a plugin stops its hooks at once, even with files on disk. On any other
