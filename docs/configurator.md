@@ -4,8 +4,8 @@ The `cartographer` binary bundles, besides the server (`serve`), the client subc
 connect a machine to a Cartographer server: `agents` (discovery), `connect`
 (configures + materializes provisioning artifacts — skills, agents, hooks, instructions,
 mcp — D69), `disconnect` (disconnects, the inverse of `connect`), `status` (drift, with per-kind
-counts), `sync` (realigns), `resolve` (resolves a `{{repo:}}`/`{{path:}}` placeholder, D75), plus
-a **TUI dashboard** when invoked with no arguments in a terminal.
+counts), `sync` (realigns), `resolve` (resolves a `{{repo:}}`/`{{path:}}` placeholder, D75). Invoked
+with no arguments in a terminal it prints a short status, then the usage.
 
 The client **always talks to the server over HTTP** (the `sync_pull` tool): there is no
 stdio transport on the client side, nor a separate binary — see
@@ -198,7 +198,7 @@ cartographer setup --remote <url> --dry-run                          # the plan,
 The install scripts end a first install on `Next: cartographer setup`. The Homebrew cask cannot
 tell a first install from an upgrade, and its caveat names both: `First install: cartographer
 setup`, and for an upgrade that the next `cartographer sync` switches the service to the new binary
-or `cartographer upgrade-repair` does it now (D280). The dashboard shows the same hint on its `next` line while a loopback server has no service
+or `cartographer upgrade-repair` does it now (D280). Bare `cartographer` prints the same hint on its `next` line while a loopback server has no service
 behind it or answers with no KB mounted.
 
 ### `cartographer agents`
@@ -393,7 +393,7 @@ the limit. A routed entry carries unprefixed tools and is checked with no prefix
 facts the check stays silent.
 
 **Prefix discovery (D120), pre-D288 servers only.** Every client-owned direct tool call (manifest pull
-during `sync`, remote `reindex`, the TUI's status probes) qualifies the tool name with the prefix the
+during `sync`, remote `reindex`) qualifies the tool name with the prefix the
 server advertises for that KB in `/health`, never one re-derived locally from the KB name. A D288 server
 advertises none, so the tool names are bare.
 
@@ -428,7 +428,7 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 | `--approve-plugins` | `false` | Approves the plugins installed by this run, after printing what each one runs; the flag is the consent, the printed block its record |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906) |
 
-**An unloadable `.cartographer.yaml` is never replaced** (D1514). `reindex`, `kb repair`, `reconnect`, `client` and `usage` print that error too, instead of "no client config found" or a silent fallback to the local default server. `connect`, `disconnect` and the dashboard's connect form fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `providers.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
+**An unloadable `.cartographer.yaml` is never replaced** (D1514). `reindex`, `kb repair`, `reconnect`, `client` and `usage` print that error too, instead of "no client config found" or a silent fallback to the local default server. `connect` and `disconnect` fall back to the defaults only when the file does not exist. Any other `Load` error (malformed YAML, a rejected `providers.<p>.access`, `config_dirs` outside claude, an unreadable file) stops the command before any write, naming the file and the error (`fix or remove <path>`); `Save` itself refuses to replace an existing file it cannot parse. `status` and `doctor` print the same error instead of sending the operator to `connect`.
 
 ### Transport security (D1023)
 
@@ -455,19 +455,18 @@ pin after all clients have synchronized.
 If no provider is detected and no explicit name is passed, the command exits with an error
 (exit 1) without writing anything.
 
-**Interactive form (TTY, D49+D64+D86).** With no form flags and in a TTY, the form shared with the
-TUI opens (`connectform.go`): each field shows a contextual hint below it when focused
+**Interactive form (TTY, D49+D64+D86).** With no form flags and in a TTY, the connect form
+opens (`connectform.go`): each field shows a contextual hint below it when focused
 ("Token env var" is the **name** of the environment variable holding the bearer token — the token
 itself is not entered here, the form saves only the name; with Auth off the field is rendered secondary and the hint says it is
-ignored). In the standalone `connect` form, one checkbox per provider is pre-selected from the
+ignored). In the `connect` form, one checkbox per provider is pre-selected from the
 installed-agent set; select one or more with Space or Enter. The Server URL prefill follows the precedence existing `.cartographer.yaml` >
 `CARTOGRAPHER_SERVER_URL` (client env) > `http://127.0.0.1:39273/mcp` — the loopback literal the local service listens on, never `localhost`, which Windows resolves to `::1` first, where nothing listens (D231). A `.cartographer.yaml` still carrying the old default `http://localhost:39273/...` is read back on `127.0.0.1` (path kept), so the next `connect` or `sync` rewrites every client's MCP entry; any other URL is left as written. On submit a **probe** runs
 (`client.Health`, `GET /health`, 5s timeout, token from env only if Auth is enabled) before writing
 any file: a reachable server with no mounted KB explains the `kb create` then service-restart path;
 otherwise on failure the form is re-shown with the entered values and an inline error
 (distinguishing a 401 "token rejected" from a network error), with an override available — in CLI a
-`y/N` prompt "proceed anyway?", in the TUI a second consecutive Connect with no changes forces the
-connection. A failed `doConnect` also re-shows the form populated (connect is idempotent: no
+`y/N` prompt "proceed anyway?". A failed `doConnect` also re-shows the form populated (connect is idempotent: no
 `disconnect` is needed to retry).
 
 **Placeholder step (TTY, D262).** After the first materialization, when some `{{repo:…}}`/`{{path:…}}`
@@ -547,7 +546,7 @@ prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verif
 `approved`, `approval_stale`, `needs_approval` or `plugin` (an artifact a plugin contributes: gated by the plugin's own approval, never a per-artifact one) — see [D115](decisions/D115-mcp-allow-list-and-hash-bound-local-approval.md)
 for the MCP-specific approval states; an unsigned KB artifact that is not an MCP descriptor, a hook or an executable file is `trusted`: it is installed,
 D906). Artifacts in `needs_approval`/`approval_stale` get their own
-`cartographer approve <kind> <name> --kb <kb>` hint. The dashboard (TUI) summarises the same states per provider, for every artifact kind and not only MCP descriptors, e.g. `drift (needs-approval 2, verified 1)`. A pending hook also names the file the sync registers it in, resolved by the function the sync prints with (a derived workspace binding: `.claude/settings.local.json`, #1300). Before the artifact report it prints the
+`cartographer approve <kind> <name> --kb <kb>` hint. Every pending artifact kind carries its trust state in `--output json` (`trust`), not only MCP descriptors. A pending hook also names the file the sync registers it in, resolved by the function the sync prints with (a derived workspace binding: `.claude/settings.local.json`, #1300). Before the artifact report it prints the
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
 code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
 (D121: it replaces the running service **and** re-syncs the providers in place, where the former
@@ -586,28 +585,6 @@ not the `cartographer` that `sync` would find on `PATH` now (the binary was move
 `connect`, as after trying a release candidate from `$HOME/.local/bin`): `status` exits `1` and `sync`
 or `upgrade-repair` rewrites it. An entry that is not the bridge (an HTTP entry, or one written by hand
 under the same name with other arguments) is not judged.
-
-### Dashboard
-
-With no subcommand in a TTY, the dashboard renders the same status snapshot as
-`status`. Its server panel is a labelled block — endpoint with state and
-readiness, client/server versions (with ` · vX available` in the drift colour when a newer
-release is cached, D254), the local native service when one is
-installed, and the KB inventory with, per KB, how many connected providers are
-**bound** to it (a count of bindings: not sessions, and not a confirmation that
-a sync has run, so `kb-tre (0)` means the server serves it and nothing consumes
-it). `Enter` connects a disconnected provider or syncs a connected one; `s`
-syncs the selected provider, `S` syncs every connected provider in one run, `d` opens the disconnect confirmation — which
-names the KBs whose artifacts will be removed — and `r` refreshes. Unavailable
-actions are omitted from the contextual key map. At 60 columns it uses compact
-labels and shortened endpoints; 80 is the normal layout and 120 retains full
-endpoint and artifact detail. Failures keep the current selection and entered
-connect-form values. Both syncs are `cartographer sync --client <provider>` (the same `runSync`, so
-the known-KB refresh, the MCP entry reconciliation and the partial sync come with them), and what the
-run would print goes into the dashboard's message, never to the terminal (D1612). Connecting from the
-dashboard does the same (`connectOptions.Out`: the machine-wide scope note and the notices land in the message, #1713), names a provider whose parts were refused as `connect` does (`partially connected`, `not connected`, #1693), and asks the same KB choice as `cartographer connect` (D190) after a successful probe, when the
-server mounts several KBs and the provider has no binding yet (`esc` goes back to the form), and keeps a
-recorded `server.allow_insecure_http`.
 
 ### `cartographer sync`
 
@@ -1188,8 +1165,7 @@ cartographer paths --help                   # the usage above, on stdout, exit 0
 - `set`/`ignore`/`unset` print the one command that applies them — `cartographer sync` — and never sync
   implicitly. They need an existing `.cartographer.yaml` (exit `2`, run `connect` first).
 
-The TUI dashboard's per-provider sync reports the unresolved count in its done message; editing
-happens here, not in the TUI.
+Editing happens here, not in the sync summary.
 
 ### `cartographer plugin <subcommand>`
 
@@ -1230,8 +1206,8 @@ env-anchored config directories, optional per-GOOS application directories), and
 function.
 
 Two orders are exposed and both are user-visible: `Providers()` — the order `EmitAll` and the
-client subcommands iterate — and `DetectionOrder()`, the order `cartographer agents` and the TUI
-list agents in.
+client subcommands iterate — and `DetectionOrder()`, the order `cartographer agents`
+lists agents in.
 
 Adding a provider therefore means: one descriptor, one emitter (provider output formats genuinely
 differ, so that stays code), its cells in the kind × provider matrix (`internal/provisioning`, see
@@ -1743,65 +1719,24 @@ The old v1 format (`{"applied_revision", "provider", "managed"}`, single provide
 automatically migrated on read (`provisioning.ReadLockFile`) into `{"providers": {<provider>:
 {...}}}`. See `docs/sync.md` §Core concepts for the full model (drift, pruning).
 
-## TUI mode (interactive dashboard)
+## Bare `cartographer`
 
-Running `cartographer` with no arguments in a terminal opens an interactive dashboard
-(`cmd/cartographer/tui.go`, `bubbletea`): a server block, then one card per provider with an
-explicit status (`connected` / `not connected` / `not installed`) and indented details below,
-laid out on a two-column grid:
+With no arguments in a terminal, `cartographer` prints a short status of this machine, a blank line,
+then the usage (D1857). It is a help screen, not a check: it always exits 0
+(`cartographer status` is the command with meaningful exit codes), it never writes to disk, and
+the one remote read is the one `status` makes, bounded by 5 s. What the status says:
 
-```
-server     http://127.0.0.1:39273/mcp  in-sync · ready
-version    client v0.10.0 · server v0.10.0
-service    local: installed · loaded
-KBs        kb-uno (2 bound) · kb-due (1) · kb-tre (0) · kb-quattro (0)
+- no client config: ``next: run `cartographer setup` ...`` (D253), no network;
+- a config that cannot be read: `client config cannot be read (fix or remove <path>): <err>`, no network;
+- a config with no agent connected: ``no agent connected (run `cartographer connect`)`` and the plugin
+  section;
+- otherwise the server lines exactly as `status` prints them (header or error, version skew, updates
+  available, configuration drift against the server), `next: <hint>` when the machine needs
+  `setup`, one `  [<provider>] <state>` line per connected provider (`in-sync`, ``drift - run `cartographer sync` ``,
+  `unknown`, ...) and `details: cartographer status | cartographer doctor`.
 
-> Claude Code    connected
-      binary      /opt/homebrew/bin/claude
-      mcp-config  in-sync
-      kbs         kb-uno, kb-due  (explicit)
-      artifacts   in-sync
-      kinds       skill 5/5 · agent 4/4 · hook 2/2 · instructions 1/1
-```
-
-`binary` and `kbs` are local data and are in the first frame; `artifacts` and `kinds` are
-fetched asynchronously against the configured server.
-
-`mcp-config` expects what `connect` and `sync` write today: on a routed server one entry named after
-the server whatever the number of KBs (the stdio bridge entry for a provider with a workspace binding,
-none for one bound to no KB), one per KB on a per-KB server. A Claude entry written to the
-`providers.claude.config_dirs` is not looked for. While a sync, a connect or a disconnect is running the
-list ignores `s`, `S`, `d` and `enter` (a second writer would lose the first one's lockfile entries);
-a failed `S` still reads the status again, so no card stays on `checking…`. Widths are counted in
-terminal columns, so footers and non-ASCII paths wrap where they should.
-
-- **`kbs`** is the provider's own binding (D169): the declared names with `(explicit)`,
-  `all known (default)` when nothing was declared, and `none (explicit)` for a binding
-  deliberately emptied. A list too long for the row is truncated with a counter
-  (`kb-uno, kb-due +2`) and never wrapped.
-- **`kinds`** is the per-kind breakdown `formatKindStatus` produces, the same one
-  `cartographer status` prints — both read it off the shared snapshot. It says `unknown`
-  before the first fetch resolves and after one that failed: a breakdown computed against a
-  manifest that was never fetched is not a clean bill of health. `no artifacts` is the
-  distinct case of a manifest that *was* read and holds nothing.
-
-Main keys:
-
-| Key | Action |
-|---|---|
-| `enter` | Connect (if not connected) or resync the **selected** provider |
-| `s` | Resync the **selected** connected provider (no-op on a disconnected one) |
-| `S` | Sync every connected provider in one run, under the client lock (D172) |
-| `d` | Disconnect (if connected) — opens an inline `y`/`n` confirmation naming its KBs |
-| `r` | Refresh status |
-| `q` / `ctrl+c` | Quit |
-
-`d` on a connected agent opens a confirmation screen (`y` confirms; the arrows, `tab`, `h` and `l`
-toggle Yes/No and `enter` confirms only when Yes is selected; `n`, `Esc` and `q` cancel and return to the
-list; any other key is ignored); on a non-connected agent it's a no-op. The TUI is a
-subset of the CLI: it uses the same `doConnect`/`doDisconnect` logic as `cartographer
-connect`/`disconnect`, but doesn't expose `--dry-run`. Outside a TTY, `cartographer`
-with no arguments prints the usage (like `cartographer help`).
+Per-artifact lists, kinds, bindings and the plugin table are `cartographer status`. Outside a terminal,
+`cartographer` with no arguments prints only the usage (like `cartographer help`).
 
 ## Non-destructive merge
 
@@ -1856,7 +1791,7 @@ The refusal is **per provider** (and, in a sync, per artifact):
   an error.
 - `disconnect` prints `kept connected: …` for the provider, leaves its lockfile section,
   `.cartographer.yaml` entry and managed files (whatever could be pruned is) in place so the next
-  `disconnect` retries, removes the others, and **exits 1**. The TUI shows the same line. `reconnect`
+  `disconnect` retries, removes the others, and **exits 1**. `reconnect`
   does not rebuild a provider its disconnect half kept, rebuilds the others, and also exits 1.
 
 Nothing is written through the link until the operator replaces it or lists it (below). The legacy `.codex/config.json`

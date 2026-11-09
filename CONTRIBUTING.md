@@ -50,7 +50,7 @@ run is not a gate.
 - [`AGENTS.md`](AGENTS.md) is the canonical entry point for both people and
   agents, and it has a compact code map (what lives where). `CLAUDE.md` is one
   line importing it.
-- The top level: `cmd/cartographer/` is the single binary (server, client, TUI),
+- The top level: `cmd/cartographer/` is the single binary (server, client, Surveyor, tray),
   `internal/` has one package per concern, `web/` is the Atlas UI source,
   `docs/` the documentation, `test/` the shell-driven smoke and E2E suites.
 - [`docs/index.md`](docs/index.md) is the documentation index, with reading

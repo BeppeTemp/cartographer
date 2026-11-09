@@ -259,7 +259,7 @@ func TestPluginHookAuthorizationDependsOnTheActiveSet(t *testing.T) {
 }
 
 // The held lock entries of a plugin that cannot be read are not drift: status
-// (and so doctor and the TUI, which read its snapshot) judges the projection
+// (and so doctor and the bare screen, which read its snapshot) judges the projection
 // without them, as sync does.
 func TestStatusIsInSyncWhileAPluginStoreIsPurged(t *testing.T) {
 	srv := healthOnlyServer(t)

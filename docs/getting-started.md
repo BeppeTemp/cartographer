@@ -28,8 +28,8 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 ```
 
 `cartographer` is a single binary: it is the MCP server (`serve`), the
-multi-provider client (`connect` / `status` / `sync`), and a TUI dashboard
-(run it with no arguments in a terminal).
+multi-provider client (`connect` / `status` / `sync`); run with no arguments in a
+terminal it prints a short status, then the usage.
 
 The installers verify the download against the release's `sha256sums.txt` and stop
 without it. For a stronger proof that an asset was built by this repository's release

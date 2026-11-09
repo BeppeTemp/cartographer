@@ -91,7 +91,7 @@ func resolveDisconnectProviders(target, csv string, connectedAgents []string) ([
 }
 
 // disconnectOptions bundles the parameters of a disconnect operation, shared by
-// the CLI `disconnect` subcommand and the TUI disconnect confirmation (tui.go).
+// the CLI `disconnect` subcommand.
 type disconnectOptions struct {
 	Providers []string
 	Dir       string
@@ -148,7 +148,7 @@ func (r disconnectResult) keptConnected() []string {
 }
 
 // doDisconnect is the single source of truth for "disconnect" business logic,
-// shared by cmdDisconnect (CLI) and the TUI. For each provider in
+// run by cmdDisconnect. For each provider in
 // opts.Providers it:
 //  1. removes the MCP server entry from the provider's config file
 //     (configurator.Remove);

@@ -264,7 +264,7 @@ func TestAutoPatchNeverSelfReplaces(t *testing.T) {
 }
 
 // WP3: the snapshot carries `update` only when one is available, read from
-// the cache only; the status line and the TUI follow it; exit codes do not.
+// the cache only; the status line and the bare screen follow it; exit codes do not.
 func TestStatusSnapshotCarriesUpdateOnlyWhenAvailable(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
@@ -345,23 +345,6 @@ func TestDoctorReportsUpdateAsInfo(t *testing.T) {
 	stubUpdate(t, updatecheck.Result{Current: "v1", Latest: "v1"}, updatecheck.ChannelInstallPS1, true)
 	if got := checkUpdateAvailable(); len(got) != 0 {
 		t.Errorf("up to date: %+v", got)
-	}
-}
-
-func TestViewServerPanelShowsAnAvailableUpdate(t *testing.T) {
-	m := testModel()
-	m.width = 100
-	m.snapshot = &statusSnapshot{Schema: statusSchema, ServerURL: "http://h/mcp", Reachable: true, Client: "v0.16.1", Server: "v0.16.1", State: "in_sync"}
-	if out := ansiRE.ReplaceAllString(m.viewServerPanel(), ""); strings.Contains(out, "available") {
-		t.Errorf("no update, no suffix:\n%s", out)
-	}
-	m.snapshot.Update = &updateSnapshot{Latest: "v0.17.0", Kind: "minor", Channel: "homebrew"}
-	raw := m.viewServerPanel()
-	if !strings.Contains(ansiRE.ReplaceAllString(raw, ""), "version    client v0.16.1 · server v0.16.1 · v0.17.0 available") {
-		t.Errorf("missing the update suffix:\n%s", raw)
-	}
-	if !strings.Contains(raw, styleDrift.Render(" · v0.17.0 available")) {
-		t.Errorf("the suffix must use the drift style:\n%q", raw)
 	}
 }
 

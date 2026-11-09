@@ -350,7 +350,7 @@ var descriptors = []Descriptor{
 	},
 }
 
-// detectionOrder is the order `cartographer agents` and the TUI list agents
+// detectionOrder is the order `cartographer agents` lists agents
 // in. It differs from the registry order above and is equally user-visible:
 // both are preserved deliberately rather than unified (D137).
 var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderAntigravity, ProviderCrush, ProviderCopilot, ProviderPi, ProviderCline}

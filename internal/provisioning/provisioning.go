@@ -2136,7 +2136,7 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 }
 
 // FilterForProvider returns a copy of m with only the artifacts that have a
-// known destination for the provider (destDir != ""). Used by status/TUI
+// known destination for the provider (destDir != ""). Used by status
 // for honest per-provider counts and diffs: a kind the provider can't
 // materialize isn't "missing", it simply doesn't apply (e.g. hook
 // exists only for Claude Code — D48; agent for Claude Code and OpenCode — D55).
@@ -2205,7 +2205,7 @@ type KindCount struct {
 
 // KindCounts aggregates per-kind counts of m's artifacts (Total) against lock's
 // managed files (Installed), keyed by Kind ("skill", "agent", "hook", ...). Used by
-// `cartographer status` and the TUI dashboard to render a compact per-kind summary
+// `cartographer status` to render a compact per-kind summary
 // (e.g. "skill 4/5 · agent 2/2 · hook 1/1") alongside the overall drift status.
 func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 	managedByKey := make(map[string]ManagedFile, len(lock.Managed))

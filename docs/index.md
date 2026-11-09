@@ -13,7 +13,7 @@ only the pages relevant to your task.
 | [mcp-clients.md](mcp-clients.md) | Using the server from a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop): connect, tokens with an `id`, what the model receives, limits |
 | [deployment.md](deployment.md) | Deployment components, deployment scenarios and recipes (native, stdio, single VM, Kubernetes, several servers, the Helm chart), server configuration, health, backup/DR, upgrades, CI/CD and the Surveyor (a third role) |
 | [surveyor-recipes.md](surveyor-recipes.md) | Surveyor exec recipes: the `recipes.<name>` keys, protocol v1 (stdin request, JSON-lines listing), failures, trust model, example script |
-| [configurator.md](configurator.md) | Multi-provider client and service subcommands (`cartographer setup/agents/connect/disconnect/reconnect/status/sync/call/doctor/update/kb/service/…` + TUI): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
+| [configurator.md](configurator.md) | Multi-provider client and service subcommands (`cartographer setup/agents/connect/disconnect/reconnect/status/sync/call/doctor/update/kb/service/…`): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
 | [control-plane.md](control-plane.md) | Go server, complete MCP tool API (source of truth for the list), search index and validation |
 | [data-plane.md](data-plane.md) | KB model: Atlas/Map/Journal hierarchy, filesystem layout, expanded concepts, OKF concepts, naming, extended type schema |
 | [skills-services-secrets.md](skills-services-secrets.md) | Skill packaging (`SKILL.md`), `type: Service` descriptors, SOPS secrets |
@@ -59,7 +59,7 @@ Mutable state does not live in narrative documentation:
 | Understand an architectural choice | `decisions.md` for the generated list, or `ls docs/decisions/D<n>-*` if you already have the number |
 | Connect a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop) | `mcp-clients.md` |
 | Configure an LLM provider | `interoperability.md` |
-| Connect/disconnect an agent (`setup`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/TUI) | `configurator.md` |
+| Connect/disconnect an agent (`setup`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`) | `configurator.md` |
 | Keep a client aligned with the KB skills | `sync.md` |
 | Install, approve or write a plugin (a client, a command, an MCP tool, a sync handler) | `plugins.md` |
 | Write or understand a test (unit/smoke/agent) | `testing.md` |
@@ -84,7 +84,7 @@ page that was not touched; the table and the file change together, and a test
 | New skill, service or secret handling | `skills-services-secrets.md` |
 | Client provisioning/sync logic | `sync.md` |
 | Plugin manifest, contribution points or store (`internal/plugin`) | `plugins.md` |
-| Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/`service`/TUI…) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
+| Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/`service`…) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `provisioning.Kinds` (the Atlas lists it; a test fails without it, D864) |
 | A feature is **not** implemented (deferred, planned, "future work") | An `idea` issue while it is a proposal, `accepted` once triaged (`CONTRIBUTING.md` §Issues: bug, idea) — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |

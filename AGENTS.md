@@ -33,7 +33,7 @@ make dev [DATA=<data dir>]         # live instance: Go rebuilt on change, UI hot
 ./bin/cartographer serve --kb /path/to/kb             # local stdio server
 ./bin/cartographer serve --config config.yaml         # HTTP/stdio server (YAML)
 ./bin/cartographer connect|disconnect|status|sync     # multi-provider client (HTTP)
-./bin/cartographer                                    # TUI dashboard (if TTY), otherwise usage
+./bin/cartographer                                    # short status + usage (TTY), otherwise usage
 ```
 
 Protocol: JSON-RPC 2.0. Stdio = newline-delimited. HTTP = POST /mcp. Logs on stderr.
@@ -132,7 +132,7 @@ Not duplicated here:
 | Working with an agent client (D992) | `CONTRIBUTING.md` §Working with an agent client |
 | List of MCP tools | `docs/control-plane.md` §MCP API |
 | Env vars, YAML config, deploy | `docs/deployment.md` |
-| Client subcommands / TUI | `docs/configurator.md` |
+| Client subcommands | `docs/configurator.md` |
 | Test strategy, pre-release checklist | `docs/testing.md` |
 | Go conventions | `docs/conventions.md` |
 

@@ -145,6 +145,24 @@ func TestRunNoArgsPrintsUsage(t *testing.T) {
 	}
 }
 
+// Bare cartographer runs the status screen on a terminal and only there.
+func TestRunNoArgsOnATerminalRunsTheBareStatus(t *testing.T) {
+	oldInteractive, oldBare := interactiveFn, bareFn
+	t.Cleanup(func() { interactiveFn, bareFn = oldInteractive, oldBare })
+	calls := 0
+	bareFn = func() int { calls++; return 0 }
+
+	interactiveFn = func() bool { return false }
+	withStdout(t, func() { run(nil) })
+	if calls != 0 {
+		t.Fatalf("bareFn called %d times without a terminal", calls)
+	}
+	interactiveFn = func() bool { return true }
+	if code := run(nil); code != 0 || calls != 1 {
+		t.Errorf("run(nil) on a terminal = %d, bareFn calls = %d; want 0 and 1", code, calls)
+	}
+}
+
 func TestRunHelp(t *testing.T) {
 	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}} {
 		out := withStdout(t, func() {

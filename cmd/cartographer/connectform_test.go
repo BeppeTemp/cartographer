@@ -11,7 +11,7 @@ import (
 
 func TestConnectFormModel_Prefill(t *testing.T) {
 	prefill := connectOptions{ServerURL: "https://wiki.example.com/mcp", Name: "kb", Auth: true, Token: "${MY_TOKEN}"}
-	m := newConnectFormModel("Connect claude", prefill, false)
+	m := newConnectFormModel("Connect claude", prefill)
 
 	if m.focus != fieldServerURL {
 		t.Fatalf("focus = %v, want fieldServerURL", m.focus)
@@ -34,7 +34,7 @@ func TestConnectFormModel_Prefill(t *testing.T) {
 }
 
 func TestConnectFormModel_TabCyclesFocus(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{})
 
 	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline, fieldTokenEnv, fieldAuth, fieldSubmit, fieldServerURL}
 	for i, want := range order {
@@ -47,7 +47,7 @@ func TestConnectFormModel_TabCyclesFocus(t *testing.T) {
 }
 
 func TestConnectFormModel_AgentMultiSelect(t *testing.T) {
-	m := newConnectFormModel("Connect", connectOptions{Providers: []string{"claude", "codex", "antigravity"}}, false)
+	m := newConnectFormModel("Connect", connectOptions{Providers: []string{"claude", "codex", "antigravity"}})
 	if !m.providers["claude"] || !m.providers["codex"] || m.providers["kiro"] {
 		t.Fatalf("unexpected preselected providers: %+v", m.providers)
 	}
@@ -67,7 +67,7 @@ func TestConnectFormModel_AgentMultiSelect(t *testing.T) {
 }
 
 func TestConnectFormModel_TypeIntoFocusedField(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{})
 
 	for _, r := range "http://host:9090/mcp" {
 		tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -79,7 +79,7 @@ func TestConnectFormModel_TypeIntoFocusedField(t *testing.T) {
 }
 
 func TestConnectFormModel_ToggleAuthWithSpace(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{})
 	m.setFormFocus(fieldAuth)
 
 	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
@@ -99,7 +99,7 @@ func TestConnectFormModel_ToggleAuthWithSpace(t *testing.T) {
 // file is kept while that text is left alone, and replaced once another name is
 // typed.
 func TestConnectFormModel_KeepsALiteralToken(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{Token: "s3cr3t-literal", Auth: true}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{Token: "s3cr3t-literal", Auth: true})
 	if got := m.Values().Token; got != "s3cr3t-literal" {
 		t.Errorf("Token = %q, want the literal kept", got)
 	}
@@ -111,7 +111,7 @@ func TestConnectFormModel_KeepsALiteralToken(t *testing.T) {
 
 func TestConnectFormModel_SubmitOnEnterAtSubmitField(t *testing.T) {
 	prefill := connectOptions{ServerURL: "http://host/mcp", Name: "kb", Auth: true, Token: "${TOK}"}
-	m := newConnectFormModel("Connect claude", prefill, false)
+	m := newConnectFormModel("Connect claude", prefill)
 	m.setFormFocus(fieldSubmit)
 
 	tm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -123,11 +123,11 @@ func TestConnectFormModel_SubmitOnEnterAtSubmitField(t *testing.T) {
 	if m.Cancelled() {
 		t.Error("expected Cancelled() = false")
 	}
-	// Embedded (standalone=false): must not quit the parent program.
-	if cmd != nil {
-		if _, ok := cmd().(tea.QuitMsg); ok {
-			t.Error("embedded form must not issue tea.Quit on submit")
-		}
+	if cmd == nil {
+		t.Fatal("submit must end the form's program")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Errorf("submit cmd = %T, want tea.QuitMsg", cmd())
 	}
 
 	got := m.Values()
@@ -137,7 +137,7 @@ func TestConnectFormModel_SubmitOnEnterAtSubmitField(t *testing.T) {
 }
 
 func TestConnectFormModel_ValuesDefaultsBlankFields(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{})
 
 	got := m.Values()
 	want := connectOptions{ServerURL: defaults.DefaultMCPURL, Name: "cartographer", Token: "${CARTOGRAPHER_TOKENS}"}
@@ -147,7 +147,7 @@ func TestConnectFormModel_ValuesDefaultsBlankFields(t *testing.T) {
 }
 
 func TestConnectFormModel_EscCancels(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{})
 
 	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = tm.(connectFormModel)
@@ -161,7 +161,7 @@ func TestConnectFormModel_EscCancels(t *testing.T) {
 }
 
 func TestConnectFormModel_HintFollowsFocus(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{Auth: true}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{Auth: true})
 
 	// Focus on Server URL: its hint is rendered, the token-env one is not.
 	out := m.View()
@@ -189,7 +189,7 @@ func TestConnectFormModel_HintFollowsFocus(t *testing.T) {
 }
 
 func TestConnectFormModel_TokenEnvHintWithAuthOff(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{Auth: false}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{Auth: false})
 	m.setFormFocus(fieldTokenEnv)
 	out := m.View()
 	if !strings.Contains(out, "ignored while Auth is disabled") {
@@ -198,7 +198,7 @@ func TestConnectFormModel_TokenEnvHintWithAuthOff(t *testing.T) {
 }
 
 func TestConnectFormModel_LabelIsTokenEnvVar(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{})
 	out := m.View()
 	if !strings.Contains(out, "Token env var") {
 		t.Errorf("field label should read 'Token env var', got:\n%s", out)
@@ -207,7 +207,7 @@ func TestConnectFormModel_LabelIsTokenEnvVar(t *testing.T) {
 
 func TestConnectFormModel_WithErrorPreservesValuesAndRendersInline(t *testing.T) {
 	prefill := connectOptions{ServerURL: "https://x/mcp", Token: "${TOK}", Auth: true}
-	m := newConnectFormModel("Connect claude", prefill, false)
+	m := newConnectFormModel("Connect claude", prefill)
 	m.submitted = true
 
 	m = m.withError("server unreachable: dial tcp: connection refused", true)
@@ -228,7 +228,7 @@ func TestConnectFormModel_WithErrorPreservesValuesAndRendersInline(t *testing.T)
 }
 
 func TestConnectFormModel_EditClearsErrorAndForceRetry(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{})
 	m = m.withError("boom", true)
 
 	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
@@ -243,7 +243,7 @@ func TestConnectFormModel_EditClearsErrorAndForceRetry(t *testing.T) {
 }
 
 func TestConnectFormModel_SubmitClearsStaleError(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, false)
+	m := newConnectFormModel("Connect claude", connectOptions{})
 	m = m.withError("stale", false)
 	m.setFormFocus(fieldSubmit)
 
@@ -258,22 +258,22 @@ func TestConnectFormModel_SubmitClearsStaleError(t *testing.T) {
 	}
 }
 
-func TestConnectFormModel_StandaloneQuitsOnSubmitAndCancel(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{}, true)
+func TestConnectFormModel_QuitsOnSubmitAndCancel(t *testing.T) {
+	m := newConnectFormModel("Connect claude", connectOptions{})
 	m.setFormFocus(fieldSubmit)
 
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
-		t.Fatal("expected a tea.Quit cmd on submit for a standalone form")
+		t.Fatal("expected a tea.Quit cmd on submit for the form")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", cmd())
 	}
 
-	m2 := newConnectFormModel("Connect claude", connectOptions{}, true)
+	m2 := newConnectFormModel("Connect claude", connectOptions{})
 	_, cmd2 := m2.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if cmd2 == nil {
-		t.Fatal("expected a tea.Quit cmd on esc for a standalone form")
+		t.Fatal("expected a tea.Quit cmd on esc for the form")
 	}
 	if _, ok := cmd2().(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", cmd2())

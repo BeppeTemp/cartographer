@@ -216,8 +216,7 @@ func installServiceAndWaitHealthy(mgr *service.Manager, timeout time.Duration) e
 
 // promptYesNo prints prompt, reads a line from stdin, and reports whether the
 // (trimmed, case-insensitive) answer is "y"/"yes". Anything else — including
-// a blank line — is "no", the safe default (mirrors the TUI's disconnect
-// confirmation picker, which also defaults to the safe option).
+// a blank line — is "no", the safe default.
 func promptYesNo(prompt string) bool {
 	fmt.Fprint(os.Stdout, prompt)
 	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -343,7 +342,7 @@ func resolveConnectSettings(passed map[string]bool, flagURL string, flagAuth boo
 //
 // If none of the form flags (--server-url/--auth/--token-env) were
 // passed explicitly and both stdin and stdout are a TTY, cmdConnect opens the
-// interactive connect form (connectform.go, shared with the TUI dashboard)
+// interactive connect form (connectform.go)
 // instead of using the flag defaults — pass --no-input to force the
 // non-interactive behavior regardless of TTY.
 func cmdConnect(args []string) int {
@@ -833,14 +832,12 @@ func describeHookless(hookless []string) string {
 }
 
 // connectOptions bundles the parameters of a connect operation, shared by the
-// CLI `connect` subcommand and the connect form (connectform.go, used both
-// standalone by cmdConnect and embedded in the TUI dashboard, tui.go).
+// CLI `connect` subcommand and the connect form (connectform.go, run by cmdConnect).
 type connectOptions struct {
 	// Out is where doConnect reports what it would otherwise print (the KB
 	// scope note, the unsupported-client notice, the portability warnings). Nil
-	// is the process: stdout for the note, stderr for the notices. The dashboard
-	// passes a buffer, because a line written under the inline frame lands in
-	// the middle of it (#1713).
+	// is the process: stdout for the note, stderr for the notices. A caller
+	// that must keep the terminal clean passes a buffer.
 	Out       io.Writer
 	Providers []string
 	Dir       string
@@ -877,8 +874,7 @@ type connectOptions struct {
 	Access string
 	// PromptPaths opens the placeholder step (D262, pathsform.go) after the
 	// first materialization when some key the bound KBs cite did not
-	// resolve. Set by cmdConnect only on a TTY without --no-input; the TUI
-	// leaves it off (it cannot run a second program inside its own), and a
+	// resolve. Set by cmdConnect only on a TTY without --no-input; a
 	// non-interactive run reports the keys through printApplySummary instead.
 	PromptPaths bool
 }
@@ -888,8 +884,7 @@ type connectOptions struct {
 // if the server was unreachable during skill materialization, the
 // absolute MCP config paths written (or that would be written, in DryRun) by
 // configurator.Apply, and the non-fatal warnings it produced — callers render
-// their own "wrote <path>" output from this (cmdConnect for the CLI; the TUI
-// stays silent on stdout).
+// their own "wrote <path>" output from this (cmdConnect for the CLI).
 type connectResult struct {
 	Providers      []string
 	Applied        map[string]provisioning.AppliedResult
@@ -929,7 +924,7 @@ func (o connectOptions) insecureHTTPAllowed() bool {
 // MCP client configs (HTTP transport only), best-effort materializes skills via
 // sync_pull (deferred, not fatal, if the server is unreachable), and persists
 // .cartographer.yaml. It is the single source of truth for "connect" business
-// logic, shared by cmdConnect (CLI) and the TUI connect form.
+// logic, used by cmdConnect.
 //
 // It holds the client lock (D172) from the first read of .cartographer.yaml to
 // the last write, so a sync started by the timer or a session hook meanwhile

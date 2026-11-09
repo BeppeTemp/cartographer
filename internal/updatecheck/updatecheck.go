@@ -92,7 +92,7 @@ type Options struct {
 	// Force ignores the TTL (not the opt-out): `update check` refreshes.
 	Force bool
 	// CacheOnly never touches the network: `status`, `doctor` and the
-	// dashboard must not add latency, and read whatever the cache holds.
+	// bare screen must not add latency, and read whatever the cache holds.
 	CacheOnly bool
 	// Disabled is the client configuration's `update_check: false`.
 	Disabled bool
