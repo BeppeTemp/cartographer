@@ -4,13 +4,13 @@ kind: ConfigMap
 metadata:
   name: {{ include "cartographer.fullname" . }}-config
   labels:
-    {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 4 }}
+    {{- include "cartographer.labels" (dict "root" . "component" "meridian") | nindent 4 }}
 data:
   config.yaml: |
     # The next keys are owned by the chart: they are coupled to the container port and the mounts.
     http: ":39273"
     data: /data
-    {{- if .Values.server.credentials.enabled }}
+    {{- if .Values.meridian.credentials.enabled }}
     credentials_dir: /etc/cartographer-credentials
     {{- end }}
-    {{- toYaml .Values.server.config | nindent 4 }}
+    {{- toYaml .Values.meridian.config | nindent 4 }}

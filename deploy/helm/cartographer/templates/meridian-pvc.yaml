@@ -1,12 +1,12 @@
 {{- include "cartographer.validate" . -}}
-{{- $p := .Values.server.persistence -}}
+{{- $p := .Values.meridian.persistence -}}
 {{- if not (or $p.existingClaim $p.emptyDir) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "cartographer.fullname" . }}-data
   labels:
-    {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 4 }}
+    {{- include "cartographer.labels" (dict "root" . "component" "meridian") | nindent 4 }}
   annotations:
     # Kept on uninstall: the claim holds the only copy of what no remote has yet.
     helm.sh/resource-policy: keep

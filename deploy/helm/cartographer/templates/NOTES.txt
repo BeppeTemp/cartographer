@@ -1,9 +1,9 @@
 {{- include "cartographer.validate" . -}}
 {{- $full := include "cartographer.fullname" . -}}
-{{- $s := .Values.server -}}
+{{- $s := .Values.meridian -}}
 Cartographer {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }}.
 
-Reach the server (the MCP endpoint is /mcp, the Atlas is /ui/):
+Reach Meridian (the MCP endpoint is /mcp, the Atlas is /ui/):
 
   kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ $full }} {{ $s.service.port }}:{{ $s.service.port }}
 {{- if $s.ingress.enabled }}
@@ -16,7 +16,7 @@ Secrets this release expects (it creates none and renders no secret value):
 {{- if $s.tokens.existingSecret.name }}
   - {{ $s.tokens.existingSecret.name }}, key {{ $s.tokens.existingSecret.key }}: the whole CARTOGRAPHER_TOKENS string.
 {{- else }}
-  - the Secrets of server.extraEnvFrom, which hold the variables the YAML tokens reference.
+  - the Secrets of meridian.extraEnvFrom, which hold the variables the YAML tokens reference.
 {{- end }}
 {{- if $s.credentials.enabled }}
   - {{ $s.credentials.existingSecret.name }}: the credentials directory, with audit.key.
@@ -27,7 +27,7 @@ Secrets this release expects (it creates none and renders no secret value):
 A change in a Secret does not restart the pod: restart it after rotating a token.
 {{- if $s.persistence.emptyDir }}
 
-WARNING: server.persistence.emptyDir is on. The data volume is lost with the pod:
+WARNING: meridian.persistence.emptyDir is on. The data volume is lost with the pod:
   - the audit log (the audit key survives only if the credentials Secret holds it);
   - the conflict registries;
   - usage.json;
@@ -36,11 +36,11 @@ WARNING: server.persistence.emptyDir is on. The data volume is lost with the pod
 {{- else if not $s.persistence.existingClaim }}
 
 The claim {{ $full }}-data is kept when the release is uninstalled. To install the
-release again on it, set server.persistence.existingClaim={{ $full }}-data.
+release again on it, set meridian.persistence.existingClaim={{ $full }}-data.
 {{- end }}
 {{- if include "cartographer.injectsServerURL" . }}
 
-WARNING: a Surveyor entry has no server_url, so it reaches the server at
+WARNING: a Surveyor entry has no server_url, so it reaches Meridian at
 http://{{ $full }}:{{ $s.service.port }}/mcp with allow_insecure_http set: its
 token crosses the pod network in clear. Set server_url to the Ingress's HTTPS
 URL when you do not trust the pod network.

@@ -1,5 +1,5 @@
 {{- include "cartographer.validate" . -}}
-{{- $s := .Values.server -}}
+{{- $s := .Values.meridian -}}
 {{- $full := include "cartographer.fullname" . -}}
 {{- $p := $s.persistence -}}
 {{- $probes := $s.probes -}}
@@ -8,7 +8,7 @@ kind: Deployment
 metadata:
   name: {{ $full }}
   labels:
-    {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 4 }}
+    {{- include "cartographer.labels" (dict "root" . "component" "meridian") | nindent 4 }}
 spec:
   # One process is the sole writer of a working copy (D73): there is no value for this,
   # and the Recreate strategy keeps a rolling update from running two on one volume.
@@ -17,17 +17,17 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "cartographer.selectorLabels" (dict "root" . "component" "server") | nindent 6 }}
+      {{- include "cartographer.selectorLabels" (dict "root" . "component" "meridian") | nindent 6 }}
   template:
     metadata:
       annotations:
         # The file is read once at start: a config change restarts the pod.
-        checksum/config: {{ include (print $.Template.BasePath "/server-configmap.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/meridian-configmap.yaml") . | sha256sum }}
         {{- with $s.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 8 }}
+        {{- include "cartographer.labels" (dict "root" . "component" "meridian") | nindent 8 }}
         {{- with $s.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -42,7 +42,7 @@ spec:
         {{- toYaml $s.podSecurityContext | nindent 8 }}
       containers:
         - name: cartographer
-          image: {{ include "cartographer.serverImage" . | quote }}
+          image: {{ include "cartographer.meridianImage" . | quote }}
           imagePullPolicy: {{ $s.image.pullPolicy }}
           args:
             - serve

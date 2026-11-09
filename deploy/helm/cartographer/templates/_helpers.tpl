@@ -30,8 +30,8 @@ app.kubernetes.io/version: {{ .root.Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- end -}}
 
-{{- define "cartographer.serverImage" -}}
-{{- $i := .Values.server.image -}}
+{{- define "cartographer.meridianImage" -}}
+{{- $i := .Values.meridian.image -}}
 {{- printf "%s:%s" $i.repository (default .Chart.AppVersion $i.tag) -}}
 {{- end -}}
 
@@ -51,41 +51,41 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 
 {{/* Every template-time refusal lives here; the output is empty. */}}
 {{- define "cartographer.validate" -}}
-{{- $s := .Values.server -}}
+{{- $s := .Values.meridian -}}
 {{- $cfg := $s.config -}}
 {{- range $k := list "http" "data" "credentials_dir" -}}
 {{- if hasKey $cfg $k -}}
-{{- fail (printf "server.config.%s is owned by the chart (it is coupled to the container port, the probes and the mounts): remove it from your values" $k) -}}
+{{- fail (printf "meridian.config.%s is owned by the chart (it is coupled to the container port, the probes and the mounts): remove it from your values" $k) -}}
 {{- end -}}
 {{- end -}}
 {{- $yamlTokens := dig "auth" "tokens" (list) $cfg -}}
 {{- $fromSecret := $s.tokens.existingSecret.name -}}
 {{- if and $fromSecret $yamlTokens -}}
-{{- fail "server.tokens.existingSecret and server.config.auth.tokens are mutually exclusive: the CARTOGRAPHER_TOKENS environment variable replaces every token the YAML declares. Use one source" -}}
+{{- fail "meridian.tokens.existingSecret and meridian.config.auth.tokens are mutually exclusive: the CARTOGRAPHER_TOKENS environment variable replaces every token the YAML declares. Use one source" -}}
 {{- end -}}
 {{- if not (or $fromSecret $yamlTokens) -}}
-{{- fail "no token source: set server.tokens.existingSecret.name (a Secret whose key holds the whole CARTOGRAPHER_TOKENS string, `kubectl create secret generic <name> --from-literal=tokens=<token>`) or declare server.config.auth.tokens as ${NAME} references with server.extraEnvFrom. An environment CARTOGRAPHER_TOKENS replaces YAML tokens, so the two sources are exclusive" -}}
+{{- fail "no token source: set meridian.tokens.existingSecret.name (a Secret whose key holds the whole CARTOGRAPHER_TOKENS string, `kubectl create secret generic <name> --from-literal=tokens=<token>`) or declare meridian.config.auth.tokens as ${NAME} references with meridian.extraEnvFrom. An environment CARTOGRAPHER_TOKENS replaces YAML tokens, so the two sources are exclusive" -}}
 {{- end -}}
 {{- if $yamlTokens -}}
 {{- if not $s.extraEnvFrom -}}
-{{- fail "server.config.auth.tokens needs server.extraEnvFrom: a token is a ${NAME} reference read from the environment, and the variable comes from an existing Secret listed there (a literal would be rendered into a ConfigMap)" -}}
+{{- fail "meridian.config.auth.tokens needs meridian.extraEnvFrom: a token is a ${NAME} reference read from the environment, and the variable comes from an existing Secret listed there (a literal would be rendered into a ConfigMap)" -}}
 {{- end -}}
 {{- range $yamlTokens -}}
 {{- $t := . -}}
 {{- if kindIs "map" . -}}{{- $t = .token -}}{{- end -}}
 {{- if not (include "cartographer.isTokenRef" $t) -}}
-{{- fail "every server.config.auth.tokens entry must be a whole-value ${NAME} reference (a bare string or the `token:` field): a literal token would be rendered into a ConfigMap. Put the secret in an existing Secret and list it in server.extraEnvFrom" -}}
+{{- fail "every meridian.config.auth.tokens entry must be a whole-value ${NAME} reference (a bare string or the `token:` field): a literal token would be rendered into a ConfigMap. Put the secret in an existing Secret and list it in meridian.extraEnvFrom" -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
 {{- if and $s.credentials.enabled (not $s.credentials.existingSecret.name) -}}
-{{- fail "server.credentials.existingSecret.name is required: the Secret holds audit.key (`openssl rand -hex 32`, the server cannot generate it on a read-only mount) and the KBs' key files (default.ssh, known_hosts, <kb>.token); or set server.credentials.enabled=false" -}}
+{{- fail "meridian.credentials.existingSecret.name is required: the Secret holds audit.key (`openssl rand -hex 32`, Meridian cannot generate it on a read-only mount) and the KBs' key files (default.ssh, known_hosts, <kb>.token); or set meridian.credentials.enabled=false" -}}
 {{- end -}}
 {{- if and $s.persistence.existingClaim $s.persistence.emptyDir -}}
-{{- fail "server.persistence.existingClaim and server.persistence.emptyDir are exclusive: choose one" -}}
+{{- fail "meridian.persistence.existingClaim and meridian.persistence.emptyDir are exclusive: choose one" -}}
 {{- end -}}
 {{- if and $s.ingress.enabled (not $s.ingress.hosts) -}}
-{{- fail "server.ingress.enabled needs server.ingress.hosts: name at least one host" -}}
+{{- fail "meridian.ingress.enabled needs meridian.ingress.hosts: name at least one host" -}}
 {{- end -}}
 {{- $seen := dict -}}
 {{- range $i, $sv := .Values.surveyors -}}

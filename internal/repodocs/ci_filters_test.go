@@ -80,7 +80,7 @@ func TestCIFiltersTable(t *testing.T) {
 		{"goreleaser config", "feat/x", []string{".goreleaser.yaml"}, false, false, false, false, false, false, true, false},
 		{"install tests", "feat/x", []string{"test/install/run.sh"}, false, true, false, false, false, false, true, false},
 		{"macos tests", "feat/x", []string{"test/macos/cask.sh"}, false, false, false, false, false, false, true, false},
-		{"chart template", "feat/x", []string{"deploy/helm/cartographer/templates/server-deployment.yaml"}, false, false, false, false, false, false, false, true},
+		{"chart template", "feat/x", []string{"deploy/helm/cartographer/templates/meridian-deployment.yaml"}, false, false, false, false, false, false, false, true},
 		{"chart test script", "feat/x", []string{"test/helm/run.sh"}, false, false, false, false, false, false, false, true},
 		{"helm install script", "feat/x", []string{"scripts/install-helm.sh"}, false, false, false, false, false, false, false, true},
 		{"Makefile", "feat/x", []string{"Makefile"}, true, true, false, false, false, false, false, true},

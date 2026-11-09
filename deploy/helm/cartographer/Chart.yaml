@@ -1,6 +1,6 @@
 apiVersion: v2
 name: cartographer
-description: The Cartographer MCP server (one replica, with the embedded Atlas) and, optionally, its Surveyors.
+description: Meridian, the Cartographer server (one replica, with the embedded Atlas), and, optionally, its Surveyors.
 type: application
 # Placeholders: the release pipeline stamps both at package time from the tag
 # (`helm package --version --app-version`, D1441). Nobody edits them by hand.

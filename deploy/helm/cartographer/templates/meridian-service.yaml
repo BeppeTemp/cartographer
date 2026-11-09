@@ -1,11 +1,11 @@
 {{- include "cartographer.validate" . -}}
-{{- $s := .Values.server.service }}
+{{- $s := .Values.meridian.service }}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "cartographer.fullname" . }}
   labels:
-    {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 4 }}
+    {{- include "cartographer.labels" (dict "root" . "component" "meridian") | nindent 4 }}
   {{- with $s.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -13,7 +13,7 @@ metadata:
 spec:
   type: {{ $s.type }}
   selector:
-    {{- include "cartographer.selectorLabels" (dict "root" . "component" "server") | nindent 4 }}
+    {{- include "cartographer.selectorLabels" (dict "root" . "component" "meridian") | nindent 4 }}
   ports:
     - name: http
       port: {{ $s.port }}

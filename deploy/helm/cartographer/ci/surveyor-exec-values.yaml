@@ -1,6 +1,6 @@
 # A Deployment Surveyor with an exec recipe: a derived image, its own HTTPS server_url, a
 # service account bound to a read-only role (created by the operator).
-server:
+meridian:
   tokens:
     existingSecret:
       name: cartographer-tokens

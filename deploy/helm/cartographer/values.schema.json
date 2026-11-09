@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "cartographer chart values",
-  "description": "additionalProperties is false on the root, server and each surveyors entry: a typo, a replica count for the server or an unknown top-level key fails at lint, template and install time (D1441).",
+  "description": "additionalProperties is false on the root, meridian and each surveyors entry: a typo, a replica count for Meridian or an unknown top-level key fails at lint, template and install time (D1441).",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -11,7 +11,7 @@
       "type": "array",
       "items": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } }
     },
-    "server": {
+    "meridian": {
       "type": "object",
       "additionalProperties": false,
       "properties": {

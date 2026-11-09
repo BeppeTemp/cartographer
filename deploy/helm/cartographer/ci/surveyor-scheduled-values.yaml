@@ -1,5 +1,5 @@
 # Server (source a) and one Surveyor as a CronJob reaching it by the injected in-cluster URL.
-server:
+meridian:
   tokens:
     existingSecret:
       name: cartographer-tokens

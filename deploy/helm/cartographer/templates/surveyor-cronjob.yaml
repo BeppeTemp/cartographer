@@ -22,7 +22,7 @@ spec:
   failedJobsHistoryLimit: {{ ternary .failedJobsHistoryLimit 1 (hasKey . "failedJobsHistoryLimit") }}
   jobTemplate:
     spec:
-      # The Surveyor retries an unreachable server itself; the next tick is the retry after that.
+      # The Surveyor retries an unreachable Meridian itself; the next tick is the retry after that.
       backoffLimit: 0
       {{- with .activeDeadlineSeconds }}
       activeDeadlineSeconds: {{ . }}
