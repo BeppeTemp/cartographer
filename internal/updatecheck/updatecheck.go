@@ -1,5 +1,5 @@
-// Package updatecheck answers whether a newer Cartographer release exists and
-// how this binary is upgraded (D254): the latest tag from the GitHub release
+// Package updatecheck answers whether a newer release exists and how to upgrade
+// (D254): the latest tag from the GitHub release
 // list, cached for 24 hours and failing silent, and the install channel the
 // running binary came from.
 //

@@ -1,6 +1,6 @@
-// Package repodocs holds the deterministic checks that keep this repository
-// navigable by a coding agent, plus the generators for the decision index and
-// the code map.
+// Package repodocs keeps this repository navigable by a coding agent: the
+// deterministic checks, plus the generators for the decision index and the
+// code map.
 //
 // It exists because everything it verifies fails *silently*. A context file
 // that grows past what a client keeps in view is not rejected with an error:

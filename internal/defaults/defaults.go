@@ -1,5 +1,5 @@
-// Package defaults contains the local endpoint values shared by the native
-// service and client first-run paths. It deliberately has no dependencies so
+// Package defaults holds the local endpoint defaults: the values the native
+// service and the client first-run paths share. It deliberately has no dependencies so
 // these values cannot drift between those entry points.
 package defaults
 

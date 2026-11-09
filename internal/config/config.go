@@ -1,5 +1,5 @@
-// Package config provides the YAML-based server configuration for
-// `cartographer serve`, merged with environment variables and CLI flags.
+// Package config is the server configuration of `cartographer serve`: a YAML
+// file merged with environment variables and CLI flags.
 // Precedence (highest first): CLI flag > environment variable > YAML file > default.
 package config
 

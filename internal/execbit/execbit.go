@@ -1,5 +1,5 @@
-// Package execbit reports whether the host filesystem carries the POSIX
-// execute bit, and is the one place that answers that question.
+// Package execbit reports whether the filesystem has the POSIX execute bit. It
+// is the one place that answers that question.
 //
 // Cartographer transports an Executable flag on every artifact file and KB
 // asset: a skill's helper script, a hook's entry point, an asset such as

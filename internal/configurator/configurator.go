@@ -1,5 +1,5 @@
-// Package configurator generates MCP configuration files for multiple LLM providers
-// (Claude Code, Codex CLI, Kiro, OpenCode, Antigravity, Crush, GitHub Copilot CLI).
+// Package configurator generates the MCP configuration of each agent client:
+// Claude Code, Codex CLI, Kiro, OpenCode, Antigravity, Crush, GitHub Copilot CLI.
 package configurator
 
 import (

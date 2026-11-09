@@ -1,5 +1,5 @@
-// Command gen groups a release-please changelog by area and checks PR bodies
-// for wrapped conventional lines (D865):
+// Command gen runs package changelog: it groups a release-please changelog by
+// area and checks PR bodies for wrapped conventional lines (D865):
 //
 //	gen -file CHANGELOG.md   rewrite the file in place (make changelog-areas)
 //	gen -stdin               read a changelog or release PR body, write the grouped text
