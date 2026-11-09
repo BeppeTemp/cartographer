@@ -86,7 +86,7 @@ func checkPromptTools(task string, v any) error {
 	if len(tools) == 0 {
 		return fmt.Errorf("task %q: tools is required and cannot be empty: nothing is implicit, list every tool the task needs", task)
 	}
-	allowed := DefaultTools()
+	allowed := append(DefaultTools(), promptOnlyTools...)
 	seen := map[string]bool{}
 	for _, t := range tools {
 		switch {

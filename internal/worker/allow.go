@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 
@@ -54,6 +55,11 @@ func Denied(name string) bool {
 	return false
 }
 
+// promptOnlyTools are what a prompt task may list beyond the default allowlist: the
+// doctor's queue and repair, kept out of it so a task that lists nothing does not
+// get them.
+var promptOnlyTools = []string{"kb_review", "kb_repair"}
+
 // DefaultTools returns the default allowlist (read tools and content writes).
 func DefaultTools() []string { return append(append([]string{}, readTools...), writeTools...) }
 
@@ -99,12 +105,7 @@ func (a *Allowlist) Filter(listed []client.ToolInfo) []ToolSpec {
 }
 
 func isRead(name string) bool {
-	for _, r := range readTools {
-		if r == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(readTools, name) || name == "kb_review"
 }
 
 // batchOpTool maps an operation of concept_batch to the tool it stands for, so a
