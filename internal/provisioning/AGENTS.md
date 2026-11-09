@@ -18,7 +18,7 @@ modifies files a user did not ask about.
   inside safewrite: a raw `os.Remove`/`os.Rename` after `CheckPath` would replace or
   delete a followed link (use `safewrite.Remove`, and on `ErrLinkedLeaf` rewrite the file
   through the link; an empty-directory cleanup uses `safewrite.RemoveEmptyDir`, which never
-  removes a link), and `TrustCodexProject` uses the strict `CheckPathStrict`.
+  removes a link), and `TrustCodexProject` uses the strict `CheckPathStrict`. The leaf is opened `O_NOFOLLOW` and checked on the open file, not looked up twice.
 - **A hand-curated user file is never rewritten, only its managed block is.**
   `internal/blocktext` does marker-delimited substring replacement and nothing
   format-aware, on purpose: comments, ordering and every other byte survive
