@@ -18,12 +18,13 @@ in-memory graphs are derived state and can be rebuilt.
 
 ## Runtime shapes
 
-The same binary supports two transports:
+The same binary supports two transports and a third role, the worker:
 
 | Shape | Command | Intended use |
 |---|---|---|
 | Local stdio | `cartographer serve --kb <path>` | One local client connected to one KB |
 | HTTP server | `cartographer serve --config <file>` | One or more KBs, remote clients, optional static bearer authorization |
+| Worker | `cartographer worker --config <file>` | A background process for one perimeter of KBs, with its own model profiles and budgets; never started by `serve` (§The worker in `deployment.md`) |
 
 HTTP can be run as a native user service, a container or a Kubernetes
 workload. These are deployment choices, not separate product profiles: the KB
