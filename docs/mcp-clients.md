@@ -45,7 +45,7 @@ The token `id`. A host that can send a per-user header sets `Cartographer-Author
 The names of the settings below are generic: host UIs change.
 
 - **Open WebUI**: add an MCP server over Streamable HTTP with bearer authentication, the URL above and the token.
-- **AgentCore Gateway**: an MCP server target whose outbound authorization sends `Authorization: Bearer <token>`. The gateway snapshots `tools/list` when the target is synchronized, so synchronize again after adding a KB, changing a token's scopes or upgrading the server. It may prefix tool names with the target name; the guide names tools without a prefix.
+- **AgentCore Gateway**: an MCP server target whose outbound authorization sends `Authorization: Bearer <token>`. The gateway snapshots `tools/list` when the target is synchronized, so synchronize again after adding a KB, changing a token's scopes or upgrading Meridian. It may prefix tool names with the target name; the guide names tools without a prefix.
 - **An SDK agent loop**: put `initialize.instructions` into the system prompt when the SDK does not (when it cannot, call `kb_guide` first), and pass tool results back to the model unmodified.
 
 ## Limits
@@ -60,8 +60,8 @@ The names of the settings below are generic: host UIs change.
 
 ## Plugin tools are not served here
 
-A plugin's MCP tools are served by the local stdio bridge a connected client starts, never by the server. A host that
-connects with a direct URL (this page) sees only the server's tools, with or without plugins on some machine. See
+A plugin's MCP tools are served by the local stdio bridge a connected client starts, never by Meridian. A host that
+connects with a direct URL (this page) sees only Meridian's tools, with or without plugins on some machine. See
 [plugins](plugins.md#tools-in-the-bridge).
 
 ## Do not copy a provisioned entry

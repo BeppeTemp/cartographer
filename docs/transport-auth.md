@@ -12,8 +12,8 @@ HTTP requests return complete JSON-RPC responses. Cartographer does not expose
 the legacy two-endpoint SSE transport or an HTTP streaming session, and issues
 no session id: over HTTP every POST stands alone.
 
-Over stdio the connection *is* the session. The client owns the pipe's
-lifetime and the server tears the session down when stdin closes, so a request
+Over stdio the connection *is* the session. The agent client owns the pipe's
+lifetime and Meridian tears the session down when stdin closes, so a request
 written to a pipe that closes immediately — `echo '…' | cartographer serve` —
 races its own response. A script driving the stdio server must hold stdin open
 until it has read the reply. Requests on one stdio session are served
@@ -21,7 +21,7 @@ concurrently; a client that needs ordering waits for each response, as the
 JSON-RPC id is there to allow.
 A line that is not a valid message never ends the session: stdio answers it with the same errors as HTTP (`-32700` for a line that is not JSON, `-32600` for an empty batch, a `jsonrpc` other than `2.0` or an `id` that is not a string or a number; `id` is `null` unless the request carried a valid one) and reads the next line. Only an I/O error on stdin or stdout ends it, and a line over 16 MiB (far above the HTTP body limit), the one frame that is refused by ending the session. One message per line: a message spread over several lines is no longer accepted.
 
-EOF on stdin is not an abort: the requests read before it are answered, then the process exits with status 0. The server holds the end of input back until every request id it read has a response written (a `notifications/cancelled` retires its target), for at most 30 seconds; a handler still running after that is abandoned and the process exits. A piped smoke test (`cartographer serve < requests.jsonl`) therefore gets all its answers. The wait is on responses only: a notification has none, so one still running at EOF is not waited for.
+EOF on stdin is not an abort: the requests read before it are answered, then the process exits with status 0. Meridian holds the end of input back until every request id it read has a response written (a `notifications/cancelled` retires its target), for at most 30 seconds; a handler still running after that is abandoned and the process exits. A piped smoke test (`cartographer serve < requests.jsonl`) therefore gets all its answers. The wait is on responses only: a notification has none, so one still running at EOF is not waited for.
 
 The HTTP listener sets its own connection timeouts: a 15s header deadline, a
 60s request-read deadline and a 120s keep-alive idle deadline. There is
@@ -32,7 +32,7 @@ as a request budget.
 
 The stdio bridge (`cartographer mcp`) mirrors that: its HTTP client has no overall
 timeout, and a call is bounded by the session (stdin closing, or the process being
-stopped); after stdin closes, calls still in flight get 30 seconds to finish before they are aborted. It sends `MCP-Protocol-Version` from the version the server answered in
+stopped); after stdin closes, calls still in flight get 30 seconds to finish before they are aborted. It sends `MCP-Protocol-Version` from the version Meridian answered in
 `initialize` (or, for the handshake it answers itself, a revision it knows), never
 from the client's request alone. It reads stdin up to 16 MiB per line without
 holding more, and a line over that ends the session with "message too large", also
@@ -80,7 +80,7 @@ those match names, not arguments, and are lost by design. Real authorization is
 per-KB scopes (D44/D45), and read auto-approval through `readOnlyHint` (D76) is
 unaffected.
 
-**URL parameters of `/mcp/routed`.** `kbs` (below), `access` (D1018, D1184: `read`, or `read-min` for the read-only connection with the minimal tool listing; empty is absent, any other value is a 400), `readonly=<kb>,<kb>` (D1409: the KBs the client set read-only; names that are not served or not readable are ignored, never a 400, and the response carries `Cartographer-Readonly` with the names applied), and `provisioned=1` (D1097: the client has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
+**URL parameters of `/mcp/routed`.** `kbs` (below), `access` (D1018, D1184: `read`, or `read-min` for the read-only connection with the minimal tool listing; empty is absent, any other value is a 400), `readonly=<kb>,<kb>` (D1409: the KBs Compass set read-only; names that are not served or not readable are ignored, never a 400, and the response carries `Cartographer-Readonly` with the names applied), and `provisioned=1` (D1097: Compass has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
 
 **The binding travels in the URL: `/mcp/routed?kbs=kb-a,kb-b`.** Absent, the
 connection serves every mounted KB. `kbs` only **narrows**, never widens:
@@ -88,22 +88,22 @@ per-KB authorization still runs at the target KB. It is a different parameter
 from `kb`, which stays `400` on this path (D187's one-channel rule is about
 selecting *the* KB, not the allowed set). The effective set is `kbs` intersected
 with the mounted KBs (D756): a name that is not mounted (a KB renamed or removed
-since the client was synced) does not take the connection down, it is served
+since Compass was synced) does not take the connection down, it is served
 without it and reported in `kb_status.connection.unknown`, in the `kb_status`
 hint and in the error of a call naming it, with a pointer to `cartographer sync` on a provisioned connection (a generic one is told, in words, that the integration's URL needs updating, D1101);
-the server logs it once per distinct set. If **no** name resolves the request
+Meridian logs it once per distinct set. If **no** name resolves the request
 is a `400` naming every unknown name and the mounted KBs (an empty set would have
 no tools, and falling back to all KBs would widen the binding). Duplicates are
 ignored.
 
 **A renamed KB keeps its URL working (D772).** `kb rename` records the old name
-in the server state file, `<data>/.cartographer/state.json` (`kb_aliases`, `{from, to}`
+in the Meridian state file, `<data>/.cartographer/state.json` (`kb_aliases`, `{from, to}`
 items; D906). A name in `?kbs=` that is
 not mounted but is the `from` of an alias whose `to` is mounted selects that KB;
 a mounted name always wins over an alias, so a KB later created under an old name
 is reached by its own name. The pair is reported, never silent:
 `kb_status.connection.renamed` is `{old: new}`, the hint says the URL is stale
-and (provisioned connection) to run `cartographer sync`, and the server logs it once per distinct set. A
+and (provisioned connection) to run `cartographer sync`, and Meridian logs it once per distinct set. A
 call that names the old KB in its `kb` argument (a session that outlived the
 restart still has it in its schemas) is dispatched to the new one, through that
 KB's own policy, audit and git wrapper. An alias selects *which KB a URL names*
@@ -157,16 +157,16 @@ entry). Isolation between providers needs per-provider tokens with per-KB scopes
 mode (a server with no KB mounted yet has nothing to route and omits both), and
 carries no per-KB `tool_prefix`. `cartographer connect`/`sync` read it and
 write **one** entry per provider; against an older server that does not report
-`routed_path` the client keeps writing per-KB entries. **`cartographer sync`
+`routed_path` Compass keeps writing per-KB entries. **`cartographer sync`
 heals a topology change** — it rewrites the entries to the single routed one and
 removes the per-KB ones; no `reconnect` is needed, and `cartographer status`
-names `sync` when the configured mount differs from the server's.
+names `sync` when the configured mount differs from Meridian's.
 
 ### Protocol versions: two eras at once
 
 The wire format is implemented by the official
 [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)
-([D168](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md)), not by Cartographer. The server
+([D168](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md)), not by Cartographer. Meridian
 answers every revision the SDK serves — `2024-11-05` through `2026-07-28` —
 and decides which one a request belongs to from the request itself; nothing is
 negotiated up front and, over HTTP, nothing is remembered between requests.
@@ -192,7 +192,7 @@ It exists **only in `2026-07-28`**: a handshake-era request naming it gets
 `-32601`. That is the one place where the older era is visibly poorer, and the
 reason the CLI client sends the newer era's metadata on every request.
 
-A request naming a version the server does not serve is refused with `-32022`,
+A request naming a version Meridian does not serve is refused with `-32022`,
 whose data lists the versions it does.
 
 A POST's `Accept` header is not enforced (D200). Streamable HTTP asks a
@@ -206,13 +206,13 @@ or no `Accept` at all is served normally.
 `2026-07-28` SDK enforces that a body carrying this header must also contain
 `_meta.io.modelcontextprotocol/protocolVersion`, but notifications have no
 `_meta`. Some clients (Antigravity / go-sdk v1.7.0) set the header on every
-POST, including notifications; the server removes it before the SDK sees the
+POST, including notifications; Meridian removes it before the SDK sees the
 request so the notification is served as 202 Accepted. Regular requests with
 `_meta` are unaffected.
 
 ### Protocol errors on `POST /mcp`
 
-A body the server cannot take as a JSON-RPC request is HTTP 400 with a JSON-RPC error body, never plain text: `-32700` for a body that is not JSON (or empty), `-32600` for JSON that is not a valid request (empty batch, a `jsonrpc` other than `2.0`, an `id` that is not a string or a number, a body that is not an object), `-32601` for an unknown method (carrying the request's `id`). An unknown tool *argument* is refused as `-32602` (D1279), and so are `arguments` that is not an object and an unknown tool name (D1303). A body over 4 MiB is HTTP 413 with a plain-text body (the SDK's cap, applied to every MCP `POST`; the server sets no other).
+A body Meridian cannot take as a JSON-RPC request is HTTP 400 with a JSON-RPC error body, never plain text: `-32700` for a body that is not JSON (or empty), `-32600` for JSON that is not a valid request (empty batch, a `jsonrpc` other than `2.0`, an `id` that is not a string or a number, a body that is not an object), `-32601` for an unknown method (carrying the request's `id`). An unknown tool *argument* is refused as `-32602` (D1279), and so are `arguments` that is not an object and an unknown tool name (D1303). A body over 4 MiB is HTTP 413 with a plain-text body (the SDK's cap, applied to every MCP `POST`; Meridian sets no other).
 
 ### What a `2026-07-28` request must carry over HTTP
 
@@ -227,7 +227,7 @@ a missing one, is HTTP 400 with JSON-RPC `-32020`:
 
 The headers exist for intermediaries that route without parsing a body. They
 never become an input to an authorization decision: the body stays the only
-thing the server acts on, which is the point of validating them at all.
+thing Meridian acts on, which is the point of validating them at all.
 
 Status codes in the `2026-07-28` era: unknown method → **404**, header mismatch
 or unsupported version → **400**, `GET`/`DELETE` on the MCP endpoint → **405**.
@@ -295,23 +295,23 @@ mode.
 
 Send a token only in `Authorization: Bearer <token>`, never in a URL.
 
-**The client refuses cleartext (D1023).** A client never sends the bearer token to
+**Compass refuses cleartext (D1023).** A client never sends the bearer token to
 a non-loopback `http://` URL: every request fails before dialing unless the
 operator opted in with `server.allow_insecure_http` or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1`
 (see [configurator.md](configurator.md) §Transport security). Serve a remote
-deployment over `https://`. The client also refuses to follow a redirect to a URL that fails the same check, and any https to http downgrade, even to loopback.
+deployment over `https://`. Compass also refuses to follow a redirect to a URL that fails the same check, and any https to http downgrade, even to loopback.
 
 ### What a 401 tells the client
 
-The client reads its token from the variable `.cartographer.yaml` names in
-`token: ${NAME}` (D906), so it names that variable back when the server answers 401, and
+Compass reads its token from the variable `.cartographer.yaml` names in
+`token: ${NAME}` (D906), so it names that variable back when Meridian answers 401, and
 distinguishes the two cases that need different fixes
 ([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)):
 
 - `$<TOKEN_ENV> is unset or empty, so no bearer token was sent` — nothing was
   sent; the variable is missing from the environment this command ran in;
 - `the bearer token from $<TOKEN_ENV> was rejected` — a token was sent and the
-  server refused it; the value, its scopes or the server's token list is wrong.
+  server refused it; the value, its scopes or Meridian's token list is wrong.
 
 A caller with no variable to name (a probe before any configuration exists) gets
 the generic `unauthorized (401): check the bearer token/env var`. All three keep
@@ -410,7 +410,7 @@ unioned, so a deployment migrates one token at a time.
 `id` is a stable principal identifier for logs. When omitted it is derived from
 a digest of the token; a plaintext token prefix is never used.
 
-Configuration is validated at startup and the server refuses to start on a
+Configuration is validated at startup and Meridian refuses to start on a
 duplicate role or principal ID, two tokens with one secret value, an unknown role reference, an empty KB, an
 access other than `r`/`rw`, an empty or traversal selector, or a selector
 declared both as a map and a journal. No diagnostic ever contains a token
@@ -441,7 +441,7 @@ Two properties are load-bearing:
   not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
   `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
   `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
-  `no_principal`, `artifacts_read_only`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB the client set read-only with `readonly=`, D1409); the reason describes the caller's own token and arguments,
+  `no_principal`, `artifacts_read_only`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB Compass set read-only with `readonly=`, D1409); the reason describes the caller's own token and arguments,
   never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS
@@ -474,9 +474,9 @@ D950). A client that knows who it acts for sends `Cartographer-Author: Name <ema
 with the request; without a valid one the writer is the identity the operator
 configured for the KB in the server file (`git.identities`),
 else `<token id> <cartographer@<host>>`. Every write carries `Cartographer-Host`
-and `Cartographer-Token: <token id>` trailers that the server appends itself.
+and `Cartographer-Token: <token id>` trailers that Meridian appends itself.
 The configured identity is attribution, never authorization. The author line is therefore a claim by the caller, and the
-trailer is what the server knows: attribution, not a signature, since whoever
+trailer is what Meridian knows: attribution, not a signature, since whoever
 holds the token can write under any name. Format, validation and the warning on
 a rejected header → [control plane](control-plane.md). A token's `author_name`
 and `author_email` are removed settings: a file that still has them loads with
@@ -538,13 +538,13 @@ active file when there is no checkpoint) and the chain stays valid, because
 each entry commits to the one before it and nothing commits to the one after;
 only a cut inside a pair is noticed (an attempt with no completion). A server
 started afterwards continues from the shortened tail. Keep the audit directory
-writable by the server user only, and copy the log to a sink the server cannot
+writable by the Meridian user only, and copy the log to a sink Meridian cannot
 write when the tail matters.
 
 The log is `<data>/audit/audit.log` unless `audit.log` moves it, and its key is
 `audit.key` in the credentials directory, which the first start generates when
 it is missing; the start logs the path and the public key `audit verify`
-needs. A key the server can neither read nor generate (a read-only directory
+needs. A key Meridian can neither read nor generate (a read-only directory
 without `audit.key`) leaves the log unsigned under `best_effort`, with a
 warning at every start, and refuses the start under `required`. A log that
 cannot be opened does the same: `best_effort` runs without one and says so,
@@ -577,7 +577,7 @@ signature must verify and the last checkpoint must continue the chain of the
 one before, otherwise the file is left untouched for `audit verify` to report.
 
 The operator commands are offline by design — they read the files, not a
-running server, because an audit trail is most needed when the server is down:
+running server, because an audit trail is most needed when Meridian is down:
 
 ```
 cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key <hex> [--signed-since <RFC3339>]]

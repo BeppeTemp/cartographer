@@ -11,7 +11,7 @@ syncable (D134). `sops` is needed only if the KB will hold encrypted values, and
 Go 1.26+ only for the from-source install. What each installation method puts on
 the machine, and how to remove it, is in §What gets installed and §How to remove it below.
 
-## 1. Install the client/server binary
+## 1. Install the binary
 
 ```bash
 # macOS (Homebrew)
@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install
 go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 ```
 
-`cartographer` is a single binary: it is the MCP server (`serve`), the
+`cartographer` is a single binary: it is Meridian, the MCP server (`serve`), and Compass, the
 multi-provider client (`connect` / `status` / `sync`); run with no arguments in a
 terminal it prints a short status, then the usage.
 

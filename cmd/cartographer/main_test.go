@@ -219,7 +219,7 @@ func TestCommandSuggestionIsConservative(t *testing.T) {
 }
 
 // The help names the four components and no released command was renamed
-// (component names, D-new-component-names).
+// (component names, D1867).
 func TestUsageNamesTheComponentsAndKeepsEveryCommand(t *testing.T) {
 	var b strings.Builder
 	printUsage(&b)

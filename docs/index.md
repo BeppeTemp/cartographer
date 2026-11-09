@@ -10,10 +10,10 @@ only the pages relevant to your task.
 | [getting-started.md](getting-started.md) | Zero-to-wiki tutorial: install, first KB, connect an agent, first session |
 | [faq.md](faq.md) | Questions about concurrent writes, `sync` and how Cartographer compares with an instruction file, Notion or Obsidian |
 | [agent-install.md](agent-install.md) | Command-by-command runbook for an agent to install Cartographer, mount a first KB, connect, and verify |
-| [mcp-clients.md](mcp-clients.md) | Using the server from a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop): connect, tokens with an `id`, what the model receives, limits |
+| [mcp-clients.md](mcp-clients.md) | Using Meridian from a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop): connect, tokens with an `id`, what the model receives, limits |
 | [deployment.md](deployment.md) | Deployment components, deployment scenarios and recipes (native, stdio, single VM, Kubernetes, several servers, the Helm chart), server configuration, health, backup/DR, upgrades, CI/CD and the Surveyor (a third role) |
 | [surveyor-recipes.md](surveyor-recipes.md) | Surveyor exec recipes: the `recipes.<name>` keys, protocol v1 (stdin request, JSON-lines listing), failures, trust model, example script |
-| [configurator.md](configurator.md) | Multi-provider client and service subcommands (`cartographer setup/agents/connect/disconnect/reconnect/status/sync/call/doctor/update/kb/service/…`): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
+| [configurator.md](configurator.md) | Compass (the multi-provider client) and service subcommands (`cartographer setup/agents/connect/disconnect/reconnect/status/sync/call/doctor/update/kb/service/…`): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
 | [control-plane.md](control-plane.md) | Go server, complete MCP tool API (source of truth for the list), search index and validation |
 | [data-plane.md](data-plane.md) | KB model: Atlas/Map/Journal hierarchy, filesystem layout, expanded concepts, OKF concepts, naming, extended type schema |
 | [skills-services-secrets.md](skills-services-secrets.md) | Skill packaging (`SKILL.md`), `type: Service` descriptors, SOPS secrets |
@@ -55,7 +55,7 @@ Mutable state does not live in narrative documentation:
 | Debug concurrency / git conflicts | `concurrency.md` |
 | Add a skill or external service | `skills-services-secrets.md` |
 | Deploy / production operations | `deployment.md` |
-| Choose how to deploy | `deployment.md` §Components and §Deployment scenarios; the client side in `configurator.md` §Headless hosts, CI and agent containers |
+| Choose how to deploy | `deployment.md` §Components and §Deployment scenarios; Compass in `configurator.md` §Headless hosts, CI and agent containers |
 | Understand an architectural choice | `decisions.md` for the generated list, or `ls docs/decisions/D<n>-*` if you already have the number |
 | Connect a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop) | `mcp-clients.md` |
 | Configure an LLM provider | `interoperability.md` |
@@ -84,12 +84,13 @@ page that was not touched; the table and the file change together, and a test
 | New skill, service or secret handling | `skills-services-secrets.md` |
 | Client provisioning/sync logic | `sync.md` |
 | Plugin manifest, contribution points or store (`internal/plugin`) | `plugins.md` |
-| Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/`service`…) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
+| Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/`service`…) or server YAML config | `configurator.md` (Compass) / `deployment.md` (Meridian config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `provisioning.Kinds` (the Atlas lists it; a test fails without it, D864) |
 | A feature is **not** implemented (deferred, planned, "future work") | An `idea` issue while it is a proposal, `accepted` once triaged (`CONTRIBUTING.md` §Issues: bug, idea) — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
 | Project status, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow (which groups the newest section by area, D865) |
 | An architectural or contract choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md`, `<n>` = the PR number (D672; `make decisions-new`; a maintainer's queued change writes `D-new-<slug>.md` and the lander numbers it, D1706; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
+| A new user-visible name of a component, or a sentence that names one | The four components are Meridian (the server), Surveyor, Atlas and Compass (the client), always in that order: say Meridian or Compass when the sentence names the component, and keep "MCP server", third-party servers, agent clients and MCP/HTTP clients, command names, config keys, images and routes as they are. A new name goes in `deployment.md` §Components, the Atlas labels, the CLI help and the Helm chart in the same change (D1867) |
 | New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
 | Which CI jobs a PR runs (`web`, `windows`, `demo-edge` path filters) | the table in `scripts/ci-filters.sh` and its test `internal/repodocs/ci_filters_test.go` (D994), then `testing.md` §Go tests; never regex inline in `ci.yml` |

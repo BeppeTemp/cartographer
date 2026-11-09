@@ -22,10 +22,10 @@ The one binary is deployed as four **components**; `deployment.md` §Components 
 
 | Component | Command | In one line |
 |---|---|---|
-| Server | `cartographer serve` | The only stateful component: stdio (one KB, one local client) or HTTP (one or more KBs, remote clients, optional static bearer authorization) |
+| Meridian | `cartographer serve` | The only stateful component: stdio (one KB, one local client) or HTTP (one or more KBs, remote clients, optional static bearer authorization) |
 | Surveyor | `cartographer surveyor --config <file>` | A background process for one perimeter of KBs, with its own model profiles and budgets; never started by `serve` |
-| Atlas | none (embedded in the Server) | The read-only browser UI at `/ui/`; never deployed on its own |
-| Client | `cartographer connect`, `sync`, `status`, `doctor` | Runs next to the agent and writes its configuration under `$HOME` |
+| Atlas | none (embedded in Meridian) | The read-only browser UI at `/ui/`; never deployed on its own |
+| Compass | `cartographer connect`, `sync`, `status`, `doctor` | Runs next to the agent and writes its configuration under `$HOME` |
 
 HTTP can be run as a native user service, a container or a Kubernetes
 workload. These are deployment choices, not separate product profiles: the KB
@@ -33,14 +33,14 @@ model and MCP tools are the same.
 
 ## Principles
 
-1. The agent uses MCP tools; the server owns filesystem writes and validation.
+1. The agent uses MCP tools; Meridian owns filesystem writes and validation.
 2. Concept paths are stable identities.
 3. Markdown and git remain portable and inspectable without Cartographer.
 4. Unknown frontmatter and types are tolerated unless a documented invariant
    requires otherwise.
 5. Search and indexes are disposable projections of the files.
 6. Writes use optimistic concurrency and one git commit per logical operation.
-7. One server process is the writer for a mounted working copy.
+7. One Meridian process is the writer for a mounted working copy.
 8. Domain structure and concept types belong to the KB, not the application.
 9. Secrets remain encrypted at rest and are resolved only when explicitly
    requested.
@@ -54,7 +54,7 @@ flowchart TB
     Y["Surveyor: model profiles, budgets, one perimeter"]
     B["Browser: the read-only Atlas at /ui/"]
 
-    subgraph S["Cartographer server"]
+    subgraph S["Meridian: the Cartographer server"]
         T["stdio or HTTP + optional static bearer auth"]
         M["MCP tools"]
         W["Embedded Atlas UI + /api/ui/v1 (read-only)"]
@@ -77,7 +77,7 @@ flowchart TB
     V --> G
 ```
 
-Plugins are the extension layer of the client, not of the server: a plugin is a git repository or a folder that
+Plugins are the extension layer of Compass, not of Meridian: a plugin is a git repository or a folder that
 contributes agent clients, skills, subagents, hooks, commands, MCP tools and sync handlers to one machine. It is
 installed from a source, pinned to a digest and enabled only after the user approves that exact version; a script
 in it (Starlark) can reach only what its manifest grants. A server never hosts or loads a plugin. See

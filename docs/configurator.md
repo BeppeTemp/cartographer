@@ -1,15 +1,15 @@
-# Multi-provider client
+# Compass: the multi-provider client
 
-The `cartographer` binary bundles, besides the server (`serve`), the client subcommands that
+The `cartographer` binary bundles, besides Meridian (`serve`), the Compass subcommands that
 connect a machine to a Cartographer server: `agents` (discovery), `connect`
 (configures + materializes provisioning artifacts — skills, agents, hooks, instructions,
 mcp — D69), `disconnect` (disconnects, the inverse of `connect`), `status` (drift, with per-kind
 counts), `sync` (realigns), `resolve` (resolves a `{{repo:}}`/`{{path:}}` placeholder, D75). Invoked
 with no arguments in a terminal it prints a short status, then the usage.
 
-The client **always talks to the server over HTTP** (the `sync_pull` tool): there is no
+Compass **always talks to Meridian over HTTP** (the `sync_pull` tool): there is no
 stdio transport on the client side, nor a separate binary — see
-[the client decision records](decisions.md#client-configurator) for the
+[the Compass decision records](decisions.md#client-configurator) for the
 rationale. Generating the MCP config files (`internal/configurator`) and the
 materialization logic (`internal/provisioning`) are the same used server-side by
 `sync_check`/`sync_apply` (`docs/sync.md`).
@@ -18,7 +18,7 @@ materialization logic (`internal/provisioning`) are the same used server-side by
 
 ### Discovery, version and output formats
 
-Root help groups commands into Get started, Client, Server, Knowledge base and
+Root help groups commands into Get started, Compass, Meridian, Knowledge base and
 Diagnostics. `cartographer version` and `cartographer --version` are aliases;
 the help of root, `paths`, `kb`, `client` and `workspace` (`help`, `-h` or
 `--help` as the only argument) and of `service` (`-h` or `--help` only) writes to
@@ -103,7 +103,7 @@ The command depends on the channel the running binary came from: `homebrew` (Cas
 `go install …@<latest>`. `container` (`/.dockerenv`) and `unknown` get no command: the notice
 names the image tag or the releases page.
 
-The client **never installs a release by itself** (D906): there is no auto-patch, only this notice and the
+Compass **never installs a release by itself** (D906): there is no auto-patch, only this notice and the
 command above. A file that still says `update.policy: auto-patch` loads with a warning, and the
 realignment turns it into `update_check: true`.
 
@@ -131,12 +131,12 @@ decides every step **before** running any:
 - **The KB's initial commit is authored by the operator (D904, D156).** `kb create` (so `setup`'s KB
   step) creates the repository first and then asks git who the operator is there, so a global identity
   and an `includeIf gitdir:` for the data dir both apply; the author is also the committer. Only a
-  machine with no identity gets the server's `Cartographer <cartographer@host>`, and with `--remote`
+  machine with no identity gets Meridian's `Cartographer <cartographer@host>`, and with `--remote`
   the command warns before committing (it does not stop), naming that author and both routes: a global
   `user.name`/`user.email`, or an identity for the KBs only, which takes the same `Name <email>` in three
-  places: an `includeIf "gitdir/i:<data dir>/"` in the global git config, `git.identities.default` in the server
+  places: an `includeIf "gitdir/i:<data dir>/"` in the global git config, `git.identities.default` in Meridian
   file, `knowledge_bases.default.identity` in `.cartographer.yaml`. A first push the remote refuses is classified like
-  the server's sync does: a refused author names that author and the identity to set (with the server
+  Meridian's sync does: a refused author names that author and the identity to set (with Meridian
   identity, `commit --amend --reset-author --no-edit` re-authors the kept scaffold), a protected branch
   says so, and only otherwise the hint is about authentication.
 - **Workspace.** `--workspace <repo>` is passed through to `connect --workspace` (D193): the KBs are
@@ -144,7 +144,7 @@ decides every step **before** running any:
 - **Plugins.** `--plugin <source>` (repeatable; a git URL, optionally `@<ref>`, or a folder) installs a plugin
   before the agents are detected, and `--approve-plugins` approves the ones installed by this run after printing
   what each runs; without it nothing is approved ([plugins.md §Onboarding](plugins.md#onboarding-setup-and-connect)).
-  A plugin may bring the client `setup` then connects.
+  A plugin may bring the agent client `setup` then connects.
 - **KB binding (D190).** `--kb` is passed through. Without it: one KB binds itself; agents that
   already carry a binding keep it; a KB this run adds next to existing ones is bound alone (the
   narrowest choice); otherwise, with two or more KBs and nothing to go on, an interactive run
@@ -162,16 +162,16 @@ decides every step **before** running any:
   to, and `service restart`; exit 1, and the rerun resumes at the agents.
 - **Bindings and the server URL.** A KB this run adds is bound only to the agents that have no binding yet
   (two `connect` runs: the unbound ones get `--kb <new>`, the bound ones are connected without `--kb`, so
-  `connect` does not reset what they have); the plan names what each agent receives. When the client has no
+  `connect` does not reset what they have); the plan names what each agent receives. When Compass has no
   URL yet setup passes `--server-url` for the local service's own address (a service installed with
   `--http` on another port included); a loopback client URL on a different port than the service is a
   plan-time refusal (exit 2, nothing changed).
-- **Service backend (D1682).** The plan line names how the server is kept: `systemd`, `launchd` and
+- **Service backend (D1682).** The plan line names how Meridian is kept: `systemd`, `launchd` and
   the Scheduled Task say "starts at login, no admin rights"; `cron` says "starts at boot, checked every
   5 minutes". A server already answering a well-formed `/health` on the configured address (the default
   one when there is no config yet) is **kept** even with no installed service ("already answering ...
   not managed by Cartographer"); anything else on the port is not one of ours and falls through to the
-  install, which fails at bind with the server's own message. With no systemd user manager, no usable
+  install, which fails at bind with Meridian's own message. With no systemd user manager, no usable
   `crontab` and no answering server, the plan fails: exit 2, nothing created, the message gives the
   manual route (`service install --config-only`, then `serve --config ... &` hooked into the init, then
   `setup` again). A kept hand-started server cannot be restarted by setup: after a KB create or clone
@@ -204,7 +204,7 @@ behind it or answers with no KB mounted.
 ### `cartographer agents`
 
 Lists the supported providers, whether they are installed on the machine and whether they are
-connected (recorded in the client state file `.cartographer-state.json`, beside the machine-wide `~/.cartographer.yaml`).
+connected (recorded in the Compass state file `.cartographer-state.json`, beside the machine-wide `~/.cartographer.yaml`).
 
 `internal/agents.Detect` probes, in this order, and stops at the first match; the heuristic that
 matched is reported in the DETECTION column, and as `detected_by` in JSON
@@ -254,7 +254,7 @@ kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations wi
 destination go to `unsupported` and are filtered upstream), and writes/updates `.cartographer.yaml`. If the
 server is unreachable, the MCP configs and `.cartographer.yaml` are still written; materialization
 is **deferred** (warning, exit 0) — it must be completed with `cartographer sync` once the
-server is up. A transport failure (dial, DNS, timeout) defers as "server unreachable"; any other answer that is not a rejection (a 404 or 5xx from `/health`) also defers, worded "the server did not serve the skills", and probe messages say "the server answered but the probe failed" for it; a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). A provider whose destination the symlink guard refuses ends `partially connected` or `not connected` and `connect` exits 3 ([§Symlinked config files and directories are refused unless listed](#symlinked-config-files-and-directories-are-refused-unless-listed)). Materialized hooks are also **automatically registered** in the
+server is up. A transport failure (dial, DNS, timeout) defers as "server unreachable"; any other answer that is not a rejection (a 404 or 5xx from `/health`) also defers, worded "Meridian did not serve the skills", and probe messages say "Meridian answered but the probe failed" for it; a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). A provider whose destination the symlink guard refuses ends `partially connected` or `not connected` and `connect` exits 3 ([§Symlinked config files and directories are refused unless listed](#symlinked-config-files-and-directories-are-refused-unless-listed)). Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job an earlier release installed, printing one line when there was one:
@@ -281,7 +281,7 @@ bare `/mcp` URL. With two or more KBs it writes one entry per KB, named
 `<server_name>-<kb>` and pointed at `/mcp?kb=<kb>`, and records that KB list in
 `.cartographer-state.json` (`known_kbs`). `sync` repeats the enumeration: it adds new
 entries, removes entries for disappeared KBs, and performs the bare↔suffixed
-rename on one-to-many transitions. If the server cannot be reached, it leaves
+rename on one-to-many transitions. If Meridian cannot be reached, it leaves
 the MCP entries and `known_kbs` untouched and warns; run `sync` again once it is
 up.
 
@@ -308,7 +308,7 @@ that repository's own project-local directories and nothing KB-sourced is writte
 it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
 them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
 prunes what was projected there (`workspace unbind <provider> --all` removes every explicit binding of the provider and returns it to the global scope even when KB-derived bindings exist; a single-path unbind of the last explicit binding keeps the scope while derived ones remain and prints a note); a path never bound for that provider is an error (exit 1). `workspace bind` refuses a provider that is not connected (`<provider> is not connected`, exit 2, as `client bind` does), dedupes `--kb` and,
-like `client bind`, refuses a KB the server does not mount when the server answers with its list (exit 2); with the server unreachable it warns and binds. For Codex, `workspace bind codex <path> --kb <name>… --trust` also records the
+like `client bind`, refuses a KB Meridian does not mount when Meridian answers with its list (exit 2); with Meridian unreachable it warns and binds. For Codex, `workspace bind codex <path> --kb <name>… --trust` also records the
 folder as trusted in `~/.codex/config.toml`, so the projection is not born `inactive` (one explicit, narrow
 write; without the flag `bind` prints the line to add; `unbind` and a derived binding never touch it; refusal
 cases and the exact rules in `sync.md` §Workspace scope, [D1074](decisions/D1074-workspace-bind-codex-trust.md)). Binding `$HOME` itself is allowed, but warns on stderr that everything the KB distributes then reaches every session of the provider (exit 0, binding saved). A binding also scopes the **tools** in every client, with no file
@@ -334,7 +334,7 @@ fetched when the call has `key=value` words): a `string` property keeps the raw 
 `query=null`), an `array` property wraps a value that is not an array (`where=status=open`); a key the
 schema does not declare, or a bridge that cannot list tools, keeps the parsed value. `--json` takes an
 object (`-` reads stdin, 16 MiB) and stays verbatim; a key given twice, in pairs or with `--json`, is a
-usage error. No other client-side validation: the server's own error is what the agent reads. An unknown
+usage error. No other client-side validation: Meridian's own error is what the agent reads. An unknown
 `--provider` and a `--dir` that is not a directory are refused before the bridge starts (exit 2).
 Flags: `--output text|json` (`json` is the raw MCP result),
 `--timeout` (default 5m, bounds the whole invocation), `--verbose` (print the bridge log on success too).
@@ -361,7 +361,7 @@ batch. `--batch` excludes a tool, `--json`, `--list`, `--describe` and `--instru
 | Exit | Meaning | Output |
 |---|---|---|
 | 0 | the tool succeeded | text content on stdout |
-| 1 | the tool returned `isError`, or the server answered "invalid params" (JSON-RPC -32602 for a bad argument) | its text on stderr, nothing on stdout |
+| 1 | the tool returned `isError`, or Meridian answered "invalid params" (JSON-RPC -32602 for a bad argument) | its text on stderr, nothing on stdout |
 | 2 | usage, no client configuration, unusable token, no KB in scope, transport, server too old for read-only, HTTP 401, any other JSON-RPC error (an unknown tool included), timeout | `Error: …` on stderr |
 
 `--batch`: the worst class among the lines; the per-line codes are in the result lines.
@@ -378,18 +378,18 @@ repository-hygiene guarantees and the providers that cannot be scoped at all →
 §Workspace scope.
 
 **One routed entry (D187, D288).** When `/health` reports `routed_path` (every server since D288),
-the KB is no longer part of the entry name: the client writes **one** entry per provider,
+the KB is no longer part of the entry name: Compass writes **one** entry per provider,
 `<server_name>`, pointed at `/mcp/routed`. The provider's binding travels in the URL: an explicit
-binding writes `?kbs=<bound KBs, sorted, comma-joined>`, which the server turns into that connection's
+binding writes `?kbs=<bound KBs, sorted, comma-joined>`, which Meridian turns into that connection's
 KB set (two or more KBs: `kb` is a required enum in every schema; exactly one: no `kb` argument at
-all); the default binding, every KB the server mounts, writes no `kbs`, so a KB added later reaches the
+all); the default binding, every KB Meridian mounts, writes no `kbs`, so a KB added later reaches the
 provider without a rewrite. Every routed entry ends with `provisioned=1` (`/mcp/routed?provisioned=1`,
-`/mcp/routed?kbs=kb-a,work-kb&provisioned=1`; D1097): the client has the managed block, so the server sends
+`/mcp/routed?kbs=kb-a,work-kb&provisioned=1`; D1097): Compass has the managed block, so Meridian sends
 it no operating guide in `initialize`. The marker is always written, a server that predates it ignores it,
-and `mcpbridge` adds it to the URL it forwards to. One `sync` adds it to an entry written before. A bound name the server no longer mounts is left out of the URL (the server
+and `mcpbridge` adds it to the URL it forwards to. One `sync` adds it to an entry written before. A bound name Meridian no longer mounts is left out of the URL (Meridian
 refuses an unknown name), and a provider bound only to vanished KBs gets no entry, the same declaration
 as an explicit empty binding. `kbs` only narrows, never widens: the per-KB authorization still runs at
-the target, and with `auth: false` the binding is advisory, since the client can edit its own URL.
+the target, and with `auth: false` the binding is advisory, since the agent client can edit its own URL.
 The generated instructions block names the bare tools and says to pass `kb: "<name>"` where a tool
 takes a `kb` argument, which is true for both shapes. The topology is persisted in
 `.cartographer-state.json` (`server_mount_mode`, `server_routed_path`) so `doctor` and `status` can derive
@@ -400,7 +400,7 @@ per-KB entries (`<server_name>-<kb> → /mcp?kb=<kb>`). The next `cartographer s
 client may have owned (the bare name and one per known KB, including unbound ones) and writes the single
 routed entry, so one sync leaves exactly one entry per provider and no orphan. `cartographer status`
 reports `mount mode changed: …` and names `cartographer sync` until then. Against a server that does
-**not** report `routed_path` (pre-D288) the client keeps the historical per-KB shape, with the two
+**not** report `routed_path` (pre-D288) Compass keeps the historical per-KB shape, with the two
 warnings below.
 
 **Kiro and flat tool namespaces (D102), pre-D288 servers only.** Kiro's MCP tool namespace is flat
@@ -446,7 +446,7 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 | `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `server.allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
 | `--no-tray` | `false` | Does not install the status icon and remembers it (`tray_opt_out`) until `service tray install`; an installed tray is removed. Without it, `connect` installs the tray on macOS and Windows (below) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
-| `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, nothing written: the manifest is fetched and verified before the agents' MCP entries, the bootstrap hook or `.cartographer.yaml` are touched, and the same holds for a rejected token), not a "server unreachable" deferral; a server that is down still defers and writes |
+| `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify Meridian's artifacts fails `connect` with a signature error (exit 2, nothing written: the manifest is fetched and verified before the agents' MCP entries, the bootstrap hook or `.cartographer.yaml` are touched, and the same holds for a rejected token), not a "server unreachable" deferral; a server that is down still defers and writes |
 | `--no-input` | `false` | Never opens the interactive form, even in a TTY |
 | `--workspace` | *(unset)* | Projects the selected KBs into this repository instead of the global catalogue (D193) |
 | `--plugin` | *(repeatable)* | Installs a plugin (git URL`[@ref]` or folder) before the agents are resolved; it is not approved by this flag |
@@ -462,7 +462,7 @@ client request goes through `client.CheckServerURL`: `https://` is always
 accepted; `http://` only when the host is loopback (`localhost`, or an IP for
 which `net.ParseIP(host).IsLoopback()` holds: `127.0.0.0/8`, `::1`, IPv4-mapped
 `::ffff:127.0.0.1`; a name such as `127.0.0.1.example.com` is not); any other
-scheme is refused. The check is in the client transport, so `connect`, `sync`,
+scheme is refused. The check is in the Compass transport, so `connect`, `sync`,
 `status`, `doctor`, `kb repair`, `kb reauthor`, `reindex`, the usage sync and the stdio bridge
 all obey it, and `connect` and `sync` fail before writing anything.
 
@@ -474,7 +474,7 @@ error that names both fixes. Nothing upgrades `http` to `https` by itself.
 
 `knowledge_bases.<kb>.signing_keys` in `.cartographer.yaml` stores public-key pins per KB. Pins are
 operator-supplied and are never learned from `sync_pull`; multiple pins permit
-key rotation. Pin the new key, switch the server signer, then remove the old
+key rotation. Pin the new key, switch the Meridian signer, then remove the old
 pin after all clients have synchronized.
 
 If no provider is detected and no explicit name is passed, the command exits with an error
@@ -511,7 +511,7 @@ and the native service isn't running, before the `y/N` override the CLI flow off
 install and start the local service (`cartographer service install` with defaults, polling
 `/health` for up to 10s, then an automatic re-probe). In the non-interactive path, a deferred
 materialization to a loopback URL only adds a hint on stderr suggesting
-`cartographer service install` when the server does not answer at all (never when `/health` replied, e.g. a 404 on a `/mcp/<segment>` URL); a reachable 0-KB server instead prints
+`cartographer service install` when Meridian does not answer at all (never when `/health` replied, e.g. a 404 on a `/mcp/<segment>` URL); a reachable 0-KB server instead prints
 `cartographer kb create <name> --remote <url>` followed by `cartographer service restart`. A successful connect
 prints the absolute paths of generated MCP configs and reminds the user to restart the selected
 agent sessions to load the MCP tools (a `cli` provider is told to restart to load the skills and instructions, a `none` provider gets no line).
@@ -521,7 +521,7 @@ agent sessions to load the MCP tools (a `cli` provider is told to restart to loa
 ### `cartographer disconnect [provider|all]`
 
 The inverse of `connect`: for each target provider — default `all` = every provider **connected**
-in the client state — it surgically removes every managed MCP server entry (the bare name and
+in the Compass state — it surgically removes every managed MCP server entry (the bare name and
 any persisted per-KB suffixed names) from that provider's
 config file (`internal/configurator.Remove`, the inverse non-destructive merge: the rest of the
 file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file itself is deleted only when it is left an empty shell and the provider's registry entry sets `DeletableWhenEmpty`: `.claude.json` and the Claude Code hook settings files go only when Cartographer created them (recorded in `.cartographer-created.json` in the base dir, itself deleted with its last entry) and removing our entries leaves `{}`; a file that existed before, even as `{}`, or that holds another key, is kept), prunes the
@@ -531,11 +531,11 @@ repository (the files the lockfile records for them, exactly as `workspace unbin
 was there before stays, a skill, agent or hook that no longer hashes to what the sync wrote stays and is reported
 as `kept <path>: changed since sync`, a lockfile path that is not inside the repository is never followed, and a file
 another provider's projection of the same repository still records stays too), prints which repositories it cleaned, then removes the provider from the
-lockfile and from the client state, its workspace bindings and projection scope included (#1324). If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
+lockfile and from the Compass state, its workspace bindings and projection scope included (#1324). If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
 preserving `server:` (`url`/`name`/`auth`/`token`) and `providers` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
-The client state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`, `.cartographer-machine.json`,
+The Compass state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`, `.cartographer-machine.json`,
 `.cartographer-client.lock` (in the config directory), `.cartographer-created.json` (in the home or workspace, only while a Claude Code file it created is kept because it holds other keys) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). `.cartographer-client.lock` is an empty lock file, not state: the first sync or connect creates it and a dry run does not announce it. To remove every trace, delete them by hand once the last provider is disconnected.
 
 ```bash
@@ -561,7 +561,7 @@ are still disconnected.
 
 ### `cartographer status`
 
-Compares the server's manifest revision with the last applied lockfile, for every connected
+Compares Meridian's manifest revision with the last applied lockfile, for every connected
 provider. Read-only.
 
 ```bash
@@ -583,14 +583,14 @@ code); on loopback, an installed local service also gets a `cartographer upgrade
 On macOS and Windows a table `status` of a client with a connected agent, no status icon installed and no remembered opt-out ends with one line pointing at `cartographer service tray install` (`status` installs nothing; `service tray uninstall` silences it; the JSON output is unchanged).
 A newer release known to the update cache adds `update available: vX (installed vY) — <command>`
 (JSON `update: {latest, kind, channel, command}`, present only then), and a remote server that
-reports one in `/health` adds `server update available: vX` — the server operator's job, so no
+reports one in `/health` adds `server update available: vX` — the Meridian operator's job, so no
 command. Both read local state only (the cache is refreshed by the session hook and `update
 check`) and neither changes the exit code (D254).
 Placeholder keys the last sync could not resolve and the operator did not `paths ignore` (read from the lockfile, no network) add
 ``N placeholder(s) unresolved — run `cartographer paths` `` to the table and an additive
 `unresolved_placeholders: [{key, kbs, reason}]` to the JSON, present only when non-empty; neither
 changes the state or the exit code — an unresolved key is left verbatim, not a failed sync (D262).
-The artifacts the server left out of the catalogue (the `sync_pull` `issues`, `sync.md`) add one `not in the catalogue: …` line each and an additive
+The artifacts Meridian left out of the catalogue (the `sync_pull` `issues`, `sync.md`) add one `not in the catalogue: …` line each and an additive
 `issues: [string]` to the JSON, present only when non-empty, raw like every server text in the JSON (the table escapes it); they change neither the state nor the exit code (#1775). `connect` reports them among its warnings.
 For an unavailable endpoint, the table names the configured endpoint once and
 suggests checking that URL (or `cartographer service status` for loopback);
@@ -631,7 +631,7 @@ cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--log-file <
 |---|---|---|
 | `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |
 | `--dry-run` | `false` | Prints the plan without writing: every artifact and MCP entry, the `.cartographer.yaml` rewrite (only when its bytes would change) and the creation or update of `workspace-derived.json`; MCP entries are listed for removal only when they exist in the config |
-| `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
+| `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from Meridian (D139) |
 | `--log-file` | *(none)* | Appends this run's output to that file instead of stdout/stderr (created if absent, never rotated); the Windows sync task uses it, where nothing else records a failing background run (D217); on Windows a run that is the only process on its console releases it, so the task's window closes ([D1479](decisions/D1479-the-windows-service-detaches-from-its-console.md)) |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906): session-start hooks written by older versions still pass it |
 | `--report-to` | *(none)* | Only sends this machine's usage and client-settings reports (D326, D818) to that MCP endpoint, and changes nothing: the config is read, never saved, nothing is provisioned, the configured server is not contacted. It is how `make dev DATA=<dir>` shows the real client on a live instance (D1044). The configured token goes with the reports, so the URL must name a server on this machine (`localhost`, `127.0.0.1`, `::1`): any other host is refused with exit 2 |
@@ -665,7 +665,7 @@ included — `sync` checks the environment it needs: when `.cartographer.yaml` h
 unattended run (session-start hook, sync timer, CI — none of which inherit a login shell's exports)
 diagnoses its misconfiguration before the first network call
 ([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)). The check is
-read-only and never contacts the server: it verifies a token *exists*, not that the server accepts
+read-only and never contacts Meridian: it verifies a token *exists*, not that Meridian accepts
 it — a token that is set but wrong is still a 401 from `sync_pull`. When nothing is missing it
 prints nothing. 
 
@@ -678,7 +678,7 @@ in-process runner is what `cartographer upgrade-repair` calls (D121). Repair in 
 default; a full rebuild is `cartographer reconnect` (below), for the residues no incremental sync
 can see. Already-open provider sessions still need to be restarted to reopen the MCP connection.
 
-When the server that answers is not the one this client's state was materialized against, `sync`
+When Meridian that answers is not the one this client's state was materialized against, `sync`
 prints one line saying so — once per invocation, whatever the provider count — and then syncs
 normally ([D142](decisions/D142-reconnect-rebuild-a-client-configuration-never.md)). The line states
 the fact and that this run re-applies the current manifest; it carries no imperative, because the
@@ -759,12 +759,12 @@ The checks:
 | `client-config` | `.cartographer.yaml` exists and loads (an existing file that does not load is reported with the real error and the fix `fix or remove <path>`, not `connect`); an agent is connected; every configured provider is still installed |
 | `lockfile` | present, readable, and in the v2 format — a v1 file on disk is migrated *in memory* by every read, but stays v1 until something rewrites it |
 | `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered`, `unrunnable` (a Claude Code hook whose registered command cannot run, with the reason — D267); `foreign` (an info line: a file inside a managed skill/hook directory that the lock does not own, which `sync` leaves and `status` does not count as drift, #1502); plus files sitting inside a managed skill/hook directory that no lock entry accounts for (D178) — reported only, since doctor cannot prove Cartographer wrote them |
-| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one. When the config is behind a symlink the fix names the link (replace it with a regular file or directory, or list it with `cartographer client symlinks <provider> --add <link>`) instead of `cartographer reconnect`, which refuses an unlisted link too (D148, D1736). Only the names `disconnect`/`reconnect` manage count (the server name and `<server>-<kb>` for the recorded KBs): a user's own `cartographer-dev` is left alone |
+| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB Meridian no longer mounts, or a missing one. When the config is behind a symlink the fix names the link (replace it with a regular file or directory, or list it with `cartographer client symlinks <provider> --add <link>`) instead of `cartographer reconnect`, which refuses an unlisted link too (D148, D1736). Only the names `disconnect`/`reconnect` manage count (the server name and `<server>-<kb>` for the recorded KBs): a user's own `cartographer-dev` is left alone |
 | `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts), **and** that the provider actually reads the file it was written into (D189) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite; for OpenCode, the plugin shape written against the installed major (D359) — a 1.x plugin on OpenCode 2.x is an error, an unsupported major a warning, an unreadable version a warning (the shape was guessed, D719) |
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |
 | `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140); a timer the operator uninstalled on purpose is info (D325) |
-| `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
+| `capability` | every per-KB gate Meridian advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
 | `symlink` | no managed destination directory (global, or under a workspace binding) is a symlink, or anything else that is not a plain directory — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148, widened in D216); the fix is to replace it or to list it with `cartographer client symlinks <provider> --add <path>`. A destination that is itself a **listed** link (`providers.<provider>.allow_symlinks`) is an `info` finding naming its target, with no fix |
 | `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
 | `workspace-shadow` | no KB agent or skill has the same name as a file a bound workspace commits (tracked by git) at the provider's project destination (`.claude/agents/<name>.md`, `.claude/skills/<name>/`...): the provider reads one of the two and which one depends on the client. Warning severity; the finding names both files. It applies in every scope, for each provider and bound workspace, and is silent when the server is unreachable or a pull failed. The fix is to rename one; a KB's `artifact_prefix` (`docs/data-plane.md` §The KB's own settings) prevents it |
@@ -774,12 +774,12 @@ The checks:
 | `unbound-residue` | no managed file comes from a KB no longer bound to the provider holding it (D170) — a projection predating an unbind, or a hand-edited lockfile. Only for providers with an explicit binding; a file with no recorded source (a lockfile written before D170) is unknown, not wrong, and never reported. A file that comes from `plugin:<name>` is reported for every provider, explicit binding or not, when `<name>` is no longer in the config's `plugins` ("comes from plugin x, which is no longer installed"); a configured plugin never is |
 
 **Severities.** `error` — something is broken now (a managed file missing, a hook firing twice);
-`warning` — something is stale or suboptimal (v1 lockfile, a lockfile entry whose path leaves the client directory and is ignored on read, no trigger for a hook-less provider, a
+`warning` — something is stale or suboptimal (v1 lockfile, a lockfile entry whose path leaves the Compass directory and is ignored on read, no trigger for a hook-less provider, a
 version difference); `info` — context that cannot be acted on by itself and never changes the exit
 code (managed entries recorded before content hashes existed, which nothing can verify). Findings
 are printed errors first.
 
-**`doctor --repair-hashes`** re-records the materialized hash of every managed entry that has none, computing it from the bytes already on disk, under the client-state lock (D157). It exists because the alternative for that narrow gap, `reconnect`, prunes and rewrites **every** managed artifact on every client. A backfilled entry is marked `adopted_at` in the lockfile: it is **adopted, not verified** — nothing was compared against the server, so drift is detectable only from the next server-side change onward. An entry whose file is *missing* is left alone: that is real drift for `sync` to fix, not something to paper over.
+**`doctor --repair-hashes`** re-records the materialized hash of every managed entry that has none, computing it from the bytes already on disk, under the client-state lock (D157). It exists because the alternative for that narrow gap, `reconnect`, prunes and rewrites **every** managed artifact on every client. A backfilled entry is marked `adopted_at` in the lockfile: it is **adopted, not verified** — nothing was compared against Meridian, so drift is detectable only from the next server-side change onward. An entry whose file is *missing* is left alone: that is real drift for `sync` to fix, not something to paper over.
 
 **Exit codes**: `0` clean, `1` findings (error or warning), `2` an error running the command — the
 same convention `status` uses. An unreachable server is one `warning` finding, not a failure:
@@ -798,28 +798,28 @@ The unattended half of KB upkeep (D299), schedulable by the operator (cron, laun
 installs a schedule. It calls `kb_status`, then `kb_repair` with `dry_run: true` for every check with a
 mechanical fix, and prints per check the planned count and up to 5 examples. With `--apply` it re-runs
 **only** the checks whose fix is safe to run unattended (D323, D355, D907: `lint.AutoRepairChecks`, `[auto]` in the
-report) with `dry_run: false`; any other check is never applied by `--apply`. No setting narrows the list. The server applies the same checks by
+report) with `dry_run: false`; any other check is never applied by `--apply`. No setting narrows the list. Meridian applies the same checks by
 itself every day, and each write already repairs the concepts it wrote
 (D349, always since D907), so `--apply` usually finds little. It ends with the judgement
 work left — the `kb_review` counts by kind — which only a `cartographer-kb-doctor` session with the operator handles.
 It writes no `kb-doctor` log entry: a mechanical pass is not a doctor session, and the entry would
-silence the server's doctor proposal while the judgement work is undone (each applied check still
+silence Meridian's doctor proposal while the judgement work is undone (each applied check still
 leaves `kb_repair`'s own entry).
 
 `--revert <sha>` replaces the repair: it calls `repair_revert`, which undoes one `kb_repair` or
-auto-repair commit (its SHA is in the KB's `git log`, reason "auto-repair (background)") as a new commit through the server's
+auto-repair commit (its SHA is in the KB's `git log`, reason "auto-repair (background)") as a new commit through Meridian's
 ordinary write path, and refuses any other commit.
 
 The commits of `--apply` and `--revert` are authored as whoever runs the command (D904), by the
 bridge's rule: the KB's `knowledge_bases.<kb>.identity`, else `knowledge_bases.default.identity`, else what git resolves in the
 folder the command runs in, and only inside a work tree. An empty entry sends no author, an invalid
-one sends none with a warning; without an author the server authors the commit as the token. A
+one sends none with a warning; without an author Meridian authors the commit as the token. A
 scheduled run outside any repository is therefore authored as its token unless `knowledge_bases.<kb>.identity` or `knowledge_bases.default.identity` names
 someone.
 
 Exit codes: `0` nothing left to do, `3` only judgement work or checks that are not safe to run unattended remain,
 `2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,
-`remaining`). Not to be confused with `cartographer doctor`, which checks the client's provisioning.
+`remaining`). Not to be confused with `cartographer doctor`, which checks Compass's provisioning.
 
 ### `cartographer kb reauthor <kb> [--apply] [--json]`
 
@@ -885,7 +885,7 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 installed is a success. On cron the interval is rounded up to whole minutes, and from an hour up to
 whole hours capped at daily (`*/n` fires at :00, :n, ... of each hour, not n minutes after the last
 run); uninstall strips the block and keeps `sync.cron` if the crontab still holds it. The per-user scheduler belongs to the account, not to `$HOME`: when
-`$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the server service
+`$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the Meridian service
 and the sync timer write their unit files under `$HOME` and register nothing,
 so a sandbox never replaces the account's own jobs (#683); `connect` and `setup` then print `sync timer not installed: HOME is not this account's home (expected in tests)` as a plain line, not a warning. The timer runs plain `cartographer sync`: `sync` has no trust flag to give it (D906; `workspace bind codex --trust` is a separate, explicit command),
 and an MCP descriptor still needs the local approval an unattended job cannot give. `setup` and `connect` install the timer themselves when a connected provider has no
@@ -904,7 +904,7 @@ there: a task's own history records exit codes only, and is disabled by default 
 
 ### Headless hosts, CI and agent containers
 
-`connect` and `sync` run fully non-interactively; no flag is missing for an unattended host. The client is not a workload: the binary runs next to the agent and writes under that agent's `$HOME`. The two scenarios below are listed in [deployment](deployment.md) §Deployment scenarios.
+`connect` and `sync` run fully non-interactively; no flag is missing for an unattended host. Compass is not a workload: the binary runs next to the agent and writes under that agent's `$HOME`. The two scenarios below are listed in [deployment](deployment.md) §Deployment scenarios.
 
 **Non-interactive `connect`.**
 
@@ -914,7 +914,7 @@ cartographer connect claude --no-input \
 ```
 
 - A provider named positionally forces the non-interactive path. With none named and no agent detected the command exits 1 and writes nothing.
-- A server that mounts two or more KBs needs `--kb` on the first connect. `--kb all` reads the server's KB list, so a connect made where the server is unreachable (an image build) names the KBs instead.
+- A server that mounts two or more KBs needs `--kb` on the first connect. `--kb all` reads Meridian's KB list, so a connect made where Meridian is unreachable (an image build) names the KBs instead.
 - The token is the variable `--token-env` names. `connect` copies it to `~/.cartographer-token` (`0600`) so a run without the variable still authenticates, but **the agent's own process must export the same variable**, because the MCP entry references it.
 - A plain `http://` URL on a non-loopback host is refused unless `--allow-insecure-http` (§Transport security).
 
@@ -931,7 +931,7 @@ cartographer connect claude --no-input \
 Manages the **server** as a native user service on the machine (local mode, D73):
 launchd on macOS, systemd user unit on Linux, a per-user Scheduled Task on Windows
 ([D217](decisions/D217-the-native-service-on-windows-is-a-per-user-scheduled-task.md)). None of the
-three needs administrator rights. Client and server are the same binary: the client subcommands
+three needs administrator rights. Client and server are the same binary: the Compass subcommands
 talk to the daemonized server over loopback.
 
 ```bash
@@ -948,7 +948,7 @@ Every service definition (launchd plist, systemd unit, cron definition) is writt
 
 Re-running `service install` leaves the installed definition and the running process in agreement: on Linux a unit that was active is restarted after `enable --now` (which alone leaves a running unit alone), as launchd and the Scheduled Task already are. The launchd plists escape every path as XML, so `R&D` in a path is valid.
 
-An uninstall (the server, the sync and doctor timers, the tray) checks that the job is really gone before it deletes the definition: a Scheduled Task still registered, a launchd job still loaded or a systemd unit still enabled after the de-registration failed is an error, and the definition stays so the command can be run again. On Windows `service start` fails when `Enable-ScheduledTask` does, instead of reporting a start that did not happen.
+An uninstall (Meridian, the sync and doctor timers, the tray) checks that the job is really gone before it deletes the definition: a Scheduled Task still registered, a launchd job still loaded or a systemd unit still enabled after the de-registration failed is an error, and the definition stays so the command can be run again. On Windows `service start` fails when `Enable-ScheduledTask` does, instead of reporting a start that did not happen.
 
 Plain `restart` restarts the unit and returns. `restart --wait` gracefully replaces the process
 (`SIGTERM`, so in-flight requests drain) and only prints success once `/health` proves the
@@ -958,7 +958,7 @@ and is otherwise unnecessary because the installed service definition is discove
 
 Windows takes the same three verbs to a different scheduler, so two behaviours are worth naming.
 `stop` also **disables** the task, because its logon trigger and its restart-on-failure would
-otherwise bring the server straight back; `start` and `restart` re-enable it first, which is why a
+otherwise bring Meridian straight back; `start` and `restart` re-enable it first, which is why a
 service stopped on purpose stays stopped and a restart after a stop still works. And the graceful
 replacement is not a signal but a named event in the user's session, followed by an explicit
 relaunch of the task — nothing else would restart a process that drained and exited cleanly.
@@ -998,8 +998,8 @@ sits in the overflow (^) menu until the user pins it to the taskbar.
 Before the first probe the tooltip reads `checking…`, not `stopped`. The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
 address from the installed service definition on every tick (`--config` overrides the config path used
 only to read that address and the Atlas URL; Restart service calls the manager without it). A tick reads the definition file's presence and the config and probes `/health` once: it runs no scheduler command (`launchctl`, `systemctl`, PowerShell). For the
-Agents rows it also runs what `cartographer status` runs, off the poll loop: it reads the client
-config, the lockfile and the agents' files and asks the client's server (authenticated, like
+Agents rows it also runs what `cartographer status` runs, off the poll loop: it reads Compass
+config, the lockfile and the agents' files and asks the Meridian it is configured for (authenticated, like
 `status`), which may refresh the repository-path cache as `status` does. It never writes server or KB
 state; it acts only through `service restart`'s code path and the system "open". The icon is the brand mark (Coordinate; the micro variant, without
 the inner arc, below 32 px) and its **shape** tells the state, because a macOS template image is
@@ -1010,11 +1010,11 @@ Menu (D1495), top to bottom: "Cartographer" with the state at the right (Running
 Stopped, Not installed) over the version and the address; "Update available" with the newer
 release, when `/health` reports one; an **Agents** section, one row per connected agent client with
 "In sync", "Out of sync" or "Not checked" (anything `status` could not judge) at the right, or "None
-connected"; read at start, every 5 minutes and whenever the server comes back;
+connected"; read at start, every 5 minutes and whenever Meridian comes back;
 **Knowledge Bases (n)**, a submenu of the KBs `/health` lists, each opening the Atlas on that KB
 (`/ui/?kb=<name>`); then Open Atlas (greyed when the config has no web UI), Restart Service (runs off
 the UI thread, disabled while in flight and when no service is installed), Open Log, Quit (the tray
-only; the server keeps running). On macOS the information rows are drawn in the label colour with the
+only; Meridian keeps running). On macOS the information rows are drawn in the label colour with the
 states coloured (the brand's accent for Running and In sync, orange, red, blue for an update) and the
 actions have ⌘O, ⌘R, ⌘L, ⌘Q while the menu is open; Windows shows the same rows as plain text. `--log-file` appends the tray's own log there, as for `serve`. Either mouse button on the icon opens the menu on both platforms (a double-click has no action). A second tray exits silently with status 0: Windows by a named mutex, macOS by an `flock` on `~/Library/Application Support/cartographer/tray.lock`. A `Status` error that repeats is logged once, again when the message changes or after a success.
 
@@ -1044,7 +1044,7 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--default-map` | `""` | Default map for source directories with no `--map` (D77) |
 | `--map` | *(repeatable)* | Per-directory mapping `<srcdir>=<map>` (`srcdir` relative to `--source`, `.` for the root) |
 | `--dry-run` | `false` | Prints the mapping plan (source → concept id) without writing |
-| `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author and committer are the operator, the identity git resolves for the KB's folder, else the server (D904, D950) |
+| `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author and committer are the operator, the identity git resolves for the KB's folder, else Meridian (D904, D950) |
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
 | `--overwrite` | `false` | Replaces a concept that already exists in the KB. Without it an existing concept (curated frontmatter, body, `status`) is left untouched, counted in `skipped` and named on stderr; `--dry-run` marks it |
@@ -1069,14 +1069,14 @@ skipped) unless `--overwrite`, and `--dry-run` opens the KB read-only to mark ev
 names that slugify to the same id get distinct `-2`, `-3` suffixes even when one of them already reads
 `foo-bar-2.md`; `.md` is recognised whatever its case (`Upper.MD` imports as `upper`, its links rewritten).
 
-**`import` takes the KB's advisory lock** and fails fast when the server holds it (D155), naming the
+**`import` takes the KB's advisory lock** and fails fast when Meridian holds it (D155), naming the
 holder and the `service stop … && service start` sequence: it writes into the same directory the
 server's sync loop manages, and the two interleaving corrupted the git index. `--dry-run` writes
 nothing and never contends for it.
 
 **The search index is not updated by this process.** `import` writes through the KB write path but
-from outside the server, so the server's FTS index knows nothing about it: until it is rebuilt `search` returns nothing
-while `concept_list` sees everything. On completion the command rebuilds the index of **that KB only**, and only when the local server (the service config's `data:` or a `kbs[]` path) mounts the directory given to `--kb` and the client points at a loopback server; for a clone the server does not serve, or a remote server, it prints the `cartographer reindex` instruction. It never changes the exit code: the import
+from outside Meridian, so Meridian's FTS index knows nothing about it: until it is rebuilt `search` returns nothing
+while `concept_list` sees everything. On completion the command rebuilds the index of **that KB only**, and only when the local server (the service config's `data:` or a `kbs[]` path) mounts the directory given to `--kb` and Compass points at a loopback server; for a clone Meridian does not serve, or a remote server, it prints the `cartographer reindex` instruction. It never changes the exit code: the import
 itself succeeded.
 
 **`import` rewrites markdown links.** Every `[text](path.md)` whose target is part of the same
@@ -1151,20 +1151,20 @@ stderr with the full form to use), `2` usage error (missing argument or not in t
 
 ### `cartographer config [--json] [--all]`
 
-Shows every setting with its effective value and where it comes from (D743), in two groups: the client settings of
+Shows every setting with its effective value and where it comes from (D743), in two groups: the Compass settings of
 `.cartographer.yaml` (origin `file` when the key is written there, otherwise `default`) and, when the configured server
-answers `GET /api/ui/v1/settings` with the client's token, the server's: its keys, then one group per KB. One line per
+answers `GET /api/ui/v1/settings` with Compass's token, Meridian's: its keys, then one group per KB. One line per
 key: `key  value  (origin)`, with `restart required` when the schema says so. By default only the keys something set are
 listed; `--all` adds the rest with their default. A per-KB key the KB's own `settings.yaml` sets shows origin `kb`, which beats `file`, `env` and `flag` (D746). A secret shows `(set)` or `(unset)`. `--json` prints the raw
 structure (`client`, `server`, `note`). A server that is unreachable, refuses the token or predates the route costs a
-one-line note instead of the server group, and the exit code stays 0. The same data is the Atlas Settings page
+one-line note instead of the Meridian group, and the exit code stays 0. The same data is the Atlas Settings page
 (`control-plane.md` §Read-only UI API).
 
-The Atlas Settings page also shows the client, as `sync` last reported it: after every apply, `sync` posts a report to
-`POST /api/client-settings` (`control-plane.md` §Client settings reports): the client schema keys with their origin, the
+The Atlas Settings page also shows Compass, as `sync` last reported it: after every apply, `sync` posts a report to
+`POST /api/client-settings` (`control-plane.md` §Client settings reports): the Compass schema keys with their origin, the
 `.cartographer.yaml` as on disk, the connected agent clients (scope, entry kind, bound folders whatever the scope, and their
 KBs) and where each placeholder of the connected KBs resolves on this machine. No secret value, token or file content other
-than that config file. The server keeps it in memory for the sending principal only. Best-effort: a server that is
+than that config file. Meridian keeps it in memory for the sending principal only. Best-effort: a server that is
 unreachable, predates the route or refuses the token costs a debug line, never the sync (D818).
 
 ### `cartographer paths [list [--json]] | set <key> <path> | ignore <key> | unset <key>`
@@ -1246,7 +1246,7 @@ name, native MCP config file and format (`FormatJSON` with its server key, or `F
 whether that file may be deleted once emptied (never for Claude Code — `.claude.json` is Claude's
 own shared state), whether it can carry MCP auth headers, whether its MCP tool namespace is flat
 across servers, the longest tool identifier it accepts (`ToolIdentifierLimit`, which `connect`
-and `sync` check), the client majors whose hook plugin shape is known (`HookPluginMajors`, which
+and `sync` check), the agent client majors whose hook plugin shape is known (`HookPluginMajors`, which
 `doctor` checks), the global instructions files that shadow the managed one
 (`InstructionsPrecedence`, which `doctor` checks), the detection evidence (binary names, config directories in probe order, optional
 env-anchored config directories, optional per-GOOS application directories), and its emitter
@@ -1425,7 +1425,7 @@ config must be non-destructive, which a JSON object allows and a script does not
 `crushrc` would *run* in the user's session rather than be read
 ([D225](decisions/D225-crush-is-a-provider-and-its-config-is-the-json.md)). Because Crush evaluates
 config values, a header or `env` value carrying a `$(command)` substitution is **refused** with an
-error naming the server and the key, instead of being written for Crush to execute on its next start.
+error naming the Cartographer entry and the key, instead of being written for Crush to execute on its next start.
 Crush has no documented user-level subagent directory, so that artifact kind is unsupported for it.
 Its hooks (`hooks.PreToolUse` in `crush.json`, D363) are registered by name; only `PreToolUse` fires,
 so there is no session event and its bootstrap trigger is the scheduled timer.
@@ -1433,7 +1433,7 @@ so there is no session event and its bootstrap trigger is the scheduled timer.
 **GitHub Copilot (CLI and VS Code)** (`copilot`, D676, [D1864](decisions/D1864-copilot-vscode-client.md); probed on CLI 1.0.94 and VS Code 1.145.2) — with auth. The file is
 `~/.copilot/mcp-config.json`; Copilot expands `${VAR}` in a header value from its environment, so the
 header is written as for Claude Code. `"tools": ["*"]` is required: without it a non-interactive
-session is offered no tool of the server:
+session is offered no tool of the Cartographer server:
 ```json
 {
   "mcpServers": {
@@ -1534,9 +1534,9 @@ server, with per-name ownership in the same file (`mcpServers.<name>`/`mcp.<name
 
 Every MCP descriptor a KB ships, **signed or not**, needs a separate, local approval: an MCP server
 receives the agent's data, a signature proves only which server a descriptor came from, and since D906 any
-`rw` token on the KB can write a descriptor the server then signs. A KB hook, any KB artifact that ships
+`rw` token on the KB can write a descriptor Meridian then signs. A KB hook, any KB artifact that ships
 a file with the execute bit, and a skill or agent whose frontmatter declares `hooks` or MCP servers (also in a
-`providers:` block) need the same approval because they run on this machine (D1141), signed or not. Nothing else the client installs
+`providers:` block) need the same approval because they run on this machine (D1141), signed or not. Nothing else Compass installs
 waits for a decision (`sync` has no `trust` setting and no `--auto-trust`; the one explicit trust write is `workspace bind codex … --trust` for Codex project trust, D1074), and bundled artifacts never do.
 Inspect and record the current content with `cartographer approve <kind> <name> --kb <kb> --yes`
 (`kind` is `mcp`, `hook`, `skill` or `agent`; interactive terminals default to no confirmation; for a
@@ -1553,7 +1553,7 @@ refreshed, registered anew or removed until approved.
 (the files with their size and execute bit, the `hook.json`, the content of every executable file and of a
 frontmatter that declares hooks or MCP servers), so the confirmation covers what will run. An MCP descriptor is
 never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. Without a
-terminal it needs `--yes`, like the single form. Names, paths and targets chosen by the server are printed with
+terminal it needs `--yes`, like the single form. Names, paths and targets chosen by Meridian are printed with
 every non-printable character escaped (`\n`, `\x1b`, `\u202e`), so a name cannot forge a line, rewrite the screen or read as another command. Then run
 `cartographer sync`.
 
@@ -1568,7 +1568,7 @@ previews it: `would approve <kind>/<name> [kb:<kb>]: installed before approvals 
 sync would approve, `needs_approval` only for the rest, and the marker stays untouched (#1176). A first `connect` of a client with no agent and no install yet writes the marker itself, so its first sync does not rewrite `.cartographer.yaml` (#1302); a client that is already connected keeps it unset until its own first sync.
 
 Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml`, machine-wide —
-`clientconfig.TargetDir`, D52): it records which server the machine is connected to (the connected providers are in the client state file, below). One file per machine, not per project: this avoids drift with a provider
+`clientconfig.TargetDir`, D52): it records which server the machine is connected to (the connected providers are in the Compass state file, below). One file per machine, not per project: this avoids drift with a provider
 connected in one repo but not another.
 
 ```yaml
@@ -1648,7 +1648,7 @@ wrote above it and keeps the original as `.cartographer.yaml.bak-<version>`; `Sa
 reached moves them too (no backup, as for the keys `Save` drops). `Load` reads both layouts for at least one
 minor, so a file on a read-only mount keeps working. A key set at both places with different values is an
 error naming the two keys, from `Load`, `Save` and the realignment, which leaves the file as it is: keep
-one. The report a client posts to the server and `cartographer config` mask a literal token at either place.
+one. The report a client posts to Meridian and `cartographer config` mask a literal token at either place.
 
 The per-provider and per-KB keys follow the same path. The realignment moves `clients`, `scopes`, `unbound_access` and
 `workspaces` into `providers.<provider>` (`kbs`, `config_dirs`, `access`, `allow_symlinks`, `scope`, `unbound_access`, `workspaces`), with
@@ -1670,9 +1670,9 @@ keeps its order until `cartographer client realign --reorder`, which rewrites it
 as `.cartographer.yaml.bak-<version>`, a second run changes nothing); `cartographer client realign` alone is the
 realignment of `sync` on demand. A KB name with a dot in it is an ordinary key for the reorder.
 
-The registry holds the client keys `token_env` (rewritten as `token: ${NAME}`, comments kept),
+The registry holds the Compass keys `token_env` (rewritten as `token: ${NAME}`, comments kept),
 `trust`, `write_findings_hook`, `search_depth`, `update.check` and `update.policy` (`update_check`, which an
-`auto-patch` policy turns into `true`), `agents`, whose **value moves** to the client state file, and
+`auto-patch` policy turns into `true`), `agents`, whose **value moves** to the Compass state file, and
 `sync_timer_opt_out` and `mcp_approvals`, whose **values move** to the machine file (below)
 before the YAML drops them. A realignment that cannot write those files stops and leaves the keys where they are. Until a file is realigned (a read-only mount), `Load` honours the old
 `token_env`, `update.check`, `agents` and `sync_timer_opt_out`, and `mcp_approvals` while the machine file is absent.
@@ -1689,17 +1689,17 @@ from there while the state file is absent, and the next save moves them (the leg
 since D169, goes the same way). An unreadable or corrupt state file is treated as absent, with one
 line on stderr that names what to redo: the known KBs come back with the next `sync`, but the connected agents do not (`connect`); the next save keeps the unreadable bytes as `state.json.bak` before replacing the file. 
 
-**The machine file, `.cartographer-machine.json` (D1728).** What the client's own commands record and no sync can rebuild: the local approvals (`cartographer approve`; hooks, executable artifacts and MCP descriptors, under `<kind>/<name>` for the first two), the `approvals_migrated` marker and the opt-outs `sync_timer_opt_out` and `tray_opt_out`. JSON, mode 0600, never hand-edited, and **fail closed**, unlike the state file: if it exists and cannot be read or parsed, `Load` approves nothing, treats the pre-approval migration as done (so nothing installed is approved in its place) and warns that the file is unreadable; `Save` leaves it untouched, and a command that would record an approval or an opt-out stops with an error until the file is fixed or removed (removing it asks for every approval again). A machine with nothing to record has no such file. An installation from before keeps these keys in `.cartographer.yaml` (the approvals and the marker) and in the state file (the opt-outs): `Load` reads them while the machine file is absent, and the first save or `client realign` writes the machine file, then drops the old keys, after keeping `.cartographer.yaml.bak-pre-machine`. Once the machine file exists the old keys are ignored. `approvals_migrated: true` stays in the YAML as a tombstone and the two opt-outs are still copied into the state file for this minor, so an older client after a downgrade sees the marker set (it never re-approves what is installed), no approvals (it asks again) and its opt-outs. If the machine file later disappears (deleted, a dangling link) the tombstone makes `Load` approve nothing, migrate nothing and warn to give the approvals again with `cartographer approve`; the pre-migration YAML is the `.bak-pre-machine` copy. While the file is unreadable, `Save` and `client realign` keep the old YAML keys and stop rather than drop them.
+**The machine file, `.cartographer-machine.json` (D1728).** What Compass's own commands record and no sync can rebuild: the local approvals (`cartographer approve`; hooks, executable artifacts and MCP descriptors, under `<kind>/<name>` for the first two), the `approvals_migrated` marker and the opt-outs `sync_timer_opt_out` and `tray_opt_out`. JSON, mode 0600, never hand-edited, and **fail closed**, unlike the state file: if it exists and cannot be read or parsed, `Load` approves nothing, treats the pre-approval migration as done (so nothing installed is approved in its place) and warns that the file is unreadable; `Save` leaves it untouched, and a command that would record an approval or an opt-out stops with an error until the file is fixed or removed (removing it asks for every approval again). A machine with nothing to record has no such file. An installation from before keeps these keys in `.cartographer.yaml` (the approvals and the marker) and in the state file (the opt-outs): `Load` reads them while the machine file is absent, and the first save or `client realign` writes the machine file, then drops the old keys, after keeping `.cartographer.yaml.bak-pre-machine`. Once the machine file exists the old keys are ignored. `approvals_migrated: true` stays in the YAML as a tombstone and the two opt-outs are still copied into the state file for this minor, so an older client after a downgrade sees the marker set (it never re-approves what is installed), no approvals (it asks again) and its opt-outs. If the machine file later disappears (deleted, a dangling link) the tombstone makes `Load` approve nothing, migrate nothing and warn to give the approvals again with `cartographer approve`; the pre-migration YAML is the `.bak-pre-machine` copy. While the file is unreadable, `Save` and `client realign` keep the old YAML keys and stop rather than drop them.
 
 `providers` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
 
-`.cartographer.yaml` is written atomically (a temporary file beside it, `fsync`, rename) and the operator's own file keeps what they gave it: a **symlink** (stow, yadm) is followed and its target replaced, so the link survives; an existing **mode** is kept (a literal token only ever takes group and other access away, never gives it). This differs from the no-follow rule of the client directories (D148) because it is the operator's own file, written on their own command, not a path inside somebody else's checkout. A key the file does not carry (`server.url`, `server.name`, `server.token`) loads as the schema's default, as `Default()` does; an explicit empty value stays empty.
+`.cartographer.yaml` is written atomically (a temporary file beside it, `fsync`, rename) and the operator's own file keeps what they gave it: a **symlink** (stow, yadm) is followed and its target replaced, so the link survives; an existing **mode** is kept (a literal token only ever takes group and other access away, never gives it). This differs from the no-follow rule of the Compass directories (D148) because it is the operator's own file, written on their own command, not a path inside somebody else's checkout. A key the file does not carry (`server.url`, `server.name`, `server.token`) loads as the schema's default, as `Default()` does; an explicit empty value stays empty.
 
 ### `cartographer client`
 
 Declares which Knowledge Bases each connected provider may receive. Every
 subcommand works without a network: it reads and writes `.cartographer.yaml`,
-and only `client bind` asks the server for its KB list when it is reachable
+and only `client bind` asks Meridian for its KB list when it is reachable
 (table below), so a KB name that is not currently advertised is a warning, not
 a failure.
 
@@ -1707,17 +1707,17 @@ a failure.
 |---|---|
 | `client list` | one row per connected provider: resolved KBs and the origin of the answer (`explicit` / `default (all known)`) |
 | `client show <provider>` | that provider's bound KBs, its origin, and the known KBs it is **not** bound to; for `claude` also a `config dirs` line: `$HOME` (default), each declared dir, and an undeclared `CLAUDE_CONFIG_DIR` marked `not declared` |
-| `client bind <provider> <kb>[,<kb>...]` | adds to the binding (the output lists the resulting binding and what this call added); creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; it asks the server for its KB list once and refuses a KB the server does not mount (without rewriting the cached list, `sync` owns it, D721); with the server unreachable it falls back to the cached list and only warns; duplicates in the list are stored once |
+| `client bind <provider> <kb>[,<kb>...]` | adds to the binding (the output lists the resulting binding and what this call added); creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; it asks Meridian for its KB list once and refuses a KB Meridian does not mount (without rewriting the cached list, `sync` owns it, D721); with Meridian unreachable it falls back to the cached list and only warns; duplicates in the list are stored once |
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
 | `client realign [--reorder]` | realigns `.cartographer.yaml` to the current settings table, the same pass `sync` runs (the original is kept as `.cartographer.yaml.bak-<version>`); `--reorder` also writes the keys in the table's order, leaving a mapping as it is when one of its keys aliases (or merges) an anchor another of its keys defines |
 | `client symlinks <provider> [--add <path>] [--remove <path>]` | lists, adds or removes the provider's `allow_symlinks` entries (§Symlinked config files and directories are refused unless listed); entries are compared expanded and cleaned, a `--remove` that matches nothing exits 1, and an entry that is `~`, `$HOME`, `/`, the home directory or holds a control character is refused |
-| `client kb <kb> [--artifacts=true\|false] [--access=read\|write]` | shows, or sets, the KB's per-KB options (the `knowledge_bases` map, D1408, D1409), for every provider; `--access=read` connects the KB read-only (below), `write` removes the key; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB the server does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
+| `client kb <kb> [--artifacts=true\|false] [--access=read\|write]` | shows, or sets, the KB's per-KB options (the `knowledge_bases` map, D1408, D1409), for every provider; `--access=read` connects the KB read-only (below), `write` removes the key; `false` stops `sync` from provisioning that KB's skills, subagents, hooks and MCP descriptors and removes the ones installed, while the KB stays connected; `true` removes the key; a KB Meridian does not advertise is a warning, not a failure; prints `run cartographer sync to apply` |
 
 `knowledge_bases.<kb>.artifacts: false` (D1408) is a narrowing, never a widening: it wins over `providers.<provider>.scope`, `providers.<provider>.kbs`, explicit workspace bindings and derived bindings, and changes neither which KBs a provider or folder reaches nor the KB's MCP tools. It does nothing on a server that does not name its KBs. `status` marks such a KB `artifacts: off (knowledge_bases)` under the provider's `kbs` line.
 
-**`knowledge_bases.<kb>.access: read` (D1409).** The one KB is connected read-only on every provider that receives it, while the provider's other KBs stay writable; absent or `write` is the default and changes nothing in any URL. `sync` writes `readonly=<kb>,…` into the routed entry after `kbs=` and `access=` (only the KBs the entry reaches, escaped like `kbs`), and the workspace bridge sends the same parameter, so it applies in a bound folder too. With `providers.<provider>.access: read` and `tools: minimal` the provider is already read-only: no `readonly=` is written. With `providers.<provider>.scope` and `unbound_access` the stricter wins: an unbound read-only folder already covers everything, a bound folder is read-write except for the KBs marked `read`. It is a scope filter, not a security boundary (D737): a client that edits its own URL drops it; hard isolation is a server token role (`kb:<name>:r`). It needs a routed server: against a server without the routed endpoint `connect` and `sync` refuse, naming the KB and the fix, instead of writing an entry that would allow writes. The bridge fails closed on a server that predates the parameter (it sends no `Cartographer-Readonly` header), but a plain HTTP entry cannot check a header, so an entry written for a server older than this version ignores the setting silently: upgrade the server first.
+**`knowledge_bases.<kb>.access: read` (D1409).** The one KB is connected read-only on every provider that receives it, while the provider's other KBs stay writable; absent or `write` is the default and changes nothing in any URL. `sync` writes `readonly=<kb>,…` into the routed entry after `kbs=` and `access=` (only the KBs the entry reaches, escaped like `kbs`), and the workspace bridge sends the same parameter, so it applies in a bound folder too. With `providers.<provider>.access: read` and `tools: minimal` the provider is already read-only: no `readonly=` is written. With `providers.<provider>.scope` and `unbound_access` the stricter wins: an unbound read-only folder already covers everything, a bound folder is read-write except for the KBs marked `read`. It is a scope filter, not a security boundary (D737): a client that edits its own URL drops it; hard isolation is a server token role (`kb:<name>:r`). It needs a routed server: against a server without the routed endpoint `connect` and `sync` refuse, naming the KB and the fix, instead of writing an entry that would allow writes. The bridge fails closed on a server that predates the parameter (it sends no `Cartographer-Readonly` header), but a plain HTTP entry cannot check a header, so an entry written for a server older than this version ignores the setting silently: upgrade Meridian first.
 
 Three states, resolved only through `clientconfig.Config.BoundKBs` and never by
 testing a list for emptiness: **no entry** means every known KB (today's
@@ -1734,8 +1734,8 @@ unreachable server makes that check skipped, never a failed command.
 
 The binding governs the whole projection, not just artifacts: a provider's MCP
 entries are emitted for its bound KBs only. Two rules there are easy to get
-wrong and are pinned by tests — the entry **shape** comes from what the server
-mounts (a bare `/mcp` auto-routes only when the server mounts exactly one KB, so
+wrong and are pinned by tests — the entry **shape** comes from what Meridian
+mounts (a bare `/mcp` auto-routes only when Meridian mounts exactly one KB, so
 a client bound to one of four still needs `?kb=`), while the entry **set** comes
 from the binding; and entry *removal* is driven by the union of every known KB,
 never by a provider's filtered list, or an unbound KB's entry would be orphaned
@@ -1788,8 +1788,8 @@ the one remote read is the one `status` makes, bounded by 5 s. What the status s
 - a config that cannot be read: `client config cannot be read (fix or remove <path>): <err>`, no network;
 - a config with no agent connected: ``no agent connected (run `cartographer connect`)`` and the plugin
   section;
-- otherwise the server lines exactly as `status` prints them (header or error, version skew, updates
-  available, configuration drift against the server), `next: <hint>` when the machine needs
+- otherwise the Meridian lines exactly as `status` prints them (header or error, version skew, updates
+  available, configuration drift against Meridian), `next: <hint>` when the machine needs
   `setup`, one `  [<provider>] <state>` line per connected provider (`in-sync`, ``drift - run `cartographer sync` ``,
   `unknown`, ...) and `details: cartographer status | cartographer doctor`.
 
@@ -1799,12 +1799,12 @@ Per-artifact lists, kinds, bindings and the plugin table are `cartographer statu
 ## Non-destructive merge
 
 If a config file already exists, `connect` reads the existing content, adds or
-updates only the server's key (`server_name`, default `cartographer`) and rewrites the file. Other configuration present
+updates only the Cartographer entry (`server_name`, default `cartographer`) and rewrites the file. Other configuration present
 in the file (other MCP servers, other keys) is left untouched. The merge is at the level of the
-server map: the server's own entry is **replaced whole**, so a header or an `args` element the new
+server map: the Cartographer entry is **replaced whole**, so a header or an `args` element the new
 spec no longer has does not survive. `server_name` is letters, digits, `_` and `-` only (the
 emitters refuse anything else: it is an entry key, a bare TOML key, a tool prefix and a URL part). `disconnect` performs the
-inverse operation (`configurator.Remove`): removes only the server's key from the `mcpServers`/`mcp` map and
+inverse operation (`configurator.Remove`): removes only the Cartographer entry (`server_name`) from the `mcpServers`/`mcp` map and
 rewrites the file, leaving everything else intact (other MCP servers, other top-level keys).
 
 ### Symlinked config files and directories are refused unless listed
@@ -1816,7 +1816,7 @@ the instructions block, the hook registrations (`settings.json`, `hooks.json`, t
 Crush, Pi and OpenCode files), the files `disconnect` and a sync prune, and the workspace's
 `.git/info/exclude`. `os.WriteFile` on a symlink opens the link's *target*, and `os.Remove` or
 `os.MkdirAll` under a linked directory act in the target too, so a config file that is a link, or a
-directory above it under the client base dir that is one (a dotfile manager, a shared checkout), would send the
+directory above it under the Compass base dir that is one (a dotfile manager, a shared checkout), would send the
 operation somewhere else. Both are refused, with an error that names the path and says to replace the
 link with a regular file or directory or to list it under `providers.<provider>.allow_symlinks`; so is any other non-regular file or non-directory (device,
 socket, named pipe, Windows reparse point). The base dir itself (`$HOME`, or the project dir in
@@ -1868,7 +1868,7 @@ providers:
 
 - An entry is the **link itself** (a file link such as `$HOME/.claude.json`, or a directory link),
   absolute or starting with `~/` or `$HOME/`; anything else, an entry holding a control character, and `~`, `$HOME`, `/` or the home directory itself make the file fail to load. Matching is lexical on the
-  logical path the client addresses, so spell the link, not its target.
+  logical path Compass addresses, so spell the link, not its target.
 - A listed **directory link covers everything below it**; a link nested below a listed one needs its own entry.
 - The set is the union of every provider's entries: safewrite does not know the provider, and a path listed
   under one is a path the user listed.
