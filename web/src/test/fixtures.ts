@@ -208,7 +208,7 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/journal")) return json({ text: "" });
     if (url.includes("/kbs/") && url.includes("/services")) return json({ services: [] });
     if (url.includes("/kbs/") && url.includes("/conflicts")) return json([]);
-    // Workers (design D22): none declared, the way a KB nobody maintains answers.
+    // Workers (D1259): none declared, the way a KB nobody maintains answers.
     if (url.includes("/kbs/") && url.includes("/workers")) return json({ workers: [] });
     if (url.includes("/kbs/") && url.includes("/feeds")) return json({ feeds: [], total: 0 });
     // Admin-only audit log and the caller's identity: absent unless stubbed (404).

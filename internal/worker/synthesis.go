@@ -122,7 +122,7 @@ func (in *synthesisInstance) Next(_ context.Context, kb string, tools ToolCaller
 
 // Run examines the candidates in order, one model call each, until a cap or the
 // budget stops it. It leaves no state: the run record is the summary the runner
-// puts in the closing log_append (D13).
+// puts in the closing log_append (D1258).
 func (in *synthesisInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Result, error) {
 	now := in.now()
 	cands, cfg, err := synthesis.Candidates(rt.Tools, in.cfg, synthesis.Budget{Daily: rt.Profile.DailyTokens, Remaining: rt.DailyLeft}, now)
@@ -143,7 +143,7 @@ func (in *synthesisInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (
 	reserve := int(cfg.Reserve * float64(rt.Profile.DailyTokens))
 	for _, c := range cands {
 		// What this candidate may spend: the run's grant, and the daily budget
-		// down to the reserve (D12), never more than the loop's ceiling.
+		// down to the reserve (D1258), never more than the loop's ceiling.
 		remaining := min(rt.Grant-res.Tokens, rt.DailyLeft-res.Tokens-reserve)
 		if ctx.Err() != nil || remaining < per || len(written) >= cfg.MaxNew {
 			break

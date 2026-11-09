@@ -21,7 +21,7 @@ const (
 	// candidate's cost is estimated before it starts.
 	AnswerCap = 1024
 	// logWindow is how far back the closing entries of earlier runs are read
-	// to skip the candidates they already examined (D13: losing the log only
+	// to skip the candidates they already examined (D1258: losing the log only
 	// means a candidate is examined again).
 	logWindow = 7 * 24 * time.Hour
 )
@@ -54,7 +54,7 @@ func (c Config) WithDefaults() Config {
 	return c
 }
 
-// Budget is the daily budget as the worker sees it (D12: the worker enforces).
+// Budget is the daily budget as the worker sees it (D1258: the worker enforces).
 type Budget struct{ Daily, Remaining int }
 
 // ErrNoMap ends the task without a write: "synthesis: no contradiction map,

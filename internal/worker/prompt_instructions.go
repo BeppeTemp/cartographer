@@ -17,7 +17,7 @@ import (
 const maxInstructionsBytes = 16 << 10
 
 // loadInstructions reads a prompt task's instructions from the config directory
-// and nowhere else (D15). The file is opened through os.Root, which refuses a
+// and nowhere else (D1374). The file is opened through os.Root, which refuses a
 // name that leaves dir (absolute, "..", or a symlink that escapes) and follows a
 // relative link inside it: Kubernetes ConfigMap volumes expose every file that
 // way. No error echoes the file's content.

@@ -15,7 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/worker/system"
 )
 
-// The poll of a system Source (D1372, design D20): a read-only system has no
+// The poll of a system Source (D1372): a read-only system has no
 // revisions, so the worker lists its current state through a recipe of shape
 // system (after a preflight of the lister's identity), hashes each group, diffs
 // it against the state kept on the Source and turns only the changed groups into

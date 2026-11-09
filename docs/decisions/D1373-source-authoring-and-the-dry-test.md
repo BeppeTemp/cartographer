@@ -22,7 +22,7 @@ caller that offers only `concept_read`, `concept_list`, `asset_read` and `asset_
 format doubles it). A copy of the poll's checks inside the command (it drifts). Requiring every `*_env` variable at
 load (an author's machine has neither the model keys nor, in `--recipe` mode, the token): the loader keeps full
 structural validation and narrows only the environment reads (`EnvScope`). Storing the lister in the KB: whoever
-writes a KB would run code on its readers' machines (design D6, D19). Serving the skill through `kb_guide`: it needs a
+writes a KB would run code on its readers' machines (D1257, D1262). Serving the skill through `kb_guide`: it needs a
 shell, an editor and a conversation (D1100).
 
 **Consequences.** The poll's preconditions (`feedPreconditions`), listing step (`listFeed`) and system steps (`observeSystem`) are the only

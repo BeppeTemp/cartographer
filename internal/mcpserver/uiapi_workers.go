@@ -50,7 +50,7 @@ var (
 	workerTierSet = map[string]bool{"": true, "small": true, "large": true}
 )
 
-// workerBudget is one model profile's spend against its daily limit (design D21).
+// workerBudget is one model profile's spend against its daily limit (D1258).
 type workerBudget struct {
 	Profile string `json:"profile"`
 	Tier    string `json:"tier,omitempty"`
@@ -415,7 +415,7 @@ func (m *MultiKBServer) handleWorkers(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /kbs/{kb}/workers — the live workers that declared this KB, for the
-// Atlas (design D22). Read-only: it shows the heartbeats, it never acts on
+// Atlas (D1259). Read-only: it shows the heartbeats, it never acts on
 // them. They describe the whole KB's activity, like status, so a caller that
 // does not see the whole KB gets the 404 of an unknown route. No principal id
 // and no token digest leaves the server.

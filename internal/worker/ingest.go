@@ -40,7 +40,7 @@ const (
 	ingestFloorDefault = 20_000
 	ingestMaxSteps     = 60
 	// ingestSkipTTL is how long a unit this instance skipped or released is not
-	// offered again. The skip set is the only local state (D13); the runner gives an
+	// offered again. The skip set is the only local state (D1258); the runner gives an
 	// instance no run boundary, so it expires by time instead of by run.
 	ingestSkipTTL = 6 * time.Hour
 	ingestListMax = 200
@@ -532,7 +532,7 @@ func ingestSystemAllowed() []string {
 
 // systemPrompt is the unit-mode text with its fetch sentence replaced, then the
 // embedded supplement, then the recipe's instructions from the config directory:
-// only trusted sources (design D15).
+// only trusted sources (D1257).
 func (in *ingestInstance) systemPrompt(rec string) string {
 	base := strings.Replace(in.system, ingestFetchSentence, ingestSystemSentence, 1)
 	return base + "\n\n" + strings.TrimSpace(system.Instructions) + "\n\nInstructions of this kind of system:\n" + in.sysRecipes[rec]

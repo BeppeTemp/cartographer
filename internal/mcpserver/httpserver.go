@@ -685,7 +685,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 			m.handleWorkers(w, r)
 			return
 
-		// A worker's configuration report (D22): its own route, not the beat.
+		// A worker's configuration report (D1259): its own route, not the beat.
 		case r.URL.Path == WorkerSettingsPath:
 			m.handleWorkerSettings(w, r)
 			return

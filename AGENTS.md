@@ -108,15 +108,15 @@ internal/tray               is the core of the local server's status icon (D1482
 internal/updatecheck        answers whether a newer release exists and how to upgrade (D254)
 internal/webui              serves the embedded read-only Atlas UI (D227)
 internal/webui/gen          Command webui-provenance fingerprints the Atlas bundle
-internal/worker             is the model client and agent loop of the Surveyor (D9)
+internal/worker             is the model client and agent loop of the Surveyor (D1257)
 internal/worker/connector   mounts allowed MCP tools
 internal/worker/feed        handles a feed cursor
 internal/worker/poll        names units
 internal/worker/recipe      lists what changed in a feed Source
-internal/worker/synthesis   is the third task kind of the Surveyor (D11)
+internal/worker/synthesis   is the third task kind of the Surveyor (D1263)
 internal/worker/system      diffs the state of a live system
 internal/worker/workertest  is the deterministic test double of package worker
-internal/workerconfig       holds the key table of the Surveyor config file (D21)
+internal/workerconfig       holds the key table of the Surveyor config file (D1258)
 ```
 <!-- codemap:end -->
 

@@ -24,7 +24,7 @@ var (
 	writeTools = []string{"concept_write", "concept_patch"}
 )
 
-// Tools is the synthesis allowlist, a subset of the default one (D9); the task
+// Tools is the synthesis allowlist, a subset of the default one (D1257); the task
 // kind makes the agent loop's allowlist from it.
 func Tools() []string { return append(append([]string{}, readTools...), writeTools...) }
 
@@ -32,7 +32,7 @@ func Tools() []string { return append(append([]string{}, readTools...), writeToo
 const refusal = "synthesis creates new gaps only"
 
 // Guard wraps the MCP caller of one synthesis candidate and refuses every call
-// outside the allowlist (D11 is enforced here, because the server cannot see
+// outside the allowlist (D1263 is enforced here, because the server cannot see
 // "a claim on an active page": concept_write overwrites an existing id). A
 // refusal is a tool error the model reads, not a transport error.
 type Guard struct {

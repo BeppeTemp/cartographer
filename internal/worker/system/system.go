@@ -4,7 +4,7 @@
 // namespace, per service); this package hashes each group, keeps the last
 // state per group, and says which groups were added, modified or removed. It
 // does no I/O and imports no internal/kb (the worker is a client of the public
-// contract); the writes that surround it are the poll's (D1372, design D20).
+// contract); the writes that surround it are the poll's (D1372).
 package system
 
 import (

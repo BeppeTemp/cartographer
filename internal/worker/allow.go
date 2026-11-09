@@ -10,8 +10,8 @@ import (
 )
 
 // denyTools are the tools the model never sees and never calls, whatever
-// allowlist the caller passes (D9): the destructive and secret-touching tools no
-// planned task kind needs. Beyond the D9 names it carries the ones that would
+// allowlist the caller passes (D1257): the destructive and secret-touching tools no
+// planned task kind needs. Beyond the D1257 names it carries the ones that would
 // let an injected prompt widen its own reach, leak secrets, delete assets or
 // maps, apply syncs, snapshot or re-run ingest setup. It does NOT cover every
 // risky tool: kb_repair (doctor, #1261) and conflict_resolve (synthesis, #1263)
@@ -109,7 +109,7 @@ func isRead(name string) bool {
 }
 
 // batchOpTool maps an operation of concept_batch to the tool it stands for, so a
-// denied tool cannot be reached through the batch (D9): op "delete" is
+// denied tool cannot be reached through the batch (D1257): op "delete" is
 // concept_delete.
 var batchOpTool = map[string]string{"delete": "concept_delete"}
 

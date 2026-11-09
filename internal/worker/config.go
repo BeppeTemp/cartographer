@@ -40,7 +40,7 @@ const (
 // one: a small local model, so a larger one is an explicit choice.
 const DefaultContextTokens = 32_000
 
-// Profile is one named model profile and its budget (D21).
+// Profile is one named model profile and its budget (D1258).
 type Profile struct {
 	Name              string
 	Provider          string
@@ -713,7 +713,7 @@ func (v *validator) tasks() error {
 			if !kind.repeatable() {
 				return v.errf(at+".kind", n.Line, "kind %q is listed twice (lines %d and %d): only a kind with a name option may repeat", kind.Name, prev, n.Line)
 			}
-			// Entries of a repeatable kind are told apart by name (D23).
+			// Entries of a repeatable kind are told apart by name (D1374).
 			name, _ := t.Options["name"].(string)
 			if name == "" {
 				return v.errf(at+".name", n.Line, "kind %q appears more than once: every entry sets name", kind.Name)

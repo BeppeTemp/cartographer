@@ -1,4 +1,4 @@
-// Package workerconfig holds the key table of the Surveyor config file (D21): the one list of keys the file accepts.
+// Package workerconfig holds the key table of the Surveyor config file (D1258): the one list of keys the file accepts.
 //
 // It is a leaf package (settingschema and the standard library only) so the
 // server can render a worker's settings without linking the worker. The loader
@@ -13,7 +13,7 @@ import "github.com/BeppeTemp/cartographer/internal/settingschema"
 // every task kind (declared here as data, once per kind plan; the execution half
 // of a kind stays in internal/worker).
 //
-// Conventions that keep it usable for a redacted report (D22): a key whose value
+// Conventions that keep it usable for a redacted report (D1259): a key whose value
 // is the name of an environment variable has Type "env", a URL key has Type
 // "url", and no key is Secret because the file holds no secret.
 var Schema = settingschema.Schema{Keys: []settingschema.Key{
@@ -60,7 +60,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	// connectors is a mapping keyed by connector name: "{name}" stands for any
 	// key (the loader in internal/worker reads it so; settingschema's realign has
 	// no such segment and the worker file is never realigned). Display rules
-	// (D22): env, headers and token_env show the variable name and whether it is
+	// (D1259): env, headers and token_env show the variable name and whether it is
 	// set, never a value; a command shows its base name, args never.
 	{Path: "connectors", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
 		Description: "External MCP servers the unit-execution task may read through, by name; a Source names one in its connector field."},
@@ -143,7 +143,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	// The option keys of each task kind go here, one row per path, declared by
 	// the plan that adds the kind. A path shared by two kinds is one row.
 
-	// kind: prompt (D23)
+	// kind: prompt (D1374)
 	{Path: "tasks[].name", Scope: settingschema.ScopeWorker, Type: "string", Values: "[a-z0-9-], 1 to 40 characters, unique among the tasks", Default: `""`, Example: "weekly-digest",
 		Description: "Prompt task: its name, written into its log entries and commit reasons; a rename restarts its cadence."},
 	{Path: "tasks[].instructions_file", Scope: settingschema.ScopeWorker, Type: "string", Values: "relative path inside the config directory, at most 16 KiB of UTF-8", Default: `""`, Example: "prompts/weekly-digest.md",

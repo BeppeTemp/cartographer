@@ -65,7 +65,7 @@ func (l Limits) withDefaults() Limits {
 }
 
 // Task is one run: the instructions are a parameter, nothing is read from the
-// KB or from disk (D6, D15).
+// KB or from disk (D1257).
 type Task struct{ System, User string }
 
 // Reason is why a run stopped.

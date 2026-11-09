@@ -13,13 +13,13 @@ lister prove its identity is read-only; the recipe's shape, not the Source's lab
 
 **Why.** Nothing in a live system has a revision and its raw output is far too large to read (one measured cluster:
 about 1.1M tokens raw, about 52k normalized, about 8 KB per namespace), so the only cheap signal is a per-group hash:
-an unchanged system costs no tokens (design D19, D20, D21 of #1201; D1262). The lister is operator code and cannot be
+an unchanged system costs no tokens (D1258, D1262). The lister is operator code and cannot be
 trusted to report change, so the worker computes it. The preflight guards against a misconfigured identity (the
 measured kubeconfig was cluster-admin); it is not a security boundary, the script can lie, and the boundary is a
 dedicated read-only identity.
 
 **Alternatives rejected.**
-- *Trust the lister's revision and change*: a buggy or hostile script would hide or invent changes (design D20).
+- *Trust the lister's revision and change*: a buggy or hostile script would hide or invent changes.
 - *State in frontmatter*: a cluster's per-group state does not fit a Source's frontmatter and would put it in every
   `concept_list`; an asset keeps it out of search (the extension is outside the indexed list, D277) and `feed_cursor`
   holds its digest so the CAS lease of D1262 still guards it.

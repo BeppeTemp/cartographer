@@ -14,7 +14,7 @@ import (
 )
 
 // The budget is rebuilt from the KBs' logs, per profile, never from local disk
-// (D21): the worker keeps no state, so a replica that restarts, or a second
+// (D1258): the worker keeps no state, so a replica that restarts, or a second
 // replica, reads the same figures every other one wrote. Each run closes with
 // one log_append per KB it touched, and the entries are the ledger.
 
@@ -171,7 +171,7 @@ func (b *Budget) Remaining(profile string) int {
 
 // Grant is the token ceiling of a task that starts now on the profile:
 // min(remaining today, run_tokens) minus what this run already spent on the
-// profile (D21). At zero or below the task is skipped for the rest of the run
+// profile (D1258). At zero or below the task is skipped for the rest of the run
 // and the tasks of other profiles go on.
 func (b *Budget) Grant(profile string) int {
 	b.mu.Lock()

@@ -11,7 +11,7 @@ Anthropic Messages API and OpenAI-compatible chat completions, both over
 (`allow.go`): an explicit default list of read tools and content writes, minus a
 hard deny set that no caller-supplied list overrides. The deny set is every
 `artifact_*` tool (by prefix, so a future one is denied unchanged),
-`concept_delete`, `repair_revert`, `concept_transfer` (D9) and names added
+`concept_delete`, `repair_revert`, `concept_transfer` and names added
 here for the same intent: `secret_resolve`, `secret_set`, `skill_install`,
 `git_conflict_resolve`, `asset_delete`, `map_delete`, `sync_apply`, `snapshot`,
 `ingest_setup`. It is not exhaustive: `kb_repair` (doctor) and `conflict_resolve`
@@ -21,11 +21,11 @@ request to the server. The loop is bounded by mandatory step and token caps (a
 zero value takes a default, never "unlimited"); tool-level errors and
 invalid-params refusals go back to the model, transport errors abort the run.
 System instructions are a parameter: the loop executes no command, script or
-shell, and reads nothing from the KB (D6, D15).
+shell, and reads nothing from the KB.
 
 **Why.** Instructions and code a worker acts on must come from a trusted source,
 and everything the model returns is untrusted, so the model-facing half of the
-defence (D17 adds the server-side half) has to hold on its own and be pinned by
+defence (D1259 adds the server-side half) has to hold on its own and be pinned by
 a test that fails when the server renames a tool. A registry test checks every
 name of the default list and of the deny set against `mcpserver`'s tools.
 

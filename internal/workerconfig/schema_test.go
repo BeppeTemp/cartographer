@@ -29,7 +29,7 @@ func TestSchemaEntriesAreComplete(t *testing.T) {
 	}
 }
 
-// The conventions that keep the table usable for a redacted report (D22): the
+// The conventions that keep the table usable for a redacted report (D1259): the
 // file holds names of variables, never secrets.
 func TestSchemaConventions(t *testing.T) {
 	for _, k := range Schema.Keys {

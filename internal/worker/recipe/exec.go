@@ -434,7 +434,7 @@ func (c *capped) String() string { return c.b.String() }
 
 // systemEntryOf is the entry rule of a system listing: the content is the whole
 // entry. revision and change are ignored (the worker hashes the content itself,
-// design D20) and the title defaults to the key.
+// D1372) and the title defaults to the key.
 func systemEntryOf(raw json.RawMessage, maxContent int) (Entry, error) {
 	var w wireEntry
 	if err := json.Unmarshal(raw, &w); err != nil {
@@ -525,7 +525,7 @@ func (e *execRecipe) Preflight(ctx context.Context, req Request) (Verified, erro
 	return Verified{recipe: e.c.Name, ok: true, identity: label(ans.Identity, maxIdentity), detail: label(ans.Detail, maxDetail)}, nil
 }
 
-// SystemMaxGroups is the most groups one listing may hold (design D20).
+// SystemMaxGroups is the most groups one listing may hold (D1372).
 const SystemMaxGroups = 1000
 
 // ListSystem lists the current state of the system. It cannot be reached

@@ -18,14 +18,14 @@ change) is what a deployed worker is for, and the operator chose the budgets, wi
 profiles and tasks. Every write carries a `Reason` trailer and is revertible. The price is that a
 worker spends without a human at the keyboard, bounded only by the budgets and the token's scopes.
 
-**What does not change.** The server runs no model and never starts a session (D14, D704). The client
+**What does not change.** The server runs no model and never starts a session (D704). The client
 installs no scheduler (D369's job stays removed); `connect`, `sync` and `upgrade-repair` still delete
 it. The nudge still only proposes. `doctor_mode` stays ignored (D358 stays superseded): a worker that
 runs the doctor is the operator's configured work, not the `unattended` default.
 
 **Alternatives rejected.**
 - Restoring D369's client-side timer: three scheduler formats and a token in a job's environment, the costs D704 cited.
-- An opt-in flag in the server config: the server would start agent work, against D14.
+- An opt-in flag in the server config: the server would start agent work, and it runs no model.
 - The worker as a mode of `serve`: one process would hold both the KBs' credentials and an inference key.
 - Wrapping a headless client CLI: it needs the CLI and its subscription auth in the image, with weaker tool control.
 - One inference endpoint and one budget per worker: a local model would share the cloud's ceiling.

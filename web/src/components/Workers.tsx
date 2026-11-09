@@ -6,7 +6,7 @@ import type { FeedRow, MaintenanceSummary, WorkerRow } from "../api/types";
 const REFRESH_MS = 60_000;
 
 /**
- * The live workers that declared the KB (design D22), read-only. Optional by
+ * The live workers that declared the KB (D1259), read-only. Optional by
  * design: a failure or a 404 (a principal that does not see the whole KB, an
  * older server) is an empty list, and the page renders as it did before.
  */
