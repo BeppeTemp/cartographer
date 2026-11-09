@@ -1,7 +1,7 @@
 # Plugins
 
-A **plugin** is a folder or a git repository with a manifest, `cartographer-plugin.yaml`, at its root. It extends
-the client of one machine; a server never loads it. A plugin adds agent clients (a fork or an in-house build of one
+A **plugin** (a Compass plugin: the manifest keeps `client` as the key of that side) is a folder or a git repository with a manifest, `cartographer-plugin.yaml`, at its root. It extends
+Compass of one machine; Meridian never loads it. A plugin adds agent clients (a fork or an in-house build of one
 Cartographer does not know), skills, subagents and hooks, and, with a script, commands, MCP tools and sync handlers.
 It is installed with one command, pinned to a commit, and enabled only after the user approves what it does, version
 by version. This page describes the manifest, the version ranges it speaks, the contribution points, the tree
@@ -70,7 +70,7 @@ and never loaded. 0.28 registers `skills`, `agents`, `hooks` and `providers`, an
 |---|---|---|
 | `skills` | `skills/<name>/SKILL.md` plus any files; the whole folder is the artifact, the executable bit is kept | `provisioning.ValidateSkillFile` |
 | `agents` | `agents/<name>.md` | `provisioning.ValidateAgentFile` |
-| `hooks` | `hooks/<name>/hook.json` plus the files it runs | `ValidateHookJSON` and `ValidateHookRequires`; unlike in a KB, a failure is an error, not a warning. The install preview shows the hook's command, event and `requires`, and lists every file with the executable bit (in a hook, every file but `hook.json`, as the client materializes it, so the artifact hash equals the one sync computes). `cartographer-bootstrap` and `cartographer-write-findings` are refused. |
+| `hooks` | `hooks/<name>/hook.json` plus the files it runs | `ValidateHookJSON` and `ValidateHookRequires`; unlike in a KB, a failure is an error, not a warning. The install preview shows the hook's command, event and `requires`, and lists every file with the executable bit (in a hook, every file but `hook.json`, as Compass materializes it, so the artifact hash equals the one sync computes). `cartographer-bootstrap` and `cartographer-write-findings` are refused. |
 | `providers` | `providers/<id>.yaml` | `plugin.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
 | `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
 | `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
@@ -92,7 +92,7 @@ loading share them.
 - Paths are canonical slash paths (`provisioning.ValidArtifactFilePath`) without control or format characters (bidi overrides, zero-width), unique ignoring case; a symlink or
   non-regular file, a file over the artifact file cap, more than 2000 files or 8 MiB in all is an error.
 - Each contribution becomes an artifact with source `plugin:<name>`, its files in memory and
-  `provisioning.ContentHashFiles` as hash, the same function the client applies to pulled files.
+  `provisioning.ContentHashFiles` as hash, the same function Compass applies to pulled files.
 - `Digest` is the sha256 of the sorted (path, executable bit, sha256 of content) of every stored file, manifest
   included: it identifies the validated tree.
 
@@ -273,7 +273,7 @@ problem is listed as `path: reason`, sorted. `seed` and `allow_call` are not key
 | `paths.global`, `paths.project` | Cells `skill` (`dir`), `agent` (`dir`, `format` one of `claude`, `opencode`, `antigravity`, `copilot`, `cline`, default `claude`), `instructions` (`file`, a `.md` file, the extension of every built-in provider's instructions file; the global one may start with `{documents}`); the global scope adds `hook` (`dir`, `scan: base`). The project scope takes no `hook` and no MCP cell. |
 | `capabilities` | Map of capability id to `verified`, `unverified` or `absent`, at most 64. |
 | `mcp.mode` | `native` (default), `cli` or `none`. |
-| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the client derives from it and regenerates, in any format (a stale file is only deleted, never parsed, so it need not carry the base's extension). Both are refused with `cli` or `none` and take no `{documents}`. The MCP paths follow the rules of a global cell (below); a `stale` file lies below the directory of `config` (the part before any `*`) with the extension of `config`, or is the storage of the editor extension whose folder holds `config`, and holds no `.git` segment. The storage tie: `config` is `<.vscode|.vscode-insiders|.cursor|.windsurf|.vscode-oss>/extensions/<id>-<anything or *>/...` and the stale path is `<editor user dir>/User/globalStorage/<id>/<...>/<file>` with the same `<id>` (literal ASCII, compared after ASCII lowercasing, no `*` up to it, at least one segment after it), where what follows `<id>-` in the folder name is `*` or a version starting with a digit (`vendor.ext-evil-*` is another extension) and `<id>` is not an extension a built-in provider owns; the editor user dir is `Code`, `Code - Insiders`, `Cursor`, `Windsurf` or `VSCodium` under `Library/Application Support` (macOS), `.config` (Linux) or `AppData/Roaming` (Windows). Any other path outside the directory of `config` is refused. A stale file is never `config` itself, and exists only with a `config` of its own. |
+| `mcp.config`, `mcp.stale` | Native only. `config` is the fork's own MCP file when it keeps one, with the base's file extension (the format is picked from it); `stale` lists at most 3 files per OS that the agent client derives from it and regenerates, in any format (a stale file is only deleted, never parsed, so it need not carry the base's extension). Both are refused with `cli` or `none` and take no `{documents}`. The MCP paths follow the rules of a global cell (below); a `stale` file lies below the directory of `config` (the part before any `*`) with the extension of `config`, or is the storage of the editor extension whose folder holds `config`, and holds no `.git` segment. The storage tie: `config` is `<.vscode|.vscode-insiders|.cursor|.windsurf|.vscode-oss>/extensions/<id>-<anything or *>/...` and the stale path is `<editor user dir>/User/globalStorage/<id>/<...>/<file>` with the same `<id>` (literal ASCII, compared after ASCII lowercasing, no `*` up to it, at least one segment after it), where what follows `<id>-` in the folder name is `*` or a version starting with a digit (`vendor.ext-evil-*` is another extension) and `<id>` is not an extension a built-in provider owns; the editor user dir is `Code`, `Code - Insiders`, `Cursor`, `Windsurf` or `VSCodium` under `Library/Application Support` (macOS), `.config` (Linux) or `AppData/Roaming` (Windows). Any other path outside the directory of `config` is refused. A stale file is never `config` itself, and exists only with a `config` of its own. |
 | `invoke_hint` | Optional, one line, at most 200. |
 
 A value is per OS (`darwin`, `linux`, `windows`, `default`, each key once) or one value for all. A global path starts with an anchor
@@ -283,7 +283,7 @@ does not start with `~`, holds no `~` followed by a digit (a Windows 8.3 short n
 `mcp.config` and `mcp.stale` only: in one segment, never the first, as `*` or `prefix*`, and never in the file name
 of an MCP path. No segment of any path reaches Cartographer's own state, by the rule of the manifest globs
 (`reachesOwnState`): the client config file, the `cartographer` config, state and cache directories, by name, or through
-a wildcard that can still lead into one of them (a wildcard deep inside the client's own folder passes).
+a wildcard that can still lead into one of them (a wildcard deep inside the agent client's own folder passes).
 
 ### The `{documents}` anchor
 
@@ -339,7 +339,7 @@ only when `mcp.config` is the provider's own literal file.
 
 The MCP paths (`mcp.config`, a pattern's fixed part, every `mcp.stale` entry) pass the same global-cell checks as a
 cell, in `configurator.CheckPluginMCPPaths`: below a client directory of their own, outside the denied directories,
-outside a built-in client's directory, no `.git*`. With `XDG_CONFIG_HOME` set to a directory under the home, the part of a `{xdg_config}` cell or MCP path below that root is checked as if it lay below `.config` (`{xdg_config}/git/x` is refused as `.config/git/x` is), and a provider whose `mcp.config` is left out for any reason writes no MCP entry (mode `none`). A pattern holds one `*`, in one segment, never within the client
+outside a built-in client's directory, no `.git*`. With `XDG_CONFIG_HOME` set to a directory under the home, the part of a `{xdg_config}` cell or MCP path below that root is checked as if it lay below `.config` (`{xdg_config}/git/x` is refused as `.config/git/x` is), and a provider whose `mcp.config` is left out for any reason writes no MCP entry (mode `none`). A pattern holds one `*`, in one segment, never within the agent client
 directory (`{home}/.config/*/config.json` would reach every application's file). No MCP path equals or matches the
 MCP file of a built-in provider, and a `stale` entry equal to `config` or matching it is refused. Every `stale` entry also may not equal, contain or lie under the global root of a built-in or of another registered provider (`RegisterPlugin` checks it with the cells). The check runs
 where the descriptor is resolved (`ResolveProvider`: a provider that fails it writes no MCP entry, and the install
@@ -351,12 +351,12 @@ removed.
 A plugin provider's project scope takes no `hook` cell, so in workspace scope its KB hooks are not projected anywhere: `workspace bind` and `connect --workspace` warn and `sync` reports them as skipped (sync.md §Workspace scope).
 
 `native` writes Cartographer's entry in the base's format: at the base's path, at `mcp.config`, or, when
-`mcp.config` holds a `*`, into every existing regular file it matches (one file per installed version of the client;
-a symlinked entry is not a match, no match is the warning "open the client once"). A pattern writes at most three
+`mcp.config` holds a `*`, into every existing regular file it matches (one file per installed version of the agent client;
+a symlinked entry is not a match, no match is the warning "open the agent client once"). A pattern writes at most three
 files: over that it writes none and warns with the pattern and the count; a match that is a built-in provider's MCP
 file is skipped with a warning. The files in `mcp.stale` are
 removed after a write that changed bytes, never after a no-op, and only when at most three exist and none lies
-behind a link; servers added through the client's UI are dropped at its next start. Disconnect edits only the files
+behind a link; servers added through the agent client's UI are dropped at its next start. Disconnect edits only the files
 the entry is in. `cli` writes no entry and projects the bundled `cartographer-cli` skill, and the instructions block
 names the provider to pass to `cartographer call`, whose KB set the folder's workspace bindings narrow, derived ones included, with the projection scope unchanged (#1804); `none` writes neither, and `connect`, `sync`, `disconnect` and
 `doctor` skip it without a warning.
@@ -364,9 +364,9 @@ names the provider to pass to `cartographer call`, whose KB set the folder's wor
 In `cli` mode the provider name reaches the agent only through the instructions block, so a `cli` provider needs:
 
 1. a global `instructions` cell (`paths.global.instructions`), the file Cartographer writes the block into;
-2. a file there that the client loads in every session (check the client's own docs; for a base client,
+2. a file there that the agent client loads in every session (check the agent client's own docs; for a base client,
    `docs/harnesses.md` lists where it reads its instructions), otherwise
-3. the plugin adds the file to the client's own context setting from a `sync.after` handler, which needs
+3. the plugin adds the file to the agent client's own context setting from a `sync.after` handler, which needs
    `permissions.files.write` on that settings file (a `sync.after` handler with `files.write` looks like the one in
    `test/e2e/fixtures/plugin-example/`, see "Add a script" below; that one writes its own file, not a client setting).
 
@@ -440,7 +440,7 @@ state and produces none, except for a pending or invalid installed tree.
 | `plugin-collision` | warning | a skill, agent or hook name is claimed by an active plugin and by another plugin, the bundle or a KB file the lockfile records | rename it, or disable the plugin |
 | `plugin-provider` | warning | a provider was not registered (a name two plugins claim, colliding cells, a spec the machine cannot resolve), or is registered without a cell the resolver left out (a symlink not listed under `providers.<provider>.allow_symlinks`, a path outside its root), with the reason | fix the provider and `plugin update`; for a link, list it under `allow_symlinks` or replace it |
 
-`doctor` does not ask the server, so a collision with a KB artifact is seen only while the lockfile still records the
+`doctor` does not ask Meridian, so a collision with a KB artifact is seen only while the lockfile still records the
 KB file; the sync that dropped both claimants printed it, and the file is gone from the lockfile after it.
 `--provider <id>` narrows the plugin findings to the refusals about that provider.
 
@@ -573,11 +573,11 @@ only the placeholder form of the manifest, `{home}/...`, `{xdg_config}/...`, `{a
 empty or dot segment, a backslash, a colon, a segment ending in a dot or space and a Windows device name are refused on
 every OS. The path must match a granted glob (`*`, `?`, `[..]` inside a segment, `**` for whole segments). Whatever the
 grant, these are never reachable: a `.ssh`, `.gnupg` or `.git` component (a write into `.git/hooks` would run code),
-any component starting with `.cartographer` (config, lock files, token, state, approvals, a KB's own directory), every place a plugin provider may not write into (`.aws`, `.kube`, `.docker`, Desktop, LaunchAgents, `.config/git`, autostart and shell directories, `.cargo`, `.local/bin`), the shell start-up files (`.zshrc`, `.bashrc`, `.profile`, ...), the server's default data (`~/cartographer-data`, `~/.local/share/cartographer`) and the
+any component starting with `.cartographer` (config, lock files, token, state, approvals, a KB's own directory), every place a plugin provider may not write into (`.aws`, `.kube`, `.docker`, Desktop, LaunchAgents, `.config/git`, autostart and shell directories, `.cargo`, `.local/bin`), the shell start-up files (`.zshrc`, `.bashrc`, `.profile`, ...), Meridian's default data (`~/cartographer-data`, `~/.local/share/cartographer`) and the
 `cartographer` directory under the user config and cache directories, `$HOME/.config`, `{xdg_config}`, `{app_data}` and
 `{local_app_data}` (server config, update cache, plugin store). A link anywhere below home, in a directory or as the
 file, is refused, and a path whose resolution leaves home or lands in a denied place too; the final open does not
-follow a link where the OS has the flag. The check and the open are not atomic, as for every writer in the client.
+follow a link where the OS has the flag. The check and the open are not atomic, as for every writer in Compass.
 `read` returns text (invalid UTF-8 is an error naming the file; `binary=True` returns `bytes`); `write` creates parent
 directories (0700), replaces the file atomically, makes a new file 0600 and keeps the mode of an existing one; `remove`
 deletes a file, never a directory, and returns `False` for a missing one. `glob` returns the regular files a pattern
@@ -588,16 +588,16 @@ stops there) and at most 100000 entries looked at. Caps: 8 MiB per read and per 
 
 `kb.call(tool, **args)` (or `kb.call(tool, {args})`) exists with `permissions.kb`; without it the call is an error naming
 the permission. The script passes `kb` itself, as every routed tool requires. It returns the tool's text parsed as JSON
-when it parses, else the string; a server error is a script error carrying the server's message, and a result over 1 MiB
-is a limit error. With `kb: read` only a tool the server annotates read-only (`readOnlyHint` of its `tools/list`, kept
-for 5 minutes and refetched at most every 5 seconds for a name it does not know) runs: an unannotated or unknown tool is denied, matched on the exact name (the list is the server's own
+when it parses, else the string; a server error is a script error carrying Meridian's message, and a result over 1 MiB
+is a limit error. With `kb: read` only a tool Meridian annotates read-only (`readOnlyHint` of its `tools/list`, kept
+for 5 minutes and refetched at most every 5 seconds for a name it does not know) runs: an unannotated or unknown tool is denied, matched on the exact name (the list is Meridian's own
 classification, not a copy kept in the plugin code). With `kb: write` every tool the session may call is allowed, and a
 read-only session is `read` whatever the manifest says. The gate is the plugin's declared limit, not the security
-boundary: the server still enforces the token's scopes and the session's access. The `kb` argument is not
-restricted by the plugin layer: the token's scopes and the session's KB set, on the server, decide which KBs a script
-reaches (commands and events apply the client's `known_kbs`, see Commands and events; the bridge adapter applies the session's KB set: a `kb` outside it is refused before any request). A successful result reaches the script
+boundary: Meridian still enforces the token's scopes and the session's access. The `kb` argument is not
+restricted by the plugin layer: the token's scopes and the session's KB set, on Meridian, decide which KBs a script
+reaches (commands and events apply Compass's `known_kbs`, see Commands and events; the bridge adapter applies the session's KB set: a `kb` outside it is refused before any request). A successful result reaches the script
 as the KB wrote it, unescaped: KB content is data to treat as such. When the call's deadline ends or Ctrl-C comes, the
-request is abandoned, but a write the server had already received may still complete.
+request is abandoned, but a write Meridian had already received may still complete.
 
 ## Commands and events
 
@@ -612,7 +612,7 @@ approved one runs.
 
 `kb.call` from a command or an event goes to the routed endpoint with the user's token, and the adapter refuses a `kb`
 argument that is missing or not one of `known_kbs` of the client config: a command has no provider, so that list is
-the client's perimeter on top of the server's scopes.
+Compass's perimeter on top of Meridian's scopes.
 
 Events run after the work they follow, outside the client lock, in plugin-name order, one handler per plugin, each with
 the event deadline. A failure (including an unloadable script) is a warning on stderr naming the plugin and the event
@@ -627,7 +627,7 @@ connect, with the providers that connected (not those the write guard skipped).
 ## Tools in the bridge
 
 A plugin's tools are served by the local stdio bridge (`cartographer mcp`) that a connected client starts, never by
-the server; how a session lists and runs them is in Tools in a session below.
+Meridian; how a session lists and runs them is in Tools in a session below.
 
 A provider with no workspace binding keeps the same access it had through its HTTP entry: when an enabled, approved
 plugin lists tools, the provider's global MCP entry becomes the bridge at the next `sync` (it needs `cartographer` on
@@ -646,10 +646,10 @@ underscores, at most 64 characters (a longer name is dropped, never truncated). 
 server's tools, on the last page, with the description prefixed `[plugin <name>] ` and `readOnlyHint` true unless the
 tool is registered `writes=True`. A name equal to a server tool, or already taken by an earlier plugin in name order
 (`a` + `b_c` against `a_b` + `c`), is dropped and one line goes to the bridge log; `cartographer call --verbose` shows it.
-The served names are settled per session scope and again whenever the scope changes (a read-only listing omits the server's write tools); a name the client saw as a plugin tool and the server owns after a change is refused with "list the tools again", never forwarded. A write tool is neither listed nor run in a read-only session, and a folder bound to no KB lists nothing. The tool runs
+The served names are settled per session scope and again whenever the scope changes (a read-only listing omits Meridian's write tools); a name the agent client saw as a plugin tool and Meridian owns after a change is refused with "list the tools again", never forwarded. A write tool is neither listed nor run in a read-only session, and a folder bound to no KB lists nothing. The tool runs
 in the bridge process, with the 30 s limit; its `print` and `log` go to the bridge's stderr, never to the protocol on
 stdout; `notifications/cancelled` stops it. Its `kb.call` carries the session's `kbs=`/`access=`/`readonly=`, the token and the
-`Cartographer-Author`. `cartographer call <plugin>_<tool>` runs the same path and writes nothing. `kb.call` of a tool registered `writes=False` runs read-only whatever `permissions.kb` says (the client is told the tool is
+`Cartographer-Author`. `cartographer call <plugin>_<tool>` runs the same path and writes nothing. `kb.call` of a tool registered `writes=False` runs read-only whatever `permissions.kb` says (the agent client is told the tool is
 read-only and may run it unasked); a denied write names `writes=False`. A server tool called without a `kb` argument is
 refused (the session's KB set is applied to the `kb` argument). `cartographer call --list` asks the bridge one page at a time,
 so a collision with a server tool listed on an earlier page is not seen there. A session started

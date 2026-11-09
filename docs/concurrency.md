@@ -63,12 +63,12 @@ The kernel lock is the only authority:
   created a second inode and both processes held "the" lock. A crash needs no reclaim — the kernel
   drops the lock with its holder;
 - the **server waits** for a bounded window and then proceeds under its mutex alone, reporting the
-  condition: a lock held by something else must not stop the server from writing;
+  condition: a lock held by something else must not stop Meridian from writing;
 - **`import` fails fast**, naming the holder and how to stop it. An import is an operator action at a
   keyboard, and a silent ten-minute block is worse than an error. `--dry-run` writes nothing and never
   takes the lock.
 - **a holder never waits on itself.** `import` keeps the lock for its whole run and commits through the
-  same path the server uses; a KB that already holds the lock goes straight to the write instead of
+  same path Meridian uses; a KB that already holds the lock goes straight to the write instead of
   polling its own lock until the timeout.
 - **contention waits, a failure does not.** Only "someone else holds it" is polled until the timeout;
   any other error from the lock call comes back immediately, naming itself, instead of costing a full
@@ -82,7 +82,7 @@ name the holder.
 
 **Network git commands are all bounded.** Every `internal/gitx` command that talks to a remote (clone, ls-remote, fetch, push, the probe's shallow fetch) is built by `netCommand`, which kills the whole process group on cancel and sets `WaitDelay`; hand-building one let a deadline kill only `git` while `git-remote-http` held the pipe open. After `Fetch`, `SyncIn` and the `SyncOut` retry rebase locally (`RebaseOntoAutostash`): one network round-trip, none under the KB git lock outside the fetch deadline.
 
-**A remote URL's credentials never reach error text.** `gitx` names a remote in its errors (clone, ls-remote, the probe, fetch, pull, `remote add`) and in the bootstrap and `kb`/`setup` messages only as `gitx.RedactRemoteURL` renders it (userinfo, query and fragment dropped, as `kb_status` shows it), and `RedactRemoteText` scrubs the raw URL from git's own output; the server log and an agent transcript therefore never hold a `https://user:token@host/...` remote.
+**A remote URL's credentials never reach error text.** `gitx` names a remote in its errors (clone, ls-remote, the probe, fetch, pull, `remote add`) and in the bootstrap and `kb`/`setup` messages only as `gitx.RedactRemoteURL` renders it (userinfo, query and fragment dropped, as `kb_status` shows it), and `RedactRemoteText` scrubs the raw URL from git's own output; the Meridian log and an agent transcript therefore never hold a `https://user:token@host/...` remote.
 
 **An in-progress rebase makes sync refuse.** When `.git/rebase-merge` or `.git/rebase-apply` exists
 (a real rebase, or an orphan autostash an aborted `pull --rebase --autostash` left behind), `SyncIn`/`SyncOut`
@@ -96,7 +96,7 @@ server's call.
 ## The advisory client lock
 
 The client side has its own advisory lock, for the same reason and with a different scope:
-`.cartographer-client.lock` in the client's target directory, taken by every path that
+`.cartographer-client.lock` in Compass's target directory, taken by every path that
 read-modify-writes the lockfile or `.cartographer.yaml` (`sync` and `upgrade-repair`, which load
 the config only after taking it, `connect`, `reconnect`, `disconnect`, `doctor --repair-hashes`, `paths set|unset|ignore`,
 `approve`, `client`, `workspace bind|unbind`, `kb rename`, `kb unmount`, `service` opt-outs). A command loads after taking the lock, never before (`withClientConfig`). The concurrent writers are separate
@@ -122,9 +122,9 @@ hosting workflow, and a remote that protects the branch Cartographer writes to i
 Each commit names the writer as author and committer (D904, D950): the request's
 `Cartographer-Author` header, else the identity configured for the KB in the server file
 (`git.identities`), else the token (`<token id> <cartographer@<host>>`). A forge with a membership push rule checks the
-committer too, so it is the writer, not the server; the instance that recorded the commit is in a
+committer too, so it is the writer, not Meridian; the instance that recorded the commit is in a
 `Cartographer-Host` trailer, and a write's message ends with a `Cartographer-Token: <token id>`
-trailer, both appended by the server. A call that commits to two KBs (`concept_transfer`,
+trailer, both appended by Meridian. A call that commits to two KBs (`concept_transfer`,
 `artifact_move`) gives both commits the writer of its header; without one each KB's own configured identity applies. A commit that is not a write (the `external
 changes` commit, a sync merge, conflict resolution) is by the KB's configured identity, else the
 server. A sync that rebases local commits onto the remote gives each its author back as committer
@@ -133,7 +133,7 @@ server. A sync that rebases local commits onto the remote gives each its author 
 A KB syncs exactly when it has a remote, and that branch must be the KB's **canonical branch**:
 the `branch` of the `settings.yaml` committed on the remote's default branch when it sets one
 (D335, D903), otherwise the remote's default branch (D264). `branch` lives only in that file, never
-in the server's `kbs[]`, because it is a decision of the team that owns the KB, the same for every
+in Meridian's `kbs[]`, because it is a decision of the team that owns the KB, the same for every
 server that mounts it; and it is read **only from the default branch**: the working copy's file
 is ignored, so a change of `branch` committed on any other branch has no effect until it reaches
 the default one. A failure to read that file is never read as "no `branch`": a git error is a sync error, and a file that does not parse but carries a top-level `branch:` key refuses writes until it is fixed on the default branch (a parse error without the key is ignored). Without the key, Cartographer asks the remote on every sync (`git ls-remote --symref`, and
@@ -155,9 +155,9 @@ is switched only by the sync, and only when that loses nothing (below). A server
 of `branch` for that server (D1093). A name git would not accept is a finding in the file and never a branch.
 
 **A KB holds files, never repositories.** A directory carrying a `.git` of its own is a nested repository: the
-server's git never looks inside one, and its commits never record one. Three rules (`gitx/gitlink.go`):
+Meridian's git never looks inside one, and its commits never record one. Three rules (`gitx/gitlink.go`):
 
-- every git command of the server runs with submodules ignored, ahead of the repository's own configuration:
+- every git command of Meridian runs with submodules ignored, ahead of the repository's own configuration:
   `diff.ignoreSubmodules=all`, `submodule.recurse` and `fetch.recurseSubmodules` off, and `core.fsmonitor=false`
   (command-line configuration reaches a child git process too, so a nested repository's fsmonitor is not run
   even by a command that does look inside);
@@ -179,7 +179,7 @@ for the asset tools, and otherwise the first of `id`, `name`, `source_id`,
 `contradiction_id` present in the call. A tool invoked with none of them commits
 as the bare tool name.
 
-There is no pull-request flow: a `git_profile: server` (in a KB's `settings.yaml`, a `kbs[]` entry or the server's `git:`
+There is no pull-request flow: a `git_profile: server` (in a KB's `settings.yaml`, a `kbs[]` entry or Meridian's `git:`
 block) or a `kbs[]` entry that sets `git_branch` keeps the KB from mounting, and the message says to unprotect the
 branch or set `branch`.
 
@@ -248,7 +248,7 @@ the write is not performed, and `last_error` names the clone, both branches and 
 recovery — merge the stray branch into the default branch on the remote, or check
 out the default branch in the clone, then restart. With `branch` the
 recovery is to check out the configured branch in the clone, or change the key on the
-default branch; with the server's `kbs[].branch` (D1093), which wins over the KB's `branch`,
+default branch; with Meridian's `kbs[].branch` (D1093), which wins over the KB's `branch`,
 to check it out, or change or remove that key; a configured branch the remote does not have yet is not a divergence,
 there is just nothing to pull. Before refusing, `SyncIn` tries to switch the clone to the
 effective branch itself (D1093), whichever the source: it does when HEAD is on a named
@@ -273,7 +273,7 @@ Without a remote, synchronization is a no-op and local commits still work.
 ## Conflict registry
 
 A rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
-`_map.md`, `_archive.md`) are not concepts, so the server reconciles them itself
+`_map.md`, `_archive.md`) are not concepts, so Meridian reconciles them itself
 (D311):
 
 - `data/log.md` carries `merge=union` in the KB's committed `.gitattributes`
@@ -291,7 +291,7 @@ A rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
 - A reserved file that conflicts **alongside** a concept stays out of the
   registry; the write's error names it, and it takes the same automatic
   resolution when the concept conflicts are finalized.
-- A reserved-only conflict the server could not settle is registered with
+- A reserved-only conflict Meridian could not settle is registered with
   `kind: reserved` and its path as `concept_id`; `git_conflict_resolve` accepts
   `union` (only `log.md` or `index.md`), `ours` or `theirs` for it, never `edit`.
 - Any other conflicting file (a skill, a template, an expanded concept's asset,
@@ -358,7 +358,7 @@ writer boundary. It serialises validation — the stat walk and any re-parse —
 and the publication of a new view. A view is immutable once published: every
 graph reader takes the current one after validating and traverses it without
 the lock, so a concurrent write can only make the *next* read see a newer
-view. Writes are atomic renames (`writeFileAtomic`: temp file in the same directory, `fsync`, rename, `fsync` of the directory, so a crash cannot leave a renamed but empty file; on Windows the rename retries with backoff while a reader holds the destination open without `FILE_SHARE_DELETE`, and the directory sync is a no-op). A temp file orphaned by a kill is junk (`.tmp-wiki-*` in `JunkPatterns`, so never committed) and the server's start-up (`SweepStaleTempFiles`, not every `Open`) removes the regular, untracked ones named exactly as `os.CreateTemp` names them that are older than the lock timeout, when it can take the KB lock without waiting. So a validation reads either the old file or
+view. Writes are atomic renames (`writeFileAtomic`: temp file in the same directory, `fsync`, rename, `fsync` of the directory, so a crash cannot leave a renamed but empty file; on Windows the rename retries with backoff while a reader holds the destination open without `FILE_SHARE_DELETE`, and the directory sync is a no-op). A temp file orphaned by a kill is junk (`.tmp-wiki-*` in `JunkPatterns`, so never committed) and Meridian's start-up (`SweepStaleTempFiles`, not every `Open`) removes the regular, untracked ones named exactly as `os.CreateTemp` names them that are older than the lock timeout, when it can take the KB lock without waiting. So a validation reads either the old file or
 the new one, never a torn one. The maps a view exposes (`Links`,
 `IncomingLinks`) are shared across readers and must never be mutated.
 

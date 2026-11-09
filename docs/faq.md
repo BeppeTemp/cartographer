@@ -53,7 +53,7 @@ They are good choices for what they cover. Cartographer starts where they stop.
   agents on different machines and clients share one KB.
 
 What Cartographer adds is governance over many automated writers: agents write only
-through MCP tools, and the server enforces schema, link checks, lint, optimistic
+through MCP tools, and Meridian enforces schema, link checks, lint, optimistic
 concurrency, one commit per write, conflict handling across machines, a tamper-evident
 audit log and tokens scoped per KB. It is client-neutral: the same KB hands each agent the
 same knowledge, skills and instructions in the client's native format.
