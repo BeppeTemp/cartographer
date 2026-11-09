@@ -660,3 +660,42 @@ func TestPluginCells_DocumentsInstructionsStayOutOfTheDispatcherFolder(t *testin
 	c.Global.Instructions = &PluginCell{File: []string{"Documents", "VendorExt", "Rules", "cartographer.md"}}
 	registerCells(t, c)
 }
+
+// A plugin provider on the cli MCP mode records the cli sentence in the
+// paths-section hash of its instructions block; the status side judges the same
+// hash, so a freshly synced provider must be in sync (#1846). The MCP-mode
+// provider is the control: it never carried the sentence.
+func TestComputeDiffResolved_CLIProviderInSyncAfterApply(t *testing.T) {
+	cli := forkCLI()
+	cli.Global.Instructions = &PluginCell{File: []string{".config", "fork-cli", "cartographer.md"}}
+	registerCells(t, cli)
+	mcp := forkCLI()
+	mcp.Name = "fork-mcp"
+	mcp.Global.Skill = cellDir(".fork-mcp", "skills")
+	mcp.Global.Agent = &PluginCell{Dir: []string{".fork-mcp", "agents"}, AgentFormat: "opencode"}
+	mcp.Project = PluginScopeCells{}
+	mcp.Global.Instructions = &PluginCell{File: []string{"Documents", "Rules", "cartographer.md"}}
+	registerCells(t, mcp)
+	if _, err := configurator.ReplacePlugins([]configurator.PluginSpec{
+		{Name: "fork-cli", Base: "crush", MCPMode: "cli", Active: true},
+		{Name: "fork-mcp", Base: "crush", Active: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = configurator.ReplacePlugins(nil) })
+
+	m := MergeArtifacts([]Artifact{instructionsArtifactForExpandTest("kb-a", "Be kind.\n")})
+	for _, name := range []string{"fork-cli", "fork-mcp"} {
+		opts := ApplyOptions{
+			Provider: configurator.Provider(name), BaseDir: t.TempDir(),
+			ApprovedMCP: approveAll(m), ExpandPlaceholders: true,
+		}
+		res, err := Apply(m, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d := ComputeDiffResolved(m, res.NewLock, opts); !d.InSync {
+			t.Errorf("%s: pending right after the sync: %+v", name, d.Updated)
+		}
+	}
+}
