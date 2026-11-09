@@ -72,6 +72,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "The kind of task, from the registry of the binary."},
 	{Path: "tasks[].model", Scope: settingschema.ScopeWorker, Type: "string", Default: `""`,
 		Description: "The model profile the task runs on: a models[].name."},
+	{Path: "tasks[].max_writes", Scope: settingschema.ScopeWorker, Type: "int", Values: "at least 1", Default: "20",
+		Description: "The most writes one doctor session may apply to a KB; past it the session is told to close."},
 	// The option keys of each task kind go here, one row per path, declared by
 	// the plan that adds the kind. A path shared by two kinds is one row.
 
