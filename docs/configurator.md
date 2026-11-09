@@ -420,6 +420,7 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}`. Anything that is not a variable name (`$NAME`, `my-token`, a pasted token) is refused (exit 2), here and in the form |
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
 | `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `server.allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
+| `--no-tray` | `false` | Does not install the status icon and remembers it (`tray_opt_out`) until `service tray install`; an installed tray is removed. Without it, `connect` installs the tray on macOS and Windows (below) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
 | `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, nothing written: the manifest is fetched and verified before the agents' MCP entries, the bootstrap hook or `.cartographer.yaml` are touched, and the same holds for a rejected token), not a "server unreachable" deferral; a server that is down still defers and writes |
 | `--no-input` | `false` | Never opens the interactive form, even in a TTY |
@@ -491,6 +492,8 @@ materialization to a loopback URL only adds a hint on stderr suggesting
 prints the absolute paths of generated MCP configs and reminds the user to restart the selected
 agent sessions to load the MCP tools (a `cli` provider is told to restart to load the skills and instructions, a `none` provider gets no line).
 
+`connect` also installs the status icon (`cartographer tray`) on macOS and Windows, after the sync timer: a tray already installed is left running as it is (a `connect` never restarts it; `upgrade-repair` refreshes it), a remembered opt-out installs nothing, and a failure (a session with no GUI such as ssh) is a warning that names `cartographer service tray install`, never a different exit code. A dry run prints `[dry-run] would install the status icon`. `reconnect` and `setup` go through the same step (the `setup` plan lists `status icon  install`); `sync` never installs it.
+
 ### `cartographer disconnect [provider|all]`
 
 The inverse of `connect`: for each target provider — default `all` = every provider **connected**
@@ -524,6 +527,8 @@ cartographer disconnect all --dry-run  # preview without writing
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
+When the disconnect leaves no agent connected and no local service is installed, the status icon is removed too (`removed the status icon: no agent is connected`): it has no server left to show. That is not an opt-out (`tray_opt_out` stays as it was), so the next `connect` installs it again; `reconnect` keeps it, and a dry run removes nothing.
+
 Idempotent: exit 0 even if there was nothing to remove (no `.cartographer.yaml`, provider
 already disconnected, MCP entry already absent, ...). Exit 2 only on an actual error (I/O, malformed
 provider config JSON, ...). Exit 1 when a provider was kept connected because its config or managed
@@ -551,6 +556,7 @@ client and server versions. A non-`dev` mismatch is a warning only (it does not 
 code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
 (D121: it replaces the running service **and** re-syncs the providers in place, where the former
 `service restart` hint only did the first half).
+On macOS and Windows a table `status` of a client with a connected agent, no status icon installed and no remembered opt-out ends with one line pointing at `cartographer service tray install` (`status` installs nothing; `service tray uninstall` silences it; the JSON output is unchanged).
 A newer release known to the update cache adds `update available: vX (installed vY) — <command>`
 (JSON `update: {latest, kind, channel, command}`, present only then), and a remote server that
 reports one in `/health` adds `server update available: vX` — the server operator's job, so no
@@ -929,9 +935,9 @@ at once so the icon appears without logging off; Linux has none. A failure to re
 session has no GUI) is a warning, never an install failure. `--no-tray` or `service tray uninstall`
 opts out and the choice is remembered (`tray_opt_out` in the machine file), so `upgrade-repair` does
 not bring it back; `service tray install` clears it. `service uninstall` removes the tray with the
-server. `upgrade-repair` re-renders and restarts the tray (also when the service is stopped, and for
+server, unless the client config has a connected agent: the tray then shows that client's server, so it is kept and the command says `status icon kept: …` (`service tray uninstall` removes it). `upgrade-repair` re-renders and restarts the tray (also when the service is stopped, and for
 installs that predate it) so a tray running the previous binary picks up the new one; a tray failure
-there is a warning and never changes the exit code. `service tray status` exits 0 when installed, 4 when not. `--no-tray` over an installed tray also removes it. On Windows, `service tray uninstall`
+there is a warning and never changes the exit code. With no local service installed `upgrade-repair` refreshes a tray that is already installed (a client-only machine's tray runs the previous binary after an in-place update) and never creates one. `service tray install` with no service and no client config prints `no server to show yet: …`. `service tray status` exits 0 when installed, 4 when not. `--no-tray` over an installed tray also removes it. On Windows, `service tray uninstall`
 and `service install` stop a running tray and wait for it to exit (they first post `WM_CLOSE` to its window so the shell drops the notification icon, then use `Stop-ScheduledTask` if no window answers or the process stays); one that survives is an error and
 `tray.xml` is kept so the command can be retried. On Linux `service tray install` fails ("supported on Windows
 and macOS only"), `uninstall` only records the opt-out and `status` exits 4.

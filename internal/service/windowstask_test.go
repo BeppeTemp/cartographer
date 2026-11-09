@@ -653,7 +653,7 @@ func TestUninstall_Windows_UnregistersAndRemovesTheDefinition(t *testing.T) {
 	}
 	f := &fakeServeTask{}
 	m := &Manager{run: f.run}
-	if err := m.Uninstall(); err != nil {
+	if err := m.Uninstall(false); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 	if _, err := os.Stat(taskPath); !os.IsNotExist(err) {
@@ -696,7 +696,7 @@ func TestUninstall_Windows_StopsTheServerBeforeUnregistering(t *testing.T) {
 				return f.run(name, args...)
 			}
 			m := &Manager{run: run}
-			if err := m.Uninstall(); err != nil {
+			if err := m.Uninstall(false); err != nil {
 				t.Fatalf("Uninstall: %v", err)
 			}
 			if runningAtUnregister {
@@ -723,7 +723,7 @@ func TestUninstall_Windows_ReportsASurvivor(t *testing.T) {
 	f := &fakeServeTask{running: true, ignoresStop: true}
 	eventFor(t, f, false)
 	m := &Manager{run: f.run}
-	err := m.Uninstall()
+	err := m.Uninstall(false)
 	if err == nil || !strings.Contains(err.Error(), "still running") {
 		t.Fatalf("Uninstall = %v, want it to report the surviving process", err)
 	}
@@ -745,7 +745,7 @@ func TestUninstall_Windows_UnknownTaskIsNotAFailure(t *testing.T) {
 		return s.run(name, args...)
 	}
 	m := &Manager{run: run}
-	if err := m.Uninstall(); err != nil {
+	if err := m.Uninstall(false); err != nil {
 		t.Errorf("Uninstall with an unregistered task = %v, want success", err)
 	}
 }
@@ -767,7 +767,7 @@ func TestUninstall_Windows_FailedProbeIsAnError(t *testing.T) {
 		}
 		return s.run(name, args...)
 	}
-	err := (&Manager{run: run}).Uninstall()
+	err := (&Manager{run: run}).Uninstall(false)
 	if err == nil || !strings.Contains(err.Error(), "could not tell") {
 		t.Fatalf("Uninstall = %v, want an error saying the registration could not be checked", err)
 	}
@@ -1108,7 +1108,7 @@ func TestUninstall_Windows_StillRegisteredIsAnError(t *testing.T) {
 	// Get-ScheduledTask keeps succeeding: the scheduler still knows the task.
 	s := &stubRunner{fail: map[string]bool{"Unregister-ScheduledTask": true, "State -eq 'Running'": true}}
 	m := &Manager{run: s.run}
-	err := m.Uninstall()
+	err := m.Uninstall(false)
 	if err == nil || !strings.Contains(err.Error(), "still registered") {
 		t.Fatalf("Uninstall = %v, want an error saying the task is still registered", err)
 	}

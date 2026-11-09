@@ -91,7 +91,7 @@ func TestCronSyncTimer_InstallStatusUninstall(t *testing.T) {
 	if err := e.m.UninstallSyncTimer(); err != nil {
 		t.Errorf("second uninstall: %v", err)
 	}
-	if err := e.m.Uninstall(); err != nil || e.ct.text != foreign {
+	if err := e.m.Uninstall(false); err != nil || e.ct.text != foreign {
 		t.Errorf("server uninstall: %v, crontab %q", err, e.ct.text)
 	}
 }

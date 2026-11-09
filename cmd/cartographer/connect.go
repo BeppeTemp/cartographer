@@ -367,6 +367,7 @@ func cmdConnect(args []string) int {
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	var pluginSrcs repeatedString
 	fs.Var(&pluginSrcs, "plugin", "Install a plugin (git URL[@ref] or folder) before the agents are resolved (repeatable)")
+	noTray := fs.Bool("no-tray", false, "Do not install the status icon (tray); remembered until `service tray install`")
 	approvePlugins := fs.Bool("approve-plugins", false, "Approve the plugins installed by this run, after printing what each one runs")
 	if code := bindPositionals("connect", parseFlagsAnywhere(fs, args), &target); code != 0 {
 		return code
@@ -431,6 +432,7 @@ func cmdConnect(args []string) int {
 		KBs:               splitCommaList(kbSel),
 		Workspace:         *workspaceFlag,
 		Access:            *accessFlag,
+		NoTray:            *noTray,
 		// The placeholder step is a question, so it follows the same rule as
 		// every other connect question: a terminal on both ends, and no
 		// --no-input. A dry run has nothing to re-materialize.
@@ -641,8 +643,14 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	if !opts.DryRun {
 		ensureSyncTimer(dir, providers)
 		removeLegacyDoctorTimer()
-	} else if hookless := hooklessProviders(providers); len(hookless) > 0 {
-		fmt.Printf("[dry-run] would install the sync timer: %s\n", describeHookless(hookless))
+		ensureClientTray(opts, res)
+	} else {
+		if hookless := hooklessProviders(providers); len(hookless) > 0 {
+			fmt.Printf("[dry-run] would install the sync timer: %s\n", describeHookless(hookless))
+		}
+		if wouldInstallClientTray(opts, res) {
+			fmt.Println("[dry-run] would install the status icon")
+		}
 	}
 	if !opts.DryRun {
 		ackSessionHookLimit(dir, providers)
@@ -877,6 +885,9 @@ type connectOptions struct {
 	// resolve. Set by cmdConnect only on a TTY without --no-input; a
 	// non-interactive run reports the keys through printApplySummary instead.
 	PromptPaths bool
+	// NoTray is --no-tray: the status icon is not installed and the choice is
+	// remembered (TrayOptOut).
+	NoTray bool
 }
 
 // connectResult is the outcome of doConnect: which providers were connected, the

@@ -520,7 +520,7 @@ func TestUninstall_RemovesPlist(t *testing.T) {
 	os.WriteFile(plistPath, []byte("<plist/>"), 0o644)
 
 	m, stub := newTestManager()
-	if err := m.Uninstall(); err != nil {
+	if err := m.Uninstall(false); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 	if _, err := os.Stat(plistPath); !os.IsNotExist(err) {
@@ -537,6 +537,30 @@ func TestUninstall_RemovesPlist(t *testing.T) {
 	}
 }
 
+// keepTray leaves the status icon a client still uses: the service goes, the
+// tray definition stays; without it both go.
+func TestUninstall_KeepTray(t *testing.T) {
+	for _, keep := range []bool{true, false} {
+		home := withTestHome(t, "darwin")
+		plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
+		trayPath := filepath.Join(home, "Library", "LaunchAgents", trayLaunchdLabel+".plist")
+		os.MkdirAll(filepath.Dir(plistPath), 0o755)
+		os.WriteFile(plistPath, []byte("<plist/>"), 0o644)
+		os.WriteFile(trayPath, []byte("<plist/>"), 0o644)
+
+		m, _ := newTestManager()
+		if err := m.Uninstall(keep); err != nil {
+			t.Fatalf("Uninstall(%v): %v", keep, err)
+		}
+		if _, err := os.Stat(plistPath); !os.IsNotExist(err) {
+			t.Errorf("keep=%v: the service definition must go", keep)
+		}
+		if _, err := os.Stat(trayPath); (err == nil) != keep {
+			t.Errorf("keep=%v: tray definition present=%v", keep, err == nil)
+		}
+	}
+}
+
 func TestUninstall_ConfigNotTouched(t *testing.T) {
 	home := withTestHome(t, "darwin")
 	configPath := filepath.Join(home, ".config", "cartographer", "server.yaml")
@@ -544,7 +568,7 @@ func TestUninstall_ConfigNotTouched(t *testing.T) {
 	os.WriteFile(configPath, []byte("data: /data\n"), 0o644)
 
 	m, _ := newTestManager()
-	if err := m.Uninstall(); err != nil {
+	if err := m.Uninstall(false); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 	if _, err := os.Stat(configPath); err != nil {
@@ -732,7 +756,7 @@ func TestUnsupportedPlatform(t *testing.T) {
 	if _, err := m.Install(InstallOptions{}); err == nil {
 		t.Error("Install on unsupported platform should error")
 	}
-	if err := m.Uninstall(); err == nil {
+	if err := m.Uninstall(false); err == nil {
 		t.Error("Uninstall on unsupported platform should error")
 	}
 	if err := m.Start(); err == nil {
@@ -1168,7 +1192,7 @@ func TestRestart_Darwin_FallsBackToStartWhenNotLoaded(t *testing.T) {
 func TestUninstall_Darwin_StillBootsOut(t *testing.T) {
 	withTestHome(t, "darwin")
 	m, stub := newTestManager()
-	_ = m.Uninstall()
+	_ = m.Uninstall(false)
 	var found bool
 	for _, c := range stub.calls {
 		if c[1] == "bootout" {
@@ -1811,7 +1835,7 @@ func TestUninstallDarwin_WaitsForJobToUnloadBeforeRemovingPlist(t *testing.T) {
 	}
 	b := &bootstrapStub{drain: 3, loaded: true}
 	m := &Manager{run: b.run}
-	if err := m.Uninstall(); err != nil {
+	if err := m.Uninstall(false); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 	if b.loaded || b.polls < 4 {
@@ -1823,7 +1847,7 @@ func TestUninstallDarwin_WaitsForJobToUnloadBeforeRemovingPlist(t *testing.T) {
 	}
 	stuck := &Manager{run: (&bootstrapStub{loaded: true, neverGone: true}).run}
 	launchdUnloadTimeout = 20 * time.Millisecond
-	if err := stuck.Uninstall(); err == nil {
+	if err := stuck.Uninstall(false); err == nil {
 		t.Fatal("want an error for a job that never unloads")
 	}
 	if _, err := os.Stat(plist); err != nil {
@@ -2090,7 +2114,7 @@ func TestUninstall_Linux_FailedDisableOfAnEnabledUnitIsAnError(t *testing.T) {
 	}
 	s := &stubRunner{fail: map[string]bool{"disable --now": true}} // is-enabled still succeeds
 	m := &Manager{run: s.run}
-	err := m.Uninstall()
+	err := m.Uninstall(false)
 	if err == nil || !strings.Contains(err.Error(), "still enabled") {
 		t.Fatalf("Uninstall = %v, want an error saying the unit is still enabled", err)
 	}
@@ -2100,7 +2124,7 @@ func TestUninstall_Linux_FailedDisableOfAnEnabledUnitIsAnError(t *testing.T) {
 
 	// Disabled but not stopped: the file must stay while the service runs.
 	s3 := &stubRunner{fail: map[string]bool{"disable --now": true, "is-enabled": true}}
-	err = (&Manager{run: s3.run}).Uninstall()
+	err = (&Manager{run: s3.run}).Uninstall(false)
 	if err == nil || !strings.Contains(err.Error(), "could not be stopped") {
 		t.Fatalf("Uninstall with a unit that stays active = %v, want an error", err)
 	}
@@ -2109,7 +2133,7 @@ func TestUninstall_Linux_FailedDisableOfAnEnabledUnitIsAnError(t *testing.T) {
 	}
 
 	s2 := &stubRunner{fail: map[string]bool{"disable --now": true, "is-enabled": true, "is-active": true}}
-	if err := (&Manager{run: s2.run}).Uninstall(); err != nil {
+	if err := (&Manager{run: s2.run}).Uninstall(false); err != nil {
 		t.Errorf("Uninstall of a unit systemd does not know = %v, want success", err)
 	}
 }

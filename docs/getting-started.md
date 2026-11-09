@@ -207,7 +207,9 @@ agent made can be reviewed or reverted with ordinary git.
   macOS; none on Linux) at every logon, as `com.cartographer.tray` or the task
   `\Cartographer\Tray`; on Windows 11 it first appears in the overflow (^) menu
   until you pin it. `--no-tray`, or `cartographer service tray uninstall`, opts
-  out and is remembered. The service is **optional** — a stdio-only setup
+  out and is remembered. A machine that only runs `cartographer connect` to a
+  remote server gets the status icon too, showing that server: `connect` installs
+  it (`connect --no-tray` skips it) and the last `disconnect` removes it. The service is **optional** — a stdio-only setup
   (`serve --kb <path>`) is a legitimate way to run (`deployment.md` §Example: stdio) and installs none of this.
 - **A data directory**, `~/cartographer-data` by default, holding the cloned KBs.
 - **Writes into your agent clients' own configuration** under `$HOME`, and only
