@@ -81,6 +81,12 @@ answered, close it with `concept_patch`, setting `resolution_status: resolved`
 and a `resolution` (D273). The advanced `contradiction_report` (`kind: gap`) and
 `conflict_resolve`, callable by name, list and close them too.
 
+A worker's synthesis task (D1263) also writes gaps, marked `origin: synthesis`, with the
+evidence in `provenance`: they are hypotheses, not claims. Whoever confirms one writes the
+content through the normal path, then closes the item with `resolution_status: resolved`, a
+`resolution` and `resolution_outcome: confirmed`; rejecting it is the same with `rejected`
+and the reason in `resolution`, so it is never proposed again.
+
 ## Register what you ingest
 
 When the material comes from a primary source (document, transcript, ticket,
