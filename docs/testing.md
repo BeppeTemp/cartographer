@@ -363,16 +363,25 @@ in its list of local-only targets.
 `make docker-smoke` builds the server image and runs
 [`test/smoke/image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/image.sh)
 on it (D995): `git`, `sops`, `age` and `ssh` are in the image, `version` prints
-the `VERSION` build-arg, `surveyor` without `--config` exits 2 (the third role is in the same image and needs no volume), the user is not root, a KB created on a data volume is
+the `VERSION` build-arg, `surveyor` without `--config` exits 2 (the server image still runs a Surveyor and it needs no volume), the user is not root, a KB created on a data volume is
 served over HTTP with a token (no token is a 401), and a `map_create` plus a
 `concept_batch` write read back through `concept_read` and leave one more commit in
 the KB's repository. It runs on the runner's architecture only.
 
-CI runs it in the `docker` job of `ci.yml`, after the Dockerfile's `test` stage
+`make docker-surveyor-smoke` builds the Surveyor image (`docker build --target surveyor .`, D1440) and runs
+[`test/smoke/surveyor-image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/surveyor-image.sh)
+on it, with no volume and no network: `git`, its `git-remote-https` helper and the CA bundle are there; `sops`, `age`
+and `ssh` are **absent** (that absence is the point of the image); the user is not root; the entrypoint is exactly
+`cartographer surveyor` and the MCP Registry label is not on the image; `version` (read with `--entrypoint`, since the
+entrypoint would hand it to the Surveyor) carries the `VERSION` build-arg; no arguments exit 2, and `source help`
+prints the `source test` usage, so the baked entrypoint reaches the dispatcher. `internal/repodocs/dockerfile_test.go`
+checks the stage rules without Docker (the server is the last stage, the Surveyor before it, same pinned base).
+
+CI runs both scripts in the `docker` job of `ci.yml`, after the Dockerfile's `test` stage
 (`docker build --target test .`: vet and test in a clean alpine) and before
 `make demo-smoke DEMO_BASE=cartographer:ci`, on a PR that touches the image's inputs
-and always on the release PR and on `main`. `preview.yml` runs the same script on
-the release candidate before it pushes. `mcp_call` is shared with the HTTP smoke
+and always on the release PR and on `main`. `preview.yml` runs both scripts on
+the release candidate's images before the first push. `mcp_call` is shared with the HTTP smoke
 through `test/lib/mcp.sh`. Run `docker build --target test .` from a clone, not from
 a git worktree: the worktree's `.git` file is copied into the image and breaks
 `git config`.
@@ -976,7 +985,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
-- The release candidate (`release-train.yml` with `action: rc` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D1384) has passed the image smoke before its push (D995) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a machine that is not the build host (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then is the `rc-ok` label added to the release PR.
+- The release candidate (`release-train.yml` with `action: rc` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D1384) has passed both image smokes (server and Surveyor) before its first push (D995, D1440) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a machine that is not the build host (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make e2e-upgrade` is green on the release PR (the `upgrade-e2e` job): a client of the previous release upgrades and converges.
 - `make smoke` succeeds for the packaged/local stdio path.

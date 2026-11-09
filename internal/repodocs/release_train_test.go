@@ -122,22 +122,36 @@ func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
 	if !strings.HasSuffix(strings.TrimSpace(wf.RunName), "${{ inputs.tag }}") {
 		t.Errorf("preview.yml: run-name %q must end with the tag input: release-train.yml finds the candidate by it", wf.RunName)
 	}
-	smoke, push := -1, -1
+	// Every image smoke runs before the first push, and both images are smoked
+	// and pushed (D1440): a Surveyor smoke after the push would publish an image
+	// that does not start.
+	lastSmoke, firstPush, smokes, surveyorPush := -1, -1, 0, false
 	for _, job := range wf.Jobs {
 		for i, s := range job.Steps {
-			if strings.Contains(s.Run, "test/smoke/image.sh") && smoke < 0 {
-				smoke = i
+			if strings.Contains(s.Run, "test/smoke/image.sh") || strings.Contains(s.Run, "test/smoke/surveyor-image.sh") {
+				smokes++
+				if i > lastSmoke {
+					lastSmoke = i
+				}
 			}
-			if p, ok := s.With["push"]; ok && p == true && push < 0 {
-				push = i
+			if p, ok := s.With["push"]; ok && p == true {
+				if firstPush < 0 {
+					firstPush = i
+				}
+				if s.With["target"] == "surveyor" {
+					surveyorPush = true
+				}
 			}
 		}
 	}
-	if smoke < 0 || push < 0 {
-		t.Fatalf("preview.yml: smoke step at %d, push step at %d: both must exist", smoke, push)
+	if smokes != 2 || firstPush < 0 {
+		t.Fatalf("preview.yml: %d image smoke steps, first push at %d: want both smokes and a push", smokes, firstPush)
 	}
-	if smoke > push {
-		t.Errorf("preview.yml: the smoke (step %d) runs after the push (step %d): a candidate whose container does not start would be published", smoke, push)
+	if lastSmoke > firstPush {
+		t.Errorf("preview.yml: a smoke (step %d) runs after the first push (step %d): a candidate whose container does not start would be published", lastSmoke, firstPush)
+	}
+	if !surveyorPush {
+		t.Error("preview.yml: no push step for target: surveyor")
 	}
 }
 
@@ -346,7 +360,7 @@ func TestPreviewPublishesCandidateBinariesAfterTheImage(t *testing.T) {
 			t.Errorf("preview.yml: gh release create lacks %s", want)
 		}
 	}
-	for _, banned := range []string{"HOMEBREW_TAP_TOKEN", "RELEASE_PLEASE_TOKEN", "mcp-publisher", "cartographer:latest"} {
+	for _, banned := range []string{"HOMEBREW_TAP_TOKEN", "RELEASE_PLEASE_TOKEN", "mcp-publisher", "cartographer:latest", "cartographer-surveyor:latest"} {
 		if strings.Contains(raw, banned) {
 			t.Errorf("preview.yml: references %s, which belongs to a stable release", banned)
 		}

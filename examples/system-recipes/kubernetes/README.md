@@ -43,7 +43,7 @@ variable.
 1. Give the lister a **read-only identity**: a dedicated ServiceAccount bound to the `view` ClusterRole (it does not
    include Secrets) and a kubeconfig that uses it. The preflight is a guard against a mistake here, not a security
    boundary: the script is yours.
-2. Put `lister.py` where the Surveyor can run it (a derived image with Python 3 and `kubectl`, or a mounted read-only
+2. Put `lister.py` where the Surveyor can run it (a derived image `FROM` the Surveyor image with Python 3 and `kubectl`, see [Running scripts in the container](../../../docs/surveyor-recipes.md#running-scripts-in-the-container), or a mounted read-only
    volume) and add `recipe.yaml` to the Surveyor config, with `instructions.md` in the config directory. Set `KUBECTL`,
    `KUBE_CONTEXT` and `KUBECONFIG` in the Surveyor's environment.
 3. Register the system once: `source_register` with `source_shape: system`, `recipe: k8s-dev` and
