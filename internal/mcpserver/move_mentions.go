@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"log"
+
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
@@ -28,7 +30,14 @@ func mentionConceptID(p string) string { return lint.MentionConceptID(p) }
 // candidates, when set, narrows the concept files read to the ones that can
 // hold an old ID (nil means "unknown": every concept is read).
 func attachMentions(k *kb.KB, result map[string]interface{}, moveMap map[string]string, view *callerView, candidates func(oldIDs []string) map[string]bool) {
-	all := view.filterMentions(scanMentions(k, moveMap, candidates))
+	found, err := scanMentions(k, moveMap, candidates)
+	if err != nil {
+		// What was found is reported; the note says the list is not the whole.
+		// The cause goes to the server log only: it carries server paths.
+		log.Printf("concept_move: the mentions scan did not finish: %v", err)
+		result["mentions_incomplete"] = "the scan did not finish: a mention may be missing, check the old IDs with a search"
+	}
+	all := view.filterMentions(found)
 	if len(all) == 0 {
 		return
 	}
@@ -41,14 +50,17 @@ func attachMentions(k *kb.KB, result map[string]interface{}, moveMap map[string]
 
 // scanMentions lists the plain-text occurrences of the old IDs of a move
 // (lint.ScanMentions, shared with the kb_review moved_id_cited observation).
-func scanMentions(k *kb.KB, moveMap map[string]string, candidates func(oldIDs []string) map[string]bool) []mentionOut {
-	found := lint.ScanMentions(k, moveMap, candidates)
+func scanMentions(k *kb.KB, moveMap map[string]string, candidates func(oldIDs []string) map[string]bool) ([]mentionOut, error) {
+	found, err := scanMentionsFn(k, moveMap, candidates)
 	out := make([]mentionOut, len(found))
 	for i, m := range found {
 		out[i] = mentionOut{ID: m.ID, Path: m.Path, Line: m.Line, Kind: m.Kind}
 	}
-	return out
+	return out, err
 }
+
+// scanMentionsFn is lint.ScanMentions, a variable so a test can fail the scan.
+var scanMentionsFn = lint.ScanMentions
 
 // mentionCandidates answers the mentions scan of concept_move without reading
 // the KB: after bringing the SQLite index in line with the files it asks it

@@ -105,7 +105,7 @@ func TestScanMentions_LineNumbers(t *testing.T) {
 	all := satMapFiles("ops")
 	all["ops/l.md"] = b.String()
 	satWriteFiles(t, k, all)
-	got := scanMentions(k, map[string]string{"ops/net": "ops/network"}, nil)
+	got, _ := scanMentions(k, map[string]string{"ops/net": "ops/network"}, nil)
 	var lines []int
 	for _, m := range got {
 		if m.Path == "ops/l.md" {

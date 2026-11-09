@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
@@ -91,7 +92,11 @@ func ScanMentionFiles(files []MentionFile, moveMap map[string]string) []Mention 
 //     (rewrite_links=false) is in `findings`, not here.
 //   - log.md, index.md and _map.md are not scanned (the log records the move,
 //     indexes had their links rewritten, descriptors name maps).
-func ScanMentions(k *kb.KB, moveMap map[string]string, candidates func(oldIDs []string) map[string]bool) []Mention {
+//
+// A walk that fails part-way is returned with the mentions found before it
+// (and in the artifacts): the list is then incomplete, and a caller must not
+// read it as "no old ID left" (#1853).
+func ScanMentions(k *kb.KB, moveMap map[string]string, candidates func(oldIDs []string) map[string]bool) ([]Mention, error) {
 	sc := newMentionScanner(moveMap)
 	walk := k.WalkConceptPaths
 	if candidates != nil {
@@ -101,15 +106,21 @@ func ScanMentions(k *kb.KB, moveMap map[string]string, candidates func(oldIDs []
 			}
 		}
 	}
-	_ = walk(func(_ okf.ConceptID, physicalPath, content string) error {
+	return scanMentions(sc, walk, func() ([]ArtifactFile, error) { return ArtifactTextFilesErr(k) })
+}
+
+// scanMentions is ScanMentions over a concept walk and an artifact list, so a
+// test can fail either.
+func scanMentions(sc *mentionScanner, walk func(fn func(okf.ConceptID, string, string) error) error, artifacts func() ([]ArtifactFile, error)) ([]Mention, error) {
+	walkErr := walk(func(_ okf.ConceptID, physicalPath, content string) error {
 		sc.scan(physicalPath, content, false)
 		return nil
 	})
-	for _, f := range ArtifactTextFiles(k) {
+	files, artErr := artifacts()
+	for _, f := range files {
 		sc.scan(f.Path, f.Content, true)
 	}
-
-	return sc.sorted()
+	return sc.sorted(), errors.Join(walkErr, artErr)
 }
 
 func (sc *mentionScanner) scan(path, content string, artifact bool) {
