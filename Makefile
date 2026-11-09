@@ -42,10 +42,11 @@ race: ## Run the concurrency tests (name contains Race or Concurrent) under the 
 test-rerun:
 	go test -count=1 -timeout 20m $(if $(RERUN_RACE),-race -run '$(RACE_RUN)') $(subst $(comma), ,$(RERUN_PKGS))
 
-vet: ## Run go vet (also for Windows and macOS: the platform jobs skip PRs outside platform-specific code, so a PR catches its compile errors here)
+vet: ## Run go vet (also for Windows, macOS and 32-bit ARM, the targets of .goreleaser.yaml: the platform jobs skip PRs outside platform-specific code, so a PR catches its compile errors here)
 	go vet ./...
 	GOOS=windows go vet ./...
 	GOOS=darwin go vet ./...
+	GOOS=linux GOARCH=arm GOARM=7 go vet ./...
 
 fmt: ## Format the code with gofmt
 	@gofmt -w $(GO_DIRS)
@@ -153,7 +154,7 @@ demo-worker-test: ## Test the demo Worker's moderation logic (D800), Node only
 	node --test deploy/demo/worker.test.mjs
 
 demo-tf-check: ## terraform fmt + validate of deploy/demo (no credentials)
-	cd deploy/demo && terraform fmt -check && terraform init -backend=false -input=false >/dev/null && terraform validate
+	cd deploy/demo && terraform fmt -check && n=0; until terraform init -backend=false -input=false >/dev/null; do n=$$((n+1)); [ $$n -ge 3 ] && exit 1; echo "terraform init failed ($$n/3), retrying" >&2; sleep 10; done; terraform validate
 
 helm-check: ## helm lint + template of deploy/helm/cartographer and the assertions of test/helm/run.sh (not part of gate, D1441)
 	@command -v helm >/dev/null || { echo "helm is not on PATH: scripts/install-helm.sh <dir> installs the pinned release" >&2; exit 1; }

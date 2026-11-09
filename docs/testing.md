@@ -20,7 +20,7 @@ is non-deterministic, costly and dependent on external providers.
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
-`make vet` runs `go vet ./...` three times, natively, with `GOOS=windows` and with `GOOS=darwin` (the `test-windows` and `test-macos` jobs do not run on a PR, only on `main`, so a file or test that does not compile there would otherwise reach `main`; the darwin leg is what compiles the purego menu-bar UI on the Linux gate, with cgo off), and `make fmt-check` fails on anything not
+`make vet` runs `go vet ./...` four times, natively, with `GOOS=windows`, with `GOOS=darwin` and with `GOOS=linux GOARCH=arm GOARM=7` (the 32-bit `int` of the release; `internal/repodocs/vet_targets_test.go` fails when a target of `.goreleaser.yaml` has no leg, so the gate builds every release target; the `test-windows` and `test-macos` jobs do not run on a PR, only on `main`, so a file or test that does not compile there would otherwise reach `main`; the darwin leg is what compiles the purego menu-bar UI on the Linux gate, with cgo off), and `make fmt-check` fails on anything not
 gofmt-clean. `make race` runs, under the race detector, the tests whose name
 contains `Race` or `Concurrent`: a data race seldom fails an assertion, so a test
 that drives readers and writers concurrently only proves something under `-race`,

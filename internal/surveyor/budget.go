@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,11 +44,16 @@ const (
 // maxFigure is the largest tokens figure the reader believes, per entry and per
 // sum. A forged or corrupted figure above it counts as exactly this much, so a
 // poisoned ledger can only read as spent, never wrap negative and read as free;
-// it is far below MaxInt64 so that the sums of a few thousand entries cannot
-// overflow either.
-const maxFigure = 1 << 50
+// it fits the 32-bit int of the linux/arm release (a larger constant does not
+// compile there), and satAdd saturates before it adds, so no sum can overflow.
+const maxFigure = math.MaxInt32
 
-func satAdd(a, b int) int { return min(a+b, maxFigure) }
+func satAdd(a, b int) int {
+	if a > maxFigure-b {
+		return maxFigure
+	}
+	return a + b
+}
 
 // ErrLedgerTooLong means a day's entries outgrew the capped read: the run is
 // skipped, because spending on an undercounted ledger is the one thing the
