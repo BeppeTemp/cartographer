@@ -31,24 +31,24 @@ var subcommands = []subcommand{
 	{"Get started", "setup", "Set up this machine: service, first KB, agents"},
 	{"Get started", "version", "Print the build version"},
 	{"Get started", "update", "Check whether a newer release exists"},
-	{"Client", "agents", "List local agent clients"},
-	{"Client", "connect", "Connect an agent client"},
-	{"Client", "disconnect", "Disconnect an agent client"},
-	{"Client", "status", "Show client sync status"},
-	{"Client", "sync", "Synchronize agent clients"},
-	{"Client", "reconnect", "Rebuild an agent client's configuration from scratch"},
-	{"Client", "approve", "Approve or revoke a third-party MCP descriptor"},
-	{"Client", "config", "Show every setting with its value and where it comes from"},
-	{"Client", "client", "Manage which KBs each agent client receives"},
-	{"Client", "workspace", "Bind a repository to the KBs a client receives there"},
-	{"Client", "call", "Call one MCP tool from the command line"},
-	{"Client", "mcp", "Run the stdio bridge a client starts for a workspace-bound provider"},
-	{"Client", "plugin", "Install, approve and manage plugins"},
-	{"Server", "serve", "Run the MCP server"},
-	{"Server", "surveyor", "Run the Surveyor, a background process for one perimeter of KBs"},
-	{"Server", "service", "Manage the native server service"},
-	{"Server", "upgrade-repair", "Repair the native service and provider sync after an upgrade"},
-	{"Server", "tray", "Run the status icon in the notification area / menu bar"},
+	{"Compass", "agents", "List local agent clients"},
+	{"Compass", "connect", "Connect an agent client"},
+	{"Compass", "disconnect", "Disconnect an agent client"},
+	{"Compass", "status", "Show Compass sync status"},
+	{"Compass", "sync", "Synchronize agent clients"},
+	{"Compass", "reconnect", "Rebuild an agent client's configuration from scratch"},
+	{"Compass", "approve", "Approve or revoke a third-party MCP descriptor"},
+	{"Compass", "config", "Show every setting with its value and where it comes from"},
+	{"Compass", "client", "Manage which KBs each agent client receives"},
+	{"Compass", "workspace", "Bind a repository to the KBs a client receives there"},
+	{"Compass", "call", "Call one MCP tool from the command line"},
+	{"Compass", "mcp", "Run the stdio bridge a client starts for a workspace-bound provider"},
+	{"Compass", "plugin", "Install, approve and manage plugins"},
+	{"Meridian", "serve", "Run Meridian, the MCP server"},
+	{"Meridian", "service", "Manage Meridian's native service"},
+	{"Meridian", "upgrade-repair", "Repair the native service and provider sync after an upgrade"},
+	{"Meridian", "tray", "Run the status icon in the notification area / menu bar"},
+	{"Surveyor", "surveyor", "Run the Surveyor, a background process for one perimeter of KBs"},
 	{"Knowledge base", "kb", "Create or mount local knowledge bases"},
 	{"Knowledge base", "import", "Import an external markdown corpus"},
 	{"Knowledge base", "resolve", "Resolve a configured path placeholder"},
@@ -204,7 +204,9 @@ func cmdVersion() int {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "cartographer — MCP server for the Agentic Wiki")
+	fmt.Fprintln(w, "cartographer: the Agentic Wiki platform")
+	fmt.Fprintln(w, "  Meridian (server), Compass (client), Atlas (web UI),")
+	fmt.Fprintln(w, "  Surveyor (maintenance agent)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  cartographer <command> [flags]")

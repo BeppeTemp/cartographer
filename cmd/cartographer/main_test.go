@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -214,6 +215,29 @@ func TestCommandSuggestionIsConservative(t *testing.T) {
 	}
 	if got := commandSuggestion("definitely-unrelated"); got != "" {
 		t.Errorf("unrelated suggestion = %q", got)
+	}
+}
+
+// The help names the four components and no released command was renamed
+// (component names, D-new-component-names).
+func TestUsageNamesTheComponentsAndKeepsEveryCommand(t *testing.T) {
+	var b strings.Builder
+	printUsage(&b)
+	out := b.String()
+	for _, want := range []string{"Meridian (server)", "Compass (client)", "Atlas (web UI)", "Surveyor (maintenance agent)", "\nCompass:\n", "\nMeridian:\n", "\nSurveyor:\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("usage lacks %q:\n%s", want, out)
+		}
+	}
+	want := strings.Fields("help setup version update agents connect disconnect status sync reconnect approve config client workspace call mcp plugin serve service upgrade-repair tray surveyor kb import resolve paths doctor reindex audit")
+	var got []string
+	for _, c := range subcommands {
+		got = append(got, c.name)
+	}
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("command names changed:\n got %v\nwant %v", got, want)
 	}
 }
 
