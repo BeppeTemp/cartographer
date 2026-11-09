@@ -335,6 +335,9 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	}
 
 	open = &call
+	// After the audit attempt: touchActivity reads the clock, and a panic there
+	// must still close the audit pair with internal_error (D1516).
+	s.touchActivity(principal, name)
 	result, err := tool.Handler(ctx, args)
 	// The nudge runs before the audit closes: a panic in it leaves the call
 	// open for the deferred recover, which audits the internal-error outcome
