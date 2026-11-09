@@ -189,7 +189,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
      (`glossary_gap`); an `observation` item is a state with no single right answer, never a lint
      finding: `concept_move` (`map_misfit`), `concept_expand` or a split (`concept_oversize`), a split
      of the map (`map_oversize`), a link from outside into the group (`island`), a second path around
-     the page (`cut_concept`), a closed tag vocabulary (`facet_sprawl`, step 4); leaving it as it is is a
+     the page (`cut_concept`), a closed tag vocabulary (`facet_sprawl`, step 4), `concept_patch` the current pages to the new ID and leave the historical ones (`moved_id_cited`); leaving it as it is is a
      legitimate decision, and the report says so; a `lint_judgement` item is a `lint` finding of that check, so decide it
      from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep`: decide where the page belongs and `concept_move` it, then read the `mentions` of the result (an old ID left in prose, frontmatter or an artifact, which the link rewrite does not touch) and decide each: current pages are updated, journals usually keep the old ID; `empty_concept`: write the page or retire it (`concept_archive`, see "Tools not in `tools/list`"), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`

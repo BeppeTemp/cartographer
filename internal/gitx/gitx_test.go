@@ -1343,3 +1343,194 @@ func TestRemoveRemote_DropsTheRemoteAndItsTracking(t *testing.T) {
 		t.Error("removing a missing remote succeeded")
 	}
 }
+
+func TestMoveRenames(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := MoveRenames(dir, 10); err != nil || len(got) != 0 {
+		t.Fatalf("no commit: %v, %v", got, err)
+	}
+	if got, err := MoveRenames(t.TempDir(), 10); err != nil || len(got) != 0 {
+		t.Fatalf("no repository: %v, %v", got, err)
+	}
+	write := func(rel string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("a body long enough for git to see the rename of "+rel+"\nsecond line\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mv := func(from, to, subject string) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, to)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
+			t.Fatal(err)
+		}
+		if err := Commit(dir, subject, "user", "user@example.test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"a", "b", "c", "d"} {
+		write("data/ops/" + f + ".md")
+	}
+	write("data/ops/dossier/index.md")
+	if err := Commit(dir, "setup", "user", "user@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	mv("data/ops/a.md", "data/ops/a2.md", "concept_move: ops/a")
+	mv("data/ops/b.md", "data/ops/b2.md", "manual rename")
+	mv("data/ops/c.md", "data/ops/c2.md", "concept_archive: ops/c -> ops/c2")
+	mv("data/ops/dossier/index.md", "data/ops/folder/index.md", "kb_repair: nonslug_file_name")
+	mv("data/ops/d.md", "data/ops/d2.md", "concept_move: ops/d")
+	write("data/ops/e.md")
+	if err := Commit(dir, "setup e", "user", "user@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	// Near-miss subjects are no recorded move: the server writes "<tool>" or "<tool>: ...".
+	mv("data/ops/e.md", "data/ops/e2.md", "concept_moveX: ops/e")
+	write("data/ops/f.md")
+	if err := Commit(dir, "setup f", "user", "user@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	mv("data/ops/f.md", "data/ops/f2.md", "kb_repair_all")
+
+	got, err := MoveRenames(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pairs []string
+	for _, r := range got {
+		pairs = append(pairs, r.OldPath+">"+r.Path)
+	}
+	want := []string{"data/ops/a.md>data/ops/a2.md", "data/ops/c.md>data/ops/c2.md", "data/ops/dossier/index.md>data/ops/folder/index.md", "data/ops/d.md>data/ops/d2.md"}
+	if !slices.Equal(pairs, want) {
+		t.Fatalf("oldest first, move subjects only: %v, want %v", pairs, want)
+	}
+	if got[0].SHA == "" || got[0].Subject != "concept_move: ops/a" || got[0].At.IsZero() {
+		t.Errorf("rename fields: %+v", got[0])
+	}
+	// -n counts rename commits: the two near-miss commits are the newest, so
+	// they take the budget and the two before them are the answer.
+	got, err = MoveRenames(dir, 4)
+	if err != nil || len(got) != 2 || got[0].OldPath != "data/ops/dossier/index.md" {
+		t.Fatalf("limit 4: %+v, %v", got, err)
+	}
+	// The walk is bounded on commits: with a 3-commit window only the
+	// near-miss renames and setup are seen.
+	old := MoveWalkCommits
+	MoveWalkCommits = 3
+	defer func() { MoveWalkCommits = old }()
+	got, err = MoveRenames(dir, 10)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("window 3: %+v, %v", got, err)
+	}
+}
+
+func TestMoveRenamesSince(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	commit := func(subject string) string {
+		if err := Commit(dir, subject, "user", "user@example.test"); err != nil {
+			t.Fatal(err)
+		}
+		sha, _ := HeadSHA(dir)
+		return sha
+	}
+	put := func(rel string) {
+		p := filepath.Join(dir, rel)
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte("a body long enough for git to see the rename of "+rel+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("data/a.md")
+	put("data/x.md")
+	base := commit("setup")
+	if err := os.Rename(filepath.Join(dir, "data/a.md"), filepath.Join(dir, "data/b.md")); err != nil {
+		t.Fatal(err)
+	}
+	first := commit("concept_move: a")
+	if err := os.Rename(filepath.Join(dir, "data/x.md"), filepath.Join(dir, "data/y.md")); err != nil {
+		t.Fatal(err)
+	}
+	commit("concept_move: x")
+
+	got, ok, err := MoveRenamesSince(dir, first, 10)
+	if err != nil || !ok || len(got) != 1 || got[0].OldPath != "data/x.md" {
+		t.Fatalf("since first: %+v ok=%v %v", got, ok, err)
+	}
+	if got, ok, _ := MoveRenamesSince(dir, base, 10); !ok || len(got) != 2 {
+		t.Fatalf("since base: %+v ok=%v", got, ok)
+	}
+	// A commit that is not an ancestor of HEAD (a rewrite) is no incremental answer.
+	if _, err := runGit(dir, "reset", "--hard", base); err != nil {
+		t.Fatal(err)
+	}
+	put("data/z.md")
+	commit("other work")
+	if _, ok, _ := MoveRenamesSince(dir, first, 10); ok {
+		t.Error("a non-ancestor answered incrementally")
+	}
+	if _, ok, _ := MoveRenamesSince(dir, "0000000000000000000000000000000000000000", 10); ok {
+		t.Error("an unknown commit answered incrementally")
+	}
+	// More commits than the window since the cached one: read it all again.
+	old := MoveWalkCommits
+	MoveWalkCommits = 0
+	defer func() { MoveWalkCommits = old }()
+	if _, ok, _ := MoveRenamesSince(dir, base, 10); ok {
+		t.Error("a range past the window answered incrementally")
+	}
+}
+
+// Identical pages moved in one commit are paired by git, not by the server: the
+// pairing may be crosswise. The documented behaviour is that the sources and
+// the targets are right and the pairing is git's.
+func TestMoveRenames_IdenticalPagesPairingIsGits(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	same := []byte("the very same body in both pages, long enough to be detected\n")
+	_ = os.MkdirAll(filepath.Join(dir, "data"), 0o755)
+	for _, n := range []string{"a", "c"} {
+		if err := os.WriteFile(filepath.Join(dir, "data", n+".md"), same, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Commit(dir, "setup", "user", "user@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Rename(filepath.Join(dir, "data/a.md"), filepath.Join(dir, "data/d.md"))
+	_ = os.Rename(filepath.Join(dir, "data/c.md"), filepath.Join(dir, "data/b.md"))
+	if err := Commit(dir, "concept_move", "user", "user@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := MoveRenames(dir, 10)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	froms, tos := []string{got[0].OldPath, got[1].OldPath}, []string{got[0].Path, got[1].Path}
+	slices.Sort(froms)
+	slices.Sort(tos)
+	if !slices.Equal(froms, []string{"data/a.md", "data/c.md"}) || !slices.Equal(tos, []string{"data/b.md", "data/d.md"}) {
+		t.Fatalf("sources %v targets %v", froms, tos)
+	}
+	// Which source went to which target is git's pairing (a->d and c->b, or crosswise): not pinned.
+}

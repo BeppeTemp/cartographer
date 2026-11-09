@@ -311,6 +311,9 @@ type reviewConcept struct {
 	timestamp string
 	resource  string
 	body      string
+	// content is the whole file (frontmatter included), for the scan of the
+	// old IDs a move left in the text (moved_id_cited).
+	content string
 }
 
 // Review builds the ranked work list from the KB, its contracts and the
@@ -322,7 +325,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	byID := map[okf.ConceptID]*reviewConcept{}
 	if err := walkConceptsDirectWins(k, func(id okf.ConceptID, physicalPath string, content string) error {
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		c := &reviewConcept{id: id, body: body, path: physicalPath}
+		c := &reviewConcept{id: id, body: body, path: physicalPath, content: content}
 		if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 			c.mapName = parts[0]
 		}
@@ -394,7 +397,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, mapNamingItems(titles)...)
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)
-	obs, err := observationItems(k, concepts, contracts, archives)
+	obs, err := observationItems(k, concepts, contracts, archives, links.Exists)
 	if err != nil {
 		return nil, err
 	}

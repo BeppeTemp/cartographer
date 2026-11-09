@@ -563,9 +563,12 @@ An observation that no page state could close, or that another tool already repo
 | `map_oversize` | maps | yes | a map grows by construction and none of its pages is the one that is wrong | the map has at most 50 top-level concepts |
 | `facet_sprawl` | maps | yes | tags are a free vocabulary, and which values to merge is an editorial call | fewer than 30 distinct tag values, or fewer than half of them used once |
 | `missing_value_contract` | maps | yes | whether a field is a closed vocabulary is the map's choice, not a defect | the map declares field_values for the field |
+| `moved_id_cited` | links | yes | a journal entry or a quotation keeps the ID a page had when it was written | the page no longer names the old ID outside a link, or a concept with that ID exists again |
 | `requires_unresolved` | artifacts | - | the named skill, agent or hook may come from another KB bound to the same client | the entry names an artifact of this KB or of the bundle, or is removed from requires |
 | `requires_undeclared` | artifacts | - | a skill may name an agent in prose without needing it; the match is a word search | the skill lists agent:<name> in requires, or its body stops naming the agent outside code |
 <!-- lint:observations:end -->
+
+`moved_id_cited` reads moves from the KB's git history, nothing is stored: a commit whose subject starts with `concept_move`, `concept_archive` or `kb_repair` and that renames a concept file is a recorded move (the subject carries no old/new pair, the git rename does), within the last 200 commits that contain a rename, among the last 2000 commits; the pair is git's rename pairing (`-M`, 50 % similarity): a page rewritten a lot in the move can read as delete plus add and is then missed, and identical pages moved in one commit may be paired crosswise, so the suggested ID is git's reading of the move. A subject is the tool's name alone or followed by `: `; a commit that only starts with the name is not a move. A chain of moves is followed to the ID that exists now; an old ID whose chain ends at nothing is not reported. "Cites" is the definition of the `mentions` of a `concept_move` result: the old ID as a whole token outside links, in concepts and in artifact text files (`log.md` and indexes are not scanned); a link to the old ID is `broken_link`'s, so it is never reported twice. The item states history, so only a caller that sees the whole KB receives it; `kb_repair` does not rewrite the text, a journal or a quotation keeps its ID on purpose.
 
 ### Conformance checks (D289)
 

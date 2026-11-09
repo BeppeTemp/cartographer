@@ -1729,6 +1729,151 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 	return commits, nil
 }
 
+// Rename is one file rename a move tool committed: the concept file moved
+// from OldPath to Path (git-relative) by the commit SHA.
+type Rename struct {
+	SHA     string
+	At      time.Time
+	Subject string
+	OldPath string
+	Path    string
+}
+
+// moveSubjectTools are the tools whose commits move a concept inside a KB. The
+// server writes a subject as "<tool>" or "<tool>: <what>" (commitMessage), so a
+// subject is a move's only when it is one of those two shapes: "concept_moveX"
+// or a free-text subject that merely starts with the name is not.
+var moveSubjectTools = []string{"concept_move", "concept_archive", "kb_repair"}
+
+func isMoveSubject(subject string) bool {
+	for _, t := range moveSubjectTools {
+		if subject == t || strings.HasPrefix(subject, t+": ") {
+			return true
+		}
+	}
+	return false
+}
+
+// MoveWalkCommits bounds how many commits (not only rename commits) a read of
+// the move history examines: git log -n bounds the output, not the walk, and a
+// KB with few renames would otherwise be diffed commit by commit to its root.
+// A variable so tests can shorten it.
+var MoveWalkCommits = 2000
+
+// MoveHistoryTimeout bounds one git call of the move history, like FetchTimeout
+// bounds a fetch: the read runs under the KB's locks and on every review.
+var MoveHistoryTimeout = 15 * time.Second
+
+func runGitCtx(ctx context.Context, dir string, args ...string) (stdout, stderr string, err error) {
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...))
+	cmd.Env = gitEnv(nil)
+	var errBuf strings.Builder
+	cmd.Stderr = &errBuf
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		err = fmt.Errorf("timed out after %s", MoveHistoryTimeout)
+	}
+	return string(out), errBuf.String(), err
+}
+
+// MoveRenames returns the file renames of the last limit commits that contain a
+// rename within the last MoveWalkCommits commits of HEAD, keeping the ones a
+// move tool made (subject "<tool>" or "<tool>: ..." for concept_move,
+// concept_archive or kb_repair; a hand git mv, "external changes" or
+// concept_expand are not recorded moves). Oldest first. A directory that is not
+// a repository, or has no commit, returns an empty slice. The pair is git's
+// rename pairing (-M, 50 % similarity): a page rewritten a lot in the move can
+// read as delete + add and is missed, and identical pages moved in one commit
+// may be paired crosswise.
+func MoveRenames(dir string, limit int) ([]Rename, error) {
+	if limit <= 0 || !IsRepo(dir) {
+		return []Rename{}, nil
+	}
+	if _, err := HeadSHA(dir); err != nil {
+		return []Rename{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), MoveHistoryTimeout)
+	defer cancel()
+	// The walk is bounded on raw commits: the oldest of the last MoveWalkCommits
+	// commits, and everything below its parents is excluded. (The bound is
+	// approximate on a history with merges: it is a cost cap, not a contract.)
+	out, errOut, err := runGitCtx(ctx, dir, "rev-list", "-n", strconv.Itoa(MoveWalkCommits), "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("git rev-list: %w: %s", err, errOut)
+	}
+	shas := strings.Fields(out)
+	var revs []string
+	if len(shas) >= MoveWalkCommits {
+		revs = []string{"HEAD", "--not", shas[len(shas)-1] + "^@"}
+	} else {
+		revs = []string{"HEAD"}
+	}
+	return moveRenamesIn(ctx, dir, limit, revs)
+}
+
+// MoveRenamesSince is MoveRenames over the commits after since (since..HEAD),
+// for a caller that holds the moves up to since. ok is false when it cannot
+// answer incrementally: since is not an ancestor of HEAD (a rewrite, a forced
+// sync), is unknown, or more than MoveWalkCommits commits follow it; the caller
+// then reads the whole bounded history.
+func MoveRenamesSince(dir, since string, limit int) (renames []Rename, ok bool, err error) {
+	if limit <= 0 || !IsRepo(dir) {
+		return nil, false, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), MoveHistoryTimeout)
+	defer cancel()
+	if _, _, aerr := runGitCtx(ctx, dir, "merge-base", "--is-ancestor", "--end-of-options", since, "HEAD"); aerr != nil {
+		return nil, false, nil
+	}
+	out, errOut, err := runGitCtx(ctx, dir, "rev-list", "--count", "--end-of-options", since+"..HEAD")
+	if err != nil {
+		return nil, false, fmt.Errorf("git rev-list --count: %w: %s", err, errOut)
+	}
+	if n, perr := strconv.Atoi(strings.TrimSpace(out)); perr != nil || n > MoveWalkCommits {
+		return nil, false, nil
+	}
+	renames, err = moveRenamesIn(ctx, dir, limit, []string{since + "..HEAD"})
+	return renames, err == nil, err
+}
+
+func moveRenamesIn(ctx context.Context, dir string, limit int, revs []string) ([]Rename, error) {
+	args := []string{"-c", "core.quotepath=off", "log", "-z", "-n", strconv.Itoa(limit), "-M", "--diff-filter=R", "--name-status", "--pretty=format:%x1e%H%x00%aI%x00%s"}
+	out, errOut, err := runGitCtx(ctx, dir, append(args, revs...)...)
+	if err != nil {
+		return nil, fmt.Errorf("git log --diff-filter=R: %w: %s", err, errOut)
+	}
+	var newest []Rename
+	for _, record := range strings.Split(out, "\x1e") {
+		if record == "" {
+			continue
+		}
+		head := strings.SplitN(record, "\x00", 3)
+		if len(head) != 3 {
+			continue
+		}
+		// The subject is one line; the name-status block follows the newline.
+		subject, block, _ := strings.Cut(head[2], "\n")
+		if !isMoveSubject(subject) {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, head[1])
+		if err != nil {
+			return nil, fmt.Errorf("parse git commit time %q: %w", head[1], err)
+		}
+		for _, f := range parseNameStatusZ(block) {
+			if f.Status == "R" {
+				newest = append(newest, Rename{SHA: head[0], At: at, Subject: subject, OldPath: f.OldPath, Path: f.Path})
+			}
+		}
+	}
+	// Newest first as git prints; oldest first as returned.
+	oldest := make([]Rename, 0, len(newest))
+	for i := len(newest) - 1; i >= 0; i-- {
+		oldest = append(oldest, newest[i])
+	}
+	return oldest, nil
+}
+
 // parseNameStatusZ parses the "git log -z --name-status" block of one commit:
 // status, path (and, for a rename or copy, the destination), each NUL-ended.
 func parseNameStatusZ(block string) []FileChange {
