@@ -282,7 +282,7 @@ func projectHookPlugin(provider configurator.Provider, name string) string {
 	if destDirScoped("hook", name, provider, ScopeProject) == "" {
 		return ""
 	}
-	return HookPluginRelPath(provider, name)
+	return HookPluginRelPath(provider, name, ScopeProject)
 }
 
 // ProjectRegistrationFiles returns the registration files a projection of
@@ -359,7 +359,7 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	// they are as much its own as the hook's files (#1199).
 	if destDirScoped("hook", "x", provider, ScopeProject) != "" {
 		roots = append(roots, projectSharedHookFiles[provider]...)
-		if plugin := HookPluginRelPath(provider, "x"); plugin != "" {
+		if plugin := HookPluginRelPath(provider, "x", ScopeProject); plugin != "" {
 			roots = append(roots, path.Dir(plugin))
 		}
 	}

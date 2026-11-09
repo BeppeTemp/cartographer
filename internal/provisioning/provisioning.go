@@ -2230,7 +2230,8 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			continue
 		}
 		destRel := destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope)
-		if len(movedArtifactFiles(opts.Lock.Managed, a, destRel)) == 0 {
+		if len(movedArtifactFiles(opts.Lock.Managed, a, destRel)) == 0 &&
+			len(movedOpenCodePlugin(opts.Lock.Managed, a, opts.Provider, opts.Scope)) == 0 {
 			continue
 		}
 		toWrite = append(toWrite, a)
@@ -2560,7 +2561,7 @@ hookLoop:
 				// script while the registration, and so the lock entry, still
 				// describes the previous one.
 				if a.Kind == "hook" {
-					if err := checkHookRegistrationTarget(opts.BaseDir, opts.Provider, a.Name, destRel); err != nil {
+					if err := checkHookRegistrationTarget(opts.BaseDir, opts.Provider, a.Name, destRel, opts.Scope); err != nil {
 						if refuseArtifact(a, err) {
 							continue
 						}
@@ -2613,7 +2614,7 @@ hookLoop:
 						if claudeStrip != nil {
 							register = claudeMovingRegistrar(claudeStrip)
 						}
-						pluginRel, warning, registered, regErr := register(opts.BaseDir, a.Name, fullDestDir)
+						pluginRel, warning, registered, regErr := register(opts.BaseDir, a.Name, fullDestDir, opts.Scope)
 						if regErr != nil {
 							// Refused (D148): a new hook is not recorded as installed,
 							// an updated one keeps its previous lock entry; the next
@@ -2631,7 +2632,7 @@ hookLoop:
 						// previous registration firing its old entry.
 						if !registered && previous {
 							stale := ManagedFile{Kind: "hook", Name: a.Name, Path: filepath.Join(destRel, "hook.json")}
-							if err := removeHookRegistration(opts.BaseDir, stale, claudeStrip); err != nil {
+							if err := removeHookRegistration(opts.BaseDir, stale, claudeStrip, opts.Lock.Managed); err != nil {
 								if refuseArtifact(a, err) {
 									continue hookLoop
 								}
@@ -2647,7 +2648,7 @@ hookLoop:
 				// DryRun: simulate the main file's path without writing.
 				relPaths = []string{filepath.Join(destRel, principalFile(a.Kind))}
 				if a.Kind == "hook" {
-					for _, full := range hookRegistrationTargets(opts.BaseDir, opts.Provider, a.Name, destRel) {
+					for _, full := range hookRegistrationTargets(opts.BaseDir, opts.Provider, a.Name, destRel, opts.Scope) {
 						result.Warnings = appendFollowedLinkNotes(result.Warnings, opts.BaseDir, full)
 					}
 				}
@@ -2671,6 +2672,7 @@ hookLoop:
 		}
 		if relocated[a.Kind+"\x00"+a.Name] {
 			orphaned = append(orphaned, movedArtifactFiles(opts.Lock.Managed, a, destRel)...)
+			orphaned = append(orphaned, movedOpenCodePlugin(opts.Lock.Managed, a, opts.Provider, opts.Scope)...)
 		}
 
 		for _, rp := range relPaths {
@@ -2935,8 +2937,9 @@ func droppedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string,
 // the mcp cell for every provider, so a global entry never reads as moved.
 // Never applies to instructions (a group block, no per-artifact path), to the
 // reserved client-generated hooks, nor to hooks at all: a hook's entries
-// include generated companions (an OpenCode plugin under
-// .config/opencode/plugins) that live outside its directory by design.
+// include generated companions (a Copilot hook file, a Pi extension) that live
+// outside its directory by design. The one exception is an OpenCode hook's
+// generated plugin, whose path depends on the scope (movedOpenCodePlugin, #1827).
 func movedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string) []ManagedFile {
 	if destDirRel == "" || a.Kind == "instructions" || a.Kind == "hook" || isReservedHook(a.Kind, a.Name) {
 		return nil
@@ -4393,7 +4396,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 		if mf.Kind == "hook" && !keepHooks[mf.Name] {
 			err, seen := hookResult[mf.Name]
 			if !seen {
-				err = removeHookRegistration(baseDir, mf, claudeSettings)
+				err = removeHookRegistration(baseDir, mf, claudeSettings, managed)
 				if err == nil || IsRefusal(err) {
 					hookResult[mf.Name] = err
 				}
@@ -4424,7 +4427,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 // that registered it (settings.json, hooks.json, a plugin, ...). Providers with
 // no registration to strip return nil. claudeSettings names the Claude Code
 // settings file to strip, nil for both (removeHookEntries).
-func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []string) error {
+func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []string, managed []ManagedFile) error {
 	var err error
 	switch hookProviderFromPath(mf.Path) {
 	case "claude":
@@ -4436,7 +4439,7 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 			err = fmt.Errorf("provisioning: prune entry hooks.json hook %s: %w", mf.Name, err)
 		}
 	case "opencode":
-		if err = removeOpenCodePlugin(baseDir, mf.Name); err != nil {
+		if err = removeOpenCodePlugin(baseDir, mf.Name, managed); err != nil {
 			err = fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
 		}
 	case "antigravity":

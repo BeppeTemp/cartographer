@@ -676,7 +676,7 @@ var installedOpenCodeMajor = provisioning.OpenCodeMajor
 func unreadableOpenCodeVersionFinding(dir string, lock provisioning.Lock) []doctorFinding {
 	baseDir := provisioning.LockBaseDir(lock, dir)
 	for _, name := range managedHookNames(lock) {
-		path := filepath.Join(baseDir, filepath.FromSlash(provisioning.OpenCodePluginRelPath(name)))
+		path := filepath.Join(baseDir, filepath.FromSlash(provisioning.OpenCodePluginRelPath(name, lock.ScopeOf())))
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -716,7 +716,7 @@ func checkOpenCodePluginShape(dir string, providers []string, lockFile provision
 		lock := lockFile.ForProvider(p)
 		baseDir := provisioning.LockBaseDir(lock, dir)
 		for _, name := range managedHookNames(lock) {
-			path := filepath.Join(baseDir, filepath.FromSlash(provisioning.OpenCodePluginRelPath(name)))
+			path := filepath.Join(baseDir, filepath.FromSlash(provisioning.OpenCodePluginRelPath(name, lock.ScopeOf())))
 			data, err := os.ReadFile(path)
 			if err != nil {
 				continue // absent or unreadable: managed-files reports it

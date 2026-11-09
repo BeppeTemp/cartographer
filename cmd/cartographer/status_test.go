@@ -783,3 +783,39 @@ func TestStatus_ManifestFailureAfterHealthyServer(t *testing.T) {
 		})
 	}
 }
+
+// #1827: the hint of a pending OpenCode hook names the plugin path of the scope
+// the sync writes it in.
+func TestPrintHookRegistrationHint_OpenCodePluginScope(t *testing.T) {
+	for _, tc := range []struct {
+		project bool
+		want    string
+	}{
+		{false, ".config/opencode/plugins/cartographer-guard.js"},
+		{true, ".opencode/plugins/cartographer-guard.js"},
+	} {
+		a := statusArtifact{Kind: "hook", Name: "guard", ProjectScope: tc.project}
+		out := withStdout(t, func() { printHookRegistrationHint("opencode", a, "new hook") })
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("project=%v: %q, want %q", tc.project, out, tc.want)
+		}
+	}
+}
+
+// #1827: a hook a derived workspace projection receives is tagged project-scope;
+// one only the global projection receives is not.
+func TestTagProjectScope_DerivedProjection(t *testing.T) {
+	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "hook", Name: "guard"}}}
+	derived := syncProjection{Provider: "opencode", Workspace: "/ws", BaseDir: "/ws", Scope: provisioning.ScopeProject, Derived: true}
+	global := syncProjection{Provider: "opencode", BaseDir: "/home", Scope: provisioning.ScopeGlobal}
+	arts := []statusArtifact{{Kind: "hook", Name: "guard"}}
+	tagProjectScope(arts, []syncProjection{derived}, map[string]provisioning.Manifest{projectionKey(derived): m})
+	if !arts[0].ProjectScope {
+		t.Error("a derived projection's hook is not tagged project-scope")
+	}
+	arts = []statusArtifact{{Kind: "hook", Name: "guard"}}
+	tagProjectScope(arts, []syncProjection{global}, map[string]provisioning.Manifest{projectionKey(global): m})
+	if arts[0].ProjectScope {
+		t.Error("a global projection's hook is tagged project-scope")
+	}
+}
