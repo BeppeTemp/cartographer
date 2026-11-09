@@ -38,7 +38,7 @@ function stub(view: ReleasesView | (() => Response) = VIEW) {
 async function openFromRail() {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(await screen.findByRole("button", { name: /Server version v1\.2\.3/ }));
+  await user.click(await screen.findByRole("button", { name: /Meridian version v1\.2\.3/ }));
   return { user, sheet: await screen.findByRole("dialog", { name: "Releases" }) };
 }
 
@@ -67,7 +67,7 @@ describe("the release history sheet", () => {
   it("does not fetch the history before the version is clicked", async () => {
     const fetchMock = stub();
     render(<App />);
-    await screen.findByRole("button", { name: /Server version v1\.2\.3/ });
+    await screen.findByRole("button", { name: /Meridian version v1\.2\.3/ });
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/releases"))).toBe(false);
   });
 
@@ -134,7 +134,7 @@ describe("the release history sheet", () => {
   it("says why there is no history, and links to GitHub, when the update check is off", async () => {
     stub({ current: "1.2.3", releases: [], unavailable: "disabled", releases_url: "https://example.com/releases" });
     const { sheet } = await openFromRail();
-    expect(await within(sheet).findByText(/update check is off on this server/)).toBeInTheDocument();
+    expect(await within(sheet).findByText(/update check is off on this Meridian/)).toBeInTheDocument();
     expect(within(sheet).queryByRole("list", { name: "Releases, newest first" })?.children.length ?? 0).toBe(0);
     const link = within(sheet).getByRole("link", { name: /All releases on GitHub/ });
     expect(link).toHaveAttribute("href", "https://example.com/releases");
@@ -181,7 +181,7 @@ describe("the release history sheet", () => {
     await within(sheet).findByRole("list", { name: "Releases, newest first" });
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Releases" })).toBeNull();
-    expect(screen.getByRole("button", { name: /Server version v1\.2\.3/ })).toHaveFocus();
+    expect(screen.getByRole("button", { name: /Meridian version v1\.2\.3/ })).toHaveFocus();
   });
 
   it("is dropped when it only restates the version and the date", () => {

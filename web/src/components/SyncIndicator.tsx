@@ -145,9 +145,9 @@ export function SyncIndicator({ kb, live }: Props) {
             {counted && (
               <>
                 <dt>Last push</dt>
-                <dd>{status.last_push_at ? formatWhen(status.last_push_at) : "Unknown since the server restarted"}</dd>
+                <dd>{status.last_push_at ? formatWhen(status.last_push_at) : "Unknown since Meridian restarted"}</dd>
                 <dt>Last fetch</dt>
-                <dd>{status.last_sync_in_at ? formatWhen(status.last_sync_in_at) : "Not fetched since the server started"}</dd>
+                <dd>{status.last_sync_in_at ? formatWhen(status.last_sync_in_at) : "Not fetched since Meridian started"}</dd>
               </>
             )}
           </dl>

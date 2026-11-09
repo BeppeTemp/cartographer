@@ -15,7 +15,7 @@ describe("ErrorState", () => {
 
   it("shows no status line when the server is unreachable", () => {
     render(<ErrorState error={new ApiError(0, "offline", "gone")} />);
-    expect(screen.getByText("Server unreachable")).toBeInTheDocument();
+    expect(screen.getByText("Meridian unreachable")).toBeInTheDocument();
     expect(screen.queryByText(/HTTP/)).toBeNull();
   });
 });
@@ -40,11 +40,11 @@ describe.each([
     });
     const user = userEvent.setup();
     render(<App />);
-    expect(await screen.findByText("Server error")).toBeInTheDocument();
+    expect(await screen.findByText("Meridian error")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(title);
     expect(screen.queryByText(/boom/)).toBeNull();
     await user.click(screen.getByRole("button", { name: "Try again" }));
-    await vi.waitFor(() => expect(screen.queryByText("Server error")).toBeNull());
+    await vi.waitFor(() => expect(screen.queryByText("Meridian error")).toBeNull());
     expect(calls).toBe(2);
   });
 });

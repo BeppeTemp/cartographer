@@ -168,7 +168,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
     response = await fetch(url, { headers, signal, credentials: "same-origin" });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
-    throw new ApiError(0, "offline", "the Cartographer server is unreachable");
+    throw new ApiError(0, "offline", "Meridian is unreachable");
   }
 
   if (!response.ok) {

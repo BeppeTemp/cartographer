@@ -70,7 +70,7 @@ export function Releases({ onClose }: { onClose(): void }) {
       <div className="releases">
         <header className="releases__head">
           <h2 className="releases__title">Releases</h2>
-          {view?.current && <p className="releases__subtitle">This server runs {tag(view.current)}</p>}
+          {view?.current && <p className="releases__subtitle">This Meridian runs {tag(view.current)}</p>}
         </header>
 
         {error ? (
@@ -85,7 +85,7 @@ export function Releases({ onClose }: { onClose(): void }) {
             {view.unavailable && (
               <p className="releases__notice" role="status">
                 {view.unavailable === "disabled"
-                  ? "The update check is off on this server, so the release history is not fetched."
+                  ? "The update check is off on this Meridian, so the release history is not fetched."
                   : "GitHub could not be reached, so the release history is not available right now."}
               </p>
             )}

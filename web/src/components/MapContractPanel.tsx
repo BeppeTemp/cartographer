@@ -106,7 +106,7 @@ export function MapContractPanel({
   const source = (
     <p className="mapcontract__source">
       <code>{m.name}/_map.md</code>
-      <span>Agents change it with map_update; the server checks every write against it.</span>
+      <span>Agents change it with map_update; Meridian checks every write against it.</span>
     </p>
   );
 
@@ -424,8 +424,8 @@ function sections(m: MapContract, concepts: number): Section[] {
             key="index"
             label="Concept list"
             k="index"
-            note={m.index === "generated" ? "the server rewrites it on every write" : "written by hand"}
-            hint="generated: the server keeps the Map's concept list in a marked block of its index.md."
+            note={m.index === "generated" ? "Meridian rewrites it on every write" : "written by hand"}
+            hint="generated: Meridian keeps the Map's concept list in a marked block of its index.md."
           >
             {m.index}
           </Row>

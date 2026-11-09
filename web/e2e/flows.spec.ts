@@ -378,7 +378,7 @@ test("a 500 stays inside the graph panel", async ({ page }) => {
   );
   await page.goto(ATLAS);
   const main = page.getByRole("main");
-  await expect(main.getByRole("alert")).toContainText("Server error");
+  await expect(main.getByRole("alert")).toContainText("Meridian error");
   await expect(page.getByRole("navigation", { name: "Atlas navigation" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Infrastructure/ })).toBeVisible();
   await expect(page.getByRole("complementary")).toHaveCount(0);
@@ -389,7 +389,7 @@ test("an unreachable server is named, not blank", async ({ page }) => {
   await waitForAtlas(page);
   await page.route("**/api/ui/v1/**", (route) => route.abort("connectionrefused"));
   await page.getByRole("button", { name: /Infrastructure/ }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("Server unreachable");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Meridian unreachable");
   await expect(page.getByRole("status").filter({ hasText: "Disconnected" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Atlas navigation" })).toBeVisible();
 });

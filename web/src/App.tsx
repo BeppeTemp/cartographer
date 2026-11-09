@@ -860,7 +860,7 @@ export function App() {
           ) : kbs.length === 0 ? (
             <EmptyState
               title="No Knowledge Base is visible"
-              detail="This server has no KB mounted that your token can read."
+              detail="This Meridian has no KB mounted that your token can read."
             />
           ) : view.panel === "activity" && activeKB ? (
             <Activity

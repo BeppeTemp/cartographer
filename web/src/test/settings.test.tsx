@@ -35,7 +35,7 @@ const SETTINGS = {
 /** The page opens on the viewer's client: the server's keys are one tab away. */
 async function openServer(user: ReturnType<typeof userEvent.setup>) {
   const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-  await user.click(within(tabs).getByRole("tab", { name: /^Server/ }));
+  await user.click(within(tabs).getByRole("tab", { name: /^Meridian/ }));
 }
 
 describe("the Settings panel", () => {
@@ -65,7 +65,7 @@ describe("the Settings panel", () => {
     // The table says the default and who set it.
     expect(within(sync).getByText("environment")).toBeVisible();
     expect(within(sync).getByText("CARTOGRAPHER_GIT_SYNC")).toBeVisible();
-    expect(within(sync).getByText(/after the server restarts/)).toBeVisible();
+    expect(within(sync).getByText(/after Meridian restarts/)).toBeVisible();
     const tokens = within(screen.getByRole("list", { name: "Access settings" })).getByText("auth.tokens").closest("li")!;
     expect(within(tokens).getByLabelText("Value of auth.tokens")).toHaveTextContent("(set)");
   });
@@ -91,8 +91,8 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     // The page opens on the viewer's client; a tab names what it holds, no count.
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server", "Knowledge Base", "Surveyor"]);
-    expect(within(tabs).getByRole("tab", { name: "Client" })).toHaveAttribute("aria-selected", "true");
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Compass", "Meridian", "Knowledge Base", "Surveyor"]);
+    expect(within(tabs).getByRole("tab", { name: "Compass" })).toHaveAttribute("aria-selected", "true");
     await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
     const writes = screen.getByRole("list", { name: "KB kb-a Maintenance settings" });
     expect(within(writes).getByText("usage_stale_days")).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe("the Settings panel", () => {
     await user.click(screen.getByRole("button", { name: "YAML" }));
     const file = screen.getByLabelText("kb-a/settings.yaml");
     expect(file).toHaveTextContent("usage_stale_days: 30 # from the server's kbs[] entry");
-    await user.click(within(tabs).getByRole("tab", { name: /^Server/ }));
+    await user.click(within(tabs).getByRole("tab", { name: /^Meridian/ }));
     const server = screen.getByLabelText("config.yaml");
     expect(server).toHaveTextContent("sync: false # from CARTOGRAPHER_GIT_SYNC");
     // Select-all with the pointer over the file selects the file, not the page.
@@ -156,18 +156,18 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs).getByRole("tab", { name: /^Client/ }));
+    await user.click(within(tabs).getByRole("tab", { name: /^Compass/ }));
     expect(screen.getByRole("heading", { name: "laptop" })).toBeInTheDocument();
-    expect(screen.getByText(/Client v-client · reported/)).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server.url");
-    expect(screen.getByRole("list", { name: "Client Local paths settings" })).toHaveTextContent("placeholders.paths");
-    expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update_check");
+    expect(screen.getByText(/Compass v-client · reported/)).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Compass Connection settings" })).toHaveTextContent("server.url");
+    expect(screen.getByRole("list", { name: "Compass Local paths settings" })).toHaveTextContent("placeholders.paths");
+    expect(screen.getByRole("list", { name: "Compass Updates & sync settings" })).toHaveTextContent("update_check");
     // A map is a table under its row, its size beside the key.
     expect(screen.getByLabelText("Value of providers")).toHaveTextContent("2 entries");
     expect(screen.getByLabelText("Entries of providers")).toHaveTextContent("codex");
-    expect(screen.getByRole("list", { name: "Client KB options settings" })).toHaveTextContent("knowledge_bases");
+    expect(screen.getByRole("list", { name: "Compass KB options settings" })).toHaveTextContent("knowledge_bases");
     // Below the settings, one section per KB with its own client settings, named by their YAML key.
-    const kbA = screen.getByRole("list", { name: "Client settings of kb-a" });
+    const kbA = screen.getByRole("list", { name: "Compass settings of kb-a" });
     expect(within(kbA).getByLabelText("Value of providers.<agent>.kbs")).toHaveTextContent("claude");
     // The identity and the pins of the KB come out of the knowledge_bases group.
     expect(within(kbA).getByLabelText("Value of knowledge_bases.kb-a.identity")).toHaveTextContent("User <user@example.com>");
@@ -254,11 +254,11 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs).getByRole("tab", { name: "Client" }));
+    await user.click(within(tabs).getByRole("tab", { name: "Compass" }));
     // workspaces is set per KB: it reads in each KB's section, under its YAML key.
-    expect(screen.queryByRole("list", { name: "Client Agents settings" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Compass Agents settings" })).toBeNull();
     expect(
-      within(screen.getByRole("list", { name: "Client settings of kb-a" })).getByLabelText("Value of providers.<agent>.workspaces"),
+      within(screen.getByRole("list", { name: "Compass settings of kb-a" })).getByLabelText("Value of providers.<agent>.workspaces"),
     ).toHaveTextContent("everywhere");
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("# workspaces:");
@@ -271,7 +271,7 @@ describe("the Settings panel", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    expect(within(tabs).getByRole("tab", { name: "Client" })).toHaveAttribute("aria-selected", "true");
+    expect(within(tabs).getByRole("tab", { name: "Compass" })).toHaveAttribute("aria-selected", "true");
     expect(window.location.search).toContain("panel=settings");
   });
 

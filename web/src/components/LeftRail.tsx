@@ -283,7 +283,7 @@ export function LeftRail({
               className="rail__version"
               title="Release history"
               aria-haspopup="dialog"
-              aria-label={`Server version ${versionLabel}: release history`}
+              aria-label={`Meridian version ${versionLabel}: release history`}
               onClick={onOpenReleases}
             >
               {versionLabel}
