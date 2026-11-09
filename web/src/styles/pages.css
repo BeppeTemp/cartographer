@@ -2689,8 +2689,8 @@ button.row {
   color: var(--border-strong);
 }
 
-/* Work's strip of workers and feeds in error (D1259), read-only. */
-.workers {
+/* Work's strip of surveyors and feeds in error (D1259), read-only. */
+.surveyors {
   display: grid;
   gap: var(--space-2);
   margin: 0 0 var(--space-4);
@@ -2698,7 +2698,7 @@ button.row {
   color: var(--text-secondary);
 }
 
-.workers__list {
+.surveyors__list {
   display: grid;
   gap: var(--space-1);
   margin: 0;
@@ -2706,40 +2706,40 @@ button.row {
   list-style: none;
 }
 
-.workers__row {
+.surveyors__row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1) var(--space-3);
 }
 
-.workers__name {
+.surveyors__name {
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.workers__state[data-state="budget_exhausted"],
-.workers__row[data-tone="error"] .workers__error {
+.surveyors__state[data-state="budget_exhausted"],
+.surveyors__row[data-tone="error"] .surveyors__error {
   color: var(--status-error, var(--text-primary));
 }
 
-.workers__meta {
+.surveyors__meta {
   color: var(--text-muted);
 }
 
-.workers__budget {
+.surveyors__budget {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   font-variant-numeric: tabular-nums;
 }
 
-.workers__budget progress {
+.surveyors__budget progress {
   inline-size: 6rem;
   block-size: 0.35rem;
 }
 
-.workers__link {
+.surveyors__link {
   padding: 0;
   border: 0;
   background: none;

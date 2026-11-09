@@ -1,0 +1,85 @@
+package surveyor_test
+
+import (
+	"slices"
+	"testing"
+	"testing/fstest"
+
+	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
+	"github.com/BeppeTemp/cartographer/internal/mcpserver"
+	"github.com/BeppeTemp/cartographer/internal/surveyor"
+)
+
+func TestAllowlist_DenyWinsOverAllowlist(t *testing.T) {
+	for _, n := range []string{"asset_delete", "map_delete", "sync_apply", "snapshot", "ingest_setup"} {
+		if surveyor.NewAllowlist(n).Permits(n) {
+			t.Errorf("%s permitted by a custom list", n)
+		}
+	}
+	a := surveyor.NewAllowlist("concept_read", "concept_delete", "artifact_write", "artifact_zzz", "secret_set")
+	for _, n := range []string{"concept_delete", "artifact_write", "artifact_zzz", "secret_set"} {
+		if a.Permits(n) {
+			t.Errorf("%s permitted", n)
+		}
+	}
+	if !a.Permits("concept_read") {
+		t.Error("concept_read refused")
+	}
+}
+
+func TestAllowlist_DefaultHasNoDeniedName(t *testing.T) {
+	for _, n := range surveyor.DefaultTools() {
+		if surveyor.Denied(n) {
+			t.Errorf("default list names denied tool %s", n)
+		}
+	}
+	a := surveyor.NewAllowlist()
+	if a.Permits("concept_delete") || a.Permits("artifact_read") || a.Permits("not_listed_anywhere") {
+		t.Error("default allowlist too wide")
+	}
+}
+
+func TestAllowlist_FilterSortedAndAbsentIsNotAnError(t *testing.T) {
+	listed := []client.ToolInfo{{Name: "search"}, {Name: "concept_delete"}, {Name: "atlas_overview"}, {Name: "brand_new_tool"}}
+	got := surveyor.NewAllowlist().Filter(listed)
+	if len(got) != 2 || got[0].Name != "atlas_overview" || got[1].Name != "search" {
+		t.Fatalf("filter = %+v", got)
+	}
+}
+
+// A rename on the server fails the build here instead of silently shrinking
+// the allowlist or widening what the deny set was meant to stop.
+func TestAllowlistNamesExistInTheServerRegistry(t *testing.T) {
+	s := mcpserver.New("test")
+	mcpserver.RegisterKBTools(s, kbtest.New(t), mcpserver.Deps{BundleFS: fstest.MapFS{}})
+	tools := s.Tools()
+	var names []string
+	names = append(names, surveyor.DefaultTools()...)
+	names = append(names, surveyor.DenyTools()...)
+	for _, n := range names {
+		if _, ok := tools[n]; !ok {
+			t.Errorf("%s is not a registered tool", n)
+		}
+	}
+	// The default list is read tools plus content writes: no duplicates.
+	d := surveyor.DefaultTools()
+	slices.Sort(d)
+	if len(slices.Compact(d)) != len(d) {
+		t.Error("duplicate in the default list")
+	}
+}
+
+func TestAllowlistRefusesBatchDelete(t *testing.T) {
+	a := surveyor.NewAllowlist()
+	del := []byte(`{"operations":[{"op":"write","id":"a","body":"x"},{"op":"delete","id":"b"}]}`)
+	if !a.RefusesArgs("concept_batch", del) {
+		t.Error("a concept_batch with a delete reaches concept_delete, which is denied")
+	}
+	if a.RefusesArgs("concept_batch", []byte(`{"operations":[{"op":"write","id":"a"},{"op":"patch","id":"b"}]}`)) {
+		t.Error("a batch of writes and patches is fine")
+	}
+	if a.RefusesArgs("concept_write", del) || a.RefusesArgs("concept_batch", []byte(`{`)) {
+		t.Error("only a parsed concept_batch is judged")
+	}
+}

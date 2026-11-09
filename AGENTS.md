@@ -5,7 +5,7 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 ## Commands
 
 ```
-make gate            # gofmt + vet + test + race: everything green before a PR (and what CI runs)
+make gate            # gofmt + vet + test + race: everything green before a PR
 make check           # fast tier (affected packages only)
 make signoff         # maintainer: gate, push, attest the sha (CI's gate)
 make build           # → bin/cartographer
@@ -25,13 +25,13 @@ make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
-make worktree-clean [DRY=1]        # remove worktrees of merged PRs and landed trains, each checked
+make worktree-clean [DRY=1]        # remove worktrees of merged PRs and landed trains
 make dev [DATA=<data dir>]         # live instance: Go rebuilt on change, UI hot-reloaded
 ```
 
 ```bash
-./bin/cartographer serve --kb /path/to/kb             # local stdio server (the KB exists: `kb create`)
-./bin/cartographer serve --config config.yaml         # HTTP/stdio server (YAML, see config.example.yaml)
+./bin/cartographer serve --kb /path/to/kb             # local stdio server
+./bin/cartographer serve --config config.yaml         # HTTP/stdio server (YAML)
 ./bin/cartographer connect|disconnect|status|sync     # multi-provider client (HTTP)
 ./bin/cartographer                                    # TUI dashboard (if TTY), otherwise usage
 ```
@@ -40,7 +40,7 @@ Protocol: JSON-RPC 2.0. Stdio = newline-delimited. HTTP = POST /mcp. Logs on std
 
 ## Rules that apply everywhere
 
-Structural questions about the code (where does X live, who calls Y) are answered with targeted Grep/Explore, then reading only the indicated `file:line` locations.
+Structural questions (where does X live, who calls Y): targeted Grep/Explore, then read only the indicated `file:line` locations.
 
 - the **why** lives in `docs/decisions/`, one file per decision (`ls docs/decisions/D47-*`), current behavior in `docs/` (map in `docs/index.md`);
 - mandates to a coding subagent include the `file:line` pointers already derived.
@@ -63,60 +63,60 @@ Generated from the package doc comments — `make codemap` after adding a packag
 The synopsis says which package to open; what it does is in `go doc <pkg>`.
 
 ```
-cmd/cartographer            Command cartographer is the single binary of the Agentic Wiki
-internal/agents             detects which LLM agent CLIs/apps are installed locally
-internal/artifactsig        signs and verifies provisioning artifact envelopes
-internal/audit              implements Cartographer's local, tamper-evident audit trail
-internal/auth               implements bearer-token authorization for the HTTP transport
-internal/blocktext          implements the marker-delimited "managed block" primitive
-internal/changelog          regroups a release-please changelog by area
-internal/changelog/gen      Command gen runs package changelog
-internal/client             is a minimal MCP client over HTTP (JSON-RPC 2.0)
-internal/clientconfig       reads and writes the client-side `.cartographer.yaml` file
-internal/config             is the server configuration of `cartographer serve`
-internal/configurator       generates the MCP configuration of each agent client
-internal/defaults           holds the local endpoint defaults
-internal/execbit            reports whether the filesystem has the POSIX execute bit
-internal/gitx               provides a git wrapper via os/exec for the Agentic Wiki
-internal/gitx/gitxtest      is a git smart-HTTP server for tests (D996)
-internal/graphalgo          holds the graph algorithms behind the retrieval tools (D242)
-internal/jsonorder          edits a JSON object without reformatting the rest
-internal/kb                 implements the data plane of the OKF knowledge base
-internal/kbtest             copies a pre-built KB into a test directory
-internal/lint               implements deterministic lint checks on a KB scope
-internal/mcpbridge          is the local stdio MCP server scoped to a folder's KBs (D737)
-internal/mcpserver          implements the control plane
-internal/okf                parser/serializer for the YAML subset used in OKF frontmatter
-internal/plugin             reads and checks a Cartographer plugin
-internal/plugin/star        runs the Starlark script of a plugin
-internal/procattr           sets the process attributes every child of Cartographer shares
-internal/provisioning       manages the synchronization of artifacts (skill, agent, hook — D48
-internal/repodocs           keeps this repository navigable by a coding agent
-internal/repoindex          resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
-internal/safewrite          guards client-side writes against symlinks
-internal/search             implements an in-memory inverted keyword index for KB concepts
-internal/service            manages the cartographer MCP server as a native per-user service
-internal/settingschema      describes a settings file's keys once, in code (D747)
-internal/skill              loads and validates SKILL.md files (agentskills.io format)
-internal/skillbundle        embeds the skills shipped inside the binary (bundled/)
-internal/sops               decrypts the sops-encrypted KB secrets a skill runs with
-internal/sqlindex           implements a persistent SQLite-backed keyword index
-internal/testkbs            generates the synthetic test KBs `make dev` serves (D818, D1032)
-internal/testkbs/gen        Command gen writes the testkbs fleet to a data directory
-internal/testtree           snapshots a directory tree in memory and restores it elsewhere
-internal/tray               is the core of the local server's status icon (D1482)
-internal/updatecheck        answers whether a newer release exists and how to upgrade (D254)
-internal/webui              serves the embedded read-only Atlas UI (D227)
-internal/webui/gen          Command webui-provenance fingerprints the Atlas bundle
-internal/worker             is the model client and agent loop of the Surveyor (D1257)
-internal/worker/connector   mounts allowed MCP tools
-internal/worker/feed        handles a feed cursor
-internal/worker/poll        names units
-internal/worker/recipe      lists what changed in a feed Source
-internal/worker/synthesis   is the third task kind of the Surveyor (D1263)
-internal/worker/system      diffs the state of a live system
-internal/worker/workertest  is the deterministic test double of package worker
-internal/workerconfig       holds the key table of the Surveyor config file (D1258)
+cmd/cartographer                Command cartographer is the single binary of the Agentic Wiki
+internal/agents                 detects which LLM agent CLIs/apps are installed locally
+internal/artifactsig            signs and verifies provisioning artifact envelopes
+internal/audit                  implements Cartographer's local, tamper-evident audit trail
+internal/auth                   implements bearer-token authorization for the HTTP transport
+internal/blocktext              implements the marker-delimited "managed block" primitive
+internal/changelog              regroups a release-please changelog by area
+internal/changelog/gen          Command gen runs package changelog
+internal/client                 is a minimal MCP client over HTTP (JSON-RPC 2.0)
+internal/clientconfig           reads and writes the client-side `.cartographer.yaml` file
+internal/config                 is the server configuration of `cartographer serve`
+internal/configurator           generates the MCP configuration of each agent client
+internal/defaults               holds the local endpoint defaults
+internal/execbit                reports whether the filesystem has the POSIX execute bit
+internal/gitx                   provides a git wrapper via os/exec for the Agentic Wiki
+internal/gitx/gitxtest          is a git smart-HTTP server for tests (D996)
+internal/graphalgo              holds the graph algorithms behind the retrieval tools (D242)
+internal/jsonorder              edits a JSON object without reformatting the rest
+internal/kb                     implements the data plane of the OKF knowledge base
+internal/kbtest                 copies a pre-built KB into a test directory
+internal/lint                   implements deterministic lint checks on a KB scope
+internal/mcpbridge              is the local stdio MCP server scoped to a folder's KBs (D737)
+internal/mcpserver              implements the control plane
+internal/okf                    parser/serializer for the YAML subset used in OKF frontmatter
+internal/plugin                 reads and checks a Cartographer plugin
+internal/plugin/star            runs the Starlark script of a plugin
+internal/procattr               sets the process attributes every child of Cartographer shares
+internal/provisioning           manages the synchronization of artifacts (skill, agent, hook — D48
+internal/repodocs               keeps this repository navigable by a coding agent
+internal/repoindex              resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
+internal/safewrite              guards client-side writes against symlinks
+internal/search                 implements an in-memory inverted keyword index for KB concepts
+internal/service                manages the cartographer MCP server as a native per-user service
+internal/settingschema          describes a settings file's keys once, in code (D747)
+internal/skill                  loads and validates SKILL.md files (agentskills.io format)
+internal/skillbundle            embeds the skills shipped inside the binary (bundled/)
+internal/sops                   decrypts the sops-encrypted KB secrets a skill runs with
+internal/sqlindex               implements a persistent SQLite-backed keyword index
+internal/surveyor               is the model client and agent loop of the Surveyor (D1257)
+internal/surveyor/connector     mounts allowed MCP tools
+internal/surveyor/feed          handles a feed cursor
+internal/surveyor/poll          names units
+internal/surveyor/recipe        lists what changed in a feed Source
+internal/surveyor/surveyortest  is the deterministic test double of package surveyor
+internal/surveyor/synthesis     is the third task kind of the Surveyor (D1263)
+internal/surveyor/system        diffs the state of a live system
+internal/surveyorconfig         holds the key table of the Surveyor config file (D1258)
+internal/testkbs                generates the synthetic test KBs `make dev` serves (D818, D1032)
+internal/testkbs/gen            Command gen writes the testkbs fleet to a data directory
+internal/testtree               snapshots a directory tree in memory and restores it elsewhere
+internal/tray                   is the core of the local server's status icon (D1482)
+internal/updatecheck            answers whether a newer release exists and how to upgrade (D254)
+internal/webui                  serves the embedded read-only Atlas UI (D227)
+internal/webui/gen              Command webui-provenance fingerprints the Atlas bundle
 ```
 <!-- codemap:end -->
 

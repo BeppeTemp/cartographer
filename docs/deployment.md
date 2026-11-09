@@ -658,7 +658,7 @@ tasks:                            # in priority order
     model: cloud
 ```
 
-The key table is `internal/workerconfig`. A task `kind` must be registered in the binary; a config can
+The key table is `internal/surveyorconfig`. A task `kind` must be registered in the binary; a config can
 name only the kinds the binary registers: `ingest` (D1260), `poll` (§The `poll` task), `prompt` (§Prompt tasks) and `synthesis` (D1263).
 
 **The `ingest` task (D1260).** It executes the `IngestUnit`s of a campaign: per KB, one `work_list` of `type=IngestUnit`,
@@ -882,11 +882,11 @@ The Surveyor reads `kb_review` itself, at no token cost, up to 500 items per kin
 **What the words trust.** The guard limits where a write lands, not what it says: a model reads the pages it edits, so text in a page can steer it inside its fence. With `pages`, `archive` or `structure` someone who can write a page can have a run write to the pages an item names, or to a map's index (`index_unclassified`), and with `archive` the author of a journal entry chooses the pages it links, and so where a run may write, and an item can add a link that a later item or run follows. Turn them on for a KB whose writers you trust. The default is narrower, not immune: a repair is mechanical, but a rule always on is a model reading a page, so a page's writer can steer whether the item's pages are closed or suspended and the text of `waiting_on`.
 
 **The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
-idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the Surveyor's heartbeat, `POST /api/workers`: [control-plane](control-plane.md) §Surveyor heartbeat; until the Surveyor beats, it is
-window-only). **Beat, settings, idle (D1259).** The Surveyor declares itself with `POST /api/workers` from its own goroutine: once at
+idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the Surveyor's heartbeat, `POST /api/surveyors`: [control-plane](control-plane.md) §Surveyor heartbeat; until the Surveyor beats, it is
+window-only). **Beat, settings, idle (D1259).** The Surveyor declares itself with `POST /api/surveyors` from its own goroutine: once at
 start (before the triggers are read, so `--once` has the idle signal), every 60 s, and once with `state: stopped`
 on a clean exit; the instance id is the perimeter `name`, `-` and six random hex characters. Right after the first
-beat it posts its settings to `POST /api/worker-settings` (typed scalar entries, never a secret: an `*_env` value
+beat it posts its settings to `POST /api/surveyor-settings` (typed scalar entries, never a secret: an `*_env` value
 is a variable name followed by `(set)` or `(unset)`, a URL has no userinfo, models and tasks are not listed), and
 again whenever a beat answers `settings_wanted`. The idle time is the answer's `now` minus `last_activity_at`
 (or `server_started_at` when `null`), plus the local time since the answer; an answer older than three beats, a
@@ -898,7 +898,7 @@ or **8 model profiles**.
 
 A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:
 the first `tasks` entry whose profile still has a grant and whose kind finds a unit of work, then the walk
-restarts from the first entry. A failing task is not retried in the same run; repeated errors on a KB (the limit is `maxConsecutiveErrors` in `internal/worker/runner.go`)
+restarts from the first entry. A failing task is not retried in the same run; repeated errors on a KB (the limit is `maxConsecutiveErrors` in `internal/surveyor/runner.go`)
 skip it until the next poll (this is also how a token with read but no write grant shows up). A revoked token
 (401) or a refused host (403) ends the process with exit 1. A profile whose model API rejects the credential
 is off for the rest of the run and tried again at the next one. A run closes with one `log_append` per KB it

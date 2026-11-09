@@ -4,6 +4,8 @@ topic: architecture
 
 # D1442 — The background role is the Surveyor, the command `cartographer surveyor`
 
+> **Partly superseded by [D1856](D1856-surveyor-rename.md)**: the packages, files, routes, wire fields and ScopeWorker are renamed; the command, the no-alias rule and the gray-area rule stand.
+
 **Decision.** The role D1258 introduced (a process for one perimeter of KBs) is named the Surveyor; its
 command is `cartographer surveyor` and its sub-command `cartographer surveyor source test`. Atlas (the UI) and
 the Surveyor are the only component nicknames that become artifact names; `server` and `client` stay plain words,

@@ -3,15 +3,15 @@ package mcpserver
 import "time"
 
 // touchActivity records that a principal used this KB, for the idle signal the
-// worker heartbeat answers with (uiapi_workers.go).
+// surveyor heartbeat answers with (uiapi_surveyors.go).
 //
 // Two calls are deliberately not activity:
 //   - sync_pull: `cartographer sync` runs it from a 30-minute timer on every
 //     KB a client serves, so counting it would keep every connected KB
 //     "active" and an idle trigger of 30 minutes or more could never fire;
-//   - a call by a principal with a LIVE worker declaration: a worker's own
+//   - a call by a principal with a LIVE surveyor declaration: a surveyor's own
 //     work must not keep the KB busy. Only a live declaration excludes, so a
-//     worker that stopped beating for three intervals counts as a person.
+//     surveyor that stopped beating for three intervals counts as a person.
 //
 // It runs in callToolChecked after authorization and the audit attempt, so a
 // denied call, an unknown tool, a call refused by the argument check and one
@@ -20,7 +20,7 @@ func (s *Server) touchActivity(principal, tool string) {
 	if tool == "sync_pull" {
 		return
 	}
-	if s.liveWorker != nil && s.liveWorker(principal) {
+	if s.liveSurveyor != nil && s.liveSurveyor(principal) {
 		return
 	}
 	s.activity.Store(s.now().UnixNano())

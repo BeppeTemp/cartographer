@@ -83,7 +83,7 @@ installed from a source, pinned to a digest and enabled only after the user appr
 in it (Starlark) can reach only what its manifest grants. A server never hosts or loads a plugin. See
 [plugins](plugins.md).
 
-The Surveyor's model client, allowlist, loop and budgets live in `internal/worker` (see `internal/worker/AGENTS.md`), and `serve` never links that package. The model client (Anthropic Messages and OpenAI-compatible chat completions over `net/http`, token usage reported per call) is driven by a Surveyor, a headless MCP client of the public contract, with its own tool loop (D1257). The allowlist (`allow.go`: a hard deny set plus an explicit default list, enforced on what is offered and on every call) and the bounded loop (`loop.go`: step and token caps, tool errors fed back to the model, transport errors abort) run on top of it; `workertest` holds the scripted model and tool doubles.
+The Surveyor's model client, allowlist, loop and budgets live in `internal/surveyor` (see `internal/surveyor/AGENTS.md`), and `serve` never links that package. The model client (Anthropic Messages and OpenAI-compatible chat completions over `net/http`, token usage reported per call) is driven by a Surveyor, a headless MCP client of the public contract, with its own tool loop (D1257). The allowlist (`allow.go`: a hard deny set plus an explicit default list, enforced on what is offered and on every call) and the bounded loop (`loop.go`: step and token caps, tool errors fed back to the model, transport errors abort) run on top of it; `surveyortest` holds the scripted model and tool doubles.
 
 ## Where to continue
 

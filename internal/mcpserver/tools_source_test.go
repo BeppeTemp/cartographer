@@ -844,9 +844,9 @@ func TestConceptDeleteUnreadableSourceStillCountsCiters(t *testing.T) {
 	}
 }
 
-// D1262: the worker keeps a feed's cursor in the Source's own frontmatter,
+// D1262: the surveyor keeps a feed's cursor in the Source's own frontmatter,
 // written with concept_patch under if_match. The arguments below are what
-// internal/worker/feed builds (this package cannot import the worker).
+// internal/surveyor/feed builds (this package cannot import the surveyor).
 func TestFeedFieldsRoundTripThroughConceptPatchAndLint(t *testing.T) {
 	t.Parallel()
 	k, s := sourceFixture(t, true)

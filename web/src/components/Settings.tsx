@@ -7,7 +7,7 @@ import type {
   SettingOrigin,
   SettingsClient,
   SettingsKB,
-  SettingsWorker,
+  SettingsSurveyor,
   SettingsView,
   Whoami,
   WhoamiRule,
@@ -258,14 +258,14 @@ export function Settings({
   const client = tab.startsWith("client")
     ? (clients.find((c) => `client:${c.machine}` === tab) ?? clients[0] ?? null)
     : undefined;
-  // A worker tab opens on its perimeter; with none reported, on the template.
-  const workers = view.workers ?? [];
+  // A surveyor tab opens on its perimeter; with none reported, on the template.
+  const surveyors = view.surveyors ?? [];
   // Tabs are keyed by position: two principals can run the same perimeter name.
-  const worker = tab.startsWith("worker") ? (workers[Number(tab.split(":")[1])] ?? workers[0] ?? null) : undefined;
-  const workerId = worker ? `worker:${workers.indexOf(worker)}` : "worker";
+  const surveyor = tab.startsWith("surveyor") ? (surveyors[Number(tab.split(":")[1])] ?? surveyors[0] ?? null) : undefined;
+  const surveyorId = surveyor ? `surveyor:${surveyors.indexOf(surveyor)}` : "surveyor";
   const current =
-    worker !== undefined
-      ? workerId
+    surveyor !== undefined
+      ? surveyorId
       : client !== undefined
         ? client
           ? `client:${client.machine}`
@@ -279,8 +279,8 @@ export function Settings({
       <PageHeader
         eyebrow="Settings"
         title={
-          worker !== undefined
-            ? (worker?.perimeter ?? "Surveyor")
+          surveyor !== undefined
+            ? (surveyor?.perimeter ?? "Surveyor")
             : client !== undefined
               ? (client?.machine ?? "Client")
               : kb
@@ -289,9 +289,9 @@ export function Settings({
         }
         subtitle={
           <>
-            {worker !== undefined
-              ? worker
-                ? `Surveyor${worker.version ? ` ${worker.version}` : ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · ${worker.kbs.join(", ")} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
+            {surveyor !== undefined
+              ? surveyor
+                ? `Surveyor${surveyor.version ? ` ${surveyor.version}` : ""} · ${surveyor.replicas} replica${surveyor.replicas === 1 ? "" : "s"} · ${surveyor.kbs.join(", ")} · reported ${new Date(surveyor.received_at).toLocaleString("en")} · read-only`
                 : "No Surveyor has reported: every key at its default, read-only"
               : client
                 ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
@@ -341,11 +341,11 @@ export function Settings({
               Knowledge Base
             </Tab>
           )}
-          {(workers.length ? workers : [null]).map((w, i) => {
-            const id = w ? `worker:${i}` : "worker";
+          {(surveyors.length ? surveyors : [null]).map((w, i) => {
+            const id = w ? `surveyor:${i}` : "surveyor";
             return (
               <Tab key={id} id={id} current={current === id} onSelect={setTab}>
-                {w && workers.length > 1 ? `Surveyor · ${w.perimeter}` : "Surveyor"}
+                {w && surveyors.length > 1 ? `Surveyor · ${w.perimeter}` : "Surveyor"}
               </Tab>
             );
           })}
@@ -353,8 +353,8 @@ export function Settings({
       </div>
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
-        {worker !== undefined ? (
-          <WorkerPanel worker={worker} template={view.worker_template} mode={mode} query={query} />
+        {surveyor !== undefined ? (
+          <SurveyorPanel surveyor={surveyor} template={view.surveyor_template} mode={mode} query={query} />
         ) : client !== undefined ? (
           <ClientValues.Provider value={true}>
             <ClientPanel
@@ -534,19 +534,19 @@ function ClientPanel({
   );
 }
 
-/** A worker perimeter's reported settings (D1259), keys grouped by first path segment so a new task kind needs no entry here. */
-function WorkerPanel({
-  worker,
+/** A surveyor perimeter's reported settings (D1259), keys grouped by first path segment so a new task kind needs no entry here. */
+function SurveyorPanel({
+  surveyor,
   template,
   mode,
   query,
 }: {
-  worker: SettingsWorker | null;
+  surveyor: SettingsSurveyor | null;
   template?: { entries: SettingEntry[] };
   mode: Mode;
   query: string;
 }) {
-  const source = worker ?? template;
+  const source = surveyor ?? template;
   const groups = new Map<string, SettingEntry[]>();
   for (const e of (source?.entries ?? []).filter((e) => matches(e, query))) {
     const g = e.key.split(/[.[]/)[0]!;

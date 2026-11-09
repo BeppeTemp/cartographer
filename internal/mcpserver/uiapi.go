@@ -167,8 +167,8 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiChecks(w, k)
 	case "work":
 		uiWork(w, r, srv)
-	case "workers":
-		m.uiWorkers(w, r, segments[1], srv)
+	case "surveyors":
+		m.uiSurveyors(w, r, segments[1], srv)
 	case "feeds":
 		uiFeeds(w, r, srv)
 	case "placeholders":
