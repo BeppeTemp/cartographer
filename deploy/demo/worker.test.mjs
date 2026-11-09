@@ -216,6 +216,27 @@ test("the classifier passes safe, names the category of unsafe, and fails closed
   assert.equal((await classify(undefined, "c", "m")).ok, false);
 });
 
+test("a classifier failure logs its kind and nothing the visitor wrote", async () => {
+  const lines = [];
+  const orig = console.log;
+  console.log = (...a) => lines.push(a.join(" "));
+  try {
+    const refused = { ok: false, reason: "Moderation is unavailable, try again later." };
+    const client = "client-secret-name";
+    const message = "message-secret-text";
+    assert.deepEqual(await classify({ run: async () => { throw new Error("quota: secret-text"); } }, client, message), refused);
+    await classify({ run: () => new Promise(() => {}) }, client, message, 20);
+    await classify(ai({ response: "???" }), client, message);
+    assert.equal(lines.length, 3);
+    assert.match(lines[0], /^classify failed: Error: quota/);
+    assert.equal(lines[1], "classify failed: timeout");
+    assert.equal(lines[2], "classify failed: unrecognised answer");
+    for (const l of lines) assert.doesNotMatch(l, /client-secret-name|message-secret-text/);
+  } finally {
+    console.log = orig;
+  }
+});
+
 // --- routing, CORS, cache ------------------------------------------------------
 
 test("the routing table", () => {
