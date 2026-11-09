@@ -187,6 +187,7 @@ type doctorGuard struct {
 	maxW    int
 	applied int
 	refused int  // consecutive writes the server refused
+	denied  int  // writes that did not land, for the item's log line
 	capped  bool // a write met the cap: the item may be half done
 	rule    doctorRule
 	pages   []string
@@ -205,6 +206,8 @@ func (g *doctorGuard) CallTool(name string, args any) (client.ToolOutput, error)
 		return g.inner.CallTool(name, args)
 	}
 	refuse := func(text string) (client.ToolOutput, error) {
+		g.denied++
+		log.Printf("worker: doctor: %s: %s refused: %s", g.key, name, oneLineClip(text, 120))
 		return client.ToolOutput{IsError: true, Text: "refused: " + text}, nil
 	}
 	if !slices.Contains(g.rule.tools(), name) {
@@ -232,6 +235,12 @@ func (g *doctorGuard) CallTool(name string, args any) (client.ToolOutput, error)
 	}
 	out, err := g.inner.CallTool(name, call)
 	if err != nil || out.IsError {
+		why := out.Text
+		if err != nil {
+			why = err.Error()
+		}
+		g.denied++
+		log.Printf("worker: doctor: %s: %s failed: %s", g.key, name, oneLineClip(why, 120))
 		if g.refused++; g.refused >= maxRefusedWrites {
 			return out, errDoctorRefused
 		}
@@ -670,8 +679,8 @@ func (d *doctorInstance) queue(tools ToolCaller) ([]doctorItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []doctorItem
 	byKind := map[string][]doctorItem{}
+	var byRule [][]doctorItem
 	for _, r := range doctorRules {
 		if r.allow != "" && !d.allows(r.allow) {
 			continue
@@ -683,16 +692,35 @@ func (d *doctorInstance) queue(tools ToolCaller) ([]doctorItem, error) {
 			}
 			byKind[r.kind] = items
 		}
+		var fit []doctorItem
 		for _, it := range items {
 			if it.Check == r.check && len(it.Concepts) > 0 && (!r.offers || len(it.Proposal) > 0) && !seen[it.key()] {
 				it.rule = r
-				if out = append(out, it); len(out) == doctorReviewItems {
-					return out, nil
-				}
+				fit = append(fit, it)
 			}
 		}
+		byRule = append(byRule, fit)
 	}
-	return out, nil
+	return takeTurns(byRule, doctorReviewItems), nil
+}
+
+// takeTurns deals at most n items one rule at a time, so a check with a long queue
+// does not keep the others out of every run.
+func takeTurns(byRule [][]doctorItem, n int) []doctorItem {
+	var out []doctorItem
+	for turn := 0; len(out) < n; turn++ {
+		dealt := false
+		for _, items := range byRule {
+			if turn < len(items) && len(out) < n {
+				out = append(out, items[turn])
+				dealt = true
+			}
+		}
+		if !dealt {
+			break
+		}
+	}
+	return out
 }
 
 // Next offers the KB when there is something to repair or an item left to
@@ -810,7 +838,8 @@ func (d *doctorInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Resu
 		if ctx.Err() != nil || remaining < doctorMinGrant || guard.applied >= guard.maxW {
 			break
 		}
-		guard.rule, guard.pages, guard.key, guard.offer, guard.targets = it.rule, it.Concepts, it.key(), it.Proposal, nil
+		guard.rule, guard.pages, guard.key, guard.offer, guard.targets, guard.denied = it.rule, it.Concepts, it.key(), it.Proposal, nil, 0
+		before := guard.applied
 		if it.rule.carries {
 			guard.targets = linkTargets(rt.Tools, it.Concepts)
 		}
@@ -819,6 +848,7 @@ func (d *doctorInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Resu
 		agent := NewAgent(rt.Model, guard, NewAllowlist(it.rule.tools()...), lim)
 		out, err := agent.Run(ctx, Task{System: doctorSystem(it), User: d.prompt(it)})
 		res.measure(out)
+		log.Printf("worker: doctor: %s on %s: %v, %d steps, %d writes, %d did not land", guard.key, rt.KB, out.Reason, out.Steps, guard.applied-before, guard.denied)
 		if err != nil {
 			runErr = err
 			if errors.Is(err, ErrModelAuth) || errors.Is(err, errDoctorRefused) || ctx.Err() != nil {

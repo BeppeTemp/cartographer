@@ -1,10 +1,13 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -256,6 +259,22 @@ func TestDoctorStopsAtTheGrantAndAtTheCaps(t *testing.T) {
 		t.Errorf("queue %d err %v", len(got), err)
 	}
 
+	// A long check does not keep the others out of a run.
+	var long []doctorItem
+	for i := range doctorReviewItems + 2 {
+		long = append(long, doctorItem{Kind: "lint_judgement", Check: "template_extra_section", Concepts: []string{fmt.Sprint("t", i)}})
+	}
+	k, d = dueKB(append(long, item("repeated_fact", "a", "b"), item("repeated_fact", "c", "d"), item("harvest_candidate", "j/e"))...)
+	d.allow = []string{doctorAllowPages, doctorAllowArchive}
+	got, err = d.queue(k)
+	turns := map[string]int{}
+	for _, it := range got {
+		turns[it.rule.kind+"/"+it.rule.check]++
+	}
+	if err != nil || len(got) != doctorReviewItems || turns["repeated_fact/"] != 2 || turns["harvest_candidate/"] != 1 {
+		t.Errorf("turns: %v, %d items, err %v", turns, len(got), err)
+	}
+
 	// The items a rule can use may sit past the first page of their kind.
 	mixed := make([]doctorItem, 0, 8)
 	for i := range 6 {
@@ -266,6 +285,43 @@ func TestDoctorStopsAtTheGrantAndAtTheCaps(t *testing.T) {
 	k.perPage = 2
 	if got, err = d.queue(k); err != nil || len(got) != 1 || got[0].Concepts[0] != "y" {
 		t.Errorf("paging: %v err %v", got, err)
+	}
+}
+
+// Turns put a carrying item before one that does not carry: its targets end with it.
+func TestDoctorTargetsEndWithTheirItem(t *testing.T) {
+	k, d := dueKB(item("repeated_fact", "a", "b"), item("harvest_candidate", "j/entry"), item("repeated_fact", "c", "d"))
+	d.allow, k.links = []string{doctorAllowPages, doctorAllowArchive}, map[string][]string{"j/entry": {"live/page"}}
+	m := &doctorScript{turns: []Response{
+		{Stop: StopEnd},
+		{Stop: StopEnd},
+		patchTurn("1", `{"id":"live/page","if_match":"h","old_string":"x","new_string":"y"}`),
+		{Stop: StopEnd},
+	}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil || len(k.patches) != 0 {
+		t.Errorf("err %v, patches %v", err, k.patches)
+	}
+}
+
+// The log says why an item wrote nothing: left, refused by the guard or by the server.
+func TestDoctorLogsWhatDidNotLand(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	k, d := dueKB(item("status_reclassify", "a"))
+	k.failing = true
+	m := &doctorScript{turns: []Response{
+		patchTurn("1", `{"id":"other","if_match":"h","frontmatter":{"status":"done"}}`),
+		patchTurn("2", `{"id":"a","if_match":"h","frontmatter":{"status":"done"}}`),
+		{Stop: StopEnd},
+	}}
+	if _, err := doctorRun(d, k, m, 100_000); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"concept_patch refused: only the pages the item names", "concept_patch failed: forbidden", "0 writes, 2 did not land"} {
+		if !strings.Contains(logged.String(), want) {
+			t.Errorf("log lacks %q:\n%s", want, logged.String())
+		}
 	}
 }
 
