@@ -148,3 +148,18 @@ func TestParseIntervalMustBePositiveWhateverTheMinimum(t *testing.T) {
 		}
 	}
 }
+
+func TestAdvanceWithErrorMovesTheCursorAndSetsTheError(t *testing.T) {
+	f := Feed{ID: "ledger/sys", ContentHash: "h"}
+	a, err := f.AdvanceWithError("h1", "digest", "groups_failed", "2 groups failed\n(a, b)", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm := a["frontmatter"].(map[string]any)
+	if a["if_match"] != "h1" || fm[KeyCursor] != "digest" || fm[KeyError] != "groups_failed: 2 groups failed (a, b)" || fm[KeyCheckedAt] == nil || a["unset"] != nil {
+		t.Errorf("patch = %v", a)
+	}
+	if _, err := f.AdvanceWithError("", "d", "c", "x", t0); err == nil {
+		t.Error("a write without if_match was built")
+	}
+}

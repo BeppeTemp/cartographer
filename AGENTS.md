@@ -114,6 +114,7 @@ internal/worker/feed        handles a feed cursor
 internal/worker/poll        names units
 internal/worker/recipe      lists what changed in a feed Source
 internal/worker/synthesis   is the third task kind of the worker (D11)
+internal/worker/system      diffs the state of a live system
 internal/worker/workertest  is the deterministic test double of package worker
 internal/workerconfig       holds the key table of the worker config file (D21)
 ```

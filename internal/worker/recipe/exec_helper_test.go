@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -90,6 +91,28 @@ func runExecHelper(mode string, args []string) {
 			_ = os.WriteFile(args[0], []byte(strconv.Itoa(c.Process.Pid)), 0o600)
 		}
 		time.Sleep(time.Minute)
+	case "sys": // args[0] = log of the modes received, args[1] = the preflight answer, args[2] = "exit4" (preflight exits 4) or "cursor" (the listing ends with a cursor)
+		b, _ := io.ReadAll(os.Stdin)
+		var m struct{ Mode string }
+		_ = json.Unmarshal(b, &m)
+		f, _ := os.OpenFile(args[0], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		fmt.Fprintln(f, m.Mode)
+		f.Close()
+		if m.Mode == "preflight" {
+			fmt.Fprintln(out, args[1])
+			if len(args) > 2 && args[2] == "exit4" {
+				fmt.Fprintln(os.Stderr, "no kubeconfig")
+				os.Exit(4)
+			}
+			break
+		}
+		fmt.Fprintln(out, `{"entry":{"key":"namespace/a","content":"line1\nline2","revision":"ignored","change":"removed"}}`)
+		fmt.Fprintln(out, `{"entry":{"key":"namespace/b","title":"B","content":"x"}}`)
+		if len(args) > 2 && args[2] == "cursor" { // a lister that stopped early
+			fmt.Fprintln(out, `{"next_cursor":"resume-here"}`)
+		} else {
+			fmt.Fprintln(out, `{"next_cursor":""}`)
+		}
 	case "nullcursor":
 		fmt.Fprintln(out, `{"next_cursor":null}`)
 	case "sleep":

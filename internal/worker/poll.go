@@ -130,8 +130,9 @@ func (in *pollInstance) Bind(cfg *Config, _ Profile) {
 }
 
 type pollItem struct {
-	f    feed.Feed
-	perr error
+	f      feed.Feed
+	perr   error
+	system bool // source_shape: system (D1372): listed after a preflight, diffed by the worker
 }
 
 type listOut struct {
@@ -207,30 +208,35 @@ func (in *pollInstance) Next(_ context.Context, _ string, tools ToolCaller) (*Wo
 	if in.regErr != nil {
 		return nil, in.regErr
 	}
-	l, err := conceptList(tools, map[string]any{
-		"where": []string{"type=Source", "source_shape=feed"}, "fields": feed.QueryFieldsWithHash(), "limit": pollFeedMax,
-	})
-	if err != nil {
-		return nil, err
-	}
 	now := in.now()
 	var best *pollItem
-	for _, r := range l.Results {
-		ent := feed.Entry{ID: r.ID, Fields: plainFields(r.Fields), ContentHash: r.ContentHash}
-		f, perr := feed.Parse(ent, in.def, in.min)
-		due := perr == nil && f.Due(now)
-		if perr != nil {
-			// A feed that does not parse is recorded as bad_field, at most once
-			// per default interval.
-			f = feed.Feed{ID: r.ID, ContentHash: r.ContentHash}
-			if s, ok := ent.Fields[feed.KeyCheckedAt].(string); ok {
-				f.CheckedAt, _ = time.Parse(time.RFC3339, s)
-			}
-			f.Interval = in.def
-			due = f.Due(now)
+	for _, q := range []struct {
+		where  []string
+		system bool
+	}{{[]string{"type=Source", "source_shape=feed"}, false},
+		// ingest_status: skipped is the operator's off switch for a system.
+		{[]string{"type=Source", "source_shape=system", "ingest_status!=skipped"}, true}} {
+		l, err := conceptList(tools, map[string]any{"where": q.where, "fields": feed.QueryFieldsWithHash(), "limit": pollFeedMax})
+		if err != nil {
+			return nil, err
 		}
-		if due && (best == nil || f.CheckedAt.Before(best.f.CheckedAt) || (f.CheckedAt.Equal(best.f.CheckedAt) && f.ID < best.f.ID)) {
-			best = &pollItem{f: f, perr: perr}
+		for _, r := range l.Results {
+			ent := feed.Entry{ID: r.ID, Fields: plainFields(r.Fields), ContentHash: r.ContentHash}
+			f, perr := feed.Parse(ent, in.def, in.min)
+			due := perr == nil && f.Due(now)
+			if perr != nil {
+				// A feed that does not parse is recorded as bad_field, at most once
+				// per default interval.
+				f = feed.Feed{ID: r.ID, ContentHash: r.ContentHash}
+				if s, ok := ent.Fields[feed.KeyCheckedAt].(string); ok {
+					f.CheckedAt, _ = time.Parse(time.RFC3339, s)
+				}
+				f.Interval = in.def
+				due = f.Due(now)
+			}
+			if due && (best == nil || f.CheckedAt.Before(best.f.CheckedAt) || (f.CheckedAt.Equal(best.f.CheckedAt) && f.ID < best.f.ID)) {
+				best = &pollItem{f: f, perr: perr, system: q.system}
+			}
 		}
 	}
 	if best == nil {
@@ -249,7 +255,9 @@ type pollRun struct {
 	res  Result
 
 	seen, sources, created, reused, skipped, removed int
+	superseded                                       int
 	code                                             string // feed_error written, when skipped
+	summary                                          string // set by the system poll
 }
 
 // Run polls one feed.
@@ -259,6 +267,9 @@ func (in *pollInstance) Run(ctx context.Context, item *WorkItem, rt Runtime) (Re
 	err := r.run(ctx, pi)
 	r.res.Units = r.created + r.reused
 	r.res.Summary = fmt.Sprintf("poll %s: %d entries, %d sources registered, %d units created, %d reused, %d already handled, %d removals seen", r.f.ID, r.seen, r.sources, r.created, r.reused, r.skipped, r.removed)
+	if r.summary != "" && r.code == "" {
+		r.res.Summary = r.summary
+	}
 	if r.code != "" {
 		r.res.Summary = fmt.Sprintf("poll %s: skipped, %s", r.f.ID, r.code)
 	}
@@ -325,7 +336,11 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 	switch {
 	case !ok:
 		return r.fail(codeRecipeUnknown, fmt.Sprintf("recipe %q is not known to this worker", f.Recipe))
-	case rec.Shape() != recipe.ShapeFeed:
+	case pi.system && rec.Shape() != recipe.ShapeSystem:
+		// The recipe's shape, not the Source's label, decides whether the preflight
+		// applies: a mismatch either way is refused, so a KB writer cannot dodge it.
+		return r.fail(codeRecipeShape, fmt.Sprintf("recipe %q does not list a system", f.Recipe))
+	case !pi.system && rec.Shape() != recipe.ShapeFeed:
 		return r.fail(codeRecipeShape, fmt.Sprintf("recipe %q does not list a feed", f.Recipe))
 	}
 	if hosts, builtin := in.hosts[f.Recipe]; builtin {
@@ -377,6 +392,9 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 	}
 	if !strings.Contains(planID, "/") && len(ids) == 0 {
 		return r.fail(codeUnitRefused, "the plan is not inside a map, so there is no map for its units")
+	}
+	if pi.system {
+		return r.runSystem(ctx, rec, planID, maps, unitMap)
 	}
 	// 4. List (no model).
 	lctx, cancel := context.WithTimeout(ctx, pollListTimeout)
