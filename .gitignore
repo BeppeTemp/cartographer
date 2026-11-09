@@ -46,3 +46,7 @@ film/out/
 
 # Partial-write files of a copy tool, never ours.
 .!*
+
+# Python bytecode of the example listers.
+__pycache__/
+*.pyc
