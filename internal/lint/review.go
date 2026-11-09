@@ -177,6 +177,51 @@ func SeriesSiblings(titleA, idA, titleB, idB string) bool {
 	return differ
 }
 
+// QualifierSiblings reports two sibling pages that are variants of one subject
+// told apart by a qualifier ("Weakness w-100 Python" / "Weakness w-100 Rust"):
+// both ids share a non-empty parent, their last segments differ, and every title
+// token on which the titles differ is a token of those two last segments, with at
+// least one such token on each side (a title that only extends the other is
+// not a variant). Any other differing word keeps the pair compared. Shared
+// by duplicate_candidate and the `similar` advice on creation, like SeriesSiblings.
+func QualifierSiblings(titleA, idA, titleB, idB string) bool {
+	ia, ib := strings.LastIndex(idA, "/"), strings.LastIndex(idB, "/")
+	if ia <= 0 || ib <= 0 || idA[:ia] != idB[:ib] || idA[ia+1:] == idB[ib+1:] {
+		return false
+	}
+	segTokens := func(seg string) map[string]bool {
+		return TitleTokens(strings.Map(func(r rune) rune {
+			if r == '-' || r == '_' {
+				return ' '
+			}
+			return r
+		}, seg))
+	}
+	seg := segTokens(idA[ia+1:])
+	for t := range segTokens(idB[ib+1:]) {
+		seg[t] = true
+	}
+	ta, tb := TitleTokens(titleA), TitleTokens(titleB)
+	// Both titles must carry a word of their own: a title that only extends the
+	// other ("Foo Group Sync" / "Foo Sync") is a satellite, not a variant.
+	for _, pair := range [][2]map[string]bool{{ta, tb}, {tb, ta}} {
+		own := false
+		for t := range pair[0] {
+			if pair[1][t] {
+				continue
+			}
+			if !seg[t] {
+				return false
+			}
+			own = true
+		}
+		if !own {
+			return false
+		}
+	}
+	return true
+}
+
 // ReviewItem is one entry of the doctor's work list.
 type ReviewItem struct {
 	Kind     string   `json:"kind"`
@@ -598,7 +643,7 @@ func duplicateItems(concepts []*reviewConcept, contracts map[string]kb.MapContra
 					continue
 				}
 				pair := [2]okf.ConceptID{c.id, other}
-				if paired[pair] || namedAfterParent(c.id, other, titles) || SeriesSiblings(titles[c.id], string(c.id), titles[other], string(other)) {
+				if paired[pair] || namedAfterParent(c.id, other, titles) || SeriesSiblings(titles[c.id], string(c.id), titles[other], string(other)) || QualifierSiblings(titles[c.id], string(c.id), titles[other], string(other)) {
 					continue
 				}
 				if pairClosed(c.id, other, ts, tokens[other], links) {

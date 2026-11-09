@@ -268,7 +268,7 @@ func TestUIAPI_MaintenanceReview(t *testing.T) {
 	t.Parallel()
 	k, _ := autoRepairKB(t)
 	k.AuthName = "docs"
-	for id, title := range map[string]string{"infra/k3s-worker-gpu-node": "K3s Worker GPU Node", "infra/k3s-worker-vpn-node": "K3s Worker VPN Node"} {
+	for id, title := range map[string]string{"infra/k3s-worker-1": "K3s Worker GPU Node", "infra/k3s-worker-2": "K3s Worker VPN Node"} {
 		fm := newFM()
 		fm.Set("type", "Entity")
 		fm.Set("title", title)
