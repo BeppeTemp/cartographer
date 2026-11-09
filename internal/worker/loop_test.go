@@ -185,7 +185,8 @@ func TestRun_TokenCapBeforeCallAndAfterToolUse(t *testing.T) {
 }
 
 func TestRun_TruncatedAndOther(t *testing.T) {
-	f := &workertest.Fake{Turns: []worker.Response{{Text: "half", Stop: worker.StopMaxTokens}}}
+	half := worker.Response{Text: "half", Stop: worker.StopMaxTokens}
+	f := &workertest.Fake{Turns: []worker.Response{half, half}}
 	if out, _ := run(t, f, standardTools(), worker.Limits{}); out.Reason != worker.ReasonTruncated {
 		t.Errorf("%+v", out)
 	}
@@ -331,5 +332,52 @@ func TestRun_BatchDeleteIsRefusedLocally(t *testing.T) {
 	out, err := run(t, f, tools, worker.Limits{})
 	if err != nil || out.Refused != 1 || tools.Calls["concept_batch"] != 0 {
 		t.Fatalf("%+v %v calls=%v", out, err, tools.Calls)
+	}
+}
+
+func TestRun_ClosingNoticeOnce(t *testing.T) {
+	big := use(tc("1", "search", `{}`))
+	big.Usage = worker.Usage{InputTokens: 800, OutputTokens: 10}
+	f := &workertest.Fake{Turns: []worker.Response{big, big, end("closed")}}
+	out, err := run(t, f, standardTools(), worker.Limits{MaxContextTokens: 1000})
+	if err != nil || out.Reason != worker.ReasonDone {
+		t.Fatalf("%+v %v", out, err)
+	}
+	notices := 0
+	for _, m := range f.Requests[2].Messages {
+		if strings.Contains(m.Text, "close to the limit") {
+			notices++
+			if len(m.ToolResults) != 1 {
+				t.Errorf("notice apart from its results: %+v", m)
+			}
+		}
+	}
+	if notices != 1 || out.MaxPromptTokens != 800 {
+		t.Errorf("notices = %d, outcome %+v", notices, out)
+	}
+}
+
+func TestRun_StopsBeforeAPromptOverTheWindow(t *testing.T) {
+	big := use(tc("1", "search", `{}`))
+	big.Usage = worker.Usage{InputTokens: 990, OutputTokens: 20}
+	f := &workertest.Fake{Turns: []worker.Response{big}}
+	out, err := run(t, f, standardTools(), worker.Limits{MaxContextTokens: 1000})
+	if err != nil || out.Reason != worker.ReasonBudget || out.Steps != 1 {
+		t.Errorf("%+v %v", out, err)
+	}
+}
+
+func TestRun_TruncatedTurnRetriesOnce(t *testing.T) {
+	cut := use(tc("1", "concept_write", `{"incompl`))
+	cut.Stop = worker.StopMaxTokens
+	tools := standardTools()
+	f := &workertest.Fake{Turns: []worker.Response{cut, end("done")}}
+	out, err := run(t, f, tools, worker.Limits{})
+	if err != nil || out.Reason != worker.ReasonDone || tools.Calls["concept_write"] != 0 {
+		t.Fatalf("%+v %v, calls %v", out, err, tools.Calls)
+	}
+	f = &workertest.Fake{Turns: []worker.Response{cut, cut}}
+	if out, err = run(t, f, standardTools(), worker.Limits{}); err != nil || out.Reason != worker.ReasonTruncated {
+		t.Errorf("%+v %v", out, err)
 	}
 }

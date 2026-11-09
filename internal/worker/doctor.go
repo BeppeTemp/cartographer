@@ -39,8 +39,9 @@ const (
 const doctorMarker = "kb-doctor"
 
 // doctorOperatorOnly are tools of the default allowlist an unattended session
-// does not get: a fold or an archive is a judgement the operator makes.
-var doctorOperatorOnly = []string{"concept_merge", "concept_archive"}
+// does not get: a fold, an archive or the shape of a map is a judgement the
+// operator makes.
+var doctorOperatorOnly = []string{"concept_merge", "concept_archive", "map_create", "map_update"}
 
 // doctorTools is the default allowlist minus doctorOperatorOnly, plus the two
 // tools only the doctor needs. kb_repair is writable by design (denyTools says
@@ -282,7 +283,7 @@ func doctorSystem(kb, perimeter, day string, tokens int) (string, error) {
 	}
 	pre := fmt.Sprintf("This session is run by a worker (perimeter %q) on the KB %q, delegated mode: nobody is in the session to ask, "+
 		"and the operator deploying this worker is the one who asked for it. Review-item budget: %d. Token budget for the whole session: %d. "+
-		"Today is %s (UTC). Artifacts cannot be written, and concept_merge and concept_archive are operator-only: record a gap instead. "+
+		"Today is %s (UTC). Artifacts cannot be written, and concept_merge, concept_archive, map_create and map_update are operator-only: record a gap instead. "+
 		"Close with the log_append of step 8 before the tokens run out.\n\n",
 		perimeter, kb, doctorReviewItems, tokens, day)
 	return pre + body, nil
@@ -323,9 +324,10 @@ func (d *doctorInstance) Run(ctx context.Context, _ *WorkItem, rt Runtime) (Resu
 	}
 	guard := &doctorGuard{inner: rt.Tools, maxW: d.maxWrites}
 	agent := NewAgent(rt.Model, guard, NewAllowlist(doctorTools()...),
-		Limits{MaxSteps: doctorMaxSteps, MaxTotalTokens: rt.Grant})
+		rt.Limits(doctorMaxSteps, rt.Grant))
 	out, runErr := agent.Run(ctx, Task{System: system, User: "Run the session on this KB now."})
-	res := Result{Tokens: out.Usage.Total(), Units: 1, Commits: guard.applied}
+	res := Result{Units: 1, Commits: guard.applied}
+	res.measure(out)
 	if ctx.Err() != nil {
 		return res, runErr // shutdown: the runner's own closing entry says so
 	}
