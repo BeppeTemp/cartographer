@@ -381,8 +381,8 @@ jobs:
           terraform_version: 1.9.8
       - run: make demo-tf-check
 
-  # The container's own test stage and a start of the image (D995): nothing else
-  # builds the Dockerfile before release day. Not a required check, main-status
+  # The container's own test stage and a start of the server and Surveyor images
+  # (D995, D1440): nothing else builds the Dockerfile before release day. Not a required check, main-status
   # watches it (the required set is the ruleset's, a maintainer's to change).
   docker:
     name: docker
@@ -413,6 +413,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: test/smoke/image.sh cartographer:ci v0.0.0-ci
+      # The Surveyor image: the `surveyor` stage, same builder layers (D1440).
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: surveyor
+          load: true
+          push: false
+          tags: cartographer-surveyor:ci
+          build-args: |
+            VERSION=v0.0.0-ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: test/smoke/surveyor-image.sh cartographer-surveyor:ci v0.0.0-ci
       # The demo image is built on this one (deploy/demo/Dockerfile), so a
       # Dockerfile change is checked against it too.
       - run: make demo-smoke DEMO_BASE=cartographer:ci
