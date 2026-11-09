@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/worker/recipe"
+	"gopkg.in/yaml.v3"
 )
 
 // The verdict lister of examples/system-recipes/prometheus-verdicts, run through
@@ -23,6 +24,31 @@ import (
 // Skipped where no Python 3 is found.
 
 var verdictDir = filepath.Join("..", "..", "..", "examples", "system-recipes", "prometheus-verdicts")
+
+// exampleTimeout is the timeout the shipped recipe.yaml declares, so the tests run the
+// example as it ships (a cold runner's interpreter start-up must fit in it, #1492).
+func exampleTimeout(t *testing.T, dir string) time.Duration {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "recipe.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Recipes map[string]struct {
+			Exec struct {
+				Timeout string `yaml:"timeout"`
+			} `yaml:"exec"`
+		} `yaml:"recipes"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	d, err := time.ParseDuration(doc.Recipes["metrics-verdicts"].Exec.Timeout)
+	if err != nil || d <= 0 {
+		t.Fatalf("recipe.yaml declares no usable timeout for metrics-verdicts: %q (%v)", doc.Recipes["metrics-verdicts"].Exec.Timeout, err)
+	}
+	return d
+}
 
 const verdictToken = "tok-canary"
 
@@ -109,7 +135,7 @@ func verdictLister(t *testing.T, s *promStub, checks string) recipe.SystemRecipe
 	}
 	env := map[string]string{"METRICS_URL": "METRICS_URL", "METRICS_TOKEN": "METRICS_TOKEN"}
 	return recipe.NewExec(recipe.ExecConfig{Name: "metrics-verdicts", Shape: recipe.ShapeSystem, Command: python(t), Args: []string{script, checks},
-		Env: env, Timeout: time.Minute, MaxOutput: 1 << 20, MaxContent: 8 << 10, Instructions: "x"}).(recipe.SystemRecipe)
+		Env: env, Timeout: exampleTimeout(t, verdictDir), MaxOutput: 1 << 20, MaxContent: 8 << 10, Instructions: "x"}).(recipe.SystemRecipe)
 }
 
 func TestExampleVerdictsPreflight(t *testing.T) {

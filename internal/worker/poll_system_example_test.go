@@ -13,7 +13,33 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/worker/recipe"
+	"gopkg.in/yaml.v3"
 )
+
+// exampleTimeout is the timeout the shipped recipe.yaml declares, so the tests run the
+// example as it ships (a cold runner's interpreter start-up must fit in it, #1492).
+func exampleTimeout(t *testing.T, dir string) time.Duration {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "recipe.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Recipes map[string]struct {
+			Exec struct {
+				Timeout string `yaml:"timeout"`
+			} `yaml:"exec"`
+		} `yaml:"recipes"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	d, err := time.ParseDuration(doc.Recipes["metrics-verdicts"].Exec.Timeout)
+	if err != nil || d <= 0 {
+		t.Fatalf("recipe.yaml declares no usable timeout for metrics-verdicts: %q (%v)", doc.Recipes["metrics-verdicts"].Exec.Timeout, err)
+	}
+	return d
+}
 
 func python3(t *testing.T) string {
 	t.Helper()
@@ -56,7 +82,7 @@ func TestSystemPollWithTheExampleVerdictLister(t *testing.T) {
 	s := newSysEnv(t)
 	s.in = s.instance(Config{ExecRecipes: []recipe.ExecConfig{{Name: "metrics-verdicts", Shape: recipe.ShapeSystem, Command: py,
 		Args: []string{filepath.Join(example, "lister.py"), filepath.Join(example, "checks.json")}, Env: map[string]string{"METRICS_URL": "METRICS_URL"},
-		Timeout: time.Minute, MaxOutput: 1 << 20, MaxContent: 8 << 10, Instructions: "A group is one service."}}})
+		Timeout: exampleTimeout(t, filepath.Join("..", "..", "examples", "system-recipes", "prometheus-verdicts")), MaxOutput: 1 << 20, MaxContent: 8 << 10, Instructions: "A group is one service."}}})
 	s.src().fm["recipe"] = "metrics-verdicts"
 
 	s.mustPoll()
@@ -146,7 +172,7 @@ func TestSystemPollWithTheExampleKubernetesLister(t *testing.T) {
 	t.Setenv("LISTER_FIXTURES_DIR", fix)
 	s := newSysEnv(t)
 	s.in = s.instance(Config{ExecRecipes: []recipe.ExecConfig{{Name: "k8s-dev", Shape: recipe.ShapeSystem, Command: py, Args: []string{filepath.Join(example, "lister.py")},
-		Env: map[string]string{"LISTER_FIXTURES_DIR": "LISTER_FIXTURES_DIR"}, Timeout: time.Minute, MaxOutput: 1 << 20, MaxContent: 64 << 10, Instructions: "x"}}})
+		Env: map[string]string{"LISTER_FIXTURES_DIR": "LISTER_FIXTURES_DIR"}, Timeout: exampleTimeout(t, filepath.Join("..", "..", "examples", "system-recipes", "prometheus-verdicts")), MaxOutput: 1 << 20, MaxContent: 64 << 10, Instructions: "x"}}})
 	s.src().fm["recipe"] = "k8s-dev"
 
 	s.mustPoll()
