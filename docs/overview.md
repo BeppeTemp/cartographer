@@ -18,13 +18,14 @@ in-memory graphs are derived state and can be rebuilt.
 
 ## Runtime shapes
 
-The same binary supports two transports and a third role, the Surveyor:
+The one binary is deployed as four **components**; `deployment.md` §Components has the facts and §Deployment scenarios the ways to run them:
 
-| Shape | Command | Intended use |
+| Component | Command | In one line |
 |---|---|---|
-| Local stdio | `cartographer serve --kb <path>` | One local client connected to one KB |
-| HTTP server | `cartographer serve --config <file>` | One or more KBs, remote clients, optional static bearer authorization |
-| Surveyor | `cartographer surveyor --config <file>` | A background process for one perimeter of KBs, with its own model profiles and budgets; never started by `serve` (§The Surveyor (a third role) in `deployment.md`) |
+| Server | `cartographer serve` | The only stateful component: stdio (one KB, one local client) or HTTP (one or more KBs, remote clients, optional static bearer authorization) |
+| Surveyor | `cartographer surveyor --config <file>` | A background process for one perimeter of KBs, with its own model profiles and budgets; never started by `serve` |
+| Atlas | none (embedded in the Server) | The read-only browser UI at `/ui/`; never deployed on its own |
+| Client | `cartographer connect`, `sync`, `status`, `doctor` | Runs next to the agent and writes its configuration under `$HOME` |
 
 HTTP can be run as a native user service, a container or a Kubernetes
 workload. These are deployment choices, not separate product profiles: the KB
@@ -50,6 +51,7 @@ model and MCP tools are the same.
 flowchart TB
     A["Agents: Claude Code, Codex, Kiro, OpenCode, Antigravity, Crush, Copilot CLI, Pi, Cline"]
     C["Cartographer client: connect / status / sync"]
+    Y["Surveyor: model profiles, budgets, one perimeter"]
     B["Browser: the read-only Atlas at /ui/"]
 
     subgraph S["Cartographer server"]
@@ -81,14 +83,7 @@ installed from a source, pinned to a digest and enabled only after the user appr
 in it (Starlark) can reach only what its manifest grants. A server never hosts or loads a plugin. See
 [plugins](plugins.md).
 
-`internal/worker` holds the model client, loop and runner of the Surveyor: the model
-client (Anthropic Messages and OpenAI-compatible chat completions over
-`net/http`, token usage reported per call) that a Surveyor, a headless MCP client
-of the public contract, drives with its own tool loop (D9, #1257). The
-allowlist (`allow.go`: a hard deny set plus an explicit default list, enforced
-on what is offered and on every call) and the bounded loop (`loop.go`: step and
-token caps, tool errors fed back to the model, transport errors abort) run on
-top of it; `workertest` holds the scripted model and tool doubles.
+The Surveyor's model client, allowlist, loop and budgets live in `internal/worker` (see `internal/worker/AGENTS.md`), and `serve` never links that package. The model client (Anthropic Messages and OpenAI-compatible chat completions over `net/http`, token usage reported per call) is driven by a Surveyor, a headless MCP client of the public contract, with its own tool loop (D9, #1257). The allowlist (`allow.go`: a hard deny set plus an explicit default list, enforced on what is offered and on every call) and the bounded loop (`loop.go`: step and token caps, tool errors fed back to the model, transport errors abort) run on top of it; `workertest` holds the scripted model and tool doubles.
 
 ## Where to continue
 

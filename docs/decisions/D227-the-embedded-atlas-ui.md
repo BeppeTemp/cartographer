@@ -2,6 +2,8 @@
 topic: deployment-release
 ---
 
+> **Amended by [D1439](D1439-four-components-one-binary.md)**: The Atlas is a deployment component of the Server and is never deployed on its own.
+
 # D227 — The embedded Atlas UI
 
 **Decision.** Cartographer ships a read-only web Atlas inside the one binary,
