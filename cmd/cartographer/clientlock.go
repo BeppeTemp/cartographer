@@ -12,7 +12,7 @@ import (
 // writer would win silently.
 //
 // It must not wrap a caller that already holds the lock (realign, doctor,
-// sync, the dashboard): a second descriptor on the same lock file in the same
+// sync): a second descriptor on the same lock file in the same
 // process blocks until the timeout. Such a caller uses clientconfig.Load and
 // Save directly.
 //

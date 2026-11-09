@@ -243,7 +243,7 @@ an `active` one contributes its skills, agents and hooks with their files in mem
   its configured source and ref (a network fetch must not eat the time the lock is waited for); under the lock it
   stores the bytes only if their digest equals the approved one. A different digest is reported and nothing is
   installed. `sync` never approves. `--dry-run` fetches nothing and says `would fetch`.
-- **Status.** `status`, `doctor` and the TUI judge a projection without the lock entries of an unreadable plugin
+- **Status.** `status`, `doctor` and bare `cartographer` judge a projection without the lock entries of an unreadable plugin
   (`splitHeldPlugins`), so a purged store is not drift.
 - **Not announced.** The instructions block names no plugin agent or hook.
 - **Authorization.** A plugin artifact installs only while its plugin is in `ApplyOptions.ActivePlugins`, which a
@@ -420,8 +420,7 @@ approved one. A plugin that waits for consent adds `pending approval: cartograph
 provider it declares adds `provider <id> (plugin <name>, base <base>): connected | detected | not detected`.
 `status` prints the section also when no agent is connected. The state is the one of `plugin list`, plus
 `store unavailable` when the user cache directory the store lives in cannot be used. In `agents` the provider column
-labels a plugin provider `<id> (plugin <name>, base <base>)`, and the dashboard (`cartographer` with no arguments)
-shows the same section under the agents, with the plugin and its display name escaped.
+labels a plugin provider `<id> (plugin <name>, base <base>)`; with the plugin and its display name escaped.
 
 The JSON snapshot keeps its schema (`cartographer.status/v1`) and adds, additively, `plugins` (name, version, source,
 ref, sha, installed, approved, state, `update_available`) and, on a provider a plugin declares, `plugin` and `base`.
@@ -618,13 +617,12 @@ the client's perimeter on top of the server's scopes.
 Events run after the work they follow, outside the client lock, in plugin-name order, one handler per plugin, each with
 the event deadline. A failure (including an unloadable script) is a warning on stderr naming the plugin and the event
 and never changes an exit code. `sync.after` fires at the end of `runSync` (after the reports, the lock released), not
-in `--dry-run`, not for a run that fails before the apply, not for the dashboard's sync (it holds the lock itself); a
+in `--dry-run`, not for a run that fails before the apply. A
 partial sync fires it with the failures in `errors`. `connect.after` fires from the one place `connect`, the
 interactive retry and `reconnect` print their result, not in `--dry-run`. The handler receives `ctx.event`,
 `ctx.providers`, `ctx.installed`, `ctx.updated`, `ctx.removed`, `ctx.pending` and `ctx.errors`; for `connect` there is
 no earlier lockfile to compare with, so what was written counts as installed. `connect.after` also fires on a partial
-connect, with the providers that connected (not those the write guard skipped). The dashboard fires no plugin event,
-for sync or for connect.
+connect, with the providers that connected (not those the write guard skipped).
 
 ## Tools in the bridge
 

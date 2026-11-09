@@ -43,7 +43,7 @@ func (e *unauthorizedCause) Unwrap() error { return ErrUnauthorized }
 // JSON-RPC response, a JSON-RPC error object, or a tool result with
 // isError:true — e.g. an unqualified tool name after a healthy discovery,
 // the D120 regression this taxonomy exists to distinguish). Callers
-// (cmd/cartographer's status/TUI panels) render on this distinction instead
+// (cmd/cartographer's status) render on this distinction instead
 // of a single hardcoded "server unreachable".
 type RemoteState string
 

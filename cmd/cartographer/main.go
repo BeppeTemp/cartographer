@@ -1,8 +1,9 @@
 // Command cartographer is the single binary of the Agentic Wiki: both its sides,
 // the MCP server (`serve`) and the multi-provider client that connects agent
 // clients to it (`agents`, `connect`, `disconnect`, `reconnect`, `status`, `sync`).
-// Run with no arguments on a TTY it opens the TUI dashboard; without one it
-// prints usage. Subcommand dispatch lives here, one file per subcommand.
+// Run with no arguments on a TTY it prints a short status, then the usage;
+// without a TTY it prints the usage. Subcommand dispatch lives here, one file
+// per subcommand.
 package main
 
 import (
@@ -74,7 +75,8 @@ var (
 	approveFn       = cmdApprove
 	serviceFn       = cmdService
 	upgradeRepairFn = cmdUpgradeRepair
-	runTUIFn        = runTUI
+	bareFn          = runBare
+	interactiveFn   = isInteractive
 	importFn        = cmdImport
 	resolveFn       = cmdResolve
 	pathsFn         = cmdPaths
@@ -108,11 +110,11 @@ func main() {
 // without invoking os.Exit or starting the server.
 func run(args []string) int {
 	if len(args) < 1 {
-		if !isInteractive() {
+		if !interactiveFn() {
 			printUsage(os.Stdout)
 			return 0
 		}
-		return runTUIFn()
+		return bareFn()
 	}
 
 	cmd := args[0]
@@ -208,7 +210,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  cartographer <command> [flags]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Get started:")
-	fmt.Fprintf(w, "  %-10s %s\n", "(none)", "Launch interactive dashboard (TTY only)")
+	fmt.Fprintf(w, "  %-10s %s\n", "(none)", "Short status, then this usage (TTY only)")
 	group := ""
 	for _, sc := range subcommands {
 		if sc.group != group {

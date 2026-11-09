@@ -131,13 +131,12 @@ type syncOptions struct {
 	// written and must not make the next session-start sync wait (#1619).
 	Unlock func()
 	// Streams is where the run reports; the zero value is the process's own
-	// stdout and stderr. The dashboard passes buffers so that nothing a sync
-	// prints lands in the middle of its inline frame.
+	// stdout and stderr. A caller that must keep the terminal clean passes buffers.
 	Streams syncStreams
 }
 
 // syncStreams are the two writers a sync reports to. A nil one is the
-// process stream, so every caller outside the dashboard leaves it zero.
+// process stream, so a caller that does not capture the output leaves it zero.
 type syncStreams struct {
 	Out, Err io.Writer
 }
@@ -456,7 +455,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// sync.after runs outside the client lock (unlock is idempotent), after the
 	// reports and before the returns: a handler takes seconds and every
 	// concurrent session-start sync waits for that lock. A caller that holds the
-	// lock with no Unlock (the dashboard) fires none, nor does a dry run.
+	// lock with no Unlock fires none, nor does a dry run.
 	unlock()
 	if !opts.DryRun && !(opts.Locked && opts.Unlock == nil) && len(cfg.Plugins) > 0 {
 		var errs []string

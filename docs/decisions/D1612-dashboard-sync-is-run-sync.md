@@ -2,6 +2,8 @@
 topic: client-configurator
 ---
 
+> **Superseded by [D1857](D1857-tui-removed.md)**: the dashboard is removed. The `runSync` rule itself stays true for `cartographer sync`.
+
 # D1612 — The dashboard's sync is `runSync`, with its output redirected
 
 **Decision.** The dashboard's `s`, `S` and `enter` call `runSync` under the client lock, restricted to the chosen providers, exactly as `cartographer sync --client` does. `runSync` reports to `syncOptions.Streams` (zero value: the process streams); the dashboard passes buffers and shows the first line of stderr in its message. `S` is one call for all connected providers. Connecting from the dashboard runs the same KB choice step as the CLI (D190) after a ready probe, and carries the recorded `allow_insecure_http`.

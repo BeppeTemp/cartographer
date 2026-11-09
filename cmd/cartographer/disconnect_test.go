@@ -575,9 +575,6 @@ func TestDoDisconnect_APrunedFileBehindASymlinkKeepsTheProviderConnected(t *test
 	if _, ok := lf.Providers["opencode"]; !ok {
 		t.Error("opencode lock entry should remain so the next disconnect retries")
 	}
-	if got := summarizeDisconnect(disconnectResult{Providers: []disconnectProviderResult{*oc}}); !strings.Contains(got, "kept connected") || strings.Contains(got, "already disconnected") {
-		t.Errorf("TUI summary = %q, want the refusal reported", got)
-	}
 }
 
 func TestCmdDisconnect_ExitsNonZeroWhenAProviderWasKeptConnected(t *testing.T) {
@@ -590,13 +587,6 @@ func TestCmdDisconnect_ExitsNonZeroWhenAProviderWasKeptConnected(t *testing.T) {
 	cfg, err := clientconfig.Load(dir)
 	if err != nil || !cfg.HasAgent("opencode") || cfg.HasAgent("claude") {
 		t.Errorf("agents = %v, %v; want opencode kept and claude gone", cfg.Agents, err)
-	}
-}
-
-func TestSummarizeDisconnect_ReportsARefusalInsteadOfAlreadyDisconnected(t *testing.T) {
-	got := summarizeDisconnect(disconnectResult{Providers: []disconnectProviderResult{{Provider: "codex", Refused: []string{"destination is a symlink: /x"}}}})
-	if !strings.Contains(got, "kept connected: destination is a symlink: /x") {
-		t.Errorf("summary = %q", got)
 	}
 }
 

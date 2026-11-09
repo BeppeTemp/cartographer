@@ -135,6 +135,27 @@ func TestSnapshotForConfig_RefusesAdvertisedKBNameWithControlCharacters(t *testi
 	}
 }
 
+func TestSnapshotForConfig_RefusesAdvertisedVersionWithControlCharacters(t *testing.T) {
+	old := statusHealthFn
+	t.Cleanup(func() { statusHealthFn = old })
+	for name, h := range map[string]client.Health{
+		"version":        {Version: "v1\x1b]0;t\x07"},
+		"latest version": {Version: "v1.0.0", LatestVersion: "v2\x1b[2J"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := h
+			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &h, nil }
+			s := snapshotForConfig(t.TempDir(), &clientconfig.Config{ServerURL: "https://cartographer.example/mcp"}, false)
+			if s.State != "unavailable" || s.Error == nil || s.Error.Code != "invalid_health" {
+				t.Fatalf("state=%q error=%+v, want unavailable/invalid_health", s.State, s.Error)
+			}
+			if strings.ContainsAny(s.Error.Message, "\x1b\x07") || s.Server != "" || s.ServerLatest != "" {
+				t.Errorf("raw control character leaked: %+v", s)
+			}
+		})
+	}
+}
+
 func TestResponseResult_ServerMessageIsEscaped(t *testing.T) {
 	_, err := responseResult([]byte(`{"error":{"message":"boom\u001b]0;t\u0007"}}`))
 	if err == nil || strings.ContainsAny(err.Error(), "\x1b\x07") {

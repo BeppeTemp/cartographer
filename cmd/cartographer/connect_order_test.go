@@ -150,7 +150,7 @@ func withoutLockFile(tr testtree.Tree) testtree.Tree {
 // The form validates and stores the same, trimmed, text: " FOO" used to pass the
 // check and be stored as the literal bearer "${ FOO}".
 func TestConnectForm_TokenEnvIsTrimmedOnce(t *testing.T) {
-	m := newConnectFormModel("t", connectOptions{Providers: []string{"claude"}, ServerURL: "http://127.0.0.1:39273/mcp"}, false)
+	m := newConnectFormModel("t", connectOptions{Providers: []string{"claude"}, ServerURL: "http://127.0.0.1:39273/mcp"})
 	m.tokenEnv.SetValue("  FOO ")
 	if got := m.Values().Token; got != "${FOO}" {
 		t.Errorf("Token = %q, want ${FOO}", got)

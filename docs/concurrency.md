@@ -99,8 +99,7 @@ The client side has its own advisory lock, for the same reason and with a differ
 `.cartographer-client.lock` in the client's target directory, taken by every path that
 read-modify-writes the lockfile or `.cartographer.yaml` (`sync` and `upgrade-repair`, which load
 the config only after taking it, `connect`, `reconnect`, `disconnect`, `doctor --repair-hashes`, `paths set|unset|ignore`,
-`approve`, `client`, `workspace bind|unbind`, `kb rename`, `kb unmount`, `service` opt-outs, the
-TUI's sync actions). A command loads after taking the lock, never before (`withClientConfig`). The concurrent writers are separate
+`approve`, `client`, `workspace bind|unbind`, `kb rename`, `kb unmount`, `service` opt-outs). A command loads after taking the lock, never before (`withClientConfig`). The concurrent writers are separate
 `cartographer sync` **processes** — the session-start bootstrap hook starts one per agent session —
 so the lock keeps one process from overwriting another provider's lockfile entry (D172). It is an
 `flock` on unix and a `LockFileEx` byte-range lock on Windows, released on every exit path, with a

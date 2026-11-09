@@ -108,7 +108,7 @@ func updateOptions(enabled bool) (updatecheck.Options, string) {
 	return opts, dir
 }
 
-// cachedUpdate answers from the cache only: status, doctor and the dashboard
+// cachedUpdate answers from the cache only: status, doctor and the bare screen
 // must not add network latency. The hook and `update check` refresh it.
 func cachedUpdate() (updatecheck.Result, updatecheck.Channel) {
 	enabled, _ := updateSettingsFn()

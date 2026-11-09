@@ -124,9 +124,6 @@ func TestNothingAboutPluginsWithNoneConfigured(t *testing.T) {
 	if got := checkPlugins(cfg, "", nil); got != nil {
 		t.Errorf("doctor findings with no plugin: %+v", got)
 	}
-	if lines := pluginLines(&s); lines != nil {
-		t.Errorf("tui lines: %v", lines)
-	}
 	_ = home
 }
 
@@ -160,9 +157,6 @@ func TestPluginSectionPrintsStatesPendingHintProvidersAndEscapes(t *testing.T) {
 	}
 	if strings.Contains(out, "\x1b") || strings.Contains(out, "provider claude") {
 		t.Errorf("unescaped control character or a built-in provider listed:\n%q", out)
-	}
-	if lines := pluginLines(&s); len(lines) != strings.Count(out, "\n") {
-		t.Errorf("tui lines %d, want %d", len(lines), strings.Count(out, "\n"))
 	}
 }
 

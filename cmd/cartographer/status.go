@@ -81,6 +81,60 @@ func cmdStatus(args []string) int {
 	return renderStatus(output, s, code)
 }
 
+// printServerLines writes what `status` and the bare `cartographer` screen both
+// say about the server: the header or the error that replaces it, the version
+// skew, the available updates and the configuration drift against the server.
+// errw receives the cause lines of a failure that happened after the server
+// answered.
+func printServerLines(w, errw io.Writer, s statusSnapshot) {
+	if s.Error != nil && s.Error.Code == startingStatusCode {
+		fmt.Fprintln(w, s.Error.Message)
+	} else if s.Reachable {
+		fmt.Fprintf(w, "client %s — server %s (%s)\n", s.Client, s.Server, s.ServerURL)
+	} else if s.Error != nil {
+		fmt.Fprintln(w, s.Error.Message)
+	}
+	// The server answered but a later step failed (the manifest pull, the local
+	// sync state): the header above says "reachable", so the reason is said here,
+	// on stderr, whatever the exit code that follows.
+	if s.Reachable && s.Error != nil && s.Error.Code != startingStatusCode {
+		fmt.Fprintln(errw, s.Error.Message)
+		if s.Error.Cause != "" && !strings.Contains(s.Error.Message, s.Error.Cause) {
+			fmt.Fprintln(errw, "  cause:", s.Error.Cause)
+		}
+	}
+	if s.State == "version_skew" {
+		fmt.Fprintf(w, "version skew: client %s ≠ server %s\n", s.Client, s.Server)
+		if s.Service != nil && s.Service.Installed {
+			fmt.Fprintln(w, "local service may still run the old binary — run: cartographer upgrade-repair")
+		}
+	}
+	// D254: informational, like the skew above — neither changes the exit code.
+	if u := s.Update; u != nil {
+		line := fmt.Sprintf("update available: %s (installed %s)", u.Latest, s.Client)
+		if u.Command != "" {
+			line += " — " + u.Command
+		}
+		fmt.Fprintln(w, line)
+	}
+	if s.ServerLatest != "" {
+		fmt.Fprintf(w, "server update available: %s (server %s) — for the server's operator\n", s.ServerLatest, s.Server)
+	}
+	// The server this client's state was materialized against, when it is not
+	// the one answering now (D142): inspectable without running a sync.
+	if changed := snapshotMaterializedVersions(s); len(changed) > 0 {
+		fmt.Fprintf(w, "configured against server %s — now %s: run `cartographer reconnect` to rebuild the client configuration\n",
+			strings.Join(changed, ", "), s.Server)
+	}
+	// D187/D288: a topology switch (per-KB entries to the single routed one)
+	// is healed by the next sync, which rewrites the entries to the live shape;
+	// status only reports it, it never writes.
+	if s.Reachable && s.MountMode != s.ConfiguredMountMode {
+		fmt.Fprintf(w, "mount mode changed: configured %s, server now serves %s — run `cartographer sync` to rewrite the MCP entries\n",
+			mountModeLabel(s.ConfiguredMountMode), mountModeLabel(s.MountMode))
+	}
+}
+
 func renderStatus(output string, s statusSnapshot, code int) int {
 	if output == "json" {
 		_ = json.NewEncoder(os.Stdout).Encode(s)
@@ -91,52 +145,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		printPluginSection(os.Stdout, s)
 		return code
 	}
-	if s.Error != nil && s.Error.Code == startingStatusCode {
-		fmt.Println(s.Error.Message)
-	} else if s.Reachable {
-		fmt.Printf("client %s — server %s (%s)\n", s.Client, s.Server, s.ServerURL)
-	} else if s.Error != nil {
-		fmt.Println(s.Error.Message)
-	}
-	// The server answered but a later step failed (the manifest pull, the local
-	// sync state): the header above says "reachable", so the reason is said here,
-	// on stderr, whatever the exit code that follows.
-	if s.Reachable && s.Error != nil && s.Error.Code != startingStatusCode {
-		fmt.Fprintln(os.Stderr, s.Error.Message)
-		if s.Error.Cause != "" && !strings.Contains(s.Error.Message, s.Error.Cause) {
-			fmt.Fprintln(os.Stderr, "  cause:", s.Error.Cause)
-		}
-	}
-	if s.State == "version_skew" {
-		fmt.Printf("version skew: client %s ≠ server %s\n", s.Client, s.Server)
-		if s.Service != nil && s.Service.Installed {
-			fmt.Println("local service may still run the old binary — run: cartographer upgrade-repair")
-		}
-	}
-	// D254: informational, like the skew above — neither changes the exit code.
-	if u := s.Update; u != nil {
-		line := fmt.Sprintf("update available: %s (installed %s)", u.Latest, s.Client)
-		if u.Command != "" {
-			line += " — " + u.Command
-		}
-		fmt.Println(line)
-	}
-	if s.ServerLatest != "" {
-		fmt.Printf("server update available: %s (server %s) — for the server's operator\n", s.ServerLatest, s.Server)
-	}
-	// The server this client's state was materialized against, when it is not
-	// the one answering now (D142): inspectable without running a sync.
-	if changed := snapshotMaterializedVersions(s); len(changed) > 0 {
-		fmt.Printf("configured against server %s — now %s: run `cartographer reconnect` to rebuild the client configuration\n",
-			strings.Join(changed, ", "), s.Server)
-	}
-	// D187/D288: a topology switch (per-KB entries to the single routed one)
-	// is healed by the next sync, which rewrites the entries to the live shape;
-	// status only reports it, it never writes.
-	if s.Reachable && s.MountMode != s.ConfiguredMountMode {
-		fmt.Printf("mount mode changed: configured %s, server now serves %s — run `cartographer sync` to rewrite the MCP entries\n",
-			mountModeLabel(s.ConfiguredMountMode), mountModeLabel(s.MountMode))
-	}
+	printServerLines(os.Stdout, os.Stderr, s)
 	for _, p := range s.Providers {
 		if !p.Connected {
 			continue

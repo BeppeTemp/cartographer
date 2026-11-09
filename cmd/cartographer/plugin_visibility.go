@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -119,14 +118,4 @@ func printPluginSection(w io.Writer, s statusSnapshot) {
 			}
 		}
 	}
-}
-
-// pluginLines is printPluginSection as lines, for the dashboard.
-func pluginLines(s *statusSnapshot) []string {
-	if s == nil || len(s.Plugins) == 0 {
-		return nil
-	}
-	var b strings.Builder
-	printPluginSection(&b, *s)
-	return strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 }

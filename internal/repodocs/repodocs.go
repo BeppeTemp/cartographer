@@ -88,7 +88,7 @@ var TopicOrder = []struct {
 	{"concurrency-git", "Commits, synchronization and conflicts"},
 	{"skills-services-secrets", "Skills, services and secrets"},
 	{"sync-provisioning", "Provisioned artifacts"},
-	{"client-configurator", "CLI, TUI and providers"},
+	{"client-configurator", "CLI and providers"},
 	{"deployment-release", "Configuration, deployment and releases"},
 	{"project-governance", "Repository and documentation policy"},
 }

@@ -434,8 +434,8 @@ func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 		t.Error("the absence of a trust switch must not change the verification state")
 	}
 	p := providerStatus{State: "drift", Added: snapshotArtifacts(d.Added, &clientconfig.Config{})}
-	if got := formatTUIProviderStatus(p); got != "drift" {
-		t.Errorf("formatTUIProviderStatus = %q", got)
+	if got := p.Added[0].Trust; got == "needs_approval" || got == "approval_stale" {
+		t.Errorf("trust = %q: an unsigned KB skill waits for no approval", got)
 	}
 }
 
@@ -443,8 +443,8 @@ func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 func TestDiffMCPDescriptorNeedsApproval(t *testing.T) {
 	d := provisioning.Diff{Added: []provisioning.Artifact{{Kind: "mcp", Name: "tools", Source: "kb:x", Signed: true}}}
 	p := providerStatus{State: "drift", Added: snapshotArtifacts(d.Added, &clientconfig.Config{})}
-	if got := formatTUIProviderStatus(p); !strings.Contains(got, "needs-approval 1") || strings.Contains(got, "--auto-trust") {
-		t.Errorf("formatTUIProviderStatus = %q", got)
+	if got := p.Added[0].Trust; got != "needs_approval" {
+		t.Errorf("trust = %q, want needs_approval", got)
 	}
 }
 

@@ -152,3 +152,90 @@ func TestSnapshotArtifactsDerivedSkillUsesAgentApproval(t *testing.T) {
 		t.Errorf("derived skill: trust %q kind %q, want approved skill", got[0].Trust, got[0].Kind)
 	}
 }
+
+func TestFormatKindStatus(t *testing.T) {
+	m := provisioning.Manifest{
+		Revision: "rev1",
+		Artifacts: []provisioning.Artifact{
+			{Kind: "skill", Name: "s1", ContentHash: "h1"},
+			{Kind: "skill", Name: "s2", ContentHash: "h2"},
+			{Kind: "agent", Name: "a1", ContentHash: "h3"},
+			{Kind: "agent", Name: "a2", ContentHash: "h4"},
+			{Kind: "hook", Name: "hk1", ContentHash: "h5"},
+		},
+	}
+	lock := provisioning.Lock{
+		Managed: []provisioning.ManagedFile{
+			{Kind: "skill", Name: "s1", Path: "x", ContentHash: "h1"},
+			{Kind: "agent", Name: "a1", Path: "y", ContentHash: "h3"},
+			{Kind: "agent", Name: "a2", Path: "z", ContentHash: "h4"},
+		},
+	}
+
+	got := formatKindStatus(m, lock, false, "")
+	want := "skill 1/2 · agent 2/2 · hook 0/1"
+	if got != want {
+		t.Errorf("formatKindStatus: got %q, want %q", got, want)
+	}
+}
+
+// A hook installed for a client that fires it only in some sessions is not
+// reported as a bare count (D189): the figure names where it fires (D300).
+func TestFormatKindStatus_HookLimitQualifiesInstalledHooks(t *testing.T) {
+	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "hook", Name: "hk1", ContentHash: "h1"}}}
+	lock := provisioning.Lock{Managed: []provisioning.ManagedFile{{Kind: "hook", Name: "hk1", Path: "x", ContentHash: "h1"}}}
+	limit := provisioning.SessionHookLimit(configurator.ProviderKiro)
+	if limit == "" {
+		t.Fatal("kiro declares no session hook limit")
+	}
+	want := "hook 1/1 (fires in " + limit + " only)"
+	if got := formatKindStatus(m, lock, false, limit); got != want {
+		t.Errorf("formatKindStatus = %q, want %q", got, want)
+	}
+	if got := formatKindStatus(m, provisioning.Lock{}, false, limit); got != "hook 0/1" {
+		t.Errorf("nothing installed must stay a bare count, got %q", got)
+	}
+}
+
+func TestFormatKindStatus_Empty(t *testing.T) {
+	if got := formatKindStatus(provisioning.Manifest{}, provisioning.Lock{}, false, ""); got != "" {
+		t.Errorf("formatKindStatus on empty manifest: got %q, want \"\"", got)
+	}
+}
+
+func TestFormatKindStatus_UnknownKindAppendedAlphabetically(t *testing.T) {
+	m := provisioning.Manifest{
+		Artifacts: []provisioning.Artifact{
+			{Kind: "skill", Name: "s1", ContentHash: "h1"},
+			{Kind: "zzz-future-kind", Name: "f1", ContentHash: "h2"},
+		},
+	}
+	got := formatKindStatus(m, provisioning.Lock{}, false, "")
+	want := "skill 0/1 · zzz-future-kind 0/1"
+	if got != want {
+		t.Errorf("formatKindStatus: got %q, want %q", got, want)
+	}
+}
+
+func TestSetupHint(t *testing.T) {
+	no, yes := false, true
+	local := "http://127.0.0.1:39273/mcp"
+	tests := []struct {
+		name string
+		s    statusSnapshot
+		want bool
+	}{
+		{"fresh machine: nothing answers, no service", statusSnapshot{ServerURL: local}, true},
+		{"service installed but down is a service problem, not a setup one", statusSnapshot{ServerURL: local, Service: &serviceSnapshot{Installed: true}}, false},
+		{"server up with no KB", statusSnapshot{ServerURL: local, Reachable: true, Ready: &no}, true},
+		{"set up", statusSnapshot{ServerURL: local, Reachable: true, Ready: &yes, KBs: []string{"a"}}, false},
+		{"a remote server is not this machine's to set up", statusSnapshot{ServerURL: "https://kb.example.com/mcp"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := setupHint(&tc.s) != ""; got != tc.want {
+				t.Errorf("setupHint = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

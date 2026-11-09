@@ -234,7 +234,7 @@ func TestToolIdentifierBudgetWarning(t *testing.T) {
 // TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace exercises the warning through
 // doConnect end-to-end: connecting kiro to a 2-KB server surfaces the
 // warning in connectResult.Warnings (rendered on stderr by
-// printConnectResult / the TUI).
+// printConnectResult).
 func TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace(t *testing.T) {
 	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
 	defer srv.Close()
