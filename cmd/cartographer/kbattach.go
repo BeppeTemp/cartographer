@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -43,33 +42,6 @@ func cmdKBAttach(args []string) int {
 	return runKBAttach(name, dataDir, *configFlag, *remoteFlag, os.Stdout, os.Stderr)
 }
 
-// remoteCredentialProblem says why a remote URL must not be stored in the
-// KB's .git/config, or "" when it may. A secret in a URL would be written there
-// in clear: a password in any URL, a token in the user slot of an http(s) URL
-// (the usual PAT shape), and any URL-form remote that cannot be parsed, since a
-// password with a "/", "#", "?" or space breaks the parse and would slip
-// through. ssh:// keeps its user (ssh://git@host/x), and the scp-like forms
-// (git@host:path) have no password slot. The message never echoes the URL.
-func remoteCredentialProblem(remote string) string {
-	if !strings.Contains(remote, "://") {
-		return ""
-	}
-	u, err := url.Parse(remote)
-	if err != nil {
-		return "the remote URL cannot be parsed, so it cannot be checked for a credential"
-	}
-	if u.User == nil {
-		return ""
-	}
-	if _, has := u.User.Password(); has {
-		return "the remote URL carries a password"
-	}
-	if s := strings.ToLower(u.Scheme); s == "http" || s == "https" {
-		return "the remote URL carries a user name, which for http(s) is where a token goes"
-	}
-	return ""
-}
-
 // runKBAttach is the testable body of cmdKBAttach. Exit codes: 2 for usage and
 // validation, 1 for a refusal or a failure. Any exit other than success leaves
 // the KB as it was: the origin it added is removed again, because a half-attached
@@ -89,9 +61,8 @@ func runKBAttach(name, dataDir, configPath, remote string, out, errOut io.Writer
 	if err := gitx.ValidateRemote(remote); err != nil {
 		return usage("%s", gitx.RedactRemoteText(err.Error(), remote))
 	}
-	if problem := remoteCredentialProblem(remote); problem != "" {
-		return usage(problem + ", which would be written to the KB's .git/config. " +
-			"Use a credential helper or an SSH key, or put the key or token in the server's credentials directory (<kb>.ssh, <kb>.token or default.*), and give the URL without the password")
+	if msg := remoteCredentialRefusal(remote); msg != "" {
+		return usage("%s", msg)
 	}
 	cfg, err := loadReauthorConfig(configPath)
 	if err != nil {
