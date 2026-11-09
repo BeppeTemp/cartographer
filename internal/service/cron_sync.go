@@ -108,8 +108,8 @@ func (m *Manager) removeSyncSystemdLeftover() {
 	if _, err := lookPath("systemctl"); err == nil {
 		m.run("systemctl", "--user", "disable", "--now", syncSystemdTimer)
 	}
-	os.Remove(timer)
-	os.Remove(svc)
+	removeSafe(timer)
+	removeSafe(svc)
 }
 
 func (m *Manager) installSyncCron(binPath string, interval time.Duration) error {
@@ -130,20 +130,20 @@ func (m *Manager) installSyncCron(binPath string, interval time.Duration) error 
 		return fmt.Errorf("service: resolve cron definition path: %w", err)
 	}
 	for _, d := range []string{stateDir, filepath.Dir(defPath)} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := mkdirSafe(d); err != nil {
 			return fmt.Errorf("service: create %s: %w", d, err)
 		}
 	}
 	block := renderCronSyncBlock(binPath, stateDir, interval)
 	prev, prevErr := os.ReadFile(defPath)
-	if err := os.WriteFile(defPath, []byte("# bin="+binPath+"\n"+block), 0o644); err != nil {
+	if err := writeSafe(defPath, []byte("# bin="+binPath+"\n"+block)); err != nil {
 		return fmt.Errorf("service: write sync cron definition: %w", err)
 	}
 	if err := m.editCrontab(cronSyncBegin, cronSyncEnd, block); err != nil {
 		if prevErr == nil {
-			os.WriteFile(defPath, prev, 0o644)
+			writeSafe(defPath, prev)
 		} else {
-			os.Remove(defPath)
+			removeSafe(defPath)
 		}
 		return err
 	}
@@ -167,7 +167,7 @@ func (m *Manager) uninstallSyncCron() error {
 	if err := m.removeCronBlock(cronSyncBegin, cronSyncEnd); err != nil {
 		return err
 	}
-	if err := os.Remove(defPath); err != nil && !os.IsNotExist(err) {
+	if err := removeSafe(defPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("service: remove sync cron definition: %w", err)
 	}
 	return nil

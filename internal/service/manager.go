@@ -225,18 +225,18 @@ func (m *Manager) installDarwin(binPath, configPath string) error {
 	if err != nil {
 		return fmt.Errorf("service: resolve log path: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+	if err := mkdirSafe(filepath.Dir(logPath)); err != nil {
 		return fmt.Errorf("service: create log dir: %w", err)
 	}
 	plistPath, err := LaunchdPlistPath()
 	if err != nil {
 		return fmt.Errorf("service: resolve plist path: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(plistPath), 0o755); err != nil {
+	if err := mkdirSafe(filepath.Dir(plistPath)); err != nil {
 		return fmt.Errorf("service: create LaunchAgents dir: %w", err)
 	}
 	plist := RenderLaunchdPlist(binPath, configPath, logPath)
-	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
+	if err := writeSafe(plistPath, []byte(plist)); err != nil {
 		return fmt.Errorf("service: write plist: %w", err)
 	}
 
@@ -289,11 +289,11 @@ func (m *Manager) installLinux(binPath, configPath string) error {
 	if err != nil {
 		return fmt.Errorf("service: resolve unit path: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(unitPath), 0o755); err != nil {
+	if err := mkdirSafe(filepath.Dir(unitPath)); err != nil {
 		return fmt.Errorf("service: create systemd user dir: %w", err)
 	}
 	unit := RenderSystemdUnit(binPath, configPath)
-	if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
+	if err := writeSafe(unitPath, []byte(unit)); err != nil {
 		return fmt.Errorf("service: write unit: %w", err)
 	}
 
@@ -343,7 +343,7 @@ func (m *Manager) uninstallSystemd() error {
 	if err := m.disableUnitNow(systemdUnit); err != nil {
 		return err
 	}
-	if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
+	if err := removeSafe(unitPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("service: remove unit: %w", err)
 	}
 	_, err = m.run("systemctl", "--user", "daemon-reload")
@@ -363,7 +363,7 @@ func (m *Manager) uninstallServer() error {
 		if err := m.bootoutAndWait(launchdLabel, plistPath); err != nil {
 			return err
 		}
-		if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
+		if err := removeSafe(plistPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove plist: %w", err)
 		}
 		return nil
@@ -397,7 +397,7 @@ func (m *Manager) uninstallServer() error {
 			// The survivor of the stop is still worth reporting beside it.
 			return errors.Join(err, stopErr)
 		}
-		if err := os.Remove(taskPath); err != nil && !os.IsNotExist(err) {
+		if err := removeSafe(taskPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove task definition: %w", err)
 		}
 		if stopErr != nil {
