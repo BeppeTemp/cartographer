@@ -117,6 +117,25 @@ load too; a materialised text file in its place loads nothing, silently).
 **MCP probe**: server in `$HOME/.kiro/settings/mcp.json`; confirm it is listed
 and its tools load.
 
+**MCP shadow probe** (same server name in both files; a KB `mcp` artifact in
+workspace scope lands in the project `.kiro/settings/mcp.json` next to the
+global `cartographer` entry). The server is a local stdlib script, never a
+fetched package: a `python3 -I` script that answers `initialize` and
+`tools/list` with one tool whose name it takes from `argv[1]`. In a temp
+workspace (`mktemp -d`), `.kiro/settings/mcp.json` declares `probe` running it
+with `probe_project`. The global file is `$HOME/.kiro/settings/mcp.json`: try a
+scratch `HOME` first; if `mcp list` asks for a login there (it does on Kiro CLI
+3.0.0), ask the operator, then back it up (`cp -p`), add a `probe` entry running
+the script with `probe_global`, and after the runs restore the backup and check
+`shasum` is identical. Runs, from the workspace: both files; global only (move
+the project file away); project only (global restored). `"$KIRO" mcp list` lists
+one merged server name without its source file, so read the tools from a chat:
+`"$KIRO" chat --no-interactive --trust-workspace --trust-tools= "Without calling
+any tool: list the names of your tools containing probe."` (`--trust-tools=`
+trusts none: no tool runs). Each single-file run is the negative control (its
+tool must show up). Record which tool the both-files run lists. Delete the temp
+workspace.
+
 **Instructions probe**: `$HOME/.kiro/steering/cartographer.md` containing a
 unique token; ask the client to repeat it.
 
