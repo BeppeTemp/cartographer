@@ -386,7 +386,7 @@ export interface MaintenanceReview {
   items: ReviewItem[];
 }
 
-/** GET /kbs/{kb}/workers (design D22): a live `cartographer worker` that declared this KB. Read-only. */
+/** GET /kbs/{kb}/workers (design D22): a live `cartographer surveyor` that declared this KB. Read-only. */
 export type WorkerState = "idle" | "running" | "waiting" | "budget_exhausted" | "stopped";
 export interface WorkerBudget {
   profile: string;

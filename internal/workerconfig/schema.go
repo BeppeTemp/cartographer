@@ -1,4 +1,4 @@
-// Package workerconfig holds the key table of the worker config file (D21): the one list of keys the file accepts.
+// Package workerconfig holds the key table of the Surveyor config file (D21): the one list of keys the file accepts.
 //
 // It is a leaf package (settingschema and the standard library only) so the
 // server can render a worker's settings without linking the worker. The loader
@@ -18,16 +18,16 @@ import "github.com/BeppeTemp/cartographer/internal/settingschema"
 // "url", and no key is Secret because the file holds no secret.
 var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "name", Scope: settingschema.ScopeWorker, Type: "string", Values: "[a-z0-9-], 1 to 40 characters", Default: `""`, Example: "docs-night",
-		Description: "Name of the perimeter, the identity of the worker in log entries; the replicas of one perimeter share it."},
+		Description: "Name of the perimeter, the identity of the Surveyor in log entries; the replicas of one perimeter share it."},
 	{Path: "server_url", Scope: settingschema.ScopeWorker, Type: "url", Default: `""`, Example: "https://wiki.example.com/mcp",
-		Description: "MCP endpoint of the server the worker talks to."},
+		Description: "MCP endpoint of the server the Surveyor talks to."},
 	{Path: "allow_insecure_http", Scope: settingschema.ScopeWorker, Type: "bool", Default: "false",
 		Description: "Accept a plain http:// server_url to a non-loopback host, which sends the token in clear."},
-	{Path: "token_env", Scope: settingschema.ScopeWorker, Type: "env", Default: `""`, Example: "WORKER_TOKEN",
+	{Path: "token_env", Scope: settingschema.ScopeWorker, Type: "env", Default: `""`, Example: "SURVEYOR_TOKEN",
 		Description: "Name of the environment variable holding the perimeter's bearer token, which should reach only the perimeter's KBs."},
 	{Path: "kbs", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
 		Example:     "- kb-a\n- work-kb",
-		Description: "The KBs of the perimeter; several KBs are several separate queues served by the same worker."},
+		Description: "The KBs of the perimeter; several KBs are several separate queues served by the same Surveyor."},
 
 	{Path: "models", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
 		Example:     "- name: cloud\n  provider: anthropic\n  model: claude-sonnet-4-5\n  api_key_env: CLOUD_API_KEY\n  tier: large\n  budget:\n    daily_tokens: 2000000",
@@ -45,7 +45,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "models[].api_key_env", Scope: settingschema.ScopeWorker, Type: "env", Default: `""`,
 		Description: "Name of the environment variable holding the API key; required for anthropic, optional for a local openai endpoint."},
 	{Path: "models[].tier", Scope: settingschema.ScopeWorker, Type: "string", Values: "small | large", Default: "small",
-		Description: "What the profile's model can do, which decides the units a worker takes with it."},
+		Description: "What the profile's model can do, which decides the units a Surveyor takes with it."},
 	{Path: "models[].context_tokens", Scope: settingschema.ScopeWorker, Type: "int", Values: "tokens, above 0", Default: "32000",
 		Description: "The model's context window: a run is told to close at 75% of it and stops before a prompt that would not fit."},
 	{Path: "models[].max_output_tokens", Scope: settingschema.ScopeWorker, Type: "int", Values: "tokens, above 0", Default: "4096",
@@ -65,13 +65,13 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "connectors", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
 		Description: "External MCP servers the unit-execution task may read through, by name; a Source names one in its connector field."},
 	{Path: "connectors.{name}.transport", Scope: settingschema.ScopeWorker, Type: "string", Values: "stdio | http", Default: `""`,
-		Description: "How the worker reaches the server: a child process on stdio, or a streamable HTTP endpoint."},
+		Description: "How the Surveyor reaches the server: a child process on stdio, or a streamable HTTP endpoint."},
 	{Path: "connectors.{name}.command", Scope: settingschema.ScopeWorker, Type: "string", Default: `""`,
 		Description: "The program of a stdio connector: a path with a separator is resolved against the config file's directory, a bare name is looked up on PATH."},
 	{Path: "connectors.{name}.args", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
 		Description: "Arguments of the stdio program, passed verbatim with no shell."},
 	{Path: "connectors.{name}.env", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
-		Description: "Variables of a stdio child, as NAME: the name of the worker's own variable holding the value; the child gets only these plus PATH and HOME."},
+		Description: "Variables of a stdio child, as NAME: the name of the Surveyor's own variable holding the value; the child gets only these plus PATH and HOME."},
 	{Path: "connectors.{name}.url", Scope: settingschema.ScopeWorker, Type: "url", Default: `""`,
 		Description: "Endpoint of an http connector, without credentials in it."},
 	{Path: "connectors.{name}.allow_insecure_http", Scope: settingschema.ScopeWorker, Type: "bool", Default: "false",
@@ -88,7 +88,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Largest tool result kept in memory; the rest is cut."},
 
 	{Path: "schedule.window.start", Scope: settingschema.ScopeWorker, Type: "string", Values: "HH:MM", Default: `""`,
-		Description: "Start of the daily window in which the worker acts."},
+		Description: "Start of the daily window in which the Surveyor acts."},
 	{Path: "schedule.window.end", Scope: settingschema.ScopeWorker, Type: "string", Values: "HH:MM, excluded; before start means across midnight", Default: `""`,
 		Description: "End of the daily window, excluded."},
 	{Path: "schedule.window.timezone", Scope: settingschema.ScopeWorker, Type: "string", Values: "IANA name", Default: `""`,
@@ -99,7 +99,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "How often the runner re-evaluates the triggers while it is not running."},
 
 	{Path: "fetch.allow_private", Scope: settingschema.ScopeWorker, Type: "bool", Default: "false",
-		Description: "Let the ingest task's built-in fetch reach private, loopback and link-local addresses; off, a worker inside a network cannot be used as a proxy to it."},
+		Description: "Let the ingest task's built-in fetch reach private, loopback and link-local addresses; off, a Surveyor inside a network cannot be used as a proxy to it."},
 
 	{Path: "fetch.allow_hosts", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
 		Description: "Hosts a feed may be read from through the built-in http-pages recipe; empty, no feed uses it. A page of the feed is on the index's own host."},
@@ -120,7 +120,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "recipes.{name}.exec.args", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
 		Description: "Exec recipe: arguments of the program, passed verbatim."},
 	{Path: "recipes.{name}.exec.env", Scope: settingschema.ScopeWorker, Type: "map", Default: "{}",
-		Description: "Exec recipe: variables of the child, as NAME: the name of the worker's own variable holding the value; the child gets only these plus PATH and HOME."},
+		Description: "Exec recipe: variables of the child, as NAME: the name of the Surveyor's own variable holding the value; the child gets only these plus PATH and HOME."},
 	{Path: "recipes.{name}.exec.timeout", Scope: settingschema.ScopeWorker, Type: "duration", Values: "above 0, at most 1h", Default: "5m",
 		Description: "Exec recipe: time one listing may take before the process group is killed."},
 	{Path: "recipes.{name}.exec.max_output_bytes", Scope: settingschema.ScopeWorker, Type: "int", Values: "bytes, at most 64 MiB", Default: "8388608",
@@ -130,7 +130,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 
 	{Path: "tasks", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]",
 		Example:     "- kind: ingest\n  model: cloud",
-		Description: "The tasks the worker runs, in priority order; each has a kind, a model profile and the options of its kind."},
+		Description: "The tasks the Surveyor runs, in priority order; each has a kind, a model profile and the options of its kind."},
 	{Path: "tasks[].kind", Scope: settingschema.ScopeWorker, Type: "string", Default: `""`,
 		Description: "The kind of task, from the registry of the binary."},
 	{Path: "tasks[].model", Scope: settingschema.ScopeWorker, Type: "string", Default: `""`,
@@ -148,7 +148,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Prompt task: its name, written into its log entries and commit reasons; a rename restarts its cadence."},
 	{Path: "tasks[].instructions_file", Scope: settingschema.ScopeWorker, Type: "string", Values: "relative path inside the config directory, at most 16 KiB of UTF-8", Default: `""`, Example: "prompts/weekly-digest.md",
 		Description: "Prompt task: the operator's instructions, read once at start; never taken from a KB."},
-	{Path: "tasks[].tools", Scope: settingschema.ScopeWorker, Type: "list", Values: "names from the worker's default allowlist, never a denied tool", Default: "[]",
+	{Path: "tasks[].tools", Scope: settingschema.ScopeWorker, Type: "list", Values: "names from the Surveyor's default allowlist, never a denied tool", Default: "[]",
 		Example:     "- changes_since\n- concept_read\n- concept_write",
 		Description: "Prompt task: exactly the tools the model may call; nothing is implicit."},
 	{Path: "tasks[].every", Scope: settingschema.ScopeWorker, Type: "duration", Values: "Go duration of at least 1h (168h is a week)", Default: `""`, Example: "168h",

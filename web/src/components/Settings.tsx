@@ -280,7 +280,7 @@ export function Settings({
         eyebrow="Settings"
         title={
           worker !== undefined
-            ? (worker?.perimeter ?? "Worker")
+            ? (worker?.perimeter ?? "Surveyor")
             : client !== undefined
               ? (client?.machine ?? "Client")
               : kb
@@ -291,8 +291,8 @@ export function Settings({
           <>
             {worker !== undefined
               ? worker
-                ? `Worker${worker.version ? ` ${worker.version}` : ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · ${worker.kbs.join(", ")} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
-                : "No worker has reported: every key at its default, read-only"
+                ? `Surveyor${worker.version ? ` ${worker.version}` : ""} · ${worker.replicas} replica${worker.replicas === 1 ? "" : "s"} · ${worker.kbs.join(", ")} · reported ${new Date(worker.received_at).toLocaleString("en")} · read-only`
+                : "No Surveyor has reported: every key at its default, read-only"
               : client
                 ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
                 : kb
@@ -345,7 +345,7 @@ export function Settings({
             const id = w ? `worker:${i}` : "worker";
             return (
               <Tab key={id} id={id} current={current === id} onSelect={setTab}>
-                {w && workers.length > 1 ? `Worker · ${w.perimeter}` : "Worker"}
+                {w && workers.length > 1 ? `Surveyor · ${w.perimeter}` : "Surveyor"}
               </Tab>
             );
           })}
@@ -553,13 +553,13 @@ function WorkerPanel({
     groups.set(g, [...(groups.get(g) ?? []), e]);
   }
   return mode === "yaml" ? (
-    <p className="page-note">A worker reports its typed values, not its file: there is no YAML to show.</p>
+    <p className="page-note">A Surveyor reports its typed values, not its file: there is no YAML to show.</p>
   ) : groups.size === 0 ? (
     <NoMatch query={query} />
   ) : (
     <>
       {[...groups].map(([g, rows]) => (
-        <Rows key={g} group={{ title: g, intro: "" }} entries={rows} label={`Worker ${g} settings`} />
+        <Rows key={g} group={{ title: g, intro: "" }} entries={rows} label={`Surveyor ${g} settings`} />
       ))}
     </>
   );

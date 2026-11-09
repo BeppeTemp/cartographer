@@ -72,7 +72,7 @@ func TestWorkerSourceDispatchAndUsage(t *testing.T) {
 		t.Errorf("no subcommand: exit %d", code)
 	}
 	code, out, _ := runSource(t, "help")
-	if code != 0 || !strings.Contains(out, "worker source test") {
+	if code != 0 || !strings.Contains(out, "surveyor source test") {
 		t.Errorf("help: %d %q", code, out)
 	}
 	if code, _, errs := runSource(t, "bogus"); code != 2 || !strings.Contains(errs, "bogus") {
@@ -82,7 +82,7 @@ func TestWorkerSourceDispatchAndUsage(t *testing.T) {
 		t.Errorf("test with no flag: exit %d", code)
 	}
 	if code := withExit(t, func() int { return cmdWorker(nil) }); code != 2 {
-		t.Errorf("worker alone: exit %d", code)
+		t.Errorf("surveyor alone: exit %d", code)
 	}
 }
 

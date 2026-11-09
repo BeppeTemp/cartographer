@@ -86,7 +86,7 @@ loop sequentially.
 The mandate is a fixed short text: the KB id, the unit concept ID, "use the `cartographer-kb-ingest`
 skill in unit mode", and a digest cap (under 10 lines: pages touched, gaps, contradictions, gate
 result). The subagent **claims the unit itself** with a `concept_patch` and `if_match`, even though
-you chose it: other agents or a worker may run in parallel and the refusal is the arbiter.
+you chose it: other agents or a Surveyor may run in parallel and the refusal is the arbiter.
 - Units that share a `targets` entry are dispatched one after the other, never together.
 - `human` units are listed for the operator and left open.
 - A digest is a claim, not proof: re-check through `work_list` and review (step 7).

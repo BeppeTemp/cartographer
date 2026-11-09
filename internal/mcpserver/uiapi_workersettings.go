@@ -185,7 +185,7 @@ func (m *MultiKBServer) handleWorkerSettings(w http.ResponseWriter, r *http.Requ
 	}
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWorkerSettingsBody))
 	if err != nil {
-		writeUIError(w, http.StatusRequestEntityTooLarge, uiCodeInvalidRequest, "worker settings report too large", "")
+		writeUIError(w, http.StatusRequestEntityTooLarge, uiCodeInvalidRequest, "surveyor settings report too large", "")
 		return
 	}
 	var rep struct {

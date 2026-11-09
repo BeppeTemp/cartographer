@@ -21,7 +21,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/worker"
 )
 
-// Exit codes of `cartographer worker source test` (D1373): the listing ran and
+// Exit codes of `cartographer surveyor source test` (D1373): the listing ran and
 // passed (0); the poll would write a feed_error for this Source or recipe (1);
 // the test could not start (2); a system recipe's preflight refused (3): nothing
 // was listed, fix the identity and not the script.
@@ -33,7 +33,7 @@ const (
 
 const sourceTestRows = 50
 
-// cmdWorkerSource is `cartographer worker source <subcommand>`; test is the only one.
+// cmdWorkerSource is `cartographer surveyor source <subcommand>`; test is the only one.
 func cmdWorkerSource(args []string) int {
 	if len(args) == 0 {
 		printWorkerSourceUsage(os.Stderr)
@@ -46,25 +46,25 @@ func cmdWorkerSource(args []string) int {
 		printWorkerSourceUsage(os.Stdout)
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "Error: unknown worker source subcommand %q\n\n", args[0])
+	fmt.Fprintf(os.Stderr, "Error: unknown surveyor source subcommand %q\n\n", args[0])
 	printWorkerSourceUsage(os.Stderr)
 	return 2
 }
 
 func printWorkerSourceUsage(w io.Writer) {
-	fmt.Fprintln(w, "Usage: cartographer worker source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc> [--include <glob>]...)")
+	fmt.Fprintln(w, "Usage: cartographer surveyor source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc> [--include <glob>]...)")
 	fmt.Fprintln(w, "                                        [--kind <source_kind>] [--cursor <string>] [--show <key>]")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "  test   Run the listing the worker will run, with the real recipe, and print it. Writes nothing:")
+	fmt.Fprintln(w, "  test   Run the listing the Surveyor will run, with the real recipe, and print it. Writes nothing:")
 	fmt.Fprintln(w, "         no lease, cursor, Source, unit or log entry; no model is called.")
 	fmt.Fprintln(w, "Exit: 0 listed, 1 the poll would record a feed_error, 2 the test could not start, 3 a system recipe's preflight refused.")
 }
 
 func cmdWorkerSourceTest(args []string) int {
-	fs := flag.NewFlagSet("worker source test", flag.ContinueOnError)
+	fs := flag.NewFlagSet("surveyor source test", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var include multiFlag
-	configF := fs.String("config", "", "Path to the worker YAML config (required)")
+	configF := fs.String("config", "", "Path to the Surveyor YAML config (required)")
 	sourceF := fs.String("source", "", "ID of a registered feed Source")
 	kbF := fs.String("kb", "", "KB of the Source (required with --source when the config names several)")
 	recipeF := fs.String("recipe", "", "Recipe name, for a Source not yet registered")

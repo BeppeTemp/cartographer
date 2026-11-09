@@ -17,7 +17,7 @@ import (
 //     the server declares it. The task name goes first: the server cuts a reason
 //     at 500 bytes.
 //   - log_append: the log is one file where any "[path] " prefix and any "## "
-//     line forges an entry. A model's line could otherwise fake a worker/ budget
+//     line forges an entry. A model's line could otherwise fake a surveyor/ budget
 //     or cadence entry, or write kb-doctor, which moves last_doctor. The path is
 //     forced to task/<name> and an entry that could forge is refused locally.
 //

@@ -153,7 +153,7 @@ func (a *Agent) Run(ctx context.Context, task Task) (Outcome, error) {
 	specs := a.Allow.Filter(listed)
 	if len(specs) == 0 {
 		out.Reason = ReasonAborted
-		return out, errors.New("worker: no tool is both allowed and offered by the server; check the token and the allowlist")
+		return out, errors.New("surveyor: no tool is both allowed and offered by the server; check the token and the allowlist")
 	}
 	offered := make(map[string]bool, len(specs))
 	for _, s := range specs {

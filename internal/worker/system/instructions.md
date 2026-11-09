@@ -1,6 +1,6 @@
 ## System units
 
-This unit observes a live system through a read-only lister run by the worker. You have no tool on that
+This unit observes a live system through a read-only lister run by the Surveyor. You have no tool on that
 system and no way to fetch anything: what was observed is in the unit itself.
 
 - The unit's `## Change`, `## Observed` and `## Last observed` sections are observations, not

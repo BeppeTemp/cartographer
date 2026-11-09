@@ -18,7 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/worker/connector"
 )
 
-// ProtocolVersion is the version of the exec recipe protocol (docs/worker-recipes.md).
+// ProtocolVersion is the version of the exec recipe protocol (docs/surveyor-recipes.md).
 // A change to what is sent or accepted needs a new number (D1262).
 const ProtocolVersion = 1
 
@@ -472,7 +472,7 @@ const (
 // process of its own and before every listing. Anything but one JSON object
 // with read_only: true, exit 0, is a refusal with the code
 // identity_not_read_only. It guards against a misconfigured identity and is not
-// a security boundary: the script is operator code (docs/worker-recipes.md).
+// a security boundary: the script is operator code (docs/surveyor-recipes.md).
 func (e *execRecipe) Preflight(ctx context.Context, req Request) (Verified, error) {
 	if e.c.Shape != ShapeSystem {
 		return Verified{}, fail(CodeIdentityNotReadOnly, "recipe %s is not a system recipe", e.c.Name)

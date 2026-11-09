@@ -953,7 +953,7 @@ validate a nested per-type grammar.
   `commit_gate` or `gate_check`, whatever its `involves`, and `involves` is
   optional (a question may concern a page that does not exist yet). `kb_status`
   counts open gaps apart from open contradictions (`open_gaps`).
-  The worker's synthesis task (D1263) writes its hypotheses this way: `provenance`
+  The Surveyor's synthesis task (D1263) writes its hypotheses this way: `provenance`
   lists the concepts the hypothesis rests on, `involves` the ones it is about, and three
   optional keys that the server does not interpret mark it: `origin: synthesis`,
   `confidence: low | medium | high` and, set by whoever closes it, `resolution_outcome:
@@ -990,7 +990,7 @@ validate a nested per-type grammar.
   read-only system observed through snapshots) says what kind of space the
   `locator` points to and sits beside `source_kind`, which stays free text.
   `connector` and `recipe` are the **names** of a connector and a recipe in the
-  worker's configuration, never a path or a command. For a collection, feed or
+  Surveyor's configuration, never a path or a command. For a collection, feed or
   system the `locator` is the URL or `{{path:<key>}}` placeholder of the space,
   repository, feed or system. A `locator`, `connector` or `recipe` that is a URL
   with a password, or with a username under http(s) (a token as username; `ssh://git@host/...` is fine), or a secret-named query parameter
@@ -999,14 +999,14 @@ validate a nested per-type grammar.
   dedups by exact `locator`. An existing `templates/source.md` is not rewritten;
   the new fields are optional and a KB with the old template keeps working.
   **Feed fields (D1262).** A Source with `source_shape: feed` carries the state of
-  its polling in its own frontmatter, written by the worker only with `if_match`
+  its polling in its own frontmatter, written by the Surveyor only with `if_match`
   (the stale write is the lease between replicas): `feed_cursor` (opaque string
   owned by the recipe, at most 1024 bytes), `feed_checked_at` (RFC 3339),
   `feed_interval` (a Go duration; absent means the poll task's default),
   `feed_include` (a list of globs the recipe interprets) and `feed_error`
   (`<code>: <detail>`, one line, removed on success). They are optional in the
   template; `source_register` has no parameter for them on purpose (a feed is
-  registered once, the cursor is the worker's). Clearing `feed_cursor` makes the
+  registered once, the cursor is the Surveyor's). Clearing `feed_cursor` makes the
   next poll list everything again.
   **System Sources (D1372).** A Source with `source_shape: system` is one Source per
   system, its `locator` an opaque label (a group is not a Source). It carries the same
@@ -1015,7 +1015,7 @@ validate a nested per-type grammar.
   `revision`, `observed_at`, `snapshot`), and `feed_cursor` holds the sha256 of its bytes.
   The first state write expands the Source (same ID) and links the file from its body; the
   extension is outside the list indexed into search (D277). A file that does not match
-  `feed_cursor` is untrusted and rebuilt, not repaired. The worker diffs a listing against
+  `feed_cursor` is untrusted and rebuilt, not repaired. The Surveyor diffs a listing against
   it and creates one `IngestUnit` per changed group with four optional fields:
   `observed_group` (the key), `observed_revision` (16 hex, for a removal the group's
   last revision), `observed_change` (`added` \| `modified` \| `removed`) and
@@ -1037,7 +1037,7 @@ validate a nested per-type grammar.
   (`draft` \| `open` \| `in-progress` \| `done` \| `skipped` \| `blocked`), and optional
   `plan`, `claimed_by`, `claimed_at` (RFC3339), `review_after` (`YYYY-MM-DD`, the
   lease), `waiting_on`, `timestamp`, `content_asset` (the name of an asset of the
-  unit holding the Source's text, which the worker's poll stages for an entry a
+  unit holding the Source's text, which the Surveyor's poll stages for an entry a
   recipe returned inline, #1262) and, for a system Source, `observed_group`,
   `observed_revision`, `observed_change`, `observed_at`; its body is the self-contained brief. Both
   are keyed types (D853), so lint never calls them unknown. `ingest_setup` writes
