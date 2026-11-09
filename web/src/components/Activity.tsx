@@ -638,7 +638,7 @@ function AuditSection({ audit }: { audit: AuditLog }) {
   return (
     <PageSection title="Audit log" id="activity-audit" count={entries.length}>
       {!audit.enabled ? (
-        <p className="page-note">This server keeps no audit log.</p>
+        <p className="page-note">This Meridian keeps no audit log.</p>
       ) : entries.length === 0 ? (
         <p className="page-note">
           Nothing recorded yet. The audit log lists every tool call: who made it, and how it ended.

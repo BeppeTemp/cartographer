@@ -244,7 +244,7 @@ describe("what the panel says", () => {
 
     const index = within(section(p, "Index"));
     expect(index.getByText("generated")).toBeInTheDocument();
-    expect(index.getByText("the server rewrites it on every write")).toBeInTheDocument();
+    expect(index.getByText("Meridian rewrites it on every write")).toBeInTheDocument();
 
     const titles = within(section(p, "Titles"));
     expect(titles.getByText("wip")).toBeInTheDocument();

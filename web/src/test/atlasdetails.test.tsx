@@ -142,7 +142,7 @@ describe("Settings", () => {
       "/settings": () => json(clientWith({ kiro: { kbs: [] }, claude: {}, codex: { kbs: ["kb-b"] } }, key)),
     });
     render(<Settings reloadKey="a" activeKB="kb-a" onRetry={() => {}} onFailure={() => false} />);
-    const kbA = await screen.findByRole("list", { name: "Client settings of kb-a" });
+    const kbA = await screen.findByRole("list", { name: "Compass settings of kb-a" });
     const value = within(kbA).getByLabelText("Value of providers.<agent>.kbs");
     expect(value).toHaveTextContent("claude");
     expect(value).not.toHaveTextContent("kiro");

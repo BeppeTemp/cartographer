@@ -151,8 +151,8 @@ export function describe(error: unknown): { title: string; detail: string } {
   if (error instanceof ApiError) {
     if (error.isOffline) {
       return {
-        title: "Server unreachable",
-        detail: "Cartographer did not answer. Check that the server is still running, then retry.",
+        title: "Meridian unreachable",
+        detail: "Cartographer did not answer. Check that Meridian is still running, then retry.",
       };
     }
     if (error.isNotFound) {
@@ -166,8 +166,8 @@ export function describe(error: unknown): { title: string; detail: string } {
     }
     if (error.status >= 500) {
       return {
-        title: "Server error",
-        detail: "Cartographer failed to answer this request. The details are in the server log.",
+        title: "Meridian error",
+        detail: "Cartographer failed to answer this request. The details are in the Meridian log.",
       };
     }
     return { title: "Request rejected", detail: error.message };

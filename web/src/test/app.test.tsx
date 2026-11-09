@@ -57,7 +57,7 @@ describe("the shell boots", () => {
       vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
     );
     render(<App />);
-    expect(await screen.findByText(/server unreachable/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Meridian unreachable/i)).toBeInTheDocument();
   });
 
   it("says a KB is empty rather than showing an empty canvas", async () => {

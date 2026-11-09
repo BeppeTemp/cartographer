@@ -57,8 +57,8 @@ describe("SyncIndicator (#1092)", () => {
     expect(dialog).toHaveTextContent("main");
     expect(dialog).toHaveTextContent("(custom-source)");
     expect(dialog).toHaveTextContent("as of the last fetch");
-    expect(dialog).toHaveTextContent("Unknown since the server restarted");
-    expect(dialog).toHaveTextContent("Not fetched since the server started");
+    expect(dialog).toHaveTextContent("Unknown since Meridian restarted");
+    expect(dialog).toHaveTextContent("Not fetched since Meridian started");
     expect(dialog).toHaveTextContent("remote rejected the push");
     expect(dialog).toHaveTextContent("https://example.com/team/kb-a.git");
   });

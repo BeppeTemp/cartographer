@@ -93,11 +93,11 @@ interface Group {
 
 /** The server's keys, grouped by their first path segment. */
 const SERVER_GROUPS: Record<string, Group> = {
-  general: { title: "General", intro: "Where the server listens, what it mounts and whether it looks for updates." },
-  auth: { title: "Access", intro: "Who may call the server, with which token, and what each role reaches." },
+  general: { title: "General", intro: "Where Meridian listens, what it mounts and whether it looks for updates." },
+  auth: { title: "Access", intro: "Who may call Meridian, with which token, and what each role reaches." },
   git: { title: "Git", intro: "How every write becomes a commit, and how commits reach the remotes." },
-  audit: { title: "Audit", intro: "The tamper-evident log of every call the server answers." },
-  sops: { title: "Secrets", intro: "How the server decrypts the KBs' sops-encrypted secrets." },
+  audit: { title: "Audit", intro: "The tamper-evident log of every call Meridian answers." },
+  sops: { title: "Secrets", intro: "How Meridian decrypts the KBs' sops-encrypted secrets." },
   web: { title: "Atlas", intro: "The web UI this page is part of." },
 };
 
@@ -282,10 +282,10 @@ export function Settings({
           surveyor !== undefined
             ? (surveyor?.perimeter ?? "Surveyor")
             : client !== undefined
-              ? (client?.machine ?? "Client")
+              ? (client?.machine ?? "Compass")
               : kb
                 ? kb.name
-                : "Server"
+                : "Meridian"
         }
         subtitle={
           <>
@@ -294,10 +294,10 @@ export function Settings({
                 ? `Surveyor${surveyor.version ? ` ${surveyor.version}` : ""} · ${surveyor.replicas} replica${surveyor.replicas === 1 ? "" : "s"} · ${surveyor.kbs.join(", ")} · reported ${new Date(surveyor.received_at).toLocaleString("en")} · read-only`
                 : "No Surveyor has reported: every key at its default, read-only"
               : client
-                ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+                ? `Compass ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
                 : kb
                   ? "This Knowledge Base's configuration, read-only"
-                  : "The configuration this server runs with, read-only"}
+                  : "The configuration Meridian runs with, read-only"}
             {who && (
               <>
                 {" · "}
@@ -319,7 +319,7 @@ export function Settings({
         <div className="inspector__tabs settings__tabs" role="tablist" aria-label="Settings of">
           {clients.length === 0 ? (
             <Tab id="client" current={current === "client"} onSelect={setTab}>
-              Client
+              Compass
             </Tab>
           ) : (
             clients.map((c) => (
@@ -329,12 +329,12 @@ export function Settings({
                 current={current === `client:${c.machine}`}
                 onSelect={setTab}
               >
-                {clients.length === 1 ? "Client" : `Client · ${c.machine}`}
+                {clients.length === 1 ? "Compass" : `Compass · ${c.machine}`}
               </Tab>
             ))
           )}
           <Tab id="server" current={current === "server"} onSelect={setTab}>
-            Server
+            Meridian
           </Tab>
           {selected && (
             <Tab id="kb" current={current === "kb"} onSelect={setTab}>
@@ -498,7 +498,7 @@ function ClientPanel({
             {groups
               .filter((g) => g.rows.length > 0)
               .map(({ group, rows }) => (
-                <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
+                <Rows key={group.title} group={group} entries={rows} label={`Compass ${group.title} settings`} />
               ))}
             <ClientKBs kbs={kbs} client={null} entries={template.entries} activeKB={activeKB} query={query} />
             {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
@@ -524,7 +524,7 @@ function ClientPanel({
           {groups
             .filter((g) => g.rows.length > 0)
             .map(({ group, rows }) => (
-              <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
+              <Rows key={group.title} group={group} entries={rows} label={`Compass ${group.title} settings`} />
             ))}
           <ClientKBs kbs={kbs} client={client} entries={client.entries} activeKB={activeKB} query={query} />
           {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
@@ -734,7 +734,7 @@ function ClientKBs({
           </button>
         ))}
       </div>
-      <ul className="settings__rows" aria-label={`Client settings of ${kb}`}>
+      <ul className="settings__rows" aria-label={`Compass settings of ${kb}`}>
         <KBSetting
           yamlKey={`knowledge_bases.${kb}.identity`}
           about="The git author of your writes to this KB."
@@ -1097,7 +1097,7 @@ function Row({ entry: e }: { entry: SettingEntry }) {
           {e.restart && (
             <div>
               <dt>Applies</dt>
-              <dd>after the server restarts: a running server keeps the value it started with</dd>
+              <dd>after Meridian restarts: a running Meridian keeps the value it started with</dd>
             </div>
           )}
         </dl>
@@ -1116,7 +1116,7 @@ const AVAILABLE = /^#\s*-+\s*available settings\b.*-+\s*$/i;
  * pointer over it, or with it focused, selects the file alone.
  */
 function Yaml({ name, text }: { name: string; text?: string }) {
-  if (!text) return <p className="page-note">This server does not return the YAML view.</p>;
+  if (!text) return <p className="page-note">Meridian does not return the YAML view.</p>;
   const lines = text.replace(/\n$/, "").split("\n");
   const cut = lines.findIndex((l) => AVAILABLE.test(l.trim()));
   const inForce = (cut < 0 ? lines : lines.slice(0, cut)).filter((l) => /^[^\s#][^:#]*:/.test(l)).length;
@@ -1198,7 +1198,7 @@ function Who({ who }: { who: Whoami }) {
       {who.admin
         ? ", administrator"
         : who.permissions.length === 0
-          ? ", with no KB on this server"
+          ? ", with no KB on this Meridian"
           : `: ${who.permissions.map((rule) => `in ${rule.kb} you ${describeRule(rule)}`).join("; ")}`}
     </span>
   );
