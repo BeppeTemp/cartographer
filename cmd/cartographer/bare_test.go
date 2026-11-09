@@ -42,7 +42,7 @@ func runBareOut(t *testing.T) string {
 // The usage is the last thing printed, so the status sits above the long text.
 func requireUsageLast(t *testing.T, out string) {
 	t.Helper()
-	i := strings.Index(out, "cartographer — MCP server")
+	i := strings.Index(out, "cartographer: the Agentic Wiki platform")
 	if i < 0 || !strings.Contains(out[i:], "Usage:") {
 		t.Fatalf("output must end with the usage:\n%s", out)
 	}

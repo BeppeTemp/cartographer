@@ -90,9 +90,9 @@ func runConfig(w io.Writer, dir string, asJSON, all bool) int {
 		return 0
 	}
 
-	printEntries(w, "Client", view.Client, all)
+	printEntries(w, "Compass", view.Client, all)
 	if view.Server != nil {
-		fmt.Fprintf(w, "\nServer (version %s", view.Server.Version)
+		fmt.Fprintf(w, "\nMeridian (version %s", view.Server.Version)
 		if view.Server.LatestVersion != "" {
 			fmt.Fprintf(w, ", %s available", view.Server.LatestVersion)
 		}
