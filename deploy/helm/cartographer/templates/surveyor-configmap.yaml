@@ -5,7 +5,7 @@
 {{- $cfg := deepCopy .config -}}
 {{- $_ := set $cfg "name" .name -}}
 {{- if not (hasKey $cfg "server_url") -}}
-{{- $_ := set $cfg "server_url" (printf "http://%s:%v/mcp" $full $root.Values.server.service.port) -}}
+{{- $_ := set $cfg "server_url" (printf "http://%s:%v/mcp" $full $root.Values.meridian.service.port) -}}
 {{- if not (hasKey $cfg "allow_insecure_http") -}}
 {{- $_ := set $cfg "allow_insecure_http" true -}}
 {{- end -}}

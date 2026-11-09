@@ -1,6 +1,6 @@
 # Token source (b): YAML tokens that are ${NAME} references, the variables coming from an
 # existing Secret through extraEnvFrom, and the role a Surveyor token needs (artifacts: r).
-server:
+meridian:
   credentials:
     enabled: false
   extraEnvFrom:

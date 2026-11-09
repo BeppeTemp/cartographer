@@ -350,7 +350,7 @@ otherwise silent — no client, compiler or linter reports any of them:
 `make helm-check` runs [`test/helm/run.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/helm/run.sh) on
 `deploy/helm/cartographer/` (D1441). It needs `helm` and `jq` and no cluster, and `scripts/install-helm.sh <dir>` installs
 the pinned Helm release (one pin, shared by `ci.yml`, `release.yml` and `preview.yml`). It runs `helm lint --strict` and
-`helm template` over every file of the chart's `ci/` directory (server minimal and full, the two partitioned releases,
+`helm template` over every file of the chart's `ci/` directory (Meridian minimal and full, the two partitioned releases,
 the YAML-token source, a scheduled Surveyor and an exec-recipe Surveyor) and asserts on what is rendered: one server
 `Deployment` with `replicas: 1` and `Recreate`, no `StatefulSet` or autoscaler, **no `Secret` object**, no literal
 secret in an environment, the credentials Secret mounted with `defaultMode: 0440` next to an `fsGroup`, the quoted
@@ -358,8 +358,8 @@ secret in an environment, the credentials Secret mounted with `defaultMode: 0440
 `existingClaim`), the probes, the Surveyors (no port, probe or persistent volume, `--once` on a CronJob only, the
 injected `server_url` only when the entry sets none) and no object shared by the two partitioned releases. Every
 refusal of the chart is a negative case that must fail with its message, and the values schema must reject
-`server.replicaCount`, `server.autoscaling` and a top-level key it does not know. The chart's files may not contain
-the retired names, and `Chart.yaml` must keep the two placeholders the release workflows stamp.
+`meridian.replicaCount`, `meridian.autoscaling` and a top-level key it does not know. The chart's files may not contain
+the retired name, and `Chart.yaml` must keep the two placeholders the release workflows stamp.
 
 It is **not** part of `make gate`: the gate stays Go-only and offline (the reasoning of D227), and Helm is not a
 Go dependency. The `helm` job of `ci.yml` runs it, selected by the `helm` filter of `scripts/ci-filters.sh`, and

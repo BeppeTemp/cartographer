@@ -1,7 +1,7 @@
-# Partitioned: one release per server, each with its own KBs and host. The pair is rendered
+# Partitioned: one release per Meridian, each with its own KBs and host. The pair is rendered
 # under two release names and no (kind, name) may repeat.
 fullnameOverride: cartographer-b
-server:
+meridian:
   tokens:
     existingSecret:
       name: cartographer-b-tokens

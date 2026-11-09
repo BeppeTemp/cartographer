@@ -1,6 +1,6 @@
-# Kubernetes full server side: credentials Secret, an existing claim, an Ingress with TLS,
+# Kubernetes full Meridian side: credentials Secret, an existing claim, an Ingress with TLS,
 # the readiness probe on /ready with a token, resources and pod annotations.
-server:
+meridian:
   tokens:
     existingSecret:
       name: cartographer-tokens

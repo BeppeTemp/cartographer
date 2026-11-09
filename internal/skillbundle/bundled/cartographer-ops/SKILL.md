@@ -155,7 +155,7 @@ Cartographers end up on `PATH`.
   2. Verify the Deployment carries the new tag —
      `kubectl get deploy/cartographer -o jsonpath='{.spec.template.spec.containers[0].image}'`
      — for a chart release, whose Deployment is named after the release's full name, select it:
-     `kubectl get deploy -l app.kubernetes.io/instance=<release>,app.kubernetes.io/component=server -o jsonpath='{.items[0].spec.template.spec.containers[0].image}'` —
+     `kubectl get deploy -l app.kubernetes.io/instance=<release>,app.kubernetes.io/component=meridian -o jsonpath='{.items[0].spec.template.spec.containers[0].image}'` —
      **before** waiting for rollout. Until it does, `kubectl rollout status` returns success in
      under a second, truthfully, about the old ReplicaSet that has nothing left to roll out.
   3. Then wait for rollout, and confirm with the version the server reports: `cartographer status`

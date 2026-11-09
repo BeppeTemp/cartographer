@@ -1,6 +1,6 @@
-# Default values of the cartographer chart. The reference for every key is this
+# Default values of the cartographer chart, which ships Meridian, its Atlas and the Surveyors. The reference for every key is this
 # file; README.md says how to combine them. There is deliberately no replica
-# count for the server: it is one process, the sole writer of its data (D73, D1441).
+# count for Meridian: it is one process, the sole writer of its data (D73, D1441).
 
 # Overrides of the chart name and of the full name every object derives from.
 nameOverride: ""
@@ -8,17 +8,17 @@ fullnameOverride: ""
 # Pull secrets for every image of the release: a list of { name: <secret> }.
 imagePullSecrets: []
 
-server:
+meridian:
   image:
     repository: ghcr.io/beppetemp/cartographer
     # Empty means the chart's appVersion, the tag of the release the chart ships with.
     tag: ""
     pullPolicy: IfNotPresent
 
-  # The server's YAML (config.example.yaml), rendered to the ConfigMap key config.yaml.
+  # Meridian's YAML (config.example.yaml), rendered to the ConfigMap key config.yaml.
   # The chart owns http, data and credentials_dir: setting one fails at template time.
   # auth.mode is a quoted string, because a bare on is a YAML boolean.
-  # Secrets never go here: tokens come from server.tokens or server.extraEnvFrom.
+  # Secrets never go here: tokens come from meridian.tokens or meridian.extraEnvFrom.
   config:
     auth:
       mode: "on"
@@ -26,18 +26,18 @@ server:
 
   # Token source (a): an existing Secret whose key holds the whole CARTOGRAPHER_TOKENS
   # string (a bare admin token, `<token>|kb:<name>:r`, ...). Exclusive with auth.tokens in
-  # server.config, because the variable replaces every token the YAML declares.
+  # meridian.config, because the variable replaces every token the YAML declares.
   tokens:
     existingSecret:
       name: ""
       key: tokens
 
   # Token source (b): names of existing Secrets, each exposed whole through envFrom, for
-  # the ${NAME} references of the YAML tokens in server.config.auth.tokens.
+  # the ${NAME} references of the YAML tokens in meridian.config.auth.tokens.
   extraEnvFrom: []
 
   # The credentials directory: one existing Secret, mounted read-only (mode 0440). It must
-  # hold audit.key. false mounts nothing, and the server keeps its keys on the data volume.
+  # hold audit.key. false mounts nothing, and Meridian keeps its keys on the data volume.
   credentials:
     enabled: true
     existingSecret:
@@ -81,7 +81,7 @@ server:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 3
-      # Opt in to the documented /ready route: a Secret key holding one of the server's own
+      # Opt in to the documented /ready route: a Secret key holding one of Meridian's own
       # tokens, with a read scope on one KB. Empty keeps the /health body.
       tokenSecret:
         name: ""

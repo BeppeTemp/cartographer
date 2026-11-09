@@ -1,12 +1,12 @@
 {{- include "cartographer.validate" . -}}
-{{- $i := .Values.server.ingress }}
+{{- $i := .Values.meridian.ingress }}
 {{- if $i.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "cartographer.fullname" . }}
   labels:
-    {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 4 }}
+    {{- include "cartographer.labels" (dict "root" . "component" "meridian") | nindent 4 }}
   {{- with $i.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -31,7 +31,7 @@ spec:
               service:
                 name: {{ include "cartographer.fullname" $ }}
                 port:
-                  number: {{ $.Values.server.service.port }}
+                  number: {{ $.Values.meridian.service.port }}
           {{- end }}
     {{- end }}
 {{- end }}
