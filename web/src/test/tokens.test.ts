@@ -72,8 +72,11 @@ describe("design tokens", () => {
       const allowFallback = /lib\/palette\.ts$/.test(file);
       const source = readFileSync(file, "utf8");
       source.split("\n").forEach((text, index) => {
+        // (#1821) and "Refs #1821" are issue references in a comment, not colours.
+        // Only inside a comment, so "(#123)" in code stays a colour.
+        const bare = text.replace(/((?:\/\/|\/\*|^\s*\*).*?)(\(|\b(?:Refs|refs|issue) )#\d+\)?/g, "$1");
         // &#9633; is an HTML entity, not a colour.
-        if (!/(^|[^&])#[0-9a-fA-F]{3,8}\b/.test(text)) return;
+        if (!/(^|[^&])#[0-9a-fA-F]{3,8}\b/.test(bare)) return;
         if (allowFallback && /\|\||fallback|\?\?/.test(text)) return;
         if (/0x[0-9a-fA-F]+/.test(text)) return;
         offenders.push(`${file.slice(SRC.length)}:${index + 1} ${text.trim()}`);

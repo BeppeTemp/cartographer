@@ -360,6 +360,11 @@ func (k *KB) WithGitLock(fn func() error) error {
 	return fn()
 }
 
+// The remote of a KB lives only in the git config of its clone, never in the
+// server configuration: `kb create --remote` and `kb attach` write it there,
+// and this reads it at every call, so a running server sees a new origin at
+// its next sync decision without a restart.
+//
 // hasRemote returns the remote name ("origin") and true if the KB root is a git
 // repository and has a non-empty URL configured for "origin"; otherwise "", false.
 func (k *KB) hasRemote() (string, bool) {

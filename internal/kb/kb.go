@@ -323,6 +323,13 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	k.gitStatusMu.RLock()
 	s := k.gitStatus
 	k.gitStatusMu.RUnlock()
+	if s.State == "no_remote" {
+		// A cached no_remote is stale once the clone has an origin (kb attach
+		// added one while the server ran): recompute it as the empty state is.
+		if _, ok := k.hasRemote(); ok {
+			s.State = ""
+		}
+	}
 	if s.State == "" {
 		if !gitx.IsRepo(k.Root) {
 			s.State = "disabled"

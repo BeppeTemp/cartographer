@@ -66,8 +66,7 @@ your own choosing:
 
 ```
 cartographer kb create <name> --no-remote --data <parent-dir>   # creates the layout in <parent-dir>/<name>
-git -C <parent-dir>/<name> remote add origin <gitea-repo-url>
-git -C <parent-dir>/<name> push -u origin <branch>
+cartographer kb attach <name> --remote <gitea-repo-url> --data <parent-dir>   # origin + first push, checked, never forced
 ```
 
 Either way the standard layout is: `data/` (conceptual root, with its `index.md`, `log.md` and a

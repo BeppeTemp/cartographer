@@ -968,12 +968,24 @@ func Checkout(dir, branch string) error {
 // Fetch runs git fetch for a given remote (default "origin"). Returns error on
 // failure. env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
 func Fetch(dir, remote string, env ...string) error {
+	return fetchWith(dir, remote, nil, env)
+}
+
+// FetchNoTags is Fetch without following tags: refs/tags/* is left as it was,
+// for a caller that may have to undo the fetch (kb attach removes the remote
+// again, which drops refs/remotes/<remote>/* but not tags).
+func FetchNoTags(dir, remote string, env ...string) error {
+	return fetchWith(dir, remote, []string{"--no-tags"}, env)
+}
+
+func fetchWith(dir, remote string, opts, env []string) error {
 	if remote == "" {
 		remote = "origin"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
-	cmd := netCommand(ctx, netEnv(dir, env), "-C", dir, "fetch", remote)
+	args := append([]string{"-C", dir, "fetch"}, opts...)
+	cmd := netCommand(ctx, netEnv(dir, env), append(args, remote)...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("git fetch %s: %w", RedactRemoteURL(remote), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: FetchTimeout})
@@ -1975,6 +1987,16 @@ func AddRemote(dir, name, url string) error {
 	out, err := runGit(dir, "remote", "add", "--", name, url)
 	if err != nil {
 		return fmt.Errorf("git remote add %s: %w: %s", name, redactedErr(err, url), RedactRemoteText(out, url))
+	}
+	return nil
+}
+
+// RemoveRemote removes the named remote, with its remote-tracking refs and
+// the tracking configuration of the branches that followed it.
+func RemoveRemote(dir, name string) error {
+	out, err := runGit(dir, "remote", "remove", "--", name)
+	if err != nil {
+		return fmt.Errorf("git remote remove %s: %w: %s", name, err, out)
 	}
 	return nil
 }

@@ -73,6 +73,9 @@ export function SyncIndicator({ kb, live }: Props) {
   const behind = status.behind_commits;
   // No remote, no counts: the rows would only say "Unknown".
   const counted = status.push_state !== "no_remote" && status.push_state !== "disabled" && status.has_remote !== false;
+  // Only the "No remote" state names the command that fixes it (#1821); the
+  // remote lives in the clone's git config, so has_remote is all this needs.
+  const attachable = !counted && status.push_state !== "disabled";
   const count = (n: number | null | undefined) => (typeof n === "number" ? String(n) : "Unknown");
 
   return (
@@ -106,6 +109,11 @@ export function SyncIndicator({ kb, live }: Props) {
               <strong>{state.label}.</strong> <span className="sync__summary">{state.summary}</span>
             </p>
           </div>
+          {attachable && (
+            <p className="sync__attach">
+              On the server&apos;s host: <code>cartographer kb attach {kb} --remote &lt;url&gt;</code>
+            </p>
+          )}
           {counted && (
             <ul className="sync__counts">
               <li className="sync__count">

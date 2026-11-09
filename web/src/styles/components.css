@@ -395,6 +395,13 @@
   color: var(--text-secondary);
 }
 
+.sync__attach {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .sync__counts {
   display: grid;
   grid-template-columns: 1fr 1fr;
