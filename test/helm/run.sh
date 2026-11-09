@@ -100,6 +100,11 @@ check_release() {
   p=$(one "$label" Service server)
   must "$label" "$p" '^      port: 39273$' "the Service does not expose 39273"
   must "$label" "$p" 'app.kubernetes.io/component: server$' "the Service does not select the server"
+  for f in $(docs "$label" Deployment) $(docs "$label" CronJob); do
+    grep -qE 'component: surveyor-' "$f" || continue
+    mustnt "$label" "$f" '^ +ports:|Probe:|persistentVolumeClaim|^ +secret:' "a Surveyor with a port, a probe or a persistent volume ($f)"
+    must "$label" "$f" 'emptyDir: \{\}' "a Surveyor without its temp emptyDir ($f)"
+  done
 }
 
 for f in "$chart"/ci/*-values.yaml; do
@@ -125,11 +130,46 @@ must server-full "$d" 'http://127.0.0.1:39273/ready$' "the token readiness does 
 [ -z "$(docs server-full PersistentVolumeClaim)" ] || fail "server-full: a claim next to existingClaim"
 must server-full "$(one server-full Ingress)" 'secretName: wiki-tls$' "the Ingress has no TLS"
 
+d=$(one server-yaml-tokens Deployment server)
+mustnt server-yaml-tokens "$d" 'CARTOGRAPHER_TOKENS' "source (b) sets CARTOGRAPHER_TOKENS, which would replace the YAML tokens"
+must server-yaml-tokens "$d" 'name: "cartographer-token-env"$' "extraEnvFrom is not an envFrom secretRef"
+must server-yaml-tokens "$(one server-yaml-tokens ConfigMap server)" 'artifacts: r$' "the Surveyor role lost artifacts: r"
+
 # The partitioned pair: two releases, no object in common.
 render pa rel-a -f "$chart/ci/partitioned-a-values.yaml"
 render pb rel-b -f "$chart/ci/partitioned-b-values.yaml"
 ids() { for f in "$work/$1"/doc-*.yaml; do echo "$(grep -m1 '^kind:' "$f") $(grep -m1 '^  name:' "$f")"; done | sort; }
 [ -z "$(comm -12 <(ids pa) <(ids pb))" ] || fail "the partitioned releases share an object: $(comm -12 <(ids pa) <(ids pb))"
+
+# Surveyors.
+s=$(one surveyor-scheduled CronJob)
+must surveyor-scheduled "$s" '^  concurrencyPolicy: Forbid$' "the CronJob allows overlapping runs"
+must surveyor-scheduled "$s" '^ +- --once$' "a CronJob Surveyor without --once"
+must surveyor-scheduled "$s" 'restartPolicy: Never$' "the CronJob restarts"
+must surveyor-scheduled "$s" 'backoffLimit: 0$' "the CronJob retries"
+must surveyor-scheduled "$s" 'automountServiceAccountToken: false$' "a Surveyor without a service account mounts the API token"
+must surveyor-scheduled "$s" 'name: "docs-night-env"$' "existingSecret is not an envFrom"
+c=$(one surveyor-scheduled ConfigMap surveyor-docs-night)
+must surveyor-scheduled "$c" 'server_url: http://ci-cartographer:39273/mcp$' "no injected server_url"
+must surveyor-scheduled "$c" 'allow_insecure_http: true$' "no injected allow_insecure_http"
+must surveyor-scheduled "$c" '^    name: docs-night$' "the perimeter name is not injected"
+must surveyor-scheduled "$c" '^  recipe-notes.md: \|$' "files are not in the ConfigMap"
+
+d=$(one surveyor-exec Deployment surveyor-cluster-inventory)
+must surveyor-exec "$d" '^      automountServiceAccountToken: true$' "the entry with a serviceAccountName does not mount the API token"
+must surveyor-exec "$d" 'serviceAccountName: "surveyor-inventory"$' "serviceAccountName is not applied"
+must surveyor-exec "$d" 'image: "registry.example.com/user/surveyor-kubectl:1.0.0"$' "the image override is not applied"
+mustnt surveyor-exec "$d" '^ +- --once$' "a Deployment Surveyor with --once"
+must surveyor-exec "$d" '^    type: Recreate$' "a Surveyor Deployment is not Recreate"
+c=$(one surveyor-exec ConfigMap surveyor-cluster-inventory)
+must surveyor-exec "$c" 'server_url: https://wiki.example.com/mcp$' "the entry's own server_url is not kept"
+mustnt surveyor-exec "$c" 'allow_insecure_http' "an entry with its own server_url got allow_insecure_http"
+# Only the entry with a serviceAccountName may mount the API token.
+for label in server-minimal server-full surveyor-scheduled; do
+  for f in "$work/$label"/doc-*.yaml; do
+    mustnt "$label" "$f" 'automountServiceAccountToken: true' "the API token is mounted"
+  done
+done
 
 echo "→ every refusal"
 neg "no token source" '{}' nobase
@@ -145,5 +185,20 @@ neg "server.ingress.hosts" '{server: {ingress: {enabled: true}}}'
 neg "replicaCount" '{server: {replicaCount: 2}}'
 neg "autoscaling" '{server: {autoscaling: {enabled: true}}}'
 neg "worker" '{worker: {enabled: true}}'
+sv='mode: deployment, existingSecret: e, config: {kbs: [kb-a]}'
+neg "surveyors[0].name is required" "{surveyors: [{$sv}]}"
+neg "surveyors[0].name is required" "{surveyors: [{name: Bad_Name, $sv}]}"
+neg "is used twice" "{surveyors: [{name: a, $sv}, {name: a, $sv}]}"
+neg "surveyors[0].mode is required" '{surveyors: [{name: a, existingSecret: e, config: {kbs: []}}]}'
+neg "mode" "{surveyors: [{name: a, mode: job, existingSecret: e, config: {kbs: []}}]}"
+neg "needs a schedule" '{surveyors: [{name: a, mode: cronjob, existingSecret: e, config: {kbs: []}}]}'
+neg "replicas applies to mode deployment only" '{surveyors: [{name: a, mode: cronjob, schedule: "1 * * * *", replicas: 2, existingSecret: e, config: {kbs: []}}]}'
+neg "schedule applies to mode cronjob only" "{surveyors: [{name: a, schedule: '1 * * * *', $sv}]}"
+neg "config is required" '{surveyors: [{name: a, mode: deployment, existingSecret: e}]}'
+neg "config.name is owned by the chart" '{surveyors: [{name: a, mode: deployment, existingSecret: e, config: {name: x}}]}'
+neg "existingSecret is required" '{surveyors: [{name: a, mode: deployment, config: {kbs: []}}]}'
+neg "holds a /" "{surveyors: [{name: a, files: {\"d/x\": t}, $sv}]}"
+neg "52 characters" "{surveyors: [{name: $(printf 'x%.0s' $(seq 40)), $sv}]}"
+neg "typo" '{surveyors: [{name: a, mode: deployment, existingSecret: e, config: {kbs: []}, typo: 1}]}'
 
 echo "helm-check: ok"

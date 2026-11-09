@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "cartographer chart values",
-  "description": "additionalProperties is false on the root and server objects: a typo, a replica count for the server or an unknown top-level key fails at lint, template and install time (D1441).",
+  "description": "additionalProperties is false on the root, server and each surveyors entry: a typo, a replica count for the server or an unknown top-level key fails at lint, template and install time (D1441).",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -119,6 +119,36 @@
         "affinity": { "type": "object" },
         "podAnnotations": { "type": "object" },
         "podLabels": { "type": "object" }
+      }
+    },
+    "surveyorImage": { "$ref": "#/definitions/image" },
+    "surveyors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "mode": { "enum": ["deployment", "cronjob"] },
+          "replicas": { "type": "integer", "minimum": 0 },
+          "schedule": { "type": "string" },
+          "config": { "type": "object" },
+          "files": { "type": "object", "additionalProperties": { "type": "string" } },
+          "existingSecret": { "type": "string" },
+          "image": { "$ref": "#/definitions/image" },
+          "serviceAccountName": { "type": "string" },
+          "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+          "resources": { "type": "object" },
+          "nodeSelector": { "type": "object" },
+          "tolerations": { "type": "array" },
+          "affinity": { "type": "object" },
+          "podAnnotations": { "type": "object" },
+          "suspend": { "type": "boolean" },
+          "startingDeadlineSeconds": { "type": "integer", "minimum": 0 },
+          "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
+          "successfulJobsHistoryLimit": { "type": "integer", "minimum": 0 },
+          "failedJobsHistoryLimit": { "type": "integer", "minimum": 0 }
+        }
       }
     }
   },
