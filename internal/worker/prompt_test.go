@@ -63,6 +63,37 @@ func loadPromptIn(t *testing.T, dir, task string) (*Config, error) {
 	return LoadConfig(path, DefaultKinds())
 }
 
+func TestPromptToolsMayNameTheDoctorsQueue(t *testing.T) {
+	if err := checkPromptTools("scout", []string{"kb_review", "kb_repair", "concept_read"}); err != nil {
+		t.Error(err)
+	}
+	if !isRead("kb_review") || isRead("kb_repair") {
+		t.Error("kb_review is a read, kb_repair a write")
+	}
+	for _, name := range DefaultTools() {
+		if name == "kb_review" || name == "kb_repair" {
+			t.Errorf("%s is in the default allowlist: a task that lists nothing would get it", name)
+		}
+	}
+}
+
+// The scout of examples/prompt-tasks loads with the tools its text names.
+func TestExampleScoutTaskLoads(t *testing.T) {
+	text, err := os.ReadFile(filepath.Join("..", "..", "examples", "prompt-tasks", "kb-scout.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := strings.Replace(goodTask, "[changes_since, concept_read, concept_write]", "[work_list, kb_review, concept_read, concept_write]", 1)
+	if _, err := loadPromptCfg(t, task, string(text)); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"work_list", "kb_review", "concept_read", "concept_write"} {
+		if !strings.Contains(string(text), "`"+tool+"`") {
+			t.Errorf("the scout does not name %s", tool)
+		}
+	}
+}
+
 func TestPromptOptions(t *testing.T) {
 	cfg, err := loadPromptCfg(t, goodTask, "Do "+promptCanary)
 	if err != nil {

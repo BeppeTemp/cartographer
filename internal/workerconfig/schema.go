@@ -136,7 +136,10 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "tasks[].model", Scope: settingschema.ScopeWorker, Type: "string", Default: `""`,
 		Description: "The model profile the task runs on: a models[].name."},
 	{Path: "tasks[].max_writes", Scope: settingschema.ScopeWorker, Type: "int", Values: "at least 1", Default: "20",
-		Description: "The most writes one doctor session may apply to a KB; past it the session is told to close."},
+		Description: "The most writes one doctor run may apply to a KB; past it the run stops."},
+	{Path: "tasks[].doctor_allow", Scope: settingschema.ScopeWorker, Type: "list", Values: "repair, pages, structure, archive", Default: "[repair]",
+		Example:     "- repair\n- pages",
+		Description: "What a doctor run may do beyond closing or suspending work: repair (kb_repair, no model), pages (edit the pages an item names), structure (a map's vocabulary and index), archive (carry a closed journal entry's facts to live pages and archive it)."},
 	// The option keys of each task kind go here, one row per path, declared by
 	// the plan that adds the kind. A path shared by two kinds is one row.
 
