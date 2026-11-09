@@ -669,3 +669,75 @@ func TestLint_SecretsPathsInNonCanonicalFormAreLeftAlone(t *testing.T) {
 		t.Fatalf("want no secret_ref_broken, got %v", got)
 	}
 }
+
+// artifact_unprefixed: an unset key changes nothing; a set one reports every
+// skill and agent lacking prefix+"-", the bare value included. The check is a
+// person's rename (no fix kind, not auto-repairable) that the write gate refuses.
+func TestLint_ArtifactUnprefixed(t *testing.T) {
+	t.Parallel()
+	setup := func(t *testing.T, prefix string) *kb.KB {
+		k := tempKB(t)
+		setPolicy(k, func(p *kb.Policy) { p.ArtifactPrefix = prefix })
+		writeFile(t, k.Root, "skills/acme-ok/SKILL.md", skillMD("acme-ok", "Acme: fine", "# A\n"))
+		writeFile(t, k.Root, "skills/review-mr/SKILL.md", skillMD("review-mr", "Review", "# R\n"))
+		writeFile(t, k.Root, "skills/acme/SKILL.md", skillMD("acme", "Bare", "# B\n"))
+		writeFile(t, k.Root, "agents/acme-helper.md", "# helper\n")
+		writeFile(t, k.Root, "agents/helper.md", "# helper\n")
+		return k
+	}
+	run := func(t *testing.T, k *kb.KB) []Finding {
+		t.Helper()
+		all, err := Run(k, "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return findingsOf(all, "artifact_unprefixed")
+	}
+	t.Run("unset reports nothing", func(t *testing.T) {
+		t.Parallel()
+		if got := run(t, setup(t, "")); len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("set reports each unprefixed", func(t *testing.T) {
+		t.Parallel()
+		k := setup(t, "acme")
+		got := run(t, k)
+		var paths []string
+		for _, f := range got {
+			paths = append(paths, f.Path)
+			if !f.Artifact || f.Fix != nil {
+				t.Errorf("%s: want an artifact finding with no fix, got %+v", f.Path, f)
+			}
+		}
+		if p := strings.Join(paths, ","); p != "agents/helper.md,skills/acme/SKILL.md,skills/review-mr/SKILL.md" {
+			t.Fatalf("paths = %s", p)
+		}
+		wantSkill := `skill review-mr does not start with the KB's artifact_prefix "acme-": rename the directory skills/review-mr to skills/acme-review-mr and set name: acme-review-mr`
+		if got[2].Message != wantSkill {
+			t.Errorf("message = %q, want %q", got[2].Message, wantSkill)
+		}
+		if !strings.Contains(got[0].Message, "agents/acme-helper.md") || !strings.Contains(got[0].Message, "name: field") {
+			t.Errorf("agent message = %q", got[0].Message)
+		}
+		// The write gate path reports the same findings.
+		if n := len(findingsOf(ArtifactFindings(k, nil), "artifact_unprefixed")); n != 3 {
+			t.Errorf("ArtifactFindings reported %d, want 3", n)
+		}
+	})
+	t.Run("no artifacts", func(t *testing.T) {
+		t.Parallel()
+		k := tempKB(t)
+		setPolicy(k, func(p *kb.Policy) { p.ArtifactPrefix = "acme" })
+		if got := run(t, k); len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("spec", func(t *testing.T) {
+		t.Parallel()
+		spec, ok := Spec("artifact_unprefixed")
+		if !ok || !spec.AvoidableAtWrite || spec.AutoRepairSafe || len(spec.FixKinds) != 0 || !spec.Panel {
+			t.Fatalf("spec = %+v ok=%v", spec, ok)
+		}
+	})
+}

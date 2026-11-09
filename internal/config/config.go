@@ -241,6 +241,10 @@ type KBSpec struct {
 	// DefaultUsageStaleDays, and a value under kb.MinUsageStaleDays is read as
 	// that minimum (D906). Read it through UsageStale.
 	UsageStaleDays *int `yaml:"usage_stale_days,omitempty"`
+
+	// ArtifactPrefix is the scope word the KB's skills and agents must start
+	// with (artifact_unprefixed); "" checks nothing.
+	ArtifactPrefix string `yaml:"artifact_prefix,omitempty"`
 }
 
 // AuditConfig controls the append-only audit log.

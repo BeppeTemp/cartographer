@@ -242,3 +242,32 @@ usage_stale_days: 30
 		}
 	}
 }
+
+func TestParseSettingsArtifactPrefix(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		yml string
+		ok  bool
+	}{
+		{"artifact_prefix: acme\n", true},
+		{"artifact_prefix: acme-eu\n", true},
+		{"artifact_prefix: 123\n", true},
+		{"artifact_prefix: " + strings.Repeat("a", 32) + "\n", true},
+		{"artifact_prefix: " + strings.Repeat("a", 33) + "\n", false},
+		{"artifact_prefix: Acme\n", false},
+		{"artifact_prefix: acme_\n", false},
+		{"artifact_prefix: acme-\n", false},
+		{"artifact_prefix: \"\"\n", false},
+		{"artifact_prefix:\n", false},
+		{"artifact_prefix: [acme]\n", false},
+	} {
+		s, bad := keysOf(t, tc.yml)
+		_, has := s.String("artifact_prefix")
+		if tc.ok && (!has || len(bad) != 0) {
+			t.Errorf("%q: has=%v bad=%v, want accepted", tc.yml, has, bad)
+		}
+		if !tc.ok && (has || len(bad) != 1 || !strings.Contains(bad[0].Reason, "ignored")) {
+			t.Errorf("%q: has=%v bad=%v, want one finding saying the key is ignored", tc.yml, has, bad)
+		}
+	}
+}

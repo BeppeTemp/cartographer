@@ -179,3 +179,26 @@ func TestKBSettingsSchemaIsTheKBKeys(t *testing.T) {
 		t.Errorf("rendered file:\n%s", out)
 	}
 }
+
+// artifact_prefix is copied from the KB file, and the file kb create writes lists it.
+func TestResolveKBSettingsArtifactPrefix(t *testing.T) {
+	eff, info := ResolveKBSettings(KBSpec{Name: "kb-a"}, parse(t, "artifact_prefix: acme\n"))
+	if eff.ArtifactPrefix != "acme" || !info.FromKBHas("artifact_prefix") || len(info.Findings) != 0 {
+		t.Errorf("eff=%q info=%+v", eff.ArtifactPrefix, info)
+	}
+	eff, _ = ResolveKBSettings(KBSpec{Name: "kb-a"}, parse(t, "usage_stale_days: 30\n"))
+	if eff.ArtifactPrefix != "" {
+		t.Errorf("unset key resolved to %q", eff.ArtifactPrefix)
+	}
+	eff, info = ResolveKBSettings(KBSpec{Name: "kb-a"}, parse(t, "artifact_prefix: Acme\n"))
+	if eff.ArtifactPrefix != "" || len(info.Findings) != 1 {
+		t.Errorf("malformed: eff=%q findings=%v", eff.ArtifactPrefix, info.Findings)
+	}
+	out, err := KBSettingsSchema().Format(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "# artifact_prefix:") {
+		t.Error("the settings file kb create writes does not list artifact_prefix")
+	}
+}

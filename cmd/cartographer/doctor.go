@@ -231,8 +231,9 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
 		// facts.health is set whenever /health answered, even when the listing
 		// is malformed (enumerateKBs then returns facts with an error).
-		if facts.health != nil {
-			findings = append(findings, checkKBCollisions(dir, cfg, providers, facts)...)
+		if cands, ok := doctorKBCandidates(cfg, providers, facts); ok {
+			findings = append(findings, kbCollisionFindings(dir, cfg, providers, cands)...)
+			findings = append(findings, checkWorkspaceShadows(cfg, providers, cands)...)
 		}
 		findings = append(findings, checkWorkspaceProjections(dir, cfg, providers)...)
 		findings = append(findings, checkUpdateAvailable()...)
@@ -281,7 +282,7 @@ func printDoctorReport(r doctorReport) {
 	for _, f := range r.Findings {
 		line := fmt.Sprintf("%-7s [%s] %s", f.Severity, f.Check, f.Message)
 		if f.Path != "" {
-			line += " — " + f.Path
+			line += " — " + escapeControl(f.Path)
 		}
 		fmt.Println(line)
 		if f.Fix != "" {
@@ -966,11 +967,30 @@ func checkUnboundResidues(dir string, cfg *clientconfig.Config, providers []stri
 // nothing collides. Reported per provider, because two colliding KBs bound to
 // different providers are not a conflict.
 func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string, facts serverFacts) []doctorFinding {
+	candidates, ok := doctorKBCandidates(cfg, providers, facts)
+	if !ok {
+		return nil
+	}
+	return kbCollisionFindings(dir, cfg, providers, candidates)
+}
+
+// doctorKBCandidates pulls the bound KBs' artifacts once for the checks that
+// compare them (kb-collisions, workspace-shadow). ok is false when the server
+// was not probed, or a pull failed: a missing signal is not evidence that
+// nothing collides or shadows, so those checks stay silent.
+func doctorKBCandidates(cfg *clientconfig.Config, providers []string, facts serverFacts) (candidateSet, bool) {
+	if facts.health == nil {
+		return candidateSet{}, false
+	}
 	union, _, _ := boundKBUnion(cfg, providers)
 	candidates, failed, err := pullCandidatesPartial(cfg, facts.health, union)
 	if err != nil || len(failed) > 0 {
-		return nil
+		return candidateSet{}, false
 	}
+	return candidates, true
+}
+
+func kbCollisionFindings(dir string, cfg *clientconfig.Config, providers []string, candidates candidateSet) []doctorFinding {
 	configPath := filepath.Join(dir, clientconfig.FileName)
 	var out []doctorFinding
 	for _, p := range providers {

@@ -31,6 +31,9 @@ type Policy struct {
 	// answers less than MinUsageStaleDays: there is no value that turns the
 	// signal off (D906).
 	UsageStaleDays int
+	// ArtifactPrefix is the KB's artifact_prefix: the scope word its skills and
+	// agents must start with. "" requires nothing.
+	ArtifactPrefix string
 }
 
 // UsageStale is the stale-artifact threshold in days: the default when the

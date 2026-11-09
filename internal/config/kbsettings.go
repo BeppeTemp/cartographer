@@ -122,6 +122,8 @@ func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 		dst.UsageStaleDays = part.UsageStaleDays
 	case "branch":
 		dst.Branch = part.Branch
+	case "artifact_prefix":
+		dst.ArtifactPrefix = part.ArtifactPrefix
 	default:
 		return false
 	}

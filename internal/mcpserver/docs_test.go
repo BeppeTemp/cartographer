@@ -45,6 +45,7 @@ var docsNonTools = map[string]bool{
 	"concept_too_large":     true, // refusal code of the 1 MiB cap (D1276), not a tool
 	// kbs[] / settings.yaml keys (D746), not tools
 	"git_base_branch": true, "git_forge": true, "git_working_branch": true, "git_branch": true,
+	"artifact_prefix":    true, // settings.yaml key (D-new-artifact-prefix), not a tool
 	"kb_aliases":         true, // server config key (D772), not a tool
 	"kb_options":         true, // client config key (D1408), not a tool
 	"search_misses":      true, // kb_status field (D247), not a tool

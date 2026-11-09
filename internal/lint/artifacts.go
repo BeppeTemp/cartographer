@@ -211,6 +211,7 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 	findings = append(findings, checkRequires(k, files)...)
 	findings = append(findings, checkDegradedNameCollision(k)...)
 	findings = append(findings, checkSkillMissingPerimeter(skills, instr.perimeter)...)
+	findings = append(findings, checkArtifactPrefix(k, skills)...)
 	if instr.legacyAccept {
 		findings = append(findings, legacyAcceptFinding())
 	}
@@ -855,6 +856,37 @@ func usageArtifacts(k *kb.KB, skills []skill.Skill) []UsageArtifact {
 		}
 	}
 	return items
+}
+
+// checkArtifactPrefix reports each skill and agent whose name does not start
+// with the KB's artifact_prefix plus a hyphen. An unset prefix reports nothing.
+// There is no repair kind on purpose: a rename moves the directory or file,
+// changes the name field, orphans the artifact's usage history (keyed by name,
+// kb.UsageKey) and breaks every requires or prose reference to it, so it is a
+// person's, like artifact_unused. A skill that failed to load is skill_invalid's
+// alone: it is not among the usage artifacts.
+func checkArtifactPrefix(k *kb.KB, skills []skill.Skill) []Finding {
+	prefix := k.Policy().ArtifactPrefix
+	if prefix == "" {
+		return nil
+	}
+	want := prefix + "-"
+	var findings []Finding
+	for _, a := range usageArtifacts(k, skills) {
+		if strings.HasPrefix(a.Name, want) {
+			continue
+		}
+		var msg string
+		if a.Kind == "skill" {
+			msg = fmt.Sprintf("skill %s does not start with the KB's artifact_prefix %q: rename the directory skills/%s to skills/%s%s and set name: %s%s",
+				a.Name, want, a.Name, want, a.Name, want, a.Name)
+		} else {
+			msg = fmt.Sprintf("agent %s does not start with the KB's artifact_prefix %q: rename the file agents/%s.md to agents/%s%s.md and set its name: field (it must equal the file name) to %s%s",
+				a.Name, want, a.Name, want, a.Name, want, a.Name)
+		}
+		findings = append(findings, newFinding("artifact_unprefixed", Finding{Path: a.Path, Message: msg, Artifact: true}))
+	}
+	return findings
 }
 
 // checkArtifactsUnused reports the skills and agents nobody uses (D1043): never
