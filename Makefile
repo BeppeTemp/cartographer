@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run ready land land-status test-rerun
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run ready land land-status test-rerun
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -154,6 +154,10 @@ demo-worker-test: ## Test the demo Worker's moderation logic (D800), Node only
 
 demo-tf-check: ## terraform fmt + validate of deploy/demo (no credentials)
 	cd deploy/demo && terraform fmt -check && terraform init -backend=false -input=false >/dev/null && terraform validate
+
+helm-check: ## helm lint + template of deploy/helm/cartographer and the assertions of test/helm/run.sh (not part of gate, D1441)
+	@command -v helm >/dev/null || { echo "helm is not on PATH: scripts/install-helm.sh <dir> installs the pinned release" >&2; exit 1; }
+	@test/helm/run.sh
 
 # The security tooling of .github/workflows/security.yml (D1020). Not part of
 # gate: gate stays offline and deterministic on a fixed commit, while these need
