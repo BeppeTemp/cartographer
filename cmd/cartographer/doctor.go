@@ -213,6 +213,9 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkPlugins(cfg, only, lockForPlugins)...)
 		findings = append(findings, checkLockfile(dir, providers, lockErr)...)
 		if lockErr == nil {
+			findings = append(findings, checkDroppedLockEntries(dir, providers, lockFile)...)
+		}
+		if lockErr == nil {
 			findings = append(findings, checkManagedFiles(dir, providers, lockFile)...)
 			findings = append(findings, checkInstructionsBlock(dir, providers, lockFile)...)
 			findings = append(findings, checkHookRegistrations(dir, providers, lockFile)...)
@@ -374,6 +377,23 @@ func checkLockfile(dir string, providers []string, readErr error) []doctorFindin
 		}}
 	}
 	return nil
+}
+
+// checkDroppedLockEntries: a lockfile entry whose path leaves the client
+// directory is ignored on read (#1824); say so, since nothing else would.
+func checkDroppedLockEntries(dir string, providers []string, lf provisioning.LockFile) []doctorFinding {
+	var out []doctorFinding
+	for _, d := range lf.Dropped {
+		if !slices.Contains(providers, d.Provider) {
+			continue
+		}
+		out = append(out, doctorFinding{
+			Check: "lockfile", Severity: doctorWarning, Path: lockFilePath(dir),
+			Message: droppedEntryMessage(d),
+			Fix:     "cartographer sync",
+		})
+	}
+	return out
 }
 
 // checkManagedFiles: D139's on-disk verification, per provider, plus the

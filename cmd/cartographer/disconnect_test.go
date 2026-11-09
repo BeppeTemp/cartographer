@@ -868,7 +868,9 @@ func TestDoDisconnect_WorkspacePruneKeepsEditedFilesAndStaysInside(t *testing.T)
 		t.Errorf("a path outside the repository was removed: %v", err)
 	}
 	out := withStdout(t, func() { printDisconnectSummary(res, false) })
-	for _, want := range []string{"kept .claude/skills/edited: changed since sync", "not a path inside the repository"} {
+	// The "not a path inside the repository" line of disconnect is a second
+	// defence: ReadLockFile already dropped the planted entry (#1824).
+	for _, want := range []string{"kept .claude/skills/edited: changed since sync"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("summary missing %q:\n%s", want, out)
 		}

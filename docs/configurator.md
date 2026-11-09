@@ -766,7 +766,7 @@ The checks:
 | `unbound-residue` | no managed file comes from a KB no longer bound to the provider holding it (D170) — a projection predating an unbind, or a hand-edited lockfile. Only for providers with an explicit binding; a file with no recorded source (a lockfile written before D170) is unknown, not wrong, and never reported. A file that comes from `plugin:<name>` is reported for every provider, explicit binding or not, when `<name>` is no longer in the config's `plugins` ("comes from plugin x, which is no longer installed"); a configured plugin never is |
 
 **Severities.** `error` — something is broken now (a managed file missing, a hook firing twice);
-`warning` — something is stale or suboptimal (v1 lockfile, no trigger for a hook-less provider, a
+`warning` — something is stale or suboptimal (v1 lockfile, a lockfile entry whose path leaves the client directory and is ignored on read, no trigger for a hook-less provider, a
 version difference); `info` — context that cannot be acted on by itself and never changes the exit
 code (managed entries recorded before content hashes existed, which nothing can verify). Findings
 are printed errors first.

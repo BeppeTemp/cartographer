@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,7 +74,9 @@ func TestLockBaseDir(t *testing.T) {
 // until a sync drops it.
 func TestReadLockFile_KeepsASectionOfARemovedProvider(t *testing.T) {
 	path := filepath.Join(t.TempDir(), LockFileName)
-	old := `{"providers":{"hermes":{"applied_revision":"r","provider":"hermes","base_dir":"/opt/data","managed":[{"kind":"skill","name":"demo","path":"skill-inbox/demo/cartographer/SKILL.md","content_hash":"h"}]}}}`
+	data := filepath.Join(t.TempDir(), "opt", "data") // OS-absolute (#1824)
+	dataJSON, _ := json.Marshal(data)
+	old := `{"providers":{"hermes":{"applied_revision":"r","provider":"hermes","base_dir":` + string(dataJSON) + `,"managed":[{"kind":"skill","name":"demo","path":"skill-inbox/demo/cartographer/SKILL.md","content_hash":"h"}]}}}`
 	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +84,7 @@ func TestReadLockFile_KeepsASectionOfARemovedProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadLockFile: %v", err)
 	}
-	if got := lf.ForProvider("hermes"); got.BaseDir != "/opt/data" || len(got.Managed) != 1 {
+	if got := lf.ForProvider("hermes"); got.BaseDir != data || len(got.Managed) != 1 {
 		t.Errorf("section = %+v", got)
 	}
 }

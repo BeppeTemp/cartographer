@@ -1656,3 +1656,25 @@ func TestPrintApplySummary_UnresolvedPlaceholderWarningKeepsItsLines(t *testing.
 		t.Errorf("output = %q, want the fix line on its own line", out)
 	}
 }
+
+// A lockfile entry whose path leaves the client directory is ignored on read
+// and sync says so on stderr, naming the provider and the path (#1824).
+func TestMaterializeForProviders_ReportsDroppedLockEntry(t *testing.T) {
+	dir := t.TempDir()
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": {
+		Provider: "claude",
+		Managed:  []provisioning.ManagedFile{{Kind: "skill", Name: "planted", Path: "../planted.txt"}},
+	}}}
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	opts := portabilityOptions{Streams: syncStreams{Err: &stderr}}
+	if _, err := materializeForProviders(uniformManifests(kbSkillManifest(), []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", true, false, opts, nil); err != nil {
+		t.Fatalf("materializeForProviders: %v", err)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "claude") || !strings.Contains(out, "../planted.txt") || !strings.Contains(out, "ignored") {
+		t.Errorf("stderr does not report the dropped entry: %q", out)
+	}
+}
