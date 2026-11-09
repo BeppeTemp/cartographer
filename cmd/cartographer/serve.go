@@ -437,6 +437,7 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 	// Validated by config.Load and by ResolveKBSettings; a zero spec yields the default.
 	var pol kb.Policy
 	pol.UsageStaleDays = eff.UsageStale()
+	pol.ArtifactPrefix = eff.ArtifactPrefix
 	k.SetPolicy(pol)
 
 	if refresh && fmt.Sprint(prev) == fmt.Sprint(info) {

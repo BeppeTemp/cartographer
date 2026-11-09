@@ -119,6 +119,8 @@ var KBKeys = []settingschema.Key{
 			"Days a skill or agent may go unused by every client before artifact_unused reports it.",
 			"Days a skill or agent may go unused by every client before artifact_unused reports it. A value under 7 is raised to 7 with a warning; there is no value that turns the finding off.",
 		}},
+	{Path: "artifact_prefix", Scope: settingschema.ScopeKB, Type: "string", Values: "lowercase letters, digits and hyphens", Default: `""`,
+		Description: "Scope word every skill and agent of this KB must start with, followed by a hyphen: acme requires acme-review-mr. A skill or agent without it is an artifact_unprefixed finding, and a write that introduces one is refused. Empty or absent: nothing is checked."},
 	{Path: "branch", Scope: settingschema.ScopeKB, Type: "string", Default: `""`,
 		Description: "Branch Cartographer commits and pushes to, in place of the remote's default one; the first push creates it. Empty or absent: the remote's default branch. Only the settings.yaml committed on the remote's default branch counts: a change made on any other branch has no effect until it reaches the default one."},
 }
@@ -184,6 +186,8 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].doctor_mode", Plan: 907, Note: kb.DoctorKeysRemoved},
 	{Path: "kbs[].doctor_budget", Plan: 907, Note: kb.DoctorKeysRemoved},
 	{Path: "kbs[].usage_stale_days", Plan: 906, Replacement: "usage_stale_days in the KB's settings.yaml", Note: kbKeyHome},
+	// Never a server key, but kbs[] decodes into KBSpec, which carries the field: without a row the value is dropped in silence. No decision numbers it; 906 (a KB's behaviour lives in its file) is the closest.
+	{Path: "kbs[].artifact_prefix", Plan: 906, Replacement: "artifact_prefix in the KB's settings.yaml", Note: kbKeyHome},
 	{Path: "init", Plan: 906, Flag: "--init", Note: "a KB that does not exist is an error: create it with `cartographer kb create`"},
 	{Path: "tools.profile", Plan: 906, Env: "CARTOGRAPHER_TOOLS_PROFILE", Flag: "--tools-profile", FlagValue: true, Note: "tools/list always shows the core set, and the other tools stay callable by name"},
 	{Path: "mcp.allowed_origins", Plan: 906, Env: "CARTOGRAPHER_MCP_ALLOWED_ORIGINS", Note: "a request with an Origin header is accepted only when the origin's host and port are the request's Host; one without an Origin header is accepted"},

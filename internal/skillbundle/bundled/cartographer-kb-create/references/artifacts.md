@@ -50,6 +50,10 @@ In the client, a generated `SOURCE.env` sits beside the materialized `SKILL.md`:
 `CARTOGRAPHER_KB_NAME=<kb>` and, when the KB's root is on that machine,
 `CARTOGRAPHER_KB_ROOT=<path>` — a script reads it instead of hard-coding a path.
 Never ship a file named `SOURCE.env` yourself: the skill is then not materialized.
+**The description starts from the scope** (`Acme: review a merge request ...`): a client
+chooses by name and description before reading the body, and the first words are what
+separates the KB's skill from a generic one. The name starts with the KB's
+`artifact_prefix` when it sets one (§3).
 
 ### `agents/<slug>.md`
 
@@ -72,7 +76,8 @@ OpenCode; Crush has no agent destination
 `tools` and `model` keys are
 dropped in the translations that cannot carry them, because those names are not
 portable between clients. An agent with **no** frontmatter description falls back
-to the artifact's own name, which makes it nearly unselectable — write a real one.
+to the artifact's own name, which makes it nearly unselectable — write a real one, and start
+it from the scope (`Acme: delegate ...`) like a skill's.
 
 ### `hooks/<name>/hook.json`
 
@@ -164,6 +169,7 @@ catalogue, and that failure is invisible from the KB:
 | `name` is at most 64 characters | error |
 | `name` equals the directory name | error |
 | `description` is required | error |
+| `name` starts with the KB's `artifact_prefix` plus `-`, when the KB sets one (also for an agent) | warning: a lint finding, `artifact_unprefixed`, not a refusal of the skill (`skill_invalid` excludes a skill from the manifest, this does not) |
 | `description` is at most 1024 characters | warning |
 | body is at most 500 lines | warning |
 

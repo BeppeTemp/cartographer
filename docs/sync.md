@@ -721,6 +721,9 @@ A projection writes into a directory the user version-controls, so two rules hol
   path the lockfile records for the projection, so a repository's own skills in `.agents/skills/`
   next to the projected ones are neither refused nor excluded
   ([D1181](decisions/D1181-workspace-projection-owns-artifacts-not-directories.md)).
+- A KB agent or skill whose project-scope destination is a file the repository tracks is a shadow
+  of the repository's own: `cartographer doctor` reports it as `workspace-shadow` (`docs/configurator.md`),
+  in every scope, and nothing in `sync` summarises it.
 - A workspace projection's lines in `sync` and `sync --dry-run` are labelled `[<provider> <workspace>]`,
   with the home directory shown as `$HOME`: a printable label that `grep` reads as text (#1200).
 - Cartographer excludes **only its own untracked paths**, and only in the repository's `info/exclude`

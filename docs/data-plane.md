@@ -503,6 +503,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `junk_asset` | artifact | yes | - | - | - |
 | `missing_instructions` | artifact | - | - | - | - |
 | `artifact_unused` | artifact | - | - | - | - |
+| `artifact_unprefixed` | artifact | yes | - | - | - |
 | `hook_invalid` | kb | yes | - | - | - |
 | `missing_registry` | kb | - | - | - | - |
 | `unused_placeholder` | kb | - | - | - | - |
@@ -737,6 +738,14 @@ Lint also covers what a KB ships beside its concepts. The KB-level ones run
 only in a whole-KB lint, and their findings name the artifact file (`skills/<name>/SKILL.md`,
 `agents/<name>.md`, `instructions.md`), never a concept.
 
+- `artifact_unprefixed` (D1865): a skill or agent whose name does not start with the
+  KB's `artifact_prefix` plus a hyphen (`acme` requires `acme-review-mr`; the bare `acme` lacks it).
+  Reported only when the KB sets the key; an unset key checks nothing. The message gives the new name
+  and both edits (the directory or file, and `name:`). There is no fix kind: a rename also moves the
+  artifact's usage history and every `requires` or prose reference to it, so it is a person's. A write
+  that introduces an unprefixed skill or agent into a KB that set the key is refused; a KB that sets
+  the key over existing artifacts gets findings, not refusals. Hooks, MCP descriptors and instructions
+  are not checked.
 - `artifact_unused` (D1043): a skill or agent never invoked since it was added, or last used more
   than `usage_stale_days` ago, by the clients' usage reports (`.cartographer/usage.json`, below).
   The fix is a person's (delete it, or fix its description so a client selects it), so there is no
@@ -850,12 +859,18 @@ punctuation that follows a path, so fixing the first is not how the author learn
 How a KB behaves lives in the KB, not in the server that mounts it (D746): five people
 mounting the same KB get the same behaviour. `settings.yaml` at the KB root, beside
 `paths.yaml`, is the **only** place a KB's policy is set (D906): the server's `kbs[]` keeps the keys of the machine
-(`name`, `remote`) and the optional `branch` override. It carries two keys, and the write gate, the safe repairs and the doctor's cadence are not among them (D907):
+(`name`, `remote`) and the optional `branch` override. It carries three keys, and the write gate, the safe repairs and the doctor's cadence are not among them (D907):
 
 - `usage_stale_days`: days a skill or agent may go unused by every client before `kb_status.usage` counts it as stale
   (and `artifact_unused` flags it in Health, D1043). Default 42, minimum 7, and no value turns the signal off: a value under 7 is raised
   to 7 with a finding (`kb_status` `settings_findings`, a startup warning), and `0` or a negative
   number is read as the default (the realignment resets a `0` by dropping the key);
+- `artifact_prefix` (D1865): the scope word every skill and agent of the KB must start
+  with, followed by a hyphen. A slug of lowercase letters, digits and single hyphens, at most 32
+  characters, without the trailing hyphen; anything else is a `settings_findings` entry and the key is
+  ignored. Absent: nothing is checked and no output changes. It is enforced by the `artifact_unprefixed`
+  lint check (§Artifact checks) and keeps a KB's `review-mr` from being selected in a session on
+  another project or shadowed by a repository's agent of the same name;
 - how changes land: `branch`, the branch Cartographer commits and pushes to, in place of the
   remote's default one (D335, D903). It is a decision of the team that owns the KB, the same
   for every server that mounts it, unless one server overrides it for itself with `kbs[].branch`

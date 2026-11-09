@@ -36,4 +36,5 @@ server	audit.archive_dir	Directory of rotated segments; empty keeps them beside 
 server	audit.retention_days	Rotated segments older than this are deleted once their checkpoint is written.
 server	web.enabled	Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes.
 kb	usage_stale_days	Days a skill or agent may go unused by every client before kb_status.usage counts it as stale. A value under 7 is raised to 7 with a warning; there is no value that turns the signal off.
+kb	artifact_prefix	Scope word every skill and agent of this KB must start with, followed by a hyphen: acme requires acme-review-mr. A skill or agent without it is an artifact_unprefixed finding, and a write that introduces one is refused. Empty or absent: nothing is checked.
 kb	branch	Branch Cartographer commits and pushes to, in place of the remote's default one; the first push creates it. Empty or absent: the remote's default branch. Only the settings.yaml committed on the remote's default branch counts: a change made on any other branch has no effect until it reaches the default one.

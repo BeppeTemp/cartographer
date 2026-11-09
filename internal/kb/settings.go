@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,7 +30,19 @@ type settingKind int
 const (
 	kindStaleDays settingKind = iota // integer >= 1; below MinUsageStaleDays it is raised at resolution
 	kindBranch                       // a git branch name
+	kindSlug                         // artifact_prefix: a lowercase slug, at most MaxArtifactPrefix characters
 )
+
+// MaxArtifactPrefix is the longest artifact_prefix: a skill name is at most 64
+// characters and carries the prefix, a hyphen and its own name.
+const MaxArtifactPrefix = 32
+
+var artifactPrefixRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// ValidArtifactPrefix reports whether s can be an artifact_prefix.
+func ValidArtifactPrefix(s string) bool {
+	return len(s) <= MaxArtifactPrefix && artifactPrefixRe.MatchString(s)
+}
 
 type settingSpec struct {
 	kind settingKind
@@ -42,6 +55,9 @@ var settingsKeys = map[string]settingSpec{
 	// KB.branchSettingAt. The working copy's value is parsed and shown, and
 	// changes nothing until it reaches the default branch.
 	"branch": {kind: kindBranch},
+	// artifact_prefix is a lint requirement (artifact_unprefixed); an absent or
+	// malformed value means no prefix.
+	"artifact_prefix": {kind: kindSlug},
 }
 
 // settingsServerOnly are the kbs[] keys bound to one machine; a KB that names
@@ -287,6 +303,10 @@ func checkSetting(spec settingSpec, v *yaml.Node) string {
 		}
 		if err := ValidateBranchName(v.Value); err != nil {
 			return err.Error()
+		}
+	case kindSlug:
+		if !scalar || !ValidArtifactPrefix(v.Value) {
+			return fmt.Sprintf("must be a slug of lowercase letters, digits and single hyphens, at most %d characters, without the trailing hyphen (acme requires acme-review-mr); the key is ignored and no prefix is required", MaxArtifactPrefix)
 		}
 	}
 	return ""

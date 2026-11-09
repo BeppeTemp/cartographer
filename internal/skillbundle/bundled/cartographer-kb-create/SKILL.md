@@ -160,11 +160,18 @@ and a structural mistake made now becomes long-lived knowledge debt. So **before
   "dossier create" step.
 
 ### Policy: the KB's own `settings.yaml`
-The two policy keys a KB carries are its own, so every mount of it behaves the same (D746):
-`branch` (the branch Cartographer commits to, in place of the remote's default one) and
-`usage_stale_days` (days an unused skill or agent may go before `kb_status` counts it stale).
+The three policy keys a KB carries are its own, so every mount of it behaves the same (D746):
+`branch` (the branch Cartographer commits to, in place of the remote's default one),
+`usage_stale_days` (days an unused skill or agent may go before `kb_status` counts it stale) and
+`artifact_prefix` (the scope word every skill and agent of the KB must start with, so `acme`
+requires `acme-review-mr`). The prefix matters because a client picks a skill by name and
+description before reading its body: a work KB's `review-mr` is selectable in a session on any
+project, and a repository's own agent of the same name may shadow it or be shadowed by it.
+**Ask the user for a short scope word at bootstrap, set `artifact_prefix` before the first skill
+or agent is written, and name every skill and agent `<prefix>-<name>`**; a KB that leaves it unset
+(a single-purpose KB) is legitimate, but then its names must be specific.
 The write gate and the safe repairs are fixed behaviour (D907). A KB declares secrets by holding a sops-encrypted
-file under `secrets/`, and its MCP descriptors are always distributed (D906): neither is a key. `cartographer kb create` writes `settings.yaml` at the KB root with both
+file under `secrets/`, and its MCP descriptors are always distributed (D906): neither is a key. `cartographer kb create` writes `settings.yaml` at the KB root with all
 keys documented and commented out; uncomment and commit what the KB needs. It is the only
 place these keys live: a server's `kbs[]` carries only `name` and `remote`. Machine-bound keys (`remote`,
 `name`, tokens) stay in the server config, and secrets are files of its `credentials_dir`. No MCP tool writes the file:
@@ -200,6 +207,10 @@ A KB also configures the agents that read it. Authoring those artifacts — the 
 `artifact_write` paths, the shape of each, the naming rules a client enforces, the `if_match`
 protocol, and the manifest → trust → projection → materialization chain that is what actually makes
 one appear in a client — is in `references/artifacts.md`.
+
+Before writing the first skill or agent, settle the KB's `artifact_prefix` (§Policy above): name each
+one `<prefix>-<name>` and start each description from the scope (`Acme: review a merge request ...`).
+A KB without a prefix is legitimate, but its names must then be specific.
 
 `skill_list` / `skill_install` (not in `tools/list`) are a **different** operation: they copy a
 skill bundled in the binary into the KB. That is installation, not authoring.

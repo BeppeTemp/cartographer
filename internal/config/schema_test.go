@@ -118,7 +118,7 @@ func TestSchemaKBScope(t *testing.T) {
 		}
 		got = append(got, k.Path)
 	}
-	want := []string{"usage_stale_days", "branch"}
+	want := []string{"usage_stale_days", "branch", "artifact_prefix"}
 	sort.Strings(got)
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {
