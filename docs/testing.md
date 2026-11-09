@@ -75,7 +75,7 @@ available here (it needs an organization-owned repository), so the heavy legs ru
 a Windows- or macOS-only break is caught on `main` and tracked by the `ci-red` issue, fixed by a
 follow-up. The `merge_group` triggers stay, inert, for a repository that moves to an organization. The `web` legs run
 after every push to `main` (and on `merge_group`) and on a PR that touches the frontend, `test/lib/`, the build files, or a
-non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen,worker}` (the last until the worker command imports it)
+non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen,worker,workerconfig}` (the last two until the worker command imports them)
 and every `_test.go` cannot change what the browser sees, so they do not trigger it (D672, D255, D994); the
 Playwright browser is cached by version, and the `.deb` files of the OS packages it installs by version and runner
 image (the runner's mirror sometimes serves them at a few kB/s). The `demo-edge` job runs the demo

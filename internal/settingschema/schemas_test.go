@@ -6,6 +6,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/settingschema"
+	"github.com/BeppeTemp/cartographer/internal/workerconfig"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,7 +18,16 @@ import (
 // that differed on every run would be rewritten, with its backup, on every sync.
 func TestRealSchemasRenderToAFixedPoint(t *testing.T) {
 	kbs := config.KBSettingsSchema()
-	for name, s := range map[string]settingschema.Schema{"server": config.Schema, "kb": kbs, "client": clientconfig.Schema} {
+	// The worker table grows with the option keys of each task kind: render it
+	// with a kind's options (one shared by two kinds, listed once) as well.
+	kindOptions := []settingschema.Key{
+		{Path: "tasks[].name", Scope: settingschema.ScopeWorker, Type: "string", Default: `""`, Example: "nightly", Description: "Name that tells the entries of a kind apart."},
+		{Path: "tasks[].every", Scope: settingschema.ScopeWorker, Type: "duration", Default: "24h", Example: "6h", Description: "How often the task may run."},
+		{Path: "tasks[].paths", Scope: settingschema.ScopeWorker, Type: "list", Default: "[]", Example: "- docs\n- notes", Description: "Paths the task is limited to."},
+	}
+	withKind := settingschema.Schema{Keys: append(append([]settingschema.Key{}, workerconfig.Schema.Keys...), kindOptions...)}
+	schemas := map[string]settingschema.Schema{"server": config.Schema, "kb": kbs, "client": clientconfig.Schema, "worker": workerconfig.Schema, "worker+kind": withKind}
+	for name, s := range schemas {
 		t.Run(name, func(t *testing.T) {
 			var all, rev []settingschema.Key
 			files := map[string][]byte{}
