@@ -38,3 +38,4 @@ money and writes to KBs when nobody is looking.
   `recipe_test.go` pins the refusals (file, ssh, userinfo, local path, `..`, symlinks).
 - **An exec recipe is argv, no shell, with a listed environment** (`recipe/exec.go`, D1262): its command, args and env names come from the config
   only; the redaction and process-group-kill tests in `recipe/exec_test.go` pin it. Protocol v1 sends `mode: "list"` only.
+- **The poll's unit ID is its idempotency token** (`poll/`, `poll.go`, D1262): per entry the order is unit exists -> skip, register the Source, reset it to `pending`, create the unit; the cursor moves only after every entry. `TestPollCrashBetweenStepsConverges` pins it. Git commands run in a clone take `gitx.AnonymousReadEnv`.
