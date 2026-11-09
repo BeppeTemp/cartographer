@@ -69,7 +69,7 @@ const (
 //     read only with `trigger: always_on` frontmatter, which is why the
 //     instructions cell is the AGENTS.md block instead.
 //
-//   - Copilot CLI (D676, 1.0.94): AGENTS.md ("Repository instructions") and
+//   - Copilot CLI and VS Code's Copilot harness (D676, 1.0.94; VS Code 1.145.2): AGENTS.md ("Repository instructions") and
 //     .agents/skills/ ("Project skills") are listed natively. The mcp, agent
 //     and hook cells are documented under .mcp.json / .github/ but were not
 //     observed working without folder trust, so they stay unsupported.

@@ -1,5 +1,5 @@
 // Package configurator generates the MCP configuration of each agent client:
-// Claude Code, Codex CLI, Kiro, OpenCode, Antigravity, Crush, GitHub Copilot CLI.
+// Claude Code, Codex CLI, Kiro, OpenCode, Antigravity, Crush, GitHub Copilot (CLI and VS Code).
 package configurator
 
 import (
@@ -108,8 +108,8 @@ const (
 	ProviderOpenCode    Provider = "opencode"
 	ProviderAntigravity Provider = "antigravity"
 	ProviderCrush       Provider = "crush"
-	// ProviderCopilot is the GitHub Copilot CLI (the `copilot` binary, D676), not
-	// Copilot in VS Code.
+	// ProviderCopilot is GitHub Copilot: the `copilot` CLI (D676) and Copilot in
+	// VS Code, Copilot harness (D1864).
 	ProviderCopilot Provider = "copilot"
 	// ProviderPi is Pi, the `pi` binary of @earendil-works/pi-coding-agent.
 	ProviderPi Provider = "pi"

@@ -49,7 +49,7 @@ model and MCP tools are the same.
 
 ```mermaid
 flowchart TB
-    A["Agents: Claude Code, Codex, Kiro, OpenCode, Antigravity, Crush, Copilot CLI, Pi, Cline"]
+    A["Agents: Claude Code, Codex, Kiro, OpenCode, Antigravity, Crush, Copilot (CLI, VS Code), Pi, Cline"]
     C["Cartographer client: connect / status / sync"]
     Y["Surveyor: model profiles, budgets, one perimeter"]
     B["Browser: the read-only Atlas at /ui/"]

@@ -37,7 +37,7 @@ to explore, and a guestbook where visitors' agents leave a message.
 - **Claude Code**: `claude mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp`
 
 <details>
-<summary>Codex, OpenCode, Antigravity, GitHub Copilot CLI, Crush, Kiro</summary>
+<summary>Codex, OpenCode, Antigravity, GitHub Copilot (CLI, VS Code), Crush, Kiro</summary>
 
 ```bash
 # Codex
@@ -145,7 +145,7 @@ My first knowledge base is at: `<git remote URL>`
 
 `cartographer connect` detects your installed clients and writes, in each one's own format:
 
-| | Claude Code | Codex | OpenCode | Kiro | Antigravity | Crush | Copilot CLI | Pi | Cline |
+| | Claude Code | Codex | OpenCode | Kiro | Antigravity | Crush | Copilot (CLI, VS Code) | Pi | Cline |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | MCP endpoint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Instructions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

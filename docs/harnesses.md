@@ -631,10 +631,12 @@ project hook.UserPromptSubmit absent
   probe on 1.0.106): project agents in
   `.github/agents/<name>.agent.md` load once the folder is trusted, the `model` key is
   honoured and an unavailable model falls back to `auto` with a warning.
-  `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
-  (`copilot`), not Copilot in VS Code.
+  `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI (`copilot`).
+  VS Code `1.145.2` — 2026-11-09, probed, Copilot harness only (embedded runtime
+  `copilotVersion 1.0.103-unstable`): the same global cells and hook payloads as the CLI.
 - **Sources** (`unverified`): releases <https://github.com/github/copilot-cli/releases>;
   docs <https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli>.
+  VS Code pages are listed in `docs/references.md`.
   Every cell below comes from a probe with `COPILOT_HOME` pointed at a scratch
   directory, not from these pages.
 - **Depends on**:
@@ -661,7 +663,23 @@ project hook.UserPromptSubmit absent
     `.github/mcp.json` are documented but not listed by `copilot mcp list` in an
     untrusted folder, and `.github/agents` and `.github/hooks` are gated on folder
     trust (`--help`).
-  - `COPILOT_HOME` is not honoured: paths are `$HOME/.copilot`, like every provider.
+  - `COPILOT_HOME` is not honoured by Cartographer: paths are `$HOME/.copilot`, like every provider.
+    The CLI and VS Code both honour it (VS Code's `session-state/` and `logs/` follow it),
+    so a user who exports it gets cells the client does not read.
+  - VS Code (1.145.2, trusted workspace, Copilot harness): all five global cells are read;
+    the MCP tool name is `<server>-<tool>` in hook payloads and to the model, so
+    `isWriteFindingsTool` needs no change; `"tools": ["*"]` is harmless; `postToolUse`
+    `additionalContext` reaches the model. In the workspace `.github/agents/<name>.agent.md`,
+    `.github/hooks/*.json`, `AGENTS.md`, `.github/copilot-instructions.md`, `.agents/skills/`
+    and `.github/skills/` are read; `.mcp.json` is not loaded with default settings.
+    Cartographer does not project `.github/agents` and `.github/hooks` yet. Global and workspace
+    hook files both fire in the same session. VS Code sessions are
+    `session-state/<id>/events.jsonl` under the Copilot home, so `scanCopilot` counts them. Hooks
+    are labelled Preview. Detection: Copilot is built into VS Code; `globalStorage/github.copilot-chat`
+    and `$HOME/.copilot` appear only after Copilot is first used, so `$HOME/.copilot` is the evidence.
+  - VS Code's Local harness is not probed (`code chat` cannot select it); Cartographer does not
+    write its profile folder (`Code/User/…`). An organisation disables MCP with
+    `chat.mcp.access` or `allowedMcpServers` / `deniedMcpServers` (docs only, not tested).
 - **Probed on 1.0.94** (2026-10-10):
   - hooks: `sessionStart`, `preToolUse`, `postToolUse` fire (other events not
     probed, not claimed). Payload (camelCase): `sessionId`, `timestamp`, `cwd`,
@@ -680,10 +698,13 @@ project hook.UserPromptSubmit absent
     (`--allow-tool <server_name>`, `--allow-all-tools`), passed with `--client-flag`.
 - **Watch items**: project cells under folder trust (they would flip the three
   unsupported project cells); whether `sessionStart` output reaches the model (the
-  bootstrap hook only needs its side effect); a matcher field.
+  bootstrap hook only needs its side effect); a matcher field; hooks leaving Preview in VS Code;
+  further hook events (`userPromptSubmitted`, `agentStop`, `preCompact`, `subagentStart`/`subagentStop`,
+  `sessionEnd` exist and are not claimed); the Local harness converging with or retired in favour of the
+  Copilot harness; the experimental setting `chat.mcp.workspaceRootConfig.enabled` that gates `.mcp.json`.
 - **Probe notes**: `COPILOT_HOME=<scratch> copilot instruction list | skill list |
   mcp list` show the cells without a model; hooks need `copilot -p … -s
-  --allow-all-tools`. Never point the probe at `$HOME/.copilot`.
+  --allow-all-tools`. Never point the probe at `$HOME/.copilot`. VS Code: `probes.md` §Copilot in VS Code.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
   `internal/provisioning/capabilities.go`.
 

@@ -2,7 +2,7 @@
 
 From zero to a working agentic wiki in a few minutes: one local server running
 as a native service, one KB, your agents (Claude Code in this walkthrough —
-OpenCode, Codex CLI, Kiro, Antigravity, Crush, GitHub Copilot CLI, Pi and Cline work the same way).
+OpenCode, Codex CLI, Kiro, Antigravity, Crush, GitHub Copilot (CLI, VS Code), Pi and Cline work the same way).
 Two commands: install the binary, then `cartographer setup`.
 
 You need **git** (the installers print a warning, without failing, when it is missing: `winget install --id Git.Git -e` on Windows, `xcode-select --install` on macOS), and an empty git repository you own to be the first KB's
