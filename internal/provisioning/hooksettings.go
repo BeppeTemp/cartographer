@@ -752,7 +752,8 @@ func hookProviderFromPath(path string) string {
 		return "kiro"
 	case strings.HasPrefix(slash, crushGlobalHooksPrefix), strings.HasPrefix(slash, crushProjectHooksPrefix):
 		return "crush"
-	case strings.HasPrefix(slash, copilotHooksPrefix), strings.HasPrefix(slash, copilotFilesPrefix):
+	case strings.HasPrefix(slash, copilotHooksPrefix), strings.HasPrefix(slash, copilotFilesPrefix),
+		strings.HasPrefix(slash, copilotProjectHooksPrefix), strings.HasPrefix(slash, copilotProjectFilesPrefix):
 		return "copilot"
 	case strings.HasPrefix(slash, piExtensionsPrefix), strings.HasPrefix(slash, piHookFilesPrefix):
 		return "pi"

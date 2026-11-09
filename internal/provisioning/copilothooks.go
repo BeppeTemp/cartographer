@@ -26,10 +26,15 @@ import (
 
 // Copilot parses every *.json below ~/.copilot/hooks/, subdirectories included,
 // so only registrations live there; the hooks' own files are materialized under
-// copilotFilesPrefix (the destinationMatrix hook cell).
+// copilotFilesPrefix (the destinationMatrix hook cell). A trusted workspace has
+// the same split under .github (projectDestinationMatrix). VS Code 1.145.2
+// fires .github/hooks/*.json beside the global files, so a hook registered in
+// both scopes runs twice, as it does for the other providers (docs/sync.md).
 const (
-	copilotHooksPrefix = ".copilot/hooks/"
-	copilotFilesPrefix = ".copilot/cartographer-hooks/"
+	copilotHooksPrefix        = ".copilot/hooks/"
+	copilotFilesPrefix        = ".copilot/cartographer-hooks/"
+	copilotProjectHooksPrefix = ".github/hooks/"
+	copilotProjectFilesPrefix = ".github/cartographer-hooks/"
 )
 
 // copilotHookEvents maps the hook.json vocabulary to Copilot's event names.
@@ -42,8 +47,21 @@ var copilotHookEvents = map[string]string{
 
 // copilotHookRelPath is the registration file, relative to the base dir. Slash
 // form: it is recorded in the lockfile beside every other destination.
-func copilotHookRelPath(hookName string) string {
-	return copilotHooksPrefix + "cartographer-" + hookName + ".json"
+func copilotHookRelPath(hookName string, scope Scope) string {
+	prefix := copilotHooksPrefix
+	if scope == ScopeProject {
+		prefix = copilotProjectHooksPrefix
+	}
+	return prefix + "cartographer-" + hookName + ".json"
+}
+
+// copilotHookScope is the scope of the hook whose files are at hookRel (a path
+// relative to the base dir): the workspace layer when they sit under .github.
+func copilotHookScope(hookRel string) Scope {
+	if strings.HasPrefix(filepath.ToSlash(hookRel), copilotProjectFilesPrefix) {
+		return ScopeProject
+	}
+	return ScopeGlobal
 }
 
 // registerCopilotHook writes hookName's registration file and returns its
@@ -94,7 +112,7 @@ func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warnin
 		return "", "", false, err
 	}
 
-	rel := copilotHookRelPath(hookName)
+	rel := copilotHookRelPath(hookName, copilotHookScope(crushHookRel(baseDir, fullDestDir)))
 	fullPath := filepath.Join(baseDir, filepath.FromSlash(rel))
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(fullPath), 0o755); err != nil {
 		return "", "", false, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
@@ -105,10 +123,11 @@ func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warnin
 	return rel, "", true, nil
 }
 
-// removeCopilotHook deletes hookName's registration file; absent is fine (an
+// removeCopilotHookAt deletes hookName's registration file in the scope of
+// hookRel (the managed path of one of its files); absent is fine (an
 // unregistered event or matcher never wrote one).
-func removeCopilotHook(baseDir, hookName string) error {
-	fullPath := filepath.Join(baseDir, filepath.FromSlash(copilotHookRelPath(hookName)))
+func removeCopilotHookAt(baseDir, hookName, hookRel string) error {
+	fullPath := filepath.Join(baseDir, filepath.FromSlash(copilotHookRelPath(hookName, copilotHookScope(hookRel))))
 	if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

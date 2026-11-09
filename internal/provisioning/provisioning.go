@@ -4326,6 +4326,9 @@ var provisioningRootDirs = map[string]bool{
 	// Workspace scope only (projectDestinationMatrix).
 	".agents": true,
 	".crush":  true,
+	// .github is the repository's own directory (workflows, templates): only
+	// the levels Cartographer created under it are ever pruned.
+	".github": true,
 }
 
 // pruneEmptyDirs removes every directory left empty by the removal of the file at
@@ -4534,7 +4537,7 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 			err = fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
 		}
 	case "copilot":
-		if err = removeCopilotHook(baseDir, mf.Name); err != nil {
+		if err = removeCopilotHookAt(baseDir, mf.Name, mf.Path); err != nil {
 			err = fmt.Errorf("provisioning: prune Copilot hook file %s: %w", mf.Name, err)
 		}
 	case "pi":

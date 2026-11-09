@@ -385,7 +385,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// A dedicated file of our own, never ~/.copilot/settings.json (D676).
 		// It is returned as a managed file, so it is pruned like OpenCode's
 		// generated plugin.
-		pluginPath:        func(name string, _ Scope) string { return copilotHookRelPath(name) },
+		pluginPath:        copilotHookRelPath,
 		writeFindingsHook: true,
 		register: func(baseDir, name, fullDestDir string, scope Scope) (string, string, bool, error) {
 			rel, warning, registered, err := registerCopilotHook(baseDir, name, fullDestDir)
