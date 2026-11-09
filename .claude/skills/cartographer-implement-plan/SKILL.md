@@ -178,6 +178,8 @@ plans landed, which wave is next, and any plan flagged as stale-vs-`main` (per
 
 ## Explicit gates (never auto)
 
+A maintainer's standing policy, kept outside this repository and stated in the session, may hand the gates below except Review to the coordinator; the coordinator then follows it and reports each gate it passed.
+
 - **Review** of every change (§3).
 - **Non-append conflicts** during a rebase after a rejection — hand back to the user.
 - **`make ready`** — act only on an explicit user decision or a standing approval.
