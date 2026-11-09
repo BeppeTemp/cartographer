@@ -78,6 +78,83 @@ func (r *pollRun) systemCall(tool string, args map[string]any) (string, error) {
 	return text, err
 }
 
+// systemRequest is the Request the poll (and the dry run) send to a system recipe.
+func systemRequest(f feed.Feed) recipe.Request {
+	return recipe.Request{ID: f.ID, Locator: f.Locator, SourceKind: f.SourceKind, Include: f.Include}
+}
+
+// stateLoader is the part of system.Store the dry run receives: Save is not in it.
+type stateLoader interface {
+	Load(cursor string) (system.Loaded, error)
+}
+
+// systemObservation is what steps 4 to 6 of the system poll learn.
+type systemObservation struct {
+	Identity string
+	Loaded   system.Loaded
+	Groups   []system.Group
+	Changes  system.Changes
+}
+
+// observeSystem is steps 4 to 6 of the system poll: the preflight, before every
+// listing, the state, then the listing, its validation and the diff. The dry run
+// of a recipe calls this same function. A non-nil *pollFailure is the feed_error
+// the poll writes; preflight says it came from the preflight (the dry run's exit
+// class 3: nothing was listed). A non-nil error is the context ending or a
+// failure of the call itself.
+func observeSystem(ctx context.Context, sr recipe.SystemRecipe, req recipe.Request, st stateLoader, cursor string) (obs *systemObservation, pf *pollFailure, preflight bool, err error) {
+	pctx, cancel := context.WithTimeout(ctx, pollListTimeout)
+	defer cancel()
+	v, perr := sr.Preflight(pctx, req)
+	if perr != nil {
+		if ctx.Err() != nil {
+			return nil, nil, false, ctx.Err()
+		}
+		code, detail := recipe.CodeIdentityNotReadOnly, perr.Error()
+		var re *recipe.Error
+		if errors.As(perr, &re) {
+			code, detail = re.Code, re.Detail
+		}
+		return nil, &pollFailure{code, detail}, true, nil
+	}
+	o := &systemObservation{Identity: identityLabel(v.Identity())}
+	if o.Loaded, err = st.Load(cursor); err != nil {
+		if ctx.Err() != nil {
+			return nil, nil, false, ctx.Err()
+		}
+		return nil, &pollFailure{codeStateError, err.Error()}, false, nil
+	}
+	listing, lerr := sr.ListSystem(pctx, v, req)
+	if lerr != nil {
+		if ctx.Err() != nil {
+			return nil, nil, false, ctx.Err()
+		}
+		code, detail := codeListFailed, lerr.Error()
+		var re *recipe.Error
+		if errors.As(lerr, &re) {
+			detail = re.Detail
+			if re.Code == recipe.CodeProtocolError {
+				code = codeProtocol
+			}
+		}
+		return nil, &pollFailure{code, detail}, false, nil
+	}
+	var verr error
+	if o.Groups, verr = system.ValidateListing(listing.Entries, systemContentCeiling); verr != nil {
+		var re *recipe.Error
+		if errors.As(verr, &re) {
+			return nil, &pollFailure{re.Code, re.Detail}, false, nil
+		}
+		return nil, &pollFailure{codeProtocol, verr.Error()}, false, nil
+	}
+	var cerr error
+	o.Changes, cerr = system.Plan(o.Loaded.State, o.Groups)
+	if errors.Is(cerr, system.ErrEmptyListing) {
+		return nil, &pollFailure{codeEmptyListing, fmt.Sprintf("the listing is empty but the state holds %d groups; nothing was handled", len(o.Loaded.State))}, false, nil
+	}
+	return o, nil, false, nil
+}
+
 type sysCtx struct {
 	planID, planBody, unitMap string
 	maps                      []string
@@ -89,60 +166,15 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 	if !ok {
 		return r.fail(codeRecipeShape, fmt.Sprintf("recipe %q does not list a system", f.Recipe))
 	}
-	req := recipe.Request{ID: f.ID, Locator: f.Locator, SourceKind: f.SourceKind, Include: f.Include}
-	// 4. Preflight, before every listing; nothing is cached from the last poll.
-	pctx, cancel := context.WithTimeout(ctx, pollListTimeout)
-	defer cancel()
-	v, perr := sr.Preflight(pctx, req)
-	if perr != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		code, detail := recipe.CodeIdentityNotReadOnly, perr.Error()
-		var re *recipe.Error
-		if errors.As(perr, &re) {
-			code, detail = re.Code, re.Detail
-		}
-		return r.fail(code, detail)
-	}
-	identity := identityLabel(v.Identity())
-	// 5. The state.
 	store := &system.Store{Call: r.systemCall, Source: f.ID}
-	l, err := store.Load(f.Cursor)
+	obs, pf, _, err := observeSystem(ctx, sr, systemRequest(f), store, f.Cursor)
 	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return r.fail(codeStateError, err.Error())
+		return err
 	}
-	// 6. List, validate, diff.
-	listing, lerr := sr.ListSystem(pctx, v, req)
-	if lerr != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		code, detail := codeListFailed, lerr.Error()
-		var re *recipe.Error
-		if errors.As(lerr, &re) {
-			detail = re.Detail
-			if re.Code == recipe.CodeProtocolError {
-				code = codeProtocol
-			}
-		}
-		return r.fail(code, detail)
+	if pf != nil {
+		return r.fail(pf.Code, pf.Detail)
 	}
-	groups, verr := system.ValidateListing(listing.Entries, systemContentCeiling)
-	if verr != nil {
-		var re *recipe.Error
-		if errors.As(verr, &re) {
-			return r.fail(re.Code, re.Detail)
-		}
-		return r.fail(codeProtocol, verr.Error())
-	}
-	changes, cerr := system.Plan(l.State, groups)
-	if errors.Is(cerr, system.ErrEmptyListing) {
-		return r.fail(codeEmptyListing, fmt.Sprintf("the listing is empty but the state holds %d groups; nothing was handled", len(l.State)))
-	}
+	identity, l, changes := obs.Identity, obs.Loaded, obs.Changes
 	// 7. Each changed group, in key order, isolated from the others.
 	plan, _ := readConcept(tools, planID)
 	sc := &sysCtx{planID: planID, planBody: plan.Body, unitMap: unitMap, maps: maps}
