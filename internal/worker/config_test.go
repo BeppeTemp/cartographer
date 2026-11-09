@@ -148,6 +148,8 @@ func TestLoadConfigErrors(t *testing.T) {
 		{"missing token_env", cfgWith(t, "token_env: WORKER_TOKEN\n", ""), "token_env"},
 		{"unset token env", cfgWith(t, "token_env: WORKER_TOKEN", "token_env: NOT_SET_ANYWHERE"), "NOT_SET_ANYWHERE"},
 		{"missing kbs", cfgWith(t, "kbs: [kb-a, work-kb]\n", ""), "kbs"},
+		{"too many kbs", cfgWith(t, "[kb-a, work-kb]", "["+strings.TrimSuffix(strings.Repeat("kb-x, ", 33), ", ")+"]"), "at most 32 KBs"},
+		{"too many profiles", cfgGolden[:strings.Index(cfgGolden, "models:")] + "models:\n" + strings.Repeat("  - name: m\n", 9) + cfgGolden[strings.Index(cfgGolden, "schedule:"):], "at most 8 model profiles"},
 		{"duplicate kb", cfgWith(t, "[kb-a, work-kb]", "[kb-a, kb-a]"), "listed twice"},
 		{"missing models", cfgGolden[:strings.Index(cfgGolden, "models:")] + cfgGolden[strings.Index(cfgGolden, "schedule:"):], "models"},
 		{"duplicate profile", cfgWith(t, "name: local", "name: cloud"), `profile "cloud" is defined twice`},
