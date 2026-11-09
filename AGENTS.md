@@ -113,7 +113,7 @@ internal/surveyorconfig         holds the key table of the Surveyor config file 
 internal/testkbs                generates the synthetic test KBs `make dev` serves (D818, D1032)
 internal/testkbs/gen            Command gen writes the testkbs fleet to a data directory
 internal/testtree               snapshots a directory tree in memory and restores it elsewhere
-internal/tray                   is the core of the local server's status icon (D1482)
+internal/tray                   is the core of the status icon (D1482)
 internal/updatecheck            answers whether a newer release exists and how to upgrade (D254)
 internal/webui                  serves the embedded read-only Atlas UI (D227)
 internal/webui/gen              Command webui-provenance fingerprints the Atlas bundle

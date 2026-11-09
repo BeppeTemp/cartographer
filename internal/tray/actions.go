@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -34,8 +35,9 @@ func osOpen(target string) error {
 	return nil
 }
 
-// OpenURL opens the Atlas URL. Only the http URL Status.UIURL builds is
-// accepted (host:port and /ui/), optionally with the one query KBURL adds.
+// OpenURL opens the Atlas URL. Only a URL the tray built is accepted: http or
+// https, a path ending in /ui/ with no "." or ".." segment (a reverse proxy may
+// add a prefix), no userinfo or fragment, and at most the one kb query KBURL adds.
 func OpenURL(raw string) error {
 	refuse := fmt.Errorf("tray: refusing to open %q", raw)
 	u, err := url.Parse(raw)
@@ -43,11 +45,20 @@ func OpenURL(raw string) error {
 		return refuse
 	}
 	q, err := url.ParseQuery(u.RawQuery)
-	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil ||
-		u.Path != "/ui/" || u.Fragment != "" || (u.RawQuery != "" && (len(q) != 1 || len(q["kb"]) != 1)) {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+		!strings.HasSuffix(u.Path, "/ui/") || hasDotSegment(u.Path) || u.Fragment != "" || (u.RawQuery != "" && (len(q) != 1 || len(q["kb"]) != 1)) {
 		return refuse
 	}
 	return openFn(raw)
+}
+
+func hasDotSegment(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // KBURL is the Atlas URL that opens one KB (the UI's ?kb= view state). The
@@ -110,6 +121,9 @@ func (a *Actions) Handle(act Action) {
 	a.mu.Lock()
 	snap := a.last
 	a.mu.Unlock()
+	if snap.Mode == ModeClient && (act == ActionRestart || act == ActionOpenLog) {
+		return // not shown in client mode: no local service, no local log
+	}
 	switch act {
 	case ActionOpenAtlas:
 		if snap.UIURL == "" {

@@ -55,15 +55,28 @@ func StatusLine(s Snapshot) string {
 	if !s.Checked {
 		return "checking…"
 	}
+	client := s.Mode == ModeClient
 	switch s.State {
 	case StateStopped:
+		if client && s.Rejected {
+			return s.serverName() + ": token rejected — run cartographer reconnect"
+		}
+		if client {
+			return s.serverName() + ": unreachable"
+		}
 		return "stopped"
 	case StateStarting:
+		if client {
+			return s.serverName() + ": starting…"
+		}
 		return "starting…"
 	case StateNotInstalled:
 		return "not installed"
 	}
 	parts := []string{"Cartographer"}
+	if client {
+		parts[0] = s.serverName()
+	}
 	if s.Version != "" {
 		parts[0] += " " + s.Version
 	}
@@ -82,10 +95,21 @@ func StatusLine(s Snapshot) string {
 	if s.NotReady && s.KBCount != 0 {
 		parts = append(parts, "not ready")
 	}
+	if s.TokenMissing {
+		parts = append(parts, "token not available")
+	}
 	if s.NotReady {
 		return strings.Join(parts, " · ")
 	}
 	return strings.Join(parts, " — ")
+}
+
+// serverName is how the status line names the client's server.
+func (s Snapshot) serverName() string {
+	if s.Server == "" {
+		return "server"
+	}
+	return s.Server
 }
 
 // MenuItem is one row of the popup menu, in display order.
@@ -143,6 +167,12 @@ func InfoItems(s Snapshot) []MenuItem {
 		head.Badge, head.Tone = "Not ready", ToneBusy
 	case s.State == StateStopped:
 		head.Badge, head.Tone = "Stopped", ToneDown
+		if s.Mode == ModeClient {
+			head.Badge = "Unreachable"
+			if s.Rejected {
+				head.Badge = "Token rejected"
+			}
+		}
 	case s.State == StateNotInstalled:
 		head.Badge, head.Tone = "Not installed", ToneIdle
 	}
@@ -155,6 +185,9 @@ func InfoItems(s Snapshot) []MenuItem {
 	}
 	head.Detail = strings.Join(detail, " · ")
 	items := []MenuItem{head}
+	if s.TokenMissing {
+		items = append(items, MenuItem{Status: true, Text: "Token not available", Tone: ToneIdle})
+	}
 	if s.LatestVersion != "" {
 		items = append(items, MenuItem{Status: true, Text: "Update available", Badge: withV(s.LatestVersion), Tone: ToneUpdate})
 	}
@@ -200,8 +233,17 @@ func PlainLines(it MenuItem) []string {
 
 // MenuItems is the menu a snapshot calls for: the information rows, then the
 // actions. Atlas needs a URL, Restart needs an installed service that is not
-// already restarting, Open Log needs a path.
+// already restarting, Open Log needs a path. In client mode there is no
+// service and no local log: those two rows are not shown at all.
 func MenuItems(m Menu, s Snapshot) []MenuItem {
+	if s.Mode == ModeClient {
+		return append(InfoItems(s),
+			MenuItem{Separator: true},
+			MenuItem{Action: ActionOpenAtlas, Text: m.OpenAtlas, Enabled: s.UIURL != ""},
+			MenuItem{Separator: true},
+			MenuItem{Action: ActionQuit, Text: m.Quit, Enabled: true},
+		)
+	}
 	return append(InfoItems(s),
 		MenuItem{Separator: true},
 		MenuItem{Action: ActionOpenAtlas, Text: m.OpenAtlas, Enabled: s.UIURL != ""},
