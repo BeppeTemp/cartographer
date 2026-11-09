@@ -226,6 +226,11 @@ func (a *Agent) execute(c ToolCall, offered map[string]bool, lim Limits, out *Ou
 	if json.Unmarshal(args, &obj) != nil || obj == nil {
 		return fail("arguments must be a JSON object"), nil
 	}
+	if a.Allow.RefusesArgs(c.Name, args) {
+		out.Refused++
+		a.emit(Event{Kind: "refused", Step: out.Steps, Tool: c.Name, IsError: true})
+		return fail("tool is not available"), nil
+	}
 	res, err := a.Tools.CallTool(c.Name, json.RawMessage(args))
 	if err != nil {
 		var re *client.RemoteError
