@@ -386,23 +386,23 @@ export interface MaintenanceReview {
   items: ReviewItem[];
 }
 
-/** GET /kbs/{kb}/workers (D1259): a live `cartographer surveyor` that declared this KB. Read-only. */
-export type WorkerState = "idle" | "running" | "waiting" | "budget_exhausted" | "stopped";
-export interface WorkerBudget {
+/** GET /kbs/{kb}/surveyors (D1259): a live `cartographer surveyor` that declared this KB. Read-only. */
+export type SurveyorState = "idle" | "running" | "waiting" | "budget_exhausted" | "stopped";
+export interface SurveyorBudget {
   profile: string;
   tier?: "small" | "large";
   spent: number;
   limit: number;
 }
-export interface WorkerRow {
-  worker: string;
+export interface SurveyorRow {
+  surveyor: string;
   perimeter: string;
   version?: string;
-  state: WorkerState;
+  state: SurveyorState;
   last_beat_at: string;
   interval_seconds: number;
   last_run?: { at: string; units_done: number; tokens_spent: number; commits: number };
-  budgets: WorkerBudget[];
+  budgets: SurveyorBudget[];
   next_window_at?: string;
 }
 
@@ -659,14 +659,14 @@ export interface SettingsView {
   clients?: SettingsClient[];
   /** What a client can set, every key at its default: shown until a client reports. */
   client_template?: { entries: SettingEntry[]; yaml?: string };
-  /** The workers whose whole perimeter the viewer sees, as each last reported (D1259). */
-  workers?: SettingsWorker[];
-  /** What a worker can set, every key at its default: shown until a worker reports. */
-  worker_template?: { entries: SettingEntry[] };
+  /** The surveyors whose whole perimeter the viewer sees, as each last reported (D1259). */
+  surveyors?: SettingsSurveyor[];
+  /** What a surveyor can set, every key at its default: shown until a surveyor reports. */
+  surveyor_template?: { entries: SettingEntry[] };
 }
 
-/** One worker perimeter's settings: a report shared by its replicas, no secret in it. */
-export interface SettingsWorker {
+/** One surveyor perimeter's settings: a report shared by its replicas, no secret in it. */
+export interface SettingsSurveyor {
   perimeter: string;
   version?: string;
   replicas: number;

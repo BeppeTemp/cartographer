@@ -63,7 +63,7 @@ var subcommands = []subcommand{
 // hitting the network.
 var (
 	serveFn         = cmdServe
-	workerFn        = cmdWorker
+	surveyorFn      = cmdSurveyor
 	versionFn       = cmdVersion
 	agentsFn        = cmdAgents
 	connectFn       = cmdConnect
@@ -122,7 +122,7 @@ func run(args []string) int {
 	case "serve":
 		return serveFn(rest)
 	case "surveyor":
-		return workerFn(rest)
+		return surveyorFn(rest)
 	case "setup":
 		return setupFn(rest)
 	case "kb":

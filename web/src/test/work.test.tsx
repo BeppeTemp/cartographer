@@ -94,8 +94,8 @@ describe("the Work panel", () => {
     ).toBeInTheDocument();
   });
 
-  const worker = {
-    worker: "w-1",
+  const surveyor = {
+    surveyor: "w-1",
     perimeter: "team-a",
     state: "running",
     last_beat_at: new Date().toISOString(),
@@ -107,10 +107,10 @@ describe("the Work panel", () => {
     ],
   };
 
-  it("lists a live worker with a budget at its limit, and a failing feed that opens its concept", async () => {
-    // "/workers" first: the "/work" fragment also matches it.
+  it("lists a live surveyor with a budget at its limit, and a failing feed that opens its concept", async () => {
+    // Each fragment matches its own route only: "/surveyors" does not start with "/work".
     stubApi({
-      "/workers": () => json({ workers: [worker] }),
+      "/surveyors": () => json({ surveyors: [surveyor] }),
       "/feeds": () =>
         json({ feeds: [{ id: "feeds/news", title: "News feed", source_shape: "feed", feed_error: "HTTP 500", feed_checked_at: "2026-01-02T00:00:00Z" }], total: 1 }),
       "/work": () => json(work),
@@ -128,7 +128,7 @@ describe("the Work panel", () => {
 
   it("renders nothing for empty lists, and the page as before when the routes fail", async () => {
     stubApi({
-      "/workers": () => json({ error: { code: "not_found", message: "not found" } }, 404),
+      "/surveyors": () => json({ error: { code: "not_found", message: "not found" } }, 404),
       "/feeds": () => json({ error: { code: "internal", message: "boom" } }, 500),
       "/work": () => json(work),
     });

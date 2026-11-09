@@ -238,7 +238,7 @@ func (c *MCPClient) WithKB(name string) *MCPClient {
 }
 
 // WithHTTPTimeout returns a copy of the client whose HTTP calls time out after d
-// (the default is 30 s, and calls take no context). The worker writes its closing
+// (the default is 30 s, and calls take no context). The surveyor writes its closing
 // entries with a short one so that a shutdown fits the orchestrator's grace period.
 func (c *MCPClient) WithHTTPTimeout(d time.Duration) *MCPClient {
 	cp := *c
@@ -631,14 +631,14 @@ func (c *MCPClient) ReportClientSettings(report any, timeout time.Duration) erro
 	return c.apiCall(http.MethodPost, clientSettingsPath, "", report, timeout)
 }
 
-// workersPath and workerSettingsPath are the routes of a worker's heartbeat
+// surveyorsPath and surveyorSettingsPath are the routes of a surveyor's heartbeat
 // and settings report (D1259).
 const (
-	workersPath        = "/api/workers"
-	workerSettingsPath = "/api/worker-settings"
+	surveyorsPath        = "/api/surveyors"
+	surveyorSettingsPath = "/api/surveyor-settings"
 )
 
-// HeartbeatAnswer is the answer of POST /api/workers: the idle signal of each
+// HeartbeatAnswer is the answer of POST /api/surveyors: the idle signal of each
 // accepted KB and whether the server wants the settings report.
 type HeartbeatAnswer struct {
 	Accepted []string `json:"accepted"`
@@ -651,21 +651,21 @@ type HeartbeatAnswer struct {
 	SettingsWanted  bool      `json:"settings_wanted"`
 }
 
-// Heartbeat posts a worker's declaration (a JSON-encodable object) and returns
+// Heartbeat posts a surveyor's declaration (a JSON-encodable object) and returns
 // the server's answer. A server too old for the route answers 404, an error the
-// worker ignores.
+// surveyor ignores.
 func (c *MCPClient) Heartbeat(report any, timeout time.Duration) (*HeartbeatAnswer, error) {
 	var a HeartbeatAnswer
-	if err := c.apiCallInto(http.MethodPost, workersPath, "", report, &a, timeout); err != nil {
+	if err := c.apiCallInto(http.MethodPost, surveyorsPath, "", report, &a, timeout); err != nil {
 		return nil, err
 	}
 	return &a, nil
 }
 
-// ReportWorkerSettings posts a worker's settings report. Best-effort like
+// ReportSurveyorSettings posts a surveyor's settings report. Best-effort like
 // ReportClientSettings.
-func (c *MCPClient) ReportWorkerSettings(report any, timeout time.Duration) error {
-	return c.apiCall(http.MethodPost, workerSettingsPath, "", report, timeout)
+func (c *MCPClient) ReportSurveyorSettings(report any, timeout time.Duration) error {
+	return c.apiCall(http.MethodPost, surveyorSettingsPath, "", report, timeout)
 }
 
 // doctorSchedulePath is the server route a scheduled-doctor declaration goes to (D369).
@@ -834,7 +834,7 @@ func (c *MCPClient) CallContext(ctx context.Context, tool string, args any) (jso
 
 // ToolInfo is one tool of tools/list: its name, whether the server annotates
 // it read-only (what a plugin's kb.call needs), and the description and input
-// schema a worker hands to a model. InputSchema is passed through untouched.
+// schema a surveyor hands to a model. InputSchema is passed through untouched.
 type ToolInfo struct {
 	Name        string
 	ReadOnly    bool

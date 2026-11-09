@@ -186,7 +186,7 @@ describe("the Settings panel", () => {
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("server_url: http://example.com/mcp");
   });
 
-  it("lists a worker's reported settings with its replicas, or the template and a note when none reported", async () => {
+  it("lists a surveyor's reported settings with its replicas, or the template and a note when none reported", async () => {
     const entries = [
       { key: "name", value: "team-a", origin: "file", description: "Perimeter name.", default: '""' },
       { key: "models[].api_key_env", value: "CLOUD_API_KEY", origin: "file", description: "Key variable.", default: '""' },
@@ -195,10 +195,10 @@ describe("the Settings panel", () => {
       "/settings": () =>
         json({
           ...SETTINGS,
-          workers: [
+          surveyors: [
             { perimeter: "team-a", version: "v9", replicas: 2, kbs: ["kb-a"], entries, received_at: "2026-10-16T10:00:00Z" },
           ],
-          worker_template: { entries },
+          surveyor_template: { entries },
         }),
     });
     const user = userEvent.setup();
@@ -216,7 +216,7 @@ describe("the Settings panel", () => {
     first.unmount();
 
     stubApi({
-      "/settings": () => json({ ...SETTINGS, workers: [], worker_template: { entries } }),
+      "/settings": () => json({ ...SETTINGS, surveyors: [], surveyor_template: { entries } }),
     });
     render(<App />);
     const tabs2 = await screen.findByRole("tablist", { name: "Settings of" });
@@ -225,7 +225,7 @@ describe("the Settings panel", () => {
     expect(screen.getByRole("list", { name: "Surveyor name settings" })).toBeInTheDocument();
   });
 
-  it("keeps two workers of the same perimeter name apart", async () => {
+  it("keeps two surveyors of the same perimeter name apart", async () => {
     const row = (replicas: number, value: string) => ({
       perimeter: "team-a",
       replicas,
@@ -233,13 +233,13 @@ describe("the Settings panel", () => {
       entries: [{ key: "name", value, origin: "file", description: "Perimeter name.", default: '""' }],
       received_at: "2026-10-16T10:00:00Z",
     });
-    stubApi({ "/settings": () => json({ ...SETTINGS, workers: [row(1, "one-a"), row(3, "two-b")] }) });
+    stubApi({ "/settings": () => json({ ...SETTINGS, surveyors: [row(1, "one-a"), row(3, "two-b")] }) });
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    const workerTabs = within(tabs).getAllByRole("tab", { name: "Surveyor · team-a" });
-    expect(workerTabs).toHaveLength(2);
-    await user.click(workerTabs[1]!);
+    const surveyorTabs = within(tabs).getAllByRole("tab", { name: "Surveyor · team-a" });
+    expect(surveyorTabs).toHaveLength(2);
+    await user.click(surveyorTabs[1]!);
     expect(screen.getByText(/^Surveyor · 3 replicas · kb-a · reported/)).toBeInTheDocument();
     expect(within(tabs).getAllByRole("tab", { selected: true }).map((t) => t.id)).toHaveLength(1);
     expect(screen.getByRole("list", { name: "Surveyor name settings" })).toHaveTextContent("two-b");

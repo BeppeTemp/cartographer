@@ -6432,8 +6432,8 @@ func TestLogAppend_NoteCannotForgeEntriesOrRetirements(t *testing.T) {
 	}
 }
 
-// The worker offers a connector's tools to the model as "<connector>__<tool>"
-// and routes a call by that prefix (internal/worker/connector, D1262). That is
+// The surveyor offers a connector's tools to the model as "<connector>__<tool>"
+// and routes a call by that prefix (internal/surveyor/connector, D1262). That is
 // unambiguous only while no tool of this server has "__" in its name.
 func TestNoToolNameContainsTheConnectorSeparator(t *testing.T) {
 	t.Parallel()

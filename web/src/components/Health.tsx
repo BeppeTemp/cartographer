@@ -17,7 +17,7 @@ import { Bone, BoldCount, Page, PageHeader, PageSection, Quiet, Segmented, Title
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { ErrorState } from "./States";
-import { MaintainedBy } from "./Workers";
+import { MaintainedBy } from "./Surveyors";
 
 /**
  * Health (D338, D365, D704, D947): what Cartographer found, and on a second tab

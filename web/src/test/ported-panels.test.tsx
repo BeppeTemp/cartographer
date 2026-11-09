@@ -85,7 +85,7 @@ describe("the ported panels", () => {
       stubApi({
         "/settings": () => json(settings),
         "/whoami": () =>
-          json({ id: "worker-a", admin: false, permissions: [{ kb: "kb-a", write: true, artifacts: "r" }] }),
+          json({ id: "surveyor-a", admin: false, permissions: [{ kb: "kb-a", write: true, artifacts: "r" }] }),
       });
       render(<App />);
       const who = await screen.findByLabelText("Who is looking");
