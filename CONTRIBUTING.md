@@ -363,7 +363,8 @@ dispatched by hand with one of three actions.
   clear: no open Dependabot alert, no open code scanning alert (a false positive is
   dismissed with its reason, not left open) and no draft security advisory whose fix
   PR is still open in its private fork. A report still without a fix does not block.
-  The skip comment says only that the gate is not clear.
+  The skip comment says only that the gate is not clear; when a read of the gate fails
+  (an expired or under-scoped token), the log names the read's number and HTTP status.
 - **Out of band**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand, with the same gate cleared.
 - **Maintenance release**, for emergencies only (a feature never needs it: it lands in

@@ -32,3 +32,7 @@ the new behaviour, not the hole).
 **Consequences.** `internal/repodocs/release_train_test.go` pins the gate's token
 and that the merge step waits for its `clear` output. The maintainer closes an
 advisory's fork PR once its fix is on `main`, or the gate stays shut.
+A read that fails is named in the log by number and HTTP status, never by content
+(#1811): an access fault is told from a finding without announcing either. The reads
+of the private forks share the advisories' number, so a failure there does not tell
+that a fork exists.

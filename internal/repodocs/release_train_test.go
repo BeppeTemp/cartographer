@@ -1,7 +1,11 @@
 package repodocs
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -391,6 +395,104 @@ func TestReleaseWorkflowIgnoresAndCleansUpCandidates(t *testing.T) {
 	for _, want := range []string{"gh release delete", "--cleanup-tag", `-rc\\.[0-9]{8}$`, "${version//./\\\\.}"} {
 		if !strings.Contains(run, want) {
 			t.Errorf("release.yml: candidate-cleanup lacks %q: it deletes the candidates of the shipped version only", want)
+		}
+	}
+}
+
+// The security gate must tell a read that failed from an open alert (#1811) without
+// printing what the read returned (the repository is public, D1123). The step's script
+// runs for real with a fake gh: its exit and stderr are chosen per read by path.
+func TestSecurityGateNamesTheReadThatFailed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the script runs on ubuntu only; bash on Windows may be WSL")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not on PATH")
+	}
+	root := repoRoot(t)
+	var wf struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				ID  string `yaml:"id"`
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/release-train.yml")), &wf); err != nil {
+		t.Fatal(err)
+	}
+	var run string
+	for _, job := range wf.Jobs {
+		for _, st := range job.Steps {
+			if st.ID == "security" {
+				run = st.Run
+			}
+		}
+	}
+	if run == "" {
+		t.Fatal("release-train.yml: no security step")
+	}
+	// gh api <path> ...: FAIL_<read> makes read <read> fail with that stderr, OUT_<read> is its result.
+	fake := `#!/bin/sh
+case "$1" in
+api)
+  case "$3" in
+    *dependabot*) r=1 ;; *code-scanning*) r=2 ;; *security-advisories*) r=3 ;; *pulls*) r=4 ;;
+  esac
+  eval "fail=\$FAIL_$r out=\$OUT_$r"
+  if [ -n "$fail" ]; then echo "$fail" >&2; exit 1; fi
+  [ -z "$out" ] || echo "$out"
+  ;;
+pr) echo "comment" >> "$GH_LOG" ;;
+esac
+`
+	cases := []struct {
+		name     string
+		env      []string
+		clear    bool
+		want     string
+		forbid   []string
+		wantSkip bool
+	}{
+		{"read 3 fails", []string{"FAIL_3=gh: Not Found (HTTP 404) hunter2"}, false, "security gate: read 3 failed (HTTP 404)", []string{"hunter2"}, true},
+		{"fork read fails without a status, numbered as read 3", []string{"OUT_3=owner/fork", "FAIL_4=dial tcp: timeout hunter2"}, false, "security gate: read 3 failed (no status)", []string{"hunter2"}, true},
+		{"all reads empty", nil, true, "", []string{"read ", "failed", "token is empty"}, false},
+		{"read 1 not empty", []string{"OUT_1=7"}, false, "", []string{"read ", "failed", "alert", "7"}, true},
+		{"token empty", []string{"SEC_TOKEN="}, false, "security gate: token is empty", nil, true},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		output := filepath.Join(dir, "output")
+		ghLog := filepath.Join(dir, "gh.log")
+		cmd := exec.Command(bash, "-e", "-o", "pipefail", "-c", run)
+		cmd.Dir = root
+		cmd.Env = append(append(cmd.Environ(), "GH_REPO=example/repo", "SEC_TOKEN=tok", "PR=1",
+			"GITHUB_OUTPUT="+output, "GH_LOG="+ghLog, "RUNNER_TEMP="+dir,
+			"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH")), c.env...)
+		var buf strings.Builder
+		cmd.Stdout, cmd.Stderr = &buf, &buf
+		if err := cmd.Run(); err != nil {
+			t.Errorf("%s: the step must exit 0, got %v\n%s", c.name, err, buf.String())
+		}
+		out := buf.String()
+		if c.want != "" && !strings.Contains(out, c.want) {
+			t.Errorf("%s: log %q lacks %q", c.name, out, c.want)
+		}
+		for _, f := range c.forbid {
+			if strings.Contains(out, f) {
+				t.Errorf("%s: log %q must not contain %q", c.name, out, f)
+			}
+		}
+		got, _ := os.ReadFile(output)
+		if cleared := strings.Contains(string(got), "clear=true"); cleared != c.clear {
+			t.Errorf("%s: clear=true written: %v, want %v", c.name, cleared, c.clear)
+		}
+		if _, err := os.Stat(ghLog); (err == nil) != c.wantSkip {
+			t.Errorf("%s: skip comment posted: %v, want %v", c.name, err == nil, c.wantSkip)
 		}
 	}
 }
