@@ -136,3 +136,31 @@ func TestServerBaseURL_IgnoresTheClientsRemoteServer(t *testing.T) {
 		t.Errorf("serverBaseURL = %q, want the local default", got)
 	}
 }
+
+// kb create --remote refuses a remote that carries a credential, as kb attach
+// does, before anything is written (#1851).
+func TestKBCreateRefusesARemoteWithACredential(t *testing.T) {
+	for _, remote := range []string{
+		"https://user:" + attachSecret + "@example.com/x.git",
+		"https://" + attachSecret + "@example.com/org/repo.git",
+		"https://user:p/ss@example.com/x.git",
+		"ssh://user:" + attachSecret + "@example.com/x.git",
+	} {
+		dataDir := t.TempDir()
+		var code int
+		errOut := withStderr(t, func() {
+			withNoGuidance(t, func() {
+				code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", remote})
+			})
+		})
+		if code != 2 {
+			t.Errorf("%q: code = %d, want 2", remote, code)
+		}
+		if strings.Contains(errOut, attachSecret) || !strings.Contains(errOut, "credentials directory") {
+			t.Errorf("%q: message must point to the credentials and not echo the secret: %q", remote, errOut)
+		}
+		if entries, _ := os.ReadDir(dataDir); len(entries) != 0 {
+			t.Errorf("%q: refusal left %d entries in the data dir", remote, len(entries))
+		}
+	}
+}

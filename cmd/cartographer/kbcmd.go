@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -92,6 +93,45 @@ func printKBUsage(w io.Writer) {
 // the names of the server state file's aliases (D772, D906).
 func validateKBName(name string) error { return config.ValidateKBName(name) }
 
+// remoteCredentialProblem says why a remote URL must not be stored in the
+// KB's .git/config, or "" when it may. A secret in a URL would be written there
+// in clear: a password in any URL, a token in the user slot of an http(s) URL
+// (the usual PAT shape), and any URL-form remote that cannot be parsed, since a
+// password with a "/", "#", "?" or space breaks the parse and would slip
+// through. ssh:// keeps its user (ssh://git@host/x), and the scp-like forms
+// (git@host:path) have no password slot. The message never echoes the URL.
+func remoteCredentialProblem(remote string) string {
+	if !strings.Contains(remote, "://") {
+		return ""
+	}
+	u, err := url.Parse(remote)
+	if err != nil {
+		return "the remote URL cannot be parsed, so it cannot be checked for a credential"
+	}
+	if u.User == nil {
+		return ""
+	}
+	if _, has := u.User.Password(); has {
+		return "the remote URL carries a password"
+	}
+	if s := strings.ToLower(u.Scheme); s == "http" || s == "https" {
+		return "the remote URL carries a user name, which for http(s) is where a token goes"
+	}
+	return ""
+}
+
+// remoteCredentialRefusal is the error `kb create --remote` and `kb attach`
+// give for a remote that remoteCredentialProblem refuses, or "" when it may be
+// stored. One wording, so neither path writes a credential into .git/config.
+func remoteCredentialRefusal(remote string) string {
+	problem := remoteCredentialProblem(remote)
+	if problem == "" {
+		return ""
+	}
+	return problem + ", which would be written to the KB's .git/config. " +
+		"Use a credential helper or an SSH key, or put the key or token in the server's credentials directory (<kb>.ssh, <kb>.token or default.*), and give the URL without the password"
+}
+
 // cmdKBCreate implements `cartographer kb create <name> (--remote <url> |
 // --no-remote) [--data <dir>] [--restart]`: scaffolds a new KB at
 // <data>/<name> via kb.Init (git init + OKF layout), attaches its git remote, then prints
@@ -151,6 +191,10 @@ func cmdKBCreate(args []string) int {
 	if remote != "" {
 		if err := gitx.ValidateRemote(remote); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		if msg := remoteCredentialRefusal(remote); msg != "" {
+			fmt.Fprintln(os.Stderr, "Error:", msg)
 			return 2
 		}
 	}
