@@ -59,11 +59,7 @@ func cmdUpdate(args []string) int {
 	case "check":
 		return updateCheck(args[1:])
 	case "notice":
-		if len(args) != 1 {
-			printUpdateUsage(os.Stderr)
-			return 2
-		}
-		return updateNotice()
+		return updateNotice(args[1:])
 	case "help", "-h", "--help":
 		printUpdateUsage(os.Stdout)
 		return 0
@@ -75,7 +71,7 @@ func cmdUpdate(args []string) int {
 
 func printUpdateUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: cartographer update check [--output table|json]")
-	fmt.Fprintln(w, "       cartographer update notice")
+	fmt.Fprintln(w, "       cartographer update notice [--channel text|antigravity]")
 }
 
 // updateCheckEnabled reads `update_check` from .cartographer.yaml: true when
@@ -172,14 +168,60 @@ func updateCheck(args []string) int {
 
 // updateNotice is what the session-start hook runs. It prints nothing unless
 // an update exists, then exactly one paragraph addressed to the agent, and it
-// always exits 0: a hook must never break a session start.
-func updateNotice() (code int) {
+// always exits 0: a hook must never break a session start. When channel is
+// "antigravity", the response is formatted as protojson with injectSteps (or
+// {} if up to date) as expected by Google Antigravity hooks.
+func updateNotice(args []string) (code int) {
+	channel := "text"
 	defer func() {
 		if recover() != nil {
+			// Empty stdout is the input Antigravity rejects: answer "nothing to say".
+			if channel == "antigravity" {
+				fmt.Println("{}")
+			}
 			code = 0
 		}
 	}()
-	if text := noticeText(); text != "" {
+	switch len(args) {
+	case 0:
+	case 2:
+		if args[0] == "--channel" && (args[1] == "text" || args[1] == "antigravity") {
+			channel = args[1]
+			break
+		}
+		fallthrough
+	default:
+		printUpdateUsage(os.Stderr)
+		return 2
+	}
+
+	text := noticeText()
+	if channel == "antigravity" {
+		if text == "" {
+			fmt.Println("{}")
+			return 0
+		}
+		type systemMessage struct {
+			SystemMessage string `json:"systemMessage"`
+		}
+		type injectStep struct {
+			SystemMessage systemMessage `json:"systemMessage"`
+		}
+		type antigravityHookResponse struct {
+			InjectSteps []injectStep `json:"injectSteps"`
+		}
+		out, err := json.Marshal(antigravityHookResponse{
+			InjectSteps: []injectStep{{SystemMessage: systemMessage{SystemMessage: text}}},
+		})
+		if err != nil {
+			fmt.Println("{}")
+			return 0
+		}
+		fmt.Println(string(out))
+		return 0
+	}
+
+	if text != "" {
 		fmt.Println(text)
 	}
 	return 0

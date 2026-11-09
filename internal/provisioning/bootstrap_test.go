@@ -345,6 +345,14 @@ func TestEnsureBootstrapHook_Antigravity_MaterializzaERegistra(t *testing.T) {
 		t.Errorf("type: expected command, got %q", handlers[0].Type)
 	}
 
+	scriptBytes, err := os.ReadFile(filepath.Join(hookDir, provisioning.BootstrapScriptNameForTest))
+	if err != nil {
+		t.Fatalf("read script: %v", err)
+	}
+	if !strings.Contains(string(scriptBytes), "--channel antigravity") {
+		t.Errorf("expected '--channel antigravity' in Antigravity bootstrap script, got:\n%s", scriptBytes)
+	}
+
 	if len(lock.Managed) != 2 {
 		t.Fatalf("expected 2 ManagedFile, got %d: %+v", len(lock.Managed), lock.Managed)
 	}

@@ -49,12 +49,6 @@ func bootstrapHookJSON() []byte {
 	return data
 }
 
-// bootstrapContentHash is a fixed content hash for the bootstrap hook's
-// ManagedFile entries. It is never compared by ComputeDiff (the reserved name is
-// excluded from diffing entirely, see ComputeDiff/Apply) — it only exists so the
-// ManagedFile has a well-formed, non-empty ContentHash like every other kind.
-var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(bootstrapScriptContent)...))
-
 // EnsureBootstrapHook materializes and registers the cartographer-bootstrap hook
 // (D60) for provider under baseDir, and returns lock with its ManagedFile entries
 // refreshed (any previous bootstrap entries replaced — idempotent, safe to call on
@@ -82,7 +76,7 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 	if !SupportsSessionHook(provider) {
 		return lock, nil
 	}
-	return ensureSyntheticHook(baseDir, provider, lock, bootstrapHook, dryRun)
+	return ensureSyntheticHook(baseDir, provider, lock, bootstrapHookFor(provider), dryRun)
 }
 
 // syntheticHook is a hook generated entirely by the client (bootstrap, D60;
@@ -101,13 +95,16 @@ type syntheticHook struct {
 	warningBlocks bool
 }
 
-var bootstrapHook = syntheticHook{
-	name:          BootstrapHookName,
-	hookJSON:      bootstrapHookJSON,
-	scriptName:    bootstrapScriptName,
-	scriptContent: bootstrapScriptContent,
-	contentHash:   bootstrapContentHash,
-	warningBlocks: true,
+func bootstrapHookFor(provider configurator.Provider) syntheticHook {
+	content := bootstrapScriptContentFor(provider)
+	return syntheticHook{
+		name:          BootstrapHookName,
+		hookJSON:      bootstrapHookJSON,
+		scriptName:    bootstrapScriptName,
+		scriptContent: content,
+		contentHash:   contentHashBytes(append(bootstrapHookJSON(), []byte(content)...)),
+		warningBlocks: true,
+	}
 }
 
 func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lock, h syntheticHook, dryRun bool) (Lock, error) {
@@ -567,7 +564,7 @@ func HookPluginRelPath(provider configurator.Provider, name string, scope Scope)
 // symlink X -> Y" notes of the bootstrap and write-findings hooks of provider:
 // their files and their registration targets (providers.<provider>.allow_symlinks).
 func SyntheticHookDryRunNotes(baseDir string, provider configurator.Provider) []string {
-	hooks := []syntheticHook{bootstrapHook}
+	hooks := []syntheticHook{bootstrapHookFor(provider)}
 	if SupportsWriteFindingsHook(provider) {
 		hooks = append(hooks, writeFindingsSyntheticFor(provider))
 	}
