@@ -1,0 +1,24 @@
+# Server (source a) and one Surveyor as a CronJob reaching it by the injected in-cluster URL.
+server:
+  tokens:
+    existingSecret:
+      name: cartographer-tokens
+  credentials:
+    enabled: false
+  config:
+    kbs:
+      - remote: https://git.example.com/user/kb-a.git
+surveyors:
+  - name: docs-night
+    mode: cronjob
+    schedule: "15 2 * * *"
+    activeDeadlineSeconds: 14400
+    existingSecret: docs-night-env
+    files:
+      recipe-notes.md: |
+        Text next to the config, referred to by its plain name.
+    config:
+      token_env: SURVEYOR_TOKEN
+      kbs: [kb-a]
+      schedule:
+        window: {start: "00:00", end: "23:59", timezone: UTC}

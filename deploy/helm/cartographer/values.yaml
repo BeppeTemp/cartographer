@@ -113,3 +113,27 @@ server:
   affinity: {}
   podAnnotations: {}
   podLabels: {}
+
+# The image of every Surveyor entry (an entry may override it).
+surveyorImage:
+  repository: ghcr.io/beppetemp/cartographer-surveyor
+  # Empty means the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# One entry per perimeter, each with its own ConfigMap and a Deployment or a CronJob.
+# Empty by default. An entry:
+#   name: docs-night              # required, [a-z0-9-], names every object
+#   mode: deployment              # deployment | cronjob
+#   replicas: 1                   # deployment only
+#   schedule: "15 2 * * *"        # cronjob only
+#   config: {...}                 # the Surveyor YAML, no secret in it
+#   files: {recipe.yaml: "..."}   # text files next to the config, plain names
+#   existingSecret: docs-env      # every key becomes an environment variable
+#   image: {repository, tag, pullPolicy}
+#   serviceAccountName: ""        # also mounts the API token on that entry's pod
+#   terminationGracePeriodSeconds: 30
+#   resources, nodeSelector, tolerations, affinity, podAnnotations
+#   cronjob only: suspend, startingDeadlineSeconds, activeDeadlineSeconds,
+#                 successfulJobsHistoryLimit, failedJobsHistoryLimit
+surveyors: []
