@@ -81,6 +81,11 @@ type RemoteError struct {
 	// (CodeHTTPFailed from an answering server), zero otherwise. It lets a
 	// caller tell a refused credential (403) from a transport failure (#1299).
 	HTTPStatus int
+	// RPCCode is the JSON-RPC error code of a CodeMCPFailed that came from an
+	// "error" object (for example -32602, invalid params), zero otherwise. It
+	// lets a caller tell a refused argument from a failure without parsing
+	// Message.
+	RPCCode int
 }
 
 func (e *RemoteError) Error() string {
@@ -447,7 +452,7 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusNotFound {
 			var rpcResp rpcResponse
 			if err := json.Unmarshal(respBody, &rpcResp); err == nil && rpcResp.Error != nil {
-				return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+				return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, RPCCode: rpcResp.Error.Code,
 					Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, Escape(rpcResp.Error.Message))}
 			}
 		}
@@ -468,7 +473,7 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 			Message: fmt.Sprintf("invalid JSON-RPC response from %s", reqURL), Cause: err}
 	}
 	if rpcResp.Error != nil {
-		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, RPCCode: rpcResp.Error.Code,
 			Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, Escape(rpcResp.Error.Message))}
 	}
 	return rpcResp.Result, nil
@@ -687,6 +692,48 @@ func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time
 	return nil
 }
 
+// decodeToolResult parses a tools/call result; Call and CallTool share it so
+// the "invalid tool result" wording lives in one place.
+func decodeToolResult(tool string, raw json.RawMessage) (toolResult, error) {
+	var tr toolResult
+	if err := json.Unmarshal(raw, &tr); err != nil {
+		return tr, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("invalid tool result for %q", tool), Cause: err}
+	}
+	return tr, nil
+}
+
+// ToolOutput is a tool result that keeps the tool-level isError flag instead
+// of turning it into a Go error (see CallTool).
+type ToolOutput struct {
+	Text    string
+	IsError bool
+}
+
+// CallTool invokes a tool like Call, but returns the result text and the
+// tool's own isError flag so a caller can hand a tool-level refusal back to a
+// model. Transport and JSON-RPC failures remain *RemoteError.
+func (c *MCPClient) CallTool(tool string, args any) (ToolOutput, error) {
+	raw, err := c.do("tools/call", map[string]any{"name": tool, "arguments": args})
+	if err != nil {
+		return ToolOutput{}, err
+	}
+	tr, err := decodeToolResult(tool, raw)
+	if err != nil {
+		return ToolOutput{}, err
+	}
+	if len(tr.Content) == 0 {
+		return ToolOutput{IsError: true, Text: "tool returned no content"}, nil
+	}
+	texts := make([]string, 0, len(tr.Content))
+	for _, block := range tr.Content {
+		if block.Type == "text" {
+			texts = append(texts, block.Text)
+		}
+	}
+	return ToolOutput{Text: strings.Join(texts, "\n"), IsError: tr.IsError}, nil
+}
+
 // Call invokes an MCP tool via tools/call and preserves all text content blocks.
 func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 	return c.CallContext(context.Background(), tool, args)
@@ -700,10 +747,9 @@ func (c *MCPClient) CallContext(ctx context.Context, tool string, args any) (jso
 		return nil, err
 	}
 
-	var tr toolResult
-	if err := json.Unmarshal(raw, &tr); err != nil {
-		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-			Message: fmt.Sprintf("invalid tool result for %q", tool), Cause: err}
+	tr, err := decodeToolResult(tool, raw)
+	if err != nil {
+		return nil, err
 	}
 	if len(tr.Content) == 0 {
 		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
@@ -726,16 +772,20 @@ func (c *MCPClient) CallContext(ctx context.Context, tool string, args any) (jso
 	return combined, nil
 }
 
-// ToolInfo is a tool of tools/list as a plugin's kb.call needs it: the name and
-// whether the server annotates it read-only.
+// ToolInfo is one tool of tools/list: its name, whether the server annotates
+// it read-only (what a plugin's kb.call needs), and the description and input
+// schema a worker hands to a model. InputSchema is passed through untouched.
 type ToolInfo struct {
-	Name     string
-	ReadOnly bool
+	Name        string
+	ReadOnly    bool
+	Description string
+	InputSchema json.RawMessage
 }
 
-// ListTools returns every tool of tools/list, following nextCursor. ReadOnly is
-// the server's own readOnlyHint, so the classification is never copied here;
-// an absent annotation is false.
+// ListTools returns every tool of tools/list (the server filters it per token),
+// following nextCursor. ReadOnly is the server's own readOnlyHint, so the
+// classification is never copied here; an absent annotation is false. A tool
+// without a name is skipped: nothing can call it.
 func (c *MCPClient) ListTools() ([]ToolInfo, error) {
 	return c.ListToolsContext(context.Background())
 }
@@ -755,7 +805,9 @@ func (c *MCPClient) ListToolsContext(ctx context.Context) ([]ToolInfo, error) {
 		}
 		var res struct {
 			Tools []struct {
-				Name        string `json:"name"`
+				Name        string          `json:"name"`
+				Description string          `json:"description"`
+				InputSchema json.RawMessage `json:"inputSchema"`
 				Annotations *struct {
 					ReadOnlyHint bool `json:"readOnlyHint"`
 				} `json:"annotations"`
@@ -766,7 +818,15 @@ func (c *MCPClient) ListToolsContext(ctx context.Context) ([]ToolInfo, error) {
 			return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, Message: "invalid tool list", Cause: err}
 		}
 		for _, t := range res.Tools {
-			out = append(out, ToolInfo{Name: t.Name, ReadOnly: t.Annotations != nil && t.Annotations.ReadOnlyHint})
+			if t.Name == "" {
+				continue
+			}
+			out = append(out, ToolInfo{
+				Name:        t.Name,
+				ReadOnly:    t.Annotations != nil && t.Annotations.ReadOnlyHint,
+				Description: t.Description,
+				InputSchema: t.InputSchema,
+			})
 		}
 		if res.NextCursor == "" || res.NextCursor == cursor {
 			return out, nil
