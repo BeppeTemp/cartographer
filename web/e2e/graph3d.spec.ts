@@ -8,10 +8,20 @@ import { expect, LOCAL_URL, openConcept, test } from "./support";
 
 const ATLAS = `${LOCAL_URL}/ui/?kb=atlas`;
 
-async function open3D(page: Page, url = ATLAS): Promise<void> {
+// The canvas exists only after the lazy 3D chunk is fetched and the first
+// WebGL context is made. The @video leg runs this spec alone, so its test is
+// the first on a fresh Chromium: SwiftShader's first context on a loaded
+// runner took more than the 10 s default once (#1861). `coldMs` is that
+// cold-start budget; a view that gave up (no WebGL, stale bundle) fails at
+// once with its own text instead of as a canvas that never came.
+async function open3D(page: Page, url = ATLAS, coldMs = 25_000): Promise<void> {
   await page.addInitScript(() => localStorage.setItem("cartographer.panel.list", "1"));
   await page.goto(url);
-  await expect(page.locator('[data-testid=graph-view] canvas').first()).toBeVisible();
+  const canvas = page.locator("[data-testid=graph-view] canvas").first();
+  const gaveUp = page.getByText("The 3D view needs WebGL").or(page.getByText("The graph could not be loaded"));
+  await expect(canvas.or(gaveUp).first()).toBeVisible({ timeout: coldMs });
+  await expect(gaveUp).toHaveCount(0);
+  await expect(canvas).toBeVisible();
 }
 
 test("a lost WebGL context says so and keeps the list", async ({ page }) => {
@@ -50,7 +60,7 @@ test("the growth replay exports a real video, in the background, with the tab hi
   // Offline rendering at twice the export size on a software GL context is
   // the slow part: ~7 s of video at 60 fps is about 430 frames.
   test.setTimeout(480_000);
-  await open3D(page);
+  await open3D(page, ATLAS, 120_000);
   await page.getByRole("button", { name: "Replay growth" }).click();
   // The button lives in the replay's control bar, not in the camera controls.
   await expect(page.getByRole("group", { name: "Graph camera" }).getByRole("button", { name: "Export video" })).toHaveCount(0);
