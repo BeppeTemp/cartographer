@@ -29,7 +29,7 @@ func TestSourceTemplateShapeFields(t *testing.T) {
 	if !reflect.DeepEqual(info.FieldValues["source_shape"], SourceShapes) {
 		t.Errorf("source_shape = %v", info.FieldValues["source_shape"])
 	}
-	for _, f := range []string{"source_shape", "connector", "recipe"} {
+	for _, f := range []string{"source_shape", "connector", "recipe", "feed_cursor", "feed_checked_at", "feed_interval", "feed_include", "feed_error"} {
 		found := false
 		for _, o := range info.OptionalFields {
 			found = found || o == f
