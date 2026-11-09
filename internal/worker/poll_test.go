@@ -49,6 +49,12 @@ func (k *pkb) ListTools() ([]client.ToolInfo, error) { return nil, nil }
 func matches(fm map[string]any, where []string) bool {
 	for _, w := range where {
 		key, val, _ := strings.Cut(w, "=")
+		if k, ok := strings.CutSuffix(key, "!"); ok { // key!=value: absent counts as different
+			if v, _ := fm[k].(string); v == val {
+				return false
+			}
+			continue
+		}
 		switch v := fm[key].(type) {
 		case string:
 			if v != val {
@@ -125,13 +131,17 @@ func (k *pkb) CallTool(name string, args any) (client.ToolOutput, error) {
 		if p == nil || fmt.Sprint(p.ver) != a["if_match"] {
 			return terr("stale_write: the concept changed"), nil
 		}
-		for key, v := range a["frontmatter"].(map[string]any) {
+		patchFM, _ := a["frontmatter"].(map[string]any)
+		for key, v := range patchFM {
 			p.fm[key] = v
 		}
 		if u, ok := a["unset"].([]any); ok {
 			for _, key := range u {
 				delete(p.fm, key.(string))
 			}
+		}
+		if old, ok := a["old_string"].(string); ok {
+			p.body = strings.Replace(p.body, old, a["new_string"].(string), 1)
 		}
 		p.ver++
 		return jtext(map[string]any{"ok": true, "content_hash": fmt.Sprint(p.ver)}), nil
@@ -176,11 +186,20 @@ func (k *pkb) CallTool(name string, args any) (client.ToolOutput, error) {
 		if k.assets == nil {
 			k.assets = map[string]string{}
 		}
-		if _, ok := k.assets[cid+"/"+path]; ok {
+		// The server's semantics: if_match omitted creates, the current sha256 overwrites.
+		sum := func(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+		cur, has := k.assets[cid+"/"+path]
+		im, _ := a["if_match"].(string)
+		switch {
+		case has && im == "":
 			return terr("already_exists: " + path), nil
+		case has && im != sum(cur):
+			return terr("stale_write: " + path + " content-hash mismatch"), nil
+		case !has && im != "":
+			return terr("stale_write: if_match must be omitted when creating " + path), nil
 		}
 		k.assets[cid+"/"+path] = a["content"].(string)
-		return jtext(map[string]any{"path": path}), nil
+		return jtext(map[string]any{"path": path, "sha256": sum(a["content"].(string))}), nil
 	case "asset_read":
 		txt, ok := k.assets[a["concept_id"].(string)+"/"+a["path"].(string)]
 		if !ok {
@@ -190,20 +209,51 @@ func (k *pkb) CallTool(name string, args any) (client.ToolOutput, error) {
 		return jtext(map[string]any{"content": txt, "encoding": "text", "sha256": hex.EncodeToString(sum[:])}), nil
 	case "concept_batch":
 		ops := a["operations"].([]any)
-		if len(ops) != 1 {
-			return terr("one operation expected"), nil
+		if len(ops) < 1 || len(ops) > 50 {
+			return terr("1 to 50 operations expected"), nil
 		}
-		op := ops[0].(map[string]any)
-		uid, fm := op["id"].(string), op["frontmatter"].(map[string]any)
-		if _, exists := k.pages[uid]; exists {
-			return terr("already exists"), nil
+		// All or nothing: validate every operation, then apply.
+		type applied struct {
+			id   string
+			fm   map[string]any
+			body string
+			isW  bool
 		}
-		if k.refuseUnit != nil {
-			if why := k.refuseUnit(uid, fm); why != "" {
-				return terr(why), nil
+		var todo []applied
+		for _, o := range ops {
+			op := o.(map[string]any)
+			oid, fm := op["id"].(string), op["frontmatter"].(map[string]any)
+			switch op["op"] {
+			case "write":
+				if _, exists := k.pages[oid]; exists {
+					return terr("already exists"), nil
+				}
+				if k.refuseUnit != nil {
+					if why := k.refuseUnit(oid, fm); why != "" {
+						return terr(why), nil
+					}
+				}
+				todo = append(todo, applied{oid, fm, fmt.Sprint(op["body"]), true})
+			case "patch":
+				p := k.pages[oid]
+				if p == nil || fmt.Sprint(p.ver) != op["if_match"] {
+					return terr("stale_write: the concept changed"), nil
+				}
+				todo = append(todo, applied{oid, fm, "", false})
+			default:
+				return terr("unexpected op"), nil
 			}
 		}
-		k.put(uid, fm, fmt.Sprint(op["body"]))
+		for _, t := range todo {
+			if t.isW {
+				k.put(t.id, t.fm, t.body)
+				continue
+			}
+			for key, v := range t.fm {
+				k.pages[t.id].fm[key] = v
+			}
+			k.pages[t.id].ver++
+		}
 		return jtext(map[string]any{"results": []any{}}), nil
 	}
 	return terr("unexpected tool " + name), nil

@@ -663,9 +663,19 @@ func TestLoadConfigExecRecipes(t *testing.T) {
 `); err != nil || c.ExecRecipes[0].Connector != "git" {
 		t.Errorf("git connector: %v", err)
 	}
+	if c, err = load("recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    exec: {command: x}\n"); err != nil || c.ExecRecipes[0].Shape != "system" {
+		t.Errorf("system shape: %v", err)
+	}
+	if _, err := load("recipes:\n  mine:\n    instructions_file: feed.md\n    shape: collection\n    exec: {command: x}\n"); err == nil || !strings.Contains(err.Error(), "one of feed, system") {
+		t.Errorf("unknown shape message: %v", err)
+	}
 	for name, tc := range map[string]struct{ yaml, want string }{
 		"builtin with exec":  {"recipes:\n  git-docs:\n    instructions_file: feed.md\n    exec: {command: x}\n", "recipes.git-docs (line "},
-		"system shape":       {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    exec: {command: x}\n", "#1372"},
+		"system + connector": {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    connector: git\n    exec: {command: x}\n", "recipes.mine.connector (line "},
+		"system builtin":     {"recipes:\n  git-docs:\n    instructions_file: feed.md\n    shape: system\n", "recipes.git-docs (line "},
+		"system no text":     {"recipes:\n  mine:\n    shape: system\n    exec: {command: x}\n", "recipes.mine.instructions_file (line "},
+		"skip_preflight":     {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    skip_preflight: true\n    exec: {command: x}\n", "unknown key"},
+		"preflight in exec":  {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    exec: {command: x, preflight: false}\n", "unknown key"},
 		"other shape":        {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: collection\n    exec: {command: x}\n", "recipes.mine.shape (line "},
 		"bad name":           {"recipes:\n  Bad_Name:\n    instructions_file: feed.md\n    exec: {command: x}\n", "recipes.Bad_Name (line "},
 		"no exec":            {"recipes:\n  mine:\n    instructions_file: feed.md\n", "recipes.mine (line "},

@@ -30,7 +30,7 @@ recipes:
   wiki-changes:
     instructions_file: recipes/wiki-changes.md   # required; inside the config directory, at most 16 KiB UTF-8
     connector: docs-wiki                         # optional; how the unit executor reads an entry's locator
-    shape: feed                                  # the default; system is refused (reserved for live read-only systems, #1372)
+    shape: feed                                  # the default; or system (live read-only systems, below)
     exec:
       command: ./bin/list-changes                # a separator: relative to the config directory; else looked up on PATH
       args: ["--space", "ENG"]                   # verbatim
@@ -42,7 +42,9 @@ recipes:
 
 - `connector` is a connector under `connectors`, or `git` / `fetch`; it must exist at load. Omit it when the script
   returns the content inline, or when each entry's `locator` is a URL the executor reads some other way.
-- A built-in's name with `exec` (or `connector`, `shape`) is a load error. Every error names the key path and line.
+- A built-in's name with `exec` (or `connector`, `shape`) is a load error. `shape` is `feed` or `system`; a `system` recipe
+  forbids `connector` (its units use KB tools only) and has no other key: a `preflight`, `skip_preflight` or `read_only`
+  key is an unknown key and fails the load. Every error names the key path and line.
 - `env` values are variable *names*: a literal secret is refused without being echoed, and a listed variable that is
   unset or empty refuses the listing naming the variable.
 - `max_content_bytes` tops at 1 MiB, the unit executor's read cap, so the executor never truncates inline content.
@@ -66,8 +68,8 @@ The worker starts the command once per listing.
 | Field | Value |
 |---|---|
 | `protocol` | `1` |
-| `mode` | `"list"`; the worker sends nothing else in v1 |
-| `source` | `id`, `title`, `locator`, `source_kind`, `source_shape` (`"feed"`), `include` (list of globs, `[]` if none) |
+| `mode` | `"list"`; a system recipe is sent `"preflight"` first (below) |
+| `source` | `id`, `title`, `locator`, `source_kind`, `source_shape` (`"feed"`, or `"system"`), `include` (list of globs, `[]` if none) |
 | `cursor` | the string you returned last time, or `null` on the first poll |
 | `max_entries` | the most entries you may emit |
 | `max_content_bytes` | the most inline `content` bytes of one entry |
@@ -96,6 +98,7 @@ A failure sets the Source's `feed_error` to `<code>: <detail>` and leaves its cu
 | Code | When |
 |---|---|
 | `list_failed` | non-zero exit (`exit N` plus the stderr excerpt), timeout, output past `max_output_bytes`, the command cannot start, a listed variable unset |
+| `identity_not_read_only` | a system recipe's preflight refused (see System recipes); nothing was listed |
 | `protocol_error` | malformed JSON, a line that is neither `entry` nor `next_cursor`, a missing or non-final `next_cursor`, more entries than `max_entries`, a duplicate key, a field over its limit or missing, `content` over its cap |
 
 On a timeout, an oversized output or a protocol error the worker kills the whole process group, so a child your
@@ -104,11 +107,58 @@ the values of your `env` variables replaced by `***`; the worker keeps at most 8
 The redaction is a literal match: a value under 4 bytes is not redacted (it would mangle unrelated text), and a
 transformed copy of a value (encoded, split, re-cased) is not caught. Do not print credentials, however short.
 
-## Reserved
+## System recipes (`shape: system`)
 
-`mode: "preflight"` and `shape: system` belong to live read-only systems (#1372) and are **not** implemented:
-`shape: system` is refused at load, v1 never sends another mode, and a script that receives any mode but `list`
-must exit non-zero. A change to this contract needs a new `protocol` number.
+A feed lists *documents that have revisions*. A Kubernetes cluster, a cloud account or a metrics server has none, and
+its raw output is far too large to read. A recipe of `shape: system` prints the system's **current state, grouped**
+(one entry per namespace, per service, per account region). The worker hashes each group, compares it with the state
+it stored last time and turns only the groups that **changed** into units; an unchanged system costs no tokens. The
+Source is registered once (`source_register` with `source_shape: system` and `recipe`; the `locator` is an opaque label
+unique per system, such as `kubernetes://dev-cluster`, which the lister must not use to choose a context, an endpoint
+or a file), and `feed_interval` and `feed_include` are set with `concept_patch`, as for a feed.
+
+**The recipe's shape, not the Source's label, decides whether the preflight applies**: a mismatch in either direction
+is `recipe_shape` and nothing runs.
+
+**Preflight (mode `"preflight"`)** runs before **every** listing and cannot be configured away. The worker sends the
+same request as for `list` with `mode: "preflight"` and `source_shape: "system"`; the script answers **exactly one JSON
+object** on stdout, exit 0:
+
+```json
+{"read_only": true, "identity": "dev-viewer", "detail": "no write verbs, no secrets"}
+```
+
+`read_only` is required and a JSON boolean; `identity` (at most 120 runes) and `detail` (at most 300) are optional text,
+control characters stripped. Anything but a clean `read_only: true` is a refusal: `false`, a non-zero exit, a timeout,
+empty or more-than-one-object output, a missing or non-boolean `read_only`, a command that cannot start, an unset
+`exec.env` variable. The Source then gets `feed_error: identity_not_read_only: <identity> — <detail>` (or the exit
+status and the stderr excerpt), nothing is listed, and the cursor and the state are untouched. The code is a contract.
+No code path lists a system recipe without a preceding clean preflight.
+
+**The preflight is a guard against a misconfigured identity, not a security boundary**: the script is operator code and
+can lie. The boundary is a dedicated read-only identity (see [deployment.md](deployment.md) §The worker).
+
+**List for a system**: `source_shape: "system"`, `cursor: null`, `max_entries: 1000`, `max_content_bytes`. The entry
+rules differ from a feed's: `content` is **required** (non-empty UTF-8, no NUL, at most `max_content_bytes`, a
+normalized snapshot: volatile fields dropped, **never a secret**); `revision`, `change` and `title` are ignored or
+defaulted (the title is the key). The final line is still required as the end marker and must be `{"next_cursor": ""}`: a system listing is always complete, and a non-empty cursor (a lister that stopped early) is a `protocol_error`, because every group a partial listing leaves out would be read as removed. The
+worker computes each group's revision itself, as the first 16 hex of sha256 over the content with CRLF folded to LF; it
+never trusts the lister's. A group key matches `^[A-Za-z][A-Za-z0-9._:/@-]{0,199}$`, is not a YAML word (`true`,
+`false`, `null`, `yes`, `no`, `on`, `off`) and is unique; at most 1000 groups. A violation is `protocol_error` naming
+the key. An empty listing while the state has groups is `empty_listing`, never "everything was removed".
+
+A changed group becomes one `IngestUnit` that carries the current snapshot and a line diff (at most 400 lines and 64 KiB)
+in its body; a removed group becomes a unit that marks the owning page "observed absent since <date>" and records a gap.
+The worker never deletes, archives or moves anything because of an observation, and the poll's model never reads a
+snapshot. The state lives in the asset `system-state.jsonl` of the Source (its digest is `feed_cursor`); data-plane.md
+§ledger has the format and the extra `feed_error` codes (`state_error`, `groups_failed`).
+
+A reference lister for Kubernetes ships in the repository, not in the binary:
+[`examples/system-recipes/kubernetes/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/kubernetes/README.md) (Python 3, standard library only,
+`kubectl`; tested with fixtures, no cluster).
+
+A script that receives a mode it does not know must exit non-zero. A change to this contract needs a new `protocol`
+number.
 
 ## Example
 

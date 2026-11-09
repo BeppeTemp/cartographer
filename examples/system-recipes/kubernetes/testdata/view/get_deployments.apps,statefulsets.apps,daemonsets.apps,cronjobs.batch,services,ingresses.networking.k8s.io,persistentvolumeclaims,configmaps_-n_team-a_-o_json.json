@@ -1,0 +1,294 @@
+{
+  "kind": "List",
+  "items": [
+    {
+      "kind": "Deployment",
+      "metadata": {
+        "name": "api",
+        "uid": "uid-api",
+        "resourceVersion": "555",
+        "generation": 7,
+        "creationTimestamp": "2031-01-02T03:04:05Z",
+        "managedFields": [
+          {
+            "manager": "kubectl"
+          }
+        ],
+        "labels": {
+          "app": "api",
+          "tier": "backend"
+        },
+        "annotations": {
+          "note": "CANARY-ANNOTATION"
+        }
+      },
+      "spec": {
+        "replicas": 3,
+        "template": {
+          "spec": {
+            "containers": [
+              {
+                "name": "web",
+                "image": "registry.example.com/team-a/api:1.4.2",
+                "env": [
+                  {
+                    "name": "DB_PASSWORD",
+                    "value": "CANARY-ENV-VALUE"
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 8443
+                  },
+                  {
+                    "containerPort": 8080
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "readyReplicas": 3,
+        "observedGeneration": 7
+      }
+    },
+    {
+      "kind": "StatefulSet",
+      "metadata": {
+        "name": "db",
+        "uid": "uid-db",
+        "resourceVersion": "555",
+        "generation": 7,
+        "creationTimestamp": "2031-01-02T03:04:05Z",
+        "managedFields": [
+          {
+            "manager": "kubectl"
+          }
+        ],
+        "labels": {
+          "app": "db"
+        },
+        "annotations": {
+          "note": "CANARY-ANNOTATION"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "template": {
+          "spec": {
+            "containers": [
+              {
+                "name": "pg",
+                "image": "registry.example.com/team-a/db:15",
+                "env": [
+                  {
+                    "name": "DB_PASSWORD",
+                    "value": "CANARY-ENV-VALUE"
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 5432
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "readyReplicas": 1
+      }
+    },
+    {
+      "kind": "CronJob",
+      "metadata": {
+        "name": "nightly",
+        "uid": "uid-nightly",
+        "resourceVersion": "555",
+        "generation": 7,
+        "creationTimestamp": "2031-01-02T03:04:05Z",
+        "managedFields": [
+          {
+            "manager": "kubectl"
+          }
+        ],
+        "annotations": {
+          "note": "CANARY-ANNOTATION"
+        }
+      },
+      "spec": {
+        "schedule": "0 2 * * *",
+        "jobTemplate": {
+          "spec": {
+            "template": {
+              "spec": {
+                "containers": [
+                  {
+                    "name": "job",
+                    "image": "registry.example.com/team-a/job:2",
+                    "env": [
+                      {
+                        "name": "DB_PASSWORD",
+                        "value": "CANARY-ENV-VALUE"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "status": {
+        "lastScheduleTime": "2031-02-03T02:00:00Z"
+      }
+    },
+    {
+      "kind": "Service",
+      "metadata": {
+        "name": "api",
+        "uid": "uid-api",
+        "resourceVersion": "555",
+        "generation": 7,
+        "creationTimestamp": "2031-01-02T03:04:05Z",
+        "managedFields": [
+          {
+            "manager": "kubectl"
+          }
+        ],
+        "annotations": {
+          "note": "CANARY-ANNOTATION"
+        }
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "ports": [
+          {
+            "port": 443,
+            "protocol": "TCP"
+          }
+        ],
+        "selector": {
+          "app": "api"
+        }
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "kind": "Ingress",
+      "metadata": {
+        "name": "api",
+        "uid": "uid-api",
+        "resourceVersion": "555",
+        "generation": 7,
+        "creationTimestamp": "2031-01-02T03:04:05Z",
+        "managedFields": [
+          {
+            "manager": "kubectl"
+          }
+        ],
+        "annotations": {
+          "note": "CANARY-ANNOTATION"
+        }
+      },
+      "spec": {
+        "rules": [
+          {
+            "host": "api.example.com",
+            "http": {
+              "paths": [
+                {
+                  "backend": {
+                    "service": {
+                      "name": "api",
+                      "port": {
+                        "number": 443
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "status": {}
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "data",
+        "uid": "uid-data",
+        "resourceVersion": "555",
+        "generation": 7,
+        "creationTimestamp": "2031-01-02T03:04:05Z",
+        "managedFields": [
+          {
+            "manager": "kubectl"
+          }
+        ],
+        "annotations": {
+          "note": "CANARY-ANNOTATION"
+        }
+      },
+      "spec": {
+        "storageClassName": "fast",
+        "resources": {
+          "requests": {
+            "storage": "20Gi"
+          }
+        }
+      },
+      "status": {
+        "phase": "Bound"
+      }
+    },
+    {
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "settings",
+        "uid": "uid-settings",
+        "resourceVersion": "555",
+        "generation": 7,
+        "creationTimestamp": "2031-01-02T03:04:05Z",
+        "managedFields": [
+          {
+            "manager": "kubectl"
+          }
+        ],
+        "annotations": {
+          "note": "CANARY-ANNOTATION"
+        }
+      },
+      "data": {
+        "key": "CANARY-CONFIGMAP-DATA"
+      }
+    },
+    {
+      "kind": "Secret",
+      "metadata": {
+        "name": "credentials",
+        "uid": "uid-credentials",
+        "resourceVersion": "555",
+        "generation": 7,
+        "creationTimestamp": "2031-01-02T03:04:05Z",
+        "managedFields": [
+          {
+            "manager": "kubectl"
+          }
+        ],
+        "annotations": {
+          "note": "CANARY-ANNOTATION"
+        }
+      },
+      "data": {
+        "password": "Q0FOQVJZLVNFQ1JFVA=="
+      }
+    }
+  ]
+}
