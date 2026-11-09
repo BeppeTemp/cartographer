@@ -109,6 +109,7 @@ internal/updatecheck        answers whether a newer release exists and how to up
 internal/webui              serves the embedded read-only Atlas UI (D227)
 internal/webui/gen          Command webui-provenance fingerprints the Atlas bundle
 internal/worker             is the model client and the allowlisted agent loop a worker runs against a KB's MCP server (D9)
+internal/worker/synthesis   is the third task kind of the worker (D11)
 internal/worker/workertest  is the deterministic test double of package worker
 internal/workerconfig       holds the key table of the worker config file (D21)
 ```
