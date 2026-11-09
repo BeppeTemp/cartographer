@@ -211,6 +211,21 @@ func TestUpdateNoticeAntigravityChannel(t *testing.T) {
 	if code := cmdUpdate([]string{"notice", "--channel", "invalid"}); code != 2 {
 		t.Errorf("expected exit 2 for invalid channel, got %d", code)
 	}
+
+	// A panic still answers "{}": empty stdout is what Antigravity rejects.
+	prevCheck := updateCheckFn
+	t.Cleanup(func() { updateCheckFn = prevCheck })
+	updateCheckFn = func(context.Context, updatecheck.Options) (updatecheck.Result, error) {
+		panic("boom")
+	}
+	outPanic := withStdout(t, func() {
+		if code := cmdUpdate([]string{"notice", "--channel", "antigravity"}); code != 0 {
+			t.Errorf("exit %d", code)
+		}
+	})
+	if strings.TrimSpace(outPanic) != "{}" {
+		t.Fatalf("a panic must still print '{}' for antigravity, got %q", outPanic)
+	}
 }
 
 func TestUpdateNoticeWithoutACommand(t *testing.T) {

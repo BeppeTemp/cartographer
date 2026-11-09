@@ -172,12 +172,16 @@ func updateCheck(args []string) int {
 // "antigravity", the response is formatted as protojson with injectSteps (or
 // {} if up to date) as expected by Google Antigravity hooks.
 func updateNotice(args []string) (code int) {
+	channel := "text"
 	defer func() {
 		if recover() != nil {
+			// Empty stdout is the input Antigravity rejects: answer "nothing to say".
+			if channel == "antigravity" {
+				fmt.Println("{}")
+			}
 			code = 0
 		}
 	}()
-	channel := "text"
 	switch len(args) {
 	case 0:
 	case 2:

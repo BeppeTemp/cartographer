@@ -11,8 +11,8 @@ import (
 // §Dependencies): the script is generated for the machine it will run on, and
 // there is no case in which a client materializes the other platform's script.
 //
-// bootstrapContentHash (bootstrap.go) is computed from these constants at init,
-// so it becomes platform-dependent by construction. Nothing may pin its literal
+// The hook's content hash (bootstrapHookFor, bootstrap.go) is computed from these
+// constants, so it becomes platform-dependent by construction. Nothing may pin its literal
 // value — a test that needs it must derive it the same way.
 
 // bootstrapScriptName is the generated script's file name inside the hook's

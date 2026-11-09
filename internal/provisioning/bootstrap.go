@@ -49,12 +49,6 @@ func bootstrapHookJSON() []byte {
 	return data
 }
 
-// bootstrapContentHash is a fixed content hash for the bootstrap hook's
-// ManagedFile entries. It is never compared by ComputeDiff (the reserved name is
-// excluded from diffing entirely, see ComputeDiff/Apply) — it only exists so the
-// ManagedFile has a well-formed, non-empty ContentHash like every other kind.
-var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(bootstrapScriptContent)...))
-
 // EnsureBootstrapHook materializes and registers the cartographer-bootstrap hook
 // (D60) for provider under baseDir, and returns lock with its ManagedFile entries
 // refreshed (any previous bootstrap entries replaced — idempotent, safe to call on
@@ -112,8 +106,6 @@ func bootstrapHookFor(provider configurator.Provider) syntheticHook {
 		warningBlocks: true,
 	}
 }
-
-var bootstrapHook = bootstrapHookFor("")
 
 func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lock, h syntheticHook, dryRun bool) (Lock, error) {
 	destRel := destDir("hook", h.name, provider)
