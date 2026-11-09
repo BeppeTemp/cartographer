@@ -774,6 +774,9 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	if err != nil {
 		return nil, fmt.Errorf("read lockfile: %w", err)
 	}
+	for _, d := range lockFile.Dropped {
+		fmt.Fprintf(portability.Streams.err(), "warning: %s\n", droppedEntryMessage(d))
+	}
 
 	results := make(map[string]provisioning.AppliedResult, len(projections))
 	var approvedMCP map[string]string
@@ -1514,4 +1517,15 @@ func safeField(s string) string { return client.EscapeCap(s, maxPrintedField) }
 // older than the filter never sends the flag, so it never receives the skill.
 func syncPullArgs() map[string]any {
 	return map[string]any{"include_cli_skill": true}
+}
+
+// droppedEntryMessage says that ReadLockFile ignored a lockfile entry whose
+// path leaves the client directory (#1824); sync and doctor share the wording.
+func droppedEntryMessage(d provisioning.DroppedEntry) string {
+	where := escapeControl(d.Provider)
+	if d.Workspace != "" {
+		where += " (workspace " + escapeControl(d.Workspace) + ")"
+	}
+	return fmt.Sprintf("lockfile entry %s/%s of %s ignored: path %s (or its base dir) is not inside the client directory",
+		escapeControl(d.Kind), escapeControl(d.Name), where, escapeControl(d.Path))
 }

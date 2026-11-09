@@ -1876,6 +1876,8 @@ func ReadLock(path string) (Lock, error) {
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return Lock{}, fmt.Errorf("provisioning: parse lock %s: %w", path, err)
 	}
+	// Read as untrusted like ReadLockFile (#1824): sync_apply prunes from it.
+	lock, _ = sanitizeLock(lock.Provider, "", lock)
 	return lock, nil
 }
 
@@ -1914,6 +1916,94 @@ type LockFile struct {
 	// Absent — every lockfile written before D193 — means "no workspace
 	// projection", and the global one is untouched.
 	Workspaces map[string]WorkspaceLocks `json:"workspaces,omitempty"`
+
+	// Dropped lists the managed entries ReadLockFile left out because their
+	// path does not stay inside the client directory (#1824). It is a report
+	// of one read, never persisted.
+	Dropped []DroppedEntry `json:"-"`
+}
+
+// DroppedEntry is a lockfile entry ReadLockFile ignored: its Path was empty,
+// absolute or left the base dir. Workspace is empty for a global projection.
+type DroppedEntry struct {
+	Provider, Workspace, Kind, Name, Path string
+}
+
+// lockPathLocal reports whether a recorded managed path (slash form) stays
+// inside the directory it is relative to. The lockfile is read as untrusted
+// (#1824): prune and verify join this path to the base dir and act on it.
+func lockPathLocal(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
+		return false
+	}
+	native := filepath.FromSlash(p)
+	if filepath.IsAbs(native) || filepath.Clean(native) == "." {
+		return false
+	}
+	return filepath.IsLocal(native)
+}
+
+// lockBaseOK reports whether lock.BaseDir may be trusted for the projection it
+// is stored under: empty (the lockfile's own directory), or absolute and clean,
+// and for a workspace projection equal to the workspace key (SetProjection
+// always writes it so). A planted base_dir would move every managed path onto
+// another directory.
+func lockBaseOK(workspace string, lock Lock) bool {
+	if workspace != "" {
+		return lock.BaseDir == workspace && filepath.IsAbs(workspace) && filepath.Clean(workspace) == workspace
+	}
+	if lock.BaseDir == "" {
+		return true
+	}
+	return filepath.IsAbs(lock.BaseDir) && filepath.Clean(lock.BaseDir) == lock.BaseDir
+}
+
+// sanitizeLock drops from lock the entries ReadLockFile and ReadLock refuse to
+// hand out (#1824): all of them when the base dir is not trusted, otherwise
+// those whose path is not local. Kept entries keep their order.
+func sanitizeLock(provider, workspace string, lock Lock) (Lock, []DroppedEntry) {
+	var dropped []DroppedEntry
+	baseOK := lockBaseOK(workspace, lock)
+	kept := lock.Managed[:0:0]
+	for _, mf := range lock.Managed {
+		if baseOK && lockPathLocal(mf.Path) {
+			kept = append(kept, mf)
+			continue
+		}
+		dropped = append(dropped, DroppedEntry{provider, workspace, mf.Kind, mf.Name, mf.Path})
+	}
+	if len(dropped) > 0 {
+		lock.Managed = kept
+	}
+	return lock, dropped
+}
+
+// dropNonLocal sanitizes every Lock of lf and records what it dropped in
+// lf.Dropped.
+func (lf *LockFile) dropNonLocal() {
+	clean := func(workspace string, locks map[string]Lock) {
+		providers := make([]string, 0, len(locks))
+		for provider := range locks {
+			providers = append(providers, provider)
+		}
+		sort.Strings(providers)
+		for _, provider := range providers {
+			lock, dropped := sanitizeLock(provider, workspace, locks[provider])
+			if len(dropped) > 0 {
+				locks[provider] = lock
+				lf.Dropped = append(lf.Dropped, dropped...)
+			}
+		}
+	}
+	clean("", lf.Providers)
+	workspaces := make([]string, 0, len(lf.Workspaces))
+	for ws := range lf.Workspaces {
+		workspaces = append(workspaces, ws)
+	}
+	sort.Strings(workspaces)
+	for _, ws := range workspaces {
+		clean(ws, lf.Workspaces[ws].Providers)
+	}
 }
 
 // ReadLockFile reads the multi-provider lockfile at the given path. If the file
@@ -1938,7 +2028,9 @@ func ReadLockFile(path string) (LockFile, error) {
 		if err := json.Unmarshal(data, &v1); err != nil {
 			return LockFile{}, fmt.Errorf("provisioning: parse legacy lockfile %s: %w", path, err)
 		}
-		return LockFile{Providers: map[string]Lock{v1.Provider: v1}}, nil
+		lf := LockFile{Providers: map[string]Lock{v1.Provider: v1}}
+		lf.dropNonLocal()
+		return lf, nil
 	}
 
 	var lf LockFile
@@ -1948,6 +2040,7 @@ func ReadLockFile(path string) (LockFile, error) {
 	if lf.Providers == nil {
 		lf.Providers = map[string]Lock{}
 	}
+	lf.dropNonLocal()
 	return lf, nil
 }
 

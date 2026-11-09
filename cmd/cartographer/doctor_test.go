@@ -99,6 +99,8 @@ func TestRunDoctor_Checks(t *testing.T) {
 		check     string
 		severity  string
 		wantFix   string
+		wantMsg   string
+		wantMsg2  string
 	}{
 		{
 			name: "provider no longer installed", provider: "claude", installed: nil,
@@ -123,6 +125,22 @@ func TestRunDoctor_Checks(t *testing.T) {
 				}
 			},
 			check: "lockfile", severity: doctorWarning, wantFix: "cartographer sync",
+		},
+		{
+			name: "lockfile entry outside the client directory", provider: "claude", installed: []string{"claude"},
+			break_: func(t *testing.T, dir string) {
+				lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+				if err != nil {
+					t.Fatal(err)
+				}
+				l := lf.Providers["claude"]
+				l.Managed = append(l.Managed, provisioning.ManagedFile{Kind: "skill", Name: "planted", Path: "../planted.txt"})
+				lf.Providers["claude"] = l
+				if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: "lockfile", severity: doctorWarning, wantFix: "cartographer sync", wantMsg: "claude", wantMsg2: "../planted.txt",
 		},
 		{
 			name: "unreadable lockfile", provider: "claude", installed: []string{"claude"},
@@ -227,6 +245,12 @@ func TestRunDoctor_Checks(t *testing.T) {
 			}
 			if f.Fix != tc.wantFix {
 				t.Errorf("fix = %q, want %q", f.Fix, tc.wantFix)
+			}
+			if tc.wantMsg2 != "" && !strings.Contains(f.Message, tc.wantMsg2) {
+				t.Errorf("message %q does not name %q", f.Message, tc.wantMsg2)
+			}
+			if tc.wantMsg != "" && !strings.Contains(f.Message, tc.wantMsg) {
+				t.Errorf("message %q does not name %q", f.Message, tc.wantMsg)
 			}
 			// Every finding names an absolute location on this machine — the
 			// path may legitimately be gone (that is what "missing" means),
