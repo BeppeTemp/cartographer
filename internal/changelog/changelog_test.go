@@ -310,3 +310,36 @@ func TestWrappedLines(t *testing.T) {
 		}
 	}
 }
+
+func TestSection(t *testing.T) {
+	doc := "# Changelog\n\n## [0.20.0](u) (d)\n\n### Atlas\n\n* twenty\n\n## [0.2.0](u) (d)\n\n* two\n\n\n## [0.1.0](u) (d)\n\n* one\n\n"
+	cases := []struct{ version, want string }{
+		{"0.2.0", "## [0.2.0](u) (d)\n\n* two\n"},
+		{"0.20.0", "## [0.20.0](u) (d)\n\n### Atlas\n\n* twenty\n"},
+		{"0.1.0", "## [0.1.0](u) (d)\n\n* one\n"},
+	}
+	for _, c := range cases {
+		got, err := Section(doc, c.version)
+		if err != nil || got != c.want {
+			t.Errorf("Section(%s) = %q, %v; want %q", c.version, got, err, c.want)
+		}
+	}
+	if _, err := Section(doc, "0.3.0"); err == nil || !strings.Contains(err.Error(), "0.3.0") {
+		t.Errorf("missing version: err = %v, want one naming 0.3.0", err)
+	}
+	if _, err := Section("## [0.4.0](u)\n\n## [0.3.0](u)\n* x\n", "0.4.0"); err == nil || !strings.Contains(err.Error(), "0.4.0") {
+		t.Errorf("empty section: err = %v, want one naming 0.4.0", err)
+	}
+}
+
+// A real CHANGELOG.md: the section stops before the next one.
+func TestSectionRealChangelog(t *testing.T) {
+	doc := read(t, filepath.Join("testdata", "changelog.md"))
+	got, err := Section(doc, "0.24.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "## [0.24.0]") || strings.Contains(got, "## [0.23.0]") || strings.HasSuffix(got, "\n\n") {
+		t.Errorf("section bounds wrong: %.80q", got)
+	}
+}
