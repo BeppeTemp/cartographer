@@ -1125,27 +1125,41 @@ func TestReadSyncWrap_SilentRemoteFetchesOnceThenServesLocal(t *testing.T) {
 	// The remote accepts and never answers. Counting its connections tells a
 	// fetch apart from a read that backs off; wall-clock time does not, since
 	// the kb_status handler alone can outlast FetchTimeout on macOS (#373).
-	var dials atomic.Int32
+	var (
+		dials atomic.Int32
+		mu    sync.Mutex
+		conns []net.Conn
+	)
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
 			dials.Add(1)
-			defer c.Close()
 		}
 	}()
+	// Closing the held connections is what ends the fetch: its timeout is out
+	// of reach, so a slow runner cannot kill it before git.exe has dialled (a
+	// fixed 10s still did on Windows, #1859; same class as #1349). A dropped
+	// connection fails the fetch, which starts the read backoff as a timeout
+	// does.
+	endFetch := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+		}
+	}
+	defer endFetch()
 	if out, err := exec.Command("git", "-C", k.Root, "remote", "set-url", "origin", "http://"+ln.Addr().String()+"/kb.git").CombinedOutput(); err != nil {
 		t.Fatalf("set-url: %v\n%s", err, out)
 	}
 	defer func(d time.Duration) { gitx.FetchTimeout = d }(gitx.FetchTimeout)
-	// Long enough for git to start and dial before the timeout kills it: a
-	// slow Windows runner has killed the fetch before git.exe connected at
-	// 300ms and again at 2s, so no dial was counted. The remote never
-	// answers, so the fetch still ends at the timeout: this test costs it
-	// once, and the second read backs off without one.
-	gitx.FetchTimeout = 10 * time.Second
+	gitx.FetchTimeout = 5 * time.Minute
 
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1156,14 +1170,19 @@ func TestReadSyncWrap_SilentRemoteFetchesOnceThenServesLocal(t *testing.T) {
 	if got := decodeToolResult(t, resps[1]); got.IsError {
 		t.Fatalf("first read = %+v, want the local view", got)
 	}
+	deadline := time.Now().Add(2 * time.Minute)
+	for dials.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the first read never reached the remote: no fetch ran")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	endFetch()
 	waitReadRefresh(k)
 	if !k.ReadFetchBackingOff() {
 		t.Fatal("the failed fetch did not start the read backoff")
 	}
 	first := dials.Load()
-	if first == 0 {
-		t.Fatal("the first read never reached the remote: no fetch ran")
-	}
 	resps = runMCPSequence(t, s, []string{init, call})
 	if got := decodeToolResult(t, resps[1]); got.IsError {
 		t.Fatalf("second read = %+v, want the local view", got)
