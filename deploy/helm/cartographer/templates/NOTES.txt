@@ -1,0 +1,40 @@
+{{- include "cartographer.validate" . -}}
+{{- $full := include "cartographer.fullname" . -}}
+{{- $s := .Values.server -}}
+Cartographer {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }}.
+
+Reach the server (the MCP endpoint is /mcp, the Atlas is /ui/):
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ $full }} {{ $s.service.port }}:{{ $s.service.port }}
+{{- if $s.ingress.enabled }}
+{{ range $s.ingress.hosts }}
+  https://{{ .host }}/ui/
+{{- end }}
+{{- end }}
+
+Secrets this release expects (it creates none and renders no secret value):
+{{- if $s.tokens.existingSecret.name }}
+  - {{ $s.tokens.existingSecret.name }}, key {{ $s.tokens.existingSecret.key }}: the whole CARTOGRAPHER_TOKENS string.
+{{- else }}
+  - the Secrets of server.extraEnvFrom, which hold the variables the YAML tokens reference.
+{{- end }}
+{{- if $s.credentials.enabled }}
+  - {{ $s.credentials.existingSecret.name }}: the credentials directory, with audit.key.
+{{- end }}
+{{- if $s.probes.readiness.tokenSecret.name }}
+  - {{ $s.probes.readiness.tokenSecret.name }}, key {{ $s.probes.readiness.tokenSecret.key }}: the readiness probe's token.
+{{- end }}
+A change in a Secret does not restart the pod: restart it after rotating a token.
+{{- if $s.persistence.emptyDir }}
+
+WARNING: server.persistence.emptyDir is on. The data volume is lost with the pod:
+  - the audit log (the audit key survives only if the credentials Secret holds it);
+  - the conflict registries;
+  - usage.json;
+  - every KB is cloned again at each restart, so every KB needs a remote, and the
+    pushes still pending when the pod is lost are lost too.
+{{- else if not $s.persistence.existingClaim }}
+
+The claim {{ $full }}-data is kept when the release is uninstalled. To install the
+release again on it, set server.persistence.existingClaim={{ $full }}-data.
+{{- end }}

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: cartographer
+description: The Cartographer MCP server (one replica, with the embedded Atlas) and, optionally, its Surveyors.
+type: application
+# Placeholders: the release pipeline stamps both at package time from the tag
+# (`helm package --version --app-version`, D1441). Nobody edits them by hand.
+version: 0.0.0-dev
+# The `v` is the image tag, so appVersion carries it.
+appVersion: "v0.0.0-dev"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/BeppeTemp/cartographer
+# Helm copies the first source into the OCI image.source annotation, which is
+# what links the GHCR package to this repository.
+sources:
+  - https://github.com/BeppeTemp/cartographer
