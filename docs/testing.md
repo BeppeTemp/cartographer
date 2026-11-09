@@ -79,7 +79,8 @@ non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx
 and every `_test.go` cannot change what the browser sees, so they do not trigger it (D672, D255, D994); the
 Playwright browser is cached by version, and the `.deb` files of the OS packages it installs by version and runner
 image (the runner's mirror sometimes serves them at a few kB/s). The `demo-edge` job runs the demo
-Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. On a PR a `changes` job decides `web` and `forge` with
+Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. A `helm` job runs `make helm-check` (§Helm chart); on a PR only when `deploy/helm/`,
+`test/helm/`, `scripts/install-helm.sh`, the Makefile, `ci.yml` or the filter script change. On a PR a `changes` job decides `web`, `forge` and `helm` with
 `scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
 which also compares the excluded packages with `go list -deps`), failing open; where it is
 skipped (push, `merge_group`) everything runs. `gate`, `pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are the required checks (D1610); on `merge_group` `test-windows` fails if a leg was skipped or failed.
@@ -344,6 +345,28 @@ otherwise silent — no client, compiler or linter reports any of them:
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.
 
+### Helm chart
+
+`make helm-check` runs [`test/helm/run.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/helm/run.sh) on
+`deploy/helm/cartographer/` (D1441). It needs `helm` and `jq` and no cluster, and `scripts/install-helm.sh <dir>` installs
+the pinned Helm release (one pin, shared by `ci.yml`, `release.yml` and `preview.yml`). It runs `helm lint --strict` and
+`helm template` over every file of the chart's `ci/` directory (server minimal and full, the two partitioned releases,
+the YAML-token source, a scheduled Surveyor and an exec-recipe Surveyor) and asserts on what is rendered: one server
+`Deployment` with `replicas: 1` and `Recreate`, no `StatefulSet` or autoscaler, **no `Secret` object**, no literal
+secret in an environment, the credentials Secret mounted with `defaultMode: 0440` next to an `fsGroup`, the quoted
+`mode: "on"` and `http: ":39273"` in `config.yaml`, the Service selecting the server only, the kept claim (absent with
+`existingClaim`), the probes, the Surveyors (no port, probe or persistent volume, `--once` on a CronJob only, the
+injected `server_url` only when the entry sets none) and no object shared by the two partitioned releases. Every
+refusal of the chart is a negative case that must fail with its message, and the values schema must reject
+`server.replicaCount`, `server.autoscaling` and a top-level key it does not know. The chart's files may not contain
+the retired names, and `Chart.yaml` must keep the two placeholders the release workflows stamp.
+
+It is **not** part of `make gate`: the gate stays Go-only and offline (the reasoning of D227), and Helm is not a
+Go dependency. The `helm` job of `ci.yml` runs it, selected by the `helm` filter of `scripts/ci-filters.sh`, and
+both release workflows run it before pushing the chart; `internal/repodocs` pins that order and the stamping
+(`release_train_test.go`). The chart's `.yaml` comments are part of the documentation corpus `internal/repodocs`
+reads, so a `D<n>`, a `§` or a `make <target>` in them must resolve.
+
 ### Stdio smoke
 
 `make smoke` builds the binary, starts a temporary stdio server and verifies
@@ -362,7 +385,7 @@ in its list of local-only targets.
 
 `make docker-smoke` builds the server image and runs
 [`test/smoke/image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/image.sh)
-on it (D995): `git`, `sops`, `age` and `ssh` are in the image, `version` prints
+on it (D995): `git`, `sops`, `age`, `ssh` and `wget` (the Helm chart's readiness probe runs it) are in the image, `version` prints
 the `VERSION` build-arg, `surveyor` without `--config` exits 2 (the server image still runs a Surveyor and it needs no volume), the user is not root, a KB created on a data volume is
 served over HTTP with a token (no token is a 401), and a `map_create` plus a
 `concept_batch` write read back through `concept_read` and leave one more commit in

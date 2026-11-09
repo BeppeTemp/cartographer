@@ -198,7 +198,42 @@ neg "config is required" '{surveyors: [{name: a, mode: deployment, existingSecre
 neg "config.name is owned by the chart" '{surveyors: [{name: a, mode: deployment, existingSecret: e, config: {name: x}}]}'
 neg "existingSecret is required" '{surveyors: [{name: a, mode: deployment, config: {kbs: []}}]}'
 neg "holds a /" "{surveyors: [{name: a, files: {\"d/x\": t}, $sv}]}"
+neg "collides with the Surveyor config" "{surveyors: [{name: a, files: {surveyor.yaml: t}, $sv}]}"
 neg "52 characters" "{surveyors: [{name: $(printf 'x%.0s' $(seq 40)), $sv}]}"
 neg "typo" '{surveyors: [{name: a, mode: deployment, existingSecret: e, config: {kbs: []}, typo: 1}]}'
+
+# Explicit zeros are honoured (default would turn them into 1 / 3 / 1 / 30), and a files text whose
+# first line is deeper than the next ones is still valid YAML (a bare | block would break).
+cat >"$work/zero-values.yaml" <<'V'
+server: {tokens: {existingSecret: {name: t}}, credentials: {enabled: false}}
+surveyors:
+  - name: paused
+    mode: deployment
+    replicas: 0
+    terminationGracePeriodSeconds: 0
+    existingSecret: e
+    files:
+      odd.txt: "    deeper first line\nshallow second\n"
+    config: {kbs: [kb-a]}
+  - name: nightly
+    mode: cronjob
+    schedule: "1 * * * *"
+    successfulJobsHistoryLimit: 0
+    failedJobsHistoryLimit: 0
+    existingSecret: e
+    config: {kbs: [kb-a]}
+V
+render zeros ci -f "$work/zero-values.yaml"
+d=$(one zeros Deployment surveyor-paused)
+must zeros "$d" '^  replicas: 0$' "replicas: 0 is not rendered as 0"
+must zeros "$d" 'terminationGracePeriodSeconds: 0$' "terminationGracePeriodSeconds: 0 is not rendered as 0"
+must zeros "$d" 'readOnlyRootFilesystem: true$' "the Surveyor container root is writable"
+j=$(one zeros CronJob)
+must zeros "$j" '^  successfulJobsHistoryLimit: 0$' "successfulJobsHistoryLimit: 0 is not rendered as 0"
+must zeros "$j" '^  failedJobsHistoryLimit: 0$' "failedJobsHistoryLimit: 0 is not rendered as 0"
+c=$(one zeros ConfigMap surveyor-paused)
+must zeros "$c" '^  odd.txt: \|[0-9]*-?$' "a files text is not a YAML block scalar"
+must zeros "$c" '^        deeper first line$' "the deeper first line lost its indentation"
+must zeros "$c" '^    shallow second$' "the second line is not kept"
 
 echo "helm-check: ok"

@@ -11,7 +11,7 @@ metadata:
   labels:
     {{- include "cartographer.labels" (dict "root" $root "component" (printf "surveyor-%s" .name)) | nindent 4 }}
 spec:
-  replicas: {{ default 1 .replicas }}
+  replicas: {{ ternary .replicas 1 (hasKey . "replicas") }}
   # Budget counters are per process: a rolling overlap would be an unplanned second spender.
   strategy:
     type: Recreate
