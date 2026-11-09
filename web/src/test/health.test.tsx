@@ -47,4 +47,49 @@ describe("the Health panel", () => {
       expect(init?.method ?? "GET").toBe("GET");
     }
   });
+
+  const surveyor = (over: object = {}) => ({
+    surveyor: "w-1",
+    perimeter: "team-a",
+    state: "idle",
+    last_beat_at: new Date().toISOString(),
+    interval_seconds: 60,
+    budgets: [],
+    ...over,
+  });
+
+  it("says which surveyor maintains the KB, with its doctor dates, only when a live surveyor names it", async () => {
+    stubApi({
+      "/surveyors": () => json({ surveyors: [surveyor(), surveyor({ surveyor: "w-2", state: "running" })] }),
+      "/maintenance/summary": () => json({ last_doctor: "2026-01-01", next_doctor: "2026-01-15" }),
+    });
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Health" });
+    const line = await within(panel).findByText(/Maintained by/);
+    expect(line).toHaveTextContent("Maintained by team-a (2 replicas, running) · last doctor 2026-01-01 · next due 2026-01-15");
+  });
+
+  it("shows no maintainer line without a surveyor, or when the route fails", async () => {
+    stubApi();
+    const { unmount } = render(<App />);
+    const panel = await screen.findByRole("region", { name: "Health" });
+    await within(panel).findByRole("heading", { level: 1 });
+    expect(within(panel).queryByText(/Maintained by/)).not.toBeInTheDocument();
+    unmount();
+    stubApi({ "/surveyors": () => json({ error: { code: "not_found", message: "not found" } }, 404) });
+    render(<App />);
+    const again = await screen.findByRole("region", { name: "Health" });
+    await within(again).findByRole("heading", { level: 1 });
+    expect(within(again).queryByText(/Maintained by/)).not.toBeInTheDocument();
+  });
+
+  it("names every perimeter when two maintain the KB", async () => {
+    stubApi({
+      "/surveyors": () => json({ surveyors: [surveyor({ perimeter: "team-b" }), surveyor({ surveyor: "w-2", perimeter: "team-a" })] }),
+    });
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Health" });
+    const line = await within(panel).findByText(/Maintained by/);
+    expect(line).toHaveTextContent("Maintained by team-b (1 replica, idle), team-a (1 replica, idle)");
+  });
 });

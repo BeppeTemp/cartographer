@@ -247,3 +247,31 @@ func TestConceptWriteSimilarSkipsSeriesPages(t *testing.T) {
 		t.Fatalf("near-duplicate not advised: %+v", out)
 	}
 }
+
+// A qualifier-only sibling (same parent, titles differing only in words of the
+// two last id segments) is not advised as similar; a sibling that differs in
+// another word still is.
+func TestConceptWriteSimilarSkipsQualifierSiblings(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	writeKBFile(t, k, "manutenzione/w-100/lang-alpha.md", "---\ntype: Runbook\ntitle: Weakness w 100 injection alpha\n---\n# A\n")
+	writeKBFile(t, k, "manutenzione/w-200/lang-alpha.md", "---\ntype: Runbook\ntitle: Weakness w 200 injection alpha\n---\n# A\n")
+	forwardLinks(t, k, "manutenzione/w-100/lang-beta", "manutenzione/w-300/lang-beta")
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	write := func(id, title string) similarOut {
+		args, _ := json.Marshal(map[string]interface{}{"id": id, "frontmatter": map[string]interface{}{"type": "Runbook", "title": title}, "body": "# T\n"})
+		return writeResult(t, callTool(t, s, "concept_write", string(args)))
+	}
+	if out := write("manutenzione/w-100/lang-beta", "Weakness w 100 injection beta"); len(out.Similar) != 0 {
+		t.Fatalf("qualifier sibling advised similar: %+v", out)
+	}
+	out := write("manutenzione/w-300/lang-beta", "Weakness w 200 injection beta")
+	advised := false
+	for _, h := range out.Similar {
+		advised = advised || h.ID == "manutenzione/w-200/lang-alpha"
+	}
+	if !advised {
+		t.Fatalf("a page in another parent must still be advised: %+v", out)
+	}
+}

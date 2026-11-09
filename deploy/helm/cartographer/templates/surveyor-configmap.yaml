@@ -1,0 +1,26 @@
+{{- include "cartographer.validate" . -}}
+{{- $root := . -}}
+{{- $full := include "cartographer.fullname" . -}}
+{{- range .Values.surveyors }}
+{{- $cfg := deepCopy .config -}}
+{{- $_ := set $cfg "name" .name -}}
+{{- if not (hasKey $cfg "server_url") -}}
+{{- $_ := set $cfg "server_url" (printf "http://%s:%v/mcp" $full $root.Values.server.service.port) -}}
+{{- if not (hasKey $cfg "allow_insecure_http") -}}
+{{- $_ := set $cfg "allow_insecure_http" true -}}
+{{- end -}}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $full }}-surveyor-{{ .name }}
+  labels:
+    {{- include "cartographer.labels" (dict "root" $root "component" (printf "surveyor-%s" .name)) | nindent 4 }}
+data:
+  surveyor.yaml: |
+    {{- toYaml $cfg | nindent 4 }}
+  {{- with .files }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}

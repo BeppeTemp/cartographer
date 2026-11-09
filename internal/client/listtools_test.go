@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -54,7 +55,7 @@ func TestListToolsFollowsCursorAndReadsAnnotation(t *testing.T) {
 		t.Fatalf("tools %v, want %v", got, want)
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !reflect.DeepEqual(got[i], want[i]) {
 			t.Errorf("tool %d = %v, want %v", i, got[i], want[i])
 		}
 	}

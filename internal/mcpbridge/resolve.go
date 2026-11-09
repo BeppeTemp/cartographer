@@ -1,5 +1,5 @@
-// Package mcpbridge is the local stdio MCP server that scopes one agent session
-// to the KBs of the folder it was started in (D737).
+// Package mcpbridge is the local stdio MCP server scoped to a folder's KBs
+// (D737): one agent session gets the KBs of the folder it was started in.
 //
 // A provider with a workspace binding gets this bridge as its global MCP entry
 // instead of the HTTP URL. The bridge resolves its working directory against the

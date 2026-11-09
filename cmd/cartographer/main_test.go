@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -96,13 +97,17 @@ func withStdout(t *testing.T, f func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	os.Stdout = w
+	// Drained while f runs: a Windows pipe buffers 4 KiB, so a larger write
+	// would block f forever.
+	out := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		out <- string(b)
+	}()
 	f()
 	w.Close()
 	os.Stdout = old
-
-	buf := make([]byte, 64*1024)
-	n, _ := r.Read(buf)
-	return string(buf[:n])
+	return <-out
 }
 
 // withStderr redirects os.Stderr for the duration of f and returns what was
@@ -116,13 +121,17 @@ func withStderr(t *testing.T, f func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	os.Stderr = w
+	// Drained while f runs: a Windows pipe buffers 4 KiB, so a larger write
+	// would block f forever.
+	out := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		out <- string(b)
+	}()
 	f()
 	w.Close()
 	os.Stderr = old
-
-	buf := make([]byte, 64*1024)
-	n, _ := r.Read(buf)
-	return string(buf[:n])
+	return <-out
 }
 
 func TestRunNoArgsPrintsUsage(t *testing.T) {
@@ -133,6 +142,24 @@ func TestRunNoArgsPrintsUsage(t *testing.T) {
 	})
 	if !strings.Contains(out, "Usage:") {
 		t.Errorf("run(nil) output = %q, want it to contain \"Usage:\"", out)
+	}
+}
+
+// Bare cartographer runs the status screen on a terminal and only there.
+func TestRunNoArgsOnATerminalRunsTheBareStatus(t *testing.T) {
+	oldInteractive, oldBare := interactiveFn, bareFn
+	t.Cleanup(func() { interactiveFn, bareFn = oldInteractive, oldBare })
+	calls := 0
+	bareFn = func() int { calls++; return 0 }
+
+	interactiveFn = func() bool { return false }
+	withStdout(t, func() { run(nil) })
+	if calls != 0 {
+		t.Fatalf("bareFn called %d times without a terminal", calls)
+	}
+	interactiveFn = func() bool { return true }
+	if code := run(nil); code != 0 || calls != 1 {
+		t.Errorf("run(nil) on a terminal = %d, bareFn calls = %d; want 0 and 1", code, calls)
 	}
 }
 
@@ -260,6 +287,20 @@ func TestRunClientCommandsDispatch(t *testing.T) {
 func TestRunUnknownCommand(t *testing.T) {
 	if code := run([]string{"bogus"}); code != 2 {
 		t.Errorf("run([bogus]) = %d, want 2", code)
+	}
+}
+
+// TestRunWorkerIsUnknown documents the no-alias decision (D1442): the role was
+// never released under the old name, so `worker` is an unknown command with no
+// suggestion.
+func TestRunWorkerIsUnknown(t *testing.T) {
+	var code int
+	errs := withStderr(t, func() { code = run([]string{"worker"}) })
+	if code != 2 {
+		t.Errorf("run([worker]) = %d, want 2", code)
+	}
+	if !strings.Contains(errs, `unknown command "worker"`) || strings.Contains(errs, "did you mean") {
+		t.Errorf("stderr = %q", errs)
 	}
 }
 

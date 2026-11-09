@@ -2,15 +2,45 @@
 
 ## Deployment and packaging
 
-The server is distributed as a native **Go binary** (via `install.sh`, see §Client installation — client and server are the same binary). The Docker image only exists as a CI artifact for k8s deployment: **it is not a local deployment mode** (D73 — containers on macOS mean a slow virtualized filesystem for git/SQLite, and an always-on VM). Both sides need `git` 2.24 or later on `PATH`: the binary runs it for every KB operation, with `--end-of-options` and `git switch`.
+The server is distributed as a native **Go binary** (via `install.sh`, see §Client installation; the client side and the server are the same binary, one per platform) and as two container images of the same binary (D1440). The server image, `ghcr.io/beppetemp/cartographer`, holds `git`, `sops`, `age` and `openssh-client`, runs as the non-root user `cartographer` with the entrypoint `cartographer`, and is what Kubernetes, compose on a shared VM, Cloud Run and the MCP Registry entry run. The Surveyor image, `ghcr.io/beppetemp/cartographer-surveyor`, holds `git` and the CA certificates only and has the entrypoint `cartographer surveyor`. **Neither is a local deployment mode** (D73: containers on macOS mean a slow virtualized filesystem for git and SQLite, and an always-on VM). Both sides need `git` 2.24 or later on `PATH`: the binary runs it for every KB operation, with `--end-of-options` and `git switch`.
 
-### Topologies
+### Components
 
-| Topology | Description |
-|---|---|
-| **Local** | The binary runs as a native user service (`cartographer service`: launchd, systemd, cron where there is no systemd, or a Windows Scheduled Task); the client on the same machine points to `127.0.0.1`. |
-| **Shared server** | HTTP with optional static bearer tokens for multiple agents, on a trusted network or behind a reverse proxy (for example Kubernetes). |
-| **Partitioned servers** | Several instances mount different KBs. A client can connect to entries from more than one server. Do not use several active writer servers as replicas for the same KB; git conflict recovery is a safety net, not a write-scaling protocol. |
+Cartographer deploys as four **deployment components**: Server, Surveyor, Atlas, Client. They are deployment units, **not separate binaries**: every native channel ships one binary per platform and every component below is a subcommand of it (D37, D227, D1439).
+
+| Component | What it is | Command | State | Network | Reached through |
+|---|---|---|---|---|---|
+| **Server** | The MCP server and the only stateful component: the KBs' git working trees, indices, `.cartographer/` runtime files and the credentials directory. **One writer per KB.** Over stdio it serves exactly one KB and no Atlas; over HTTP, any number | `cartographer serve` (stdio, or HTTP with `--http`/`--config`) | The data directory | Inbound on the HTTP port; outbound to the KBs' git remotes | The binary, the image |
+| **Surveyor** | A background process for one perimeter of KBs, with its own model profiles and budgets (§The Surveyor (a third role)) | `cartographer surveyor` | None persistent; a writable temporary directory for exec recipes and git reads. The budget is rebuilt from the KBs' logs | No inbound port. Outbound to the Server, the model endpoints and whatever its own config names: fetch hosts, `git.allow_hosts`, MCP connectors, exec listers | The binary, the image |
+| **Atlas** | The read-only browser UI. Not a process: it is embedded in the Server, and `/ui/` and `/api/ui/v1` belong to the Server | None; one switch, `web.enabled` (`CARTOGRAPHER_WEB_ENABLED`, `--web-enabled`). stdio never serves it | The Server's | The Server's HTTP port | The Server |
+| **Client** | What runs next to the agent: `connect`, `sync`, `status`, `doctor` and the workspace bridge `cartographer mcp`. Not a workload: it writes under the agent's `$HOME` and never belongs in a Deployment | `cartographer connect` and the other client subcommands | The agent's `$HOME` | Outbound to one Server (the managed Client follows one `server_url`) | The binary |
+
+The Server also owns the data-directory administration commands (`kb`, `import`, `reindex`, `audit`), which run on the host that holds the data directory: `kb` refuses on a client pointed at a remote server. `cartographer service` manages the Server's native user service and the Client's sync timer, never the Surveyor. The Atlas is never deployed on its own: a standalone frontend is not a supported topology, and the static public Atlas below is a demo.
+
+### Deployment scenarios
+
+Each row is a way of deploying that this page documents or has assembled by hand. **Status** is `documented` when the row links its own section and `assembled by hand` when it has none yet and links the issue that will write it. A new way of deploying is a new row.
+
+| # | Scenario | Components | Status | Where |
+|---|---|---|---|---|
+| 1 | Local all-in-one: native service, embedded Atlas, client on the same machine, loopback, auth off | Server, Atlas, Client | documented | §Example: native local service; [getting-started](getting-started.md) |
+| 2 | stdio: the client spawns the server (a binary, or the image) | Server, no Atlas | documented | §Example: stdio |
+| 3 | Single VM: server and optional Surveyor under systemd or compose, bearer tokens, reverse proxy | Server, Atlas, Surveyor | documented | §Example: single VM |
+| 4 | Kubernetes minimal: server with embedded Atlas, PVC or `emptyDir`, Ingress | Server, Atlas | documented | §Example: K8s pod; the Helm chart, `deploy/helm/cartographer/ci/server-minimal-values.yaml` |
+| 5 | Kubernetes full: the previous row plus one Surveyor per perimeter | Server, Atlas, Surveyor | documented | §Example: K8s pod; §The Surveyor (a third role), Packaging; `ci/server-full-values.yaml`, `ci/surveyor-scheduled-values.yaml` |
+| 6 | Serverless: Cloud Run, one instance at most, synchronous push | Server, Atlas | documented (the demo) | §The hosted MCP demo; `deploy/demo/README.md` |
+| 7 | Public static Atlas: bundle on Pages, API behind an edge with CORS | A static Atlas snapshot and a live API | documented (**a demo, not a topology to copy**) | §The public static demo |
+| 8 | Partitioned: different KBs on different servers | Several Servers, one managed Client | documented | §Several servers; one Helm release per server, `ci/partitioned-a-values.yaml` |
+| 9 | Same KB on two servers | Two Servers | documented | §Several servers |
+| 10 | Surveyor outside the cluster (a GPU host, a local model), to the server over HTTPS | Surveyor | documented | §Example: Surveyor outside the cluster |
+| 11 | Surveyor scheduled: `--once` from a CronJob or an external scheduler | Surveyor | documented | §Example: Surveyor as a CronJob; `ci/surveyor-scheduled-values.yaml` |
+| 12 | Surveyor exec recipes: a derived image with its tools and a read-only identity | Surveyor | documented | §Example: a derived image for exec recipes; `ci/surveyor-exec-values.yaml`; `examples/system-recipes/kubernetes/README.md` |
+| 13 | Client on a workstation: `connect`, `sync`, workspace bridge | Client | documented | [configurator](configurator.md) §`cartographer connect`, §`cartographer sync` |
+| 14 | Client on a headless always-on host, timer sync | Client | documented | [configurator](configurator.md) §Headless hosts, CI and agent containers |
+| 15 | Client in CI, a devcontainer or an agent pod: the binary in the agent's image, one-shot sync | Client | documented | [configurator](configurator.md) §Headless hosts, CI and agent containers |
+| 16 | No client: a remote agent on `/mcp/routed` with a bearer token, no skills or hooks | none | documented | [mcp-clients](mcp-clients.md) |
+
+Three rules sit outside any row. The Atlas is never deployed alone. The same KB on two servers is synchronization, not scaling: two servers never add write capacity or availability to one KB. A Kubernetes or VM recipe never runs two Server processes on one working copy (`concurrency.md` §Writer boundary).
 
 ### Provisioning artifact signing
 
@@ -126,8 +156,8 @@ An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` 
 `kbs[]` (YAML) is additive to `CARTOGRAPHER_KB_REMOTES` (append, not replace) — all listed KBs get
 mounted — and every entry has a `remote`: a KB without one is a folder under `data`, which is discovered
 (there is no `kbs[].path`). The `--kb` flag and `CARTOGRAPHER_KB` mount one more folder from the command
-line, for development and tests: it is not a key of the YAML file, and a folder mounted that way has no
-remote, so it never syncs. Scalar fields (`http`, `data`, tokens, ...) follow flag > env > YAML
+line, for development and tests: it is not a key of the YAML file, and a folder mounted that way syncs
+only when it has a git remote, like any other KB. Scalar fields (`http`, `data`, tokens, ...) follow flag > env > YAML
 precedence: the last explicitly set level wins.
 
 **Git: one way to write (D903).** Cartographer has no git settings of its own: the SSH key and the token that reach a remote are files of the credentials directory (D905). Every write is one commit on the KB's branch: the remote's default branch, or the one the KB's `settings.yaml` names with `branch` (the team's choice), or, for one server alone, the one its `kbs[].branch` names (below); a KB syncs exactly
@@ -429,80 +459,677 @@ cartographer service install --config-only && exec cartographer serve --config "
 
 The `--output json` shape is a contract: fields are added, existing fields and the exit codes keep their meaning.
 
-**Data/code separation**: the cartographer repo contains no data. KBs live in the data dir (default `~/cartographer-data`); every subdirectory of it is a separate KB. For multiple users on shared KBs, see the k8s topology below — the server configuration is identical, only where it runs changes; one server process is the sole writer of a given working copy, so several instances mean separate clones synchronizing through the same remote, never two writers on one checkout (`concurrency.md` §Writer boundary).
+**Data/code separation**: the cartographer repo contains no data. KBs live in the data dir (default `~/cartographer-data`); every subdirectory of it is a separate KB. For multiple users on shared KBs, see §Example: K8s pod (Kubernetes minimal) below — the server configuration is identical, only where it runs changes; one server process is the sole writer of a given working copy, so several instances mean separate clones synchronizing through the same remote, never two writers on one checkout (`concurrency.md` §Writer boundary).
 
 Client-side convenience: if `cartographer connect` targets a loopback URL and the probe fails because the service isn't running, it directly offers to install+start the service (in the interactive flow) or suggests `cartographer service install` (in the non-interactive one).
 
 #### Example: K8s pod (untrusted network, auth on, multi-client)
 
-No init container: bootstrapping the git remotes (§Bootstrapping a KB from a git remote) is done by
-the `serve` process itself at startup, reading `kbs:` from the mounted ConfigMap.
+The **Helm chart** in `deploy/helm/cartographer/` renders this scenario, and the Surveyor ones below, from a values file (D1441). It is published to GHCR with every release at the version of the app, and it renders every object of this scenario:
 
-`ConfigMap` (mounts `config.yaml` at `/etc/cartographer`):
+```sh
+helm install cartographer oci://ghcr.io/beppetemp/charts/cartographer --version <version> -f values.yaml
+```
 
 ```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cartographer-config
-data:
-  config.yaml: |
-    http: ":39273"
-    auth:
-      mode: "on"
-    data: /data
-    credentials_dir: /etc/cartographer-credentials
+# values.yaml (Kubernetes minimal: deploy/helm/cartographer/ci/server-minimal-values.yaml)
+server:
+  tokens:
+    existingSecret: {name: cartographer-tokens}   # key `tokens`: the whole CARTOGRAPHER_TOKENS string
+  credentials:
+    existingSecret: {name: cartographer-credentials}
+  config:                                         # rendered to config.yaml, per config.example.yaml
+    auth: {mode: "on"}
     kbs:
       - remote: ssh://git@gitea.example.com:2222/user/wiki-kb.git
 ```
 
-`Secret` (the credentials directory, §Credentials directory: one key per file):
+The chart renders **no secret value** and no `Secret` object: tokens and the credentials directory are references to Secrets that exist before the install.
 
 ```sh
+kubectl create secret generic cartographer-tokens \
+  --from-literal=tokens="$(openssl rand -hex 32)"
 kubectl create secret generic cartographer-credentials \
   --from-file=default.ssh=./id_ed25519 \
   --from-file=known_hosts=./known_hosts \
   --from-literal=audit.key="$(openssl rand -hex 32)"
 ```
 
-`Deployment` (excerpt — MCP tokens and the credentials from Secrets, never in the ConfigMap):
+No init container: bootstrapping the git remotes (§Bootstrapping a KB from a git remote) is done by the `serve` process itself at startup, reading `kbs:` from the mounted ConfigMap.
 
-```yaml
-securityContext:
-  fsGroup: 2000 # any gid: the process joins it, and the kubelet gives it the Secret's files
-  fsGroupChangePolicy: OnRootMismatch # the data volume is not re-chowned at every start
-containers:
-  - name: cartographer
-    image: ghcr.io/beppetemp/cartographer:<tag>
-    args: ["serve", "--config=/etc/cartographer/config.yaml"]
-    env:
-      - name: CARTOGRAPHER_TOKENS
-        valueFrom:
-          secretKeyRef: { name: cartographer-tokens, key: tokens }
-    volumeMounts:
-      - { name: config, mountPath: /etc/cartographer, readOnly: true }
-      - { name: credentials, mountPath: /etc/cartographer-credentials, readOnly: true }
-      - { name: data, mountPath: /data }
-volumes:
-  - name: config
-    configMap: { name: cartographer-config }
-  - name: credentials
-    secret: { secretName: cartographer-credentials, defaultMode: 0440 }
-  - name: data
-    persistentVolumeClaim: { claimName: cartographer-data }
+The credentials Secret (§Credentials directory: one key per file) is mounted read-only at `/etc/cartographer-credentials` with `defaultMode: 0440`, and the pod carries `fsGroup` and `fsGroupChangePolicy: OnRootMismatch` (the data volume is not re-chowned at every start). The image runs as a user that is not root, so the Secret needs `fsGroup`: the kubelet makes its files `root:<fsGroup>` and adds `0440` whatever `defaultMode` says, and without `fsGroup` a `0400` file is unreadable to the server. The group bit is not reported as a loose permission (§Credentials directory). The mount is read-only, so `audit.key` comes in the Secret: the server cannot generate it there, and without it a `best_effort` log runs unsigned, warning at every start, while `audit.mode: required` does not start. The chart refuses a release whose credentials Secret is not named (`server.credentials.enabled: false` opts out, and the server then keeps its keys on the data volume). Back the key up, since the audit log's signatures depend on it. A KB that needs a key of its own adds `<kb>.ssh`; an HTTPS remote reads `<kb>.token` or `default.token`.
+
+This scenario serves **multiple clients** (one or more agents connected via `cartographer connect` / `cartographer sync`, all over HTTP): git remains the sync/backup layer between the server and the remote KBs, not a requirement for the client.
+
+The scenario is **Kubernetes minimal**; the chart's `server` values are the rest of it.
+
+**One replica, by construction.** One writer per working copy (`concurrency.md` §Writer boundary): the Deployment has `replicas: 1` as a literal, with no value to change it and no HorizontalPodAutoscaler, and the **Recreate** strategy. A rolling update starts a second pod on the same volume, or hangs waiting for a `ReadWriteOnce` volume to detach. A values schema (`additionalProperties: false`) rejects `--set server.replicaCount=3`, and a second server is a second release (the partitioned scenario, §Several servers, `ci/partitioned-a-values.yaml`).
+
+**The data volume** is a claim the chart creates (`server.persistence`, `ReadWriteOnce`, 10Gi by default) and keeps on `helm uninstall` (`helm.sh/resource-policy: keep`), or an existing claim (`server.persistence.existingClaim`). Reinstalling a release whose kept claim still exists fails in Helm on ownership: install it again with `existingClaim: <fullname>-data`.
+
+**The `emptyDir` variant** (`server.persistence.emptyDir: true`, an explicit opt-in whose install notes list the losses) replaces the claim by an `emptyDir` volume, for a trial or a read-mostly server, never for a KB whose only copy is the pod. What it loses: the KBs are cloned again at every pod start, so **every KB needs a remote**; a pod lost inside the 3 s push debounce loses its last writes; `usage.json`, the conflict registry (`.cartographer/conflicts.json`) and the audit log (`<data>/audit/audit.log`) vanish with the pod, unless `audit.log` points at a persistent path (§State and volumes).
+
+**Service and Ingress.** A ClusterIP Service on port 39273 selects the server pod only (never a Surveyor's). The Ingress (`server.ingress`, off by default, with TLS as in `ci/server-full-values.yaml`) sends every path to that one Service. The Ingress controller must pass the browser's `Host` header through unchanged (§Example: single VM, reverse proxy requirements). To put single sign-on in front of the Atlas only, split `/ui` and `/api/ui` from the rest of the paths, as §The embedded Atlas UI (D227) describes (D308). Probes are in §Observability.
+
+**Config on a read-only mount.** The ConfigMap is read once at start and a change restarts the pod (a checksum annotation). A server YAML that cannot be rewritten keeps working, so `helm upgrade` is the realignment of a retired key, and `kb clone` or `kb rename` run in the pod cannot persist into the ConfigMap: declare KBs in `server.config.kbs`.
+
+For raw manifests, `helm template` prints what the chart installs. What the chart does not cover: the client, a standalone Atlas, an autoscaler, a PodDisruptionBudget, a NetworkPolicy, RBAC and the Secrets themselves.
+
+#### Example: stdio
+
+The agent's client spawns `cartographer serve --kb <KB folder>`, with no `--http`: that is stdio, exactly one KB, no Atlas and no `/health` (`transport-auth.md`). The entry is **written by hand** in the agent's own configuration, because `connect` writes HTTP entries only (D37). A stdio session keeps no audit log and no credentials directory unless the configuration says where (§Audit log).
+
+The binary form, with the KB created beforehand (`cartographer kb create <name> --no-remote --local --data <dir>` or `kb clone`):
+
+```json
+{ "command": "cartographer", "args": ["serve", "--kb", "/home/user/cartographer-data/kb-a"] }
 ```
 
-The image runs as a user that is not root, so the Secret needs `fsGroup`: the kubelet makes its files
-`root:<fsGroup>` and adds `0440` whatever `defaultMode` says, and without `fsGroup` a `0400` file is
-unreadable to the server. The group bit is not reported as a loose permission (§Credentials directory).
-The mount is read-only, so `audit.key` comes in the Secret: the server cannot generate it there, and
-without it a `best_effort` log runs unsigned, warning at every start, while `audit.mode: required` does
-not start. Back the key up, since the audit log's signatures depend on it. A KB that needs a key of its
-own adds `<kb>.ssh`; an HTTPS remote reads `<kb>.token` or `default.token`.
+The container form runs the image with the KB folder bind-mounted. The entry is `docker run -i --rm` with the mount and `serve --kb` pointing at the mounted folder as the arguments:
 
-This topology serves **multiple clients** (one or more agents connected via `cartographer connect` /
-`cartographer sync`, all over HTTP): git remains the sync/backup layer between the server and the
-remote KBs, not a requirement for the client.
+```sh
+docker run -i --rm \
+  --mount type=bind,src=/home/user/cartographer-data/kb-a,dst=/kb \
+  ghcr.io/beppetemp/cartographer:<tag> serve --kb /kb
+```
+
+The folder must be writable by the image's user: a folder created by the host user needs `--user "$(id -u):$(id -g)"` on the `docker run`, and a fresh named volume is root-owned and needs one `chown` run before the first start (the same step as §Example: single VM).
+
+The MCP Registry entry (`server.json`) declares the image on stdio **with no arguments**: the image's entrypoint is `cartographer`, and with no arguments and no terminal it prints the usage and exits. A client that launches the entry as published gets no MCP server; the explicit `docker run -i` form above works. The entry is tracked by [#1438](https://github.com/BeppeTemp/cartographer/issues/1438).
+
+#### Example: single VM
+
+A **shared-VM recipe**: one always-on host, the server and optionally a Surveyor, bearer tokens, TLS at a reverse proxy. It is not a local mode, and containers stay out of the local deployment (D73). Two forms.
+
+**systemd, native binary.** A **system** unit, not `service install`: that one is a per-user unit whose generated definition sets only `PATH`. Create a dedicated system user, install the binary with `install.sh`, put the tokens in an environment file with mode 0600 (`CARTOGRAPHER_TOKENS`: never in the YAML), and give the unit's user the data directory:
+
+```ini
+# /etc/systemd/system/cartographer.service
+[Unit]
+Description=Cartographer server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cartographer
+EnvironmentFile=/etc/cartographer/env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/cartographer serve --config /etc/cartographer/server.yaml
+Restart=on-failure
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The stop timeout is at least 30 s, for the graceful drain and the push flush. `git` is on the unit's `PATH`, and so are `sops`, `age` and `ssh` when the KBs use secrets or SSH remotes (the trap of the native service, §Example: native local service). After `install.sh update` the operator restarts the unit: `upgrade-repair` acts only on the native user service on loopback (§Client installation).
+
+**compose.** The server service from the image, with the configuration and the credentials directory mounted read-only (`audit.key`, `default.ssh` and `known_hosts` are read, never written: read-only is fine), the tokens from an env file, the data in a named volume and the port published on `127.0.0.1` only, because the proxy runs on the host:
+
+```yaml
+# compose.yaml
+services:
+  server:
+    image: ghcr.io/beppetemp/cartographer:latest
+    command: ["serve", "--config=/etc/cartographer/config.yaml"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file: ./cartographer.env          # CARTOGRAPHER_TOKENS=...
+    ports:
+      - "127.0.0.1:39273:39273"
+    volumes:
+      - ./config.yaml:/etc/cartographer/config.yaml:ro
+      - ./credentials:/etc/cartographer-credentials:ro
+      - cartographer-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:39273/health"]
+      interval: 30s
+volumes:
+  cartographer-data:
+```
+
+The configuration sets `http: ":39273"`, `data: /data`, `credentials_dir: /etc/cartographer-credentials` and `auth: {mode: "on"}`. The health check uses `/health`: `/ready` needs a token once auth is on (§Observability). Two errors to expect. A listener off loopback with no token refuses to start. A fresh named volume is root-owned while the image runs as `cartographer`, so one `chown` run precedes the first start: `docker compose run --rm -u root --entrypoint chown server cartographer /data`.
+
+The optional Surveyor is a second service, the compose block of §The Surveyor (a third role), Packaging, with `server_url` set to the same HTTPS URL the clients use. On a host with the native binary it is the unit of §Example: Surveyor outside the cluster instead.
+
+**Reverse proxy requirements** (the proxy is not a product configuration): terminate TLS; forward `/mcp`, `/ui/`, `/api/`, `/health` and `/ready` to the one upstream; **preserve the browser's `Host` header**, because the Origin check compares the `Origin` host with the request's `Host` and a proxy that rewrites `Host` makes the Atlas and every browser caller fail with 403; set `X-Forwarded-Proto`. A single sign-on variant that protects `/ui` and `/api/ui` only, and leaves `/mcp` on bearer authentication, is in §The embedded Atlas UI (D308).
+
+### Several servers
+
+Two scenarios involve more than one Server. They share one rule: **synchronization yes, scaling no**.
+
+**Partitioned servers** (different KBs on different servers). Each server mounts its own KBs. The managed Client follows **one** server (`server_url`): it receives that server's skills, hooks and instructions (D73, one server at a time). Another server is reached by an MCP entry **written by hand** in the agent's configuration, on that server's `/mcp/routed` URL with a bearer header ([mcp-clients](mcp-clients.md) §Connect). `sync` leaves such an entry alone, it carries no managed block, and with no `provisioned=1` in its URL the server sends the operating guide in `initialize`. Kiro's tool namespace is flat (D102), so identical bare tool names of two servers collide there.
+
+**The same KB on two servers.** Two servers may mount one KB to keep it available in two places (a laptop and a cluster). Their writes reconcile through git, and a conflict on the same concept degrades to `needs-resolution`. This is the multi-server cooperation of D73; it is never a way to add write capacity or availability, which is what the rule "do not use several active writer servers as replicas" forbids. The recipe:
+
+- Both servers mount one remote: a cluster server through `kbs[].remote` (§Bootstrapping a KB from a git remote), a laptop through `kb clone`. Each has its own clone and credentials and, when the forge enforces membership, its own `git.identity`. Commits carry `Cartographer-Host`, which says which instance wrote.
+- **Both write the same branch**: the remote's default, or the `branch` of the KB's `settings.yaml`. A per-server `kbs[].branch` that differs on one of them makes the two servers write different branches that never reconcile.
+- There is no push notification. A write on one server reaches the other after the push debounce (3 s) and that server's next pull, which a read starts in the background once the 30 s freshness window has expired (`concurrency.md`).
+- A conflict on the same concept is `needs-resolution`: the registry `.cartographer/conflicts.json`, `conflicts_list` and `git_conflict_resolve` (`concurrency.md`). Reserved files such as `log.md` merge by themselves (D311).
+- Each Client follows one of the two servers (D73); moving a Client between them is `connect --server-url`.
+
+What it is **not**: no replicas of one KB, no load balancer in front of two servers sharing a KB, no automatic failover, and never two Server processes on one working copy (`concurrency.md` §Writer boundary).
+
+
+### The Surveyor (a third role)
+
+`cartographer surveyor --config <file>` is a background process for one **perimeter**: a set of KBs, the
+token that reads and writes them, the model endpoints and their budgets. It is a process of its own (its
+own container, sidecar or a unit you write), never started by `serve`: the server stays model-less and
+fetches nothing. It has no persistent volume, no inbound port and no probe endpoint; the server and the model
+endpoints are the only things it talks to. One config per perimeter; replicas are more processes with
+the same config.
+
+| Flag | Meaning |
+|---|---|
+| `--config <file>` | The Surveyor YAML (required; there is no environment alias). Without it the command prints usage and exits 2 |
+| `--once` | Evaluate the triggers once, run if due, exit 0 (for an external scheduler) |
+| `--log-file <file>` | Append the log to a file instead of stderr, as `serve` does |
+
+Exit codes: 0 graceful shutdown (SIGINT/SIGTERM), 1 runtime failure (including a server that is still
+unreachable after the start-up retries), 2 start error (nothing was started).
+
+The file is strict: an unknown key fails with its path and line. Secrets are never in it: `token_env` and
+`api_key_env` name environment variables.
+
+```yaml
+name: docs-night                  # the perimeter; [a-z0-9-]{1,40}
+server_url: https://wiki.example.com/mcp
+token_env: SURVEYOR_TOKEN
+kbs: [wiki-kb]
+models:                           # named profiles; tasks pick one
+  - name: cloud
+    provider: anthropic           # anthropic | openai
+    model: claude-sonnet-4-5      # the provider's model id
+    api_key_env: CLOUD_API_KEY
+    tier: large                   # small | large
+    context_tokens: 200000        # the model's window (default 32000)
+    budget: {daily_tokens: 2000000, run_tokens: 500000}
+  - name: local
+    provider: openai              # llama.cpp / LiteLLM: base_url is required
+    base_url: http://llm.internal:8080/v1
+    allow_insecure_http: true     # plain http to a non-loopback host needs this opt-in
+    model: small-model
+    budget: {daily_tokens: 9000000}
+schedule:
+  window: {start: "23:00", end: "06:00", timezone: Europe/Rome}
+tasks:                            # in priority order
+  - kind: ingest
+    model: cloud
+```
+
+The key table is `internal/surveyorconfig`. A task `kind` must be registered in the binary; a config can
+name only the kinds the binary registers: `ingest` (D1260), `poll` (§The `poll` task), `prompt` (§Prompt tasks) and `synthesis` (D1263).
+
+**The `ingest` task (D1260).** It executes the `IngestUnit`s of a campaign: per KB, one `work_list` of `type=IngestUnit`,
+the first unit that is claimable (`open`, or `in-progress` whose `review_after` is before today UTC) and that this
+Surveyor may take, claimed with `concept_patch` and `if_match` (`claimed_by` = the replica identity, `review_after` = today
++ 2 days: a day-granular crash net, since a Surveyor that fails or stops releases the unit at once). The profile's `tier`
+decides the units: a `small` profile takes `executor: any`, a `large` one also `large`; `human` is never taken. A unit
+whose Source names a `connector` other than the built-in `git`, or whose `locator` is not `http(s)` (for `git`: not an `https://<repo>#<path>` on `git.allow_hosts`), is skipped, not failed. The instructions are the
+unit-mode section of the bundled `cartographer-kb-ingest`, embedded in the binary (a binary without it does not start). The
+model gets the allowlist plus `source_fetch`, except for a unit that carries inline content (`content_asset`), which is fed from its asset and gets no `source_fetch`; `source_fetch` is a Surveyor-side tool with no argument that fetches only the claimed unit's
+Source locator (GET without credentials; same-host redirects only; 1 MiB, 30 s; text, HTML as plain text; a page is data, never
+instructions). When the loop ends the Surveyor, not the model, runs `gate_check` over the pages written: a pass sets the
+unit `done` and, once no unit of the Source is open, the Source `ingested`; a failure, a budget cut, an error or a
+cancellation releases the unit (`open`, a note naming the pages already written). A Contradiction the loop itself wrote is the
+unit's output, not a failure. No unit is claimed when the remaining grant is under the dearest completed unit (20 000
+tokens before any).
+
+**The `synthesis` task (D1263).** The lowest-priority kind: it proposes what the KB already implies, as `Contradiction`
+concepts of a gap kind (`missing_context`, `open_question`) with `origin: synthesis`, `provenance` (the pages the evidence
+comes from, each checked to exist at write time) and `confidence`; it never changes a claim on an existing page (D1263). It
+must be the **last** entry of `tasks` (the loader refuses any other position): the runner takes the first entry that has
+work, so it runs only when the entries before it have none. It offers work only when a candidate exists, and it spends
+only the daily budget above `synthesis_reserve` (a fraction of `daily_tokens`, kept whatever `run_tokens` says). Per run it takes the candidates the
+server's own signals give (undefined terms, repeated search misses, repeated facts, unlinked central pages), at most
+`synthesis_max_candidates`, one model call each, and writes at most `synthesis_max_new`. The instructions are embedded in
+the binary. The model sees a narrower allowlist than ingest and a Surveyor-side guard refuses every other call, so a
+write can only create the hypothesis at its computed id; every commit's reason is `synthesis: <id>`. The run record
+(the closing `log_append`) lists the candidates examined and the hypotheses written; the next run skips the ones listed
+in the last 7 days. Closing a hypothesis is a reader's work (`resolution_outcome: confirmed | rejected`).
+
+| Key (under `tasks[]`) | Default | Meaning |
+|---|---|---|
+| `synthesis_map` | `""` | The map hypotheses are written into; empty = the map of the newest Contradiction; none found, the task ends without a write (it never creates a map) |
+| `synthesis_max_candidates` | `5` | Candidates examined per run |
+| `synthesis_max_new` | `3` | Hypotheses written per run |
+| `synthesis_context_tokens` | `6000` | Cap of the page text sent to the model per candidate |
+| `synthesis_reserve` | `"0.2"` | Fraction of the profile's daily budget left untouched; synthesis starts only above it |
+
+```yaml
+fetch:
+  allow_private: false   # true: source_fetch may reach private, loopback and link-local addresses
+```
+
+`fetch.allow_private` is refused by default after DNS resolution (checked on every connection, redirects included): a
+Surveyor runs inside someone's network and must not become a proxy to it.
+
+**Connectors (D1262).** `connectors` is a mapping, by name (`[a-z0-9-]{1,30}`, not `git`, `fetch` or
+`artifact`), of external MCP servers the unit-execution task may read documents through. Each takes
+`transport: stdio` (`command`, `args`, `env`) or `transport: http` (`url`, `token_env`, `headers`,
+`allow_insecure_http`), plus `tools` (required), `call_timeout` (default 60s) and `max_result_bytes`
+(default 256 KiB). A Source names a connector in its `connector` field; nothing else in a KB selects
+one. The model is offered only the tools listed in `tools`, as `<connector>__<tool>`, and a call to any
+other is refused by the Surveyor before it reaches the server: the server's own tool list is untrusted.
+Every value of `env` and `headers`, and `token_env`, is the **name** of a variable of the Surveyor (a
+value is refused at load, without echoing it); the variable is read when the connector first starts,
+and a stdio child receives only the variables listed plus `PATH` and `HOME`. A connector that cannot
+start (command missing, variable unset, server down) is skipped for the run, not fatal: a unit whose
+Source names a declared connector is offered to the unit-execution task alone, which starts the connector
+before claiming the unit and adds its allowlisted tools to that unit's loop (never poll, doctor or synthesis).
+
+```yaml
+connectors:
+  docs-wiki:
+    transport: http
+    url: https://wiki-mcp.example.com/mcp
+    token_env: WIKI_TOKEN
+    tools: [get_page, search]
+  local-files:
+    transport: stdio
+    command: ./bin/files-mcp     # a path with a separator is resolved against this file's directory
+    env: {API_TOKEN: FILES_TOKEN}
+    tools: [read_file]
+```
+
+**Recipes and the git reader (D1262).** A recipe lists what changed in a feed Source since its cursor, with no
+model; `git-docs` is the first built-in (Source `locator` = https repository URL, `feed_include` default
+`docs/**/*.md`, entries are files, `connector: git`). `git.allow_hosts` names the hosts the built-in git reader may
+clone (an exact host, or `*.example.com`; an IP only verbatim); it is empty by default, so no feed and no git
+entry is read. The reader takes https remotes only, with no credential: `file://`, `git://`, ssh, scp-like, local
+paths and any remote with userinfo are refused before a clone; a private repository is an exec recipe or an MCP
+connector. (An inline unit has no `source_fetch`.) For a unit whose Source has `connector: git` the `source_fetch` tool reads
+`<repo URL>#<path>` from a clone made for that unit's run only (one clone per unit, deleted when the unit finishes, not shared across units), after checking the host, that the path is
+inside the repository (`.git` included) and that no component is a symlink; 1 MiB. Every clone is anonymous whatever the Surveyor's own git setup: no global or system git config, credential helper, askpass or extra header, no redirect followed, 5 minutes at most, history blobs not fetched. Symlinks, submodules and type changes are never listed. `recipes.<name>.instructions_file` (a built-in's
+name only, a path inside the config directory, at most 16 KiB UTF-8, read at load) replaces the recipe's embedded
+instructions text.
+
+```yaml
+git:
+  allow_hosts: [git.example.com, "*.corp.example.com"]
+recipes:
+  git-docs:
+    instructions_file: recipes/git-docs.md
+```
+
+**Exec recipes (D1262).** A recipe of your own is an executable declared under `recipes.<name>` with an `exec` block
+(`command`, `args`, `env`, `timeout`, `max_output_bytes`, `max_content_bytes`), an `instructions_file` and optionally
+a `connector`; it lists a feed over a JSON stdin/stdout protocol, with no shell, a per-call temp directory and only
+the environment variables you list. The keys, protocol v1 and the trust model are in
+[surveyor-recipes.md](surveyor-recipes.md), which also describes `cartographer surveyor source test`, the dry run of a recipe. A script that needs an interpreter runs from a
+derived image (`FROM` the Surveyor image, §Example: a derived image for exec recipes) or from a mounted read-only volume, and the Surveyor now needs a
+**writable temp directory** (an `emptyDir` on Kubernetes) for exec recipes and git reads, which refines "no volume"
+to "no persistent volume".
+
+```yaml
+recipes:
+  wiki-changes:
+    instructions_file: recipes/wiki-changes.md
+    connector: docs-wiki
+    exec:
+      command: ./bin/list-changes
+      env: {WIKI_TOKEN: WIKI_API_TOKEN}
+```
+The clone itself and the commands run in it afterwards (HEAD, ancestry, tree and diff listings) are anonymous too, with
+`HOME` and `XDG_CONFIG_HOME` pointed at an empty directory, so the operator's git config is out of reach
+on any git version (`GIT_CONFIG_GLOBAL` alone needs git 2.32).
+
+**System sources (D1372).** A live read-only system (a Kubernetes cluster, a cloud account, a metrics or dashboard
+instance) is a Source with `source_shape: system` and a `recipe` whose `shape` is `system`
+([surveyor-recipes.md](surveyor-recipes.md) §System recipes). Register it once with `source_register` (`source_shape:
+system`, `recipe`, `locator` an opaque label such as `kubernetes://dev-cluster`) and set `feed_interval` and
+`feed_include` with `concept_patch`; an IngestPlan must list it in `sources`. Every poll runs the lister's preflight,
+lists the current state grouped, diffs it against the state kept on the Source and creates one unit per **changed**
+group; the executor runs those units with KB tools only (no tool on the system). The reference lister, its recipe
+block and its README are in `examples/system-recipes/kubernetes/`; it needs Python 3 and `kubectl` in the image
+(a derived image `FROM` the Surveyor image or a mounted volume, as above), and `KUBECTL`, `KUBE_CONTEXT` and `KUBECONFIG` set in the Surveyor's
+environment.
+A metrics source reports verdicts, not values ([surveyor-recipes.md](surveyor-recipes.md) §Verdicts, not metrics): its
+reference lister and weekly review task are in `examples/system-recipes/prometheus-verdicts/`.
+
+*Cost.* One measured development cluster had 583 objects in 27 namespaces: 4.3 MB of raw JSON (about 1.1M tokens),
+209 KB normalized (about 52k tokens), about 8 KB per namespace. The first poll creates one unit per namespace (the
+baseline); a typical day changes a few namespaces, so a few thousand tokens; an unchanged system costs none.
+*Caps.* A group is at most `exec.max_content_bytes` (default 128 KiB), a diff 400 lines / 64 KiB, a listing 1000
+groups, the state file 8 MiB; over a cap is an error naming the group or the count (group coarser or filter with
+`feed_include`). A large first run is spread over polls by the poll task's `max_entries` and `feed_interval`.
+
+*Give the lister a read-only identity.* The preflight refuses a misconfigured identity but is not a security boundary
+(the script is operator code); the boundary is the identity:
+- **Kubernetes**: a dedicated ServiceAccount bound to the `view` ClusterRole, which does not include Secrets; the
+  example's preflight refuses an identity that can read secrets, write pods, deployments or namespaces, or do anything
+  on `*`.
+- **Cloud account**: a dedicated read-only / view-only policy; check what it can still read, since "read-only" can
+  include secret values.
+- **Metrics or dashboard system**: a viewer role or a query-only token.
+
+**`http-pages`** is the second built-in: the Source `locator` is a sitemap (XML) or an HTML index, `feed_include`
+a list of URL prefixes (a trailing `*` is accepted; none = every link of the index's own host), one level, no
+crawl. It reads only hosts in `fetch.allow_hosts` (deny by default), https unless `fetch.allow_insecure_http`,
+with the same fetch as the unit executor (1 MiB, redirects within the host, `fetch.allow_private`). More matching
+links than the poll's `max_entries` is `list_failed` and nothing is listed. The revision of a page is its `ETag`,
+else `Last-Modified`, else a content hash; every matching page is emitted each poll and the unit ID tells new
+from known; the cursor is a digest of the sorted `url|revision` list and an unchanged digest ends the poll.
+It never reports a removed page (a digest cannot say which went). A page with neither `ETag` nor `Last-Modified` whose body changes on every request (a timestamp, a counter) gets a new revision at every poll, hence a new unit at every poll: put such a page out of `feed_include`, or use an exec recipe that computes a stable revision.
+
+```yaml
+fetch:
+  allow_hosts: [docs.example.com]
+  allow_insecure_http: false
+```
+
+**The `poll` task (D1262).** `{kind: poll, model: <profile>, default_interval: 24h, min_interval: 1h,
+max_entries: 200}`, at most once. It reads the feed Sources (`source_shape: feed`) of each KB and takes the due one
+checked longest ago (`feed_checked_at` plus `feed_interval`, else `default_interval`). One feed per run: it checks the
+recipe and its host list, leases the feed (`feed_checked_at`, compare-and-swap: the loser skips silently), finds the one
+`IngestPlan` that lists the feed in `sources` and lists the entries with the recipe, with no model. For each added or
+modified entry it registers a document Source (never `sha256`; an `ingested` Source returns to `pending`) and creates
+an `IngestUnit` at the ID `<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>`; a unit that exists means the
+entry was handled and costs nothing. A new unit costs one model call with no tools (plan, feed and entry as delimited
+data; the answer is JSON the Surveyor validates and retries once); a changed document reuses the previous unit's
+fields with no call. The cursor advances only after every entry is handled; a spent grant leaves it, and the next poll
+skips the finished entries. Removed entries are counted, never acted on. A feed that cannot be polled gets
+`feed_error: <code>: <detail>` (`bad_field`, `recipe_unknown`, `recipe_shape`, `host_not_allowed`, `no_ingest_plan`,
+`ambiguous_ingest_plan`, `list_failed`, `protocol_error`, `cursor_invalid`, `unit_refused`, `grant_exhausted`) with the values of the
+connectors' credential variables replaced by `***`, and is retried at its interval.
+
+The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
+for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB
+closes with a `log_append` (path `surveyor/<name>`) whose line carries `day=`, `tokens.<profile>=` and
+`stopped=`, and the next run sums today's lines. A task's grant is
+`min(remaining today, run_tokens)` minus what the run already spent on its profile; an exhausted profile
+skips its tasks while the others go on. The day is the calendar day of `schedule.window.timezone` (UTC
+without a window). If the ledger cannot be read, or a day outgrows the capped read, the run is skipped
+and retried at the next poll.
+
+Tokens are counted as the API reports them, whatever the provider: tokens read from a prompt cache count in
+full, so a test on a cloud model spends the same budget as the run on a local one. Cache reads appear only in
+the `surveyor_task` metric. `context_tokens` (default 32 000) is a separate limit: a run is told once to close when a
+prompt reaches 75% of it, when the budget would not pay for two more turns or when two steps are left, and it
+stops before a prompt that would not fit. A tool result is capped at half of it, read as bytes: 16 000 at the default, down from 32 KiB. `max_output_tokens`
+(default 4096) bounds one answer: a turn it cuts is dropped and retried once, the second in a row stops the
+task. `timeout_seconds` (default 120) bounds one attempt of a model call, which is not streamed: a slow local
+model needs more. Each finished task logs one JSON line `{"metric":"surveyor_task",...}` with tokens, cache reads,
+steps, the largest prompt, tool calls and tool errors, and never a page's content. An unattended doctor does not
+get `map_create` or `map_update`: the shape of a map is the operator's.
+
+**Start-up checks**, in order; each failure exits 2 and starts nothing: the config loads (and every
+`*_env` variable is set); `/health` answers (a server that is starting or unreachable is retried for up
+to 5 minutes, then exit 1); `server/discover` accepts the token (`/health` is public and serves a wrong
+token as an anonymous caller, so only this call proves it); `/health` names KBs for the token; every
+name in `kbs` is among them. The roster is a read view: the perimeter token needs `kb:<name>:rw` on
+each KB (§Fine-grained roles), and a read-only token meets its first refusal at the first write. Give
+it an `id` so the audit log names the Surveyor.
+
+**Why the Surveyor may run unasked (D1258).** D704 says an agent works on a KB only when the operator asks;
+deploying a Surveyor for a perimeter, with its budgets, window, KBs, profiles and tasks, is that asking.
+Nothing else changes: the server runs no model, `serve` never starts or links the Surveyor, `connect`/`sync`
+install no scheduler, and every write is a revertible commit with a `Reason` trailer.
+
+**The `doctor` task (D1261, D1436).** `kind: doctor` (one entry) keeps a KB in order on its own. Put it after the ingest kinds: it works with what they leave. It needs no `doctor_suggested`: the signal is that a repair or a review item is waiting. A degraded KB is skipped, and a KB with nothing to do costs no model call and is read again after an hour. `tasks[].doctor_allow` says how far a run goes:
+
+| Word | What a run may do |
+|---|---|
+| (always on) | Close or suspend work, frontmatter only: `status_reclassify`, `zombie_work`, the `stale_open` lint judgement |
+| `repair` (the default) | Apply, in one commit and with no model, the mechanical fixes the server's background repair leaves: `broken_link`, `superseded_target_retired`, `unknown_type`. `invalid_field_value` also needs `structure`, because it drops values from pages. Any other check never runs unattended, a new one included: `reciprocal_link_item` can drop hundreds of edges and `junk_file` changes what git tracks |
+| `pages` | Edit the body of the pages an item names: `repeated_fact`, `duplicate_candidate` (a link between two different subjects), `closed_with_open_items`, `template_extra_section`, `template_section_missing`, the `island` observation |
+| `structure` | `facet_sprawl` and `missing_value_contract`: declare the proposed vocabulary with `map_update`, on the item's map, only the field the item proposes and exactly its list, and the Surveyor adds back the fields the map already declares. With `repair`, the next run converges the pages, dropping values outside the list. `index_unclassified`: `index_patch` on the item's map |
+| `archive` | `harvest_candidate` and `lesson_unpromoted`: carry a closed journal entry's facts to the live pages it links when the item starts, body only, then set it `archived`. Nothing is deleted or moved |
+
+The Surveyor reads `kb_review` itself, at no token cost, up to 500 items per kind, and deals them one rule at a time, in that order, so a long check does not keep the others out of a run. An item no rule covers stays for a prompt task (§Prompt tasks) or an operator's `cartographer-kb-doctor` session; that includes `concept_merge` and `concept_archive`, which `tools/list` does not advertise, and a new template, which needs `artifact_write`. Each item is a loop of its own, at most 8 steps and 40,000 tokens, with short instructions embedded in the binary and only the tools its rule names, so one item's context never reaches the next. Frontmatter stays `status`, `waiting_on` and `review_after`. A run examines at most 10 items, applies at most `max_writes` writes (default 20), starts an item only with 20,000 tokens of grant left, and ends after three writes in a row the server refuses (a read-only token). The KB is the memory: a settled item leaves `kb_review`, and an examined one is recorded on the log path `surveyor/<perimeter>/doctor` (`day=<date> examined=<keys> writes=<n>`) and left alone for 14 days, so the next run picks up where this one stopped. A run stopped by a shutdown records nothing and an item cut by `max_writes` is not recorded: what they did not settle comes back. A run never writes `kb-doctor`: `last_doctor` moves only with an operator's session. Every commit carries `Reason: doctor: <key>` (`doctor: repair` for the repair), so `git log --grep 'doctor: '` finds a pass and each commit reverts alone. The Surveyor's log has one line per item, with how it ended, its steps, its writes and how many did not land, and one line for each write refused by the guard or the server, so an item with no commit tells a model that left it from a fence that stopped it.
+
+**What the words trust.** The guard limits where a write lands, not what it says: a model reads the pages it edits, so text in a page can steer it inside its fence. With `pages`, `archive` or `structure` someone who can write a page can have a run write to the pages an item names, or to a map's index (`index_unclassified`), and with `archive` the author of a journal entry chooses the pages it links, and so where a run may write, and an item can add a link that a later item or run follows. Turn them on for a KB whose writers you trust. The default is narrower, not immune: a repair is mechanical, but a rule always on is a model reading a page, so a page's writer can steer whether the item's pages are closed or suspended and the text of `waiting_on`.
+
+**The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
+idle for `idle_minutes` (the idle signal is the server's `last_activity_at`, answered to the Surveyor's heartbeat, `POST /api/surveyors`: [control-plane](control-plane.md) §Surveyor heartbeat; until the Surveyor beats, it is
+window-only). **Beat, settings, idle (D1259).** The Surveyor declares itself with `POST /api/surveyors` from its own goroutine: once at
+start (before the triggers are read, so `--once` has the idle signal), every 60 s, and once with `state: stopped`
+on a clean exit; the instance id is the perimeter `name`, `-` and six random hex characters. Right after the first
+beat it posts its settings to `POST /api/surveyor-settings` (typed scalar entries, never a secret: an `*_env` value
+is a variable name followed by `(set)` or `(unset)`, a URL has no userinfo, models and tasks are not listed), and
+again whenever a beat answers `settings_wanted`. The idle time is the answer's `now` minus `last_activity_at`
+(or `server_started_at` when `null`), plus the local time since the answer; an answer older than three beats, a
+`404` from an older server, a KB the answer omits and `activity_known: false` (authentication off: the server
+cannot tell the Surveyor from a person) all make the idle trigger not hold, so the Surveyor runs on its window only.
+A failed beat or report is a log line and never fails a run; a settings report the server refuses with a 4xx is
+logged once and not sent again. The server bounds a heartbeat, so the config is refused at load past **32 KBs**
+or **8 model profiles**.
+
+A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:
+the first `tasks` entry whose profile still has a grant and whose kind finds a unit of work, then the walk
+restarts from the first entry. A failing task is not retried in the same run; repeated errors on a KB (the limit is `maxConsecutiveErrors` in `internal/surveyor/runner.go`)
+skip it until the next poll (this is also how a token with read but no write grant shows up). A revoked token
+(401) or a refused host (403) ends the process with exit 1. A profile whose model API rejects the credential
+is off for the rest of the run and tried again at the next one. A run closes with one `log_append` per KB it
+touched, ending `stopped=done|window|budget|idle|shutdown|error`; a run that found nothing writes nothing.
+
+**Shutdown.** SIGINT/SIGTERM cancel the in-flight model call, abandon the task in progress (its claim lapses by
+lease; what was committed stays), write the closing entries in parallel with a 5 s HTTP timeout and exit 0. A
+second signal exits at once with 1. Keep `terminationGracePeriodSeconds` at 30 or more.
+
+**What survives a restart.** Nothing is written to local disk that must survive, so a replica needs no persistent volume.
+
+| State | Where | After a restart |
+|---|---|---|
+| Spend of finished runs, per profile | the closing entries in the KBs' logs | rebuilt before each run |
+| Spend of the run in progress | in-process counters | lost on a crash: the day can exceed a profile's `daily_tokens` by at most its `run_tokens` per crash |
+| A closing entry that could not be appended | nowhere | counts like a crash for that run and KB |
+| Work half-done | the KB (a claim with a lease, commits already made) | an expired lease is re-claimed by any replica |
+| Window, idle state, poll timers | clock and server | recomputed |
+| Replica identity | memory | a new random id; old claims lapse by lease |
+| Replicas' counters | not shared | overshoot bounded by `replicas x run_tokens` per profile |
+
+The budget is a cost-control guard, not a quota the provider enforces; set `run_tokens` to the overshoot you accept.
+
+**Packaging.** The Surveyor has its own image, `ghcr.io/beppetemp/cartographer-surveyor`: the same binary as the server's, with `git` and the CA certificates and none of the server's secret and ssh tooling (`sops`, `age`, `openssh-client`), no persistent volume and no inbound port. Its entrypoint is `cartographer surveyor`, so a deployment passes flags only: compose `command`, Kubernetes `args` (a Kubernetes `command` would replace the entrypoint). A shell or `cartographer version` needs `--entrypoint`, because `docker run <image> version` hands `version` to the Surveyor. The server image still runs a Surveyor (`surveyor` as its first argument): a deployment that does keeps working.
+The image has no `tzdata`; the binary embeds the zone database, so `schedule.window.timezone` resolves there.
+
+```yaml
+# compose.yaml
+services:
+  surveyor:
+    image: ghcr.io/beppetemp/cartographer-surveyor:latest
+    command: ["--config=/etc/cartographer/surveyor.yaml"]
+    restart: unless-stopped
+    environment:
+      SURVEYOR_TOKEN: ${SURVEYOR_TOKEN}
+      CLOUD_API_KEY: ${CLOUD_API_KEY}
+    volumes:
+      - ./surveyor.yaml:/etc/cartographer/surveyor.yaml:ro
+```
+
+```yaml
+# Kubernetes, with the Helm chart (§Example: K8s pod): one `surveyors` entry per perimeter
+surveyors:
+  - name: docs-night
+    mode: deployment
+    existingSecret: docs-night-env      # SURVEYOR_TOKEN, CLOUD_API_KEY: every key is an environment variable
+    config:                             # surveyor.yaml, no secret in it
+      token_env: SURVEYOR_TOKEN
+      kbs: [kb-a]
+```
+
+The token is a dedicated one, scoped `kb:<name>:rw` to the perimeter's KBs only (`auth.tokens`, §Fine-grained
+roles), with an `id` so the audit log names the Surveyor. A Surveyor must not change a skill, an agent or a hook
+that every client of the KB syncs and executes, yet it needs whole-KB `rw` (`log_append`, `source_register`):
+give it a role with `artifacts: r` (§Fine-grained roles). To drive the Surveyor from an external scheduler instead of its own window,
+run it with `--once`. As a native service, write the unit yourself: `cartographer service` manages only the server.
+
+In Kubernetes a perimeter is one `surveyors` entry of the chart: its own ConfigMap (`surveyor.yaml`, plus the text `files` that `instructions_file` names by plain name) and one Deployment or CronJob, with one `emptyDir` on `/tmp` for exec recipes and git reads and no persistent volume, port or probe. The Secret is yours: `existingSecret` names it and **every** key becomes an environment variable (the token, the model keys, an exec recipe's `KUBECTL`), and the chart has no `env` value, so no value is rendered by mistake. One config per perimeter, so a second perimeter is a second entry; `replicas` above 1 are more processes with the same config and unshared budget counters. The entry's Deployment is `Recreate`, since a rolling overlap would be a second spender. An entry's `image` overrides the Surveyor image for a derived one, which must keep the entrypoint `cartographer surveyor` because the chart passes only arguments. A `serviceAccountName` also mounts the API token on that entry's pod, for a system-source lister (the account and its read-only role are the operator's: the chart creates no ServiceAccount or RBAC). Set `server_url` to the Ingress's HTTPS URL. With no `server_url` the chart injects the in-cluster Service URL and `allow_insecure_http: true`, because a plain `http` URL to a non-loopback host needs that opt-in, and the install notes say that the token then crosses the pod network in clear.
+
+#### Example: Surveyor outside the cluster
+
+A machine with a GPU or a local model, reaching the Server over HTTPS. `server_url` must be `https://` for a non-loopback host unless `allow_insecure_http` is set. `cartographer service` does not manage the Surveyor, so the unit is a **system unit** written by hand: the binary comes from `install.sh`, the command is `surveyor --config <file>`, and the variables the config names (`token_env`, `api_key_env`) come from an environment file with mode 0600, never from the YAML. There is no port to open.
+
+```ini
+# /etc/systemd/system/cartographer-surveyor.service
+[Unit]
+Description=Cartographer Surveyor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cartographer
+EnvironmentFile=/etc/cartographer/surveyor.env
+ExecStart=/usr/local/bin/cartographer surveyor --config /etc/cartographer/surveyor.yaml
+Restart=on-failure
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The stop timeout is at least 30 s, the grace period the Surveyor itself advises (§The Surveyor (a third role), Shutdown). The model endpoint is local: a loopback `base_url` needs no opt-in, and a plain `http` model URL on another host needs `models[].allow_insecure_http` in the config. The token is the dedicated, perimeter-scoped one with a role that has `artifacts: r` (§The Surveyor (a third role), end of Packaging). The same unit serves a Surveyor next to the Server on one VM (§Example: single VM), where it replaces the compose service.
+
+#### Example: Surveyor as a CronJob
+
+`surveyor --config <file> --once` evaluates the triggers once, runs if a task is due and exits. Each of these is a trap:
+
+- The config still needs `schedule.window`, and `--once` runs only when the window holds at launch: **the CronJob's schedule falls inside the window**. Use a window as wide as the CronJob needs; `00:00` to `23:59` is the widest the loader accepts (equal start and end is refused), and a launch in the last minute does nothing and exits 0.
+- Nothing is kept on local disk and the budget is rebuilt from the KBs' logs, so a CronJob loses nothing between runs.
+- Two overlapping runs both run a due task (there is no lock), so `concurrencyPolicy` is `Forbid`.
+- The exit codes are 0 done, 1 runtime failure and 2 start error. The Job does not retry (`restartPolicy: Never`, `backoffLimit: 0`) and the next schedule is the retry. Bound a run with `activeDeadlineSeconds`.
+
+The chart renders each of these (`mode: cronjob`: `concurrencyPolicy: Forbid`, `restartPolicy: Never`, `backoffLimit: 0`, `--once`, `terminationGracePeriodSeconds` of 30 or more); the cron expression only decides when the process starts, and a tick outside the config's window or idle trigger runs nothing and exits 0. The window of the config, as an excerpt:
+
+```yaml
+schedule:
+  window: {start: "00:00", end: "23:59", timezone: UTC}
+```
+
+```yaml
+# Helm: deploy/helm/cartographer/ci/surveyor-scheduled-values.yaml
+surveyors:
+  - name: docs-night
+    mode: cronjob
+    schedule: "15 2 * * *"            # inside schedule.window
+    activeDeadlineSeconds: 14400
+    existingSecret: docs-night-env
+    config:
+      token_env: SURVEYOR_TOKEN
+      kbs: [kb-a]
+      schedule:
+        window: {start: "00:00", end: "23:59", timezone: UTC}
+```
+
+A systemd timer or any external scheduler has the same semantics: the launch time falls inside the window, runs must not overlap, and the next launch is the retry.
+
+#### Example: a derived image for exec recipes
+
+An exec recipe (§The Surveyor (a third role), Exec recipes) runs a lister the image does not carry. The reference lister of `examples/system-recipes/kubernetes/` needs Python 3 and `kubectl`, so the image is **derived** from the Surveyor one:
+
+```dockerfile
+FROM ghcr.io/beppetemp/cartographer-surveyor:latest
+USER root
+RUN apk add --no-cache python3
+# Pin the version and verify its checksum: a downloaded binary is not trusted by its name.
+ARG KUBECTL_VERSION=v1.31.0
+ARG KUBECTL_SHA256=<sha256 of that release's linux/amd64 kubectl>
+ADD https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl /usr/local/bin/kubectl
+RUN echo "${KUBECTL_SHA256}  /usr/local/bin/kubectl" | sha256sum -c - && chmod 0755 /usr/local/bin/kubectl
+COPY lister.py /opt/surveyor/lister.py
+USER cartographer
+```
+
+The image runs as the non-root `cartographer` user, so `apk` needs `USER root` and the last line switches back: a derived image keeps the non-root user. The entrypoint is inherited, so the derived image is run with flags only. At run time the kubeconfig of the dedicated read-only identity comes from a Secret mounted read-only, and `KUBECTL`, `KUBE_CONTEXT` and `KUBECONFIG` are set in the Surveyor's environment. With the chart, `surveyors[].image` points at the derived image (`ci/surveyor-exec-values.yaml`); the temporary directory is the entry's `emptyDir` already. The identity rules (a ServiceAccount bound to the `view` role, which does not include Secrets) are in §The Surveyor (a third role), Exec recipes, and in [surveyor-recipes](surveyor-recipes.md).
+
+### Prompt tasks
+
+A task of `kind: prompt` (D1374) is a recurring chore of the operator's own that no shipped kind covers: a
+weekly digest of what changed, a monthly check that every runbook names a live owner. Its instructions are a
+file the operator wrote; the model has only the MCP tools the entry lists, and there is no shell and no code
+execution (code the Surveyor runs is a different mechanism). It runs inside the window, idle trigger, budget and
+priority order of every other task.
+
+| Option | Meaning |
+|---|---|
+| `name` | Required, `[a-z0-9-]{1,40}`, unique among the tasks, never containing `kb-doctor`; written into the task's log entries and commit reasons |
+| `model` | Required, a profile whose `run_tokens` is at least 8 000 (a task needs a grant of 8 000 tokens to start) |
+| `instructions_file` | Required, a relative path inside the directory of the `--config` file; at most 16 KiB of UTF-8 |
+| `tools` | Required, non-empty, a subset of the Surveyor's default allowlist plus `kb_review` and `kb_repair`, and a task with `kb_repair` can run any repair, removals and `junk_file` included (the `doctor` task's limits do not apply to it); a denied tool (`artifact_*`, `concept_delete`, ...) is a load error and nothing is implicit: list the read tools the task needs too |
+| `every` | Required, a Go duration of at least `1h` (`168h` is a week; no `d` or `w` units) |
+| `kbs` | Optional, a non-empty subset of the perimeter's `kbs`; omitted means all of them |
+
+**Where the instructions live.** In the config directory, shipped with the config: a ConfigMap with both keys in
+Kubernetes (a relative symlink inside the directory, which is how a ConfigMap volume exposes files, works; one that
+leaves it is refused), a read-only bind mount in compose. The file is read once at start, so a change needs a
+restart. It is never read from a KB, and its text appears in no log line, error or report.
+
+**Cadence.** After a run that reached the model the Surveyor files one marker, `task=<name> at=<RFC 3339>
+day=<date> stopped=done|steps|budget|error|shutdown writes=<n>`, on the log path `surveyor/<perimeter>/task/<name>`
+(read it with `log_tail`). The task is due on a KB when none exists or `every` has elapsed since the newest, so a
+skipped period is not replayed: the next due time follows the actual last run. A due task whose profile has less than
+8 000 tokens of grant waits and stays due. Renaming the task or the perimeter starts a new marker path, so it runs once
+more at once. Two replicas that find the task due together both run it (there is no lock; the bound is `replicas x
+grant`): write instructions that begin by checking whether this period's work exists.
+
+**What a task writes.** Every commit carries `Reason: prompt task <name>[: <the model's reason>]`, set by the Surveyor,
+so `git log --grep 'prompt task <name>'` finds a pass and each commit reverts alone. The task's own `log_append`
+lines are filed under `task/<name>` whatever path the model passes, and an entry with a line starting `## ` or the text
+`kb-doctor` is refused, so a model can never forge a `surveyor/` budget or cadence entry. A task that lists
+`concept_write` can overwrite any page its token can write: the fences are the `tools` list, the token's scopes,
+`if_match` in the instructions, and the revertible commits.
+
+Example: a weekly digest of `kb-a`.
+
+```yaml
+name: perimeter-a
+server_url: https://wiki.example.com/mcp
+token_env: SURVEYOR_TOKEN
+kbs: [kb-a, kb-b]
+schedule:
+  window: {start: "02:00", end: "05:00", timezone: Europe/Rome}
+models:
+  - name: cloud-small
+    provider: anthropic
+    model: model-x
+    api_key_env: MODEL_API_KEY
+    tier: small
+    budget: {daily_tokens: 300000, run_tokens: 120000}
+tasks:
+  - kind: prompt
+    name: weekly-digest
+    model: cloud-small
+    instructions_file: prompts/weekly-digest.md
+    tools: [changes_since, concept_list, concept_read, concept_write]
+    every: 168h
+    kbs: [kb-a]
+```
+
+and `prompts/weekly-digest.md`, whose steps are in this order because they make a double run harmless:
+
+```markdown
+You write the weekly digest of this knowledge base. Follow these steps in order.
+
+1. Call `concept_list` with `scope: digests`. If the newest id's date prefix is within the last
+   6 days of today's date (given above), stop and write nothing: this period's digest exists.
+2. Call `changes_since` with `since: 7d`.
+3. Call `concept_read` on the few pages that changed most, so the digest says what changed and
+   not only that it did.
+4. Call `concept_write` once, creating the page `digests/<today>-weekly-digest` (ids are
+   `YYYY-MM-DD-slug`), with the sections "What changed", "New pages" and "Open items". Every line
+   links the concept it talks about. Never edit an existing page.
+5. Answer in one sentence.
+```
+
+The journal `digests` must exist (created once with `map_create`, which the task does not list) and allow the type
+the page uses. The first window after the start runs the task; `git log` shows `Reason: prompt task weekly-digest: ...`,
+`log_tail` on `surveyor/perimeter-a/task/weekly-digest` shows one `task=weekly-digest at=... stopped=done writes=1` line,
+the next seven days of polls do nothing for `kb-a`, and `kb-b` is never touched.
+
+A prompt task is also how to go past what the `doctor` task covers without new code. `examples/prompt-tasks/kb-scout.md`
+reads the items no doctor rule takes (`concept_oversize`, `map_misfit`, `glossary_gap`, `read_hotspot`) and files the three
+most useful as proposals, in a map `gaps` that must exist:
+
+```yaml
+  - kind: prompt
+    name: kb-scout
+    model: cloud-small
+    instructions_file: prompts/kb-scout.md
+    tools: [work_list, kb_review, concept_read, concept_write]
+    every: 168h
+```
 
 ### HTTP routing (D84)
 
@@ -570,8 +1197,8 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   detail panel as an artifact); a retired concept (deprecated, superseded or archived, D820) is drawn on Activity's timeline with its status
   and where it went and why, read from the root `log.md` (D1146: the Retired tab is gone, and
   `panel=retired` links land on Activity); an archive map wears an "Archive" badge in the rail; the command palette's "Include archived" toggle adds archived pages to a search;
-  pending sources are Work's "to ingest" column. Settings has the tabs Client, Server and
-  Knowledge Base (no counts on them), and opens on the Client one: the client's own settings first, as the
+  pending sources are Work's "to ingest" column. Settings has the tabs Client, Server,
+  Knowledge Base and Surveyor (no counts on them; the Surveyor tab shows each reported Surveyor perimeter's typed values (no YAML pane), or the template of every key at its default while none has reported, and one tab per perimeter when several are visible), and opens on the Client one: the client's own settings first, as the
   viewer's last `sync` reported them (its agents, the workspaces with their isolation), then the KBs as a row
   of pills (the active one picked) and, for the picked one, the client keys that concern it: which of the machine's agents receive it and where (everywhere, or only the folders
   bound to it, through the bridge or over HTTP) and where its placeholders resolve on that machine. Each key
@@ -840,10 +1467,17 @@ closed concept listed only for them); any other status a map's `open_statuses` n
 kind) and age (stale ones flagged), expands to its items, and opens the concept on the atlas; a search opens
 nothing. It is read-only: work changes through the agents' write tools. The pending sources, `kb_status` and the
 review list are each optional: without one (a caller that cannot see the whole KB has no `kb_status`) the board
-shows the rest.
+shows the rest. Above the board a strip lists, read-only, the live `cartographer surveyor` processes that declared the KB
+(perimeter and state, last run, one bar per model profile with `spent / limit` and its tier, when it was last seen,
+its next window; `GET /api/ui/v1/kbs/<kb>/Surveyors`), then the Sources whose last poll failed (title, shape, the error,
+when it was checked, a link to the concept; `.../feeds`, keyed on the `feed_error` field). Nothing renders when both
+are empty, and a failing or `404` route leaves the page as it was.
 
 The **Health** panel (D338, D365, D947, D948) shows what is wrong with the pages and nothing else: the lint's
-findings. What a person has to answer or decide is in Work. Two buttons in the header switch its views, *Issues*
+findings. What a person has to answer or decide is in Work. One read-only line under the lede, on *Issues* only, says
+which Surveyor maintains the KB and when a doctor session last closed ("Maintained by team-a (2 replicas, running) · last doctor
+2026-01-01 · next due 2026-01-15"); it is upkeep, not a finding, and renders only while a live Surveyor names the KB and
+the caller sees the whole KB. Two buttons in the header switch its views, *Issues*
 and *What it checks*.
 
 *Issues*: the title counts the kinds of issue found ("Cartographer found N kinds
@@ -1027,7 +1661,8 @@ the field (#680). Any other value is taken literally.
 `artifact_write`, `artifact_delete`, `artifact_move`, `skill_install` and the `/api/usage` report, which change what
 every client of the KB syncs and executes. `log_append`, `source_register`, `concept_*` and the reads stay allowed.
 A second rule of the same token without the key restores the write (rules are unioned); `artifacts: rw` with
-`access: r` is refused at startup.
+`access: r` is refused at startup. The Surveyor token recipe is a role like `automation-a` above: one role per
+perimeter, `rw` on the perimeter's KBs, `artifacts: r`, no other KB.
 
 Rollout notes:
 
@@ -1122,7 +1757,7 @@ unchanged. A server running as the container image reports it only once the imag
 
 A KB's `capabilities` on `/health` are computed when the server starts, so a `secrets` entry's `hint` (D1191) can be stale there; `kb_status` computes it on each call.
 
-**Probes.** `livenessProbe` (and a `startupProbe`) on `/health`: public, `200` whenever the process answers. Auth off (the local service, a trusted network): `readinessProbe` as an `httpGet` on `/ready`. Auth on, the K8s example above: `/ready` needs a bearer token, so give the probe one. Any valid token is enough, because the probe reads the status code and not the body; use a dedicated token with a read scope on one KB (`CARTOGRAPHER_TOKENS` entry `<probe-token>|kb:<name>:r`), kept in a Secret and passed to the container as an env var, and run the request from an `exec` probe so it stays out of the pod spec:
+**Probes.** `livenessProbe` (and a `startupProbe`) on `/health`: public, `200` whenever the process answers; `serve` binds first and answers `/health` within a second, while the KBs clone and index, so liveness never fires during a cold clone and the startup probe is a safety net rather than a requirement. Auth off (the local service, a trusted network): `readinessProbe` as an `httpGet` on `/ready`. Auth on, the K8s example above: `/ready` needs a bearer token, and `/health` is `200` while the server is not ready, so an anonymous `httpGet` cannot tell. The chart's readiness probe is therefore an `exec` that reads the body of `/health`, which carries `ready` for an anonymous caller (the same `readiness()` as `/ready`; it relies on `wget` in the image, which `test/smoke/image.sh` pins), with a five-minute startup allowance. To use the documented token route instead, set `server.probes.readiness.tokenSecret`: any valid token is enough, because the probe reads the status code and not the body; use a dedicated token with a read scope on one KB (`CARTOGRAPHER_TOKENS` entry `<probe-token>|kb:<name>:r`), kept in a Secret and passed to the container as an env var, and run the request from an `exec` probe so it stays out of the pod spec:
 
 ```yaml
 env:
@@ -1134,7 +1769,7 @@ readinessProbe:
     command: ["sh", "-c", "wget -q -O /dev/null --header \"Authorization: Bearer $PROBE_TOKEN\" http://127.0.0.1:39273/ready"]
 ```
 
-An `httpGet` probe with `httpHeaders: [{name: Authorization, value: "Bearer …"}]` works too, with the token written in the pod spec. Without a token, `/health` carries `ready` for a caller that can read the body, but an `httpGet` probe cannot, since `/health` is `200` while the server is not ready.
+An `httpGet` probe with `httpHeaders: [{name: Authorization, value: "Bearer …"}]` works too, with the token written in the pod spec. `terminationGracePeriodSeconds` must cover the shutdown: an HTTP drain of at most 10 s, then each KB's pending push, one after the other, at most 10 s each, so 10 s plus 10 s per KB in the worst case (the chart defaults to 60).
 
 Two things make a server not ready, and both are reported by either endpoint:
 
@@ -1195,7 +1830,7 @@ backup before discarding any state.
 - **Native local upgrade** (Homebrew Cask or `install.sh update`): self-repairing (D121). Either path replaces the binary behind a stable path, but cannot replace the image of a process already running it. `install.sh update` calls `cartographer upgrade-repair` on the new binary right away. The Cask cannot: its install steps run in Homebrew's sandbox (temporary `HOME`, no network), so after `brew upgrade` the old process keeps serving until the next `cartographer sync` — the session-start hook, the scheduled timer or a manual run — performs the same replacement before syncing (D199). It acts only on a running service whose program is that same binary, on the loopback endpoint the client syncs against, reporting a different version; a failed replacement is a warning and the sync proceeds. `upgrade-repair` stays available to do it immediately. It gracefully replaces a **running** service (`SIGTERM` — on Windows the named shutdown event plus an explicit relaunch of the task, since a Scheduled Task supervises nothing, D217 — so in-flight requests drain and pending pushes flush), waits until `/health` reports `status:"ok"` **and** the installed version, then reconciles the configured providers in place with the ordinary `cartographer sync` policy. Before signalling it compares the program the service definition runs (plist `ProgramArguments[0]`, unit `ExecStart`, task `Command`) with the running executable: when they differ (an `install.sh` copy next to a Cask), a `SIGTERM` would bring the old binary back, so it re-renders the whole definition for the running binary (what `service install` writes: hand edits to the definition are replaced, and it says so), reloads the job, says which binary it switched from and to, and waits up to 30 s for `/health` to report the installed version instead of replacing again. It refuses, with exit `2` and the manual `service install` command, when the running binary is under the temp directory, a go-build cache or a version-pinned Caskroom path; a definition it cannot read is a warning, not a silent skip; the lazy repair before `sync` never switches, it skips a service that runs another binary. It is idempotent: if `/health` already advertises the installed version it skips the restart and only syncs. A deliberately stopped or uninstalled service stays that way, and a client pointed at a non-loopback (or different local) endpoint has its provider sync skipped rather than run against a possibly remote server. **Still needed afterwards:** restart already-open provider sessions, which is what reopens the MCP connection and reloads the repaired configuration.
 - **When the repair does not complete**: exit `1` means the binary and the service are fine but provider sync is pending — the underlying error is printed and `cartographer sync` is the retry. Exit `2` means a running native service could not be replaced and verified; no provider sync was attempted, and `install.sh update` fails visibly. Investigate with `cartographer service status` and the server log, then retry `cartographer upgrade-repair`. `cartographer status` reports any residual skew and points at the same command.
 - **Knowing that one exists** ([D254](decisions/D254-agents-are-told-when-cartographer-is-out-of-date.md)): on a client, the session-start hook runs `cartographer update notice`, which tells the agent — and through it the user — when a newer release exists and names the upgrade command for the channel the binary came from; `status` and `doctor` report the same from the cache. A server reports its own staleness as `latest_version` in `/health` and `kb_status`, versions only, for clients without session hooks and for remote operators; the generated instructions block tells the agent to relay a `kb_status` `latest_version` to the user once, with the upgrade command `cartographer update check` prints. Both `update notice` and the server's check re-ask GitHub, inside the 24 h TTL, when the cached latest equals the running version, so a release published just after a check is not hidden for a day ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)). The Atlas adds the history behind the version, with each release's changelog and the same upgrade command, fetched by the server on demand under the same switch ([D862](decisions/D862-release-history-in-the-atlas.md)).
-- **Kubernetes and remote servers**: unchanged. Bump the image tag; connected clients surface the version skew (D95) while the rollout catches up. The step ends on a **verified image**, not on a rollout ([D221](decisions/D221-the-kubernetes-upgrade-step-ends-on-a-verified-image.md)): read the Deployment's container image back and check it is the new tag *before* waiting for rollout, because until the manifest is actually applied — here by Flux on its own reconcile interval, see §CI/CD below — `kubectl rollout status` returns success immediately about the old ReplicaSet. `upgrade-repair` is for native local installations only — it is the loopback case by construction. The client-side counterpart is [D142](decisions/D142-reconnect-rebuild-a-client-configuration-never.md): each provider's lockfile entry records the `server_version` its state was materialized against, so the next `cartographer sync` prints one line saying the server changed, then syncs normally; `status` and `doctor` are the commands that recommend `cartographer reconnect` ([D220](decisions/D220-sync-states-the-server-change-without-recommending.md)). `sync` repairs in place and is the right tool for almost everything; `reconnect` (a full disconnect + connect, preserving every setting) is for what an incremental sync structurally cannot see — files and registrations an *older Cartographer version* wrote under names that are not in the current managed set. It is never automatic, and after it, already-open provider sessions still have to be restarted. The verification step that closes the loop is `cartographer doctor` ([D143](decisions/D143-doctor-a-separate-command-that-diagnoses-and-never.md)): read-only, exit 0/1/2, it reports what is left over or missing on the client — residual MCP entries for unmounted KBs, a duplicated instructions block, a hook registered twice, a v1 lockfile — and names the command that fixes each one.
+- **Kubernetes and remote servers**: unchanged. Bump the image tag, or with the Helm chart (§Example: K8s pod) the chart version: the image tag is the chart's `appVersion`, so an upgrade is `helm upgrade <release> oci://ghcr.io/beppetemp/charts/cartographer --version <version>`, and the Surveyors of the release follow the same tag. The rule below holds unchanged: run by an operator `helm upgrade` applies at once, but under a GitOps controller the chart version (or the values) is merged and applied later, so read the Deployment's image back before trusting `kubectl rollout status`. Connected clients surface the version skew (D95) while the rollout catches up. The step ends on a **verified image**, not on a rollout ([D221](decisions/D221-the-kubernetes-upgrade-step-ends-on-a-verified-image.md)): read the Deployment's container image back and check it is the new tag *before* waiting for rollout, because until the manifest is actually applied — here by Flux on its own reconcile interval, see §CI/CD below — `kubectl rollout status` returns success immediately about the old ReplicaSet. `upgrade-repair` is for native local installations only — it is the loopback case by construction. The client-side counterpart is [D142](decisions/D142-reconnect-rebuild-a-client-configuration-never.md): each provider's lockfile entry records the `server_version` its state was materialized against, so the next `cartographer sync` prints one line saying the server changed, then syncs normally; `status` and `doctor` are the commands that recommend `cartographer reconnect` ([D220](decisions/D220-sync-states-the-server-change-without-recommending.md)). `sync` repairs in place and is the right tool for almost everything; `reconnect` (a full disconnect + connect, preserving every setting) is for what an incremental sync structurally cannot see — files and registrations an *older Cartographer version* wrote under names that are not in the current managed set. It is never automatic, and after it, already-open provider sessions still have to be restarted. The verification step that closes the loop is `cartographer doctor` ([D143](decisions/D143-doctor-a-separate-command-that-diagnoses-and-never.md)): read-only, exit 0/1/2, it reports what is left over or missing on the client — residual MCP entries for unmounted KBs, a duplicated instructions block, a hook registered twice, a v1 lockfile — and names the command that fixes each one.
 - **KB format changes**: follow the release notes and back up the git remote
   before a migration. There is no general automatic schema migration engine.
 - **Repo growth**: keep large binary/source archives outside the KB and link
@@ -1205,14 +1840,14 @@ backup before discarding any state.
 
 The GitHub Actions workflows (`.github/workflows/`):
 
-- **`ci.yml`** — on every PR and push to `main`: the `test` job (not run on a maintainer's PR, whose `make signoff` status the `gate` job checks, D1610; `make gate`, then `make smoke-http`, `make smoke`, `make e2e` and `make test-install`; Go from `go.mod`, git identity configured for git-backed tests) `test-windows` (the tests in shards plus `install.ps1`, on Windows runners, D785) `web` (a `video` and a `browser` leg) and `docker` (the Dockerfile's `test` stage, `test/smoke/image.sh` on the built image and `make demo-smoke` on top of it, D995). `smoke-http` and `e2e` run with no git identity (they isolate their own git config), so a host without one is exercised; the Go tests get the identity above. A `test-macos` job (`macos-latest`: `test/macos/` against the real launchd, `install.sh` and the Cask GoReleaser renders, D997) runs on the release PR, on a PR touching its inputs, on `main` and on `workflow_dispatch`, not as a required check (`main-status` watches it). A `test-linux-nosystemd` job (Alpine and Debian containers with no init: `setup` and the service verbs on the cron backend against a real cron daemon, `test/linux/`, D1682) runs on `main` and on `workflow_dispatch`, never on a PR, and is not a required check either. A `forge` job (Forgejo and GitLab CE in containers, `test/forge/run.sh`, D996) runs on the release PR, on a PR touching `test/forge/` and on `workflow_dispatch` (the workflow has that trigger), never on `main` and not as a required check. On a PR a `changes` job (`scripts/ci-filters.sh`, D994) runs `test-windows`, `web`, `demo-edge` (the demo Worker tests and Terraform check) and `docker` only when the PR touches their paths, and every job on the release-please PR (D255, D672); on `main` they always run, and a `main-status` job keeps one `ci-red` issue open while `main` is red. `gate` (the one required CI job: it collects `test` and the web legs, or looks for the maintainer's `signoff` status, `scripts/ci-gate.sh`), `pr-title` and `plan-gate` are the required status checks on `main`'s ruleset (`docker` is not: the release PR and the release candidate run it, and `main-status` watches it). Runs on `main` coalesce (one running, the newest pending); `test-windows` and `web` only collect their legs on `main`.
+- **`ci.yml`** — on every PR and push to `main`: the `test` job (not run on a maintainer's PR, whose `make signoff` status the `gate` job checks, D1610; `make gate`, then `make smoke-http`, `make smoke`, `make e2e` and `make test-install`; Go from `go.mod`, git identity configured for git-backed tests) `test-windows` (the tests in shards plus `install.ps1`, on Windows runners, D785) `web` (a `video` and a `browser` leg) and `docker` (the Dockerfile's `test` stage, `test/smoke/image.sh` on the built server image, `test/smoke/surveyor-image.sh` on the `surveyor` stage and `make demo-smoke` on top of the server image, D995, D1440). `smoke-http` and `e2e` run with no git identity (they isolate their own git config), so a host without one is exercised; the Go tests get the identity above. A `test-macos` job (`macos-latest`: `test/macos/` against the real launchd, `install.sh` and the Cask GoReleaser renders, D997) runs on the release PR, on a PR touching its inputs, on `main` and on `workflow_dispatch`, not as a required check (`main-status` watches it). A `test-linux-nosystemd` job (Alpine and Debian containers with no init: `setup` and the service verbs on the cron backend against a real cron daemon, `test/linux/`, D1682) runs on `main` and on `workflow_dispatch`, never on a PR, and is not a required check either. A `forge` job (Forgejo and GitLab CE in containers, `test/forge/run.sh`, D996) runs on the release PR, on a PR touching `test/forge/` and on `workflow_dispatch` (the workflow has that trigger), never on `main` and not as a required check. A `helm` job (`scripts/install-helm.sh` installs the pinned Helm, then `make helm-check`: `helm lint --strict` and `helm template` over `deploy/helm/cartographer/ci/` and the assertions of `test/helm/run.sh`, D1441) is kept out of `make gate`; on a PR it runs only when the PR touches the chart, its tests, the install script, the Makefile, `ci.yml` or the filter script, on `main` always, and it is not a required check (`main-status` watches it). On a PR a `changes` job (`scripts/ci-filters.sh`, D994) runs `test-windows`, `web`, `demo-edge` (the demo Worker tests and Terraform check), `helm` and `docker` only when the PR touches their paths, and every job on the release-please PR (D255, D672); on `main` they always run, and a `main-status` job keeps one `ci-red` issue open while `main` is red. `gate` (the one required CI job: it collects `test` and the web legs, or looks for the maintainer's `signoff` status, `scripts/ci-gate.sh`), `pr-title` and `plan-gate` are the required status checks on `main`'s ruleset (`docker` is not: the release PR and the release candidate run it, and `main-status` watches it). Runs on `main` coalesce (one running, the newest pending); `test-windows` and `web` only collect their legs on `main`.
 - **`pr-title.yml`** — on a PR opened, edited, pushed to or reopened: the required `pr-title` check, lint of what release-please will read from the squash commit (D865). The title must be a conventional commit whose scope, when it has one, is a canonical one (`internal/changelog.CanonicalScopes()`; a test compares the list with the workflow's), and no line of the body that starts like a conventional header (`feat(mcp): …`) may be wrapped onto the next line, because release-please keeps only the first physical line of such an entry (`go run ./internal/changelog/gen -check-body`; the body reaches it through the environment, never interpolated). It is a workflow of its own, not a job of `ci.yml`, because it must re-run on `edited` and that trigger in `ci.yml` would re-run the whole suite on every PR edit. The ruleset requires the job name, not the workflow.
 - **`privacy.yml`** — on every push, PR (opened, edited, reopened: a push to a PR is scanned by the `push` run), issue and comment: scans the published commits and text for private names, held only as HMAC digests in the `PRIVACY_GUARD_DIGESTS`/`PRIVACY_GUARD_KEY` secrets; a hit fails the run and redacts the text (D259). Skipped on forks; issue and comment text is scanned only when its author or editor has write access.
 - **`release-please.yml`** — on every push to `main`: maintains the **release PR** (semver bump computed from conventional commits + `CHANGELOG.md`). On merge, it creates the `vX.Y.Z` tag and the GitHub Release **as a draft** (`"draft": true` with `"force-tag-creation": true` in `release-please-config.json`, so the tag exists and starts `release.yml`) with the notes (the merged PR body between its `---` lines); `release.yml`'s `publish` job un-drafts it last, and the update check skips a draft (D1350). Its `release-pr` job runs after it on every push to `main`, on the open release PR's branch: it regenerates `docs/decisions.md` (D328) and groups the newest `CHANGELOG.md` section by area (`make changelog-areas`, `internal/changelog`, D865) — one `### <Area>` heading per area with its Features and Bug Fixes, the scope prefix dropped, `dev`/`demo`/`deploy`/`ci` entries left out — then pushes one commit for both files when either changed and rewrites the PR body with the same grouping when it differs, so the release page reads like the changelog. The same pass drops the entries release-please writes twice (#1670): within a section, an entry whose commit hash equals another's and whose text is identical to it or a strict prefix of it (the truncated half of a wrapped body line) keeps the longer line, and an entry with the same text as an earlier one (two commits of one PR) is dropped. The step that runs the branch's code (`go run ./internal/changelog/gen`) holds no secret: the PAT is set on `origin` for the push only and taken off again, and the other steps that hold it run `gh` only. The limit: a step that runs the branch's code can still write `$GITHUB_ENV` or `$GITHUB_PATH` for the steps after it, so those PAT steps are as sound as the branch they follow. Both steps are idempotent because release-please rewrites its branch and body on every push. Uses the `RELEASE_PLEASE_TOKEN` PAT (PRs opened with the default `GITHUB_TOKEN` do not trigger `pull_request` workflows).
 - **`plan-gate.yml`** — on a PR (`pull_request_target`, so the workflow and `pr-triage.sh` come from the base branch) the required `plan-gate` check, `pr-triage.sh --gate`, the size rule of `CONTRIBUTING.md` §Pull requests (D955). Read-only: it sets nothing on the PR, and no milestone is read or written (D1453). The PR's file list is parsed strictly: one tab-separated row per file with control characters in the name escaped (`gh api --jq` with `@tsv`), and a size that is not all digits counts for nothing and never reaches shell arithmetic, so a file name with control characters or a non-numeric size field cannot change the sums or the review tier. The role follows the repository permission (D955): an `author_association` of OWNER is a maintainer, a MEMBER or COLLABORATOR only when `collaborators/<login>/permission` says admin, maintain or write (a read or triage user, or an unreadable answer, is a contributor, whose `Size exception:` body line is ignored).
-- **`release-train.yml`** — the release on demand (D1384): `workflow_dispatch` only, no schedule, with `action=rc|release|discard`. The `train` job, which holds the PAT, runs `gh` only and no `uses:`; the `freeze` and `discard` jobs check out `main` (SHA-pinned, no credentials kept) and never see it. **`rc`** dispatches `preview.yml` with `v<next>-rc.<YYYYMMDD>` (`<next>` read from the release PR title, date in UTC) and comments the tag, the image and the pre-release URL on the release PR; the candidate opens the freeze. **`release`** merges the release PR (`gh pr merge --squash --match-head-commit`, with `RELEASE_PLEASE_TOKEN`: a merge by `GITHUB_TOKEN` triggers no `push` workflow, so release-please would never tag) only if the PR comes from this repository, the newest successful release candidate build is of the head of `main`, `rc-ok` was added after that build by a maintainer, no `feat`, `perf`, `refactor` or breaking commit landed on `main` since the commit of the **oldest** candidate of the pending version (`scripts/freeze-open.sh --candidate`; the newest is always the head of `main`, so measuring from it would never block), every required check passed, and the security gate is clear (no open Dependabot or code scanning alert, no draft advisory with an open PR in its private fork, read with the `SECURITY_GATE_TOKEN` read-only PAT; a missing token or a failed call is not clear, and the skip comment never says which check failed); otherwise it comments why and the release is dispatched again. **`discard`** deletes the candidates of the pending version with their tags (`contents: write`, `github.token`), removes `rc-ok` and comments on the release PR; the freeze closes. `internal/repodocs/release_train_test.go` pins the absence of a schedule, the actions, the freeze look-back and the merge token. The flow is `CONTRIBUTING.md` §Releases.
-- **`release.yml`** — on the `v*` tag, never one with a pre-release suffix such as a release candidate's (`!v*-*`, D1192): **GoReleaser** (`.goreleaser.yaml`) builds the `darwin/linux/windows × amd64/arm64` binaries plus `linux/arm` (GOARM=7) (`-X main.version=v<semver>`, read by `cartographer version`), attaches them to the existing draft release (`release.draft: true` and `use_existing_draft: true`, and a step after it fails the job if the release is no longer exactly one draft, D1350) with one SPDX SBOM per platform binary (`sboms:`, syft installed at a pinned version and sha256) and `sha256sums.txt` (`release.mode: keep-existing` — the release and its notes belong to release-please), generates the Homebrew cask (`skip_upload: true`, kept as the `cask` artifact; macOS only); in parallel, buildx publishes the multi-arch image `ghcr.io/beppetemp/cartographer:<tag>` with max-mode provenance and an SBOM. Both jobs then attest what they published with `actions/attest-build-provenance` (keyless, Sigstore, through the job's OIDC identity: `id-token: write` and `attestations: write`, no signing secret) — the `goreleaser` job one attestation over every asset listed in `sha256sums.txt` and one over `sha256sums.txt` itself, the `docker` job one over the image digest, pushed to the registry (D1022; see §Verifying a release). After the release is published, the `mcp-registry` job (`needs: publish`) publishes the server's metadata to the official **MCP Registry** (`io.github.beppetemp/cartographer`, OCI package pointing at the ghcr image): `mcp-publisher login github-oidc` (no long-lived secret) + `publish` with `server.json` (repo root; `version` and image tag are stamped by the job). The entry declares the stdio package as `docker run -i --rm --mount type=bind,src=<kb folder>,dst=/kb <image> serve --kb /kb`: the image's entrypoint is `cartographer` with no `CMD`, which alone prints the usage and exits 0 (#1438), so the arguments and the bind mount of a required, client-asked KB folder (a `kb_path` variable; a folder that is not a KB makes `serve` exit with an error on stderr) are part of the entry, and the job's `jq` rewrites only `version` and `packages[0].identifier`; the folder must be writable by the image's non-root `cartographer` user. `internal/repodocs/server_json_test.go` pins the arguments. Ownership is verified via the `io.modelcontextprotocol.server.name` LABEL baked into the image. A final `prerelease-flag` job marks a `v0.*` release as a GitHub **pre-release** and reads the flag back, failing the release if it is not set (D82, D211): the `"prerelease": true` key in `release-please-config.json` does **not** set it — this job does. Because a pre-release is invisible to the `releases/latest` API endpoint, `install.sh` resolves the newest tag through `/releases?per_page=10` instead, skipping every tag with a semver pre-release suffix (a release candidate), never by the flag. A `publish` job (`needs: goreleaser, prerelease-flag, docker`) then un-drafts the release (`draft=false` through the releases API, by id: the get-release-by-tag endpoint does not return drafts) and reads `draft` and `prerelease` back, failing if the release is still a draft or lost the pre-release flag of a 0.x tag (D1350): until it runs the release is invisible to the update check, `install.sh` and `install.ps1`, so a red or retried job leaves a draft, never an announced version no channel can install. Two jobs with `needs: publish` then move the channels that point at "the newest": `cask` pushes the generated cask to `BeppeTemp/homebrew-tap` (`HOMEBREW_TAP_TOKEN` PAT), and `latest` retags `:latest` from `:<tag>` with `docker buildx imagetools create` (same digest, so the D1022 attestation holds). A failure of either after `publish` leaves the release public and that channel one version behind: re-run the job (D1350 amended). A last `candidate-cleanup` job (`needs: goreleaser`) deletes the pre-releases `v<X.Y.Z>-rc.<YYYYMMDD>` of the version shipped, with their tags; candidates of other versions stay, and a failed deletion is a warning, never a failed release.
-- **`preview.yml`** — dispatched by `release-train.yml` or by hand with a pre-release tag (`vX.Y.Z-<suffix>`, anything else is refused): the release candidate, so an unreleased `main` can run on a real deployment and as native service and client before the release PR is merged (D303, D1192). The `docker` job builds the same multi-arch image as `release.yml` and pushes **only** `ghcr.io/beppetemp/cartographer:<tag>` (its layer cache is scoped to the run); before the login and the push it builds the amd64 image, loads it and runs `test/smoke/image.sh` on it (D995): a red smoke fails the run, so nothing is published and `release-train.yml` names the failed build in its skip comment. The `binaries` job (`needs: docker`, the only job with `contents: write`) tags the commit locally, runs GoReleaser in release mode with `--skip=publish,announce,sbom,homebrew` (the same archives and `sha256sums.txt` as a release, no tap push, no SBOMs), checks that the linux/amd64 binary prints the tag, and publishes a GitHub **pre-release** `<tag>` with `gh release create --prerelease --latest=false` and `GITHUB_TOKEN` (whose tag starts no `push` workflow); a same-day rebuild replaces that day's pre-release, other candidates are kept until `release.yml` deletes them. No `latest` image, cask or MCP Registry entry, and GitHub's latest release does not move. It also calls `film.yml` as a blocking job (below). `gh workflow run preview.yml -f tag=v0.18.0-rc.1`; `internal/repodocs/release_train_test.go` pins the job order, the flags and the absence of every stable secret.
+- **`release-train.yml`** — the release on demand (D1384): `workflow_dispatch` only, no schedule, with `action=rc|release|discard`. The `train` job, which holds the PAT, runs `gh` only and no `uses:`; the `freeze` and `discard` jobs check out `main` (SHA-pinned, no credentials kept) and never see it. **`rc`** dispatches `preview.yml` with `v<next>-rc.<YYYYMMDD>` (`<next>` read from the release PR title, date in UTC) and comments the tag, the image and the pre-release URL on the release PR; the candidate opens the freeze. **`release`** merges the release PR (`gh pr merge --squash --match-head-commit`, with `RELEASE_PLEASE_TOKEN`: a merge by `GITHUB_TOKEN` triggers no `push` workflow, so release-please would never tag) only if the PR comes from this repository, the newest successful release candidate build is of the head of `main`, `rc-ok` was added after that build by a maintainer, no `feat`, `perf`, `refactor` or breaking commit landed on `main` since the commit of the **oldest** candidate of the pending version (`scripts/freeze-open.sh --candidate`; the newest is always the head of `main`, so measuring from it would never block), every required check passed, and the security gate is clear (no open Dependabot or code scanning alert, no draft advisory with an open PR in its private fork, read with the `SECURITY_GATE_TOKEN` read-only PAT; a missing token or a failed call is not clear; the skip comment never says which check failed, and the log names a failed read by number (1 Dependabot, 2 code scanning, 3 advisories and their private forks' PRs, one number so the log never tells a private fork exists) and HTTP status, never by content, so an expired or under-scoped PAT is told from an open alert, #1811); otherwise it comments why and the release is dispatched again. **`discard`** deletes the candidates of the pending version with their tags (`contents: write`, `github.token`), removes `rc-ok` and comments on the release PR; the freeze closes. `internal/repodocs/release_train_test.go` pins the absence of a schedule, the actions, the freeze look-back and the merge token. The flow is `CONTRIBUTING.md` §Releases.
+- **`release.yml`** — on the `v*` tag, never one with a pre-release suffix such as a release candidate's (`!v*-*`, D1192): **GoReleaser** (`.goreleaser.yaml`) builds the `darwin/linux/windows × amd64/arm64` binaries plus `linux/arm` (GOARM=7) (`-X main.version=v<semver>`, read by `cartographer version`), attaches them to the existing draft release (`release.draft: true` and `use_existing_draft: true`, and a step after it fails the job if the release is no longer exactly one draft, D1350) with one SPDX SBOM per platform binary (`sboms:`, syft installed at a pinned version and sha256) and `sha256sums.txt` (`release.mode: keep-existing` — the release and its notes belong to release-please), generates the Homebrew cask (`skip_upload: true`, kept as the `cask` artifact; macOS only); in parallel, buildx publishes the multi-arch server image `ghcr.io/beppetemp/cartographer:<tag>` and then the Surveyor image `ghcr.io/beppetemp/cartographer-surveyor:<tag>` (the `surveyor` target, D1440), both with max-mode provenance and an SBOM. Both jobs then attest what they published with `actions/attest-build-provenance` (keyless, Sigstore, through the job's OIDC identity: `id-token: write` and `attestations: write`, no signing secret) — the `goreleaser` job one attestation over every asset listed in `sha256sums.txt` and one over `sha256sums.txt` itself, the `docker` job one over each image's own digest, pushed to the registry (D1022; see §Verifying a release). After the release is published, the `mcp-registry` job (`needs: publish`) publishes the server's metadata to the official **MCP Registry** (`io.github.beppetemp/cartographer`, OCI package pointing at the ghcr image): `mcp-publisher login github-oidc` (no long-lived secret) + `publish` with `server.json` (repo root; `version` and image tag are stamped by the job). The entry declares the stdio package as `docker run -i --rm --mount type=bind,src=<kb folder>,dst=/kb <image> serve --kb /kb`: the image's entrypoint is `cartographer` with no `CMD`, which alone prints the usage and exits 0 (#1438), so the arguments and the bind mount of a required, client-asked KB folder (a `kb_path` variable; a folder that is not a KB makes `serve` exit with an error on stderr) are part of the entry, and the job's `jq` rewrites only `version` and `packages[0].identifier`; the folder must be writable by the image's non-root `cartographer` user. `internal/repodocs/server_json_test.go` pins the arguments. Ownership is verified via the `io.modelcontextprotocol.server.name` LABEL baked into the image. A final `prerelease-flag` job marks a `v0.*` release as a GitHub **pre-release** and reads the flag back, failing the release if it is not set (D82, D211): the `"prerelease": true` key in `release-please-config.json` does **not** set it — this job does. Because a pre-release is invisible to the `releases/latest` API endpoint, `install.sh` resolves the newest tag through `/releases?per_page=10` instead, skipping every tag with a semver pre-release suffix (a release candidate), never by the flag. A `chart` job (`needs: docker`: the chart never exists before the images it points to) runs `make helm-check`, packages `deploy/helm/cartographer` stamped from the tag (`helm package --version <semver> --app-version <tag>`: no commit, release-please does not touch `Chart.yaml`, as with `server.json`), pushes it to `oci://ghcr.io/beppetemp/charts` as `ghcr.io/beppetemp/charts/cartographer:<semver>`, reads the digest `helm push` prints back (a push that reports another reference or no digest fails) and attests it like the images (`push-to-registry: true`, D1441). A `publish` job (`needs: goreleaser, prerelease-flag, docker, chart`) then un-drafts the release (`draft=false` through the releases API, by id: the get-release-by-tag endpoint does not return drafts, with the release body set in the same call to the `## [<version>]` section of `CHANGELOG.md` at the tag, which `go run ./internal/changelog/gen -file CHANGELOG.md -section <version>` extracts in earlier steps that hold no secret; a body over 125,000 characters fails the job before un-drafting, and the grouped changelog, not release-please's ungrouped notes file, is what the release page shows, D1832) and reads `draft` and `prerelease` back, failing if the release is still a draft or lost the pre-release flag of a 0.x tag (D1350): until it runs the release is invisible to the update check, `install.sh` and `install.ps1`, so a red or retried job leaves a draft, never an announced version no channel can install. Two jobs with `needs: publish` then move the channels that point at "the newest": `cask` pushes the generated cask to `BeppeTemp/homebrew-tap` (`HOMEBREW_TAP_TOKEN` PAT), and `latest` retags `:latest` from `:<tag>` on both images with `docker buildx imagetools create` (same digest, so the D1022 attestation holds). A failure of either after `publish` leaves the release public and that channel one version behind: re-run the job (D1350 amended). A last `candidate-cleanup` job (`needs: goreleaser`) deletes the pre-releases `v<X.Y.Z>-rc.<YYYYMMDD>` of the version shipped, with their tags; candidates of other versions stay, and a failed deletion is a warning, never a failed release.
+- **`preview.yml`** — dispatched by `release-train.yml` or by hand with a pre-release tag (`vX.Y.Z-<suffix>`, anything else is refused): the release candidate, so an unreleased `main` can run on a real deployment and as native service and client before the release PR is merged (D303, D1192). The `docker` job builds the same multi-arch image as `release.yml` and pushes **only** `ghcr.io/beppetemp/cartographer:<tag>` and `ghcr.io/beppetemp/cartographer-surveyor:<tag>` (its layer cache is scoped to the run); before the login and the first push it builds each amd64 image, loads it and runs `test/smoke/image.sh` and `test/smoke/surveyor-image.sh` on them (D995, D1440): a red smoke fails the run, so nothing is published and `release-train.yml` names the failed build in its skip comment. A `chart` job (`needs: docker`, `packages: write` only) packages and pushes the candidate chart `ghcr.io/beppetemp/charts/cartographer:<tag without the v>` with the same steps as `release.yml` and no attestation; `binaries` does not wait for it, and a red chart job fails the run, so no candidate counts as successful. The `binaries` job (`needs: docker`, the only job with `contents: write`) tags the commit locally, runs GoReleaser in release mode with `--skip=publish,announce,sbom,homebrew` (the same archives and `sha256sums.txt` as a release, no tap push, no SBOMs), checks that the linux/amd64 binary prints the tag, and publishes a GitHub **pre-release** `<tag>` with `gh release create --prerelease --latest=false` and `GITHUB_TOKEN` (whose tag starts no `push` workflow); a same-day rebuild replaces that day's pre-release, other candidates are kept until `release.yml` deletes them. No `latest` image of either, cask or MCP Registry entry, and GitHub's latest release does not move. It also calls `film.yml` as a blocking job (below). `gh workflow run preview.yml -f tag=v0.18.0-rc.1`; `internal/repodocs/release_train_test.go` pins the job order, the flags and the absence of every stable secret.
 - **`docs.yml`** — on a push to `main` that touches `docs/`, `mkdocs.yml`, `demo/`, `web/` (but not `web/e2e/`), `CHANGELOG.md` or the workflow itself (and by hand): builds the site with MkDocs Material (`--strict`, so a broken link fails it) and deploys it to GitHub Pages; on a PR it only builds. Only the deploy job holds the `pages` concurrency group; runs on `main` coalesce.
 - **`film.yml`** — called by `preview.yml` (and runnable by hand, which always renders): re-renders the README's launch film when the hash of its inputs (`film/inputs.sh`) differs from the `Film-Tree:` trailer on the `readme-film` branch, and force-pushes the result there (D807, D1068). A render failure is blocking: `preview.yml` goes red, `release-train.yml` finds no successful candidate and the release gate skips. The `render` job runs the checked-out code read-only; the `publish` job holds `contents: write` and runs only `film/publish.sh` from `main`. A manual run of another ref is refused unless that commit is on `main` or under a tag.
 - **`demo.yml`** — called by `release.yml` after the image push (and runnable by hand for a given tag): builds `deploy/demo/Dockerfile` on that release's image and deploys it to the hosted MCP demo on Cloud Run through Workload Identity Federation (D751). Skipped while `vars.GCP_WIF_PROVIDER` is empty; `mcp-registry` does not wait for it.
@@ -1221,7 +1856,7 @@ The GitHub Actions workflows (`.github/workflows/`):
 - **`dependabot-arm.yml`** — keeps Dependabot out of the freeze (D1180, D1384): one reconciling job on `workflow_run` of `release`, `preview` and `release-train` (completed, whatever the conclusion) and `workflow_dispatch`, no schedule. Freeze open (`scripts/freeze-open.sh`): it cancels auto-merge on the open Dependabot PRs; closed: it arms them (`gh pr merge --auto --squash`, same eligibility rule). Each PR's outcome goes in the job summary and any failure fails the job.
 - **`security.yml`** — on push to `main`, on a PR touching `go.mod`/`go.sum`, `web/` dependencies or the workflows, weekly (Sunday 03:17 UTC) and by hand (D1020): `vulncheck` (govulncheck on the latest Go toolchain, so the finding is about our code and modules, and `npm audit` of the `web/` production dependencies, from the lockfile, high severity and up), `workflows` (actionlint and zizmor, `make lint-workflows`, with the accepted exceptions in `.github/zizmor.yml`) and, from `codeql.yml` (push to `main`, weekly and on demand, not on a PR), `codeql` (Go, JavaScript/TypeScript and the workflows). None is a required check. A red scan on `main` or on the weekly run opens one `vuln-scan` issue that carries the run link only; a real vulnerability goes through a private advisory (`SECURITY.md`). CodeQL's *default setup* must stay disabled in Settings → Code security, or the analysis is uploaded twice.
 
-Every action in the workflows is pinned by full commit SHA with its version in a trailing `# vX.Y.Z` comment, and `internal/repodocs/workflows_test.go` fails on any other reference; the release workflow downloads `mcp-publisher` at a pinned version and verifies its sha256, and the base images of both Dockerfiles are pinned by digest. A job that holds a write token restores no shared cache and installs nothing it has not hashed: no `cache:` input other than off (the setup actions need an explicit `cache: false`, they cache by default), no `actions/cache` step, and an image cache (`type=gha`) only scoped to the run (`TestWriteTokenJobsRestoreNoSharedCache`); a Python tool is installed with `--require-hashes --only-binary=:all:` from a lock in `.github/pip/` (`docs.yml`, `make lint-workflows`; `TestPipInstallsRequireHashes`). Checkouts do not persist the token, and `release.yml` and `release-please.yml` grant write permissions per job, not to the whole workflow.
+Every action in the workflows is pinned by full commit SHA with its version in a trailing `# vX.Y.Z` comment, and `internal/repodocs/workflows_test.go` fails on any other reference; the release workflow downloads `mcp-publisher` at a pinned version and verifies its sha256, and the base images of both Dockerfiles are pinned by digest. A job that holds a write token restores no shared cache and installs nothing it has not hashed: no `cache:` input other than off (the setup actions need an explicit `cache: false`, they cache by default; `setup-node` v7 refuses that value and takes `package-manager-cache: false`), no `actions/cache` step, and an image cache (`type=gha`) only scoped to the run (`TestWriteTokenJobsRestoreNoSharedCache`); a Python tool is installed with `--require-hashes --only-binary=:all:` from a lock in `.github/pip/` (`docs.yml`, `make lint-workflows`; `TestPipInstallsRequireHashes`). Checkouts do not persist the token, and `release.yml` and `release-please.yml` grant write permissions per job, not to the whole workflow.
 
 Dependency updates (Go modules, action versions and Docker base images) come from **Dependabot** (`.github/dependabot.yml`, weekly, grouped PRs, with a 7-day cooldown, 14 for a major bump, so a compromised release is yanked before it is proposed). It keeps the SHA pins and their version comments current. Patch and minor rounds of Go modules and actions merge themselves through GitHub auto-merge once the required checks pass (`dependabot-automerge.yml`, D329; not during the freeze, D1180); a major bump and any Docker image bump wait for a maintainer. The frontend's npm dependencies are not on Dependabot's version rounds: `web/package-lock.json` is part of the bundle's provenance hash, so a lockfile bump without `make web` fails `test`. A security alert on them is fixed by hand — update the package in `web/`, then `make web` and commit both. The production ones are audited weekly by `security.yml`.
 
@@ -1237,15 +1872,19 @@ The end-to-end operator procedure (release, rollout verification, local client u
 
 ### Verifying a release
 
-`sha256sums.txt` is published by the same job as the binaries, so it catches a corrupted download, not a replaced asset. Every release asset (binaries, Windows zips, SBOMs, `sha256sums.txt`) and the ghcr image also carry a GitHub artifact attestation, signed keyless with this repository's `release.yml` identity. With the `gh` CLI:
+`sha256sums.txt` is published by the same job as the binaries, so it catches a corrupted download, not a replaced asset. Every release asset (binaries, Windows zips, SBOMs, `sha256sums.txt`) and the ghcr images and the Helm chart (`ghcr.io/beppetemp/charts/cartographer:<version>`, the version without the tag's `v`) also carry a GitHub artifact attestation, signed keyless with this repository's `release.yml` identity. With the `gh` CLI:
 
 ```bash
 gh attestation verify cartographer-linux-amd64 --repo BeppeTemp/cartographer
 gh attestation verify oci://ghcr.io/beppetemp/cartographer:<tag> --repo BeppeTemp/cartographer
 docker buildx imagetools inspect ghcr.io/beppetemp/cartographer:<tag> --format '{{json .SBOM}}'
+gh attestation verify oci://ghcr.io/beppetemp/cartographer-surveyor:<tag> --repo BeppeTemp/cartographer
+docker buildx imagetools inspect ghcr.io/beppetemp/cartographer-surveyor:<tag> --format '{{json .SBOM}}'
+gh attestation verify oci://ghcr.io/beppetemp/charts/cartographer:<version> --repo BeppeTemp/cartographer
+helm pull oci://ghcr.io/beppetemp/charts/cartographer --version <version>
 ```
 
-A modified copy of an asset fails the first command. The installers do not require `gh`: they keep verifying `sha256sums.txt` only, and attestation verification is for whoever wants the stronger proof (D1022). The SBOMs are the release assets `cartographer_<version>_<os>_<arch>.sbom.json`. `preview.yml` images are not attested.
+A modified copy of an asset fails the first command. The installers do not require `gh`: they keep verifying `sha256sums.txt` only, and attestation verification is for whoever wants the stronger proof (D1022). The SBOMs are the release assets `cartographer_<version>_<os>_<arch>.sbom.json`. `preview.yml` images and charts are not attested. The chart's `gh attestation verify` line has not been exercised on a published chart: no stable release carries an attested chart yet, so it is untested and may need correcting once one does.
 
 ### Client installation (`install.sh`, `install.ps1`)
 

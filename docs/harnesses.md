@@ -276,7 +276,7 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
     workspace `.kiro/agents/` wins over global (D195); native restriction keys
     believed to be `tools`/`allowedTools` (D291, not verified). The ledger names no
     read-only tool set, so the repository's read-only agents list `["*"]` and keep the
-    restriction in the prompt; an agent with no `tools` has none (D300).
+    restriction in the prompt; an agent with no `tools` has none (D300); sync warns per agent installed without a `providers.kiro` block (#1826).
   - Agent upgrade (#1717; probe 2026-11-06, Kiro CLI 3.0.0, scratch `HOME`, `kiro-cli agent upgrade <dir>`, no login): V3 rewrites a V2 agent that carries `tools`/`allowedTools`/`toolsSettings` in place (`--dry-run` reports "would upgrade"), keeps the original byte for byte as `<name>.json.bak`, adds `permissions` and a top-level `kiroUpgrade` block (`revision`, `fingerprint`, `source`), and leaves the V2 keys in the file. A plain `name`/`description`/`prompt` agent is not touched. Not probed: the session-start auto-upgrade itself, so the rewrite loop was reasoned from this and the `.bak` seen on real workspaces, not watched. A second upgrade does **not** overwrite an existing backup (probe 2026-11-06, Kiro CLI 3.0.0): the original of the next upgrade goes to `<name>.json.bak.1`, then `.bak.2`, and the first `.bak` stays as it was; an already-upgraded file is reported "already universal" and left byte for byte. Cartographer reads a file with `kiroUpgrade` whose `.bak` or `.bak.<n>` hashes to the lock's hash and keeps every other key but `permissions` as the backup's as not drifted, and binds the accepted file to `upgraded_hash` (`kiroUpgradeAccepted`), and `artifact_write` warns on `providers.kiro.allowedTools`/`toolsSettings`: the author writes the V3 `permissions` key instead (copied verbatim, D291). Watch: the block or backup name changing.
   - `hook` in `~/.kiro/hooks/cartographer/<name>/`, registered in the owned
     `~/.kiro/hooks/cartographer.json` (D300). It fires only in
@@ -291,7 +291,9 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
     stderr, plain stdout, `additionalContext` JSON and `{"decision":"block"}` all
     left the agent unaware.
   - `skill` in `~/.kiro/skills/` (project `.kiro/skills/`), `mcp` in
-    `~/.kiro/settings/mcp.json`, `instructions` in `~/.kiro/steering/cartographer.md`.
+    `~/.kiro/settings/mcp.json` (a server of the same name in the project
+    `.kiro/settings/mcp.json` replaces the global one: the session sees only the project
+    server's tools; probe 2026-11-09, Kiro CLI 3.0.0, recipe in `probes.md` §Kiro, MCP shadow probe), `instructions` in `~/.kiro/steering/cartographer.md`.
   - session transcripts, read by the usage scan (D326): `~/.kiro/sessions/**/*.jsonl`.
     Two shapes, tool records only. **V3** (the default engine since 3.0.0, observed on
     3.0.0): `<hash>/sess_<id>/messages.jsonl`, the record's content under `payload`; a
@@ -385,8 +387,10 @@ project hook.UserPromptSubmit absent
     still work but is undocumented (D320).
   - `skill` global `~/.config/opencode/skills/` (probed on 2.0.25, D360); project
     `.opencode/skills/` (documented, not probed on 2.x). Hooks fire through a
-    generated JS plugin in `~/.config/opencode/plugins/` (documented, autoloaded;
-    D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape; an unreadable version writes the newest shape with a warning, D719; both shapes bind the command to a JS `const` and run ``sh -c ${command}``, so a backtick or `${VAR}` in it reaches the shell untouched;
+    generated JS plugin in `~/.config/opencode/plugins/` (documented, autoloaded) and, in a workspace,
+    `<workspace>/.opencode/plugins/` (probed on 2.2.5, 2026-11-06; 1.x documented, not probed; the user path is not
+    read from a project; D1841)
+    (D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape; an unreadable version writes the newest shape with a warning, D719; both shapes bind the command to a JS `const` and run ``sh -c ${command}``, so a backtick or `${VAR}` in it reaches the shell untouched;
     sources `opencode.ai/v2/docs/build/plugins/` and `/migrate-v1`), files kept in `~/.opencode/hooks/` (never discovered by the client, run by path); sync layer 1 is the documented
     `session.created` event. A hook command whose executable has a character outside `[A-Za-z0-9_./:@%+=,-]` is single-quoted on a POSIX host in every registrar (`'\''` for an apostrophe); Kiro on Windows keeps the host's spelling, its command shell (PowerShell or cmd.exe) not being verified.
   - `mcp` under the `mcp` key of `~/.config/opencode/opencode.json`, the global

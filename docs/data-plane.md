@@ -716,7 +716,7 @@ On a map that declares `templates` or a `default_template`, all evaluated on the
 | `glossary: true` | this map is where the KB defines its terms: a term used in any of its concepts is never a `glossary_gap` | off: only `glossary.yaml` defines terms |
 | `work_map: <map>` | the existing map where this map's work belongs (D302): a concept here with unchecked items or an open-phase status and no link into it is `scattered_work`; a name that is no map is `contract_malformed` | none: work may live anywhere |
 
-**Built-in, not configurable (D345).** `duplicate_candidate` skips period series and the entries of a `kind: journal` map (their titles share words by construction), `zombie_work` reads only origin/dependency sections, whose headings are a fixed English and Italian list (no contract key: the `map_update` catalogue budget, D285). A KB in another language writes its origin section under one of those headings, or retargets the link; a duplicate pair is closed by linking each page to the other (D854), which keeps later pairings of either page visible.
+**Built-in, not configurable (D345).** `duplicate_candidate` skips period series, sibling variants told apart by a qualifier (`lint.QualifierSiblings`) and the entries of a `kind: journal` map (their titles share words by construction), `zombie_work` reads only origin/dependency sections, whose headings are a fixed English and Italian list (no contract key: the `map_update` catalogue budget, D285). A KB in another language writes its origin section under one of those headings, or retargets the link; a duplicate pair is closed by linking each page to the other (D854), which keeps later pairings of either page visible.
 
 **Work items (D302).** A work item is a concept in an open phase for its map (`open_statuses`, else the defaults; never `active`, D321; the `draft` family only where `open_statuses` lists it, since it marks a page still being written), of any type, or an unchecked `- [ ]` item outside code in any concept, whatever its status, except under an H2 that matches the map's `procedure_headings`: a procedure's checklist is a reusable template, as for `closed_with_open_items` (D313). With `open_field` the state is that field's value, falling back to `status` for a concept without it; `archived` still closes, and any other non-open value is closed (D347); `work_list` entries then carry `state`. A concept is also work by what it is, whatever its status (D948), and then carries a `reason` in `work_list`: `contradiction` (an open `Contradiction`: no `resolution_status`, or `open`), `gap` (an open `Contradiction` of kind `missing_context` or `open_question`, D273) or `review` (a page whose `review_after` has passed, unless it is open by its status already or finished: a done or resolved status, `archived`, `deprecated` or `superseded`, which have nothing left to check); it has `open_phase: true`, counts in `open_concepts` and `by_reason`, and not in `by_status`. `work_list` returns them read-only; staleness is `stale_open`'s threshold, extended to a concept whose unchecked items are that old. Nothing moves an item between states: the guidance (preamble and default `instructions.md`) tells the agent to set `in-progress` when it starts executing, and the server infers no transition from prose or patches (D302).
 
@@ -953,6 +953,12 @@ validate a nested per-type grammar.
   `commit_gate` or `gate_check`, whatever its `involves`, and `involves` is
   optional (a question may concern a page that does not exist yet). `kb_status`
   counts open gaps apart from open contradictions (`open_gaps`).
+  The Surveyor's synthesis task (D1263) writes its hypotheses this way: `provenance`
+  lists the concepts the hypothesis rests on, `involves` the ones it is about, and three
+  optional keys that the server does not interpret mark it: `origin: synthesis`,
+  `confidence: low | medium | high` and, set by whoever closes it, `resolution_outcome:
+  confirmed | rejected` (`resolution` stays the prose). `work_list where origin=synthesis`
+  lists them; a rejected one is never proposed again.
 - **The source ledger (D278).** A `Source` records one primary source the KB has
   absorbed (document, transcript, ticket, thread, web page, dataset), so the KB
   can answer *already ingested?*, *what is pending?*, *where does this claim come
@@ -984,7 +990,7 @@ validate a nested per-type grammar.
   read-only system observed through snapshots) says what kind of space the
   `locator` points to and sits beside `source_kind`, which stays free text.
   `connector` and `recipe` are the **names** of a connector and a recipe in the
-  worker's configuration, never a path or a command. For a collection, feed or
+  Surveyor's configuration, never a path or a command. For a collection, feed or
   system the `locator` is the URL or `{{path:<key>}}` placeholder of the space,
   repository, feed or system. A `locator`, `connector` or `recipe` that is a URL
   with a password, or with a username under http(s) (a token as username; `ssh://git@host/...` is fine), or a secret-named query parameter
@@ -992,6 +998,34 @@ validate a nested per-type grammar.
   the ledger. Dedup is unchanged: such a source normally has no `sha256`, so it
   dedups by exact `locator`. An existing `templates/source.md` is not rewritten;
   the new fields are optional and a KB with the old template keeps working.
+  **Feed fields (D1262).** A Source with `source_shape: feed` carries the state of
+  its polling in its own frontmatter, written by the Surveyor only with `if_match`
+  (the stale write is the lease between replicas): `feed_cursor` (opaque string
+  owned by the recipe, at most 1024 bytes), `feed_checked_at` (RFC 3339),
+  `feed_interval` (a Go duration; absent means the poll task's default),
+  `feed_include` (a list of globs the recipe interprets) and `feed_error`
+  (`<code>: <detail>`, one line, removed on success). They are optional in the
+  template; `source_register` has no parameter for them on purpose (a feed is
+  registered once, the cursor is the Surveyor's). Clearing `feed_cursor` makes the
+  next poll list everything again.
+  **System Sources (D1372).** A Source with `source_shape: system` is one Source per
+  system, its `locator` an opaque label (a group is not a Source). It carries the same
+  feed fields, but the state is a file: the asset `system-state.jsonl` of the Source
+  (a `{"version":1}` header, then one JSON line per group sorted by key: `key`, `title`,
+  `revision`, `observed_at`, `snapshot`), and `feed_cursor` holds the sha256 of its bytes.
+  The first state write expands the Source (same ID) and links the file from its body; the
+  extension is outside the list indexed into search (D277). A file that does not match
+  `feed_cursor` is untrusted and rebuilt, not repaired. The Surveyor diffs a listing against
+  it and creates one `IngestUnit` per changed group with four optional fields:
+  `observed_group` (the key), `observed_revision` (16 hex, for a removal the group's
+  last revision), `observed_change` (`added` \| `modified` \| `removed`) and
+  `observed_at` (RFC 3339); its body holds the brief, `## Change` (a line diff), `## Observed`
+  (the snapshot) and for a removal `## Last observed`. A newer unit marks the group's
+  still-`open` ones `skipped` with `superseded_by`. A vanished group is information: its
+  owner page is marked "observed absent since <date>" and a gap is recorded, never a delete.
+  `feed_error` adds `identity_not_read_only`, `empty_listing`, `state_error` and
+  `groups_failed` (state saved, some groups owed). Cursor and state are written only after
+  the units exist, so a crash re-lists and creates only what is missing.
 - **Ingest plan and units (D1201).** An ingest campaign is concepts, so it can be
   resumed, extended with new sources and executed by several agents at once.
   `IngestPlan` (one per campaign) has required `status`
@@ -1002,7 +1036,10 @@ validate a nested per-type grammar.
   (one-line strings), `executor` (`any` \| `large` \| `human`) and `status`
   (`draft` \| `open` \| `in-progress` \| `done` \| `skipped` \| `blocked`), and optional
   `plan`, `claimed_by`, `claimed_at` (RFC3339), `review_after` (`YYYY-MM-DD`, the
-  lease), `waiting_on`, `timestamp`; its body is the self-contained brief. Both
+  lease), `waiting_on`, `timestamp`, `content_asset` (the name of an asset of the
+  unit holding the Source's text, which the Surveyor's poll stages for an entry a
+  recipe returned inline, #1262) and, for a system Source, `observed_group`,
+  `observed_revision`, `observed_change`, `observed_at`; its body is the self-contained brief. Both
   are keyed types (D853), so lint never calls them unknown. `ingest_setup` writes
   `templates/ingest-plan.md` and `templates/ingest-unit.md` when absent and
   declares nothing on any map. **Claim protocol**, which uses no tool of its own:

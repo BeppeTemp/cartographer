@@ -206,7 +206,7 @@ func TestClineHooksDirSymlinkIsRefusedBeforeAnyWrite(t *testing.T) {
 	if err := os.Symlink(elsewhere, clineHooksDir(base)); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g"); err == nil {
+	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g", ScopeGlobal); err == nil {
 		t.Error("a symlinked Documents/Cline/Hooks was not refused")
 	}
 	if _, err := reconcileClineDispatchers(base, ""); err != nil {
@@ -405,7 +405,7 @@ func TestClineDocumentsRootMayBeALinkButNothingBelowIt(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), filepath.Join(real, "Cline")); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g"); err == nil || !errors.Is(err, ErrSymlinkDestination) {
+	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g", ScopeGlobal); err == nil || !errors.Is(err, ErrSymlinkDestination) {
 		t.Errorf("a link at Documents/Cline must be refused, got %v", err)
 	}
 }

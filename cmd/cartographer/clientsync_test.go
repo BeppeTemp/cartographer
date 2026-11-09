@@ -434,8 +434,8 @@ func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 		t.Error("the absence of a trust switch must not change the verification state")
 	}
 	p := providerStatus{State: "drift", Added: snapshotArtifacts(d.Added, &clientconfig.Config{})}
-	if got := formatTUIProviderStatus(p); got != "drift" {
-		t.Errorf("formatTUIProviderStatus = %q", got)
+	if got := p.Added[0].Trust; got == "needs_approval" || got == "approval_stale" {
+		t.Errorf("trust = %q: an unsigned KB skill waits for no approval", got)
 	}
 }
 
@@ -443,8 +443,8 @@ func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 func TestDiffMCPDescriptorNeedsApproval(t *testing.T) {
 	d := provisioning.Diff{Added: []provisioning.Artifact{{Kind: "mcp", Name: "tools", Source: "kb:x", Signed: true}}}
 	p := providerStatus{State: "drift", Added: snapshotArtifacts(d.Added, &clientconfig.Config{})}
-	if got := formatTUIProviderStatus(p); !strings.Contains(got, "needs-approval 1") || strings.Contains(got, "--auto-trust") {
-		t.Errorf("formatTUIProviderStatus = %q", got)
+	if got := p.Added[0].Trust; got != "needs_approval" {
+		t.Errorf("trust = %q, want needs_approval", got)
 	}
 }
 
@@ -1654,5 +1654,27 @@ func TestPrintApplySummary_UnresolvedPlaceholderWarningKeepsItsLines(t *testing.
 	}
 	if !strings.Contains(out, "\n  fix: cartographer paths set") {
 		t.Errorf("output = %q, want the fix line on its own line", out)
+	}
+}
+
+// A lockfile entry whose path leaves the client directory is ignored on read
+// and sync says so on stderr, naming the provider and the path (#1824).
+func TestMaterializeForProviders_ReportsDroppedLockEntry(t *testing.T) {
+	dir := t.TempDir()
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": {
+		Provider: "claude",
+		Managed:  []provisioning.ManagedFile{{Kind: "skill", Name: "planted", Path: "../planted.txt"}},
+	}}}
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	opts := portabilityOptions{Streams: syncStreams{Err: &stderr}}
+	if _, err := materializeForProviders(uniformManifests(kbSkillManifest(), []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", true, false, opts, nil); err != nil {
+		t.Fatalf("materializeForProviders: %v", err)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "claude") || !strings.Contains(out, "../planted.txt") || !strings.Contains(out, "ignored") {
+		t.Errorf("stderr does not report the dropped entry: %q", out)
 	}
 }

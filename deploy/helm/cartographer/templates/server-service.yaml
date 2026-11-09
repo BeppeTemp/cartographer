@@ -1,0 +1,20 @@
+{{- include "cartographer.validate" . -}}
+{{- $s := .Values.server.service }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cartographer.fullname" . }}
+  labels:
+    {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 4 }}
+  {{- with $s.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $s.type }}
+  selector:
+    {{- include "cartographer.selectorLabels" (dict "root" . "component" "server") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $s.port }}
+      targetPort: http

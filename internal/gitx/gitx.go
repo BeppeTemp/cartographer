@@ -182,6 +182,65 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 	return nil
 }
 
+// AnonymousEnv is the environment of a clone that must carry no identity of the
+// operator: no global or system git config (so no credential helper, extra
+// header, proxy or URL rewrite), no askpass program, no prompt, and no redirect
+// followed (a redirect would leave the host that was checked). Layered after the
+// process environment, it wins over it. For clones of a locator written by a KB
+// writer (D1262), never for KB sync.
+func AnonymousEnv() []string {
+	return []string{
+		"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_SYSTEM=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_PARAMETERS=", "GIT_ASKPASS=", "SSH_ASKPASS=", "GIT_TERMINAL_PROMPT=0",
+		"GIT_ALLOW_PROTOCOL=https",
+		"GIT_CONFIG_COUNT=3",
+		"GIT_CONFIG_KEY_0=credential.helper", "GIT_CONFIG_VALUE_0=",
+		"GIT_CONFIG_KEY_1=http.followRedirects", "GIT_CONFIG_VALUE_1=false",
+		"GIT_CONFIG_KEY_2=http.extraHeader", "GIT_CONFIG_VALUE_2=",
+	}
+}
+
+// AnonymousReadEnv is AnonymousEnv for the commands run in an anonymous clone
+// afterwards (HeadSHA, IsAncestor, TreeBlobs, DiffTree), with HOME and
+// XDG_CONFIG_HOME also pointed at home, an empty directory the caller owns:
+// GIT_CONFIG_GLOBAL needs git 2.32, and an older git would still read the
+// operator's ~/.gitconfig and $XDG_CONFIG_HOME/git/config (D1262).
+func AnonymousReadEnv(home string) []string {
+	return append(AnonymousEnv(), "HOME="+home, "XDG_CONFIG_HOME="+home, "USERPROFILE="+home)
+}
+
+// CloneAnonymous clones an https remote with AnonymousEnv and without the blobs
+// of history (--filter=blob:none: the trees are what a listing reads, and the
+// checkout fetches the blobs of HEAD). The caller bounds it with ctx.
+//
+// HOME and XDG_CONFIG_HOME point at an empty directory made for the call
+// (AnonymousReadEnv): GIT_CONFIG_GLOBAL needs git 2.32, and an older git would
+// read the operator's ~/.gitconfig during the clone itself.
+func CloneAnonymous(ctx context.Context, remote, dest string) error {
+	home, err := os.MkdirTemp("", "cartographer-git-home-*")
+	if err != nil {
+		return fmt.Errorf("no temporary directory: %w", err)
+	}
+	defer os.RemoveAll(home)
+	return cloneAnonymous(ctx, remote, dest, AnonymousReadEnv(home)...)
+}
+
+// cloneAnonymous: extra is appended last (a test lets plain http through to reach
+// a local server; the exported form cannot).
+func cloneAnonymous(ctx context.Context, remote, dest string, extra ...string) error {
+	if err := ValidateRemote(remote); err != nil {
+		return err
+	}
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "clone", "--no-tags", "--filter=blob:none", "--", remote, dest))
+	cmd.Env = gitEnv(append(AnonymousEnv(), extra...))
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if out, err := cmd.Output(); err != nil {
+		return cloneError(ctx, remote, dest, err, stderr.String()+string(out))
+	}
+	return nil
+}
+
 // cloneEnv layers the non-interactive defaults on top of the process
 // environment and the caller's own variables.
 //
@@ -756,8 +815,11 @@ func IgnoredPaths(dir string, paths []string) ([]string, error) {
 }
 
 // HeadSHA returns the SHA of the HEAD commit.
-func HeadSHA(dir string) (string, error) {
-	out, err := runGit(dir, "rev-parse", "HEAD")
+//
+// env is layered on the process environment like runGitEnv's; the poll passes
+// AnonymousReadEnv for a clone of a locator a KB writer chose.
+func HeadSHA(dir string, env ...string) (string, error) {
+	out, err := runGitEnv(dir, env, "rev-parse", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("git rev-parse HEAD: %w: %s", err, out)
 	}
@@ -984,8 +1046,9 @@ func CheckoutNewBranch(dir, branch, start string, env ...string) error {
 }
 
 // IsAncestor reports whether ancestor is reachable from descendant.
-func IsAncestor(dir, ancestor, descendant string) (bool, error) {
-	out, err := runGit(dir, "merge-base", "--is-ancestor", "--end-of-options", ancestor, descendant)
+// env as in HeadSHA.
+func IsAncestor(dir, ancestor, descendant string, env ...string) (bool, error) {
+	out, err := runGitEnv(dir, env, "merge-base", "--is-ancestor", "--end-of-options", ancestor, descendant)
 	if err == nil {
 		return true, nil
 	}
@@ -1059,6 +1122,65 @@ func TreePaths(dir, ref string) ([]string, error) {
 		}
 	}
 	return paths, nil
+}
+
+// TreeBlob is one entry of a tree listing: the file mode ("100644", "120000"
+// for a symlink), the blob id and the path.
+type TreeBlob struct{ Mode, ID, Path string }
+
+// TreeBlobs lists the blobs of ref's tree with their ids ("git ls-tree -r -z").
+// Submodule entries are left out. DiffNameStatus is not used for this family of
+// reads: it splits on whitespace and has no -z, so a path with a space or a
+// quoted non-ASCII name would be mangled (D1262).
+// env as in HeadSHA.
+func TreeBlobs(dir, ref string, env ...string) ([]TreeBlob, error) {
+	cmd := procattr.Hide(exec.Command("git", "-C", dir, "ls-tree", "-r", "-z", "--end-of-options", ref))
+	cmd.Env = gitEnv(env)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-tree %s: %w", ref, err)
+	}
+	var blobs []TreeBlob
+	for _, rec := range strings.Split(string(out), "\x00") {
+		meta, path, ok := strings.Cut(rec, "\t")
+		f := strings.Fields(meta)
+		if !ok || len(f) != 3 || f[1] != "blob" {
+			continue
+		}
+		blobs = append(blobs, TreeBlob{Mode: f[0], ID: f[2], Path: path})
+	}
+	return blobs, nil
+}
+
+// TreeChange is one path that differs between two commits. Status is A, M, D
+// or T; Mode and ID are the new ones (ID "" for D).
+type TreeChange struct{ Status, Mode, ID, Path string }
+
+// DiffTree lists the paths that differ between two commits ("git diff-tree -r
+// -z --no-renames --raw"): a rename is a D plus an A. -z for the reason given at
+// TreeBlobs.
+// env as in HeadSHA.
+func DiffTree(dir, from, to string, env ...string) ([]TreeChange, error) {
+	cmd := procattr.Hide(exec.Command("git", "-C", dir, "diff-tree", "-r", "-z", "--no-renames", "--raw", "--end-of-options", from, to))
+	cmd.Env = gitEnv(env)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff-tree %s %s: %w", from, to, err)
+	}
+	parts := strings.Split(string(out), "\x00")
+	var changes []TreeChange
+	for i := 0; i+1 < len(parts); i += 2 {
+		f := strings.Fields(parts[i]) // :oldmode newmode oldid newid status
+		if len(f) != 5 || parts[i+1] == "" {
+			return nil, fmt.Errorf("git diff-tree %s %s: unexpected output", from, to)
+		}
+		c := TreeChange{Status: f[4][:1], Mode: f[1], ID: f[3], Path: parts[i+1]}
+		if c.Status == "D" {
+			c.ID = ""
+		}
+		changes = append(changes, c)
+	}
+	return changes, nil
 }
 
 // ForgeInitialized reports whether ref is what a forge writes when it creates

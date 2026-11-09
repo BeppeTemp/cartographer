@@ -22,13 +22,18 @@ trap cleanup EXIT
 fail() { echo "smoke: $1" >&2; docker logs "$name" >&2 2>&1 || true; exit 1; }
 
 echo "→ tools in the image"
-docker run --rm --entrypoint sh "$image" -c 'git --version && sops --version && age --version && ssh -V' \
-  >/dev/null 2>&1 || fail "git, sops, age or ssh is missing from the image"
+docker run --rm --entrypoint sh "$image" -c 'git --version && sops --version && age --version && ssh -V && command -v wget' \
+  >/dev/null 2>&1 || fail "git, sops, age, ssh or wget is missing from the image (the Helm chart's readiness probe runs wget, D1441)"
 version=$(docker run --rm "$image" version) || fail "'version' failed"
 echo "  $version"
 if [ -n "$want_version" ]; then
   case $version in *"$want_version"*) ;; *) fail "version '$version' does not carry the VERSION build-arg '$want_version'" ;; esac
 fi
+# The Surveyor is the same image: the subcommand is there and needs no volume
+# (no --config prints usage and exits 2).
+rc=0
+docker run --rm "$image" surveyor >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "'surveyor' without --config exited $rc, want 2"
 uid=$(docker run --rm --entrypoint id "$image" -u)
 [ "$uid" != 0 ] || fail "the image runs as root"
 

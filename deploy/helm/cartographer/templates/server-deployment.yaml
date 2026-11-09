@@ -1,0 +1,148 @@
+{{- include "cartographer.validate" . -}}
+{{- $s := .Values.server -}}
+{{- $full := include "cartographer.fullname" . -}}
+{{- $p := $s.persistence -}}
+{{- $probes := $s.probes -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}
+  labels:
+    {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 4 }}
+spec:
+  # One process is the sole writer of a working copy (D73): there is no value for this,
+  # and the Recreate strategy keeps a rolling update from running two on one volume.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cartographer.selectorLabels" (dict "root" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # The file is read once at start: a config change restarts the pod.
+        checksum/config: {{ include (print $.Template.BasePath "/server-configmap.yaml") . | sha256sum }}
+        {{- with $s.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 8 }}
+        {{- with $s.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $s.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml $s.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cartographer
+          image: {{ include "cartographer.serverImage" . | quote }}
+          imagePullPolicy: {{ $s.image.pullPolicy }}
+          args:
+            - serve
+            - --config=/etc/cartographer/config.yaml
+          ports:
+            - name: http
+              containerPort: 39273
+          securityContext:
+            {{- toYaml $s.securityContext | nindent 12 }}
+          {{- if or $s.tokens.existingSecret.name $probes.readiness.tokenSecret.name }}
+          env:
+            {{- with $s.tokens.existingSecret }}
+            {{- if .name }}
+            - name: CARTOGRAPHER_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name | quote }}
+                  key: {{ .key | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with $probes.readiness.tokenSecret }}
+            {{- if .name }}
+            - name: PROBE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name | quote }}
+                  key: {{ .key | quote }}
+            {{- end }}
+            {{- end }}
+          {{- end }}
+          {{- with $s.extraEnvFrom }}
+          envFrom:
+            {{- range . }}
+            - secretRef:
+                name: {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            {{- toYaml (pick $probes.liveness "periodSeconds" "timeoutSeconds" "failureThreshold") | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            {{- toYaml (pick $probes.startup "periodSeconds" "timeoutSeconds" "failureThreshold") | nindent 12 }}
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                {{- if $probes.readiness.tokenSecret.name }}
+                - wget -q -O /dev/null --header "Authorization: Bearer $PROBE_TOKEN" http://127.0.0.1:39273/ready
+                {{- else }}
+                - wget -q -O - http://127.0.0.1:39273/health | grep -q '"ready":true'
+                {{- end }}
+            {{- toYaml (pick $probes.readiness "periodSeconds" "timeoutSeconds" "failureThreshold") | nindent 12 }}
+          {{- with $s.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cartographer
+              readOnly: true
+            {{- if $s.credentials.enabled }}
+            - name: credentials
+              mountPath: /etc/cartographer-credentials
+              readOnly: true
+            {{- end }}
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $full }}-config
+        {{- if $s.credentials.enabled }}
+        - name: credentials
+          secret:
+            secretName: {{ $s.credentials.existingSecret.name | quote }}
+            # The kubelet adds the group read bit for fsGroup; the key is never world-readable.
+            defaultMode: 0440
+        {{- end }}
+        - name: data
+          {{- if $p.emptyDir }}
+          emptyDir: {}
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-data" $full) $p.existingClaim }}
+          {{- end }}
+      {{- with $s.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

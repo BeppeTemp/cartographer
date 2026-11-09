@@ -177,6 +177,10 @@ type statusArtifact struct {
 	// when a derived binding receives it (#1300), resolved by sync's own
 	// function; empty otherwise. Only the human output reads it.
 	HookSettings string `json:"-"`
+	// ProjectScope marks a pending hook the sync writes into a workspace, so the
+	// hint names the workspace path of its generated plugin. Only the human
+	// output reads it.
+	ProjectScope bool `json:"-"`
 }
 
 // serviceSnapshot is part of the `service status --output json` contract:
@@ -215,7 +219,7 @@ func newServiceSnapshot(st service.Status) *serviceSnapshot {
 }
 
 // statusSnapshot has no renderer-specific fields and is the single remote
-// read used by status and the dashboard. Provider states are explicit so one
+// read used by status and the bare `cartographer` screen. Provider states are explicit so one
 // server failure cannot turn into several conflicting error messages.
 type statusSnapshot struct {
 	Schema    string   `json:"schema_version"`
@@ -385,6 +389,17 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		return s
 	}
+	// The versions are printed raw by status and by bare cartographer: a
+	// control character in them would reach the terminal.
+	if hasControlRune(health.Version) || hasControlRune(health.LatestVersion) {
+		s.State = "unavailable"
+		bad := health.Version
+		if hasControlRune(health.LatestVersion) {
+			bad = health.LatestVersion
+		}
+		s.Error = &statusError{Code: "invalid_health", Message: fmt.Sprintf("the server advertised a version with control characters (%q): refused", bad)}
+		return s
+	}
 	if health.KBs != nil {
 		for _, kb := range *health.KBs {
 			if hasControlRune(kb.Name) {
@@ -543,6 +558,8 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.Updated = append(p.Updated, snapshotArtifacts(held, cfg)...)
 		tagHookSettings(p.Added, provProjections[p.Name], manifests)
 		tagHookSettings(p.Updated, provProjections[p.Name], manifests)
+		tagProjectScope(p.Added, provProjections[p.Name], manifests)
+		tagProjectScope(p.Updated, provProjections[p.Name], manifests)
 		s.State = "drift"
 	}
 	if s.Server != "" && s.Client != "" && s.Client != "dev" && s.Server != "dev" && s.Client != s.Server && s.State == "in_sync" {
@@ -659,6 +676,27 @@ func snapshotDiverged(findings []provisioning.DriftFinding) []statusArtifact {
 		out = append(out, statusArtifact{Kind: f.Kind, Name: f.Name, Path: f.Path, Trust: f.Reason, Detail: f.Detail})
 	}
 	return out
+}
+
+// tagProjectScope marks the pending hooks that a project-scope projection
+// (a bound or a derived workspace) receives: the very projections sync applies,
+// so the hint names the workspace path of the generated plugin.
+func tagProjectScope(arts []statusArtifact, ps []syncProjection, manifests map[string]provisioning.Manifest) {
+	for i, a := range arts {
+		if a.Kind != "hook" {
+			continue
+		}
+		for _, sp := range ps {
+			if sp.Scope != provisioning.ScopeProject {
+				continue
+			}
+			for _, m := range manifests[projectionKey(sp)].Artifacts {
+				if m.Kind == "hook" && m.Name == a.Name {
+					arts[i].ProjectScope = true
+				}
+			}
+		}
+	}
 }
 
 // tagHookSettings records on each pending hook the settings file the sync
@@ -818,4 +856,83 @@ func countBySource(lock provisioning.Lock) map[string]int {
 		return nil
 	}
 	return out
+}
+
+// knownProvisioningKinds fixes the display order of formatKindStatus: the kinds
+// provisioning supports today (skill, agent, hook — D48; instructions — D56; mcp
+// — D69), in the order the mandate example uses. Kinds outside this list (future
+// extensions) are appended alphabetically, so the function never silently drops
+// a kind.
+var knownProvisioningKinds = []string{"skill", "agent", "hook", "instructions", "mcp"}
+
+// formatKindStatus renders provisioning.KindCounts(m, lock) as a compact per-kind
+// summary string, e.g. "skill 4/5 · agent 2/2 · hook 1/1". Kinds with zero
+// artifacts in the manifest are omitted. Returns "" if there is nothing to show
+// (empty manifest) — which is not the same as "not measured", the distinction
+// callers draw by not calling it before the manifest is fetched.
+//
+// The single caller is snapshotForConfig: every reader of the status
+// snapshot gets the same breakdown for the same provider.
+//
+// hookLimit is provisioning.SessionHookLimit for the provider: when set, the
+// installed hooks fire only in those sessions, and the hook figure says so
+// (D189, D300) instead of a bare count that reads as "covered everywhere".
+func formatKindStatus(m provisioning.Manifest, lock provisioning.Lock, instructionsShadowed bool, hookLimit string) string {
+	counts := provisioning.KindCounts(m, lock)
+
+	// A block written into a file the provider does not read is not installed
+	// (D189). Counting it would make the figure the operator trusts the most
+	// the one that lies.
+	if instructionsShadowed {
+		if c, ok := counts["instructions"]; ok {
+			c.Installed = 0
+			counts["instructions"] = c
+		}
+	}
+
+	seen := make(map[string]bool, len(counts))
+	var parts []string
+	for _, k := range knownProvisioningKinds {
+		if c, ok := counts[k]; ok {
+			part := fmt.Sprintf("%s %d/%d", k, c.Installed, c.Total)
+			if k == "hook" && hookLimit != "" && c.Installed > 0 {
+				part += " (fires in " + hookLimit + " only)"
+			}
+			parts = append(parts, part)
+			seen[k] = true
+		}
+	}
+	var extra []string
+	for k := range counts {
+		if !seen[k] {
+			extra = append(extra, k)
+		}
+	}
+	sort.Strings(extra)
+	for _, k := range extra {
+		c := counts[k]
+		parts = append(parts, fmt.Sprintf("%s %d/%d", k, c.Installed, c.Total))
+	}
+
+	return strings.Join(parts, " · ")
+}
+
+// setupHintText is the one line that points a machine at `cartographer setup`;
+// bare `cartographer` prints it too when no client config exists yet.
+const setupHintText = "run `cartographer setup` — server, first KB and agents in one guided step"
+
+// setupHint points a machine that is not set up yet at the one command that
+// sets it up (D253): a loopback server with no service behind it, or a server
+// that answers with no KB mounted. A remote server is never this machine's to
+// set up, so it gets no hint.
+func setupHint(s *statusSnapshot) string {
+	if !isLoopbackURL(s.ServerURL) {
+		return ""
+	}
+	noService := s.Service == nil || !s.Service.Installed
+	noKB := s.Reachable && len(s.KBs) == 0 && (s.Ready == nil || !*s.Ready)
+	if (!s.Reachable && noService) || noKB {
+		return setupHintText
+	}
+	return ""
 }

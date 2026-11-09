@@ -2,6 +2,8 @@
 topic: client-configurator
 ---
 
+> **Superseded by [D1857](D1857-tui-removed.md)**: the dashboard is removed.
+
 # D175 — The dashboard is binding-aware, and says when it does not know
 
 **Decision.** The dashboard stays one list screen and gains four things: a `kbs`

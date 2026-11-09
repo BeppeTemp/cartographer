@@ -1,9 +1,10 @@
-// Command gen groups a release-please changelog by area and checks PR bodies
-// for wrapped conventional lines (D865):
+// Command gen runs package changelog: it groups a release-please changelog by
+// area and checks PR bodies for wrapped conventional lines (D865):
 //
 //	gen -file CHANGELOG.md   rewrite the file in place (make changelog-areas)
 //	gen -stdin               read a changelog or release PR body, write the grouped text
 //	gen -check-body          read a PR body, report each wrapped conventional line, exit 1
+//	gen -file CHANGELOG.md -section 0.28.0   print that version's section (the release notes)
 package main
 
 import (
@@ -19,7 +20,24 @@ func main() {
 	file := flag.String("file", "", "changelog file to regroup in place")
 	stdin := flag.Bool("stdin", false, "regroup stdin to stdout")
 	check := flag.Bool("check-body", false, "check a PR body on stdin for wrapped conventional lines")
+	section := flag.String("section", "", "with -file: print the section of this version instead of regrouping")
 	flag.Parse()
+	if *section != "" {
+		if *file == "" || *stdin || *check {
+			fmt.Fprintln(os.Stderr, "usage: gen -file <changelog> -section <version>")
+			os.Exit(2)
+		}
+		in, err := os.ReadFile(*file)
+		if err == nil {
+			var out string
+			if out, err = changelog.Section(string(in), *section); err == nil {
+				fmt.Print(out)
+				return
+			}
+		}
+		fmt.Fprintf(os.Stderr, "changelog gen: %v\n", err)
+		os.Exit(1)
+	}
 	if *stdin == *check && *file == "" || *file != "" && (*stdin || *check) {
 		fmt.Fprintln(os.Stderr, "usage: gen -file <changelog> | -stdin | -check-body")
 		os.Exit(2)

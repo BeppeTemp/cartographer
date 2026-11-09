@@ -386,6 +386,46 @@ export interface MaintenanceReview {
   items: ReviewItem[];
 }
 
+/** GET /kbs/{kb}/surveyors (D1259): a live `cartographer surveyor` that declared this KB. Read-only. */
+export type SurveyorState = "idle" | "running" | "waiting" | "budget_exhausted" | "stopped";
+export interface SurveyorBudget {
+  profile: string;
+  tier?: "small" | "large";
+  spent: number;
+  limit: number;
+}
+export interface SurveyorRow {
+  surveyor: string;
+  perimeter: string;
+  version?: string;
+  state: SurveyorState;
+  last_beat_at: string;
+  interval_seconds: number;
+  last_run?: { at: string; units_done: number; tokens_spent: number; commits: number };
+  budgets: SurveyorBudget[];
+  next_window_at?: string;
+}
+
+/** GET /kbs/{kb}/feeds: Sources whose last poll failed (any shape that writes `feed_error`). */
+export interface FeedRow {
+  id: string;
+  title?: string;
+  source_shape?: string;
+  recipe?: string;
+  feed_checked_at?: string;
+  feed_error: string;
+}
+export interface FeedList {
+  feeds: FeedRow[];
+  total: number;
+}
+
+/** The two dates of GET /kbs/{kb}/maintenance/summary the Health line reads. */
+export interface MaintenanceSummary {
+  last_doctor?: string;
+  next_doctor?: string;
+}
+
 /** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
 export interface CheckCatalog {
   categories: string[];
@@ -619,6 +659,20 @@ export interface SettingsView {
   clients?: SettingsClient[];
   /** What a client can set, every key at its default: shown until a client reports. */
   client_template?: { entries: SettingEntry[]; yaml?: string };
+  /** The surveyors whose whole perimeter the viewer sees, as each last reported (D1259). */
+  surveyors?: SettingsSurveyor[];
+  /** What a surveyor can set, every key at its default: shown until a surveyor reports. */
+  surveyor_template?: { entries: SettingEntry[] };
+}
+
+/** One surveyor perimeter's settings: a report shared by its replicas, no secret in it. */
+export interface SettingsSurveyor {
+  perimeter: string;
+  version?: string;
+  replicas: number;
+  kbs: string[];
+  entries: SettingEntry[];
+  received_at: string;
 }
 
 /** One machine's client settings, reported by its last sync (D818). */

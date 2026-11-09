@@ -241,13 +241,23 @@ export function parseVerdict(result) {
   throw new Error("unrecognised classifier answer");
 }
 
+class ClassifierTimeout extends Error {}
+
+/** Why the classifier failed, for the log: `timeout`, `unrecognised answer`, or
+ *  the binding's error name and the first 200 characters of its message. */
+function failureKind(err) {
+  if (err instanceof ClassifierTimeout) return "timeout";
+  if (err?.message === "unrecognised classifier answer") return "unrecognised answer";
+  return `${err?.name ?? "Error"}: ${String(err?.message ?? "").slice(0, 200)}`;
+}
+
 /** Runs the classifier on the client and message. Fails closed: an error, a
  *  timeout or a quota refusal is a refusal. `ai.run` is env.AI.run. */
 export async function classify(ai, client, message, timeoutMs = CLASSIFIER_TIMEOUT_MS) {
   let timer;
   try {
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
+      timer = setTimeout(() => reject(new ClassifierTimeout()), timeoutMs);
     });
     const run = ai.run(CLASSIFIER_MODEL, {
       messages: [{ role: "user", content: `${client}\n${message}` }],
@@ -256,7 +266,10 @@ export async function classify(ai, client, message, timeoutMs = CLASSIFIER_TIMEO
     if (verdict.safe) return { ok: true };
     const named = verdict.categories.length ? ` (${verdict.categories.join(", ")})` : "";
     return { ok: false, reason: `The message was flagged by moderation${named}.` };
-  } catch {
+  } catch (err) {
+    // One line in the Worker logs, never the message, the client name, the
+    // verdict text or the IP: the visitor sees the same refusal for every cause.
+    console.log(`classify failed: ${failureKind(err)}`);
     return { ok: false, reason: "Moderation is unavailable, try again later." };
   } finally {
     clearTimeout(timer);

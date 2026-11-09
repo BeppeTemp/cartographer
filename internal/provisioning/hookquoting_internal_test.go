@@ -243,7 +243,7 @@ func TestOpenCodeWriteFindings_ProbeAnswering2ThenFailingKeepsTheShape(t *testin
 		t.Fatal(err)
 	}
 	base := t.TempDir()
-	rel, _, ok, err := registerOpenCodePlugin(base, WriteFindingsHookName, dest)
+	rel, _, ok, err := registerOpenCodePlugin(base, WriteFindingsHookName, dest, ScopeGlobal)
 	if err != nil || !ok {
 		t.Fatalf("register: %v %v", ok, err)
 	}

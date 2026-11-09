@@ -43,3 +43,13 @@ dist/
 # The launch film renders (film/README.md).
 film/out/
 /cmd/cartographer/cartographer
+
+# Partial-write files of a copy tool, never ours.
+.!*
+
+# Python bytecode of the example listers.
+__pycache__/
+*.pyc
+
+# helm package writes the archive into the working directory (D1441).
+/deploy/helm/**/*.tgz

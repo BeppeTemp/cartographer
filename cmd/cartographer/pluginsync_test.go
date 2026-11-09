@@ -70,15 +70,15 @@ func TestSyncAfterRunsOutsideTheClientLock(t *testing.T) {
 	}
 }
 
-func TestSyncAfterFiresForNoDryRunNoDashboardNoEarlyError(t *testing.T) {
+func TestSyncAfterFiresForNoDryRunNoLockedCallerNoEarlyError(t *testing.T) {
 	probe, err := syncWithPlugin(t, []string{"one"}, syncOptions{DryRun: true})
 	if err != nil || strings.Contains(probe.buf.String(), "fired") {
 		t.Errorf("dry run: err %v\n%s", err, probe.buf.String())
 	}
-	// The dashboard holds the lock itself and passes no Unlock.
+	// A caller that holds the lock itself passes no Unlock.
 	probe, err = syncWithPlugin(t, []string{"one"}, syncOptions{Locked: true})
 	if err != nil || strings.Contains(probe.buf.String(), "fired") {
-		t.Errorf("dashboard: err %v\n%s", err, probe.buf.String())
+		t.Errorf("locked caller: err %v\n%s", err, probe.buf.String())
 	}
 	// Two KBs serving one artifact: the run fails before the apply.
 	probe, err = syncWithPlugin(t, []string{"one", "two"}, syncOptions{})

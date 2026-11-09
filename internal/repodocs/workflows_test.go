@@ -117,6 +117,54 @@ func loadWorkflows(t *testing.T) map[string]wfFile {
 
 var setupAction = regexp.MustCompile(`^actions/setup-(go|node|python|java)@`)
 
+// writeTokenCacheInput returns what a setup step of a write-token job gets wrong
+// about its cache input. setup-node v7 refuses `cache: false` (the input names a
+// package manager) and switches off its automatic cache with
+// `package-manager-cache: false`; the other setup actions take `cache: false`.
+func writeTokenCacheInput(uses string, with map[string]any) []string {
+	var out []string
+	v, has := with["cache"]
+	isNode := strings.HasPrefix(uses, "actions/setup-node@")
+	if has {
+		s := fmt.Sprint(v)
+		switch {
+		case isNode && s == "false":
+			out = append(out, "cache: false is refused by setup-node v7; use package-manager-cache: false")
+		case s != "false" && s != "":
+			out = append(out, fmt.Sprintf("cache: %v on a job with a write token", v))
+		}
+	}
+	if isNode {
+		if fmt.Sprint(with["package-manager-cache"]) != "false" {
+			out = append(out, "a setup-node step with a write token needs an explicit package-manager-cache: false")
+		}
+	} else if setupAction.MatchString(uses) && !has {
+		// The setup actions cache by default: the input must be there, and off.
+		out = append(out, "a setup action with a write token needs an explicit cache: false")
+	}
+	return out
+}
+
+func TestWriteTokenCacheInput(t *testing.T) {
+	const node = "actions/setup-node@sha"
+	for name, c := range map[string]struct {
+		uses string
+		with map[string]any
+		bad  bool
+	}{
+		"node cache false":         {node, map[string]any{"cache": false}, true},
+		"node package-manager off": {node, map[string]any{"package-manager-cache": false}, false},
+		"node neither":             {node, map[string]any{}, true},
+		"node cache npm":           {node, map[string]any{"cache": "npm", "package-manager-cache": false}, true},
+		"go cache false":           {"actions/setup-go@sha", map[string]any{"cache": false}, false},
+		"go neither":               {"actions/setup-go@sha", map[string]any{}, true},
+	} {
+		if got := len(writeTokenCacheInput(c.uses, c.with)) > 0; got != c.bad {
+			t.Errorf("%s: flagged = %v, want %v", name, got, c.bad)
+		}
+	}
+}
+
 // A job that holds a write token restores no cache a past run, or a run of another
 // ref, left behind, and builds from none (D1020): no `cache:` input other than off,
 // no actions/cache step, and a `type=gha` image cache only when scoped to the run.
@@ -135,15 +183,8 @@ func TestWriteTokenJobsRestoreNoSharedCache(t *testing.T) {
 				if strings.HasPrefix(st.Uses, "actions/cache") {
 					t.Errorf("%s: a job with a write token restores a cache", where)
 				}
-				v, has := st.With["cache"]
-				if has {
-					if s := fmt.Sprint(v); s != "false" && s != "" {
-						t.Errorf("%s: cache: %v on a job with a write token", where, v)
-					}
-				}
-				// The setup actions cache by default: the input must be there, and off.
-				if setupAction.MatchString(st.Uses) && !has {
-					t.Errorf("%s: a setup action with a write token needs an explicit cache: false", where)
+				for _, msg := range writeTokenCacheInput(st.Uses, st.With) {
+					t.Errorf("%s: %s", where, msg)
 				}
 				for _, k := range []string{"cache-from", "cache-to"} {
 					if v, ok := st.With[k].(string); ok && strings.Contains(v, "type=gha") && !strings.Contains(v, "scope=${{ github.run_id }}") {

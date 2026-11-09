@@ -2,6 +2,8 @@
 topic: deployment-release
 ---
 
+> **Amended by [D1439](D1439-four-components-one-binary.md)**: Several servers may mount one KB for synchronization, never for scaling: no replicas, no load balancer, no failover.
+
 # D73 — Local mode as a native service (`cartographer service`), Docker out of the local deploy
 
 **Status: implemented (2026-07-09).**

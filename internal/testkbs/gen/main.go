@@ -1,5 +1,5 @@
-// Command gen writes the test KB fleet of package testkbs into a data
-// directory, one subdirectory per KB: `go run ./internal/testkbs/gen <dir>`,
+// Command gen writes the testkbs fleet to a data directory: one subdirectory
+// per KB (`go run ./internal/testkbs/gen <dir>`),
 // and beside them the client settings report of an imaginary workstation
 // (client-report.json, not a KB). `make dev` runs it when no DATA is given
 // (D818).

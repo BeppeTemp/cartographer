@@ -162,7 +162,7 @@ jobs:
           # Must match the pre-release rule of preview.yml (vX.Y.Z-<suffix>).
           tag="v${version}-rc.$(date -u +%Y%m%d)"
           gh workflow run preview.yml -f tag="$tag"
-          gh pr comment "$PR" --body "Release candidate \`$tag\` is building (preview.yml): image \`ghcr.io/beppetemp/cartographer:$tag\` for the server on a deployment, pre-release binaries https://github.com/$GH_REPO/releases/tag/$tag for a native service and client (\`CARTOGRAPHER_INSTALL_TAG=$tag\`). The freeze is open until the release or a \`discard\`. Try it, then add the \`rc-ok\` label and run \`release-train\` with \`action: release\`: it merges this PR only with the label."
+          gh pr comment "$PR" --body "Release candidate \`$tag\` is building (preview.yml): images \`ghcr.io/beppetemp/cartographer:$tag\` (server) and \`ghcr.io/beppetemp/cartographer-surveyor:$tag\` (Surveyor) on a deployment, pre-release binaries https://github.com/$GH_REPO/releases/tag/$tag for a native service and client (\`CARTOGRAPHER_INSTALL_TAG=$tag\`). The freeze is open until the release or a \`discard\`. Try it, then add the \`rc-ok\` label and run \`release-train\` with \`action: release\`: it merges this PR only with the label."
 
       # Every condition below is a reason to skip the release, never to fail it.
       - name: Check the release may leave
@@ -237,8 +237,9 @@ jobs:
       # no draft advisory with an open fix PR in its private fork. github.token reads none
       # of the three, so SECURITY_GATE_TOKEN (read-only PAT, see TRAPS) does; a missing
       # token or a failed call counts as not clear. The repository is public, so the
-      # comment and the log never say which check failed, how many, or even that it is
-      # about security: a public alert would explain it, so naming it announces a private one.
+      # comment and the log never say which check found something, how many, or what: a
+      # public alert would explain it, so naming it announces a private one. A read that
+      # fails is an access fault, not a finding: the log names its number and HTTP status.
       - name: Security gate
         id: security
         if: steps.gate.outputs.number != ''
@@ -253,16 +254,32 @@ jobs:
             gh pr comment "$PR" --body "Release skipped: a maintainer check is not clear. Clear it, then run \`release-train\` by hand with \`action: release\`."
             exit 0
           }
-          sec() { GH_TOKEN="$SEC_TOKEN" gh api --paginate "$@" 2>/dev/null; }
+          # sec <n> <path> [gh flags]: one read of the gate. <n> numbers the read in the log:
+          # 1 Dependabot alerts, 2 code scanning alerts, 3 draft advisories and the open PRs of
+          # each private fork (one number: a failed fork read must not tell the public log
+          # that a private fork exists). A failed read says its number and HTTP status on stderr (stdout
+          # is the read's result), never the error body, which can name an advisory. A
+          # non-empty result is not a failure and stays silent (D1123).
+          sec() {
+            n=$1; shift
+            err="${RUNNER_TEMP:-/tmp}/security-gate.err"
+            if GH_TOKEN="$SEC_TOKEN" gh api --paginate "$@" 2>"$err"; then return 0; fi
+            status=$(grep -o -m1 'HTTP [0-9][0-9][0-9]' "$err" || true)
+            echo "security gate: read $n failed (${status:-no status})" >&2
+            return 1
+          }
 
-          [ -n "$SEC_TOKEN" ] || skip
-          open=$(sec "repos/$GH_REPO/dependabot/alerts?state=open&per_page=100" --jq '.[].number') || skip
+          if [ -z "$SEC_TOKEN" ]; then
+            echo "security gate: token is empty"
+            skip
+          fi
+          open=$(sec 1 "repos/$GH_REPO/dependabot/alerts?state=open&per_page=100" --jq '.[].number') || skip
           [ -z "$open" ] || skip
-          open=$(sec "repos/$GH_REPO/code-scanning/alerts?state=open&per_page=100" --jq '.[].number') || skip
+          open=$(sec 2 "repos/$GH_REPO/code-scanning/alerts?state=open&per_page=100" --jq '.[].number') || skip
           [ -z "$open" ] || skip
-          forks=$(sec "repos/$GH_REPO/security-advisories?state=draft&per_page=100" --jq '.[].private_fork.full_name // empty') || skip
+          forks=$(sec 3 "repos/$GH_REPO/security-advisories?state=draft&per_page=100" --jq '.[].private_fork.full_name // empty') || skip
           for fork in $forks; do
-            open=$(sec "repos/$fork/pulls?state=open&per_page=100" --jq '.[].number') || skip
+            open=$(sec 3 "repos/$fork/pulls?state=open&per_page=100" --jq '.[].number') || skip
             [ -z "$open" ] || skip
           done
           echo "clear=true" >> "$GITHUB_OUTPUT"

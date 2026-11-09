@@ -1035,6 +1035,51 @@ func TestSeriesSiblings(t *testing.T) {
 	}
 }
 
+func TestQualifierSiblings(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		ta, ia, tb, ib string
+		want           bool
+	}{
+		{"Weakness w-100 Python", "w/w-100/python", "Weakness w-100 Rust", "w/w-100/rust", true},
+		{"Weakness w-100 Python", "w/w-100/lang_python", "Weakness w-100 Rust", "w/w-100/lang-rust", true},
+		{"Weakness w-100 Python", "w/w-100/python", "Weakness w-100 mitigation Rust", "w/w-100/rust", false},
+		{"Weakness w-100 Python", "w/w-100/python", "Weakness w-100 Rust", "w/w-200/rust", false},
+		{"Weakness Python", "w/python", "Weakness Python", "w/python", false},
+		{"Weakness Python", "python", "Weakness Rust", "rust", false},
+		{"Foo Sync", "m/foo-sync", "Foo Group Sync", "m/foo-group-sync", false},
+		{"Weakness Python", "w/python", "Weakness Python", "w/rust", false},
+	} {
+		if got := QualifierSiblings(c.ta, c.ia, c.tb, c.ib); got != c.want {
+			t.Errorf("QualifierSiblings(%q,%q,%q,%q) = %v, want %v", c.ta, c.ia, c.tb, c.ib, got, c.want)
+		}
+	}
+}
+
+func TestReviewDuplicateSkipsQualifierSiblings(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	for id, title := range map[string]string{
+		"weak/w-100/python": "Weakness w-100 injection Python", "weak/w-100/rust": "Weakness w-100 injection Rust",
+		"two/a/python": "Weakness w-100 injection Python", "two/b/rust": "Weakness w-100 injection Rust",
+	} {
+		writeFile(t, k.DataRoot(), "m/"+id+".md", "---\ntype: Note\ntitle: "+title+"\n---\n")
+	}
+	got := map[string]bool{}
+	for _, it := range itemsOf(review(t, k), ReviewDuplicate) {
+		got[strings.Join(it.Concepts, "|")] = true
+	}
+	for pair := range got {
+		if strings.HasPrefix(pair, "m/weak/") {
+			t.Errorf("qualifier siblings listed: %s", pair)
+		}
+	}
+	if !got["m/two/a/python|m/two/b/rust"] {
+		t.Errorf("pages of different parents must stay candidates: %v", got)
+	}
+}
+
 func TestMapTitleIssues(t *testing.T) {
 	t.Parallel()
 	if got := MapTitleIssues("infra", "Infra"); len(got) != 0 {

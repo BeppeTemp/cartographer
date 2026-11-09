@@ -2,6 +2,8 @@
 topic: control-plane
 ---
 
+> **Amended by D1259**: Health also shows one read-only line saying which worker maintains the KB and when its doctor last ran (upkeep, not a finding).
+
 # D948 — Each Atlas page answers one question: Health what is wrong, Work what waits for a person
 
 **Decision.** Health shows the lint's findings and nothing else: what is wrong

@@ -1,5 +1,6 @@
-// Package changelog groups the newest section of a release-please changelog by
-// area, and checks the PR body lines that section is built from (D865).
+// Package changelog regroups a release-please changelog by area. It rewrites
+// the newest section and checks the PR body lines that section is built from
+// (D865).
 //
 // release-please groups by commit type only: one long list of Features and one
 // of Bug Fixes. Regroup rewrites the newest version section as one heading per
@@ -8,6 +9,7 @@
 package changelog
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -337,4 +339,34 @@ func renderAreas(features, fixes [][]entry) []string {
 		out = append(out, "")
 	}
 	return out
+}
+
+// Section returns the CHANGELOG.md section of one version: from its
+// `## [<version>]` heading, heading included, up to the next `## [` heading or
+// the end of the file, trailing blank lines trimmed. The published release
+// notes are this text (D1832). A
+// version with no section, or a section with nothing under its heading, is an
+// error. The heading is matched through its closing bracket, so 0.2.0 never
+// finds 0.20.0.
+func Section(text, version string) (string, error) {
+	lines := strings.Split(text, "\n")
+	prefix := "## [" + version + "]"
+	start := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, prefix) })
+	if start < 0 {
+		return "", fmt.Errorf("no section for version %s", version)
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "## [") {
+			end = i
+			break
+		}
+	}
+	for end > start+1 && isBlank(lines[end-1]) {
+		end--
+	}
+	if end == start+1 {
+		return "", fmt.Errorf("the section of version %s is empty", version)
+	}
+	return strings.Join(lines[start:end], "\n") + "\n", nil
 }

@@ -927,19 +927,25 @@ var openCodeHookEvents = map[string]openCodeMapping{
 }
 
 // openCodePluginRelPath returns hookName's generated plugin path, relative to
-// baseDir — <baseDir>/.config/opencode/plugins/cartographer-<name>.js, the
-// global OpenCode plugin directory (see the D59 doc comment above; baseDir is
-// always the user's home for OpenCode, same as the "instructions" destDir
-// case, ".config/opencode/AGENTS.md").
-func openCodePluginRelPath(hookName string) string {
+// baseDir: <baseDir>/.config/opencode/plugins/cartographer-<name>.js in the
+// global scope (baseDir is the user's home, same as the "instructions"
+// destDir case, ".config/opencode/AGENTS.md"), and
+// <workspace>/.opencode/plugins/cartographer-<name>.js in the project scope —
+// the only plugin directory OpenCode reads inside a project (probed on 2.2.5,
+// documented for 1.x; #1827, docs/harnesses.md). The workspace base dir has no
+// ".config" for OpenCode to read.
+func openCodePluginRelPath(hookName string, scope Scope) string {
 	// Slash: this is reported in AppliedResult.Written and recorded in the
 	// lockfile beside every other destination, not walked on this host.
+	if scope == ScopeProject {
+		return ".opencode/plugins/cartographer-" + hookName + ".js"
+	}
 	return ".config/opencode/plugins/cartographer-" + hookName + ".js"
 }
 
 // registerOpenCodePlugin reads hook.json from fullDestDir and, if its event
 // maps to an OpenCode hook (openCodeHookEvents), (re)writes the generated
-// plugin wrapper at <baseDir>/<openCodePluginRelPath(hookName)>. Mirrors
+// plugin wrapper at <baseDir>/<openCodePluginRelPath(hookName, scope)>. Mirrors
 // registerHookSettings/registerCodexHook's best-effort policy on a
 // missing/malformed hook.json (ok=false from readHookSpec: nothing to
 // register, no error, no warning — Apply's materialization of the hook's own
@@ -951,7 +957,7 @@ func openCodePluginRelPath(hookName string) string {
 //   - warning: non-empty only when the event was well-formed but has no
 //     OpenCode equivalent — Apply surfaces this via AppliedResult.Warnings
 //     instead of failing (the hook's files are still materialized).
-func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, warning string, registered bool, err error) {
+func registerOpenCodePlugin(baseDir, hookName, fullDestDir string, scope Scope) (relPath, warning string, registered bool, err error) {
 	spec, specErr := loadHookSpec(fullDestDir)
 	if specErr != nil {
 		return "", hookSpecWarning(hookName, configurator.ProviderOpenCode, specErr), false, nil
@@ -978,27 +984,71 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 		content = generateOpenCodePlugin(hookName, spec, mapping, command, shape)
 	}
 
-	fullPath := filepath.Join(baseDir, openCodePluginRelPath(hookName))
+	rel := openCodePluginRelPath(hookName, scope)
+	fullPath := filepath.Join(baseDir, filepath.FromSlash(rel))
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(fullPath), 0o755); err != nil {
 		return "", "", false, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
 	}
 	if err := writeFileNoFollow(fullPath, []byte(content), 0o644); err != nil {
 		return "", "", false, fmt.Errorf("provisioning: write opencode plugin %s: %w", fullPath, err)
 	}
-	return openCodePluginRelPath(hookName), warning, true, nil
+	return rel, warning, true, nil
 }
 
-// removeOpenCodePlugin removes hookName's generated plugin file (if present)
-// from <baseDir>/.config/opencode/plugins/ — the inverse of
-// registerOpenCodePlugin, called from PruneManaged's prune path. No-op if the
-// file is absent (e.g. an unmapped event that registerOpenCodePlugin never
-// wrote a file for in the first place).
-func removeOpenCodePlugin(baseDir, hookName string) error {
-	fullPath := filepath.Join(baseDir, openCodePluginRelPath(hookName))
-	if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+// removeOpenCodePlugin removes hookName's generated plugin file (if present):
+// the path the lock recorded for it (a managed entry named
+// cartographer-<name>.js, so a plugin written under either layout is found,
+// #1827); no recorded plugin, nothing to remove. The inverse of registerOpenCodePlugin, called
+// from PruneManaged's prune path. No-op if the file is absent (e.g. an
+// unmapped event that registerOpenCodePlugin never wrote a file for).
+func removeOpenCodePlugin(baseDir, hookName string, managed []ManagedFile) error {
+	for _, rel := range recordedOpenCodePlugins(managed, hookName) {
+		fullPath := filepath.Join(baseDir, filepath.FromSlash(rel))
+		if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
+}
+
+// recordedOpenCodePlugins returns the paths (slash form) of the generated
+// plugin entries of hookName among managed: its hook entries at exactly the
+// global or the project plugin path. A script of the KB's own named
+// cartographer-<name>.js inside the hook's directory is not one.
+func recordedOpenCodePlugins(managed []ManagedFile, hookName string) []string {
+	var out []string
+	for _, mf := range managed {
+		if mf.Kind == "hook" && mf.Name == hookName && isOpenCodePluginPath(mf.Path, hookName) {
+			out = append(out, filepath.ToSlash(mf.Path))
+		}
+	}
+	return out
+}
+
+// isOpenCodePluginPath reports whether path is hookName's generated plugin in
+// either layout.
+func isOpenCodePluginPath(path, hookName string) bool {
+	p := filepath.ToSlash(path)
+	return p == openCodePluginRelPath(hookName, ScopeGlobal) || p == openCodePluginRelPath(hookName, ScopeProject)
+}
+
+// movedOpenCodePlugin returns the lock entries of hook a that hold its
+// generated OpenCode plugin at a path other than the one the scope writes
+// today (#1827: the workspace plugin moved from .config/opencode/plugins to
+// .opencode/plugins). Other kinds and providers: nil.
+func movedOpenCodePlugin(previous []ManagedFile, a Artifact, provider configurator.Provider, scope Scope) []ManagedFile {
+	if a.Kind != "hook" || provider != configurator.ProviderOpenCode || isReservedHook(a.Kind, a.Name) {
+		return nil
+	}
+	want := openCodePluginRelPath(a.Name, scope)
+	var out []ManagedFile
+	for _, mf := range previous {
+		if mf.Kind == "hook" && mf.Name == a.Name && isOpenCodePluginPath(mf.Path, a.Name) &&
+			filepath.ToSlash(mf.Path) != want {
+			out = append(out, mf)
+		}
+	}
+	return out
 }
 
 // openCodePluginIdentifier derives a valid, deterministic JS identifier from

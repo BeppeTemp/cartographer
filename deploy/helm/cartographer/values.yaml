@@ -1,0 +1,139 @@
+# Default values of the cartographer chart. The reference for every key is this
+# file; README.md says how to combine them. There is deliberately no replica
+# count for the server: it is one process, the sole writer of its data (D73, D1441).
+
+# Overrides of the chart name and of the full name every object derives from.
+nameOverride: ""
+fullnameOverride: ""
+# Pull secrets for every image of the release: a list of { name: <secret> }.
+imagePullSecrets: []
+
+server:
+  image:
+    repository: ghcr.io/beppetemp/cartographer
+    # Empty means the chart's appVersion, the tag of the release the chart ships with.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # The server's YAML (config.example.yaml), rendered to the ConfigMap key config.yaml.
+  # The chart owns http, data and credentials_dir: setting one fails at template time.
+  # auth.mode is a quoted string, because a bare on is a YAML boolean.
+  # Secrets never go here: tokens come from server.tokens or server.extraEnvFrom.
+  config:
+    auth:
+      mode: "on"
+    kbs: []
+
+  # Token source (a): an existing Secret whose key holds the whole CARTOGRAPHER_TOKENS
+  # string (a bare admin token, `<token>|kb:<name>:r`, ...). Exclusive with auth.tokens in
+  # server.config, because the variable replaces every token the YAML declares.
+  tokens:
+    existingSecret:
+      name: ""
+      key: tokens
+
+  # Token source (b): names of existing Secrets, each exposed whole through envFrom, for
+  # the ${NAME} references of the YAML tokens in server.config.auth.tokens.
+  extraEnvFrom: []
+
+  # The credentials directory: one existing Secret, mounted read-only (mode 0440). It must
+  # hold audit.key. false mounts nothing, and the server keeps its keys on the data volume.
+  credentials:
+    enabled: true
+    existingSecret:
+      name: ""
+
+  # The data volume. By default a claim the chart creates and keeps on uninstall.
+  persistence:
+    size: 10Gi
+    # Unset means the cluster default class.
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    annotations: {}
+    # Mount this claim instead: no claim is rendered.
+    existingClaim: ""
+    # An explicit opt-in to losing the data at every restart (see NOTES.txt).
+    emptyDir: false
+
+  service:
+    type: ClusterIP
+    port: 39273
+    annotations: {}
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    # [{ host: wiki.example.com, paths: [{ path: /, pathType: Prefix }] }]; paths is optional.
+    hosts: []
+    # [{ secretName: wiki-tls, hosts: [wiki.example.com] }]
+    tls: []
+
+  # Liveness and startup are httpGet on /health. Readiness is an exec that reads the
+  # body of /health, because /ready needs a token when auth is on.
+  probes:
+    liveness:
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      # Opt in to the documented /ready route: a Secret key holding one of the server's own
+      # tokens, with a read scope on one KB. Empty keeps the /health body.
+      tokenSecret:
+        name: ""
+        key: token
+    # The cold clone happens after the port is bound: five minutes by default.
+    startup:
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 60
+
+  # At shutdown: 10 s of HTTP drain, then each KB's pending push, 10 s at most per KB.
+  terminationGracePeriodSeconds: 60
+
+  # fsGroup is any gid: the kubelet gives the credentials Secret's files root:<fsGroup>, 0440,
+  # because the image does not run as root.
+  podSecurityContext:
+    fsGroup: 2000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# The image of every Surveyor entry (an entry may override it).
+surveyorImage:
+  repository: ghcr.io/beppetemp/cartographer-surveyor
+  # Empty means the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# One entry per perimeter, each with its own ConfigMap and a Deployment or a CronJob.
+# Empty by default. An entry:
+#   name: docs-night              # required, [a-z0-9-], names every object
+#   mode: deployment              # deployment | cronjob
+#   replicas: 1                   # deployment only
+#   schedule: "15 2 * * *"        # cronjob only
+#   config: {...}                 # the Surveyor YAML, no secret in it
+#   files: {recipe.yaml: "..."}   # text files next to the config, plain names
+#   existingSecret: docs-env      # every key becomes an environment variable
+#   image: {repository, tag, pullPolicy}
+#   serviceAccountName: ""        # also mounts the API token on that entry's pod
+#   terminationGracePeriodSeconds: 30
+#   resources, nodeSelector, tolerations, affinity, podAnnotations
+#   cronjob only: suspend, startingDeadlineSeconds, activeDeadlineSeconds,
+#                 successfulJobsHistoryLimit, failedJobsHistoryLimit
+surveyors: []

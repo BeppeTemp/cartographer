@@ -409,3 +409,53 @@ func TestPluginsSkillStopsAtApproval(t *testing.T) {
 		}
 	}
 }
+
+// TestDoctorSkillWorkerPassageKeepsTheInvariants pins the worker passage: a worker
+// does not run this procedure, the delegated invariants stay verbatim, and a
+// session starts only when the operator asks (D704).
+func TestDoctorSkillWorkerPassageKeepsTheInvariants(t *testing.T) {
+	t.Parallel()
+	data, err := fs.ReadFile(FS, "bundled/cartographer-kb-doctor/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, want := range []string{
+		"**A Surveyor does not run this procedure.**",
+		"never delete a concept, never rename a map's folder, never invent content",
+		"`log_append` whose text starts with `kb-doctor:`",
+		"- Never start a session the operator did not ask for or agree to.",
+		"changes nothing",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the doctor skill lacks %q", want)
+		}
+	}
+}
+
+// TestSourceAuthorSkillCarriesItsInvariants pins the durable substance of
+// cartographer-kb-source-author (D1373): the dry test command, the single
+// registration call, the planner hand-off and the credential and script rules; and
+// that it ships references and no scripts/ directory (a script would have to be a
+// #!/bin/sh one, and a lister skeleton is text the agent copies, never run from the bundle).
+func TestSourceAuthorSkillCarriesItsInvariants(t *testing.T) {
+	t.Parallel()
+	data, err := fs.ReadFile(FS, "bundled/cartographer-kb-source-author/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, want := range []string{
+		"cartographer surveyor source test", "source_register", "`recipe`", "concept_patch", "`if_match`",
+		"cartographer-kb-ingest-plan", "read-only", "No credential value anywhere",
+		"never stored in a KB", "references/lister-protocol.md", "references/source-types.md",
+		"Read-only identity, for every source", "commit, push, apply and deploy",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the source-author skill lacks %q", want)
+		}
+	}
+	if _, err := fs.ReadDir(FS, "bundled/cartographer-kb-source-author/scripts"); err == nil {
+		t.Error("the source-author skill must ship no scripts/ directory")
+	}
+}

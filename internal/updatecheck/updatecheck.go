@@ -1,5 +1,5 @@
-// Package updatecheck answers whether a newer Cartographer release exists and
-// how this binary is upgraded (D254): the latest tag from the GitHub release
+// Package updatecheck answers whether a newer release exists and how to upgrade
+// (D254): the latest tag from the GitHub release
 // list, cached for 24 hours and failing silent, and the install channel the
 // running binary came from.
 //
@@ -92,7 +92,7 @@ type Options struct {
 	// Force ignores the TTL (not the opt-out): `update check` refreshes.
 	Force bool
 	// CacheOnly never touches the network: `status`, `doctor` and the
-	// dashboard must not add latency, and read whatever the cache holds.
+	// bare screen must not add latency, and read whatever the cache holds.
 	CacheOnly bool
 	// Disabled is the client configuration's `update_check: false`.
 	Disabled bool

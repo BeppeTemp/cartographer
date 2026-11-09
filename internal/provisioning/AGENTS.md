@@ -18,7 +18,7 @@ modifies files a user did not ask about.
   inside safewrite: a raw `os.Remove`/`os.Rename` after `CheckPath` would replace or
   delete a followed link (use `safewrite.Remove`, and on `ErrLinkedLeaf` rewrite the file
   through the link; an empty-directory cleanup uses `safewrite.RemoveEmptyDir`, which never
-  removes a link), and `TrustCodexProject` uses the strict `CheckPathStrict`.
+  removes a link), and `TrustCodexProject` uses the strict `CheckPathStrict`. The leaf is opened `O_NOFOLLOW` and checked on the open file, not looked up twice.
 - **A hand-curated user file is never rewritten, only its managed block is.**
   `internal/blocktext` does marker-delimited substring replacement and nothing
   format-aware, on purpose: comments, ordering and every other byte survive
@@ -50,6 +50,9 @@ modifies files a user did not ask about.
 - **Prune is as dangerous as write.** It removes what the lockfile says we own;
   anything outside it is someone else's. Deleting an empty directory has
   boundaries for the same reason (D63).
+  The lockfile is read as untrusted: paths are checked in `ReadLockFile` (an empty,
+  absolute or non-local `managed[].path` is dropped and reported in `LockFile.Dropped`,
+  #1824), so a new reader of managed paths gets the entries from it, never from raw JSON.
 - **The usage scan (`usage.go`, D326) reads transcripts, so it reads tool calls only.**
   A user message, assistant text or reasoning item is never decoded into anything it
   keeps, and a skill's name in prose is not a use: only a tool call carrying a path the

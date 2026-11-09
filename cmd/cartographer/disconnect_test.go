@@ -575,9 +575,6 @@ func TestDoDisconnect_APrunedFileBehindASymlinkKeepsTheProviderConnected(t *test
 	if _, ok := lf.Providers["opencode"]; !ok {
 		t.Error("opencode lock entry should remain so the next disconnect retries")
 	}
-	if got := summarizeDisconnect(disconnectResult{Providers: []disconnectProviderResult{*oc}}); !strings.Contains(got, "kept connected") || strings.Contains(got, "already disconnected") {
-		t.Errorf("TUI summary = %q, want the refusal reported", got)
-	}
 }
 
 func TestCmdDisconnect_ExitsNonZeroWhenAProviderWasKeptConnected(t *testing.T) {
@@ -590,13 +587,6 @@ func TestCmdDisconnect_ExitsNonZeroWhenAProviderWasKeptConnected(t *testing.T) {
 	cfg, err := clientconfig.Load(dir)
 	if err != nil || !cfg.HasAgent("opencode") || cfg.HasAgent("claude") {
 		t.Errorf("agents = %v, %v; want opencode kept and claude gone", cfg.Agents, err)
-	}
-}
-
-func TestSummarizeDisconnect_ReportsARefusalInsteadOfAlreadyDisconnected(t *testing.T) {
-	got := summarizeDisconnect(disconnectResult{Providers: []disconnectProviderResult{{Provider: "codex", Refused: []string{"destination is a symlink: /x"}}}})
-	if !strings.Contains(got, "kept connected: destination is a symlink: /x") {
-		t.Errorf("summary = %q", got)
 	}
 }
 
@@ -868,7 +858,9 @@ func TestDoDisconnect_WorkspacePruneKeepsEditedFilesAndStaysInside(t *testing.T)
 		t.Errorf("a path outside the repository was removed: %v", err)
 	}
 	out := withStdout(t, func() { printDisconnectSummary(res, false) })
-	for _, want := range []string{"kept .claude/skills/edited: changed since sync", "not a path inside the repository"} {
+	// The "not a path inside the repository" line of disconnect is a second
+	// defence: ReadLockFile already dropped the planted entry (#1824).
+	for _, want := range []string{"kept .claude/skills/edited: changed since sync"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("summary missing %q:\n%s", want, out)
 		}

@@ -35,7 +35,7 @@ concurrency:
 # twenty per PR was the bottleneck. A Windows- or macOS-only break is caught on
 # main and tracked by `ci-red`.
 jobs:
-  # Which of the slower jobs this PR needs: `web` and `forge` only, the other
+  # Which of the slower jobs this PR needs: `web`, `forge` and `helm` only, the other
   # outputs stay in the table pinned by a test but no PR job reads them (the
   # heavy legs do not run on a PR, D1592). On merge_group and push this job is
   # skipped, and `result != success` means "run everything". A path filter at
@@ -54,6 +54,7 @@ jobs:
       demo: ${{ steps.filter.outputs.demo }}
       tf: ${{ steps.filter.outputs.tf }}
       docker: ${{ steps.filter.outputs.docker }}
+      helm: ${{ steps.filter.outputs.helm }}
       forge: ${{ steps.filter.outputs.forge }}
       macos: ${{ steps.filter.outputs.macos }}
     steps:
@@ -381,8 +382,29 @@ jobs:
           terraform_version: 1.9.8
       - run: make demo-tf-check
 
-  # The container's own test stage and a start of the image (D995): nothing else
-  # builds the Dockerfile before release day. Not a required check, main-status
+  # The Helm chart (D1441): helm lint, helm template over deploy/helm/cartographer/ci and the
+  # assertions of test/helm/run.sh. Outside `make gate`, like the demo's Terraform: the gate
+  # stays Go-only. On a PR it runs only when the PR touches the chart's paths, like `forge`;
+  # on push, merge_group and dispatch it always runs. Not a required check (`gate` is the
+  # one, D1592): main-status watches it.
+  helm:
+    name: helm
+    needs: changes
+    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.helm == 'true')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm
+        run: scripts/install-helm.sh "$RUNNER_TEMP/bin"
+      - name: make helm-check
+        env:
+          BIN: ${{ runner.temp }}/bin
+        run: PATH="$BIN:$PATH" make helm-check
+
+  # The container's own test stage and a start of the server and Surveyor images
+  # (D995, D1440): nothing else builds the Dockerfile before release day. Not a required check, main-status
   # watches it (the required set is the ruleset's, a maintainer's to change).
   docker:
     name: docker
@@ -413,6 +435,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: test/smoke/image.sh cartographer:ci v0.0.0-ci
+      # The Surveyor image: the `surveyor` stage, same builder layers (D1440).
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: surveyor
+          load: true
+          push: false
+          tags: cartographer-surveyor:ci
+          build-args: |
+            VERSION=v0.0.0-ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: test/smoke/surveyor-image.sh cartographer-surveyor:ci v0.0.0-ci
       # The demo image is built on this one (deploy/demo/Dockerfile), so a
       # Dockerfile change is checked against it too.
       - run: make demo-smoke DEMO_BASE=cartographer:ci
@@ -540,7 +575,7 @@ jobs:
   # first green push closes it.
   main-status:
     name: main-status
-    needs: [test, test-windows, web, demo-edge, docker, test-macos, test-linux-nosystemd]
+    needs: [test, test-windows, web, demo-edge, docker, helm, test-macos, test-linux-nosystemd]
     if: github.event_name == 'push' && !cancelled()
     runs-on: ubuntu-latest
     permissions:

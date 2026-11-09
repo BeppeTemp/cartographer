@@ -1,0 +1,180 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "cartographer chart values",
+  "description": "additionalProperties is false on the root, server and each surveyors entry: a typo, a replica count for the server or an unknown top-level key fails at lint, template and install time (D1441).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": { "$ref": "#/definitions/image" },
+        "config": { "type": "object" },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "existingSecret": { "$ref": "#/definitions/secretRef" } }
+        },
+        "extraEnvFrom": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "credentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "existingSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "name": { "type": "string" } }
+            }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?([KMGTPE]i?)?$" },
+            "storageClassName": { "type": "string" },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "enum": ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany", "ReadWriteOncePod"] }
+            },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+            "existingClaim": { "type": "string" },
+            "emptyDir": { "type": "boolean" }
+          }
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "className": { "type": "string" },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+            "hosts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["host"],
+                "properties": {
+                  "host": { "type": "string" },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "path": { "type": "string" },
+                        "pathType": { "enum": ["Prefix", "Exact", "ImplementationSpecific"] }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "tls": { "type": "array", "items": { "type": "object" } }
+          }
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "liveness": { "$ref": "#/definitions/probe" },
+            "readiness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "periodSeconds": { "type": "integer", "minimum": 1 },
+                "timeoutSeconds": { "type": "integer", "minimum": 1 },
+                "failureThreshold": { "type": "integer", "minimum": 1 },
+                "tokenSecret": { "$ref": "#/definitions/secretRef" }
+              }
+            },
+            "startup": { "$ref": "#/definitions/probe" }
+          }
+        },
+        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+        "podSecurityContext": { "type": "object" },
+        "securityContext": { "type": "object" },
+        "resources": { "type": "object" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" },
+        "podAnnotations": { "type": "object" },
+        "podLabels": { "type": "object" }
+      }
+    },
+    "surveyorImage": { "$ref": "#/definitions/image" },
+    "surveyors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "mode": { "enum": ["deployment", "cronjob"] },
+          "replicas": { "type": "integer", "minimum": 0 },
+          "schedule": { "type": "string" },
+          "config": { "type": "object" },
+          "files": { "type": "object", "additionalProperties": { "type": "string" } },
+          "existingSecret": { "type": "string" },
+          "image": { "$ref": "#/definitions/image" },
+          "serviceAccountName": { "type": "string" },
+          "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+          "resources": { "type": "object" },
+          "nodeSelector": { "type": "object" },
+          "tolerations": { "type": "array" },
+          "affinity": { "type": "object" },
+          "podAnnotations": { "type": "object" },
+          "suspend": { "type": "boolean" },
+          "startingDeadlineSeconds": { "type": "integer", "minimum": 0 },
+          "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
+          "successfulJobsHistoryLimit": { "type": "integer", "minimum": 0 },
+          "failedJobsHistoryLimit": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "tag": { "type": "string" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "secretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "name": { "type": "string" }, "key": { "type": "string" } }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "periodSeconds": { "type": "integer", "minimum": 1 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "failureThreshold": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

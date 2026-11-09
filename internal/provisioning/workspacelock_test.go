@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,11 +113,12 @@ func TestProjections_Deterministic(t *testing.T) {
 // with no workspace projection at all.
 func TestLockFileRoundTrip_WorkspacesSurvive(t *testing.T) {
 	dir := t.TempDir()
+	work := filepath.Join(dir, "w", "work") // OS-absolute: ReadLockFile distrusts any other base_dir (#1824)
 	path := filepath.Join(dir, "lock.json")
 
 	var lf LockFile
 	lf.SetProvider("claude", lockWith("global/SKILL.md"))
-	lf.SetProjection(Projection{Provider: "claude", Workspace: "/w/work"}, lockWith("work/SKILL.md"))
+	lf.SetProjection(Projection{Provider: "claude", Workspace: work}, lockWith("work/SKILL.md"))
 	if err := WriteLockFile(path, lf); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +126,7 @@ func TestLockFileRoundTrip_WorkspacesSurvive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := back.ForProjection(Projection{Provider: "claude", Workspace: "/w/work"}); len(got.Managed) != 1 || got.BaseDir != "/w/work" {
+	if got := back.ForProjection(Projection{Provider: "claude", Workspace: work}); len(got.Managed) != 1 || got.BaseDir != work {
 		t.Errorf("workspace projection did not survive a round trip: %+v", got)
 	}
 	if got := back.ForProjection(Projection{Provider: "claude"}); len(got.Managed) != 1 {
@@ -153,7 +155,9 @@ func TestLockFileRoundTrip_WorkspacesSurvive(t *testing.T) {
 // projections, and re-saves without the key.
 func TestLockFile_LegacyWorkspaceRemoteStillLoads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock.json")
-	legacy := `{"version":2,"workspaces":{"/w/work":{"remote":"git.example.com/team/work","providers":{"claude":{"provider":"claude","base_dir":"/w/work","project_scope":true,"managed":[{"kind":"skill","name":"s","path":"work/SKILL.md"}]}}}}}`
+	work := filepath.Join(t.TempDir(), "w", "work") // OS-absolute (#1824)
+	key, _ := json.Marshal(work)
+	legacy := `{"version":2,"workspaces":{` + string(key) + `:{"remote":"git.example.com/team/work","providers":{"claude":{"provider":"claude","base_dir":` + string(key) + `,"project_scope":true,"managed":[{"kind":"skill","name":"s","path":"work/SKILL.md"}]}}}}}`
 	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +165,7 @@ func TestLockFile_LegacyWorkspaceRemoteStillLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := lf.ForProjection(Projection{Provider: "claude", Workspace: "/w/work"}); len(got.Managed) != 1 || got.BaseDir != "/w/work" {
+	if got := lf.ForProjection(Projection{Provider: "claude", Workspace: work}); len(got.Managed) != 1 || got.BaseDir != work {
 		t.Fatalf("legacy workspace projection did not load: %+v", got)
 	}
 	if err := WriteLockFile(path, lf); err != nil {
@@ -174,7 +178,7 @@ func TestLockFile_LegacyWorkspaceRemoteStillLoads(t *testing.T) {
 	if strings.Contains(string(b), "remote") {
 		t.Errorf("the retired key was written back: %s", b)
 	}
-	if back, err := ReadLockFile(path); err != nil || len(back.ForProjection(Projection{Provider: "claude", Workspace: "/w/work"}).Managed) != 1 {
+	if back, err := ReadLockFile(path); err != nil || len(back.ForProjection(Projection{Provider: "claude", Workspace: work}).Managed) != 1 {
 		t.Errorf("re-saved lockfile did not reload: %v", err)
 	}
 }

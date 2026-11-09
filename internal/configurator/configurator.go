@@ -1,5 +1,5 @@
-// Package configurator generates MCP configuration files for multiple LLM providers
-// (Claude Code, Codex CLI, Kiro, OpenCode, Antigravity, Crush, GitHub Copilot CLI).
+// Package configurator generates the MCP configuration of each agent client:
+// Claude Code, Codex CLI, Kiro, OpenCode, Antigravity, Crush, GitHub Copilot CLI.
 package configurator
 
 import (
@@ -224,7 +224,7 @@ func EmitAll(cfg *ServerConfig) ([]*EmitResult, error) {
 // — or, if dryRun=true, the paths that would be written, without
 // writing anything. Apply does not print anything: callers that want CLI-style
 // "wrote <path>" output (cmdConnect) render it themselves from the returned
-// paths, so callers that must not touch stdout (the TUI dashboard) can ignore it.
+// paths, so callers that must not touch stdout can ignore it.
 // Creates required directories. If the target file already exists, Apply merges
 // the new entry into it non-destructively.
 func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error) {

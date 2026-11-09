@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -130,6 +131,50 @@ func TestWorkspaceBindWarnsWhenNoHookDestination(t *testing.T) {
 		got := strings.Contains(errOut, "no workspace destination for hook")
 		if code != 0 || got != tc.warns {
 			t.Errorf("%s: code=%d warned=%v want %v: %q", tc.provider, code, got, tc.warns, errOut)
+		}
+	}
+}
+
+// #1825: a bind on the home directory (also through a symlink to it) warns once
+// and still succeeds; a folder below it does not warn.
+func TestWorkspaceBindWarnsOnHomeDirectory(t *testing.T) {
+	const marker = "bound to your home directory"
+	for _, tc := range []string{"home", "symlink", "sub"} {
+		home, _ := filepath.EvalSymlinks(t.TempDir())
+		setHome(t, home)
+		cfg := clientconfig.Default()
+		cfg.ServerURL = deadServerURL(t)
+		cfg.Agents = []string{"claude"}
+		if err := clientconfig.Save(home, cfg); err != nil {
+			t.Fatal(err)
+		}
+		target := home
+		switch tc {
+		case "symlink":
+			target = filepath.Join(t.TempDir(), "link")
+			if err := os.Symlink(home, target); err != nil {
+				t.Skip("symlinks unavailable:", err)
+			}
+		case "sub":
+			target = filepath.Join(home, "sub")
+			if err := os.Mkdir(target, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var code int
+		errOut := withStderr(t, func() {
+			withStdout(t, func() { code = cmdWorkspaceBind([]string{"claude", target, "--no-kb"}) })
+		})
+		want := 1
+		if tc == "sub" {
+			want = 0
+		}
+		if n := strings.Count(errOut, marker); code != 0 || n != want {
+			t.Errorf("%s: code=%d warnings=%d want %d: %q", tc, code, n, want, errOut)
+		}
+		saved, err := clientconfig.Load(home)
+		if err != nil || len(saved.WorkspaceBindings("claude")) != 1 {
+			t.Errorf("%s: binding not saved (%v)", tc, err)
 		}
 	}
 }

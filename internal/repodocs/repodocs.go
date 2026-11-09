@@ -1,6 +1,6 @@
-// Package repodocs holds the deterministic checks that keep this repository
-// navigable by a coding agent, plus the generators for the decision index and
-// the code map.
+// Package repodocs keeps this repository navigable by a coding agent: the
+// deterministic checks, plus the generators for the decision index and the
+// code map.
 //
 // It exists because everything it verifies fails *silently*. A context file
 // that grows past what a client keeps in view is not rejected with an error:
@@ -88,7 +88,7 @@ var TopicOrder = []struct {
 	{"concurrency-git", "Commits, synchronization and conflicts"},
 	{"skills-services-secrets", "Skills, services and secrets"},
 	{"sync-provisioning", "Provisioned artifacts"},
-	{"client-configurator", "CLI, TUI and providers"},
+	{"client-configurator", "CLI and providers"},
 	{"deployment-release", "Configuration, deployment and releases"},
 	{"project-governance", "Repository and documentation policy"},
 }

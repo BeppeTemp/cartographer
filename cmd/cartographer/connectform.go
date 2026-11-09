@@ -1,14 +1,8 @@
-// connectform.go implements the connect form as a standalone bubbletea
-// component: server URL, server name, token env var and auth toggle
-// toggle. It only
+// connectform.go implements the connect form as a bubbletea program: server
+// URL, token env var and auth toggle, plus the agents to connect. It only
 // collects and validates input — it never performs the connect itself (see
-// doConnect in connect.go) — so the exact same component is reused two ways:
-//
-//   - embedded in the TUI dashboard (tui.go), which layers its own async
-//     connectCmd + spinner on top of the collected values once the form
-//     reports Submitted();
-//   - run standalone via runConnectForm, used by `cmdConnect` (connect.go)
-//     when invoked interactively (TTY, no flags passed).
+// doConnect in connect.go). It runs through runConnectForm, used by
+// `cmdConnect` (connect.go) when invoked interactively (TTY, no flags passed).
 
 package main
 
@@ -18,9 +12,17 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
+)
+
+// Styles of the connect, KB-selection and paths forms.
+var (
+	styleSubtitle  = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	styleSelected  = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
+	styleErrorText = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 )
 
 // connectField identifies the focused field of the connect form.
@@ -69,11 +71,7 @@ type connectFormModel struct {
 	url       textinput.Model
 	tokenEnv  textinput.Model
 	providers map[string]bool
-	// selectAgents controls whether this invocation exposes the multi-select
-	// fields. The standalone `connect` form does; the dashboard already starts
-	// from one selected row and must not show controls it does not apply.
-	selectAgents bool
-	auth         bool
+	auth      bool
 	// literalToken is a literal `token` already in .cartographer.yaml. The field
 	// shows only a variable name, so a literal is kept as long as that text is
 	// left as it was (initialEnv); typing another name replaces it (D906).
@@ -89,7 +87,7 @@ type connectFormModel struct {
 	cancelled bool
 
 	// errMsg is a probe/connect error to render inline, in red, above the
-	// Submit line (D64): set by the embedding caller (tui.go/connect.go) via
+	// Submit line (D64): set by the caller (connect.go) via
 	// withError when redisplaying the form after a failed attempt, so the
 	// values the user just entered are never lost. Cleared automatically the
 	// next time a field actually changes (see Update).
@@ -101,36 +99,12 @@ type connectFormModel struct {
 	// (D64). Any edit to a field clears it, since the config is no longer the
 	// one that was just probed.
 	forceRetry bool
-
-	// standalone is true when the model drives its own tea.Program
-	// (runConnectForm): submit/cancel must then issue tea.Quit themselves.
-	// When embedded in the TUI dashboard, standalone is false — the TUI
-	// program keeps running and reacts to Submitted()/Cancelled() itself, so
-	// the model must never quit the whole program on their behalf (only
-	// ctrl+c does, matching the dashboard's existing behavior).
-	standalone bool
-
-	// Submitting and SpinnerView let an embedding parent (the TUI dashboard)
-	// overlay its own "connecting…" state on top of the Submit line, after
-	// intercepting Submitted() and kicking off its own async connectCmd. The
-	// standalone form never sets these — it returns before any network call
-	// happens.
-	Submitting  bool
-	SpinnerView string
-	// SubmittingLabel overrides the default "connecting…" text shown next to
-	// SpinnerView while Submitting is true — e.g. "probing the server…" during
-	// the pre-connect probe (D64). Empty means "connecting…".
-	SubmittingLabel string
-	// Width is supplied by the embedding dashboard. Zero preserves the
-	// standalone CLI form's natural layout.
-	Width int
 }
 
 // newConnectFormModel builds a connectFormModel titled title (e.g. "Connect
 // claude"), prefilled from prefill's ServerURL/Name/Token/Auth, with focus
-// on the first field. standalone controls whether submit/cancel quit their
-// own tea.Program (see the standalone field doc).
-func newConnectFormModel(title string, prefill connectOptions, standalone bool) connectFormModel {
+// on the first field. Submit and cancel quit the form's own tea.Program.
+func newConnectFormModel(title string, prefill connectOptions) connectFormModel {
 	url := textinput.New()
 	url.Placeholder = defaults.DefaultMCPURL
 	url.SetValue(prefill.ServerURL)
@@ -150,8 +124,6 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 		literalToken: prefillCfg.LiteralToken(),
 		initialEnv:   initialEnv,
 		providers:    make(map[string]bool),
-		selectAgents: true,
-		standalone:   standalone,
 	}
 	for _, provider := range prefill.Providers {
 		m.providers[provider] = true
@@ -161,11 +133,7 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 }
 
 func (m connectFormModel) focusOrder() []connectField {
-	fields := []connectField{fieldServerURL}
-	if m.selectAgents {
-		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline)
-	}
-	return append(fields, fieldTokenEnv, fieldAuth, fieldSubmit)
+	return []connectField{fieldServerURL, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline, fieldTokenEnv, fieldAuth, fieldSubmit}
 }
 
 func (m *connectFormModel) moveFocus(delta int) {
@@ -212,7 +180,7 @@ func (m connectFormModel) Cancelled() bool { return m.cancelled }
 
 // Values returns the collected connectOptions, with the same blank-field
 // defaults `cartographer connect` uses today. Providers/Dir/DryRun
-// are left zero-valued — the caller (cmdConnect or the TUI) fills those in
+// are left zero-valued — the caller (cmdConnect) fills those in
 // from context the form never had.
 func (m connectFormModel) Values() connectOptions {
 	url := m.url.Value()
@@ -256,10 +224,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		m.cancelled = true
-		if m.standalone {
-			return m, tea.Quit
-		}
-		return m, nil
+		return m, tea.Quit
 
 	case "tab", "down":
 		m.moveFocus(1)
@@ -272,9 +237,6 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case " ":
 		switch m.focus {
 		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline:
-			if !m.selectAgents {
-				break
-			}
 			provider, _ := providerForField(m.focus)
 			m.providers[provider] = !m.providers[provider]
 			m.clearProbeState()
@@ -288,9 +250,6 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "enter":
 		switch m.focus {
 		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldAgentPi, fieldAgentCline:
-			if !m.selectAgents {
-				break
-			}
 			provider, _ := providerForField(m.focus)
 			m.providers[provider] = !m.providers[provider]
 			m.clearProbeState()
@@ -311,15 +270,9 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.submitted = true
-			// A retry is starting: drop the stale inline error. An embedding
-			// parent that needs the force-retry decision reads m.forceRetry
-			// *before* delegating the key to Update (see updateConnectForm in
-			// tui.go), so clearing it here is safe.
+			// A retry is starting: drop the stale inline error.
 			m.clearProbeState()
-			if m.standalone {
-				return m, tea.Quit
-			}
-			return m, nil
+			return m, tea.Quit
 		default:
 			m.moveFocus(1)
 			return m, nil
@@ -348,23 +301,12 @@ func (m *connectFormModel) clearProbeState() {
 }
 
 func (m connectFormModel) View() string {
-	if m.Width > 0 {
-		w := m.Width - 20
-		if w < 16 {
-			w = 16
-		}
-		m.url.Width, m.tokenEnv.Width = w, w
-	}
 	auth := "[ ] disabled"
 	if m.auth {
 		auth = "[x] enabled"
 	}
 
-	tokenLabel := "Token env var"
-	if m.Width > 0 && m.Width < 80 {
-		tokenLabel = "Token"
-	}
-	tokenEnvLine := formFieldLine(tokenLabel, m.tokenEnv.View(), m.focus == fieldTokenEnv)
+	tokenEnvLine := formFieldLine("Token env var", m.tokenEnv.View(), m.focus == fieldTokenEnv)
 	if !m.auth {
 		// Secondary/dimmed when auth is off: the field is collected but unused
 		// (see resolveToken/probeServer, which only read it when Auth is
@@ -373,36 +315,23 @@ func (m connectFormModel) View() string {
 		tokenEnvLine = styleSubtitle.Render(tokenEnvLine)
 	}
 
-	urlLabel := "Server URL"
-	if m.Width > 0 && m.Width < 80 {
-		urlLabel = "URL"
-	}
-	fields := []string{formFieldLine(urlLabel, m.url.View(), m.focus == fieldServerURL)}
-	if m.selectAgents {
-		fields = append(fields,
-			formProviderLine("claude", m.providers["claude"], m.focus == fieldAgentClaude),
-			formProviderLine("opencode", m.providers["opencode"], m.focus == fieldAgentOpenCode),
-			formProviderLine("codex", m.providers["codex"], m.focus == fieldAgentCodex),
-			formProviderLine("kiro", m.providers["kiro"], m.focus == fieldAgentKiro),
-			formProviderLine("antigravity", m.providers["antigravity"], m.focus == fieldAgentAntigravity),
-			formProviderLine("crush", m.providers["crush"], m.focus == fieldAgentCrush),
-			formProviderLine("copilot", m.providers["copilot"], m.focus == fieldAgentCopilot),
-			formProviderLine("pi", m.providers["pi"], m.focus == fieldAgentPi),
-			formProviderLine("cline", m.providers["cline"], m.focus == fieldAgentCline),
-		)
+	fields := []string{
+		formFieldLine("Server URL", m.url.View(), m.focus == fieldServerURL),
+		formProviderLine("claude", m.providers["claude"], m.focus == fieldAgentClaude),
+		formProviderLine("opencode", m.providers["opencode"], m.focus == fieldAgentOpenCode),
+		formProviderLine("codex", m.providers["codex"], m.focus == fieldAgentCodex),
+		formProviderLine("kiro", m.providers["kiro"], m.focus == fieldAgentKiro),
+		formProviderLine("antigravity", m.providers["antigravity"], m.focus == fieldAgentAntigravity),
+		formProviderLine("crush", m.providers["crush"], m.focus == fieldAgentCrush),
+		formProviderLine("copilot", m.providers["copilot"], m.focus == fieldAgentCopilot),
+		formProviderLine("pi", m.providers["pi"], m.focus == fieldAgentPi),
+		formProviderLine("cline", m.providers["cline"], m.focus == fieldAgentCline),
 	}
 	fields = append(fields, tokenEnvLine, formFieldLine("Auth", auth, m.focus == fieldAuth))
 
 	submit := "  Connect"
 	if m.focus == fieldSubmit {
 		submit = styleSelected.Render("> Connect")
-	}
-	if m.Submitting {
-		label := m.SubmittingLabel
-		if label == "" {
-			label = "connecting…"
-		}
-		submit = m.SpinnerView + " " + label
 	}
 
 	var b strings.Builder
@@ -458,9 +387,7 @@ func fieldHint(f connectField, authEnabled bool) string {
 	}
 }
 
-// --- standalone entry point ---
-
-// runConnectForm launches a standalone bubbletea program with the connect
+// runConnectForm launches a bubbletea program with the connect
 // form, prefilled from prefill and titled title, and blocks until the user
 // submits or cancels. ok is true iff the user submitted (Enter on Submit);
 // ok is false on cancel (Esc/Ctrl-C) with a zero connectOptions.
@@ -469,7 +396,7 @@ func fieldHint(f connectField, authEnabled bool) string {
 // cmdConnect's retry loop (connect.go) to redisplay the form, still populated
 // with prefill, after a failed probe or a failed doConnect (D64).
 func runConnectForm(title string, prefill connectOptions, errMsg string) (connectOptions, bool, error) {
-	m := newConnectFormModel(title, prefill, true)
+	m := newConnectFormModel(title, prefill)
 	if errMsg != "" {
 		m = m.withError(errMsg, false)
 	}

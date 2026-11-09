@@ -63,7 +63,7 @@ func warningsMentioning(res provisioning.AppliedResult, sub string) []string {
 
 func TestApply_WidenedAgentWarnsNamingAgentAndClient(t *testing.T) {
 	m, kbRoot := restrictedAgentManifest(t, map[string]string{"explorer": explorerSrc, "helper": plainSrc})
-	for _, p := range []configurator.Provider{configurator.ProviderOpenCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderAntigravity} {
+	for _, p := range []configurator.Provider{configurator.ProviderOpenCode, configurator.ProviderCodex, configurator.ProviderAntigravity} {
 		res, _ := applyAgents(t, m, kbRoot, p, provisioning.Lock{})
 		got := warningsMentioning(res, `agent "explorer" declares tools: Read, Grep`)
 		if len(got) != 1 || !strings.Contains(got[0], string(p)) {
@@ -191,5 +191,42 @@ func TestParseAgentRestriction(t *testing.T) {
 		if (got == nil) != (c.want == nil) || (got != nil && !reflect.DeepEqual(*got, *c.want)) {
 			t.Errorf("%s: got %+v want %+v", c.name, got, c.want)
 		}
+	}
+}
+
+// An agent file without a tools list has no tools in Kiro (D300) and `tools:`
+// is dropped by the translation, so only `providers.kiro` helps (#1826).
+func TestApply_KiroAgentWithoutToolsWarnsOnce(t *testing.T) {
+	const kiroOwn = "---\nname: operator\ndescription: Own\nproviders:\n  kiro:\n    tools: [\"*\"]\n---\nBody.\n"
+	const kiroOwnTools = "---\nname: scoped\ndescription: Own\ntools: Read\nproviders:\n  kiro:\n    tools: [\"*\"]\n---\nBody.\n"
+	m, kbRoot := restrictedAgentManifest(t, map[string]string{
+		"helper": plainSrc, "explorer": explorerSrc, "operator": kiroOwn, "scoped": kiroOwnTools, "auditor": strictSrc,
+	})
+	for run := 1; run <= 2; run++ {
+		res, _ := applyAgents(t, m, kbRoot, configurator.ProviderKiro, provisioning.Lock{})
+		for _, name := range []string{"helper", "explorer"} {
+			got := warningsMentioning(res, `agent "`+name+`" reaches kiro with no tools`)
+			if len(got) != 1 || !strings.Contains(got[0], "providers.kiro.tools") {
+				t.Errorf("run %d: %s: want exactly one no-tools warning, got %v", run, name, res.Warnings)
+			}
+		}
+		for _, name := range []string{"operator", "scoped", "auditor"} {
+			if w := warningsMentioning(res, `"`+name+`"`); len(w) != 0 {
+				t.Errorf("run %d: %s must not warn: %v", run, name, w)
+			}
+		}
+		if w := warningsMentioning(res, "unrestricted"); len(w) != 0 {
+			t.Errorf("run %d: Kiro must not get the widened warning: %v", run, w)
+		}
+	}
+	// Unfiltered manifest: the strict agent is refused, not installed, not reported.
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderKiro, BaseDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := warningsMentioning(res, `"auditor"`); len(w) != 0 {
+		t.Errorf("strict agent skipped on Kiro must not warn: %v", w)
 	}
 }

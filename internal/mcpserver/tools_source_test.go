@@ -843,3 +843,47 @@ func TestConceptDeleteUnreadableSourceStillCountsCiters(t *testing.T) {
 		t.Fatalf("blockers = %v, want the citer", blockers)
 	}
 }
+
+// D1262: the surveyor keeps a feed's cursor in the Source's own frontmatter,
+// written with concept_patch under if_match. The arguments below are what
+// internal/surveyor/feed builds (this package cannot import the surveyor).
+func TestFeedFieldsRoundTripThroughConceptPatchAndLint(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	out := registerSource(t, s, `{"title":"Docs feed","source_kind":"git-repo","source_shape":"feed","recipe":"git-docs","connector":"git","locator":"https://git.example.com/docs.git"}`)
+	id := out["id"].(string)
+	read := func() (string, string) {
+		data, err := k.ReadConcept(okfID(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data.FrontmatterRaw, data.ContentHash
+	}
+	_, h0 := read()
+	lease := callOK(t, s, "concept_patch", `{"id":"`+id+`","if_match":"`+h0+`","frontmatter":{"feed_checked_at":"2026-10-30T12:00:00Z"}}`)
+	var r struct {
+		ContentHash string `json:"content_hash"`
+	}
+	if err := json.Unmarshal([]byte(lease), &r); err != nil || r.ContentHash == "" {
+		t.Fatalf("lease = %s, %v", lease, err)
+	}
+	callOK(t, s, "concept_patch", `{"id":"`+id+`","if_match":"`+r.ContentHash+`","frontmatter":{"feed_checked_at":"2026-10-30T12:00:05Z","feed_cursor":"abc123..def456@dir/a.go","feed_interval":"6h","feed_include":["docs/**/*.md"],"feed_error":"list_failed: boom"}}`)
+	// A second replica holding the old hash loses the lease.
+	res := callTool(t, s, "concept_patch", `{"id":"`+id+`","if_match":"`+h0+`","frontmatter":{"feed_checked_at":"2026-10-30T12:00:06Z"}}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "stale_write") {
+		t.Fatalf("stale lease = %+v", res)
+	}
+	_, h2 := read()
+	callOK(t, s, "concept_patch", `{"id":"`+id+`","if_match":"`+h2+`","frontmatter":{"feed_cursor":"def456"},"unset":["feed_error"]}`)
+	fm, _ := read()
+	if !strings.Contains(fm, "feed_cursor: def456") || strings.Contains(fm, "feed_error") || !strings.Contains(fm, "feed_interval") {
+		t.Fatalf("frontmatter = %q", fm)
+	}
+	listed := callOK(t, s, "concept_list", `{"where":["type=Source","source_shape=feed"],"fields":["locator","connector","source_kind","recipe","feed_checked_at","feed_interval","feed_cursor","feed_include","content_hash"]}`)
+	if !strings.Contains(listed, "def456") || !strings.Contains(listed, "docs/**/*.md") || !strings.Contains(listed, "content_hash") {
+		t.Fatalf("concept_list = %s", listed)
+	}
+	if lint := callOK(t, s, "lint", `{}`); strings.Contains(lint, "template_") && strings.Contains(lint, id) {
+		t.Fatalf("lint flags the feed Source: %s", lint)
+	}
+}

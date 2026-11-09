@@ -44,6 +44,7 @@ func TestStateChangingRoutes_CrossOriginRefused(t *testing.T) {
 	for _, tc := range []struct{ path, body string }{
 		{UsagePath + "?kb=docs", usage},
 		{ClientSettingsPath, csrfSettings},
+		{SurveyorsPath, `{"surveyor":"s-1","perimeter":"team-a","kbs":["docs"],"state":"idle"}`},
 		{UIAPIPrefix + "/anything", "{}"},
 		{"/clients", "{}"},
 	} {

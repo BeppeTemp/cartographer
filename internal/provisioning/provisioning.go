@@ -1876,6 +1876,8 @@ func ReadLock(path string) (Lock, error) {
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return Lock{}, fmt.Errorf("provisioning: parse lock %s: %w", path, err)
 	}
+	// Read as untrusted like ReadLockFile (#1824): sync_apply prunes from it.
+	lock, _ = sanitizeLock(lock.Provider, "", lock)
 	return lock, nil
 }
 
@@ -1914,6 +1916,94 @@ type LockFile struct {
 	// Absent — every lockfile written before D193 — means "no workspace
 	// projection", and the global one is untouched.
 	Workspaces map[string]WorkspaceLocks `json:"workspaces,omitempty"`
+
+	// Dropped lists the managed entries ReadLockFile left out because their
+	// path does not stay inside the client directory (#1824). It is a report
+	// of one read, never persisted.
+	Dropped []DroppedEntry `json:"-"`
+}
+
+// DroppedEntry is a lockfile entry ReadLockFile ignored: its Path was empty,
+// absolute or left the base dir. Workspace is empty for a global projection.
+type DroppedEntry struct {
+	Provider, Workspace, Kind, Name, Path string
+}
+
+// lockPathLocal reports whether a recorded managed path (slash form) stays
+// inside the directory it is relative to. The lockfile is read as untrusted
+// (#1824): prune and verify join this path to the base dir and act on it.
+func lockPathLocal(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
+		return false
+	}
+	native := filepath.FromSlash(p)
+	if filepath.IsAbs(native) || filepath.Clean(native) == "." {
+		return false
+	}
+	return filepath.IsLocal(native)
+}
+
+// lockBaseOK reports whether lock.BaseDir may be trusted for the projection it
+// is stored under: empty (the lockfile's own directory), or absolute and clean,
+// and for a workspace projection equal to the workspace key (SetProjection
+// always writes it so). A planted base_dir would move every managed path onto
+// another directory.
+func lockBaseOK(workspace string, lock Lock) bool {
+	if workspace != "" {
+		return lock.BaseDir == workspace && filepath.IsAbs(workspace) && filepath.Clean(workspace) == workspace
+	}
+	if lock.BaseDir == "" {
+		return true
+	}
+	return filepath.IsAbs(lock.BaseDir) && filepath.Clean(lock.BaseDir) == lock.BaseDir
+}
+
+// sanitizeLock drops from lock the entries ReadLockFile and ReadLock refuse to
+// hand out (#1824): all of them when the base dir is not trusted, otherwise
+// those whose path is not local. Kept entries keep their order.
+func sanitizeLock(provider, workspace string, lock Lock) (Lock, []DroppedEntry) {
+	var dropped []DroppedEntry
+	baseOK := lockBaseOK(workspace, lock)
+	kept := lock.Managed[:0:0]
+	for _, mf := range lock.Managed {
+		if baseOK && lockPathLocal(mf.Path) {
+			kept = append(kept, mf)
+			continue
+		}
+		dropped = append(dropped, DroppedEntry{provider, workspace, mf.Kind, mf.Name, mf.Path})
+	}
+	if len(dropped) > 0 {
+		lock.Managed = kept
+	}
+	return lock, dropped
+}
+
+// dropNonLocal sanitizes every Lock of lf and records what it dropped in
+// lf.Dropped.
+func (lf *LockFile) dropNonLocal() {
+	clean := func(workspace string, locks map[string]Lock) {
+		providers := make([]string, 0, len(locks))
+		for provider := range locks {
+			providers = append(providers, provider)
+		}
+		sort.Strings(providers)
+		for _, provider := range providers {
+			lock, dropped := sanitizeLock(provider, workspace, locks[provider])
+			if len(dropped) > 0 {
+				locks[provider] = lock
+				lf.Dropped = append(lf.Dropped, dropped...)
+			}
+		}
+	}
+	clean("", lf.Providers)
+	workspaces := make([]string, 0, len(lf.Workspaces))
+	for ws := range lf.Workspaces {
+		workspaces = append(workspaces, ws)
+	}
+	sort.Strings(workspaces)
+	for _, ws := range workspaces {
+		clean(ws, lf.Workspaces[ws].Providers)
+	}
 }
 
 // ReadLockFile reads the multi-provider lockfile at the given path. If the file
@@ -1938,7 +2028,9 @@ func ReadLockFile(path string) (LockFile, error) {
 		if err := json.Unmarshal(data, &v1); err != nil {
 			return LockFile{}, fmt.Errorf("provisioning: parse legacy lockfile %s: %w", path, err)
 		}
-		return LockFile{Providers: map[string]Lock{v1.Provider: v1}}, nil
+		lf := LockFile{Providers: map[string]Lock{v1.Provider: v1}}
+		lf.dropNonLocal()
+		return lf, nil
 	}
 
 	var lf LockFile
@@ -1948,6 +2040,7 @@ func ReadLockFile(path string) (LockFile, error) {
 	if lf.Providers == nil {
 		lf.Providers = map[string]Lock{}
 	}
+	lf.dropNonLocal()
 	return lf, nil
 }
 
@@ -2043,7 +2136,7 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 }
 
 // FilterForProvider returns a copy of m with only the artifacts that have a
-// known destination for the provider (destDir != ""). Used by status/TUI
+// known destination for the provider (destDir != ""). Used by status
 // for honest per-provider counts and diffs: a kind the provider can't
 // materialize isn't "missing", it simply doesn't apply (e.g. hook
 // exists only for Claude Code — D48; agent for Claude Code and OpenCode — D55).
@@ -2112,7 +2205,7 @@ type KindCount struct {
 
 // KindCounts aggregates per-kind counts of m's artifacts (Total) against lock's
 // managed files (Installed), keyed by Kind ("skill", "agent", "hook", ...). Used by
-// `cartographer status` and the TUI dashboard to render a compact per-kind summary
+// `cartographer status` to render a compact per-kind summary
 // (e.g. "skill 4/5 · agent 2/2 · hook 1/1") alongside the overall drift status.
 func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 	managedByKey := make(map[string]ManagedFile, len(lock.Managed))
@@ -2230,7 +2323,8 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			continue
 		}
 		destRel := destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope)
-		if len(movedArtifactFiles(opts.Lock.Managed, a, destRel)) == 0 {
+		if len(movedArtifactFiles(opts.Lock.Managed, a, destRel)) == 0 &&
+			len(movedOpenCodePlugin(opts.Lock.Managed, a, opts.Provider, opts.Scope)) == 0 {
 			continue
 		}
 		toWrite = append(toWrite, a)
@@ -2560,7 +2654,7 @@ hookLoop:
 				// script while the registration, and so the lock entry, still
 				// describes the previous one.
 				if a.Kind == "hook" {
-					if err := checkHookRegistrationTarget(opts.BaseDir, opts.Provider, a.Name, destRel); err != nil {
+					if err := checkHookRegistrationTarget(opts.BaseDir, opts.Provider, a.Name, destRel, opts.Scope); err != nil {
 						if refuseArtifact(a, err) {
 							continue
 						}
@@ -2613,7 +2707,7 @@ hookLoop:
 						if claudeStrip != nil {
 							register = claudeMovingRegistrar(claudeStrip)
 						}
-						pluginRel, warning, registered, regErr := register(opts.BaseDir, a.Name, fullDestDir)
+						pluginRel, warning, registered, regErr := register(opts.BaseDir, a.Name, fullDestDir, opts.Scope)
 						if regErr != nil {
 							// Refused (D148): a new hook is not recorded as installed,
 							// an updated one keeps its previous lock entry; the next
@@ -2631,7 +2725,7 @@ hookLoop:
 						// previous registration firing its old entry.
 						if !registered && previous {
 							stale := ManagedFile{Kind: "hook", Name: a.Name, Path: filepath.Join(destRel, "hook.json")}
-							if err := removeHookRegistration(opts.BaseDir, stale, claudeStrip); err != nil {
+							if err := removeHookRegistration(opts.BaseDir, stale, claudeStrip, opts.Lock.Managed); err != nil {
 								if refuseArtifact(a, err) {
 									continue hookLoop
 								}
@@ -2647,7 +2741,7 @@ hookLoop:
 				// DryRun: simulate the main file's path without writing.
 				relPaths = []string{filepath.Join(destRel, principalFile(a.Kind))}
 				if a.Kind == "hook" {
-					for _, full := range hookRegistrationTargets(opts.BaseDir, opts.Provider, a.Name, destRel) {
+					for _, full := range hookRegistrationTargets(opts.BaseDir, opts.Provider, a.Name, destRel, opts.Scope) {
 						result.Warnings = appendFollowedLinkNotes(result.Warnings, opts.BaseDir, full)
 					}
 				}
@@ -2671,6 +2765,7 @@ hookLoop:
 		}
 		if relocated[a.Kind+"\x00"+a.Name] {
 			orphaned = append(orphaned, movedArtifactFiles(opts.Lock.Managed, a, destRel)...)
+			orphaned = append(orphaned, movedOpenCodePlugin(opts.Lock.Managed, a, opts.Provider, opts.Scope)...)
 		}
 
 		for _, rp := range relPaths {
@@ -2717,6 +2812,7 @@ hookLoop:
 	result.Warnings = append(result.Warnings, degradedWidenedWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, legacySkillWarnings(m)...)
 	result.Warnings = append(result.Warnings, widenedAgentWarnings(m, opts)...)
+	result.Warnings = append(result.Warnings, kiroToollessAgentWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, absentMCPServerWarnings(m, opts)...)
 
 	// Prune: remove stale managed entries from BaseDir. The "instructions" kind
@@ -2934,8 +3030,9 @@ func droppedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string,
 // the mcp cell for every provider, so a global entry never reads as moved.
 // Never applies to instructions (a group block, no per-artifact path), to the
 // reserved client-generated hooks, nor to hooks at all: a hook's entries
-// include generated companions (an OpenCode plugin under
-// .config/opencode/plugins) that live outside its directory by design.
+// include generated companions (a Copilot hook file, a Pi extension) that live
+// outside its directory by design. The one exception is an OpenCode hook's
+// generated plugin, whose path depends on the scope (movedOpenCodePlugin, #1827).
 func movedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string) []ManagedFile {
 	if destDirRel == "" || a.Kind == "instructions" || a.Kind == "hook" || isReservedHook(a.Kind, a.Name) {
 		return nil
@@ -3183,14 +3280,8 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// The cli sentence (D1695) is client-owned text of the same kind: it enters
 	// the recorded hash only when present, so a provider without one keeps the
 	// hash it had, while a mode flip or a text edit rewrites the block.
-	cliSentence := ""
-	if configurator.UsesCLI(opts.Provider) {
-		cliSentence = cliProviderSentence(opts.Provider)
-	}
-	cliHashPart := ""
-	if cliSentence != "" {
-		cliHashPart = "\x00cli\x00" + cliSentence
-	}
+	cliSentence := cliSentenceFor(opts.Provider)
+	cliHashPart := cliHashPartOf(cliSentence)
 	// The client environment section (D1697) is client-owned text too, and it
 	// moves with things no artifact hash records (a skill skipped or unskipped, a
 	// capability probed). It cannot join the paths-section hash: `status` judges
@@ -3476,7 +3567,9 @@ func containsAgentsMDImport(text string) bool {
 func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
 	var out []string
 	for _, a := range m.Artifacts {
-		if !agentWidened(a, opts.Provider) || a.Restriction.Strict {
+		// Kiro has its own warning (kiroToollessAgentWarnings): "unrestricted"
+		// would be the opposite of what it receives.
+		if opts.Provider == configurator.ProviderKiro || !agentWidened(a, opts.Provider) || a.Restriction.Strict {
 			continue
 		}
 		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
@@ -3485,6 +3578,42 @@ func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
 		out = append(out, fmt.Sprintf(
 			"agent %[1]q declares tools: %[2]s; %[3]s cannot express that restriction, so it receives the agent unrestricted (write that client's own restriction under `providers.%[3]s` in its frontmatter, or add `strict_tools: true` to skip it there instead)",
 			a.Name, a.Restriction.Tools, opts.Provider))
+	}
+	return out
+}
+
+// kiroToollessAgentWarnings names, on every run, each KB agent installed on
+// Kiro without any `providers.kiro` field (#1826): translateAgentForKiro drops
+// `tools`, and a Kiro agent file without a tools list has none (D300). Any
+// non-empty `providers.kiro` block counts as giving tools, as agentWidened
+// counts it as the author's own restriction. Read from the source because
+// Restriction is nil for an agent without `tools`. An agent skipped by
+// strict_tools is not installed and is not reported.
+func kiroToollessAgentWarnings(m Manifest, opts ApplyOptions) []string {
+	if opts.Provider != configurator.ProviderKiro {
+		return nil
+	}
+	var out []string
+	for _, a := range m.Artifacts {
+		if a.Kind != "agent" || destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) || strictAgentSkipped(a, opts.Provider) {
+			continue
+		}
+		content, err := singleArtifactContent(a, opts)
+		if err != nil {
+			continue
+		}
+		if fmRaw, _, ok := okf.SplitFrontmatter(string(content)); ok {
+			fm, err := okf.ParseFrontmatter(fmRaw)
+			if err != nil {
+				continue
+			}
+			if fields, err := nativeFieldsFor(fm, configurator.ProviderKiro); err != nil || len(fields) > 0 {
+				continue
+			}
+		}
+		out = append(out, fmt.Sprintf(
+			"agent %q reaches kiro with no tools (Kiro gives an agent without a tools list none, D300); declare them under providers.kiro.tools in its frontmatter (a tools: list is not translated for Kiro)",
+			a.Name))
 	}
 	return out
 }
@@ -4354,7 +4483,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 		if mf.Kind == "hook" && !keepHooks[mf.Name] {
 			err, seen := hookResult[mf.Name]
 			if !seen {
-				err = removeHookRegistration(baseDir, mf, claudeSettings)
+				err = removeHookRegistration(baseDir, mf, claudeSettings, managed)
 				if err == nil || IsRefusal(err) {
 					hookResult[mf.Name] = err
 				}
@@ -4385,7 +4514,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 // that registered it (settings.json, hooks.json, a plugin, ...). Providers with
 // no registration to strip return nil. claudeSettings names the Claude Code
 // settings file to strip, nil for both (removeHookEntries).
-func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []string) error {
+func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []string, managed []ManagedFile) error {
 	var err error
 	switch hookProviderFromPath(mf.Path) {
 	case "claude":
@@ -4397,7 +4526,7 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 			err = fmt.Errorf("provisioning: prune entry hooks.json hook %s: %w", mf.Name, err)
 		}
 	case "opencode":
-		if err = removeOpenCodePlugin(baseDir, mf.Name); err != nil {
+		if err = removeOpenCodePlugin(baseDir, mf.Name, managed); err != nil {
 			err = fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
 		}
 	case "antigravity":
@@ -5011,8 +5140,9 @@ func translateAgentForCopilot(name string, content []byte) ([]byte, error) {
 //
 // `tools` and `model` are dropped, as they are for Codex and Antigravity: their
 // names are not portable across clients, and inventing a mapping would hand the
-// agent capabilities its author never granted. Omitting `tools` leaves Kiro's
-// own default in force.
+// agent capabilities its author never granted. An agent file without `tools`
+// has no tools in Kiro (D300): only the author's `providers.kiro` fields can
+// give it some, and kiroToollessAgentWarnings says so on every sync.
 func translateAgentForKiro(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name
@@ -5251,7 +5381,9 @@ func instructionsResolutionDrift(m Manifest, opts ApplyOptions, tracker *expansi
 	if sharedSectionWanted(sections) {
 		shared = SharedOperationalSection()
 	}
-	if pathsSectionHash(shared+"\x00"+buildPathsSection(tracker.resolved)) == opts.Lock.PathsSectionHash {
+	// The cli sentence is in the hash Apply records, so it is in this one (#1846).
+	cliPart := cliHashPartOf(cliSentenceFor(opts.Provider))
+	if pathsSectionHash(shared+"\x00"+buildPathsSection(tracker.resolved)+cliPart) == opts.Lock.PathsSectionHash {
 		return nil
 	}
 	return signed
@@ -5690,4 +5822,24 @@ func agentWidened(a Artifact, provider configurator.Provider) bool {
 // (strict_tools) and provider cannot enforce its restriction.
 func strictAgentSkipped(a Artifact, provider configurator.Provider) bool {
 	return agentWidened(a, provider) && a.Restriction.Strict
+}
+
+// cliSentenceFor is the cli sentence of the instructions block, "" for a
+// provider that reaches Cartographer through MCP. Apply and the status side
+// (instructionsResolutionDrift) both ask it, so the hash one records is the
+// hash the other compares (#1846).
+func cliSentenceFor(p configurator.Provider) string {
+	if configurator.UsesCLI(p) {
+		return cliProviderSentence(p)
+	}
+	return ""
+}
+
+// cliHashPartOf is what the cli sentence adds to the recorded paths-section
+// hash: nothing for a provider without one, so its hash is unchanged.
+func cliHashPartOf(sentence string) string {
+	if sentence == "" {
+		return ""
+	}
+	return "\x00cli\x00" + sentence
 }

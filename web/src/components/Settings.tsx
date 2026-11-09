@@ -7,6 +7,7 @@ import type {
   SettingOrigin,
   SettingsClient,
   SettingsKB,
+  SettingsSurveyor,
   SettingsView,
   Whoami,
   WhoamiRule,
@@ -257,20 +258,46 @@ export function Settings({
   const client = tab.startsWith("client")
     ? (clients.find((c) => `client:${c.machine}` === tab) ?? clients[0] ?? null)
     : undefined;
-  const current = client !== undefined ? (client ? `client:${client.machine}` : "client") : kb ? "kb" : "server";
+  // A surveyor tab opens on its perimeter; with none reported, on the template.
+  const surveyors = view.surveyors ?? [];
+  // Tabs are keyed by position: two principals can run the same perimeter name.
+  const surveyor = tab.startsWith("surveyor") ? (surveyors[Number(tab.split(":")[1])] ?? surveyors[0] ?? null) : undefined;
+  const surveyorId = surveyor ? `surveyor:${surveyors.indexOf(surveyor)}` : "surveyor";
+  const current =
+    surveyor !== undefined
+      ? surveyorId
+      : client !== undefined
+        ? client
+          ? `client:${client.machine}`
+          : "client"
+        : kb
+          ? "kb"
+          : "server";
 
   return (
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
-        title={client !== undefined ? (client?.machine ?? "Client") : kb ? kb.name : "Server"}
+        title={
+          surveyor !== undefined
+            ? (surveyor?.perimeter ?? "Surveyor")
+            : client !== undefined
+              ? (client?.machine ?? "Client")
+              : kb
+                ? kb.name
+                : "Server"
+        }
         subtitle={
           <>
-            {client
-              ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
-              : kb
-                ? "This Knowledge Base's configuration, read-only"
-                : "The configuration this server runs with, read-only"}
+            {surveyor !== undefined
+              ? surveyor
+                ? `Surveyor${surveyor.version ? ` ${surveyor.version}` : ""} · ${surveyor.replicas} replica${surveyor.replicas === 1 ? "" : "s"} · ${surveyor.kbs.join(", ")} · reported ${new Date(surveyor.received_at).toLocaleString("en")} · read-only`
+                : "No Surveyor has reported: every key at its default, read-only"
+              : client
+                ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+                : kb
+                  ? "This Knowledge Base's configuration, read-only"
+                  : "The configuration this server runs with, read-only"}
             {who && (
               <>
                 {" · "}
@@ -314,11 +341,21 @@ export function Settings({
               Knowledge Base
             </Tab>
           )}
+          {(surveyors.length ? surveyors : [null]).map((w, i) => {
+            const id = w ? `surveyor:${i}` : "surveyor";
+            return (
+              <Tab key={id} id={id} current={current === id} onSelect={setTab}>
+                {w && surveyors.length > 1 ? `Surveyor · ${w.perimeter}` : "Surveyor"}
+              </Tab>
+            );
+          })}
         </div>
       </div>
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
-        {client !== undefined ? (
+        {surveyor !== undefined ? (
+          <SurveyorPanel surveyor={surveyor} template={view.surveyor_template} mode={mode} query={query} />
+        ) : client !== undefined ? (
           <ClientValues.Provider value={true}>
             <ClientPanel
               client={client}
@@ -493,6 +530,37 @@ function ClientPanel({
           {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
         </>
       )}
+    </>
+  );
+}
+
+/** A surveyor perimeter's reported settings (D1259), keys grouped by first path segment so a new task kind needs no entry here. */
+function SurveyorPanel({
+  surveyor,
+  template,
+  mode,
+  query,
+}: {
+  surveyor: SettingsSurveyor | null;
+  template?: { entries: SettingEntry[] };
+  mode: Mode;
+  query: string;
+}) {
+  const source = surveyor ?? template;
+  const groups = new Map<string, SettingEntry[]>();
+  for (const e of (source?.entries ?? []).filter((e) => matches(e, query))) {
+    const g = e.key.split(/[.[]/)[0]!;
+    groups.set(g, [...(groups.get(g) ?? []), e]);
+  }
+  return mode === "yaml" ? (
+    <p className="page-note">A Surveyor reports its typed values, not its file: there is no YAML to show.</p>
+  ) : groups.size === 0 ? (
+    <NoMatch query={query} />
+  ) : (
+    <>
+      {[...groups].map(([g, rows]) => (
+        <Rows key={g} group={{ title: g, intro: "" }} entries={rows} label={`Surveyor ${g} settings`} />
+      ))}
     </>
   );
 }

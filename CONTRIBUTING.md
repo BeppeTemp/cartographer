@@ -50,7 +50,7 @@ run is not a gate.
 - [`AGENTS.md`](AGENTS.md) is the canonical entry point for both people and
   agents, and it has a compact code map (what lives where). `CLAUDE.md` is one
   line importing it.
-- The top level: `cmd/cartographer/` is the single binary (server, client, TUI),
+- The top level: `cmd/cartographer/` is the single binary (server, client, Surveyor, tray),
   `internal/` has one package per concern, `web/` is the Atlas UI source,
   `docs/` the documentation, `test/` the shell-driven smoke and E2E suites.
 - [`docs/index.md`](docs/index.md) is the documentation index, with reading
@@ -305,8 +305,9 @@ dispatched by hand with one of three actions.
 - **The release.** `action: rc` builds the candidate, `action: release` merges the open
   release PR with every check below, `action: discard` deletes the candidate(s) of the
   pending version. After the merge release-please cuts the tag and creates the release
-  as a draft: `release.yml` publishes it only after the binaries and the versioned image exist, then pushes the
+  as a draft: `release.yml` publishes it only after the binaries and the versioned images exist, then pushes the
   Homebrew cask and moves `:latest`, so no client is told of a version it cannot install (D1350).
+  The release page shows the grouped `CHANGELOG.md` section of the tag, set by that same step.
 - **Freeze, opened by the candidate.** It is open from the moment a candidate tag
   `vX.Y.Z-rc.<YYYYMMDD>` with `X.Y.Z` greater than the latest stable release exists, until
   that version is released (`release.yml` deletes its candidates) or the candidate is
@@ -323,13 +324,14 @@ dispatched by hand with one of three actions.
   release. A PR the freeze blocks waits until the release.
 - **The release candidate.** `action: rc` builds the candidate
   `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. It is a
-  server image **and** a GitHub pre-release with the binaries (the same archives and
-  `sha256sums.txt` as a stable release). The image is started and smoked before anything
-  is published (tools, non-root user, a KB served over HTTP with a write that commits),
-  so a candidate that exists starts; the binaries are published only after the image,
+  server image, a Surveyor image **and** a GitHub pre-release with the binaries (the same archives and
+  `sha256sums.txt` as a stable release). Both images are started and smoked before anything
+  is published (tools, non-root user, a KB served over HTTP with a write that commits for the server;
+  tools present and absent, entrypoint for the Surveyor),
+  so a candidate that exists starts; the binaries are published only after the images,
   and only once the built binary prints the candidate's tag. The same run renders the
   README film when its sources changed (`film.yml`, D1068): a red film job fails the
-  candidate, so there is nothing to release until it is fixed. A maintainer runs the image on a
+  candidate, so there is nothing to release until it is fixed. A maintainer runs the images on a
   real deployment and the binaries as native service and client (below), adds the
   `rc-ok` label and runs `action: release`. Without the label, or if the candidate
   is not the current head of `main` (a fix landed after the build), the release is
@@ -362,7 +364,8 @@ dispatched by hand with one of three actions.
   clear: no open Dependabot alert, no open code scanning alert (a false positive is
   dismissed with its reason, not left open) and no draft security advisory whose fix
   PR is still open in its private fork. A report still without a fix does not block.
-  The skip comment says only that the gate is not clear.
+  The skip comment says only that the gate is not clear; when a read of the gate fails
+  (an expired or under-scoped token), the log names the read's number and HTTP status.
 - **Out of band**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand, with the same gate cleared.
 - **Maintenance release**, for emergencies only (a feature never needs it: it lands in

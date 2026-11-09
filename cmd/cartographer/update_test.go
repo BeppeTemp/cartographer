@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -38,6 +40,36 @@ import (
 var testHome string
 
 func TestMain(m *testing.M) {
+	if len(os.Args) > 2 && os.Args[1] == "--exec-helper" { // the test binary as an operator's lister
+		if os.Args[2] == "fail" {
+			fmt.Fprintln(os.Stderr, "lister broke")
+			os.Exit(3)
+		}
+		if os.Args[2] == "system" { // LISTER_VALUE is the preflight's read_only answer
+			b, _ := io.ReadAll(os.Stdin)
+			if strings.Contains(string(b), `"mode":"preflight"`) {
+				fmt.Println(`{"read_only":` + os.Getenv("LISTER_VALUE") + `,"identity":"dev-viewer","detail":"ok"}`)
+			} else {
+				fmt.Println(`{"entry":{"key":"namespace/team-a","title":"Team A","content":"deployment api"}}`)
+				fmt.Println(`{"next_cursor":""}`)
+			}
+			os.Exit(0)
+		}
+		if os.Args[2] == "empty" {
+			fmt.Println(`{"next_cursor":"` + "c9" + `"}`)
+			os.Exit(0)
+		}
+		if os.Args[2] == "many" {
+			for i := 0; i < 60; i++ {
+				fmt.Printf(`{"entry":{"key":"k%02d","title":"T%02d","revision":"r","change":"added"}}`+"\n", i, i)
+			}
+			fmt.Println(`{"next_cursor":"c60"}`)
+			os.Exit(0)
+		}
+		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"` + os.Getenv("LISTER_VALUE") + `"}}`)
+		fmt.Println(`{"next_cursor":"c1"}`)
+		os.Exit(0)
+	}
 	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
 	home, err := os.MkdirTemp("", "cartographer-test-home-")
 	if err != nil {
@@ -275,7 +307,7 @@ func TestAutoPatchNeverSelfReplaces(t *testing.T) {
 }
 
 // WP3: the snapshot carries `update` only when one is available, read from
-// the cache only; the status line and the TUI follow it; exit codes do not.
+// the cache only; the status line and the bare screen follow it; exit codes do not.
 func TestStatusSnapshotCarriesUpdateOnlyWhenAvailable(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
@@ -356,23 +388,6 @@ func TestDoctorReportsUpdateAsInfo(t *testing.T) {
 	stubUpdate(t, updatecheck.Result{Current: "v1", Latest: "v1"}, updatecheck.ChannelInstallPS1, true)
 	if got := checkUpdateAvailable(); len(got) != 0 {
 		t.Errorf("up to date: %+v", got)
-	}
-}
-
-func TestViewServerPanelShowsAnAvailableUpdate(t *testing.T) {
-	m := testModel()
-	m.width = 100
-	m.snapshot = &statusSnapshot{Schema: statusSchema, ServerURL: "http://h/mcp", Reachable: true, Client: "v0.16.1", Server: "v0.16.1", State: "in_sync"}
-	if out := ansiRE.ReplaceAllString(m.viewServerPanel(), ""); strings.Contains(out, "available") {
-		t.Errorf("no update, no suffix:\n%s", out)
-	}
-	m.snapshot.Update = &updateSnapshot{Latest: "v0.17.0", Kind: "minor", Channel: "homebrew"}
-	raw := m.viewServerPanel()
-	if !strings.Contains(ansiRE.ReplaceAllString(raw, ""), "version    client v0.16.1 · server v0.16.1 · v0.17.0 available") {
-		t.Errorf("missing the update suffix:\n%s", raw)
-	}
-	if !strings.Contains(raw, styleDrift.Render(" · v0.17.0 available")) {
-		t.Errorf("the suffix must use the drift style:\n%q", raw)
 	}
 }
 

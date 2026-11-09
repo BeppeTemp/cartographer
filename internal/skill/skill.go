@@ -1,4 +1,4 @@
-// Package skill implements loading and validation of SKILL.md files (agentskills.io format).
+// Package skill loads and validates SKILL.md files (agentskills.io format).
 // Skills live under skills/ in the KB root, one directory per skill, named
 // exactly as the skill's frontmatter `name` (D191).
 package skill

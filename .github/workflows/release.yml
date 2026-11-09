@@ -137,18 +137,43 @@ jobs:
 
   # The release-please release is created as a draft (D1350), so the update check
   # and every client skip it until this job: it runs only when the binaries and
-  # the generated cask (goreleaser), the pre-release flag and the versioned image
-  # (docker) all exist, and un-drafts the release. The cask on the tap and the
-  # `:latest` image tag come after it (jobs `cask` and `latest`). A failed or retried job above leaves
+  # the generated cask (goreleaser), the pre-release flag, the versioned images
+  # (docker) and the chart all exist, and un-drafts the release. The cask on the tap and the
+  # `:latest` image tags come after it (jobs `cask` and `latest`). A failed or retried job above leaves
   # the release a draft instead of announcing a version no channel can install.
   # Un-drafting keeps the pre-release flag; it is read back
   # because a 0.x release must stay a Pre-release (D82/D211).
   publish:
     runs-on: ubuntu-latest
-    needs: [goreleaser, prerelease-flag, docker]
+    needs: [goreleaser, prerelease-flag, docker, chart]
     permissions:
       contents: write
     steps:
+      # The release notes are the CHANGELOG.md section of the tag, already grouped
+      # by area: release-please's own notes file is ungrouped, and past the PR body
+      # limit its placeholder has nothing to group (#1819). The next three steps run
+      # the tag's own code (`go run`) and hold no secret and no credential (D1020);
+      # only the last one holds GH_TOKEN, and runs `gh` only.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Extract the release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          go run ./internal/changelog/gen -file CHANGELOG.md -section "${TAG#v}" > "$RUNNER_TEMP/release-notes.md"
+          # GitHub rejects a release body over 125000 characters: fail here, the release stays a draft.
+          n=$(wc -m < "$RUNNER_TEMP/release-notes.md")
+          if [ "$n" -gt 125000 ]; then
+            echo "::error::the notes of $TAG are $n characters, over GitHub's 125000 limit" >&2
+            exit 1
+          fi
       - name: Publish the release, and verify it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -165,8 +190,9 @@ jobs:
             echo "::error::no single release for $TAG" >&2
             exit 1
           fi
-          # By id: the tag endpoint does not return a draft.
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f tag_name="$TAG" -F draft=false > /dev/null
+          # By id: the tag endpoint does not return a draft. The body goes in the same
+          # PATCH, so the release is never public with the ungrouped notes.
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f tag_name="$TAG" -F draft=false -F body=@"$RUNNER_TEMP/release-notes.md" > /dev/null
           got=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '"\(.draft) \(.prerelease)"')
           if [ "$got" != "false $want" ]; then
             echo "::error::$TAG is isDraft/isPrerelease=$got, want false $want (D1350, D82)" >&2
@@ -174,7 +200,7 @@ jobs:
           fi
           echo "$TAG: published (isDraft/isPrerelease=$got)"
 
-  # Multi-arch server image on ghcr.io.
+  # Multi-arch server and Surveyor images on ghcr.io (D1440).
   docker:
     runs-on: ubuntu-latest
     permissions:
@@ -212,6 +238,31 @@ jobs:
         with:
           subject-name: ghcr.io/beppetemp/cartographer
           subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      # The Surveyor image, second: a failure here leaves the release a draft
+      # (D1350), nothing announced. Its own step id, so its attestation names its
+      # own digest (release_publish_test.go pins it). FIRST PUBLISH: the new
+      # package ghcr.io/beppetemp/cartographer-surveyor is private until set
+      # Public in its settings, and "Manage Actions access" must list this
+      # repository with Write, or the push is denied (D1440).
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: push-surveyor
+        with:
+          context: .
+          target: surveyor
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          tags: |
+            ghcr.io/beppetemp/cartographer-surveyor:${{ github.ref_name }}
+      - name: Attest the Surveyor image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/beppetemp/cartographer-surveyor
+          subject-digest: ${{ steps.push-surveyor.outputs.digest }}
           push-to-registry: true
 
   # The Homebrew cask reaches the tap only once the release is public (D1350
@@ -263,10 +314,73 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Retag :latest from the release image
+      - name: Retag :latest from the release images
         env:
           TAG: ${{ github.ref_name }}
-        run: docker buildx imagetools create -t ghcr.io/beppetemp/cartographer:latest "ghcr.io/beppetemp/cartographer:${TAG}"
+        run: |
+          docker buildx imagetools create -t ghcr.io/beppetemp/cartographer:latest "ghcr.io/beppetemp/cartographer:${TAG}"
+          docker buildx imagetools create -t ghcr.io/beppetemp/cartographer-surveyor:latest "ghcr.io/beppetemp/cartographer-surveyor:${TAG}"
+
+  # The Helm chart (D1441), after the images it points to: the chart never exists before them.
+  # Stamped with the tag's version, checked by `make helm-check`, pushed to
+  # oci://ghcr.io/beppetemp/charts and attested like the images (D1022). FIRST PUBLISH: the new
+  # package ghcr.io/beppetemp/charts/cartographer is private until set Public in its settings,
+  # and "Manage Actions access" must list this repository with Write, or the push is denied.
+  chart:
+    runs-on: ubuntu-latest
+    needs: docker
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm
+        run: scripts/install-helm.sh "$RUNNER_TEMP/bin"
+      # The same checks as the `helm` job of ci.yml, so a chart that fails them is never pushed.
+      - name: make helm-check
+        env:
+          BIN: ${{ runner.temp }}/bin
+        run: PATH="$BIN:$PATH" make helm-check
+      # Version and appVersion are stamped here from the tag, as server.json's are (D1441): no
+      # commit, and release-please does not touch Chart.yaml. appVersion keeps the v: it is the image tag.
+      - name: Package the chart
+        env:
+          BIN: ${{ runner.temp }}/bin
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PATH="$BIN:$PATH" helm package deploy/helm/cartographer --version "${TAG#v}" --app-version "$TAG" --destination "$RUNNER_TEMP/chart"
+      - name: Push the chart to ghcr.io
+        id: push
+        env:
+          BIN: ${{ runner.temp }}/bin
+          TAG: ${{ github.ref_name }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export PATH="$BIN:$PATH"
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USER" --password-stdin
+          out=$(helm push "$RUNNER_TEMP/chart/cartographer-${TAG#v}.tgz" oci://ghcr.io/beppetemp/charts 2>&1) || { printf '%s\n' "$out" >&2; exit 1; }
+          printf '%s\n' "$out"
+          digest=$(printf '%s\n' "$out" | sed -n 's/^Digest: //p')
+          pushed=$(printf '%s\n' "$out" | sed -n 's/^Pushed: //p')
+          if [ "$pushed" != "ghcr.io/beppetemp/charts/cartographer:${TAG#v}" ] || ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::helm push reported '$pushed' and '$digest', want ghcr.io/beppetemp/charts/cartographer:${TAG#v} and a sha256 digest" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      # The digest is the one helm push reported, read back above (D1022, D1441).
+      - name: Attest the chart
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/beppetemp/charts/cartographer
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
   # Live read-only MCP demo on Cloud Run (D751). Skipped until the repository
   # variables exist; nothing waits on it, so a demo failure never blocks the

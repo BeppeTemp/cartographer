@@ -1,0 +1,34 @@
+{{- include "cartographer.validate" . -}}
+{{- $root := . -}}
+{{- $full := include "cartographer.fullname" . -}}
+{{- range .Values.surveyors }}
+{{- if eq .mode "deployment" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}-surveyor-{{ .name }}
+  labels:
+    {{- include "cartographer.labels" (dict "root" $root "component" (printf "surveyor-%s" .name)) | nindent 4 }}
+spec:
+  replicas: {{ ternary .replicas 1 (hasKey . "replicas") }}
+  # Budget counters are per process: a rolling overlap would be an unplanned second spender.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cartographer.selectorLabels" (dict "root" $root "component" (printf "surveyor-%s" .name)) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # The file is read once at start: a config change restarts the pod.
+        checksum/config: {{ toJson (list .config .files $root.Values.server.service.port) | sha256sum }}
+        {{- with .podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "cartographer.labels" (dict "root" $root "component" (printf "surveyor-%s" .name)) | nindent 8 }}
+    spec:
+      {{- include "cartographer.surveyorPod" (dict "root" $root "sv" . "cron" false) | nindent 6 }}
+{{- end }}
+{{- end }}

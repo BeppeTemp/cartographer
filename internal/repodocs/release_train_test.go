@@ -1,7 +1,11 @@
 package repodocs
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -118,22 +122,36 @@ func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
 	if !strings.HasSuffix(strings.TrimSpace(wf.RunName), "${{ inputs.tag }}") {
 		t.Errorf("preview.yml: run-name %q must end with the tag input: release-train.yml finds the candidate by it", wf.RunName)
 	}
-	smoke, push := -1, -1
+	// Every image smoke runs before the first push, and both images are smoked
+	// and pushed (D1440): a Surveyor smoke after the push would publish an image
+	// that does not start.
+	lastSmoke, firstPush, smokes, surveyorPush := -1, -1, 0, false
 	for _, job := range wf.Jobs {
 		for i, s := range job.Steps {
-			if strings.Contains(s.Run, "test/smoke/image.sh") && smoke < 0 {
-				smoke = i
+			if strings.Contains(s.Run, "test/smoke/image.sh") || strings.Contains(s.Run, "test/smoke/surveyor-image.sh") {
+				smokes++
+				if i > lastSmoke {
+					lastSmoke = i
+				}
 			}
-			if p, ok := s.With["push"]; ok && p == true && push < 0 {
-				push = i
+			if p, ok := s.With["push"]; ok && p == true {
+				if firstPush < 0 {
+					firstPush = i
+				}
+				if s.With["target"] == "surveyor" {
+					surveyorPush = true
+				}
 			}
 		}
 	}
-	if smoke < 0 || push < 0 {
-		t.Fatalf("preview.yml: smoke step at %d, push step at %d: both must exist", smoke, push)
+	if smokes != 2 || firstPush < 0 {
+		t.Fatalf("preview.yml: %d image smoke steps, first push at %d: want both smokes and a push", smokes, firstPush)
 	}
-	if smoke > push {
-		t.Errorf("preview.yml: the smoke (step %d) runs after the push (step %d): a candidate whose container does not start would be published", smoke, push)
+	if lastSmoke > firstPush {
+		t.Errorf("preview.yml: a smoke (step %d) runs after the first push (step %d): a candidate whose container does not start would be published", lastSmoke, firstPush)
+	}
+	if !surveyorPush {
+		t.Error("preview.yml: no push step for target: surveyor")
 	}
 }
 
@@ -342,7 +360,7 @@ func TestPreviewPublishesCandidateBinariesAfterTheImage(t *testing.T) {
 			t.Errorf("preview.yml: gh release create lacks %s", want)
 		}
 	}
-	for _, banned := range []string{"HOMEBREW_TAP_TOKEN", "RELEASE_PLEASE_TOKEN", "mcp-publisher", "cartographer:latest"} {
+	for _, banned := range []string{"HOMEBREW_TAP_TOKEN", "RELEASE_PLEASE_TOKEN", "mcp-publisher", "cartographer:latest", "cartographer-surveyor:latest"} {
 		if strings.Contains(raw, banned) {
 			t.Errorf("preview.yml: references %s, which belongs to a stable release", banned)
 		}
@@ -391,6 +409,215 @@ func TestReleaseWorkflowIgnoresAndCleansUpCandidates(t *testing.T) {
 	for _, want := range []string{"gh release delete", "--cleanup-tag", `-rc\\.[0-9]{8}$`, "${version//./\\\\.}"} {
 		if !strings.Contains(run, want) {
 			t.Errorf("release.yml: candidate-cleanup lacks %q: it deletes the candidates of the shipped version only", want)
+		}
+	}
+}
+
+// The security gate must tell a read that failed from an open alert (#1811) without
+// printing what the read returned (the repository is public, D1123). The step's script
+// runs for real with a fake gh: its exit and stderr are chosen per read by path.
+func TestSecurityGateNamesTheReadThatFailed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the script runs on ubuntu only; bash on Windows may be WSL")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not on PATH")
+	}
+	root := repoRoot(t)
+	var wf struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				ID  string `yaml:"id"`
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/release-train.yml")), &wf); err != nil {
+		t.Fatal(err)
+	}
+	var run string
+	for _, job := range wf.Jobs {
+		for _, st := range job.Steps {
+			if st.ID == "security" {
+				run = st.Run
+			}
+		}
+	}
+	if run == "" {
+		t.Fatal("release-train.yml: no security step")
+	}
+	// gh api <path> ...: FAIL_<read> makes read <read> fail with that stderr, OUT_<read> is its result.
+	fake := `#!/bin/sh
+case "$1" in
+api)
+  case "$3" in
+    *dependabot*) r=1 ;; *code-scanning*) r=2 ;; *security-advisories*) r=3 ;; *pulls*) r=4 ;;
+  esac
+  eval "fail=\$FAIL_$r out=\$OUT_$r"
+  if [ -n "$fail" ]; then echo "$fail" >&2; exit 1; fi
+  [ -z "$out" ] || echo "$out"
+  ;;
+pr) echo "comment" >> "$GH_LOG" ;;
+esac
+`
+	cases := []struct {
+		name     string
+		env      []string
+		clear    bool
+		want     string
+		forbid   []string
+		wantSkip bool
+	}{
+		{"read 3 fails", []string{"FAIL_3=gh: Not Found (HTTP 404) hunter2"}, false, "security gate: read 3 failed (HTTP 404)", []string{"hunter2"}, true},
+		{"fork read fails without a status, numbered as read 3", []string{"OUT_3=owner/fork", "FAIL_4=dial tcp: timeout hunter2"}, false, "security gate: read 3 failed (no status)", []string{"hunter2"}, true},
+		{"all reads empty", nil, true, "", []string{"read ", "failed", "token is empty"}, false},
+		{"read 1 not empty", []string{"OUT_1=7"}, false, "", []string{"read ", "failed", "alert", "7"}, true},
+		{"token empty", []string{"SEC_TOKEN="}, false, "security gate: token is empty", nil, true},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		output := filepath.Join(dir, "output")
+		ghLog := filepath.Join(dir, "gh.log")
+		cmd := exec.Command(bash, "-e", "-o", "pipefail", "-c", run)
+		cmd.Dir = root
+		cmd.Env = append(append(cmd.Environ(), "GH_REPO=example/repo", "SEC_TOKEN=tok", "PR=1",
+			"GITHUB_OUTPUT="+output, "GH_LOG="+ghLog, "RUNNER_TEMP="+dir,
+			"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH")), c.env...)
+		var buf strings.Builder
+		cmd.Stdout, cmd.Stderr = &buf, &buf
+		if err := cmd.Run(); err != nil {
+			t.Errorf("%s: the step must exit 0, got %v\n%s", c.name, err, buf.String())
+		}
+		out := buf.String()
+		if c.want != "" && !strings.Contains(out, c.want) {
+			t.Errorf("%s: log %q lacks %q", c.name, out, c.want)
+		}
+		for _, f := range c.forbid {
+			if strings.Contains(out, f) {
+				t.Errorf("%s: log %q must not contain %q", c.name, out, f)
+			}
+		}
+		got, _ := os.ReadFile(output)
+		if cleared := strings.Contains(string(got), "clear=true"); cleared != c.clear {
+			t.Errorf("%s: clear=true written: %v, want %v", c.name, cleared, c.clear)
+		}
+		if _, err := os.Stat(ghLog); (err == nil) != c.wantSkip {
+			t.Errorf("%s: skip comment posted: %v, want %v", c.name, err == nil, c.wantSkip)
+		}
+	}
+}
+
+// The Helm chart is published with every release and every release candidate
+// (D1441). The traps: a chart pushed before the images it points to; a push whose
+// digest is not read back (the attestation would name nothing); a version that is
+// not stamped from the tag (the placeholder would ship); a candidate chart that
+// claims an attestation nobody verifies (D1022); and a chart pushed without the
+// checks that guard its invariants.
+func TestChartJobsPublishTheStampedChart(t *testing.T) {
+	root := repoRoot(t)
+	type step struct {
+		Name string         `yaml:"name"`
+		Uses string         `yaml:"uses"`
+		Run  string         `yaml:"run"`
+		With map[string]any `yaml:"with"`
+	}
+	type job struct {
+		Needs       any               `yaml:"needs"`
+		Permissions map[string]string `yaml:"permissions"`
+		Steps       []step            `yaml:"steps"`
+	}
+	load := func(file string) (map[string]job, map[string]string) {
+		var wf struct {
+			Permissions map[string]string `yaml:"permissions"`
+			Jobs        map[string]job    `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/"+file)), &wf); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		return wf.Jobs, wf.Permissions
+	}
+	index := func(file string, steps []step, pred func(step) bool) int {
+		for i, s := range steps {
+			if pred(s) {
+				return i
+			}
+		}
+		t.Errorf("%s: chart job lacks a step", file)
+		return -1
+	}
+	runs := func(sub string) func(step) bool { return func(s step) bool { return strings.Contains(s.Run, sub) } }
+
+	for _, file := range []string{"release.yml", "preview.yml"} {
+		jobs, _ := load(file)
+		chart, ok := jobs["chart"]
+		if !ok {
+			t.Errorf("%s: no chart job", file)
+			continue
+		}
+		if toString(chart.Needs) != "docker" {
+			t.Errorf("%s: chart needs %v, want docker: the chart never exists before the images it points to", file, chart.Needs)
+		}
+		if chart.Permissions["packages"] != "write" || chart.Permissions["contents"] != "read" {
+			t.Errorf("%s: chart permissions %v, want contents: read and packages: write", file, chart.Permissions)
+		}
+		check := index(file, chart.Steps, runs("make helm-check"))
+		pkg := index(file, chart.Steps, runs("helm package"))
+		push := index(file, chart.Steps, runs("helm push"))
+		if !(check < pkg && pkg < push) {
+			t.Errorf("%s: chart steps must run helm-check, then package, then push (got %d, %d, %d)", file, check, pkg, push)
+		}
+		if pkg >= 0 {
+			run := chart.Steps[pkg].Run
+			if !strings.Contains(run, `--version "${TAG#v}"`) || !strings.Contains(run, `--app-version "$TAG"`) {
+				t.Errorf("%s: the chart is not stamped with both --version and --app-version from the tag", file)
+			}
+		}
+		if push >= 0 {
+			run := chart.Steps[push].Run
+			if !strings.Contains(run, "oci://ghcr.io/beppetemp/charts") || !strings.Contains(run, "--password-stdin") ||
+				!strings.Contains(run, "Digest: ") || !strings.Contains(run, "GITHUB_OUTPUT") {
+				t.Errorf("%s: the chart push must log in with --password-stdin, push to oci://ghcr.io/beppetemp/charts and read the digest back", file)
+			}
+			if strings.Contains(run, ":latest") {
+				t.Errorf("%s: the chart is never pushed as latest", file)
+			}
+		}
+		attest := false
+		for _, s := range chart.Steps {
+			if strings.HasPrefix(s.Uses, "actions/attest-build-provenance@") {
+				attest = true
+				if s.With["push-to-registry"] != true || s.With["subject-name"] != "ghcr.io/beppetemp/charts/cartographer" ||
+					!strings.Contains(toString(s.With["subject-digest"]), "steps.push.outputs.digest") {
+					t.Errorf("%s: the chart attestation must name the chart and the digest read back, with push-to-registry: true", file)
+				}
+			}
+		}
+		if want := file == "release.yml"; attest != want {
+			t.Errorf("%s: chart attestation = %v, want %v (the release chart is attested, the candidate's is not: D1022)", file, attest, want)
+		}
+	}
+	rel, _ := load("release.yml")
+	if p := rel["chart"].Permissions; p["id-token"] != "write" || p["attestations"] != "write" {
+		t.Errorf("release.yml: chart permissions %v, want id-token and attestations: write", p)
+	}
+	prev, top := load("preview.yml")
+	if len(top) != 1 || top["contents"] != "read" {
+		t.Errorf("preview.yml: top-level permissions %v, want exactly contents: read", top)
+	}
+	if toString(prev["binaries"].Needs) != "docker" {
+		t.Errorf("preview.yml: binaries needs %v, want exactly docker: the chart job runs beside it, not before it", prev["binaries"].Needs)
+	}
+
+	// Chart.yaml holds the two placeholders the workflows stamp: a hand edit would
+	// ship a chart that disagrees with its image tag.
+	chartYAML := readFile(t, root, "deploy/helm/cartographer/Chart.yaml")
+	for _, want := range []string{"\nversion: 0.0.0-dev\n", "\nappVersion: \"v0.0.0-dev\"\n"} {
+		if !strings.Contains(chartYAML, want) {
+			t.Errorf("Chart.yaml lacks the placeholder %q", strings.TrimSpace(want))
 		}
 	}
 }

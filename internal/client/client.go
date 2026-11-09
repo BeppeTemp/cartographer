@@ -1,5 +1,6 @@
-// Package client implements a minimal MCP client over HTTP (JSON-RPC 2.0), used by
-// `cartographer agents/connect/status/sync` to talk to a remote cartographer server.
+// Package client is a minimal MCP client over HTTP (JSON-RPC 2.0). The
+// `cartographer agents/connect/status/sync` commands use it to talk to a remote
+// cartographer server.
 // The client always uses HTTP (see D37):
 // generating stdio MCP configs is out of scope, the CLI itself is the only consumer.
 package client
@@ -42,7 +43,7 @@ func (e *unauthorizedCause) Unwrap() error { return ErrUnauthorized }
 // JSON-RPC response, a JSON-RPC error object, or a tool result with
 // isError:true — e.g. an unqualified tool name after a healthy discovery,
 // the D120 regression this taxonomy exists to distinguish). Callers
-// (cmd/cartographer's status/TUI panels) render on this distinction instead
+// (cmd/cartographer's status) render on this distinction instead
 // of a single hardcoded "server unreachable".
 type RemoteState string
 
@@ -80,6 +81,11 @@ type RemoteError struct {
 	// (CodeHTTPFailed from an answering server), zero otherwise. It lets a
 	// caller tell a refused credential (403) from a transport failure (#1299).
 	HTTPStatus int
+	// RPCCode is the JSON-RPC error code of a CodeMCPFailed that came from an
+	// "error" object (for example -32602, invalid params), zero otherwise. It
+	// lets a caller tell a refused argument from a failure without parsing
+	// Message.
+	RPCCode int
 }
 
 func (e *RemoteError) Error() string {
@@ -228,6 +234,17 @@ func New(serverURL, token string) *MCPClient {
 func (c *MCPClient) WithKB(name string) *MCPClient {
 	cp := *c
 	cp.KB = name
+	return &cp
+}
+
+// WithHTTPTimeout returns a copy of the client whose HTTP calls time out after d
+// (the default is 30 s, and calls take no context). The surveyor writes its closing
+// entries with a short one so that a shutdown fits the orchestrator's grace period.
+func (c *MCPClient) WithHTTPTimeout(d time.Duration) *MCPClient {
+	cp := *c
+	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
+	hc.Timeout = d
+	cp.HTTP = &hc
 	return &cp
 }
 
@@ -446,7 +463,7 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusNotFound {
 			var rpcResp rpcResponse
 			if err := json.Unmarshal(respBody, &rpcResp); err == nil && rpcResp.Error != nil {
-				return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+				return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, RPCCode: rpcResp.Error.Code,
 					Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, Escape(rpcResp.Error.Message))}
 			}
 		}
@@ -467,7 +484,7 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 			Message: fmt.Sprintf("invalid JSON-RPC response from %s", reqURL), Cause: err}
 	}
 	if rpcResp.Error != nil {
-		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, RPCCode: rpcResp.Error.Code,
 			Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, Escape(rpcResp.Error.Message))}
 	}
 	return rpcResp.Result, nil
@@ -614,6 +631,43 @@ func (c *MCPClient) ReportClientSettings(report any, timeout time.Duration) erro
 	return c.apiCall(http.MethodPost, clientSettingsPath, "", report, timeout)
 }
 
+// surveyorsPath and surveyorSettingsPath are the routes of a surveyor's heartbeat
+// and settings report (D1259).
+const (
+	surveyorsPath        = "/api/surveyors"
+	surveyorSettingsPath = "/api/surveyor-settings"
+)
+
+// HeartbeatAnswer is the answer of POST /api/surveyors: the idle signal of each
+// accepted KB and whether the server wants the settings report.
+type HeartbeatAnswer struct {
+	Accepted []string `json:"accepted"`
+	KBs      map[string]struct {
+		LastActivityAt *time.Time `json:"last_activity_at"`
+	} `json:"kbs"`
+	ActivityKnown   bool      `json:"activity_known"`
+	ServerStartedAt time.Time `json:"server_started_at"`
+	Now             time.Time `json:"now"`
+	SettingsWanted  bool      `json:"settings_wanted"`
+}
+
+// Heartbeat posts a surveyor's declaration (a JSON-encodable object) and returns
+// the server's answer. A server too old for the route answers 404, an error the
+// surveyor ignores.
+func (c *MCPClient) Heartbeat(report any, timeout time.Duration) (*HeartbeatAnswer, error) {
+	var a HeartbeatAnswer
+	if err := c.apiCallInto(http.MethodPost, surveyorsPath, "", report, &a, timeout); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// ReportSurveyorSettings posts a surveyor's settings report. Best-effort like
+// ReportClientSettings.
+func (c *MCPClient) ReportSurveyorSettings(report any, timeout time.Duration) error {
+	return c.apiCall(http.MethodPost, surveyorSettingsPath, "", report, timeout)
+}
+
 // doctorSchedulePath is the server route a scheduled-doctor declaration goes to (D369).
 const doctorSchedulePath = "/api/doctor-schedule"
 
@@ -633,6 +687,12 @@ func (c *MCPClient) WithdrawDoctorSchedule(kbName string, timeout time.Duration)
 // apiCall sends one request to a server /api route (client-to-server metadata,
 // not an MCP call) with the same auth and error mapping for every caller.
 func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time.Duration) error {
+	return c.apiCallInto(method, route, kbName, body, nil, timeout)
+}
+
+// apiCallInto is apiCall that also decodes a 2xx JSON answer into out (nil
+// keeps the old behaviour: the body is read, capped at 1 MiB, and dropped).
+func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, timeout time.Duration) error {
 	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
 		return err
 	}
@@ -674,7 +734,7 @@ func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time
 			Message: fmt.Sprintf("could not reach %s", u.Redacted()), Cause: err}
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
@@ -683,7 +743,55 @@ func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time
 		return &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode}
 	}
+	if out != nil {
+		if err := json.Unmarshal(raw, out); err != nil {
+			return &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+				Message: fmt.Sprintf("invalid answer from %s", u.Redacted()), Cause: err}
+		}
+	}
 	return nil
+}
+
+// decodeToolResult parses a tools/call result; Call and CallTool share it so
+// the "invalid tool result" wording lives in one place.
+func decodeToolResult(tool string, raw json.RawMessage) (toolResult, error) {
+	var tr toolResult
+	if err := json.Unmarshal(raw, &tr); err != nil {
+		return tr, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("invalid tool result for %q", tool), Cause: err}
+	}
+	return tr, nil
+}
+
+// ToolOutput is a tool result that keeps the tool-level isError flag instead
+// of turning it into a Go error (see CallTool).
+type ToolOutput struct {
+	Text    string
+	IsError bool
+}
+
+// CallTool invokes a tool like Call, but returns the result text and the
+// tool's own isError flag so a caller can hand a tool-level refusal back to a
+// model. Transport and JSON-RPC failures remain *RemoteError.
+func (c *MCPClient) CallTool(tool string, args any) (ToolOutput, error) {
+	raw, err := c.do("tools/call", map[string]any{"name": tool, "arguments": args})
+	if err != nil {
+		return ToolOutput{}, err
+	}
+	tr, err := decodeToolResult(tool, raw)
+	if err != nil {
+		return ToolOutput{}, err
+	}
+	if len(tr.Content) == 0 {
+		return ToolOutput{IsError: true, Text: "tool returned no content"}, nil
+	}
+	texts := make([]string, 0, len(tr.Content))
+	for _, block := range tr.Content {
+		if block.Type == "text" {
+			texts = append(texts, block.Text)
+		}
+	}
+	return ToolOutput{Text: strings.Join(texts, "\n"), IsError: tr.IsError}, nil
 }
 
 // Call invokes an MCP tool via tools/call and preserves all text content blocks.
@@ -699,10 +807,9 @@ func (c *MCPClient) CallContext(ctx context.Context, tool string, args any) (jso
 		return nil, err
 	}
 
-	var tr toolResult
-	if err := json.Unmarshal(raw, &tr); err != nil {
-		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
-			Message: fmt.Sprintf("invalid tool result for %q", tool), Cause: err}
+	tr, err := decodeToolResult(tool, raw)
+	if err != nil {
+		return nil, err
 	}
 	if len(tr.Content) == 0 {
 		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
@@ -725,16 +832,20 @@ func (c *MCPClient) CallContext(ctx context.Context, tool string, args any) (jso
 	return combined, nil
 }
 
-// ToolInfo is a tool of tools/list as a plugin's kb.call needs it: the name and
-// whether the server annotates it read-only.
+// ToolInfo is one tool of tools/list: its name, whether the server annotates
+// it read-only (what a plugin's kb.call needs), and the description and input
+// schema a surveyor hands to a model. InputSchema is passed through untouched.
 type ToolInfo struct {
-	Name     string
-	ReadOnly bool
+	Name        string
+	ReadOnly    bool
+	Description string
+	InputSchema json.RawMessage
 }
 
-// ListTools returns every tool of tools/list, following nextCursor. ReadOnly is
-// the server's own readOnlyHint, so the classification is never copied here;
-// an absent annotation is false.
+// ListTools returns every tool of tools/list (the server filters it per token),
+// following nextCursor. ReadOnly is the server's own readOnlyHint, so the
+// classification is never copied here; an absent annotation is false. A tool
+// without a name is skipped: nothing can call it.
 func (c *MCPClient) ListTools() ([]ToolInfo, error) {
 	return c.ListToolsContext(context.Background())
 }
@@ -754,7 +865,9 @@ func (c *MCPClient) ListToolsContext(ctx context.Context) ([]ToolInfo, error) {
 		}
 		var res struct {
 			Tools []struct {
-				Name        string `json:"name"`
+				Name        string          `json:"name"`
+				Description string          `json:"description"`
+				InputSchema json.RawMessage `json:"inputSchema"`
 				Annotations *struct {
 					ReadOnlyHint bool `json:"readOnlyHint"`
 				} `json:"annotations"`
@@ -765,7 +878,15 @@ func (c *MCPClient) ListToolsContext(ctx context.Context) ([]ToolInfo, error) {
 			return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed, Message: "invalid tool list", Cause: err}
 		}
 		for _, t := range res.Tools {
-			out = append(out, ToolInfo{Name: t.Name, ReadOnly: t.Annotations != nil && t.Annotations.ReadOnlyHint})
+			if t.Name == "" {
+				continue
+			}
+			out = append(out, ToolInfo{
+				Name:        t.Name,
+				ReadOnly:    t.Annotations != nil && t.Annotations.ReadOnlyHint,
+				Description: t.Description,
+				InputSchema: t.InputSchema,
+			})
 		}
 		if res.NextCursor == "" || res.NextCursor == cursor {
 			return out, nil

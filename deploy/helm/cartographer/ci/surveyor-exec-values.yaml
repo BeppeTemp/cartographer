@@ -1,0 +1,23 @@
+# A Deployment Surveyor with an exec recipe: a derived image, its own HTTPS server_url, a
+# service account bound to a read-only role (created by the operator).
+server:
+  tokens:
+    existingSecret:
+      name: cartographer-tokens
+  credentials:
+    enabled: false
+  config:
+    kbs:
+      - remote: https://git.example.com/user/kb-a.git
+surveyors:
+  - name: cluster-inventory
+    mode: deployment
+    existingSecret: cluster-inventory-env
+    serviceAccountName: surveyor-inventory
+    image:
+      repository: registry.example.com/user/surveyor-kubectl
+      tag: "1.0.0"
+    config:
+      server_url: https://wiki.example.com/mcp
+      token_env: SURVEYOR_TOKEN
+      kbs: [kb-a]

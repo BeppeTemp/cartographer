@@ -319,6 +319,8 @@ type MultiKBServer struct {
 	// clientReports are the client settings each principal's machines sent
 	// (D818), shown back to that principal only.
 	clientReports clientReports
+	// surveyors are the declarations of the surveyors' heartbeats (uiapi_surveyors.go).
+	surveyors surveyorStore
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON
@@ -379,6 +381,7 @@ func NewMultiKBServer(version string) *MultiKBServer {
 // server for it.
 func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 	srv := New(m.version)
+	srv.liveSurveyor = m.surveyors.hasLive
 	srv.SetPolicyKB(name)
 	setupFn(srv)
 	m.servers[name] = srv
@@ -674,6 +677,17 @@ func (m *MultiKBServer) Handler() http.Handler {
 		// being enabled — and inside the same auth chain as /mcp.
 		case r.URL.Path == UsagePath:
 			m.handleUsage(w, r)
+			return
+
+		// A surveyor's heartbeat: client-to-server metadata like usage, always
+		// routed and inside the same auth chain as /mcp.
+		case r.URL.Path == SurveyorsPath:
+			m.handleSurveyors(w, r)
+			return
+
+		// A surveyor's configuration report (D1259): its own route, not the beat.
+		case r.URL.Path == SurveyorSettingsPath:
+			m.handleSurveyorSettings(w, r)
 			return
 
 		// A client's own settings (D818): like usage, always routed.

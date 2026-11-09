@@ -136,11 +136,57 @@ func checkPath(baseDir, path string, strict bool) error {
 // WriteFileNoFollow is os.WriteFile that refuses to follow a symlinked — or
 // otherwise non-plain — target. It checks the file only; WriteFile also checks
 // the directory chain.
+//
+// The leaf is opened without following a link and checked on the open file, not
+// looked up twice (see writeLeaf). The directory components are still checked by
+// path: closing that window would take an openat walk, its own change.
 func WriteFileNoFollow(path string, data []byte, perm os.FileMode) error {
 	if IsUnsafe(path) {
 		return refusal(path)
 	}
-	return notWritable("", path, os.WriteFile(path, data, perm), false)
+	return notWritable("", path, writeLeaf(path, data, perm), false)
+}
+
+// beforeOpen is a test seam called between writeLeaf's Lstat and its open: the
+// window a leaf swapped for a link would exploit.
+var beforeOpen = func(string) {}
+
+// errNotPlain is what openNoFollow returns for a leaf that is a link, a
+// reparse point, a directory or a FIFO standing where a file was.
+var errNotPlain = errors.New("not a plain file")
+
+// writeLeaf is os.WriteFile on a leaf that has passed the path check, without
+// the second lookup that follows a link swapped in since. A link the user listed
+// is followed on purpose (D148) and keeps os.WriteFile. Any other leaf is opened
+// with O_NOFOLLOW and no O_TRUNC, fstat'ed, and truncated only once it is a
+// regular file, so a swapped target is never truncated. perm applies at
+// creation, the mode of an existing file is untouched.
+func writeLeaf(path string, data []byte, perm os.FileMode) error {
+	if info, err := lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 && isAllowed(path) {
+		return os.WriteFile(path, data, perm)
+	}
+	beforeOpen(path)
+	f, err := openNoFollow(path, perm)
+	if err != nil {
+		if errors.Is(err, errNotPlain) {
+			return refusal(path)
+		}
+		return err
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err != nil {
+		return err
+	} else if !info.Mode().IsRegular() {
+		return refusal(path)
+	}
+	if err := f.Truncate(0); err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // MkdirAllNoFollow is os.MkdirAll with the component walk in front of it, so a
@@ -167,7 +213,7 @@ func WriteFile(baseDir, path string, data []byte, perm os.FileMode) error {
 	if err := CheckPath(baseDir, path); err != nil {
 		return err
 	}
-	return notWritable(baseDir, path, os.WriteFile(path, data, perm), false)
+	return notWritable(baseDir, path, writeLeaf(path, data, perm), false)
 }
 
 // Remove removes path after checking the file and every directory component

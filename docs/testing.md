@@ -75,11 +75,12 @@ available here (it needs an organization-owned repository), so the heavy legs ru
 a Windows- or macOS-only break is caught on `main` and tracked by the `ci-red` issue, fixed by a
 follow-up. The `merge_group` triggers stay, inert, for a repository that moves to an organization. The `web` legs run
 after every push to `main` (and on `merge_group`) and on a PR that touches the frontend, `test/lib/`, the build files, or a
-non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen}`
+non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen,surveyor/surveyortest}`
 and every `_test.go` cannot change what the browser sees, so they do not trigger it (D672, D255, D994); the
 Playwright browser is cached by version, and the `.deb` files of the OS packages it installs by version and runner
 image (the runner's mirror sometimes serves them at a few kB/s). The `demo-edge` job runs the demo
-Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. On a PR a `changes` job decides `web` and `forge` with
+Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. A `helm` job runs `make helm-check` (§Helm chart); on a PR only when `deploy/helm/`,
+`test/helm/`, `scripts/install-helm.sh`, the Makefile, `ci.yml` or the filter script change. On a PR a `changes` job decides `web`, `forge` and `helm` with
 `scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
 which also compares the excluded packages with `go list -deps`), failing open; where it is
 skipped (push, `merge_group`) everything runs. `gate`, `pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are the required checks (D1610); on `merge_group` `test-windows` fails if a leg was skipped or failed.
@@ -344,6 +345,28 @@ otherwise silent — no client, compiler or linter reports any of them:
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.
 
+### Helm chart
+
+`make helm-check` runs [`test/helm/run.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/helm/run.sh) on
+`deploy/helm/cartographer/` (D1441). It needs `helm` and `jq` and no cluster, and `scripts/install-helm.sh <dir>` installs
+the pinned Helm release (one pin, shared by `ci.yml`, `release.yml` and `preview.yml`). It runs `helm lint --strict` and
+`helm template` over every file of the chart's `ci/` directory (server minimal and full, the two partitioned releases,
+the YAML-token source, a scheduled Surveyor and an exec-recipe Surveyor) and asserts on what is rendered: one server
+`Deployment` with `replicas: 1` and `Recreate`, no `StatefulSet` or autoscaler, **no `Secret` object**, no literal
+secret in an environment, the credentials Secret mounted with `defaultMode: 0440` next to an `fsGroup`, the quoted
+`mode: "on"` and `http: ":39273"` in `config.yaml`, the Service selecting the server only, the kept claim (absent with
+`existingClaim`), the probes, the Surveyors (no port, probe or persistent volume, `--once` on a CronJob only, the
+injected `server_url` only when the entry sets none) and no object shared by the two partitioned releases. Every
+refusal of the chart is a negative case that must fail with its message, and the values schema must reject
+`server.replicaCount`, `server.autoscaling` and a top-level key it does not know. The chart's files may not contain
+the retired names, and `Chart.yaml` must keep the two placeholders the release workflows stamp.
+
+It is **not** part of `make gate`: the gate stays Go-only and offline (the reasoning of D227), and Helm is not a
+Go dependency. The `helm` job of `ci.yml` runs it, selected by the `helm` filter of `scripts/ci-filters.sh`, and
+both release workflows run it before pushing the chart; `internal/repodocs` pins that order and the stamping
+(`release_train_test.go`). The chart's `.yaml` comments are part of the documentation corpus `internal/repodocs`
+reads, so a `D<n>`, a `§` or a `make <target>` in them must resolve.
+
 ### Stdio smoke
 
 `make smoke` builds the binary, starts a temporary stdio server and verifies
@@ -362,17 +385,26 @@ in its list of local-only targets.
 
 `make docker-smoke` builds the server image and runs
 [`test/smoke/image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/image.sh)
-on it (D995): `git`, `sops`, `age` and `ssh` are in the image, `version` prints
-the `VERSION` build-arg, the user is not root, a KB created on a data volume is
+on it (D995): `git`, `sops`, `age`, `ssh` and `wget` (the Helm chart's readiness probe runs it) are in the image, `version` prints
+the `VERSION` build-arg, `surveyor` without `--config` exits 2 (the server image still runs a Surveyor and it needs no volume), the user is not root, a KB created on a data volume is
 served over HTTP with a token (no token is a 401), and a `map_create` plus a
 `concept_batch` write read back through `concept_read` and leave one more commit in
 the KB's repository. It runs on the runner's architecture only.
 
-CI runs it in the `docker` job of `ci.yml`, after the Dockerfile's `test` stage
+`make docker-surveyor-smoke` builds the Surveyor image (`docker build --target surveyor .`, D1440) and runs
+[`test/smoke/surveyor-image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/surveyor-image.sh)
+on it, with no volume and no network: `git`, its `git-remote-https` helper and the CA bundle are there; `sops`, `age`
+and `ssh` are **absent** (that absence is the point of the image); the user is not root; the entrypoint is exactly
+`cartographer surveyor` and the MCP Registry label is not on the image; `version` (read with `--entrypoint`, since the
+entrypoint would hand it to the Surveyor) carries the `VERSION` build-arg; no arguments exit 2, and `source help`
+prints the `source test` usage, so the baked entrypoint reaches the dispatcher. `internal/repodocs/dockerfile_test.go`
+checks the stage rules without Docker (the server is the last stage, the Surveyor before it, same pinned base).
+
+CI runs both scripts in the `docker` job of `ci.yml`, after the Dockerfile's `test` stage
 (`docker build --target test .`: vet and test in a clean alpine) and before
 `make demo-smoke DEMO_BASE=cartographer:ci`, on a PR that touches the image's inputs
-and always on the release PR and on `main`. `preview.yml` runs the same script on
-the release candidate before it pushes. `mcp_call` is shared with the HTTP smoke
+and always on the release PR and on `main`. `preview.yml` runs both scripts on
+the release candidate's images before the first push. `mcp_call` is shared with the HTTP smoke
 through `test/lib/mcp.sh`. Run `docker build --target test .` from a clone, not from
 a git worktree: the worktree's `.git` file is copied into the image and breaks
 `git config`.
@@ -544,7 +576,7 @@ The same guard covers the Windows packaging shape: `windows` among the build
 targets, a `format_overrides` entry making its archive a **zip** — what
 `install.ps1` downloads and extracts — no override producing a raw binary, and no
 `winget:` block, which would start opening pull requests against
-`microsoft/winget-pkgs` again (D252). `internal/repodocs` `TestReleaseIsPublishedLast` pins the publish-last order (D1350): `draft` and `force-tag-creation` in `release-please-config.json`, `release.draft` and `use_existing_draft` in `.goreleaser.yaml`, `skip_upload: true` on the cask, and in `release.yml` a `publish` job that needs `goreleaser`, `prerelease-flag` and `docker` and reads `draft`/`prerelease` back, with `mcp-registry`, `cask` (tap push) and `latest` (`:latest` retag) after it and no `:latest` in the `docker` job's tags. Its Ruby is not executed — that would need a real Homebrew and
+`microsoft/winget-pkgs` again (D252). `internal/repodocs` `TestReleaseIsPublishedLast` pins the publish-last order (D1350): `draft` and `force-tag-creation` in `release-please-config.json`, `release.draft` and `use_existing_draft` in `.goreleaser.yaml`, `skip_upload: true` on the cask, and in `release.yml` a `publish` job that needs `goreleaser`, `prerelease-flag` and `docker` and reads `draft`/`prerelease` back, with `mcp-registry`, `cask` (tap push) and `latest` (`:latest` retag) after it and no `:latest` in the `docker` job's tags; the release body comes from `gen -section` in a step that holds no token, and only the `draft=false` PATCH, which runs `gh` alone, carries it (`-F body=@`). Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 
 ### Frontend (`make web-test`, `make web-check`)
@@ -976,7 +1008,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
-- The release candidate (`release-train.yml` with `action: rc` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D1384) has passed the image smoke before its push (D995) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a machine that is not the build host (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then is the `rc-ok` label added to the release PR.
+- The release candidate (`release-train.yml` with `action: rc` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D1384) has passed both image smokes (server and Surveyor) before its first push (D995, D1440) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a machine that is not the build host (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make e2e-upgrade` is green on the release PR (the `upgrade-e2e` job): a client of the previous release upgrades and converges.
 - `make smoke` succeeds for the packaged/local stdio path.

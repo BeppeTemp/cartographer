@@ -28,8 +28,8 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 ```
 
 `cartographer` is a single binary: it is the MCP server (`serve`), the
-multi-provider client (`connect` / `status` / `sync`), and a TUI dashboard
-(run it with no arguments in a terminal).
+multi-provider client (`connect` / `status` / `sync`); run with no arguments in a
+terminal it prints a short status, then the usage.
 
 The installers verify the download against the release's `sha256sums.txt` and stop
 without it. For a stronger proof that an asset was built by this repository's release
@@ -208,7 +208,7 @@ agent made can be reviewed or reverted with ordinary git.
   `\Cartographer\Tray`; on Windows 11 it first appears in the overflow (^) menu
   until you pin it. `--no-tray`, or `cartographer service tray uninstall`, opts
   out and is remembered. The service is **optional** — a stdio-only setup
-  (`serve --kb <path>`) is a legitimate topology and installs none of this.
+  (`serve --kb <path>`) is a legitimate way to run (`deployment.md` §Example: stdio) and installs none of this.
 - **A data directory**, `~/cartographer-data` by default, holding the cloned KBs.
 - **Writes into your agent clients' own configuration** under `$HOME`, and only
   when you run `cartographer connect` — never before. Each destination path is

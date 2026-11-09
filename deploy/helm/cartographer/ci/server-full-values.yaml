@@ -1,0 +1,38 @@
+# Kubernetes full server side: credentials Secret, an existing claim, an Ingress with TLS,
+# the readiness probe on /ready with a token, resources and pod annotations.
+server:
+  tokens:
+    existingSecret:
+      name: cartographer-tokens
+  credentials:
+    existingSecret:
+      name: cartographer-credentials
+  persistence:
+    existingClaim: cartographer-data
+  config:
+    auth:
+      mode: "on"
+    kbs:
+      - remote: ssh://git@git.example.com/user/kb-a.git
+      - remote: https://git.example.com/user/work-kb.git
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: wiki.example.com
+    tls:
+      - secretName: wiki-tls
+        hosts:
+          - wiki.example.com
+  probes:
+    readiness:
+      tokenSecret:
+        name: cartographer-probe
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  podAnnotations:
+    example.com/owner: user
