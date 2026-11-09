@@ -216,6 +216,9 @@ type KB struct {
 	// retireMu guards retireCache, the parsed root log (Retirements, D820).
 	retireMu    sync.Mutex
 	retireCache *retirementCache
+	// movesMu guards movesCache, the recorded moves of the git history (RecordedMoves).
+	movesMu    sync.Mutex
+	movesCache *movesCache
 	// pushStarted is true once the worker goroutine has been launched
 	// (lazily, on the first SchedulePush). FlushPush checks this without
 	// starting the worker, so it stays a no-op — and starts no goroutine —

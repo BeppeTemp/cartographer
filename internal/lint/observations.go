@@ -85,6 +85,12 @@ var observations = []ObservationSpec{
 		Advice: "declare the proposed vocabulary in the map's contract (map_update field_values), then kb_repair invalid_field_value converges the pages",
 	},
 	{
+		Name: "moved_id_cited", Category: CategoryLinks, WholeGraph: true,
+		Why:    "a journal entry or a quotation keeps the ID a page had when it was written",
+		Closes: "the page no longer names the old ID outside a link, or a concept with that ID exists again",
+		Advice: "a recorded move renamed the ID this page cites: name the current ID where the page speaks of the concept today (concept_patch); leave it where the old ID is historical (a journal entry, a quotation, a changelog line)",
+	},
+	{
 		Name: "requires_unresolved", Category: CategoryArtifacts,
 		Why:    "the named skill, agent or hook may come from another KB bound to the same client",
 		Closes: "the entry names an artifact of this KB or of the bundle, or is removed from requires",
@@ -171,8 +177,8 @@ func conceptOversizeObservation(id okf.ConceptID, body string) (Finding, bool) {
 
 // observationItems builds the observation items of the whole KB (D947),
 // deterministic like the rest of Review.
-func observationItems(k *kb.KB, concepts []*reviewConcept, contracts map[string]kb.MapContract, archives []string) ([]ReviewItem, error) {
-	found, err := observationFindings(k, concepts, contracts, archives)
+func observationItems(k *kb.KB, concepts []*reviewConcept, contracts map[string]kb.MapContract, archives []string, exists map[okf.ConceptID]struct{}) ([]ReviewItem, error) {
+	found, err := observationFindings(k, concepts, contracts, archives, exists)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +194,7 @@ func observationItems(k *kb.KB, concepts []*reviewConcept, contracts map[string]
 // observationFindings runs the observation detectors. They are the ones the
 // lint ran before these became observations; they read the graph, the
 // contracts and the concepts Review already walked.
-func observationFindings(k *kb.KB, concepts []*reviewConcept, contracts map[string]kb.MapContract, archives []string) ([]Finding, error) {
+func observationFindings(k *kb.KB, concepts []*reviewConcept, contracts map[string]kb.MapContract, archives []string, exists map[okf.ConceptID]struct{}) ([]Finding, error) {
 	lg, err := k.LinkGraph(nil)
 	if err != nil {
 		return nil, fmt.Errorf("lint.Review: link graph: %w", err)
@@ -199,6 +205,17 @@ func observationFindings(k *kb.KB, concepts []*reviewConcept, contracts map[stri
 	}
 	found := st.observations()
 	found = append(found, requiresObservations(k)...)
+	mentionFiles := make([]MentionFile, 0, len(concepts))
+	for _, c := range concepts {
+		if c.content != "" {
+			mentionFiles = append(mentionFiles, MentionFile{Path: c.path, Content: c.content})
+		}
+	}
+	moved, err := movedIDCitations(k, exists, mentionFiles)
+	if err != nil {
+		return nil, err
+	}
+	found = append(found, moved...)
 
 	// Review parsed each concept's frontmatter once; the per-map detectors
 	// reuse it instead of parsing every page again for every map.

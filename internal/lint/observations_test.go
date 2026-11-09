@@ -20,7 +20,7 @@ func observed(t *testing.T, k *kb.KB) []Finding {
 	if err := k.WalkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
 		fm, _ := okf.ParseFrontmatter(fmRaw)
-		concepts = append(concepts, &reviewConcept{id: id, body: body, path: physicalPath, fm: fm})
+		concepts = append(concepts, &reviewConcept{id: id, body: body, path: physicalPath, fm: fm, content: content})
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -35,7 +35,11 @@ func observed(t *testing.T, k *kb.KB) []Finding {
 			contracts[a] = c
 		}
 	}
-	found, err := observationFindings(k, concepts, contracts, archives)
+	links, err := k.Links()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := observationFindings(k, concepts, contracts, archives, links.Exists)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +49,10 @@ func observed(t *testing.T, k *kb.KB) []Finding {
 // obsFixtures build, per observation, a KB with one positive item and name the
 // concept it is about; obsClosers write the page state that closes it (D907).
 var obsFixtures = map[string]func(t *testing.T) (*kb.KB, string){
+	"moved_id_cited": func(t *testing.T) (*kb.KB, string) {
+		k := movedKB(t)
+		return k, "ops/page"
+	},
 	"requires_unresolved": func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.Root, "skills/plan/SKILL.md", "---\nname: plan\ndescription: Plans\nrequires: [agent:ghost]\n---\n# Plan\n")
@@ -107,6 +115,10 @@ var obsFixtures = map[string]func(t *testing.T) (*kb.KB, string){
 
 var obsClosers = map[string]func(t *testing.T, k *kb.KB){
 	// The entry resolves: the agent exists in the KB.
+	// The page names the current ID.
+	"moved_id_cited": func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "ops/page.md", "---\ntype: Note\ntitle: Page\n---\nThe router is ops/network.\n")
+	},
 	"requires_unresolved": func(t *testing.T, k *kb.KB) {
 		writeFile(t, k.Root, "agents/ghost.md", "---\nname: ghost\ndescription: G\n---\nBoo.\n")
 	},
