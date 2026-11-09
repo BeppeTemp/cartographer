@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -195,7 +196,7 @@ type artifactText struct {
 // loads the skills once (loadSkills) and they are handed to each check that
 // needs them: LoadAllSkills walks the filesystem.
 func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool, skills []skill.Skill, missing []string) []Finding {
-	files := artifactTextFiles(k)
+	files, _ := artifactTextFiles(k)
 
 	var findings []Finding
 	findings = append(findings, checkSkills(skills, missing)...)
@@ -326,18 +327,28 @@ type ArtifactFile struct {
 // agents/*.md, instructions.md) that the lint scans and that concept_move
 // scans for mentions of a moved ID, sorted by path.
 func ArtifactTextFiles(k *kb.KB) []ArtifactFile {
-	files := artifactTextFiles(k)
+	out, _ := ArtifactTextFilesErr(k)
+	return out
+}
+
+// ArtifactTextFilesErr is ArtifactTextFiles that also reports a scan which did
+// not finish (a directory that could not be read, other than one that does not
+// exist): the files returned are the ones it reached, so a caller that must not
+// read a partial list as a complete one (mentions, moved_id_cited) checks it.
+func ArtifactTextFilesErr(k *kb.KB) ([]ArtifactFile, error) {
+	files, err := artifactTextFiles(k)
 	out := make([]ArtifactFile, len(files))
 	for i, f := range files {
 		out[i] = ArtifactFile{Path: f.rel, Content: f.content}
 	}
-	return out
+	return out, err
 }
 
 // artifactTextFiles reads the text files of skills/**, agents/*.md and
 // instructions.md. Symlinks, junk, binaries and oversized files are skipped.
-func artifactTextFiles(k *kb.KB) []artifactText {
+func artifactTextFiles(k *kb.KB) ([]artifactText, error) {
 	var out []artifactText
+	var walkErr error // the first read failure; a missing directory is not one
 	read := func(rel string) {
 		abs := filepath.Join(k.Root, filepath.FromSlash(rel))
 		fi, err := os.Lstat(abs)
@@ -352,6 +363,9 @@ func artifactTextFiles(k *kb.KB) []artifactText {
 	}
 	_ = filepath.WalkDir(filepath.Join(k.Root, "skills"), func(abs string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if walkErr == nil && !errors.Is(err, fs.ErrNotExist) {
+				walkErr = err
+			}
 			return nil
 		}
 		rel, relErr := filepath.Rel(k.Root, abs)
@@ -376,10 +390,12 @@ func artifactTextFiles(k *kb.KB) []artifactText {
 				read("agents/" + e.Name())
 			}
 		}
+	} else if walkErr == nil && !errors.Is(err, fs.ErrNotExist) {
+		walkErr = err
 	}
 	read("instructions.md")
 	sort.Slice(out, func(i, j int) bool { return out[i].rel < out[j].rel })
-	return out
+	return out, walkErr
 }
 
 // mountedKBNames is every KB name this server mounts: the KB itself and its

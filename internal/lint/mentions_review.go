@@ -24,6 +24,12 @@ const (
 // recordedMoves is kb.RecordedMoves, a variable so a test can fail it.
 var recordedMoves = (*kb.KB).RecordedMoves
 
+// artifactFiles is ArtifactTextFilesErr, a variable so a test can fail it.
+var artifactFiles = ArtifactTextFilesErr
+
+// movedArtifactsWarn logs an artifact scan that did not finish once per process.
+var movedArtifactsWarn sync.Once
+
 // movedHistoryWarn logs an unreadable history once per process.
 var movedHistoryWarn sync.Once
 
@@ -83,7 +89,15 @@ func movedIDCitations(k *kb.KB, exists map[okf.ConceptID]struct{}, concepts []Me
 	}
 	byPath := map[string]map[string]*cite{} // path -> old ID -> lines
 	files := append([]MentionFile(nil), concepts...)
-	for _, f := range ArtifactTextFiles(k) {
+	artifacts, err := artifactFiles(k)
+	if err != nil {
+		// A partial list would show a citation-free KB that was not fully read.
+		movedArtifactsWarn.Do(func() {
+			log.Printf("kb_review: moved_id_cited skipped, the artifact files of the KB cannot all be read: %v", err)
+		})
+		return nil, nil
+	}
+	for _, f := range artifacts {
 		files = append(files, MentionFile{Path: f.Path, Content: f.Content, Artifact: true})
 	}
 	for _, m := range ScanMentionFiles(files, moveMap) {

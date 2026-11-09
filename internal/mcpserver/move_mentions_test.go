@@ -9,11 +9,13 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 type mentionsResult struct {
 	Mentions        []mentionOut `json:"mentions"`
 	MentionsOmitted int          `json:"mentions_omitted"`
+	Incomplete      string       `json:"mentions_incomplete"`
 	Findings        []struct {
 		Check string `json:"check"`
 	} `json:"findings"`
@@ -187,5 +189,38 @@ func TestApplyConceptMoves_MentionsVisibilityAndGate(t *testing.T) {
 	}
 	if _, ok := res["mentions"]; ok {
 		t.Error("a move without ReportMentions must not scan")
+	}
+}
+
+// A mentions scan that did not finish still reports what it found, with a note
+// that the list may be missing some (#1853).
+func TestConceptMove_MentionsScanIncompleteIsSaid(t *testing.T) {
+	old := scanMentionsFn
+	scanMentionsFn = func(k *kb.KB, m map[string]string, c func([]string) map[string]bool) ([]lint.Mention, error) {
+		found, _ := lint.ScanMentions(k, m, c)
+		return found, fmt.Errorf("walk: boom")
+	}
+	defer func() { scanMentionsFn = old }()
+	_, out, raw := mentionsMove(t, "concept_move", `{"source_id":"ops/net","target_id":"ops/network"}`,
+		map[string]string{
+			"ops/net.md": "---\ntype: Note\ntitle: Net\n---\nBody.\n",
+			"ops/a.md":   "---\ntype: Note\ntitle: A\n---\nThe router is ops/net.\n",
+		})
+	if len(out.Mentions) != 1 {
+		t.Fatalf("mentions found are dropped: %s", raw)
+	}
+	if !strings.Contains(out.Incomplete, "did not finish") || strings.Contains(out.Incomplete, "boom") {
+		t.Errorf("no incomplete note: %s", raw)
+	}
+}
+
+func TestConceptMove_MentionsCompleteScanHasNoNote(t *testing.T) {
+	_, out, raw := mentionsMove(t, "concept_move", `{"source_id":"ops/net","target_id":"ops/network"}`,
+		map[string]string{
+			"ops/net.md": "---\ntype: Note\ntitle: Net\n---\nBody.\n",
+			"ops/a.md":   "---\ntype: Note\ntitle: A\n---\nThe router is ops/net.\n",
+		})
+	if out.Incomplete != "" || strings.Contains(raw, "mentions_incomplete") {
+		t.Errorf("note on a complete scan: %s", raw)
 	}
 }

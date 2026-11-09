@@ -10,6 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/kbtest"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 func note(title, body string) string {
@@ -241,7 +242,7 @@ func BenchmarkScanMentions(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ScanMentions(k, moveMap, nil)
+		_, _ = ScanMentions(k, moveMap, nil)
 	}
 }
 
@@ -276,5 +277,55 @@ func TestMovedIDCited_UnreadableHistoryDegrades(t *testing.T) {
 	}
 	if _, err := Review(k, nil); err != nil {
 		t.Fatalf("the review failed: %v", err)
+	}
+}
+
+// An artifact scan that did not finish costs the observation for that run
+// (#1853): a partial list is not shown as a KB with no citation.
+func TestMovedIDCited_IncompleteArtifactScanSkips(t *testing.T) {
+	k := movedKB(t)
+	if got := movedItems(t, k); len(got) != 1 {
+		t.Fatalf("control: items = %+v", got)
+	}
+	old := artifactFiles
+	artifactFiles = func(*kb.KB) ([]ArtifactFile, error) { return nil, fmt.Errorf("walk: boom") }
+	defer func() { artifactFiles = old }()
+	if got := movedItems(t, k); len(got) != 0 {
+		t.Fatalf("items = %+v", got)
+	}
+	if _, err := Review(k, nil); err != nil {
+		t.Fatalf("the review failed: %v", err)
+	}
+}
+
+// ScanMentions returns the mentions it found and the error of a walk that
+// failed, from either side (#1853).
+func TestScanMentions_WalkErrorReachesTheCaller(t *testing.T) {
+	t.Parallel()
+	moveMap := map[string]string{"ops/net": "ops/network"}
+	okWalk := func(fn func(okf.ConceptID, string, string) error) error {
+		return fn("ops/page", "ops/page.md", note("Page", "The router is ops/net."))
+	}
+	noArtifacts := func() ([]ArtifactFile, error) { return nil, nil }
+	got, err := scanMentions(newMentionScanner(moveMap), okWalk, noArtifacts)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("control: %+v, %v", got, err)
+	}
+	failWalk := func(fn func(okf.ConceptID, string, string) error) error {
+		if err := okWalk(fn); err != nil {
+			return err
+		}
+		return fmt.Errorf("walk: boom")
+	}
+	got, err = scanMentions(newMentionScanner(moveMap), failWalk, noArtifacts)
+	if err == nil || !strings.Contains(err.Error(), "walk: boom") || len(got) != 1 {
+		t.Fatalf("concept walk: %+v, %v", got, err)
+	}
+	failArt := func() ([]ArtifactFile, error) {
+		return []ArtifactFile{{Path: "instructions.md", Content: "see ops/net"}}, fmt.Errorf("artifacts: boom")
+	}
+	got, err = scanMentions(newMentionScanner(moveMap), okWalk, failArt)
+	if err == nil || !strings.Contains(err.Error(), "artifacts: boom") || len(got) != 2 {
+		t.Fatalf("artifact walk: %+v, %v", got, err)
 	}
 }
