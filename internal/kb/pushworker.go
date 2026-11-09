@@ -88,9 +88,17 @@ func (k *KB) FlushPush(timeout time.Duration) error {
 		k.pushMu.Unlock()
 		return nil
 	}
-	k.pushForce = true
 	done := make(chan struct{})
-	k.pushWaiters = append(k.pushWaiters, done)
+	k.pushForce = true
+	if k.pushPending {
+		// A write is waiting, possibly behind a push already in flight that
+		// read HEAD before it: only the next push covers it, so the waiter
+		// must not be released by the one running now.
+		k.pushWaiters = append(k.pushWaiters, done)
+	} else {
+		// Only the in-flight push is left, and it already covers every write.
+		k.pushRunWaiters = append(k.pushRunWaiters, done)
+	}
 	k.pushMu.Unlock()
 	k.wakePushWorker()
 
@@ -132,6 +140,8 @@ func (k *KB) pushWorkerLoop() {
 		k.pushPending = false
 		k.pushForce = false
 		k.pushRunning = true
+		k.pushRunWaiters = append(k.pushRunWaiters, k.pushWaiters...)
+		k.pushWaiters = nil
 		k.pushMu.Unlock()
 
 		k.doAsyncPush()
@@ -145,9 +155,11 @@ func (k *KB) pushWorkerLoop() {
 		// SchedulePush skip its debounce window. Any pending write left behind
 		// by that window is a later signal than the flush, so debouncing it is
 		// the correct behavior, not a lost force.
-		k.pushForce = false
-		waiters := k.pushWaiters
-		k.pushWaiters = nil
+		// A flush that found a write pending behind this push is still
+		// waiting for the next one and keeps its force.
+		k.pushForce = len(k.pushWaiters) > 0
+		waiters := k.pushRunWaiters
+		k.pushRunWaiters = nil
 		k.pushMu.Unlock()
 
 		for _, w := range waiters {
