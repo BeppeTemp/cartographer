@@ -108,7 +108,7 @@ type synthesisInstance struct {
 // The tried set of the runner keeps the item from being offered twice in a run.
 // The budget is not known here, so the check ignores it; Run applies it.
 func (in *synthesisInstance) Next(_ context.Context, kb string, tools ToolCaller) (*WorkItem, error) {
-	cands, _, err := synthesis.Candidates(tools, in.cfg, synthesis.Budget{Remaining: 1 << 40}, in.now())
+	cands, _, err := synthesis.Candidates(tools, in.cfg, synthesis.Budget{Remaining: maxFigure}, in.now())
 	switch {
 	case errors.Is(err, synthesis.ErrNoMap), errors.Is(err, synthesis.ErrIncomplete):
 		return nil, nil

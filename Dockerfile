@@ -8,14 +8,14 @@ COPY . .
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o /cartographer ./cmd/cartographer
 
 # Test stage: run locally with `docker build --target test .` for a clean-room
-# vet+test (the build context is the only source channel inside the container).
+# vet (the suite runs in the gate, not again here as root; the build context is the only source channel inside the container).
 FROM builder AS test
 RUN apk add --no-cache git
 # The git-backed tests (gitx, kb, bootstrap) need an identity and the "master"
 # initial branch (bare container environment, no ~/.gitconfig).
 RUN git config --global user.name ci && git config --global user.email ci@local \
     && git config --global init.defaultBranch master
-RUN go vet ./... && go test ./...
+RUN go vet ./...
 
 # Dist stage: cross-compiles the client for the supported platforms.
 #

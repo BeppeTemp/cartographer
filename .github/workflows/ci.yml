@@ -540,11 +540,25 @@ jobs:
         run: test/macos/install.sh "$RUNNER_TEMP/old/cartographer" "$RUNNER_TEMP/new/cartographer"
       # Never published: --skip=publish needs no HOMEBREW_TAP_TOKEN. Only the Cask
       # is read, so the SBOMs (which need syft, installed by release.yml) are skipped.
+      # The download is the only network step: install-only, retried in shell
+      # (a GitHub 504 failed main more than once), then goreleaser runs directly.
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        id: goreleaser-install
+        continue-on-error: true
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --snapshot --clean --skip=publish,sbom
+          install-only: true
+      - name: Install GoReleaser again after a failed download
+        if: steps.goreleaser-install.outcome == 'failure'
+        run: |
+          for i in 1 2 3; do
+            sleep $((i * 15))
+            if brew install goreleaser; then exit 0; fi
+          done
+          exit 1
+      - name: GoReleaser snapshot build of every target
+        run: goreleaser release --snapshot --clean --skip=publish,sbom
       - name: The Cask from a local tap
         run: test/macos/cask.sh dist
 
