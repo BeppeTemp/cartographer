@@ -1305,3 +1305,41 @@ func TestAnonymousReadEnvHidesTheOperatorsConfig(t *testing.T) {
 		t.Fatalf("DiffTree: %v %v", d, err)
 	}
 }
+
+func TestRemoveRemote_DropsTheRemoteAndItsTracking(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not available")
+	}
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	if out, err := exec.Command("git", "init", "--bare", "-b", DefaultBranch, origin).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v: %s", err, out)
+	}
+	work := t.TempDir()
+	if err := Init(work); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(work, "seed", "T", "t@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddRemote(work, "origin", origin); err != nil {
+		t.Fatal(err)
+	}
+	if err := PushSetUpstream(work, "origin", DefaultBranch); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveRemote(work, "origin"); err != nil {
+		t.Fatalf("RemoveRemote: %v", err)
+	}
+	if _, err := RemoteURL(work, "origin"); err == nil {
+		t.Error("origin is still configured")
+	}
+	if out, _ := runGit(work, "for-each-ref", "refs/remotes"); strings.TrimSpace(out) != "" {
+		t.Errorf("remote-tracking refs left: %q", out)
+	}
+	if err := RemoveRemote(work, "origin"); err == nil {
+		t.Error("removing a missing remote succeeded")
+	}
+}

@@ -71,6 +71,27 @@ describe("SyncIndicator (#1092)", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("not backed up");
   });
 
+  it("names the kb attach command in the No remote state only (#1821)", async () => {
+    const user = userEvent.setup();
+    const command = "cartographer kb attach kb-a --remote <url>";
+    serve({ ...base, push_state: "no_remote", has_remote: false, remote_url: "" });
+    const first = render(<SyncIndicator kb="kb-a" live={0} />);
+    await user.click(await screen.findByRole("button", { name: "Sync: No remote" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(command);
+    first.unmount();
+
+    serve({ ...base, push_state: "disabled", has_remote: false });
+    const second = render(<SyncIndicator kb="kb-a" live={0} />);
+    await user.click(await screen.findByRole("button", { name: "Sync: Not versioned" }));
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("kb attach");
+    second.unmount();
+
+    serve(base);
+    render(<SyncIndicator kb="kb-a" live={0} />);
+    await user.click(await screen.findByRole("button", { name: "Sync: On remote" }));
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("kb attach");
+  });
+
   it("closes on Escape and returns focus to the button, and on an outside click", async () => {
     serve(base);
     const user = userEvent.setup();

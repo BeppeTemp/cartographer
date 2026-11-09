@@ -43,7 +43,11 @@ export function syncState(status: KBStatus | null): SyncState | null {
     };
   }
   if (state === "no_remote" || status.has_remote === false) {
-    return { tone: "warning", label: "No remote", summary: "This KB has no remote: it is not backed up." };
+    return {
+      tone: "warning",
+      label: "No remote",
+      summary: "This KB has no remote: it is not backed up. Attach one with kb attach.",
+    };
   }
 
   const ahead = status.unpushed_commits;

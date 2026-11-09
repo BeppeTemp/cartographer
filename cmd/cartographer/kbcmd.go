@@ -74,6 +74,8 @@ func cmdKB(args []string) int {
 		return cmdKBReauthor(rest)
 	case "unmount":
 		return cmdKBUnmount(rest)
+	case "attach":
+		return cmdKBAttach(rest)
 	default:
 		fmt.Fprint(os.Stderr, "Error: ")
 		printKBUsage(os.Stderr)
@@ -82,7 +84,7 @@ func cmdKB(args []string) int {
 }
 
 func printKBUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>] [--json]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>] [--json]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb attach <kb> --remote <url> [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 }
 
 // validateKBName returns an error describing why name is not a usable KB
@@ -676,8 +678,7 @@ func replaceForgeReadme(path, forgeRef, remote, kbName, readme string, forgePath
 // inert for it (a KB syncs exactly when it has a remote, kb.hasRemote).
 func printNoRemoteWarning(path string) {
 	fmt.Fprintln(os.Stderr, "Warning: this KB has no origin — it is not backed up and will never sync.")
-	fmt.Fprintf(os.Stderr, "  Attach one later with: git -C %s remote add origin <url> && git -C %s push -u origin %s\n",
-		hintQuote(runtime.GOOS, path), hintQuote(runtime.GOOS, path), gitx.DefaultBranch)
+	fmt.Fprintf(os.Stderr, "  Attach one later with: cartographer kb attach %s --remote <url>\n", hintQuote(runtime.GOOS, filepath.Base(path)))
 }
 
 // cmdKBClone implements `cartographer kb clone <remote> [name] [--data <dir>]

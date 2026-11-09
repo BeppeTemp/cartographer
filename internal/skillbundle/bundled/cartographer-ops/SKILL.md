@@ -21,6 +21,7 @@ around writes.
 | `cartographer service install\|status\|restart` | Installing, checking, or restarting the native local service. |
 | `cartographer kb create <name> --remote <url>` | Creating the first local KB in the service data directory, pushed to an empty repository (or one holding only a forge's initial README/LICENSE/.gitignore commit, which is adopted) that becomes its `origin`; any other non-empty remote is refused before the push. `--no-remote` opts out into a local-only KB that is neither durable nor synced; the choice is mandatory. |
 | `cartographer kb clone <remote> [name]` | Mounting an existing OKF KB remote in the service data directory. |
+| `cartographer kb attach <kb> --remote <url>` | Giving a KB created with `--no-remote` a remote later: an empty repository, or one holding a fast-forward ancestor of the KB; no restart; never forced. |
 | `cartographer kb reauthor <kb> [--apply]` | A push was refused because of the commits' author or committer: preview, then re-author the unpushed commits as the configured `git.identity` and push (offline, on the server host). |
 | `cartographer connect [provider\|all] [--agents a,b]` | Connecting one or more detected agent clients to a server. |
 | `cartographer status` | Checking client configuration and provisioning drift. |

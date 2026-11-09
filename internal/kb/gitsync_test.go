@@ -171,3 +171,59 @@ func TestRemoteInfo(t *testing.T) {
 		t.Fatalf("RemoteInfo with origin = (%q, %v), want (%q, true)", url, ok, "https://gitlab.com/o/wiki.git")
 	}
 }
+
+// A cached no_remote (recorded by a sync before the clone had an origin) is
+// recomputed once `kb attach` has added one, without a sync in between.
+func TestGitStatusSnapshot_NoRemoteClearsOnceTheCloneHasAnOrigin(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	t.Run("pushed", func(t *testing.T) {
+		k, bare := setupKBWithRemote(t)
+		if err := gitx.RemoveRemote(k.Root, "origin"); err != nil {
+			t.Fatal(err)
+		}
+		if err := k.SyncOut(); err != nil {
+			t.Fatal(err)
+		}
+		if s := k.GitStatusSnapshot(); s.State != "no_remote" {
+			t.Fatalf("before the attach: %+v", s)
+		}
+		if err := gitx.AddRemote(k.Root, "origin", bare); err != nil {
+			t.Fatal(err)
+		}
+		branch, _ := gitx.Branch(k.Root)
+		if err := gitx.PushSetUpstream(k.Root, "origin", branch); err != nil {
+			t.Fatal(err)
+		}
+		if s := k.GitStatusSnapshot(); s.State != "clean" {
+			t.Fatalf("after the attach: %+v, want clean", s)
+		}
+	})
+	t.Run("unpushed commits", func(t *testing.T) {
+		k, bare := setupKBWithRemote(t)
+		if err := gitx.RemoveRemote(k.Root, "origin"); err != nil {
+			t.Fatal(err)
+		}
+		if err := k.SyncOut(); err != nil {
+			t.Fatal(err)
+		}
+		branch, _ := gitx.Branch(k.Root)
+		if err := gitx.AddRemote(k.Root, "origin", bare); err != nil {
+			t.Fatal(err)
+		}
+		if err := gitx.PushSetUpstream(k.Root, "origin", branch); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(k.Root, "later.md"), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := k.CommitOpAs("test: later", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if s := k.GitStatusSnapshot(); s.State != "pending" {
+			t.Fatalf("with an unpushed commit: %+v, want pending", s)
+		}
+	})
+}

@@ -851,6 +851,16 @@ is only local must be proven against the remote); the branch has no upstream; it
 upstream); the commits ahead hold a merge or a root commit; or any of them is already reachable from
 another remote ref (published history is never rewritten). Exit `0` is done or nothing to re-author.
 
+### `cartographer kb attach <kb> --remote <url>`
+
+Gives a KB created with `--no-remote` (D134) the origin it lacks: it adds `origin`, checks the remote (fetching without tags) and pushes the KB's current branch with `git push -u`, never forced. Like `kb reauthor` it is offline and local (`--data`, `--config`, `--local`, D177) and takes the KB's advisory process lock, so a running service does not have to be stopped, **and needs no restart**: the remote of a KB lives only in the git config of its clone, nothing is written to the server file, and the server reads it at its next sync decision, so the KB syncs on its next read or write. `sync_status` and `kb_status.push_state` stop saying `no_remote` as soon as the clone has an `origin`.
+
+Accepted remotes: an **empty** repository, or one whose only branch is the KB's current branch and whose tip is an ancestor of the local `HEAD` (or equal to it), so the push is a fast-forward. Refused before any push, with the reason: other branches present; a different branch name; a tip that is not an ancestor (diverged or ahead of the KB); tags only; a forge's initial commit (README, LICENSE, `.gitignore`), which `kb create` adopts by building a new KB on top of it and which cannot be done to a KB that already has history (empty the repository, or `kb clone` it if it holds a KB). There is no `--force`.
+
+A KB that already has an `origin`: the same URL is a no-op (exit `0`, no network); another URL is refused, since changing or removing a remote is a `git remote` operation done by hand. The three network calls use the KB's own credentials (`<kb>.ssh`/`default.ssh`, `<kb>.token`/`default.token` of the credentials directory, D905), so the check proves what the server will do; with none it is the ambient git behaviour of `kb create`. A URL that carries a password (`https://user:token@host/...`), a user name on an http(s) URL (where a token goes), or that cannot be parsed is refused with exit `2`: it would be written to `.git/config` (`ssh://git@host/...` and `git@host:path` are fine); use a credential helper or the credentials directory. The URL is printed redacted everywhere.
+
+**Atomic on failure**: any refusal or failure (unreachable remote, rejected push) removes the `origin` it added, so the KB is exactly as it was and the server does not push by itself on its next write. A push refused for the commits' author hints at `kb reauthor`. Exit `2` is usage and validation, `1` a refusal or failure, `0` attached or already attached.
+
 ### `cartographer service sync-timer <action>`
 
 The scheduled sync trigger (D140) for clients with no session-start hook, or one that fires only in
