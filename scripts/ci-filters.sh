@@ -16,6 +16,7 @@
 #   demo     the demo Worker or its Terraform (job demo-edge).
 #   tf       the Terraform alone (a step of demo-edge).
 #   docker   what the container is built from (job docker, D995), the Surveyor image too.
+#   helm     the chart, its checks and the Helm install script (job helm, D1441).
 #   macos    the launchd service, install.sh and the Cask (job test-macos, D997):
 #            a macOS runner queues slowly, so only what can break them, and the
 #            release PR.
@@ -58,4 +59,5 @@ echo "docker=$(any '^(Dockerfile|\.dockerignore|go\.(mod|sum)|test/smoke/(survey
 echo "tf=$(any '^deploy/demo/.*\.(tf|tfvars)$')"
 echo "demo=$(any '^deploy/demo/(worker\.js|worker\.test\.mjs)$|^deploy/demo/.*\.(tf|tfvars)$|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"
 echo "forge=$(any '^test/forge/|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"
+echo "helm=$(any '^(deploy/helm/|test/helm/|scripts/install-helm\.sh$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')"
 echo "macos=$(any '^(internal/(service|tray)/|install\.sh$|\.goreleaser\.yaml$|test/(install|macos)/|cmd/cartographer/(service|upgraderepair)[^/]*$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')"
