@@ -510,3 +510,114 @@ esac
 		}
 	}
 }
+
+// The Helm chart is published with every release and every release candidate
+// (D1441). The traps: a chart pushed before the images it points to; a push whose
+// digest is not read back (the attestation would name nothing); a version that is
+// not stamped from the tag (the placeholder would ship); a candidate chart that
+// claims an attestation nobody verifies (D1022); and a chart pushed without the
+// checks that guard its invariants.
+func TestChartJobsPublishTheStampedChart(t *testing.T) {
+	root := repoRoot(t)
+	type step struct {
+		Name string         `yaml:"name"`
+		Uses string         `yaml:"uses"`
+		Run  string         `yaml:"run"`
+		With map[string]any `yaml:"with"`
+	}
+	type job struct {
+		Needs       any               `yaml:"needs"`
+		Permissions map[string]string `yaml:"permissions"`
+		Steps       []step            `yaml:"steps"`
+	}
+	load := func(file string) (map[string]job, map[string]string) {
+		var wf struct {
+			Permissions map[string]string `yaml:"permissions"`
+			Jobs        map[string]job    `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/"+file)), &wf); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		return wf.Jobs, wf.Permissions
+	}
+	index := func(file string, steps []step, pred func(step) bool) int {
+		for i, s := range steps {
+			if pred(s) {
+				return i
+			}
+		}
+		t.Errorf("%s: chart job lacks a step", file)
+		return -1
+	}
+	runs := func(sub string) func(step) bool { return func(s step) bool { return strings.Contains(s.Run, sub) } }
+
+	for _, file := range []string{"release.yml", "preview.yml"} {
+		jobs, _ := load(file)
+		chart, ok := jobs["chart"]
+		if !ok {
+			t.Errorf("%s: no chart job", file)
+			continue
+		}
+		if toString(chart.Needs) != "docker" {
+			t.Errorf("%s: chart needs %v, want docker: the chart never exists before the images it points to", file, chart.Needs)
+		}
+		if chart.Permissions["packages"] != "write" || chart.Permissions["contents"] != "read" {
+			t.Errorf("%s: chart permissions %v, want contents: read and packages: write", file, chart.Permissions)
+		}
+		check := index(file, chart.Steps, runs("make helm-check"))
+		pkg := index(file, chart.Steps, runs("helm package"))
+		push := index(file, chart.Steps, runs("helm push"))
+		if !(check < pkg && pkg < push) {
+			t.Errorf("%s: chart steps must run helm-check, then package, then push (got %d, %d, %d)", file, check, pkg, push)
+		}
+		if pkg >= 0 {
+			run := chart.Steps[pkg].Run
+			if !strings.Contains(run, `--version "${TAG#v}"`) || !strings.Contains(run, `--app-version "$TAG"`) {
+				t.Errorf("%s: the chart is not stamped with both --version and --app-version from the tag", file)
+			}
+		}
+		if push >= 0 {
+			run := chart.Steps[push].Run
+			if !strings.Contains(run, "oci://ghcr.io/beppetemp/charts") || !strings.Contains(run, "--password-stdin") ||
+				!strings.Contains(run, "Digest: ") || !strings.Contains(run, "GITHUB_OUTPUT") {
+				t.Errorf("%s: the chart push must log in with --password-stdin, push to oci://ghcr.io/beppetemp/charts and read the digest back", file)
+			}
+			if strings.Contains(run, ":latest") {
+				t.Errorf("%s: the chart is never pushed as latest", file)
+			}
+		}
+		attest := false
+		for _, s := range chart.Steps {
+			if strings.HasPrefix(s.Uses, "actions/attest-build-provenance@") {
+				attest = true
+				if s.With["push-to-registry"] != true || s.With["subject-name"] != "ghcr.io/beppetemp/charts/cartographer" ||
+					!strings.Contains(toString(s.With["subject-digest"]), "steps.push.outputs.digest") {
+					t.Errorf("%s: the chart attestation must name the chart and the digest read back, with push-to-registry: true", file)
+				}
+			}
+		}
+		if want := file == "release.yml"; attest != want {
+			t.Errorf("%s: chart attestation = %v, want %v (the release chart is attested, the candidate's is not: D1022)", file, attest, want)
+		}
+	}
+	rel, _ := load("release.yml")
+	if p := rel["chart"].Permissions; p["id-token"] != "write" || p["attestations"] != "write" {
+		t.Errorf("release.yml: chart permissions %v, want id-token and attestations: write", p)
+	}
+	prev, top := load("preview.yml")
+	if len(top) != 1 || top["contents"] != "read" {
+		t.Errorf("preview.yml: top-level permissions %v, want exactly contents: read", top)
+	}
+	if toString(prev["binaries"].Needs) != "docker" {
+		t.Errorf("preview.yml: binaries needs %v, want exactly docker: the chart job runs beside it, not before it", prev["binaries"].Needs)
+	}
+
+	// Chart.yaml holds the two placeholders the workflows stamp: a hand edit would
+	// ship a chart that disagrees with its image tag.
+	chartYAML := readFile(t, root, "deploy/helm/cartographer/Chart.yaml")
+	for _, want := range []string{"\nversion: 0.0.0-dev\n", "\nappVersion: \"v0.0.0-dev\"\n"} {
+		if !strings.Contains(chartYAML, want) {
+			t.Errorf("Chart.yaml lacks the placeholder %q", strings.TrimSpace(want))
+		}
+	}
+}
