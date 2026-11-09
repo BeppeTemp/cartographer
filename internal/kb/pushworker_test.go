@@ -237,7 +237,7 @@ func TestFlushPushDuringRunDoesNotLeakForce(t *testing.T) {
 	deadline = time.Now().Add(gitxtest.Deadline(5 * time.Second))
 	for {
 		k.pushMu.Lock()
-		queued := len(k.pushWaiters) > 0
+		queued := len(k.pushWaiters)+len(k.pushRunWaiters) > 0
 		k.pushMu.Unlock()
 		if queued {
 			break
@@ -259,5 +259,70 @@ func TestFlushPushDuringRunDoesNotLeakForce(t *testing.T) {
 	k.pushMu.Unlock()
 	if force {
 		t.Fatal("pushForce still set after the flush was satisfied: the next unrelated SchedulePush would skip its debounce window")
+	}
+}
+
+// TestFlushPushWaitsForWriteSignalledDuringRunningPush pins #1856. A write
+// signalled while a push is in flight is not covered by it (the push may have
+// read HEAD before the write), so a FlushPush that follows must wait for the
+// next push, not be released by the one already running. Before the fix the
+// flush returned with the write still pending, and a burst test that checked
+// the remote right after it failed whenever a push started mid-burst.
+//
+// The test holds the git lock to park the worker inside doAsyncPush, so the
+// interleaving is deterministic.
+func TestFlushPushWaitsForWriteSignalledDuringRunningPush(t *testing.T) {
+	t.Parallel()
+	k, _ := initGitKB(t)
+	k.SyncOutDebounce = time.Millisecond
+
+	k.mu.Lock()
+	k.SchedulePush()
+
+	deadline := time.Now().Add(gitxtest.Deadline(5 * time.Second))
+	for {
+		k.pushMu.Lock()
+		running := k.pushRunning
+		k.pushMu.Unlock()
+		if running {
+			break
+		}
+		if time.Now().After(deadline) {
+			k.mu.Unlock()
+			t.Fatal("worker never reached doAsyncPush")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	k.SchedulePush() // a write after the in-flight push began
+
+	flushed := make(chan error, 1)
+	go func() { flushed <- k.FlushPush(10 * time.Second) }()
+
+	deadline = time.Now().Add(gitxtest.Deadline(5 * time.Second))
+	for {
+		k.pushMu.Lock()
+		queued := len(k.pushWaiters) > 0
+		k.pushMu.Unlock()
+		if queued {
+			break
+		}
+		if time.Now().After(deadline) {
+			k.mu.Unlock()
+			t.Fatal("FlushPush never registered a waiter")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	k.mu.Unlock()
+	if err := <-flushed; err != nil {
+		t.Fatalf("FlushPush: %v", err)
+	}
+
+	k.pushMu.Lock()
+	pending, running := k.pushPending, k.pushRunning
+	k.pushMu.Unlock()
+	if pending || running {
+		t.Fatalf("FlushPush returned with pending=%v running=%v: a write was left unpushed", pending, running)
 	}
 }

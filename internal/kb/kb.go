@@ -236,9 +236,14 @@ type KB struct {
 	// pushForce, set by FlushPush, tells the worker to push immediately
 	// rather than waiting out the remaining debounce window.
 	pushForce bool
-	// pushWaiters are FlushPush callers waiting on the current pending or
-	// in-flight push cycle; each is closed once that cycle completes.
+	// pushWaiters are FlushPush callers that found a write pending: they wait
+	// for the next push to start and finish, because a push already in flight
+	// may have read HEAD before that write.
 	pushWaiters []chan struct{}
+	// pushRunWaiters are the waiters of the push executing now: the ones
+	// taken from pushWaiters when it started, plus FlushPush callers that
+	// found nothing pending while it ran. Closed when that push completes.
+	pushRunWaiters []chan struct{}
 }
 
 // GitStatus is the durable-in-process snapshot exposed by sync_status.
