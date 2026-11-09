@@ -63,51 +63,51 @@ Generated from the package doc comments — `make codemap` after adding a packag
 The synopsis says which package to open; what it does is in `go doc <pkg>`.
 
 ```
-cmd/cartographer        Command cartographer is the single binary for both sides of the Agentic Wiki
-internal/agents         detects which LLM agent CLIs/apps are installed on the local machine (Claude Code, OpenCode, Codex CLI…
+cmd/cartographer        Command cartographer is the single binary of the Agentic Wiki
+internal/agents         detects which LLM agent CLIs/apps are installed locally
 internal/artifactsig    signs and verifies provisioning artifact envelopes
 internal/audit          implements Cartographer's local, tamper-evident audit trail
 internal/auth           implements bearer-token authorization for the HTTP transport
-internal/blocktext      implements the marker-delimited "managed block" primitive used by every Cartographer feature that must…
-internal/changelog      groups the newest section of a release-please changelog by area, and checks the PR body lines that…
-internal/changelog/gen  Command gen groups a release-please changelog by area and checks PR bodies for wrapped conventional…
-internal/client         implements a minimal MCP client over HTTP (JSON-RPC 2.0), used by `cartographer…
+internal/blocktext      implements the marker-delimited "managed block" primitive
+internal/changelog      regroups a release-please changelog by area
+internal/changelog/gen  Command gen runs package changelog
+internal/client         is a minimal MCP client over HTTP (JSON-RPC 2.0)
 internal/clientconfig   reads and writes the client-side `.cartographer.yaml` file
-internal/config         provides the YAML-based server configuration for `cartographer serve`, merged with environment…
-internal/configurator   generates MCP configuration files for multiple LLM providers (Claude Code, Codex CLI, Kiro, OpenCode…
-internal/defaults       contains the local endpoint values shared by the native service and client first-run paths
-internal/execbit        reports whether the host filesystem carries the POSIX execute bit, and is the one place that answers…
+internal/config         is the server configuration of `cartographer serve`
+internal/configurator   generates the MCP configuration of each agent client
+internal/defaults       holds the local endpoint defaults
+internal/execbit        reports whether the filesystem has the POSIX execute bit
 internal/gitx           provides a git wrapper via os/exec for the Agentic Wiki
 internal/gitx/gitxtest  is a git smart-HTTP server for tests (D996)
 internal/graphalgo      holds the graph algorithms behind the retrieval tools (D242)
-internal/jsonorder      reads and writes a JSON object without reformatting what the edit did not touch (#1198, #1502)
+internal/jsonorder      edits a JSON object without reformatting the rest
 internal/kb             implements the data plane of the OKF knowledge base
 internal/kbtest         copies a pre-built KB into a test directory
 internal/lint           implements deterministic lint checks on a KB scope
-internal/mcpbridge      is the local stdio MCP server that scopes one agent session to the KBs of the folder it was started in…
+internal/mcpbridge      is the local stdio MCP server scoped to a folder's KBs (D737)
 internal/mcpserver      implements the control plane
 internal/okf            parser/serializer for the YAML subset used in OKF frontmatter
 internal/plugin         reads and checks a Cartographer plugin
 internal/plugin/star    runs the Starlark script of a plugin
 internal/procattr       sets the process attributes every child of Cartographer shares
 internal/provisioning   manages the synchronization of artifacts (skill, agent, hook — D48
-internal/repodocs       holds the deterministic checks that keep this repository navigable by a coding agent, plus the…
+internal/repodocs       keeps this repository navigable by a coding agent
 internal/repoindex      resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
 internal/safewrite      guards client-side writes against symlinks
 internal/search         implements an in-memory inverted keyword index for KB concepts
 internal/service        manages the cartographer MCP server as a native per-user service
-internal/settingschema  describes the keys of a settings file once, in code, and renders that description as comments inside…
-internal/skill          implements loading and validation of SKILL.md files (agentskills.io format)
-internal/skillbundle    embeds the skills shipped inside the binary (bundled/) so a fresh install can provision an agent client…
-internal/sops           decrypts sops-encrypted KB secrets and resolves the references a concept declares, turning them into…
+internal/settingschema  describes a settings file's keys once, in code (D747)
+internal/skill          loads and validates SKILL.md files (agentskills.io format)
+internal/skillbundle    embeds the skills shipped inside the binary (bundled/)
+internal/sops           decrypts the sops-encrypted KB secrets a skill runs with
 internal/sqlindex       implements a persistent SQLite-backed keyword index
-internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818, D1032)
-internal/testkbs/gen    Command gen writes the test KB fleet of package testkbs into a data directory, one subdirectory per KB
+internal/testkbs        generates the synthetic test KBs `make dev` serves (D818, D1032)
+internal/testkbs/gen    Command gen writes the testkbs fleet to a data directory
 internal/testtree       snapshots a directory tree in memory and restores it elsewhere
 internal/tray           is the core of the local server's status icon (D1482)
-internal/updatecheck    answers whether a newer Cartographer release exists and how this binary is upgraded (D254)
+internal/updatecheck    answers whether a newer release exists and how to upgrade (D254)
 internal/webui          serves the embedded read-only Atlas UI (D227)
-internal/webui/gen      Command webui-provenance writes internal/webui/dist/provenance.json with the hash of the web/ source…
+internal/webui/gen      Command webui-provenance fingerprints the Atlas bundle
 ```
 <!-- codemap:end -->
 

@@ -1,7 +1,7 @@
-// Package jsonorder reads and writes a JSON object without reformatting what
-// the edit did not touch (#1198, #1502): the key order of every object read, the
-// indent unit (tabs included), CRLF, the final newline and the exact digits of a
-// number (json.Number) survive a read-modify-write, and HTML characters are not
+// Package jsonorder edits a JSON object without reformatting the rest: the key
+// order of every object read, the indent unit (tabs included), CRLF, the final
+// newline and the exact digits of a number (json.Number) survive a
+// read-modify-write (#1198, #1502), and HTML characters are not
 // escaped (`&&` in another tool's command stays as written). It is for files
 // shared with the user or with other tools (a client's settings, MCP config,
 // hooks.json); a file Cartographer owns whole may use plain encoding/json.

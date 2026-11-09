@@ -1,5 +1,5 @@
-// Package testkbs generates the synthetic test Knowledge Bases `make dev`
-// serves (D818, D1032): eleven KBs, built to put every Atlas view in a state
+// Package testkbs generates the synthetic test KBs `make dev` serves (D818,
+// D1032): eleven KBs, built to put every Atlas view in a state
 // worth looking at — Maps with every contract key, work in every status,
 // sources, contradictions, services, secrets, artifacts, placeholders, planted
 // lint defects, a git history with revisions, moves and repairs, and the local

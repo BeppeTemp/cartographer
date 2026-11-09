@@ -1,5 +1,5 @@
-// Package settingschema describes the keys of a settings file once, in code, and
-// renders that description as comments inside the YAML file (D747).
+// Package settingschema describes a settings file's keys once, in code (D747):
+// that description is rendered as comments inside the YAML file.
 //
 // A Schema is a registry table, not struct tags: the server config has raw and
 // public struct pairs plus env and flag overrides, so tags would have to be

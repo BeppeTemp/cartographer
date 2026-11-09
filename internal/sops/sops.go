@@ -1,5 +1,6 @@
-// Package sops decrypts sops-encrypted KB secrets and resolves the references a
-// concept declares, turning them into the environment a skill runs with. It
+// Package sops decrypts the sops-encrypted KB secrets a skill runs with: it
+// resolves the references a concept declares and turns them into the skill's
+// environment. It
 // shells out to the sops binary: no key material is ever handled in process.
 //
 // Every sops invocation runs in a hermetic environment (D260): the child gets

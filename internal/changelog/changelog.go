@@ -1,5 +1,6 @@
-// Package changelog groups the newest section of a release-please changelog by
-// area, and checks the PR body lines that section is built from (D865).
+// Package changelog regroups a release-please changelog by area. It rewrites
+// the newest section and checks the PR body lines that section is built from
+// (D865).
 //
 // release-please groups by commit type only: one long list of Features and one
 // of Bug Fixes. Regroup rewrites the newest version section as one heading per

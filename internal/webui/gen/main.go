@@ -1,5 +1,6 @@
-// Command webui-provenance writes internal/webui/dist/provenance.json with the
-// hash of the web/ source tree. `make web` runs it right after the Vite build,
+// Command webui-provenance fingerprints the Atlas bundle: it writes
+// internal/webui/dist/provenance.json with the hash of the web/ source tree.
+// `make web` runs it right after the Vite build,
 // so the committed bundle always carries the fingerprint of what produced it
 // and TestBundleMatchesSource can tell a stale bundle from a current one
 // without a Node toolchain.
