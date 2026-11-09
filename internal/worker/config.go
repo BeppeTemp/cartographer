@@ -207,11 +207,23 @@ type rawSchedule struct {
 // and the line. A token or API key variable that is unset or empty is an error
 // naming the variable; no value is ever part of an error.
 func LoadConfig(path string, kinds *Kinds) (*Config, error) {
+	return LoadConfigScoped(path, kinds, EnvScope{Token: true, ModelKeys: true})
+}
+
+// EnvScope names which *_env variables a load requires. The structure of the
+// file is validated in full whatever the scope; only the reading of the
+// variables is narrowed. `worker --config` requires all of them; the dry run of a
+// recipe (SourceTest) requires none a mode does not use, so an author's machine
+// needs neither the model keys nor, in --recipe mode, the token.
+type EnvScope struct{ Token, ModelKeys bool }
+
+// LoadConfigScoped is LoadConfig with the environment checks narrowed to scope.
+func LoadConfigScoped(path string, kinds *Kinds, scope EnvScope) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("worker config: read %q: %w", path, err)
 	}
-	c, err := parseConfig(data, kinds, filepath.Dir(path))
+	c, err := parseConfig(data, kinds, filepath.Dir(path), scope)
 	if err != nil {
 		return nil, fmt.Errorf("worker config %s: %w", path, err)
 	}
@@ -220,7 +232,7 @@ func LoadConfig(path string, kinds *Kinds) (*Config, error) {
 
 // parseConfig parses a config; dir is the config file's directory, against which
 // a relative path in the file is resolved ("" leaves such a path as written).
-func parseConfig(data []byte, kinds *Kinds, dir string) (*Config, error) {
+func parseConfig(data []byte, kinds *Kinds, dir string, scope EnvScope) (*Config, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, err
@@ -241,7 +253,7 @@ func parseConfig(data []byte, kinds *Kinds, dir string) (*Config, error) {
 		return nil, err
 	}
 	c := &Config{doc: &doc}
-	v := &validator{raw: raw, root: root, c: c, kinds: kinds, dir: dir}
+	v := &validator{raw: raw, root: root, c: c, kinds: kinds, dir: dir, scope: scope}
 	if err := v.run(); err != nil {
 		return nil, err
 	}
@@ -390,6 +402,7 @@ type validator struct {
 	c     *Config
 	kinds *Kinds
 	dir   string
+	scope EnvScope
 }
 
 // line is the line of key (a path of keys and list indexes) in the document, or 0.
@@ -459,11 +472,13 @@ func (v *validator) run() error {
 	if r.TokenEnv == "" {
 		return v.errf("token_env", 0, "required: the name of the environment variable holding the bearer token")
 	}
-	tok, err := v.envValue("token_env", v.line("token_env"), r.TokenEnv)
-	if err != nil {
-		return err
+	if v.scope.Token {
+		tok, err := v.envValue("token_env", v.line("token_env"), r.TokenEnv)
+		if err != nil {
+			return err
+		}
+		c.token = tok
 	}
-	c.token = tok
 
 	if len(r.KBs) == 0 {
 		return v.errf("kbs", v.line("kbs"), "required: at least one KB name")
@@ -546,7 +561,7 @@ func (v *validator) models() error {
 		if m.APIKeyEnv == "" && m.Provider == ProviderAnthropic {
 			return v.errf(at+".api_key_env", ln(), "required for provider anthropic: the name of the environment variable holding the key")
 		}
-		if m.APIKeyEnv != "" {
+		if m.APIKeyEnv != "" && v.scope.ModelKeys {
 			key, err := v.envValue(at+".api_key_env", ln("api_key_env"), m.APIKeyEnv)
 			if err != nil {
 				return err

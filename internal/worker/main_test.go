@@ -26,6 +26,10 @@ func TestMain(m *testing.M) {
 			fmt.Println(`{"next_cursor":"c1"}`)
 			os.Exit(0)
 		}
+		if len(os.Args) > 2 && os.Args[2] == "fail" {
+			fmt.Fprintln(os.Stderr, "lister broke")
+			os.Exit(3)
+		}
 		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","locator":"https://wiki.example.com/a"}}`)
 		fmt.Println(`{"next_cursor":"c1"}`)
 		os.Exit(0)
