@@ -44,7 +44,7 @@ func IngestUnitTemplate() string {
 	b.WriteString("title: \"{{title}}\"\n")
 	b.WriteString(TemplateMetaDescription + ": One claimable unit of ingest work: a source, the concepts it feeds, what to take and how to check it\n")
 	b.WriteString(TemplateMetaRequiredFields + ": [source, targets, extract, verify, executor, status]\n")
-	b.WriteString(TemplateMetaOptionalFields + ": [plan, claimed_by, claimed_at, review_after, waiting_on, timestamp]\n")
+	b.WriteString(TemplateMetaOptionalFields + ": [plan, claimed_by, claimed_at, review_after, waiting_on, timestamp, content_asset]\n")
 	b.WriteString(TemplateMetaFieldValues + "status: [" + strings.Join(IngestUnitStatuses, ", ") + "]\n")
 	b.WriteString(TemplateMetaFieldValues + "executor: [" + strings.Join(IngestExecutors, ", ") + "]\n")
 	b.WriteString(TemplateMetaOpenSections + ": true\n")

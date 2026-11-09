@@ -199,7 +199,9 @@ func (in *synthesisInstance) prompt(tools ToolCaller, c synthesis.Candidate, cfg
 	if out, err := tools.CallTool("graph_context", map[string]any{"ids": c.Involves, "limit": 10}); err == nil && !out.IsError {
 		ctxText = truncateBytes(out.Text, cfg.ContextTokens*synthesisBytesPerToken)
 	}
+	// A per-run token on the delimiters: data cannot close its own block.
+	tok := dataToken()
 	cand, _ := json.Marshal(map[string]any{"source": c.Source, "contradiction_kind": c.Kind, "subject": c.Subject, "involves": c.Involves})
-	return fmt.Sprintf("Examine this candidate. Today is %s. The hypothesis, if you write one, is created at the id %q with contradiction_kind %q and exactly these involves.\n\nBEGIN DATA candidate\n%s\nEND DATA\n\nBEGIN DATA context\n%s\nEND DATA",
-		now.UTC().Format("2006-01-02"), c.ID, c.Kind, cand, ctxText)
+	return fmt.Sprintf("Examine this candidate. Today is %s. The hypothesis, if you write one, is created at the id %q with contradiction_kind %q and exactly these involves.\n\n%s\n\n%s",
+		now.UTC().Format("2006-01-02"), c.ID, c.Kind, dataBlock("candidate", tok, string(cand)), dataBlock("context", tok, ctxText))
 }

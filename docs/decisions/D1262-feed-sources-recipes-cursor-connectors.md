@@ -98,3 +98,13 @@ unit's loop alone. A failure detail reaches `feed_error` only after `RedactEnv` 
 variable. Alternative rejected: a per-run "attempted feeds" set in the instance, which has no run
 boundary to reset on; `feed_checked_at` already makes a feed not due.
 
+
+**Inline content (the last PR of the series).** An entry's `content` is written as the asset
+`content.txt` of its unit (`content_asset: content.txt` in the frontmatter). The unit is staged as
+`draft`, which `work_list` lists only where `open_statuses` names it, and opened last: create, expand,
+asset, patch to `open`, each idempotent and resumed by the next poll (a `draft` unit with
+`content_asset` is ours, one without is a planner's). The executor reads the asset before the loop,
+puts it in the prompt as delimited data and offers no `source_fetch` for that unit, so such a unit
+needs no connector. Accepted: the asset text is searchable through the unit. Alternatives rejected:
+the content in the unit body (it would count against the 8 KiB brief and be rewritten by the loop),
+and an `open` unit written first (a claimable unit with no content).
