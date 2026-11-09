@@ -56,7 +56,7 @@ func satAdd(a, b int) int { return min(a+b, maxFigure) }
 // Trade-off: about ledgerCap unreadable entries under the worker's path (written
 // by anyone with a write grant) make every run hit this error. Failing closed is
 // the accepted price; Begin's error and a warning name the cause.
-var ErrLedgerTooLong = errors.New("worker: the capped ledger read is full of entries from today or entries it cannot read (a poisoned ledger fails closed)")
+var ErrLedgerTooLong = errors.New("surveyor: the capped ledger read is full of entries from today or entries it cannot read (a poisoned ledger fails closed)")
 
 // KBCaller returns the MCP caller scoped to one KB; *client.MCPClient.WithKB
 // satisfies it through a one-line adapter.
@@ -120,7 +120,7 @@ func (b *Budget) RunID() string {
 // Day is the budget's calendar day for t, YYYY-MM-DD in the window's zone.
 func (b *Budget) Day(t time.Time) string { return t.In(b.loc).Format("2006-01-02") }
 
-func (b *Budget) path() string { return "worker/" + b.name }
+func (b *Budget) path() string { return "surveyor/" + b.name }
 
 // Begin starts a run: it rebuilds what was spent today from the log of every KB
 // and clears the run's own counters. Any error means the run must be skipped
@@ -140,7 +140,7 @@ func (b *Budget) Begin(kbs []string, now time.Time) error {
 		}
 	}
 	if bad > 0 {
-		b.logf("worker: %d malformed run entr%s in the ledger ignored", bad, map[bool]string{true: "y", false: "ies"}[bad == 1])
+		b.logf("surveyor: %d malformed run entr%s in the ledger ignored", bad, map[bool]string{true: "y", false: "ies"}[bad == 1])
 	}
 	id := make([]byte, 8)
 	if _, err := rand.Read(id); err != nil {
@@ -258,7 +258,7 @@ func (b *Budget) Note(kb string, units, commits int) {
 	b.commits[kb] += commits
 }
 
-// Entry is the closing entry of the run on one KB, without the [worker/<name>]
+// Entry is the closing entry of the run on one KB, without the [surveyor/<name>]
 // prefix the server adds. The format is the contract the reader below parses.
 func (b *Budget) entry(kb, stopped, summary string) string {
 	var sb strings.Builder
@@ -325,7 +325,7 @@ func (b *Budget) Close(stopped, summary string) (failed []string) {
 	wg.Wait()
 	for i, kb := range kbs {
 		if errs[i] != nil {
-			b.logf("worker: closing entry for %s not written: %v", kb, errs[i])
+			b.logf("surveyor: closing entry for %s not written: %v", kb, errs[i])
 			failed = append(failed, kb)
 		}
 	}
@@ -400,7 +400,7 @@ func (b *Budget) readKB(kb, day string) (map[string]int, int, error) {
 			return got, bad, nil
 		}
 		if n >= ledgerCap {
-			b.logf("worker: the ledger of %s still shows today at %d entries (%d unreadable): skipping the run", kb, n, bad)
+			b.logf("surveyor: the ledger of %s still shows today at %d entries (%d unreadable): skipping the run", kb, n, bad)
 			return nil, 0, ErrLedgerTooLong
 		}
 	}
@@ -444,7 +444,7 @@ type runEntry struct {
 	tokens map[string]int
 }
 
-// parseRun reads one closing entry. A line that is not a "[worker/<name>] run "
+// parseRun reads one closing entry. A line that is not a "[surveyor/<name>] run "
 // entry, or is one with a missing day or a broken figure, is not ok.
 func (b *Budget) parseRun(line string) (runEntry, bool) {
 	rest, ok := strings.CutPrefix(line, "["+b.path()+"] run ")

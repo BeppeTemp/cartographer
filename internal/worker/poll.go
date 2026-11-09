@@ -462,7 +462,7 @@ func feedPreconditions(reg *recipe.Registry, hosts map[string][]string, f feed.F
 	rec, ok := reg.Get(f.Recipe)
 	switch {
 	case !ok:
-		return nil, &pollFailure{codeRecipeUnknown, fmt.Sprintf("recipe %q is not known to this worker", f.Recipe)}
+		return nil, &pollFailure{codeRecipeUnknown, fmt.Sprintf("recipe %q is not known to this Surveyor", f.Recipe)}
 	case system && rec.Shape() != recipe.ShapeSystem:
 		// The recipe's shape, not the Source's label, decides whether the preflight
 		// applies: a mismatch either way is refused, so a KB writer cannot dodge it.

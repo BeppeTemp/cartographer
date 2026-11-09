@@ -231,11 +231,11 @@ type EnvScope struct{ Token, ModelKeys bool }
 func LoadConfigScoped(path string, kinds *Kinds, scope EnvScope) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("worker config: read %q: %w", path, err)
+		return nil, fmt.Errorf("surveyor config: read %q: %w", path, err)
 	}
 	c, err := parseConfig(data, kinds, filepath.Dir(path), scope)
 	if err != nil {
-		return nil, fmt.Errorf("worker config %s: %w", path, err)
+		return nil, fmt.Errorf("surveyor config %s: %w", path, err)
 	}
 	return c, nil
 }
@@ -653,11 +653,11 @@ func (v *validator) schedule() error {
 	}
 	switch {
 	case c.Window == nil && c.IdleMinutes == 0:
-		return v.errf("schedule", line, "set schedule.window or schedule.idle_minutes: without a trigger the worker never runs")
+		return v.errf("schedule", line, "set schedule.window or schedule.idle_minutes: without a trigger the Surveyor never runs")
 	case c.Window == nil:
 		return v.errf("schedule.idle_minutes", line, "the idle trigger needs a server that reports KB activity, and none does yet: set schedule.window")
 	case c.IdleMinutes > 0:
-		c.Warnings = append(c.Warnings, "schedule.idle_minutes is set but the server does not report KB activity yet: the worker runs on the window alone")
+		c.Warnings = append(c.Warnings, "schedule.idle_minutes is set but the server does not report KB activity yet: the Surveyor runs on the window alone")
 	}
 	return nil
 }

@@ -175,7 +175,7 @@ func TestWorkerDispatch(t *testing.T) {
 	defer func() { workerFn = old }()
 	var got []string
 	workerFn = func(a []string) int { got = a; return 7 }
-	if code := run([]string{"worker", "--config", "x"}); code != 7 || len(got) != 2 {
+	if code := run([]string{"surveyor", "--config", "x"}); code != 7 || len(got) != 2 {
 		t.Fatalf("code=%d args=%v", code, got)
 	}
 }

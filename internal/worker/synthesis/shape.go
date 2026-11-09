@@ -1,4 +1,4 @@
-// Package synthesis is the third task kind of the worker (D11): with nothing
+// Package synthesis is the third task kind of the Surveyor (D11): with nothing
 // left to ingest or repair it reads what the KB holds and proposes what it
 // infers, as Contradiction concepts of a gap kind (a hypothesis is a gap, never
 // a claim). This part is the pure shape of a hypothesis, the guard every model

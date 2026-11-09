@@ -421,7 +421,7 @@ func TestDoctorSkillWorkerPassageKeepsTheInvariants(t *testing.T) {
 	}
 	s := string(data)
 	for _, want := range []string{
-		"**A worker does not run this procedure.**",
+		"**A Surveyor does not run this procedure.**",
 		"never delete a concept, never rename a map's folder, never invent content",
 		"`log_append` whose text starts with `kb-doctor:`",
 		"- Never start a session the operator did not ask for or agree to.",
@@ -446,7 +446,7 @@ func TestSourceAuthorSkillCarriesItsInvariants(t *testing.T) {
 	}
 	s := string(data)
 	for _, want := range []string{
-		"cartographer worker source test", "source_register", "`recipe`", "concept_patch", "`if_match`",
+		"cartographer surveyor source test", "source_register", "`recipe`", "concept_patch", "`if_match`",
 		"cartographer-kb-ingest-plan", "read-only", "No credential value anywhere",
 		"never stored in a KB", "references/lister-protocol.md", "references/source-types.md",
 		"Read-only identity, for every source", "commit, push, apply and deploy",

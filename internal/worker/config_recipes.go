@@ -32,7 +32,7 @@ type rawExec struct {
 
 var recipeNameRE = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 
-// Limits of an exec recipe (docs/worker-recipes.md). max_content_bytes tops at
+// Limits of an exec recipe (docs/surveyor-recipes.md). max_content_bytes tops at
 // the executor's own read cap, so the executor never truncates inline content.
 const (
 	defaultExecTimeout = 5 * time.Minute

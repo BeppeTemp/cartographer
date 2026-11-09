@@ -117,7 +117,7 @@ describe("the Work panel", () => {
     });
     const user = userEvent.setup();
     render(<App />);
-    const strip = await screen.findByRole("region", { name: "Workers and feeds" });
+    const strip = await screen.findByRole("region", { name: "Surveyors and feeds" });
     expect(within(strip).getByText("team-a · w-1")).toBeInTheDocument();
     expect(within(strip).getByText("50 / 50")).toBeInTheDocument();
     expect(within(strip).getByText("10 / 100")).toBeInTheDocument();
@@ -135,6 +135,6 @@ describe("the Work panel", () => {
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Open work" });
     await waitFor(() => expect(within(panel).getByRole("heading", { level: 1 })).toHaveTextContent("3 concepts carry open work"));
-    expect(screen.queryByRole("region", { name: "Workers and feeds" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Surveyors and feeds" })).not.toBeInTheDocument();
   });
 });

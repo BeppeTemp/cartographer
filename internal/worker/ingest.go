@@ -59,7 +59,7 @@ const (
 
 // ingestPreface goes before the unit-mode section: it says what the worker has
 // already done, and overrides the steps the worker takes over.
-const ingestPreface = `You are a headless worker executing one IngestUnit of a Cartographer KB. The worker has already claimed the unit for you: skip steps 1 and 2 of the section below. You have no shell and nobody to ask. ` + ingestFetchSentence + ` Every write carries the reason "unit <unit ID>". Do not change the unit's status or claim keys yourself, except the status blocked of step 3; the worker closes the unit as done after it has checked your pages with gate_check, so skip step 7's patch. Do not mark the Source ingested and do not call log_append. Stop when the unit's verify is satisfied.`
+const ingestPreface = `You are a headless Surveyor executing one IngestUnit of a Cartographer KB. The Surveyor has already claimed the unit for you: skip steps 1 and 2 of the section below. You have no shell and nobody to ask. ` + ingestFetchSentence + ` Every write carries the reason "unit <unit ID>". Do not change the unit's status or claim keys yourself, except the status blocked of step 3; the Surveyor closes the unit as done after it has checked your pages with gate_check, so skip step 7's patch. Do not mark the Source ingested and do not call log_append. Stop when the unit's verify is satisfied.`
 
 // IngestKind is the registration of the ingest task kind.
 func IngestKind() Kind {
@@ -374,7 +374,7 @@ func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Re
 		if connTools, err = conns.Tools(ctx, c.connector); err != nil {
 			in.skip(rt.KB, c.unit, "connector")
 			if in.logf != nil {
-				in.logf("worker: unit %s skipped: connector %s unavailable: %v", c.unit, c.connector, err)
+				in.logf("surveyor: unit %s skipped: connector %s unavailable: %v", c.unit, c.connector, err)
 			}
 			return Result{Summary: "unit " + c.unit + " skipped: connector " + c.connector + " unavailable"}, nil
 		}
@@ -460,7 +460,7 @@ func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Re
 				res.Summary = "unit " + c.unit + " done"
 				return res, nil
 			}
-			res.Summary = "unit " + c.unit + " changed under the worker: left alone"
+			res.Summary = "unit " + c.unit + " changed under the Surveyor: left alone"
 			return res, nil
 		}
 	}
@@ -627,13 +627,13 @@ func (in *ingestInstance) patchOwn(rt Runtime, id string, fm map[string]any, not
 // release gives the unit back (WP4): open again, no claim, a note naming what
 // was written so the next executor continues instead of duplicating.
 func (in *ingestInstance) release(rt Runtime, id, why string, written []string) {
-	note := fmt.Sprintf("> Worker note (%s, %s): released: %s. Pages written so far: %s.", in.now().UTC().Format(time.RFC3339), rt.Replica, brief(why), idList(written))
+	note := fmt.Sprintf("> Surveyor note (%s, %s): released: %s. Pages written so far: %s.", in.now().UTC().Format(time.RFC3339), rt.Replica, brief(why), idList(written))
 	in.patchOwn(rt, id, map[string]any{"status": "open"}, note, "release unit "+id)
 }
 
 // finish marks the unit done, then closes its Source when no unit of it is left.
 func (in *ingestInstance) finish(rt Runtime, c ingestCand, written []string) bool {
-	note := fmt.Sprintf("> Worker note (%s, %s): done. Pages written: %s.", in.now().UTC().Format(time.RFC3339), rt.Replica, idList(written))
+	note := fmt.Sprintf("> Surveyor note (%s, %s): done. Pages written: %s.", in.now().UTC().Format(time.RFC3339), rt.Replica, idList(written))
 	if !in.patchOwn(rt, c.unit, map[string]any{"status": "done"}, note, "unit "+c.unit+" done") {
 		return false
 	}

@@ -91,9 +91,9 @@ export function WorkersStrip({ kb, live, onOpen }: { kb: string; live: number; o
   const feeds = useFeeds(kb, live);
   if (workers.length === 0 && feeds.length === 0) return null;
   return (
-    <section className="workers" aria-label="Workers and feeds">
+    <section className="workers" aria-label="Surveyors and feeds">
       {workers.length > 0 && (
-        <ul className="workers__list" aria-label="Workers">
+        <ul className="workers__list" aria-label="Surveyors">
           {workers.map((w) => (
             <WorkerItem key={`${w.perimeter}/${w.worker}`} w={w} />
           ))}
