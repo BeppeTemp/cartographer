@@ -372,6 +372,7 @@ func cmdWorkspaceBind(args []string) int {
 	if switched {
 		warnNoWorkspaceDestination(os.Stderr, provider)
 	}
+	warnBindsHome(os.Stderr, provider, canonical)
 	if len(kbs) == 0 {
 		fmt.Printf("bound %s in %s to no KBs\n", provider, canonical)
 	} else {
@@ -400,6 +401,24 @@ func warnNoWorkspaceDestination(w io.Writer, provider string) {
 	}
 	fmt.Fprintf(w, "warning: %s has no workspace destination for %s: the KBs' artifacts of those kinds are not installed in workspace scope\n",
 		provider, strings.Join(kinds, ", "))
+}
+
+// warnBindsHome warns when canonical, the bound folder, is the home directory
+// itself (#1825): the binding is legal (D737), but everything the KB distributes
+// then reaches every session of provider. No home, or one that does not resolve,
+// means no warning.
+func warnBindsHome(w io.Writer, provider, canonical string) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	if resolved, err := filepath.EvalSymlinks(home); err == nil {
+		home = resolved
+	}
+	if canonical == "" || filepath.Clean(canonical) != filepath.Clean(home) {
+		return
+	}
+	fmt.Fprintf(w, "warning: %s is bound to your home directory: everything the KB distributes now reaches every session of %s, whatever the folder; bind a narrower folder (for example $HOME/projects/<area>) to keep it there\n", provider, provider)
 }
 
 // codexTrustStep is the Codex project-trust part of `workspace bind` (D1074),
