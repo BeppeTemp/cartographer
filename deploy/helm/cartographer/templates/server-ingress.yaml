@@ -1,0 +1,37 @@
+{{- include "cartographer.validate" . -}}
+{{- $i := .Values.server.ingress }}
+{{- if $i.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "cartographer.fullname" . }}
+  labels:
+    {{- include "cartographer.labels" (dict "root" . "component" "server") | nindent 4 }}
+  {{- with $i.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $i.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with $i.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range $i.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range (.paths | default (list (dict "path" "/" "pathType" "Prefix"))) }}
+          - path: {{ .path | default "/" }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "cartographer.fullname" $ }}
+                port:
+                  number: {{ $.Values.server.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,4 @@
+# ci/ holds the values files test/helm/run.sh renders; it is not part of the package.
+ci/
+.git/
+*.tgz

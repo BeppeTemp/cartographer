@@ -1,0 +1,18 @@
+# Partitioned: one release per server, each with its own KBs and host. The pair is rendered
+# under two release names and no (kind, name) may repeat.
+fullnameOverride: cartographer-b
+server:
+  tokens:
+    existingSecret:
+      name: cartographer-b-tokens
+  credentials:
+    enabled: false
+  config:
+    auth:
+      mode: "on"
+    kbs:
+      - remote: https://git.example.com/user/kb-b.git
+  ingress:
+    enabled: true
+    hosts:
+      - host: wiki-b.example.com
