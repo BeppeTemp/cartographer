@@ -942,11 +942,15 @@ and §Upgrades, schema migration, and repo growth.
 
 ### `cartographer tray [--log-file <path>] [--interval <duration>] [--config <path>]`
 
-A status icon for the local server, in its own process (not part of `serve`, so it stays visible
+A status icon for the local server or, on a machine with no local service, for the server the client is connected to, in its own process (not part of `serve`, so it stays visible
 when the server is down and can restart it). Windows (notification area) and macOS (menu bar) only;
 on Linux it prints an error and exits 2. `cartographer service install` registers it to start at logon
 (next section); a hand-typed `cartographer tray` works too. On Windows 11 a new notification-area icon
 sits in the overflow (^) menu until the user pins it to the taskbar.
+
+**Which server (D1862).** On every tick the tray looks at the installed service definition. A local service installed → the local server, as described below. None → the server of the client config (`server_url`; the client config is read on every tick, so a `connect` to another server is followed). No client config file either → the local path unchanged (a server run by hand shows Running, nothing answering is "Not installed"). Never both. An explicit `--config` forces the local server whatever the client config says; `--config` applies to the local server only. A client config that cannot be parsed keeps the last good server, or shows unreachable, and the error is logged once.
+
+**Client mode** probes `/health` of `server_url` with that URL's scheme and the client's rules (`client.CheckServerURL`, `allow_insecure_http` / `CARTOGRAPHER_ALLOW_INSECURE_HTTP`; no forced `http://`, no loopback rewrite) and the client token, resolved as `sync` does (the literal, the `${NAME}` variable, then the private token file `connect` wrote, which is what a tray started by launchd or the Task Scheduler can read). The token is sent in the `Authorization` header of that request only, never shown or logged; with `auth: true` and no token the probe is anonymous, so the KB list is absent and the menu says `Token not available`. The status line names the server host (`example.com 1.2.3 — 2 KBs`, `example.com: unreachable`, `example.com: starting…`) and the header badge reads Unreachable instead of Stopped. The menu is read-only: the header, update and Agents rows, the KBs, Open Atlas (on `<server_url without /mcp>/ui/`; always offered, since `/health` does not say whether the server serves the Atlas) and Quit. Restart Service and Open Log are not shown. Open Atlas and the KB entries accept `https://` and a reverse-proxy path prefix (a path ending in `/ui/`, no `.`/`..` segment, no userinfo or fragment).
 
 Before the first probe the tooltip reads `checking…`, not `stopped`. The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
 address from the installed service definition on every tick (`--config` overrides the config path used

@@ -21,7 +21,7 @@ func TestOpenURLAcceptsOnlyTheAtlasURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{
-		"", "https://127.0.0.1:39273/ui/", "http://127.0.0.1:39273/other", "file:///etc/passwd",
+		"", "ftp://127.0.0.1:39273/ui/", "http://127.0.0.1:39273/other", "file:///etc/passwd",
 		"http://u:p@127.0.0.1:1/ui/", "http://127.0.0.1:1/ui/?x=1&calc", "calc.exe", "http:///ui/",
 		"http://[::1", "http://bad host:80/ui/", // unparsable: refused, never a panic
 	} {

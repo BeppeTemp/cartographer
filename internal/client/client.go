@@ -545,6 +545,34 @@ func mcpSubpathHint(serverURL string) string {
 	return fmt.Sprintf(" (the server URL is %s, without the trailing %q)", u, p[i+len("/mcp"):])
 }
 
+// ServerBase is the server's base URL for an MCP endpoint URL: the terminal
+// /mcp segment, a trailing slash, the query and the fragment are dropped, so
+// "https://host/prefix/mcp" gives a URL whose path is "/prefix". Health and
+// AtlasURL both build on it, so the routes they derive cannot drift.
+func ServerBase(serverURL string) (*url.URL, error) {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return nil, fmt.Errorf("client: invalid server URL %q: %w", serverURL, err)
+	}
+	u.Path = strings.TrimRight(strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/mcp"), "/")
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u, nil
+}
+
+// AtlasURL is where the server at serverURL serves the Atlas UI: its base
+// (ServerBase) plus /ui/, without any userinfo. Whether the server has the
+// Atlas enabled is not known here.
+func AtlasURL(serverURL string) (string, error) {
+	u, err := ServerBase(serverURL)
+	if err != nil {
+		return "", err
+	}
+	u.User = nil
+	u.Path += "/ui/"
+	return u.String(), nil
+}
+
 // Health fetches GET /health for the configured MCP endpoint. serverURL
 // normally ends in /mcp; only that terminal path segment is stripped, leaving
 // deployments whose endpoint is rooted elsewhere intact. Like Ping, timeout
@@ -554,14 +582,11 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
 		return nil, err
 	}
-	u, err := url.Parse(c.ServerURL)
+	u, err := ServerBase(c.ServerURL)
 	if err != nil {
-		return nil, fmt.Errorf("client: invalid server URL %q: %w", c.ServerURL, err)
+		return nil, err
 	}
-	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/mcp")
-	u.RawQuery = ""
-	u.Fragment = ""
-	u.Path = strings.TrimRight(u.Path, "/") + "/health"
+	u.Path += "/health"
 
 	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
 	hc.Timeout = timeout

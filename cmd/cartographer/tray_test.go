@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/tray"
 )
@@ -117,6 +119,9 @@ func TestTrayStatusFnRunsNoSchedulerCommand(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell stubs for the scheduler commands")
 	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	bin := t.TempDir()
 	calls := filepath.Join(t.TempDir(), "calls")
 	for _, name := range []string{"launchctl", "systemctl", "powershell.exe", "powershell", "schtasks"} {
@@ -145,6 +150,7 @@ func TestTrayStatusFnRunsNoSchedulerCommand(t *testing.T) {
 		statusCalls.Add(1)
 		return inner()
 	}, "")
+	deps.Client = trayClientTarget // no client file in this HOME: the local path, but the client file is read each tick
 	ticks := make(chan time.Time)
 	deps.NewTicker = func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }
 
@@ -166,5 +172,87 @@ func TestTrayStatusFnRunsNoSchedulerCommand(t *testing.T) {
 	}
 	if n, h := statusCalls.Load(), health.Load(); n < 4 || h != n {
 		t.Errorf("status reads = %d, /health requests = %d, want equal and at least 4", n, h)
+	}
+}
+
+// writeTrayClient writes a client config in the isolated HOME.
+func writeTrayClient(t *testing.T, cfg *clientconfig.Config) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CARTOGRAPHER_ALLOW_INSECURE_HTTP", "")
+	if cfg != nil {
+		if err := clientconfig.Save(home, cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home
+}
+
+func TestTrayClientTarget(t *testing.T) {
+	writeTrayClient(t, nil)
+	if got, err := trayClientTarget(); err != nil || got.Present {
+		t.Fatalf("no client file: %+v, %v", got, err)
+	}
+
+	t.Run("env token", func(t *testing.T) {
+		writeTrayClient(t, &clientconfig.Config{ServerURL: "https://example.com/mcp", Auth: true, Token: "${TRAY_TEST_TOKEN}"})
+		t.Setenv("TRAY_TEST_TOKEN", "tok-from-env")
+		got, err := trayClientTarget()
+		if err != nil || !got.Present || got.ServerURL != "https://example.com/mcp" || got.Token != "tok-from-env" || !got.Auth || got.AllowInsecureHTTP {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
+	t.Run("token file when the variable is unset", func(t *testing.T) {
+		home := writeTrayClient(t, &clientconfig.Config{ServerURL: "https://example.com/mcp", Auth: true, Token: "${TRAY_TEST_TOKEN}"})
+		os.Unsetenv("TRAY_TEST_TOKEN")
+		if err := clientconfig.WriteToken(home, "tok-from-file"); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := trayClientTarget(); err != nil || got.Token != "tok-from-file" {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
+	t.Run("neither", func(t *testing.T) {
+		writeTrayClient(t, &clientconfig.Config{ServerURL: "https://example.com/mcp", Auth: true, Token: "${TRAY_TEST_TOKEN}"})
+		os.Unsetenv("TRAY_TEST_TOKEN")
+		if got, err := trayClientTarget(); err != nil || got.Token != "" || !got.Auth {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
+	t.Run("insecure opt-in by key and by environment", func(t *testing.T) {
+		writeTrayClient(t, &clientconfig.Config{ServerURL: "http://remote.example.com/mcp", AllowInsecureHTTP: true})
+		if got, _ := trayClientTarget(); !got.AllowInsecureHTTP {
+			t.Errorf("the key was ignored: %+v", got)
+		}
+		writeTrayClient(t, &clientconfig.Config{ServerURL: "http://remote.example.com/mcp"})
+		t.Setenv("CARTOGRAPHER_ALLOW_INSECURE_HTTP", "1")
+		if got, _ := trayClientTarget(); !got.AllowInsecureHTTP {
+			t.Errorf("the environment variable was ignored: %+v", got)
+		}
+	})
+	t.Run("unparsable file", func(t *testing.T) {
+		home := writeTrayClient(t, nil)
+		if err := os.WriteFile(clientconfig.Path(home), []byte("server_url: [unclosed\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := trayClientTarget(); err == nil || got.Present {
+			t.Errorf("an unparsable file: %+v, %v", got, err)
+		}
+	})
+}
+
+func TestTrayConfigPassedForcesLocal(t *testing.T) {
+	for args, want := range map[string]bool{"": false, "--interval 2s": false, "--config /x/server.yaml": true} {
+		fs := flag.NewFlagSet("tray", flag.ContinueOnError)
+		fs.String("config", "", "")
+		fs.Duration("interval", time.Second, "")
+		if err := fs.Parse(strings.Fields(args)); err != nil {
+			t.Fatal(err)
+		}
+		if got := trayConfigPassed(fs); got != want {
+			t.Errorf("%q: trayConfigPassed = %v, want %v", args, got, want)
+		}
 	}
 }

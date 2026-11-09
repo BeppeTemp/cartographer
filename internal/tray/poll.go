@@ -3,6 +3,7 @@ package tray
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -44,6 +45,17 @@ type Deps struct {
 	// runs off the poll loop, at start, every AgentsInterval worth of polls
 	// and when the server comes back; a poll shows the newest result.
 	Agents func() Agents
+	// Client resolves the client config's server, on every tick; optional
+	// (nil = local mode only). It is consulted only when no local service is
+	// installed and ForceLocal is off. Present false (no client config file)
+	// keeps the local path.
+	Client func() (ClientTarget, error)
+	// ProbeClient fetches /health of the client's server, with the client's
+	// token and TLS rules; NewDeps sets the production probe.
+	ProbeClient func(ClientTarget) (*client.Health, error)
+	// ForceLocal keeps the local mode whatever the client config says (an
+	// explicit --config).
+	ForceLocal bool
 }
 
 // NewDeps wires the production implementation: statusFn is
@@ -51,9 +63,10 @@ type Deps struct {
 // client.MCPClient.Health.
 func NewDeps(statusFn func() (service.Status, error), logPath string) Deps {
 	return Deps{
-		Status:  statusFn,
-		Probe:   probeHealth,
-		LogPath: logPath,
+		Status:      statusFn,
+		Probe:       probeHealth,
+		ProbeClient: probeClient,
+		LogPath:     logPath,
 		NewTicker: func(d time.Duration) (<-chan time.Time, func()) {
 			t := time.NewTicker(d)
 			return t.C, t.Stop
@@ -81,6 +94,14 @@ func probeHealth(addr string) (*client.Health, error) {
 	return c.Health(probeTimeout)
 }
 
+// probeClient reads /health of the client's server_url with that URL's own
+// scheme and the client's rules (client.CheckServerURL inside Health): no
+// forced http://, no loopback rewrite. The token travels in the Authorization
+// header of this one request.
+func probeClient(t ClientTarget) (*client.Health, error) {
+	return client.New(t.ServerURL, t.Token).WithInsecureHTTP(t.AllowInsecureHTTP).Health(probeTimeout)
+}
+
 // Run probes every interval and calls emit with the first snapshot and then
 // with each one that differs from the previous. It returns when ctx is done;
 // a probe that fails is a Stopped (or NotInstalled) snapshot, never a panic or
@@ -96,6 +117,7 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 	have := false
 	var good *service.Status // last Status() that succeeded
 	var lastErr string       // the Status() error already logged; empty after a success
+	cm := &clientMemo{}
 	var mu sync.Mutex
 	var agents Agents
 	refresh := make(chan struct{}, 1)
@@ -117,7 +139,7 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 	every := max(1, int(AgentsInterval/interval))
 	polls := 0
 	poll := func() {
-		snap := d.snapshot(&good, &lastErr)
+		snap := d.snapshot(&good, &lastErr, cm)
 		if d.Agents != nil {
 			back := have && last.State != StateRunning && snap.State == StateRunning
 			if polls%every == 0 || back {
@@ -153,7 +175,7 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 // one is reused, so an installed service does not flip to "not installed" for a
 // tick. With no earlier good read the answer is Stopped, never NotInstalled:
 // an unreadable definition proves nothing about installation.
-func (d Deps) snapshot(good **service.Status, lastErr *string) Snapshot {
+func (d Deps) snapshot(good **service.Status, lastErr *string, cm *clientMemo) Snapshot {
 	st, err := d.Status()
 	var health *client.Health
 	if err != nil {
@@ -174,6 +196,11 @@ func (d Deps) snapshot(good **service.Status, lastErr *string) Snapshot {
 		*good = &cp
 		*lastErr = ""
 	}
+	if !d.ForceLocal && d.Client != nil && !st.Installed {
+		if snap, ok := d.clientSnapshot(cm); ok {
+			return snap
+		}
+	}
 	if err != nil {
 		// no earlier good read: nothing to probe, classify as Stopped
 	} else if st.HTTPAddr == "" {
@@ -189,6 +216,69 @@ func (d Deps) snapshot(good **service.Status, lastErr *string) Snapshot {
 	snap.LogPath = d.LogPath
 	snap.Restarting = d.Busy != nil && d.Busy()
 	return snap
+}
+
+// clientMemo is what the client mode remembers between ticks.
+type clientMemo struct {
+	good     *ClientTarget // last target that resolved
+	loadErr  string        // the Client() error already logged
+	probeErr string        // the refused-server_url error already logged
+}
+
+// clientSnapshot probes the client's server. ok is false when there is no
+// client config file: the caller then takes the local path unchanged. A target
+// that cannot be read keeps the last good one, or shows Stopped.
+func (d Deps) clientSnapshot(cm *clientMemo) (Snapshot, bool) {
+	t, err := d.Client()
+	switch {
+	case err != nil:
+		if msg := err.Error(); msg != cm.loadErr {
+			cm.loadErr = msg
+			d.logf("tray: client config: %v", err)
+		}
+		if cm.good == nil {
+			return Snapshot{Checked: true, KBCount: -1, Mode: ModeClient, State: StateStopped}, true
+		}
+		t = *cm.good
+	case !t.Present:
+		cm.good, cm.loadErr = nil, ""
+		return Snapshot{}, false
+	default:
+		cp := t
+		cm.good, cm.loadErr = &cp, ""
+	}
+	var health *client.Health
+	if d.ProbeClient == nil {
+		err = errors.New("no client probe")
+	} else {
+		health, err = d.ProbeClient(t)
+	}
+	var remote *client.RemoteError
+	switch {
+	case err != nil && !errors.As(err, &remote):
+		// A server_url the client's rules refuse (remote plain http://, a bad
+		// scheme, an unparsable URL). err is never logged: CheckServerURL
+		// formats the raw URL into it, userinfo and query included. The line
+		// is the redacted URL and a fixed reason.
+		d.logProbeOnce(cm, fmt.Sprintf("tray: server_url %s: refused by the client's URL rules (remote plain http:// needs allow_insecure_http; https:// or loopback http:// only)", redactURL(t.ServerURL)))
+	case err == nil && healthProblem(health) != "":
+		d.logProbeOnce(cm, fmt.Sprintf("tray: server_url %s: %s: refused", redactURL(t.ServerURL), healthProblem(health)))
+	default:
+		cm.probeErr = ""
+	}
+	if err == nil && health == nil {
+		err = errors.New("empty health response")
+	}
+	return ClassifyClient(health, err, t), true
+}
+
+// logProbeOnce writes a probe-side line once until the message changes or a
+// probe passes.
+func (d Deps) logProbeOnce(cm *clientMemo, msg string) {
+	if msg != cm.probeErr {
+		cm.probeErr = msg
+		d.logf("%s", msg)
+	}
 }
 
 func (d Deps) logf(format string, args ...any) {

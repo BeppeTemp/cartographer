@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -33,7 +34,7 @@ func cmdTray(args []string) int {
 	fs := flag.NewFlagSet("tray", flag.ExitOnError)
 	logFile := fs.String("log-file", "", "Append the tray's log to this file (a Scheduled Task has nowhere else to put it)")
 	interval := fs.Duration("interval", tray.DefaultInterval, "How often the server is probed (minimum 1s)")
-	configFlag := fs.String("config", "", "Server config YAML (default: discovered from the installed service definition, else the standard path)")
+	configFlag := fs.String("config", "", "Local server config YAML (default: discovered from the installed service definition, else the standard path); passing it forces the local server, never the client config's")
 	if code := noExtraArgs(fs, args); code != 0 {
 		return code
 	}
@@ -73,6 +74,8 @@ func cmdTray(args []string) int {
 	deps := tray.NewDeps(statusFn, trayServerLogPath())
 	deps.Busy = actions.Busy
 	deps.Agents = trayAgents
+	deps.Client = trayClientTarget
+	deps.ForceLocal = trayConfigPassed(fs) // a hand use: the local server, as before
 	deps.Logf = logf
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -153,6 +156,42 @@ func trayAgents() tray.Agents {
 		a.N++
 	}
 	return a
+}
+
+// trayConfigPassed reports whether --config was given explicitly: the tray then
+// follows that local server config and never the client config's server.
+func trayConfigPassed(fs *flag.FlagSet) bool {
+	passed := false
+	fs.Visit(func(f *flag.Flag) { passed = passed || f.Name == "config" })
+	return passed
+}
+
+// trayClientTarget is the server of the client config, read on every tick (two
+// small files, so a connect to another server is followed without restarting
+// the tray). No client config file → Present false and the tray stays local; a
+// file that cannot be parsed is an error, for the poll loop to keep the last
+// good target. The token is resolved as sync does (literal, ${NAME}, then the
+// private token file, which is what a tray started by launchd or the Task
+// Scheduler can read).
+func trayClientTarget() (tray.ClientTarget, error) {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return tray.ClientTarget{}, err
+	}
+	cfg, err := clientconfig.Load(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return tray.ClientTarget{}, nil
+	}
+	if err != nil {
+		return tray.ClientTarget{}, err
+	}
+	return tray.ClientTarget{
+		Present:           true,
+		ServerURL:         cfg.ServerURL,
+		Token:             resolveToken(cfg),
+		AllowInsecureHTTP: cfg.InsecureHTTPAllowed(),
+		Auth:              cfg.Auth,
+	}, nil
 }
 
 // trayAgentRow maps one provider of the status snapshot. Only "in_sync" and

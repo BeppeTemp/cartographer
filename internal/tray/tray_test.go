@@ -415,20 +415,20 @@ func TestSnapshotLogsARepeatedStatusErrorOnce(t *testing.T) {
 	var lastErr string
 
 	for range 101 {
-		d.snapshot(&good, &lastErr)
+		d.snapshot(&good, &lastErr, &clientMemo{})
 	}
 	if len(logged) != 1 {
 		t.Fatalf("101 ticks with one error logged %d lines, want 1", len(logged))
 	}
 	f.set(func() { f.sErr = errors.New("another error") })
-	d.snapshot(&good, &lastErr)
+	d.snapshot(&good, &lastErr, &clientMemo{})
 	if len(logged) != 2 {
 		t.Fatalf("a different error logged %d lines in total, want 2", len(logged))
 	}
 	f.set(func() { f.sErr = nil })
-	d.snapshot(&good, &lastErr)
+	d.snapshot(&good, &lastErr, &clientMemo{})
 	f.set(func() { f.sErr = errors.New("another error") })
-	d.snapshot(&good, &lastErr)
+	d.snapshot(&good, &lastErr, &clientMemo{})
 	if len(logged) != 3 {
 		t.Fatalf("the same error after a success logged %d lines in total, want 3", len(logged))
 	}
