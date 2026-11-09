@@ -4,6 +4,8 @@ topic: client-configurator
 
 # D676 — GitHub Copilot CLI is a provider, with a hook file of its own
 
+> **Amended by [D1864](D1864-copilot-vscode-client.md)**: the provider also covers Copilot in VS Code (Copilot harness) and is named "GitHub Copilot (CLI, VS Code)"; the "not Copilot in VS Code" scope no longer applies.
+
 **Decision.** `copilot` (provider id `copilot`, "GitHub Copilot CLI"; not Copilot in VS Code) is a provider with all
 five global cells: `~/.copilot/mcp-config.json`, `copilot-instructions.md`, `skills/<name>/`, `agents/<name>.agent.md`
 and `cartographer-hooks/<name>/`. A hook is registered as its own file `~/.copilot/hooks/cartographer-<name>.json`, returned as a

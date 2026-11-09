@@ -48,7 +48,7 @@ is not measured. `service status` retains 0 running, 3 stopped (on every platfor
 ### `cartographer hook write-findings [--channel stderr|context|copilot]` (internal)
 
 Not in the usage text. The logic of the client-generated `cartographer-write-findings` hook
-([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code, Codex, Copilot CLI, Pi or OpenCode 2.x
+([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code, Codex, Copilot (CLI, VS Code), Pi or OpenCode 2.x
 `PostToolUse` payload on stdin and looks in `tool_response` (the result object, a content-block
 array, or JSON in a `text` block, or a string of several JSON values as OpenCode joins them; `supersede` appends `findings:` as plain text) for a `findings`
 array or `results[].findings` (`concept_batch`). With at least one finding it writes a fixed English
@@ -213,7 +213,9 @@ matched is reported in the DETECTION column, and as `detected_by` in JSON
 1. `binary` — any of the provider's binaries in `PATH` (Kiro ships as `kiro` from the IDE and `kiro-cli`
    standalone). On Windows `exec.LookPath` honours `PATHEXT`, so this is where a client installed
    normally is found;
-2. `config-dir` — a known configuration directory under the home directory;
+2. `config-dir` — a known configuration directory under the home directory (`~/.copilot` is also what
+   detects VS Code's Copilot harness, which creates it on first use; no VS Code directory is probed,
+   [D1864](decisions/D1864-copilot-vscode-client.md));
 3. `env-config-dir` — a configuration directory anchored at an environment variable, for a location no home-relative
    path can express — today `%APPDATA%\opencode`. An entry whose variable is unset is skipped, so
    declaring one costs nothing on a platform that does not define it;
@@ -1263,7 +1265,7 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172) | `mcp` (JSON) |
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
-| GitHub Copilot CLI | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
+| GitHub Copilot (CLI, VS Code) | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
 | Pi | `.pi/agent/mcp.json` | `mcpServers` (JSON) |
 | Cline | `.cline/data/settings/cline_mcp_settings.json` | `mcpServers` (JSON) |
 
@@ -1271,7 +1273,7 @@ KB-provided stdio descriptors (D116) share these same files with per-name owners
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
 OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references;
 Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
-Copilot CLI uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
+Copilot (CLI and VS Code) uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
 Pi has no `type` key (it infers the transport); Cartographer's own entry carries `toolExposure` for the entry tools and no `exposure` (below).
 Cline uses `type: "stdio"` (or `"streamableHttp"`) and never gets a `cwd`, `disabled`, `autoApprove` or `timeout`.
 Cartographer only preflights the local executable before writing: it never runs it, and never resolves
@@ -1415,7 +1417,7 @@ Crush has no documented user-level subagent directory, so that artifact kind is 
 Its hooks (`hooks.PreToolUse` in `crush.json`, D363) are registered by name; only `PreToolUse` fires,
 so there is no session event and its bootstrap trigger is the scheduled timer.
 
-**GitHub Copilot CLI** (`copilot`, D676; probed on 1.0.94) — with auth. The file is
+**GitHub Copilot (CLI and VS Code)** (`copilot`, D676, [D1864](decisions/D1864-copilot-vscode-client.md); probed on CLI 1.0.94 and VS Code 1.145.2) — with auth. The file is
 `~/.copilot/mcp-config.json`; Copilot expands `${VAR}` in a header value from its environment, so the
 header is written as for Claude Code. `"tools": ["*"]` is required: without it a non-interactive
 session is offered no tool of the server:
@@ -1440,8 +1442,16 @@ dedicated file `~/.copilot/hooks/cartographer-<name>.json`
 owns whole (the hook's own files sit in `~/.copilot/cartographer-hooks/<name>/`, since Copilot parses every `*.json` below `~/.copilot/hooks/`): it never edits `~/.copilot/settings.json`. Only `SessionStart`, `PreToolUse` and
 `PostToolUse` are registered (`sessionStart`, `preToolUse`, `postToolUse`); Copilot has no matcher, so a
 KB hook that declares one is installed but not registered, with a warning. Cartographer reads
-`$HOME/.copilot` like every other provider and ignores `COPILOT_HOME`. The project-local MCP, agent and
-hook locations are gated on folder trust and are unsupported ([D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
+`$HOME/.copilot` like every other provider and ignores `COPILOT_HOME`: both clients honour it, so a user who
+exports it gets cells the client does not read.
+
+VS Code's **Copilot harness** (the chat runs the embedded Copilot CLI runtime) reads the same
+`$HOME/.copilot` cells, so one provider covers both. Detection is the `copilot` binary or `$HOME/.copilot`;
+VS Code creates that directory when Copilot is first used, so a VS Code install whose Copilot never ran is
+not detected, and neither the app bundle nor `code` on PATH is evidence. VS Code's **Local** harness is not
+written to and Cartographer never writes or reads the VS Code profile folder (`Code/User/…`). VS Code also
+reads `.github/agents` and `.github/hooks` in a trusted workspace; the project-local MCP, agent and hook
+locations are unsupported ([D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
 
 **Pi** (`pi`, npm `@earendil-works/pi-coding-agent`; probed on 1.5.0) — with auth. The file is
 `~/.pi/agent/mcp.json`, key `mcpServers`. Pi interpolates `${VAR}` in `env` and `headers`, so the

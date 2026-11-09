@@ -220,6 +220,25 @@ unique token; ask the client to repeat it.
   `skills/`, `agents/<name>.agent.md`, `hooks/<file>.json`.
 - Watch for the project mcp, agent and hook cells working without folder trust
   (flips the three unsupported project cells) and for a hook matcher (D676).
+- Copilot in VS Code is a separate recipe (`## Copilot in VS Code`).
+
+## Copilot in VS Code
+
+Probed on VS Code 1.145.2 (2026-11-09): the chat runs the embedded Copilot CLI runtime
+(`session.start` says `producer: copilot-agent`), so the cells are the CLI's.
+
+- Launch VS Code with `COPILOT_HOME=<scratch>` on a scratch git workspace the operator
+  trusts; never touch `$HOME/.copilot` (snapshot `find … | shasum` before and after).
+  A fresh `--user-data-dir` needs a GitHub sign-in, so reuse the signed-in profile.
+- Send prompts with `code chat -r -m <mode> "…"` (opens the Copilot harness; the Local
+  harness cannot be chosen from the command line); read the answer from
+  `<scratch>/session-state/<id>/events.jsonl`.
+- Seed the global cells as in §Copilot CLI and the workspace cells
+  (`.github/agents`, `.github/hooks`, `.github/skills`, `.agents/skills`, `AGENTS.md`,
+  `.github/copilot-instructions.md`, `.mcp.json`), each with a unique token.
+- Observed: all five global cells; `.github/agents` and `.github/hooks` in a trusted
+  workspace; both skill directories; `.mcp.json` not loaded with default settings.
+  Not run: untrusted control, Local harness, hook matcher and `deny`.
 
 ## Pi
 

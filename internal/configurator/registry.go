@@ -272,7 +272,7 @@ var descriptors = []Descriptor{
 	},
 	{
 		Provider:           ProviderCopilot,
-		DisplayName:        "GitHub Copilot CLI",
+		DisplayName:        "GitHub Copilot (CLI, VS Code)",
 		MCPConfigPath:      ".copilot/mcp-config.json",
 		MCPFormat:          FormatJSON,
 		MCPServerKey:       "mcpServers",
@@ -283,7 +283,11 @@ var descriptors = []Descriptor{
 		FlatToolNamespace: false,
 		Binaries:          []string{"copilot"},
 		ConfigDirs:        [][]string{{".copilot"}},
-		// No AppDirs: a terminal program, `copilot` on PATH is the detection.
+		// Detection: `copilot` on PATH (CLI) or $HOME/.copilot. VS Code's Copilot
+		// harness runs the same runtime and creates $HOME/.copilot on first use
+		// (probed on VS Code 1.145.2, 2026-11-09, D1864), so
+		// the one directory covers both. No AppDirs and no `code` binary: an
+		// installed VS Code whose Copilot never ran is not evidence of use.
 		// No InstructionsPrecedence: ~/.copilot/copilot-instructions.md is
 		// reported as "Personal instructions" and nothing shadows it.
 		emit: emitCopilotServer,

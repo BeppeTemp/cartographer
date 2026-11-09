@@ -12,7 +12,8 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
-// Copilot CLI hooks (D676). Probed on copilot 1.0.94: a file
+// Copilot CLI and VS Code Copilot-harness hooks (D676). Probed on copilot 1.0.94
+// and, same payload, on VS Code 1.145.2: a file
 // ~/.copilot/hooks/<file>.json, {"version":1,"hooks":{"<event>":[{"type":
 // "command","bash":…,"powershell":…}]}}, fires. Cartographer owns one such file
 // per hook ("cartographer-<hook>.json") and never edits ~/.copilot/settings.json,

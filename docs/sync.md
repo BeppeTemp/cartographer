@@ -149,7 +149,7 @@ one, an explicit activation.
 | claude | `~/.claude/projects/**/*.jsonl` | `Skill` tool, `Agent`/`Task` `subagent_type`, tool call carrying a materialised path |
 | kiro | `~/.kiro/sessions/**/*.jsonl` | `kind.BuiltIn.FileRead` of the path, or a shell command containing it |
 | codex | `~/.codex/sessions/**/rollout-*.jsonl` | partial: a catalogue-loaded timestamp (`count` 0) plus path-bearing tool calls |
-| copilot | `~/.copilot/session-state/*/events.jsonl` | `tool.execution_start` with `toolName: "skill"` and `arguments.skill` (an activation); MCP calls and agents are not counted |
+| copilot (CLI and VS Code Copilot-harness sessions) | `~/.copilot/session-state/*/events.jsonl` | `tool.execution_start` with `toolName: "skill"` and `arguments.skill` (an activation); MCP calls and agents are not counted |
 | opencode, antigravity, crush | none | none: no readable or documented transcript, an explicit stub each |
 
 The window is 90 days: older transcript files are not opened and older events are not counted.

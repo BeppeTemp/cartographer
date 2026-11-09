@@ -37,4 +37,12 @@
 - Google Antigravity: https://antigravity.google/docs/rules
 - Crush: https://github.com/charmbracelet/crush
 - GitHub Copilot CLI: https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli
+- GitHub Copilot in VS Code (custom instructions, MCP configuration, agent skills, custom agents, hooks, prompt files, AI settings):
+  https://code.visualstudio.com/docs/copilot/customization/custom-instructions,
+  https://code.visualstudio.com/docs/copilot/customization/mcp-servers,
+  https://code.visualstudio.com/docs/copilot/customization/agent-skills,
+  https://code.visualstudio.com/docs/copilot/customization/custom-agents,
+  https://code.visualstudio.com/docs/copilot/customization/hooks,
+  https://code.visualstudio.com/docs/copilot/customization/prompt-files,
+  https://code.visualstudio.com/docs/copilot/copilot-settings
 - Pi: https://github.com/earendil-works/pi (docs in `packages/coding-agent/docs/`)

@@ -4,7 +4,10 @@ package configurator
 // single source of provider identity, so a missing or duplicated one must fail
 // here rather than degrade some caller at runtime.
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRegistryHasOneDescriptorPerProvider(t *testing.T) {
 	want := []Provider{ProviderClaudeCode, ProviderCodex, ProviderKiro, ProviderOpenCode, ProviderAntigravity, ProviderCrush, ProviderCopilot, ProviderPi, ProviderCline}
@@ -21,6 +24,11 @@ func TestRegistryHasOneDescriptorPerProvider(t *testing.T) {
 
 		if d.DisplayName == "" {
 			t.Errorf("%q: empty DisplayName", d.Provider)
+		}
+		// The copilot provider covers the CLI and VS Code's Copilot harness
+		// (D-new-copilot-vscode-client): the name must say both.
+		if d.Provider == ProviderCopilot && (!strings.Contains(d.DisplayName, "CLI") || !strings.Contains(d.DisplayName, "VS Code")) {
+			t.Errorf("copilot DisplayName %q must mention both CLI and VS Code", d.DisplayName)
 		}
 		if len(d.Binaries) == 0 && len(d.ConfigDirs) == 0 {
 			t.Errorf("%q: no detection evidence at all", d.Provider)

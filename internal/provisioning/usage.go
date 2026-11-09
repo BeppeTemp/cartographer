@@ -677,7 +677,9 @@ func fileURLPath(uri string) string {
 // --- GitHub Copilot CLI ---
 
 // scanCopilot reads <base>/.copilot/session-state/<session>/events.jsonl, one
-// {type, data, id, timestamp} event per line (probed on 1.0.94, D676). A skill
+// {type, data, id, timestamp} event per line (probed on 1.0.94, D676). VS Code's
+// Copilot harness writes its sessions to the same place (1.145.2), so they are
+// counted too. A skill
 // activation is a tool.execution_start whose data.toolName is "skill" and
 // data.arguments.skill the skill's name. The MCP calls in the same file
 // (toolName "<server>-<tool>") name no managed artifact, so they are not read;

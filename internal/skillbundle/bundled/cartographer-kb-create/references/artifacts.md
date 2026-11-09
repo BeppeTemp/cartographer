@@ -117,6 +117,22 @@ dropped from that text; `lint` reads two optional keys from it: `perimeter` (a
 word every skill description should contain) and `legacy_paths` (old path
 prefix → replacement, applied by `kb_repair legacy_path`).
 
+### Mapping a Copilot setup to KB artifacts
+
+For a KB that targets GitHub Copilot (the `copilot` CLI and Copilot in VS Code, Copilot harness), each
+Copilot piece has one KB artifact; Cartographer writes it into `$HOME/.copilot`:
+
+| Copilot piece | KB artifact | Notes |
+|---|---|---|
+| skills | `skills/<slug>/` | listed and invoked through the `skill` tool |
+| custom agents (`*.agent.md`) | `agents/<slug>.md` | translated to `.agent.md`; the artifact name is the agent name, `description` is used (defaults to the name), other frontmatter such as `tools` and `model` is dropped, `providers.copilot` is carried verbatim |
+| always-on instructions (`copilot-instructions.md`, `AGENTS.md`) | `instructions.md` | one managed block; per-glob `*.instructions.md` has no equivalent and is not generated |
+| hooks (`hooks/*.json`) | `hooks/<slug>/hook.json` | `event` is one of `SessionStart`, `PreToolUse`, `PostToolUse`; no matcher (a matcher means installed, not registered) |
+| MCP servers | `mcp/<slug>.json` | |
+| prompt files (`.prompt.md`) | a user-invocable skill | no equivalent is generated; whether a skill appears as a `/` command in the Copilot harness is not observed |
+
+VS Code's Local harness is not written to, and the VS Code profile folder is never touched.
+
 ### `paths.yaml`
 
 ```yaml
