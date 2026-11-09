@@ -942,6 +942,8 @@ cartographer service restart --wait [--config <path>]   # graceful, version-gate
 cartographer service status        # exit: 0 running, 3 installed but stopped, 4 not installed
 ```
 
+Every service definition (launchd plist, systemd unit, cron definition) is written and removed through `internal/safewrite` (D148): a symlinked destination or parent directory is refused with an error naming the path, and uninstall removes only a regular file.
+
 `--config-only` writes the config and creates the data directory exactly as `install` does and installs nothing: for a host with no service manager, where plain `install` exits 2 before writing anything and prints the manual route (see `deployment.md`, "Hosts without a service manager"). It prints the `serve` command to start by hand and exits 0. `connect` does not offer to install the service on such a host.
 
 Re-running `service install` leaves the installed definition and the running process in agreement: on Linux a unit that was active is restarted after `enable --now` (which alone leaves a running unit alone), as launchd and the Scheduled Task already are. The launchd plists escape every path as XML, so `R&D` in a path is valid.

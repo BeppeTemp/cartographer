@@ -157,7 +157,7 @@ func (m *Manager) writeCrontab(content string) error {
 	if err != nil {
 		return fmt.Errorf("service: resolve state dir: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := mkdirSafe(dir); err != nil {
 		return fmt.Errorf("service: create state dir: %w", err)
 	}
 	f, err := os.CreateTemp(dir, "crontab-*")
@@ -246,16 +246,16 @@ func (m *Manager) installCron(binPath, configPath string) ([]string, error) {
 		return nil, fmt.Errorf("service: resolve cron definition path: %w", err)
 	}
 	for _, d := range []string{stateDir, filepath.Dir(defPath)} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := mkdirSafe(d); err != nil {
 			return nil, fmt.Errorf("service: create %s: %w", d, err)
 		}
 	}
 	block := renderCronServerBlock(binPath, configPath, stateDir)
-	if err := os.WriteFile(defPath, []byte(cronDefinition(binPath, configPath, block)), 0o644); err != nil {
+	if err := writeSafe(defPath, []byte(cronDefinition(binPath, configPath, block))); err != nil {
 		return nil, fmt.Errorf("service: write cron definition: %w", err)
 	}
 	if err := m.editCrontab(cronServerBegin, cronServerEnd, block); err != nil {
-		os.Remove(defPath)
+		removeSafe(defPath)
 		return nil, err
 	}
 	m.removeSystemdLeftover()
@@ -291,7 +291,7 @@ func (m *Manager) removeSystemdLeftover() {
 	if _, err := lookPath("systemctl"); err == nil {
 		m.run("systemctl", "--user", "disable", "--now", systemdUnit)
 	}
-	os.Remove(unit)
+	removeSafe(unit)
 }
 
 // removeCronLeftover is the cron backend's uninstall run before a systemd
@@ -320,12 +320,12 @@ func (m *Manager) uninstallCron() error {
 	if err := m.removeCronBlock(cronServerBegin, cronServerEnd); err != nil {
 		return errors.Join(err, stopErr)
 	}
-	if err := os.Remove(defPath); err != nil && !os.IsNotExist(err) {
+	if err := removeSafe(defPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("service: remove cron definition: %w", err)
 	}
 	for _, n := range []string{"server.pid", "server.lock", "server.stopped"} {
 		if p, err := statePath(n); err == nil {
-			os.Remove(p)
+			removeSafe(p)
 		}
 	}
 	if stopErr != nil {
@@ -432,10 +432,10 @@ func (m *Manager) setStopMarker() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := mkdirSafe(filepath.Dir(p)); err != nil {
 		return fmt.Errorf("service: create state dir: %w", err)
 	}
-	if err := os.WriteFile(p, nil, 0o644); err != nil {
+	if err := writeSafe(p, nil); err != nil {
 		return fmt.Errorf("service: write stop marker: %w", err)
 	}
 	return nil
@@ -537,7 +537,7 @@ func (m *Manager) ensure(bin, configPath string) error {
 	if err != nil {
 		return fmt.Errorf("service: resolve state dir: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := mkdirSafe(dir); err != nil {
 		return fmt.Errorf("service: create state dir: %w", err)
 	}
 	unlock, err := lockExclusive(filepath.Join(dir, "server.lock"), ensureLockWait)
@@ -561,7 +561,7 @@ func (m *Manager) ensure(bin, configPath string) error {
 		return fmt.Errorf("service: start server: %w", err)
 	}
 	tmp := filepath.Join(dir, "server.pid.tmp")
-	if err := os.WriteFile(tmp, []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+	if err := writeSafe(tmp, []byte(strconv.Itoa(pid)+"\n")); err != nil {
 		return fmt.Errorf("service: write pidfile: %w", err)
 	}
 	return os.Rename(tmp, filepath.Join(dir, "server.pid"))
