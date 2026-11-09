@@ -68,6 +68,9 @@ type Budget struct {
 	profiles map[string]Profile
 	loc      *time.Location
 	callers  KBCaller
+	// CloseCallers, when set, writes the closing entries (a client with a short
+	// HTTP timeout, so that shutdown fits the grace period); callers otherwise.
+	CloseCallers KBCaller
 
 	// Logf receives the warnings and the failures that never fail a run; the
 	// standard logger when nil.
@@ -81,6 +84,7 @@ type Budget struct {
 	perKB   map[string]map[string]int // this run, by KB then profile
 	units   map[string]int
 	commits map[string]int
+	sums    map[string][]string // one-line summaries by KB: never shown in another KB's log
 	touched map[string]bool
 	order   []string // touched KBs in first-touch order
 }
@@ -149,6 +153,7 @@ func (b *Budget) Begin(kbs []string, now time.Time) error {
 	b.perKB = map[string]map[string]int{}
 	b.units, b.commits = map[string]int{}, map[string]int{}
 	b.touched, b.order = map[string]bool{}, nil
+	b.sums = map[string][]string{}
 	return nil
 }
 
@@ -210,6 +215,27 @@ func (b *Budget) Charge(kb, profile string, tokens int) {
 	b.perKB[kb][profile] += tokens
 }
 
+// Summarize records the one-line summary of a task done on the KB. Only that
+// KB's closing entry carries it: a summary may name the KB's own content, and a
+// KB's log must not hold what was done on another.
+func (b *Budget) Summarize(kb, line string) {
+	if line = oneLine(line); line == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sums[kb] = append(b.sums[kb], line)
+}
+
+// SpentToday is what the profile has spent today including this run's own
+// spending, for the heartbeat; Remaining and Grant count the ledger and the run
+// separately.
+func (b *Budget) SpentToday(profile string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.today[profile] + b.run[profile]
+}
+
 // Note adds the units finished and the commits made on the KB.
 func (b *Budget) Note(kb string, units, commits int) {
 	b.mu.Lock()
@@ -235,17 +261,29 @@ func (b *Budget) entry(kb, stopped, summary string) string {
 		fmt.Fprintf(&sb, " tokens.%s=%d", p, b.perKB[kb][p])
 	}
 	fmt.Fprintf(&sb, " units=%d commits=%d stopped=%s", b.units[kb], b.commits[kb], stopped)
-	if s := oneLine(summary); s != "" {
+	if s := truncateRunes(oneLine(strings.Join(append(append([]string(nil), b.sums[kb]...), summary), "; ")), maxSummary); s != "" {
 		sb.WriteString(summarySep + s)
 	}
 	return sb.String()
+}
+
+// maxSummary is the most runes of summary a closing entry carries.
+const maxSummary = 300
+
+// truncateRunes cuts s to n runes, never inside one: log_append refuses invalid UTF-8.
+func truncateRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }
 
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(strings.NewReplacer("\r", " ", "\n", " ").Replace(s)), " ")
 }
 
-// Close writes one closing entry per touched KB. A failed log_append is retried
+// Close writes one closing entry per touched KB; summary, if any, is added to
+// every KB's own summaries (a line that names no KB's content). A failed log_append is retried
 // once and then logged: it never fails the run (its spending is then lost, like
 // a crash's). It returns the KBs that got no entry.
 func (b *Budget) Close(stopped, summary string) (failed []string) {
@@ -256,24 +294,56 @@ func (b *Budget) Close(stopped, summary string) (failed []string) {
 		entries[kb] = b.entry(kb, stopped, summary)
 	}
 	b.mu.Unlock()
-	for _, kb := range kbs {
-		args := map[string]any{"entry": entries[kb], "path": b.path()}
-		var err error
-		for try := 0; try < 2; try++ {
-			if err = b.append(kb, args); err == nil {
-				break
+	// In parallel: the total stays inside one short timeout, whatever the KB count.
+	errs := make([]error, len(kbs))
+	var wg sync.WaitGroup
+	for i, kb := range kbs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			args := map[string]any{"entry": entries[kb], "path": b.path()}
+			for try := 0; try < 2; try++ {
+				if errs[i] = b.append(kb, args); errs[i] == nil {
+					return
+				}
 			}
-		}
-		if err != nil {
-			b.logf("worker: closing entry for %s not written: %v", kb, err)
+		}()
+	}
+	wg.Wait()
+	for i, kb := range kbs {
+		if errs[i] != nil {
+			b.logf("worker: closing entry for %s not written: %v", kb, errs[i])
 			failed = append(failed, kb)
 		}
 	}
 	return failed
 }
 
+// totalUnits and totalCommits are what the run did, over all KBs.
+func (b *Budget) totalUnits() (n int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, u := range b.units {
+		n += u
+	}
+	return n
+}
+
+func (b *Budget) totalCommits() (n int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, c := range b.commits {
+		n += c
+	}
+	return n
+}
+
 func (b *Budget) append(kb string, args map[string]any) error {
-	out, err := b.callers(kb).CallTool("log_append", args)
+	callers := b.callers
+	if b.CloseCallers != nil {
+		callers = b.CloseCallers
+	}
+	out, err := callers(kb).CallTool("log_append", args)
 	if err != nil {
 		return err
 	}

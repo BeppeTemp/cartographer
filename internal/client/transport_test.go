@@ -130,3 +130,14 @@ func TestClient_DoesNotFollowRedirectToCleartext(t *testing.T) {
 		t.Errorf("Call error = %v, want the redirect refused", err)
 	}
 }
+
+func TestWithHTTPTimeoutCopiesTheClient(t *testing.T) {
+	c := New("https://example.com/mcp", "tok")
+	short := c.WithHTTPTimeout(5 * time.Second)
+	if short.HTTP.Timeout != 5*time.Second || c.HTTP.Timeout != 30*time.Second {
+		t.Errorf("timeouts: copy %v, original %v", short.HTTP.Timeout, c.HTTP.Timeout)
+	}
+	if short.Token != "tok" || short.ServerURL != c.ServerURL {
+		t.Error("the copy lost the client's settings")
+	}
+}
