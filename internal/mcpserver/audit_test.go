@@ -305,3 +305,28 @@ func TestAuditRecordsSecretResolveReveal(t *testing.T) {
 		}
 	}
 }
+
+// A write by a person a trusted proxy named is recorded with the person, the
+// kind (human) and the proxy token behind them (D1894, Attribution).
+func TestAuditNamesThePersonTheKindAndTheToken(t *testing.T) {
+	t.Parallel()
+	s, _, path := auditServer(t, audit.Options{})
+	s.RegisterTool(Tool{
+		Name: "w_tool", InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(requestContext, json.RawMessage) (ToolResult, error) { return textResult("ok"), nil },
+	})
+	ctx := auth.ContextWithPrincipal(authLocalContext(), auth.Principal{
+		ID: "user:alice", Via: "sso", Kind: auth.KindHuman, Policy: auth.Policy{Admin: true},
+	})
+	if r := s.callTool(ctx, "w_tool", json.RawMessage(`{}`)); r.IsError {
+		t.Fatalf("%+v", r)
+	}
+	for _, e := range auditEntries(t, path) {
+		if e.PrincipalID != "user:alice" || e.PrincipalKind != "human" || e.Via != "sso" {
+			t.Errorf("entry = %+v", e)
+		}
+	}
+	if s, err := audit.VerifyAudit(path, "", nil, audit.VerifyOptions{}); err != nil || s.Valid != 2 {
+		t.Fatalf("verify: %+v %v", s, err)
+	}
+}

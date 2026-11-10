@@ -82,6 +82,12 @@ type Entry struct {
 	PrevHash    string `json:"prev_hash"`
 	Hash        string `json:"hash"`
 	Sig         string `json:"sig,omitempty"` // hex-encoded Ed25519 signature of Hash (omitempty = unsigned entries)
+	// PrincipalKind is the kind of token behind the call (human, client,
+	// surveyor) and Via the id of the token behind a person a trusted proxy
+	// named (D1894, Attribution). Both are last and omitempty, and appended to
+	// canonicalEntry the same way, so a record written before hashes as it did.
+	PrincipalKind string `json:"principal_kind,omitempty"`
+	Via           string `json:"via,omitempty"`
 }
 
 // KeyPair holds an Ed25519 key pair for signing audit entries.
@@ -463,6 +469,10 @@ type canonicalEntry struct {
 	// ResultBytes (D301) is last and omitempty, so every event written
 	// before it existed hashes to the same bytes as it did then.
 	ResultBytes int64 `json:"result_bytes,omitempty"`
+	// PrincipalKind and Via (D1894) follow ResultBytes on the same terms:
+	// trailing and omitempty, never reordered.
+	PrincipalKind string `json:"principal_kind,omitempty"`
+	Via           string `json:"via,omitempty"`
 }
 
 func computeHash(e Entry) string {
@@ -472,7 +482,7 @@ func computeHash(e Entry) string {
 	b, _ := json.Marshal(canonicalEntry{
 		e.Version, e.ID, e.Timestamp.UTC().Format(time.RFC3339Nano), e.Phase, e.RequestID,
 		e.PrincipalID, e.Transport, e.KB, e.Tool, e.ExternalTool, e.ReadOnly, e.Resources,
-		e.Outcome, e.DurationMs, e.CommitSHA, e.PrevHash, e.ResultBytes,
+		e.Outcome, e.DurationMs, e.CommitSHA, e.PrevHash, e.ResultBytes, e.PrincipalKind, e.Via,
 	})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
@@ -923,7 +933,7 @@ func canonicalLine(e Entry, raw []byte) bool {
 	// A legacy line: the hash covers only timestamp, tool, args, agent_id,
 	// outcome and prev_hash, so no field of the later eras may ride along.
 	if e.ID != "" || e.Phase != "" || e.RequestID != "" || e.PrincipalID != "" || e.Transport != "" ||
-		e.KB != "" || e.ExternalTool != "" || e.ReadOnly || e.Resources != nil || e.ResultBytes != 0 {
+		e.KB != "" || e.ExternalTool != "" || e.ReadOnly || e.Resources != nil || e.ResultBytes != 0 || e.PrincipalKind != "" || e.Via != "" {
 		return false
 	}
 	if b, err := json.Marshal(e); err == nil && bytes.Equal(b, raw) {
