@@ -62,6 +62,12 @@ type Tool struct {
 	// and returns a result and application error. Application errors go in
 	// the ToolResult (isError:true), not as Go errors.
 	Handler func(context.Context, json.RawMessage) (ToolResult, error)
+	// AfterCommit is gitWrap's: called under the KB lock once the commit of a
+	// successful call was attempted without error (res.CommitSHA is empty when
+	// nothing changed). It is not called when the call failed, was refused or
+	// the commit failed, so state that must follow only a commit that held
+	// (the repair rotation cursor) is advanced here.
+	AfterCommit func(res ToolResult)
 }
 
 // Server is the MCP stdio server.
@@ -95,6 +101,10 @@ type Server struct {
 	autoRepairCursor string
 	// autoRepairQuota overrides autoRepairLimit when positive (tests).
 	autoRepairQuota int
+	// autoRepairOff is true when maintenance.auto_repair switched the
+	// background repair off (SetAutoRepairEnabled). The zero value is on, the
+	// default.
+	autoRepairOff bool
 	// kbArtifacts is what the UI API's artifact routes need beside kbRef to
 	// list the KB's artifacts as artifact_list and sync do (D238): the
 	// artifact signer. Set with kbRef.

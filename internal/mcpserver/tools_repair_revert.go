@@ -17,14 +17,26 @@ var revertSHARe = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 const repairCommitReasonPrefix = "auto-repair"
 
 // isRepairCommit says whether a commit is one repair_revert may undo: one made
-// by kb_repair (subject "kb_repair: ...") or by the background repair (subject
-// exactly autoRepairReason). Both are subjects the server builds itself; the
+// by kb_repair (subject "kb_repair: ...") or by the staged repair (subject
+// exactly one of autoRepairSubjects: the timer's, or kb_repair check "auto"'s).
+// All are subjects the server builds itself; the
 // Reason trailer is free text any wrapped tool accepts from its caller, so it
 // is not evidence. Anything else — a concept written by an agent, a merge, a
 // revert — is refused, so the tool cannot become a way to roll back arbitrary
 // history under a write token.
 func isRepairCommit(c gitx.CommitSummary) bool {
-	return strings.HasPrefix(c.Subject, "kb_repair: ") || c.Subject == autoRepairReason
+	return strings.HasPrefix(c.Subject, "kb_repair: ") || isAutoRepairSubject(c.Subject)
+}
+
+// isAutoRepairSubject says whether a commit subject is one the staged repair
+// builds: the timer's, or a kb_repair check "auto" call's (a Surveyor's or any
+// other caller's).
+func isAutoRepairSubject(subject string) bool {
+	switch subject {
+	case autoRepairReason, autoRepairSurveyorReason, autoRepairMCPReason:
+		return true
+	}
+	return false
 }
 
 // toolRepairRevert undoes one automatic repair as a new commit (D323). The

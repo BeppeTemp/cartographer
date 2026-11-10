@@ -636,6 +636,12 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 				k.SiblingRoots = siblings
 			}
 		}
+		// maintenance.auto_repair (default on) switches the background repair timer
+		// only; repair on write and the write gate do not depend on it.
+		autoRepair := settingsCfg == nil || settingsCfg.Maintenance.AutoRepair
+		if !autoRepair {
+			log.Printf("background repair is off (maintenance.auto_repair: false): repair on write still runs")
+		}
 		byName := make(map[string]*kb.KB, len(kbs))
 		for i, k := range kbs {
 			byName[names[i]] = k
@@ -655,7 +661,10 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 				s.SetKBName(name)
 				s.SetTransport("http")
 				s.SetLatestVersionSource(latestVersion)
-				s.StartAutoRepair(repairCtx)
+				s.SetAutoRepairEnabled(autoRepair)
+				if autoRepair {
+					s.StartAutoRepair(repairCtx)
+				}
 			})
 			multi.SetKBCapabilities(name, mcpserver.KBCapabilitiesFor(k))
 			log.Printf("mounted KB %q at %s", name, k.Root)

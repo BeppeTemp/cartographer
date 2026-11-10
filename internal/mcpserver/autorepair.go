@@ -22,8 +22,10 @@ import (
 
 // The background repair (D323): a KB that is never visited by a cartographer-kb-doctor
 // session still drifts, so the server applies every safe fix (lint.AutoRepairChecks)
-// itself, once per autoRepairInterval (D907: no setting turns it off or moves
-// it). It is a heartbeat, not a doctor
+// itself, once per autoRepairInterval (D907: the interval is fixed; the one
+// setting, maintenance.auto_repair, switches the timer off and nothing else:
+// repair on write and the write gate are not affected). kb_repair check "auto"
+// runs the same staged repair on demand (stagedRepairHandler). It is a heartbeat, not a doctor
 // session: it never writes the kb-doctor log marker (D290), so it does not
 // move last_doctor and does not silence the doctor proposal for the
 // judgement work it cannot do.
@@ -36,6 +38,12 @@ const (
 	// autoRepairReason is the Reason trailer of every commit the heartbeat
 	// makes; repair_revert and the Atlas recognise the commits by it.
 	autoRepairReason = repairCommitReasonPrefix + " (background)"
+	// autoRepairSurveyorReason and autoRepairMCPReason are the same for
+	// kb_repair check "auto": MCP for every caller today; the Surveyor's is
+	// reserved for the repair task, which must earn it from its authenticated
+	// identity (a reason string proves nothing).
+	autoRepairSurveyorReason = repairCommitReasonPrefix + " (surveyor)"
+	autoRepairMCPReason      = repairCommitReasonPrefix + " (mcp)"
 	// autoRepairLimit bounds the concepts each STAGE of one run rewrites (D355,
 	// restated per stage by D1554): the concept-local stage, every cross-concept,
 	// map and artifact check, and the second pass over the concepts the
@@ -293,6 +301,15 @@ func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 	})
 	return last, found
 }
+
+// SetAutoRepairEnabled records whether the background repair timer runs on this
+// server (maintenance.auto_repair, default true). The caller that turns it off
+// does not call StartAutoRepair; the setter only lets the Atlas say so. Call it
+// before serving.
+func (s *Server) SetAutoRepairEnabled(on bool) { s.autoRepairOff = !on }
+
+// AutoRepairEnabled reports the setting recorded by SetAutoRepairEnabled.
+func (s *Server) AutoRepairEnabled() bool { return !s.autoRepairOff }
 
 // StartAutoRepair starts the heartbeat for the KB this server serves and
 // returns at once. Cancelling ctx stops it: the goroutine ends at the next
@@ -656,13 +673,7 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	if k == nil {
 		return run
 	}
-	// A KB with a conflict to resolve is a KB a person must look at first:
-	// writing on top of it would add to the mess.
-	if conflicts, err := k.ListConflicts(); err == nil && len(conflicts) > 0 {
-		run.Skipped = fmt.Sprintf("%d open git conflict(s)", len(conflicts))
-	} else if k.GitStatusSnapshot().State == "degraded" {
-		run.Skipped = "git sync is degraded"
-	}
+	run.Skipped = autoRepairBlocked(k)
 	if run.Skipped != "" {
 		fmt.Fprintf(os.Stderr, "cartographer: auto-repair skipped for %s: %s\n", kbName(k), run.Skipped)
 		_ = appendAutoRepairRun(k, run)
@@ -674,30 +685,11 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	// held: a rolled-back run must not make the next one skip its slots.
 	nextCursor := s.autoRepairCursor
 	// Named kb_repair so the commit, audit and authorization treat it as the
-	// repair it is; it is not registered, so tools/list does not change.
+	// repair it is; it is not registered, so tools/list does not change. The
+	// body is the one kb_repair check "auto" runs (stagedRepairHandler).
 	tool := gitWrap(k, Tool{
-		Name: "kb_repair",
-		Handler: func(requestContext, json.RawMessage) (ToolResult, error) {
-			stats = stagedAutoRepairFrom(ctx, k, checks, s.autoRepairQuotaOr(), &nextCursor)
-			res := ToolResult{Content: textResult("{}").Content}
-			if len(stats.renames) > 0 {
-				if _, err := renameInContracts(k, stats.renames); err != nil {
-					stats.errs = append(stats.errs, "map contracts: "+err.Error())
-				}
-			}
-			if stats.total() > 0 {
-				var lines []string
-				for _, c := range checks {
-					if n := stats.applied[c]; n > 0 {
-						lines = append(lines, fmt.Sprintf("%s: %d", c, n))
-					}
-				}
-				body := strings.Join(lines, "\n")
-				_ = k.AppendLog("auto-repair (background)\n\n"+body, time.Now())
-				res.CommitSubject = autoRepairReason + "\n\n" + body
-			}
-			return res, nil
-		},
+		Name:    "kb_repair",
+		Handler: stagedRepairHandler(k, checks, s.autoRepairQuotaOr(), &nextCursor, autoRepairReason, &stats),
 	})
 	rctx := auth.ContextWithPrincipal(ctx, auth.LocalAdminPrincipal())
 	args, _ := json.Marshal(map[string]any{"reason": autoRepairReason})
@@ -744,6 +736,97 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		fmt.Fprintf(os.Stderr, "cartographer: auto-repair log for %s: %v\n", kbName(k), err)
 	}
 	return run
+}
+
+// autoRepairBlocked says why the staged repair must not write now, empty when
+// it may. A KB with a conflict to resolve is a KB a person must look at first:
+// writing on top of it would add to the mess. The timer logs the text; kb_repair
+// check "auto" refuses with it, and a Surveyor treats the refusal as "next run".
+func autoRepairBlocked(k *kb.KB) string {
+	if conflicts, err := k.ListConflicts(); err == nil && len(conflicts) > 0 {
+		return fmt.Sprintf("%d open git conflict(s)", len(conflicts))
+	}
+	if k.GitStatusSnapshot().State == "degraded" {
+		return "git sync is degraded"
+	}
+	return ""
+}
+
+// stagedRepairHandler is the body of one staged repair, the same for the timer
+// and for kb_repair check "auto" (parity is a test): the stages of
+// stagedAutoRepairFrom, the map contracts that follow a rename, the log.md
+// entry and the commit subject, both led by label. It stores what it did in
+// *out and rotates *cursor; whether the cursor is kept is the caller's, who
+// knows whether the commit held. It runs under the KB lock, inside gitWrap.
+func stagedRepairHandler(k *kb.KB, checks []string, quota int, cursor *string, label string, out **stagedRepair) func(requestContext, json.RawMessage) (ToolResult, error) {
+	return func(ctx requestContext, _ json.RawMessage) (ToolResult, error) {
+		stats := stagedAutoRepairFrom(ctx, k, checks, quota, cursor)
+		*out = stats
+		if len(stats.renames) > 0 {
+			if _, err := renameInContracts(k, stats.renames); err != nil {
+				stats.errs = append(stats.errs, "map contracts: "+err.Error())
+			}
+		}
+		res := ToolResult{Content: textResult(stagedRepairSummary(checks, stats)).Content}
+		if stats.total() > 0 {
+			var lines []string
+			for _, c := range checks {
+				if n := stats.applied[c]; n > 0 {
+					lines = append(lines, fmt.Sprintf("%s: %d", c, n))
+				}
+			}
+			body := strings.Join(lines, "\n")
+			_ = k.AppendLog(label+"\n\n"+body, time.Now())
+			res.CommitSubject = label + "\n\n" + body
+		}
+		return res, nil
+	}
+}
+
+// logAutoRepairCall appends the JSONL line of one kb_repair check "auto" call,
+// as the timer appends its runs, so the Atlas runs[] and last_auto_repair show
+// on-demand runs too. commit is empty when nothing changed.
+func logAutoRepairCall(k *kb.KB, checks []string, stats *stagedRepair, commit string) {
+	run := autoRepairRun{At: time.Now().UTC().Format(time.RFC3339)}
+	for _, c := range checks {
+		e := autoRepairCheck{Check: c, Applied: stats.applied[c], Skipped: stats.skipped[c]}
+		if e.Applied > 0 {
+			e.Commit = commit
+		}
+		if e.Applied == 0 && e.Skipped == 0 {
+			continue
+		}
+		run.Checks = append(run.Checks, e)
+	}
+	if err := appendAutoRepairRun(k, run); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: auto-repair log for %s: %v\n", kbName(k), err)
+	}
+}
+
+// stagedRepairSummary is the JSON answer of kb_repair check "auto".
+func stagedRepairSummary(checks []string, stats *stagedRepair) string {
+	entries := []map[string]any{}
+	skipped := 0
+	for _, c := range checks {
+		a, sk := stats.applied[c], stats.skipped[c]
+		skipped += sk
+		if a > 0 || sk > 0 {
+			entries = append(entries, map[string]any{"check": c, "applied": a, "skipped": sk})
+		}
+	}
+	out := map[string]any{
+		"dry_run":       false,
+		"auto":          true,
+		"checks":        entries,
+		"applied_total": stats.total(),
+		"skipped_total": skipped,
+		"checks_run":    len(checks),
+	}
+	if len(stats.errs) > 0 {
+		out["errors"] = stats.errs
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
 }
 
 func firstText(res ToolResult) string {

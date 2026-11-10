@@ -34,6 +34,8 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
+	// Maintenance holds the server's background maintenance switches.
+	Maintenance MaintenanceConfig
 	// GitIdentities is the git identity ("Name <email>") the server commits as,
 	// one per KB name and "default" for every KB without an entry (D950). Read
 	// it through IdentityFor. Without an entry the server identity applies.
@@ -289,6 +291,14 @@ const DefaultAuditRetentionDays = 90
 // rotated, and retention never had a segment to delete.
 const DefaultAuditMaxSegmentBytes int64 = 64 << 20
 
+// MaintenanceConfig is the `maintenance:` block of the server file.
+type MaintenanceConfig struct {
+	// AutoRepair keeps the background repair timer running (default true; YAML
+	// `maintenance.auto_repair`, env CARTOGRAPHER_MAINTENANCE_AUTO_REPAIR).
+	// Off, only the timer stops: repair on write and the write gate stay.
+	AutoRepair bool
+}
+
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
@@ -296,6 +306,7 @@ func Default() *Config {
 		Audit:       AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		Web:         WebConfig{Enabled: true},
 		UpdateCheck: true,
+		Maintenance: MaintenanceConfig{AutoRepair: true},
 	}
 }
 
@@ -314,6 +325,10 @@ type rawConfig struct {
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool `yaml:"update_check"`
+	Maintenance struct {
+		// AutoRepair is a pointer: the default is true, so absent differs from false.
+		AutoRepair *bool `yaml:"auto_repair"`
+	} `yaml:"maintenance"`
 }
 
 // rawGit mirrors the `git:` block: the identities the server commits as (D950).
@@ -588,6 +603,9 @@ func Load(path string) (*Config, error) {
 	if raw.UpdateCheck != nil {
 		cfg.UpdateCheck = *raw.UpdateCheck
 	}
+	if raw.Maintenance.AutoRepair != nil {
+		cfg.Maintenance.AutoRepair = *raw.Maintenance.AutoRepair
+	}
 	return cfg, nil
 }
 
@@ -645,6 +663,14 @@ func FromEnv(cfg *Config) error {
 		}
 		cfg.mark(OriginEnv, "update_check")
 		cfg.UpdateCheck = b
+	}
+	if v := os.Getenv("CARTOGRAPHER_MAINTENANCE_AUTO_REPAIR"); v != "" {
+		b, err := parseBool("CARTOGRAPHER_MAINTENANCE_AUTO_REPAIR", v)
+		if err != nil {
+			return err
+		}
+		cfg.mark(OriginEnv, "maintenance.auto_repair")
+		cfg.Maintenance.AutoRepair = b
 	}
 	if v := os.Getenv("CARTOGRAPHER_CREDENTIALS_DIR"); v != "" {
 		cfg.mark(OriginEnv, "credentials_dir")

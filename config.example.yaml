@@ -23,6 +23,13 @@ data: /data
 # needs a restart
 credentials_dir: /etc/cartographer/credentials
 
+maintenance:
+  # Run the safe repairs of every KB in the background, once a day and after a
+  # pull that changed it. false stops that timer only: repair on write, the
+  # write gate and kb_repair are not affected.
+  # Default: true · Env CARTOGRAPHER_MAINTENANCE_AUTO_REPAIR · needs a restart
+  auto_repair: true
+
 auth:
   # Bearer-token authentication of the HTTP transport. auto turns it on when at
   # least one token is configured.

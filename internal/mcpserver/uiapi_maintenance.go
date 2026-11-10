@@ -90,7 +90,7 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 		}
 		out := maintenanceSummary{
 			AutoRepair: maintenanceAutoRepair{
-				Enabled:      true,
+				Enabled:      srv.AutoRepairEnabled(),
 				Default:      true,
 				Checks:       lint.AutoRepairChecks(),
 				IntervalDays: kb.AutoRepairIntervalDays,

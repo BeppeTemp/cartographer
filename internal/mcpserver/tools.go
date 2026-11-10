@@ -139,7 +139,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolSearch(k, rec, misses, reads, deps))
 	register(toolReindex(k, rec, deps))
 	register(toolLint(k))
-	register(gitWrap(k, toolKBRepair(k)))
+	register(kbRepairTool(k))
 	register(gitWrap(k, toolRepairRevert(k)))
 	register(toolCommitGate(k))
 	register(toolGateCheck(k))
