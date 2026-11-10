@@ -57,6 +57,23 @@ GATE=0
 if [ "${1:-}" = "--gate" ]; then GATE=1; shift; fi
 [ "$GATE" = 0 ] || [ $# -ge 1 ] || { echo "pr-triage.sh --gate needs a PR number" >&2; exit 2; }
 
+# gh_retry <gh args>: gh, asked again with a short backoff when GitHub answers 5xx (its diff of
+# a just-opened PR is not always computed yet: `HTTP 500: this diff is temporarily unavailable`).
+# Any other failure ends at once. PR_TRIAGE_RETRY_SLEEP (10 s) is the first backoff, doubled.
+gh_retry() {
+  local try err out rc nap=${PR_TRIAGE_RETRY_SLEEP:-10}
+  err=$(mktemp) out=$(mktemp)
+  for try in 1 2 3 4 5; do
+    # The output of a try is kept apart: `--paginate` prints page 1 before page 2 answers 5xx,
+    # and a retry would append the whole list again.
+    rc=0; gh "$@" >"$out" 2>"$err" || rc=$?
+    if [ "$rc" = 0 ]; then cat "$out"; rm -f "$err" "$out"; return 0; fi
+    if [ "$try" = 5 ] || ! grep -qE 'HTTP 5[0-9][0-9]' "$err"; then cat "$err" >&2; rm -f "$err" "$out"; return "$rc"; fi
+    echo "pr-triage: GitHub answered 5xx, asking again in ${nap}s" >&2
+    sleep "$nap"; nap=$((nap * 2))
+  done
+}
+
 # The upstream remote: `upstream` in a fork clone, else `origin` (D955).
 remote=origin
 git remote get-url upstream >/dev/null 2>&1 && remote=upstream
@@ -74,9 +91,9 @@ if [ $# -ge 1 ]; then
   # (size, tier, supply chain, docs owners) would be taken on a truncated list.
   # `@tsv` escapes a tab, a newline or a backslash in a file name, so one file is one
   # row of three fields whatever its name holds; a string template would not.
-  files=$(gh api --paginate "repos/{owner}/{repo}/pulls/$PR/files" --jq '.[] | [.additions, .deletions, .filename] | @tsv')
+  files=$(gh_retry api --paginate "repos/{owner}/{repo}/pulls/$PR/files" --jq '.[] | [.additions, .deletions, .filename] | @tsv')
   author=$(jq -r .author.login <<<"$meta")
-  prinfo=$(gh api "repos/{owner}/{repo}/pulls/$PR" --jq '[.author_association, .user.type] | @tsv')
+  prinfo=$(gh_retry api "repos/{owner}/{repo}/pulls/$PR" --jq '[.author_association, .user.type] | @tsv')
   assoc=${AUTHOR_ASSOCIATION:-${prinfo%%$'\t'*}}
   case "$assoc" in
     OWNER) role=maintainer ;;

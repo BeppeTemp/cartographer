@@ -29,7 +29,10 @@
 # one full gate before it lands. Green: one PR, title
 # `chore(dev): train <id>, <k> changes`, rebase-merged so every change stays its own
 # conventional commit on main; once merged, the landed queue entries are deleted (a queued
-# change whose diff main already holds is dequeued, not rejected). The lander merges the PR
+# change that main already holds, by its diff or by a commit carrying its `Lander-Slug` and
+# `Lander-Tip` trailers, is dequeued, not rejected). A required check that fails is rerun once
+# (a check reading the PR's diff fails with a 5xx right after it is opened): red again, the
+# lander stops. The lander merges the PR
 # itself once its required checks pass, and only while main is still the commit the train
 # was built and gated on: `main`'s rule does not require a branch to be up to date, so a
 # train merged after another merge would land a tree no gate proved. Main moved during the
@@ -48,9 +51,12 @@
 # A rejected change moves to `refs/heads/failed/<slug>`: a commit on top of it whose
 # message is the reason, readable from any clone (`git log -1 origin/failed/<slug>`).
 # One lander at a time: per machine a lock in the state dir, across machines an open PR
-# whose head is `train/*` (another lander's train: wait for it).
+# whose head is `train/*`. A lander that finds one of the repository's own built on the current
+# main adopts it (the same merge, the same rerun-once rule) and goes on with the queue; one
+# built on an older main is closed and its changes composed again; a fork's, or one whose
+# head it cannot match, is waited on for LAND_OPEN_TRIES polls, then the lander stops.
 #
-#   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_STATE (state dir)
+#   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_OPEN_TRIES (120 polls)  LAND_STATE (state dir)
 #   LAND_PRECHECK_START (300 s)  LAND_PRECHECK_WAIT (1200 s), from the queued commit's time
 #   SIGNOFF_* are passed to signoff.sh unchanged.
 #
@@ -88,7 +94,8 @@ fetch() { g fetch -q --prune origin main '+refs/heads/ready/*:refs/remotes/origi
 queue() { g for-each-ref --sort=committerdate --format='%(refname:lstrip=4) %(objectname)' refs/remotes/origin/ready/; }
 trailer() { g log -1 --format=%B "$2" | git interpret-trailers --parse | sed -n "s/^$1: *//p" | head -n 1; }
 title() { g log -1 --format=%s "$1"; }
-open_trains() { gh pr list -R "$repo" --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("train/")) | "\(.number) \(.headRefName)"'; }
+# "<number> <branch> <head sha> <true if from a fork> <base branch>" per open train PR.
+open_trains() { gh pr list -R "$repo" --state open --json number,headRefName,headRefOid,isCrossRepository,baseRefName --jq '.[] | select(.headRefName | startswith("train/")) | "\(.number) \(.headRefName) \(.headRefOid) \(.isCrossRepository) \(.baseRefName)"'; }
 
 if [ "${1:-}" = --status ]; then
   fetch || true
@@ -97,7 +104,7 @@ if [ "${1:-}" = --status ]; then
     [ -z "$(trailer Lander-Hold "$sha")" ] || extra="$extra (held)"
     echo "  $s: $(title "$sha")$extra"
   done
-  echo "open train PR:"; open_trains | sed 's/^/  #/' || true
+  echo "open train PR:"; open_trains | cut -d' ' -f1,2 | sed 's/^/  #/' || true
   echo "rejected:"; g for-each-ref --format='%(refname:lstrip=4) %(contents:subject)' refs/remotes/origin/failed/ | sed 's/^/  /'
   if running; then echo "lander: running (pid $(cat "$state/pid")), log $state/log"; else echo "lander: not running"; fi
   exit 0
@@ -145,6 +152,22 @@ dequeue() {
       if [ "$cur" != "$2" ]; then log "warning: ready/$1 was queued again during the train: left in the queue"; return 0; fi
     fi
     [ "$try" = 5 ] || sleep $((poll * try))
+  done
+  return 1
+}
+
+# landed_on_main <slug> <sha>: 0 when a commit on main carries the Lander-Slug of the queued
+# change and the Lander-Tip of its branch head: the change landed, whatever its patch looks like
+# now (the lander numbers a pending decision differently on each landing, so a train merged by
+# hand, or one whose queue entry outlived it, no longer matches by diff). A change queued
+# without a Lander-Tip is not matched this way: a slug alone would also match its next version.
+landed_on_main() {
+  local tip c
+  tip=$(trailer Lander-Tip "$2")
+  [ -n "$tip" ] || return 1
+  # A fixed-string search narrows the log (a slug is not a regex); the trailers decide, whole.
+  for c in $(g log origin/main --format=%H --fixed-strings --grep="Lander-Slug: $1"); do
+    [ "$(trailer Lander-Slug "$c")" = "$1" ] && [ "$(trailer Lander-Tip "$c")" = "$tip" ] && return 0
   done
   return 1
 }
@@ -311,9 +334,11 @@ flaky_issue() { # $1 = gate log, $2 = what happened
 # merge_train <PR> <gated head>: merges the train PR once its required checks pass, only while
 # main is still $base (or is the train itself: an earlier merge call went through). 0: merged;
 # 1: main moved, the PR is closed and the train must be composed again. Not auto-merge:
-# GitHub would merge it onto whatever main is by then.
+# GitHub would merge it onto whatever main is by then. The first red required check is
+# rerun once (#1881: a check that reads the PR's diff fails with a 5xx right after the PR is
+# opened, and passes a minute later); red again after that, the lander stops.
 merge_train() {
-  local v st ms cur
+  local v st ms cur id n reran=false settle=0
   for _ in $(seq 1 "${LAND_MERGE_TRIES:-90}"); do
     v=$(gh pr view "$1" -R "$repo" --json state,mergeStateStatus --jq '.state + " " + .mergeStateStatus' 2>/dev/null || true)
     st=${v%% *} ms=${v#* }
@@ -333,7 +358,23 @@ merge_train() {
           log "warning: GitHub refused the merge of train PR #$1 for now: asking again" ;;
         BLOCKED)
           if gh pr checks "$1" -R "$repo" --required --json bucket --jq '.[].bucket' 2>/dev/null | grep -qx fail; then
-            die "a required check of train PR #$1 failed: look at it; the queue is untouched"
+            if ! $reran; then
+              # `gh run list --status failure` lists completed runs only, while the checks already
+              # report a failed job of a run still in progress: the rerun is spent only once a
+              # run was rerun, else the next poll looks again.
+              n=0
+              for id in $(gh run list -R "$repo" --commit "$2" --status failure --json databaseId --jq '.[].databaseId' 2>/dev/null || true); do
+                if gh run rerun "$id" -R "$repo" --failed >/dev/null 2>&1; then n=$((n + 1)); else log "warning: could not rerun run $id"; fi
+              done
+              if [ "$n" -gt 0 ]; then
+                log "rerunning the failed checks of train PR #$1 once"
+                reran=true settle=1
+              fi
+            elif [ "$settle" -gt 0 ]; then
+              settle=$((settle - 1)) # the rerun may not have replaced the old verdict yet
+            else
+              die "a required check of train PR #$1 failed again after a rerun: look at it; the queue is untouched"
+            fi
           fi ;;
       esac
     fi
@@ -342,13 +383,46 @@ merge_train() {
   die "train PR #$1 is not merged after the wait (${ms:-unknown}): look at its checks; the queue is untouched"
 }
 
+# adopt_train <PR> <branch> <head sha> <from a fork> <base>: an open train PR this lander did not
+# open (another lander that stopped, or a train left to merge by hand). One of the
+# maintainer's own (a branch of the repository, its head the one the PR shows) built on the
+# current main is merged like the lander's own, rerun rule included; one built on an older
+# main is closed, its changes are composed again. 0: dealt with; 1: not touched (a PR whose
+# base is not main, a fork's, one whose head moved, or one that could not be closed).
+adopt_train() {
+  local head cur
+  [ "$4" = false ] && [ "$5" = main ] || return 1
+  g fetch -q origin "+refs/heads/$2:refs/remotes/origin/$2" 2>/dev/null || return 1
+  head=$(g rev-parse "refs/remotes/origin/$2" 2>/dev/null) || return 1
+  [ "$head" = "$3" ] || return 1
+  cur=$(g rev-parse origin/main)
+  if [ "$(g merge-base origin/main "$head")" != "$cur" ]; then
+    log "train PR #$1 is built on a main that moved (not ${cur:0:12}): closing it, composing the train again"
+    gh pr close "$1" -R "$repo" --delete-branch >/dev/null 2>&1 || { log "warning: could not close train PR #$1"; return 1; }
+    return 0
+  fi
+  log "adopting the open train PR #$1 ($2), built on the current main"
+  base=$cur
+  if merge_train "$1" "$head"; then
+    log "train PR #$1 merged"
+    g push -q origin --delete "$2" >/dev/null 2>&1 || true
+  fi
+  return 0
+}
+
 wt=$state/train
+waited=0
 while :; do
   fetch || die "cannot fetch origin"
   if ! $dry; then
     others=$(open_trains || true)
     if [ -n "$others" ]; then
-      log "train PR #${others%% *} is open (another lander, or one to merge by hand): waiting"
+      # shellcheck disable=SC2086  # the five fields of the first line, split on purpose
+      if adopt_train $(head -n 1 <<<"$others"); then waited=0; continue; fi
+      waited=$((waited + 1))
+      [ "$waited" -le "${LAND_OPEN_TRIES:-120}" ] ||
+        die "train PR #${others%% *} is still open after the wait and is not one this lander can merge (a fork's, one not based on main, its head moved, or it cannot be closed): look at it; the queue is untouched"
+      log "train PR #${others%% *} is open (not one to adopt: another lander's, or a fork's): waiting"
       sleep "$poll"; continue
     fi
   fi
@@ -373,6 +447,11 @@ while :; do
   [[ "$FLOOR" =~ ^[0-9]+$ ]] || FLOOR=0
   landed= commits=()
   while read -r s sha; do
+    if landed_on_main "$s" "$sha"; then
+      log "$s is already on main (a commit there carries its Lander-Slug and Lander-Tip): dequeued"
+      $dry || dequeue "$s" "$sha" || log "warning: could not delete ready/$s"
+      continue
+    fi
     if ! git cherry-pick --allow-empty "$sha" >/dev/null 2>&1; then
       git cherry-pick --abort >/dev/null 2>&1 || true
       # Its train landed and the queue entry outlived it: the same diff is on main.

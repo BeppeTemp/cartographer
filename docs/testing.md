@@ -994,10 +994,17 @@ the prefix before the rejected change then gets one full signoff before it lands
 train is composed again), and a probe whose machine is unavailable falls back to full gates. A gate that fails for a reason that is not a test (the signoff stops before
 the targets) stops the lander and leaves the queue untouched. Once the train PR merged, a
 queue entry whose deletion fails for a reason that is not the lease is retried, then stops
-the lander; a queued change whose diff `main` already holds is dequeued, not rejected.
+the lander; a queued change that `main` already holds, by its diff or by a commit carrying its
+`Lander-Slug` and `Lander-Tip` trailers (a pending decision is numbered anew on each landing,
+so the patch alone does not match), is dequeued, not rejected.
 The lander merges the train PR itself, and only while `main` is still the commit the train
 was gated on: `main` moved during the gate or before the merge, the PR is closed and the
-train is gated again on the new `main`.
+train is gated again on the new `main`. A required check of the train PR that fails is rerun
+once (the checks that read the PR's files or diff fail with a 5xx right after it is opened,
+and `ci.yml` and `scripts/pr-triage.sh` also retry those reads); red again, the lander stops.
+An open `train/*` PR of the repository built on the current `main`, which this lander did
+not open, is adopted and merged the same way; one built on an older `main` is closed; a
+fork's is waited on for `LAND_OPEN_TRIES` polls, then the lander stops.
 
 Each queued change also has a **hosted pre-check** (`.github/workflows/ready-check.yml`, on
 the push of its `ready/<slug>` ref, D1877): the Windows tests of the packages

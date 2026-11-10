@@ -82,6 +82,9 @@ echo "$*" >> "$FAKE_GH_LOG"
 jq_expr=; prev=
 for a in "$@"; do [ "$prev" = --jq ] && jq_expr=$a; prev=$a; done
 out() { if [ -n "$jq_expr" ]; then jq -r "$jq_expr"; else cat; fi; }
+# The required checks of the train PR: red until the failed jobs are rerun (FAKE_CHECKS_RED=once),
+# or whatever is rerun (=always).
+red() { case "${FAKE_CHECKS_RED:-}" in always) return 0 ;; once) [ ! -e "$FAKE_STATE.reran" ] ;; *) return 1 ;; esac; }
 case "$1 $2" in
   "repo view") echo "${FAKE_PERM:-ADMIN}" ;;
   "api user") echo '{"login":"user"}' | out ;;
@@ -97,9 +100,14 @@ case "$1 $2" in
         if [[ " ${FAKE_PRECHECK_RUNNING:-} " == *" $c "* ]]; then echo '[{"status":"in_progress","conclusion":""}]'
         elif [[ " ${FAKE_PRECHECK_RED:-} " == *" $c "* ]]; then echo '[{"status":"completed","conclusion":"failure"}]'
         else echo '[{"status":"completed","conclusion":"success"}]'; fi | out ;;
+      *--status*failure*)
+        # The failed run completes only after FAKE_FAILED_RUNS_AFTER listings (a failed job of a run in progress).
+        n=$(cat "$FAKE_STATE.fl" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_STATE.fl"
+        if [ "$n" -lt "${FAKE_FAILED_RUNS_AFTER:-0}" ]; then echo '[]' | out; else echo '[{"databaseId":7}]' | out; fi ;;
       *) echo '[]' | out ;;
     esac ;;
-  "pr list") echo "${FAKE_GH_TRAINS:-[]}" | out ;;
+  "run rerun") touch "$FAKE_STATE.reran" ;;
+  "pr list") if [ -e "$FAKE_STATE.pr" ] && [ "$(cat "$FAKE_STATE.pr")" != OPEN ]; then echo '[]'; else echo "${FAKE_GH_TRAINS:-[]}"; fi | out ;;
   "pr create")
     head=; prev=; for a in "$@"; do [ "$prev" = --head ] && head=$a; prev=$a; done
     echo "$head" > "$FAKE_STATE.head"; echo OPEN > "$FAKE_STATE.pr"
@@ -113,9 +121,10 @@ case "$1 $2" in
   "pr merge")
     git --git-dir="$FAKE_UP" update-ref refs/heads/main "refs/heads/$(cat "$FAKE_STATE.head")"
     echo MERGED > "$FAKE_STATE.pr" ;;
-  "pr close") echo CLOSED > "$FAKE_STATE.pr" ;;
-  "pr checks") echo '[]' | out ;;
-  "pr view") printf '{"state":"%s","mergeStateStatus":"%s"}\n' "$(cat "$FAKE_STATE.pr" 2>/dev/null || echo OPEN)" "${FAKE_MERGE_STATE:-CLEAN}" | out ;;
+  "pr close") [ -n "${FAKE_CLOSE_FAILS:-}" ] && exit 1; echo CLOSED > "$FAKE_STATE.pr" ;;
+  "pr checks") if red; then echo '[{"bucket":"fail"}]'; else echo '[{"bucket":"pass"}]'; fi | out ;;
+  "pr view") ms=${FAKE_MERGE_STATE:-CLEAN}; red && ms=BLOCKED
+    printf '{"state":"%s","mergeStateStatus":"%s"}\n' "$(cat "$FAKE_STATE.pr" 2>/dev/null || echo OPEN)" "$ms" | out ;;
   "issue create") ;;
 esac
 exit 0
@@ -784,5 +793,231 @@ func TestLanderNamesTheConfirmedTestsFirstInTheRejection(t *testing.T) {
 	want := "plugin.TestResolveProviderDocumentsInstructions plugin.TestOther TestLinuxOnly src/test/releases.test.tsx"
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Errorf("failing() = %q, want %q", got, want)
+	}
+}
+
+// A required check that fails right after the train PR is opened (a 5xx reading its diff) is
+// rerun once, and the lander merges when the rerun is green.
+func TestLanderRerunsAFailedRequiredCheckOnceThenMerges(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	out, ok := e.land("FAKE_CHECKS_RED=once", "LAND_MERGE_TRIES=6")
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if !strings.Contains(out, "rerunning the failed checks of train PR #42 once") {
+		t.Errorf("the lander must say it reruns:\n%s", out)
+	}
+	gh := e.log()
+	if n := strings.Count(gh, "run rerun 7 -R up/proj --failed"); n != 1 {
+		t.Errorf("one rerun of the failed run: %d\n%s", n, gh)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a" || e.refs("ready/") != "" {
+		t.Errorf("main holds %q, queue %q\n%s", got, e.refs("ready/"), out)
+	}
+}
+
+// Red again after the rerun: the lander stops, the queue untouched, and reruns only once.
+func TestLanderStopsWhenARequiredCheckIsRedAfterTheRerun(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	out, ok := e.land("FAKE_CHECKS_RED=always", "LAND_MERGE_TRIES=6")
+	if ok || !strings.Contains(out, "failed again after a rerun") {
+		t.Fatalf("the lander must stop on a second red: ok=%v\n%s", ok, out)
+	}
+	if n := strings.Count(e.log(), "run rerun"); n != 1 {
+		t.Errorf("one rerun, not %d\n%s", n, e.log())
+	}
+	if q := e.refs("ready/"); q != "a" {
+		t.Errorf("the queue is untouched, got %q", q)
+	}
+}
+
+// trainBranch pushes train/<name> to origin: commits on top of base (default origin/main), each
+// with a Lander-Slug and Lander-Tip trailer; returns its head. It also records the PR the fake
+// gh shows for it (open, number 42) with FAKE_GH_TRAINS.
+func (e *landEnv) trainBranch(name, base string, slugs ...string) (head, trains string) {
+	e.t.Helper()
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "tr-"+name, base)
+	for _, s := range slugs {
+		e.write(filepath.Join(e.work, "t-"+s+".txt"), s+"\n")
+		e.git("add", ".")
+		e.git("commit", "-q", "-m", "fix(kb): "+s+"\n\nLander-Slug: "+s+"\nLander-Tip: tip-"+s+"\n")
+	}
+	head = e.git("rev-parse", "HEAD")
+	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/train/"+name)
+	e.git("checkout", "-q", "main")
+	e.write(e.tmp+"/gh-state.head", "train/"+name+"\n")
+	e.write(e.tmp+"/gh-state.pr", "OPEN\n")
+	return head, `[{"number":42,"headRefName":"train/` + name + `","headRefOid":"` + head + `","isCrossRepository":false,"baseRefName":"main"}]`
+}
+
+// An open train PR built on the current main that this lander did not open is adopted:
+// merged with the same rule, its changes leave the queue (their Lander-Slug is on main), and
+// the lander goes on with the rest.
+func TestLanderAdoptsAnOpenTrainBuiltOnMain(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n\nLander-Tip: tip-a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"qb.txt": "b\n"})
+	_, trains := e.trainBranch("20260101-000000", "origin/main", "a")
+	out, ok := e.land("FAKE_GH_TRAINS=" + trains)
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if !strings.Contains(out, "adopting the open train PR #42") {
+		t.Errorf("the lander must say it adopts:\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a | fix(kb): b" {
+		t.Fatalf("main holds %q: a once (the adopted train), then b\n%s", got, out)
+	}
+	if !strings.Contains(e.log(), "pr merge 42 -R up/proj --rebase --match-head-commit") {
+		t.Errorf("the adopted train merges on its head:\n%s", e.log())
+	}
+	if q := e.refs("ready/"); q != "" {
+		t.Errorf("queue %q must be empty\n%s", q, out)
+	}
+}
+
+// A train PR built on a main that moved is closed, and its changes are composed again.
+func TestLanderClosesAnOpenTrainBuiltOnAnOlderMain(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	_, trains := e.trainBranch("20260101-000000", "origin/main", "old")
+	e.git("checkout", "-q", "-B", "other", "origin/main")
+	e.write(filepath.Join(e.work, "other.txt"), "o\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "chore: other")
+	e.git("push", "-q", "origin", "other:main")
+	e.git("checkout", "-q", "main")
+	out, ok := e.land("FAKE_GH_TRAINS=" + trains)
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if !strings.Contains(e.log(), "pr close 42 -R up/proj --delete-branch") {
+		t.Errorf("the stale train PR must be closed:\n%s", e.log())
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "chore: other | fix(kb): a" {
+		t.Fatalf("main holds %q: the old train never lands\n%s", got, out)
+	}
+}
+
+// A train PR from a fork is never adopted; the wait has a deadline.
+func TestLanderStopsWaitingOnATrainPRItCannotAdopt(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	head, _ := e.trainBranch("fork", "origin/main", "x")
+	out, ok := e.land(`FAKE_GH_TRAINS=[{"number":42,"headRefName":"train/fork","headRefOid":"`+head+`","isCrossRepository":true,"baseRefName":"main"}]`, "LAND_OPEN_TRIES=2")
+	if ok || !strings.Contains(out, "is still open after the wait") {
+		t.Fatalf("the lander must stop with a reason: ok=%v\n%s", ok, out)
+	}
+	if strings.Contains(e.log(), "pr merge") || strings.Contains(e.log(), "pr close") {
+		t.Errorf("a fork's PR is left alone:\n%s", e.log())
+	}
+}
+
+// A change whose commit is on main with its Lander-Slug and Lander-Tip is dequeued even when
+// the patch differs there (the decision was numbered on its landing): it is not landed twice.
+func TestLanderDequeuesAChangeByItsLanderSlugOnMain(t *testing.T) {
+	e := newLandEnv(t)
+	msg := "fix(kb): dup\n\nLander-Tip: tip-dup\n"
+	e.queue("dup", msg, "2026-01-01T10:00:00Z", map[string]string{"dup.txt": "dup\n", "docs" + "/decisions/D-new-dup.md": "---\ntopic: x\n---\n\n# D-new-dup\n"})
+	e.queue("ok", "fix(kb): ok\n", "2026-01-01T11:00:00Z", map[string]string{"ok.txt": "ok\n"})
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "landed", "origin/main")
+	e.write(filepath.Join(e.work, "dup.txt"), "dup\n")
+	e.write(filepath.Join(e.work, "docs", "decisions", "D11-dup.md"), "---\ntopic: x\n---\n\n# D11\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "fix(kb): dup\n\nLander-Slug: dup\nLander-Tip: tip-dup\n")
+	e.git("push", "-q", "origin", "landed:main")
+	e.git("checkout", "-q", "main")
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if !strings.Contains(out, "dup is already on main") {
+		t.Errorf("the lander must say why dup left the queue\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): dup | fix(kb): ok" {
+		t.Fatalf("main holds %q: dup once\n%s", got, out)
+	}
+	if ls := e.upGit("ls-tree", "--name-only", "main", "docs/decisions/"); strings.Contains(ls, "D-new") || strings.Count(ls, "-dup.md") != 1 {
+		t.Errorf("the decision exists once, numbered:\n%s", ls)
+	}
+	if q, f := e.refs("ready/"), e.refs("failed/"); q != "" || f != "" {
+		t.Fatalf("queue %q and failed %q must be empty\n%s", q, f, out)
+	}
+}
+
+// The failed job of a run still in progress is red in the checks before the run is listed as
+// failed: nothing can be rerun yet, so the one rerun is not spent and the next poll looks again.
+func TestLanderKeepsTheRerunWhenNoFailedRunIsCompleteYet(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	out, ok := e.land("FAKE_CHECKS_RED=once", "FAKE_FAILED_RUNS_AFTER=2", "LAND_MERGE_TRIES=10")
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if n := strings.Count(e.log(), "run rerun"); n != 1 {
+		t.Errorf("one rerun, once the run is listed: %d\n%s", n, e.log())
+	}
+	if n := strings.Count(out, "rerunning the failed checks"); n != 1 {
+		t.Errorf("the lander says it reruns once, not before a run was rerun: %d\n%s", n, out)
+	}
+}
+
+// A train PR whose base is not main is neither adopted, merged nor closed: it is waited on
+// until the deadline, then reported.
+func TestLanderLeavesATrainPRWithAnotherBaseAlone(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	head, _ := e.trainBranch("other-base", "origin/main", "x")
+	out, ok := e.land(`FAKE_GH_TRAINS=[{"number":42,"headRefName":"train/other-base","headRefOid":"`+head+`","isCrossRepository":false,"baseRefName":"release"}]`, "LAND_OPEN_TRIES=2")
+	if ok || !strings.Contains(out, "is still open after the wait") {
+		t.Fatalf("the lander must stop with a reason: ok=%v\n%s", ok, out)
+	}
+	if gh := e.log(); strings.Contains(gh, "pr merge") || strings.Contains(gh, "pr close") {
+		t.Errorf("a PR on another base is left alone:\n%s", gh)
+	}
+}
+
+// A stale train PR that cannot be closed is waited on against the deadline, not retried in a spin.
+func TestLanderDoesNotSpinOnATrainPRItCannotClose(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	_, trains := e.trainBranch("stale", "origin/main", "old")
+	e.git("checkout", "-q", "-B", "other", "origin/main")
+	e.write(filepath.Join(e.work, "other.txt"), "o\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "chore: other")
+	e.git("push", "-q", "origin", "other:main")
+	e.git("checkout", "-q", "main")
+	out, ok := e.land("FAKE_GH_TRAINS="+trains, "FAKE_CLOSE_FAILS=1", "LAND_OPEN_TRIES=2")
+	if ok || !strings.Contains(out, "is still open after the wait") {
+		t.Fatalf("the lander must stop at the deadline: ok=%v\n%s", ok, out)
+	}
+}
+
+// The same slug queued again with another Lander-Tip is a new version: main holding the old
+// one does not dequeue it.
+func TestLanderDoesNotDequeueANewVersionOfALandedSlug(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("dup", "fix(kb): dup again\n\nLander-Tip: tip-new\n", "2026-01-01T10:00:00Z", map[string]string{"dup2.txt": "dup\n"})
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "landed", "origin/main")
+	e.write(filepath.Join(e.work, "dup.txt"), "dup\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "fix(kb): dup\n\nLander-Slug: dup\nLander-Tip: tip-old\n")
+	e.git("push", "-q", "origin", "landed:main")
+	e.git("checkout", "-q", "main")
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): dup | fix(kb): dup again" {
+		t.Fatalf("main holds %q: the new version lands\n%s", got, out)
+	}
+	if strings.Contains(out, "already on main") {
+		t.Errorf("a new version is not on main:\n%s", out)
 	}
 }
