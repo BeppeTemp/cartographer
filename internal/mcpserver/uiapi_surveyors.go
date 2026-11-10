@@ -504,6 +504,7 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 			d.NextWindowAt = &t
 		}
 		m.surveyors.put(d)
+		m.components.noteBeat(componentproto.KindSurveyor, beat.Perimeter, accepted, now.UTC())
 	}
 
 	type kbIdle struct {

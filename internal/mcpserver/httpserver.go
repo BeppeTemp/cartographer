@@ -322,6 +322,8 @@ type MultiKBServer struct {
 	clientReports clientReports
 	// surveyors are the declarations of the surveyors' heartbeats (uiapi_surveyors.go).
 	surveyors surveyorStore
+	// components is the registry of expected components (components.go).
+	components componentRegistry
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON

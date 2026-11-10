@@ -42,3 +42,16 @@ components (the `silent` and `starting` health states, a grace window after the
 server starts), the per-KB `components` and `maintenance` objects and the kind
 check on these routes (`403` `wrong_token_kind`); their states and codes are
 already named in `componentproto`. Everything stays in memory like the heartbeats.
+
+**The registry (`components:`).** The expectation lives in the server config, not
+in the Surveyors: the server cannot otherwise tell a dead Surveyor from a
+deployment without one, because a silent heartbeat is forgotten on the next
+sweep. The key is a `kind` (only `surveyor` in 0.29) so later kinds need no new
+key; `name` is the perimeter; an entry naming a KB the server did not mount is a loud warning at start and
+is kept (a KB that failed to mount must not become an outage of the others). The states are computed
+on read from the live heartbeats and a `last seen` kept only for names in the
+registry (bounded by it). A server that has just started gives an expected
+component a grace window of three heartbeat intervals (`starting`), so a pod that
+boots with the server is not an alarm. `/health` and `/ready` stay liveness
+(D84, D119): a silent Surveyor must never restart the server, so the state is
+read through the authenticated components route and logged once per transition.
