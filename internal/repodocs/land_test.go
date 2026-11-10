@@ -63,6 +63,12 @@ case "$*" in *signoff-platform*) echo linux/amd64; exit 0 ;; esac
 echo "$*" >> "$FAKE_STATE.make"
 case "$*" in test-rerun*) [ -e CONFIRMED ] && exit 1; exit 0 ;; esac
 [ -e BAD ] && exit 2
+# Another PR merges while the first gate runs (FAKE_MOVE_MAIN): main moves under the train.
+if [ -n "${FAKE_MOVE_MAIN:-}" ] && [ ! -e "$FAKE_STATE.moved" ]; then
+  touch "$FAKE_STATE.moved"
+  c=$(echo "chore: other" | git --git-dir="$FAKE_UP" commit-tree "$(git --git-dir="$FAKE_UP" rev-parse 'main^{tree}')" -p main)
+  git --git-dir="$FAKE_UP" update-ref refs/heads/main "$c"
+fi
 if [ -e CONFIRMED ] || { [ -e FLAKYGO ] && [ ! -e "$FAKE_STATE.flakedgo" ]; }; then
   touch "$FAKE_STATE.flakedgo"
   printf -- '--- FAIL: TestNamed (0.01s)\nFAIL\tgithub.com/x/p/internal/kb\t0.1s\nmake: *** [Makefile:23: test] Error 1\n'
@@ -87,11 +93,19 @@ case "$1 $2" in
   "pr create")
     head=; prev=; for a in "$@"; do [ "$prev" = --head ] && head=$a; prev=$a; done
     echo "$head" > "$FAKE_STATE.head"; echo OPEN > "$FAKE_STATE.pr"
+    # Another PR merges between the train PR's creation and its merge (FAKE_MOVE_ON_CREATE).
+    if [ -n "${FAKE_MOVE_ON_CREATE:-}" ] && [ ! -e "$FAKE_STATE.moved" ]; then
+      touch "$FAKE_STATE.moved"
+      c=$(echo "chore: other" | git --git-dir="$FAKE_UP" commit-tree "$(git --git-dir="$FAKE_UP" rev-parse 'main^{tree}')" -p main)
+      git --git-dir="$FAKE_UP" update-ref refs/heads/main "$c"
+    fi
     echo "https://github.com/up/proj/pull/42" ;;
   "pr merge")
     git --git-dir="$FAKE_UP" update-ref refs/heads/main "refs/heads/$(cat "$FAKE_STATE.head")"
     echo MERGED > "$FAKE_STATE.pr" ;;
-  "pr view") printf '{"state":"%s"}\n' "$(cat "$FAKE_STATE.pr" 2>/dev/null || echo OPEN)" | out ;;
+  "pr close") echo CLOSED > "$FAKE_STATE.pr" ;;
+  "pr checks") echo '[]' | out ;;
+  "pr view") printf '{"state":"%s","mergeStateStatus":"%s"}\n' "$(cat "$FAKE_STATE.pr" 2>/dev/null || echo OPEN)" "${FAKE_MERGE_STATE:-CLEAN}" | out ;;
   "issue create") ;;
 esac
 exit 0
@@ -264,13 +278,60 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 		t.Errorf("the queue and the train branch must be gone: ready=%q train=%q", e.refs("ready/"), e.refs("train/"))
 	}
 	gh := e.log()
-	for _, want := range []string{"pr create -R up/proj --base main --head train/", "--title chore(dev): train ", "2 change(s)", "pr merge 42 -R up/proj --rebase --auto", "statuses/"} {
+	for _, want := range []string{"pr create -R up/proj --base main --head train/", "--title chore(dev): train ", "2 change(s)", "pr merge 42 -R up/proj --rebase --match-head-commit", "statuses/"} {
 		if !strings.Contains(gh, want) {
 			t.Errorf("gh was not asked %q:\n%s", want, gh)
 		}
 	}
 	if n := strings.Count(readTmp(t, e.tmp, "gh-state.make"), "gate"); n != 1 {
 		t.Errorf("one gate for the whole train, got %d", n)
+	}
+}
+
+// Main moves while the train is gated (a contributor's PR merges): the gated tree is not the
+// one a merge would land, so the train is composed and gated again on the new main.
+func TestLanderGatesAgainWhenMainMovesDuringTheGate(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	out, ok := e.land("FAKE_MOVE_MAIN=1")
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "chore: other | fix(kb): a" {
+		t.Fatalf("main holds %q, want the other merge then a\n%s", got, out)
+	}
+	if !strings.Contains(out, "main moved during the gate") {
+		t.Errorf("the lander must say why it gates again:\n%s", out)
+	}
+	if n := strings.Count(e.makeLog(), "-k gate"); n != 2 {
+		t.Errorf("a gate on the old main and one on the new: %d gates\n%s", n, e.makeLog())
+	}
+	if n := strings.Count(e.log(), "pr create"); n != 1 {
+		t.Errorf("no PR for the tree gated on the old main: %d PRs\n%s", n, e.log())
+	}
+}
+
+// Main moves between the train PR's creation and its merge: the lander closes the PR instead
+// of merging it onto a main no gate saw, and lands the train gated again.
+func TestLanderClosesTheTrainPRWhenMainMovesBeforeTheMerge(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	out, ok := e.land("FAKE_MOVE_ON_CREATE=1")
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "chore: other | fix(kb): a" {
+		t.Fatalf("main holds %q, want the other merge then a\n%s", got, out)
+	}
+	gh := e.log()
+	if !strings.Contains(gh, "pr close 42 -R up/proj --delete-branch") {
+		t.Errorf("the PR gated on the old main must be closed:\n%s", gh)
+	}
+	if n := strings.Count(gh, "pr merge"); n != 1 {
+		t.Errorf("one merge, of the train gated on the new main: %d\n%s", n, gh)
+	}
+	if n := strings.Count(e.makeLog(), "-k gate"); n != 2 {
+		t.Errorf("two gates: %d\n%s", n, e.makeLog())
 	}
 }
 

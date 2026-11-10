@@ -24,9 +24,13 @@
 # Any other red: one re-run of the same tree; green then means a flaky test, so the train
 # lands and a `bug` issue names the tests. Red twice: bisection over the train's prefixes
 # finds the first failing change, which is rejected, and the green prefix before it lands. Green: one PR, title
-# `chore(dev): train <id>, <k> changes`, rebase-merged by auto-merge so every change stays
-# its own conventional commit on main; once merged, the landed queue entries are deleted
-# (a queued change whose diff main already holds is dequeued, not rejected). On macOS the
+# `chore(dev): train <id>, <k> changes`, rebase-merged so every change stays its own
+# conventional commit on main; once merged, the landed queue entries are deleted (a queued
+# change whose diff main already holds is dequeued, not rejected). The lander merges the PR
+# itself once its required checks pass, and only while main is still the commit the train
+# was built and gated on: `main`'s rule does not require a branch to be up to date, so a
+# train merged after another merge would land a tree no gate proved. Main moved during the
+# gate or before the merge: the PR is closed and the train composed and gated again. On macOS the
 # lander holds `caffeinate -i` while it runs: an idle Mac on battery would sleep through it.
 #
 # A rejected change moves to `refs/heads/failed/<slug>`: a commit on top of it whose
@@ -253,6 +257,40 @@ flaky_issue() { # $1 = gate log, $2 = what happened
     "The gate of the train \`$branch\` failed on $names and passed when the signoff ran their packages once more, the rest of the gate green. A retry is not a fix: find why they fail."
 }
 
+# merge_train <PR> <gated head>: merges the train PR once its required checks pass, only while
+# main is still $base (or is the train itself: an earlier merge call went through). 0: merged;
+# 1: main moved, the PR is closed and the train must be composed again. Not auto-merge:
+# GitHub would merge it onto whatever main is by then.
+merge_train() {
+  local v st ms cur
+  for _ in $(seq 1 "${LAND_MERGE_TRIES:-90}"); do
+    v=$(gh pr view "$1" -R "$repo" --json state,mergeStateStatus --jq '.state + " " + .mergeStateStatus' 2>/dev/null || true)
+    st=${v%% *} ms=${v#* }
+    [ "$st" != MERGED ] || return 0
+    [ "$st" != CLOSED ] || die "train PR #$1 was closed by hand: the queue is untouched"
+    if g fetch -q origin main 2>/dev/null; then
+      cur=$(g rev-parse origin/main)
+      if [ "$cur" != "$base" ]; then
+        [ "$(g rev-parse "$cur^{tree}")" != "$(g rev-parse "$2^{tree}")" ] || return 0
+        log "main moved before train PR #$1 merged (${base:0:12}..${cur:0:12}): closing it, composing the train again"
+        gh pr close "$1" -R "$repo" --delete-branch >/dev/null 2>&1 || log "warning: could not close train PR #$1"
+        return 1
+      fi
+      case "$ms" in
+        CLEAN | UNSTABLE | HAS_HOOKS)
+          gh pr merge "$1" -R "$repo" --rebase --match-head-commit "$2" >/dev/null 2>&1 && return 0
+          log "warning: GitHub refused the merge of train PR #$1 for now: asking again" ;;
+        BLOCKED)
+          if gh pr checks "$1" -R "$repo" --required --json bucket --jq '.[].bucket' 2>/dev/null | grep -qx fail; then
+            die "a required check of train PR #$1 failed: look at it; the queue is untouched"
+          fi ;;
+      esac
+    fi
+    sleep "$poll"
+  done
+  die "train PR #$1 is not merged after the wait (${ms:-unknown}): look at its checks; the queue is untouched"
+}
+
 wt=$state/train
 while :; do
   fetch || die "cannot fetch origin"
@@ -277,6 +315,7 @@ while :; do
   id=$(date -u +%Y%m%d-%H%M%S)
   branch=train/$id
   git checkout -q -B "$branch" origin/main
+  base=$(git rev-parse HEAD) # the main this train is gated on, and the only one it merges onto
   MAP=
   # The newest issue or PR number: pending decisions are numbered above it.
   FLOOR=$(gh api "repos/$repo/issues?state=all&sort=created&direction=desc&per_page=1" --jq '.[0].number // 0' 2>/dev/null || true)
@@ -369,6 +408,15 @@ while :; do
     fi
   fi
 
+  # Main moved during the gate (a contributor's PR, a Dependabot merge, the release): the
+  # gated tree is not the one a merge would land. Compose the train again on the new main.
+  g fetch -q origin main || die "cannot fetch origin after the gate of $branch: the queue is untouched"
+  if [ "$(g rev-parse origin/main)" != "$base" ]; then
+    log "main moved during the gate of $branch (${base:0:12}..$(g rev-parse --short=12 origin/main)): composing the train again"
+    g push -q origin --delete "$branch" >/dev/null 2>&1 || true
+    continue
+  fi
+
   # One PR for the train, rebase-merged: each change stays its own commit on main.
   body=$state/body-$id.md
   {
@@ -386,18 +434,10 @@ while :; do
   url=$(gh pr create -R "$repo" --base main --head "$branch" --title "chore(dev): train $id, $k change(s)" --body-file "$body")
   num=${url##*/}
   log "train PR #$num opened: $url"
-  # Auto-merge waits for the required checks; on a PR whose checks are already green
-  # GitHub refuses to arm it, and the merge is done at once instead.
-  gh pr merge "$num" -R "$repo" --rebase --auto >/dev/null 2>&1 ||
-    gh pr merge "$num" -R "$repo" --rebase >/dev/null ||
-    die "could not merge or arm auto-merge on #$num: merge it by hand, then run the lander again"
-  st=
-  for _ in $(seq 1 "${LAND_MERGE_TRIES:-90}"); do
-    st=$(gh pr view "$num" -R "$repo" --json state --jq .state 2>/dev/null || true)
-    [ "$st" != MERGED ] && [ "$st" != CLOSED ] || break
-    sleep "$poll"
-  done
-  [ "$st" = MERGED ] || die "train PR #$num is ${st:-unknown} after the wait: look at its checks; the queue is untouched"
+  if ! merge_train "$num" "$(git rev-parse HEAD)"; then
+    git checkout -q --detach && git branch -q -D "$branch" || true
+    continue
+  fi
   log "train PR #$num merged"
   git checkout -q --detach && git branch -q -D "$branch" || true
   g push -q origin --delete "$branch" >/dev/null 2>&1 || true
