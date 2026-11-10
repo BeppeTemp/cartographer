@@ -37,6 +37,7 @@ const (
 	denyReadOnlyProfile  = "read_only_profile"
 	denyArtifactsRO      = "artifacts_read_only"
 	denyReadOnlyKB       = "read_only_kb"
+	denySecretsRestr     = "secrets_restricted"
 )
 
 var denyHints = map[string]string{
@@ -50,6 +51,7 @@ var denyHints = map[string]string{
 	denyNoKBAccess:       "the token has no access to this KB",
 	denyNoPrincipal:      "no principal resolved for this connection",
 	denyArtifactsRO:      "the token's rule for this KB carries artifacts: r, which withholds the tools that change skills, agents and hooks",
+	denySecretsRestr:     "the token's rule for this KB carries secrets: none, which withholds the secret tools, secret resolution and the concept fields that point at a secret",
 	denyReadOnlyKB:       "this KB is read-only on this connection (knowledge_bases access: read on the client): the other KBs of the connection stay writable",
 	denyReadOnlyProfile:  "this connection was opened read-only (access=read-min): connect without it to write",
 	denyUnboundFolder: "this session is read-only because the folder it was started in is bound to no KB: " +
@@ -157,6 +159,9 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 		if artifactWriteTools[tool] && !policy.AllowsArtifactWrite(name) {
 			return deny(denyArtifactsRO)
 		}
+		if secretTools[tool] && !policy.AllowsSecrets(name) {
+			return deny(denySecretsRestr)
+		}
 		return nil
 	}
 
@@ -177,6 +182,15 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 		if serviceArgs.ResolveSecrets && !policy.AllowsWholeKB(name, true) {
 			return deny(denyNeedsWholeKB)
 		}
+		if serviceArgs.ResolveSecrets && !policy.AllowsSecrets(name) {
+			return deny(denySecretsRestr)
+		}
+	}
+	// A token that writes this KB only through secrets: none rules may not set
+	// a field that points at a secret. Tested after the KB-access check, so a
+	// token with no grant on the KB still gets what it got before.
+	if secretFieldTools[tool] && policy.WithholdsSecrets(name) && mentionsSecretField(args) {
+		return deny(denySecretsRestr)
 	}
 	if tool == "concept_new" {
 		id := stringField(raw, "id")
@@ -601,6 +615,57 @@ func VisibleCollection(ctx context.Context, k *kb.KB, name, kind string) bool {
 // server writes with fixed content (templates/source.md) stay allowed.
 var artifactWriteTools = map[string]bool{
 	"artifact_write": true, "artifact_delete": true, "artifact_move": true, "skill_install": true,
+}
+
+// secretTools reveal or change a KB's secrets: the whole-KB tools an
+// `secrets: none` rule withholds (D1894). A new tool that touches secrets is
+// added here and to TestSecretsNoneTools.
+var secretTools = map[string]bool{"secret_resolve": true, "secret_set": true}
+
+// secretFieldTools write concept frontmatter, where secret_refs and
+// secrets_source point a concept at a secret.
+var secretFieldTools = map[string]bool{
+	"concept_write": true, "concept_new": true, "concept_patch": true,
+	"concept_batch": true, "concept_merge": true, "concept_expand": true,
+}
+
+// mentionsSecretField reports whether any key or string value of the decoded
+// arguments names secret_refs or secrets_source. Conservative: a false positive
+// denies, it never allows; an undecodable argument is not this check's to
+// judge (the tool answers bad_arguments).
+func mentionsSecretField(args json.RawMessage) bool {
+	var v interface{}
+	if json.Unmarshal(args, &v) != nil {
+		return false
+	}
+	var walk func(interface{}) bool
+	walk = func(x interface{}) bool {
+		switch t := x.(type) {
+		case map[string]interface{}:
+			for k, e := range t {
+				if strings.Contains(k, "secret_refs") || strings.Contains(k, "secrets_source") || walk(e) {
+					return true
+				}
+			}
+		case []interface{}:
+			for _, e := range t {
+				if walk(e) {
+					return true
+				}
+			}
+		case string:
+			return strings.Contains(t, "secret_refs") || strings.Contains(t, "secrets_source")
+		}
+		return false
+	}
+	return walk(v)
+}
+
+// SecretsVisible is WholeVisible(read) plus the secrets grant, for the Atlas
+// routes that list a KB's secret files.
+func SecretsVisible(ctx context.Context, k *kb.KB) bool {
+	p := auth.PrincipalFromContext(ctx)
+	return p.ID != "" && (p.Policy.Admin || (p.Policy.AllowsWholeKB(kbName(k), false) && p.Policy.SecretsVisible(kbName(k))))
 }
 
 // ArtifactWriteVisible is WholeVisible(write) plus the artifacts grant, for the

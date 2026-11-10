@@ -436,7 +436,7 @@ The two non-human kinds follow one rule, the minimal one the code allows, not
 is what an agent writes through). A `surveyor` or `client` token must declare
 `expires_at`, must declare scopes or roles (it is never admin) and so always
 names its KBs; a `surveyor` token additionally can never change artifacts,
-whatever its rules say (the server forces `artifacts: r` on its permissions). The
+whatever its rules say (the server forces `artifacts: r` and `secrets: none` on its permissions). The
 Surveyor's tool allowlist stays its own (D1257). A read-only token, such as a
 dashboard, is a `client` token with `r` scopes: read-only is the scope's
 decision, not the kind's.
@@ -478,7 +478,7 @@ resource they address:
 | source/destination | `concept_move` | both ends must be allowed, and for an expanded concept so must each satellite (its own type, source and destination); link rewriting additionally requires whole-KB write |
 | whole-KB write exact concept | `concept_merge` | needs the whole-KB write grant, as `concept_move` with link rewriting does: it redirects every inbound link across the KB, so a role bounded by map, journal or type is refused (`needs_whole_kb`); a token with no grant on the KB gets `not found`; `rewritten` lists only pages the caller sees |
 | curated index | `index_patch` | the target Map/Journal must be allowed for write by a rule that names no type: the index lists pages of every type, so a role narrowed by type cannot rewrite it, and its own entry is written with `index_entry` on the creation, under the page's grant (D714); the root index (no single Map/Journal of its own) requires whole-KB write even under a policy that already grants a write inside one of its Maps (D122) |
-| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics. `artifact_write`, `artifact_delete`, `artifact_move` (on both KBs) and `skill_install` need the artifacts grant as well (#1405): a rule with `artifacts: r` grants everything its whole-KB write grants except those four, and `/api/usage`, which writes artifact metadata. It is a narrower allow, not a deny rule, so a second rule of the token without the key restores them |
+| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics. `secret_resolve` and `secret_set` need the secrets grant as well (D1894): a rule with `secrets: none` withholds them, and `concept_transfer` refuses a concept whose frontmatter names `secret_refs` or `secrets_source` into a KB where the token is so restricted. `artifact_write`, `artifact_delete`, `artifact_move` (on both KBs) and `skill_install` need the artifacts grant as well (#1405): a rule with `artifacts: r` grants everything its whole-KB write grants except those four, and `/api/usage`, which writes artifact metadata. It is a narrower allow, not a deny rule, so a second rule of the token without the key restores them |
 
 A tool absent from the registry is denied, so a newly added tool fails closed
 until its resource semantics are chosen deliberately.
@@ -490,7 +490,7 @@ Two properties are load-bearing:
   not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
   `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
   `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
-  `no_principal`, `artifacts_read_only`, and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB Compass set read-only with `readonly=`, D1409); the reason describes the caller's own token and arguments,
+  `no_principal`, `artifacts_read_only`, `secrets_restricted` (a rule with `secrets: none`, D1894), and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB Compass set read-only with `readonly=`, D1409); the reason describes the caller's own token and arguments,
   never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS

@@ -145,3 +145,28 @@ func TestSurveyorTokenCannotChangeArtifacts(t *testing.T) {
 		t.Error("expiry not compiled")
 	}
 }
+
+// A rule's secrets: none reaches the permission, for a human token as for a
+// surveyor (which is forced to it), and survives the reload path, which
+// compiles with the same function.
+func TestSecretsNoneCompiles(t *testing.T) {
+	roles := []config.RoleSpec{
+		{Name: "n", Rules: []config.RuleSpec{{KB: "docs", Access: "rw", Secrets: "none"}}},
+		{Name: "w", Rules: []config.RuleSpec{{KB: "docs", Access: "rw"}}},
+	}
+	specs := []config.TokenSpec{
+		{Token: "n", ID: "n", Roles: []string{"n"}},
+		{Token: "s", ID: "s", Kind: "surveyor", ExpiresAt: "2999-01-01T00:00:00Z", Roles: []string{"w"}},
+		{Token: "h", ID: "h", Roles: []string{"w"}},
+	}
+	ts := auth.NewScopedTokenStore(scopedTokensWithRoles(specs, roles)).RequireAuth()
+	n, _ := ts.PrincipalOf("n")
+	s, _ := ts.PrincipalOf("s")
+	h, _ := ts.PrincipalOf("h")
+	if n.Policy.AllowsSecrets("docs") || s.Policy.AllowsSecrets("docs") {
+		t.Error("secrets: none and the surveyor kind must withhold secrets")
+	}
+	if !h.Policy.AllowsSecrets("docs") {
+		t.Error("a plain rw token keeps secrets")
+	}
+}

@@ -108,6 +108,10 @@ type RuleSpec struct {
 	// grants everything it grants except changing artifacts (skills, agents,
 	// hooks). A narrower allow, not a deny.
 	Artifacts string `yaml:"artifacts,omitempty"`
+	// Secrets is "" (today: a write rule is authority over the KB's secrets)
+	// or "none": the rule then grants everything it grants except that
+	// authority (D1894). A narrower allow, like Artifacts "r".
+	Secrets string `yaml:"secrets,omitempty"`
 	// Declared records which selector keys ("maps", "journals", "types") the
 	// rule wrote. A key that is present but empty is refused by ValidateAuth:
 	// only an omitted key means "all".
@@ -896,6 +900,11 @@ func validateRule(role string, i int, rule RuleSpec) error {
 		}
 	default:
 		return fmt.Errorf("%s: artifacts must be \"r\" or \"rw\", got %q", where, rule.Artifacts)
+	}
+	switch rule.Secrets {
+	case "", "none":
+	default:
+		return fmt.Errorf("%s: secrets must be omitted or \"none\", got %q", where, rule.Secrets)
 	}
 	for _, sel := range []struct {
 		key  string

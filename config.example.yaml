@@ -62,9 +62,10 @@ auth:
   #   - ${CARTOGRAPHER_TOKEN_ADMIN}
 
   # Named permission sets that tokens reference by name; each has a name and
-  # rules (kb, access r or rw, and optional maps, journals, types, and
-  # artifacts: r to withhold the skill, agent and hook write tools from a rule
-  # that otherwise writes). A running server picks up a change without a
+  # rules (kb, access r or rw, and optional maps, journals, types, artifacts: r
+  # to withhold the skill, agent and hook write tools from a rule that otherwise
+  # writes, and secrets: none to withhold the secret tools and the concept
+  # fields that point at a secret). A running server picks up a change without a
   # restart.
   # roles:
   #   - name: runbook-editor

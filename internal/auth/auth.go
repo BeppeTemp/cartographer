@@ -34,7 +34,9 @@ const principalKey contextKey = 0
 // carries it grants what it grants today except the artifact write tools
 // (skills, agents, hooks every client of the KB syncs and executes). A second
 // rule of the same token without it restores them, as the union of any two
-// rules does.
+// rules does. NoSecrets is the same shape for secrets: the rule grants what it
+// grants except authority over the KB's secrets (the secret tools, service
+// resolution, and concept fields that point at a secret).
 type Permission struct {
 	KB                string
 	Write             bool
@@ -42,6 +44,7 @@ type Permission struct {
 	Journals          []string
 	Types             []string
 	ReadOnlyArtifacts bool
+	NoSecrets         bool
 }
 
 // Policy is the complete, immutable policy assigned to a principal.
@@ -162,6 +165,55 @@ func (p Policy) AllowsArtifactWrite(kbName string) bool {
 	}
 	for _, rule := range p.Permissions {
 		if rule.KB == kbName && rule.Write && !rule.ReadOnlyArtifacts && len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowsSecrets reports whether a policy has authority over a KB's secrets
+// (secret_resolve, secret_set, service_get with resolve_secrets): an
+// unselected write rule that does not carry NoSecrets.
+func (p Policy) AllowsSecrets(kbName string) bool {
+	if p.Admin {
+		return true
+	}
+	for _, rule := range p.Permissions {
+		if rule.KB == kbName && rule.Write && !rule.NoSecrets && len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// WithholdsSecrets reports whether a policy is restricted from the concept
+// fields that point at a secret on a KB: it writes the KB through at least one
+// rule that carries NoSecrets and has no unselected write rule without it
+// (AllowsSecrets false). Fail-closed on mixed rules: a whole-KB NoSecrets rule
+// is not undone by a scoped rule without the key, which restores the authority
+// only inside its own selection. A token with no NoSecrets write rule is not
+// restricted, as before the key existed.
+func (p Policy) WithholdsSecrets(kbName string) bool {
+	if p.Admin {
+		return false
+	}
+	for _, rule := range p.Permissions {
+		if rule.KB == kbName && rule.Write && rule.NoSecrets {
+			return !p.AllowsSecrets(kbName)
+		}
+	}
+	return false
+}
+
+// SecretsVisible reports whether a policy may see a KB's secret files in the
+// Atlas (names and pointers, no value): an unselected rule of any mode that
+// does not carry NoSecrets.
+func (p Policy) SecretsVisible(kbName string) bool {
+	if p.Admin {
+		return true
+	}
+	for _, rule := range p.Permissions {
+		if rule.KB == kbName && !rule.NoSecrets && len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
 			return true
 		}
 	}
@@ -311,8 +363,10 @@ func buildSnapshot(tokens []ScopedToken) *tokenSnapshot {
 				// A surveyor never changes artifacts, whatever its rules (or
 				// legacy scopes, unioned above) say. Forced here, after the
 				// union, so no path to a permission escapes it.
+				// Nor does it touch secrets (D1894, Secrets).
 				for i := range policy.Permissions {
 					policy.Permissions[i].ReadOnlyArtifacts = true
+					policy.Permissions[i].NoSecrets = true
 				}
 			}
 			snap.hashes[h] = tokenEntry{
