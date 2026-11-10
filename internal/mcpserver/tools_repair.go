@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1466,11 +1467,22 @@ func repairMany(k *kb.KB, checks []string, scope string, dryRun bool, limit int)
 // kbRepairTool is kb_repair as registered: git-wrapped, and a check "auto" call
 // is stamped with the Reason trailer of its commit before gitWrap reads it
 // (autoRepairReasonFor), so repair_revert and the Atlas recognise it.
-func kbRepairTool(k *kb.KB) Tool {
+func kbRepairTool(s *Server, k *kb.KB) Tool {
 	t := gitWrap(k, toolKBRepair(k))
 	h := t.Handler
 	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-		return h(ctx, stampAutoRepairReason(args))
+		res, err := h(ctx, stampAutoRepairReason(args))
+		// A successful auto call (a clean run included) is what lets the
+		// timer step aside for a surveyor: the server's own observation of
+		// the authenticated caller, never anything the caller declares. A
+		// refused or failed call records nothing.
+		if err == nil && !res.IsError && s != nil {
+			var m map[string]json.RawMessage
+			if json.Unmarshal(args, &m) == nil && isAutoCheck(m["check"]) {
+				s.noteSurveyorRepair(auth.PrincipalFromContext(ctx).ID)
+			}
+		}
+		return res, err
 	}
 	return t
 }

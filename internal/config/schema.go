@@ -37,7 +37,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		}},
 
 	{Path: "maintenance.auto_repair", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_MAINTENANCE_AUTO_REPAIR", Restart: true, Example: "true",
-		Description: "Run the safe repairs of every KB in the background, once a day and after a pull that changed it. false stops that timer only: repair on write, the write gate and kb_repair are not affected."},
+		Description: "Run the safe repairs of every KB in the background, once a day and after a pull that changed it. false stops that timer only: repair on write, the write gate and kb_repair are not affected. While a live Surveyor declaring the repair task keeps repairing a KB, the timer skips that KB."},
 	{Path: "auth.mode", Scope: settingschema.ScopeServer, Type: "string", Values: "on | off | auto", Default: "auto", Env: "CARTOGRAPHER_AUTH", Restart: true, Example: "auto",
 		Description: "Bearer-token authentication of the HTTP transport. auto turns it on when at least one token is configured."},
 	{Path: "auth.tokens", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Env: "CARTOGRAPHER_TOKENS", Flag: "--tokens", Restart: true, Secret: true,

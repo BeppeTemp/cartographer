@@ -101,6 +101,19 @@ type Server struct {
 	autoRepairCursor string
 	// autoRepairQuota overrides autoRepairLimit when positive (tests).
 	autoRepairQuota int
+	// repairDelegation answers which live surveyors own this KB's repair; the
+	// timer skips its run while it is non-empty (SetRepairDelegation).
+	repairDelegation func() []string
+	// autoRepairRecheck overrides autoRepairRecheck when positive (tests).
+	autoRepairRecheckFor time.Duration
+	// surveyorRepairs is when this server last served a successful
+	// kb_repair check "auto" to each principal (noteSurveyorRepair): the
+	// observation the handover needs. In memory; a restart forgets it.
+	surveyorRepairMu sync.Mutex
+	surveyorRepairs  map[string]time.Time
+	// delegationLogged is the last delegation answer the loop logged (only the
+	// loop goroutine touches it).
+	delegationLogged string
 	// autoRepairOff is true when maintenance.auto_repair switched the
 	// background repair off (SetAutoRepairEnabled). The zero value is on, the
 	// default.

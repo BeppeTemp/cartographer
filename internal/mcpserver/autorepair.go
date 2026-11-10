@@ -25,7 +25,8 @@ import (
 // itself, once per autoRepairInterval (D907: the interval is fixed; the one
 // setting, maintenance.auto_repair, switches the timer off and nothing else:
 // repair on write and the write gate are not affected). kb_repair check "auto"
-// runs the same staged repair on demand (stagedRepairHandler). It is a heartbeat, not a doctor
+// runs the same staged repair on demand (stagedRepairHandler). A KB a live
+// Surveyor repairs is skipped by the timer (SetRepairDelegation). It is a heartbeat, not a doctor
 // session: it never writes the kb-doctor log marker (D290), so it does not
 // move last_doctor and does not silence the doctor proposal for the
 // judgement work it cannot do.
@@ -59,6 +60,9 @@ const (
 	// autoRepairInterval is the heartbeat's period: the default of the removed
 	// doctor_auto_interval (D323), now fixed (D907).
 	autoRepairInterval = kb.AutoRepairIntervalDays * 24 * time.Hour
+	// autoRepairRecheck is how soon the loop asks again while a surveyor owns
+	// the repair: the server resumes within one recheck after it stops.
+	autoRepairRecheck = 15 * time.Minute
 	// autoRepairStartupDelay keeps the first run off the boot path.
 	autoRepairStartupDelay = time.Minute
 )
@@ -311,6 +315,68 @@ func (s *Server) SetAutoRepairEnabled(on bool) { s.autoRepairOff = !on }
 // AutoRepairEnabled reports the setting recorded by SetAutoRepairEnabled.
 func (s *Server) AutoRepairEnabled() bool { return !s.autoRepairOff }
 
+// SetRepairDelegation installs the answer to "which live surveyors own this
+// KB's repair". Before every run the loop asks it; a non-empty answer skips the
+// run (nothing is logged to the run log) and the loop asks again after
+// autoRepairRecheck. Call it before StartAutoRepair.
+func (s *Server) SetRepairDelegation(f func() []string) { s.repairDelegation = f }
+
+// noteSurveyorRepair records that principal's kb_repair check "auto" succeeded
+// now. Bounded: one entry per principal, expired and oldest entries dropped
+// past maxSurveyorsTotal.
+func (s *Server) noteSurveyorRepair(principal string) {
+	if principal == "" {
+		return
+	}
+	s.surveyorRepairMu.Lock()
+	defer s.surveyorRepairMu.Unlock()
+	now := s.now()
+	if s.surveyorRepairs == nil {
+		s.surveyorRepairs = map[string]time.Time{}
+	}
+	s.surveyorRepairs[principal] = now
+	if len(s.surveyorRepairs) > maxSurveyorsTotal {
+		oldest, oldestAt := "", now
+		for p, at := range s.surveyorRepairs {
+			if now.Sub(at) > 16*24*time.Hour {
+				delete(s.surveyorRepairs, p)
+			} else if at.Before(oldestAt) {
+				oldest, oldestAt = p, at
+			}
+		}
+		if len(s.surveyorRepairs) > maxSurveyorsTotal && oldest != "" {
+			delete(s.surveyorRepairs, oldest)
+		}
+	}
+}
+
+// surveyorRepairAt is the observation repairOwners consults.
+func (s *Server) surveyorRepairAt(principal string) (time.Time, bool) {
+	s.surveyorRepairMu.Lock()
+	defer s.surveyorRepairMu.Unlock()
+	at, ok := s.surveyorRepairs[principal]
+	return at, ok
+}
+
+// delegatedTo returns the surveyors that own the repair now, logging once per
+// change.
+func (s *Server) delegatedTo() []string {
+	var ids []string
+	if s.repairDelegation != nil {
+		ids = s.repairDelegation()
+	}
+	key := strings.Join(ids, ",")
+	if key != s.delegationLogged {
+		s.delegationLogged = key
+		if len(ids) > 0 {
+			fmt.Fprintf(os.Stderr, "cartographer: auto-repair on %s paused: surveyor %s owns it\n", kbName(s.kbRef), key)
+		} else {
+			fmt.Fprintf(os.Stderr, "cartographer: auto-repair on %s resumes: no surveyor owns it\n", kbName(s.kbRef))
+		}
+	}
+	return ids
+}
+
 // StartAutoRepair starts the heartbeat for the KB this server serves and
 // returns at once. Cancelling ctx stops it: the goroutine ends at the next
 // wait, and no run starts after cancellation.
@@ -385,6 +451,17 @@ func (s *Server) autoRepairLoop(ctx context.Context, interval, delay time.Durati
 		}
 		if ctx.Err() != nil {
 			return
+		}
+		if len(s.delegatedTo()) > 0 {
+			// A pull-triggered request is dropped; either way the timer
+			// re-arms at the recheck so the server resumes soon after the
+			// surveyor stops covering the KB.
+			recheck := s.autoRepairRecheckFor
+			if recheck <= 0 {
+				recheck = autoRepairRecheck
+			}
+			timer.Reset(recheck)
+			continue
 		}
 		s.runAutoRepairQuota(ctx)
 		lastRun = time.Now()

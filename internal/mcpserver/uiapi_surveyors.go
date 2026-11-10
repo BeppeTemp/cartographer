@@ -19,9 +19,17 @@ import (
 // HTTP route inside the auth chain of /mcp, not an MCP tool (a tool would
 // spend tools/list budget on every client for something no agent calls, D285).
 //
-// The declaration is a hint, never trusted beyond display: validated, bounded
-// in time and ignored when stale (D369). The server never acts on it; the
-// budget is enforced by the surveyor.
+// The declaration is a hint, validated, bounded in time and ignored when stale
+// (D369). The server acts on it in one way only: it pauses its own background
+// repair of a KB a live surveyor declaring the repair task keeps repairing
+// (repairOwners). That needs a principal that can write the KB (the KB filter
+// below), a successful kb_repair check "auto" the server saw that principal
+// make on that KB within the timer's own period plus a slack
+// (Server.noteSurveyorRepair), and a beat within three intervals. The worst a
+// hostile or mistaken writer buys is that the timer leaves its KBs alone for as
+// long as it beats AND repeats that call at least once per timer period; it
+// could already commit to them, and repair on write is unaffected.
+// The budget is enforced by the surveyor.
 const SurveyorsPath = "/api/surveyors"
 
 const (
@@ -97,6 +105,75 @@ type surveyorDecl struct {
 
 func (d surveyorDecl) live(now time.Time) bool {
 	return now.Sub(d.ReceivedAt) < time.Duration(staleIntervals*d.IntervalSeconds)*time.Second
+}
+
+// repairTaskKind is the task kind whose declaration lets the server's timer
+// step aside (the surveyor's repair task).
+const repairTaskKind = "repair"
+
+// repairHandoverSlack is added to the timer period to form the window in which
+// the last observed repair must lie: the Surveyor's own pace has jitter.
+const repairHandoverSlack = time.Hour
+
+// repairOwners returns the live declarations that cover kb: accepted for it,
+// declaring the repair task, and whose principal observed returns a successful
+// kb_repair check "auto" on kb no longer ago than the server's own timer period
+// (autoRepairInterval) plus repairHandoverSlack. The window is the server's,
+// never the declared interval: a declaration cannot stretch it, and a Surveyor
+// that repairs less often than the timer would never take the KB over. observed
+// is the server's own record, never the surveyor's word. Sorted by surveyor id.
+func (s *surveyorStore) repairOwners(kb string, observed func(principal string) (time.Time, bool)) []surveyorDecl {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.clock()
+	var out []surveyorDecl
+	for _, mine := range s.by {
+		for _, d := range mine {
+			if !d.live(now) || !containsString(d.KBs, kb) {
+				continue
+			}
+			declared := false
+			for _, t := range d.Tasks {
+				declared = declared || t.Kind == repairTaskKind
+			}
+			if !declared {
+				continue
+			}
+			window := autoRepairInterval + repairHandoverSlack
+			if at, ok := observed(d.Principal); ok && now.Sub(at) <= window && !at.After(now.Add(time.Minute)) {
+				out = append(out, d)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Surveyor < out[j].Surveyor })
+	return out
+}
+
+// RepairDelegates returns the ids of the live surveyors that own the repair of
+// kb: while it is non-empty the server's background repair of kb is paused. It
+// is the seam the maintenance view reads.
+func (m *MultiKBServer) RepairDelegates(kb string) []string {
+	srv, ok := m.servers[kb]
+	if !ok {
+		return []string{}
+	}
+	return m.repairDelegatesOf(kb, srv)
+}
+
+// RepairDelegation is RepairDelegates bound to a mounted server, for
+// SetRepairDelegation: the closure reads no map of the MultiKBServer, which
+// MountKB is still filling when the repair loop is started from its callback.
+func (m *MultiKBServer) RepairDelegation(kb string, srv *Server) func() []string {
+	return func() []string { return m.repairDelegatesOf(kb, srv) }
+}
+
+func (m *MultiKBServer) repairDelegatesOf(kb string, srv *Server) []string {
+	owners := m.surveyors.repairOwners(kb, srv.surveyorRepairAt)
+	ids := make([]string, 0, len(owners))
+	for _, d := range owners {
+		ids = append(ids, d.Surveyor)
+	}
+	return ids
 }
 
 // surveyorStore holds the declarations in memory, per principal and surveyor id.
