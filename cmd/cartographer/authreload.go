@@ -26,8 +26,8 @@ type authReload struct {
 
 // start runs the reloader for the life of the server: SIGHUP, and the poll of
 // the file every interval (zero: no poll). The returned function stops it.
-func (a *authReload) start(store *auth.TokenStore, started []auth.ScopedToken, mode string, interval time.Duration) func() {
-	r := newAuthReloader(store, a.Load, a.Path, started, mode)
+func (a *authReload) start(store *auth.TokenStore, started []auth.ScopedToken, proxy *auth.ProxyConfig, mode string, interval time.Duration) func() {
+	r := newAuthReloader(store, a.Load, a.Path, started, proxy, mode)
 	var tick <-chan time.Time
 	stopTick := func() {}
 	if interval > 0 && a.Path != "" {
@@ -61,6 +61,8 @@ type authReloader struct {
 
 	mu     sync.Mutex // serialises reloads: a signal racing a tick
 	tokens map[string]string
+	// proxy is the digest of the proxy identity section in force.
+	proxy string
 	// fileHash is the content last applied (or found to change nothing); a
 	// refused content is not recorded, so the poll retries it. refused is the
 	// last refused content, so the retry does not repeat the log line.
@@ -72,8 +74,8 @@ type authReloader struct {
 
 // newAuthReloader records the state of the tokens and of the file the server
 // started with.
-func newAuthReloader(store *auth.TokenStore, load func() (config.AuthConfig, error), path string, started []auth.ScopedToken, mode string) *authReloader {
-	r := &authReloader{store: store, load: load, path: path, now: time.Now, mode: mode, tokens: tokenFingerprints(started)}
+func newAuthReloader(store *auth.TokenStore, load func() (config.AuthConfig, error), path string, started []auth.ScopedToken, proxy *auth.ProxyConfig, mode string) *authReloader {
+	r := &authReloader{store: store, load: load, path: path, now: time.Now, mode: mode, tokens: tokenFingerprints(started), proxy: proxyFingerprint(proxy)}
 	r.fileHash, r.other, _ = readConfigHashes(path)
 	return r
 }
@@ -163,7 +165,12 @@ func (r *authReloader) reloadLocked(why string, file, other [sha256.Size]byte, f
 	scoped := scopedTokensWithRoles(cfg.Tokens, cfg.Roles)
 	next := tokenFingerprints(scoped)
 	added, removed, changed := diffFingerprints(r.tokens, next)
-	if added+removed+changed == 0 {
+	// The proxy identity block reloads with tokens and roles (the group map
+	// is compiled from the roles), in the same snapshot as the tokens.
+	proxy := proxyConfigFrom(cfg.ProxyIdentity, cfg.Roles)
+	proxyNext := proxyFingerprint(proxy)
+	proxyChanged := proxyNext != r.proxy
+	if added+removed+changed == 0 && !proxyChanged {
 		if other != r.other {
 			log.Printf("auth reload (%s): only non-auth keys changed, restart required for non-auth keys", why)
 			r.other = other
@@ -171,14 +178,14 @@ func (r *authReloader) reloadLocked(why string, file, other [sha256.Size]byte, f
 		r.fileHash, r.refused = file, [sha256.Size]byte{}
 		return
 	}
-	if err := r.store.Replace(scoped); err != nil {
+	if err := r.store.ReplaceAll(scoped, proxy); err != nil {
 		r.refuse(file, force, why, "%v", err)
 		return
 	}
-	r.tokens = next
+	r.tokens, r.proxy = next, proxyNext
 	r.other = other
 	r.fileHash, r.refused = file, [sha256.Size]byte{}
-	log.Printf("auth reloaded (%s): %d token(s) added, %d removed, %d changed; %d in force", why, added, removed, changed, r.store.TokenCount())
+	log.Printf("auth reloaded (%s): %d token(s) added, %d removed, %d changed; %d in force; proxy identity changed: %t", why, added, removed, changed, r.store.TokenCount(), proxyChanged)
 	logExpiringTokens(scoped, r.now())
 }
 
@@ -220,6 +227,14 @@ func tokenFingerprints(tokens []auth.ScopedToken) map[string]string {
 		out[id] = fmt.Sprintf("%x", sum)
 	}
 	return out
+}
+
+// proxyFingerprint digests the compiled proxy identity section ("" when off).
+func proxyFingerprint(p *auth.ProxyConfig) string {
+	if p == nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%#v", *p))))
 }
 
 func diffFingerprints(old, next map[string]string) (added, removed, changed int) {

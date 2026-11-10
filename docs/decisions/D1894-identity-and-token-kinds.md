@@ -63,3 +63,22 @@ set with a log line, because it already fails at lookup and the edit that
 removes a leaked token must not be blocked by one that merely ran out (startup
 still refuses a past `expires_at`). The default is on because a file edit that
 waits for a restart nobody remembers is how a revoked token stays valid.
+
+**Proxy identity.** Behind an SSO proxy the person is the principal. The proxy
+authenticates with a bearer token declared `proxy: true` (never admin, kind
+human or client); the identity header is honoured only when the TCP peer is in
+`auth.proxy_identity.trusted_addresses` (CIDRs, `/0` refused, no implicit
+loopback, `X-Forwarded-For` never consulted) AND the bearer is a proxy token.
+The groups map to roles through `group_roles` and the result is clamped by the
+proxy token's own policy, restrictions included, so the proxy token is the
+ceiling of every person behind it and a read-only SSO bearer stays read-only.
+Anywhere else the header is ignored, and an absent header leaves the request
+the proxy token's own, so a setup with one injected bearer keeps working
+unchanged. The block lives in the token store snapshot and reloads with tokens
+and roles. The ceiling is applied per KB with whole-KB rules only: a proxy token whose
+roles select maps, journals or types is refused at load (a selector-scoped
+ceiling would not bound a whole-KB group role), `Clamp` also drops a mapped
+permission on a KB where the token has no whole-KB rule of the needed mode,
+and the person gets the secrets restriction the token's visibility and
+authority imply. Token ids starting with `user:` are reserved for people.
+Direct OIDC stays a plugin filling `auth.IdentityResolver`.

@@ -42,6 +42,7 @@ func ValidateAuthAt(a AuthConfig, now time.Time) error {
 	if err := ValidateAuthRoles(a); err != nil {
 		return err
 	}
+	proxyTokens := 0
 	seenToken := make(map[string]string, len(a.Tokens))
 	for i, tok := range a.Tokens {
 		where := fmt.Sprintf("token %d", i)
@@ -87,6 +88,22 @@ func ValidateAuthAt(a AuthConfig, now time.Time) error {
 				return fmt.Errorf("%s: expires_at %s is already past", where, tok.ExpiresAt)
 			}
 		}
+		if strings.HasPrefix(tok.ID, "user:") {
+			// "user:<name>" is the principal id of a person a proxy names.
+			return fmt.Errorf("%s: an id starting with \"user:\" is reserved for people named by a proxy", where)
+		}
+		if tok.Proxy {
+			proxyTokens++
+			if err := wholeKBOnly(a, tok); err != nil {
+				return fmt.Errorf("%s: %w", where, err)
+			}
+			if len(tok.Scopes) == 0 && len(tok.Roles) == 0 {
+				return fmt.Errorf("%s: a proxy token is never admin: declare scopes or roles (they are the ceiling of every person behind it)", where)
+			}
+			if kind == auth.KindSurveyor {
+				return fmt.Errorf("%s: a proxy token is kind human or client, not surveyor", where)
+			}
+		}
 		if kind.NonHuman() {
 			if tok.ExpiresAt == "" {
 				return fmt.Errorf("%s: a %s token must declare expires_at", where, kind)
@@ -95,6 +112,69 @@ func ValidateAuthAt(a AuthConfig, now time.Time) error {
 			// a machine token always names the KBs it may touch.
 			if len(tok.Scopes) == 0 && len(tok.Roles) == 0 {
 				return fmt.Errorf("%s: a %s token is never admin: declare scopes or roles naming its KBs", where, kind)
+			}
+		}
+	}
+	return validateProxyIdentity(a, proxyTokens)
+}
+
+// wholeKBOnly refuses a proxy token whose roles select maps, journals or types:
+// its policy is the ceiling of every person behind it and is applied per KB, so
+// a selector-scoped ceiling would not bound a whole-KB group role.
+func wholeKBOnly(a AuthConfig, tok TokenSpec) error {
+	for _, name := range tok.Roles {
+		for _, r := range a.Roles {
+			if r.Name != name {
+				continue
+			}
+			for _, rule := range r.Rules {
+				if len(rule.Maps)+len(rule.Journals)+len(rule.Types) > 0 {
+					return fmt.Errorf("a proxy token's role %q selects maps, journals or types; the token is the ceiling of every person behind it and is applied per KB, so use whole-KB rules", name)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateProxyIdentity checks the proxy_identity section and its tie to the
+// proxy tokens: the section needs one, and a proxy token needs the section.
+func validateProxyIdentity(a AuthConfig, proxyTokens int) error {
+	p := a.ProxyIdentity
+	if p == nil {
+		if proxyTokens > 0 {
+			return fmt.Errorf("a token is declared proxy: true but auth.proxy_identity is not")
+		}
+		return nil
+	}
+	if _, err := auth.ParseTrustedAddresses(p.TrustedAddresses); err != nil {
+		return fmt.Errorf("proxy_identity: %w", err)
+	}
+	for _, h := range []struct{ key, v string }{{"user_header", p.UserHeader}, {"groups_header", p.GroupsHeader}} {
+		if h.v == "" && h.key == "groups_header" {
+			continue
+		}
+		if h.v == "" || strings.ContainsAny(h.v, " \t:") || strings.EqualFold(h.v, "Authorization") {
+			return fmt.Errorf("proxy_identity: %s must be a header name (and not Authorization)", h.key)
+		}
+	}
+	if strings.EqualFold(p.UserHeader, p.GroupsHeader) {
+		return fmt.Errorf("proxy_identity: user_header and groups_header are the same header")
+	}
+	if proxyTokens == 0 {
+		return fmt.Errorf("proxy_identity needs at least one token with proxy: true")
+	}
+	if len(p.GroupRoles) == 0 {
+		return fmt.Errorf("proxy_identity: group_roles maps no group to a role, so nobody could sign in")
+	}
+	roles := make(map[string]bool, len(a.Roles))
+	for _, r := range a.Roles {
+		roles[r.Name] = true
+	}
+	for g, names := range p.GroupRoles {
+		for _, name := range names {
+			if !roles[name] {
+				return fmt.Errorf("proxy_identity: group %q maps to unknown role %q", g, name)
 			}
 		}
 	}

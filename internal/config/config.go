@@ -79,10 +79,25 @@ type AuthConfig struct {
 	// Roles are named, reusable permission sets referenced by TokenSpec.Roles
 	// (D118). A deployment that only uses `scopes` declares none.
 	Roles []RoleSpec `yaml:"roles,omitempty"`
+	// ProxyIdentity turns on per-user identity from a trusted SSO proxy
+	// (D1894); nil: off.
+	ProxyIdentity *ProxyIdentitySpec `yaml:"proxy_identity,omitempty"`
 	// ReloadInterval is how often a running server looks at the config file for
 	// a changed auth section (tokens, roles) and applies it without a restart.
 	// Zero stops the polling; SIGHUP reloads at any time, whatever this says.
 	ReloadInterval time.Duration `yaml:"-"`
+}
+
+// ProxyIdentitySpec is the auth.proxy_identity section: where a person's name
+// and groups come from, and which roles the groups map to.
+type ProxyIdentitySpec struct {
+	// TrustedAddresses are the CIDRs of the proxy's TCP peer; required, no /0.
+	TrustedAddresses []string `yaml:"trusted_addresses"`
+	UserHeader       string   `yaml:"user_header"`
+	GroupsHeader     string   `yaml:"groups_header,omitempty"`
+	// GroupsSeparator splits the groups header; "," when empty.
+	GroupsSeparator string              `yaml:"groups_separator,omitempty"`
+	GroupRoles      map[string][]string `yaml:"group_roles"`
 }
 
 // DefaultAuthReloadInterval is the poll of the config file for auth changes.
@@ -195,6 +210,9 @@ type TokenSpec struct {
 	// ExpiresAt is an RFC 3339 timestamp after which the token is refused;
 	// required for the non-human kinds.
 	ExpiresAt string `yaml:"expires_at,omitempty"`
+	// Proxy marks the bearer of the trusted SSO proxy of auth.proxy_identity:
+	// only its requests may carry an identity header. Never admin.
+	Proxy bool `yaml:"proxy,omitempty"`
 	// ScopesDeclared records that the entry wrote a scope or role list
 	// (`scopes:` or `roles:` in YAML, `|` in the env form). A declared list that ends up empty is refused
 	// by ValidateAuth: the admin token is the one that writes no scopes at all.
@@ -375,9 +393,10 @@ type rawWeb struct {
 }
 
 type rawAuth struct {
-	Mode   string      `yaml:"mode"`
-	Tokens []TokenSpec `yaml:"tokens"`
-	Roles  []RoleSpec  `yaml:"roles"`
+	Mode          string             `yaml:"mode"`
+	Tokens        []TokenSpec        `yaml:"tokens"`
+	Roles         []RoleSpec         `yaml:"roles"`
+	ProxyIdentity *ProxyIdentitySpec `yaml:"proxy_identity"`
 	// ReloadInterval is a duration string; a pointer so that 0 differs from absent.
 	ReloadInterval *string `yaml:"reload_interval"`
 }
@@ -613,6 +632,7 @@ func Load(path string) (*Config, error) {
 		cfg.Auth.Tokens[i].Token = tok
 	}
 	cfg.Auth.Roles = raw.Auth.Roles
+	cfg.Auth.ProxyIdentity = raw.Auth.ProxyIdentity
 	if raw.Auth.ReloadInterval != nil {
 		d, err := time.ParseDuration(strings.TrimSpace(*raw.Auth.ReloadInterval))
 		if err != nil {

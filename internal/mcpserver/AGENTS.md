@@ -89,3 +89,4 @@ test or a decision record: none of them is a preference.
   it enters a tool result (`errpaths.go`): an `*fs.PathError` or `*os.LinkError` printed
   with `%v` shows the directory the server keeps its data in, which a client of a shared
   server has no use for. `twoKBMove.run` scrubs both roots from its error results.
+- **A tool that touches secrets calls `AllowsSecrets`/`WithholdsSecrets`** (D1894) and is added to the secrets-restriction table test; a principal named by a trusted proxy (`Principal.Via`) is clamped by the proxy token, so the check needs no special case.

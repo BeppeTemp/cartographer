@@ -91,6 +91,8 @@ type Principal struct {
 	// Via is the id of the token behind an identity that is not the token's
 	// own (a person named by a trusted proxy); empty when the ID is the token's.
 	Via string
+	// Groups are the groups a trusted proxy named for the person.
+	Groups []string
 	// Local marks the principal the server itself creates for a trusted local
 	// caller (stdio, or HTTP with authentication off). A token store never sets
 	// it, so no configured token, whatever its name or policy, can claim it.
@@ -268,6 +270,8 @@ type TokenStore struct {
 // the token hash. It is never modified after it is published.
 type tokenSnapshot struct {
 	hashes map[string]tokenEntry
+	// proxy is the trusted-proxy identity in force; nil: the feature is off.
+	proxy *ProxyConfig
 }
 
 // tokenEntry is what the store keeps per hash: the principal and when its
@@ -275,6 +279,8 @@ type tokenSnapshot struct {
 type tokenEntry struct {
 	principal Principal
 	expiresAt time.Time
+	// proxy: the token may carry a person's identity (ScopedToken.Proxy).
+	proxy bool
 }
 
 // lookupStatus tells why a lookup failed. It exists for the log only: the
@@ -299,6 +305,9 @@ type ScopedToken struct {
 	Via string
 	// ExpiresAt is the instant the token stops being valid; zero never expires.
 	ExpiresAt time.Time
+	// Proxy marks the bearer of a trusted SSO proxy: only such a token's
+	// requests may carry an identity header (ProxyConfig).
+	Proxy bool
 }
 
 // NewTokenStore creates a token store from plain token strings, each granted
@@ -372,6 +381,7 @@ func buildSnapshot(tokens []ScopedToken) *tokenSnapshot {
 			snap.hashes[h] = tokenEntry{
 				principal: Principal{ID: id, Policy: clonePolicy(policy), Kind: kind, Via: st.Via},
 				expiresAt: st.ExpiresAt,
+				proxy:     st.Proxy,
 			}
 		}
 	}
@@ -386,12 +396,28 @@ func buildSnapshot(tokens []ScopedToken) *tokenSnapshot {
 // into a locked-out or, worse, an open server. A request in flight finishes
 // with the principal it resolved (principals are immutable copies).
 func (ts *TokenStore) Replace(tokens []ScopedToken) error {
+	return ts.ReplaceAll(tokens, ts.snap.Load().proxy)
+}
+
+// ReplaceAll is Replace with the proxy identity section, swapped in the same
+// snapshot so a request never sees new tokens with the old mapping.
+func (ts *TokenStore) ReplaceAll(tokens []ScopedToken, proxy *ProxyConfig) error {
 	snap := buildSnapshot(tokens)
+	snap.proxy = proxy
 	if ts.required && len(snap.hashes) == 0 {
 		return errors.New("the new token set has no usable token and authentication is required")
 	}
 	ts.snap.Store(snap)
 	return nil
+}
+
+// SetProxy installs the proxy identity section on a store being built, before
+// it serves; a running store changes it through ReplaceAll.
+func (ts *TokenStore) SetProxy(proxy *ProxyConfig) *TokenStore {
+	snap := *ts.snap.Load()
+	snap.proxy = proxy
+	ts.snap.Store(&snap)
+	return ts
 }
 
 // IsEnabled returns true if authentication is enforced for requests.
@@ -424,17 +450,22 @@ func (ts *TokenStore) RequireAuth() *TokenStore {
 // (once per token, by id, never by value) and otherwise indistinguishable from
 // an unknown one.
 func (ts *TokenStore) lookup(token string) (Principal, lookupStatus) {
+	e, st := ts.lookupEntry(token)
+	return clonePrincipal(e.principal), st
+}
+
+func (ts *TokenStore) lookupEntry(token string) (tokenEntry, lookupStatus) {
 	e, ok := ts.snap.Load().hashes[hashToken(token)]
 	if !ok {
-		return Principal{}, lookupUnknown
+		return tokenEntry{}, lookupUnknown
 	}
 	if !e.expiresAt.IsZero() && !ts.now().Before(e.expiresAt) {
 		if _, seen := ts.expiredLogged.LoadOrStore(e.principal.ID, true); !seen {
 			log.Printf("auth: token %q expired at %s, refused", e.principal.ID, e.expiresAt.UTC().Format(time.RFC3339))
 		}
-		return Principal{}, lookupExpired
+		return tokenEntry{}, lookupExpired
 	}
-	return clonePrincipal(e.principal), lookupOK
+	return e, lookupOK
 }
 
 // Validate checks if the given token is valid. The returned ID is never
@@ -481,10 +512,25 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 			unauthorized(w)
 			return
 		}
-		principal, valid := ts.PrincipalOf(token)
-		if !valid {
+		// One snapshot for the token and the mapping, so a reload between the
+		// two cannot pair a token with another generation's groups.
+		proxy := ts.snap.Load().proxy
+		entry, st := ts.lookupEntry(token)
+		if st != lookupOK {
 			unauthorized(w)
 			return
+		}
+		principal := clonePrincipal(entry.principal)
+		if entry.proxy && proxy != nil {
+			// TRAP: the identity header is believed only from a trusted peer
+			// AND on a proxy token (resolve checks the peer); on any other
+			// token or from any other peer it is ignored, never an error.
+			var status int
+			var msg string
+			if principal, status, msg = proxy.resolve(r, principal); status != 0 {
+				http.Error(w, msg, status)
+				return
+			}
 		}
 		ctx := ContextWithPrincipal(r.Context(), principal)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -532,6 +578,9 @@ func PrincipalFromContext(ctx context.Context) Principal {
 
 func clonePrincipal(p Principal) Principal {
 	p.Policy = clonePolicy(p.Policy)
+	if len(p.Groups) > 0 {
+		p.Groups = append([]string(nil), p.Groups...)
+	}
 	return p
 }
 

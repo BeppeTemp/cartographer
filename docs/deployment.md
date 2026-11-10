@@ -1368,6 +1368,20 @@ prompt. The UI sends same-origin cookies so the proxy session reaches the API
 proxy serves the page and the API from one origin, so a request's `Origin` has the
 `Host` it arrived with.
 
+To have the server see the person instead of one shared bearer, declare
+`auth.proxy_identity` (D1894, Proxy identity): the proxy authenticates with a
+token marked `proxy: true` (never admin: its scopes or roles are the ceiling of
+every person behind it, so a read-only bearer yields read-only people; whole-KB rules only, a selector is refused), sends
+the person in `user_header` and the groups in `groups_header`, and `group_roles`
+maps groups to roles. The header is believed only from `trusted_addresses` (CIDRs
+of the TCP peer, no `/0`, no implicit loopback; `X-Forwarded-For` is never used)
+and only on a `proxy: true` token. The proxy must overwrite both headers on every
+inbound request, and the server must not be reachable with the proxy token from
+an address that is not the proxy. A request without the header stays the proxy
+token's own, so a setup with one injected bearer keeps working unchanged. The
+block reloads with tokens and roles. Audit and commit trailers then name
+`user:<name>`.
+
 The Atlas draws its graph in 3D, as a live force-directed network (D234, D235): it breathes and turns slowly on its own; drag to orbit, zoom with the
 wheel or a pinch, click a concept to select it (nodes are not dragged). A *Motion* toggle, remembered per browser,
 pauses the drift, the slow panorama and the signals a selection sends along its

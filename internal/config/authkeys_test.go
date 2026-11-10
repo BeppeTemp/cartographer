@@ -263,3 +263,14 @@ func TestLoadAcceptsTokenKindKeys(t *testing.T) {
 		t.Error("a misspelled expires_at must refuse start")
 	}
 }
+
+func TestLoadAcceptsProxyIdentityKeysAndRefusesTypos(t *testing.T) {
+	ok := "auth:\n  roles:\n    - {name: r, rules: [{kb: docs, access: r}]}\n  proxy_identity:\n    trusted_addresses: [192.0.2.1]\n    user_header: X-User\n    groups_header: X-Groups\n    groups_separator: \";\"\n    group_roles: {staff: [r]}\n  tokens:\n    - {token: abc, proxy: true, roles: [r]}\n"
+	cfg, err := loadAuthYAML(t, ok)
+	if err != nil || cfg.Auth.ProxyIdentity == nil || !cfg.Auth.Tokens[0].Proxy {
+		t.Fatalf("known keys refused or lost: %v", err)
+	}
+	if _, err := loadAuthYAML(t, strings.Replace(ok, "user_header", "user_hdr", 1)); err == nil || !strings.Contains(err.Error(), `"user_hdr"`) {
+		t.Errorf("a misspelled proxy_identity key must be refused: %v", err)
+	}
+}

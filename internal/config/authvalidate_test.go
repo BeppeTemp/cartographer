@@ -242,3 +242,44 @@ func TestAuthReloadInterval(t *testing.T) {
 		t.Error("a negative interval validated")
 	}
 }
+
+func TestValidateProxyIdentity(t *testing.T) {
+	good := func() config.AuthConfig {
+		return config.AuthConfig{
+			Roles:  []config.RoleSpec{{Name: "reader", Rules: []config.RuleSpec{{KB: "kb-a", Access: "r"}}}},
+			Tokens: []config.TokenSpec{{Token: "t1", ID: "sso", Proxy: true, Roles: []string{"reader"}, ScopesDeclared: true}},
+			ProxyIdentity: &config.ProxyIdentitySpec{
+				TrustedAddresses: []string{"192.0.2.0/24"}, UserHeader: "X-User",
+				GroupRoles: map[string][]string{"staff": {"reader"}},
+			},
+		}
+	}
+	if err := config.ValidateAuth(good()); err != nil {
+		t.Fatalf("good config: %v", err)
+	}
+	cases := map[string]func(*config.AuthConfig){
+		"/0":                func(a *config.AuthConfig) { a.ProxyIdentity.TrustedAddresses = []string{"0.0.0.0/0"} },
+		"no trusted":        func(a *config.AuthConfig) { a.ProxyIdentity.TrustedAddresses = nil },
+		"no user header":    func(a *config.AuthConfig) { a.ProxyIdentity.UserHeader = "" },
+		"authorization":     func(a *config.AuthConfig) { a.ProxyIdentity.UserHeader = "authorization" },
+		"unknown role":      func(a *config.AuthConfig) { a.ProxyIdentity.GroupRoles = map[string][]string{"g": {"nope"}} },
+		"no group roles":    func(a *config.AuthConfig) { a.ProxyIdentity.GroupRoles = nil },
+		"no proxy token":    func(a *config.AuthConfig) { a.Tokens[0].Proxy = false },
+		"admin proxy token": func(a *config.AuthConfig) { a.Tokens[0].Roles, a.Tokens[0].ScopesDeclared = nil, false },
+		"surveyor proxy": func(a *config.AuthConfig) {
+			a.Tokens[0].Kind, a.Tokens[0].ExpiresAt = "surveyor", "2999-01-01T00:00:00Z"
+		},
+		"selector role":       func(a *config.AuthConfig) { a.Roles[0].Rules[0].Maps = []string{"x"} },
+		"reserved id":         func(a *config.AuthConfig) { a.Tokens[0].ID = "user:alice" },
+		"proxy without block": func(a *config.AuthConfig) { a.ProxyIdentity = nil },
+	}
+	for name, mut := range cases {
+		t.Run(name, func(t *testing.T) {
+			a := good()
+			mut(&a)
+			if err := config.ValidateAuth(a); err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
+}

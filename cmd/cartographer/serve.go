@@ -559,7 +559,8 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		// so a configuration that asked for authentication could produce an
 		// empty store and serve every request as a local admin.
 		scoped := scopedTokensWithRoles(authCfg.Tokens, authCfg.Roles)
-		store = auth.NewScopedTokenStore(scoped).RequireAuth()
+		proxy := proxyConfigFrom(authCfg.ProxyIdentity, authCfg.Roles)
+		store = auth.NewScopedTokenStore(scoped).SetProxy(proxy).RequireAuth()
 		logExpiringTokens(scoped, time.Now())
 		if store.TokenCount() == 0 {
 			log.Fatal("auth is enabled but no usable token was configured (see auth.tokens, CARTOGRAPHER_TOKENS or --tokens)")
@@ -568,7 +569,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		if reload != nil {
 			// Tokens and roles are applied to the running store when the config
 			// file changes or on SIGHUP; stopped with the server.
-			defer reload.start(store, scoped, authCfg.Mode, authCfg.ReloadInterval)()
+			defer reload.start(store, scoped, proxy, authCfg.Mode, authCfg.ReloadInterval)()
 		}
 	} else {
 		store = auth.NewTokenStore(nil)
@@ -826,20 +827,7 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 		if spec.ExpiresAt != "" {
 			expires, _ = time.Parse(time.RFC3339, spec.ExpiresAt) // validated likewise
 		}
-		for _, name := range spec.Roles {
-			for _, rule := range byName[name].Rules {
-				policy.Permissions = append(policy.Permissions, auth.Permission{
-					KB:       rule.KB,
-					Write:    rule.Access == "rw",
-					Maps:     rule.Maps,
-					Journals: rule.Journals,
-					Types:    rule.Types,
-
-					ReadOnlyArtifacts: rule.Artifacts == "r",
-					NoSecrets:         rule.Secrets == "none",
-				})
-			}
-		}
+		policy.Permissions = rolePermissions(byName, spec.Roles)
 		// The pre-scopes admin token is DECLARED here, not inferred downstream
 		// (D179): only this layer can tell "the operator wrote no restriction"
 		// apart from "the restrictions the operator wrote produced nothing".
@@ -853,9 +841,54 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 			Policy:    policy,
 			Kind:      kind,
 			ExpiresAt: expires,
+			Proxy:     spec.Proxy,
 		}
 	}
 	return out
+}
+
+// rolePermissions compiles the named roles into the union of their rules.
+func rolePermissions(byName map[string]config.RoleSpec, names []string) []auth.Permission {
+	var perms []auth.Permission
+	for _, name := range names {
+		for _, rule := range byName[name].Rules {
+			perms = append(perms, auth.Permission{
+				KB:       rule.KB,
+				Write:    rule.Access == "rw",
+				Maps:     rule.Maps,
+				Journals: rule.Journals,
+				Types:    rule.Types,
+
+				ReadOnlyArtifacts: rule.Artifacts == "r",
+				NoSecrets:         rule.Secrets == "none",
+			})
+		}
+	}
+	return perms
+}
+
+// proxyConfigFrom compiles auth.proxy_identity (nil when off) with the roles
+// its groups map to; config.ValidateAuth refused a malformed one.
+func proxyConfigFrom(spec *config.ProxyIdentitySpec, roles []config.RoleSpec) *auth.ProxyConfig {
+	if spec == nil {
+		return nil
+	}
+	byName := make(map[string]config.RoleSpec, len(roles))
+	for _, r := range roles {
+		byName[r.Name] = r
+	}
+	trusted, _ := auth.ParseTrustedAddresses(spec.TrustedAddresses)
+	pc := &auth.ProxyConfig{
+		Trusted:         trusted,
+		UserHeader:      spec.UserHeader,
+		GroupsHeader:    spec.GroupsHeader,
+		GroupsSeparator: spec.GroupsSeparator,
+		GroupPolicies:   make(map[string]auth.Policy, len(spec.GroupRoles)),
+	}
+	for g, names := range spec.GroupRoles {
+		pc.GroupPolicies[g] = auth.Policy{Permissions: rolePermissions(byName, names)}
+	}
+	return pc
 }
 
 // logExpiringTokens names (id and date, never a value) each token that expires

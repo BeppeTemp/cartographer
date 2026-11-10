@@ -531,6 +531,27 @@ a rejected header → [control plane](control-plane.md). A token's `author_name`
 and `author_email` are removed settings: a file that still has them loads with
 a warning, and they never refuse the start.
 
+**Per-user identity from a trusted proxy (D1894).** Behind an SSO proxy the
+person can be the principal. With `auth.proxy_identity` declared
+(`trusted_addresses`, `user_header`, optional `groups_header` and
+`groups_separator`, `group_roles`), a request whose TCP peer is in
+`trusted_addresses` AND whose bearer is a `proxy: true` token may carry the
+user header; the principal is then `user:<name>` (kind human, `Via` the proxy
+token id) with the union of the roles its groups map to, **clamped by the proxy
+token's policy** (`auth.Clamp`: a KB where the token has no whole-KB rule is
+dropped, `rw` becomes `r` where the token only reads, and its artifact and
+secrets restrictions carry over, so the person never sees or resolves secrets
+the token cannot). The ceiling is applied per KB, so a proxy token must use
+whole-KB rules only: one whose scopes or roles select maps, journals or types
+is refused at load, and ids starting with `user:` are reserved. A header from another peer or on another token is
+ignored, never an error; an absent header leaves the request the proxy token's
+own; no mapped group is a `403`; an invalid value (user over 128 bytes,
+non-printable, angle brackets, over 64 groups) is a `400`, never truncated.
+The proxy must overwrite both headers on every request. Everything keyed on the
+principal id (activity, usage, the author fallback, the `Cartographer-Token`
+trailer) then names the person. `auth.IdentityResolver` is the hook a plugin
+can fill in place of the header reader; trust and mapping apply either way.
+
 Tokens are declared in the YAML `auth.tokens` list; the flat
 `CARTOGRAPHER_TOKENS` form cannot carry the fields of a
 mapping. A `token:` written as exactly `${NAME}` is read from the environment, so the file never holds the secret; an
