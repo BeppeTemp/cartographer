@@ -1,5 +1,6 @@
-# Default values of the cartographer chart, which ships Meridian, its Atlas and the Surveyors. The reference for every key is this
-# file; README.md says how to combine them. There is deliberately no replica
+# Default values of the cartographer chart, which ships Meridian, its Atlas and the Surveyors, each optional but for
+# one rule: a release holds at least one of Meridian and a Surveyor (meridian.enabled: false is Surveyors only).
+# The reference for every key is this file; README.md says how to combine them. There is deliberately no replica
 # count for Meridian: it is one process, the sole writer of its data (D73, D1441).
 
 # Overrides of the chart name and of the full name every object derives from.

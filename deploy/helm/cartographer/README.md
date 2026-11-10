@@ -1,7 +1,8 @@
 # Cartographer Helm chart
 
-Meridian, the Cartographer server (with its embedded Atlas) and, optionally, one Surveyor per perimeter. The chart
-is published with every release at the app's version:
+Meridian, the Cartographer server, its embedded Atlas and Surveyors, one per perimeter: each is optional, but a
+release holds at least one of Meridian and a Surveyor (`meridian.enabled: false` renders Surveyors only, against an
+external Meridian at `meridian.url`; `atlas.enabled: false` turns the Atlas off). The chart is published with every release at the app's version:
 
 ```sh
 helm install cartographer oci://ghcr.io/beppetemp/charts/cartographer --version <version> -f values.yaml
@@ -46,6 +47,9 @@ Each has a values file in `ci/`, rendered and checked by `make helm-check` in th
 | YAML tokens (source b) and the role a Surveyor token needs | `ci/meridian-yaml-tokens-values.yaml` |
 | Surveyor scheduled, as a CronJob | `ci/surveyor-scheduled-values.yaml` |
 | Surveyor with an exec recipe, a derived image and a service account | `ci/surveyor-exec-values.yaml` |
+| Surveyors only, against an external Meridian over HTTPS | `ci/surveyor-only-values.yaml` |
+| Surveyors only, against a plain-HTTP Meridian (`allow_insecure_http` injected) | `ci/surveyor-only-http-values.yaml` |
+| Meridian without the Atlas | `ci/meridian-no-atlas-values.yaml` |
 
 ## Meridian
 
@@ -81,9 +85,10 @@ key of that Secret becomes an environment variable) and the optional keys docume
 `files` adds text files next to the config, which `instructions_file` names by plain name. An entry has no
 port, probe or persistent volume: its ConfigMap and one `emptyDir` on `/tmp`.
 
-- Without a `server_url` the chart injects the in-cluster Service URL and `allow_insecure_http: true`, so
-  the token crosses the pod network in clear (the install notes say so). To avoid it, set `server_url` to
-  the Ingress's HTTPS URL.
+- Without a `server_url` the chart injects the Meridian URL and, for an `http` one, `allow_insecure_http: true`,
+  so the token crosses the network in clear (the install notes say so): the in-cluster Service URL when
+  `meridian.enabled` is true, `meridian.url` when it is false (a Surveyors-only release has no Service to
+  point at). To avoid it, set `server_url` to the Ingress's HTTPS URL, or `meridian.url` to an HTTPS one.
 - `image` overrides the Surveyor image with a derived one (an exec recipe's tools); it must keep the
   entrypoint `cartographer surveyor`, because the chart passes only arguments.
 - `serviceAccountName` also mounts the API token on that entry's pod, for a system source. The account

@@ -12,7 +12,7 @@ Cartographer deploys as four **deployment components**: Meridian, Surveyor, Atla
 |---|---|---|---|---|---|
 | **Meridian** | The MCP server and the only stateful component: the KBs' git working trees, indices, `.cartographer/` runtime files and the credentials directory. **One writer per KB.** Over stdio it serves exactly one KB and no Atlas; over HTTP, any number | `cartographer serve` (stdio, or HTTP with `--http`/`--config`) | The data directory | Inbound on the HTTP port; outbound to the KBs' git remotes | The binary, the image |
 | **Surveyor** | A background process for one perimeter of KBs, with its own model profiles and budgets (§The Surveyor (a third role)) | `cartographer surveyor` | None persistent; a writable temporary directory for exec recipes and git reads. The budget is rebuilt from the KBs' logs | No inbound port. Outbound to Meridian, the model endpoints and whatever its own config names: fetch hosts, `git.allow_hosts`, MCP connectors, exec listers | The binary, the image |
-| **Atlas** | The read-only browser UI. Not a process: it is embedded in Meridian, and `/ui/` and `/api/ui/v1` belong to Meridian | None; one switch, `web.enabled` (`CARTOGRAPHER_WEB_ENABLED`, `--web-enabled`). stdio never serves it | Meridian's | Meridian's HTTP port | Meridian |
+| **Atlas** | The read-only browser UI. Not a process: it is embedded in Meridian, and `/ui/` and `/api/ui/v1` belong to Meridian | None; one switch, `web.enabled` (`CARTOGRAPHER_WEB_ENABLED`, `--web-enabled`), which the Helm chart exposes as `atlas.enabled`. stdio never serves it | Meridian's | Meridian's HTTP port | Meridian |
 | **Compass** | What runs next to the agent: `connect`, `sync`, `status`, `doctor` and the workspace bridge `cartographer mcp`. Not a workload: it writes under the agent's `$HOME` and never belongs in a Deployment | `cartographer connect` and the other client subcommands | The agent's `$HOME` | Outbound to one Meridian (the managed Compass follows one `server_url`) | The binary |
 
 Meridian also owns the data-directory administration commands (`kb`, `import`, `reindex`, `audit`), which run on the host that holds the data directory: `kb` refuses on a client pointed at a remote server. `cartographer service` manages Meridian's native user service and Compass's sync timer, never the Surveyor. The Atlas is never deployed on its own: a standalone frontend is not a supported topology, and the static public Atlas below is a demo.
@@ -32,13 +32,15 @@ Each row is a way of deploying that this page documents or has assembled by hand
 | 7 | Public static Atlas: bundle on Pages, API behind an edge with CORS | A static Atlas snapshot and a live API | documented (**a demo, not a topology to copy**) | §The public static demo |
 | 8 | Partitioned: different KBs on different servers | Several Meridians, one managed Compass | documented | §Several servers; one Helm release per server, `ci/partitioned-a-values.yaml` |
 | 9 | Same KB on two servers | Two Meridians | documented | §Several servers |
-| 10 | Surveyor outside the cluster (a GPU host, a local model), to Meridian over HTTPS | Surveyor | documented | §Example: Surveyor outside the cluster |
+| 10 | Surveyor outside the cluster (a GPU host, a local model), or on any host with the binary or the image, to Meridian over HTTPS | Surveyor | documented | §Example: Surveyor outside the cluster |
 | 11 | Surveyor scheduled: `--once` from a CronJob or an external scheduler | Surveyor | documented | §Example: Surveyor as a CronJob; `ci/surveyor-scheduled-values.yaml` |
 | 12 | Surveyor exec recipes: a derived image with its tools and a read-only identity | Surveyor | documented | §Example: a derived image for exec recipes; `ci/surveyor-exec-values.yaml`; `examples/system-recipes/kubernetes/README.md` |
 | 13 | Compass on a workstation: `connect`, `sync`, workspace bridge | Compass | documented | [configurator](configurator.md) §`cartographer connect`, §`cartographer sync` |
 | 14 | Compass on a headless always-on host, timer sync | Compass | documented | [configurator](configurator.md) §Headless hosts, CI and agent containers |
 | 15 | Compass in CI, a devcontainer or an agent pod: the binary in the agent's image, one-shot sync | Compass | documented | [configurator](configurator.md) §Headless hosts, CI and agent containers |
 | 16 | No client: a remote agent on `/mcp/routed` with a bearer token, no skills or hooks | none | documented | [mcp-clients](mcp-clients.md) |
+| 17 | Kubernetes Surveyors only: a Helm release with `meridian.enabled: false`, reaching an external Meridian by URL and token | Surveyor | documented | §Example: Surveyors only (Helm); `ci/surveyor-only-values.yaml` |
+| 18 | Meridian without the Atlas (`atlas.enabled: false` in the chart, `web.enabled: false` otherwise) | Meridian | documented | §The embedded Atlas UI (D227); `ci/meridian-no-atlas-values.yaml` |
 
 Three rules sit outside any row. The Atlas is never deployed alone. The same KB on two servers is synchronization, not scaling: two servers never add write capacity or availability to one KB. A Kubernetes or VM recipe never runs two Meridian processes on one working copy (`concurrency.md` §Writer boundary).
 
@@ -466,7 +468,7 @@ Client-side convenience: if `cartographer connect` targets a loopback URL and th
 
 #### Example: K8s pod (untrusted network, auth on, multi-client)
 
-The **Helm chart** in `deploy/helm/cartographer/` renders this scenario, and the Surveyor ones below, from a values file (D1441). It is published to GHCR with every release at the version of the app, and it renders every object of this scenario:
+The **Helm chart** in `deploy/helm/cartographer/` renders this scenario, and the Surveyor ones below, from a values file (D1441). The chart deploys any subset of Meridian and Surveyors: `meridian.enabled: false` renders Surveyors only (§Example: Surveyors only (Helm)), and `atlas.enabled: false` renders Meridian with `web.enabled: false` (§The embedded Atlas UI). The Atlas is never deployed alone. It is published to GHCR with every release at the version of the app, and it renders every object of this scenario:
 
 ```sh
 helm install cartographer oci://ghcr.io/beppetemp/charts/cartographer --version <version> -f values.yaml
@@ -957,7 +959,7 @@ that every client of the KB syncs and executes, yet it needs whole-KB `rw` (`log
 give it a role with `artifacts: r` (§Fine-grained roles). To drive the Surveyor from an external scheduler instead of its own window,
 run it with `--once`. As a native service, write the unit yourself: `cartographer service` manages only Meridian.
 
-In Kubernetes a perimeter is one `surveyors` entry of the chart: its own ConfigMap (`surveyor.yaml`, plus the text `files` that `instructions_file` names by plain name) and one Deployment or CronJob, with one `emptyDir` on `/tmp` for exec recipes and git reads and no persistent volume, port or probe. The Secret is yours: `existingSecret` names it and **every** key becomes an environment variable (the token, the model keys, an exec recipe's `KUBECTL`), and the chart has no `env` value, so no value is rendered by mistake. One config per perimeter, so a second perimeter is a second entry; `replicas` above 1 are more processes with the same config and unshared budget counters. The entry's Deployment is `Recreate`, since a rolling overlap would be a second spender. An entry's `image` overrides the Surveyor image for a derived one, which must keep the entrypoint `cartographer surveyor` because the chart passes only arguments. A `serviceAccountName` also mounts the API token on that entry's pod, for a system-source lister (the account and its read-only role are the operator's: the chart creates no ServiceAccount or RBAC). Set `server_url` to the Ingress's HTTPS URL. With no `server_url` the chart injects the in-cluster Service URL and `allow_insecure_http: true`, because a plain `http` URL to a non-loopback host needs that opt-in, and the install notes say that the token then crosses the pod network in clear.
+In Kubernetes a perimeter is one `surveyors` entry of the chart: its own ConfigMap (`surveyor.yaml`, plus the text `files` that `instructions_file` names by plain name) and one Deployment or CronJob, with one `emptyDir` on `/tmp` for exec recipes and git reads and no persistent volume, port or probe. The Secret is yours: `existingSecret` names it and **every** key becomes an environment variable (the token, the model keys, an exec recipe's `KUBECTL`), and the chart has no `env` value, so no value is rendered by mistake. One config per perimeter, so a second perimeter is a second entry; `replicas` above 1 are more processes with the same config and unshared budget counters. The entry's Deployment is `Recreate`, since a rolling overlap would be a second spender. An entry's `image` overrides the Surveyor image for a derived one, which must keep the entrypoint `cartographer surveyor` because the chart passes only arguments. A `serviceAccountName` also mounts the API token on that entry's pod, for a system-source lister (the account and its read-only role are the operator's: the chart creates no ServiceAccount or RBAC). Set `server_url` to the Ingress's HTTPS URL. With no `server_url` the chart injects the Meridian URL (the in-cluster Service URL, or `meridian.url` when the release has no Meridian) and, for a plain `http` one, `allow_insecure_http: true`, because a plain `http` URL to a non-loopback host needs that opt-in, and the install notes say that the token then crosses the network in clear.
 
 #### Example: Surveyor outside the cluster
 
@@ -1015,6 +1017,32 @@ surveyors:
 ```
 
 A systemd timer or any external scheduler has the same semantics: the launch time falls inside the window, runs must not overlap, and the next launch is the retry.
+
+#### Example: Surveyors only (Helm)
+
+A release with `meridian.enabled: false` renders no Meridian object (no Deployment, Service, ConfigMap, claim or Ingress): only the `surveyors` entries, which reach an external Meridian at `meridian.url`. A Meridian setting the chart can tell is set (ingress, tokens, claim, `config.kbs`, credentials) is refused; one it cannot tell from its default (the image, the probes) is ignored. The release needs at least one Surveyor entry.
+
+```yaml
+# Helm: deploy/helm/cartographer/ci/surveyor-only-values.yaml
+meridian:
+  enabled: false
+  url: https://wiki.example.com
+surveyors:
+  - name: docs-night
+    mode: cronjob
+    schedule: "15 2 * * *"
+    existingSecret: docs-night-env     # holds SURVEYOR_TOKEN
+    config:
+      token_env: SURVEYOR_TOKEN
+      kbs: [kb-a]
+```
+
+```sh
+kubectl create secret generic docs-night-env --from-literal=SURVEYOR_TOKEN=<token>
+helm install surveyors oci://ghcr.io/beppetemp/charts/cartographer --version <version> -f values.yaml
+```
+
+The token is a Surveyor-kind token created on the external Meridian, with a role that has the permissions the Surveyor needs (`artifacts: r` at least, like the role in `ci/meridian-yaml-tokens-values.yaml`); it stays a reference to the entry's Secret and never enters the values. The entries use `surveyorImage`, not `meridian.image`. An `http://` `meridian.url` makes the chart inject `allow_insecure_http: true` and sends the token in clear (`ci/surveyor-only-http-values.yaml`): use an HTTPS URL.
 
 #### Example: a derived image for exec recipes
 
@@ -1161,6 +1189,8 @@ bare `<server_name> → /mcp` entry.
 ### The embedded Atlas UI (D227)
 
 The UI is English whatever the browser locale (labels, dates, times), exported replays included.
+
+In the Helm chart the switch is `atlas.enabled` (default `true`): `false` sets `web.enabled: false` in Meridian's config, a key the chart then owns, so `meridian.config.web` is refused. It only turns the Atlas off, which is never deployed alone; `/health` is served either way, so the probes keep working. It is meaningless with `meridian.enabled: false` (`ci/meridian-no-atlas-values.yaml`).
 
 With `web.enabled` on — the default in HTTP mode — the same binary also serves:
 
