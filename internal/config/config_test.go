@@ -70,6 +70,7 @@ func TestLoadFullYAML(t *testing.T) {
 		// The UI is on by default in HTTP mode; this YAML does not mention it.
 		Web:         WebConfig{Enabled: true},
 		UpdateCheck: true,
+		Maintenance: MaintenanceConfig{AutoRepair: true},
 	}
 
 	want.Origins = cfg.Origins // origins are covered in origin_test.go

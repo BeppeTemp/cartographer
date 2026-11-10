@@ -1463,14 +1463,71 @@ func repairMany(k *kb.KB, checks []string, scope string, dryRun bool, limit int)
 	return res, nil
 }
 
+// kbRepairTool is kb_repair as registered: git-wrapped, and a check "auto" call
+// is stamped with the Reason trailer of its commit before gitWrap reads it
+// (autoRepairReasonFor), so repair_revert and the Atlas recognise it.
+func kbRepairTool(k *kb.KB) Tool {
+	t := gitWrap(k, toolKBRepair(k))
+	h := t.Handler
+	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+		return h(ctx, stampAutoRepairReason(args))
+	}
+	return t
+}
+
+// isAutoCheck says whether the check argument is the string "auto" (alone: a
+// list holding it is refused like any unknown check).
+func isAutoCheck(raw json.RawMessage) bool {
+	var one string
+	return json.Unmarshal(raw, &one) == nil && one == "auto"
+}
+
+// autoRepairReasonFor is the Reason (and commit subject) of a check "auto"
+// call: always "(mcp)". A reason string is caller text and proves nothing, so
+// a caller cannot claim the Surveyor's label; autoRepairSurveyorReason is
+// reserved for the call a Surveyor's authenticated identity makes (the repair
+// task), which no code path produces yet.
+func autoRepairReasonFor(json.RawMessage) string { return autoRepairMCPReason }
+
+// stampAutoRepairReason rewrites the reason argument of a check "auto" call to
+// autoRepairReasonFor; any other call is returned as it came.
+func stampAutoRepairReason(args json.RawMessage) json.RawMessage {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(args, &m) != nil || !isAutoCheck(m["check"]) {
+		return args
+	}
+	m["reason"], _ = json.Marshal(autoRepairReasonFor(args))
+	out, err := json.Marshal(m)
+	if err != nil {
+		return args
+	}
+	return out
+}
+
 func toolKBRepair(k *kb.KB) Tool {
+	// The rotation cursor of this tool's auto calls (the timer keeps the
+	// Server's): in memory, touched under the KB lock, advanced by AfterCommit
+	// only when the call's commit held, as the timer does.
+	var autoCursor, autoNext string
+	// autoStats is what the auto call in flight did; AfterCommit logs it as the
+	// timer logs its runs (the Atlas runs[] and last_auto_repair), once the
+	// commit is known.
+	var autoStats *stagedRepair
 	return Tool{
+		AfterCommit: func(res ToolResult) {
+			autoCursor = autoNext
+			if autoStats != nil {
+				logAutoRepairCall(k, lint.AutoRepairChecks(), autoStats, res.CommitSHA)
+				autoStats = nil
+			}
+		},
 		Name: "kb_repair",
 		// The fixable checks are not listed here: a finding carries its fix,
 		// and an unknown check is refused naming them (D301 budget).
 		Description: "Applies the mechanical fix a lint finding carries for one check, a list or * (all), " +
 			"in one commit. dry_run defaults to true. " +
-			"Changed concepts are skipped. Judgement fixes: kb_review.",
+			"Changed concepts are skipped. Judgement fixes: kb_review. " +
+			"check \"auto\" (dry_run false, no scope or limit) runs the server's background repair now.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["check"],
@@ -1495,6 +1552,21 @@ func toolKBRepair(k *kb.KB) Tool {
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
+			}
+			autoNext = autoCursor // a call that is not auto must not carry a stale one
+			autoStats = nil
+			if isAutoCheck(params.Check) {
+				if params.DryRun == nil || *params.DryRun {
+					return errorResult("kb_repair: auto has no dry run; pass dry_run false, or use check \"*\" to preview"), nil
+				}
+				if params.Scope != "" || params.Limit != 0 {
+					return errorResult("kb_repair: auto takes no scope or limit: it repairs the whole KB within the server's own per-stage quota"), nil
+				}
+				if blocked := autoRepairBlocked(k); blocked != "" {
+					_ = appendAutoRepairRun(k, autoRepairRun{At: time.Now().UTC().Format(time.RFC3339), Skipped: blocked})
+					return errorResult("kb_repair: auto-repair refused: " + blocked), nil
+				}
+				return stagedRepairHandler(k, lint.AutoRepairChecks(), autoRepairLimit, &autoNext, autoRepairReasonFor(args), &autoStats)(ctx, args)
 			}
 			checks, multi, err := parseRepairChecks(params.Check)
 			if err != nil {

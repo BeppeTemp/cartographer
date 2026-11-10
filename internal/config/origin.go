@@ -262,6 +262,8 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return str(c.CredentialsDir)
 	case "update_check":
 		return c.UpdateCheck, true
+	case "maintenance.auto_repair":
+		return c.Maintenance.AutoRepair, true
 	case "auth.mode":
 		return str(c.Auth.Mode)
 	case "auth.tokens":
