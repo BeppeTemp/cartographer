@@ -270,6 +270,25 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return c.Auth.ReloadInterval.String(), true
 	case "auth.tokens":
 		return len(c.Auth.Tokens), len(c.Auth.Tokens) > 0
+	case "auth.proxy_identity":
+		return c.Auth.ProxyIdentity != nil, c.Auth.ProxyIdentity != nil
+	case "auth.proxy_identity.trusted_addresses", "auth.proxy_identity.user_header", "auth.proxy_identity.groups_header",
+		"auth.proxy_identity.groups_separator", "auth.proxy_identity.group_roles":
+		pi := c.Auth.ProxyIdentity
+		if pi == nil {
+			return nil, false
+		}
+		switch path {
+		case "auth.proxy_identity.trusted_addresses":
+			return pi.TrustedAddresses, len(pi.TrustedAddresses) > 0
+		case "auth.proxy_identity.user_header":
+			return str(pi.UserHeader)
+		case "auth.proxy_identity.groups_header":
+			return str(pi.GroupsHeader)
+		case "auth.proxy_identity.groups_separator":
+			return str(pi.GroupsSeparator)
+		}
+		return pi.GroupRoles, len(pi.GroupRoles) > 0
 	case "auth.roles":
 		names := []string{}
 		for _, r := range c.Auth.Roles {

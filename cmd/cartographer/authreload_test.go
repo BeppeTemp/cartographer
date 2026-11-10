@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,8 +43,9 @@ func reloadFixture(t *testing.T, body string) (*authReloader, *auth.TokenStore, 
 		t.Fatal(err)
 	}
 	scoped := scopedTokensWithRoles(cfg.Auth.Tokens, cfg.Auth.Roles)
-	store := auth.NewScopedTokenStore(scoped).RequireAuth()
-	return newAuthReloader(store, load, path, scoped, cfg.Auth.Mode), store, path
+	proxy := proxyConfigFrom(cfg.Auth.ProxyIdentity, cfg.Auth.Roles)
+	store := auth.NewScopedTokenStore(scoped).SetProxy(proxy).RequireAuth()
+	return newAuthReloader(store, load, path, scoped, proxy, cfg.Auth.Mode), store, path
 }
 
 func reloadLog(t *testing.T) *bytes.Buffer {
@@ -267,5 +270,59 @@ func TestAuthReloadLogsAnExpiredDropOnce(t *testing.T) {
 	}
 	if n := strings.Count(buf.String(), `token "j" expired`); n != 1 {
 		t.Errorf("the drop line was logged %d times:\n%s", n, buf)
+	}
+}
+
+const reloadProxy = `http: "127.0.0.1:9090"
+auth:
+  mode: on
+  roles:
+    - name: reader
+      rules: [{kb: kb-a, access: r}]
+    - name: editor
+      rules: [{kb: kb-a, access: rw}]
+  proxy_identity:
+    trusted_addresses: [192.0.2.0/24]
+    user_header: X-User
+    groups_header: X-Groups
+    group_roles: {GROUPS}
+  tokens:
+    - {token: tok-sso-0123456789, id: sso, proxy: true, roles: [editor]}
+`
+
+func proxyReq(store *auth.TokenStore, user string) (int, auth.Principal) {
+	var got auth.Principal
+	h := store.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = auth.PrincipalFromContext(r.Context())
+	}))
+	req := httptest.NewRequest("POST", "/mcp", nil)
+	req.RemoteAddr = "192.0.2.10:5555"
+	req.Header.Set("Authorization", "Bearer tok-sso-0123456789")
+	req.Header.Set("X-User", user)
+	req.Header.Set("X-Groups", "staff")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec.Code, got
+}
+
+// The proxy identity block reloads with tokens and roles, and a reload that
+// breaks it keeps the previous mapping (the D179 fail-closed rule).
+func TestAuthReloadAppliesProxyIdentity(t *testing.T) {
+	r, store, path := reloadFixture(t, strings.Replace(reloadProxy, "{GROUPS}", "{staff: [reader]}", 1))
+	buf := reloadLog(t)
+	if _, p := proxyReq(store, "alice"); p.ID != "user:alice" || p.Policy.HasKBAccess("kb-a", true) {
+		t.Fatalf("before reload: %+v", p)
+	}
+	// Only the group map changes: tokens are untouched, the mapping must apply.
+	os.WriteFile(path, []byte(strings.Replace(reloadProxy, "{GROUPS}", "{staff: [editor]}", 1)), 0o600)
+	r.poll()
+	if _, p := proxyReq(store, "alice"); !p.Policy.HasKBAccess("kb-a", true) {
+		t.Fatalf("a changed group map was not applied:\n%s", buf)
+	}
+	// An unknown role in the map is refused and the mapping in force stays.
+	os.WriteFile(path, []byte(strings.Replace(reloadProxy, "{GROUPS}", "{staff: [nope]}", 1)), 0o600)
+	r.poll()
+	if code, p := proxyReq(store, "alice"); code != 200 || !p.Policy.HasKBAccess("kb-a", true) {
+		t.Fatalf("a refused reload changed the mapping: %d %+v", code, p)
 	}
 }

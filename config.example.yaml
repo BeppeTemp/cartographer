@@ -49,8 +49,9 @@ auth:
 
   # Bearer tokens: a bare string (admin, every KB) or a mapping with token,
   # scopes (kb:<name>:r or kb:<name>:rw), roles, id, kind (human, client or
-  # surveyor) and expires_at (RFC 3339; required for client and surveyor, which
-  # are never admin). A token may be written ${NAME} to read it from the
+  # surveyor) expires_at (RFC 3339; required for client and surveyor, which are
+  # never admin) and proxy (true for the bearer of the SSO proxy of
+  # auth.proxy_identity). A token may be written ${NAME} to read it from the
   # environment. A running server picks up a changed list without a restart, at
   # the next poll of the file or on SIGHUP (auth.reload_interval).
   # Env CARTOGRAPHER_TOKENS · flag --tokens ·
@@ -74,6 +75,34 @@ auth:
   #         access: rw
   #         maps: [infra]
   #         types: [Runbook]
+
+  # Per-user identity behind an SSO proxy. The proxy authenticates with a token
+  # declared proxy: true (never admin; its scopes or roles are the ceiling of
+  # every person behind it) and names the person in a header; the server
+  # believes the header only from trusted_addresses and on that token. The
+  # groups map to roles through group_roles. A running server picks up a change
+  # without a restart.
+  # proxy_identity:
+  #   CIDRs (or addresses) of the proxy's TCP peer; required. A /0 prefix is
+  #   refused and loopback is not implied. X-Forwarded-For is never used.
+  #   trusted_addresses: [192.0.2.10/32]
+  #
+  #   Header carrying the person's name; required. The proxy must overwrite it on
+  #   every inbound request. At most 128 bytes, printable, no angle brackets.
+  #   user_header: ""
+  #
+  #   Header carrying the person's groups (at most 64 of 128 bytes); without it
+  #   nobody maps to a role.
+  #   groups_header: ""
+  #
+  #   Separator of the groups header.
+  #   groups_separator: ","
+  #
+  #   Group name to the roles it grants. A person's permissions are the union of
+  #   their groups' roles, clamped by the proxy token's own; no mapped group is a
+  #   403.
+  #   group_roles:
+  #     staff: [runbook-editor]
 
 # The KBs to clone and mount: each entry has a remote. A KB that is a folder
 # under data is discovered and needs no entry. KBs from

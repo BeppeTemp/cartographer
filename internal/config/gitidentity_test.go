@@ -188,7 +188,7 @@ func TestRealignServerFile_MovesGitIdentity(t *testing.T) {
 	}
 	out, _ := os.ReadFile(p)
 	got := string(out)
-	if strings.Contains(got, "identity:") || !strings.Contains(got, "# mine") || !strings.Contains(got, `default: "One <one@example.test>"`) || !strings.Contains(got, "kb-a:") {
+	if hasKey(got, "identity") || !strings.Contains(got, "# mine") || !strings.Contains(got, `default: "One <one@example.test>"`) || !strings.Contains(got, "kb-a:") {
 		t.Errorf("file after realignment:\n%s", got)
 	}
 	if n, _, ok := loadGitYAML(t, got).IdentityFor("kb-z"); !ok || n != "One" {
@@ -230,7 +230,7 @@ func TestGitIdentityMigrationsFillABareIdentities(t *testing.T) {
 			t.Fatalf("%s: realign: %v", name, err)
 		}
 		out, _ := os.ReadFile(p)
-		if strings.Count(string(out), "identities:") != 1 || strings.Contains(string(out), "identity:") {
+		if strings.Count(string(out), "identities:") != 1 || hasKey(string(out), "identity") {
 			t.Errorf("%s: file:\n%s", name, out)
 		}
 		if n, _, ok := loadGitYAML(t, string(out)).IdentityFor("kb-a"); !ok || n != "A" {
@@ -278,4 +278,15 @@ func TestRealignServerFile_GeneratedCommentOfGitIdentity(t *testing.T) {
 	if _, err := Load(q); err == nil {
 		t.Error("Load must refuse the same pair")
 	}
+}
+
+// hasKey reports whether a YAML line starts with the key (a comment that merely
+// names a longer key, like proxy_identity, is not one).
+func hasKey(doc, key string) bool {
+	for _, l := range strings.Split(doc, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), key+":") {
+			return true
+		}
+	}
+	return false
 }
