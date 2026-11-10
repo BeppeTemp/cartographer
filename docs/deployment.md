@@ -860,7 +860,7 @@ get `map_create` or `map_update`: the shape of a map is the operator's.
 
 **Start-up checks**, in order; each failure exits 2 and starts nothing: the config loads (and every
 `*_env` variable is set); `/health` answers (a server that is starting or unreachable is retried for up
-to 5 minutes, then exit 1); `server/discover` accepts the token (`/health` is public and serves a wrong
+to 5 minutes, then exit 1) and, when it names `component_protocol`, one the Surveyor can use (within one of its own, `control-plane.md` §Component contract), else exit 2 naming both numbers; `server/discover` accepts the token (`/health` is public and serves a wrong
 token as an anonymous caller, so only this call proves it); `/health` names KBs for the token; every
 name in `kbs` is among them. The roster is a read view: the perimeter token needs `kb:<name>:rw` on
 each KB (§Fine-grained roles), and a read-only token meets its first refusal at the first write. Give
@@ -900,15 +900,15 @@ The Surveyor reads `kb_review` itself, at no token cost, up to 500 items per kin
 **What the words trust.** The guard limits where a write lands, not what it says: a model reads the pages it edits, so text in a page can steer it inside its fence. With `pages`, `archive` or `structure` someone who can write a page can have a run write to the pages an item names, or to a map's index (`index_unclassified`), and with `archive` the author of a journal entry chooses the pages it links, and so where a run may write, and an item can add a link that a later item or run follows. Turn them on for a KB whose writers you trust. The default is narrower, not immune: a repair is mechanical, but a rule always on is a model reading a page, so a page's writer can steer whether the item's pages are closed or suspended and the text of `waiting_on`.
 
 **The runner.** Every `schedule.poll_seconds` it checks, per KB, whether the window holds or the KB has been
-idle for `idle_minutes` (the idle signal is Meridian's `last_activity_at`, answered to the Surveyor's heartbeat, `POST /api/surveyors`: [control-plane](control-plane.md) §Surveyor heartbeat; until the Surveyor beats, it is
-window-only). **Beat, settings, idle (D1259).** The Surveyor declares itself with `POST /api/surveyors` from its own goroutine: once at
+idle for `idle_minutes` (the idle signal is Meridian's `last_activity_at`, answered to the Surveyor's heartbeat, `POST /api/component/v1/heartbeat`: [control-plane](control-plane.md) §Surveyor heartbeat; until the Surveyor beats, it is
+window-only). **Beat, settings, idle (D1259).** The Surveyor declares itself with `POST /api/component/v1/heartbeat` from its own goroutine: once at
 start (before the triggers are read, so `--once` has the idle signal), every 60 s, and once with `state: stopped`
 on a clean exit; the instance id is the perimeter `name`, `-` and six random hex characters. Right after the first
-beat it posts its settings to `POST /api/surveyor-settings` (typed scalar entries, never a secret: an `*_env` value
+beat it posts its settings to `POST /api/component/v1/settings` (typed scalar entries, never a secret: an `*_env` value
 is a variable name followed by `(set)` or `(unset)`, a URL has no userinfo, models and tasks are not listed), and
 again whenever a beat answers `settings_wanted`. The idle time is the answer's `now` minus `last_activity_at`
 (or `server_started_at` when `null`), plus the local time since the answer; an answer older than three beats, a
-`404` from an older server, a KB the answer omits and `activity_known: false` (authentication off: Meridian
+`404` from an older server (it has no component route), a `426` (the server refuses the Surveyor's component protocol: logged once per distinct window, the beat goes on), a KB the answer omits and `activity_known: false` (authentication off: Meridian
 cannot tell the Surveyor from a person) all make the idle trigger not hold, so the Surveyor runs on its window only.
 A failed beat or report is a log line and never fails a run; a settings report Meridian refuses with a 4xx is
 logged once and not sent again. Meridian bounds a heartbeat, so the config is refused at load past **32 KBs**
@@ -1814,7 +1814,7 @@ to stderr. It does not expose Prometheus metrics or derive token/queue/search
 SLIs from the audit file; the audit log is evidence for compliance review
 (`cartographer audit verify|export`), not a metrics source.
 
-**Liveness vs readiness (D84, D119, D176)**: `/health` is liveness — `status:"ok"` unconditionally (D1096: with authentication on, an anonymous caller gets only `status`, `ready`, `version`, `started_at`, and `mount_mode` + `routed_path` on a routed server; a valid token adds `kbs`, filtered to the KBs the token reads, and `latest_version`; a cache or proxy in front of `/health` must key on `Authorization` or forward one token, as the demo Worker does) (a
+**Liveness vs readiness (D84, D119, D176)**: `/health` is liveness — `status:"ok"` unconditionally (D1096: with authentication on, an anonymous caller gets only `status`, `ready`, `version`, `started_at`, `component_protocol` and `component_min_protocol` (the integer component protocol window of `control-plane.md` §Component contract: no secret, no inventory, so a Surveyor can refuse an unsupported server before its first beat), and `mount_mode` + `routed_path` on a routed server; a valid token adds `kbs`, filtered to the KBs the token reads, and `latest_version`; a cache or proxy in front of `/health` must key on `Authorization` or forward one token, as the demo Worker does) (a
 probe that restarted the process on `status != "ok"` must never fire from a KB-mounting issue); it
 also carries a `ready: <bool>` field for callers that want both signals from one request. `/ready`
 is the dedicated readiness endpoint: `200 {"ready":true}`, or `503 {"ready":false,"kbs":<n>,"degraded":[…]}` otherwise, where `kbs` counts and `degraded` names only the KBs the caller's token reads (#1109, the rule of D1096; admin and the auth-off local admin see them all). `/ready` is **not** a public path: with auth on it answers `401` to an anonymous caller, so a plain `httpGet` readiness probe never passes (§Probes below). `/health` also carries

@@ -814,7 +814,7 @@ machines. Losing it loses nothing durable; the next `sync` of each client rebuil
 dir that does not survive a restart, `kb_status.usage` reports `no_data` with `no_report_since`
 (the server's start) until then (D333, `docs/deployment.md` §State and volumes). It feeds
 the `usage` section of `kb_status` and the Atlas Artifacts panel's "Last used"
-column, and lint reads it for `artifact_unused` (§Artifact checks, D1043). Written only by `POST /api/usage` (`docs/control-plane.md` §Usage reports).
+column, and lint reads it for `artifact_unused` (§Artifact checks, D1043). Written only by `POST /api/component/v1/usage` (or its 0.28 alias `/api/usage`) (`docs/control-plane.md` §Usage reports).
 
 ## The path placeholder registry (`paths.yaml`)
 

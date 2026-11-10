@@ -57,7 +57,7 @@ func usageServer(t *testing.T, status int) (*httptest.Server, func() []usagePost
 		body, _ := io.ReadAll(r.Body)
 		p := usagePost{kb: r.URL.Query().Get("kb"), auth: r.Header.Get("Authorization")}
 		_ = json.Unmarshal(body, &p.entries)
-		if r.URL.Path == "/api/usage" && r.Method == http.MethodPost {
+		if r.URL.Path == "/api/component/v1/usage" && r.Method == http.MethodPost {
 			mu.Lock()
 			got = append(got, p)
 			mu.Unlock()
@@ -143,8 +143,8 @@ func TestReportOnly_SendsToTheGivenURLAndChangesNothing(t *testing.T) {
 		t.Fatalf("exit %d, want 0", code)
 	}
 	mu.Lock()
-	got := paths["/api/client-settings"]
-	usage := paths["/api/usage"]
+	got := paths["/api/component/v1/settings"]
+	usage := paths["/api/component/v1/usage"]
 	mu.Unlock()
 	if got != 1 {
 		t.Fatalf("client settings posted %d times, want 1 (%v)", got, paths)

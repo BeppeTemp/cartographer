@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Report is the body a surveyor posts to /api/surveyor-settings (D1259): typed
+// Report is the body a surveyor posts to /api/component/v1/settings (D1259): typed
 // scalar entries and the perimeter's KBs, never a YAML file. The server
 // rebuilds every description from the key table and runs Scrub on receipt.
 type Report struct {

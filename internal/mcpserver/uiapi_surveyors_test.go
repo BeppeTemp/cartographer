@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 )
 
 // surveyorFixture mounts kb-a and kb-b. Tokens: "surveyor-a" writes kb-a,
@@ -63,7 +64,7 @@ func (f *surveyorFixture) post(t *testing.T, token string, body any) *httptest.R
 			t.Fatal(err)
 		}
 	}
-	req := httptest.NewRequest(http.MethodPost, SurveyorsPath, bytes.NewReader(raw))
+	req := httptest.NewRequest(http.MethodPost, componentproto.HeartbeatPath, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -74,7 +75,7 @@ func (f *surveyorFixture) post(t *testing.T, token string, body any) *httptest.R
 }
 
 func beat(over map[string]any) map[string]any {
-	b := map[string]any{"surveyor": "w-1", "perimeter": "team-a", "version": "1.0", "kbs": []string{"kb-a"}, "state": "idle"}
+	b := map[string]any{"surveyor": "w-1", "perimeter": "team-a", "version": "1.0", "kbs": []string{"kb-a"}, "state": "idle", "protocol": 1}
 	for k, v := range over {
 		b[k] = v
 	}
@@ -220,7 +221,7 @@ func TestSurveyors_Rejections(t *testing.T) {
 		t.Errorf("oversize: %d, want 413", rr.Code)
 	}
 	// Wrong content type.
-	req := httptest.NewRequest(http.MethodPost, SurveyorsPath, strings.NewReader("{}"))
+	req := httptest.NewRequest(http.MethodPost, componentproto.HeartbeatPath, strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer surveyor-a")
 	req.Header.Set("Content-Type", "text/plain")
 	rr := httptest.NewRecorder()
@@ -229,7 +230,7 @@ func TestSurveyors_Rejections(t *testing.T) {
 		t.Errorf("content type: %d, want 415", rr.Code)
 	}
 	// Wrong method.
-	req = httptest.NewRequest(http.MethodGet, SurveyorsPath, nil)
+	req = httptest.NewRequest(http.MethodGet, componentproto.HeartbeatPath, nil)
 	req.Header.Set("Authorization", "Bearer surveyor-a")
 	rr = httptest.NewRecorder()
 	f.h.ServeHTTP(rr, req)
@@ -242,7 +243,7 @@ func TestSurveyors_Rejections(t *testing.T) {
 	}
 	// Cross-origin.
 	raw, _ := json.Marshal(beat(nil))
-	req = httptest.NewRequest(http.MethodPost, SurveyorsPath, bytes.NewReader(raw))
+	req = httptest.NewRequest(http.MethodPost, componentproto.HeartbeatPath, bytes.NewReader(raw))
 	req.Header.Set("Authorization", "Bearer surveyor-a")
 	req.Header.Set("Content-Type", "application/json")
 	req.Host = "127.0.0.1:39273"
@@ -304,7 +305,7 @@ func TestSurveyors_AuthOffIsActivityUnknown(t *testing.T) {
 	k := uiFixtureKB(t, "kb-a")
 	multi.MountKB("kb-a", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	raw, _ := json.Marshal(beat(nil))
-	req := httptest.NewRequest(http.MethodPost, SurveyorsPath, bytes.NewReader(raw))
+	req := httptest.NewRequest(http.MethodPost, componentproto.HeartbeatPath, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	auth.NewTokenStore(nil).Middleware(multi.Handler()).ServeHTTP(rr, req)

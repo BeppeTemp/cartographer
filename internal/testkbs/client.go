@@ -16,7 +16,7 @@ const ClientReportFile = "client-report.json"
 
 // ClientReport is the client settings report of an imaginary workstation
 // connected to the test fleet, what a real client sends with `cartographer
-// sync` as POST /api/client-settings (D818), so the Atlas Settings page has a
+// sync` as POST /api/component/v1/settings (D818), so the Atlas Settings page has a
 // client to show. The file is written by the client's own writer
 // (clientconfig.Save) and read back by its own reader (clientconfig.Report),
 // so the entries, the commented YAML and their masking are the real ones and

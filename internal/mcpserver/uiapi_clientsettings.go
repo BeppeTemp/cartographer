@@ -13,12 +13,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
-// ClientSettingsPath is where a client reports its own settings after every
-// sync (D818), so the Atlas Settings page can show the viewer their client
-// beside the server and the KBs. Client-to-server metadata like UsagePath:
-// an HTTP route inside the auth chain of /mcp, not an MCP tool.
-const ClientSettingsPath = "/api/client-settings"
-
 // maxClientSettingsBody bounds a report: a few dozen keys and the file.
 const maxClientSettingsBody = 256 << 10
 

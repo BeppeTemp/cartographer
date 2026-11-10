@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/webui"
 )
@@ -467,6 +468,11 @@ func (m *MultiKBServer) Handler() http.Handler {
 				"version":    m.version,
 				"started_at": processStartedAt,
 				"ready":      ready,
+				// The component protocol (internal/componentproto), public so
+				// a Surveyor can refuse an unsupported server before its
+				// first beat. /health stays liveness.
+				"component_protocol":     componentproto.Protocol,
+				"component_min_protocol": componentproto.MinProtocol,
 			}
 			// D187: the client needs to know the mount topology before it
 			// writes a single MCP entry, and /health is the probe it already
@@ -672,26 +678,20 @@ func (m *MultiKBServer) Handler() http.Handler {
 			m.serveKB(w, r, pathName)
 			return
 
-		// A client's usage report (D326): metadata about the skills it loaded,
-		// not an agent operation. Always routed — it does not depend on the UI
-		// being enabled — and inside the same auth chain as /mcp.
-		case r.URL.Path == UsagePath:
-			m.handleUsage(w, r)
+		// The component route family (internal/componentproto): the
+		// Surveyor's heartbeat and settings, Compass's usage and settings.
+		// Client-to-server metadata, always routed and inside the same auth
+		// chain as /mcp.
+		case componentPathRouted(r.URL.Path):
+			m.handleComponent(w, r)
 			return
 
-		// A surveyor's heartbeat: client-to-server metadata like usage, always
-		// routed and inside the same auth chain as /mcp.
-		case r.URL.Path == SurveyorsPath:
-			m.handleSurveyors(w, r)
+		// The 0.28 routes, released and so kept as aliases for the 0.29
+		// series: frozen, protocol 0 (no negotiation).
+		case r.URL.Path == componentproto.LegacyUsagePath:
+			m.handleUsage(w, r, false)
 			return
-
-		// A surveyor's configuration report (D1259): its own route, not the beat.
-		case r.URL.Path == SurveyorSettingsPath:
-			m.handleSurveyorSettings(w, r)
-			return
-
-		// A client's own settings (D818): like usage, always routed.
-		case r.URL.Path == ClientSettingsPath:
+		case r.URL.Path == componentproto.LegacyClientSettingsPath:
 			m.handleClientSettings(w, r)
 			return
 

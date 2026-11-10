@@ -34,7 +34,7 @@ var ErrUsageTooLarge = errors.New("usage store too large")
 var usageMu sync.Mutex
 
 // UsageEntry is the usage of one artifact by one provider. The JSON tags are
-// the wire format of POST /api/usage and match provisioning.ArtifactUsage.
+// the wire format of POST /api/component/v1/usage and match provisioning.ArtifactUsage.
 type UsageEntry struct {
 	Name     string    `json:"name"`
 	Kind     string    `json:"kind"`

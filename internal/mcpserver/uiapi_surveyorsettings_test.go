@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/surveyorconfig"
 )
 
@@ -17,7 +18,7 @@ func (f *surveyorFixture) postSettings(token string, body any) *httptest.Respons
 	if !ok {
 		raw, _ = json.Marshal(body)
 	}
-	req := httptest.NewRequest(http.MethodPost, SurveyorSettingsPath, bytes.NewReader(raw))
+	req := httptest.NewRequest(http.MethodPost, componentproto.SettingsPath, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr := httptest.NewRecorder()
@@ -26,7 +27,7 @@ func (f *surveyorFixture) postSettings(token string, body any) *httptest.Respons
 }
 
 func report(over map[string]any) map[string]any {
-	r := map[string]any{"perimeter": "team-a", "surveyor": "w-1", "version": "1.0", "kbs": []string{"kb-a"},
+	r := map[string]any{"component": "surveyor", "protocol": 1, "perimeter": "team-a", "surveyor": "w-1", "version": "1.0", "kbs": []string{"kb-a"},
 		"yaml":    "ignored: on the wire, never stored",
 		"entries": []map[string]any{{"key": "token_env", "value": "SURVEYOR_TOKEN", "origin": "file"}}}
 	for k, v := range over {
@@ -189,14 +190,14 @@ func TestSurveyorSettings_Rejections(t *testing.T) {
 	if rr := f.postSettings("reader", report(nil)); rr.Code != http.StatusNotFound {
 		t.Errorf("read-only token: status %d, want 404", rr.Code)
 	}
-	req := httptest.NewRequest(http.MethodGet, SurveyorSettingsPath, nil)
+	req := httptest.NewRequest(http.MethodGet, componentproto.SettingsPath, nil)
 	req.Header.Set("Authorization", "Bearer surveyor-a")
 	rr := httptest.NewRecorder()
 	f.h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusMethodNotAllowed || rr.Header().Get("Allow") != "POST" {
 		t.Errorf("GET: status %d allow %q", rr.Code, rr.Header().Get("Allow"))
 	}
-	req = httptest.NewRequest(http.MethodPost, SurveyorSettingsPath, strings.NewReader("{}"))
+	req = httptest.NewRequest(http.MethodPost, componentproto.SettingsPath, strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer surveyor-a")
 	req.Header.Set("Content-Type", "text/plain")
 	rr = httptest.NewRecorder()
@@ -204,7 +205,7 @@ func TestSurveyorSettings_Rejections(t *testing.T) {
 	if rr.Code != http.StatusUnsupportedMediaType {
 		t.Errorf("wrong type: status %d", rr.Code)
 	}
-	req = httptest.NewRequest(http.MethodPost, SurveyorSettingsPath, strings.NewReader("{}"))
+	req = httptest.NewRequest(http.MethodPost, componentproto.SettingsPath, strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer surveyor-a")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://evil.example.com")

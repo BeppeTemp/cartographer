@@ -1161,7 +1161,7 @@ one-line note instead of the Meridian group, and the exit code stays 0. The same
 (`control-plane.md` §Read-only UI API).
 
 The Atlas Settings page also shows Compass, as `sync` last reported it: after every apply, `sync` posts a report to
-`POST /api/client-settings` (`control-plane.md` §Client settings reports): the Compass schema keys with their origin, the
+`POST /api/component/v1/settings` with `component: "client"` (`control-plane.md` §Client settings reports): the Compass schema keys with their origin, the
 `.cartographer.yaml` as on disk, the connected agent clients (scope, entry kind, bound folders whatever the scope, and their
 KBs) and where each placeholder of the connected KBs resolves on this machine. No secret value, token or file content other
 than that config file. Meridian keeps it in memory for the sending principal only. Best-effort: a server that is
