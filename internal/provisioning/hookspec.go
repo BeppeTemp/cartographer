@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // hookEventReach is the one declared vocabulary of hook.json events (D284): every
@@ -136,7 +137,7 @@ func loadHookSpec(hookDir string) (hookSpec, error) {
 func hookCommandEscapes(command string) bool {
 	bin, _, _ := splitHookCommand(strings.TrimSpace(command))
 	bin = unquoteHookToken(bin)
-	if isAbsCommandPath(bin) || strings.HasPrefix(bin, "$") || !strings.ContainsAny(bin, `/\`) {
+	if contract.IsAbsCommandPath(bin) || strings.HasPrefix(bin, "$") || !strings.ContainsAny(bin, `/\`) {
 		return false
 	}
 	clean := path.Clean(strings.ReplaceAll(bin, `\`, "/"))

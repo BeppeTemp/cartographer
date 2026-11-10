@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // A file over the artifact cap is never read: ReadArtifactFiles fails (a client
@@ -30,11 +31,11 @@ func TestReadDirFilesCapsAndRefusesSymlinks(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "SKILL.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	// A link among the files refuses the directory (kblinks.go); with it gone
+	// A link among the files refuses the directory (contract/kblinks.go); with it gone
 	// the rest reads as before.
-	var linkErr *kbSymlinkError
+	var linkErr *contract.KBSymlinkError
 	if _, err := readDirFiles(dir, nil); !errors.As(err, &linkErr) {
-		t.Fatalf("readDirFiles with a link = %v, want a *kbSymlinkError", err)
+		t.Fatalf("readDirFiles with a link = %v, want a *contract.KBSymlinkError", err)
 	}
 	must(os.Remove(filepath.Join(dir, "link.md")))
 	files, err := readDirFiles(dir, nil)

@@ -20,6 +20,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -262,7 +263,7 @@ func ClaudeSettingsHookEntries(baseDir string, hookNames []string) (int, error) 
 //     already-quoted command would corrupt it;
 //   - "relative" means "contains a separator", either separator: a command declared
 //     as "scripts\run.sh" is as relative as "scripts/run.sh", and absoluteness is
-//     judged with isAbsCommandPath (mcpspec.go) rather than filepath.IsAbs, which
+//     judged with contract.IsAbsCommandPath (contract/mcpspec.go) rather than filepath.IsAbs, which
 //     calls a Windows path relative when it runs on unix.
 //
 // The quotes do not disturb the ownership marker: commandOwnedBy matches a substring
@@ -279,7 +280,7 @@ func ClaudeSettingsHookEntries(baseDir string, hookNames []string) (int, error) 
 //
 // Idempotence has one hole, and it is unreachable rather than fixed: a hook dir that
 // is rooted but carries no volume (`\hooks\notify`, which only Windows can produce)
-// is not absolute to filepath.IsAbs or to isAbsCommandPath, so a second pass joins it
+// is not absolute to filepath.IsAbs or to contract.IsAbsCommandPath, so a second pass joins it
 // again. A real base dir is derived from the home directory and always carries a
 // drive. Widening the absoluteness test to "starts with a separator" would fix it and
 // would also silently stop resolving a `\scripts\run.sh` declared in hook.json —
@@ -287,7 +288,7 @@ func ClaudeSettingsHookEntries(baseDir string, hookNames []string) (int, error) 
 func resolveHookCommand(command, hookDirAbs string) string {
 	bin, rest, hasRest := splitHookCommand(strings.TrimSpace(command))
 	bin = unquoteHookToken(bin)
-	if !isAbsCommandPath(bin) && !strings.HasPrefix(bin, "$") && strings.ContainsAny(bin, `/\`) {
+	if !contract.IsAbsCommandPath(bin) && !strings.HasPrefix(bin, "$") && strings.ContainsAny(bin, `/\`) {
 		bin = filepath.Join(hookDirAbs, bin)
 	}
 	bin = quoteHookBin(bin, hookHostWindows)

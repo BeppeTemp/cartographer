@@ -1,4 +1,4 @@
-package provisioning_test
+package contract_test
 
 import (
 	"os"

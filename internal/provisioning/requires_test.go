@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestValidateRequires(t *testing.T) {
@@ -146,7 +147,7 @@ func TestParseHookSpec_IgnoresRequires(t *testing.T) {
 
 func TestMCPDescriptorRefusesRequires(t *testing.T) {
 	data := []byte(`{"type":"http","url":"https://example.com/mcp","requires":["skill:a"]}`)
-	if _, err := ParseMCPServerSpec("example", data); err == nil {
+	if _, err := contract.ParseMCPServerSpec("example", data); err == nil {
 		t.Fatal("an mcp descriptor with requires was accepted")
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // cmdApprove manages client-local, hash-bound approvals for MCP descriptors,
@@ -215,7 +216,7 @@ func printApprovalPreview(w io.Writer, a provisioning.Artifact) error {
 		if err != nil || len(files) != 1 {
 			return fmt.Errorf("invalid MCP descriptor")
 		}
-		spec, err := provisioning.ParseMCPServerSpec(a.Name, files[0].Content)
+		spec, err := contract.ParseMCPServerSpec(a.Name, files[0].Content)
 		if err != nil {
 			return err
 		}

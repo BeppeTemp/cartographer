@@ -36,11 +36,11 @@ make dev [DATA=<data dir>]         # live instance: Go rebuilt on change, UI hot
 ./bin/cartographer                                    # short status + usage (TTY), otherwise usage
 ```
 
-Protocol: JSON-RPC 2.0. Stdio = newline-delimited. HTTP = POST /mcp. Logs on stderr.
+Protocol: JSON-RPC 2.0, stdio newline-delimited, HTTP POST /mcp, logs on stderr.
 
 ## Rules that apply everywhere
 
-Structural questions (where does X live, who calls Y): targeted Grep/Explore, then read only the indicated `file:line` locations.
+Structural questions: targeted Grep/Explore, then read only the cited `file:line`.
 
 - the **why** lives in `docs/decisions/`, one file per decision (`ls docs/decisions/D47-*`), current behavior in `docs/` (map in `docs/index.md`);
 - mandates to a coding subagent include the `file:line` pointers already derived.
@@ -92,6 +92,7 @@ internal/plugin                 reads and checks a Cartographer plugin
 internal/plugin/star            runs the Starlark script of a plugin
 internal/procattr               sets the process attributes every child of Cartographer shares
 internal/provisioning           manages the synchronization of artifacts (skill, agent, hook — D48
+internal/provisioning/contract  is the wire contract of provisioning
 internal/repodocs               keeps this repository navigable by a coding agent
 internal/repoindex              resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
 internal/safewrite              guards client-side writes against symlinks
@@ -139,10 +140,10 @@ Not duplicated here:
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`). A contributor's PR is squash-merged; a maintainer's change is queued (`make ready`) and lands in a train (`CONTRIBUTING.md` §Pull requests). Titles are conventional commits: release-please computes the semver bump from them.
+- All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`). A contributor's PR is squash-merged; a maintainer's change is queued (`make ready`) and lands in a train (`CONTRIBUTING.md` §Pull requests). Titles are conventional commits (release-please computes the semver bump).
 - **Route a maintainer's change before writing any code**: a bug → an `accepted` `bug` issue with the design in a comment, fixed by `cartographer-fix-implementer` (`CONTRIBUTING.md` §Fixes without a plan); a feature → a plan (`cartographer-propose-plan`) implemented by `cartographer-implement-plan`; a change found by trying it → a live session (below). The coordinator writes no production code itself: it reviews and queues.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter (D259).
-- **Done** means: `make check` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code, otherwise one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).
+- **Done** means: `make check` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, else a comment next to the code or one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).
 - Design and implementation often happen in separate sessions: the maintainer's handoff is a **plan file** kept outside the repository (`CONTRIBUTING.md` §Plans): no agent implements a plan the maintainer did not give it in the session. A contributor opens an issue or a direct PR.
 - **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor whose agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
 - A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user, ending in one queued change (`cartographer-develop-live` skill).

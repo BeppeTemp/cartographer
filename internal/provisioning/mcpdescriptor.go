@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // NormalizeMCPHTTPURL returns the canonical identity of an HTTP descriptor
@@ -33,12 +35,12 @@ func NormalizeMCPHTTPURL(raw string) (string, error) {
 
 // MCPDescriptorTarget returns the exact identity of a validated
 // descriptor without resolving environment references or a local executable.
-func MCPDescriptorTarget(spec MCPServerSpec) (string, error) {
+func MCPDescriptorTarget(spec contract.MCPServerSpec) (string, error) {
 	switch spec.Type {
 	case "http":
 		return NormalizeMCPHTTPURL(spec.URL)
 	case "stdio":
-		if err := ValidateMCPStdioCommand(spec.Command); err != nil {
+		if err := contract.ValidateMCPStdioCommand(spec.Command); err != nil {
 			return "", err
 		}
 		return spec.Command, nil
