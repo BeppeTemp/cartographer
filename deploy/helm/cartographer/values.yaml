@@ -8,6 +8,12 @@ fullnameOverride: ""
 # Pull secrets for every image of the release: a list of { name: <secret> }.
 imagePullSecrets: []
 
+atlas:
+  # The Atlas is embedded in Meridian (/ui/ and /api/ui/v1), never deployed alone (D1439).
+  # false sets web.enabled: false in Meridian's config; the chart owns that key. Meaningless
+  # when meridian.enabled is false.
+  enabled: true
+
 meridian:
   # false deploys no Meridian object (no Deployment, Service, Ingress, claim or ConfigMap):
   # the release holds Surveyors only and they reach an external Meridian at meridian.url.

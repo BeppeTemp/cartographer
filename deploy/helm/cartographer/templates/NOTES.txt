@@ -3,10 +3,10 @@
 {{- $s := .Values.meridian -}}
 Cartographer {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }}.
 {{ if $s.enabled }}
-Reach Meridian (the MCP endpoint is /mcp, the Atlas is /ui/):
+Reach Meridian (the MCP endpoint is /mcp{{ if .Values.atlas.enabled }}, the Atlas is /ui/{{ end }}):
 
   kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ $full }} {{ $s.service.port }}:{{ $s.service.port }}
-{{- if $s.ingress.enabled }}
+{{- if and $s.ingress.enabled .Values.atlas.enabled }}
 {{ range $s.ingress.hosts }}
   https://{{ .host }}/ui/
 {{- end }}

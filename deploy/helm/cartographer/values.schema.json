@@ -11,6 +11,11 @@
       "type": "array",
       "items": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } }
     },
+    "atlas": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "enabled": { "type": "boolean" } }
+    },
     "meridian": {
       "type": "object",
       "additionalProperties": false,

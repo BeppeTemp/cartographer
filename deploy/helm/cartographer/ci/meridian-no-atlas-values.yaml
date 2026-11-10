@@ -1,0 +1,15 @@
+# Meridian without the Atlas: the minimal file plus atlas.enabled=false.
+# tokens from a Secret, one HTTPS KB, the default kept claim.
+meridian:
+  tokens:
+    existingSecret:
+      name: cartographer-tokens
+  credentials:
+    enabled: false
+  config:
+    auth:
+      mode: "on"
+    kbs:
+      - remote: https://git.example.com/user/kb-a.git
+atlas:
+  enabled: false

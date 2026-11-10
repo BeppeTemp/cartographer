@@ -171,6 +171,15 @@ c=$(one surveyor-only-http ConfigMap surveyor-docs-night)
 must surveyor-only-http "$c" 'server_url: http://meridian.internal.example.com:39273/mcp$' "no server_url from the http meridian.url"
 must surveyor-only-http "$c" 'allow_insecure_http: true$' "an http meridian.url without allow_insecure_http"
 
+# The Atlas switch: the chart owns web.enabled in Meridian's config (serve.go mounts /ui/
+# only when it is on, see the webEnabled branch there).
+c=$(one meridian-minimal ConfigMap meridian)
+must meridian-minimal "$c" '^    web:$' "no web block in the Meridian config"
+must meridian-minimal "$c" '^      enabled: true$' "the Atlas is not on by default"
+c=$(one meridian-no-atlas ConfigMap meridian)
+must meridian-no-atlas "$c" '^    web:$' "no web block in the Meridian config"
+must meridian-no-atlas "$c" '^      enabled: false$' "atlas.enabled=false did not turn the Atlas off"
+
 # The partitioned pair: two releases, no object in common.
 render pa rel-a -f "$chart/ci/partitioned-a-values.yaml"
 render pb rel-b -f "$chart/ci/partitioned-b-values.yaml"
@@ -217,6 +226,7 @@ neg "exclusive" '{meridian: {persistence: {existingClaim: c, emptyDir: true}}}'
 neg "owned by the chart" '{meridian: {config: {http: ":1"}}}'
 neg "owned by the chart" '{meridian: {config: {data: /x}}}'
 neg "owned by the chart" '{meridian: {config: {credentials_dir: /x}}}'
+neg "owned by the chart" '{meridian: {config: {web: {enabled: false}}}}'
 neg "meridian.ingress.hosts" '{meridian: {ingress: {enabled: true}}}'
 neg "replicaCount" '{meridian: {replicaCount: 2}}'
 neg "autoscaling" '{meridian: {autoscaling: {enabled: true}}}'
