@@ -10,8 +10,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 )
 
@@ -45,10 +48,44 @@ type Policy struct {
 	Permissions []Permission
 }
 
+// Kind says what sort of caller a token stands for. The zero value is read as
+// KindHuman, so every token written before kinds existed keeps its meaning.
+type Kind string
+
+const (
+	KindHuman    Kind = "human"
+	KindClient   Kind = "client"
+	KindSurveyor Kind = "surveyor"
+)
+
+// ParseKind reads a configured kind strictly: an empty string is human, an
+// unknown value is an error (a typo must not silently fall back to the widest
+// kind).
+func ParseKind(s string) (Kind, error) {
+	switch Kind(s) {
+	case "", KindHuman:
+		return KindHuman, nil
+	case KindClient:
+		return KindClient, nil
+	case KindSurveyor:
+		return KindSurveyor, nil
+	}
+	return "", fmt.Errorf("kind %q: want %q, %q or %q", s, KindHuman, KindClient, KindSurveyor)
+}
+
+// NonHuman reports whether the kind is one of the machine kinds, whose tokens
+// must be KB-scoped and expiring.
+func (k Kind) NonHuman() bool { return k == KindClient || k == KindSurveyor }
+
 // Principal identifies the caller without retaining its bearer secret.
 type Principal struct {
 	ID     string
 	Policy Policy
+	// Kind is what the token stands for; the zero value is human.
+	Kind Kind
+	// Via is the id of the token behind an identity that is not the token's
+	// own (a person named by a trusted proxy); empty when the ID is the token's.
+	Via string
 	// Local marks the principal the server itself creates for a trusted local
 	// caller (stdio, or HTTP with authentication off). A token store never sets
 	// it, so no configured token, whatever its name or policy, can claim it.
@@ -58,7 +95,7 @@ type Principal struct {
 // LocalAdminPrincipal is used for auth-disabled HTTP and trusted stdio. It is
 // explicit so handlers never infer authority from a missing context value.
 func LocalAdminPrincipal() Principal {
-	return Principal{ID: "local-admin", Policy: Policy{Admin: true}, Local: true}
+	return Principal{ID: "local-admin", Policy: Policy{Admin: true}, Kind: KindHuman, Local: true}
 }
 
 // Allows reports whether a policy allows an operation on a resource. mapName
@@ -159,11 +196,33 @@ func matchesSelector(values []string, value string) bool {
 // to the immutable policy it grants. Unrestricted access is declared by the
 // caller (Policy.Admin), never inferred from an empty policy (D179).
 type TokenStore struct {
-	hashes map[string]Principal
+	hashes map[string]tokenEntry
+	// now is the clock expiry is judged by; tests inject theirs.
+	now func() time.Time
+	// expiredLogged remembers the ids already reported as expired, so a client
+	// retrying with a dead token does not flood the log (once per token).
+	expiredLogged sync.Map
 	// required is set by RequireAuth for a deployment that configured
 	// authentication: such a store enforces even when empty (D179).
 	required bool
 }
+
+// tokenEntry is what the store keeps per hash: the principal and when its
+// token stops being valid (zero: never).
+type tokenEntry struct {
+	principal Principal
+	expiresAt time.Time
+}
+
+// lookupStatus tells why a lookup failed. It exists for the log only: the
+// response to an unknown and to an expired token is the same 401 (no oracle).
+type lookupStatus int
+
+const (
+	lookupOK lookupStatus = iota
+	lookupUnknown
+	lookupExpired
+)
 
 // ScopedToken pairs a plaintext bearer token with the KB scopes it grants.
 type ScopedToken struct {
@@ -171,6 +230,12 @@ type ScopedToken struct {
 	Scopes    []KBScope
 	Principal string
 	Policy    Policy
+	// Kind is the token's kind (zero: human).
+	Kind Kind
+	// Via is carried onto the principal (see Principal.Via).
+	Via string
+	// ExpiresAt is the instant the token stops being valid; zero never expires.
+	ExpiresAt time.Time
 }
 
 // NewTokenStore creates a token store from plain token strings, each granted
@@ -195,7 +260,7 @@ func NewTokenStore(tokens []string) *TokenStore {
 // requires authentication must mark the store with RequireAuth so an empty
 // result fails closed rather than disabling enforcement.
 func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
-	ts := &TokenStore{hashes: make(map[string]Principal)}
+	ts := &TokenStore{hashes: make(map[string]tokenEntry), now: time.Now}
 	for _, st := range tokens {
 		if st.Token != "" {
 			h := hashToken(st.Token)
@@ -219,7 +284,22 @@ func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
 			if id == "" {
 				id = "token-" + h[:16]
 			}
-			ts.hashes[h] = Principal{ID: id, Policy: clonePolicy(policy)}
+			kind := st.Kind
+			if kind == "" {
+				kind = KindHuman
+			}
+			if kind == KindSurveyor {
+				// A surveyor never changes artifacts, whatever its rules (or
+				// legacy scopes, unioned above) say. Forced here, after the
+				// union, so no path to a permission escapes it.
+				for i := range policy.Permissions {
+					policy.Permissions[i].ReadOnlyArtifacts = true
+				}
+			}
+			ts.hashes[h] = tokenEntry{
+				principal: Principal{ID: id, Policy: clonePolicy(policy), Kind: kind, Via: st.Via},
+				expiresAt: st.ExpiresAt,
+			}
 		}
 	}
 	return ts
@@ -250,21 +330,35 @@ func (ts *TokenStore) RequireAuth() *TokenStore {
 	return ts
 }
 
+// lookup resolves a token to its principal in one step, so a token cannot
+// validate and then expire between two calls. An expired token is reported
+// (once per token, by id, never by value) and otherwise indistinguishable from
+// an unknown one.
+func (ts *TokenStore) lookup(token string) (Principal, lookupStatus) {
+	e, ok := ts.hashes[hashToken(token)]
+	if !ok {
+		return Principal{}, lookupUnknown
+	}
+	if !e.expiresAt.IsZero() && !ts.now().Before(e.expiresAt) {
+		if _, seen := ts.expiredLogged.LoadOrStore(e.principal.ID, true); !seen {
+			log.Printf("auth: token %q expired at %s, refused", e.principal.ID, e.expiresAt.UTC().Format(time.RFC3339))
+		}
+		return Principal{}, lookupExpired
+	}
+	return clonePrincipal(e.principal), lookupOK
+}
+
 // Validate checks if the given token is valid. The returned ID is never
 // derived from the plaintext token.
 func (ts *TokenStore) Validate(token string) (agentID string, ok bool) {
-	h := hashToken(token)
-	p, ok := ts.hashes[h]
-	if ok {
-		agentID = p.ID
-	}
-	return agentID, ok
+	p, st := ts.lookup(token)
+	return p.ID, st == lookupOK
 }
 
 // PrincipalOf returns the authenticated immutable principal.
 func (ts *TokenStore) PrincipalOf(token string) (Principal, bool) {
-	p, ok := ts.hashes[hashToken(token)]
-	return clonePrincipal(p), ok
+	p, st := ts.lookup(token)
+	return p, st == lookupOK
 }
 
 // Middleware returns an HTTP middleware that validates the Authorization: Bearer header.
@@ -286,8 +380,7 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 			// zero principal reads nothing. /health relies on it to name KBs
 			// only to a caller that proved who it is.
 			if token, ok := extractBearer(r); ok {
-				if _, valid := ts.Validate(token); valid {
-					principal, _ := ts.PrincipalOf(token)
+				if principal, valid := ts.PrincipalOf(token); valid {
 					r = r.WithContext(ContextWithPrincipal(r.Context(), principal))
 				}
 			}
@@ -299,11 +392,11 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 			unauthorized(w)
 			return
 		}
-		if _, valid := ts.Validate(token); !valid {
+		principal, valid := ts.PrincipalOf(token)
+		if !valid {
 			unauthorized(w)
 			return
 		}
-		principal, _ := ts.PrincipalOf(token)
 		ctx := ContextWithPrincipal(r.Context(), principal)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

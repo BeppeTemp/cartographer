@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // testToken is a fixed bearer token: the tests need a string, not entropy.
@@ -503,5 +504,89 @@ func TestAllowsArtifactWrite(t *testing.T) {
 		if got := c.p.AllowsArtifactWrite("kb-a"); got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestTokenExpiryBoundary(t *testing.T) {
+	exp := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	ts := NewScopedTokenStore([]ScopedToken{
+		{Token: "dying", Principal: "dying", Kind: KindClient, ExpiresAt: exp, Scopes: []KBScope{{KB: "docs"}}},
+		{Token: "forever", Principal: "forever", Policy: Policy{Admin: true}},
+	}).RequireAuth()
+	cases := []struct {
+		name string
+		now  time.Time
+		ok   bool
+	}{
+		{"one second before", exp.Add(-time.Second), true},
+		{"at the instant", exp, false},
+		{"after", exp.Add(time.Hour), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ts.now = func() time.Time { return c.now }
+			_, vok := ts.Validate("dying")
+			p, pok := ts.PrincipalOf("dying")
+			if vok != c.ok || pok != c.ok {
+				t.Fatalf("Validate=%v PrincipalOf=%v, want %v", vok, pok, c.ok)
+			}
+			if c.ok && p.Kind != KindClient {
+				t.Errorf("kind = %q", p.Kind)
+			}
+			if _, ok := ts.Validate("forever"); !ok {
+				t.Error("a token with no expiry must stay valid")
+			}
+		})
+	}
+}
+
+func TestExpiredTokenIsIndistinguishableFromUnknown(t *testing.T) {
+	exp := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	ts := NewScopedTokenStore([]ScopedToken{{Token: "dead", Principal: "dead", ExpiresAt: exp, Policy: Policy{Admin: true}}}).RequireAuth()
+	ts.now = func() time.Time { return exp.Add(time.Minute) }
+	h := ts.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	get := func(tok string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/mcp", nil)
+		r.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	a, b := get("dead"), get("never-existed")
+	if a.Code != 401 || b.Code != 401 {
+		t.Fatalf("codes %d %d", a.Code, b.Code)
+	}
+	if a.Body.String() != b.Body.String() || a.Header().Get("WWW-Authenticate") != b.Header().Get("WWW-Authenticate") {
+		t.Error("expired and unknown responses differ")
+	}
+}
+
+func TestParseKind(t *testing.T) {
+	for in, want := range map[string]Kind{"": KindHuman, "human": KindHuman, "client": KindClient, "surveyor": KindSurveyor} {
+		if got, err := ParseKind(in); err != nil || got != want {
+			t.Errorf("ParseKind(%q) = %q, %v", in, got, err)
+		}
+	}
+	if _, err := ParseKind("robot"); err == nil {
+		t.Error("an unknown kind must be refused")
+	}
+}
+
+func TestSurveyorKindForcesReadOnlyArtifacts(t *testing.T) {
+	ts := NewScopedTokenStore([]ScopedToken{
+		{Token: "s", Kind: KindSurveyor, Scopes: []KBScope{{KB: "docs", Write: true}},
+			Policy: Policy{Permissions: []Permission{{KB: "docs", Write: true}}}},
+		{Token: "c", Kind: KindClient, Scopes: []KBScope{{KB: "docs", Write: true}}},
+	})
+	s, _ := ts.PrincipalOf("s")
+	c, _ := ts.PrincipalOf("c")
+	if s.Policy.AllowsArtifactWrite("docs") {
+		t.Error("a surveyor must not change artifacts")
+	}
+	if !s.Policy.Allows("docs", "", "", "Note", true) {
+		t.Error("a surveyor keeps its content writes")
+	}
+	if !c.Policy.AllowsArtifactWrite("docs") {
+		t.Error("a client keeps artifact writes")
 	}
 }

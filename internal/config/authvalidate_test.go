@@ -3,6 +3,7 @@ package config_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 )
@@ -152,5 +153,58 @@ func TestValidateAuthRefusesDuplicateTokenValues(t *testing.T) {
 	}}
 	if err := config.ValidateAuth(distinct); err != nil {
 		t.Errorf("distinct tokens rejected: %v", err)
+	}
+}
+
+func TestValidateAuthKindAndExpiry(t *testing.T) {
+	now := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	future := "2027-06-01T00:00:00Z"
+	sc := []string{"kb:docs:r"}
+	tok := func(kind, exp string, scopes []string) config.AuthConfig {
+		return config.AuthConfig{Mode: "on", Tokens: []config.TokenSpec{{Token: sentinelToken, ID: "t1", Kind: kind, ExpiresAt: exp, Scopes: scopes, ScopesDeclared: len(scopes) > 0}}}
+	}
+	ok := []struct {
+		name string
+		cfg  config.AuthConfig
+	}{
+		{"released token, no new key", tok("", "", nil)},
+		{"human with expiry", tok("human", future, nil)},
+		{"surveyor scoped and expiring", tok("surveyor", future, sc)},
+		{"client with offset timestamp", tok("client", "2027-06-01T02:00:00+02:00", sc)},
+	}
+	for _, c := range ok {
+		t.Run(c.name, func(t *testing.T) {
+			if err := config.ValidateAuthAt(c.cfg, now); err != nil {
+				t.Errorf("rejected: %v", err)
+			}
+		})
+	}
+	bad := []struct {
+		name string
+		cfg  config.AuthConfig
+		want string
+	}{
+		{"unknown kind", tok("robot", "", sc), "kind"},
+		{"unparsable expiry", tok("", "next tuesday", nil), "RFC 3339"},
+		{"expiry in the past", tok("", "2026-12-31T23:59:59Z", nil), "already past"},
+		{"expiry at the instant", tok("", "2027-01-01T00:00:00Z", nil), "already past"},
+		{"surveyor without expiry", tok("surveyor", "", sc), "expires_at"},
+		{"client without expiry", tok("client", "", sc), "expires_at"},
+		{"surveyor admin-shaped", tok("surveyor", future, nil), "never admin"},
+		{"client admin-shaped", tok("client", future, nil), "never admin"},
+	}
+	for _, c := range bad {
+		t.Run(c.name, func(t *testing.T) {
+			err := config.ValidateAuthAt(c.cfg, now)
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), `"t1"`) {
+				t.Errorf("error %q should mention %q and the token id", err, c.want)
+			}
+			if strings.Contains(err.Error(), sentinelToken) {
+				t.Error("diagnostic leaks the token value")
+			}
+		})
 	}
 }

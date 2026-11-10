@@ -244,3 +244,17 @@ func TestRuleArtifactsKey(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadAcceptsTokenKindKeys(t *testing.T) {
+	cfg, err := loadAuthYAML(t, "auth:\n  tokens:\n    - {token: abc, id: s1, kind: surveyor, expires_at: \"2999-01-01T00:00:00Z\", scopes: [\"kb:docs:rw\"]}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Auth.Tokens[0]
+	if got.Kind != "surveyor" || got.ExpiresAt != "2999-01-01T00:00:00Z" {
+		t.Errorf("kind/expiry not decoded: %+v", got)
+	}
+	if _, err := loadAuthYAML(t, "auth:\n  tokens:\n    - {token: abc, expire: \"2999-01-01T00:00:00Z\"}\n"); err == nil {
+		t.Error("a misspelled expires_at must refuse start")
+	}
+}
