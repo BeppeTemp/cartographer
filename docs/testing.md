@@ -987,7 +987,11 @@ straight to bisection; any other red train is gated a second time on the same tr
 then is a flaky test, the train lands and a `bug` issue names the failing tests (Go, vitest
 and Playwright names read from the log); red again, the lander
 bisects over the train's prefixes (one signoff each) and rejects the first change whose
-prefix is red. A gate that fails for a reason that is not a test (the signoff stops before
+prefix is red. When the signoff confirmed the failure on named Go tests, its `signoff: probe:`
+line names their packages and platform, and each bisection step runs only those
+(`scripts/signoff.sh --probe`, a minute or two instead of a full signoff, D1878);
+the prefix before the rejected change then gets one full signoff before it lands (red: the
+train is composed again), and a probe whose machine is unavailable falls back to full gates. A gate that fails for a reason that is not a test (the signoff stops before
 the targets) stops the lander and leaves the queue untouched. Once the train PR merged, a
 queue entry whose deletion fails for a reason that is not the lease is retried, then stops
 the lander; a queued change whose diff `main` already holds is dequeued, not rejected.

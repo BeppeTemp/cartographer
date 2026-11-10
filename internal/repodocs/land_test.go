@@ -435,6 +435,39 @@ func TestLanderRejectsTheChangeThatBreaksTheTrain(t *testing.T) {
 	}
 }
 
+// A failure the signoff confirmed on named Go tests is bisected with those tests' packages
+// only (signoff.sh --probe), not a full gate per prefix; the green prefix still gets one full
+// gate before it lands, and the changes after the rejected one land in the next train.
+func TestLanderBisectsWithTheConfirmedTestsOnly(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"CONFIRMED": "x\n"})
+	e.queue("c", "fix(kb): c\n", "2026-01-01T12:00:00Z", map[string]string{"c.txt": "c\n"})
+	e.queue("d", "fix(kb): d\n", "2026-01-01T13:00:00Z", map[string]string{"d.txt": "d\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a | fix(kb): c | fix(kb): d" {
+		t.Fatalf("main holds %q, want a, then c and d\n%s", got, out)
+	}
+	if e.refs("failed/") != "b" {
+		t.Fatalf("b must be rejected: failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if !strings.Contains(out, "bisecting with the confirmed tests only: linux github.com/x/p/internal/kb -") {
+		t.Errorf("the bisection must use the confirmed packages:\n%s", out)
+	}
+	mk := e.makeLog()
+	// The red train, the full gate of the green prefix [a], the train of c and d.
+	if n := strings.Count(mk, "-k gate"); n != 3 {
+		t.Errorf("three full gates, none per bisection step: %d\n%s", n, mk)
+	}
+	// The signoff's own retry, then one probe per bisection step (prefixes [a b] and [a]).
+	if n := strings.Count(mk, "test-rerun RERUN_PKGS=github.com/x/p/internal/kb"); n != 3 {
+		t.Errorf("the retry and two probes: %d\n%s", n, mk)
+	}
+}
+
 // Red once and green on the re-run is a flaky test: the train lands and a bug
 // issue names the test.
 func TestLanderLandsOnAFlakyRerunAndOpensAnIssue(t *testing.T) {

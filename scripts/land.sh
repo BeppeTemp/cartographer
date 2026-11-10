@@ -23,7 +23,10 @@
 # issue names them; red, the failure is confirmed and bisection starts without a re-run.
 # Any other red: one re-run of the same tree; green then means a flaky test, so the train
 # lands and a `bug` issue names the tests. Red twice: bisection over the train's prefixes
-# finds the first failing change, which is rejected, and the green prefix before it lands. Green: one PR, title
+# finds the first failing change, which is rejected, and the green prefix before it lands;
+# when the signoff confirmed the failure on named Go tests, each prefix runs only those
+# tests' packages (`signoff.sh --probe`, D1878) and the green prefix then gets
+# one full gate before it lands. Green: one PR, title
 # `chore(dev): train <id>, <k> changes`, rebase-merged so every change stays its own
 # conventional commit on main; once merged, the landed queue entries are deleted (a queued
 # change whose diff main already holds is dequeued, not rejected). The lander merges the PR
@@ -281,9 +284,10 @@ failing() { # $1 = gate log; vitest and Playwright colour their lines
     -e 's/^--- FAIL: \([A-Za-z0-9_]*\).*/\1/p' \
     -e 's/^ FAIL  \([^ ]*\) > .*/\1/p' \
     -e 's/^ *✘ *[0-9]* *\([^ ]*\) .*/\1/p' <<<"$clean" | LC_ALL=C sort -u || true)
-  printf '%s\n' "$others" | awk -v c="$confirmed" '
+  # Through the environment: macOS awk refuses a newline in a -v value, and the lander runs there.
+  printf '%s\n' "$others" | CONFIRMED=$confirmed awk '
     BEGIN {
-      n = split(c, a, "\n")
+      n = split(ENVIRON["CONFIRMED"], a, "\n")
       for (i = 1; i <= n; i++) if (a[i] != "") { print a[i]; t = a[i]; sub(/^.*\./, "", t); seen[t] = 1 }
     }
     $0 != "" && !($0 in seen) { print }' | head -n 10 | tr '\n' ' ' | sed 's/ $//' || true
@@ -435,18 +439,52 @@ while :; do
         "The gate of the train \`$branch\` failed, then passed on the same tree. Failing tests: ${fails:-none named in the log}. A re-run is not a fix: find why it fails."
     else
       lo=0 hi=$k good=
-      while [ $((hi - lo)) -gt 1 ]; do
-        m=$(( (lo + hi) / 2 ))
-        git reset -q --hard "${commits[m - 1]}"
-        r=0; gate "$glog.p$m" || r=$?
-        [ "$r" != 2 ] || die "the gate of a prefix of $branch failed for a reason that is not a test: the queue is untouched"
-        if [ "$r" = 0 ]; then lo=$m; good=$(git rev-parse HEAD); else hi=$m; fi
-      done
+      # The confirmed tests alone (their packages, a minute or two) find the change that
+      # breaks them; the green prefix still gets its full gate below. Without a confirmed
+      # retry, or with its machine gone, each prefix gets a full gate.
+      probe=$(cat "$glog" "$glog.2" 2>/dev/null | sed -n 's/^signoff: probe: //p' | tail -n 1 || true)
+      if [ -n "$probe" ]; then
+        log "bisecting with the confirmed tests only: $probe"
+        while [ $((hi - lo)) -gt 1 ]; do
+          m=$(( (lo + hi) / 2 ))
+          git reset -q --hard "${commits[m - 1]}"
+          r=0
+          # shellcheck disable=SC2086  # the probe is three words on purpose
+          (cd "$wt" && "$here/signoff.sh" --probe $probe) >>"$glog.probe" 2>&1 || r=$?
+          if [ "$r" = 75 ]; then
+            log "the probe's machine is unavailable: bisecting with full gates"
+            probe= lo=0 hi=$k
+            break
+          fi
+          if [ "$r" = 0 ]; then lo=$m; else hi=$m; fi
+        done
+      fi
+      if [ -z "$probe" ]; then
+        while [ $((hi - lo)) -gt 1 ]; do
+          m=$(( (lo + hi) / 2 ))
+          git reset -q --hard "${commits[m - 1]}"
+          r=0; gate "$glog.p$m" || r=$?
+          [ "$r" != 2 ] || die "the gate of a prefix of $branch failed for a reason that is not a test: the queue is untouched"
+          if [ "$r" = 0 ]; then lo=$m; good=$(git rev-parse HEAD); else hi=$m; fi
+        done
+      fi
       bad=$(sed -n "${hi}p" <<<"$landed")
       reject "${bad%% *}" "${bad#* }" "the train gate is red with it and green without it (tests: ${fails:-see the gate log})"
       if [ "$lo" = 0 ]; then
         g push -q origin --delete "$branch" >/dev/null 2>&1 || true
         continue
+      fi
+      if [ -z "$good" ]; then
+        # Found by the probe: the prefix before the rejected change lands on a full gate.
+        git reset -q --hard "${commits[lo - 1]}"
+        r=0; gate "$glog.p$lo" || r=$?
+        [ "$r" != 2 ] || die "the gate of a prefix of $branch failed for a reason that is not a test: the queue is untouched"
+        if [ "$r" != 0 ]; then
+          log "the prefix before ${bad%% *} is red too: composing the train again"
+          g push -q origin --delete "$branch" >/dev/null 2>&1 || true
+          continue
+        fi
+        good=$(git rev-parse HEAD)
       fi
       git reset -q --hard "$good"
       g push -q --force origin "$good:refs/heads/$branch"
