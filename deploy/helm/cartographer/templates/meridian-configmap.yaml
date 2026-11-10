@@ -11,6 +11,8 @@ data:
     # The next keys are owned by the chart: they are coupled to the container port and the mounts.
     http: ":39273"
     data: /data
+    web:
+      enabled: {{ .Values.atlas.enabled }}
     {{- if .Values.meridian.credentials.enabled }}
     credentials_dir: /etc/cartographer-credentials
     {{- end }}

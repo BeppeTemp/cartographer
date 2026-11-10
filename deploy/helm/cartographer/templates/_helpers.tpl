@@ -68,9 +68,9 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- fail "meridian.url applies to meridian.enabled=false only: an enabled release reaches its own Meridian" -}}
 {{- end -}}
 {{- $cfg := $s.config -}}
-{{- range $k := list "http" "data" "credentials_dir" -}}
+{{- range $k := list "http" "data" "credentials_dir" "web" -}}
 {{- if hasKey $cfg $k -}}
-{{- fail (printf "meridian.config.%s is owned by the chart (it is coupled to the container port, the probes and the mounts): remove it from your values" $k) -}}
+{{- fail (printf "meridian.config.%s is owned by the chart (it is coupled to the container port, the probes and the mounts): remove it from your values (the Atlas switch is atlas.enabled)" $k) -}}
 {{- end -}}
 {{- end -}}
 {{- $yamlTokens := dig "auth" "tokens" (list) $cfg -}}
