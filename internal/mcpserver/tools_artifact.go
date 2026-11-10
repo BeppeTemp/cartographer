@@ -28,6 +28,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // artifactMaxFileSize caps the size of a single artifact file accepted by
@@ -303,7 +304,7 @@ func toolArtifactRead(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("oversized: %s is %d bytes, over the %d bytes cap of an artifact file; it is not read", params.Path, oversized, artifactMaxFileSize)), nil
 			}
 			if info.Kind == "mcp" {
-				if _, parseErr := provisioning.ParseMCPServerSpec(info.Name, data); parseErr != nil {
+				if _, parseErr := contract.ParseMCPServerSpec(info.Name, data); parseErr != nil {
 					return errorResult(fmt.Sprintf("not_found: %s", params.Path)), nil
 				}
 			}
@@ -654,7 +655,7 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 	case "agent":
 		return provisioning.ValidateAgentFile(info.Name, data)
 	case "mcp":
-		if _, err := provisioning.ParseMCPServerSpec(info.Name, data); err != nil {
+		if _, err := contract.ParseMCPServerSpec(info.Name, data); err != nil {
 			return err
 		}
 		return nil

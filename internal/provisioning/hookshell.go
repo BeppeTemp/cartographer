@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // hookHostWindows is hostWindows behind a test seam, the way execBitSupported
@@ -76,7 +78,7 @@ func hookCommandProblem(command string, windows bool, exists func(string) bool) 
 	if windows && strings.Contains(bin, `\`) {
 		return fmt.Sprintf("command %s has backslashes, which the shell running it removes", bin)
 	}
-	if isAbsCommandPath(bin) && !exists(bin) {
+	if contract.IsAbsCommandPath(bin) && !exists(bin) {
 		return fmt.Sprintf("command %s does not exist", bin)
 	}
 	return ""

@@ -7,21 +7,22 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestMCPDescriptorTarget(t *testing.T) {
-	target, err := provisioning.MCPDescriptorTarget(provisioning.MCPServerSpec{Type: "http", URL: "https://Example.com/mcp"})
+	target, err := provisioning.MCPDescriptorTarget(contract.MCPServerSpec{Type: "http", URL: "https://Example.com/mcp"})
 	if err != nil || target != "https://example.com/mcp" {
 		t.Fatalf("http target = %q, err = %v", target, err)
 	}
-	target, err = provisioning.MCPDescriptorTarget(provisioning.MCPServerSpec{Type: "stdio", Command: "tool"})
+	target, err = provisioning.MCPDescriptorTarget(contract.MCPServerSpec{Type: "stdio", Command: "tool"})
 	if err != nil || target != "tool" {
 		t.Fatalf("stdio target = %q, err = %v", target, err)
 	}
-	if _, err := provisioning.MCPDescriptorTarget(provisioning.MCPServerSpec{Type: "socket"}); err == nil {
+	if _, err := provisioning.MCPDescriptorTarget(contract.MCPServerSpec{Type: "socket"}); err == nil {
 		t.Fatal("expected error for unsupported transport")
 	}
-	if _, err := provisioning.MCPDescriptorTarget(provisioning.MCPServerSpec{Type: "stdio", Command: "bin/tool"}); err == nil || !strings.Contains(err.Error(), "bare executable name or absolute path") {
+	if _, err := provisioning.MCPDescriptorTarget(contract.MCPServerSpec{Type: "stdio", Command: "bin/tool"}); err == nil || !strings.Contains(err.Error(), "bare executable name or absolute path") {
 		t.Fatalf("invalid stdio command target error = %v", err)
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // The single-file hash is a second line behind the manifest's own check: a
@@ -21,9 +23,9 @@ func TestContentHashFile_RefusesALink(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Fatal(err)
 	}
-	var linkErr *kbSymlinkError
+	var linkErr *contract.KBSymlinkError
 	if _, err := contentHashFile(link); !errors.As(err, &linkErr) {
-		t.Fatalf("contentHashFile(link) = %v, want a *kbSymlinkError", err)
+		t.Fatalf("contentHashFile(link) = %v, want a *contract.KBSymlinkError", err)
 	}
 	real := filepath.Join(dir, "y.json")
 	if err := os.WriteFile(real, []byte("{}"), 0o644); err != nil {
@@ -31,28 +33,5 @@ func TestContentHashFile_RefusesALink(t *testing.T) {
 	}
 	if _, err := contentHashFile(real); err != nil {
 		t.Fatalf("contentHashFile(regular file): %v", err)
-	}
-}
-
-func TestFirstKBLink_NamesTheFirstLinkedComponent(t *testing.T) {
-	skipWithoutSymlinks(t)
-	root := t.TempDir()
-	outside := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "hooks"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(root, "hooks", "lnk")); err != nil {
-		t.Fatal(err)
-	}
-	for rel, want := range map[string]string{
-		"hooks/lnk":          "hooks/lnk",
-		"hooks/lnk/run.sh":   "hooks/lnk",
-		"hooks/plain/run.sh": "",
-		"skills/none":        "",
-	} {
-		got, err := firstKBLink(root, rel)
-		if err != nil || got != want {
-			t.Errorf("firstKBLink(%q) = %q, %v; want %q", rel, got, err, want)
-		}
 	}
 }

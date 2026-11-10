@@ -25,7 +25,7 @@ package configurator
 //   - a value that still contains "$(" afterwards is refused, not written: it
 //     would execute on the next Crush start. Cartographer's own specs never
 //     contain one, but a KB-provided "mcp" artifact can
-//     (internal/provisioning/mcpspec.go).
+//     (internal/provisioning/contract/mcpspec.go).
 
 import (
 	"encoding/json"

@@ -6,7 +6,7 @@
 // still provider-neutral; client-side preflight verifies the local executable
 // before a provider receives it.
 
-package provisioning
+package contract
 
 import (
 	"bytes"
@@ -105,7 +105,7 @@ func ValidateMCPStdioCommand(command string) error {
 	// brackets, braces, `!` and quotes are legal in file names, and a Windows
 	// 8.3 short path (C:\Users\RUNNER~1\AppData\...) contains a tilde.
 	forbidden := "|&;<>()$`*?\"\n\r"
-	absolute := isAbsCommandPath(command)
+	absolute := IsAbsCommandPath(command)
 	if absolute {
 		// Parentheses are allowed for an absolute command, and only there.
 		// C:\Program Files (x86)\... is the most common absolute path on
@@ -131,13 +131,13 @@ func ValidateMCPStdioCommand(command string) error {
 	return nil
 }
 
-// isAbsCommandPath recognises an absolute path in either platform's spelling.
+// IsAbsCommandPath recognises an absolute path in either platform's spelling.
 // A descriptor lives in the KB and is read by every client: a unix command
 // (/usr/local/bin/tool) must stay a valid absolute path when the file is
 // validated on Windows, and a Windows one (C:\tools\mcp.exe, \\host\share\x)
 // when it is validated on unix. Whether the command exists *here* is the
 // preflight's question, not this one's.
-func isAbsCommandPath(s string) bool {
+func IsAbsCommandPath(s string) bool {
 	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, `\\`) {
 		return true
 	}

@@ -47,7 +47,7 @@ func DefaultConfig() *ServerConfig {
 // transport config (D69): the shared core EmitServer renders for any given
 // provider, used both for Cartographer's own entry (Emit, via ServerConfig.toSpec
 // below) and for third-party servers distributed by a KB (internal/provisioning
-// "mcp" artifact kind — see internal/provisioning/mcpspec.go and mcpsettings.go).
+// "mcp" artifact kind — see internal/provisioning/contract/mcpspec.go and mcpsettings.go).
 //
 // A header value that carries a secret references the client's own
 // environment via a "${VAR}" placeholder (translated to each provider's native
@@ -1060,7 +1060,7 @@ func emitKiroServer(name string, spec ServerSpec) (*EmitResult, error) {
 
 // envRefPattern matches a "${VAR_NAME}" placeholder (the provider-neutral
 // syntax used everywhere else — see ServerSpec's doc comment and
-// internal/provisioning/mcpspec.go), so each emitter can translate it into the
+// internal/provisioning/contract/mcpspec.go), so each emitter can translate it into the
 // syntax its own provider understands: OpenCode's "{env:VAR_NAME}"
 // (emitOpenCodeServer below) and Crush's "$VAR_NAME" (crushjson.go).
 var envRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)

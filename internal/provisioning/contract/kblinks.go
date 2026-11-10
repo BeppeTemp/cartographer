@@ -1,4 +1,4 @@
-package provisioning
+package contract
 
 import (
 	"fmt"
@@ -20,18 +20,18 @@ import (
 // materialized (ContentHashDirOSForKind, VerifyManaged) is a different
 // question and does not apply it.
 
-// kbSymlinkError is returned where an artifact's file is a symlink.
-type kbSymlinkError struct{ rel string }
+// KBSymlinkError is returned where an artifact's file is a symlink.
+type KBSymlinkError struct{ Rel string }
 
-func (e *kbSymlinkError) Error() string {
-	return fmt.Sprintf("symlink %q: an artifact is made of regular files and is not read through a link", e.rel)
+func (e *KBSymlinkError) Error() string {
+	return fmt.Sprintf("symlink %q: an artifact is made of regular files and is not read through a link", e.Rel)
 }
 
-// firstKBLink returns the first component of rel (slash-separated, below
+// FirstKBLink returns the first component of rel (slash-separated, below
 // kbRoot) that is a symlink, as a slash path from kbRoot, or "" when none is.
 // A component that does not exist ends the walk: there is nothing to read
 // below it. kbRoot itself may be a link (a mount) and is not inspected.
-func firstKBLink(kbRoot, rel string) (string, error) {
+func FirstKBLink(kbRoot, rel string) (string, error) {
 	parts := strings.Split(rel, "/")
 	cur := kbRoot
 	for i, part := range parts {
@@ -50,7 +50,7 @@ func firstKBLink(kbRoot, rel string) (string, error) {
 	return "", nil
 }
 
-// kbLinkIssue is the manifest issue for an artifact left out because of a link.
-func kbLinkIssue(kbName, what, link string) string {
+// KBLinkIssue is the manifest issue for an artifact left out because of a link.
+func KBLinkIssue(kbName, what, link string) string {
 	return fmt.Sprintf("KB %q: %s not served: symlink at %q (an artifact is made of regular files)", kbName, what, link)
 }
