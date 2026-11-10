@@ -67,7 +67,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ github.head_ref }}
         run: |
-          files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
+          # GitHub answers 5xx for the files of a just-opened PR (its diff is not computed yet):
+          # asked again with a backoff; any other error ends the job.
+          err=$(mktemp)
+          for try in 1 2 3 4 5; do
+            if files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename' 2>"$err"); then break; fi
+            if [ "$try" = 5 ] || ! grep -qE 'HTTP 5[0-9][0-9]' "$err"; then cat "$err" >&2; exit 1; fi
+            sleep $((try * 10))
+          done
           printf '%s\n' "$files"
           printf '%s\n' "$files" | scripts/ci-filters.sh "$HEAD_REF" >> "$GITHUB_OUTPUT"
 

@@ -252,7 +252,9 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   commit on `main`. The lander merges it itself, once its required checks pass and only while
   `main` is still the commit the train was gated on (`main` does not require a branch to be
   up to date): if `main` moved, during the gate or before the merge, the PR is closed and the
-  train composed and gated again. Each queued change gets a hosted pre-check
+  train composed and gated again. A required check that fails is rerun once before the
+  lander stops, and an open train PR on the current `main` that it did not open is adopted
+  (one on an older `main` is closed). Each queued change gets a hosted pre-check
   (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests): a train of
   several changes takes only the green ones, and a red one is gated alone. `make land-status` shows the queue; `make land` runs the lander in the
   foreground (`DRY=1` prints the next train). Queued changes have no cap: the train is the

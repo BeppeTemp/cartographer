@@ -354,3 +354,54 @@ esac
 		})
 	}
 }
+
+// GitHub answers a 5xx for the files of a just-opened PR (#1881): the read is asked again
+// with a backoff, while any other error ends it at once.
+func TestPRTriageRetriesTheFilesReadOnA5xx(t *testing.T) {
+	bash := bashOrSkip(t)
+	for _, tc := range []struct {
+		name, err string
+		ok        bool
+		calls     string
+	}{
+		{"5xx", "gh: HTTP 500: Sorry, this diff is temporarily unavailable", true, "2"},
+		{"404", "gh: HTTP 404: Not Found", false, "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			fake := `#!/bin/sh
+case "$1 $2" in
+  "pr view") printf '{"title":"docs: x","author":{"login":"u"},"closingIssuesReferences":[],"statusCheckRollup":[],"body":"","headRefName":"b","labels":[],"assignees":[]}' ;;
+  "api --paginate")
+    echo x >> "$CALLS"
+    # The first page is printed before the failing second one (--paginate): a retry must not repeat it.
+    if [ "$(wc -l < "$CALLS")" -lt 2 ] || [ -n "$ALWAYS" ]; then printf '5\t0\t.github/workflows/partial.yml\n'; echo "$ERR" >&2; exit 1; fi
+    printf '1\t0\tREADME.md\n' ;;
+  "api repos/{owner}/{repo}/pulls/1") printf 'MEMBER\tUser\n' ;;
+  *) exit 1 ;;
+esac
+`
+			if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fake), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			calls := filepath.Join(dir, "calls")
+			cmd := exec.Command(bash, "scripts/pr-triage.sh", "1")
+			cmd.Dir = repoRoot(t)
+			env := []string{"CALLS=" + calls, "ERR=" + tc.err, "PR_TRIAGE_RETRY_SLEEP=0", "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")}
+			if !tc.ok {
+				env = append(env, "ALWAYS=1")
+			}
+			cmd.Env = append(os.Environ(), env...)
+			out, err := cmd.CombinedOutput()
+			if (err == nil) != tc.ok {
+				t.Fatalf("pr-triage.sh: err=%v, want ok=%v\n%s", err, tc.ok, out)
+			}
+			if strings.Contains(string(out), "supply-chain") {
+				t.Errorf("the page printed before the 5xx must not reach the result:\n%s", out)
+			}
+			if n := strings.Count(readTmp(t, dir, "calls"), "x"); fmt.Sprint(n) != tc.calls {
+				t.Errorf("the files read was made %d times, want %s\n%s", n, tc.calls, out)
+			}
+		})
+	}
+}
