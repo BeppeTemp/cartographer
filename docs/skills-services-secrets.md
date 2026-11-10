@@ -170,9 +170,14 @@ KB's age key can decrypt, not only the ones its concepts already reference: it
 can `concept_write` a concept whose `secret_refs` point at any
 `secrets/*.sops.yaml#/pointer`, then `secret_resolve` it with `reveal: true`.
 `secret_refs` bound what a resolution *returns* (least exposure); they are not
-access control over *who may read*. There is no separate secrets scope (D261):
-this is accepted for single-operator deployments. A KB whose secrets must be
-readable by fewer principals than may edit it needs its own KB, key and token.
+access control over *who may read*. There is no separate secrets scope (D261),
+but a role rule can withhold the authority: `secrets: none` on a `rw` rule
+(D1894) denies `secret_resolve`, `secret_set`, `service_get` with
+`resolve_secrets` and any concept write whose arguments name `secret_refs` or
+`secrets_source`, with `secrets_restricted`, and hides the KB's secret files in
+the Atlas. Reading the names of a concept's `secret_refs` through `concept_read`
+stays allowed (names and pointers, never a value). Without the key, `rw` is
+authority over every secret the KB's age key can decrypt, as before.
 
 ## SOPS files
 

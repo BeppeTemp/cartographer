@@ -1695,6 +1695,7 @@ auth:
         - kb: kb-a
           access: rw
           artifacts: r          # rw (default) | r: everything above except changing skills, agents, hooks
+          secrets: none         # omit (default) | none: everything above except authority over secrets
   tokens:
     - token: ${CARTOGRAPHER_TOKEN}
       id: ci                    # stable principal id for logs; derived from a
@@ -1712,6 +1713,13 @@ every client of the KB syncs and executes. `log_append`, `source_register`, `con
 A second rule of the same token without the key restores the write (rules are unioned); `artifacts: rw` with
 `access: r` is refused at startup. The Surveyor token recipe is a role like `automation-a` above: one role per
 perimeter, `rw` on the perimeter's KBs, `artifacts: r`, no other KB.
+
+`secrets: none` (D1894) is the same shape for secrets: the rule grants what its `access` grants except `secret_resolve`,
+`secret_set`, `service_get` with `resolve_secrets`, and any `concept_write`, `concept_new`, `concept_patch`,
+`concept_batch`, `concept_merge` or `concept_expand` whose arguments name `secret_refs` or `secrets_source` (a
+conservative scan: a false positive denies). They answer `secrets_restricted`. An unselected rule (no maps, journals or types) of the token without the key
+restores them; on an `access: r` rule it is accepted and changes nothing but the Atlas, which then hides the KB's secret
+files. A `surveyor` token always has it.
 
 Rollout notes:
 

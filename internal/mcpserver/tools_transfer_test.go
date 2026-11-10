@@ -549,3 +549,31 @@ func TestConceptTransfer_KeepsALegacyStem(t *testing.T) {
 		t.Fatalf("target missing: %v", err)
 	}
 }
+
+// D1894: the frontmatter travels verbatim, so a token restricted from secret
+// fields on the target may not transfer a concept that carries them.
+func TestTransferTargetWithholdsSecretFields(t *testing.T) {
+	t.Parallel()
+	f := newTransferFixture(t)
+	xferWrite(t, f.a, "notes/plain.md", "---\ntype: Entity\ntitle: Plain\n---\nx\n")
+	xferWrite(t, f.a, "notes/refs.md", "---\ntype: Entity\ntitle: Refs\nsecret_refs:\n  k: secrets/x.sops.yaml#/a\n---\nx\n")
+	xferWrite(t, f.a, "notes/dossier/index.md", "---\ntype: Entity\ntitle: Dossier\n---\nbody\n")
+	xferWrite(t, f.a, "notes/dossier/part.md", "---\ntype: Topic\ntitle: Part\nsecret_refs:\n  k: secrets/x.sops.yaml#/a\n---\nsat\n")
+	sat := []conceptMoveEntry{{SourceID: "notes/dossier", TargetID: "wiki/dossier"}}
+	plain := []conceptMoveEntry{{SourceID: "notes/plain", TargetID: "wiki/plain"}}
+	refs := []conceptMoveEntry{{SourceID: "notes/refs", TargetID: "wiki/refs"}}
+	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Write: true}, {KB: "kb-b", Write: true, NoSecrets: true}}})
+	if err := authorizeTransferTarget(ctx, f.a, f.b, "kb-b", refs); err == nil || !strings.Contains(err.Error(), "secrets_restricted") {
+		t.Errorf("secret_refs carried into a secrets: none target: %v", err)
+	}
+	if err := authorizeTransferTarget(ctx, f.a, f.b, "kb-b", sat); err == nil || !strings.Contains(err.Error(), "secrets_restricted") {
+		t.Errorf("a satellite with secret_refs into a secrets: none target: %v", err)
+	}
+	if err := authorizeTransferTarget(ctx, f.a, f.b, "kb-b", plain); err != nil {
+		t.Errorf("plain concept denied: %v", err)
+	}
+	ctx = restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Write: true}, {KB: "kb-b", Write: true}}})
+	if err := authorizeTransferTarget(ctx, f.a, f.b, "kb-b", refs); err != nil {
+		t.Errorf("unrestricted token denied: %v", err)
+	}
+}

@@ -33,6 +33,24 @@ token forms cannot carry a kind and stay `human`. Later changes of the same
 series extend this decision with the secrets restriction (which also amends
 D261) and the trusted-proxy identity.
 
+**Secrets.** D261 left `rw` as authority over every secret the KB's age key
+decrypts, because the only alternative was a separate KB. A rule now carries
+`secrets: none`, a narrower allow like `artifacts: r` and not a deny: the
+secret tools, `service_get` with `resolve_secrets` and the concept writers whose
+arguments name `secret_refs` or `secrets_source` answer `secrets_restricted`
+unless some other, unselected `rw` rule of the token lacks the key. The
+concept scan is conservative (a false positive denies) because the
+frontmatter reaches the tools in several shapes; reading the reference names
+stays allowed. The concept writers are denied when the token has at least one
+write rule on the KB carrying `secrets: none` and no unselected write rule
+without it, so a scoped rule without the key does not undo a whole-KB
+restriction; a token with no `secrets: none` rule is unrestricted as before.
+`concept_transfer` carries frontmatter verbatim, so it is checked against the
+target KB. The artifact tools need no check: the secret kind is not an
+artifact path they accept. The `surveyor` kind forces the restriction, and the
+Atlas hides the secret files of a KB whose unselected rules all carry it. D261
+is amended, not reversed: no key means today's behaviour.
+
 **Reload.** Tokens and roles are applied to a running server: the store holds an
 immutable snapshot behind an atomic pointer and `Replace` swaps it whole, on
 `SIGHUP` and on a poll of the config file (`auth.reload_interval`, default 30s,

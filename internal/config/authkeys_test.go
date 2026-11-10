@@ -226,14 +226,19 @@ func TestRuleArtifactsKey(t *testing.T) {
 		return "auth:\n  roles:\n    - name: w\n      rules:\n        - " + rule + "\n  tokens:\n    - {token: abc, roles: [w]}\n"
 	}
 	for rule, ok := range map[string]bool{
-		"{kb: kb-a, access: rw, artifacts: r}":            true,
-		"{kb: kb-a, access: rw, artifacts: rw}":           true,
-		"{kb: kb-a, access: rw}":                          true,
-		"{kb: kb-a, access: r, artifacts: r}":             true,
-		"{kb: kb-a, access: rw, maps: [m], artifacts: r}": true,
-		"{kb: kb-a, access: r, artifacts: rw}":            false,
-		"{kb: kb-a, access: rw, artifacts: write}":        false,
-		"{kb: kb-a, access: rw, artefacts: r}":            false,
+		"{kb: kb-a, access: rw, artifacts: r}":                true,
+		"{kb: kb-a, access: rw, artifacts: rw}":               true,
+		"{kb: kb-a, access: rw}":                              true,
+		"{kb: kb-a, access: r, artifacts: r}":                 true,
+		"{kb: kb-a, access: rw, maps: [m], artifacts: r}":     true,
+		"{kb: kb-a, access: rw, secrets: none}":               true,
+		"{kb: kb-a, access: r, secrets: none}":                true,
+		"{kb: kb-a, access: rw, artifacts: r, secrets: none}": true,
+		"{kb: kb-a, access: rw, secrets: r}":                  false,
+		"{kb: kb-a, access: rw, secrets: rw}":                 false,
+		"{kb: kb-a, access: r, artifacts: rw}":                false,
+		"{kb: kb-a, access: rw, artifacts: write}":            false,
+		"{kb: kb-a, access: rw, artefacts: r}":                false,
 	} {
 		cfg, err := loadAuthYAML(t, role(rule))
 		if err == nil {

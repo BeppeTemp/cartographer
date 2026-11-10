@@ -147,12 +147,23 @@ func authorizeTransferTarget(ctx context.Context, src, dst *kb.KB, dstName strin
 	if !p.Policy.HasKBAccess(dstName, true) {
 		return deny(denyReadOnlyToken)
 	}
+	withheld := p.Policy.WithholdsSecrets(dstName)
 	for _, m := range moves {
 		if okf.ValidateID(m.TargetID) != nil || okf.ValidateID(m.SourceID) != nil {
 			return deny(denyBadArguments)
 		}
 		// Every satellite of an expanded concept lands in dst too, with its own type.
 		for _, pair := range movePairs(src, m.SourceID, m.TargetID) {
+			// The frontmatter of the concept and of every satellite travels
+			// verbatim: a token that may not set the fields pointing at a
+			// secret on the target may not carry them in. Fail closed on a
+			// read error.
+			if withheld {
+				data, err := src.ReadConcept(okf.ConceptID(pair.from))
+				if err != nil || strings.Contains(data.FrontmatterRaw, "secret_refs") || strings.Contains(data.FrontmatterRaw, "secrets_source") {
+					return deny(denySecretsRestr)
+				}
+			}
 			_, _, typ := conceptClass(src, pair.from)
 			mapName, journalName, _ := conceptClass(dst, pair.to)
 			if !p.Policy.Allows(dstName, mapName, journalName, typ, true) {

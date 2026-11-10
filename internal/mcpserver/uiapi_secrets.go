@@ -49,7 +49,7 @@ type uiSecretFile struct {
 }
 
 func (m *MultiKBServer) uiSecrets(w http.ResponseWriter, r *http.Request, srv *Server) {
-	if !WholeVisible(r.Context(), srv.kbRef, false) {
+	if !SecretsVisible(r.Context(), srv.kbRef) {
 		writeUINotFound(w)
 		return
 	}
@@ -71,7 +71,7 @@ func (m *MultiKBServer) uiSecrets(w http.ResponseWriter, r *http.Request, srv *S
 
 // uiSecretsVisible is the `secrets` flag of GET /kbs.
 func uiSecretsVisible(ctx requestContext, k *kb.KB) bool {
-	return WholeVisible(ctx, k, false)
+	return SecretsVisible(ctx, k)
 }
 
 func uiSecretsList(k *kb.KB) ([]uiSecretFile, error) {
