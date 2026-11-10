@@ -88,7 +88,17 @@ case "$1 $2" in
   "api -X") ;;
   "api repos/up/proj") echo '{"fork":false}' | out ;;
   "api repos/up/proj/issues"*) if [ -n "${FAKE_GH_LAST:-}" ]; then echo "[{\"number\":$FAKE_GH_LAST}]"; else echo '[]'; fi | out ;;
-  "run list") echo '[]' | out ;;
+  "run list")
+    # The hosted pre-check of a queued commit (ready-check.yml): green unless the commit is
+    # named in FAKE_PRECHECK_RED (red) or FAKE_PRECHECK_RUNNING (in progress).
+    case "$*" in
+      *ready-check.yml*)
+        c=; prev=; for a in "$@"; do [ "$prev" = --commit ] && c=$a; prev=$a; done
+        if [[ " ${FAKE_PRECHECK_RUNNING:-} " == *" $c "* ]]; then echo '[{"status":"in_progress","conclusion":""}]'
+        elif [[ " ${FAKE_PRECHECK_RED:-} " == *" $c "* ]]; then echo '[{"status":"completed","conclusion":"failure"}]'
+        else echo '[{"status":"completed","conclusion":"success"}]'; fi | out ;;
+      *) echo '[]' | out ;;
+    esac ;;
   "pr list") echo "${FAKE_GH_TRAINS:-[]}" | out ;;
   "pr create")
     head=; prev=; for a in "$@"; do [ "$prev" = --head ] && head=$a; prev=$a; done
@@ -332,6 +342,58 @@ func TestLanderClosesTheTrainPRWhenMainMovesBeforeTheMerge(t *testing.T) {
 	}
 	if n := strings.Count(e.makeLog(), "-k gate"); n != 2 {
 		t.Errorf("two gates: %d\n%s", n, e.makeLog())
+	}
+}
+
+// A change whose hosted pre-check is red never joins a train of several: the green ones land
+// together, and it is gated alone afterwards (green there: the pre-check was the flaky one).
+func TestLanderGatesARedPrecheckAlone(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
+	e.queue("c", "fix(kb): c\n", "2026-01-01T12:00:00Z", map[string]string{"c.txt": "c\n"})
+	out, ok := e.land("FAKE_PRECHECK_RED=" + e.upGit("rev-parse", "ready/b"))
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a | fix(kb): c | fix(kb): b" {
+		t.Fatalf("main holds %q, want a and c, then b alone\n%s", got, out)
+	}
+	if !strings.Contains(out, "b: its hosted pre-check is red: gated alone") {
+		t.Errorf("the lander must say why b is alone:\n%s", out)
+	}
+	if n := strings.Count(e.makeLog(), "-k gate"); n != 2 {
+		t.Errorf("one gate for a and c, one for b: %d\n%s", n, e.makeLog())
+	}
+}
+
+// While every queued change's pre-check still runs, the build host does not idle: the
+// oldest change is gated alone, where a broken leg costs no bisection; the next one too.
+func TestLanderGatesAChangeAloneWhileThePrechecksRun(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
+	running := e.upGit("rev-parse", "ready/a") + " " + e.upGit("rev-parse", "ready/b")
+	out, ok := e.land("FAKE_PRECHECK_RUNNING="+running, "LAND_PRECHECK_WAIT=999999999")
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a | fix(kb): b" {
+		t.Fatalf("main holds %q\n%s", got, out)
+	}
+	if n := strings.Count(out, "is still running and nothing else is ready: gated alone"); n != 2 {
+		t.Errorf("each change alone while its pre-check runs: %d\n%s", n, out)
+	}
+	// Past LAND_PRECHECK_WAIT a running pre-check is no verdict: the changes travel together.
+	e2 := newLandEnv(t)
+	e2.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	e2.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
+	running = e2.upGit("rev-parse", "ready/a") + " " + e2.upGit("rev-parse", "ready/b")
+	if out, ok := e2.land("FAKE_PRECHECK_RUNNING=" + running); !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if n := strings.Count(e2.makeLog(), "-k gate"); n != 1 {
+		t.Errorf("a pre-check running past the wait does not split the train: %d gates\n%s", n, e2.makeLog())
 	}
 }
 

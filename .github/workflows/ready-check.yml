@@ -1,0 +1,119 @@
+name: ready-check
+
+# The hosted pre-check of a maintainer's queued change (D1877). On the push
+# of `ready/<slug>` (scripts/ready.sh: one commit on top of main or of the change it follows),
+# it runs the legs the build host's `make check` does not: the Windows tests of the packages
+# the change can break, sharded as test-windows is (D785), and the frontend's unit tests and
+# bundle checks when it touches web/. The lander reads this run's conclusion on the change's
+# commit (scripts/land.sh): a red change is gated alone, so it no longer turns a whole train
+# red and costs a bisection on the build host. The browser suite, the Linux tests and the
+# combined tree stay with the train gate.
+#
+# Only a maintainer can push a ready/ branch, so no pull request's code runs here; the jobs
+# hold no secret and only read the repository. What to run is decided by
+# scripts/ready-check-plan.sh, pinned by internal/repodocs/ready_check_test.go.
+on:
+  push:
+    branches: ['ready/**']
+
+permissions:
+  contents: read
+
+# A change queued again replaces its ready/ ref: the older run is moot.
+concurrency:
+  group: ready-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      pkgs: ${{ steps.plan.outputs.pkgs }}
+      count: ${{ steps.plan.outputs.count }}
+      shards: ${{ steps.plan.outputs.shards }}
+      web: ${{ steps.plan.outputs.web }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The queued change is one commit: its diff is HEAD^..HEAD.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - id: plan
+        run: |
+          git diff --name-only HEAD^ HEAD | scripts/ready-check-plan.sh | tee -a "$GITHUB_OUTPUT"
+
+  windows:
+    name: windows (${{ matrix.shard }})
+    needs: plan
+    if: needs.plan.outputs.pkgs != ''
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # As in ci.yml's test-windows legs: a throwaway runner, Defender only slows the
+      # git-backed tests, and a runner whose Defender service is down must not fail the leg.
+      - name: Disable Defender real-time scanning
+        continue-on-error: true
+        shell: pwsh
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      - env:
+          PKGS: ${{ needs.plan.outputs.pkgs }}
+          COUNT: ${{ needs.plan.outputs.count }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          # shellcheck disable=SC2086  # the packages are a word list on purpose
+          ./scripts/test-shard.sh "$COUNT" "$SHARD" $PKGS
+
+  web:
+    name: web
+    needs: plan
+    if: needs.plan.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cd web && npm ci --silent
+      - run: make web-check NPM_CI=
+      - run: make web-test NPM_CI=
+
+  # The verdict the lander reads: green when every leg that ran is green.
+  ready-check:
+    name: ready-check
+    needs: [plan, windows, web]
+    if: "!cancelled()"
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "legs: $RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1 ;; esac

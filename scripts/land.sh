@@ -33,12 +33,22 @@
 # gate or before the merge: the PR is closed and the train composed and gated again. On macOS the
 # lander holds `caffeinate -i` while it runs: an idle Mac on battery would sleep through it.
 #
+# Each queued change has a hosted pre-check (.github/workflows/ready-check.yml, run on the
+# push of its ready/ ref, D1877): the Windows tests of the packages it can
+# break and the frontend's unit tests, the legs `make check` does not run. A train of several
+# changes takes only changes whose pre-check is green (or has no verdict: none started within
+# LAND_PRECHECK_START, still running past LAND_PRECHECK_WAIT, cancelled, or GitHub did not
+# answer). When none is, the oldest change whose pre-check is still running is gated alone,
+# else the oldest red one: the build host never idles waiting on GitHub, and a change that
+# breaks a leg costs one gate of its own instead of a red train and its bisection.
+#
 # A rejected change moves to `refs/heads/failed/<slug>`: a commit on top of it whose
 # message is the reason, readable from any clone (`git log -1 origin/failed/<slug>`).
 # One lander at a time: per machine a lock in the state dir, across machines an open PR
 # whose head is `train/*` (another lander's train: wait for it).
 #
 #   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_STATE (state dir)
+#   LAND_PRECHECK_START (300 s)  LAND_PRECHECK_WAIT (1200 s), from the queued commit's time
 #   SIGNOFF_* are passed to signoff.sh unchanged.
 #
 # Plain bash 3.2 (the macOS default): no associative arrays.
@@ -143,21 +153,58 @@ breaking() { # a feat, perf or refactor title, or a breaking change: held while 
     g log -1 --format=%B "$1" | grep -q '^BREAKING CHANGE'
 }
 
-# compose: selects the train into TRAIN (lines "<slug> <sha>"), in landing order.
+# precheck <sha>: the verdict of the hosted pre-check of a queued change: ok, red or wait.
+# An accelerator, never a gate: anything unreadable is ok, and the train gate proves it.
+precheck() {
+  local age v
+  age=$(($(date +%s) - $(g log -1 --format=%ct "$1")))
+  v=$(gh run list -R "$repo" --workflow ready-check.yml --commit "$1" --limit 1 --json status,conclusion \
+    --jq 'if length == 0 then "none" else .[0].status + " " + (.[0].conclusion // "") end' 2>/dev/null) || { echo ok; return 0; }
+  case "$v" in
+    "completed success") echo ok ;;
+    "completed failure" | "completed timed_out" | "completed startup_failure") echo red ;;
+    completed*) echo ok ;; # cancelled or skipped: no verdict
+    none) if [ "$age" -lt "${LAND_PRECHECK_START:-300}" ]; then echo wait; else echo ok; fi ;;
+    *) if [ "$age" -lt "${LAND_PRECHECK_WAIT:-1200}" ]; then echo wait; else echo ok; fi ;;
+  esac
+}
+
+# compose: selects the train into TRAIN (lines "<slug> <sha>"), in landing order: the
+# changes whose pre-check is green, else one change alone (see the header).
 compose() {
-  local q freeze=false pass changed s sha after
+  local q freeze=false failed s sha
   q=$(queue)
   TRAIN=
   [ -n "$q" ] || return 0
   if GH_REPO=$repo "$here/freeze-open.sh" >/dev/null 2>&1; then freeze=true; fi
-  local failed
   failed=$(g for-each-ref --format='%(refname:lstrip=4)' refs/remotes/origin/failed/)
+  VERDICTS=
+  while read -r s sha; do
+    [ -n "$s" ] || continue
+    VERDICTS=$VERDICTS"$s $(precheck "$sha")"$'\n'
+  done <<<"$q"
+  pick ok "$max"
+  [ -z "$TRAIN" ] || return 0
+  pick wait 1
+  if [ -n "$TRAIN" ]; then
+    log "${TRAIN%% *}: its hosted pre-check is still running and nothing else is ready: gated alone"
+    return 0
+  fi
+  pick red 1
+  [ -z "$TRAIN" ] || log "${TRAIN%% *}: its hosted pre-check is red: gated alone"
+}
+
+# pick <verdict> <n>: adds to TRAIN, in queue order and after their Lander-After change, up
+# to n changes in all whose pre-check verdict is <verdict>. Reads compose's q, freeze, failed.
+pick() {
+  local pass changed s sha after
   for pass in 1 2 3 4 5 6 7 8; do
     changed=false
     while read -r s sha; do
       [ -n "$s" ] || continue
       grep -qx "$s $sha" <<<"$TRAIN" && continue
-      [ "$(printf '%s\n' "$TRAIN" | grep -c .)" -lt "$max" ] || break
+      [ "$(printf '%s\n' "$TRAIN" | grep -c .)" -lt "$2" ] || break
+      grep -qx "$s $1" <<<"$VERDICTS" || continue
       [ -z "$(trailer Lander-Hold "$sha")" ] || continue
       if $freeze && breaking "$sha"; then continue; fi
       after=$(trailer Lander-After "$sha")

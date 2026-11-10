@@ -991,6 +991,19 @@ prefix is red. A gate that fails for a reason that is not a test (the signoff st
 the targets) stops the lander and leaves the queue untouched. Once the train PR merged, a
 queue entry whose deletion fails for a reason that is not the lease is retried, then stops
 the lander; a queued change whose diff `main` already holds is dequeued, not rejected.
+The lander merges the train PR itself, and only while `main` is still the commit the train
+was gated on: `main` moved during the gate or before the merge, the PR is closed and the
+train is gated again on the new `main`.
+
+Each queued change also has a **hosted pre-check** (`.github/workflows/ready-check.yml`, on
+the push of its `ready/<slug>` ref, D1877): the Windows tests of the packages
+it can break (`scripts/ready-check-plan.sh`: `affected-pkgs.sh --code`, one to four shards by
+weight) and, when it touches `web/` or `internal/webui/`, `make web-check web-test`, the legs
+`make check` does not run. A train of several changes takes only changes whose pre-check is
+green or has no verdict (none started within `LAND_PRECHECK_START`, 5 minutes, still running
+past `LAND_PRECHECK_WAIT`, 20 minutes, cancelled, or GitHub did not answer); when none is,
+the oldest change whose pre-check is still running is gated alone, else the oldest red one.
+`internal/repodocs/ready_check_test.go` pins the plan.
 `internal/repodocs/land_test.go` runs the lander against a local bare repository with fake
 `make` and `gh`.
 
