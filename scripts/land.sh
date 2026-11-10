@@ -125,7 +125,16 @@ if ! $dry; then
   # with the network still down: caffeinate keeps it awake (not a closed lid) until the
   # lander exits.
   if command -v caffeinate >/dev/null 2>&1; then caffeinate -i -w $$ >/dev/null 2>&1 </dev/null & fi
-  perm=$(gh repo view "$repo" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
+  # The permission is read again when GitHub does not answer (5xx, transport: an empty answer
+  # or a failed call), as dequeue does: only a definite answer outside the maintainer roles
+  # says the user is not one.
+  perm=
+  for try in 1 2 3 4 5; do
+    perm=$(gh repo view "$repo" --json viewerPermission --jq .viewerPermission 2>/dev/null) || perm=
+    [ -z "$perm" ] || break
+    [ "$try" = 5 ] || sleep $((poll * try))
+  done
+  [ -n "$perm" ] || die "GitHub did not answer the permission read of $repo: try again"
   case "$perm" in ADMIN | MAINTAIN | WRITE) ;; *) die "permission on $repo is $perm: only a maintainer lands" ;; esac
 fi
 

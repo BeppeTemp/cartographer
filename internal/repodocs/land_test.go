@@ -86,7 +86,11 @@ out() { if [ -n "$jq_expr" ]; then jq -r "$jq_expr"; else cat; fi; }
 # or whatever is rerun (=always).
 red() { case "${FAKE_CHECKS_RED:-}" in always) return 0 ;; once) [ ! -e "$FAKE_STATE.reran" ] ;; *) return 1 ;; esac; }
 case "$1 $2" in
-  "repo view") echo "${FAKE_PERM:-ADMIN}" ;;
+  "repo view")
+    # FAKE_PERM_FAILS=n: the first n reads fail as a GitHub 5xx does.
+    n=$(cat "$FAKE_STATE.pf" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_STATE.pf"
+    if [ "$n" -lt "${FAKE_PERM_FAILS:-0}" ]; then echo "HTTP 502" >&2; exit 1; fi
+    echo "${FAKE_PERM:-ADMIN}" ;;
   "api user") echo '{"login":"user"}' | out ;;
   "api -X") ;;
   "api repos/up/proj") echo '{"fork":false}' | out ;;
@@ -617,6 +621,38 @@ func (e *landEnv) landByHand(slug string) {
 
 // A dry run whose train has nothing that applies ends, and leaves the queue as it was
 // (it moves nothing out of it, so composing again would find the same train forever).
+// A permission read that fails (GitHub 5xx) is asked again; only a definite answer outside the
+// maintainer roles says the user is not a maintainer (#1886).
+func TestLanderRetriesThePermissionRead(t *testing.T) {
+	e := newLandEnv(t)
+	out, ok := e.land("FAKE_PERM_FAILS=2")
+	if !ok || strings.Contains(out, "permission") {
+		t.Fatalf("a failing read is retried: %v\n%s", ok, out)
+	}
+	if n := strings.Count(e.log(), "repo view"); n != 3 {
+		t.Fatalf("want 3 reads, got %d", n)
+	}
+}
+
+func TestLanderDiesOnADefiniteNonMaintainerPermission(t *testing.T) {
+	e := newLandEnv(t)
+	out, ok := e.land("FAKE_PERM=READ")
+	if ok || !strings.Contains(out, "permission on up/proj is READ: only a maintainer lands") {
+		t.Fatalf("READ: %v\n%s", ok, out)
+	}
+	if n := strings.Count(e.log(), "repo view"); n != 1 {
+		t.Fatalf("a definite answer is not retried, got %d reads", n)
+	}
+}
+
+func TestLanderSaysGitHubDidNotAnswerThePermissionRead(t *testing.T) {
+	e := newLandEnv(t)
+	out, ok := e.land("FAKE_PERM_FAILS=9")
+	if ok || !strings.Contains(out, "GitHub did not answer the permission read of up/proj") || strings.Contains(out, "only a maintainer") {
+		t.Fatalf("exhausted retries: %v\n%s", ok, out)
+	}
+}
+
 func TestLanderDryRunEndsWhenNothingApplies(t *testing.T) {
 	e := newLandEnv(t)
 	e.queue("dup", "fix(kb): dup\n", "2026-01-01T10:00:00Z", map[string]string{"dup.txt": "dup\n"})
