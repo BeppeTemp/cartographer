@@ -14,11 +14,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/surveyorconfig"
 )
 
-// SurveyorSettingsPath is where a surveyor reports its configuration, at start and
-// again when a beat answers settings_wanted (D1259). Not the heartbeat: the config
-// is constant, and a refused report must never fail the liveness beat.
-const SurveyorSettingsPath = "/api/surveyor-settings"
-
 var versionRe = regexp.MustCompile(`^[0-9A-Za-z._+-]{1,32}$`)
 
 const (

@@ -3,12 +3,16 @@ package surveyor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/surveyorconfig"
 )
 
@@ -186,5 +190,88 @@ func TestBeaterRefusedSettingsAreNotRetried(t *testing.T) {
 	}
 	if logs != 1 {
 		t.Fatalf("log lines = %d, want one warning", logs)
+	}
+}
+
+func TestBeaterSendsItsProtocol(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{Protocol: 1, MinProtocol: 1}}
+	b := newBeater(api, &now)
+	b.Beat(context.Background(), State{Run: StateIdle})
+	if api.beats[0]["protocol"] != float64(componentproto.Protocol) {
+		t.Fatalf("body = %v", api.beats[0])
+	}
+}
+
+// A 404 is an older server and a 426 a server that refuses this protocol: both
+// leave the activity unknown, neither stops the beat, and the 426 line is
+// logged once per distinct (protocol, min_protocol) pair.
+func TestBeater404And426(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{ActivityKnown: true, KBs: map[string]struct {
+		LastActivityAt *time.Time `json:"last_activity_at"`
+	}{"kb-a": {}}, ServerStartedAt: now, Now: now}}
+	var logs []string
+	b := newBeater(api, &now)
+	b.Logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
+	b.Beat(context.Background(), State{Run: StateIdle})
+	if _, known, _ := b.IdleFor(context.Background(), "kb-a"); !known {
+		t.Fatal("idle unknown after a good answer")
+	}
+	api.mu.Lock()
+	api.beatErr = &client.RemoteError{HTTPStatus: 404}
+	api.mu.Unlock()
+	b.send()
+	if _, known, _ := b.IdleFor(context.Background(), "kb-a"); known {
+		t.Fatal("idle known after a 404")
+	}
+	api.mu.Lock()
+	api.beatErr = &client.RemoteError{HTTPStatus: 426, ServerProtocol: 4, ServerMinProtocol: 3}
+	api.mu.Unlock()
+	refusals := func() (n int) {
+		for _, l := range logs {
+			if strings.Contains(l, "refuses component protocol") {
+				n++
+			}
+		}
+		return n
+	}
+	b.send()
+	b.send()
+	if n := refusals(); n != 1 {
+		t.Fatalf("426 logged %d lines for the same pair, want 1: %v", n, logs)
+	}
+	api.mu.Lock()
+	api.beatErr = &client.RemoteError{HTTPStatus: 426, ServerProtocol: 5, ServerMinProtocol: 4}
+	api.mu.Unlock()
+	b.send()
+	if refusals() != 2 {
+		t.Fatal("a different pair must be logged again")
+	}
+	if n, _ := api.counts(); n < 5 {
+		t.Fatalf("the beat stopped: %d", n)
+	}
+}
+
+// An answer more than one protocol below ours is treated as an older server.
+func TestBeaterAnswerFarBelowIsAnOlderServer(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{ActivityKnown: true, Protocol: componentproto.Protocol - 5, ServerStartedAt: now, Now: now}}
+	b := newBeater(api, &now)
+	b.Beat(context.Background(), State{Run: StateIdle})
+	if _, known, _ := b.IdleFor(context.Background(), "kb-a"); known {
+		t.Fatal("idle known against a server two protocols below")
+	}
+}
+
+// The heartbeat's task names are the closed set of componentproto.
+func TestDefaultKindsAreTheComponentTaskKinds(t *testing.T) {
+	var names []string
+	for _, k := range DefaultKinds().list {
+		names = append(names, k.Name)
+	}
+	sort.Strings(names)
+	if !slices.Equal(names, componentproto.TaskKinds()) {
+		t.Fatalf("kinds %v, componentproto %v", names, componentproto.TaskKinds())
 	}
 }

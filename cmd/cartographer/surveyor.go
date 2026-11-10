@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/surveyor"
 	"github.com/BeppeTemp/cartographer/internal/surveyorconfig"
 )
@@ -203,6 +204,12 @@ func surveyorStartup(ctx context.Context, path string, kinds *surveyor.Kinds, re
 	// anonymous caller: 200 with no kbs), so the token is checked by Ping.
 	if err := c.Ping(startupCallTimeout); err != nil {
 		return nil, startFail(surveyorExitStart, "the server at %s did not accept the token: %v", cfg.ServerURL, err)
+	}
+	// A server that names its component protocol is checked before the first
+	// beat; one that does not predates the field and is handled by the beat's 404.
+	if h.ComponentProtocol > 0 && !componentproto.Supports(componentproto.Protocol, h.ComponentProtocol) {
+		return nil, startFail(surveyorExitStart, "the server at %s speaks component protocol %d (serves from %d) and this Surveyor speaks %d: upgrade the one that is behind",
+			cfg.ServerURL, h.ComponentProtocol, h.ComponentMinProtocol, componentproto.Protocol)
 	}
 	if h.KBs == nil {
 		return nil, startFail(surveyorExitStart, "the server names no KB for the token in $%s (or is not a multi-KB server)", cfg.TokenEnv)

@@ -400,7 +400,7 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 | `GET /api/ui/v1/kbs/{kb}/work?scope=&include=&stale=&where=&order_by=&fields=&limit=&offset=` | `work_list`'s own response for the caller's principal (D302); `where` repeats, `order_by` and `fields` repeat or take a comma list. `404` for a KB the caller cannot see. |
 | `GET /api/ui/v1/kbs/{kb}/maintenance/summary` | What keeps the KB in repair (D323): `auto_repair` (`enabled` is the server setting `maintenance.auto_repair`, `default` always true, `checks` the safe set, `interval_days` the constant 1, `delegated_to` the ids of the live Surveyors that own the KB's repair, empty when none), `last_auto_repair` (the newest line of the background log, or `null`; the background repair runs at every start, after a pull that moved HEAD and once per interval, D704), `last_doctor`, `next_doctor`, `doctor_interval_days` (the fixed interval), `runs` (D365: the background repair's runs of the last 30 days from its log, newest first, at most 50, each like `last_auto_repair`), and `repairs`: the `kb_repair` and auto-repair commits of the last 30 days, newest first (at most 50), each `{sha, at, subject, reason, files, background, revert}` where `revert` is the exact `cartographer kb repair <kb> --revert <sha7>` command. A whole-KB resource: `404` for a caller that cannot see the whole KB. The Atlas on `main` has no client for this route; its consumer lives on `exp/0.28` (D1455), so it is kept as it is. |
 | `GET /api/ui/v1/kbs/{kb}/maintenance/review` | The `kb_review` items the caller can see, filtered as the tool filters them, without the `lint_judgement` ones (lint findings, listed by `/lint`) and without a template proposal's `template`/`templates` text and `map_update` arguments (D704): `{items: [{kind, concepts, evidence, suggested_action, term, template_slug, weight}]}`. |
-| `GET /api/ui/v1/kbs/{kb}/surveyors` | The live `cartographer surveyor` declarations (heartbeats, `POST /api/surveyors`) that name this KB, sorted by `surveyor`: `{surveyors: [{surveyor, perimeter, version?, state, last_beat_at, interval_seconds, last_run?, budgets, next_window_at?}]}`, `[]` when none. A stale declaration is absent; no principal id or token digest is shown. A whole-KB resource: `404` for a caller that cannot see the whole KB. |
+| `GET /api/ui/v1/kbs/{kb}/surveyors` | The live `cartographer surveyor` declarations (heartbeats, `POST /api/component/v1/heartbeat`) that name this KB, sorted by `surveyor`: `{surveyors: [{surveyor, perimeter, version?, state, last_beat_at, interval_seconds, last_run?, budgets, next_window_at?}]}`, `[]` when none. A stale declaration is absent; no principal id or token digest is shown. A whole-KB resource: `404` for a caller that cannot see the whole KB. |
 | `GET /api/ui/v1/kbs/{kb}/feeds` | The Source concepts whose frontmatter carries a non-empty `feed_error`: `{feeds: [{id, title, source_shape?, recipe?, feed_checked_at?, feed_error}], total}`, newest `feed_checked_at` first then id, at most 50 (`total` counts all). `feed_error` is cut to 300 characters and stripped of control characters; `feed_checked_at` is passed on only when it is RFC 3339. Each concept is filtered with the caller's principal (no whole-KB gate): a narrowed caller sees the feeds of the maps it sees. |
 | `GET /api/ui/v1/kbs/{kb}/status` | `kb_status`'s response (open knowledge gaps, search misses, stale count and the rest). A whole-KB resource like the artifact routes: `404` for a caller that cannot see the whole KB. |
 | `GET /api/ui/v1/kbs/{kb}/checks` | `{categories, checks}` (D365): every lint check Meridian runs — `kb_review` kinds excluded — in registry order, each `{name, category, fixable, auto, active, reason?}`: `fixable` when the check has a mechanical fix, `auto` when this KB's background repair applies it by itself, `active: false` with a short `reason` when the check cannot run on this KB (nothing to compare against, or every map able to run it opted out, D371; `docs/data-plane.md` §Active checks). The categories are the registry's (`lint.Categories`), in reading order. Counts are not here: they come from `/lint`, so a scoped or narrowed caller sees the coverage of exactly its findings. |
@@ -432,7 +432,43 @@ unknown *or invisible* KB or concept is `404` with the same envelope, never
 whole KB: artifacts are whole-KB resources. Responses carry `Cache-Control: no-store`,
 `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
 
-### Usage reports (`POST /api/usage`, D326)
+### Component contract (`/api/component/v1`, D1901)
+
+What the components report to Meridian (the Surveyor, Compass) goes through one route family whose names, kinds
+and compatibility rule live in the leaf package `internal/componentproto`. It is client-to-server metadata, so
+HTTP and never an MCP tool (D285), always routed with or without the Atlas, inside the auth chain of `/mcp`.
+`v1` in the path is the envelope (auth, content type, the `{error: {code, message, field}}` shape, body caps) and
+changes essentially never; the integer **`protocol`** is the field-level contract and is what is negotiated.
+
+| Route | Caller | Body |
+|---|---|---|
+| `POST /api/component/v1/heartbeat` | Surveyor | §Surveyor heartbeat (64 KiB) |
+| `POST /api/component/v1/settings` | Surveyor or Compass | §Surveyor settings reports, §Client settings reports; the body's `component` (`surveyor` or `client`) selects the report, anything else is `400` naming `component` |
+| `POST /api/component/v1/usage?kb=<name>&protocol=<n>` | Compass | §Usage reports |
+
+**Protocol.** Meridian speaks `protocol` N (1 in 0.29) and serves N-1, N and N+1, so either side can be upgraded
+first: anything else is `426` with code `protocol_unsupported`, and `error.protocol` and `error.min_protocol`
+carry Meridian's window (`min_protocol` is N-1, never below 1). The heartbeat and settings bodies carry the
+sender's `protocol` as an integer, the usage route (whose body is an array) as the `protocol` query parameter;
+absent or not positive is `400` naming `protocol`. A sender at N+1 is served as N (the decoder ignores unknown
+fields and none is required) and its stored replica is marked `protocol_skew: "ahead"`, one at N-1 `"behind"`,
+one at N `""`. The obligation that makes N+1 safe is the newer sender's: it must speak the server's N, which is
+its own N-1, read from the heartbeat answer (`protocol`, `min_protocol`) or from `/health`
+(`component_protocol`, `component_min_protocol`, public: no secret, no inventory; `/health` stays liveness and
+never reports a component). Additive optional fields never bump `protocol`; removing or re-typing a field, or
+changing the meaning of one, does. A Surveyor refuses an unsupported server at start-up from `/health`, and at
+run time never exits on a `426`: it logs once per distinct window, treats the activity as unknown and keeps
+beating, since its budget is enforced locally and Meridian may be upgraded under it.
+
+**Legacy aliases.** `POST /api/usage` and `POST /api/client-settings` were released in 0.28, so they stay served,
+frozen, for the whole 0.29 series as aliases of the same handlers at protocol 0: no negotiation, no `protocol`
+needed, the 0.28 bodies and answers unchanged. A 0.28 Meridian answers `404` to the new paths, so a newer client (Compass) retries
+the usage and client-settings reports once on the 0.28 route with the 0.28 body and remembers, per client
+process, that the server is old: later reports go straight to the alias. The Surveyor routes have no
+fallback (never released). The Surveyor's `/api/surveyors`, `/api/surveyor-settings` and
+`GET /api/ui/v1/kbs/{kb}/workers` were never released: they are gone, with no alias.
+
+### Usage reports (`POST /api/component/v1/usage`, D326)
 
 Which skills and agents the clients actually load is invisible to Meridian: a skill
 reaches a client as a file `sync` materialised, and the client reads it from its own
@@ -440,7 +476,7 @@ disk. So the client measures it and reports (`docs/sync.md` §Usage scan). The r
 client-to-server metadata, not an agent operation, hence HTTP and not an MCP tool; it is
 routed with or without the web UI and sits in the same auth chain as `/mcp`.
 
-`POST /api/usage?kb=<name>` takes a JSON array of `{name, kind, provider, source, last_used,
+`POST /api/component/v1/usage?kb=<name>&protocol=1` (and, as protocol 0, `POST /api/usage?kb=<name>`) takes a JSON array of `{name, kind, provider, source, last_used,
 count}` (`kind` is `skill` or `agent`; at most 1 MiB) and answers `{received, merged}`. The
 merge is per (artifact, provider): the newer `last_used` replaces the stored row and `count`
 is **replaced, never summed** (the client already aggregated its whole window). A bundled
@@ -449,7 +485,7 @@ day ahead is clamped to now. It needs the whole KB in write scope; any other cal
 `404` of an unknown KB (no existence oracle), a missing token `401`, a non-POST `405`. The
 store is `.cartographer/usage.json` (`docs/data-plane.md`), which the `artifact_unused` lint check reads (D1043).
 
-### Surveyor heartbeat (`POST /api/surveyors`, D1259)
+### Surveyor heartbeat (`POST /api/component/v1/heartbeat`, D1259)
 
 A `cartographer surveyor` process declares itself once a minute. Like the usage report and the client settings
 report it is client-to-server metadata: an HTTP route inside the auth chain of `/mcp`, always routed (with or
@@ -457,7 +493,7 @@ without the web UI), never an MCP tool (a tool would spend `tools/list` budget o
 agent calls, D285). The declaration is a hint, never trusted beyond display: validated, bounded in time and
 ignored when stale (D369); Meridian acts on it in one way only, pausing its own background repair of a KB the Surveyor repairs (§Background repair, Handover), and the budget is enforced by the Surveyor.
 
-Body (one JSON object, `application/json`, 64 KiB cap): `surveyor` (this process, 1-64 of `[a-z0-9._-]`),
+Body (one JSON object, `application/json`, 64 KiB cap): `protocol` (required, §Component contract), `surveyor` (this process, 1-64 of `[a-z0-9._-]`),
 `perimeter` (1-40 of `[a-z0-9-]`, shared by replicas), `version`, `kbs` (1-32 names), `state` (`idle`,
 `running`, `waiting`, `budget_exhausted`, `stopped`), `interval_seconds` (clamped to 15-3600, default 60),
 `last_run` (`{at, units_done, tokens_spent, commits}`), `budgets` (at most 8 `{profile, tier, spent, limit}`, one
@@ -474,7 +510,7 @@ total, the oldest evicted. A declaration is live while less than three intervals
 it at once. The declared KBs are filtered to those the principal can write; none left answers the `404` of an
 unknown KB (no existence oracle). Errors: `405` (+ `Allow`), `401`, `415`, `413`, `400`.
 
-The answer is `{accepted, kbs: {<kb>: {last_activity_at, idle_seconds}}, activity_known, server_started_at,
+The answer is `{accepted, protocol, min_protocol, kbs: {<kb>: {last_activity_at, idle_seconds}}, activity_known, server_started_at,
 now}`. **`last_activity_at`** is the last authorized MCP tool call on that KB by a principal that has no live
 Surveyor declaration, other than `sync_pull` (the 30-minute sync timer would otherwise keep every connected KB
 active), counted in `callToolChecked` after authorization: a denied call is not activity, nor is the Atlas UI
@@ -484,13 +520,13 @@ reads "idle since `server_started_at`". `now` is Meridian's clock, so the Survey
 tell the Surveyor from a person. It also carries `settings_wanted`: `true` when Meridian holds no settings report
 for the beat's principal and perimeter (§Surveyor settings reports).
 
-### Surveyor settings reports (`POST /api/surveyor-settings`, D1259)
+### Surveyor settings reports (`POST /api/component/v1/settings`, D1259)
 
 A Surveyor reports its effective configuration on its own route, not in the heartbeat: the config is read once at
 start, so riding a beat would re-send tens of KiB thousands of times a day, and a report Meridian refuses must
 never fail the liveness beat. The Surveyor posts at start and again only when a beat answers `settings_wanted`.
 
-Body (`application/json`, 128 KiB cap): `perimeter` (as in the heartbeat), `surveyor`, `version`, `kbs` (1-32 names)
+Body (`application/json`, 128 KiB cap): `component: "surveyor"`, `protocol` (§Component contract), `perimeter` (as in the heartbeat), `surveyor`, `version`, `kbs` (1-32 names)
 and `entries` (the Surveyor schema keys in the shape of the settings entries). Answer `{received: true}`. A `yaml`
 field is accepted and ignored: Meridian never stores or returns the Surveyor's file (a deviation from the plan,
 D1259), because a file can carry a secret under any key, where a typed value cannot. `surveyorconfig.Scrub` runs on
@@ -513,14 +549,14 @@ State is in memory, one report per (principal, perimeter), every post replacing 
 and perimeter exists: it leaves with the last one. `internal/mcpserver` never imports `internal/surveyor`: the key
 table and `Scrub` are in the leaf package `internal/surveyorconfig`.
 
-### Client settings reports (`POST /api/client-settings`, D818)
+### Client settings reports (`POST /api/component/v1/settings`, D818)
 
 The Settings page shows the viewer their own client beside Meridian and the KBs, and only the client knows its
 `.cartographer.yaml` and the schema of the version it runs. So `cartographer sync` reports it after every apply
-(`docs/sync.md` §Client settings report). Like `/api/usage` it is client-to-server metadata: an HTTP route in the same
+(`docs/sync.md` §Client settings report). Like the usage report it is client-to-server metadata: an HTTP route in the same
 auth chain as `/mcp`, with or without the web UI, not an MCP tool.
 
-The body is one JSON object (at most 256 KiB): `machine` (required), `version`, `server_url`, `entries` (the client schema
+The body is one JSON object (at most 256 KiB): `component: "client"` and `protocol` (§Component contract; the 0.28 alias `POST /api/client-settings` needs neither), `machine` (required), `version`, `server_url`, `entries` (the client schema
 keys in the shape of the settings entries above), `yaml` (the file as it is on disk, `""` when there is none),
 `providers` (per connected agent client: `name`, `scope` `provider` or `workspace`, `entry` `bridge` or `http` (D737, the kind of global MCP entry), `isolation` `workspace` for a bridge that narrows by binding or `none` (also for a bridge serving only plugin tools), and
 `workspaces`, each `{path, remote?, kbs}`, listed whatever the artifact scope) and `placeholders` (each `{key, kbs?, path?, …}`:

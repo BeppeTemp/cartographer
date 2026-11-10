@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/surveyorconfig"
 )
 
@@ -26,7 +27,7 @@ type BeatAPI interface {
 }
 
 // Beater is the Heartbeat and the IdleSource of a surveyor (D1259), both served by
-// the same answer of POST /api/surveyors. The runner hands it a snapshot with
+// the same answer of the component heartbeat (componentproto.HeartbeatPath). The runner hands it a snapshot with
 // Beat (a mutex-guarded copy: the runner may spend minutes inside a model call)
 // and its own goroutine, Start, declares the surveyor every Interval from that
 // snapshot. A failed beat is a log line: it never blocks or fails a run, and a
@@ -59,6 +60,10 @@ type Beater struct {
 	answerAt time.Time // local clock when the answer arrived
 	posted   bool
 	refused  bool // the server answered the settings report with a 4xx: not sent again
+	// logged* keep a protocol complaint to once per distinct cause: the beat
+	// repeats every interval and a server may be upgraded under the Surveyor.
+	loggedRefusal [2]int // (protocol, min_protocol) of the last 426 logged
+	loggedBehind  bool   // the "answer below ours" line was logged
 }
 
 func (b *Beater) interval() time.Duration {
@@ -126,6 +131,7 @@ type beatLastRun struct {
 }
 
 type beatBody struct {
+	Protocol        int          `json:"protocol"`
 	Surveyor        string       `json:"surveyor"`
 	Perimeter       string       `json:"perimeter"`
 	Version         string       `json:"version,omitempty"`
@@ -168,7 +174,7 @@ func DeclaredTasks(cfg *Config) []TaskDecl {
 }
 
 func (b *Beater) body(s State) beatBody {
-	out := beatBody{Surveyor: b.Surveyor, Perimeter: b.Perimeter, Version: b.Version, KBs: b.KBs, State: s.Run,
+	out := beatBody{Protocol: componentproto.Protocol, Surveyor: b.Surveyor, Perimeter: b.Perimeter, Version: b.Version, KBs: b.KBs, State: s.Run,
 		IntervalSeconds: int(b.interval() / time.Second), Tasks: b.Tasks}
 	if !s.LastRun.At.IsZero() {
 		out.LastRun = &beatLastRun{At: s.LastRun.At.UTC(), UnitsDone: s.LastRun.Units, Commits: s.LastRun.Commits}
@@ -198,10 +204,41 @@ func (b *Beater) send() {
 	if err != nil {
 		b.logf("surveyor: heartbeat: %v", err)
 		var re *client.RemoteError
-		if errors.As(err, &re) && re.HTTPStatus == http.StatusNotFound {
-			b.mu.Lock()
-			b.answer = nil // an older server: activity unknown
-			b.mu.Unlock()
+		if errors.As(err, &re) {
+			switch re.HTTPStatus {
+			case http.StatusNotFound:
+				b.mu.Lock()
+				b.answer = nil // an older server: activity unknown
+				b.mu.Unlock()
+			case http.StatusUpgradeRequired:
+				// The server refuses this protocol. Never exit: the budget is
+				// enforced locally and the server may be upgraded under us, so
+				// the beat goes on at its interval; the activity is unknown
+				// meanwhile and the line is logged once per distinct window.
+				b.mu.Lock()
+				b.answer = nil
+				pair := [2]int{re.ServerProtocol, re.ServerMinProtocol}
+				first := b.loggedRefusal != pair
+				b.loggedRefusal = pair
+				b.mu.Unlock()
+				if first {
+					b.logf("surveyor: the server refuses component protocol %d (it speaks %d, serves from %d): idle signal unknown until it is upgraded or this Surveyor is",
+						componentproto.Protocol, re.ServerProtocol, re.ServerMinProtocol)
+				}
+			}
+		}
+		return
+	}
+	// An answer whose protocol is more than one below ours comes from a server
+	// this Surveyor was not written for: behave as against an older server.
+	if a.Protocol > 0 && !componentproto.Supports(componentproto.Protocol, a.Protocol) && a.Protocol < componentproto.Protocol {
+		b.mu.Lock()
+		first := !b.loggedBehind
+		b.loggedBehind = true
+		b.answer = nil
+		b.mu.Unlock()
+		if first {
+			b.logf("surveyor: the server speaks component protocol %d, two or more below %d: idle signal unknown", a.Protocol, componentproto.Protocol)
 		}
 		return
 	}

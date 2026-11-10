@@ -12,12 +12,14 @@ import (
 	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 )
 
-// SurveyorsPath is where a `cartographer surveyor` process declares itself, once
-// a minute. Client-to-server metadata like UsagePath and ClientSettingsPath: an
-// HTTP route inside the auth chain of /mcp, not an MCP tool (a tool would
-// spend tools/list budget on every client for something no agent calls, D285).
+// componentproto.HeartbeatPath is where a `cartographer surveyor` process
+// declares itself, once a minute. Client-to-server metadata like the usage and
+// settings reports: an HTTP route inside the auth chain of /mcp, not an MCP
+// tool (a tool would spend tools/list budget on every client for something no
+// agent calls, D285).
 //
 // The declaration is a hint, validated, bounded in time and ignored when stale
 // (D369). The server acts on it in one way only: it pauses its own background
@@ -30,8 +32,6 @@ import (
 // long as it beats AND repeats that call at least once per timer period; it
 // could already commit to them, and repair on write is unaffected.
 // The budget is enforced by the surveyor.
-const SurveyorsPath = "/api/surveyors"
-
 const (
 	maxSurveyorBody          = 64 << 10
 	maxSurveyorKBs           = 32
@@ -100,7 +100,11 @@ type surveyorDecl struct {
 	Budgets         []surveyorBudget
 	NextWindowAt    *time.Time
 	Tasks           []surveyorTask
-	ReceivedAt      time.Time
+	// Protocol is the component protocol the surveyor declared and ProtocolSkew
+	// where it stands against this server ("behind", "" or "ahead").
+	Protocol     int
+	ProtocolSkew string
+	ReceivedAt   time.Time
 }
 
 func (d surveyorDecl) live(now time.Time) bool {
@@ -331,6 +335,8 @@ type surveyorBeat struct {
 	Budgets      []surveyorBudget `json:"budgets"`
 	NextWindowAt *time.Time       `json:"next_window_at"`
 	Tasks        []surveyorTask   `json:"tasks"`
+	// Protocol is the component protocol the sender speaks (required, componentproto).
+	Protocol int `json:"protocol"`
 }
 
 // cleanText truncates to max runes and strips control characters: what a
@@ -385,6 +391,12 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 	var beat surveyorBeat
 	if err := json.Unmarshal(data, &beat); err != nil {
 		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "body must be a JSON object", "")
+		return
+	}
+	// The version check runs first: a component outside N-1..N+1 is refused
+	// whatever else is wrong with its body.
+	skew, ok := checkProtocol(w, beat.Protocol)
+	if !ok {
 		return
 	}
 	bad := func(msg, field string) {
@@ -476,6 +488,7 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 			Principal: p.ID, Surveyor: beat.Surveyor, Perimeter: beat.Perimeter,
 			Version: cleanText(beat.Version, 32), KBs: accepted, State: beat.State,
 			IntervalSeconds: interval, Budgets: budgets, Tasks: tasks, ReceivedAt: now.UTC(),
+			Protocol: beat.Protocol, ProtocolSkew: skew,
 		}
 		if lr := beat.LastRun; lr != nil {
 			at := lr.At
@@ -512,6 +525,10 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 	}
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
 		"accepted": accepted,
+		// The server's side of the negotiation (componentproto): a component
+		// at N+1 reads its own N-1 here and must speak it.
+		"protocol":     componentproto.Protocol,
+		"min_protocol": componentproto.MinProtocol,
 		// True when no settings report is held for this perimeter: the surveyor
 		// posts it at start and again only after a server restart.
 		"settings_wanted": !m.surveyors.hasSettings(p.ID, beat.Perimeter),

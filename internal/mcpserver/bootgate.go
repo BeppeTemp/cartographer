@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"net/http"
 	"sync/atomic"
 )
@@ -70,6 +71,9 @@ func (g *BootGate) Handler() http.Handler {
 				"ready":         false,
 				"bootstrapping": true,
 				"phase":         g.currentPhase(),
+
+				"component_protocol":     componentproto.Protocol,
+				"component_min_protocol": componentproto.MinProtocol,
 			})
 		default:
 			w.Header().Set("Retry-After", "5")

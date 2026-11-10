@@ -58,7 +58,7 @@ func TestHealth_FollowsTheCallersToken(t *testing.T) {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		want := []string{"mount_mode", "ready", "routed_path", "started_at", "status", "version"}
+		want := []string{"component_min_protocol", "component_protocol", "mount_mode", "ready", "routed_path", "started_at", "status", "version"}
 		if !reflect.DeepEqual(keys, want) {
 			t.Errorf("bearer %q: keys = %v, want %v", bearer, keys, want)
 		}

@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -56,7 +58,11 @@ func postUsage(t *testing.T, h http.Handler, query, token string, body any) *htt
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, UsagePath+query, bytes.NewReader(raw))
+	sep := "?"
+	if strings.Contains(query, "?") {
+		sep = "&"
+	}
+	req := httptest.NewRequest(http.MethodPost, componentproto.UsagePath+query+sep+"protocol=1", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -142,7 +148,7 @@ func TestUsageEndpoint_AuthRequired(t *testing.T) {
 func TestUsageEndpoint_RejectsBadInput(t *testing.T) {
 	t.Parallel()
 	h, k := usageHandler(t)
-	req := httptest.NewRequest(http.MethodPost, UsagePath+"?kb=docs", bytes.NewReader([]byte(`{"not":"an array"}`)))
+	req := httptest.NewRequest(http.MethodPost, componentproto.UsagePath+"?kb=docs&protocol=1", bytes.NewReader([]byte(`{"not":"an array"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer whole")
 	rr := httptest.NewRecorder()
@@ -150,7 +156,7 @@ func TestUsageEndpoint_RejectsBadInput(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("status %d, want 400", rr.Code)
 	}
-	get := httptest.NewRequest(http.MethodGet, UsagePath+"?kb=docs", nil)
+	get := httptest.NewRequest(http.MethodGet, componentproto.UsagePath+"?kb=docs&protocol=1", nil)
 	get.Header.Set("Authorization", "Bearer whole")
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, get)

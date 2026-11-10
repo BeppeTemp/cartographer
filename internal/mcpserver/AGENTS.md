@@ -16,6 +16,7 @@ test or a decision record: none of them is a preference.
 
 ## What you must not get wrong
 
+- **A component route (what the Surveyor or Compass reports) goes through `internal/componentproto` and `handleComponent`**, never a path literal: `TestComponentRoutes_TableMatchesComponentproto` and the docs test fail otherwise. The protocol rule (N-1, N, N+1 served, else `426`) is `checkProtocol`.
 - **A text a connection can receive carries no `cartographer <command>` unless it
   is chosen by connection kind** (`addressesOperator`, D1101). Add the generic
   wording beside it; `TestGenericConnectionIsNeverToldToRunACLICommand` fails

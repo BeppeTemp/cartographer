@@ -24,7 +24,7 @@ money and writes to KBs when nobody is looking.
 - **A doctor write reaches only what its item names** (`doctor.go`, D1436): the guard fences each tool to the item's pages or map, with the arguments and frontmatter keys it lists, and `doctor_allow` turns rules on; a rule needs a fence before it needs a tool, and a rule always on never edits a body. `doctorRepairs` is an allow-list: a repairable check stays out until it is named there. `map_update` replaces `field_values` whole, so `fenceMap` adds back what the map declares. A tool `tools/list` does not advertise (`concept_merge`, `concept_archive`) never reaches a model: the allowlist intersects the list.
 - `synthesis/` defines its own `ToolCaller` and never imports this package: the kind (`synthesis.go`) imports it, so the other direction would be a cycle.
 - **The beater never blocks the runner** (`beater.go`, D1259): `Beat` only copies a snapshot under a mutex, a
-  separate goroutine sends it, and a failed beat or a `404` is a log line that leaves the idle signal unknown.
+  separate goroutine sends it, and a failed beat, a `404` or a `426` (component protocol refused: logged once per distinct window, never an exit) is a log line that leaves the idle signal unknown.
 - **The beater bounds its wait on the runner** (`beater.go`, D1259): `Beat` copies a snapshot under a mutex and a
   separate goroutine sends it; only the first and the closing beat are sent synchronously (each at most 5 s,
   queued behind `sendMu`), and a failed beat or a `404` is a log line that leaves the idle signal unknown.

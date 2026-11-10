@@ -134,7 +134,7 @@ server which of its skills and agents this machine's clients loaded. Meridian ca
 the agent client loads a skill from the file `sync` wrote. So `provisioning.ScanUsage`
 (`internal/provisioning/usage.go`) reads the clients' own session transcripts, **read-only**
 (D148), for the paths the lockfile says it materialised, and `cmd/cartographer/usagesync.go`
-posts only the aggregate, per source KB, to `POST /api/usage` (`docs/control-plane.md`):
+posts only the aggregate, per source KB, to `POST /api/component/v1/usage` (`docs/control-plane.md`):
 `{name, kind, provider, source, last_used, count}`. Never a prompt, a message, a session id or
 a file content.
 
@@ -169,7 +169,7 @@ skills the `host_skills` list names (the real transcripts carry an object whose 
 ## Client settings report (D818)
 
 Next to the usage report, and under the same conditions (not a dry run, server reachable), `sync` posts this machine's client
-settings to `POST /api/client-settings` (`reportClientSettings` in `cmd/cartographer/usagesync.go`, built by
+settings to `POST /api/component/v1/settings` (`reportClientSettings` in `cmd/cartographer/usagesync.go`, built by
 `clientconfig.Report`): keys and origins, the `.cartographer.yaml`, the connected agent clients with their scope, workspace
 bindings (whatever the artifact scope) and the entry kind (`bridge` or `http`), and the resolved placeholders. Meridian keeps it in memory for the sending principal and shows it
 back to that principal only (`docs/control-plane.md` §Client settings reports). A failure never fails the sync.

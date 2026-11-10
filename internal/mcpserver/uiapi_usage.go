@@ -6,17 +6,17 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
-// UsagePath is where a client reports which skills and agents it loaded
-// (D326). It is client-to-server metadata, not an agent operation, so it is
-// an HTTP route and not an MCP tool; it sits behind the same auth chain as
-// /mcp. It is always routed, with or without the web UI.
-const UsagePath = "/api/usage"
+// Usage reports (D326) are served at componentproto.UsagePath and, frozen, at the
+// 0.28 alias componentproto.LegacyUsagePath. They are client-to-server metadata, not
+// an agent operation, so an HTTP route and not an MCP tool, behind the same auth
+// chain as /mcp and always routed, with or without the web UI.
 
 // maxUsageBody bounds a report: a few hundred rows of a few dozen bytes. A
 // client with more artifacts than that has bigger problems.
@@ -35,11 +35,19 @@ const usageMaxCount = 1 << 30
 // Writing needs the whole KB in write scope, the same as the artifact tools:
 // usage is about artifacts, which are whole-KB resources. A caller without it
 // gets the 404 of an unknown KB, so the route is no existence oracle.
-func (m *MultiKBServer) handleUsage(w http.ResponseWriter, r *http.Request) {
+func (m *MultiKBServer) handleUsage(w http.ResponseWriter, r *http.Request, versioned bool) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		writeUIError(w, http.StatusMethodNotAllowed, uiCodeMethodNotAllow, "use POST", "")
 		return
+	}
+	// The body is an array, so the protocol travels in the query on the new
+	// route; the 0.28 alias is protocol 0 and negotiates nothing.
+	if versioned {
+		peer, _ := strconv.Atoi(r.URL.Query().Get("protocol"))
+		if _, ok := checkProtocol(w, peer); !ok {
+			return
+		}
 	}
 	name := r.URL.Query().Get("kb")
 	var k *kb.KB

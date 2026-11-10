@@ -14,11 +14,11 @@ make vet             # go vet ./..., also GOOS=windows
 make fmt             # gofmt -w cmd internal
 make run             # stdio with demo KB
 make run-http        # HTTP on :39273 with demo KB
-make smoke           # build + quick stdio test
-make smoke-http      # HTTP smoke test (temp KBs via curl)
+make smoke           # build + stdio test
+make smoke-http      # HTTP smoke test (temp KBs)
 make e2e             # HTTP/CLI end-to-end scenarios
 make test-install    # install.sh/Cask packaging suite + goreleaser guard
-make docker          # build Docker image
+make docker          # Docker image
 
 make ready MSG=<file>              # maintainer: queue the change, the lander lands it
 make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered on landing
@@ -74,6 +74,7 @@ internal/changelog              regroups a release-please changelog by area
 internal/changelog/gen          Command gen runs package changelog
 internal/client                 is a minimal MCP client over HTTP (JSON-RPC 2.0)
 internal/clientconfig           reads and writes the client-side `.cartographer.yaml` file
+internal/componentproto         is the server-component wire contract
 internal/config                 is the server configuration of `cartographer serve`
 internal/configurator           generates the MCP configuration of each agent client
 internal/defaults               holds the local endpoint defaults
@@ -148,7 +149,7 @@ Not duplicated here:
 - **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor whose agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
 - A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user, ending in one queued change (`cartographer-develop-live` skill).
 - A PR, or a change before `make ready`, is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap: `CONTRIBUTING.md` §Pull requests.
-- Releases (release-please PR merge, pipeline, rollout) → maintainer-local tooling, not versioned here; the on-demand flow is in `CONTRIBUTING.md` §Releases.
+- Releases → maintainer-local tooling, not versioned here; the on-demand flow is in `CONTRIBUTING.md` §Releases.
 - **Documentation is updated in the same session as the code — never afterward.** The "what changes → which file" table is in `docs/index.md` §Documentation maintenance rules.
 - Conventions → `docs/conventions.md`. A decision is `docs/decisions/D<n>-<slug>.md`, `<n>` the PR's (D672) or, queued, `D-new-<slug>` numbered by the lander; never regenerate `docs/decisions.md` in a feature PR (D328).
 - **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks excluded) or 12.000 characters in total: past that a client drops instructions silently.

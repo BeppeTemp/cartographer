@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
@@ -25,7 +26,7 @@ func TestClientSettingsAreShownToTheirOwnPrincipalOnly(t *testing.T) {
 	handler := settingsHandler(t, config.Default(), ts, "docs")
 
 	post := func(token, body string) int {
-		req := httptest.NewRequest(http.MethodPost, ClientSettingsPath, strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, componentproto.LegacyClientSettingsPath, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 		rr := httptest.NewRecorder()
@@ -76,7 +77,7 @@ func postClientSettings(t *testing.T, handler http.Handler, token string, report
 	if len(body) > maxClientSettingsBody {
 		t.Fatalf("test report is %d bytes, over the %d the server accepts", len(body), maxClientSettingsBody)
 	}
-	req := httptest.NewRequest(http.MethodPost, ClientSettingsPath, bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, componentproto.LegacyClientSettingsPath, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr := httptest.NewRecorder()

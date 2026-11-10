@@ -15,8 +15,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 )
 
 // ErrUnauthorized indicates the server rejected the request with HTTP 401 —
@@ -86,6 +90,10 @@ type RemoteError struct {
 	// lets a caller tell a refused argument from a failure without parsing
 	// Message.
 	RPCCode int
+	// ServerProtocol and ServerMinProtocol are the component protocol window a
+	// server named when it refused the request with 426 (protocol_unsupported);
+	// zero otherwise.
+	ServerProtocol, ServerMinProtocol int
 }
 
 func (e *RemoteError) Error() string {
@@ -144,6 +152,11 @@ type MCPClient struct {
 	// tools/call only. Empty sends nothing and the server authors the write as
 	// the token.
 	Author string
+
+	// legacyComponents is set (atomically) once a 404 on the component family
+	// showed the server predates it (a 0.28 server): the two reports that were
+	// released then go straight to their 0.28 routes afterwards.
+	legacyComponents int32
 }
 
 // Health is the additive subset of the server's /health response that clients
@@ -168,6 +181,12 @@ type Health struct {
 	// means unknown or up to date; the server never names a command, since
 	// how it was deployed is not knowable from inside.
 	LatestVersion string `json:"latest_version,omitempty"`
+	// ComponentProtocol and ComponentMinProtocol are the component protocol
+	// window of the server (internal/componentproto); zero on a server that
+	// predates it. Public, so a Surveyor can refuse an unsupported server
+	// before its first beat.
+	ComponentProtocol    int `json:"component_protocol,omitempty"`
+	ComponentMinProtocol int `json:"component_min_protocol,omitempty"`
 	// Bootstrapping is true only while the server is still cloning and
 	// indexing its KBs (D348). Health turns it into an error: the answer
 	// carries no KB list, and reading it as "zero KBs" would let sync prune
@@ -634,37 +653,81 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	return &health, nil
 }
 
-// usagePath is the server route a usage report goes to (D326).
-const usagePath = "/api/usage"
-
 // ReportUsage posts a usage report (a JSON-encodable list of entries) for one
-// KB to the server's /api/usage route. Like Health, it derives the origin from
-// the MCP endpoint URL and applies timeout to this call only. It is
-// best-effort by design — the caller logs and goes on — so any non-2xx, 404
-// from an older server included, is an error the caller is free to ignore.
+// KB to the server's component usage route (D326). Like Health, it derives the
+// origin from the MCP endpoint URL and applies timeout to this call only. It is
+// best-effort by design — the caller logs and goes on — so any non-2xx is an
+// error the caller is free to ignore. Against a 0.28 server (404 on the
+// component route) it falls back to /api/usage, see reportReleased.
 func (c *MCPClient) ReportUsage(kbName string, entries any, timeout time.Duration) error {
-	return c.apiCall(http.MethodPost, usagePath, kbName, entries, timeout)
+	return c.reportReleased(componentproto.UsagePath, componentproto.LegacyUsagePath, kbName, entries, entries, timeout)
 }
 
-// clientSettingsPath is the server route a client's settings report goes to (D818).
-const clientSettingsPath = "/api/client-settings"
+// reportReleased posts one of the two reports 0.28 already had a route for.
+// A 404 on the component route is a server that predates the family (or an
+// unknown KB, which the legacy route answers the same way): the report is
+// retried once on the 0.28 route with the 0.28 body, and the client remembers
+// so later calls go straight there. The Surveyor's routes were never released
+// and have no fallback.
+func (c *MCPClient) reportReleased(route, legacy, kbName string, body, legacyBody any, timeout time.Duration) error {
+	if atomic.LoadInt32(&c.legacyComponents) == 0 {
+		err := c.apiCall(http.MethodPost, route, kbName, body, timeout)
+		var re *RemoteError
+		if !errors.As(err, &re) || re.HTTPStatus != http.StatusNotFound {
+			return err
+		}
+		atomic.StoreInt32(&c.legacyComponents, 1)
+	}
+	return c.apiCall(http.MethodPost, legacy, kbName, legacyBody, timeout)
+}
 
 // ReportClientSettings posts this machine's client settings to the server, so
-// the Atlas can show the viewer their own client. Best-effort like ReportUsage:
-// a server too old for the route answers 404, which the caller ignores.
+// the Atlas can show the viewer their own client (D818). The report is a JSON
+// object; the component and the protocol are added here. Best-effort like
+// ReportUsage.
 func (c *MCPClient) ReportClientSettings(report any, timeout time.Duration) error {
-	return c.apiCall(http.MethodPost, clientSettingsPath, "", report, timeout)
+	body, err := settingsBody(componentproto.KindClient, report)
+	if err != nil {
+		return err
+	}
+	return c.reportReleased(componentproto.SettingsPath, componentproto.LegacyClientSettingsPath, "", body, report, timeout)
 }
 
-// surveyorsPath and surveyorSettingsPath are the routes of a surveyor's heartbeat
-// and settings report (D1259).
-const (
-	surveyorsPath        = "/api/surveyors"
-	surveyorSettingsPath = "/api/surveyor-settings"
-)
+// ReportSurveyorSettings posts a surveyor's settings report. Best-effort like
+// ReportClientSettings.
+func (c *MCPClient) ReportSurveyorSettings(report any, timeout time.Duration) error {
+	return c.reportSettings(componentproto.KindSurveyor, report, timeout)
+}
 
-// HeartbeatAnswer is the answer of POST /api/surveyors: the idle signal of each
-// accepted KB and whether the server wants the settings report.
+// reportSettings posts one settings report with the `component` and `protocol`
+// the settings route reads, set over whatever the report holds.
+func (c *MCPClient) reportSettings(component string, report any, timeout time.Duration) error {
+	obj, err := settingsBody(component, report)
+	if err != nil {
+		return err
+	}
+	return c.apiCall(http.MethodPost, componentproto.SettingsPath, "", obj, timeout)
+}
+
+// settingsBody is the report with the `component` and `protocol` the settings
+// route reads.
+func settingsBody(component string, report any) (map[string]json.RawMessage, error) {
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return nil, fmt.Errorf("client: encode settings report: %w", err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+		return nil, fmt.Errorf("client: a settings report must be a JSON object")
+	}
+	obj["component"], _ = json.Marshal(component)
+	obj["protocol"], _ = json.Marshal(componentproto.Protocol)
+	return obj, nil
+}
+
+// HeartbeatAnswer is the answer of the component heartbeat: the idle signal of
+// each accepted KB, whether the server wants the settings report, and the
+// protocol window the server speaks (zero on a server that predates the field).
 type HeartbeatAnswer struct {
 	Accepted []string `json:"accepted"`
 	KBs      map[string]struct {
@@ -674,39 +737,21 @@ type HeartbeatAnswer struct {
 	ServerStartedAt time.Time `json:"server_started_at"`
 	Now             time.Time `json:"now"`
 	SettingsWanted  bool      `json:"settings_wanted"`
+	Protocol        int       `json:"protocol"`
+	MinProtocol     int       `json:"min_protocol"`
 }
 
-// Heartbeat posts a surveyor's declaration (a JSON-encodable object) and returns
-// the server's answer. A server too old for the route answers 404, an error the
-// surveyor ignores.
+// Heartbeat posts a surveyor's declaration (a JSON-encodable object that
+// carries its own `protocol`) and returns the server's answer. A server too old
+// for the route answers 404, an error the surveyor ignores; one that refuses
+// the surveyor's protocol answers 426, a *RemoteError with HTTPStatus 426 and
+// the server's numbers in ServerProtocol and ServerMinProtocol.
 func (c *MCPClient) Heartbeat(report any, timeout time.Duration) (*HeartbeatAnswer, error) {
 	var a HeartbeatAnswer
-	if err := c.apiCallInto(http.MethodPost, surveyorsPath, "", report, &a, timeout); err != nil {
+	if err := c.apiCallInto(http.MethodPost, componentproto.HeartbeatPath, "", report, &a, timeout); err != nil {
 		return nil, err
 	}
 	return &a, nil
-}
-
-// ReportSurveyorSettings posts a surveyor's settings report. Best-effort like
-// ReportClientSettings.
-func (c *MCPClient) ReportSurveyorSettings(report any, timeout time.Duration) error {
-	return c.apiCall(http.MethodPost, surveyorSettingsPath, "", report, timeout)
-}
-
-// doctorSchedulePath is the server route a scheduled-doctor declaration goes to (D369).
-const doctorSchedulePath = "/api/doctor-schedule"
-
-// DeclareDoctorSchedule tells the server that a headless cartographer-kb-doctor session of
-// client is due at next, for one KB. Best-effort like ReportUsage: a server too
-// old for the route answers 404, which the caller is free to ignore.
-func (c *MCPClient) DeclareDoctorSchedule(kbName, clientName string, next time.Time, timeout time.Duration) error {
-	body := map[string]string{"client": clientName, "next_run": next.UTC().Format(time.RFC3339)}
-	return c.apiCall(http.MethodPost, doctorSchedulePath, kbName, body, timeout)
-}
-
-// WithdrawDoctorSchedule removes the declaration, when `doctor unschedule` undoes it.
-func (c *MCPClient) WithdrawDoctorSchedule(kbName string, timeout time.Duration) error {
-	return c.apiCall(http.MethodDelete, doctorSchedulePath, kbName, nil, timeout)
 }
 
 // apiCall sends one request to a server /api route (client-to-server metadata,
@@ -731,6 +776,12 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 	q := url.Values{}
 	if kbName != "" {
 		q.Set("kb", kbName)
+	}
+	// A body that is not an object (usage is an array) cannot carry the
+	// protocol, so on the component family it travels in the query for every
+	// call; the routes that read it from the body ignore this one.
+	if strings.HasPrefix(route, componentproto.Prefix) {
+		q.Set("protocol", strconv.Itoa(componentproto.Protocol))
 	}
 	u.RawQuery = q.Encode()
 	var reader io.Reader
@@ -764,6 +815,19 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 	case resp.StatusCode == http.StatusUnauthorized:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
 			Message: fmt.Sprintf("%s rejected the request", u.Redacted()), Cause: c.unauthorizedCauseFor()}
+	case resp.StatusCode == http.StatusUpgradeRequired:
+		re := &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode}
+		var body struct {
+			Error struct {
+				Protocol    int `json:"protocol"`
+				MinProtocol int `json:"min_protocol"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(raw, &body) == nil {
+			re.ServerProtocol, re.ServerMinProtocol = body.Error.Protocol, body.Error.MinProtocol
+		}
+		return re
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode}

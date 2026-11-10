@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -42,9 +43,11 @@ func TestStateChangingRoutes_CrossOriginRefused(t *testing.T) {
 	h, k := openUsageHandler(t)
 	usage := `[{"name":"a","kind":"skill","provider":"p","last_used":"` + time.Now().UTC().Format(time.RFC3339) + `","count":1}]`
 	for _, tc := range []struct{ path, body string }{
-		{UsagePath + "?kb=docs", usage},
-		{ClientSettingsPath, csrfSettings},
-		{SurveyorsPath, `{"surveyor":"s-1","perimeter":"team-a","kbs":["docs"],"state":"idle"}`},
+		{componentproto.UsagePath + "?kb=docs&protocol=1", usage},
+		{componentproto.LegacyUsagePath + "?kb=docs", usage},
+		{componentproto.LegacyClientSettingsPath, csrfSettings},
+		{componentproto.SettingsPath, `{"component":"client","protocol":1,"machine":"m1"}`},
+		{componentproto.HeartbeatPath, `{"protocol":1,"surveyor":"s-1","perimeter":"team-a","kbs":["docs"],"state":"idle"}`},
 		{UIAPIPrefix + "/anything", "{}"},
 		{"/clients", "{}"},
 	} {
@@ -64,10 +67,10 @@ func TestStateChangingRoutes_SameOriginAndNoOriginAccepted(t *testing.T) {
 	t.Parallel()
 	h, _ := openUsageHandler(t)
 	for _, origin := range []string{"", "http://127.0.0.1:39273"} {
-		if rr := rawPost(h, ClientSettingsPath, "application/json", origin, csrfSettings); rr.Code != http.StatusOK {
+		if rr := rawPost(h, componentproto.LegacyClientSettingsPath, "application/json", origin, csrfSettings); rr.Code != http.StatusOK {
 			t.Errorf("origin %q: status %d, want 200: %s", origin, rr.Code, rr.Body)
 		}
-		if rr := rawPost(h, ClientSettingsPath, "application/json; charset=utf-8", origin, csrfSettings); rr.Code != http.StatusOK {
+		if rr := rawPost(h, componentproto.LegacyClientSettingsPath, "application/json; charset=utf-8", origin, csrfSettings); rr.Code != http.StatusOK {
 			t.Errorf("origin %q with charset: status %d, want 200", origin, rr.Code)
 		}
 	}
@@ -77,9 +80,9 @@ func TestJSONEndpoints_RequireJSONContentType(t *testing.T) {
 	t.Parallel()
 	h, k := openUsageHandler(t)
 	for _, ct := range []string{"text/plain", "application/x-www-form-urlencoded", "multipart/form-data", ""} {
-		for _, p := range []string{UsagePath + "?kb=docs", ClientSettingsPath} {
+		for _, p := range []string{componentproto.UsagePath + "?kb=docs&protocol=1", componentproto.LegacyUsagePath + "?kb=docs", componentproto.LegacyClientSettingsPath, componentproto.SettingsPath} {
 			body := csrfSettings
-			if strings.HasPrefix(p, UsagePath) {
+			if strings.Contains(p, "usage") {
 				body = "[]"
 			}
 			if rr := rawPost(h, p, ct, "", body); rr.Code != http.StatusUnsupportedMediaType {
@@ -96,11 +99,11 @@ func TestJSONEndpoints_OversizedBodyRefused(t *testing.T) {
 	t.Parallel()
 	h, _ := openUsageHandler(t)
 	big := `["` + strings.Repeat("a", maxUsageBody+10) + `"]`
-	if rr := rawPost(h, UsagePath+"?kb=docs", "application/json", "", big); rr.Code != http.StatusRequestEntityTooLarge {
+	if rr := rawPost(h, componentproto.UsagePath+"?kb=docs&protocol=1", "application/json", "", big); rr.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("usage: status %d, want 413", rr.Code)
 	}
 	bigSettings := `{"machine":"m","yaml":"` + strings.Repeat("a", maxClientSettingsBody+10) + `"}`
-	if rr := rawPost(h, ClientSettingsPath, "application/json", "", bigSettings); rr.Code != http.StatusRequestEntityTooLarge {
+	if rr := rawPost(h, componentproto.LegacyClientSettingsPath, "application/json", "", bigSettings); rr.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("client settings: status %d, want 413", rr.Code)
 	}
 }
