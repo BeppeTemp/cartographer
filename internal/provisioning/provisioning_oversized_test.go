@@ -27,27 +27,27 @@ func TestReadDirFilesCapsAndRefusesSymlinks(t *testing.T) {
 		}
 	}
 	must(os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("small"), 0o644))
-	must(os.WriteFile(filepath.Join(dir, "big.bin"), make([]byte, ArtifactMaxFileSize+1), 0o644))
+	must(os.WriteFile(filepath.Join(dir, "big.bin"), make([]byte, contract.ArtifactMaxFileSize+1), 0o644))
 	if err := os.Symlink(filepath.Join(dir, "SKILL.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	// A link among the files refuses the directory (contract/kblinks.go); with it gone
 	// the rest reads as before.
 	var linkErr *contract.KBSymlinkError
-	if _, err := readDirFiles(dir, nil); !errors.As(err, &linkErr) {
+	if _, err := contract.ReadDirFiles(dir, nil); !errors.As(err, &linkErr) {
 		t.Fatalf("readDirFiles with a link = %v, want a *contract.KBSymlinkError", err)
 	}
 	must(os.Remove(filepath.Join(dir, "link.md")))
-	files, err := readDirFiles(dir, nil)
+	files, err := contract.ReadDirFiles(dir, nil)
 	must(err)
-	got := map[string]ArtifactFile{}
+	got := map[string]contract.ArtifactFile{}
 	for _, f := range files {
 		got[f.Path] = f
 	}
-	if len(got) != 2 || got["big.bin"].Oversized != ArtifactMaxFileSize+1 || got["big.bin"].Content != nil || string(got["SKILL.md"].Content) != "small" {
+	if len(got) != 2 || got["big.bin"].Oversized != contract.ArtifactMaxFileSize+1 || got["big.bin"].Content != nil || string(got["SKILL.md"].Content) != "small" {
 		t.Fatalf("files = %+v", got)
 	}
-	hash, err := contentHashDirTracked(dir, "skill", nil)
+	hash, err := contract.ContentHashDirTracked(dir, "skill", nil)
 	must(err)
 	if hash == "" {
 		t.Fatal("no hash")
@@ -58,23 +58,23 @@ func TestReadDirFilesCapsAndRefusesSymlinks(t *testing.T) {
 // back oversized and the walk stops; the hash agrees (stable, no read).
 func TestReadDirFilesBudget(t *testing.T) {
 	dir := t.TempDir()
-	for i := 0; i < ArtifactMaxFiles+3; i++ {
+	for i := 0; i < contract.ArtifactMaxFiles+3; i++ {
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%04d", i)), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	files, err := readDirFiles(dir, nil)
+	files, err := contract.ReadDirFiles(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != ArtifactMaxFiles+1 || files[len(files)-1].Oversized == 0 {
+	if len(files) != contract.ArtifactMaxFiles+1 || files[len(files)-1].Oversized == 0 {
 		t.Fatalf("got %d files, last %+v", len(files), files[len(files)-1])
 	}
-	h1, err := contentHashDirTracked(dir, "skill", nil)
+	h1, err := contract.ContentHashDirTracked(dir, "skill", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h2, _ := contentHashDirTracked(dir, "skill", nil); h1 != h2 {
+	if h2, _ := contract.ContentHashDirTracked(dir, "skill", nil); h1 != h2 {
 		t.Fatal("hash not stable")
 	}
 }
@@ -89,7 +89,7 @@ func TestReadFileCappedRefusesSymlink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Skip(err)
 	}
-	if _, _, err := ReadFileCapped(link); !errors.Is(err, ErrNotRegular) {
+	if _, _, err := contract.ReadFileCapped(link); !errors.Is(err, contract.ErrNotRegular) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -113,7 +113,7 @@ func TestApply_ArtifactDroppedFromManifestIsPruned(t *testing.T) {
 		}
 	}
 	roots := map[string]string{"kb-a": kbRoot}
-	m1, err := BuildManifest(nil, roots, BuildOptions{})
+	m1, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,8 +126,8 @@ func TestApply_ArtifactDroppedFromManifestIsPruned(t *testing.T) {
 	if _, err := os.Stat(installed); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	var empty Manifest
-	empty.Revision = computeRevision(nil)
+	var empty contract.Manifest
+	empty.Revision = contract.ComputeRevision(nil)
 	if _, err := Apply(empty, ApplyOptions{KBRoots: roots, Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: res.NewLock}); err != nil {
 		t.Fatal(err)
 	}

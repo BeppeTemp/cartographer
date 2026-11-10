@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // sync_pull serves the KB's paths.yaml as path_registry (D263): parsed, the
@@ -46,13 +46,13 @@ func TestSyncPullServesPathRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := pull()
-	var reg provisioning.PathRegistry
+	var reg contract.PathRegistry
 	if err := json.Unmarshal(after["path_registry"], &reg); err != nil {
 		t.Fatalf("path_registry does not decode as provisioning.PathRegistry: %v (%s)", err, after["path_registry"])
 	}
-	want := provisioning.PathRegistry{
-		Paths: map[string]provisioning.PathDecl{"claude-home": {Description: "Claude Code's directory", Default: "~/.claude"}},
-		Repos: map[string]provisioning.PathDecl{"kb-tools": {Description: "the tools repo", Remote: "example.com/owner/kb-tools"}},
+	want := contract.PathRegistry{
+		Paths: map[string]contract.PathDecl{"claude-home": {Description: "Claude Code's directory", Default: "~/.claude"}},
+		Repos: map[string]contract.PathDecl{"kb-tools": {Description: "the tools repo", Remote: "example.com/owner/kb-tools"}},
 	}
 	if !reflect.DeepEqual(reg, want) {
 		t.Errorf("path_registry = %+v, want %+v", reg, want)

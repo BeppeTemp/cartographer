@@ -11,13 +11,14 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func applyCopilotHook(t *testing.T, event, matcher string) (provisioning.AppliedResult, string) {
 	t.Helper()
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "guard", event, matcher, "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestEnsureBootstrapHook_Copilot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg := filepath.Join(baseDir, ".copilot", "hooks", "cartographer-"+provisioning.BootstrapHookName+".json")
+	reg := filepath.Join(baseDir, ".copilot", "hooks", "cartographer-"+contract.BootstrapHookName+".json")
 	if _, ok := readJSONFile(t, reg)["hooks"].(map[string]any)["sessionStart"]; !ok {
 		t.Errorf("no sessionStart registration in %s", reg)
 	}
@@ -139,14 +140,14 @@ func TestEnsureWriteFindingsHook_Copilot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := os.ReadFile(filepath.Join(baseDir, ".copilot", "cartographer-hooks", provisioning.WriteFindingsHookName, "hook.json"))
+	spec, err := os.ReadFile(filepath.Join(baseDir, ".copilot", "cartographer-hooks", contract.WriteFindingsHookName, "hook.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(spec), "--channel copilot") || strings.Contains(string(spec), "matcher") {
 		t.Errorf("hook.json = %s, want the copilot channel and no matcher", spec)
 	}
-	reg := filepath.Join(baseDir, ".copilot", "hooks", "cartographer-"+provisioning.WriteFindingsHookName+".json")
+	reg := filepath.Join(baseDir, ".copilot", "hooks", "cartographer-"+contract.WriteFindingsHookName+".json")
 	list := readJSONFile(t, reg)["hooks"].(map[string]any)["postToolUse"].([]any)
 	if cmd, _ := list[0].(map[string]any)["bash"].(string); !strings.HasSuffix(cmd, "--channel copilot") {
 		t.Errorf("bash = %q, want the shim with --channel copilot", cmd)
@@ -164,11 +165,11 @@ func TestEnsureWriteFindingsHook_Copilot(t *testing.T) {
 func TestApply_Copilot_MaterializzaAgent(t *testing.T) {
 	baseDir := t.TempDir()
 	src := "---\nname: reviewer\ndescription: \"Reviews: code safely\"\ntools: Read, Grep\nmodel: sonnet\n---\nReviewer system prompt.\n"
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "agent", Name: "reviewer", Source: "kb:x", ContentHash: "h1", Signed: true,
-		Files: []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
+		Files: []contract.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
 	}
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderCopilot, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}); err != nil {

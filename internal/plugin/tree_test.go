@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const (
@@ -74,7 +75,7 @@ func RegisteredPointsPreview(buf *bytes.Buffer, p Plugin) {
 }
 
 func TestReadTreeProblems(t *testing.T) {
-	big := strings.Repeat("x", provisioning.ArtifactMaxFileSize+1)
+	big := strings.Repeat("x", contract.ArtifactMaxFileSize+1)
 	cases := []struct {
 		name  string
 		extra []TreeFile
@@ -120,7 +121,7 @@ func TestReadTreeProblems(t *testing.T) {
 }
 
 func TestIgnoredFilesAreNotChecked(t *testing.T) {
-	files := append(goodTree(), TreeFile{Path: "README.txt", Special: true}, tf("CHANGELOG.md", strings.Repeat("x", provisioning.ArtifactMaxFileSize+1)))
+	files := append(goodTree(), TreeFile{Path: "README.txt", Special: true}, tf("CHANGELOG.md", strings.Repeat("x", contract.ArtifactMaxFileSize+1)))
 	if _, probs := ReadTree(files, testOpts); len(probs) != 0 {
 		t.Errorf("an ignored file is checked: %v", probs)
 	}

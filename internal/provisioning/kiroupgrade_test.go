@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // Kiro CLI 3.x upgrades a V2 agent in place, adds `kiroUpgrade` and keeps the
@@ -28,7 +29,7 @@ func upgradedFrom(t *testing.T, v2 []byte) []byte {
 	return append(out, '\n')
 }
 
-func kiroAgentApplied(t *testing.T) (baseDir string, m Manifest, applied AppliedResult, kbRoot, agentFile string) {
+func kiroAgentApplied(t *testing.T) (baseDir string, m contract.Manifest, applied AppliedResult, kbRoot, agentFile string) {
 	t.Helper()
 	baseDir, m, applied, kbRoot = driftKB(t, func(o *ApplyOptions) { o.Provider = configurator.ProviderKiro })
 	agentFile = filepath.Join(baseDir, ".kiro", "agents", "reviewer.json")
@@ -125,7 +126,7 @@ func TestVerifyManaged_KiroUpgradedFromForeignSourceIsDrift(t *testing.T) {
 	}
 }
 
-func kiroUpgradedLock(t *testing.T) (baseDir string, m Manifest, kbRoot, agentFile string, lock Lock) {
+func kiroUpgradedLock(t *testing.T) (baseDir string, m contract.Manifest, kbRoot, agentFile string, lock Lock) {
 	t.Helper()
 	baseDir, m, applied, kbRoot, agentFile := kiroAgentApplied(t)
 	ours, _ := os.ReadFile(agentFile)

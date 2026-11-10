@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestDestinationMatrixIsComplete(t *testing.T) {
 	for _, kind := range artifactKinds {
-		cells, ok := destinationMatrix[kind]
+		cells, ok := contract.DestinationMatrix[kind]
 		if !ok {
 			t.Errorf("kind %q has no row in destinationMatrix", kind)
 			continue
@@ -24,10 +25,10 @@ func TestDestinationMatrixIsComplete(t *testing.T) {
 				t.Errorf("destinationMatrix[%q][%q] is missing: name a destination or mark it unsupported", kind, d.Provider)
 				continue
 			}
-			if cell.unsupported {
+			if cell.Unsupported {
 				continue
 			}
-			if len(cell.dir) == 0 {
+			if len(cell.Dir) == 0 {
 				t.Errorf("destinationMatrix[%q][%q] is supported but names no path", kind, d.Provider)
 			}
 		}
@@ -37,7 +38,7 @@ func TestDestinationMatrixIsComplete(t *testing.T) {
 			}
 		}
 	}
-	for kind := range destinationMatrix {
+	for kind := range contract.DestinationMatrix {
 		found := false
 		for _, known := range artifactKinds {
 			if kind == known {
@@ -114,7 +115,7 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.Provider("nope"), ""},
 	}
 	for _, tc := range cases {
-		if got := destDir(tc.kind, "demo", tc.provider); got != tc.want {
+		if got := contract.DestDir(tc.kind, "demo", tc.provider); got != tc.want {
 			t.Errorf("destDir(%q, demo, %q) = %q, want %q", tc.kind, tc.provider, got, tc.want)
 		}
 	}

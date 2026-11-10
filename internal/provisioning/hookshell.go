@@ -38,8 +38,8 @@ func posixShellHookCommand(command string, windows bool) string {
 	if !windows {
 		return command
 	}
-	bin, rest, hasRest := splitHookCommand(command)
-	bin = unquoteHookToken(bin)
+	bin, rest, hasRest := contract.SplitHookCommand(command)
+	bin = contract.UnquoteHookToken(bin)
 	if !strings.Contains(bin, `\`) {
 		return command
 	}
@@ -53,19 +53,6 @@ func posixShellHookCommand(command string, windows bool) string {
 	return bin
 }
 
-// unquoteHookToken strips the quotes resolveHookCommand puts around an
-// executable: single quotes (with '\” for an apostrophe) on a POSIX host,
-// double quotes for a space on Windows and in registrations written before.
-func unquoteHookToken(bin string) string {
-	if len(bin) >= 2 && strings.HasPrefix(bin, `'`) && strings.HasSuffix(bin, `'`) {
-		return strings.ReplaceAll(bin[1:len(bin)-1], `'\''`, `'`)
-	}
-	if len(bin) >= 2 && strings.HasPrefix(bin, `"`) && strings.HasSuffix(bin, `"`) {
-		return bin[1 : len(bin)-1]
-	}
-	return bin
-}
-
 // hookCommandProblem says why a registered hook command cannot run, or "" when
 // nothing visible stops it. Two things are checked, both on the executable
 // alone: a backslash in it on Windows (a POSIX shell deletes it — the pre-D267
@@ -73,8 +60,8 @@ func unquoteHookToken(bin string) string {
 // name is PATH's business and a $VAR path is the shell's: neither is guessed at.
 // exists is injected so the check stays pure.
 func hookCommandProblem(command string, windows bool, exists func(string) bool) string {
-	bin, _, _ := splitHookCommand(strings.TrimSpace(command))
-	bin = unquoteHookToken(bin)
+	bin, _, _ := contract.SplitHookCommand(strings.TrimSpace(command))
+	bin = contract.UnquoteHookToken(bin)
 	if windows && strings.Contains(bin, `\`) {
 		return fmt.Sprintf("command %s has backslashes, which the shell running it removes", bin)
 	}

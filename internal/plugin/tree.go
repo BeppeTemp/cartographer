@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const (
@@ -31,7 +32,7 @@ type TreeFile struct {
 type Plugin struct {
 	Manifest      Manifest
 	Contributions map[string][]Contribution // by point Dir
-	Artifacts     []provisioning.Artifact
+	Artifacts     []contract.Artifact
 	Files         []TreeFile // every stored file, manifest included, sorted by path
 	Digest        string     // identifies the validated tree
 }
@@ -81,8 +82,8 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		case f.Special:
 			add("%q: a symlink or non-regular file", f.Path)
 			continue
-		case len(f.Content) > provisioning.ArtifactMaxFileSize:
-			add("%q: %d bytes, over the %d cap of a file", f.Path, len(f.Content), provisioning.ArtifactMaxFileSize)
+		case len(f.Content) > contract.ArtifactMaxFileSize:
+			add("%q: %d bytes, over the %d cap of a file", f.Path, len(f.Content), contract.ArtifactMaxFileSize)
 			continue
 		case !nested && f.Path == ManifestFile:
 			manifest = f.Content
@@ -131,7 +132,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 			if c.Provider != nil {
 				continue // registered by the host, not materialized as a file set
 			}
-			p.Artifacts = append(p.Artifacts, provisioning.Artifact{
+			p.Artifacts = append(p.Artifacts, contract.Artifact{
 				Kind: c.Kind, Name: c.Name, Source: "plugin:" + p.Manifest.Name,
 				ContentHash: provisioning.ContentHashFiles(c.Files), Files: c.Files,
 			})

@@ -1,4 +1,4 @@
-package provisioning
+package contract
 
 import (
 	"regexp"
@@ -80,10 +80,10 @@ func ClientModes(arts []Artifact, opts ProjectOptions) map[string][]ClientMode {
 				m.Mode = ModeDegraded
 			case alive[id]:
 				m.Mode = ModeNative
-				if len(unverifiedFor(a, ApplyOptions{Provider: d.Provider, Scope: scope, KBRoots: opts.KBRoots, BundleFS: opts.BundleFS})) > 0 {
+				if len(UnverifiedFor(a, d.Provider, scope, opts.BundleFS, opts.KBRoots)) > 0 {
 					m.Mode = ModeUnverified
 				}
-			case strictAgentSkipped(a, d.Provider) && AgentMode(d.Provider, scope) == AgentDegraded && destDirScoped("skill", a.Name, d.Provider, scope) != "":
+			case StrictAgentSkipped(a, d.Provider) && AgentMode(d.Provider, scope) == AgentDegraded && DestDirScoped("skill", a.Name, d.Provider, scope) != "":
 				m.Mode, m.Reason = ModeSkipped, "strict_tools"
 			default:
 				continue
@@ -112,9 +112,9 @@ func KindClientModes(kind string) []ClientMode {
 	var out []ClientMode
 	for _, d := range configurator.Providers() {
 		switch {
-		case destDir(kind, "", d.Provider) != "" && (kind != "agent" || AgentMode(d.Provider, ScopeGlobal) == AgentNative):
+		case DestDir(kind, "", d.Provider) != "" && (kind != "agent" || AgentMode(d.Provider, ScopeGlobal) == AgentNative):
 			out = append(out, ClientMode{Provider: d.Provider})
-		case kind == "agent" && destDirScoped("skill", "x", d.Provider, ScopeGlobal) != "":
+		case kind == "agent" && DestDirScoped("skill", "x", d.Provider, ScopeGlobal) != "":
 			out = append(out, ClientMode{Provider: d.Provider, Mode: ModeDegraded})
 		}
 	}

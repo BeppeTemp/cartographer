@@ -6,25 +6,26 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // Providers the hold/approve/update contract is checked on: Claude Code writes a
 // settings.json registration, OpenCode a generated plugin.
 var approvalProviders = []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderOpenCode}
 
-func hookArtifact(hash, script string) Artifact {
-	return Artifact{
+func hookArtifact(hash, script string) contract.Artifact {
+	return contract.Artifact{
 		Kind: "hook", Name: "greet", Source: "kb:kb-a", ContentHash: hash,
-		Files: []ArtifactFile{
+		Files: []contract.ArtifactFile{
 			{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}` + "\n")},
 			{Path: "run.sh", Content: []byte(script), Executable: true},
 		},
 	}
 }
 
-func applyArtifact(t *testing.T, p configurator.Provider, baseDir string, lock Lock, approved map[string]string, a Artifact) AppliedResult {
+func applyArtifact(t *testing.T, p configurator.Provider, baseDir string, lock Lock, approved map[string]string, a contract.Artifact) AppliedResult {
 	t.Helper()
-	res, err := Apply(Manifest{Revision: a.ContentHash, Artifacts: []Artifact{a}}, ApplyOptions{
+	res, err := Apply(contract.Manifest{Revision: a.ContentHash, Artifacts: []contract.Artifact{a}}, ApplyOptions{
 		Provider: p, BaseDir: baseDir, Lock: lock, ApprovedMCP: approved,
 	})
 	if err != nil {
@@ -36,8 +37,8 @@ func applyArtifact(t *testing.T, p configurator.Provider, baseDir string, lock L
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // installedAt is where a provider puts an artifact's files.
-func installedAt(p configurator.Provider, base string, a Artifact) string {
-	return filepath.Join(base, destDirScoped(a.Kind, a.Name, p, ScopeGlobal))
+func installedAt(p configurator.Provider, base string, a contract.Artifact) string {
+	return filepath.Join(base, contract.DestDirScoped(a.Kind, a.Name, p, contract.ScopeGlobal))
 }
 
 func TestApply_UnapprovedKBHookIsPendingAndNotInstalled(t *testing.T) {
@@ -133,16 +134,16 @@ func TestApply_ApprovalOfAnMCPDescriptorDoesNotApproveAHookOfTheSameName(t *test
 // No approval unblocks a kind the provider has no destination for (D50): it is
 // Unsupported, never pending. Crush has no agent destination.
 func TestApply_UnapprovedArtifactOnAProviderWithoutADestinationIsUnsupportedNotPending(t *testing.T) {
-	agent := Artifact{Kind: "agent", Name: "a", Source: "kb:kb-a", ContentHash: "a",
-		Files: []ArtifactFile{{Path: "a.md", Content: []byte("---\nname: a\ndescription: d\nhooks:\n  Stop: []\n---\nbody\n")}}}
+	agent := contract.Artifact{Kind: "agent", Name: "a", Source: "kb:kb-a", ContentHash: "a",
+		Files: []contract.ArtifactFile{{Path: "a.md", Content: []byte("---\nname: a\ndescription: d\nhooks:\n  Stop: []\n---\nbody\n")}}}
 	res := applyArtifact(t, configurator.ProviderCrush, t.TempDir(), Lock{}, nil, agent)
 	if len(res.NeedsApproval) != 0 || len(res.Unsupported) != 1 {
 		t.Fatalf("want Unsupported only, got pending=%+v unsupported=%+v", res.NeedsApproval, res.Unsupported)
 	}
 }
 
-func scriptedSkill(name string, exec bool, frontmatterExtra string) Artifact {
-	return Artifact{Kind: "skill", Name: name, Source: "kb:kb-a", ContentHash: "s-" + name, Files: []ArtifactFile{
+func scriptedSkill(name string, exec bool, frontmatterExtra string) contract.Artifact {
+	return contract.Artifact{Kind: "skill", Name: name, Source: "kb:kb-a", ContentHash: "s-" + name, Files: []contract.ArtifactFile{
 		{Path: "SKILL.md", Content: []byte("---\nname: " + name + "\ndescription: Use when testing.\n" + frontmatterExtra + "---\nbody\n")},
 		{Path: "scripts/run.sh", Content: []byte("#!/bin/sh\n"), Executable: exec},
 	}}
@@ -180,14 +181,14 @@ func TestArtifactRequiresApproval_FrontmatterHooksAndMCPServers(t *testing.T) {
 		if !ArtifactRequiresApproval(scriptedSkill("s", false, extra), ApplyOptions{}) {
 			t.Errorf("skill %s: must require approval", name)
 		}
-		agent := Artifact{Kind: "agent", Name: "a", Source: "kb:kb-a", ContentHash: "a",
-			Files: []ArtifactFile{{Path: "a.md", Content: []byte("---\nname: a\ndescription: d\n" + extra + "---\nbody\n")}}}
+		agent := contract.Artifact{Kind: "agent", Name: "a", Source: "kb:kb-a", ContentHash: "a",
+			Files: []contract.ArtifactFile{{Path: "a.md", Content: []byte("---\nname: a\ndescription: d\n" + extra + "---\nbody\n")}}}
 		if !ArtifactRequiresApproval(agent, ApplyOptions{}) {
 			t.Errorf("agent %s: must require approval", name)
 		}
 	}
-	plainAgent := Artifact{Kind: "agent", Name: "a", Source: "kb:kb-a", ContentHash: "a",
-		Files: []ArtifactFile{{Path: "a.md", Content: []byte("---\nname: a\ndescription: Mentions hooks in prose only\ntools: Read\n---\nhooks: not frontmatter\n")}}}
+	plainAgent := contract.Artifact{Kind: "agent", Name: "a", Source: "kb:kb-a", ContentHash: "a",
+		Files: []contract.ArtifactFile{{Path: "a.md", Content: []byte("---\nname: a\ndescription: Mentions hooks in prose only\ntools: Read\n---\nhooks: not frontmatter\n")}}}
 	if ArtifactRequiresApproval(plainAgent, ApplyOptions{}) {
 		t.Error("an agent with no hooks/mcp key in its frontmatter must install")
 	}
@@ -195,8 +196,8 @@ func TestArtifactRequiresApproval_FrontmatterHooksAndMCPServers(t *testing.T) {
 	// And Apply holds it until approved, on a provider that writes agents verbatim.
 	p := configurator.ProviderClaudeCode
 	base := t.TempDir()
-	agent := Artifact{Kind: "agent", Name: "a", Source: "kb:kb-a", ContentHash: "a",
-		Files: []ArtifactFile{{Path: "a.md", Content: []byte("---\nname: a\ndescription: d\nhooks:\n  Stop: []\n---\nbody\n")}}}
+	agent := contract.Artifact{Kind: "agent", Name: "a", Source: "kb:kb-a", ContentHash: "a",
+		Files: []contract.ArtifactFile{{Path: "a.md", Content: []byte("---\nname: a\ndescription: d\nhooks:\n  Stop: []\n---\nbody\n")}}}
 	res := applyArtifact(t, p, base, Lock{}, nil, agent)
 	if len(res.NeedsApproval) != 1 || exists(installedAt(p, base, agent)) {
 		t.Fatalf("an agent declaring hooks must wait: %+v", res.NeedsApproval)
@@ -208,8 +209,8 @@ func TestArtifactRequiresApproval_FrontmatterHooksAndMCPServers(t *testing.T) {
 }
 
 func TestArtifactRequiresApproval_BundleAndBuiltInNever(t *testing.T) {
-	bundled := Artifact{Kind: "hook", Name: "x", Source: "bundle", Files: []ArtifactFile{{Path: "run.sh", Executable: true}}}
-	builtIn := Artifact{Kind: "hook", Name: "x", Source: "kb:kb-a", BuiltIn: true}
+	bundled := contract.Artifact{Kind: "hook", Name: "x", Source: "bundle", Files: []contract.ArtifactFile{{Path: "run.sh", Executable: true}}}
+	builtIn := contract.Artifact{Kind: "hook", Name: "x", Source: "kb:kb-a", BuiltIn: true}
 	if ArtifactRequiresApproval(bundled, ApplyOptions{}) || ArtifactRequiresApproval(builtIn, ApplyOptions{}) {
 		t.Error("a bundled or built-in artifact must never wait for approval")
 	}

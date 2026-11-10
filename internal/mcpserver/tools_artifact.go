@@ -27,7 +27,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
@@ -37,7 +36,7 @@ import (
 // from bloating the KB repo.
 // It is also the cap on every read from disk (artifact_read, artifact_list,
 // sync_pull): a file over it is reported oversized, never read.
-const artifactMaxFileSize = provisioning.ArtifactMaxFileSize
+const artifactMaxFileSize = contract.ArtifactMaxFileSize
 
 // artifactMaxPathLen caps the length of the "path" argument, defensive
 // against pathological inputs before any filesystem call is made.
@@ -293,7 +292,7 @@ func toolArtifactRead(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(relPathErr(err, k.Root)), nil
 			}
-			data, oversized, err := provisioning.ReadFileCapped(abs)
+			data, oversized, err := contract.ReadFileCapped(abs)
 			if err != nil {
 				if os.IsNotExist(err) {
 					return errorResult(fmt.Sprintf("not_found: %s", params.Path)), nil
@@ -455,8 +454,8 @@ func scanTemplates(k *kb.KB) ([]templateListEntry, error) {
 	}
 	out := make([]templateListEntry, 0, len(slugs))
 	for _, slug := range slugs {
-		data, oversized, err := provisioning.ReadFileCapped(filepath.Join(k.Root, "templates", slug+".md"))
-		if errors.Is(err, provisioning.ErrNotRegular) || oversized > 0 {
+		data, oversized, err := contract.ReadFileCapped(filepath.Join(k.Root, "templates", slug+".md"))
+		if errors.Is(err, contract.ErrNotRegular) || oversized > 0 {
 			continue // a symlinked or oversized template is not listed, nor read
 		}
 		if err != nil {
@@ -559,10 +558,10 @@ func toolArtifactWrite(k *kb.KB) Tool {
 					params.Path, len(data), artifactMaxFileSize)), nil
 			}
 
-			if info.Kind == "instructions" && len(data) > provisioning.MaxInstructionsBytes {
+			if info.Kind == "instructions" && len(data) > contract.MaxInstructionsBytes {
 				return errorResult(fmt.Sprintf(
 					"artifact_write %q: content is %d bytes, exceeds the %d bytes cap of instructions.md (readers cut it there)",
-					params.Path, len(data), provisioning.MaxInstructionsBytes)), nil
+					params.Path, len(data), contract.MaxInstructionsBytes)), nil
 			}
 
 			abs, err := k.ResolveRootPath(params.Path)
@@ -573,7 +572,7 @@ func toolArtifactWrite(k *kb.KB) Tool {
 				return errorResult(relPathErr(err, k.Root)), nil
 			}
 
-			existing, existingSize, statErr := provisioning.ReadFileCapped(abs)
+			existing, existingSize, statErr := contract.ReadFileCapped(abs)
 			if existingSize > 0 {
 				return errorResult(fmt.Sprintf("oversized: %s is %d bytes, over the %d bytes cap of an artifact file; it is neither read nor overwritten (replace it through git)", params.Path, existingSize, artifactMaxFileSize)), nil
 			}
@@ -651,9 +650,9 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 		if filepath.Base(relPath) != "SKILL.md" {
 			return nil // other files in the skill dir (scripts, resources, ...)
 		}
-		return provisioning.ValidateSkillFile(info.Name, data)
+		return contract.ValidateSkillFile(info.Name, data)
 	case "agent":
-		return provisioning.ValidateAgentFile(info.Name, data)
+		return contract.ValidateAgentFile(info.Name, data)
 	case "mcp":
 		if _, err := contract.ParseMCPServerSpec(info.Name, data); err != nil {
 			return err
@@ -673,10 +672,10 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 		if filepath.Base(relPath) != "hook.json" {
 			return nil // the hook's script and other files
 		}
-		if _, err := provisioning.ValidateHookJSON(data); err != nil {
+		if _, err := contract.ValidateHookJSON(data); err != nil {
 			return err
 		}
-		return provisioning.ValidateHookRequires(info.Name, data)
+		return contract.ValidateHookRequires(info.Name, data)
 	case "instructions":
 		return validateInstructionsRequires(data)
 	default:
@@ -691,10 +690,10 @@ func hookClientWarnings(info artifactPathInfo, relPath string, data []byte) []st
 	if info.Kind != "hook" || filepath.Base(relPath) != "hook.json" {
 		return nil
 	}
-	if w := provisioning.UnknownHookEvent(data); w != "" {
+	if w := contract.UnknownHookEvent(data); w != "" {
 		return []string{w}
 	}
-	misses, err := provisioning.ValidateHookJSON(data)
+	misses, err := contract.ValidateHookJSON(data)
 	if err != nil || len(misses) == 0 {
 		return nil
 	}
@@ -716,7 +715,7 @@ func agentClientWarnings(info artifactPathInfo, data []byte) []string {
 	if err != nil {
 		return nil
 	}
-	return provisioning.KiroV2OnlyKeyWarnings(fm)
+	return contract.KiroV2OnlyKeyWarnings(fm)
 }
 
 func isStructuredArtifact(info artifactPathInfo, relPath string) bool {
@@ -981,8 +980,8 @@ func validateInstructionsRequires(data []byte) error {
 		return nil
 	}
 	if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
-		if _, ok := fm.Get(provisioning.RequiresKey); ok {
-			return fmt.Errorf("instructions.md cannot declare %q: it applies to skills, agents and hooks only", provisioning.RequiresKey)
+		if _, ok := fm.Get(contract.RequiresKey); ok {
+			return fmt.Errorf("instructions.md cannot declare %q: it applies to skills, agents and hooks only", contract.RequiresKey)
 		}
 	}
 	return nil
@@ -1035,7 +1034,7 @@ func toolArtifactDelete(k *kb.KB) Tool {
 				return errorResult(relPathErr(err, k.Root)), nil
 			}
 
-			existing, existingSize, readErr := provisioning.ReadFileCapped(abs)
+			existing, existingSize, readErr := contract.ReadFileCapped(abs)
 			if existingSize > 0 {
 				return errorResult(fmt.Sprintf("oversized: %s is %d bytes, over the %d bytes cap of an artifact file; it is not read, so it has no sha256 to match (remove it through git)", params.Path, existingSize, artifactMaxFileSize)), nil
 			}

@@ -14,7 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // toolSyncStatus returns the authoritative local commit/push replication state.
@@ -78,7 +78,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 
 			// Use the basename of k.Root as the KB name in the manifest.
 			kbName := filepath.Base(k.Root)
-			m, err := provisioning.BuildManifest(bundleFS, map[string]string{kbName: k.Root}, buildOptions(kbName, routedMount, signer))
+			m, err := contract.BuildManifest(bundleFS, map[string]string{kbName: k.Root}, buildOptions(kbName, routedMount, signer))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_check: build manifest: %v", err)), nil
 			}
@@ -174,7 +174,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 
 			bo := buildOptions(kbName, routedMount, signer)
 			bo.IncludeCLISkill = params.IncludeCLISkill
-			m, err := provisioning.BuildManifest(bundleFS, kbRoots, bo)
+			m, err := contract.BuildManifest(bundleFS, kbRoots, bo)
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_pull: build manifest: %v", err)), nil
 			}
@@ -184,8 +184,8 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 			var excluded []string
 			var embedded int
 			for _, a := range m.Artifacts {
-				files, err := provisioning.ReadArtifactFilesCapped(a, bundleFS, kbRoots)
-				if errors.Is(err, provisioning.ErrNotRegular) {
+				files, err := contract.ReadArtifactFilesCapped(a, bundleFS, kbRoots)
+				if errors.Is(err, contract.ErrNotRegular) {
 					excluded = append(excluded, fmt.Sprintf("%s %q excluded from sync_pull: not a regular file", a.Kind, a.Name))
 					continue
 				}
@@ -253,11 +253,11 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 const syncPullMaxBytes = 8 << 20
 
 // pullExclusion says why an artifact cannot go into the response, or "".
-func pullExclusion(files []provisioning.ArtifactFile, embedded int) string {
+func pullExclusion(files []contract.ArtifactFile, embedded int) string {
 	total := 0
 	for _, f := range files {
 		if f.Oversized > 0 {
-			return fmt.Sprintf("%s is %d bytes, over the %d bytes cap of an artifact file (or the artifact is past %d files or %d bytes in all)", f.Path, f.Oversized, artifactMaxFileSize, provisioning.ArtifactMaxFiles, provisioning.ArtifactMaxTotalSize)
+			return fmt.Sprintf("%s is %d bytes, over the %d bytes cap of an artifact file (or the artifact is past %d files or %d bytes in all)", f.Path, f.Oversized, artifactMaxFileSize, contract.ArtifactMaxFiles, contract.ArtifactMaxTotalSize)
 		}
 		total += len(f.Content)
 	}
@@ -331,8 +331,8 @@ func pulledPathRegistry(k *kb.KB) (*kb.PathRegistry, []string) {
 // server instance serves. routedMount is whether the server routes its KBs
 // through one endpoint (D187): it reaches the generated instructions block so
 // the imprinting names the arguments the agent must pass (D144).
-func buildOptions(kbName string, routedMount bool, signer ed25519.PrivateKey) provisioning.BuildOptions {
-	opts := provisioning.BuildOptions{
+func buildOptions(kbName string, routedMount bool, signer ed25519.PrivateKey) contract.BuildOptions {
+	opts := contract.BuildOptions{
 		RoutedMount: routedMount,
 	}
 	if len(signer) != 0 {

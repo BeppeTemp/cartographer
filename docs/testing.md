@@ -338,7 +338,7 @@ otherwise silent — no client, compiler or linter reports any of them:
   `providers`…): the rules live in `internal/repodocs/doc_rot_test.go`, and so does the
   allow-list for text about a retired key a reader can still meet, which is pruned both ways
   (D1128);
-- the per-client capability table (`internal/provisioning/capabilities.go`) equals the fenced `capabilities` block of each `docs/harnesses.md` provider section, cell by cell, and a `verified` line carries a probe date and recipe (`TestCapabilityTableMatchesLedger`); `internal/provisioning` pins that `absent` follows the destination matrix and the hook vocabulary;
+- the per-client capability table (`internal/provisioning/contract/capabilities.go`) equals the fenced `capabilities` block of each `docs/harnesses.md` provider section, cell by cell, and a `verified` line carries a probe date and recipe (`TestCapabilityTableMatchesLedger`); `internal/provisioning` pins that `absent` follows the destination matrix and the hook vocabulary;
 - every row of `scripts/doc-owners.tsv` is well formed (three fields, no repeated glob, an existing page), its glob matches a file, its page is named in `docs/index.md` §Documentation maintenance rules, the script's matcher and the tests' agree, and `pr-triage.sh` calls `doc-owners.sh`; the signal itself is the advisory `WARN` of `pr-triage.sh`, silenced by `Docs: none - <reason>` in the PR body;
 - the triage scripts parse the PR file list strictly, with a stand-in `gh` on `PATH` that applies the real `--jq` expression: a file name holding a newline, a tab and a command substitution is one row, runs nothing and gives the report of the same PR with a plain name; a row faking a negative size cannot lower the production sum, so the size-cap `BLOCK` still fires and the tier stays above `light`; and rows whose size field is not all digits are skipped by `pr-triage.sh` and `doc-owners.sh` whatever reaches them (`internal/repodocs/pr_triage_scope_test.go`, `doc_owners_test.go`);
 - `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
@@ -556,7 +556,7 @@ previous binary untouched — and the uninstall refusal while a task definition
 exists, `-BinaryOnly`, and a clean uninstall removing the `PATH` entry.
 
 A separate, non-deterministic check lives in
-`internal/provisioning/clientcompat_test.go`: it runs the *client's own*
+`internal/provisioning/contract/clientcompat_test.go`: it runs the *client's own*
 discovery command and asserts it recognizes the destination Cartographer
 declares, for the two paths that diverge from the vendor documentation
 (see [interoperability](interoperability.md) §Known divergences). It skips when
@@ -693,7 +693,7 @@ toolchain (D227). What they hold:
   (D864): its path as text, its clients, a Docs link that is only ever a
   repository docs path on `main` with `noopener noreferrer`, empty kinds hidden
   by a slice, and the older-server fallback (no `kinds`) unchanged.
-  On the Go side, `provisioning.Kinds` is pinned from both ends: every matrix
+  On the Go side, `contract.Kinds` is pinned from both ends: every matrix
   kind has a descriptor, a file written at each `KBPath` is found by the scanner
   of its kind (`internal/provisioning/kinds_test.go`, and
   `TestKinds_KBOnlyPathsAreWhatTheScannersFind` for templates and secrets), and

@@ -9,11 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
+	"gopkg.in/yaml.v3"
 )
 
 // The Atlas UI's Secrets route: the structure of the KB's sops files, for a
@@ -62,7 +61,7 @@ func (m *MultiKBServer) uiSecrets(w http.ResponseWriter, r *http.Request, srv *S
 	body := map[string]interface{}{"files": files}
 	// The kind's own descriptor (D864): the empty state says where a secrets
 	// file goes and links the docs, with the path provisioning declares.
-	for _, k := range provisioning.Kinds() {
+	for _, k := range contract.Kinds() {
 		if k.Kind == "secret" {
 			body["kind"] = uiKindInfoFrom(k)
 		}

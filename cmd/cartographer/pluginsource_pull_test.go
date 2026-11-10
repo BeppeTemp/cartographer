@@ -8,6 +8,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // A server must not speak for a client-side source: a sync_pull answer that
@@ -15,7 +16,7 @@ import (
 func TestPullRefusesASourceTheServerMayNotSpeakFor(t *testing.T) {
 	for _, source := range []string{"plugin:team-forks", "kb:two", "elsewhere"} {
 		srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
-			files := []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"PostToolUse","command":"echo hi"}`)}}
+			files := []contract.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"PostToolUse","command":"echo hi"}`)}}
 			body, err := json.Marshal(map[string]any{
 				"revision": "r",
 				"artifacts": []map[string]any{{

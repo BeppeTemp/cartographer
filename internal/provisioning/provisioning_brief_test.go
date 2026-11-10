@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // writeSkill writes a valid skill named name into the KB at root.
@@ -22,9 +23,9 @@ func writeBriefSkill(t *testing.T, root, name string) {
 		"---\nname: "+name+"\ndescription: Use when testing "+name+".\n---\nBody.\n")
 }
 
-func briefContent(t *testing.T, root string, routed bool) provisioning.Artifact {
+func briefContent(t *testing.T, root string, routed bool) contract.Artifact {
 	t.Helper()
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": root}, provisioning.BuildOptions{RoutedMount: routed})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": root}, contract.BuildOptions{RoutedMount: routed})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -98,7 +99,7 @@ func TestBrief_DirectiveRun(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeFile(t, filepath.Join(root, "instructions.md"), c.file)
-			body, d := provisioning.KBInstructionsFile(root)
+			body, d := contract.KBInstructionsFile(root)
 			if d.SkipPreamble != c.wantSkip || d.Full != c.wantFull || body != c.wantBody {
 				t.Errorf("body=%q skip=%v full=%v", body, d.SkipPreamble, d.Full)
 			}
@@ -122,7 +123,7 @@ func TestBrief_FullKeepsTheCut(t *testing.T) {
 }
 
 // sharedKBs builds n KBs named kb-1..kb-n and a signed manifest.
-func sharedKBs(t *testing.T, n int, curated func(i int) string) provisioning.Manifest {
+func sharedKBs(t *testing.T, n int, curated func(i int) string) contract.Manifest {
 	t.Helper()
 	roots := map[string]string{}
 	for i := 1; i <= n; i++ {
@@ -137,7 +138,7 @@ func sharedKBs(t *testing.T, n int, curated func(i int) string) provisioning.Man
 	return buildSignedManifest(t, roots)
 }
 
-func applyBlock(t *testing.T, m provisioning.Manifest, base string, lock provisioning.Lock) (provisioning.AppliedResult, string) {
+func applyBlock(t *testing.T, m contract.Manifest, base string, lock provisioning.Lock) (provisioning.AppliedResult, string) {
 	t.Helper()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: lock, ExpandPlaceholders: true,
@@ -187,7 +188,7 @@ func TestShared_NoneWhenEveryKBOptedOut(t *testing.T) {
 
 func TestShared_SkippedAgainstOldFullSections(t *testing.T) {
 	old := "The \"x\" KB is served via MCP by the \"cartographer\" server.\n\nOperational instructions:\n- old bullet.\n"
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{instructionsArtifact("x", old), instructionsArtifact("y", "Brief y.\n")})
+	m := contract.MergeArtifacts([]contract.Artifact{instructionsArtifact("x", old), instructionsArtifact("y", "Brief y.\n")})
 	_, content := applyBlock(t, m, t.TempDir(), provisioning.Lock{})
 	if strings.Count(content, "Operational instructions:") != 1 {
 		t.Errorf("a second copy must not be emitted:\n%s", content)
@@ -291,14 +292,14 @@ func TestShared_MapsWordConvergesAndGuideTextsStayOut(t *testing.T) {
 }
 
 func TestBrief_DirectiveCollisionScope(t *testing.T) {
-	build := func(directive string, full bool) provisioning.Artifact {
+	build := func(directive string, full bool) contract.Artifact {
 		root := makeKBWithArchives(t, nil)
 		prefix := ""
 		if full {
 			prefix = "<!-- cartographer: block: full -->\n"
 		}
 		writeFile(t, filepath.Join(root, "instructions.md"), prefix+directive+"\n")
-		m, err := provisioning.BuildManifest(nil, map[string]string{"x": root}, provisioning.BuildOptions{})
+		m, err := contract.BuildManifest(nil, map[string]string{"x": root}, contract.BuildOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -307,13 +308,13 @@ func TestBrief_DirectiveCollisionScope(t *testing.T) {
 	a := build("<!-- cartographer:directive:timezone:UTC+2 -->", false)
 	b := build("<!-- cartographer:directive:timezone:UTC-5 -->", false)
 	b.Name, b.Source = "y", "kb:y"
-	if got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{a, b}); len(got) != 0 {
+	if got := provisioning.DetectDirectiveCollisions([]contract.Artifact{a, b}); len(got) != 0 {
 		t.Errorf("brief KBs carry no directives, no collision: %+v", got)
 	}
 	fa := build("<!-- cartographer:directive:timezone:UTC+2 -->", true)
 	fb := build("<!-- cartographer:directive:timezone:UTC-5 -->", true)
 	fb.Name, fb.Source = "y", "kb:y"
-	_, err := provisioning.MergeArtifactsStrict([]provisioning.Artifact{fa, fb})
+	_, err := provisioning.MergeArtifactsStrict([]contract.Artifact{fa, fb})
 	var ce *provisioning.CollisionError
 	if !errors.As(err, &ce) {
 		t.Errorf("block: full KBs still collide, got %v", err)

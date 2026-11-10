@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -38,7 +39,7 @@ const (
 )
 
 // copilotHookEvents maps the hook.json vocabulary to Copilot's event names.
-// Only the three events that were probed to fire are claimed (hookEventReach).
+// Only the three events that were probed to fire are claimed (HookEventReach).
 var copilotHookEvents = map[string]string{
 	"SessionStart": "sessionStart",
 	"PreToolUse":   "preToolUse",
@@ -47,9 +48,9 @@ var copilotHookEvents = map[string]string{
 
 // copilotHookRelPath is the registration file, relative to the base dir. Slash
 // form: it is recorded in the lockfile beside every other destination.
-func copilotHookRelPath(hookName string, scope Scope) string {
+func copilotHookRelPath(hookName string, scope contract.Scope) string {
 	prefix := copilotHooksPrefix
-	if scope == ScopeProject {
+	if scope == contract.ScopeProject {
 		prefix = copilotProjectHooksPrefix
 	}
 	return prefix + "cartographer-" + hookName + ".json"
@@ -57,11 +58,11 @@ func copilotHookRelPath(hookName string, scope Scope) string {
 
 // copilotHookScope is the scope of the hook whose files are at hookRel (a path
 // relative to the base dir): the workspace layer when they sit under .github.
-func copilotHookScope(hookRel string) Scope {
+func copilotHookScope(hookRel string) contract.Scope {
 	if strings.HasPrefix(filepath.ToSlash(hookRel), copilotProjectFilesPrefix) {
-		return ScopeProject
+		return contract.ScopeProject
 	}
-	return ScopeGlobal
+	return contract.ScopeGlobal
 }
 
 // registerCopilotHook writes hookName's registration file and returns its
@@ -90,8 +91,8 @@ func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warnin
 	if strings.HasPrefix(powershell, `'`) {
 		// A POSIX-quoted executable: PowerShell quotes an apostrophe by doubling
 		// it, not with '\''.
-		bin, rest, hasRest := splitHookCommand(powershell)
-		powershell = "& '" + strings.ReplaceAll(unquoteHookToken(bin), `'`, `''`) + "'"
+		bin, rest, hasRest := contract.SplitHookCommand(powershell)
+		powershell = "& '" + strings.ReplaceAll(contract.UnquoteHookToken(bin), `'`, `''`) + "'"
 		if hasRest {
 			powershell += " " + rest
 		}

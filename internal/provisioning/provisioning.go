@@ -8,7 +8,7 @@
 //   - Diff: difference between Manifest and Lock, basis for Add/Update/Prune.
 //
 // The model is extensible to new Kinds by adding a new emitter in
-// BuildManifest and a case in destDir — Manifest, Lock and diff logic don't change.
+// BuildManifest and a case in DestDir — Manifest, Lock and diff logic don't change.
 package provisioning
 
 import (
@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -31,7 +30,6 @@ import (
 	"strings"
 	"sync"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
@@ -40,136 +38,9 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
-	"github.com/BeppeTemp/cartographer/internal/skill"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	"gopkg.in/yaml.v3"
 )
-
-// Artifact describes a single provisioning artifact.
-// Kind makes it extensible to "hook", "agent" etc. without changing the flow.
-type Artifact struct {
-	Kind        string `json:"kind"` // "skill" (extensible)
-	Name        string `json:"name"`
-	Source      string `json:"source"` // "bundle" | "kb:<name>" | "plugin:<name>"
-	Version     string `json:"version,omitempty"`
-	ContentHash string `json:"content_hash"` // sha256 hex of the whole skill folder
-	// Signed is true only after a cryptographic verification. It is never an
-	// authorization or policy decision.
-	Signed    bool                   `json:"signed"`
-	BuiltIn   bool                   `json:"built_in,omitempty"`
-	Signature *artifactsig.Signature `json:"signature,omitempty"`
-
-	// Files, if non-empty, holds the artifact's content already in memory
-	// (e.g. received via the sync_pull MCP tool on a remote HTTP client, with
-	// no filesystem shared with the server). When present, Apply materializes
-	// from here instead of walking BundleFS/KBRoots. Not part of the JSON
-	// manifest exposed by sync_check/sync_pull (that uses dedicated
-	// structures).
-	Files []ArtifactFile `json:"-"`
-
-	// Restriction is what an "agent" artifact's source declares that a
-	// non-Claude client cannot express (D283). Derived from the source content
-	// by whoever builds the Artifact (BuildManifest, the client's sync_pull
-	// decoding), never sent on the wire: nil for every other kind and for an
-	// agent that declares no `tools`.
-	Restriction *AgentRestriction `json:"-"`
-
-	// DerivedFrom is set on a skill the client derived from a KB agent because
-	// it has no subagents (projection.go). Client-side only, never sent, outside
-	// the hash and every signature; approval and provenance resolve to the origin.
-	DerivedFrom *DerivedFrom `json:"-"`
-}
-
-// BuildOptions controls manifest construction. Signers is keyed by mounted KB
-// name; a missing signer leaves that KB's artifacts unsigned.
-type BuildOptions struct {
-	Signers map[string]ed25519.PrivateKey
-	// RoutedMount reports that this server serves its KBs through a single
-	// routed endpoint (D187): the tools are advertised once, unprefixed, and
-	// every call carries the KB as a `kb` argument. The generated instructions
-	// block is the part the model actually reads, so it must name the tools as
-	// the agent will see them and say which `kb` value to pass — a wrong name
-	// there is worse than the duplication routing removes.
-	RoutedMount bool
-	// SkillDiagnostic receives one message per skill excluded from the
-	// manifest because it failed validation (D191). Excluding it is what keeps
-	// the rest of the KB syncing; saying so is what keeps the exclusion from
-	// being silent.
-	SkillDiagnostic func(string)
-	// IncludeCLISkill lists the bundled CLISkillName skill. False for every
-	// built-in caller: no built-in provider reaches Cartographer through
-	// `cartographer call`, so the server leaves the skill out of sync_check
-	// and sync_pull and an older client, which has no client-side
-	// filter, never receives it. sync_pull sets it only when the client asks
-	// (include_cli_skill), which every current client does (it filters the skill
-	// per provider, cliskill.go).
-	IncludeCLISkill bool
-}
-
-// CLISkillName is the bundled skill that teaches `cartographer call`.
-const CLISkillName = "cartographer-cli"
-
-// ArtifactFile is a single file of an Artifact, with content in memory.
-type ArtifactFile struct {
-	Path       string // path relative to the artifact's (skill) folder
-	Content    []byte
-	Executable bool
-	// Oversized is the size of a file over ArtifactMaxFileSize: its Content is
-	// then nil, the file was never read, and no consumer may write or ship it.
-	// Only ReadArtifactFilesCapped returns one; ReadArtifactFiles fails instead.
-	Oversized int64
-}
-
-// ArtifactMaxFileSize caps one file of a KB artifact read from disk (256 KiB,
-// the cap artifact_write enforces): a file over it is never read into memory.
-const ArtifactMaxFileSize = 256 * 1024
-
-// oversizedMarker stands for the bytes of an over-cap file in the content hash:
-// the hash must not need the file, and a changed size still changes it.
-func oversizedMarker(size int64) []byte { return []byte(fmt.Sprintf("oversized:%d", size)) }
-
-// KBIssue is one manifest issue and the KB whose sync_pull reported it.
-type KBIssue struct{ KB, Text string }
-
-// Manifest is the server-side source of truth.
-// Revision changes if even a single artifact changes: O(1) drift detection.
-// GeneratedAt must be set by the caller if needed; BuildManifest leaves it empty
-// to guarantee determinism in tests.
-type Manifest struct {
-	Revision    string     `json:"revision"`
-	GeneratedAt string     `json:"generated_at,omitempty"`
-	Artifacts   []Artifact `json:"artifacts"`
-	// Issues carries the attributed reasons artifacts were left out of this
-	// manifest (D191) — named KB, named artifact, named rule. It is not part of
-	// the revision: excluding an artifact already changes that, and an issue
-	// list that fed the hash would make a message edit look like a catalogue
-	// change.
-	Issues []string `json:"issues,omitempty"`
-	// KBIssues is client-side only: the issues of the KBs a projection reads,
-	// each with its KB ("" for the unnamed endpoint), and ReadKBs those KBs.
-	// The run-level list deduplicates on (KB, issue) and prefixes the KB only
-	// when the run as a whole reads more than one (#1799).
-	KBIssues []KBIssue `json:"-"`
-	ReadKBs  []string  `json:"-"`
-	// Skipped is client-side only: the reasons VerifiedManifest dropped
-	// artifacts from this manifest (a "bundle" artifact that does not match the
-	// bundle embedded in this client). Apply reports them as warnings.
-	Skipped []string `json:"-"`
-	// Placeholders is client-side only: the {{repo:…}}/{{path:…}} keys the
-	// KBs feeding this manifest cite, "kind:key" -> KB names, as their
-	// sync_pull responses listed them (D262). Like Issues it is outside the
-	// revision and outside every signature: it is derived from concept bodies,
-	// and a concept starting to cite a key is not a catalogue change. Nothing
-	// that copies or filters a Manifest carries it — the client reads it off
-	// the projection's manifest into ApplyOptions.Placeholders.
-	Placeholders map[string][]string `json:"placeholders,omitempty"`
-	// PathRegistries is client-side only, like Placeholders: each bound KB's
-	// declared placeholder vocabulary (paths.yaml, D263), KB name -> registry
-	// ("" for an unnamed endpoint), as its sync_pull listed it. Unsigned and
-	// outside the revision; read off the projection's manifest into
-	// ApplyOptions.PathRegistries.
-	PathRegistries map[string]PathRegistry `json:"path_registries,omitempty"`
-}
 
 // ManagedFile records a single file materialized by provisioning in the client's base-dir.
 // Prune uses this list to remove only what Cartographer created.
@@ -216,7 +87,7 @@ type ManagedFile struct {
 	// Empty means "nothing was executable" and is indistinguishable from a
 	// lockfile written before this field existed — deliberately, because both
 	// answer the same way: readManagedFiles falls back to
-	// effectiveExecutable(kind, path, false), which is exact for a hook and is
+	// EffectiveExecutable(kind, path, false), which is exact for a hook and is
 	// what every pre-existing lockfile already meant for every other kind. No
 	// migration runs.
 	ExecutablePaths []string `json:"executable_paths,omitempty"`
@@ -278,7 +149,7 @@ type Lock struct {
 	// key points at, and pre-fill its default, without a network call.
 	// Absent — an older lockfile, a KB with no registry — means "nothing
 	// declared", which is what those files meant.
-	PlaceholderDecls map[string]PathDecl `json:"placeholder_decls,omitempty"`
+	PlaceholderDecls map[string]contract.PathDecl `json:"placeholder_decls,omitempty"`
 	// PathsSectionHash is the hash of the placeholder section last written
 	// into the instructions block (paragraph + "Local paths" table, D262). A
 	// mismatch rewrites the block even when no artifact changed — the table
@@ -297,11 +168,11 @@ type Lock struct {
 
 // Scope returns the destination-matrix half this lock's paths were resolved
 // through.
-func (l Lock) ScopeOf() Scope {
+func (l Lock) ScopeOf() contract.Scope {
 	if l.ProjectScope {
-		return ScopeProject
+		return contract.ScopeProject
 	}
-	return ScopeGlobal
+	return contract.ScopeGlobal
 }
 
 // LockBaseDir returns the directory lock's managed paths are relative to:
@@ -316,8 +187,8 @@ func LockBaseDir(lock Lock, defaultDir string) string {
 
 // Diff is the result of comparing Manifest ↔ Lock.
 type Diff struct {
-	Added   []Artifact
-	Updated []Artifact
+	Added   []contract.Artifact
+	Updated []contract.Artifact
 	Removed []ManagedFile
 	InSync  bool
 }
@@ -338,7 +209,7 @@ type ApplyOptions struct {
 	// (UnplacedArtifacts, computed by the caller on the manifest before
 	// ProjectManifest drops them): the instructions block names them and how to
 	// read them through MCP (D1700). Client-side only.
-	Unplaced []Artifact
+	Unplaced []contract.Artifact
 
 	// ActivePlugins are the plugins whose artifacts may be installed: approved,
 	// enabled and read back from the store at the approved digest. Filled by
@@ -351,7 +222,7 @@ type ApplyOptions struct {
 	// workspace's own project-local directories, with BaseDir set to that
 	// workspace. Nothing else about Apply changes: the diff, the trust chain,
 	// the placeholder expansion and the safepath refusals are the same.
-	Scope Scope
+	Scope contract.Scope
 	// CoOwnedPaths are managed paths (slash form) that another projection of
 	// the same workspace still records (LockFile.CoOwnedPaths, D364). Apply
 	// never prunes them: the file stays for the projection that owns it too.
@@ -385,7 +256,7 @@ type ApplyOptions struct {
 	// what a repo key is looked up by, and a declared default is the fallback
 	// after `paths:` and the repo index, used only if it exists. Only read
 	// when ExpandPlaceholders is set.
-	PathRegistries map[string]PathRegistry
+	PathRegistries map[string]contract.PathRegistry
 
 	// NoHeal reports on-disk divergence (AppliedResult.Divergent) instead of
 	// restoring it (D139). The escape hatch for someone deliberately
@@ -428,7 +299,7 @@ type ApplyOptions struct {
 // earlier version left there moves. nil for the default (registerHookSettings,
 // removeHookEntries).
 func claudeHookSettings(opts ApplyOptions) []string {
-	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != ScopeProject || opts.HookSettingsRel == "" {
+	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != contract.ScopeProject || opts.HookSettingsRel == "" {
 		return nil
 	}
 	if tracked, err := gitTracksFile(opts.BaseDir, claudeSettingsFiles[0]); err == nil && !tracked {
@@ -440,10 +311,10 @@ func claudeHookSettings(opts ApplyOptions) []string {
 // instructionsDest is the file, relative to opts.BaseDir, the instructions
 // block of this Apply lives in.
 func instructionsDest(opts ApplyOptions) string {
-	if opts.Scope == ScopeProject && opts.InstructionsRel != "" {
+	if opts.Scope == contract.ScopeProject && opts.InstructionsRel != "" {
 		return opts.InstructionsRel
 	}
-	return destDirScoped("instructions", "", opts.Provider, opts.Scope)
+	return contract.DestDirScoped("instructions", "", opts.Provider, opts.Scope)
 }
 
 // AppliedResult is the result of Apply.
@@ -451,11 +322,11 @@ type AppliedResult struct {
 	NewLock       Lock
 	Written       []ManagedFile
 	Pruned        []ManagedFile
-	NeedsApproval []Artifact
+	NeedsApproval []contract.Artifact
 	// Unsupported: artifacts whose kind has no known destination for the
-	// provider (destDir == ""). Distinct from NeedsApproval: no approval
+	// provider (DestDir == ""). Distinct from NeedsApproval: no approval
 	// unblocks them — the provider simply doesn't support them.
-	Unsupported []Artifact
+	Unsupported []contract.Artifact
 	// Refused: artifacts not materialized because their destination, or a
 	// directory component of it, is a symlink (D148). Distinct from
 	// Unsupported and NeedsApproval: the provider supports the kind and the
@@ -463,14 +334,14 @@ type AppliedResult struct {
 	// safepath.go. They are not recorded in the lockfile, so the next sync
 	// retries and reports again, which is right for a condition only the
 	// operator can clear.
-	Refused []Artifact
+	Refused []contract.Artifact
 	// RefusedRemovals: managed artifacts that could not be removed because
 	// they, or their registration, sit behind a symlink (D148). Kept apart from
 	// Refused on purpose: a refused write leaves the provider unwired, a
 	// refused removal leaves something stale behind a provider that works, so
 	// only Refused counts as a skipped part of a connect (#1693). They stay in
 	// the lockfile and the next sync retries.
-	RefusedRemovals []Artifact
+	RefusedRemovals []contract.Artifact
 	// Healed: artifacts restored because their files on disk had diverged
 	// from what the lockfile recorded (D139). Reported separately from
 	// Written: a restore means someone's local change was discarded, which
@@ -512,7 +383,7 @@ type AppliedResult struct {
 	Skipped  []SkippedNote
 	// Unverified: capabilities an installed artifact depends on while the
 	// capability table says `unverified` (see unverifiedCapabilities).
-	Unverified []Capability
+	Unverified []contract.Capability
 }
 
 // LockFileName is the lockfile's name, relative to base-dir.
@@ -520,109 +391,19 @@ const LockFileName = ".cartographer-sync.lock.json"
 
 // --- Hash ---
 
-// ContentHashDir computes a deterministic sha256 hex of the entire dir folder
-// inside fsys. Walks files in alphabetical order of relative path, including
-// relative path and each file's bytes in the hash.
-//
-// Use this for Artifact.ContentHash: a skill is a folder, not just SKILL.md.
-func ContentHashDir(fsys fs.FS, dir string) (string, error) {
-	return contentHashDir(fsys, dir, nil, nil, 0)
-}
-
-// contentHashDir hashes dir. With maxFile > 0 (a KB's own artifact on disk) a
-// symlink is a *contract.KBSymlinkError, never followed (contract/kblinks.go), and a file over maxFile is hashed by its
-// size without being read.
-func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool, include func(rel string) bool, maxFile int64) (string, error) {
-	var files []ArtifactFile
-	var paths []string
-
-	err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-		paths = append(paths, path)
-		return nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("provisioning: walk %s: %w", dir, err)
-	}
-
-	sort.Strings(paths)
-
-	var total int64
-	count := 0
-	for _, p := range paths {
-		// Compute the path relative to the root dir.
-		rel := p
-		prefix := dir + "/"
-		if strings.HasPrefix(p, prefix) {
-			rel = p[len(prefix):]
-		}
-		// Case dir == ".": WalkDir returns paths without "./" prefix, rel = path.
-		if include != nil && !include(rel) {
-			continue
-		}
-		stat := fs.Stat
-		if maxFile > 0 {
-			stat = fs.Lstat
-		}
-		info, statErr := stat(fsys, p)
-		if statErr != nil {
-			return "", fmt.Errorf("provisioning: stat %s: %w", p, statErr)
-		}
-		if maxFile > 0 && info.Mode()&fs.ModeSymlink != 0 {
-			return "", &contract.KBSymlinkError{Rel: rel} // a KB's tree is never read through a link (contract/kblinks.go)
-		}
-		exec := execbit.IsExecutable(info.Mode())
-		if executable != nil {
-			exec = executable(rel, exec)
-		}
-		if maxFile > 0 && info.Size() > maxFile {
-			files = append(files, ArtifactFile{Path: rel, Content: oversizedMarker(info.Size()), Executable: exec})
-			continue
-		}
-		if maxFile > 0 {
-			// The directory budget of readDirFiles: past it nothing more is
-			// read, and the hash records the file that crossed it.
-			count++
-			if count > ArtifactMaxFiles || total+info.Size() > ArtifactMaxTotalSize {
-				files = append(files, ArtifactFile{Path: rel, Content: oversizedMarker(max(info.Size(), 1)), Executable: exec})
-				break
-			}
-			total += info.Size()
-		}
-		data, readErr := fs.ReadFile(fsys, p)
-		if readErr != nil {
-			return "", fmt.Errorf("provisioning: read %s: %w", p, readErr)
-		}
-		files = append(files, ArtifactFile{Path: rel, Content: data, Executable: exec})
-	}
-	return hashArtifactFiles(files), nil
-}
-
-func effectiveExecutable(kind, path string, executable bool) bool {
-	if kind != "hook" {
-		return executable
-	}
-	return filepath.Base(path) != "hook.json"
-}
-
 // ContentHashDirOS computes the hash of a folder on the real filesystem.
 // Reuses ContentHashDir via os.DirFS to avoid code duplication.
 func ContentHashDirOS(dirPath string) (string, error) {
-	return ContentHashDir(os.DirFS(dirPath), ".")
+	return contract.ContentHashDir(os.DirFS(dirPath), ".")
 }
 
 // ContentHashFiles computes the canonical artifact hash for transport-received
 // files. It is the counterpart of ContentHashDir and includes paths and modes.
-func ContentHashFiles(files []ArtifactFile) string { return hashArtifactFiles(files) }
+func ContentHashFiles(files []contract.ArtifactFile) string { return contract.HashArtifactFiles(files) }
 
 // VerifyArtifactSignature verifies a KB artifact against the pinned key matching
 // its signature key ID. A missing signature is deliberately unsigned, not an error.
-func VerifyArtifactSignature(a Artifact, keys map[string]ed25519.PublicKey) error {
+func VerifyArtifactSignature(a contract.Artifact, keys map[string]ed25519.PublicKey) error {
 	if a.Signature == nil {
 		return nil
 	}
@@ -647,8 +428,8 @@ var ErrSignature = errors.New("signature check failed")
 
 // VerifiedManifest returns a copy whose Signed flags are cryptographic
 // verification results only. Server-provided Signed values are never trusted.
-func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest, error) {
-	artifacts := make([]Artifact, 0, len(m.Artifacts))
+func VerifiedManifest(m contract.Manifest, pins map[string][]ed25519.PublicKey) (contract.Manifest, error) {
+	artifacts := make([]contract.Artifact, 0, len(m.Artifacts))
 	var skipped []string
 	for _, orig := range m.Artifacts {
 		artifacts = append(artifacts, orig)
@@ -662,7 +443,7 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 			if a.Signature != nil {
 				// A signature belongs to a KB artifact: this is a relabelled
 				// one, and stays a hard failure as it always was.
-				return Manifest{}, fmt.Errorf("provisioning: signature source mismatch for %s/%s", a.Kind, a.Name)
+				return contract.Manifest{}, fmt.Errorf("provisioning: signature source mismatch for %s/%s", a.Kind, a.Name)
 			}
 			if !matchesEmbeddedBundle(*a) {
 				// Version skew: a bundled skill this client also embeds is
@@ -684,12 +465,12 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 			a.BuiltIn = true
 			continue
 		}
-		if IsPluginSource(a.Source) {
+		if contract.IsPluginSource(a.Source) {
 			// A plugin artifact is built on this client from an approved tree:
 			// nothing signs it, so a signature is a forged source label. It
 			// stays unsigned and unpinned; its gate is ActivePlugins.
 			if a.Signature != nil {
-				return Manifest{}, fmt.Errorf("provisioning: signature on plugin artifact %s/%s", a.Kind, a.Name)
+				return contract.Manifest{}, fmt.Errorf("provisioning: signature on plugin artifact %s/%s", a.Kind, a.Name)
 			}
 			continue
 		}
@@ -699,33 +480,33 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 			// under a pin is a stripped signature, not a legacy artifact: fail
 			// closed (D906).
 			if strings.HasPrefix(a.Source, "kb:") && len(pins[strings.TrimPrefix(a.Source, "kb:")]) > 0 {
-				return Manifest{}, fmt.Errorf("provisioning: KB %q has a pinned signing key but %s/%s carries no signature: %w", strings.TrimPrefix(a.Source, "kb:"), a.Kind, a.Name, ErrSignature)
+				return contract.Manifest{}, fmt.Errorf("provisioning: KB %q has a pinned signing key but %s/%s carries no signature: %w", strings.TrimPrefix(a.Source, "kb:"), a.Kind, a.Name, ErrSignature)
 			}
 			continue
 		}
 		kbName := strings.TrimPrefix(a.Source, "kb:")
 		if !strings.HasPrefix(a.Source, "kb:") {
-			return Manifest{}, fmt.Errorf("provisioning: signature source mismatch for %s/%s", a.Kind, a.Name)
+			return contract.Manifest{}, fmt.Errorf("provisioning: signature source mismatch for %s/%s", a.Kind, a.Name)
 		}
 		keys := make(map[string]ed25519.PublicKey, len(pins[kbName]))
 		for _, key := range pins[kbName] {
 			id := artifactsig.KeyID(key)
 			if _, exists := keys[id]; exists {
-				return Manifest{}, fmt.Errorf("provisioning: duplicate signing key ID for KB %q", kbName)
+				return contract.Manifest{}, fmt.Errorf("provisioning: duplicate signing key ID for KB %q", kbName)
 			}
 			keys[id] = key
 		}
 		if err := VerifyArtifactSignature(*a, keys); err != nil {
-			return Manifest{}, err
+			return contract.Manifest{}, err
 		}
 		a.Signed = true
 	}
-	return Manifest{Revision: m.Revision, GeneratedAt: m.GeneratedAt, Artifacts: artifacts, Skipped: skipped}, nil
+	return contract.Manifest{Revision: m.Revision, GeneratedAt: m.GeneratedAt, Artifacts: artifacts, Skipped: skipped}, nil
 }
 
 var (
 	embeddedBundleOnce      sync.Once
-	embeddedBundleArtifacts map[string]Artifact
+	embeddedBundleArtifacts map[string]contract.Artifact
 )
 
 // embeddedBundleArtifact returns this client's own artifact for a bundled
@@ -734,10 +515,10 @@ var (
 // the per-provider choice is the client's filter (withoutCLISkill), after this
 // verification. Without it VerifiedManifest dropped the skill with a warning
 // and a cli provider never received it (#1774).
-func embeddedBundleArtifact(kind, name string) (Artifact, bool) {
+func embeddedBundleArtifact(kind, name string) (contract.Artifact, bool) {
 	embeddedBundleOnce.Do(func() {
-		embeddedBundleArtifacts = map[string]Artifact{}
-		m, err := BuildManifest(skillbundle.FS, nil, BuildOptions{IncludeCLISkill: true})
+		embeddedBundleArtifacts = map[string]contract.Artifact{}
+		m, err := contract.BuildManifest(skillbundle.FS, nil, contract.BuildOptions{IncludeCLISkill: true})
 		if err != nil {
 			return
 		}
@@ -745,7 +526,7 @@ func embeddedBundleArtifact(kind, name string) (Artifact, bool) {
 			if a.Source != "bundle" {
 				continue
 			}
-			files, err := ReadArtifactFiles(a, skillbundle.FS, nil)
+			files, err := contract.ReadArtifactFiles(a, skillbundle.FS, nil)
 			if err != nil {
 				continue
 			}
@@ -775,7 +556,7 @@ func IsBundledArtifact(kind, name string) bool {
 // matchesEmbeddedBundle reports whether an artifact labelled "bundle" is this
 // client's embedded artifact: same kind, name and content hash, and, when files
 // are carried, files that hash to it.
-func matchesEmbeddedBundle(a Artifact) bool {
+func matchesEmbeddedBundle(a contract.Artifact) bool {
 	own, ok := embeddedBundleArtifact(a.Kind, a.Name)
 	if !ok || own.ContentHash != a.ContentHash {
 		return false
@@ -794,19 +575,9 @@ func ContentHashDirOSForKind(dirPath, kind string) (string, error) {
 }
 
 func contentHashDirOS(dirPath, kind string) (string, error) {
-	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
-		return effectiveExecutable(kind, path, executable)
+	return contract.ContentHashDirWith(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
+		return contract.EffectiveExecutable(kind, path, executable)
 	}, nil, 0)
-}
-
-// contentHashDirTracked hashes a directory of a KB's tree, restricted to the
-// files include accepts (paths relative to dirPath); nil accepts all. The
-// server uses it to hash only what git tracks in a KB (#1325), and it refuses a
-// symlink among them (contract/kblinks.go).
-func contentHashDirTracked(dirPath, kind string, include func(rel string) bool) (string, error) {
-	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
-		return effectiveExecutable(kind, path, executable)
-	}, include, ArtifactMaxFileSize)
 }
 
 // contentHashDirManaged is contentHashDirOS for a directory that a lockfile
@@ -819,51 +590,13 @@ func contentHashDirManaged(mf ManagedFile, dirPath string, owned map[string]bool
 	if len(owned) > 0 {
 		include = func(rel string) bool { return owned[rel] }
 	}
-	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
+	return contract.ContentHashDirWith(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return mf.executableOnDisk(path, executable)
 	}, include, 0)
 }
 
-// validArtifactName reports whether name can be the single directory or file
-// segment an agent or hook is materialized under: not empty, one local segment
-// (no separator of either kind, no "..", no Windows reserved name where
-// filepath.IsLocal knows them), no control character (C0, DEL and C1: unicode.IsControl), no surrounding blanks.
-// BuildManifest excludes an artifact with a bad name (D191 for skills) and Apply
-// refuses one per artifact, since a manifest can come from a remote server.
-func validArtifactName(name string) bool {
-	if name == "" || name == "." || name == ".." || name != filepath.Base(name) || !filepath.IsLocal(name) {
-		return false
-	}
-	if windowsReservedName(name) {
-		return false
-	}
-	// Windows drops a trailing dot or blank and reads ":" as an NTFS stream:
-	// "foo." would be written as "foo", so none of them is a spelling of a
-	// different name on any OS.
-	return !strings.ContainsAny(name, "\\/:") && strings.IndexFunc(name, unicode.IsControl) < 0 && strings.TrimSpace(name) == name && !strings.HasSuffix(name, ".")
-}
-
-// ValidArtifactName is validArtifactName for the client's sync_pull decode.
-func ValidArtifactName(name string) bool { return validArtifactName(name) }
-
-// windowsReservedName reports a device name Windows resolves to a device
-// whatever the extension ("con", "NUL.txt", "com1"), checked on every OS so a
-// manifest means the same thing on all of them.
-func windowsReservedName(name string) bool {
-	base := name
-	if i := strings.IndexByte(base, '.'); i >= 0 {
-		base = base[:i]
-	}
-	switch b := strings.ToUpper(strings.TrimRight(base, " ")); b {
-	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
-		return true
-	default:
-		if len(b) == 4 && (strings.HasPrefix(b, "COM") || strings.HasPrefix(b, "LPT")) && b[3] >= '0' && b[3] <= '9' {
-			return true
-		}
-	}
-	return false
-}
+// ValidArtifactName is ValidArtifactName for the client's sync_pull decode.
+func ValidArtifactName(name string) bool { return contract.ValidArtifactName(name) }
 
 // ValidArtifactFilePath reports whether p is a file path a server may send for
 // an artifact: already in canonical slash form (path.Clean(p) == p, so no "./",
@@ -883,7 +616,7 @@ func ValidArtifactFilePath(p string) bool {
 	// device name in any component: every component is checked, on every OS, so
 	// the path on the wire is the path on disk.
 	for _, c := range strings.Split(p, "/") {
-		if strings.HasSuffix(c, ".") || strings.HasSuffix(c, " ") || windowsReservedName(c) {
+		if strings.HasSuffix(c, ".") || strings.HasSuffix(c, " ") || contract.WindowsReservedName(c) {
 			return false
 		}
 	}
@@ -897,7 +630,7 @@ var ErrInvalidArtifactFile = errors.New("invalid artifact file")
 // CheckArtifactFilePaths refuses an artifact whose files carry a path that is
 // not ValidArtifactFilePath, or two files that name the same path
 // (case-insensitively: the filesystems a client runs on may fold case).
-func CheckArtifactFilePaths(files []ArtifactFile) error {
+func CheckArtifactFilePaths(files []contract.ArtifactFile) error {
 	seen := make(map[string]bool, len(files))
 	for _, f := range files {
 		if !ValidArtifactFilePath(f.Path) {
@@ -914,535 +647,12 @@ func CheckArtifactFilePaths(files []ArtifactFile) error {
 
 // --- Manifest ---
 
-// BuildManifest collects the artifacts from the bundle and the given KBs,
-// sorts the list and computes the deterministic aggregate revision.
-//
-// bundleFS: FS with the bundled skills (paths "bundled/<name>/…"). Can be nil.
-// kbRoots: KB name → absolute path map. KBs with no skills/ folder are skipped.
-// KB artifacts are signed when BuildOptions has a signer for their mounted KB.
-// Bundled artifacts are trusted by construction and carry BuiltIn instead of a
-// forged Ed25519 signature.
-func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions) (Manifest, error) {
-	var artifacts []Artifact
-	var issues []string
-
-	// 1. Skill dal bundle.
-	if bundleFS != nil {
-		entries, err := fs.ReadDir(bundleFS, "bundled")
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return Manifest{}, fmt.Errorf("provisioning: read bundle: %w", err)
-		}
-
-		// Load metadata (version) via the skill loader.
-		bundledSkills, _ := skill.LoadAllFromFS(bundleFS, "bundled")
-		versionByName := make(map[string]string, len(bundledSkills))
-		for _, s := range bundledSkills {
-			versionByName[s.Name] = s.Version
-		}
-
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			name := e.Name()
-			if name == CLISkillName && !opts.IncludeCLISkill {
-				continue
-			}
-			hash, err := ContentHashDir(bundleFS, "bundled/"+name)
-			if err != nil {
-				return Manifest{}, fmt.Errorf("provisioning: hash bundle/%s: %w", name, err)
-			}
-			artifacts = append(artifacts, Artifact{
-				Kind:        "skill",
-				Name:        name,
-				Source:      "bundle",
-				Version:     versionByName[name],
-				ContentHash: hash,
-				BuiltIn:     true,
-			})
-		}
-	}
-
-	// 2-4. Skill/agent/hook from the KBs. Sort names for determinism.
-	kbNames := make([]string, 0, len(kbRoots))
-	for name := range kbRoots {
-		kbNames = append(kbNames, name)
-	}
-	sort.Strings(kbNames)
-
-	for _, kbName := range kbNames {
-		kbRoot := kbRoots[kbName]
-		tracked, err := contract.KBTrackedFilter(kbRoot)
-		if err != nil {
-			// One KB whose git cannot answer withholds its own artifacts and
-			// nothing else (D1325).
-			issue := fmt.Sprintf("KB %q: artifacts withheld: %v", kbName, err)
-			issues = append(issues, issue)
-			if opts.SkillDiagnostic != nil {
-				opts.SkillDiagnostic(issue)
-			}
-			continue
-		}
-
-		// A link refuses one artifact (or one kind's directory) and names it;
-		// every other artifact of the KB is built as usual (contract/kblinks.go).
-		linkOut := func(what, link string) {
-			issue := contract.KBLinkIssue(kbName, what, link)
-			issues = append(issues, issue)
-			if opts.SkillDiagnostic != nil {
-				opts.SkillDiagnostic(issue)
-			}
-		}
-		kindDirLinked := func(dir string) bool {
-			link, lerr := contract.FirstKBLink(kbRoot, dir)
-			if lerr != nil || link == "" {
-				return false
-			}
-			linkOut(dir+"/", link)
-			return true
-		}
-
-		// 2. Skill (skills/<name>/SKILL.md, several files per artifact). A KB with
-		// no skills/ folder or an unreadable directory: kbSkills is empty,
-		// silent skip (no fatal error).
-		var kbSkills []skill.Skill
-		var loadErrs []error
-		if !kindDirLinked("skills") {
-			kbSkills, loadErrs = skill.LoadAllSkills(kbRoot)
-			// LoadAllSkills lists real directories only: a link in their place
-			// is named here instead of vanishing.
-			if linked, rerr := os.ReadDir(filepath.Join(kbRoot, "skills")); rerr == nil {
-				for _, e := range linked {
-					if e.Type()&fs.ModeSymlink != 0 && tracked.Has("skills/"+e.Name()) {
-						linkOut("skill skills/"+e.Name(), "skills/"+e.Name())
-					}
-				}
-			}
-		}
-		var skillNames []string // the valid ones, for the brief instructions section (D1182)
-		for _, loadErr := range loadErrs {
-			// Previously discarded. An unreadable SKILL.md is not fatal — the
-			// rest of the KB must still sync — but it must not be invisible
-			// either (D191).
-			issue := fmt.Sprintf("KB %q: skill not loaded: %v", kbName, loadErr)
-			issues = append(issues, issue)
-			if opts.SkillDiagnostic != nil {
-				opts.SkillDiagnostic(issue)
-			}
-		}
-		for _, s := range kbSkills {
-			// One validator for both channels (D191). An error-severity issue
-			// excludes this skill from the manifest and nothing else: a KB with
-			// one malformed skill still syncs its valid artifacts, where before
-			// the mismatch reached ReadArtifactFiles and could take sync_pull
-			// down for the whole KB.
-			if bad := skill.FirstError(skill.Validate(&s)); bad != nil {
-				issue := fmt.Sprintf("KB %q: skill %q excluded (%s): %s", kbName, s.DirPath, bad.Rule, bad.Message)
-				issues = append(issues, issue)
-				if opts.SkillDiagnostic != nil {
-					opts.SkillDiagnostic(issue)
-				}
-				continue
-			}
-			skillNames = append(skillNames, s.Name)
-			skillDir := filepath.Join(kbRoot, s.DirPath)
-			skillInclude := tracked.Under(s.DirPath)
-			if !tracked.Has(s.DirPath + "/SKILL.md") {
-				continue // nothing of it is tracked: not an artifact (#1325)
-			}
-			hash, err := contentHashDirTracked(skillDir, "skill", skillInclude)
-			if err != nil {
-				var linkErr *contract.KBSymlinkError
-				if errors.As(err, &linkErr) {
-					skillNames = skillNames[:len(skillNames)-1]
-					linkOut("skill "+s.DirPath, s.DirPath+"/"+linkErr.Rel)
-					continue
-				}
-				return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/%s: %w", kbName, s.Name, err)
-			}
-			artifacts = append(artifacts, Artifact{
-				Kind:        "skill",
-				Name:        s.Name,
-				Source:      "kb:" + kbName,
-				Version:     s.Version,
-				ContentHash: hash,
-			})
-		}
-
-		// 3. Agent (agents/<name>.md, single-file Claude subagent). No agents/
-		// folder → zero agent artifacts, no error (backward compat with
-		// pre-D48 KBs, see kb.Init).
-		agentsDir := filepath.Join(kbRoot, "agents")
-		agentEntries, err := os.ReadDir(agentsDir)
-		if err == nil && !kindDirLinked("agents") {
-			for _, e := range agentEntries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-					continue
-				}
-				name := strings.TrimSuffix(e.Name(), ".md")
-				if !tracked.Has("agents/" + e.Name()) {
-					continue
-				}
-				if !validArtifactName(name) {
-					issues = append(issues, fmt.Sprintf("KB %q: agent %q excluded: not a valid artifact name", kbName, e.Name()))
-					continue
-				}
-				if e.Type()&fs.ModeSymlink != 0 {
-					linkOut("agent agents/"+e.Name(), "agents/"+e.Name())
-					continue
-				}
-				hash, err := contentHashFile(filepath.Join(agentsDir, e.Name()))
-				if errors.Is(err, ErrNotRegular) {
-					// One tracked symlink leaves out that artifact, not the KB.
-					issues = append(issues, fmt.Sprintf("KB %q: agent %q left out: not a regular file", kbName, name))
-					continue
-				}
-				if err != nil {
-					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/agents/%s: %w", kbName, name, err)
-				}
-				agent := Artifact{
-					Kind:        "agent",
-					Name:        name,
-					Source:      "kb:" + kbName,
-					ContentHash: hash,
-				}
-				if raw, size, rerr := ReadFileCapped(filepath.Join(agentsDir, e.Name())); rerr == nil && size == 0 {
-					agent.Restriction = ParseAgentRestriction(raw)
-				}
-				artifacts = append(artifacts, agent)
-			}
-		}
-
-		// 4. Hook (hooks/<name>/, script + hook.json — aggregate hash like
-		// multi-file skills). No hooks/ folder → zero hook artifacts. A KB
-		// that named a hook BootstrapHookName ("cartographer-bootstrap", D60) or
-		// WriteFindingsHookName ("cartographer-write-findings", D353) is
-		// not filtered out here: BuildManifest stays a pure scan, with no notion
-		// of reservation — the collision check (warning, artifact ignored) lives
-		// entirely in Apply, the only place that materializes.
-		hooksDir := filepath.Join(kbRoot, "hooks")
-		hookEntries, err := os.ReadDir(hooksDir)
-		if err == nil && !kindDirLinked("hooks") {
-			for _, e := range hookEntries {
-				if e.Type()&fs.ModeSymlink != 0 && tracked.Has("hooks/"+e.Name()) {
-					linkOut("hook hooks/"+e.Name(), "hooks/"+e.Name())
-					continue
-				}
-				if !e.IsDir() {
-					continue
-				}
-				name := e.Name()
-				if !tracked.HasAny("hooks/" + name + "/") {
-					continue
-				}
-				if !validArtifactName(name) {
-					issues = append(issues, fmt.Sprintf("KB %q: hook %q excluded: not a valid artifact name", kbName, name))
-					continue
-				}
-				hash, err := contentHashDirTracked(filepath.Join(hooksDir, name), "hook", tracked.Under("hooks/"+name))
-				if err != nil {
-					var linkErr *contract.KBSymlinkError
-					if errors.As(err, &linkErr) {
-						linkOut("hook hooks/"+name, "hooks/"+name+"/"+linkErr.Rel)
-						continue
-					}
-					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/hooks/%s: %w", kbName, name, err)
-				}
-				artifacts = append(artifacts, Artifact{
-					Kind:        "hook",
-					Name:        name,
-					Source:      "kb:" + kbName,
-					ContentHash: hash,
-				})
-			}
-		}
-
-		// 5. Third-party MCP servers (mcp/<name>.json, D69): one JSON file per
-		// server, single-file like agents. No mcp/ folder → zero artifacts
-		// (backward compat). Parse+validation here (parseMCPServerSpec): a
-		// malformed file, or one with a headers/env value that looks like a
-		// literal secret, fails BuildManifest, not Apply (WP2). An unsigned MCP
-		// descriptor needs its own hash-bound approval, signed or not (D906). A
-		// D114 signature remains independently verifiable.
-		mcpDir := filepath.Join(kbRoot, "mcp")
-		mcpEntries, err := os.ReadDir(mcpDir)
-		if err == nil && !kindDirLinked("mcp") {
-			for _, e := range mcpEntries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-					continue
-				}
-				name := strings.TrimSuffix(e.Name(), ".json")
-				if !tracked.Has("mcp/" + e.Name()) {
-					continue
-				}
-				if e.Type()&fs.ModeSymlink != 0 {
-					linkOut("mcp mcp/"+e.Name(), "mcp/"+e.Name())
-					continue
-				}
-				mcpPath := filepath.Join(mcpDir, e.Name())
-				data, mcpSize, readErr := ReadFileCapped(mcpPath)
-				if errors.Is(readErr, ErrNotRegular) {
-					issues = append(issues, fmt.Sprintf("KB %q: mcp %q left out: not a regular file", kbName, name))
-					continue
-				}
-				if readErr != nil {
-					return Manifest{}, fmt.Errorf("provisioning: read kb:%s/mcp/%s: %w", kbName, name, readErr)
-				}
-				if mcpSize == 0 { // an over-cap descriptor is never parsed; sync_pull leaves it out
-					if _, specErr := contract.ParseMCPServerSpec(name, data); specErr != nil {
-						return Manifest{}, fmt.Errorf("provisioning: %w", specErr)
-					}
-				}
-				hash, hashErr := contentHashFile(mcpPath)
-				if hashErr != nil {
-					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/mcp/%s: %w", kbName, name, hashErr)
-				}
-				artifacts = append(artifacts, Artifact{
-					Kind:        "mcp",
-					Name:        name,
-					Source:      "kb:" + kbName,
-					ContentHash: hash,
-					Signed:      false,
-				})
-			}
-		}
-		// 6. Instructions (kind "instructions", D56): an "imprinting" artifact
-		// per KB, always present (unlike skill/agent/hook it doesn't depend on
-		// an optional folder) — tells the LLM agent that this KB exists and how
-		// to use it. Unlike other kinds, the content doesn't live on disk: it's
-		// GENERATED by generateKBInstructions (a pure, deterministic function, no
-		// timestamp) and placed directly in Artifact.Files, so ReadArtifactFiles
-		// doesn't need to read anything from the KB for this kind (see its
-		// "len(a.Files) > 0" check at the top of the function).
-		instrContent := []byte(generateKBInstructions(kbName, kbRoot, opts.RoutedMount, skillNames))
-		artifacts = append(artifacts, Artifact{
-			Kind:        "instructions",
-			Name:        kbName,
-			Source:      "kb:" + kbName,
-			ContentHash: hashArtifactFiles([]ArtifactFile{{Path: "instructions.md", Content: instrContent}}),
-			Files:       []ArtifactFile{{Path: "instructions.md", Content: instrContent}},
-		})
-	}
-
-	for i := range artifacts {
-		a := &artifacts[i]
-		if !strings.HasPrefix(a.Source, "kb:") {
-			continue
-		}
-		kbName := strings.TrimPrefix(a.Source, "kb:")
-		key := opts.Signers[kbName]
-		if len(key) == 0 {
-			continue
-		}
-		sig, err := artifactsig.Sign(key, artifactsig.Identity{Source: a.Source, Kind: a.Kind, Name: a.Name, Version: a.Version, ContentHash: a.ContentHash})
-		if err != nil {
-			return Manifest{}, fmt.Errorf("provisioning: sign kb:%s %s/%s: %w", kbName, a.Kind, a.Name, err)
-		}
-		a.Signature = sig
-	}
-	m := MergeArtifacts(artifacts)
-	m.Issues = issues
-	return m, nil
-}
-
 // contentHashBytes computes a deterministic sha256 hex of raw data, with no
 // filename prefix — used for artifacts whose content is generated in memory
 // instead of read from a file with its own name (kind "instructions", D56).
 func contentHashBytes(data []byte) string {
 	h := sha256.Sum256(data)
 	return fmt.Sprintf("%x", h)
-}
-
-// generateKBInstructions generates the content (in English) of the "instructions"
-// imprinting artifact for the KB kbName rooted at kbRoot (D56): the BRIEF
-// section of the managed block (D1182). It tells the LLM agent that this KB
-// exists, lists the names of its top-level archives (§KBArchiveNames) and the
-// names of its valid skills (skills, capped, §skillsSentence). The operational
-// bullets are written once per block by applyInstructionsGroup, and the optional
-// curated file <kbRoot>/instructions.md (§KBInstructionsFile, D61) joins the
-// section only when the KB opts in with `block: full`; otherwise it is served
-// on demand by kb_guide.
-//
-// Agent names are NOT listed here: D61 emitted them, D154 moved the subagent
-// sentence to applyInstructionsGroup so it can be written per provider (see the
-// note in the body).
-//
-// The block is stable imprinting, not state: no page counts (D65) or
-// timestamps, archives and skills sorted by name — so the ContentHash (computed
-// on the result of this function, see BuildManifest) changes only when the
-// set of archives/skills or the opt-ins change, not on every page added.
-func generateKBInstructions(kbName, kbRoot string, routed bool, skills []string) string {
-	var sb strings.Builder
-
-	// D1182: the brief section. Everything else (the operational bullets, the
-	// KB's own directives, the skill descriptions) is not paid on every model
-	// call: the bullets are written once per block by applyInstructionsGroup and
-	// the rest comes from kb_guide.
-	curated, d := KBInstructionsFile(kbRoot)
-
-	if d.SkipPreamble {
-		sb.WriteString(preambleNoneComment + "\n")
-	}
-	sb.WriteString(routingSentence(kbName, routed))
-	sb.WriteString(archivesSentence(KBArchiveNames(kbRoot), false))
-	sb.WriteString(skillsSentence(skills))
-
-	// The subagent sentence is NOT emitted here (D154). This function has no
-	// provider argument and BuildManifest only ever runs server-side, so the
-	// list could only be what the KB *declares* — and a provider whose "agent"
-	// cell is unsupported receives none of them, while being told to delegate to
-	// them. applyInstructionsGroup appends the sentence per provider instead,
-	// the same way the D75 WP4 paths table is appended client-side.
-
-	if d.Full && curated != "" {
-		sb.WriteString("\n")
-		sb.WriteString(scopeSentence(kbName))
-		sb.WriteString(curated)
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
-}
-
-// preambleNoneRe and blockFullRe match the opt-in/opt-out directives on the
-// LEADING lines of instructions.md (D154, D1182). Leading run only, and an exact
-// spelling, so a KB can document a directive in its own prose without
-// triggering it — the same trap as the placeholder syntax (D162).
-var (
-	preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s*none\s*-->\s*$`)
-	blockFullRe    = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*block:\s*full\s*-->\s*$`)
-)
-
-// KBCuratedInstructions reads the optional curated file
-// <kbRoot>/instructions.md (D61) and reports whether it opted out of the
-// generated "Operational instructions" bullets (D154).
-//
-// The file holds free-form markdown orchestration directives hand-written by
-// the operator, included in the block AFTER the auto-generated part. It lives
-// in the ROOT of the KB, alongside data/, skills/, agents/ — never inside
-// data/, so it isn't scanned by kb.Walk/the indexes (it doesn't become a
-// concept) and isn't materialized as a file of its own: only its content flows
-// into the generated text. If it has frontmatter (tolerated but not required
-// for a file meant as free-form markdown) it is discarded and only the body is
-// used. Missing file → empty string (no section).
-//
-// The generated wrapper is hardcoded English, so a KB written in the team's
-// working language yielded a steering file that switched language twice — 1765
-// bytes of English around 6559 of another language, and the *first* thing the
-// model reads, which is the worst position for an inconsistency because it sets
-// the expected output language. It is also partly redundant with any
-// instructions.md that already explains how to consult the KB.
-//
-// Deliberately NOT a localisation mechanism: a language key would make
-// Cartographer carry translations of its own prose forever. The KB owns the
-// prose instead. The one-line routing sentence (KB name, server, archives) stays
-// generated in every case — it is state, not prose, and no KB can write it for
-// itself — so the residual is one English line rather than none.
-func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
-	body, d := KBInstructionsFile(kbRoot)
-	return body, d.SkipPreamble
-}
-
-// InstructionsDirectives are the opt-ins a KB declares on the leading lines of
-// its instructions.md (D154, D1182).
-type InstructionsDirectives struct {
-	// SkipPreamble is `preamble: none`: no generated operational text.
-	SkipPreamble bool
-	// Full is `block: full`: the curated body stays in the managed block
-	// instead of being served by kb_guide.
-	Full bool
-}
-
-// KBInstructionsFile is KBCuratedInstructions plus every directive of the
-// leading run (D1182). The run is the lines at the top of the file that are a
-// directive, one per line in any order, blank lines tolerated between them; it
-// ends at the first line that is not one, and a directive after that (or in
-// prose) is just text (D162). The directive lines are stripped from the body.
-func KBInstructionsFile(kbRoot string) (body string, d InstructionsDirectives) {
-	data, cut, err := readInstructionsBounded(filepath.Join(kbRoot, "instructions.md"))
-	if err != nil {
-		return "", d
-	}
-	_, content, hasFM := okf.SplitFrontmatter(string(data))
-	if !hasFM {
-		content = string(data)
-		if cut > 0 && strings.HasPrefix(content, "---") {
-			// The cut fell inside the frontmatter: there is no body in the
-			// kept prefix, and the half-read keys must not pass as text.
-			content = ""
-		}
-	}
-	lines := strings.Split(content, "\n")
-run:
-	for len(lines) > 0 {
-		t := strings.TrimSpace(lines[0])
-		switch {
-		case t == "":
-		case preambleNoneRe.MatchString(t):
-			d.SkipPreamble = true
-		case blockFullRe.MatchString(t):
-			d.Full = true
-		default:
-			break run
-		}
-		lines = lines[1:]
-	}
-	body = strings.TrimSpace(strings.Join(lines, "\n"))
-	if cut > 0 {
-		sep := "\n\n"
-		if body == "" {
-			sep = ""
-		}
-		body += fmt.Sprintf(sep+"[instructions.md was cut at %d bytes: %d bytes left out. The operator must shorten the file.]", len(data), cut)
-	}
-	return body, d
-}
-
-// MaxInstructionsBytes caps the curated instructions.md (D1110): the handshake
-// guide and the managed block read at most this much of it, and artifact_write
-// refuses a larger body. A push can still bring a bigger file into the KB; the
-// readers then truncate it.
-const MaxInstructionsBytes = 64 * 1024
-
-// readInstructionsBounded reads at most MaxInstructionsBytes+1 bytes of the
-// file. Past the cap it returns the text cut at the last line boundary within
-// the cap and the number of bytes left out (0 when nothing was cut).
-//
-// A symlinked instructions.md is refused (same outcome as a missing file): a
-// file outside the KB must reach neither the guide nor the managed block.
-func readInstructionsBounded(path string) (data []byte, cut int64, err error) {
-	if fi, lerr := os.Lstat(path); lerr != nil {
-		return nil, 0, lerr
-	} else if fi.Mode()&os.ModeSymlink != 0 {
-		return nil, 0, fmt.Errorf("instructions.md is a symlink")
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer f.Close()
-	data, err = io.ReadAll(io.LimitReader(f, MaxInstructionsBytes+1))
-	if err != nil {
-		return nil, 0, err
-	}
-	if len(data) <= MaxInstructionsBytes {
-		return data, 0, nil
-	}
-	total := int64(len(data))
-	if fi, statErr := f.Stat(); statErr == nil && fi.Size() > total {
-		total = fi.Size()
-	}
-	if i := bytes.LastIndexByte(data[:MaxInstructionsBytes], '\n'); i >= 0 {
-		data = data[:i+1]
-	} else {
-		// No line boundary: back off to a rune boundary, never split one.
-		n := MaxInstructionsBytes
-		for n > 0 && !utf8.RuneStart(data[n]) {
-			n--
-		}
-		data = data[:n]
-	}
-	return data, total - int64(len(data)), nil
 }
 
 // directiveRe matches a session-global directive declaration line (D183):
@@ -1531,127 +741,6 @@ func extractDirectives(content string) map[string]string {
 	return out
 }
 
-// ErrNotRegular is what ReadFileCapped wraps for a symlink, a device or any
-// other file that is not a regular one: a caller that answers per artifact
-// skips that artifact instead of failing the KB.
-var ErrNotRegular = errors.New("not a regular file")
-
-// ArtifactMaxTotalSize and ArtifactMaxFiles bound what one skill or hook
-// directory may make the server read: the per-file cap alone lets thousands of
-// just-under-cap files be read whole. Past either, the artifact is reported
-// oversized like a file over the cap.
-const (
-	ArtifactMaxTotalSize = 8 << 20
-	ArtifactMaxFiles     = 512
-)
-
-// ReadFileCapped reads a KB's own file without following a symlink and without
-// reading one over ArtifactMaxFileSize: for that, data is nil and size is the
-// file's size. A file that is not regular is an ErrNotRegular. The read goes
-// through the opened handle and a LimitReader, so a file that grows or is
-// swapped after the Lstat is still read at most cap+1 bytes.
-func ReadFileCapped(path string) (data []byte, size int64, err error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, 0, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, 0, fmt.Errorf("%s: %w", path, ErrNotRegular)
-	}
-	if info.Size() > ArtifactMaxFileSize {
-		return nil, info.Size(), nil
-	}
-	return readOpenedCapped(path, info)
-}
-
-// readOpenedCapped opens path, checks it is still the regular file lstat saw,
-// and reads at most ArtifactMaxFileSize+1 bytes of it.
-func readOpenedCapped(path string, lstat os.FileInfo) (data []byte, size int64, err error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		return nil, 0, err
-	}
-	if !fi.Mode().IsRegular() || !os.SameFile(lstat, fi) {
-		return nil, 0, fmt.Errorf("%s: %w", path, ErrNotRegular)
-	}
-	data, err = io.ReadAll(io.LimitReader(f, ArtifactMaxFileSize+1))
-	if err != nil {
-		return nil, 0, err
-	}
-	if len(data) > ArtifactMaxFileSize {
-		return nil, int64(len(data)), nil
-	}
-	return data, 0, nil
-}
-
-// contentHashFile computes the versioned artifact hash of a single,
-// non-executable file (agents and MCP descriptors).
-func contentHashFile(path string) (string, error) {
-	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		return "", &contract.KBSymlinkError{Rel: filepath.Base(path)}
-	}
-	data, size, err := ReadFileCapped(path)
-	if err != nil {
-		return "", fmt.Errorf("provisioning: read %s: %w", path, err)
-	}
-	if size > 0 {
-		data = oversizedMarker(size)
-	}
-	return hashArtifactFiles([]ArtifactFile{{Path: filepath.Base(path), Content: data}}), nil
-}
-
-// MergeArtifacts deduplicates a list of artifacts by kind+name, sorts them
-// deterministically and computes the aggregate revision. Factored out of BuildManifest
-// so the multi-KB client (internal/client, cmd/cartographer) can also merge the
-// artifacts received from several sync_pull calls (one per KB) with the same
-// precedence rule used server-side for a single KB.
-//
-// Deduplicated by kind+name: a skill's destination depends only on name
-// (skillDestDir doesn't use source), so two artifacts with the same kind+name
-// would point at the same folder. Typical case: skill_install copies a bundled
-// skill into the KB → it would appear both as "bundle" and as "kb:<name>".
-// Precedence: the KB beats the bundle (domain version, potentially updated).
-// Among several KBs (or several sync_pull calls) the choice is deterministic by
-// alphabetical source.
-func MergeArtifacts(artifacts []Artifact) Manifest {
-	byKey := make(map[string]Artifact, len(artifacts))
-	for _, a := range artifacts {
-		k := a.Kind + "\x00" + a.Name
-		if existing, ok := byKey[k]; ok {
-			byKey[k] = preferArtifact(existing, a)
-		} else {
-			byKey[k] = a
-		}
-	}
-	merged := make([]Artifact, 0, len(byKey))
-	for _, a := range byKey {
-		merged = append(merged, a)
-	}
-
-	// Ordina per determinismo: kind, source, name.
-	sort.Slice(merged, func(i, j int) bool {
-		ai, aj := merged[i], merged[j]
-		if ai.Kind != aj.Kind {
-			return ai.Kind < aj.Kind
-		}
-		if ai.Source != aj.Source {
-			return ai.Source < aj.Source
-		}
-		return ai.Name < aj.Name
-	})
-
-	// Aggregate revision: sha256 of the sorted concatenation of "kind|name|source|content_hash\n".
-	return Manifest{
-		Revision:  computeRevision(merged),
-		Artifacts: merged,
-	}
-}
-
 // Collision is one kind+name claimed by two or more KBs (D171). Sources are the
 // full source strings ("kb:<name>"), sorted, so a report is deterministic.
 type Collision struct {
@@ -1673,7 +762,7 @@ type Collision struct {
 // The same source appearing twice is not a collision. That is the ordinary
 // shape of the client's merge, where every per-KB sync_pull response carries the
 // same bundled artifacts.
-func DetectCollisions(artifacts []Artifact) []Collision {
+func DetectCollisions(artifacts []contract.Artifact) []Collision {
 	sourcesByKey := make(map[string]map[string]bool)
 	for _, a := range artifacts {
 		if !strings.HasPrefix(a.Source, "kb:") {
@@ -1738,7 +827,7 @@ type DirectiveCollision struct {
 // agree, there is nothing to adjudicate. Same key + different value is —
 // consistent with D171's "error, not warning" stance for the structural
 // kind+name collision.
-func DetectDirectiveCollisions(artifacts []Artifact) []DirectiveCollision {
+func DetectDirectiveCollisions(artifacts []contract.Artifact) []DirectiveCollision {
 	// key -> source -> value
 	bySource := make(map[string]map[string]string)
 	for _, a := range artifacts {
@@ -1814,51 +903,13 @@ func (e *CollisionError) Error() string {
 //
 // BuildManifest keeps using MergeArtifacts: server-side a manifest is built for
 // one KB plus the bundle, where a KB↔KB collision cannot arise by construction.
-func MergeArtifactsStrict(artifacts []Artifact) (Manifest, error) {
+func MergeArtifactsStrict(artifacts []contract.Artifact) (contract.Manifest, error) {
 	collisions := DetectCollisions(artifacts)
 	directives := DetectDirectiveCollisions(artifacts)
 	if len(collisions) > 0 || len(directives) > 0 {
-		return Manifest{}, &CollisionError{Collisions: collisions, Directives: directives}
+		return contract.Manifest{}, &CollisionError{Collisions: collisions, Directives: directives}
 	}
-	return MergeArtifacts(artifacts), nil
-}
-
-// preferArtifact chooses, between two artifacts with the same kind+name, the one
-// that wins in materialization. The KB ("kb:*") beats the bundle; for the same
-// source type, the choice is deterministic by alphabetical source. Between two
-// KBs this is a silent, unstable choice, which is why the client merges through
-// MergeArtifactsStrict and never reaches this branch (D171).
-func preferArtifact(a, b Artifact) Artifact {
-	// A plugin never beats a bundled or KB artifact (callers drop such a
-	// collision before they get here: DropPluginCollisions).
-	if aP, bP := IsPluginSource(a.Source), IsPluginSource(b.Source); aP != bP {
-		if aP {
-			return b
-		}
-		return a
-	}
-	aKB := strings.HasPrefix(a.Source, "kb:")
-	bKB := strings.HasPrefix(b.Source, "kb:")
-	if aKB != bKB {
-		if aKB {
-			return a
-		}
-		return b
-	}
-	if a.Source <= b.Source {
-		return a
-	}
-	return b
-}
-
-// computeRevision computes the Manifest's aggregate revision.
-// Artifacts must already be sorted to guarantee determinism.
-func computeRevision(artifacts []Artifact) string {
-	h := sha256.New()
-	for _, a := range artifacts {
-		fmt.Fprintf(h, "%s|%s|%s|%s\n", a.Kind, a.Name, a.Source, a.ContentHash)
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return contract.MergeArtifacts(artifacts), nil
 }
 
 // --- Lockfile ---
@@ -2088,7 +1139,7 @@ func (lf *LockFile) SetProvider(provider string, lock Lock) {
 //     the revision would lie: Apply marks the revision as applied even when
 //     unsigned artifacts remain in NeedsApproval, and those would show up as
 //     Added with InSync=true ("in-sync" with missing stuff).
-func ComputeDiff(m Manifest, lock Lock) Diff {
+func ComputeDiff(m contract.Manifest, lock Lock) Diff {
 	// Map managed files by kind+name (matching key).
 	managedByKey := make(map[string]ManagedFile, len(lock.Managed))
 	for _, mf := range lock.Managed {
@@ -2137,16 +1188,16 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 }
 
 // FilterForProvider returns a copy of m with only the artifacts that have a
-// known destination for the provider (destDir != ""). Used by status
+// known destination for the provider (DestDir != ""). Used by status
 // for honest per-provider counts and diffs: a kind the provider can't
 // materialize isn't "missing", it simply doesn't apply (e.g. hook
 // exists only for Claude Code — D48; agent for Claude Code and OpenCode — D55).
 // It never degrades an agent to a skill: kept for API stability, the sync and
 // status paths use ProjectManifest.
-func FilterForProvider(m Manifest, provider configurator.Provider) Manifest {
-	var out Manifest
+func FilterForProvider(m contract.Manifest, provider configurator.Provider) contract.Manifest {
+	var out contract.Manifest
 	for _, a := range m.Artifacts {
-		if destDir(a.Kind, a.Name, provider) != "" && !strictAgentSkipped(a, provider) {
+		if contract.DestDir(a.Kind, a.Name, provider) != "" && !contract.StrictAgentSkipped(a, provider) {
 			out.Artifacts = append(out.Artifacts, a)
 		}
 	}
@@ -2155,9 +1206,9 @@ func FilterForProvider(m Manifest, provider configurator.Provider) Manifest {
 	// revision string make ComputeDiff.InSync lie, and — once bindings decide
 	// those sets — changing a binding would not change the revision, so no
 	// drift would ever be detected. Filtering preserves relative order, and m
-	// arrives sorted from MergeArtifacts, so computeRevision's precondition
+	// arrives sorted from MergeArtifacts, so ComputeRevision's precondition
 	// still holds.
-	out.Revision = computeRevision(out.Artifacts)
+	out.Revision = contract.ComputeRevision(out.Artifacts)
 	// Skipped carries the warnings VerifiedManifest left for Apply to
 	// print; a real sync applies the filtered manifest, so they must survive.
 	out.Skipped = m.Skipped
@@ -2183,12 +1234,12 @@ func FilterForProvider(m Manifest, provider configurator.Provider) Manifest {
 //
 // `allowed` is always explicit — nil is "no KBs", never a wildcard. Callers
 // resolve the default through clientconfig.Config.BoundKBs.
-func SelectForSources(candidates []Artifact, allowed []string) []Artifact {
+func SelectForSources(candidates []contract.Artifact, allowed []string) []contract.Artifact {
 	permitted := make(map[string]bool, len(allowed))
 	for _, kb := range allowed {
 		permitted["kb:"+kb] = true
 	}
-	out := make([]Artifact, 0, len(candidates))
+	out := make([]contract.Artifact, 0, len(candidates))
 	for _, a := range candidates {
 		if a.Source == "bundle" || permitted[a.Source] {
 			out = append(out, a)
@@ -2208,7 +1259,7 @@ type KindCount struct {
 // managed files (Installed), keyed by Kind ("skill", "agent", "hook", ...). Used by
 // `cartographer status` to render a compact per-kind summary
 // (e.g. "skill 4/5 · agent 2/2 · hook 1/1") alongside the overall drift status.
-func KindCounts(m Manifest, lock Lock) map[string]KindCount {
+func KindCounts(m contract.Manifest, lock Lock) map[string]KindCount {
 	managedByKey := make(map[string]ManagedFile, len(lock.Managed))
 	for _, mf := range lock.Managed {
 		k := mf.Kind + "\x00" + mf.Name
@@ -2261,21 +1312,21 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 //     in .codex/hooks.json (D230, see registerCodexHook in hooksettings.go).
 //   - kiro: skill materialized as today; agent/hook not supported (no known
 //     destination for this provider) → Unsupported.
-//     To extend: add a case in destDir for the new kind×provider.
+//     To extend: add a case in DestDir for the new kind×provider.
 //
 // Managed-only prune: removes from BaseDir ONLY the paths in opts.Lock.Managed no
 // longer in the manifest. Never touches files not managed by Cartographer.
 //
 // Idempotent: two Apply calls on the same revision = no-op.
 // DryRun: computes everything but writes nothing (neither files nor lockfile).
-func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
+func Apply(m contract.Manifest, opts ApplyOptions) (AppliedResult, error) {
 	if err := PreflightStdioMCP(m, opts); err != nil {
 		return AppliedResult{}, err
 	}
 	diff := ComputeDiff(m, opts.Lock)
 
 	var result AppliedResult
-	if opts.Provider == configurator.ProviderClaudeCode && opts.Scope == ScopeProject {
+	if opts.Provider == configurator.ProviderClaudeCode && opts.Scope == contract.ScopeProject {
 		result.HookSettings = opts.HookSettingsRel
 	}
 	tracker := newExpansionTracker()
@@ -2323,7 +1374,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		if toWriteKeys[key] || !artifactAuthorized(a, opts) {
 			continue
 		}
-		destRel := destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope)
+		destRel := contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope)
 		if len(movedArtifactFiles(opts.Lock.Managed, a, destRel)) == 0 &&
 			len(movedOpenCodePlugin(opts.Lock.Managed, a, opts.Provider, opts.Scope)) == 0 {
 			continue
@@ -2364,7 +1415,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			if a.Kind != "hook" || toWriteKeys[key] || !artifactAuthorized(a, opts) || !hookInLock(opts.Lock.Managed, a.Name) {
 				continue
 			}
-			if claudeHookToMove(opts.BaseDir, destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope), a.Name, claudeStrip) {
+			if claudeHookToMove(opts.BaseDir, contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope), a.Name, claudeStrip) {
 				toWrite = append(toWrite, a)
 				toWriteKeys[key] = true
 			}
@@ -2419,8 +1470,8 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	// not its content changed.
 	heldKeys := make(map[string]bool)
 	for _, a := range m.Artifacts {
-		if a.Kind == "mcp" || a.Kind == "instructions" || isReservedHook(a.Kind, a.Name) ||
-			destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || artifactAuthorized(a, opts) {
+		if a.Kind == "mcp" || a.Kind == "instructions" || contract.IsReservedHook(a.Kind, a.Name) ||
+			contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || artifactAuthorized(a, opts) {
 			continue
 		}
 		key := a.Kind + "\x00" + a.Name
@@ -2475,7 +1526,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	// refused update leaves the previous content on disk, so the lockfile must
 	// keep saying we own it; dropping the entries would leave a prune or a
 	// disconnect unaware of those files until a retry succeeds.
-	refuseArtifact := func(a Artifact, err error) bool {
+	refuseArtifact := func(a contract.Artifact, err error) bool {
 		if !refuse(&result, a, err) {
 			return false
 		}
@@ -2494,7 +1545,7 @@ hookLoop:
 			// Handled as a group by applyInstructionsGroup below, not here.
 			continue
 		}
-		if isReservedHook(a.Kind, a.Name) {
+		if contract.IsReservedHook(a.Kind, a.Name) {
 			// Name reserved for the client-side bootstrap (D60, EnsureBootstrapHook):
 			// a KB defining a hook with this very name would otherwise be
 			// written over the files EnsureBootstrapHook manages on its own —
@@ -2505,7 +1556,7 @@ hookLoop:
 		}
 		// No destination for this provider: no approval unblocks it, so it is
 		// Unsupported and never waits for one (D50).
-		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" {
+		if contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" {
 			result.Unsupported = append(result.Unsupported, a)
 			continue
 		}
@@ -2523,7 +1574,7 @@ hookLoop:
 		// reported and nothing is written, so the artifacts already written in
 		// this round keep their lock entries and the following providers run
 		// (#1502).
-		if !validArtifactName(a.Name) {
+		if !contract.ValidArtifactName(a.Name) {
 			result.Refused = append(result.Refused, a)
 			result.Warnings = append(result.Warnings, fmt.Sprintf("%s/%q not installed: not a valid artifact name", a.Kind, a.Name))
 			for _, mf := range opts.Lock.Managed {
@@ -2536,14 +1587,14 @@ hookLoop:
 
 		// Provider/kind with no known destination (destRel == ""): the provider
 		// doesn't support this kind — no approval unblocks it, so it goes to
-		// Unsupported (not NeedsApproval). Support is determined by destDir:
+		// Unsupported (not NeedsApproval). Support is determined by DestDir:
 		// add a case there for a new kind×provider.
-		destRel := destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope)
+		destRel := contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope)
 		if destRel == "" {
 			result.Unsupported = append(result.Unsupported, a)
 			continue
 		}
-		if strictAgentSkipped(a, opts.Provider) {
+		if contract.StrictAgentSkipped(a, opts.Provider) {
 			// A restricted agent that opted out of being widened (D283):
 			// not written here, and whatever an earlier sync wrote for it
 			// leaves with it.
@@ -2637,7 +1688,7 @@ hookLoop:
 					return AppliedResult{}, fmt.Errorf("provisioning: translate agent %s for %s: %w", a.Name, opts.Provider, err)
 				}
 				// After the translation: this is the byte sequence on disk.
-				materializedHash = hashArtifactFiles([]ArtifactFile{{Path: agentHashPath(a.Name), Content: content}})
+				materializedHash = contract.HashArtifactFiles([]contract.ArtifactFile{{Path: contract.AgentHashPath(a.Name), Content: content}})
 				if err := writeFileNoFollow(fullDestPath, content, 0o644); err != nil {
 					if refuseArtifact(a, err) {
 						continue
@@ -2914,7 +1965,7 @@ hookLoop:
 		for id := range sources {
 			if d, ok := tracker.decls[id]; ok {
 				if result.NewLock.PlaceholderDecls == nil {
-					result.NewLock.PlaceholderDecls = map[string]PathDecl{}
+					result.NewLock.PlaceholderDecls = map[string]contract.PathDecl{}
 				}
 				result.NewLock.PlaceholderDecls[id] = d
 			}
@@ -2961,8 +2012,8 @@ func appendFollowedLinkNotes(warnings []string, baseDir, path string) []string {
 // nothing, so every file the lock owns is dropped; an unreadable artifact fails
 // or is refused before anything is pruned, so the plan keeps every file the
 // lock owns.
-func declaredRelPaths(a Artifact, opts ApplyOptions, destDirRel string) []string {
-	files, err := ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
+func declaredRelPaths(a contract.Artifact, opts ApplyOptions, destDirRel string) []string {
+	files, err := contract.ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
 	if err != nil {
 		var kept []string
 		for _, mf := range opts.Lock.Managed {
@@ -2976,7 +2027,7 @@ func declaredRelPaths(a Artifact, opts ApplyOptions, destDirRel string) []string
 	if !ok {
 		return nil
 	}
-	files = append(append([]ArtifactFile{}, files...), generated...)
+	files = append(append([]contract.ArtifactFile{}, files...), generated...)
 	out := make([]string, 0, len(files))
 	for _, f := range files {
 		out = append(out, filepath.Join(destDirRel, f.Path))
@@ -2998,7 +2049,7 @@ func declaredRelPaths(a Artifact, opts ApplyOptions, destDirRel string) []string
 // destination is a single file (agent, mcp) has no per-file ownership to lose
 // and is skipped by the caller passing its file path, which is then always in
 // `written`.
-func droppedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string, written []string) []ManagedFile {
+func droppedArtifactFiles(previous []ManagedFile, a contract.Artifact, destDirRel string, written []string) []ManagedFile {
 	if destDirRel == "" {
 		return nil
 	}
@@ -3034,8 +2085,8 @@ func droppedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string,
 // include generated companions (a Copilot hook file, a Pi extension) that live
 // outside its directory by design. The one exception is an OpenCode hook's
 // generated plugin, whose path depends on the scope (movedOpenCodePlugin, #1827).
-func movedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string) []ManagedFile {
-	if destDirRel == "" || a.Kind == "instructions" || a.Kind == "hook" || isReservedHook(a.Kind, a.Name) {
+func movedArtifactFiles(previous []ManagedFile, a contract.Artifact, destDirRel string) []ManagedFile {
+	if destDirRel == "" || a.Kind == "instructions" || a.Kind == "hook" || contract.IsReservedHook(a.Kind, a.Name) {
 		return nil
 	}
 	dest := filepath.Clean(destDirRel)
@@ -3118,7 +2169,7 @@ var blockMarkerQuote = strings.NewReplacer(
 
 // applyInstructionsGroup materializes the "instructions" kind (D56) as a
 // GROUP — unlike every other kind, which is materialized per-artifact.
-// Each provider has a single shared file (destDir("instructions", _, provider));
+// Each provider has a single shared file (DestDir("instructions", _, provider));
 // the block delimited by the instructionsBlockBegin/End markers in that file
 // contains the concatenation, sorted by Name, of the snippets of ALL *signed*
 // instructions currently in the manifest m — not just those added/updated in this
@@ -3138,7 +2189,7 @@ var blockMarkerQuote = strings.NewReplacer(
 // pathsHash receives the hash of the placeholder section the block carries
 // after this call (D262), for the new Lock; "" when there is no block or no
 // client-side expansion.
-func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile, force bool, pathsHash *string) error {
+func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile, force bool, pathsHash *string) error {
 	destRel := instructionsDest(opts)
 	if destRel == "" {
 		// Provider with no known destination for instructions: keep this handled
@@ -3198,7 +2249,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// an explicit binding (D182 WP2) — Name is the KB name for this kind
 	// (:577) — falling back to alphabetical, the deterministic default for a
 	// provider bound to every known KB.
-	var current []Artifact
+	var current []contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "instructions" {
 			current = append(current, a)
@@ -3227,7 +2278,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// expanded content even in rounds where the block isn't rewritten
 	// (D75 WP3 — the instructions content already lives in memory via a.Files,
 	// BuildManifest, so the cost is zero even when nothing else needs it).
-	var signed []Artifact
+	var signed []contract.Artifact
 	expandedContent := make(map[string][]byte, len(current))
 	contentHashes := make(map[string]string, len(current))
 	for _, a := range current {
@@ -3358,7 +2409,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// what THIS client received, not what the KB declares. A client whose "agent"
 		// cell is unsupportedDest (crush) receives none, and the sentence must not
 		// tell it to delegate to subagents that are not there; installedSubagentSentence
-		// derives it from destDir.
+		// derives it from DestDir.
 		if envSection != "" {
 			body += "\n\n" + envSection
 		}
@@ -3462,7 +2513,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 // diff.Added/diff.Removed, so this only needs to fire on the one case those
 // miss: same names, different positions. A length mismatch is therefore
 // always a set change and is left to that existing path.
-func instructionsOrderChanged(previous []ManagedFile, newOrder []Artifact) bool {
+func instructionsOrderChanged(previous []ManagedFile, newOrder []contract.Artifact) bool {
 	var prevNames []string
 	for _, mf := range previous {
 		if mf.Kind == "instructions" {
@@ -3490,7 +2541,7 @@ func instructionsOrderChanged(previous []ManagedFile, newOrder []Artifact) bool 
 // block, the import is NOT added inside (a repo following the D213 convention
 // already has one — duplicating it would break the file).
 func needsAgentsMDImport(opts ApplyOptions) bool {
-	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != ScopeProject {
+	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != contract.ScopeProject {
 		return false
 	}
 	if opts.InstructionsRel != "" {
@@ -3565,15 +2616,15 @@ func containsAgentsMDImport(text string) bool {
 // unsupportedKindWarnings, so a widened agent is not reported once and then
 // forgotten. An artifact not installed (awaiting approval, or skipped by
 // strict_tools) is not reported: nothing was widened.
-func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
+func widenedAgentWarnings(m contract.Manifest, opts ApplyOptions) []string {
 	var out []string
 	for _, a := range m.Artifacts {
 		// Kiro has its own warning (kiroToollessAgentWarnings): "unrestricted"
 		// would be the opposite of what it receives.
-		if opts.Provider == configurator.ProviderKiro || !agentWidened(a, opts.Provider) || a.Restriction.Strict {
+		if opts.Provider == configurator.ProviderKiro || !contract.AgentWidened(a, opts.Provider) || a.Restriction.Strict {
 			continue
 		}
-		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
+		if contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
 			continue
 		}
 		out = append(out, fmt.Sprintf(
@@ -3586,17 +2637,17 @@ func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
 // kiroToollessAgentWarnings names, on every run, each KB agent installed on
 // Kiro without any `providers.kiro` field (#1826): translateAgentForKiro drops
 // `tools`, and a Kiro agent file without a tools list has none (D300). Any
-// non-empty `providers.kiro` block counts as giving tools, as agentWidened
+// non-empty `providers.kiro` block counts as giving tools, as AgentWidened
 // counts it as the author's own restriction. Read from the source because
 // Restriction is nil for an agent without `tools`. An agent skipped by
 // strict_tools is not installed and is not reported.
-func kiroToollessAgentWarnings(m Manifest, opts ApplyOptions) []string {
+func kiroToollessAgentWarnings(m contract.Manifest, opts ApplyOptions) []string {
 	if opts.Provider != configurator.ProviderKiro {
 		return nil
 	}
 	var out []string
 	for _, a := range m.Artifacts {
-		if a.Kind != "agent" || destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) || strictAgentSkipped(a, opts.Provider) {
+		if a.Kind != "agent" || contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) || contract.StrictAgentSkipped(a, opts.Provider) {
 			continue
 		}
 		content, err := singleArtifactContent(a, opts)
@@ -3608,7 +2659,7 @@ func kiroToollessAgentWarnings(m Manifest, opts ApplyOptions) []string {
 			if err != nil {
 				continue
 			}
-			if fields, err := nativeFieldsFor(fm, configurator.ProviderKiro); err != nil || len(fields) > 0 {
+			if fields, err := contract.NativeFieldsFor(fm, configurator.ProviderKiro); err != nil || len(fields) > 0 {
 				continue
 			}
 		}
@@ -3626,14 +2677,14 @@ func kiroToollessAgentWarnings(m Manifest, opts ApplyOptions) []string {
 // verbatim (D291). Only the global scope is checked: a project-scope apply
 // inherits the global MCP servers as well, so its own config alone would
 // report servers that are in fact there. An unreadable config reports nothing.
-func absentMCPServerWarnings(m Manifest, opts ApplyOptions) []string {
-	if opts.Scope != ScopeGlobal {
+func absentMCPServerWarnings(m contract.Manifest, opts ApplyOptions) []string {
+	if opts.Scope != contract.ScopeGlobal {
 		return nil
 	}
 	var configured map[string]bool
 	var out []string
 	for _, a := range m.Artifacts {
-		if a.Kind != "agent" || destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
+		if a.Kind != "agent" || contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
 			continue
 		}
 		content, err := singleArtifactContent(a, opts)
@@ -3648,7 +2699,7 @@ func absentMCPServerWarnings(m Manifest, opts ApplyOptions) []string {
 		if err != nil {
 			continue
 		}
-		fields, err := nativeFieldsFor(fm, nativeProvider(opts.Provider))
+		fields, err := contract.NativeFieldsFor(fm, contract.NativeProvider(opts.Provider))
 		if err != nil {
 			continue
 		}
@@ -3682,7 +2733,7 @@ func absentMCPServerWarnings(m Manifest, opts ApplyOptions) []string {
 // The client receives that copy next to the bundled skill, so the agent sees
 // one skill twice; kb_repair (legacy_skill_name) moves the copy to the new
 // name. Computed from the manifest, so it repeats on every run until fixed.
-func legacySkillWarnings(m Manifest) []string {
+func legacySkillWarnings(m contract.Manifest) []string {
 	found := map[string][]string{}
 	for _, a := range m.Artifacts {
 		if !strings.HasPrefix(a.Source, "kb:") || a.Kind != "skill" {
@@ -3714,18 +2765,18 @@ func legacySkillWarnings(m Manifest) []string {
 // "unsupported" line only appears on a run where the artifact enters the diff,
 // after which the condition is invisible — while the KB keeps declaring
 // artifacts that are silently not installed.
-func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []string {
+func unsupportedKindWarnings(m contract.Manifest, provider configurator.Provider) []string {
 	type key struct{ kb, kind string }
 	counts := map[key]int{}
 	plugins := map[key]int{} // same count under the plugin's own label
 	for _, a := range m.Artifacts {
-		if a.Kind == "instructions" || destDir(a.Kind, a.Name, provider) != "" {
+		if a.Kind == "instructions" || contract.DestDir(a.Kind, a.Name, provider) != "" {
 			continue
 		}
 		switch {
 		case strings.HasPrefix(a.Source, "kb:"):
 			counts[key{strings.TrimPrefix(a.Source, "kb:"), a.Kind}]++
-		case IsPluginSource(a.Source):
+		case contract.IsPluginSource(a.Source):
 			plugins[key{PluginName(a.Source), a.Kind}]++
 		}
 	}
@@ -3760,7 +2811,7 @@ func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []strin
 // installedSubagentSentence, so it never enters an artifact hash, and emitted
 // only for a provider whose MCP mode is cli.
 func cliProviderSentence(p configurator.Provider) string {
-	return fmt.Sprintf("This client reaches Cartographer through the shell: run `cartographer call --provider %s ...` (see the `%s` skill).", p, CLISkillName)
+	return fmt.Sprintf("This client reaches Cartographer through the shell: run `cartographer call --provider %s ...` (see the `%s` skill).", p, contract.CLISkillName)
 }
 
 // installedSubagentSentence names the KB agents this provider can actually
@@ -3774,13 +2825,13 @@ func cliProviderSentence(p configurator.Provider) string {
 // When the client cannot delegate on its own (agent.delegate absent, invoke
 // only) the sentence says so and carries InvokeHint; otherwise it is the
 // original text, byte for byte (Claude Code's golden tests pin it).
-func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
+func installedSubagentSentence(m contract.Manifest, opts ApplyOptions) string {
 	byKB := map[string][]string{}
 	for _, a := range m.Artifacts {
 		if a.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") {
 			continue
 		}
-		if destDirScoped("agent", a.Name, opts.Provider, opts.Scope) == "" || strictAgentSkipped(a, opts.Provider) {
+		if contract.DestDirScoped("agent", a.Name, opts.Provider, opts.Scope) == "" || contract.StrictAgentSkipped(a, opts.Provider) {
 			continue
 		}
 		if !artifactAuthorized(a, opts) {
@@ -3789,7 +2840,7 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 		kbName := strings.TrimPrefix(a.Source, "kb:")
 		byKB[kbName] = append(byKB[kbName], a.Name)
 	}
-	invokeOnly := CapabilityStatus(opts.Provider, opts.Scope, CapAgentDelegate) == CapAbsent
+	invokeOnly := contract.CapabilityStatus(opts.Provider, opts.Scope, contract.CapAgentDelegate) == contract.CapAbsent
 	return perKBLines(byKB, func(kbName string, names []string) string {
 		if invokeOnly {
 			line := fmt.Sprintf("Subagents installed by the %q KB: %s — this client does not pick them on its own.", kbName, strings.Join(names, ", "))
@@ -3825,7 +2876,7 @@ func perKBLines(byKB map[string][]string, line func(kbName string, names []strin
 // degradedAgentSentence names, per KB, the agents installed here as skills
 // (D1656): the model is told to load the skill where a skill says to delegate.
 // A derived skill is judged on its origin's approval, like the skill itself.
-func degradedAgentSentence(m Manifest, opts ApplyOptions) string {
+func degradedAgentSentence(m contract.Manifest, opts ApplyOptions) string {
 	byKB := map[string][]string{}
 	for _, a := range m.Artifacts {
 		if a.DerivedFrom == nil || a.DerivedFrom.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") || !artifactAuthorized(a, opts) {
@@ -3877,8 +2928,8 @@ func envJoin(items []string) string {
 // "kind/name" in source, the manifest before projection) a client may name:
 // the one gate of every environment line. An artifact awaiting approval is not
 // announced, and a note that matches no artifact is dropped.
-func AuthorizedSkipped(notes []SkippedNote, source Manifest, opts ApplyOptions) []SkippedNote {
-	byID := map[string]Artifact{}
+func AuthorizedSkipped(notes []SkippedNote, source contract.Manifest, opts ApplyOptions) []SkippedNote {
+	byID := map[string]contract.Artifact{}
 	for _, a := range source.Artifacts {
 		byID[a.Kind+"/"+a.Name] = a
 	}
@@ -3906,18 +2957,18 @@ func skippedSentence(opts ApplyOptions) string {
 
 // silentHookSentence names the installed hooks whose event this client never
 // fires (capability hook.<Event> absent), so the model does not rely on them.
-func silentHookSentence(m Manifest, opts ApplyOptions) string {
+func silentHookSentence(m contract.Manifest, opts ApplyOptions) string {
 	var parts []string
 	for _, a := range m.Artifacts {
 		if a.Kind != "hook" || a.BuiltIn || a.DerivedFrom != nil || !strings.HasPrefix(a.Source, "kb:") ||
-			destDirScoped("hook", a.Name, opts.Provider, opts.Scope) == "" || isReservedHook(a.Kind, a.Name) || !artifactAuthorized(a, opts) {
+			contract.DestDirScoped("hook", a.Name, opts.Provider, opts.Scope) == "" || contract.IsReservedHook(a.Kind, a.Name) || !artifactAuthorized(a, opts) {
 			continue
 		}
-		spec, ok := hookSpecOf(a, opts)
-		if !ok || !hookEventKnown(spec.Event) {
+		spec, ok := contract.HookSpecOf(a, opts.BundleFS, opts.KBRoots)
+		if !ok || !contract.HookEventKnown(spec.Event) {
 			continue
 		}
-		if CapabilityStatus(opts.Provider, opts.Scope, Capability(hookCapPrefix+spec.Event)) == CapAbsent {
+		if contract.CapabilityStatus(opts.Provider, opts.Scope, contract.Capability(contract.HookCapPrefix+spec.Event)) == contract.CapAbsent {
 			parts = append(parts, envQuote(a.Name, envNameMax)+" ("+envQuote(spec.Event, envNameMax)+")")
 		}
 	}
@@ -3936,7 +2987,7 @@ func silentHookSentence(m Manifest, opts ApplyOptions) string {
 // compared with the body to write. It is not in pathsSectionHash because `status`
 // recomputes that hash without the approvals and notes a sync holds and would
 // drift for good. A new binary with a changed table updates it.
-func environmentSection(m Manifest, opts ApplyOptions) string {
+func environmentSection(m contract.Manifest, opts ApplyOptions) string {
 	var lines []string
 	for _, l := range []string{
 		installedSubagentSentence(m, opts),
@@ -3954,14 +3005,16 @@ func environmentSection(m Manifest, opts ApplyOptions) string {
 
 // ArtifactAuthorized reports whether Apply would install a: built in, not
 // gated, or approved for its exact content hash (opts.ApprovedMCP).
-func ArtifactAuthorized(a Artifact, opts ApplyOptions) bool { return artifactAuthorized(a, opts) }
+func ArtifactAuthorized(a contract.Artifact, opts ApplyOptions) bool {
+	return artifactAuthorized(a, opts)
+}
 
-func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
+func artifactAuthorized(a contract.Artifact, opts ApplyOptions) bool {
 	a, _ = a.Origin() // the approval is bound to the agent's hash
 	if a.BuiltIn {
 		return true
 	}
-	if IsPluginSource(a.Source) {
+	if contract.IsPluginSource(a.Source) {
 		// Fail closed: a plugin artifact installs while its plugin is active
 		// (approved, enabled, tree verified by the caller) and never on any
 		// other ground. Signed is not read and there is no per-artifact approval.
@@ -3985,7 +3038,7 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 // heldArtifact is what NeedsApproval reports for a: the artifact the operator
 // approves. For a skill derived from an agent that is the agent, so the command
 // sync prints (`approve agent <name>`) finds it in the server's manifest.
-func heldArtifact(a Artifact) Artifact {
+func heldArtifact(a contract.Artifact) contract.Artifact {
 	o, _ := a.Origin()
 	o.Files = nil
 	return o
@@ -3996,7 +3049,7 @@ func heldArtifact(a Artifact) Artifact {
 // "<kind>/<name>" for everything else, so a hook and a descriptor of one name
 // never share an approval. An artifact name is a single path segment, so the
 // two forms cannot collide.
-func ApprovalName(a Artifact) string {
+func ApprovalName(a contract.Artifact) string {
 	a, _ = a.Origin() // a degraded skill is approved as the agent it came from
 	if a.Kind == "mcp" {
 		return a.Name
@@ -4010,7 +3063,7 @@ func ApprovalName(a Artifact) string {
 // agent whose frontmatter declares hooks or MCP servers. The bundle is
 // built into the binary and never asks. An artifact whose files cannot be read
 // is treated as executable: it fails closed.
-func ArtifactRequiresApproval(a Artifact, opts ApplyOptions) bool {
+func ArtifactRequiresApproval(a contract.Artifact, opts ApplyOptions) bool {
 	// The derived frontmatter has no hooks/MCP keys: judge the agent it came
 	// from, or a gated agent would install ungated as a skill.
 	a, _ = a.Origin()
@@ -4023,7 +3076,7 @@ func ArtifactRequiresApproval(a Artifact, opts ApplyOptions) bool {
 	files := a.Files
 	if len(files) == 0 {
 		var err error
-		files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
+		files, err = contract.ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
 		if err != nil {
 			// With nowhere to read from (a caller that holds only the manifest,
 			// like status) nothing can be installed from it either.
@@ -4116,7 +3169,7 @@ func yamlNodeDeclaresCommands(n *yaml.Node, seen map[*yaml.Node]bool) bool {
 // PreflightStdioMCP verifies locally runnable commands without executing them.
 // It intentionally keeps a bare command unmodified so provider configuration
 // retains the user's normal PATH semantics.
-func PreflightStdioMCP(m Manifest, opts ApplyOptions) error {
+func PreflightStdioMCP(m contract.Manifest, opts ApplyOptions) error {
 	for _, a := range m.Artifacts {
 		if a.Kind != "mcp" || !artifactAuthorized(a, opts) {
 			continue
@@ -4392,7 +3445,7 @@ func pruneEmptyDirs(baseDir, relPath string) {
 // have several ManagedFile entries (hook.json + script(s), same Name): the
 // entry is stripped once per distinct hook name, same dedup pattern as the
 // instructions block above. No provider parameter is needed — mf.Path already
-// encodes which provider materialized it (destDir gives each provider its own
+// encodes which provider materialized it (DestDir gives each provider its own
 // hooks directory), see hookProviderFromPath. Apply removes a file dropped from
 // a hook that stays in the manifest without this strip (pruneManaged).
 func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]ManagedFile, error) {
@@ -4630,250 +3683,11 @@ func principalFile(kind string) string {
 	}
 }
 
-// destination is one cell of the kind × provider matrix below: where an
-// artifact of that kind materializes for that provider. A cell either names a
-// destination or is explicitly unsupported — a *missing* cell is a
-// programming error, caught by TestDestinationMatrixIsComplete, not silently
-// degraded to Unsupported at apply time (D137).
-type destination struct {
-	// dir are the path segments, relative to the client base dir.
-	dir []string
-	// named marks a per-artifact destination: the artifact name is appended
-	// to dir, with suffix (e.g. ".md") if any. When false, dir is the whole
-	// path — one shared file for every artifact of that kind.
-	named  bool
-	suffix string
-	// unsupported marks a combination this provider cannot represent.
-	unsupported bool
-}
-
-func at(segments ...string) destination { return destination{dir: segments} }
-
-func perName(suffix string, segments ...string) destination {
-	return destination{dir: segments, named: true, suffix: suffix}
-}
-
-var unsupportedDest = destination{unsupported: true}
-
-// destinationMatrix is the kind × provider matrix documented in docs/sync.md,
-// as data (D137). Every kind in artifactKinds must have a cell for every
-// provider in configurator.Providers().
-//
-//   - "mcp"/"instructions" cells are one shared file per provider, the same
-//     for every artifact of that kind (the name is not part of the path): each
-//     MCP server occupies its own key/block inside that file (see
-//     mcpsettings.go), and the instructions block concatenates all KBs
-//     (applyInstructionsGroup).
-//   - "skill"/"hook" cells are directories materialized by copyArtifactFiles;
-//     "agent" cells are a single file, written directly by Apply.
-//   - kiro's "hook" cell holds the hook's files outside the directory its
-//     engine scans; the registration is one Cartographer-owned file beside
-//     them (D300). Its "agent" cell is a JSON config in the global agent
-//     directory (D195).
-//   - crush documents no user-level subagent directory, so that cell is
-//     unsupported (D225); its hook cell is supported since D363.
-//   - copilot fills all five cells (D676); its agent files end in ".agent.md".
-//   - pi fills mcp, instructions and skill; it has no subagents and its hook
-//     cell waits for the generated extension. Everything lives under
-//     $HOME/.pi/agent: PI_CODING_AGENT_DIR is not honoured (D676, D755).
-var destinationMatrix = map[string]map[configurator.Provider]destination{
-	"mcp": {
-		configurator.ProviderClaudeCode: at(".claude.json"),
-		configurator.ProviderCodex:      at(".codex", "config.toml"),
-		// OpenCode's global config, not "$HOME/opencode.json" (read only as a
-		// project file, #1172): an entry locked there relocates on sync.
-		configurator.ProviderOpenCode:    at(".config", "opencode", "opencode.json"),
-		configurator.ProviderKiro:        at(".kiro", "settings", "mcp.json"),
-		configurator.ProviderAntigravity: at(".gemini", "config", "mcp_config.json"),
-		configurator.ProviderCrush:       at(".config", "crush", "crush.json"),
-		// copilot: probed on 1.0.94, D676.
-		configurator.ProviderCopilot: at(".copilot", "mcp-config.json"),
-		// pi: global <agent-dir>/mcp.json, bridge connected with direct
-		// exposure (probe 1 on Pi 1.5.0, docs/harnesses.md).
-		configurator.ProviderPi: at(".pi", "agent", "mcp.json"),
-		// cline: type "stdio"|"streamableHttp"|"sse" under mcpServers; the file
-		// is Cline's own and hot-reloaded (bundle 4.1.26, docs/harnesses.md).
-		configurator.ProviderCline: at(".cline", "data", "settings", "cline_mcp_settings.json"),
-	},
-	"instructions": {
-		configurator.ProviderClaudeCode:  at(".claude", "CLAUDE.md"),
-		configurator.ProviderOpenCode:    at(".config", "opencode", "AGENTS.md"),
-		configurator.ProviderCodex:       at(".codex", "AGENTS.md"),
-		configurator.ProviderKiro:        at(".kiro", "steering", "cartographer.md"),
-		configurator.ProviderAntigravity: at(".gemini", "GEMINI.md"),
-		// The Crush-specific global context file, chosen over the cross-tool
-		// ~/.config/AGENTS.md it also loads for the same reason the codex and
-		// opencode cells point at their own file: the shared one belongs to
-		// whatever else the user runs.
-		// https://github.com/charmbracelet/crush#global-context-files
-		configurator.ProviderCrush: at(".config", "crush", "CRUSH.md"),
-		// copilot: `copilot instruction list` reports it as "Personal
-		// instructions" (probed on 1.0.94, D676).
-		configurator.ProviderCopilot: at(".copilot", "copilot-instructions.md"),
-		// pi: reads <agent-dir>/AGENTS.md globally (probe 2 on Pi 1.5.0); the
-		// cross-tool CLAUDE.md fallback belongs to the user.
-		configurator.ProviderPi: at(".pi", "agent", "AGENTS.md"),
-		// cline: a file Cartographer owns whole in the first entry of Cline's
-		// global rules list. Always-on only because that loader has no
-		// path-conditional frontmatter in 4.1.26 (watch item in
-		// docs/harnesses.md): a plain .md there is a global rule. The user's own
-		// rules stay in their own files.
-		configurator.ProviderCline: at(".cline", "rules", "cartographer.md"),
-	},
-	"agent": {
-		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
-		// The global config directory OpenCode reports (`opencode debug paths`,
-		// 2.0.25) and the documented 1.x global path, so one cell serves both
-		// majors (D360). The former `.opencode/agent` (D192) is not read by
-		// 2.x; TestOpenCodeDeclaresItsConfigDirectory fails if it drifts again.
-		configurator.ProviderOpenCode: perName(".md", ".config", "opencode", "agents"),
-		configurator.ProviderCodex:    perName(".toml", ".codex", "agents"),
-		// kiro: a JSON agent config in the global agent directory (D195).
-		// D140 read this cell as unsupported because Kiro's agents were
-		// top-level personas the user selects, not delegates a main agent can
-		// invoke. That is no longer true: the shipped default agent documents a
-		// subagent system and a `use_subagent` tool that selects by
-		// description, and `kiro-cli agent list` reports a config dropped here
-		// as "Global". Verified against Kiro CLI 2.21.3 — the format is JSON,
-		// not the Markdown the vendor documentation describes.
-		configurator.ProviderKiro:        perName(".json", ".kiro", "agents"),
-		configurator.ProviderAntigravity: perName(".md", ".gemini", "config", "agents"),
-		// crush: neither its README nor its docs/config page describes a
-		// user-level subagent directory, and a destination is declared, never
-		// invented.
-		configurator.ProviderCrush: unsupportedDest,
-		// copilot: `~/.copilot/agents/<name>.agent.md`, frontmatter name and
-		// description; a session reported seeing the agent (probed on 1.0.94, D676).
-		configurator.ProviderCopilot: perName(".agent.md", ".copilot", "agents"),
-		// pi: has no subagents (vendor docs), so there is nothing to project.
-		configurator.ProviderPi: unsupportedDest,
-		// cline: ~/.cline/agents/<name>.yaml, a YAML frontmatter block plus a
-		// non-empty Markdown body as the system prompt; only .yml/.yaml are
-		// loaded (bundle 4.1.26, translateAgentForCline).
-		configurator.ProviderCline: perName(".yaml", ".cline", "agents"),
-	},
-	"hook": {
-		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
-		configurator.ProviderCodex:      perName("", ".codex", "hooks"),
-		// Hook files (script + hook.json), same as for the other providers —
-		// the JS plugin that invokes them (D59) is generated elsewhere (Apply,
-		// registerOpenCodePlugin) in .config/opencode/plugins/, not here.
-		configurator.ProviderOpenCode: perName("", ".opencode", "hooks"),
-		// kiro (D300): the registration is ~/.kiro/hooks/cartographer.json, a
-		// standalone v1 hook file Cartographer owns whole (registerKiroHook).
-		// The scripts sit one level below it, in ~/.kiro/hooks/cartographer/<n>/,
-		// because the engine's loader does not recurse: it reads only the
-		// *.json files directly in ~/.kiro/hooks (KAS loadHooksDir, and a probe
-		// on 2.27.0 that loaded one hook file of the two placed at the top level
-		// and in a subdirectory). If a release makes it recurse, every hook.json
-		// here would be read as a malformed hook file, and this cell must move
-		// out of ~/.kiro/hooks. These hooks fire only in `kiro-cli chat --v3
-		// --tui`, so the scheduled timer is still advised (hookMechanism.sessionHookLimit).
-		configurator.ProviderKiro:        perName("", ".kiro", "hooks", "cartographer"),
-		configurator.ProviderAntigravity: perName("", ".gemini", "config", "hooks"),
-		// crush: hooks fire from `hooks` in crush.json, PreToolUse only (probed
-		// on v0.98.0, D363), registered by registerCrushHook. No session event,
-		// so its sync trigger stays the scheduled timer.
-		configurator.ProviderCrush: perName("", ".config", "crush", "hooks"),
-		// copilot: Copilot loads ~/.copilot/hooks/ RECURSIVELY and parses every
-		// *.json below it (probed on 1.0.94: a foreign JSON in a subdirectory
-		// logs "Invalid hook configuration"), so the KB hook's own hook.json
-		// must not live there. The files go to ~/.copilot/cartographer-hooks/<n>/
-		// and only the registration, ~/.copilot/hooks/cartographer-<n>.json,
-		// sits in hooks/ (registerCopilotHook, D676).
-		configurator.ProviderCopilot: perName("", ".copilot", "cartographer-hooks"),
-		// pi: Pi has no hook file; each hook is a generated extension
-		// ~/.pi/agent/extensions/cartographer-<n>.ts (registerPiHook). Pi also
-		// loads extensions/*/index.ts and a KB hook directory may carry an
-		// index.ts, so the hook's own files must not live under extensions/:
-		// they go to ~/.pi/agent/cartographer-hooks/<n>/.
-		configurator.ProviderPi: perName("", ".pi", "agent", "cartographer-hooks"),
-		// cline: the hook's own files are Cartographer's, here; the only thing
-		// in Documents/Cline/Hooks, the one global directory the VS Code
-		// extension reads, is a dispatcher per event (registerClineHook).
-		configurator.ProviderCline: perName("", ".cline", "cartographer-hooks"),
-	},
-	"skill": {
-		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
-		// Divergence from the documented path, working and deliberate (D192):
-		// Codex's public documentation names `$HOME/.agents/skills` for the user
-		// scope (https://developers.openai.com/codex/skills), while
-		// `codex debug prompt-input` confirms client 0.153.4 catalogues them
-		// here. The right target is the *repository* path, which only exists
-		// once a workspace scope does (D193), so moving it now would mean doing
-		// the migration twice.
-		configurator.ProviderCodex: perName("", ".codex", "skills"),
-		configurator.ProviderKiro:  perName("", ".kiro", "skills"),
-		// Under the config directory `opencode debug paths` reports; 2.0.25 does
-		// not list skills under `.opencode/skills` globally (D360).
-		configurator.ProviderOpenCode:    perName("", ".config", "opencode", "skills"),
-		configurator.ProviderAntigravity: perName("", ".gemini", "config", "skills"),
-		// crush implements the Agent Skills standard and scans this directory
-		// globally, among others it shares with Claude Code and the .agents
-		// convention; its own is the one Cartographer owns.
-		// https://github.com/charmbracelet/crush#agent-skills
-		configurator.ProviderCrush: perName("", ".config", "crush", "skills"),
-		// copilot: "Personal skills" (probed on 1.0.94, D676).
-		configurator.ProviderCopilot: perName("", ".copilot", "skills"),
-		// pi: <agent-dir>/skills/, loaded without project trust (probe 3 on
-		// Pi 1.5.0).
-		configurator.ProviderPi: perName("", ".pi", "agent", "skills"),
-		// cline: the global skills directory under CLINE_DIR's default root
-		// (.cline); $HOME/.claude/skills is read only at project level.
-		configurator.ProviderCline: perName("", ".cline", "skills"),
-	},
-}
-
 // artifactKinds are the kinds the matrix must cover. A manifest built by a
-// newer server may carry a kind absent from this list; destDir returns "" for
+// newer server may carry a kind absent from this list; DestDir returns "" for
 // it, exactly as it does for an unsupported cell. A kind added here needs its
 // KindInfo in kindInfos too (TestKindsMatchTheMatrix fails without it, D864).
 var artifactKinds = []string{"mcp", "instructions", "agent", "hook", "skill"}
-
-// KindInfo describes one kind of artifact a KB can hold: where its files go in
-// the KB and where the reader is told how it works. It is the contract between
-// provisioning and the Atlas Artifacts page (D864), which lists every kind a KB
-// can provide even when it has none, so a reader learns what a KB is able to
-// give to its agent clients.
-type KindInfo struct {
-	// Kind is the artifact kind, as the manifest and the UI API name it.
-	Kind string
-	// Title is the kind in a heading ("Subagents").
-	Title string
-	// KBPath is where an artifact of this kind lives in the KB, with <name>
-	// (<slug> for a template, which concept_new selects by slug) standing for
-	// the artifact's name. Slash-separated, relative to the KB root.
-	KBPath string
-	// Doc is the repository path of the page that documents the kind, with the
-	// anchor of the heading that does: "docs/sync.md#agents-and-hooks".
-	Doc string
-	// KBOnly marks a kind that never leaves the KB: it has no row in the
-	// destination matrix and no client receives it.
-	KBOnly bool
-}
-
-// kindInfos is the list behind Kinds. The layout is what BuildManifest scans
-// (skills/, agents/, hooks/, mcp/, instructions.md) plus the two KB-only kinds
-// the manifest ignores (templates/ and secrets/): TestKinds_PathsAreWhatTheScannerFinds
-// writes a file at each KBPath and checks the scanner picks it up, and
-// TestKindsMatchTheMatrix checks every matrix kind has a row here, so a kind
-// added to either place without the other fails the build.
-var kindInfos = []KindInfo{
-	{Kind: "skill", Title: "Skills", KBPath: "skills/<name>/SKILL.md", Doc: "docs/skills-services-secrets.md#skills"},
-	{Kind: "agent", Title: "Subagents", KBPath: "agents/<name>.md", Doc: "docs/sync.md#agents-and-hooks"},
-	{Kind: "hook", Title: "Hooks", KBPath: "hooks/<name>/hook.json", Doc: "docs/sync.md#agents-and-hooks"},
-	{Kind: "mcp", Title: "MCP servers", KBPath: "mcp/<name>.json", Doc: "docs/sync.md#mcp-servers-d69-d116"},
-	{Kind: "instructions", Title: "Instructions", KBPath: "instructions.md", Doc: "docs/sync.md#instructions-imprinting"},
-	{Kind: "template", Title: "Templates", KBPath: "templates/<slug>.md", Doc: "docs/data-plane.md#templates-are-page-schemas-d352", KBOnly: true},
-	{Kind: "secret", Title: "Secrets", KBPath: "secrets/<name>.sops.yaml", Doc: "docs/skills-services-secrets.md#sops-files", KBOnly: true},
-}
-
-// Kinds lists every kind of artifact a KB can hold, in reading order: what an
-// agent does, then what it is told, then what stays in the KB. The result is a
-// copy, safe to modify.
-func Kinds() []KindInfo {
-	return append([]KindInfo(nil), kindInfos...)
-}
 
 // ManagedDestinationRoots returns the absolute paths, under baseDir, that
 // provisioning writes into for this provider: one per artifact kind it
@@ -4885,11 +3699,11 @@ func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []s
 	seen := map[string]bool{}
 	var out []string
 	for _, kind := range artifactKinds {
-		cell, ok := cellFor(ScopeGlobal, kind, provider)
-		if !ok || cell.unsupported {
+		cell, ok := contract.CellFor(contract.ScopeGlobal, kind, provider)
+		if !ok || cell.Unsupported {
 			continue
 		}
-		rel := filepath.Join(cell.dir...)
+		rel := filepath.Join(cell.Dir...)
 		if rel == "" || rel == "." {
 			continue
 		}
@@ -4902,57 +3716,6 @@ func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []s
 	}
 	sort.Strings(out)
 	return out
-}
-
-// destDir returns the destination path for an artifact, relative to the base-dir.
-//
-//   - kind "skill"/"hook": a directory, materialized by copyArtifactFiles with one
-//     or more files inside.
-//   - kind "agent": a single file path (agents are one-file-per-artifact: a Claude
-//     subagent .md), materialized by writing its sole file's content directly to
-//     that path (see Apply).
-//
-// Supported providers per kind are the destinationMatrix above; docs/sync.md
-// §Kind × provider renders the same matrix for the reader. On claude/codex,
-// Apply also registers a hook in the provider's own file (D57 settings.json,
-// D230 hooks.json — registerHookSettings/registerCodexHook in
-// hooksettings.go); on opencode it generates a whole plugin JS file instead
-// (D59, registerOpenCodePlugin) when the hook's event has an OpenCode
-// equivalent. All three are idempotent (re-apply never duplicates/drifts) and
-// prunable (removed on diff.Removed/PruneManaged); see docs/sync.md §Agents and hooks.
-// Agent content is translated per provider (D55/D58, see
-// translateAgentForProvider); kiro never reaches that function because its
-// "agent" cell is unsupported.
-//
-// Returns "" for an unsupported kind×provider combo — and likewise for a kind
-// or provider this binary does not know — which causes Apply to place the
-// artifact in Unsupported instead of materializing it.
-// Destinations lists, in registry order, the providers an artifact of this kind
-// is materialized for: the providers whose destination cell is supported. It
-// reads the same matrix as destDir, so what the Atlas UI shows as an
-// artifact's clients (D238) cannot drift from what sync writes.
-func Destinations(kind, name string) []configurator.Provider {
-	var out []configurator.Provider
-	for _, d := range configurator.Providers() {
-		if destDir(kind, name, d.Provider) != "" {
-			out = append(out, d.Provider)
-		}
-	}
-	return out
-}
-
-func destDir(kind, name string, provider configurator.Provider) string {
-	cell, ok := cellFor(ScopeGlobal, kind, provider)
-	if !ok || cell.unsupported {
-		return ""
-	}
-	// Slash, like destDirScoped's: a destination is written into provider
-	// configuration and into the lockfile, both read on every platform.
-	if !cell.named {
-		return path.Join(cell.dir...)
-	}
-	segments := append(append([]string{}, cell.dir...), name+cell.suffix)
-	return path.Join(segments...)
 }
 
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
@@ -4973,16 +3736,16 @@ func destDir(kind, name string, provider configurator.Provider) string {
 // codex (TOML, D58), kiro (JSON, D195) and antigravity have their own agent
 // formats and are dispatched to their translators by the switch below; claude
 // takes the source verbatim. Providers whose "agent" cell is unsupported never
-// reach here: destDir returns "" for them, so Apply routes them to Unsupported
+// reach here: DestDir returns "" for them, so Apply routes them to Unsupported
 // before calling this function.
 func translateAgentForProvider(provider configurator.Provider, name string, content []byte) ([]byte, error) {
 	// A plugin provider dispatches on its declared agent.format, not on its own
 	// id: the format names the built-in whose file layout it reads, and a
-	// `providers.<base>` block of the agent is honoured through nativeProvider.
+	// `providers.<base>` block of the agent is honoured through NativeProvider.
 	nativeID := provider
-	if v, ok := pluginFor(provider); ok {
-		nativeID = v.base
-		switch v.agentFormat {
+	if v, ok := contract.PluginFor(provider); ok {
+		nativeID = v.Base
+		switch v.AgentFormat {
 		case "opencode":
 			provider = configurator.ProviderOpenCode
 		case "antigravity":
@@ -5015,7 +3778,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 
 	description := name
-	var native []nativeField
+	var native []contract.NativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -5026,7 +3789,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 				description = s
 			}
 		}
-		if native, err = nativeFieldsFor(fm, nativeID); err != nil {
+		if native, err = contract.NativeFieldsFor(fm, nativeID); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
@@ -5040,7 +3803,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("description: ")
-	sb.WriteString(yamlQuoteScalar(description))
+	sb.WriteString(contract.YamlQuoteScalar(description))
 	sb.WriteString("\nmode: subagent\n")
 	sb.WriteString(extra)
 	sb.WriteString("---\n")
@@ -5055,7 +3818,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name
-	var native []nativeField
+	var native []contract.NativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -5066,7 +3829,7 @@ func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 				description = s
 			}
 		}
-		if native, err = nativeFieldsFor(fm, configurator.ProviderAntigravity); err != nil {
+		if native, err = contract.NativeFieldsFor(fm, configurator.ProviderAntigravity); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
@@ -5079,9 +3842,9 @@ func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 
 	var sb strings.Builder
 	sb.WriteString("---\nname: ")
-	sb.WriteString(yamlQuoteScalar(name))
+	sb.WriteString(contract.YamlQuoteScalar(name))
 	sb.WriteString("\ndescription: ")
-	sb.WriteString(yamlQuoteScalar(description))
+	sb.WriteString(contract.YamlQuoteScalar(description))
 	sb.WriteString("\nmainAgent: false\nsubagent: true\n")
 	sb.WriteString(extra)
 	sb.WriteString("---\n")
@@ -5093,11 +3856,11 @@ func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 // probed on 1.0.94): frontmatter `name` and `description`, then the body.
 // Claude-only keys (`tools`, `model`) are not copied — their names are not
 // portable, as for the other translators — and the `providers.copilot` entry
-// is appended through nativeFieldsFor.
+// is appended through NativeFieldsFor.
 func translateAgentForCopilot(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name
-	var native []nativeField
+	var native []contract.NativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -5108,7 +3871,7 @@ func translateAgentForCopilot(name string, content []byte) ([]byte, error) {
 				description = s
 			}
 		}
-		if native, err = nativeFieldsFor(fm, configurator.ProviderCopilot); err != nil {
+		if native, err = contract.NativeFieldsFor(fm, configurator.ProviderCopilot); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
@@ -5121,9 +3884,9 @@ func translateAgentForCopilot(name string, content []byte) ([]byte, error) {
 
 	var sb strings.Builder
 	sb.WriteString("---\nname: ")
-	sb.WriteString(yamlQuoteScalar(name))
+	sb.WriteString(contract.YamlQuoteScalar(name))
 	sb.WriteString("\ndescription: ")
-	sb.WriteString(yamlQuoteScalar(description))
+	sb.WriteString(contract.YamlQuoteScalar(description))
 	sb.WriteString("\n")
 	sb.WriteString(extra)
 	sb.WriteString("---\n")
@@ -5150,7 +3913,7 @@ func translateAgentForCopilot(name string, content []byte) ([]byte, error) {
 func translateAgentForKiro(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name
-	var native []nativeField
+	var native []contract.NativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -5161,7 +3924,7 @@ func translateAgentForKiro(name string, content []byte) ([]byte, error) {
 				description = s
 			}
 		}
-		if native, err = nativeFieldsFor(fm, configurator.ProviderKiro); err != nil {
+		if native, err = contract.NativeFieldsFor(fm, configurator.ProviderKiro); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
@@ -5210,7 +3973,7 @@ func translateAgentForCodex(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 
 	description := name
-	var native []nativeField
+	var native []contract.NativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -5221,7 +3984,7 @@ func translateAgentForCodex(name string, content []byte) ([]byte, error) {
 				description = s
 			}
 		}
-		if native, err = nativeFieldsFor(fm, configurator.ProviderCodex); err != nil {
+		if native, err = contract.NativeFieldsFor(fm, configurator.ProviderCodex); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
@@ -5245,34 +4008,13 @@ func translateAgentForCodex(name string, content []byte) ([]byte, error) {
 	return []byte(sb.String()), nil
 }
 
-// yamlQuoteScalar quotes a scalar value with double quotes (escaping backslashes,
-// double quotes and newlines) if it contains characters that would otherwise break
-// simple "key: value" YAML parsing (colons, newlines, leading/trailing
-// whitespace, YAML indicator characters); returns it unquoted otherwise. Used only
-// to serialize the OpenCode `description` field in translateAgentForProvider —
-// values can come from an arbitrary (possibly multiline/quoted) Claude frontmatter.
-func yamlQuoteScalar(s string) string {
-	if s == "" {
-		return `""`
-	}
-	needsQuote := s != strings.TrimSpace(s) ||
-		strings.ContainsAny(s, ":#{}[]&*!|>'\"%@`\n")
-	if !needsQuote {
-		return s
-	}
-	escaped := strings.ReplaceAll(s, `\`, `\\`)
-	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-	escaped = strings.ReplaceAll(escaped, "\n", `\n`)
-	return `"` + escaped + `"`
-}
-
 // resolutionDriftIDs returns the placeholders cited by a (a file-expanded
 // kind) that resolve, in this Apply, to something other than what the lock
 // recorded when it was last applied (#967); nil when none does. A lock that
 // recorded no placeholder state at all (written before D262, or by a
 // server-side Apply) knows nothing to compare against, so it never reports
 // drift. A file that cannot be read is reported as a warning, never fatal.
-func resolutionDriftIDs(a Artifact, opts ApplyOptions, tracker *expansionTracker) []string {
+func resolutionDriftIDs(a contract.Artifact, opts ApplyOptions, tracker *expansionTracker) []string {
 	if !opts.ExpandPlaceholders || a.Kind == "instructions" || a.Kind == "mcp" {
 		return nil
 	}
@@ -5282,7 +4024,7 @@ func resolutionDriftIDs(a Artifact, opts ApplyOptions, tracker *expansionTracker
 	files := a.Files
 	if len(files) == 0 {
 		var err error
-		if files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots); err != nil {
+		if files, err = contract.ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots); err != nil {
 			tracker.warnings = append(tracker.warnings, fmt.Sprintf(
 				"%s %q: could not read its files to check placeholder resolutions: %v", a.Kind, a.Name, err))
 			return nil
@@ -5315,7 +4057,7 @@ func resolutionDriftIDs(a Artifact, opts ApplyOptions, tracker *expansionTracker
 // Updated and the diff is no longer in sync. opts carries what Apply would
 // resolve with (Paths, SearchRoots, Placeholders, PathRegistries, KBOrder,
 // KBRoots, BundleFS, ExpandPlaceholders); status uses it to agree with sync.
-func ComputeDiffResolved(m Manifest, lock Lock, opts ApplyOptions) Diff {
+func ComputeDiffResolved(m contract.Manifest, lock Lock, opts ApplyOptions) Diff {
 	d := ComputeDiff(m, lock)
 	if !opts.ExpandPlaceholders {
 		return d
@@ -5333,7 +4075,7 @@ func ComputeDiffResolved(m Manifest, lock Lock, opts ApplyOptions) Diff {
 	tracker.preResolve(ids, opts)
 	tracker.resolveDeclared(sources, declaredBy, opts)
 	queued := make(map[string]bool, len(d.Added)+len(d.Updated))
-	for _, a := range append(append([]Artifact(nil), d.Added...), d.Updated...) {
+	for _, a := range append(append([]contract.Artifact(nil), d.Added...), d.Updated...) {
 		queued[a.Kind+"\x00"+a.Name] = true
 	}
 	for _, a := range m.Artifacts {
@@ -5361,11 +4103,11 @@ func ComputeDiffResolved(m Manifest, lock Lock, opts ApplyOptions) Diff {
 // when the paths-section hash Apply would record differs from the lock's: the
 // same comparison applyInstructionsGroup makes. tracker must already be
 // pre-resolved the way Apply does.
-func instructionsResolutionDrift(m Manifest, opts ApplyOptions, tracker *expansionTracker) []Artifact {
+func instructionsResolutionDrift(m contract.Manifest, opts ApplyOptions, tracker *expansionTracker) []contract.Artifact {
 	if instructionsDest(opts) == "" {
 		return nil
 	}
-	var signed []Artifact
+	var signed []contract.Artifact
 	var sections []string
 	for _, a := range m.Artifacts {
 		if a.Kind != "instructions" || !artifactAuthorized(a, opts) {
@@ -5397,11 +4139,11 @@ func instructionsResolutionDrift(m Manifest, opts ApplyOptions, tracker *expansi
 // "agent"): a.Files[0].Content if populated (remote client via sync_pull),
 // otherwise the sole file read via ReadArtifactFiles (local deployment, same
 // filesystem). Errors if the artifact does not resolve to exactly one file.
-func singleArtifactContent(a Artifact, opts ApplyOptions) ([]byte, error) {
+func singleArtifactContent(a contract.Artifact, opts ApplyOptions) ([]byte, error) {
 	files := a.Files
 	if len(files) == 0 {
 		var err error
-		files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
+		files, err = contract.ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
 		if err != nil {
 			return nil, err
 		}
@@ -5432,11 +4174,11 @@ func removeEmptyDestDir(baseDir, fullDestDir string) {
 // not be stamped. The content source is a.Files if populated (remote client via
 // sync_pull, no filesystem shared with the server), otherwise BundleFS/KBRoots
 // (local stdio deployment, same filesystem).
-func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracker *expansionTracker) (relPaths, execPaths []string, materializedHash, warning string, err error) {
+func copyArtifactFiles(a contract.Artifact, opts ApplyOptions, fullDestDir string, tracker *expansionTracker) (relPaths, execPaths []string, materializedHash, warning string, err error) {
 	files := a.Files
 	if len(files) == 0 {
 		var err error
-		files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
+		files, err = contract.ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
 		if err != nil {
 			return nil, nil, "", "", err
 		}
@@ -5459,9 +4201,9 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		removeEmptyDestDir(opts.BaseDir, fullDestDir)
 		return nil, nil, "", collision, nil
 	}
-	files = append(append([]ArtifactFile{}, files...), generated...)
+	files = append(append([]contract.ArtifactFile{}, files...), generated...)
 
-	expanded := make([]ArtifactFile, 0, len(files))
+	expanded := make([]contract.ArtifactFile, 0, len(files))
 	// Only a skill's principal file carries the provenance block; every other
 	// file in the folder is copied untouched (D138).
 	stampTarget := ""
@@ -5486,8 +4228,8 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		// the NORMALIZED mode the write below applies (D139): a hook's
 		// hook.json is forced non-executable and its other files executable,
 		// so hashing the source flag would report drift on the first check.
-		executable := effectiveExecutable(a.Kind, local, f.Executable)
-		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content, Executable: executable})
+		executable := contract.EffectiveExecutable(a.Kind, local, f.Executable)
+		expanded = append(expanded, contract.ArtifactFile{Path: f.Path, Content: content, Executable: executable})
 		// The same flag, recorded in the lockfile: it is the only way a client
 		// whose filesystem has no execute bit can reproduce this hash on the
 		// next check (ManagedFile.ExecutablePaths).
@@ -5542,290 +4284,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 
 	// The hash of what actually landed on disk (D138), always computed: the
 	// caller keeps a.ContentHash as the source hash for ComputeDiff.
-	return relPaths, execPaths, hashArtifactFiles(expanded), warning, nil
-}
-
-// ReadArtifactFiles reads all of an artifact's files from BundleFS (source "bundle",
-// skill only: the bundle is skill-only) or from a KB in kbRoots (source "kb:<name>"),
-// returning paths relative to the artifact's folder (or, for agents, just the
-// filename) and content in memory. Used by copyArtifactFiles/singleArtifactContent
-// for local deployment (same filesystem) and by the sync_pull MCP tool to
-// serialize artifacts to a remote HTTP client with no shared filesystem.
-func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([]ArtifactFile, error) {
-	files, err := ReadArtifactFilesCapped(a, bundleFS, kbRoots)
-	if err != nil {
-		return nil, err
-	}
-	for _, f := range files {
-		if f.Oversized > 0 {
-			return nil, fmt.Errorf("provisioning: %s %s: file %s is %d bytes, over the %d bytes cap of an artifact file", a.Kind, a.Name, f.Path, f.Oversized, ArtifactMaxFileSize)
-		}
-	}
-	return files, nil
-}
-
-// ReadArtifactFilesCapped is ReadArtifactFiles for a caller that answers for
-// an over-cap file itself (the server's artifact_list and sync_pull): such a
-// file comes back with Oversized set and no content, never read. A symlink in a
-// KB artifact is not followed and does not appear.
-func ReadArtifactFilesCapped(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([]ArtifactFile, error) {
-	// Content already in memory: use it directly instead of trying to read it from
-	// the filesystem. Two cases: (a) kind "instructions" (D56) — the content is
-	// GENERATED by BuildManifest, doesn't exist as a file on the KB, so there's
-	// nothing to read for source/kind below; (b) an artifact already decoded by
-	// sync_pull on the remote client side (no filesystem shared with the server).
-	if len(a.Files) > 0 {
-		return a.Files, nil
-	}
-	if IsPluginSource(a.Source) {
-		// A plugin's bytes come from its approved tree, in memory, never from
-		// a KB: without them, "plugin:x" must not be looked up in KBRoots.
-		return nil, fmt.Errorf("provisioning: %s %s: plugin artifact without content", a.Kind, a.Name)
-	}
-
-	if a.Source == "bundle" {
-		srcDir := "bundled/" + a.Name
-		var files []ArtifactFile
-		err := fs.WalkDir(bundleFS, srcDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			rel := path[len(srcDir)+1:]
-			data, readErr := fs.ReadFile(bundleFS, path)
-			if readErr != nil {
-				return readErr
-			}
-			fileInfo, infoErr := d.Info()
-			if infoErr != nil {
-				return infoErr
-			}
-			files = append(files, ArtifactFile{Path: rel, Content: data, Executable: execbit.IsExecutable(fileInfo.Mode())})
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		return files, nil
-	}
-
-	// KB source: derive the KB name from "kb:<name>".
-	kbName := strings.TrimPrefix(a.Source, "kb:")
-	kbRoot, ok := kbRoots[kbName]
-	if !ok {
-		return nil, fmt.Errorf("KB %q not found in KBRoots", kbName)
-	}
-
-	tracked, err := contract.KBTrackedFilter(kbRoot)
-	if err != nil {
-		return nil, err
-	}
-
-	// Nothing is read through a link: not the file, not a directory above it.
-	var artifactRel string
-	switch a.Kind {
-	case "agent":
-		artifactRel = "agents/" + a.Name + ".md"
-	case "mcp":
-		artifactRel = "mcp/" + a.Name + ".json"
-	case "hook":
-		artifactRel = "hooks/" + a.Name
-	default:
-		artifactRel = "skills/" + a.Name
-	}
-	link, linkErr := contract.FirstKBLink(kbRoot, artifactRel)
-	if linkErr != nil {
-		return nil, fmt.Errorf("provisioning: %s %s: %w", a.Kind, a.Name, linkErr)
-	}
-	if link != "" {
-		return nil, fmt.Errorf("provisioning: %s %s: %w", a.Kind, a.Name, &contract.KBSymlinkError{Rel: link})
-	}
-
-	switch a.Kind {
-	case "agent":
-		if !tracked.Has("agents/" + a.Name + ".md") {
-			return nil, fmt.Errorf("provisioning: agent %s is not tracked by git in KB %q", a.Name, kbName)
-		}
-		agentPath := filepath.Join(kbRoot, "agents", a.Name+".md")
-		data, size, err := ReadFileCapped(agentPath)
-		if err != nil {
-			return nil, fmt.Errorf("provisioning: read agent %s: %w", agentPath, err)
-		}
-		return []ArtifactFile{{Path: agentHashPath(a.Name), Content: data, Oversized: size}}, nil
-	case "mcp":
-		if !tracked.Has("mcp/" + a.Name + ".json") {
-			return nil, fmt.Errorf("provisioning: mcp %s is not tracked by git in KB %q", a.Name, kbName)
-		}
-		mcpPath := filepath.Join(kbRoot, "mcp", a.Name+".json")
-		data, size, err := ReadFileCapped(mcpPath)
-		if err != nil {
-			return nil, fmt.Errorf("provisioning: read mcp %s: %w", mcpPath, err)
-		}
-		return []ArtifactFile{{Path: a.Name + ".json", Content: data, Oversized: size}}, nil
-	case "hook":
-		files, err := readDirFiles(filepath.Join(kbRoot, "hooks", a.Name), tracked.Under("hooks/"+a.Name))
-		if err != nil {
-			return nil, err
-		}
-		for i := range files {
-			files[i].Executable = effectiveExecutable("hook", files[i].Path, files[i].Executable)
-		}
-		return files, nil
-	default: // "skill"
-		return readDirFiles(filepath.Join(kbRoot, "skills", a.Name), tracked.Under("skills/"+a.Name))
-	}
-}
-
-// readDirFiles walks srcDir and returns every file inside it as an
-// ArtifactFile, with Path relative to srcDir (slash-separated). Factored out of
-// ReadArtifactFiles because skill and hook share the same
-// "directory with one or more files" schema.
-func readDirFiles(srcDir string, include func(rel string) bool) ([]ArtifactFile, error) {
-	var files []ArtifactFile
-	var total int64
-	count := 0
-	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			// A link is never read. One the include filter leaves out is not part
-			// of the artifact, so it is no reason to refuse it (contract/kblinks.go).
-			rel, relErr := filepath.Rel(srcDir, path)
-			if relErr != nil {
-				return relErr
-			}
-			if path == srcDir || include == nil || include(filepath.ToSlash(rel)) {
-				return &contract.KBSymlinkError{Rel: filepath.ToSlash(rel)}
-			}
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(srcDir, path)
-		if relErr != nil {
-			return relErr
-		}
-		if include != nil && !include(filepath.ToSlash(rel)) {
-			return nil
-		}
-		// d.Info is an Lstat: a symlink is not followed, and a file over the
-		// cap is reported, never read.
-		fileInfo, infoErr := d.Info()
-		if infoErr != nil {
-			return infoErr
-		}
-		if !fileInfo.Mode().IsRegular() {
-			return nil
-		}
-		exec := execbit.IsExecutable(fileInfo.Mode())
-		relSlash := filepath.ToSlash(rel)
-		if fileInfo.Size() > ArtifactMaxFileSize {
-			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: fileInfo.Size()})
-			return nil
-		}
-		// A running budget on the whole directory: past it nothing more is
-		// read and the file that crossed it is reported oversized, which
-		// excludes the artifact like one big file does.
-		count++
-		if count > ArtifactMaxFiles || total+fileInfo.Size() > ArtifactMaxTotalSize {
-			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: max(fileInfo.Size(), 1)})
-			return fs.SkipAll
-		}
-		data, size, readErr := readOpenedCapped(path, fileInfo)
-		if errors.Is(readErr, ErrNotRegular) {
-			return nil // swapped for a link after the Lstat
-		}
-		if readErr != nil {
-			return readErr
-		}
-		if size > 0 {
-			files = append(files, ArtifactFile{Path: relSlash, Executable: exec, Oversized: size})
-			return nil
-		}
-		total += int64(len(data))
-		files = append(files, ArtifactFile{Path: relSlash, Content: data, Executable: exec})
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return files, nil
-}
-
-// AgentRestriction is the part of a Claude Code subagent's frontmatter that
-// only Claude Code enforces (D283).
-type AgentRestriction struct {
-	// Tools is the declared `tools` allow-list, rendered as one line.
-	Tools string
-	// Strict is `strict_tools: true`: the author prefers the agent not exist on
-	// a client that cannot enforce Tools over existing there unrestricted.
-	Strict bool
-	// Native lists, sorted, the clients with a non-empty `providers:` entry
-	// (D291): the author wrote that client's own restriction, so the agent is
-	// not widened there — it is neither warned about nor skipped by Strict.
-	Native []string
-}
-
-// ParseAgentRestriction reads an agent's source frontmatter and returns its
-// restriction, or nil when it declares no `tools` (nothing to widen) or the
-// frontmatter cannot be parsed (the translation reports that on its own).
-func ParseAgentRestriction(content []byte) *AgentRestriction {
-	fmRaw, _, hasFM := okf.SplitFrontmatter(string(content))
-	if !hasFM {
-		return nil
-	}
-	fm, err := okf.ParseFrontmatter(fmRaw)
-	if err != nil {
-		return nil
-	}
-	v, ok := fm.Get("tools")
-	if !ok {
-		return nil
-	}
-	var tools string
-	switch t := v.(type) {
-	case string:
-		tools = strings.TrimSpace(t)
-	case []string:
-		tools = strings.Join(t, ", ")
-	}
-	if tools == "" {
-		return nil
-	}
-	r := &AgentRestriction{Tools: tools, Native: nativeProvidersDeclared(fm)}
-	if sv, ok := fm.Get("strict_tools"); ok {
-		if str, ok := sv.(string); ok && strings.EqualFold(strings.TrimSpace(str), "true") {
-			r.Strict = true
-		}
-	}
-	return r
-}
-
-// agentWidened reports that installing this agent on provider drops a `tools`
-// allow-list. Claude Code receives the source verbatim, so it enforces it, and a
-// client the author gave a `providers:` entry (D291) is not widened either.
-func agentWidened(a Artifact, provider configurator.Provider) bool {
-	if a.Kind != "agent" || a.Restriction == nil || provider == configurator.ProviderClaudeCode {
-		return false
-	}
-	// A `providers.<client>` entry is the author's own native restriction for
-	// that client (D291): nothing is widened there.
-	for _, p := range a.Restriction.Native {
-		if p == string(provider) {
-			return false
-		}
-	}
-	return true
-}
-
-// strictAgentSkipped reports that the agent opted out of being widened
-// (strict_tools) and provider cannot enforce its restriction.
-func strictAgentSkipped(a Artifact, provider configurator.Provider) bool {
-	return agentWidened(a, provider) && a.Restriction.Strict
+	return relPaths, execPaths, contract.HashArtifactFiles(expanded), warning, nil
 }
 
 // cliSentenceFor is the cli sentence of the instructions block, "" for a

@@ -13,6 +13,8 @@ package provisioning
 import (
 	"fmt"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // provenanceBlockBeginPrefix is what RECOGNIZES an existing begin marker: the
@@ -38,7 +40,7 @@ var stampedKinds = map[string]bool{"skill": true, "agent": true}
 // that documents D138 and quotes the block in a code fence keeps everything
 // between the quoted markers (#1502; the block was cut from the first begin
 // marker found anywhere to the first end after it).
-func stampArtifact(content []byte, a Artifact) []byte {
+func stampArtifact(content []byte, a contract.Artifact) []byte {
 	if !stampedKinds[a.Kind] {
 		return content
 	}
@@ -71,7 +73,7 @@ func stripTrailingProvenance(s string) string {
 
 // artifactSourcePath is where this artifact lives inside its KB — the path an
 // artifact_write call needs.
-func artifactSourcePath(a Artifact) string {
+func artifactSourcePath(a contract.Artifact) string {
 	if a.Kind == "agent" {
 		return "agents/" + a.Name + ".md"
 	}
@@ -83,7 +85,7 @@ func artifactSourcePath(a Artifact) string {
 // on any *other* artifact's change), rewriting every file constantly and
 // defeating hash comparison. The artifact's own content hash is stable until
 // the artifact itself changes.
-func provenanceBlock(a Artifact) string {
+func provenanceBlock(a contract.Artifact) string {
 	// A skill derived from an agent says where the agent lives: that is the
 	// address a fix goes to, and its hash is the one the KB knows.
 	origin, derived := a.Origin()
@@ -118,7 +120,7 @@ func provenanceBlock(a Artifact) string {
 
 // kbSourceName returns the KB an artifact came from, or ok=false for a bundled
 // one (Source "bundle", BuiltIn).
-func kbSourceName(a Artifact) (string, bool) {
+func kbSourceName(a contract.Artifact) (string, bool) {
 	if name := strings.TrimPrefix(a.Source, "kb:"); name != a.Source && name != "" {
 		return name, true
 	}

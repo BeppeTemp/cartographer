@@ -63,7 +63,7 @@ duplicate a dated market-wide capability matrix. The maintained sources are:
 One destination differs from the path the provider's own documentation
 currently presents as canonical. It was proven working against the real
 client, so it is not a fault today — but it can break on a client release,
-which is why `internal/provisioning/clientcompat_test.go` asserts the declared
+which is why `internal/provisioning/contract/clientcompat_test.go` asserts the declared
 destination against the client's own discovery output on a machine that has the
 client installed (and skips where it does not).
 
@@ -87,7 +87,7 @@ fields that cannot be represented safely.
 The workspace scope writes into each provider's **project-local** configuration,
 which is a second set of external contracts, verified during the D193 audit and
 changing outside this project's release cycle. Re-verify before changing a cell;
-the citation lives next to it in `internal/provisioning/workspacescope.go`.
+the citation lives next to it in `internal/provisioning/contract/workspacescope.go`.
 
 | Provider | Project-local scope | Source |
 |---|---|---|

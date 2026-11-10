@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // LockFileFormat is the on-disk format of a lockfile: v2 multi-provider, the
@@ -56,7 +57,7 @@ func InspectLockFile(path string) (LockFileFormat, error) {
 // InstructionsFile returns the provider's instructions file, relative to its
 // base dir, or "" for a provider with no instructions destination.
 func InstructionsFile(provider configurator.Provider) string {
-	return destDir("instructions", "", provider)
+	return contract.DestDir("instructions", "", provider)
 }
 
 // InstructionsBlockMarkers counts the managed instructions block's begin and

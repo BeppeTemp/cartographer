@@ -24,6 +24,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestPulledFileJSON_ExecutableBackwardCompatibility(t *testing.T) {
@@ -49,7 +50,7 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifactHash := provisioning.ContentHashFiles([]provisioning.ArtifactFile{
+	artifactHash := provisioning.ContentHashFiles([]contract.ArtifactFile{
 		{Path: "SKILL.md", Content: first}, {Path: "run.bin", Content: binary, Executable: true},
 	})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +127,7 @@ func TestFetchMergedManifestVerifiesPinnedSignatureAndRejectsTampering(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("skill")}}
+	files := []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("skill")}}
 	hash := provisioning.ContentHashFiles(files)
 	identity := artifactsig.Identity{Source: "kb:homelab", Kind: "skill", Name: "signed", ContentHash: hash}
 	sig, err := artifactsig.Sign(key, identity)
@@ -270,17 +271,17 @@ func TestResolveDisconnectProviders_AgentSubsets(t *testing.T) {
 // kbSkillManifest builds a single-artifact manifest with one unsigned,
 // kb:-sourced skill — the shape sync_pull returns before any trust decision
 // is applied.
-func kbSkillManifest() provisioning.Manifest {
-	return provisioning.Manifest{
+func kbSkillManifest() contract.Manifest {
+	return contract.Manifest{
 		Revision: "rev1",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{
 				Kind:        "skill",
 				Name:        "example",
 				Source:      "kb:homelab",
 				ContentHash: "hash1",
 				Signed:      false,
-				Files:       []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example")}},
+				Files:       []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example")}},
 			},
 		},
 	}
@@ -324,9 +325,9 @@ func TestMaterializeForProviders_MCPDescriptorStillNeedsApproval(t *testing.T) {
 	hash := "mcp-hash-1"
 	for _, signed := range []bool{false, true} {
 		dir := t.TempDir()
-		m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{{
+		m := contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{{
 			Kind: "mcp", Name: "tools", Source: "kb:kb-a", Signed: signed, ContentHash: hash,
-			Files: []provisioning.ArtifactFile{{Path: "tools.json", Content: content}},
+			Files: []contract.ArtifactFile{{Path: "tools.json", Content: content}},
 		}}}
 		results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, false, portabilityOptions{}, nil)
 		if err != nil {
@@ -357,17 +358,17 @@ func TestMaterializeForProviders_MCPDescriptorStillNeedsApproval(t *testing.T) {
 // instructionsManifest builds a single-artifact manifest with one signed,
 // kb:-sourced "instructions" artifact (D56) — the shape sync_pull returns for the
 // imprinting artifact once decoded client-side (Files populated from base64).
-func instructionsManifest(kbName, content string) provisioning.Manifest {
-	return provisioning.Manifest{
+func instructionsManifest(kbName, content string) contract.Manifest {
+	return contract.Manifest{
 		Revision: "rev-instr",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{
 				Kind:        "instructions",
 				Name:        kbName,
 				Source:      "kb:" + kbName,
 				ContentHash: "hash-instr",
 				Signed:      true,
-				Files:       []provisioning.ArtifactFile{{Path: "instructions.md", Content: []byte(content)}},
+				Files:       []contract.ArtifactFile{{Path: "instructions.md", Content: []byte(content)}},
 			},
 		},
 	}
@@ -441,7 +442,7 @@ func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 
 // An MCP descriptor is the one artifact that still waits for an approval.
 func TestDiffMCPDescriptorNeedsApproval(t *testing.T) {
-	d := provisioning.Diff{Added: []provisioning.Artifact{{Kind: "mcp", Name: "tools", Source: "kb:x", Signed: true}}}
+	d := provisioning.Diff{Added: []contract.Artifact{{Kind: "mcp", Name: "tools", Source: "kb:x", Signed: true}}}
 	p := providerStatus{State: "drift", Added: snapshotArtifacts(d.Added, &clientconfig.Config{})}
 	if got := p.Added[0].Trust; got != "needs_approval" {
 		t.Errorf("trust = %q, want needs_approval", got)
@@ -494,11 +495,11 @@ func TestDoConnect_PersistsToken(t *testing.T) {
 func TestMaterializeForProviders_StdioPreflightIsAtomic(t *testing.T) {
 	dir := t.TempDir()
 	content := []byte(`{"type":"stdio","command":"cartographer-definitely-missing-command"}`)
-	file := provisioning.ArtifactFile{Path: "missing.json", Content: content}
-	hash := provisioning.ContentHashFiles([]provisioning.ArtifactFile{file})
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{
+	file := contract.ArtifactFile{Path: "missing.json", Content: content}
+	hash := provisioning.ContentHashFiles([]contract.ArtifactFile{file})
+	m := contract.Manifest{Artifacts: []contract.Artifact{{
 		Kind: "mcp", Name: "missing", Source: "kb:kb", Signed: true,
-		ContentHash: hash, Files: []provisioning.ArtifactFile{file},
+		ContentHash: hash, Files: []contract.ArtifactFile{file},
 	}}}
 	approved := map[string]string{"kb:kb\x00missing": hash}
 	_, err := materializeForProviders(uniformManifests(m, []string{"claude", "codex"}), globalProjections([]string{"claude", "codex"}, dir), dir, "", false, false, portabilityOptions{}, nil, approved)
@@ -554,7 +555,7 @@ func TestPrintApplySummary_DryRunSpeaksInTheConditional(t *testing.T) {
 // verifies (fetchCandidates).
 func syncPullPayload(t *testing.T, kb, skillName string) string {
 	t.Helper()
-	files := []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# " + skillName + " from " + kb)}}
+	files := []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("# " + skillName + " from " + kb)}}
 	body, err := json.Marshal(map[string]any{
 		"revision": "rev-" + kb,
 		"artifacts": []map[string]any{{
@@ -737,7 +738,7 @@ func TestSyncFailsBeforeMaterializing(t *testing.T) {
 }
 
 func TestCollisionsForProvider(t *testing.T) {
-	candidates := []provisioning.Artifact{
+	candidates := []contract.Artifact{
 		{Kind: "skill", Name: "shared", Source: "kb:one"},
 		{Kind: "skill", Name: "shared", Source: "kb:two"},
 		{Kind: "skill", Name: "solo", Source: "kb:three"},
@@ -947,18 +948,18 @@ func TestCommonRevision(t *testing.T) {
 // provider in these tests supports it) and an "agent" (crush does not —
 // D55/D141). Its raw Revision covers both artifacts, so it differs from
 // what FilterForProvider computes for crush once the agent is dropped.
-func skillAndAgentManifest() provisioning.Manifest {
-	m := provisioning.Manifest{
-		Artifacts: []provisioning.Artifact{
+func skillAndAgentManifest() contract.Manifest {
+	m := contract.Manifest{
+		Artifacts: []contract.Artifact{
 			{
 				Kind: "skill", Name: "example", Source: "bundle", BuiltIn: true,
 				ContentHash: "hash-skill",
-				Files:       []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example\n")}},
+				Files:       []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example\n")}},
 			},
 			{
 				Kind: "agent", Name: "reviewer", Source: "bundle", BuiltIn: true,
 				ContentHash: "hash-agent",
-				Files:       []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte("# reviewer\n")}},
+				Files:       []contract.ArtifactFile{{Path: "reviewer.md", Content: []byte("# reviewer\n")}},
 			},
 		},
 	}
@@ -1151,29 +1152,29 @@ func TestSyncWritesNothingWhenPullFails(t *testing.T) {
 // lockfile write, its files were on disk with no lock entry — unmanaged,
 // never pruned, invisible to doctor (D172).
 func TestMaterializeCheckpointsPerProvider(t *testing.T) {
-	manifest := provisioning.Manifest{
+	manifest := contract.Manifest{
 		Revision: "rev-1",
-		Artifacts: []provisioning.Artifact{{
+		Artifacts: []contract.Artifact{{
 			Kind: "skill", Name: "alpha", ContentHash: "hash-alpha", Source: "bundle", BuiltIn: true,
-			Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# alpha\n")}},
+			Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("# alpha\n")}},
 		}},
 	}
 	// opencode materializes agents, not skills (D55): give it a kind it
 	// actually supports, or nothing is applied and nothing can fail.
-	agentManifest := provisioning.Manifest{
+	agentManifest := contract.Manifest{
 		Revision: "rev-1",
-		Artifacts: []provisioning.Artifact{{
+		Artifacts: []contract.Artifact{{
 			Kind: "agent", Name: "beta", ContentHash: "hash-beta", Source: "bundle", BuiltIn: true,
-			Files: []provisioning.ArtifactFile{{Path: "beta.md", Content: []byte("# beta\n")}},
+			Files: []contract.ArtifactFile{{Path: "beta.md", Content: []byte("# beta\n")}},
 		}},
 	}
-	manifests := map[string]provisioning.Manifest{"claude": manifest, "opencode": agentManifest}
+	manifests := map[string]contract.Manifest{"claude": manifest, "opencode": agentManifest}
 	providers := []string{"claude", "opencode"}
 
 	// Learn where opencode materializes, by letting it succeed once in a
 	// throwaway directory, then sabotage that exact path in the real one.
 	probe := t.TempDir()
-	if _, err := materializeForProviders(map[string]provisioning.Manifest{"opencode": agentManifest}, globalProjections([]string{"opencode"}, probe), probe, "", false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(map[string]contract.Manifest{"opencode": agentManifest}, globalProjections([]string{"opencode"}, probe), probe, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("probe run: %v", err)
 	}
 	probeLock, err := provisioning.ReadLockFile(lockFilePath(probe))
@@ -1280,7 +1281,7 @@ func globalProjections(providers []string, baseDir string) []syncProjection {
 
 // manifestsForAgents is the manifest of every global projection of cfg.Agents,
 // built the way sync, connect and status build it.
-func manifestsForAgents(cfg *clientconfig.Config) (map[string]provisioning.Manifest, error) {
+func manifestsForAgents(cfg *clientconfig.Config) (map[string]contract.Manifest, error) {
 	ps, err := allProjections(cfg, cfg.Agents, "")
 	if err != nil {
 		return nil, err
@@ -1290,8 +1291,8 @@ func manifestsForAgents(cfg *clientconfig.Config) (map[string]provisioning.Manif
 
 // uniformManifests gives every provider the same manifest, for tests that do
 // not exercise bindings.
-func uniformManifests(m provisioning.Manifest, providers []string) map[string]provisioning.Manifest {
-	out := make(map[string]provisioning.Manifest, len(providers))
+func uniformManifests(m contract.Manifest, providers []string) map[string]contract.Manifest {
+	out := make(map[string]contract.Manifest, len(providers))
 	for _, p := range providers {
 		out[p] = m
 	}
@@ -1491,10 +1492,10 @@ func TestFetchMergedManifestRefusesUntrustedNamesAndPaths(t *testing.T) {
 	for label, c := range cases {
 		t.Run(label, func(t *testing.T) {
 			var files []map[string]any
-			var pf []provisioning.ArtifactFile
+			var pf []contract.ArtifactFile
 			for _, p := range c.paths {
 				content := []byte("x")
-				pf = append(pf, provisioning.ArtifactFile{Path: p, Content: content})
+				pf = append(pf, contract.ArtifactFile{Path: p, Content: content})
 				files = append(files, map[string]any{"path": p, "content_b64": base64.StdEncoding.EncodeToString(content)})
 			}
 			body, _ := json.Marshal(map[string]any{"revision": "r", "artifacts": []map[string]any{{
@@ -1515,16 +1516,16 @@ func TestFetchMergedManifestRefusesUntrustedNamesAndPaths(t *testing.T) {
 // derived projection's SkipKinds leave an artifact out BEFORE requirements are
 // judged, so a skill requiring a skipped hook is itself skipped.
 func TestResolveProjectionSetDerivedSkipKinds(t *testing.T) {
-	skill := provisioning.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: s\ndescription: d\nrequires: [hook:h]\n---\nb\n")}}}
-	hook := provisioning.Artifact{Kind: "hook", Name: "h", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"Stop","command":"x"}`)}}}
-	ps := []syncProjection{{Provider: "claude", Workspace: "/ws/r", Scope: provisioning.ScopeProject, Derived: true, SkipKinds: []string{"hook"}}}
-	manifests := map[string]provisioning.Manifest{projectionKey(ps[0]): {Artifacts: []provisioning.Artifact{skill, hook}}}
-	got := resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})[projectionKey(ps[0])]
+	skill := contract.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: s\ndescription: d\nrequires: [hook:h]\n---\nb\n")}}}
+	hook := contract.Artifact{Kind: "hook", Name: "h", Source: "kb:kb-a", Files: []contract.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"Stop","command":"x"}`)}}}
+	ps := []syncProjection{{Provider: "claude", Workspace: "/ws/r", Scope: contract.ScopeProject, Derived: true, SkipKinds: []string{"hook"}}}
+	manifests := map[string]contract.Manifest{projectionKey(ps[0]): {Artifacts: []contract.Artifact{skill, hook}}}
+	got := resolveProjectionSet(ps, manifests, contract.ProjectOptions{})[projectionKey(ps[0])]
 	if len(got.Manifest.Artifacts) != 0 {
 		t.Errorf("projected %v, want nothing", got.Manifest.Artifacts)
 	}
 	ps[0].SkipKinds = nil
-	got = resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})[projectionKey(ps[0])]
+	got = resolveProjectionSet(ps, manifests, contract.ProjectOptions{})[projectionKey(ps[0])]
 	if len(got.Manifest.Artifacts) != 2 {
 		t.Errorf("projected %d artifacts, want 2", len(got.Manifest.Artifacts))
 	}
@@ -1534,17 +1535,17 @@ func TestResolveProjectionSetDerivedSkipKinds(t *testing.T) {
 // status does: a transient failure of one workspace must not flip the
 // requirements of the others (D1656).
 func TestResolveProjectionSetCountsEveryProjection(t *testing.T) {
-	base := provisioning.Artifact{Kind: "skill", Name: "base", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: base\ndescription: d\n---\nb\n")}}}
-	need := provisioning.Artifact{Kind: "skill", Name: "need", Source: "kb:kb-a", Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: need\ndescription: d\nrequires: [skill:base]\n---\nb\n")}}}
+	base := contract.Artifact{Kind: "skill", Name: "base", Source: "kb:kb-a", Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: base\ndescription: d\n---\nb\n")}}}
+	need := contract.Artifact{Kind: "skill", Name: "need", Source: "kb:kb-a", Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: need\ndescription: d\nrequires: [skill:base]\n---\nb\n")}}}
 	ps := []syncProjection{
-		{Provider: "opencode", Workspace: "/ws", Scope: provisioning.ScopeProject, Derived: true},
-		{Provider: "opencode", Workspace: "/ws/repo", Scope: provisioning.ScopeProject},
+		{Provider: "opencode", Workspace: "/ws", Scope: contract.ScopeProject, Derived: true},
+		{Provider: "opencode", Workspace: "/ws/repo", Scope: contract.ScopeProject},
 	}
-	manifests := map[string]provisioning.Manifest{
-		projectionKey(ps[0]): {Artifacts: []provisioning.Artifact{base}},
-		projectionKey(ps[1]): {Artifacts: []provisioning.Artifact{need}},
+	manifests := map[string]contract.Manifest{
+		projectionKey(ps[0]): {Artifacts: []contract.Artifact{base}},
+		projectionKey(ps[1]): {Artifacts: []contract.Artifact{need}},
 	}
-	got := resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})
+	got := resolveProjectionSet(ps, manifests, contract.ProjectOptions{})
 	if n := len(got[projectionKey(ps[1])].Manifest.Artifacts); n != 1 {
 		t.Errorf("the repo projection kept %d artifacts, want 1 (its requirement is met by the ancestor)", n)
 	}
@@ -1558,7 +1559,7 @@ func TestPrintApplySummary_DegradedSkippedUnverified(t *testing.T) {
 		"crush": {
 			Degraded:   []provisioning.DegradedNote{{Artifact: "agent/x", As: "skill/x"}},
 			Skipped:    []provisioning.SkippedNote{{Artifact: "skill/y", Reason: "requires agent/x (skipped: strict_tools)"}},
-			Unverified: []provisioning.Capability{"agent.delegate", "hook.Stop"},
+			Unverified: []contract.Capability{"agent.delegate", "hook.Stop"},
 		},
 		"claude": {Written: []provisioning.ManagedFile{{Kind: "skill", Name: "a", Path: ".claude/skills/a/SKILL.md"}}},
 	}

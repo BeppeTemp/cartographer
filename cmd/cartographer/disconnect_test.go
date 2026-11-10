@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -739,7 +740,7 @@ func TestDoDisconnect_CleansTheWorkspaceProjections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ah := provisioning.ContentHashFiles([]provisioning.ArtifactFile{{Path: "ops.md", Content: []byte("agent\n")}})
+	ah := provisioning.ContentHashFiles([]contract.ArtifactFile{{Path: "ops.md", Content: []byte("agent\n")}})
 	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
 		{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md", ContentHash: sh, MaterializedHash: sh},
 		{Kind: "agent", Name: "ops", Path: ".claude/agents/ops.md", ContentHash: ah, MaterializedHash: ah},

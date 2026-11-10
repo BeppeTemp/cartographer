@@ -2,7 +2,6 @@ package provisioning
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"sort"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
@@ -35,7 +35,7 @@ type expansionTracker struct {
 	// decls are the bound KBs' declared keys (D263), "kind:key" -> the
 	// winning declaration: the remote a repo key is looked up by, and the
 	// default used when nothing else resolves the key.
-	decls map[string]PathDecl
+	decls map[string]contract.PathDecl
 }
 
 func newExpansionTracker() *expansionTracker {
@@ -99,7 +99,7 @@ func (t *expansionTracker) resolve(kind, key string, opts ApplyOptions) (string,
 // found nothing — the declared default, used only if it is a git clone here.
 // The placeholder expansion and the derived workspace bindings (D1019) both
 // call it, so a repository binds exactly where its placeholder points.
-func ResolveDeclaredRepo(r *repoindex.Resolver, key string, decl PathDecl, declared bool) (string, []string, error) {
+func ResolveDeclaredRepo(r *repoindex.Resolver, key string, decl contract.PathDecl, declared bool) (string, []string, error) {
 	resolved, warnings, err := r.ResolveDeclared(key, decl.Remote)
 	if err != nil && declared && decl.Default != "" {
 		if p, ok := registryDefaultPath(decl.Default); ok && repoindex.IsLiveClone(p) {
@@ -170,7 +170,7 @@ func (t *expansionTracker) resolveDeclared(sources map[string][]string, declared
 // makes the table independent of which artifacts this Apply rewrites — and
 // what keeps it complete against an older server that lists nothing. A
 // bundled artifact contributes the key with no KB attached.
-func placeholderSources(m Manifest, opts ApplyOptions) map[string][]string {
+func placeholderSources(m contract.Manifest, opts ApplyOptions) map[string][]string {
 	out := make(map[string][]string, len(opts.Placeholders))
 	add := func(id, kb string) {
 		kbs, seen := out[id]
@@ -372,34 +372,4 @@ func UnresolvedPlaceholdersWarning(unresolved map[string]string, fresh map[strin
 	}
 	b.WriteString("\n  fix: cartographer paths set <key> <path>, or, if it never exists here: cartographer paths ignore <key>")
 	return b.String()
-}
-
-// hashArtifactFiles uses a versioned, domain-separated length-prefixed
-// encoding of path, effective executable mode and raw bytes. It records
-// ManagedFile.MaterializedHash on the actually-written (placeholder-expanded)
-// bytes; ContentHash stays the manifest's, the one ComputeDiff compares. When
-// expansion is a no-op the two are equal (D75 WP3).
-func hashArtifactFiles(files []ArtifactFile) string {
-	sorted := append([]ArtifactFile(nil), files...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
-
-	h := sha256.New()
-	h.Write([]byte("cartographer:artifact-content:v1\x00"))
-	for _, f := range sorted {
-		writeHashField(h, []byte(f.Path))
-		if f.Executable {
-			h.Write([]byte{1})
-		} else {
-			h.Write([]byte{0})
-		}
-		writeHashField(h, f.Content)
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-func writeHashField(h interface{ Write([]byte) (int, error) }, data []byte) {
-	var length [8]byte
-	binary.BigEndian.PutUint64(length[:], uint64(len(data)))
-	h.Write(length[:])
-	h.Write(data)
 }

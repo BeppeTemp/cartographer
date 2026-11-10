@@ -40,185 +40,17 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
+	"gopkg.in/yaml.v3"
 )
-
-// nativeProviders are the clients that take a `providers:` entry: the ones whose
-// agent file Cartographer translates. Claude receives the source verbatim, so its
-// own fields go at the top level of the frontmatter, not here.
-var nativeProviders = []configurator.Provider{
-	configurator.ProviderOpenCode,
-	configurator.ProviderCodex,
-	configurator.ProviderKiro,
-	configurator.ProviderAntigravity,
-	configurator.ProviderCopilot,
-	configurator.ProviderCline,
-}
-
-// reservedNativeKeys are the fields Cartographer writes itself for each client.
-// An entry may not redefine them: it would silently change the agent's identity
-// or prompt, which is not what a restriction block is for.
-var reservedNativeKeys = map[configurator.Provider][]string{
-	configurator.ProviderOpenCode:    {"description", "mode"},
-	configurator.ProviderCodex:       {"name", "description", "developer_instructions"},
-	configurator.ProviderKiro:        {"name", "description", "prompt"},
-	configurator.ProviderAntigravity: {"name", "description", "mainAgent", "subagent"},
-	configurator.ProviderCopilot:     {"name", "description"},
-	configurator.ProviderCline:       {"name", "description"},
-}
-
-// nativeField is one key of a `providers.<client>` entry, with its YAML node kept
-// so a rendering can preserve key order and nested structure.
-type nativeField struct {
-	Key   string
-	Value *yaml.Node
-}
-
-// agentProviderFields parses the `providers:` block of an agent frontmatter into,
-// per client, the ordered list of fields to copy. A missing block yields nil.
-// An unknown client, a non-map entry or a reserved key is an error, so a typo
-// fails loudly (at artifact_write and at sync) instead of dropping a restriction.
-func agentProviderFields(fm *okf.Frontmatter) (map[configurator.Provider][]nativeField, error) {
-	v, ok := fm.Get("providers")
-	if !ok || v == nil {
-		return nil, nil
-	}
-	var text string
-	switch t := v.(type) {
-	case okf.Block:
-		text = string(t)
-	case string:
-		text = t // a one-line flow map: providers: { codex: { ... } }
-	default:
-		return nil, fmt.Errorf("frontmatter 'providers' must be a map keyed by client")
-	}
-	if strings.TrimSpace(text) == "" {
-		return nil, nil
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
-		return nil, fmt.Errorf("frontmatter 'providers': %w", err)
-	}
-	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("frontmatter 'providers' must be a map keyed by client")
-	}
-	known := map[string]configurator.Provider{}
-	for _, p := range nativeProviders {
-		known[string(p)] = p
-	}
-	out := map[configurator.Provider][]nativeField{}
-	top := doc.Content[0]
-	for i := 0; i+1 < len(top.Content); i += 2 {
-		name, entry := top.Content[i].Value, top.Content[i+1]
-		p, ok := known[name]
-		if !ok {
-			if name == string(configurator.ProviderClaudeCode) {
-				return nil, fmt.Errorf("frontmatter 'providers.%s': Claude Code receives the agent as written, so put its fields at the top level of the frontmatter", name)
-			}
-			return nil, fmt.Errorf("frontmatter 'providers.%s': unknown client (supported: %s)", name, nativeProviderNames())
-		}
-		if entry.Kind == yaml.AliasNode {
-			entry = entry.Alias
-		}
-		if entry.Kind != yaml.MappingNode {
-			return nil, fmt.Errorf("frontmatter 'providers.%s' must be a map of that client's native fields", name)
-		}
-		reserved := reservedNativeKeys[p]
-		for j := 0; j+1 < len(entry.Content); j += 2 {
-			k := entry.Content[j].Value
-			for _, r := range reserved {
-				if k == r {
-					return nil, fmt.Errorf("frontmatter 'providers.%s.%s': Cartographer writes %q itself on %s", name, k, k, name)
-				}
-			}
-			val := entry.Content[j+1]
-			if val.Kind == yaml.AliasNode {
-				val = val.Alias
-			}
-			out[p] = append(out[p], nativeField{Key: k, Value: val})
-		}
-	}
-	return out, nil
-}
-
-func nativeProviderNames() string {
-	names := make([]string, len(nativeProviders))
-	for i, p := range nativeProviders {
-		names[i] = string(p)
-	}
-	return strings.Join(names, ", ")
-}
-
-// ValidateAgentProviders is the check artifact_write applies to an agent's
-// `providers:` block, so a malformed one is rejected before it reaches a KB.
-func ValidateAgentProviders(fm *okf.Frontmatter) error {
-	_, err := agentProviderFields(fm)
-	return err
-}
-
-// kiroV2OnlyKeys are the keys of a `providers.kiro` entry that only Kiro's V2
-// engine reads (#1717). Kiro CLI 3.x ignores `toolsSettings`, reads a shell
-// `allowedCommands` regex as a glob and refuses `autoAllowReadonly` together with
-// `denyByDefault`, and its session-start upgrade rewrites such a file in place.
-// The V3 replacement is `permissions`, copied verbatim like every native key
-// (D291); nothing is translated.
-var kiroV2OnlyKeys = []string{"allowedTools", "toolsSettings"}
-
-// KiroV2OnlyKeyWarnings names, for an agent that artifact_write accepted, the
-// V2-only keys its `providers.kiro` entry carries and the V3 key to write
-// instead. Advisory: V2 still runs them, so it informs and never rejects.
-func KiroV2OnlyKeyWarnings(fm *okf.Frontmatter) []string {
-	fields, err := nativeFieldsFor(fm, configurator.ProviderKiro)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, f := range fields {
-		for _, k := range kiroV2OnlyKeys {
-			if f.Key == k {
-				out = append(out, fmt.Sprintf("providers.kiro.%s is read by Kiro's V2 engine only: Kiro CLI 3.x ignores it or changes its meaning when it upgrades the agent; write the V3 `permissions` key instead (Cartographer copies it verbatim and translates nothing)", k))
-			}
-		}
-	}
-	return out
-}
-
-// nativeProvidersDeclared lists, sorted, the clients that have a non-empty
-// `providers:` entry; "" fields are skipped. Unparseable frontmatter yields nil
-// (the translation reports it on its own).
-func nativeProvidersDeclared(fm *okf.Frontmatter) []string {
-	m, err := agentProviderFields(fm)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for p, f := range m {
-		if len(f) > 0 {
-			out = append(out, string(p))
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// nativeFieldsFor returns the fields to copy for one client (nil when none).
-func nativeFieldsFor(fm *okf.Frontmatter, provider configurator.Provider) ([]nativeField, error) {
-	m, err := agentProviderFields(fm)
-	if err != nil {
-		return nil, err
-	}
-	return m[provider], nil
-}
 
 // nativeMCPServerRefs returns the MCP server names an entry's `tools` or
 // `allowedTools` list cites as `@<server>` or `@<server>/<tool>` (Kiro's
 // syntax), sorted and unique, `@builtin` excluded (D320). A heuristic over the
 // author's values, not a parse of any client's grammar: D291 copies the entry
 // verbatim and promises nothing, so what this feeds is advisory only.
-func nativeMCPServerRefs(fields []nativeField) []string {
+func nativeMCPServerRefs(fields []contract.NativeField) []string {
 	seen := map[string]bool{}
 	var walk func(n *yaml.Node)
 	walk = func(n *yaml.Node) {
@@ -258,7 +90,7 @@ func nativeMCPServerRefs(fields []nativeField) []string {
 
 // renderNativeYAML renders the fields as top-level YAML lines, keeping the
 // author's key order, nesting and flow/block style.
-func renderNativeYAML(fields []nativeField) (string, error) {
+func renderNativeYAML(fields []contract.NativeField) (string, error) {
 	var buf bytes.Buffer
 	for _, f := range fields {
 		enc := yaml.NewEncoder(&buf)
@@ -277,7 +109,7 @@ func renderNativeYAML(fields []nativeField) (string, error) {
 }
 
 // renderNativeTOML renders the fields as top-level TOML key/value lines.
-func renderNativeTOML(fields []nativeField) (string, error) {
+func renderNativeTOML(fields []contract.NativeField) (string, error) {
 	var sb strings.Builder
 	for _, f := range fields {
 		v, err := tomlValue(f.Value)
@@ -377,7 +209,7 @@ func tomlScalar(n *yaml.Node) (string, error) {
 
 // renderNativeJSONPairs renders the fields as `"key": value` JSON members, in
 // the author's order, for splicing into an object.
-func renderNativeJSONPairs(fields []nativeField) ([]string, error) {
+func renderNativeJSONPairs(fields []contract.NativeField) ([]string, error) {
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
 		k, _ := json.Marshal(f.Key)

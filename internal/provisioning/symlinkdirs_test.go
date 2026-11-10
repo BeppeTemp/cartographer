@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // A client directory that is a symlink (a dotfile manager, a shared checkout)
@@ -73,7 +74,7 @@ func TestMCPRegisterAndRemove_RefuseALinkedDirectoryAndNoOpIsNotARefusal(t *test
 		t.Run(string(provider), func(t *testing.T) {
 			// A scratch home holding our entry is the link target.
 			target := t.TempDir()
-			rel, _, err := registerMCPServer(target, "wiki", spec, provider, ScopeGlobal)
+			rel, _, err := registerMCPServer(target, "wiki", spec, provider, contract.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +92,7 @@ func TestMCPRegisterAndRemove_RefuseALinkedDirectoryAndNoOpIsNotARefusal(t *test
 			linkFirstComponent(t, base, rel, filepath.Join(elsewhere, first))
 			before := treeOf(t, elsewhere)
 
-			if _, _, err := registerMCPServer(base, "other", spec, provider, ScopeGlobal); !errors.Is(err, ErrSymlinkDestination) {
+			if _, _, err := registerMCPServer(base, "other", spec, provider, contract.ScopeGlobal); !errors.Is(err, ErrSymlinkDestination) {
 				t.Errorf("registerMCPServer = %v, want ErrSymlinkDestination", err)
 			}
 			if err := removeMCPServer(base, "wiki", provider, filepath.ToSlash(rel)); !errors.Is(err, ErrSymlinkDestination) {
@@ -284,7 +285,7 @@ func TestApply_RefusedPruneIsReportedKeptInTheLockAndRetried(t *testing.T) {
 	stale := ManagedFile{Kind: "skill", Name: "s", Path: filepath.Join(".claude", "skills", "s", "SKILL.md"), Source: "kb:test"}
 	before := treeOf(t, elsewhere)
 
-	res, err := Apply(Manifest{Revision: "r"}, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: Lock{Managed: []ManagedFile{stale}}})
+	res, err := Apply(contract.Manifest{Revision: "r"}, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: Lock{Managed: []ManagedFile{stale}}})
 	if err != nil {
 		t.Fatalf("Apply = %v, want the refusal reported, not fatal", err)
 	}
@@ -314,7 +315,7 @@ func TestApply_RefusedPruneIsReportedKeptInTheLockAndRetried(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(real, "SKILL.md"), []byte("ours"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err = Apply(Manifest{Revision: "r"}, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: res.NewLock})
+	res, err = Apply(contract.Manifest{Revision: "r"}, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: res.NewLock})
 	if err != nil || len(res.Refused) != 0 || len(res.Pruned) != 1 {
 		t.Fatalf("retry: err=%v refused=%+v pruned=%+v", err, res.Refused, res.Pruned)
 	}

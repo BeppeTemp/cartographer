@@ -11,10 +11,11 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
-func migrationHook(hash string) provisioning.Artifact {
-	return provisioning.Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: hash, Files: []provisioning.ArtifactFile{
+func migrationHook(hash string) contract.Artifact {
+	return contract.Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: hash, Files: []contract.ArtifactFile{
 		{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)},
 		{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
 	}}
@@ -22,7 +23,7 @@ func migrationHook(hash string) provisioning.Artifact {
 
 // migrationFixture returns a config, the lock of a pre-D1141 client that has
 // the hook installed at lockHash, and the manifests serving serveHash.
-func migrationFixture(lockHash, serveHash string) (*clientconfig.Config, provisioning.LockFile, map[string]provisioning.Manifest, []syncProjection) {
+func migrationFixture(lockHash, serveHash string) (*clientconfig.Config, provisioning.LockFile, map[string]contract.Manifest, []syncProjection) {
 	proj := globalProjection("claude", "/base", []string{"kb-a"})
 	var lf provisioning.LockFile
 	if lockHash != "" {
@@ -31,7 +32,7 @@ func migrationFixture(lockHash, serveHash string) (*clientconfig.Config, provisi
 			{Kind: "hook", Name: "guard", Path: "hooks/guard/hook.json", ContentHash: lockHash, Source: "kb:kb-a"},
 		}})
 	}
-	manifests := map[string]provisioning.Manifest{projectionKey(proj): {Artifacts: []provisioning.Artifact{migrationHook(serveHash)}}}
+	manifests := map[string]contract.Manifest{projectionKey(proj): {Artifacts: []contract.Artifact{migrationHook(serveHash)}}}
 	return &clientconfig.Config{}, lf, manifests, []syncProjection{proj}
 }
 
@@ -206,9 +207,9 @@ func TestCmdApprovePending_ShowsWhatWillRun(t *testing.T) {
 
 func TestCmdApprovePending_LeavesMCPDescriptorsToTheSingleForm(t *testing.T) {
 	home := pendingFixture(t, false)
-	approveManifest = func(*clientconfig.Config) (provisioning.Manifest, error) {
-		return provisioning.Manifest{Artifacts: []provisioning.Artifact{
-			{Kind: "mcp", Name: "tools", Source: "kb:kb-a", ContentHash: "mcp-hash-0123456789", Files: []provisioning.ArtifactFile{
+	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+		return contract.Manifest{Artifacts: []contract.Artifact{
+			{Kind: "mcp", Name: "tools", Source: "kb:kb-a", ContentHash: "mcp-hash-0123456789", Files: []contract.ArtifactFile{
 				{Path: "tools.json", Content: []byte(`{"type":"http","url":"https://mcp.example.com/mcp"}`)},
 			}},
 		}}, nil
@@ -229,9 +230,9 @@ func TestCmdApprovePending_LeavesMCPDescriptorsToTheSingleForm(t *testing.T) {
 
 func TestCmdApprovePending_EscapesWhatTheServerChose(t *testing.T) {
 	pendingFixture(t, false)
-	approveManifest = func(*clientconfig.Config) (provisioning.Manifest, error) {
-		return provisioning.Manifest{Artifacts: []provisioning.Artifact{
-			{Kind: "hook", Name: "evil\nApproved: all\x1b[2J", Source: "kb:kb-a", ContentHash: "h-0123456789ab", Files: []provisioning.ArtifactFile{
+	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+		return contract.Manifest{Artifacts: []contract.Artifact{
+			{Kind: "hook", Name: "evil\nApproved: all\x1b[2J", Source: "kb:kb-a", ContentHash: "h-0123456789ab", Files: []contract.ArtifactFile{
 				{Path: "hook.json", Content: []byte("{}")},
 				{Path: "run\n.sh", Content: []byte("echo hi\x1b[31m\n"), Executable: true},
 			}},
@@ -271,7 +272,7 @@ func TestEscapeControl_NonPrintableRunesAreEscaped(t *testing.T) {
 }
 
 // pulledHookPayload is a sync_pull response of kb serving the given hooks.
-func pulledHookPayload(t *testing.T, kb string, hooks ...provisioning.Artifact) string {
+func pulledHookPayload(t *testing.T, kb string, hooks ...contract.Artifact) string {
 	t.Helper()
 	m := pulledManifestJSON{Revision: "rev-" + kb}
 	for _, a := range hooks {
@@ -288,12 +289,12 @@ func pulledHookPayload(t *testing.T, kb string, hooks ...provisioning.Artifact) 
 	return string(body)
 }
 
-func hookArtifact(name string) provisioning.Artifact {
-	files := []provisioning.ArtifactFile{
+func hookArtifact(name string) contract.Artifact {
+	files := []contract.ArtifactFile{
 		{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)},
 		{Path: "run.sh", Content: []byte("#!/bin/sh\necho " + name + "\n"), Executable: true},
 	}
-	return provisioning.Artifact{Kind: "hook", Name: name, Source: "kb:one", ContentHash: provisioning.ContentHashFiles(files), Files: files}
+	return contract.Artifact{Kind: "hook", Name: name, Source: "kb:one", ContentHash: provisioning.ContentHashFiles(files), Files: files}
 }
 
 // #1176: a dry run previews the one-time migration instead of telling the
@@ -316,7 +317,7 @@ func TestSyncDryRunPreviewsPreApprovalMigration(t *testing.T) {
 	// The install of a pre-D1141 client: guard in the lockfile at the hash the
 	// KB still serves, and no approval recorded.
 	installed := map[string]string{"kb:one\x00hook/guard": guard.ContentHash}
-	if _, err := materializeForProviders(uniformManifests(provisioning.Manifest{Artifacts: []provisioning.Artifact{guard}}, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, false, portabilityOptions{}, nil, installed); err != nil {
+	if _, err := materializeForProviders(uniformManifests(contract.Manifest{Artifacts: []contract.Artifact{guard}}, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, false, portabilityOptions{}, nil, installed); err != nil {
 		t.Fatal(err)
 	}
 	before := treeSnapshot(t, dir)

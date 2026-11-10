@@ -21,6 +21,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 )
@@ -345,8 +346,8 @@ func TestStatusSnapshotCarriesUpdateOnlyWhenAvailable(t *testing.T) {
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 		return &client.Health{Version: "v0.16.1", LatestVersion: "v0.17.0"}, nil
 	}
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
-		return uniformManifests(provisioning.Manifest{Revision: "r1"}, projectionProviders(ps)), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
+		return uniformManifests(contract.Manifest{Revision: "r1"}, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -471,7 +472,7 @@ func TestSyncBootstrapRewritesAnOutdatedScript(t *testing.T) {
 	}
 	var script string
 	for _, mf := range lf.ForProvider(string(configurator.ProviderClaudeCode)).Managed {
-		if mf.Name == provisioning.BootstrapHookName && strings.HasPrefix(filepath.Base(mf.Path), "bootstrap.") {
+		if mf.Name == contract.BootstrapHookName && strings.HasPrefix(filepath.Base(mf.Path), "bootstrap.") {
 			script = filepath.Join(dir, mf.Path)
 		}
 	}
@@ -549,7 +550,7 @@ func TestServerUpdateCheckRetriesSoonAfterAFailure(t *testing.T) {
 func TestEnsureBootstrapForProviders_WriteFindingsAlwaysInstalled(t *testing.T) {
 	dir := t.TempDir()
 	claude := []string{string(configurator.ProviderClaudeCode)}
-	hookDir := filepath.Join(dir, ".claude", "hooks", provisioning.WriteFindingsHookName)
+	hookDir := filepath.Join(dir, ".claude", "hooks", contract.WriteFindingsHookName)
 	if err := os.WriteFile(clientconfig.Path(dir), []byte("server_url: http://x/mcp\nwrite_findings_hook: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -566,8 +567,8 @@ func TestEnsureBootstrapForProviders_WriteFindingsAlwaysInstalled(t *testing.T) 
 	}
 	var boot, findings bool
 	for _, mf := range lf.ForProvider(claude[0]).Managed {
-		findings = findings || mf.Name == provisioning.WriteFindingsHookName
-		boot = boot || mf.Name == provisioning.BootstrapHookName
+		findings = findings || mf.Name == contract.WriteFindingsHookName
+		boot = boot || mf.Name == contract.BootstrapHookName
 	}
 	if !boot || !findings {
 		t.Errorf("both client hooks must be recorded: bootstrap %v findings %v", boot, findings)

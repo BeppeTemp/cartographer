@@ -9,19 +9,20 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
-func srcArtifact(kind, name, source string) provisioning.Artifact {
-	var files []provisioning.ArtifactFile
+func srcArtifact(kind, name, source string) contract.Artifact {
+	var files []contract.ArtifactFile
 	switch kind {
 	case "skill":
-		files = []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: " + name + "\ndescription: d\n---\nBody.\n")}}
+		files = []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: " + name + "\ndescription: d\n---\nBody.\n")}}
 	case "agent":
-		files = []provisioning.ArtifactFile{{Path: name + ".md", Content: []byte("---\nname: " + name + "\n---\nBody.\n")}}
+		files = []contract.ArtifactFile{{Path: name + ".md", Content: []byte("---\nname: " + name + "\n---\nBody.\n")}}
 	case "hook":
-		files = []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"PostToolUse","command":"echo hi"}`)}}
+		files = []contract.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"PostToolUse","command":"echo hi"}`)}}
 	}
-	return provisioning.Artifact{Kind: kind, Name: name, Source: source, Version: "1.0.0", Files: files, ContentHash: provisioning.ContentHashFiles(files)}
+	return contract.Artifact{Kind: kind, Name: name, Source: source, Version: "1.0.0", Files: files, ContentHash: provisioning.ContentHashFiles(files)}
 }
 
 func TestPluginSourceHelpers(t *testing.T) {
@@ -41,7 +42,7 @@ func TestPluginSourceHelpers(t *testing.T) {
 		if got := provisioning.PluginName(tc.in); got != tc.want {
 			t.Errorf("PluginName(%q) = %q, want %q", tc.in, got, tc.want)
 		}
-		if got := provisioning.IsPluginSource(tc.in); got != (tc.want != "") {
+		if got := contract.IsPluginSource(tc.in); got != (tc.want != "") {
 			t.Errorf("IsPluginSource(%q) = %v", tc.in, got)
 		}
 	}
@@ -85,7 +86,7 @@ func TestPluginSourceAuthorizationMatrix(t *testing.T) {
 }
 
 func TestPluginArtifactsApplyOnlyWhenActive(t *testing.T) {
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{
+	m := contract.Manifest{Artifacts: []contract.Artifact{
 		srcArtifact("skill", "plugin-skill", "plugin:team-forks"),
 		srcArtifact("hook", "plugin-hook", "plugin:team-forks"),
 	}}
@@ -123,13 +124,13 @@ func TestPluginArtifactsApplyOnlyWhenActive(t *testing.T) {
 func TestPluginArtifactSignatureIsRefused(t *testing.T) {
 	a := srcArtifact("skill", "x", "plugin:team-forks")
 	a.Signature = &artifactsig.Signature{KeyID: "k"}
-	if _, err := provisioning.VerifiedManifest(provisioning.Manifest{Artifacts: []provisioning.Artifact{a}}, nil); err == nil {
+	if _, err := provisioning.VerifiedManifest(contract.Manifest{Artifacts: []contract.Artifact{a}}, nil); err == nil {
 		t.Fatal("a signature on a plugin artifact must be an error")
 	}
 	if err := provisioning.VerifyArtifactSignature(a, nil); err == nil {
 		t.Fatal("VerifyArtifactSignature accepted a plugin artifact")
 	}
-	ok, err := provisioning.VerifiedManifest(provisioning.Manifest{Artifacts: []provisioning.Artifact{srcArtifact("skill", "x", "plugin:team-forks")}}, nil)
+	ok, err := provisioning.VerifiedManifest(contract.Manifest{Artifacts: []contract.Artifact{srcArtifact("skill", "x", "plugin:team-forks")}}, nil)
 	if err != nil || len(ok.Artifacts) != 1 || ok.Artifacts[0].Signed || ok.Artifacts[0].BuiltIn {
 		t.Fatalf("unsigned plugin artifact: %+v, %v", ok.Artifacts, err)
 	}
@@ -144,15 +145,15 @@ func TestPluginHookIsNotMigratedByTheD1141Migration(t *testing.T) {
 }
 
 func TestReadArtifactFilesNeverLooksAPluginUpAsAKB(t *testing.T) {
-	a := provisioning.Artifact{Kind: "skill", Name: "x", Source: "plugin:x"}
-	_, err := provisioning.ReadArtifactFiles(a, nil, map[string]string{"plugin:x": t.TempDir(), "x": t.TempDir()})
+	a := contract.Artifact{Kind: "skill", Name: "x", Source: "plugin:x"}
+	_, err := contract.ReadArtifactFiles(a, nil, map[string]string{"plugin:x": t.TempDir(), "x": t.TempDir()})
 	if err == nil || !strings.Contains(err.Error(), "plugin artifact without content") {
 		t.Fatalf("got %v", err)
 	}
 }
 
 func TestSelectForSourcesDropsPluginArtifacts(t *testing.T) {
-	in := []provisioning.Artifact{srcArtifact("skill", "a", "plugin:team-forks"), srcArtifact("skill", "b", "kb:kb-a"), srcArtifact("skill", "c", "bundle")}
+	in := []contract.Artifact{srcArtifact("skill", "a", "plugin:team-forks"), srcArtifact("skill", "b", "kb:kb-a"), srcArtifact("skill", "c", "bundle")}
 	out := provisioning.SelectForSources(in, []string{"kb-a", "team-forks"})
 	if len(out) != 2 {
 		t.Fatalf("got %+v", out)
@@ -172,19 +173,19 @@ func TestBuildManifestNeverEmitsAPluginSource(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(kb, "skills", "s", "SKILL.md"), []byte("---\nname: s\ndescription: d\n---\nB\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kb}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": kb}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, a := range m.Artifacts {
-		if provisioning.IsPluginSource(a.Source) {
+		if contract.IsPluginSource(a.Source) {
 			t.Errorf("BuildManifest emitted %s", a.Source)
 		}
 	}
 }
 
 func TestDropPluginCollisions(t *testing.T) {
-	in := []provisioning.Artifact{
+	in := []contract.Artifact{
 		srcArtifact("skill", "dup", "plugin:p1"),
 		srcArtifact("skill", "dup", "kb:kb-a"),
 		srcArtifact("skill", "dup", "kb:kb-b"),
@@ -221,7 +222,7 @@ func TestDropPluginCollisions(t *testing.T) {
 
 func TestPluginNeverBeatsABundleOrKBInMerge(t *testing.T) {
 	for _, other := range []string{"bundle", "kb:zzz"} {
-		m := provisioning.MergeArtifacts([]provisioning.Artifact{srcArtifact("skill", "x", "plugin:aaa"), srcArtifact("skill", "x", other)})
+		m := contract.MergeArtifacts([]contract.Artifact{srcArtifact("skill", "x", "plugin:aaa"), srcArtifact("skill", "x", other)})
 		if len(m.Artifacts) != 1 || m.Artifacts[0].Source != other {
 			t.Errorf("against %s: %+v", other, m.Artifacts)
 		}
@@ -230,10 +231,10 @@ func TestPluginNeverBeatsABundleOrKBInMerge(t *testing.T) {
 
 func TestPluginSkillShippingSourceEnvIsNotACollision(t *testing.T) {
 	a := srcArtifact("skill", "x", "plugin:team-forks")
-	a.Files = append(a.Files, provisioning.ArtifactFile{Path: "SOURCE.env", Content: []byte("mine\n")})
+	a.Files = append(a.Files, contract.ArtifactFile{Path: "SOURCE.env", Content: []byte("mine\n")})
 	a.ContentHash = provisioning.ContentHashFiles(a.Files)
 	base := t.TempDir()
-	res, err := provisioning.Apply(provisioning.Manifest{Artifacts: []provisioning.Artifact{a}}, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(contract.Manifest{Artifacts: []contract.Artifact{a}}, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: base, ActivePlugins: map[string]bool{"team-forks": true},
 	})
 	if err != nil {
@@ -248,10 +249,10 @@ func TestPluginSkillShippingSourceEnvIsNotACollision(t *testing.T) {
 func TestPluginArtifactWithUnmetRequiresIsSkipped(t *testing.T) {
 	// requires is evaluated for every artifact that is not bundled (resolver.go):
 	// a plugin's is not exempt, and an unmet one is skipped like a KB's.
-	files := []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: needs\ndescription: d\nrequires: [skill/gone]\n---\nB\n")}}
-	a := provisioning.Artifact{Kind: "skill", Name: "needs", Source: "plugin:team-forks", Files: files, ContentHash: provisioning.ContentHashFiles(files)}
-	in := provisioning.ProjectionInput{Key: "p", Provider: configurator.ProviderClaudeCode, Scope: provisioning.ScopeGlobal, Manifest: provisioning.Manifest{Artifacts: []provisioning.Artifact{a}}}
-	r := provisioning.ResolveProjections([]provisioning.ProjectionInput{in}, provisioning.ProjectOptions{})["p"]
+	files := []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: needs\ndescription: d\nrequires: [skill/gone]\n---\nB\n")}}
+	a := contract.Artifact{Kind: "skill", Name: "needs", Source: "plugin:team-forks", Files: files, ContentHash: provisioning.ContentHashFiles(files)}
+	in := contract.ProjectionInput{Key: "p", Provider: configurator.ProviderClaudeCode, Scope: contract.ScopeGlobal, Manifest: contract.Manifest{Artifacts: []contract.Artifact{a}}}
+	r := contract.ResolveProjections([]contract.ProjectionInput{in}, contract.ProjectOptions{})["p"]
 	if len(r.Manifest.Artifacts) != 0 {
 		t.Fatalf("an unmet requires kept the plugin skill: %+v", r.Manifest.Artifacts)
 	}

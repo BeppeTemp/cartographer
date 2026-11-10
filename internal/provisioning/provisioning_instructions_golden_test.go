@@ -9,18 +9,18 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const goldenRouting = "The \"kb-a\" KB is served via MCP by the \"cartographer\" server. Its tools are not prefixed: where a tool takes a `kb` argument, pass `kb: \"kb-a\"`; it is never inferred."
 
 const goldenScope = "The following directives are the \"kb-a\" KB's own and govern work in its perimeter; where they conflict with another KB's directives or with a repository's own instruction file, the more specific source wins.\n\n"
 
-func goldenBlock(t *testing.T, setup func(root string)) provisioning.Artifact {
+func goldenBlock(t *testing.T, setup func(root string)) contract.Artifact {
 	t.Helper()
 	root := makeKBWithArchives(t, nil)
 	setup(root)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": root}, provisioning.BuildOptions{RoutedMount: true})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": root}, contract.BuildOptions{RoutedMount: true})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}

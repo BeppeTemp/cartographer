@@ -7,26 +7,27 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // ResolveProjections: requirements, the full chain, visibility (D1656, WP5).
 
-func reqSkill(name string, reqs ...string) Artifact {
+func reqSkill(name string, reqs ...string) contract.Artifact {
 	return skillArt(name, "---\nname: "+name+"\ndescription: d\nrequires: ["+strings.Join(reqs, ", ")+"]\n---\nbody\n")
 }
 
-func reqAgent(name string, reqs ...string) Artifact {
+func reqAgent(name string, reqs ...string) contract.Artifact {
 	return agentArt(name, "---\nname: "+name+"\ndescription: d\nrequires: ["+strings.Join(reqs, ", ")+"]\n---\nbody\n")
 }
 
-func resolveOne(provider configurator.Provider, arts ...Artifact) ProjectionResult {
-	in := ProjectionInput{Key: "p", Provider: provider, Scope: ScopeGlobal, Manifest: manifestOf(arts...)}
-	return ResolveProjections([]ProjectionInput{in}, ProjectOptions{})["p"]
+func resolveOne(provider configurator.Provider, arts ...contract.Artifact) contract.ProjectionResult {
+	in := contract.ProjectionInput{Key: "p", Provider: provider, Scope: contract.ScopeGlobal, Manifest: manifestOf(arts...)}
+	return contract.ResolveProjections([]contract.ProjectionInput{in}, contract.ProjectOptions{})["p"]
 }
 
-func noteFor(r ProjectionResult, id string) string {
+func noteFor(r contract.ProjectionResult, id string) string {
 	for _, n := range r.Notes {
-		if n.Kind == NoteSkipped && n.Artifact == id {
+		if n.Kind == contract.NoteSkipped && n.Artifact == id {
 			return n.Reason
 		}
 	}
@@ -36,13 +37,13 @@ func noteFor(r ProjectionResult, id string) string {
 func TestResolveNoRequiresIsUntouched(t *testing.T) {
 	m := manifestOf(skillArt("a", "---\nname: a\ndescription: d\n---\nb\n"), agentArt("helper", helperAgent))
 	for _, p := range []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderCrush} {
-		want, _ := ProjectManifest(m, p, ScopeGlobal, ProjectOptions{})
-		got := ResolveProjections([]ProjectionInput{{Key: "k", Provider: p, Scope: ScopeGlobal, Manifest: m}}, ProjectOptions{})["k"]
+		want, _ := ProjectManifest(m, p, contract.ScopeGlobal, contract.ProjectOptions{})
+		got := contract.ResolveProjections([]contract.ProjectionInput{{Key: "k", Provider: p, Scope: contract.ScopeGlobal, Manifest: m}}, contract.ProjectOptions{})["k"]
 		if got.Manifest.Revision != want.Revision || len(got.Manifest.Artifacts) != len(want.Artifacts) {
 			t.Errorf("%s: revision %s vs %s", p, got.Manifest.Revision, want.Revision)
 		}
 		for _, n := range got.Notes {
-			if n.Kind == NoteSkipped {
+			if n.Kind == contract.NoteSkipped {
 				t.Errorf("%s: unexpected skip %+v", p, n)
 			}
 		}
@@ -61,7 +62,7 @@ func TestResolveChainOfThree(t *testing.T) {
 	if got := noteFor(r, "skill/a"); got != "requires skill/b (skipped: requires skill/c (skipped: requires skill/gone (not provided to this client)))" {
 		t.Errorf("a: %q", got)
 	}
-	if r.Manifest.Revision != computeRevision(r.Manifest.Artifacts) {
+	if r.Manifest.Revision != contract.ComputeRevision(r.Manifest.Artifacts) {
 		t.Error("revision not recomputed")
 	}
 }
@@ -100,10 +101,10 @@ func TestResolveRequirementOnDegradedAgentAndStrictAgent(t *testing.T) {
 }
 
 func TestResolveCapabilityNeedsVerified(t *testing.T) {
-	t.Cleanup(func() { capabilityOverride = nil })
-	status := CapUnverified
-	capabilityOverride = func(_ configurator.Provider, _ Scope, id Capability) (CapStatus, bool) {
-		if id == CapAgentInvoke {
+	t.Cleanup(func() { contract.CapabilityOverride = nil })
+	status := contract.CapUnverified
+	contract.CapabilityOverride = func(_ configurator.Provider, _ contract.Scope, id contract.Capability) (contract.CapStatus, bool) {
+		if id == contract.CapAgentInvoke {
 			return status, true
 		}
 		return "", false
@@ -112,7 +113,7 @@ func TestResolveCapabilityNeedsVerified(t *testing.T) {
 	if r := resolveOne(configurator.ProviderClaudeCode, s); len(r.Manifest.Artifacts) != 0 || noteFor(r, "skill/s") != "requires capability agent.invoke (it is unverified on this client)" {
 		t.Errorf("unverified must not satisfy: %v %v", projectedNames(r.Manifest), r.Notes)
 	}
-	status = CapVerified
+	status = contract.CapVerified
 	if r := resolveOne(configurator.ProviderClaudeCode, s); len(r.Manifest.Artifacts) != 1 {
 		t.Errorf("verified must satisfy: %v", r.Notes)
 	}
@@ -143,7 +144,7 @@ func TestResolveUnreadableRequiresIsUnsatisfied(t *testing.T) {
 
 func TestResolveLongChainIsFastAndBounded(t *testing.T) {
 	const n = 2000
-	var arts []Artifact
+	var arts []contract.Artifact
 	for i := 0; i < n; i++ {
 		name := fmt.Sprintf("s%d", i)
 		if i == 0 {
@@ -173,22 +174,22 @@ func TestResolveLongChainIsFastAndBounded(t *testing.T) {
 func TestResolveVisibilityAcrossProjections(t *testing.T) {
 	need := reqSkill("need", "skill:base")
 	base := skillArt("base", "---\nname: base\ndescription: d\n---\n")
-	mk := func(p configurator.Provider) map[string]ProjectionResult {
-		return ResolveProjections([]ProjectionInput{
-			{Key: "g", Provider: p, Scope: ScopeGlobal, Manifest: manifestOf(base)},
-			{Key: "w", Provider: p, Scope: ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
-		}, ProjectOptions{})
+	mk := func(p configurator.Provider) map[string]contract.ProjectionResult {
+		return contract.ResolveProjections([]contract.ProjectionInput{
+			{Key: "g", Provider: p, Scope: contract.ScopeGlobal, Manifest: manifestOf(base)},
+			{Key: "w", Provider: p, Scope: contract.ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
+		}, contract.ProjectOptions{})
 	}
 	// The global projection is visible from a workspace.
 	if r := mk(configurator.ProviderOpenCode)["w"]; len(r.Manifest.Artifacts) != 1 {
 		t.Errorf("global projection must satisfy: %v", r.Notes)
 	}
 	// An ancestor workspace satisfies a skill requirement only where proven (OpenCode).
-	anc := func(p configurator.Provider) ProjectionResult {
-		return ResolveProjections([]ProjectionInput{
-			{Key: "a", Provider: p, Scope: ScopeProject, Workspace: "/ws", Manifest: manifestOf(base)},
-			{Key: "w", Provider: p, Scope: ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
-		}, ProjectOptions{})["w"]
+	anc := func(p configurator.Provider) contract.ProjectionResult {
+		return contract.ResolveProjections([]contract.ProjectionInput{
+			{Key: "a", Provider: p, Scope: contract.ScopeProject, Workspace: "/ws", Manifest: manifestOf(base)},
+			{Key: "w", Provider: p, Scope: contract.ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
+		}, contract.ProjectOptions{})["w"]
 	}
 	if r := anc(configurator.ProviderOpenCode); len(r.Manifest.Artifacts) != 1 {
 		t.Errorf("opencode ancestor skill must satisfy: %v", r.Notes)
@@ -197,22 +198,22 @@ func TestResolveVisibilityAcrossProjections(t *testing.T) {
 		t.Errorf("an unproven ancestor must not satisfy: %v", projectedNames(r.Manifest))
 	}
 	// A sibling workspace is not an ancestor.
-	r := ResolveProjections([]ProjectionInput{
-		{Key: "a", Provider: configurator.ProviderOpenCode, Scope: ScopeProject, Workspace: "/ws/other", Manifest: manifestOf(base)},
-		{Key: "w", Provider: configurator.ProviderOpenCode, Scope: ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
-	}, ProjectOptions{})["w"]
+	r := contract.ResolveProjections([]contract.ProjectionInput{
+		{Key: "a", Provider: configurator.ProviderOpenCode, Scope: contract.ScopeProject, Workspace: "/ws/other", Manifest: manifestOf(base)},
+		{Key: "w", Provider: configurator.ProviderOpenCode, Scope: contract.ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
+	}, contract.ProjectOptions{})["w"]
 	if len(r.Manifest.Artifacts) != 0 {
 		t.Errorf("a sibling must not satisfy: %v", projectedNames(r.Manifest))
 	}
 	// A change in the global projection changes the workspace projection's revision.
-	with := ResolveProjections([]ProjectionInput{
-		{Key: "g", Provider: configurator.ProviderOpenCode, Scope: ScopeGlobal, Manifest: manifestOf(base)},
-		{Key: "w", Provider: configurator.ProviderOpenCode, Scope: ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
-	}, ProjectOptions{})["w"]
-	without := ResolveProjections([]ProjectionInput{
-		{Key: "g", Provider: configurator.ProviderOpenCode, Scope: ScopeGlobal, Manifest: manifestOf()},
-		{Key: "w", Provider: configurator.ProviderOpenCode, Scope: ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
-	}, ProjectOptions{})["w"]
+	with := contract.ResolveProjections([]contract.ProjectionInput{
+		{Key: "g", Provider: configurator.ProviderOpenCode, Scope: contract.ScopeGlobal, Manifest: manifestOf(base)},
+		{Key: "w", Provider: configurator.ProviderOpenCode, Scope: contract.ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
+	}, contract.ProjectOptions{})["w"]
+	without := contract.ResolveProjections([]contract.ProjectionInput{
+		{Key: "g", Provider: configurator.ProviderOpenCode, Scope: contract.ScopeGlobal, Manifest: manifestOf()},
+		{Key: "w", Provider: configurator.ProviderOpenCode, Scope: contract.ScopeProject, Workspace: "/ws/repo", Manifest: manifestOf(need)},
+	}, contract.ProjectOptions{})["w"]
 	if with.Manifest.Revision == without.Manifest.Revision {
 		t.Error("revision must follow the visible set")
 	}

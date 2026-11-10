@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // TestProjectDestinationMatrixIsComplete applies D137's completeness rule to
@@ -17,16 +18,16 @@ func TestProjectDestinationMatrixIsComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, kind := range artifactKinds {
-		for provider, cell := range projectDestinationMatrix[kind] {
-			if cell.unsupported {
+		for provider, cell := range contract.ProjectDestinationMatrix[kind] {
+			if cell.Unsupported {
 				continue
 			}
-			if len(cell.dir) == 0 {
+			if len(cell.Dir) == 0 {
 				t.Errorf("projectDestinationMatrix[%q][%q] is supported but names no path", kind, provider)
 			}
 		}
 	}
-	for kind := range projectDestinationMatrix {
+	for kind := range contract.ProjectDestinationMatrix {
 		known := false
 		for _, k := range artifactKinds {
 			if k == kind {
@@ -45,11 +46,11 @@ func TestProjectDestinationMatrixIsComplete(t *testing.T) {
 // exists to prevent, with extra steps.
 func TestProjectDestinationsAreRelativeToTheWorkspace(t *testing.T) {
 	for _, kind := range artifactKinds {
-		for provider, cell := range projectDestinationMatrix[kind] {
-			if cell.unsupported {
+		for provider, cell := range contract.ProjectDestinationMatrix[kind] {
+			if cell.Unsupported {
 				continue
 			}
-			got := destDirScoped(kind, "demo", provider, ScopeProject)
+			got := contract.DestDirScoped(kind, "demo", provider, contract.ScopeProject)
 			if got == "" {
 				t.Errorf("%s × %s: supported cell resolved to an empty path", kind, provider)
 				continue
@@ -67,8 +68,8 @@ func TestProjectDestinationsAreRelativeToTheWorkspace(t *testing.T) {
 func TestDestDirScoped_GlobalIsUnchanged(t *testing.T) {
 	for _, kind := range artifactKinds {
 		for _, d := range configurator.Providers() {
-			want := destDir(kind, "demo", d.Provider)
-			got := destDirScoped(kind, "demo", d.Provider, ScopeGlobal)
+			want := contract.DestDir(kind, "demo", d.Provider)
+			got := contract.DestDirScoped(kind, "demo", d.Provider, contract.ScopeGlobal)
 			if got != want {
 				t.Errorf("%s × %s: scoped global = %q, destDir = %q", kind, d.Provider, got, want)
 			}
@@ -132,7 +133,7 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"hook", configurator.ProviderCline, ""},
 	}
 	for _, tc := range cases {
-		if got := destDirScoped(tc.kind, "demo", tc.provider, ScopeProject); got != tc.want {
+		if got := contract.DestDirScoped(tc.kind, "demo", tc.provider, contract.ScopeProject); got != tc.want {
 			t.Errorf("%s × %s project destination = %q, want %q", tc.kind, tc.provider, got, tc.want)
 		}
 	}
@@ -214,7 +215,7 @@ func TestAntigravityProjectRoots(t *testing.T) {
 // #1181: a projection owns the paths it writes, not the directories it writes
 // into, so a repository's own artifact beside them is not claimed.
 func TestProjectOwnedArtifactPaths(t *testing.T) {
-	m := Manifest{Artifacts: []Artifact{{Kind: "skill", Name: "kb-skill"}, {Kind: "agent", Name: "kb-agent"}}}
+	m := contract.Manifest{Artifacts: []contract.Artifact{{Kind: "skill", Name: "kb-skill"}, {Kind: "agent", Name: "kb-agent"}}}
 	lock := Lock{Managed: []ManagedFile{{Kind: "skill", Name: "old", Path: filepath.FromSlash(".agents/skills/old/SKILL.md")}}}
 	got, err := ProjectOwnedArtifactPaths(configurator.ProviderCodex, m, lock)
 	if err != nil {
@@ -247,7 +248,7 @@ func TestProjectOwnedArtifactPaths(t *testing.T) {
 // .git/info/exclude, fails the projection before anything is written.
 func TestProjectOwnedArtifactPaths_RejectsUnsafeNames(t *testing.T) {
 	for _, name := range []string{"../../*", "../../src/main.go", "x\n!/src", "a/b", "*", "a?", "[a]", "!a", "#a", "a\\b", " a", "a ", "x\r"} {
-		m := Manifest{Artifacts: []Artifact{{Kind: "skill", Name: name}}}
+		m := contract.Manifest{Artifacts: []contract.Artifact{{Kind: "skill", Name: name}}}
 		got, err := ProjectOwnedArtifactPaths(configurator.ProviderCodex, m, Lock{})
 		if err == nil || !strings.Contains(err.Error(), "cannot be projected into a workspace") {
 			t.Errorf("name %q = %v, %v; want an invalid artifact name error", name, got, err)
@@ -261,7 +262,7 @@ func TestProjectOwnedArtifactPaths_DropsTamperedLockPaths(t *testing.T) {
 	lock := Lock{Managed: []ManagedFile{
 		{Path: "src/main.go"}, {Path: "../../*"}, {Path: ".agents/skills/x\n!/src"}, {Path: ".agents/skills/ok/SKILL.md"},
 	}}
-	got, err := ProjectOwnedArtifactPaths(configurator.ProviderCodex, Manifest{}, lock)
+	got, err := ProjectOwnedArtifactPaths(configurator.ProviderCodex, contract.Manifest{}, lock)
 	if err != nil {
 		t.Fatal(err)
 	}

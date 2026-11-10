@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // fakeClone makes dir a git clone whose origin is remote, as repoindex reads
@@ -25,8 +27,8 @@ func fakeClone(t *testing.T, dir, remote string) {
 	}
 }
 
-func registryOf(paths, repos map[string]PathDecl) PathRegistry {
-	return PathRegistry{Paths: paths, Repos: repos}
+func registryOf(paths, repos map[string]contract.PathDecl) contract.PathRegistry {
+	return contract.PathRegistry{Paths: paths, Repos: repos}
 }
 
 // The acceptance of D263 WP2: a declared ~-default that exists resolves with
@@ -41,7 +43,7 @@ func TestApply_DeclaredDefaultResolvesWithoutPaths(t *testing.T) {
 	baseDir := t.TempDir()
 	opts := clientApplyOptions(kbRoot, baseDir, Lock{})
 	opts.Placeholders = map[string][]string{"path:claude-home": {"kb"}}
-	opts.PathRegistries = map[string]PathRegistry{"kb": registryOf(map[string]PathDecl{
+	opts.PathRegistries = map[string]contract.PathRegistry{"kb": registryOf(map[string]contract.PathDecl{
 		"claude-home": {Description: "Claude Code's directory", Default: "~/.claude"},
 	}, nil)}
 
@@ -71,7 +73,7 @@ func TestApply_ExplicitPathsWinsOverDefault(t *testing.T) {
 	opts := clientApplyOptions(kbRoot, t.TempDir(), Lock{})
 	opts.Placeholders = map[string][]string{"path:claude-home": {"kb"}}
 	opts.Paths = map[string]string{"claude-home": "/srv/elsewhere"}
-	opts.PathRegistries = map[string]PathRegistry{"kb": registryOf(map[string]PathDecl{"claude-home": {Description: "d", Default: "~/.claude"}}, nil)}
+	opts.PathRegistries = map[string]contract.PathRegistry{"kb": registryOf(map[string]contract.PathDecl{"claude-home": {Description: "d", Default: "~/.claude"}}, nil)}
 	res, err := Apply(m, opts)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +93,7 @@ func TestApply_MissingOrUnanchoredDefaultIsUnresolved(t *testing.T) {
 	m, kbRoot := placeholderKB(t)
 	opts := clientApplyOptions(kbRoot, t.TempDir(), Lock{})
 	opts.Placeholders = map[string][]string{"path:missing": {"kb"}, "path:absolute": {"kb"}}
-	opts.PathRegistries = map[string]PathRegistry{"kb": registryOf(map[string]PathDecl{
+	opts.PathRegistries = map[string]contract.PathRegistry{"kb": registryOf(map[string]contract.PathDecl{
 		"missing":  {Description: "d", Default: "~/nope"},
 		"absolute": {Description: "d", Default: abs},
 	}, nil)}
@@ -135,7 +137,7 @@ func TestApply_DeclaredRemoteDisambiguatesShortName(t *testing.T) {
 		t.Fatalf("baseline: want an ambiguity, got resolved=%v unresolved=%v", res.NewLock.ResolvedPlaceholders, res.NewLock.UnresolvedPlaceholders)
 	}
 
-	opts.PathRegistries = map[string]PathRegistry{"kb": registryOf(nil, map[string]PathDecl{
+	opts.PathRegistries = map[string]contract.PathRegistry{"kb": registryOf(nil, map[string]contract.PathDecl{
 		"tools": {Description: "the team's tools", Remote: "gitlab.example.com/team/tools"},
 	})}
 	res, err = Apply(m, opts)
@@ -155,7 +157,7 @@ func TestApply_RepoDefaultMustBeAClone(t *testing.T) {
 	opts := clientApplyOptions(kbRoot, t.TempDir(), Lock{})
 	opts.SearchRoots = []string{t.TempDir()}
 	opts.Placeholders = map[string][]string{"repo:tools": {"kb"}}
-	opts.PathRegistries = map[string]PathRegistry{"kb": registryOf(nil, map[string]PathDecl{"tools": {Description: "d", Default: "~/src/tools"}})}
+	opts.PathRegistries = map[string]contract.PathRegistry{"kb": registryOf(nil, map[string]contract.PathDecl{"tools": {Description: "d", Default: "~/src/tools"}})}
 
 	if err := os.MkdirAll(filepath.Join(home, "src", "tools"), 0o755); err != nil {
 		t.Fatal(err)
@@ -191,9 +193,9 @@ func TestApply_ConflictingDefaultsFirstKBWins(t *testing.T) {
 	opts := clientApplyOptions(kbRoot, t.TempDir(), Lock{})
 	opts.Placeholders = map[string][]string{"path:shared": {"kb-a", "kb-b"}}
 	opts.KBOrder = []string{"kb-b", "kb-a"}
-	opts.PathRegistries = map[string]PathRegistry{
-		"kb-a": registryOf(map[string]PathDecl{"shared": {Description: "a", Default: "~/from-a"}}, nil),
-		"kb-b": registryOf(map[string]PathDecl{"shared": {Description: "b", Default: "~/from-b"}}, nil),
+	opts.PathRegistries = map[string]contract.PathRegistry{
+		"kb-a": registryOf(map[string]contract.PathDecl{"shared": {Description: "a", Default: "~/from-a"}}, nil),
+		"kb-b": registryOf(map[string]contract.PathDecl{"shared": {Description: "b", Default: "~/from-b"}}, nil),
 	}
 	res, err := Apply(m, opts)
 	if err != nil {
@@ -218,7 +220,7 @@ func TestApply_UncitedDeclaredKeys(t *testing.T) {
 	m, kbRoot := placeholderKB(t)
 	baseDir := t.TempDir()
 	opts := clientApplyOptions(kbRoot, baseDir, Lock{})
-	opts.PathRegistries = map[string]PathRegistry{"kb": registryOf(map[string]PathDecl{
+	opts.PathRegistries = map[string]contract.PathRegistry{"kb": registryOf(map[string]contract.PathDecl{
 		"ssh-dir":  {Description: "ssh", Default: "~/.ssh"},
 		"no-where": {Description: "absent", Default: "~/absent"},
 		"no-deflt": {Description: "no default"},
@@ -245,10 +247,10 @@ func TestApply_UncitedDeclaredKeys(t *testing.T) {
 }
 
 func TestMergePathRegistries_Order(t *testing.T) {
-	regs := map[string]PathRegistry{
-		"a": registryOf(map[string]PathDecl{"k": {Description: "a", Default: "~/a"}, "same": {Description: "x", Default: "~/s"}}, nil),
-		"b": registryOf(map[string]PathDecl{"k": {Description: "b", Default: "~/b"}, "same": {Description: "y", Default: "~/s"}}, nil),
-		"c": registryOf(nil, map[string]PathDecl{"k": {Description: "c", Remote: "example.com/o/k"}}),
+	regs := map[string]contract.PathRegistry{
+		"a": registryOf(map[string]contract.PathDecl{"k": {Description: "a", Default: "~/a"}, "same": {Description: "x", Default: "~/s"}}, nil),
+		"b": registryOf(map[string]contract.PathDecl{"k": {Description: "b", Default: "~/b"}, "same": {Description: "y", Default: "~/s"}}, nil),
+		"c": registryOf(nil, map[string]contract.PathDecl{"k": {Description: "c", Remote: "example.com/o/k"}}),
 	}
 	decls, by, warns := MergePathRegistries(nil, regs)
 	if decls["path:k"].Default != "~/a" {
@@ -307,7 +309,7 @@ func setTestHome(t *testing.T, dir string) {
 
 // D1019: `bind` travels in sync_pull's path_registry and defaults to binding.
 func TestPathDecl_BindDecodesFromTheWireFormat(t *testing.T) {
-	var reg PathRegistry
+	var reg contract.PathRegistry
 	if err := json.Unmarshal([]byte(`{"repos":{"a":{"description":"d"},"b":{"description":"d","bind":false},"c":{"description":"d","bind":true}}}`), &reg); err != nil {
 		t.Fatal(err)
 	}

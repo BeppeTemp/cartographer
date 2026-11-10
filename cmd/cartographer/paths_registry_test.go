@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // registryServer is placeholderServer whose KB, alpha, also serves a
@@ -114,7 +115,7 @@ func TestCmdPathsList_ShowsDescriptionAndDefault(t *testing.T) {
 			Provider:               "claude",
 			UnresolvedPlaceholders: map[string]string{"path:claude-home": "missing"},
 			PlaceholderSources:     map[string][]string{"path:claude-home": {"kb-a"}},
-			PlaceholderDecls:       map[string]provisioning.PathDecl{"path:claude-home": {Description: "Claude Code's directory", Default: "~/.claude"}},
+			PlaceholderDecls:       map[string]contract.PathDecl{"path:claude-home": {Description: "Claude Code's directory", Default: "~/.claude"}},
 		},
 	}}
 	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
@@ -132,18 +133,18 @@ func TestCmdPathsList_ShowsDescriptionAndDefault(t *testing.T) {
 
 // Registries follow the binding exactly like the keys do.
 func TestPathRegistriesForProjection(t *testing.T) {
-	a := provisioning.PathRegistry{Paths: map[string]provisioning.PathDecl{"x": {Description: "a"}}}
-	w := provisioning.PathRegistry{Paths: map[string]provisioning.PathDecl{"y": {Description: "w"}}}
-	cs := candidateSet{PathRegistries: map[string]provisioning.PathRegistry{"kb-a": a, "work-kb": w}}
+	a := contract.PathRegistry{Paths: map[string]contract.PathDecl{"x": {Description: "a"}}}
+	w := contract.PathRegistry{Paths: map[string]contract.PathDecl{"y": {Description: "w"}}}
+	cs := candidateSet{PathRegistries: map[string]contract.PathRegistry{"kb-a": a, "work-kb": w}}
 	cfg := &clientconfig.Config{KnownKBs: []string{"kb-a", "work-kb"}, Clients: map[string]clientconfig.ClientBinding{"codex": {KBs: []string{"kb-a"}}}}
 
-	if got := cs.pathRegistriesForProjection(cfg, syncProjection{Provider: "claude"}); !reflect.DeepEqual(got, map[string]provisioning.PathRegistry{"kb-a": a, "work-kb": w}) {
+	if got := cs.pathRegistriesForProjection(cfg, syncProjection{Provider: "claude"}); !reflect.DeepEqual(got, map[string]contract.PathRegistry{"kb-a": a, "work-kb": w}) {
 		t.Errorf("default binding = %v", got)
 	}
-	if got := cs.pathRegistriesForProjection(cfg, syncProjection{Provider: "codex"}); !reflect.DeepEqual(got, map[string]provisioning.PathRegistry{"kb-a": a}) {
+	if got := cs.pathRegistriesForProjection(cfg, syncProjection{Provider: "codex"}); !reflect.DeepEqual(got, map[string]contract.PathRegistry{"kb-a": a}) {
 		t.Errorf("explicit binding = %v", got)
 	}
-	if got := cs.pathRegistriesForProjection(cfg, syncProjection{Provider: "claude", Workspace: "/w", KBs: []string{"work-kb"}}); !reflect.DeepEqual(got, map[string]provisioning.PathRegistry{"work-kb": w}) {
+	if got := cs.pathRegistriesForProjection(cfg, syncProjection{Provider: "claude", Workspace: "/w", KBs: []string{"work-kb"}}); !reflect.DeepEqual(got, map[string]contract.PathRegistry{"work-kb": w}) {
 		t.Errorf("workspace = %v", got)
 	}
 	if got := cs.pathRegistriesForProjection(cfg, syncProjection{Provider: "claude", BundleOnly: true}); got != nil {

@@ -1591,7 +1591,7 @@ can provide to its agent clients. An empty kind is an outline tile where its fir
 is, where its files go in the KB (`skills/<name>/SKILL.md`, shown as text), the clients that receive it or "Stays in the KB: no client receives it" for a
 template, and a *Docs* link to the page that explains it on GitHub (the
 repository's `main`, in a new tab). The kinds, their order, paths and docs come
-from Meridian (`kinds` in `GET …/artifacts`, from `provisioning.Kinds`); the
+from Meridian (`kinds` in `GET …/artifacts`, from `contract.Kinds`); the
 blurb, the glyph and the colour of a kind are the page's own, and a kind it does
 not know gets a neutral glyph and no blurb. A *Show* slice hides the
 empty kinds, so "no match" still reads as no match, and a KB with nothing at all

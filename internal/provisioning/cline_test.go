@@ -14,11 +14,12 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
-func clineAgent(name, content string) provisioning.Artifact {
-	return provisioning.Artifact{Kind: "agent", Name: name, Source: "bundle", BuiltIn: true, ContentHash: "a-" + name,
-		Files: []provisioning.ArtifactFile{{Path: name + ".md", Content: []byte(content)}}}
+func clineAgent(name, content string) contract.Artifact {
+	return contract.Artifact{Kind: "agent", Name: name, Source: "bundle", BuiltIn: true, ContentHash: "a-" + name,
+		Files: []contract.ArtifactFile{{Path: name + ".md", Content: []byte(content)}}}
 }
 
 func TestApply_ClineGlobalCells(t *testing.T) {
@@ -39,9 +40,9 @@ func TestApply_ClineGlobalCells(t *testing.T) {
 		}
 	}
 
-	hook := provisioning.Artifact{Kind: "hook", Name: "guard", Source: "bundle", BuiltIn: true, ContentHash: "h",
-		Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"PreToolUse","command":"./x.sh"}`)}}}
-	m := provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{
+	hook := contract.Artifact{Kind: "hook", Name: "guard", Source: "bundle", BuiltIn: true, ContentHash: "h",
+		Files: []contract.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"PreToolUse","command":"./x.sh"}`)}}}
+	m := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 		skillArtifact("alpha", "h1", map[string]string{"SKILL.md": "# alpha\n"}),
 		instructionsArtifact("kb-a", "KB content.\n"),
 		clineAgent("helper", "---\nname: helper\ndescription: Does things\ntools: Read, Bash\nmodel: opus\n---\nYou help.\n"),
@@ -80,7 +81,7 @@ func TestApply_ClineGlobalCells(t *testing.T) {
 	}
 
 	opts.Lock = res.NewLock
-	if _, err := provisioning.Apply(provisioning.Manifest{Revision: "r2"}, opts); err != nil {
+	if _, err := provisioning.Apply(contract.Manifest{Revision: "r2"}, opts); err != nil {
 		t.Fatal(err)
 	}
 	for _, gone := range []string{"rules/cartographer.md", "skills/alpha", "agents/helper.yaml", "skills", "agents"} {
@@ -99,12 +100,12 @@ func TestApply_ClineGlobalCells(t *testing.T) {
 func TestApply_ClineInstructionsFileIsRemovedWhole(t *testing.T) {
 	home := t.TempDir()
 	opts := provisioning.ApplyOptions{Provider: configurator.ProviderCline, BaseDir: home, SkipLockWrite: true}
-	res, err := provisioning.Apply(provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{instructionsArtifact("kb-a", "KB content.\n")}}, opts)
+	res, err := provisioning.Apply(contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{instructionsArtifact("kb-a", "KB content.\n")}}, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	opts.Lock = res.NewLock
-	if _, err := provisioning.Apply(provisioning.Manifest{Revision: "r2"}, opts); err != nil {
+	if _, err := provisioning.Apply(contract.Manifest{Revision: "r2"}, opts); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".cline", "rules", "cartographer.md")); !os.IsNotExist(err) {
@@ -116,7 +117,7 @@ func TestApply_ClineAgentNativeFields(t *testing.T) {
 	src := "---\nname: helper\ndescription: Does things\nproviders:\n  cline:\n    maxIterations: 7\n    modelId: some-model\n---\nBody.\n"
 	run := func(content string) (string, error) {
 		home := t.TempDir()
-		_, err := provisioning.Apply(provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{clineAgent("helper", content)}},
+		_, err := provisioning.Apply(contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{clineAgent("helper", content)}},
 			provisioning.ApplyOptions{Provider: configurator.ProviderCline, BaseDir: home, SkipLockWrite: true})
 		b, _ := os.ReadFile(filepath.Join(home, ".cline", "agents", "helper.yaml"))
 		return string(b), err
@@ -148,7 +149,7 @@ func TestApply_ClineSymlinkedRulesDirIsRefused(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(home, ".cline", "rules")); err != nil {
 		t.Fatal(err)
 	}
-	res, _ := provisioning.Apply(provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{instructionsArtifact("kb-a", "KB content.\n")}},
+	res, _ := provisioning.Apply(contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{instructionsArtifact("kb-a", "KB content.\n")}},
 		provisioning.ApplyOptions{Provider: configurator.ProviderCline, BaseDir: home, SkipLockWrite: true})
 	entries, _ := os.ReadDir(target)
 	if len(entries) != 0 {
@@ -165,7 +166,7 @@ func TestApply_ClineKBMCPHeadersAreNotWritten(t *testing.T) {
 	mcp := findMCPArtifact(t, signedMCPManifest(t, kbRoot, "wiki-tools"), "wiki-tools")
 	mcp.Signed = true
 	home := t.TempDir()
-	res, err := provisioning.Apply(provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{mcp}},
+	res, err := provisioning.Apply(contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{mcp}},
 		provisioning.ApplyOptions{Provider: configurator.ProviderCline, BaseDir: home, KBRoots: map[string]string{"kb": kbRoot}, SkipLockWrite: true,
 			ApprovedMCP: map[string]string{"kb:kb\x00wiki-tools": mcp.ContentHash}})
 	if err != nil {

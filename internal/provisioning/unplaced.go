@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // ArtifactReadShape is the tool and path shape a client uses to read a KB skill
@@ -20,12 +21,12 @@ const ArtifactReadShape = "`artifact_read` `path: skills/<name>/SKILL.md`"
 // skill cell). Bundled artifacts are never listed: they have no MCP route.
 // Call it on the manifest BEFORE ProjectManifest, which drops these; it is the
 // caller that passes the result in ApplyOptions.Unplaced.
-func UnplacedArtifacts(m Manifest, provider configurator.Provider, scope Scope) []Artifact {
-	if destDirScoped("skill", "x", provider, scope) != "" {
+func UnplacedArtifacts(m contract.Manifest, provider configurator.Provider, scope contract.Scope) []contract.Artifact {
+	if contract.DestDirScoped("skill", "x", provider, scope) != "" {
 		return nil
 	}
-	native := AgentMode(provider, scope) == AgentNative
-	var out []Artifact
+	native := contract.AgentMode(provider, scope) == contract.AgentNative
+	var out []contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.BuiltIn || !strings.HasPrefix(a.Source, "kb:") {
 			continue
@@ -33,7 +34,7 @@ func UnplacedArtifacts(m Manifest, provider configurator.Provider, scope Scope) 
 		switch {
 		case a.Kind == "skill":
 			out = append(out, a)
-		case a.Kind == "agent" && !strictAgentSkipped(a, provider) && (!native || destDirScoped("agent", a.Name, provider, scope) == ""):
+		case a.Kind == "agent" && !contract.StrictAgentSkipped(a, provider) && (!native || contract.DestDirScoped("agent", a.Name, provider, scope) == ""):
 			out = append(out, a)
 		}
 	}

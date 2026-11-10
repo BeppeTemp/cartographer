@@ -11,6 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestStatusJSONSchemaAndStates(t *testing.T) {
@@ -73,7 +74,7 @@ func TestSnapshotArtifactsMCPApprovalStates(t *testing.T) {
 	if err := cfg.ApproveMCP("kb", "stale", "old", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	arts := snapshotArtifacts([]provisioning.Artifact{{Kind: "mcp", Name: "approved", Source: "kb:kb", ContentHash: "same"}, {Kind: "mcp", Name: "stale", Source: "kb:kb", ContentHash: "new"}, {Kind: "mcp", Name: "pending", Source: "kb:kb", ContentHash: "x"}, {Kind: "mcp", Name: "signed", Source: "kb:kb", ContentHash: "x", Signed: true}}, cfg)
+	arts := snapshotArtifacts([]contract.Artifact{{Kind: "mcp", Name: "approved", Source: "kb:kb", ContentHash: "same"}, {Kind: "mcp", Name: "stale", Source: "kb:kb", ContentHash: "new"}, {Kind: "mcp", Name: "pending", Source: "kb:kb", ContentHash: "x"}, {Kind: "mcp", Name: "signed", Source: "kb:kb", ContentHash: "x", Signed: true}}, cfg)
 	// A signed descriptor still needs approval (D906): a signature is not consent.
 	want := []string{"approved", "approval_stale", "needs_approval", "needs_approval"}
 	for i := range want {
@@ -85,7 +86,7 @@ func TestSnapshotArtifactsMCPApprovalStates(t *testing.T) {
 
 func TestSnapshotArtifactsBuiltIn(t *testing.T) {
 	cfg := clientconfig.Default()
-	arts := snapshotArtifacts([]provisioning.Artifact{{Kind: "hook", Name: "bootstrap", Source: "kb:kb", BuiltIn: true}}, cfg)
+	arts := snapshotArtifacts([]contract.Artifact{{Kind: "hook", Name: "bootstrap", Source: "kb:kb", BuiltIn: true}}, cfg)
 	if got := arts[0].Trust; got != "built_in" {
 		t.Errorf("trust=%q want built_in", got)
 	}
@@ -137,9 +138,9 @@ func TestStatusHookHintIsPerProvider(t *testing.T) {
 // agent's hash: Apply installs it on that approval, so status must not call it
 // stale.
 func TestSnapshotArtifactsDerivedSkillUsesAgentApproval(t *testing.T) {
-	agent := provisioning.Artifact{Kind: "agent", Name: "gated", Source: "kb:kb", ContentHash: "agent-hash",
-		Files: []provisioning.ArtifactFile{{Path: "gated.md", Content: []byte("---\nname: gated\ndescription: d\nhooks:\n  Stop: []\n---\nb\n")}}}
-	pm, _ := provisioning.ProjectManifest(provisioning.Manifest{Artifacts: []provisioning.Artifact{agent}}, configurator.ProviderCrush, provisioning.ScopeGlobal, provisioning.ProjectOptions{})
+	agent := contract.Artifact{Kind: "agent", Name: "gated", Source: "kb:kb", ContentHash: "agent-hash",
+		Files: []contract.ArtifactFile{{Path: "gated.md", Content: []byte("---\nname: gated\ndescription: d\nhooks:\n  Stop: []\n---\nb\n")}}}
+	pm, _ := provisioning.ProjectManifest(contract.Manifest{Artifacts: []contract.Artifact{agent}}, configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
 	if len(pm.Artifacts) != 1 || pm.Artifacts[0].Kind != "skill" {
 		t.Fatalf("setup: %v", pm.Artifacts)
 	}
@@ -154,9 +155,9 @@ func TestSnapshotArtifactsDerivedSkillUsesAgentApproval(t *testing.T) {
 }
 
 func TestFormatKindStatus(t *testing.T) {
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision: "rev1",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{Kind: "skill", Name: "s1", ContentHash: "h1"},
 			{Kind: "skill", Name: "s2", ContentHash: "h2"},
 			{Kind: "agent", Name: "a1", ContentHash: "h3"},
@@ -182,7 +183,7 @@ func TestFormatKindStatus(t *testing.T) {
 // A hook installed for a client that fires it only in some sessions is not
 // reported as a bare count (D189): the figure names where it fires (D300).
 func TestFormatKindStatus_HookLimitQualifiesInstalledHooks(t *testing.T) {
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "hook", Name: "hk1", ContentHash: "h1"}}}
+	m := contract.Manifest{Artifacts: []contract.Artifact{{Kind: "hook", Name: "hk1", ContentHash: "h1"}}}
 	lock := provisioning.Lock{Managed: []provisioning.ManagedFile{{Kind: "hook", Name: "hk1", Path: "x", ContentHash: "h1"}}}
 	limit := provisioning.SessionHookLimit(configurator.ProviderKiro)
 	if limit == "" {
@@ -198,14 +199,14 @@ func TestFormatKindStatus_HookLimitQualifiesInstalledHooks(t *testing.T) {
 }
 
 func TestFormatKindStatus_Empty(t *testing.T) {
-	if got := formatKindStatus(provisioning.Manifest{}, provisioning.Lock{}, false, ""); got != "" {
+	if got := formatKindStatus(contract.Manifest{}, provisioning.Lock{}, false, ""); got != "" {
 		t.Errorf("formatKindStatus on empty manifest: got %q, want \"\"", got)
 	}
 }
 
 func TestFormatKindStatus_UnknownKindAppendedAlphabetically(t *testing.T) {
-	m := provisioning.Manifest{
-		Artifacts: []provisioning.Artifact{
+	m := contract.Manifest{
+		Artifacts: []contract.Artifact{
 			{Kind: "skill", Name: "s1", ContentHash: "h1"},
 			{Kind: "zzz-future-kind", Name: "f1", ContentHash: "h2"},
 		},

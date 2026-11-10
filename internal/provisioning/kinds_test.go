@@ -12,7 +12,7 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/repodocs"
 )
 
@@ -24,14 +24,14 @@ var kindPlaceholder = regexp.MustCompile(`<[a-z]+>`)
 // (TestKinds_KBOnlyPathsAreWhatTheScannersFind).
 func TestKinds_PathsAreWhatTheScannerFinds(t *testing.T) {
 	const name = "sample"
-	for _, k := range provisioning.Kinds() {
+	for _, k := range contract.Kinds() {
 		if k.KBOnly {
 			continue
 		}
 		t.Run(k.Kind, func(t *testing.T) {
 			kbRoot := t.TempDir()
 			path := filepath.Join(kbRoot, filepath.FromSlash(kindPlaceholder.ReplaceAllString(k.KBPath, name)))
-			opts := provisioning.BuildOptions{}
+			opts := contract.BuildOptions{}
 			switch k.Kind {
 			case "skill":
 				writeFile(t, path, "---\nname: "+name+"\ndescription: A skill.\n---\nBody.\n")
@@ -49,11 +49,11 @@ func TestKinds_PathsAreWhatTheScannerFinds(t *testing.T) {
 			default:
 				t.Fatalf("kind %q is in the matrix and has no fixture here: add one", k.Kind)
 			}
-			m, err := provisioning.BuildManifest(nil, map[string]string{name: kbRoot}, opts)
+			m, err := contract.BuildManifest(nil, map[string]string{name: kbRoot}, opts)
 			if err != nil {
 				t.Fatalf("BuildManifest: %v", err)
 			}
-			var found []provisioning.Artifact
+			var found []contract.Artifact
 			for _, a := range m.Artifacts {
 				if a.Kind == k.Kind && a.Source == "kb:"+name {
 					found = append(found, a)
@@ -76,7 +76,7 @@ func TestKinds_DocsExistAndHaveTheHeading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range provisioning.Kinds() {
+	for _, k := range contract.Kinds() {
 		file, anchor, ok := strings.Cut(k.Doc, "#")
 		if !ok || anchor == "" || strings.HasPrefix(file, "/") || strings.Contains(file, "..") {
 			t.Errorf("kind %q: Doc %q is not a repository path with an anchor", k.Kind, k.Doc)

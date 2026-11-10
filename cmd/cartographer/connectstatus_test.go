@@ -9,6 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // symlinkedOpenCodeDir makes dir/.config/opencode a link to a real directory
@@ -145,7 +146,7 @@ func TestDoConnect_ARefusedMCPEntryIsNotAnnounced(t *testing.T) {
 // the provider stays connected (#1693).
 func TestSkippedParts_ARefusedRemovalIsNotASkippedPart(t *testing.T) {
 	applied := map[string]provisioning.AppliedResult{"claude": {
-		RefusedRemovals: []provisioning.Artifact{{Kind: "skill", Name: "old"}},
+		RefusedRemovals: []contract.Artifact{{Kind: "skill", Name: "old"}},
 	}}
 	skipped := skippedParts(nil, nil, applied)
 	if len(skipped["claude"]) != 0 {
@@ -155,7 +156,7 @@ func TestSkippedParts_ARefusedRemovalIsNotASkippedPart(t *testing.T) {
 		t.Errorf("status = %q (%v), want connected", line, ok)
 	}
 	// A refused write of the same kind still counts.
-	applied["claude"] = provisioning.AppliedResult{Refused: []provisioning.Artifact{{Kind: "skill", Name: "new"}}}
+	applied["claude"] = provisioning.AppliedResult{Refused: []contract.Artifact{{Kind: "skill", Name: "new"}}}
 	if got := skippedParts(nil, nil, applied)["claude"]; len(got) != 1 || got[0] != "skills" {
 		t.Errorf("skipped = %v, want [skills]", got)
 	}
@@ -214,7 +215,7 @@ func TestRunDoctor_MCPEntryFixNamesTheSymlink(t *testing.T) {
 // control character in it cannot drive the terminal (#1693).
 func TestSkippedParts_AServerChosenKindIsEscaped(t *testing.T) {
 	applied := map[string]provisioning.AppliedResult{
-		"claude": {Refused: []provisioning.Artifact{{Kind: "sk\x1b[2Jill", Name: "x"}}},
+		"claude": {Refused: []contract.Artifact{{Kind: "sk\x1b[2Jill", Name: "x"}}},
 	}
 	for _, parts := range skippedParts(nil, nil, applied) {
 		for _, part := range parts {

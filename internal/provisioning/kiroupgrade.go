@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // Kiro adds these two keys to the file it upgrades; every other top-level key is
@@ -127,7 +129,7 @@ func kiroKeysEqual(orig, upgraded []byte) bool {
 }
 
 func agentBytesHash(name string, data []byte) string {
-	return hashArtifactFiles([]ArtifactFile{{Path: agentHashPath(name), Content: data}})
+	return contract.HashArtifactFiles([]contract.ArtifactFile{{Path: contract.AgentHashPath(name), Content: data}})
 }
 
 // recordKiroUpgrade is the sync side of kiroUpgradeAccepted: for a Kiro agent

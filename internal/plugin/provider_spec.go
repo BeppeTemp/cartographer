@@ -12,10 +12,9 @@ import (
 	"strings"
 	"unicode"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
+	"gopkg.in/yaml.v3"
 )
 
 // ProvidersDir is the contribution point holding providers/<id>.yaml: an agent
@@ -221,8 +220,8 @@ func parsePathTpl(s string, project bool, sh pathShape, allowDocs bool) (pathTpl
 // "path: reason", sorted.
 func ParseProvider(stem string, data []byte) (ProviderSpec, []string) {
 	var s ProviderSpec
-	if len(data) > provisioning.ArtifactMaxFileSize {
-		return s, []string{fmt.Sprintf("provider: %d bytes, over the %d cap", len(data), provisioning.ArtifactMaxFileSize)}
+	if len(data) > contract.ArtifactMaxFileSize {
+		return s, []string{fmt.Sprintf("provider: %d bytes, over the %d cap", len(data), contract.ArtifactMaxFileSize)}
 	}
 	// Aliases are refused before the strict decode: a custom UnmarshalYAML resets
 	// yaml.v3's alias accounting, so one anchored scalar could be repeated at will.
@@ -295,7 +294,7 @@ func (s *ProviderSpec) validate(v *validator, stem string) {
 		v.add("capabilities", "more than %d entries", maxCapabilities)
 	} else {
 		for id, val := range s.Capabilities {
-			if !provisioning.IsCapability(id) || !slices.Contains(capabilityVals, val) {
+			if !contract.IsCapability(id) || !slices.Contains(capabilityVals, val) {
 				v.add("capabilities."+q(id), "%s is not verified, unverified or absent (or the id is not a capability id)", q(val))
 			}
 		}

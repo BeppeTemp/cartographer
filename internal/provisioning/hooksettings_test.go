@@ -13,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // hookEntryJSON/hookGroupJSON/settingsJSON mirror the shape Claude Code expects
@@ -75,7 +76,7 @@ func TestApply_Hook_RegistraSettingsJSON(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -119,7 +120,7 @@ func TestApply_Hook_ReApply_NessunDuplicato(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestApply_Hook_ScriptMaterializzatoEseguibile(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -201,7 +202,7 @@ func TestApply_Hook_ComandoBare_VerbatimConMarkerCommento(t *testing.T) {
 	bare := "jq -e '.tool_input.x' >/dev/null 2>&1 && exit 2 || true"
 	writeHookKB(t, kbRoot, "env-block", "PreToolUse", "Edit|Write", bare)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -237,7 +238,7 @@ func TestApply_Hook_PreservaChiaviUtenteESettingsPreesistente(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -300,7 +301,7 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -337,7 +338,7 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(kbRoot, "hooks", "notify")); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest (2): %v", err)
 	}
@@ -462,7 +463,7 @@ func TestPruneManaged_Hook_SettingsAssente_NoOp(t *testing.T) {
 func TestApplyAndPrune_AntigravityHook(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "run_command", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +536,7 @@ func TestApplyAndPrune_AntigravityHook(t *testing.T) {
 func TestApplyAndPrune_AntigravityHook_SessionStart(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "startup", "SessionStart", "", "./init.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func registerTestProviders(t *testing.T, specs ...configurator.PluginSpec) {
@@ -63,7 +63,7 @@ func TestCLIAndNoneProvidersHaveNoMCPEntry(t *testing.T) {
 // The bundled cartographer-cli skill goes to a cli provider and to no other.
 func TestCLISkillGoesToTheCLIProviderOnly(t *testing.T) {
 	registerTestProviders(t, shellAndNone()...)
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "skill", Name: cliSkillName, Source: "bundle"}}}
+	m := contract.Manifest{Artifacts: []contract.Artifact{{Kind: "skill", Name: cliSkillName, Source: "bundle"}}}
 	if got := len(withoutCLISkill("fork-shell", m).Artifacts); got != 1 {
 		t.Errorf("the cli provider has %d artifacts, want the skill kept", got)
 	}

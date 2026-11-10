@@ -22,6 +22,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // pulledFileJSON/pulledArtifactJSON/pulledManifestJSON mirror the sync_pull tool's
@@ -54,7 +55,7 @@ type pulledManifestJSON struct {
 	// PathRegistry is the KB's declared placeholder vocabulary (paths.yaml,
 	// D263), unsigned and outside revision. nil when the KB has none or the
 	// server predates it.
-	PathRegistry *provisioning.PathRegistry `json:"path_registry,omitempty"`
+	PathRegistry *contract.PathRegistry `json:"path_registry,omitempty"`
 	// Issues are the artifacts the server left out of this response and why
 	// (Manifest.Issues); server text, escaped wherever it is printed.
 	Issues []string `json:"issues,omitempty"`
@@ -129,8 +130,8 @@ func tokenSpecValue(spec string) string {
 // KB metadata, or one asked before any KB name was known. No binding can name
 // it, so it is handled separately rather than filed under an invented key.
 type candidateSet struct {
-	Named   map[string][]provisioning.Artifact
-	Bare    []provisioning.Artifact
+	Named   map[string][]contract.Artifact
+	Bare    []contract.Artifact
 	HasBare bool
 	// Placeholders is, per KB, the placeholder keys its sync_pull listed
 	// (D262); BarePlaceholders the unnamed endpoint's. Selected per
@@ -145,24 +146,24 @@ type candidateSet struct {
 	// PathRegistries is, per KB, the paths.yaml its sync_pull served (D263);
 	// BarePathRegistry the unnamed endpoint's. Selected per projection by
 	// pathRegistriesForProjection, like the placeholder keys.
-	PathRegistries   map[string]provisioning.PathRegistry
-	BarePathRegistry *provisioning.PathRegistry
+	PathRegistries   map[string]contract.PathRegistry
+	BarePathRegistry *contract.PathRegistry
 	// Plugins are the skills, agents and hooks of the active plugins
 	// (loadActivePlugins). They are not a KB's: no binding selects them and
 	// kb_options does not apply, so they join each projection after the KB
 	// selection (forProvider, forProjection) and before the collision drop.
-	Plugins []provisioning.Artifact
+	Plugins []contract.Artifact
 }
 
 // pathRegistriesForProjection returns the declared vocabularies of the KBs a
 // projection is bound to, KB name -> registry ("" for the unnamed endpoint),
 // selected by the same rules as placeholdersForProjection. Apply merges them
 // in the provider's KB order. nil when there is none.
-func (cs candidateSet) pathRegistriesForProjection(cfg *clientconfig.Config, p syncProjection) map[string]provisioning.PathRegistry {
+func (cs candidateSet) pathRegistriesForProjection(cfg *clientconfig.Config, p syncProjection) map[string]contract.PathRegistry {
 	if p.BundleOnly {
 		return nil
 	}
-	out := map[string]provisioning.PathRegistry{}
+	out := map[string]contract.PathRegistry{}
 	if cs.HasBare {
 		if p.Workspace != "" || cs.BarePathRegistry == nil {
 			return nil
@@ -231,11 +232,11 @@ func (cs candidateSet) placeholdersForProjection(cfg *clientconfig.Config, p syn
 // reads, following placeholdersForProjection's selection, each with its KB
 // ("" for the unnamed endpoint), and the KBs read. The KB is kept so that the
 // run-level list can decide the prefix once (manifestIssues, #1799).
-func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProjection) ([]provisioning.KBIssue, []string) {
+func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProjection) ([]contract.KBIssue, []string) {
 	if p.BundleOnly {
 		return nil, nil
 	}
-	var out []provisioning.KBIssue
+	var out []contract.KBIssue
 	if cs.HasBare {
 		if p.Workspace != "" {
 			return nil, nil
@@ -244,7 +245,7 @@ func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProje
 			return nil, nil
 		}
 		for _, is := range cs.BareIssues {
-			out = append(out, provisioning.KBIssue{Text: is})
+			out = append(out, contract.KBIssue{Text: is})
 		}
 		return out, nil
 	}
@@ -256,7 +257,7 @@ func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProje
 	sort.Strings(sorted)
 	for _, kb := range sorted {
 		for _, is := range cs.Issues[kb] {
-			out = append(out, provisioning.KBIssue{KB: kb, Text: is})
+			out = append(out, contract.KBIssue{KB: kb, Text: is})
 		}
 	}
 	return out, sorted
@@ -266,14 +267,14 @@ func (cs candidateSet) issuesForProjection(cfg *clientconfig.Config, p syncProje
 // projection-key order: the same KB read by three providers is one line, and
 // the same issue reached through a global and a workspace projection too. A
 // line carries its KB's name when the run as a whole reads more than one KB.
-func manifestIssues(manifests map[string]provisioning.Manifest) []string {
+func manifestIssues(manifests map[string]contract.Manifest) []string {
 	keys := make([]string, 0, len(manifests))
 	for k := range manifests {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	read := map[string]bool{}
-	var distinct []provisioning.KBIssue
+	var distinct []contract.KBIssue
 	for _, k := range keys {
 		for _, kb := range manifests[k].ReadKBs {
 			read[kb] = true
@@ -298,8 +299,8 @@ func manifestIssues(manifests map[string]provisioning.Manifest) []string {
 }
 
 // all returns every candidate, in a deterministic order.
-func (cs candidateSet) all() []provisioning.Artifact {
-	out := append([]provisioning.Artifact(nil), cs.Bare...)
+func (cs candidateSet) all() []contract.Artifact {
+	out := append([]contract.Artifact(nil), cs.Bare...)
 	names := make([]string, 0, len(cs.Named))
 	for name := range cs.Named {
 		names = append(names, name)
@@ -314,10 +315,10 @@ func (cs candidateSet) all() []provisioning.Artifact {
 // forKBs concatenates the responses of the named KBs, in a deterministic order.
 // A name with no response contributes nothing — it is not an error here: the
 // caller validated the binding against /health before pulling.
-func (cs candidateSet) forKBs(names []string) []provisioning.Artifact {
+func (cs candidateSet) forKBs(names []string) []contract.Artifact {
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
-	var out []provisioning.Artifact
+	var out []contract.Artifact
 	for _, name := range sorted {
 		out = append(out, cs.Named[name]...)
 	}
@@ -331,13 +332,13 @@ func (cs candidateSet) forKBs(names []string) []provisioning.Artifact {
 // missing signal is not a reason to starve a client on a legacy or first-run
 // server. The single exception is a provider explicitly bound to NO KBs, where
 // the operator's declaration is unambiguous and is honoured.
-func (cs candidateSet) forProvider(cfg *clientconfig.Config, provider string) []provisioning.Artifact {
+func (cs candidateSet) forProvider(cfg *clientconfig.Config, provider string) []contract.Artifact {
 	bound, explicit := cfg.BoundKBs(provider)
 	if cs.HasBare {
 		if explicit && len(bound) == 0 {
-			return append([]provisioning.Artifact(nil), cs.Plugins...)
+			return append([]contract.Artifact(nil), cs.Plugins...)
 		}
-		return append(append([]provisioning.Artifact(nil), cs.Bare...), cs.Plugins...)
+		return append(append([]contract.Artifact(nil), cs.Bare...), cs.Plugins...)
 	}
 	// SelectForSources drops every plugin artifact and dropKBArtifacts only
 	// touches kb: ones: the plugins are appended after both (decision 8).
@@ -353,11 +354,11 @@ func (cs candidateSet) forProvider(cfg *clientconfig.Config, provider string) []
 // of what was already installed is not done here: the artifacts leave the
 // manifest, ComputeDiff lists them Removed and the lockfile-driven prune does
 // the rest.
-func dropKBArtifacts(cfg *clientconfig.Config, arts []provisioning.Artifact) []provisioning.Artifact {
+func dropKBArtifacts(cfg *clientconfig.Config, arts []contract.Artifact) []contract.Artifact {
 	if len(cfg.KBOptions) == 0 {
 		return arts
 	}
-	out := make([]provisioning.Artifact, 0, len(arts))
+	out := make([]contract.Artifact, 0, len(arts))
 	for _, a := range arts {
 		if kb, ok := strings.CutPrefix(a.Source, "kb:"); ok && a.Kind != "instructions" && !cfg.KBArtifacts(kb) {
 			continue
@@ -371,7 +372,7 @@ func dropKBArtifacts(cfg *clientconfig.Config, arts []provisioning.Artifact) []p
 // with `artifacts: false` so its block no longer lists skills (#1408). It must
 // run on the manifest VerifiedManifest returned: the rewrite changes the hash
 // the signature covers, and Apply trusts the Signed flag and never re-verifies.
-func withoutOptedOutSkillsLines(cfg *clientconfig.Config, m provisioning.Manifest) provisioning.Manifest {
+func withoutOptedOutSkillsLines(cfg *clientconfig.Config, m contract.Manifest) contract.Manifest {
 	if len(cfg.KBOptions) == 0 {
 		return m
 	}
@@ -460,18 +461,18 @@ func annotateStaleBinding(err error, requiredBy map[string][]string) error {
 // not the alphabetical coin flip preferArtifact would otherwise perform. It is
 // deliberately evaluated here, before anything is materialized, so a collision
 // stops the sync instead of silently deciding which KB an agent reads.
-func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error) {
+func fetchMergedManifest(cfg *clientconfig.Config) (contract.Manifest, error) {
 	cs, err := fetchCandidates(cfg, cfg.KnownKBs)
 	if err != nil {
-		return provisioning.Manifest{}, err
+		return contract.Manifest{}, err
 	}
 	merged, err := mergeAcrossPlugins(cs.all(), nil)
 	if err != nil {
-		return provisioning.Manifest{}, err
+		return contract.Manifest{}, err
 	}
 	pins, err := pinnedPublicKeys(cfg)
 	if err != nil {
-		return provisioning.Manifest{}, err
+		return contract.Manifest{}, err
 	}
 	return provisioning.VerifiedManifest(merged, pins)
 }
@@ -515,7 +516,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 	tokenEnv := tokenEnvName(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnv).Health(probeTimeout)
 	if err != nil {
-		return candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry)}, nil, fmt.Errorf("health: %w", err)
+		return candidateSet{Named: make(map[string][]contract.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]contract.PathRegistry)}, nil, fmt.Errorf("health: %w", err)
 	}
 	return pullCandidatesPartial(cfg, health, kbNames)
 }
@@ -524,7 +525,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 // already holds the response (doctor, via serverFacts) passes it instead of
 // probing the server again.
 func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNames []string) (candidateSet, []kbPullFailure, error) {
-	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry), Issues: make(map[string][]string), Plugins: loadActivePlugins(cfg).Artifacts}
+	cs := candidateSet{Named: make(map[string][]contract.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]contract.PathRegistry), Issues: make(map[string][]string), Plugins: loadActivePlugins(cfg).Artifacts}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	targets, err := resolveKBTargets(health, kbNames)
@@ -552,7 +553,7 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 	}
 	wg.Wait()
 
-	seen := make(map[string]provisioning.Artifact)
+	seen := make(map[string]contract.Artifact)
 	var failed []kbPullFailure
 
 	for i, target := range targets {
@@ -629,9 +630,9 @@ const maxConcurrentPulls = 4
 // tool error, which fetchCandidates wraps with the KB name; err is a decoding
 // or integrity error, already worded for the operator.
 type pullResult struct {
-	artifacts    []provisioning.Artifact
+	artifacts    []contract.Artifact
 	placeholders []string
-	pathRegistry *provisioning.PathRegistry
+	pathRegistry *contract.PathRegistry
 	issues       []string
 	callErr      error
 	err          error
@@ -649,15 +650,15 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 	if err := json.Unmarshal(raw, &pm); err != nil {
 		return pullResult{err: fmt.Errorf("sync_pull: decode response: %w", err)}
 	}
-	arts := make([]provisioning.Artifact, 0, len(pm.Artifacts))
+	arts := make([]contract.Artifact, 0, len(pm.Artifacts))
 	for _, pa := range pm.Artifacts {
-		files := make([]provisioning.ArtifactFile, len(pa.Files))
+		files := make([]contract.ArtifactFile, len(pa.Files))
 		for i, pf := range pa.Files {
 			data, err := base64.StdEncoding.DecodeString(pf.ContentB64)
 			if err != nil {
 				return pullResult{err: fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", escapeControl(pa.Kind), escapeControl(pa.Name), escapeControl(pf.Path), err)}
 			}
-			files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
+			files[i] = contract.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
 		}
 		if hasControlRune(pa.Kind) || hasControlRune(pa.Source) || hasControlRune(pa.Version) {
 			return pullResult{err: fmt.Errorf("sync_pull: invalid metadata for artifact %q: control characters are refused", pa.Name)}
@@ -677,14 +678,14 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 		if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
 			return pullResult{err: fmt.Errorf("sync_pull: content hash mismatch for %s/%s", escapeControl(pa.Kind), escapeControl(pa.Name))}
 		}
-		art := provisioning.Artifact{
+		art := contract.Artifact{
 			Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,
 			ContentHash: pa.ContentHash, BuiltIn: pa.BuiltIn, Signature: pa.Signature, Files: files,
 		}
 		if art.Kind == "agent" && len(files) == 1 {
 			// Derived here rather than sent (D283): a restriction the target
 			// client cannot express is a client-side fact.
-			art.Restriction = provisioning.ParseAgentRestriction(files[0].Content)
+			art.Restriction = contract.ParseAgentRestriction(files[0].Content)
 		}
 		arts = append(arts, art)
 	}
@@ -696,7 +697,7 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 // or more of the KBs bound to *it* claim the name. Two colliding KBs bound to
 // two different providers are not a conflict, and reporting them as one would
 // train an operator to ignore the warning.
-func collisionsForProvider(candidates []provisioning.Artifact, boundKBs []string) []provisioning.Collision {
+func collisionsForProvider(candidates []contract.Artifact, boundKBs []string) []provisioning.Collision {
 	bound := make(map[string]bool, len(boundKBs))
 	for _, kb := range boundKBs {
 		bound["kb:"+kb] = true
@@ -768,7 +769,7 @@ type portabilityOptions struct {
 // binding order (D182 WP2) — omitted or nil for a provider entry means no
 // explicit binding, so its instructions block keeps the alphabetical
 // fallback. See kbOrderForProviders.
-func materializeForProviders(manifests map[string]provisioning.Manifest, projections []syncProjection, targetDir, serverVersion string, dryRun, noHeal bool, portability portabilityOptions, kbOrder map[string][]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
+func materializeForProviders(manifests map[string]contract.Manifest, projections []syncProjection, targetDir, serverVersion string, dryRun, noHeal bool, portability portabilityOptions, kbOrder map[string][]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -836,7 +837,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	// and the ancestor workspaces too. Status resolves the same full set, so the
 	// projection skipped above (a transient failure) still counts here: it only
 	// is not applied, and must not flip the requirements of the others.
-	resolved := resolveProjectionSet(projections, manifests, provisioning.ProjectOptions{})
+	resolved := resolveProjectionSet(projections, manifests, contract.ProjectOptions{})
 
 	var appliedSoFar []string
 	for _, p := range projections {
@@ -919,7 +920,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// nothing is written into a workspace for it. What a pre-D737 client
 		// (D717) left in a repository is removed here, on every project
 		// projection, until it is gone.
-		if p.Scope == provisioning.ScopeProject && !(p.Derived && slices.Contains(p.SkipKinds, "mcp")) {
+		if p.Scope == contract.ScopeProject && !(p.Derived && slices.Contains(p.SkipKinds, "mcp")) {
 			lock, err := provisioning.PruneServerEntry(p.BaseDir, configurator.Provider(p.Provider), applied.NewLock, dryRun)
 			if err != nil {
 				return nil, fmt.Errorf("apply %s: %w", p.Label(), err)
@@ -965,8 +966,8 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 // resolver (degradation and `requires`). Sync and status both call it, or a
 // requirement would flip in one and not in the other and drift would be
 // permanent.
-func resolveProjectionSet(ps []syncProjection, manifests map[string]provisioning.Manifest, opts provisioning.ProjectOptions) map[string]provisioning.ProjectionResult {
-	inputs := make([]provisioning.ProjectionInput, 0, len(ps))
+func resolveProjectionSet(ps []syncProjection, manifests map[string]contract.Manifest, opts contract.ProjectOptions) map[string]contract.ProjectionResult {
+	inputs := make([]contract.ProjectionInput, 0, len(ps))
 	for _, p := range ps {
 		m := manifests[projectionKey(p)]
 		if p.Derived {
@@ -975,9 +976,9 @@ func resolveProjectionSet(ps []syncProjection, manifests map[string]provisioning
 			}
 			m = withoutKinds(m, p.SkipKinds)
 		}
-		inputs = append(inputs, provisioning.ProjectionInput{Key: projectionKey(p), Provider: configurator.Provider(p.Provider), Scope: p.Scope, Workspace: p.Workspace, Manifest: m})
+		inputs = append(inputs, contract.ProjectionInput{Key: projectionKey(p), Provider: configurator.Provider(p.Provider), Scope: p.Scope, Workspace: p.Workspace, Manifest: m})
 	}
-	return provisioning.ResolveProjections(inputs, opts)
+	return contract.ResolveProjections(inputs, opts)
 }
 
 // ensureBootstrapForProviders ensures the cartographer-bootstrap hook (D60,
@@ -1243,7 +1244,7 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 		return false
 	}
 	p := configurator.Provider(provider)
-	if plugin := provisioning.HookPluginRelPath(p, w.Name, provisioning.ScopeGlobal); plugin != "" {
+	if plugin := provisioning.HookPluginRelPath(p, w.Name, contract.ScopeGlobal); plugin != "" {
 		return filepath.Base(w.Path) == filepath.Base(plugin)
 	}
 	if provisioning.HookRegistrationFile(p) != "" {
@@ -1273,7 +1274,7 @@ func printHookRegistered(wr io.Writer, label, provider, dir string, w provisioni
 // file. Empty when the provider has no registration of its own.
 func hookRegistrationTarget(p configurator.Provider, hook, managedPath, settingsRel string) (rel string, plugin bool) {
 	switch {
-	case provisioning.HookPluginRelPath(p, hook, provisioning.ScopeGlobal) != "":
+	case provisioning.HookPluginRelPath(p, hook, contract.ScopeGlobal) != "":
 		// The generated plugin *is* the registration (D59): its own path.
 		return managedPath, true
 	case settingsRel != "":

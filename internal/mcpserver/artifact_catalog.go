@@ -9,7 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // kbArtifact is one artifact a KB ships, as both artifact_list and the Atlas
@@ -18,11 +18,11 @@ import (
 type kbArtifact struct {
 	Kind  string
 	Name  string
-	Files []provisioning.ArtifactFile
+	Files []contract.ArtifactFile
 	// Manifest is the provisioning entry (hash, signature); nil for the
 	// curated instructions.md and for templates, which sync does not ship as
 	// files.
-	Manifest *provisioning.Artifact
+	Manifest *contract.Artifact
 }
 
 // artifactSource is what listKBArtifacts needs beside the KB itself.
@@ -54,13 +54,13 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 		issues = append(issues, strings.TrimPrefix(msg, `KB "`+artifactManifestKBKey+`": `))
 	}
 	kbRoots := map[string]string{artifactManifestKBKey: k.Root}
-	opts := provisioning.BuildOptions{
+	opts := contract.BuildOptions{
 		SkillDiagnostic: note,
 	}
 	if signer != nil {
 		opts.Signers = map[string]ed25519.PrivateKey{artifactManifestKBKey: signer}
 	}
-	m, err := provisioning.BuildManifest(nil, kbRoots, opts)
+	m, err := contract.BuildManifest(nil, kbRoots, opts)
 	if err != nil {
 		return kbArtifactCatalog{}, err
 	}
@@ -70,7 +70,7 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 		a := m.Artifacts[i]
 		switch a.Kind {
 		case "skill", "agent", "hook", "mcp":
-			files, err := provisioning.ReadArtifactFilesCapped(a, nil, kbRoots)
+			files, err := contract.ReadArtifactFilesCapped(a, nil, kbRoots)
 			if err != nil {
 				continue // best-effort: skip an artifact that fails to read
 			}
@@ -95,14 +95,14 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 			// agent's context (guide, managed block).
 			// Unbounded in what the listing carries, bounded in what it reads:
 			// a file over the artifact file cap is listed oversized, unread.
-			data, oversized, readErr := provisioning.ReadFileCapped(filepath.Join(k.Root, "instructions.md"))
+			data, oversized, readErr := contract.ReadFileCapped(filepath.Join(k.Root, "instructions.md"))
 			if readErr != nil {
 				continue // no curated instructions.md: nothing to list
 			}
 			out = append(out, kbArtifact{
 				Kind:  "instructions",
 				Name:  "instructions",
-				Files: []provisioning.ArtifactFile{{Path: "instructions.md", Content: data, Oversized: oversized}},
+				Files: []contract.ArtifactFile{{Path: "instructions.md", Content: data, Oversized: oversized}},
 			})
 		}
 	}
@@ -111,8 +111,8 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 		return kbArtifactCatalog{}, err
 	}
 	for _, slug := range templates {
-		data, oversized, err := provisioning.ReadFileCapped(filepath.Join(k.Root, "templates", slug+".md"))
-		if errors.Is(err, provisioning.ErrNotRegular) {
+		data, oversized, err := contract.ReadFileCapped(filepath.Join(k.Root, "templates", slug+".md"))
+		if errors.Is(err, contract.ErrNotRegular) {
 			continue // a symlinked template is left out, not the whole listing
 		}
 		if err != nil {
@@ -120,7 +120,7 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 		}
 		out = append(out, kbArtifact{
 			Kind: "template", Name: slug,
-			Files: []provisioning.ArtifactFile{{Path: "templates/" + slug + ".md", Content: data, Oversized: oversized}},
+			Files: []contract.ArtifactFile{{Path: "templates/" + slug + ".md", Content: data, Oversized: oversized}},
 		})
 	}
 

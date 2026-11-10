@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func exists(path string) bool {
@@ -18,10 +19,10 @@ func exists(path string) bool {
 	return err == nil
 }
 
-func demoSkill() provisioning.Artifact {
-	return provisioning.Artifact{
+func demoSkill() contract.Artifact {
+	return contract.Artifact{
 		Kind: "skill", Name: "demo", Source: "bundle", ContentHash: "h1", Signed: true, BuiltIn: true,
-		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: demo\ndescription: A demo\n---\nBody.\n")}},
+		Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: demo\ndescription: A demo\n---\nBody.\n")}},
 	}
 }
 
@@ -44,7 +45,7 @@ func TestApplyAndPrune_AntigravityProjectScope(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(kbRoot, "agents", "reviewer.md"), []byte("---\nname: reviewer\ndescription: Reviews\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func TestApplyAndPrune_AntigravityProjectScope(t *testing.T) {
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		KBRoots:     map[string]string{"kb": kbRoot},
 		ApprovedMCP: approveAll(m),
-		Provider:    configurator.ProviderAntigravity, BaseDir: baseDir, Scope: provisioning.ScopeProject,
+		Provider:    configurator.ProviderAntigravity, BaseDir: baseDir, Scope: contract.ScopeProject,
 		Lock: provisioning.Lock{},
 	})
 	if err != nil {
@@ -95,7 +96,7 @@ func TestApplyAndPrune_AntigravityProjectScope(t *testing.T) {
 func TestAntigravityProjectHooksFileKeepsTheUsersEntries(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "guard", "Stop", "", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +110,7 @@ func TestAntigravityProjectHooksFileKeepsTheUsersEntries(t *testing.T) {
 	}
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Scope: provisioning.ScopeProject, Lock: provisioning.Lock{},
+		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Scope: contract.ScopeProject, Lock: provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -128,12 +129,12 @@ func TestAntigravityProjectHooksFileKeepsTheUsersEntries(t *testing.T) {
 // Codex and Antigravity both project .agents/skills/<n>/ into one workspace:
 // one of them leaving must not delete what the other still records.
 func TestApply_CoOwnedSkillSurvivesTheOtherProvidersPrune(t *testing.T) {
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{demoSkill()})
+	m := contract.MergeArtifacts([]contract.Artifact{demoSkill()})
 	ws := t.TempDir()
 	var lf provisioning.LockFile
 	for _, p := range []configurator.Provider{configurator.ProviderCodex, configurator.ProviderAntigravity} {
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
-			Provider: p, BaseDir: ws, Scope: provisioning.ScopeProject, Lock: provisioning.Lock{},
+			Provider: p, BaseDir: ws, Scope: contract.ScopeProject, Lock: provisioning.Lock{},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -148,8 +149,8 @@ func TestApply_CoOwnedSkillSurvivesTheOtherProvidersPrune(t *testing.T) {
 		t.Fatalf("co-owned = %v", co)
 	}
 	// The skill leaves the KB: codex's sync would prune it.
-	if _, err := provisioning.Apply(provisioning.Manifest{}, provisioning.ApplyOptions{
-		Provider: configurator.ProviderCodex, BaseDir: ws, Scope: provisioning.ScopeProject,
+	if _, err := provisioning.Apply(contract.Manifest{}, provisioning.ApplyOptions{
+		Provider: configurator.ProviderCodex, BaseDir: ws, Scope: contract.ScopeProject,
 		Lock: lf.ForProjection(codex), CoOwnedPaths: co,
 	}); err != nil {
 		t.Fatal(err)
@@ -158,8 +159,8 @@ func TestApply_CoOwnedSkillSurvivesTheOtherProvidersPrune(t *testing.T) {
 		t.Fatal("codex's prune deleted a skill antigravity still records")
 	}
 	// Control: with nobody else recording it, the same prune removes it.
-	if _, err := provisioning.Apply(provisioning.Manifest{}, provisioning.ApplyOptions{
-		Provider: configurator.ProviderCodex, BaseDir: ws, Scope: provisioning.ScopeProject,
+	if _, err := provisioning.Apply(contract.Manifest{}, provisioning.ApplyOptions{
+		Provider: configurator.ProviderCodex, BaseDir: ws, Scope: contract.ScopeProject,
 		Lock: lf.ForProjection(codex),
 	}); err != nil {
 		t.Fatal(err)

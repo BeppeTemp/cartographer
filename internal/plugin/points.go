@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // Side is where a contribution point is loaded.
@@ -30,7 +31,7 @@ type Contribution struct {
 	Kind  string // artifact kind: skill, agent, hook
 	Name  string
 	// Files are the artifact's files, paths relative to the artifact.
-	Files []provisioning.ArtifactFile
+	Files []contract.ArtifactFile
 	// Executable lists the paths (relative to the artifact) of every file with
 	// the executable bit, for the install preview.
 	Executable []string
@@ -112,8 +113,8 @@ func previewArtifact(w io.Writer, c Contribution) {
 // group splits the files of a point into per-entry groups: skills/<name>/...
 // (dirs true) or agents/<name>.md (dirs false). Paths in a group are relative to
 // the entry.
-func group(dir string, files []TreeFile, dirs bool) (map[string][]provisioning.ArtifactFile, []string) {
-	out := map[string][]provisioning.ArtifactFile{}
+func group(dir string, files []TreeFile, dirs bool) (map[string][]contract.ArtifactFile, []string) {
+	out := map[string][]contract.ArtifactFile{}
 	var problems []string
 	for _, f := range files {
 		rest := strings.TrimPrefix(f.Path, dir+"/")
@@ -126,16 +127,16 @@ func group(dir string, files []TreeFile, dirs bool) (map[string][]provisioning.A
 		case !dirs && path.Ext(first) != ".md":
 			problems = append(problems, fmt.Sprintf("%s: expected a file %s/<name>.md", f.Path, dir))
 		case dirs:
-			out[first] = append(out[first], provisioning.ArtifactFile{Path: tail, Content: f.Content, Executable: f.Executable})
+			out[first] = append(out[first], contract.ArtifactFile{Path: tail, Content: f.Content, Executable: f.Executable})
 		default:
-			out[strings.TrimSuffix(first, ".md")] = append(out[strings.TrimSuffix(first, ".md")], provisioning.ArtifactFile{Path: first, Content: f.Content, Executable: f.Executable})
+			out[strings.TrimSuffix(first, ".md")] = append(out[strings.TrimSuffix(first, ".md")], contract.ArtifactFile{Path: first, Content: f.Content, Executable: f.Executable})
 		}
 	}
 	return out, problems
 }
 
 // load runs check on every entry of a point, in name order.
-func load(dir, kind string, files []TreeFile, dirs bool, check func(name string, fs []provisioning.ArtifactFile) (exec []string, problems []string)) ([]Contribution, []string) {
+func load(dir, kind string, files []TreeFile, dirs bool, check func(name string, fs []contract.ArtifactFile) (exec []string, problems []string)) ([]Contribution, []string) {
 	groups, problems := group(dir, files, dirs)
 	names := make([]string, 0, len(groups))
 	for n := range groups {
@@ -152,7 +153,7 @@ func load(dir, kind string, files []TreeFile, dirs bool, check func(name string,
 			continue
 		}
 		// The CLI skill is left out of the default bundle listing but is bundled all the same.
-		if provisioning.IsBundledArtifact(kind, name) || (kind == "skill" && strings.EqualFold(name, provisioning.CLISkillName)) {
+		if provisioning.IsBundledArtifact(kind, name) || (kind == "skill" && strings.EqualFold(name, contract.CLISkillName)) {
 			problems = append(problems, where+": a plugin cannot replace a bundled "+kind)
 			continue
 		}
@@ -191,7 +192,7 @@ func load(dir, kind string, files []TreeFile, dirs bool, check func(name string,
 	return out, problems
 }
 
-func find(fs []provisioning.ArtifactFile, p string) ([]byte, bool) {
+func find(fs []contract.ArtifactFile, p string) ([]byte, bool) {
 	for _, f := range fs {
 		if f.Path == p {
 			return f.Content, true
@@ -201,12 +202,12 @@ func find(fs []provisioning.ArtifactFile, p string) ([]byte, bool) {
 }
 
 func loadSkills(files []TreeFile) ([]Contribution, []string) {
-	return load("skills", "skill", files, true, func(name string, fs []provisioning.ArtifactFile) ([]string, []string) {
+	return load("skills", "skill", files, true, func(name string, fs []contract.ArtifactFile) ([]string, []string) {
 		data, ok := find(fs, "SKILL.md")
 		if !ok {
 			return nil, []string{"no SKILL.md"}
 		}
-		if err := provisioning.ValidateSkillFile(name, data); err != nil {
+		if err := contract.ValidateSkillFile(name, data); err != nil {
 			return nil, []string{err.Error()}
 		}
 		return execFiles(fs), nil
@@ -214,8 +215,8 @@ func loadSkills(files []TreeFile) ([]Contribution, []string) {
 }
 
 func loadAgents(files []TreeFile) ([]Contribution, []string) {
-	return load("agents", "agent", files, false, func(name string, fs []provisioning.ArtifactFile) ([]string, []string) {
-		if err := provisioning.ValidateAgentFile(name, fs[0].Content); err != nil {
+	return load("agents", "agent", files, false, func(name string, fs []contract.ArtifactFile) ([]string, []string) {
+		if err := contract.ValidateAgentFile(name, fs[0].Content); err != nil {
 			return nil, []string{err.Error()}
 		}
 		return execFiles(fs), nil
@@ -223,8 +224,8 @@ func loadAgents(files []TreeFile) ([]Contribution, []string) {
 }
 
 func loadHooks(files []TreeFile) ([]Contribution, []string) {
-	return load("hooks", "hook", files, true, func(name string, fs []provisioning.ArtifactFile) ([]string, []string) {
-		if strings.EqualFold(name, provisioning.BootstrapHookName) || strings.EqualFold(name, provisioning.WriteFindingsHookName) {
+	return load("hooks", "hook", files, true, func(name string, fs []contract.ArtifactFile) ([]string, []string) {
+		if strings.EqualFold(name, contract.BootstrapHookName) || strings.EqualFold(name, contract.WriteFindingsHookName) {
 			return nil, []string{"the name is reserved"}
 		}
 		data, ok := find(fs, "hook.json")
@@ -232,10 +233,10 @@ func loadHooks(files []TreeFile) ([]Contribution, []string) {
 			return nil, []string{"no hook.json"}
 		}
 		var probs []string
-		if _, err := provisioning.ValidateHookJSON(data); err != nil {
+		if _, err := contract.ValidateHookJSON(data); err != nil {
 			probs = append(probs, "hook.json: "+err.Error())
 		}
-		if err := provisioning.ValidateHookRequires(name, data); err != nil {
+		if err := contract.ValidateHookRequires(name, data); err != nil {
 			probs = append(probs, "hook.json: "+err.Error())
 		}
 		return execFiles(fs), probs
@@ -243,7 +244,7 @@ func loadHooks(files []TreeFile) ([]Contribution, []string) {
 }
 
 // execFiles lists the files that carry the executable bit, sorted.
-func execFiles(fs []provisioning.ArtifactFile) []string {
+func execFiles(fs []contract.ArtifactFile) []string {
 	var exec []string
 	for _, f := range fs {
 		if f.Executable {

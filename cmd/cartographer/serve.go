@@ -27,7 +27,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	"github.com/BeppeTemp/cartographer/internal/sops"
@@ -375,7 +375,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		if signed {
 			log.Printf("KB %q provisioning artifact signing enabled (key ID %s)", name, artifactsig.KeyID(artifactSigner.Public().(ed25519.PublicKey)))
 		}
-		if _, scanErr := provisioning.BuildManifest(nil, map[string]string{name: k.Root}, provisioning.BuildOptions{
+		if _, scanErr := contract.BuildManifest(nil, map[string]string{name: k.Root}, contract.BuildOptions{
 			SkillDiagnostic: func(message string) { log.Printf("warning: %s", message) },
 		}); scanErr != nil {
 			log.Printf("warning: KB %q MCP descriptor scan: %v", name, scanErr)

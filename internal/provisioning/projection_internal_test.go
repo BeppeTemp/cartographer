@@ -7,26 +7,27 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // A client with no subagents (Crush) receives a KB agent as a skill; Claude
 // Code never does (D1656, WP4).
 
-func agentArt(name, src string) Artifact {
-	files := []ArtifactFile{{Path: name + ".md", Content: []byte(src)}}
-	a := Artifact{Kind: "agent", Name: name, Source: "kb:kb-a", ContentHash: ContentHashFiles(files), Files: files}
-	a.Restriction = ParseAgentRestriction(files[0].Content)
+func agentArt(name, src string) contract.Artifact {
+	files := []contract.ArtifactFile{{Path: name + ".md", Content: []byte(src)}}
+	a := contract.Artifact{Kind: "agent", Name: name, Source: "kb:kb-a", ContentHash: ContentHashFiles(files), Files: files}
+	a.Restriction = contract.ParseAgentRestriction(files[0].Content)
 	return a
 }
 
-func skillArt(name, src string) Artifact {
-	files := []ArtifactFile{{Path: "SKILL.md", Content: []byte(src)}}
-	return Artifact{Kind: "skill", Name: name, Source: "kb:kb-a", ContentHash: ContentHashFiles(files), Files: files}
+func skillArt(name, src string) contract.Artifact {
+	files := []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte(src)}}
+	return contract.Artifact{Kind: "skill", Name: name, Source: "kb:kb-a", ContentHash: ContentHashFiles(files), Files: files}
 }
 
-func manifestOf(arts ...Artifact) Manifest {
-	m := Manifest{Artifacts: arts}
-	m.Revision = computeRevision(arts)
+func manifestOf(arts ...contract.Artifact) contract.Manifest {
+	m := contract.Manifest{Artifacts: arts}
+	m.Revision = contract.ComputeRevision(arts)
 	return m
 }
 
@@ -35,7 +36,7 @@ const (
 	gatedAgent  = "---\nname: gated\ndescription: Runs a hook\nhooks:\n  Stop: []\n---\nDo.\n"
 )
 
-func projectedNames(m Manifest) []string {
+func projectedNames(m contract.Manifest) []string {
 	var out []string
 	for _, a := range m.Artifacts {
 		out = append(out, a.Kind+"/"+a.Name)
@@ -45,7 +46,7 @@ func projectedNames(m Manifest) []string {
 
 func TestProjectDegradesAgentWhereNoSubagents(t *testing.T) {
 	m := manifestOf(agentArt("helper", helperAgent))
-	pm, notes := ProjectManifest(m, configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
+	pm, notes := ProjectManifest(m, configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
 	if got := strings.Join(projectedNames(pm), ","); got != "skill/helper" {
 		t.Fatalf("projected %q, want skill/helper", got)
 	}
@@ -57,10 +58,10 @@ func TestProjectDegradesAgentWhereNoSubagents(t *testing.T) {
 	if !strings.HasPrefix(body, "---\nname: helper\ndescription: Helps with things\n---\n") || strings.Contains(body, "model:") {
 		t.Errorf("frontmatter must carry name and description only:\n%s", body)
 	}
-	if !strings.Contains(body, degradedHeader) || !strings.HasSuffix(body, "Do the work.\n") {
+	if !strings.Contains(body, contract.DegradedHeader) || !strings.HasSuffix(body, "Do the work.\n") {
 		t.Errorf("header or body missing:\n%s", body)
 	}
-	if len(notes) != 1 || notes[0].Kind != NoteDegraded || notes[0].Artifact != "agent/helper" {
+	if len(notes) != 1 || notes[0].Kind != contract.NoteDegraded || notes[0].Artifact != "agent/helper" {
 		t.Errorf("notes = %+v", notes)
 	}
 	if pm.Revision == m.Revision {
@@ -70,7 +71,7 @@ func TestProjectDegradesAgentWhereNoSubagents(t *testing.T) {
 
 func TestProjectClaudeCodeIsUnchanged(t *testing.T) {
 	m := manifestOf(agentArt("helper", helperAgent), skillArt("s", "---\nname: s\ndescription: d\n---\nb\n"))
-	pm, notes := ProjectManifest(m, configurator.ProviderClaudeCode, ScopeGlobal, ProjectOptions{})
+	pm, notes := ProjectManifest(m, configurator.ProviderClaudeCode, contract.ScopeGlobal, contract.ProjectOptions{})
 	if len(notes) != 0 || pm.Revision != FilterForProvider(m, configurator.ProviderClaudeCode).Revision {
 		t.Fatalf("Claude Code must project exactly what the filter kept: notes=%v", notes)
 	}
@@ -83,7 +84,7 @@ func TestProjectClaudeCodeIsUnchanged(t *testing.T) {
 
 func TestProjectNeverDegradesStrictToolsAgent(t *testing.T) {
 	m := manifestOf(agentArt("auditor", "---\nname: auditor\ndescription: Reads\ntools: Read\nstrict_tools: true\n---\nb\n"))
-	pm, notes := ProjectManifest(m, configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
+	pm, notes := ProjectManifest(m, configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
 	if len(pm.Artifacts) != 0 || len(notes) != 0 {
 		t.Fatalf("strict_tools agent must be skipped as today: %v %v", projectedNames(pm), notes)
 	}
@@ -91,27 +92,27 @@ func TestProjectNeverDegradesStrictToolsAgent(t *testing.T) {
 
 func TestProjectRealSkillWinsOverDegraded(t *testing.T) {
 	m := manifestOf(agentArt("helper", helperAgent), skillArt("helper", "---\nname: helper\ndescription: Real\n---\nreal\n"))
-	pm, notes := ProjectManifest(m, configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
+	pm, notes := ProjectManifest(m, configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
 	if len(pm.Artifacts) != 1 || pm.Artifacts[0].DerivedFrom != nil {
 		t.Fatalf("the real skill must win: %v", projectedNames(pm))
 	}
-	if len(notes) != 1 || notes[0].Kind != NoteDegradedSkipped {
+	if len(notes) != 1 || notes[0].Kind != contract.NoteDegradedSkipped {
 		t.Errorf("notes = %+v", notes)
 	}
 }
 
 func TestProjectAgentWithoutDescriptionIsSkippedAndReported(t *testing.T) {
 	m := manifestOf(agentArt("nodesc", "---\nname: nodesc\n---\nb\n"))
-	pm, notes := ProjectManifest(m, configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
-	if len(pm.Artifacts) != 0 || len(notes) != 1 || notes[0].Kind != NoteDegradedSkipped {
+	pm, notes := ProjectManifest(m, configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
+	if len(pm.Artifacts) != 0 || len(notes) != 1 || notes[0].Kind != contract.NoteDegradedSkipped {
 		t.Fatalf("got %v %+v", projectedNames(pm), notes)
 	}
 }
 
 func TestProjectDerivedHashTracksAgentEdit(t *testing.T) {
-	a1, _ := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
-	a2, _ := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
-	a3, _ := ProjectManifest(manifestOf(agentArt("helper", helperAgent+"more\n")), configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
+	a1, _ := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
+	a2, _ := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
+	a3, _ := ProjectManifest(manifestOf(agentArt("helper", helperAgent+"more\n")), configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
 	if a1.Artifacts[0].ContentHash != a2.Artifacts[0].ContentHash {
 		t.Error("the derivation must be deterministic")
 	}
@@ -121,7 +122,7 @@ func TestProjectDerivedHashTracksAgentEdit(t *testing.T) {
 }
 
 func TestDegradedProvenanceNamesTheAgent(t *testing.T) {
-	pm, _ := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
+	pm, _ := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
 	d := pm.Artifacts[0]
 	out := string(stampArtifact(d.Files[0].Content, d))
 	for _, want := range []string{`Source: KB "kb-a", path agents/helper.md`, "Artifact content hash: " + d.DerivedFrom.ContentHash, "Derived by Cartographer as a skill on this client (no subagents)"} {
@@ -138,7 +139,7 @@ func TestDegradedProvenanceNamesTheAgent(t *testing.T) {
 // judged on the agent it came from, with the agent's hash.
 func TestDegradedSkillInheritsAgentApproval(t *testing.T) {
 	agent := agentArt("gated", gatedAgent)
-	pm, _ := ProjectManifest(manifestOf(agent), configurator.ProviderCrush, ScopeGlobal, ProjectOptions{})
+	pm, _ := ProjectManifest(manifestOf(agent), configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{})
 	d := pm.Artifacts[0]
 	if !ArtifactRequiresApproval(d, ApplyOptions{}) {
 		t.Fatal("a degraded gated agent must require approval")
@@ -169,9 +170,9 @@ func TestDegradedSkillInheritsAgentApproval(t *testing.T) {
 	}
 }
 
-func applyProjected(t *testing.T, m Manifest, p configurator.Provider, base string, lock Lock, dry bool) AppliedResult {
+func applyProjected(t *testing.T, m contract.Manifest, p configurator.Provider, base string, lock Lock, dry bool) AppliedResult {
 	t.Helper()
-	pm, _ := ProjectManifest(m, p, ScopeGlobal, ProjectOptions{})
+	pm, _ := ProjectManifest(m, p, contract.ScopeGlobal, contract.ProjectOptions{})
 	res, err := Apply(pm, ApplyOptions{Provider: p, BaseDir: base, Lock: lock, DryRun: dry, ApprovedMCP: map[string]string{}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -197,7 +198,7 @@ func TestDegradedSkillLifecycle(t *testing.T) {
 		t.Fatalf("first run: %+v", res.Written)
 	}
 	dest := filepath.Join(base, res.Written[0].Path)
-	if b, err := os.ReadFile(dest); err != nil || !strings.Contains(string(b), degradedHeader) || !strings.Contains(string(b), "Derived by Cartographer") {
+	if b, err := os.ReadFile(dest); err != nil || !strings.Contains(string(b), contract.DegradedHeader) || !strings.Contains(string(b), "Derived by Cartographer") {
 		t.Fatalf("degraded skill not written with header and provenance at %s: %v", dest, err)
 	}
 
@@ -225,15 +226,15 @@ func TestDegradedSkillPrunedWhenClientGainsAgents(t *testing.T) {
 	// The seam stands in for a client whose agent capability is absent, then
 	// gains it: the degraded skill must leave and the native agent arrive.
 	p2 := configurator.ProviderClaudeCode
-	t.Cleanup(func() { capabilityOverride = nil })
-	capabilityOverride = func(_ configurator.Provider, _ Scope, id Capability) (CapStatus, bool) {
-		if id == CapAgentDelegate || id == CapAgentInvoke {
-			return CapAbsent, true
+	t.Cleanup(func() { contract.CapabilityOverride = nil })
+	contract.CapabilityOverride = func(_ configurator.Provider, _ contract.Scope, id contract.Capability) (contract.CapStatus, bool) {
+		if id == contract.CapAgentDelegate || id == contract.CapAgentInvoke {
+			return contract.CapAbsent, true
 		}
 		return "", false
 	}
-	pm, notes := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), p2, ScopeGlobal, ProjectOptions{})
-	if len(notes) != 1 || notes[0].Kind != NoteDegraded || pm.Artifacts[0].Kind != "skill" {
+	pm, notes := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), p2, contract.ScopeGlobal, contract.ProjectOptions{})
+	if len(notes) != 1 || notes[0].Kind != contract.NoteDegraded || pm.Artifacts[0].Kind != "skill" {
 		t.Fatalf("a seam-injected client lacking agents degrades them: %v %+v", projectedNames(pm), notes)
 	}
 	base2 := t.TempDir()
@@ -241,8 +242,8 @@ func TestDegradedSkillPrunedWhenClientGainsAgents(t *testing.T) {
 	if err != nil || len(r1.Written) != 1 || r1.Written[0].Kind != "skill" {
 		t.Fatalf("degraded install: %v %+v", err, r1.Written)
 	}
-	capabilityOverride = nil
-	pm2, notes2 := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), p2, ScopeGlobal, ProjectOptions{})
+	contract.CapabilityOverride = nil
+	pm2, notes2 := ProjectManifest(manifestOf(agentArt("helper", helperAgent)), p2, contract.ScopeGlobal, contract.ProjectOptions{})
 	if len(notes2) != 0 || pm2.Artifacts[0].Kind != "agent" {
 		t.Fatalf("capability gained: agent must be native again: %v", projectedNames(pm2))
 	}
@@ -281,17 +282,17 @@ func TestDegradedWidenedWarning(t *testing.T) {
 // #1785: a hook the client carries globally but has no workspace destination
 // for is reported, not dropped silently; a client with the cell is quiet.
 func TestProjectReportsHookWithoutWorkspaceDestination(t *testing.T) {
-	hook := Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a"}
+	hook := contract.Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a"}
 	m := manifestOf(hook)
-	_, notes := ProjectManifest(m, configurator.ProviderKiro, ScopeProject, ProjectOptions{})
-	if len(notes) != 1 || notes[0].Kind != NoteSkipped || notes[0].Artifact != "hook/guard" ||
+	_, notes := ProjectManifest(m, configurator.ProviderKiro, contract.ScopeProject, contract.ProjectOptions{})
+	if len(notes) != 1 || notes[0].Kind != contract.NoteSkipped || notes[0].Artifact != "hook/guard" ||
 		!strings.Contains(notes[0].Reason, "no workspace destination") {
 		t.Errorf("kiro project notes = %+v", notes)
 	}
-	if _, notes := ProjectManifest(m, configurator.ProviderKiro, ScopeGlobal, ProjectOptions{}); len(notes) != 0 {
+	if _, notes := ProjectManifest(m, configurator.ProviderKiro, contract.ScopeGlobal, contract.ProjectOptions{}); len(notes) != 0 {
 		t.Errorf("global scope must be quiet: %+v", notes)
 	}
-	if _, notes := ProjectManifest(m, configurator.ProviderClaudeCode, ScopeProject, ProjectOptions{}); len(notes) != 0 {
+	if _, notes := ProjectManifest(m, configurator.ProviderClaudeCode, contract.ScopeProject, contract.ProjectOptions{}); len(notes) != 0 {
 		t.Errorf("claude has a project hook cell: %+v", notes)
 	}
 }

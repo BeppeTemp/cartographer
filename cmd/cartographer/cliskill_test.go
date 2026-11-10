@@ -9,16 +9,17 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 func TestWithoutCLISkill(t *testing.T) {
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{
+	m := contract.Manifest{Artifacts: []contract.Artifact{
 		{Kind: "skill", Name: "cartographer-ops", Source: "bundle"},
 		{Kind: "skill", Name: cliSkillName, Source: "bundle"},
 		{Kind: "skill", Name: cliSkillName, Source: "kb:kb-a"}, // a KB's own skill of that name is not ours
 	}}
-	names := func(m provisioning.Manifest) []string {
+	names := func(m contract.Manifest) []string {
 		var out []string
 		for _, a := range m.Artifacts {
 			out = append(out, a.Source+"/"+a.Name)
@@ -41,11 +42,11 @@ func TestWithoutCLISkill(t *testing.T) {
 // The skill is in the bundle manifest every client receives, and the predicate
 // drops it for every built-in provider: the whole point of shipping it unset.
 func TestCLISkillIsBundledAndFilteredForBuiltIns(t *testing.T) {
-	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{IncludeCLISkill: true})
+	m, err := contract.BuildManifest(skillbundle.FS, nil, contract.BuildOptions{IncludeCLISkill: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	has := func(m provisioning.Manifest) bool {
+	has := func(m contract.Manifest) bool {
 		for _, a := range m.Artifacts {
 			if a.Kind == "skill" && a.Name == cliSkillName && a.Source == "bundle" {
 				return true
@@ -119,7 +120,7 @@ func TestCLIProviderHasNoMCPEntry(t *testing.T) {
 // per-provider filter decides: no warning, none installed for a non-cli
 // provider, installed for a cli one (#1774).
 func TestCLISkillSurvivesVerificationAndIsFilteredPerProvider(t *testing.T) {
-	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{IncludeCLISkill: true})
+	m, err := contract.BuildManifest(skillbundle.FS, nil, contract.BuildOptions{IncludeCLISkill: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +131,7 @@ func TestCLISkillSurvivesVerificationAndIsFilteredPerProvider(t *testing.T) {
 	if len(v.Skipped) != 0 {
 		t.Fatalf("warnings: %v", v.Skipped)
 	}
-	has := func(m provisioning.Manifest) bool {
+	has := func(m contract.Manifest) bool {
 		for _, a := range m.Artifacts {
 			if a.Kind == "skill" && a.Name == cliSkillName {
 				return true

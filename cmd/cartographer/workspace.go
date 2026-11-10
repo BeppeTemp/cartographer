@@ -17,6 +17,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/mcpbridge"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // workspace.go (D193) — resolving a provider's projections, and the
@@ -49,7 +50,7 @@ type syncProjection struct {
 	// KB-sourced. This is decision 5 made into a flag rather than a convention.
 	BundleOnly bool
 	// Scope is the destination matrix half this projection writes through.
-	Scope provisioning.Scope
+	Scope contract.Scope
 	// Derived marks a projection whose binding comes from a KB's paths.yaml
 	// (D1019), not from `workspace bind`. It never edits a file git tracks:
 	// InstructionsRel redirects the instructions block to an untracked file,
@@ -96,7 +97,7 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			Provider: provider,
 			BaseDir:  clientBaseDir,
 			KBs:      bound,
-			Scope:    provisioning.ScopeGlobal,
+			Scope:    contract.ScopeGlobal,
 		}}, nil
 	}
 
@@ -113,7 +114,7 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 		Provider:   provider,
 		BaseDir:    clientBaseDir,
 		BundleOnly: true,
-		Scope:      provisioning.ScopeGlobal,
+		Scope:      contract.ScopeGlobal,
 	}}
 
 	bindings := cfg.WorkspaceBindings(provider)
@@ -145,7 +146,7 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			BaseDir:   w.Path,
 			Remote:    w.Remote,
 			KBs:       w.KBs,
-			Scope:     provisioning.ScopeProject,
+			Scope:     contract.ScopeProject,
 			Derived:   w.Derived,
 		}
 		if w.Derived {
@@ -163,13 +164,13 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 // answers "do two KBs collide **here**", which is the only place a collision can
 // actually confuse an agent. Two KBs owning a same-named skill in two different
 // workspaces is legal; the same two bound to one workspace is not.
-func (cs candidateSet) forProjection(cfg *clientconfig.Config, p syncProjection) []provisioning.Artifact {
+func (cs candidateSet) forProjection(cfg *clientconfig.Config, p syncProjection) []contract.Artifact {
 	if p.BundleOnly {
-		out := make([]provisioning.Artifact, 0, len(cs.Bare))
+		out := make([]contract.Artifact, 0, len(cs.Bare))
 		for _, a := range cs.all() {
 			// The bundle and the plugins: a workspace-scoped provider still
 			// receives its plugins in the global scope (decision 8).
-			if a.Source == "bundle" || provisioning.IsPluginSource(a.Source) {
+			if a.Source == "bundle" || contract.IsPluginSource(a.Source) {
 				out = append(out, a)
 			}
 		}
@@ -193,7 +194,7 @@ func (cs candidateSet) forProjection(cfg *clientconfig.Config, p syncProjection)
 	for _, kb := range p.KBs {
 		permitted["kb:"+kb] = true
 	}
-	var out []provisioning.Artifact
+	var out []contract.Artifact
 	for _, a := range cs.forKBs(p.KBs) {
 		if permitted[a.Source] {
 			out = append(out, a)
@@ -800,7 +801,7 @@ func projectionLabel(key string) string {
 // globalProjection is the single projection a default-scoped provider has. It
 // is the shape every caller had before workspaces existed.
 func globalProjection(provider, baseDir string, kbs []string) syncProjection {
-	return syncProjection{Provider: provider, BaseDir: baseDir, KBs: kbs, Scope: provisioning.ScopeGlobal}
+	return syncProjection{Provider: provider, BaseDir: baseDir, KBs: kbs, Scope: contract.ScopeGlobal}
 }
 
 // allProjections resolves every projection of every listed provider, in a
@@ -855,7 +856,7 @@ func allProjectionsPartial(cfg *clientconfig.Config, providers []string, clientB
 // confuse an agent: two KBs owning a same-named skill in two different
 // workspaces is legal and must stay legal, while the same two bound to one
 // workspace is still refused.
-func manifestsForProjections(cfg *clientconfig.Config, projections []syncProjection) (map[string]provisioning.Manifest, error) {
+func manifestsForProjections(cfg *clientconfig.Config, projections []syncProjection) (map[string]contract.Manifest, error) {
 	out, _, err := buildProjectionManifests(syncStreams{}, cfg, projections, false, nil)
 	return out, err
 }
@@ -866,15 +867,15 @@ func manifestsForProjections(cfg *clientconfig.Config, projections []syncProject
 // keeps its previous state — and the failures come back in KB order for the
 // caller to report. A projection that needs no failed KB is built exactly as
 // manifestsForProjections builds it.
-func manifestsForProjectionsPartial(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
+func manifestsForProjectionsPartial(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]contract.Manifest, []kbPullFailure, error) {
 	return buildProjectionManifests(st, cfg, projections, true, pre)
 }
 
 // buildProjectionManifests builds one manifest per projection. pre, when it
 // covers every KB the projections ask for, replaces the pulls (D1019: the
 // derivation already made them); nil pulls here.
-func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
-	out := make(map[string]provisioning.Manifest, len(projections))
+func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]contract.Manifest, []kbPullFailure, error) {
+	out := make(map[string]contract.Manifest, len(projections))
 
 	// Every KB any projection asks for, pulled once.
 	seen := map[string]bool{}
@@ -912,7 +913,7 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		plugins := loadActivePlugins(cfg).Artifacts
 		for _, p := range projections {
 			if p.Workspace != "" || len(plugins) == 0 {
-				out[projectionKey(p)] = provisioning.MergeArtifacts(nil)
+				out[projectionKey(p)] = contract.MergeArtifacts(nil)
 				continue
 			}
 			merged, err := mergeAcrossPlugins(plugins, report)
@@ -1001,7 +1002,7 @@ func needsAny(kbs []string, unavailable map[string]bool) bool {
 // project-scoped projection, before anything is written there (WP5). A refusal
 // here costs nothing: no file has been touched yet.
 func prepareWorkspace(st syncStreams, p syncProjection, providers []string, dryRun bool, owned ownedPathsFunc, local ...string) error {
-	if p.Scope != provisioning.ScopeProject {
+	if p.Scope != contract.ScopeProject {
 		return nil
 	}
 	provider := configurator.Provider(p.Provider)
@@ -1036,7 +1037,7 @@ func prepareWorkspace(st syncStreams, p syncProjection, providers []string, dryR
 func derivedLocalFiles(projections []syncProjection, workspace string) []string {
 	var out []string
 	for _, q := range projections {
-		if q.Scope != provisioning.ScopeProject || q.Workspace != workspace {
+		if q.Scope != contract.ScopeProject || q.Workspace != workspace {
 			continue
 		}
 		for _, rel := range []string{q.InstructionsRel, q.HookSettingsRel} {
@@ -1056,12 +1057,12 @@ type ownedPathsFunc func(provider configurator.Provider) ([]string, error)
 // the artifacts this run plans for it (manifests, keyed as projectionKey) and
 // the paths the lockfile records for it. A provider with neither owns only its
 // shared files, so a repository's own artifacts are never claimed.
-func workspaceOwnership(lockFile *provisioning.LockFile, projections []syncProjection, manifests map[string]provisioning.Manifest, workspace string) ownedPathsFunc {
+func workspaceOwnership(lockFile *provisioning.LockFile, projections []syncProjection, manifests map[string]contract.Manifest, workspace string) ownedPathsFunc {
 	return func(provider configurator.Provider) ([]string, error) {
-		var m provisioning.Manifest
+		var m contract.Manifest
 		var notWritten []string
 		for _, p := range projections {
-			if p.Scope == provisioning.ScopeProject && p.Workspace == workspace && p.Provider == string(provider) {
+			if p.Scope == contract.ScopeProject && p.Workspace == workspace && p.Provider == string(provider) {
 				m = withoutKinds(manifests[projectionKey(p)], p.SkipKinds)
 				notWritten = p.SharedSkipped
 				break
@@ -1151,7 +1152,7 @@ func workspaceProviders(lockFile provisioning.LockFile, declared []syncProjectio
 	var out []string
 	for _, p := range declared {
 		inPlay[p.Provider] = true
-		if p.Scope == provisioning.ScopeProject && p.Workspace == workspace && !seen[p.Provider] {
+		if p.Scope == contract.ScopeProject && p.Workspace == workspace && !seen[p.Provider] {
 			seen[p.Provider] = true
 			out = append(out, p.Provider)
 		}
@@ -1390,7 +1391,7 @@ func uncoveredProjectionFiles(provider configurator.Provider, workspace string, 
 		return nil
 	}
 	instructions := provisioning.ProjectDestination("instructions", "", provider)
-	owned, err := provisioning.ProjectOwnedArtifactPaths(provider, provisioning.Manifest{}, lock)
+	owned, err := provisioning.ProjectOwnedArtifactPaths(provider, contract.Manifest{}, lock)
 	if err != nil {
 		return nil
 	}
@@ -1439,7 +1440,7 @@ func joinCapped(items []string, max int) string {
 // removed by `disconnect`, which owns that decision — reaching it from here
 // would delete a connected provider's catalogue because it was absent from one
 // `sync --client` invocation.
-func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, declared []syncProjection, manifests map[string]provisioning.Manifest, clientBaseDir string) ([]string, error) {
+func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, declared []syncProjection, manifests map[string]contract.Manifest, clientBaseDir string) ([]string, error) {
 	wanted := map[string]bool{}
 	providersInPlay := map[string]bool{}
 	for _, p := range declared {

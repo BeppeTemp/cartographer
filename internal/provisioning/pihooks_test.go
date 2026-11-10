@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // applyPiHook applies a one-hook KB for Pi. script, when not empty, replaces
@@ -25,7 +26,7 @@ func applyPiHook(t *testing.T, baseDir, event, matcher, script string) (provisio
 			t.Fatal(err)
 		}
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +118,7 @@ func TestApply_PiHookGolden(t *testing.T) {
 		kbRoot := t.TempDir()
 		writeHookKB(t, kbRoot, "guard", tc.event, tc.matcher, "./notify.sh")
 		for i := 0; i < 2; i++ {
-			m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+			m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,7 +142,7 @@ func TestApply_PiWriteFindingsGolden(t *testing.T) {
 	if _, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderPi, provisioning.Lock{}, true, false); err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(filepath.Join(baseDir, ".pi", "agent", "extensions", "cartographer-"+provisioning.WriteFindingsHookName+".ts"))
+	got, err := os.ReadFile(filepath.Join(baseDir, ".pi", "agent", "extensions", "cartographer-"+contract.WriteFindingsHookName+".ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +213,7 @@ func TestEnsureBootstrapAndWriteFindings_Pi(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{provisioning.BootstrapHookName, provisioning.WriteFindingsHookName} {
+	for _, name := range []string{contract.BootstrapHookName, contract.WriteFindingsHookName} {
 		for _, p := range []string{
 			filepath.Join(".pi", "agent", "cartographer-hooks", name, "hook.json"),
 			filepath.Join(".pi", "agent", "extensions", "cartographer-"+name+".ts"),
@@ -232,7 +233,7 @@ func TestEnsureBootstrapAndWriteFindings_Pi(t *testing.T) {
 	if _, err := provisioning.PruneManaged(lock.Managed, baseDir, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(baseDir, ".pi", "agent", "extensions", "cartographer-"+provisioning.BootstrapHookName+".ts")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(baseDir, ".pi", "agent", "extensions", "cartographer-"+contract.BootstrapHookName+".ts")); !os.IsNotExist(err) {
 		t.Errorf("extension survived the prune: %v", err)
 	}
 }

@@ -11,7 +11,7 @@ Compass **always talks to Meridian over HTTP** (the `sync_pull` tool): there is 
 stdio transport on the client side, nor a separate binary — see
 [the Compass decision records](decisions.md#client-configurator) for the
 rationale. Generating the MCP config files (`internal/configurator`) and the
-materialization logic (`internal/provisioning`) are the same used server-side by
+materialization logic (`internal/provisioning` for the apply half, `internal/provisioning/contract` for the manifest) are the same used server-side by
 `sync_check`/`sync_pull` (`docs/sync.md`).
 
 ## Subcommands

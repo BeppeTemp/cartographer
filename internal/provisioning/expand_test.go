@@ -16,6 +16,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // --- expandPlaceholders (unit) ---
@@ -130,7 +131,7 @@ func TestExpandHomePath(t *testing.T) {
 func TestHashArtifactFiles_MatchesContentHashFileFormula(t *testing.T) {
 	// Same versioned formula as contentHashFile.
 	content := []byte("Body.\n")
-	got := hashArtifactFiles([]ArtifactFile{{Path: "reviewer.md", Content: content}})
+	got := contract.HashArtifactFiles([]contract.ArtifactFile{{Path: "reviewer.md", Content: content}})
 
 	h := sha256.New()
 	h.Write([]byte("cartographer:artifact-content:v1\x00"))
@@ -150,9 +151,9 @@ func TestHashArtifactFiles_MatchesContentHashFileFormula(t *testing.T) {
 }
 
 func TestHashArtifactFiles_OrderIndependent(t *testing.T) {
-	files1 := []ArtifactFile{{Path: "a.md", Content: []byte("aaa")}, {Path: "b.md", Content: []byte("bbb")}}
-	files2 := []ArtifactFile{{Path: "b.md", Content: []byte("bbb")}, {Path: "a.md", Content: []byte("aaa")}}
-	if hashArtifactFiles(files1) != hashArtifactFiles(files2) {
+	files1 := []contract.ArtifactFile{{Path: "a.md", Content: []byte("aaa")}, {Path: "b.md", Content: []byte("bbb")}}
+	files2 := []contract.ArtifactFile{{Path: "b.md", Content: []byte("bbb")}, {Path: "a.md", Content: []byte("aaa")}}
+	if contract.HashArtifactFiles(files1) != contract.HashArtifactFiles(files2) {
 		t.Error("hashArtifactFiles must be independent of file order")
 	}
 }
@@ -165,11 +166,11 @@ func TestApply_ExpandPlaceholders_ZeroDriftAgent(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nNo placeholder here.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	var agentArtifact Artifact
+	var agentArtifact contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "agent" {
 			agentArtifact = a
@@ -208,11 +209,11 @@ func TestApply_ExpandPlaceholders_AgentPathPlaceholder(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	var agentArtifact Artifact
+	var agentArtifact contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "agent" {
 			agentArtifact = a
@@ -266,7 +267,7 @@ func TestApply_ExpandPlaceholders_UnresolvedWarnsAndLeavesLiteral(t *testing.T) 
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:missing}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -304,11 +305,11 @@ func TestApply_ExpandPlaceholders_ServerNeverExpands(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	var agentArtifact Artifact
+	var agentArtifact contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "agent" {
 			agentArtifact = a
@@ -357,11 +358,11 @@ func TestApply_ExpandPlaceholders_ZeroDriftSkill(t *testing.T) {
 	os.MkdirAll(skillDir, 0o755)
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: kb-skill\ndescription: Test\n---\nNo placeholder.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	var skillArtifact Artifact
+	var skillArtifact contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "skill" {
 			skillArtifact = a
@@ -399,7 +400,7 @@ func TestApply_ExpandPlaceholders_SkillMultiFilePlaceholder(t *testing.T) {
 	os.WriteFile(filepath.Join(skillDir, "notes.md"), []byte("No placeholder here.\n"), 0o644)
 	os.WriteFile(filepath.Join(skillDir, "run.sh"), []byte("{{path:tools}}/run\n"), 0o755)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -448,13 +449,13 @@ func TestApply_ExpandPlaceholders_SkillMultiFilePlaceholder(t *testing.T) {
 
 // --- Apply: instructions (group) ---
 
-func instructionsArtifactForExpandTest(name, content string) Artifact {
-	files := []ArtifactFile{{Path: "instructions.md", Content: []byte(content)}}
-	return Artifact{
+func instructionsArtifactForExpandTest(name, content string) contract.Artifact {
+	files := []contract.ArtifactFile{{Path: "instructions.md", Content: []byte(content)}}
+	return contract.Artifact{
 		Kind:        "instructions",
 		Name:        name,
 		Source:      "kb:" + name,
-		ContentHash: hashArtifactFiles(files),
+		ContentHash: contract.HashArtifactFiles(files),
 		Signed:      true,
 		Files:       files,
 	}
@@ -463,7 +464,7 @@ func instructionsArtifactForExpandTest(name, content string) Artifact {
 func TestApply_ExpandPlaceholders_Instructions(t *testing.T) {
 	baseDir := t.TempDir()
 	a := instructionsArtifactForExpandTest("homelab", "Working repo: {{repo:homelab}}.\n")
-	m := MergeArtifacts([]Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider:           configurator.ProviderClaudeCode,
@@ -496,7 +497,7 @@ func TestApply_ExpandPlaceholders_Instructions(t *testing.T) {
 func TestApply_ExpandPlaceholders_ZeroDriftInstructions(t *testing.T) {
 	baseDir := t.TempDir()
 	a := instructionsArtifactForExpandTest("homelab", "No placeholder here.\n")
-	m := MergeArtifacts([]Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider:           configurator.ProviderClaudeCode,
@@ -551,7 +552,7 @@ func TestApply_ExpandPlaceholders_PathsTableInInstructions(t *testing.T) {
 	// in this same Apply (tracker, not per-kind).
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -594,7 +595,7 @@ func TestApply_ExpandPlaceholders_NoPathsTableWhenNothingResolved(t *testing.T) 
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nNo placeholder here.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -632,7 +633,7 @@ func TestApply_ExpandPlaceholders_NoPathsTableServerSide(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -760,7 +761,7 @@ func TestUnresolvedPlaceholdersWarning_CompactAndSharedReason(t *testing.T) {
 // TestApply_RecordsPriorUnresolved: what the sync compares against to decide
 // which keys are new is the unresolved set of the lock it started from.
 func TestApply_RecordsPriorUnresolved(t *testing.T) {
-	m := Manifest{Revision: "r"}
+	m := contract.Manifest{Revision: "r"}
 	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: "claude", BaseDir: t.TempDir(), ExpandPlaceholders: true,
 		Lock: Lock{UnresolvedPlaceholders: map[string]string{"path:old": "x"}},
@@ -784,7 +785,7 @@ func TestApply_ExpandPlaceholders_InstructionsConverge(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			baseDir := t.TempDir()
 			a := instructionsArtifactForExpandTest("homelab", "Working repo: {{repo:homelab}}.\n")
-			m := MergeArtifacts([]Artifact{a})
+			m := contract.MergeArtifacts([]contract.Artifact{a})
 			opts := ApplyOptions{ApprovedMCP: approveAll(m),
 				Provider:           configurator.ProviderClaudeCode,
 				BaseDir:            baseDir,
@@ -818,7 +819,7 @@ func TestApply_ExpandPlaceholders_InstructionsConverge(t *testing.T) {
 func TestComputeDiffResolved_InstructionsResolutionChange(t *testing.T) {
 	baseDir := t.TempDir()
 	a := instructionsArtifactForExpandTest("homelab", "Working repo: {{repo:homelab}}.\n")
-	m := MergeArtifacts([]Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 	opts := ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,

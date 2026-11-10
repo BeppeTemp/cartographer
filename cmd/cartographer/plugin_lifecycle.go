@@ -13,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // The lifecycle after the first install: approve, update, enable, disable and
@@ -416,7 +417,7 @@ func printChangedContent(w io.Writer, old, next plugin.Plugin) {
 				}
 			}
 		}
-		var files []provisioning.ArtifactFile
+		var files []contract.ArtifactFile
 		for _, f := range a.Files {
 			if was, ok := prev[f.Path]; !ok || !bytes.Equal(was, f.Content) {
 				files = append(files, f)

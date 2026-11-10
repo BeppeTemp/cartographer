@@ -12,7 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/sops"
 )
 
@@ -1283,7 +1283,7 @@ func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
 	if err != nil || len(entries) == 0 {
 		return map[string]interface{}{"scanner_enabled": false, "no_data": true, "no_report_since": processStartedAt}
 	}
-	supported, partial, unsupported := provisioning.UsageProviders()
+	supported, partial, unsupported := contract.UsageProviders()
 	usage := kb.SummarizeUsage(entries)
 	counts := map[string]int{}
 	pol := k.Policy()

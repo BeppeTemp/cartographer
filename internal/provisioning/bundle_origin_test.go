@@ -9,13 +9,14 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
-func forgedBundleArtifacts() []provisioning.Artifact {
-	hookFiles := []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"echo forged"}`)}}
-	mcpFiles := []provisioning.ArtifactFile{{Path: "mcp.json", Content: []byte(`{"type":"http","url":"https://example.com/mcp"}`)}}
-	return []provisioning.Artifact{
+func forgedBundleArtifacts() []contract.Artifact {
+	hookFiles := []contract.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"echo forged"}`)}}
+	mcpFiles := []contract.ArtifactFile{{Path: "mcp.json", Content: []byte(`{"type":"http","url":"https://example.com/mcp"}`)}}
+	return []contract.Artifact{
 		{Kind: "hook", Name: "forged-hook", Source: "bundle", BuiltIn: true, ContentHash: provisioning.ContentHashFiles(hookFiles), Files: hookFiles},
 		{Kind: "mcp", Name: "forged-mcp", Source: "bundle", BuiltIn: true, ContentHash: provisioning.ContentHashFiles(mcpFiles), Files: mcpFiles},
 	}
@@ -31,7 +32,7 @@ func TestVerifiedManifest_BundleArtifactMustMatchEmbeddedBundle(t *testing.T) {
 	pins := map[string][]ed25519.PublicKey{"kb-a": {priv.Public().(ed25519.PublicKey)}}
 	for _, p := range []map[string][]ed25519.PublicKey{pins, nil} {
 		for _, a := range forgedBundleArtifacts() {
-			v, err := provisioning.VerifiedManifest(provisioning.Manifest{Artifacts: []provisioning.Artifact{a}}, p)
+			v, err := provisioning.VerifiedManifest(contract.Manifest{Artifacts: []contract.Artifact{a}}, p)
 			if err != nil {
 				t.Fatalf("forged bundle %s/%s failed the sync: %v", a.Kind, a.Name, err)
 			}
@@ -46,8 +47,8 @@ func TestVerifiedManifest_BundleArtifactMustMatchEmbeddedBundle(t *testing.T) {
 // this client's own copy and reported, and a KB artifact in the same manifest
 // still installs.
 func TestApply_BundleSkewSkippedKBArtifactInstalls(t *testing.T) {
-	kbFiles := []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: kb-skill\ndescription: test\n---\n")}}
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{
+	kbFiles := []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: kb-skill\ndescription: test\n---\n")}}
+	m := contract.Manifest{Artifacts: []contract.Artifact{
 		{Kind: "skill", Name: "cartographer-kb-create", Source: "bundle", ContentHash: "other-version"},
 		{Kind: "skill", Name: "kb-skill", Source: "kb:kb-a", ContentHash: provisioning.ContentHashFiles(kbFiles), Files: kbFiles},
 	}}
@@ -78,7 +79,7 @@ func TestApply_BundleSkewSkippedKBArtifactInstalls(t *testing.T) {
 }
 
 func TestVerifiedManifest_EmbeddedBundleIsBuiltIn(t *testing.T) {
-	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(skillbundle.FS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +107,7 @@ func TestApply_ForgedBundleMCPStillNeedsApproval(t *testing.T) {
 	home := t.TempDir()
 	a := forgedBundleArtifacts()[1]
 	a.BuiltIn = false
-	res, err := provisioning.Apply(provisioning.Manifest{Artifacts: []provisioning.Artifact{a}}, provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: home})
+	res, err := provisioning.Apply(contract.Manifest{Artifacts: []contract.Artifact{a}}, provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: home})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestApply_ForgedBundleMCPStillNeedsApproval(t *testing.T) {
 // The server lists the CLI skill (include_cli_skill, D1700): it is part of this
 // client's embedded set, so it verifies as built-in with no warning (#1774).
 func TestVerifiedManifest_CLISkillMatchesEmbeddedBundle(t *testing.T) {
-	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{IncludeCLISkill: true})
+	m, err := contract.BuildManifest(skillbundle.FS, nil, contract.BuildOptions{IncludeCLISkill: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,18 +135,18 @@ func TestVerifiedManifest_CLISkillMatchesEmbeddedBundle(t *testing.T) {
 	}
 	found := false
 	for _, a := range v.Artifacts {
-		if a.Kind == "skill" && a.Name == provisioning.CLISkillName {
+		if a.Kind == "skill" && a.Name == contract.CLISkillName {
 			found = a.BuiltIn && len(a.Files) > 0
 		}
 	}
 	if !found {
-		t.Fatalf("%s is not a built-in artifact with files", provisioning.CLISkillName)
+		t.Fatalf("%s is not a built-in artifact with files", contract.CLISkillName)
 	}
 }
 
 // A plugin cannot ship a skill that shadows the bundled CLI skill.
 func TestIsBundledArtifact_CLISkill(t *testing.T) {
-	if !provisioning.IsBundledArtifact("skill", provisioning.CLISkillName) {
+	if !provisioning.IsBundledArtifact("skill", contract.CLISkillName) {
 		t.Fatal("the CLI skill is embedded")
 	}
 }

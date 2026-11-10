@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func kiroHooksFile(baseDir string) string {
@@ -21,7 +22,7 @@ func kiroHooksFile(baseDir string) string {
 
 func applyKiroHooks(t *testing.T, kbRoot, baseDir string, lock provisioning.Lock) provisioning.AppliedResult {
 	t.Helper()
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +230,7 @@ func TestApply_Kiro_Hook_RefusesSymlinkedHooksDir(t *testing.T) {
 	if err := os.Symlink(elsewhere, filepath.Join(baseDir, ".kiro", "hooks")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestHookRegistrations_KiroCountsOwnedEntries(t *testing.T) {
 	if _, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderKiro, provisioning.Lock{}, false); err != nil {
 		t.Fatal(err)
 	}
-	managed, stray, err := provisioning.HookRegistrations(baseDir, configurator.ProviderKiro, provisioning.BootstrapHookName)
+	managed, stray, err := provisioning.HookRegistrations(baseDir, configurator.ProviderKiro, contract.BootstrapHookName)
 	if err != nil || managed != 1 || stray != 0 {
 		t.Errorf("HookRegistrations = %d, %d, %v; want 1, 0, nil", managed, stray, err)
 	}

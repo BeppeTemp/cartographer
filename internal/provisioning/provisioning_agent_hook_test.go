@@ -14,6 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // --- BuildManifest: agent/hook from KBs ---
@@ -28,12 +29,12 @@ func TestBuildManifest_AgentKB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
-	var found *provisioning.Artifact
+	var found *contract.Artifact
 	for i, a := range m.Artifacts {
 		if a.Kind == "agent" && a.Name == "reviewer" {
 			found = &m.Artifacts[i]
@@ -56,11 +57,11 @@ func TestBuildManifest_AgentHash_Determinismo(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("Body v1.\n"), 0o644)
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestBuildManifest_AgentHash_Determinismo(t *testing.T) {
 	}
 
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("Body v2.\n"), 0o644)
-	m3, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m3, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 3: %v", err)
 	}
@@ -87,12 +88,12 @@ func TestBuildManifest_HookKB(t *testing.T) {
 	os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"PostToolUse","matcher":"concept_write","command":"./notify.sh"}`), 0o644)
 	os.WriteFile(filepath.Join(hookDir, "notify.sh"), []byte("#!/bin/sh\necho ok\n"), 0o755)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
-	var found *provisioning.Artifact
+	var found *contract.Artifact
 	for i, a := range m.Artifacts {
 		if a.Kind == "hook" && a.Name == "notify-on-commit" {
 			found = &m.Artifacts[i]
@@ -135,7 +136,7 @@ func TestBuildManifest_HookHash_MultiFile_OrdineIndipendente(t *testing.T) {
 		t.Errorf("multi-file hook hash: identical content must produce the same hash: %q != %q", h1, h2)
 	}
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot1}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot1}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -163,17 +164,17 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 		t.Fatal(err)
 	}
 	roots := map[string]string{"kb": kbRoot}
-	m1, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hook provisioning.Artifact
+	var hook contract.Artifact
 	for _, a := range m1.Artifacts {
 		if a.Kind == "hook" {
 			hook = a
 		}
 	}
-	files, err := provisioning.ReadArtifactFiles(hook, nil, roots)
+	files, err := contract.ReadArtifactFiles(hook, nil, roots)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,11 +200,11 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "run.sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hook2 provisioning.Artifact
+	var hook2 contract.Artifact
 	for _, a := range m2.Artifacts {
 		if a.Kind == "hook" {
 			hook2 = a
@@ -215,7 +216,7 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "hook.json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m3, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+	m3, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +231,7 @@ func TestBuildManifest_NoAgentsHooksDir_ZeroArtefatti(t *testing.T) {
 	kbRoot := t.TempDir()
 	os.MkdirAll(filepath.Join(kbRoot, "skills"), 0o755)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -280,11 +281,11 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 			mainFile = "hook.json"
 		}
 
-		a := provisioning.Artifact{
+		a := contract.Artifact{
 			Kind: c.kind, Name: "art", Source: "kb:x", ContentHash: "h", Signed: true,
-			Files: []provisioning.ArtifactFile{{Path: mainFile, Content: []byte("x")}},
+			Files: []contract.ArtifactFile{{Path: mainFile, Content: []byte("x")}},
 		}
-		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+		m := contract.MergeArtifacts([]contract.Artifact{a})
 		baseDir := t.TempDir()
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 			Provider: c.provider,
@@ -338,7 +339,7 @@ func TestApply_MaterializzaAgent(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nBody.\n"), 0o644)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -380,11 +381,11 @@ func TestApply_OpenCode_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 	baseDir := t.TempDir()
 	src := "---\nname: reviewer\ndescription: Reviews the code\ntools: Read, Grep\nmodel: sonnet\n---\nReviewer system prompt.\n"
 
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "agent", Name: "reviewer", Source: "kb:x", ContentHash: "h1", Signed: true,
-		Files: []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
+		Files: []contract.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
 	}
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderOpenCode,
@@ -416,11 +417,11 @@ func TestApply_OpenCode_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 func TestApply_Antigravity_MaterializzaAgentNativo(t *testing.T) {
 	baseDir := t.TempDir()
 	src := "---\nname: reviewer\ndescription: \"Reviews: code safely\"\ntools: Read, Grep\nmodel: sonnet\n---\nReviewer system prompt.\n"
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "agent", Name: "reviewer", Source: "kb:x", ContentHash: "h1", Signed: true,
-		Files: []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
+		Files: []contract.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
 	}
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}); err != nil {
@@ -456,11 +457,11 @@ func TestApply_OpenCode_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	baseDir := t.TempDir()
 	src := "Body only, no frontmatter.\n"
 
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "agent", Name: "plain", Source: "kb:x", ContentHash: "h1", Signed: true,
-		Files: []provisioning.ArtifactFile{{Path: "plain.md", Content: []byte(src)}},
+		Files: []contract.ArtifactFile{{Path: "plain.md", Content: []byte(src)}},
 	}
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderOpenCode,
@@ -488,11 +489,11 @@ func TestApply_OpenCode_MaterializzaAgent_DescriptionQuotataConDuePunti(t *testi
 	// and the multi-line body must pass through verbatim.
 	src := "---\nname: tricky\ndescription: \"Does stuff: analysis, then writes a report\"\n---\nLine one.\nLine two.\n"
 
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "agent", Name: "tricky", Source: "kb:x", ContentHash: "h1", Signed: true,
-		Files: []provisioning.ArtifactFile{{Path: "tricky.md", Content: []byte(src)}},
+		Files: []contract.ArtifactFile{{Path: "tricky.md", Content: []byte(src)}},
 	}
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderOpenCode,
@@ -539,7 +540,7 @@ func TestApply_MaterializzaHook(t *testing.T) {
 	os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"PostToolUse"}`), 0o644)
 	os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -600,7 +601,7 @@ func TestApply_Prune_AgentHook(t *testing.T) {
 	os.MkdirAll(filepath.Dir(hookPath), 0o755)
 	os.WriteFile(hookPath, []byte("{}"), 0o644)
 
-	m := provisioning.Manifest{Revision: "rev-new"}
+	m := contract.Manifest{Revision: "rev-new"}
 	lock := provisioning.Lock{
 		AppliedRevision: "rev-old",
 		Provider:        "claude",
@@ -634,16 +635,16 @@ func TestApply_Prune_AgentHook(t *testing.T) {
 func TestApply_RifiutaPathTraversal_AgentHook(t *testing.T) {
 	baseDir := t.TempDir()
 
-	cases := []provisioning.Artifact{
+	cases := []contract.Artifact{
 		{Kind: "agent", Name: "../evil", Source: "kb:x", ContentHash: "h1", Signed: true,
-			Files: []provisioning.ArtifactFile{{Path: "evil.md", Content: []byte("x")}}},
+			Files: []contract.ArtifactFile{{Path: "evil.md", Content: []byte("x")}}},
 		{Kind: "agent", Name: "/etc/evil", Source: "kb:x", ContentHash: "h2", Signed: true,
-			Files: []provisioning.ArtifactFile{{Path: "evil.md", Content: []byte("x")}}},
+			Files: []contract.ArtifactFile{{Path: "evil.md", Content: []byte("x")}}},
 		{Kind: "hook", Name: "../evil-hook", Source: "kb:x", ContentHash: "h3", Signed: true,
-			Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte("x")}}},
+			Files: []contract.ArtifactFile{{Path: "hook.json", Content: []byte("x")}}},
 	}
 	for i, a := range cases {
-		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+		m := contract.MergeArtifacts([]contract.Artifact{a})
 		// Refused per artifact (#1502): reported, nothing written, no abort.
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 			Provider: configurator.ProviderClaudeCode,
@@ -668,8 +669,8 @@ func TestReadArtifactFiles_Agent(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("Body.\n"), 0o644)
 
-	a := provisioning.Artifact{Kind: "agent", Name: "reviewer", Source: "kb:homelab"}
-	files, err := provisioning.ReadArtifactFiles(a, nil, map[string]string{"homelab": kbRoot})
+	a := contract.Artifact{Kind: "agent", Name: "reviewer", Source: "kb:homelab"}
+	files, err := contract.ReadArtifactFiles(a, nil, map[string]string{"homelab": kbRoot})
 	if err != nil {
 		t.Fatalf("ReadArtifactFiles: %v", err)
 	}
@@ -685,8 +686,8 @@ func TestReadArtifactFiles_Hook(t *testing.T) {
 	os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte("{}"), 0o644)
 	os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte("echo"), 0o644)
 
-	a := provisioning.Artifact{Kind: "hook", Name: "notify", Source: "kb:homelab"}
-	files, err := provisioning.ReadArtifactFiles(a, nil, map[string]string{"homelab": kbRoot})
+	a := contract.Artifact{Kind: "hook", Name: "notify", Source: "kb:homelab"}
+	files, err := contract.ReadArtifactFiles(a, nil, map[string]string{"homelab": kbRoot})
 	if err != nil {
 		t.Fatalf("ReadArtifactFiles: %v", err)
 	}
@@ -698,9 +699,9 @@ func TestReadArtifactFiles_Hook(t *testing.T) {
 // --- KindCounts ---
 
 func TestKindCounts(t *testing.T) {
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision: "rev1",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{Kind: "skill", Name: "s1", ContentHash: "h1", Signed: true},
 			{Kind: "skill", Name: "s2", ContentHash: "h2", Signed: true},
 			{Kind: "agent", Name: "a1", ContentHash: "h3", Signed: true},
@@ -731,7 +732,7 @@ func TestKindCounts(t *testing.T) {
 // --- FilterForProvider + honest InSync ---
 
 func TestFilterForProvider(t *testing.T) {
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{
+	m := contract.MergeArtifacts([]contract.Artifact{
 		{Kind: "skill", Name: "s1", Source: "bundle", ContentHash: "h1", Signed: true},
 		{Kind: "agent", Name: "a1", Source: "kb:x", ContentHash: "h2", Signed: true},
 		{Kind: "hook", Name: "k1", Source: "kb:x", ContentHash: "h3", Signed: true},
@@ -758,7 +759,7 @@ func TestFilterForProvider(t *testing.T) {
 }
 
 func TestComputeDiff_InSyncRequiresNoChanges(t *testing.T) {
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{
+	m := contract.MergeArtifacts([]contract.Artifact{
 		{Kind: "skill", Name: "s1", Source: "kb:x", ContentHash: "h1", Signed: false},
 	})
 	// Lock with the same applied revision but no managed files (real case:
@@ -807,7 +808,7 @@ func TestTranslateAgentForKiro(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -873,7 +874,7 @@ func TestTranslateAgentForKiro_NoFrontmatter(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(agentsDir, "bare.md"), []byte("Just a prompt.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

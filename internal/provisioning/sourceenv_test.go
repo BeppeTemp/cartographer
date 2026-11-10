@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // A KB skill that ships its own SOURCE.env would be silently overwritten by the
@@ -15,19 +16,19 @@ import (
 // and the rest of the sync completes.
 func TestApply_SourceEnvCollision(t *testing.T) {
 	baseDir := t.TempDir()
-	m := Manifest{
+	m := contract.Manifest{
 		Revision: "r1",
-		Artifacts: []Artifact{
+		Artifacts: []contract.Artifact{
 			{
 				Kind: "skill", Name: "runbooks", Source: "kb:kb", ContentHash: "h1",
-				Files: []ArtifactFile{
+				Files: []contract.ArtifactFile{
 					{Path: "SKILL.md", Content: []byte("---\nname: runbooks\n---\nbody\n")},
 					{Path: skillSourceEnvFile, Content: []byte("mine\n")},
 				},
 			},
 			{
 				Kind: "skill", Name: "other", Source: "kb:kb", ContentHash: "h2",
-				Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: other\n---\nbody\n")}},
+				Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: other\n---\nbody\n")}},
 			},
 		},
 	}

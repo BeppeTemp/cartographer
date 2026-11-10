@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // hookDirWithASpace is the shape that broke: a hook materialized under a home
@@ -195,7 +197,7 @@ func TestSplitHookCommand(t *testing.T) {
 		// space split rather than swallow the rest of the line.
 		{in: `"/a b/x.sh --flag`, bin: `"/a`, rest: `b/x.sh --flag`, hasRest: true},
 	} {
-		bin, rest, hasRest := splitHookCommand(c.in)
+		bin, rest, hasRest := contract.SplitHookCommand(c.in)
 		if bin != c.bin || rest != c.rest || hasRest != c.hasRest {
 			t.Errorf("splitHookCommand(%q) = (%q, %q, %v), want (%q, %q, %v)", c.in, bin, rest, hasRest, c.bin, c.rest, c.hasRest)
 		}

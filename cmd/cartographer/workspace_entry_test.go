@@ -8,6 +8,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // D737: a workspace projection writes no MCP entry, and removes the one a
@@ -42,9 +43,9 @@ func TestWorkspaceSyncPrunesD717Entry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifests := map[string]provisioning.Manifest{}
+	manifests := map[string]contract.Manifest{}
 	for _, p := range projs {
-		manifests[projectionKey(p)] = provisioning.Manifest{}
+		manifests[projectionKey(p)] = contract.Manifest{}
 	}
 	// The previous run recorded the entry as client-owned in the lock.
 	lf := provisioning.LockFile{}

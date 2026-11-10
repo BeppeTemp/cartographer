@@ -1,4 +1,4 @@
-package provisioning
+package contract
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 // on a client (D1656): `<kind>:<name>` for another artifact (skill, agent or
 // hook), or a capability id of the capability table. Carriers: the `requires`
 // frontmatter key of SKILL.md and of agents/<name>.md (a list), the `requires`
-// array of hook.json. A hook has no frontmatter and parseHookSpec is lenient,
+// array of hook.json. A hook has no frontmatter and ParseHookSpec is lenient,
 // so a typo there is ignored on the client: ValidateRequires, run by the write
 // gate and by lint, is the only guard.
 
@@ -69,7 +69,7 @@ func ValidateRequires(kind, name string, entries []string) error {
 			return fmt.Errorf("requires entry %q: %s cannot be required, only skill, agent or hook", e, k)
 		case !requirableKinds[k]:
 			return fmt.Errorf("requires entry %q: unknown kind %q (skill, agent or hook)", e, k)
-		case !validArtifactName(n):
+		case !ValidArtifactName(n):
 			return fmt.Errorf("requires entry %q: %q is not a valid artifact name", e, n)
 		case name != "" && k == kind && n == name:
 			return fmt.Errorf("requires entry %q refers to the artifact itself", e)
@@ -103,7 +103,7 @@ func ValidateFrontmatterRequires(kind, name string, fm *okf.Frontmatter) error {
 	return ValidateRequires(kind, name, list)
 }
 
-// hookRequires reads the `requires` array of hook.json. hookSpec does not
+// hookRequires reads the `requires` array of hook.json. HookSpec does not
 // carry it: a wrong type there must not stop the hook from registering.
 func hookRequires(data []byte) ([]string, bool, error) {
 	var raw map[string]json.RawMessage
@@ -139,7 +139,7 @@ func ValidateHookRequires(name string, data []byte) error {
 // the pattern of ArtifactRequiresApproval: nothing travels on the wire and the
 // Artifact JSON carries nothing. It returns an error when the source cannot be
 // read or its `requires` is invalid; a sync treats that as "no requirements"
-// plus a warning, never a failure (same tolerance as parseHookSpec). Other
+// plus a warning, never a failure (same tolerance as ParseHookSpec). Other
 // kinds, and the bundle's skills without the key, have none.
 func RequiresOf(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([]string, error) {
 	if a.Kind != "skill" && a.Kind != "agent" && a.Kind != "hook" {

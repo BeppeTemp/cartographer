@@ -3,8 +3,8 @@
 Per agent client ("harness"), the client version Cartographer was last aligned
 with, where that client announces changes, and which parts of the provider matrix
 depend on it. The matrix itself stays the source of truth for *what* is written
-where (`destinationMatrix` in `internal/provisioning/provisioning.go`,
-`projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, the
+where (`DestinationMatrix` in `internal/provisioning/contract/provisioning.go`,
+`ProjectDestinationMatrix` in `internal/provisioning/contract/workspacescope.go`, the
 descriptors in `internal/configurator/registry.go`); this page records *how
 recently it was checked* and *what to watch*. The `cartographer-audit-clients` skill
 (`.claude/skills/cartographer-audit-clients/SKILL.md`) reads it as its baseline and updates it
@@ -16,7 +16,7 @@ The providers a plugin declares are a fork of one of the clients below (its `bas
 provider in `configurator.Providers()` and no section for an unknown one.
 
 Each section also carries a fenced `capabilities` block, the ledger of the per-client capability
-table (`internal/provisioning/capabilities.go`, D1656): one line `<scope> <id> <status>` for every
+table (`internal/provisioning/contract/capabilities.go`, D1656): one line `<scope> <id> <status>` for every
 scope (`global`, `project`) and id (`skill`, `mcp`, `agent.delegate`, `agent.invoke`,
 `hook.<Event>` for each event of the vocabulary). `absent` is derived from the destination matrix
 and the hook vocabulary, so a cell with no destination is `absent`; `unverified` is the default for
@@ -125,7 +125,7 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   `--settings '{"enabledPlugins":{"agents-md@builtin":true}}'` to `claude -p` to
   test the default. Ask for a token planted in the file under test.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill unverified
@@ -223,7 +223,7 @@ project hook.UserPromptSubmit verified 2026-11-05 claude-project
   probe with `codex exec --dangerously-bypass-hook-trust` inside the isolated
   home only. Project trust: `[projects."<path>"] trust_level = "trusted"`.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill verified 2026-11-05 codex-scratch-home
@@ -328,7 +328,7 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
   v1|v2|v3`, default `v2`): a feature present in a non-default engine is not
   "supported". An interactive probe needs a pty. Details in the probe recipe.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill unverified
@@ -430,7 +430,7 @@ project hook.UserPromptSubmit absent
   opencode/big-pickle` works without credentials, but the free tier refuses some
   custom primary agents ("can only be used from within OpenCode").
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill verified 2026-11-05 opencode-scratch-xdg
@@ -517,7 +517,7 @@ project hook.UserPromptSubmit absent
   (`~/.gemini/config/mcp_config.json`) or in `.agents/mcp_config.json`. Back up
   and restore `~/.gemini/config/*` around a global probe.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill unverified
@@ -593,7 +593,7 @@ project hook.UserPromptSubmit absent
   not accepted by `run`. `~/.config/crush/` may not exist: create it for a global
   probe and remove it afterwards.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill unverified
@@ -713,7 +713,7 @@ project hook.UserPromptSubmit absent
   mcp list` show the cells without a model; hooks need `copilot -p … -s
   --allow-all-tools`. Never point the probe at `$HOME/.copilot`. VS Code: `probes.md` §Copilot in VS Code.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill unverified
@@ -818,7 +818,7 @@ project hook.UserPromptSubmit absent
   a scratch `PI_CODING_AGENT_DIR` for probes only (copy `auth.json` when a model is needed),
   never `$HOME/.pi/agent`.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill verified 2026-11-05 pi-scratch-agent-dir
@@ -939,7 +939,7 @@ project hook.UserPromptSubmit absent
 - **Probe notes**: a scratch `Documents/Cline/Hooks/<Event>` that appends its stdin to a file, never the real hooks;
   use a scratch `CLINE_DIR` and `CLINE_MCP_SETTINGS_PATH`, never `$HOME/.cline`.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
-  `internal/provisioning/capabilities.go`.
+  `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
 global skill unverified

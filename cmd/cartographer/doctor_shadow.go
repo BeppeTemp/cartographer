@@ -9,6 +9,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // checkWorkspaceShadows: a KB agent or skill whose project-scope destination in
@@ -26,7 +27,7 @@ import (
 func checkWorkspaceShadows(cfg *clientconfig.Config, providers []string, cands candidateSet) []doctorFinding {
 	var out []doctorFinding
 	for _, provider := range providers {
-		var arts []provisioning.Artifact
+		var arts []contract.Artifact
 		for _, a := range cands.forProvider(cfg, provider) {
 			if (a.Kind == "agent" || a.Kind == "skill") && strings.HasPrefix(a.Source, "kb:") {
 				arts = append(arts, a)

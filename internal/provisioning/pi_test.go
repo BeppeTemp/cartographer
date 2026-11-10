@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestApply_PiGlobalCells(t *testing.T) {
@@ -41,9 +42,9 @@ func TestApply_PiGlobalCells(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	agent := provisioning.Artifact{Kind: "agent", Name: "helper", Source: "bundle", BuiltIn: true, ContentHash: "a",
-		Files: []provisioning.ArtifactFile{{Path: "helper.md", Content: []byte("---\nname: helper\n---\n")}}}
-	m := provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{
+	agent := contract.Artifact{Kind: "agent", Name: "helper", Source: "bundle", BuiltIn: true, ContentHash: "a",
+		Files: []contract.ArtifactFile{{Path: "helper.md", Content: []byte("---\nname: helper\n---\n")}}}
+	m := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 		skillArtifact("alpha", "h1", map[string]string{"SKILL.md": "# alpha\n"}),
 		instructionsArtifact("kb-a", "KB content.\n"),
 		mcp, agent,
@@ -71,7 +72,7 @@ func TestApply_PiGlobalCells(t *testing.T) {
 
 	// Prune: the KB drops everything; only what the lock owns goes.
 	opts.Lock = res.NewLock
-	if _, err := provisioning.Apply(provisioning.Manifest{Revision: "r2"}, opts); err != nil {
+	if _, err := provisioning.Apply(contract.Manifest{Revision: "r2"}, opts); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(piDir, "skills", "alpha")); !os.IsNotExist(err) {
@@ -92,11 +93,11 @@ func TestApply_PiGlobalCells(t *testing.T) {
 
 func TestApply_PiProjectScopeWritesAgentsMDOnly(t *testing.T) {
 	ws := t.TempDir()
-	m := provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{
+	m := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 		skillArtifact("alpha", "h1", map[string]string{"SKILL.md": "# alpha\n"}),
 		instructionsArtifact("kb-a", "KB content.\n"),
 	}}
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderPi, BaseDir: ws, Scope: provisioning.ScopeProject, SkipLockWrite: true})
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderPi, BaseDir: ws, Scope: contract.ScopeProject, SkipLockWrite: true})
 	if err != nil {
 		t.Fatal(err)
 	}

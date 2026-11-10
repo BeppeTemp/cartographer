@@ -11,7 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // artifactUIHandler mounts the UI fixture KB with one artifact of each kind,
@@ -217,7 +217,7 @@ func TestUIAPI_ArtifactsListsEveryKindEvenWhenTheKBHasNone(t *testing.T) {
 // reads (D864). The synced kinds are checked in internal/provisioning.
 func TestKinds_KBOnlyPathsAreWhatTheScannersFind(t *testing.T) {
 	t.Parallel()
-	for _, info := range provisioning.Kinds() {
+	for _, info := range contract.Kinds() {
 		if !info.KBOnly {
 			continue
 		}
@@ -412,10 +412,10 @@ func TestUIClientsForCarriesTheMode(t *testing.T) {
 		t.Errorf("agent kind row, claude-code = %q %v", m, ok)
 	}
 	// A judged artifact received by nobody lists nobody, not the matrix.
-	if got := uiClientsFor("agent", "x", []provisioning.ClientMode{}); len(got) != 0 {
+	if got := uiClientsFor("agent", "x", []contract.ClientMode{}); len(got) != 0 {
 		t.Errorf("judged-empty artifact listed %+v", got)
 	}
-	got := uiClientsFor("skill", "s", []provisioning.ClientMode{{Provider: "crush", Mode: "skipped", Reason: "requires skill/y"}})
+	got := uiClientsFor("skill", "s", []contract.ClientMode{{Provider: "crush", Mode: "skipped", Reason: "requires skill/y"}})
 	if len(got) != 1 || got[0].Mode != "skipped" || got[0].Reason != "requires skill/y" {
 		t.Errorf("modes not carried: %+v", got)
 	}
@@ -448,7 +448,7 @@ func TestClientModesForSkillRequiringStrictAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	modes := clientModesFor(cat)
-	var crush, claude provisioning.ClientMode
+	var crush, claude contract.ClientMode
 	for _, m := range modes["skill/needs"] {
 		switch m.Provider {
 		case configurator.ProviderCrush:
@@ -457,25 +457,25 @@ func TestClientModesForSkillRequiringStrictAgent(t *testing.T) {
 			claude = m
 		}
 	}
-	if crush.Mode != provisioning.ModeSkipped || crush.Reason != "requires agent/auditor (skipped: strict_tools)" {
+	if crush.Mode != contract.ModeSkipped || crush.Reason != "requires agent/auditor (skipped: strict_tools)" {
 		t.Errorf("crush = %+v, want skipped with sync's reason", crush)
 	}
-	if claude.Mode == provisioning.ModeSkipped || claude.Mode == "" {
+	if claude.Mode == contract.ModeSkipped || claude.Mode == "" {
 		t.Errorf("claude = %+v, want installed", claude)
 	}
 
 	// Every provider, every judged artifact: the Atlas says what the resolver
 	// gives a sync over the artifacts with their own relative file paths.
-	m, err := provisioning.BuildManifest(nil, map[string]string{artifactManifestKBKey: k.Root}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{artifactManifestKBKey: k.Root}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var arts []provisioning.Artifact
+	var arts []contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind != "skill" && a.Kind != "agent" && a.Kind != "hook" && a.Kind != "mcp" {
 			continue
 		}
-		files, err := provisioning.ReadArtifactFilesCapped(a, nil, map[string]string{artifactManifestKBKey: k.Root})
+		files, err := contract.ReadArtifactFilesCapped(a, nil, map[string]string{artifactManifestKBKey: k.Root})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -484,22 +484,22 @@ func TestClientModesForSkillRequiringStrictAgent(t *testing.T) {
 	}
 	for _, d := range configurator.Providers() {
 		key := string(d.Provider)
-		res := provisioning.ResolveProjections([]provisioning.ProjectionInput{{Key: key, Provider: d.Provider, Scope: provisioning.ScopeGlobal, Manifest: provisioning.Manifest{Artifacts: arts}}}, provisioning.ProjectOptions{})[key]
+		res := contract.ResolveProjections([]contract.ProjectionInput{{Key: key, Provider: d.Provider, Scope: contract.ScopeGlobal, Manifest: contract.Manifest{Artifacts: arts}}}, contract.ProjectOptions{})[key]
 		skipped := map[string]string{}
 		for _, n := range res.Notes {
-			if n.Kind == provisioning.NoteSkipped {
+			if n.Kind == contract.NoteSkipped {
 				skipped[n.Artifact] = n.Reason
 			}
 		}
 		for _, id := range []string{"skill/needs", "hook/guarded"} {
-			var got provisioning.ClientMode
+			var got contract.ClientMode
 			for _, cm := range modes[id] {
 				if cm.Provider == d.Provider {
 					got = cm
 				}
 			}
 			reason, isSkipped := skipped[id]
-			if isSkipped != (got.Mode == provisioning.ModeSkipped) || (isSkipped && got.Reason != reason) {
+			if isSkipped != (got.Mode == contract.ModeSkipped) || (isSkipped && got.Reason != reason) {
 				t.Errorf("%s %s: sync skipped=%v %q, Atlas %+v", key, id, isSkipped, reason, got)
 			}
 		}

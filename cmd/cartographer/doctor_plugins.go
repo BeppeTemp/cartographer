@@ -9,6 +9,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // checkPlugins is the doctor section for the user's `plugins` key: the store,
@@ -118,7 +119,7 @@ func checkPluginCollisions(cfg *clientconfig.Config, lock *provisioning.LockFile
 	if lock != nil {
 		for _, proj := range lock.Projections() {
 			for _, mf := range lock.ForProjection(proj).Managed {
-				if mf.Source == "" || provisioning.IsPluginSource(mf.Source) {
+				if mf.Source == "" || contract.IsPluginSource(mf.Source) {
 					continue
 				}
 				k := mf.Kind + "\x00" + mf.Name + "\x00" + mf.Source
@@ -126,7 +127,7 @@ func checkPluginCollisions(cfg *clientconfig.Config, lock *provisioning.LockFile
 					continue
 				}
 				seen[k] = true
-				arts = append(arts, provisioning.Artifact{Kind: mf.Kind, Name: mf.Name, Source: mf.Source})
+				arts = append(arts, contract.Artifact{Kind: mf.Kind, Name: mf.Name, Source: mf.Source})
 			}
 		}
 	}

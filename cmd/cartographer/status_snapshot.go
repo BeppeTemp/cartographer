@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -450,7 +451,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		provProjections[name] = ps
 		allProjs = append(allProjs, ps...)
 	}
-	var manifests map[string]provisioning.Manifest
+	var manifests map[string]contract.Manifest
 	if len(allProjs) > 0 || len(connectedProviders) == 0 {
 		manifests, err = statusManifestsFn(cfg, allProjs)
 	}
@@ -479,7 +480,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	}
 	// The same resolver sync runs, over the same projections: a requirement
 	// that flipped there must flip here, or the drift would be permanent.
-	resolved := resolveProjectionSet(allProjs, manifests, provisioning.ProjectOptions{})
+	resolved := resolveProjectionSet(allProjs, manifests, contract.ProjectOptions{})
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
 		s.State = "error"
@@ -491,7 +492,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			continue
 		}
 		p := &s.Providers[i]
-		var pm provisioning.Manifest
+		var pm contract.Manifest
 		var d provisioning.Diff
 		var wsDiverged []provisioning.DriftFinding
 		if perr := projectionErr[p.Name]; perr != nil {
@@ -509,7 +510,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			if r, ok := resolved[p.Name]; ok {
 				pm = r.Manifest
 			} else {
-				pm, _ = provisioning.ProjectManifest(manifests[p.Name], configurator.Provider(p.Name), provisioning.ScopeGlobal, provisioning.ProjectOptions{})
+				pm, _ = provisioning.ProjectManifest(manifests[p.Name], configurator.Provider(p.Name), contract.ScopeGlobal, contract.ProjectOptions{})
 			}
 			diffLock := statusLock(lockFile.ForProvider(p.Name), cfg, pm)
 			d = provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, p.Name, manifests[p.Name]))
@@ -573,7 +574,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 // forward untouched, and with the revision those entries explain (the manifest
 // lacks the plugin's artifacts while the recorded revision has them) taken
 // from the manifest, so only a material difference is drift.
-func statusLock(lock provisioning.Lock, cfg *clientconfig.Config, pm provisioning.Manifest) provisioning.Lock {
+func statusLock(lock provisioning.Lock, cfg *clientconfig.Config, pm contract.Manifest) provisioning.Lock {
 	rest, held := splitHeldPlugins(lock, heldPlugins(cfg))
 	if len(held) > 0 {
 		rest.AppliedRevision = pm.Revision
@@ -585,7 +586,7 @@ func statusLock(lock provisioning.Lock, cfg *clientconfig.Config, pm provisionin
 // provider (materializeForProviders), so status reports the same resolution
 // drift sync would rewrite (#967). The manifest is the unfiltered one: the
 // filtered copy does not carry the placeholder lists and registries.
-func statusResolveOptions(cfg *clientconfig.Config, provider string, m provisioning.Manifest) provisioning.ApplyOptions {
+func statusResolveOptions(cfg *clientconfig.Config, provider string, m contract.Manifest) provisioning.ApplyOptions {
 	return provisioning.ApplyOptions{
 		Provider:           configurator.Provider(provider),
 		ExpandPlaceholders: true,
@@ -602,8 +603,8 @@ func statusResolveOptions(cfg *clientconfig.Config, provider string, m provision
 // against its own manifest and lock. It returns the global manifest (for the
 // revision and the kind counts), one merged Diff, and the on-disk findings of
 // the workspace locks.
-func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manifests map[string]provisioning.Manifest, resolved map[string]provisioning.ProjectionResult, lockFile provisioning.LockFile, dir string) (provisioning.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
-	var global provisioning.Manifest
+func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manifests map[string]contract.Manifest, resolved map[string]contract.ProjectionResult, lockFile provisioning.LockFile, dir string) (contract.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
+	var global contract.Manifest
 	merged := provisioning.Diff{InSync: true}
 	var diverged []provisioning.DriftFinding
 	for _, sp := range ps {
@@ -627,7 +628,7 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 		r, ok := resolved[projectionKey(sp)]
 		if !ok {
 			// Not resolved with the rest (a caller judging one projection alone).
-			r = resolveProjectionSet([]syncProjection{sp}, manifests, provisioning.ProjectOptions{})[projectionKey(sp)]
+			r = resolveProjectionSet([]syncProjection{sp}, manifests, contract.ProjectOptions{})[projectionKey(sp)]
 		}
 		pm := r.Manifest
 		diffLock = statusLock(diffLock, cfg, pm)
@@ -681,13 +682,13 @@ func snapshotDiverged(findings []provisioning.DriftFinding) []statusArtifact {
 // tagProjectScope marks the pending hooks that a project-scope projection
 // (a bound or a derived workspace) receives: the very projections sync applies,
 // so the hint names the workspace path of the generated plugin.
-func tagProjectScope(arts []statusArtifact, ps []syncProjection, manifests map[string]provisioning.Manifest) {
+func tagProjectScope(arts []statusArtifact, ps []syncProjection, manifests map[string]contract.Manifest) {
 	for i, a := range arts {
 		if a.Kind != "hook" {
 			continue
 		}
 		for _, sp := range ps {
-			if sp.Scope != provisioning.ScopeProject {
+			if sp.Scope != contract.ScopeProject {
 				continue
 			}
 			for _, m := range manifests[projectionKey(sp)].Artifacts {
@@ -703,7 +704,7 @@ func tagProjectScope(arts []statusArtifact, ps []syncProjection, manifests map[s
 // registers it in: the HookSettingsRel of the derived projection that receives
 // it, the very field sync applies with (#1300). A hook no derived projection
 // receives keeps the provider's own registration file.
-func tagHookSettings(arts []statusArtifact, ps []syncProjection, manifests map[string]provisioning.Manifest) {
+func tagHookSettings(arts []statusArtifact, ps []syncProjection, manifests map[string]contract.Manifest) {
 	for i, a := range arts {
 		if a.Kind != "hook" {
 			continue
@@ -721,7 +722,7 @@ func tagHookSettings(arts []statusArtifact, ps []syncProjection, manifests map[s
 	}
 }
 
-func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Config) []statusArtifact {
+func snapshotArtifacts(artifacts []contract.Artifact, cfg *clientconfig.Config) []statusArtifact {
 	out := make([]statusArtifact, len(artifacts))
 	for i, a := range artifacts {
 		// A skill derived from an agent is approved as the agent: its approval
@@ -730,7 +731,7 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 		trust := "needs_approval"
 		if a.BuiltIn {
 			trust = "built_in"
-		} else if provisioning.IsPluginSource(a.Source) {
+		} else if contract.IsPluginSource(a.Source) {
 			// Gated by the plugin's own approval, never a per-artifact one.
 			trust = "plugin"
 		} else if provisioning.ArtifactRequiresApproval(o, provisioning.ApplyOptions{}) {
@@ -759,13 +760,13 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 // heldArtifacts are the artifacts of m that wait for an approval without being
 // in the diff: installed earlier (before D1141) and unchanged on the server, so
 // ComputeDiff calls them in sync while Apply holds them and reports them pending.
-func heldArtifacts(m provisioning.Manifest, d provisioning.Diff, cfg *clientconfig.Config, provider configurator.Provider) []provisioning.Artifact {
+func heldArtifacts(m contract.Manifest, d provisioning.Diff, cfg *clientconfig.Config, provider configurator.Provider) []contract.Artifact {
 	inDiff := map[string]bool{}
-	for _, a := range append(append([]provisioning.Artifact(nil), d.Added...), d.Updated...) {
+	for _, a := range append(append([]contract.Artifact(nil), d.Added...), d.Updated...) {
 		inDiff[a.Kind+"\x00"+a.Name] = true
 	}
 	opts := provisioning.ApplyOptions{Provider: provider, ApprovedMCP: cfg.ApprovedMCPHashes(), ActivePlugins: manifestPlugins(m)}
-	var out []provisioning.Artifact
+	var out []contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "mcp" || a.Kind == "instructions" || inDiff[a.Kind+"\x00"+a.Name] || provisioning.ArtifactAuthorized(a, opts) {
 			continue
@@ -877,7 +878,7 @@ var knownProvisioningKinds = []string{"skill", "agent", "hook", "instructions", 
 // hookLimit is provisioning.SessionHookLimit for the provider: when set, the
 // installed hooks fire only in those sessions, and the hook figure says so
 // (D189, D300) instead of a bare count that reads as "covered everywhere".
-func formatKindStatus(m provisioning.Manifest, lock provisioning.Lock, instructionsShadowed bool, hookLimit string) string {
+func formatKindStatus(m contract.Manifest, lock provisioning.Lock, instructionsShadowed bool, hookLimit string) string {
 	counts := provisioning.KindCounts(m, lock)
 
 	// A block written into a file the provider does not read is not installed

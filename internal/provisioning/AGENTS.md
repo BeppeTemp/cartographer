@@ -1,6 +1,6 @@
 # AGENTS.md — provisioning and the client side
 
-The KB-tree readers (`kblinks.go`, `kbtracked.go`) and the MCP descriptor schema live in `contract/`, which writes nothing; this package imports it and writes.
+The manifest builder and its readers (`kblinks.go`, `kbtracked.go`), the destination matrix, the capability table, the projection resolver and the MCP descriptor schema live in `contract/`, which writes nothing and which the server links; this package imports it and writes. `internal/boundaries` pins that the server side never imports this package.
 
 This package writes into **other people's home directories**. That is the whole
 reason it has its own rules: a defect here does not fail a test, it silently
@@ -38,12 +38,12 @@ modifies files a user did not ask about.
   the result looks right on your machine.
 - **A provider's capabilities are declared, not inferred.**
   `internal/configurator/registry.go` holds one descriptor per provider, and in
-  `destinationMatrix` (`provisioning.go`) the unsupported cells are explicit with a
+  `DestinationMatrix` (`contract/provisioning.go`) the unsupported cells are explicit with a
   stated reason, so `Unsupported` means "no approval unblocks this" (D50). Do not
   make a destination up for a provider that does not document one.
-- **A capability is declared in `capabilities.go` and in the ledger together.** `absent` follows from the destination matrix and `hookEventReach`; `verified` needs a probe recorded in `docs/harnesses.md`. A PR that flips a destination or a hook reach changes the `capabilities` block of that provider there too, or `TestCapabilityTableMatchesLedger` fails.
+- **A capability is declared in `contract/capabilities.go` and in the ledger together.** `absent` follows from the destination matrix and `HookEventReach`; `verified` needs a probe recorded in `docs/harnesses.md`. A PR that flips a destination or a hook reach changes the `capabilities` block of that provider there too, or `TestCapabilityTableMatchesLedger` fails.
 - **This matrix is the repository's answer about a client, including in prose.**
-  `destinationMatrix` and `workspacescope.go` (D193) are what `docs/sync.md` and
+  `DestinationMatrix` and `contract/workspacescope.go` (D193) are what `docs/sync.md` and
   `docs/interoperability.md` restate for a human, and a restatement drifts (D207):
   if you re-audit a client, change the matrix and those pages in the same PR.
 - **A marker block that is not exactly one begin line then one end line is refused, never edited** (`blocktext.ReplaceBlock`, `Corrupted`): no append, no cut, a per-artifact refusal (`IsRefusal`) pointing to `doctor`. The instructions block and the `blocktext` writers follow it; the provenance stamp, `internal/kb/genindex.go` and the `info/exclude` writer do not yet. A new marker-block writer uses `blocktext`, not its own `strings.Index` (#1502).
@@ -81,7 +81,7 @@ modifies files a user did not ask about.
 - **Names and file paths from a server are validated before they are compared or joined**: `validArtifactName` (also behind `ownableName`) and `ValidArtifactFilePath`/`CheckArtifactFilePaths` (a refusal, `IsRefusal`: one artifact skipped). Anything keyed on a spelling (the `SKILL.md` approval and stamp checks) relies on the path being canonical; a new place that takes a name or path off the wire uses them.
 - **A new `Artifact` of derived content must resolve approval and provenance to its origin** (`Artifact.Origin`, used by `ApprovalName`, `ArtifactRequiresApproval`, `artifactAuthorized` and `provenanceBlock`): the derived bytes carry none of the keys that gate the origin, so a derived skill judged on itself installs a gated agent ungated (`TestDegradedSkillInheritsAgentApproval`).
 - **A `plugin:` source is gated by the active plugin set and never signed; a new `"kb:"` or `"bundle"` comparison in a non-test file fails `source_audit_test.go` (a pinned count per file) until it is classified and the count moved** (D1729). Plugin artifacts are read from memory, never from `KBRoots`. The store is a cache and the approved digest decides what installs, and a plugin that cannot be read retires nothing (its lock entries are held, `portabilityOptions.HeldPlugins`).
-- **Read a destination cell through `cellFor`, never the matrix map** (`workspacescope.go`): it is the one read of a cell, so a destination that is not a static matrix entry is reachable through one place; a new loop over the matrices uses it too.
+- **Read a destination cell through `contract.CellFor`, never the matrix map** (`contract/workspacescope.go`): it is the one read of a cell, so a destination that is not a static matrix entry is reachable through one place; a new loop over the matrices uses it too.
 - **A plugin provider's hook directory is a Cline dispatcher root only while its plugin is active, and the roots come from the cell registry, never from the disk** (`pluginHookRoots`, `plugincells.go`): a directory found under `Documents/Cline` or a leftover of a retracted plugin must not run. No cell of a plugin provider may lie in the dispatcher folder, and the MCP file of one is expanded and written only by `configurator.Apply` (`Descriptor.MCPFiles` for a reader), never joined from `MCPConfigPath`, which is empty for a pattern.
 - The lockfile is the client-side record of applied state. Changing its shape is a
   migration, and an empty new field must keep meaning what the files written

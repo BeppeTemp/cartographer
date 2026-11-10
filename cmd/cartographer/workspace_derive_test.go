@@ -10,6 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
@@ -59,9 +60,9 @@ func workspaceScoped(provider string, kbs ...string) *clientconfig.Config {
 	return cfg
 }
 
-func prefetchOf(regs map[string]provisioning.PathRegistry, failed ...string) *prefetched {
+func prefetchOf(regs map[string]contract.PathRegistry, failed ...string) *prefetched {
 	pre := &prefetched{
-		cs:  candidateSet{Named: map[string][]provisioning.Artifact{}, PathRegistries: regs},
+		cs:  candidateSet{Named: map[string][]contract.Artifact{}, PathRegistries: regs},
 		kbs: map[string]bool{},
 	}
 	for kb := range regs {
@@ -89,7 +90,7 @@ func TestComputeDerived_DeclaredReposAreBound(t *testing.T) {
 	cited := cloneOf(t, "example.com/owner/cited")
 	cfg := workspaceScoped("claude", "kb-a")
 	cfg.Paths = map[string]string{"worked-on": worked, "cited": cited}
-	pre := prefetchOf(map[string]provisioning.PathRegistry{"kb-a": {Repos: map[string]provisioning.PathDecl{
+	pre := prefetchOf(map[string]contract.PathRegistry{"kb-a": {Repos: map[string]contract.PathDecl{
 		"worked-on": {Description: "d", Remote: "example.com/owner/worked-on"},
 		"cited":     {Description: "d", Remote: "example.com/owner/cited", Bind: boolPtr(false)},
 		"missing":   {Description: "d", Remote: "example.com/owner/missing"},
@@ -112,8 +113,8 @@ func TestComputeDerived_TwoKBsOnOneRepositoryUnion(t *testing.T) {
 	repo := cloneOf(t, "example.com/owner/shared")
 	cfg := workspaceScoped("claude", "kb-a", "kb-b")
 	cfg.Paths = map[string]string{"shared": repo}
-	decl := provisioning.PathRegistry{Repos: map[string]provisioning.PathDecl{"shared": {Description: "d", Remote: "example.com/owner/shared"}}}
-	st := derive(cfg, prefetchOf(map[string]provisioning.PathRegistry{"kb-a": decl, "kb-b": decl}))
+	decl := contract.PathRegistry{Repos: map[string]contract.PathDecl{"shared": {Description: "d", Remote: "example.com/owner/shared"}}}
+	st := derive(cfg, prefetchOf(map[string]contract.PathRegistry{"kb-a": decl, "kb-b": decl}))
 	got := st.Bindings["claude"]
 	if len(got) != 1 || strings.Join(got[0].KBs, ",") != "kb-a,kb-b" {
 		t.Fatalf("bindings = %+v, want one binding to both KBs", got)
@@ -125,8 +126,8 @@ func TestComputeDerived_AnotherCloneOfTheRemoteIsNotBound(t *testing.T) {
 	cloneOf(t, "example.com/owner/shared") // a second clone, never named by any path
 	cfg := workspaceScoped("claude", "kb-a")
 	cfg.Paths = map[string]string{"shared": bound}
-	decl := provisioning.PathRegistry{Repos: map[string]provisioning.PathDecl{"shared": {Description: "d", Remote: "example.com/owner/shared"}}}
-	got := derive(cfg, prefetchOf(map[string]provisioning.PathRegistry{"kb-a": decl})).Bindings["claude"]
+	decl := contract.PathRegistry{Repos: map[string]contract.PathDecl{"shared": {Description: "d", Remote: "example.com/owner/shared"}}}
+	got := derive(cfg, prefetchOf(map[string]contract.PathRegistry{"kb-a": decl})).Bindings["claude"]
 	if len(got) != 1 || got[0].Path != bound {
 		t.Errorf("bindings = %+v, want exactly the clone the placeholder resolves to", got)
 	}
@@ -136,8 +137,8 @@ func TestComputeDerived_RemovedDeclarationIsDroppedAndAFailedPullKeepsTheList(t 
 	repo := cloneOf(t, "example.com/owner/worked-on")
 	cfg := workspaceScoped("claude", "kb-a")
 	cfg.Paths = map[string]string{"worked-on": repo}
-	decl := provisioning.PathRegistry{Repos: map[string]provisioning.PathDecl{"worked-on": {Description: "d", Remote: "example.com/owner/worked-on"}}}
-	if n := len(derive(cfg, prefetchOf(map[string]provisioning.PathRegistry{"kb-a": decl})).Bindings["claude"]); n != 1 {
+	decl := contract.PathRegistry{Repos: map[string]contract.PathDecl{"worked-on": {Description: "d", Remote: "example.com/owner/worked-on"}}}
+	if n := len(derive(cfg, prefetchOf(map[string]contract.PathRegistry{"kb-a": decl})).Bindings["claude"]); n != 1 {
 		t.Fatalf("setup: %d bindings", n)
 	}
 
@@ -146,13 +147,13 @@ func TestComputeDerived_RemovedDeclarationIsDroppedAndAFailedPullKeepsTheList(t 
 		t.Errorf("a failed pull dropped the derived list (%d bindings)", n)
 	}
 	// kb-a answers, and no longer declares it: the binding goes.
-	if st := derive(cfg, prefetchOf(map[string]provisioning.PathRegistry{"kb-a": {}})); len(st.Bindings) != 0 {
+	if st := derive(cfg, prefetchOf(map[string]contract.PathRegistry{"kb-a": {}})); len(st.Bindings) != 0 {
 		t.Errorf("bindings = %+v, want none once the declaration is gone", st.Bindings)
 	}
 	// bind: false added: same.
-	off := provisioning.PathRegistry{Repos: map[string]provisioning.PathDecl{"worked-on": {Description: "d", Remote: "example.com/owner/worked-on", Bind: boolPtr(false)}}}
-	derive(cfg, prefetchOf(map[string]provisioning.PathRegistry{"kb-a": decl}))
-	if st := derive(cfg, prefetchOf(map[string]provisioning.PathRegistry{"kb-a": off})); len(st.Bindings) != 0 {
+	off := contract.PathRegistry{Repos: map[string]contract.PathDecl{"worked-on": {Description: "d", Remote: "example.com/owner/worked-on", Bind: boolPtr(false)}}}
+	derive(cfg, prefetchOf(map[string]contract.PathRegistry{"kb-a": decl}))
+	if st := derive(cfg, prefetchOf(map[string]contract.PathRegistry{"kb-a": off})); len(st.Bindings) != 0 {
 		t.Errorf("bindings = %+v, want none after bind: false", st.Bindings)
 	}
 }
@@ -162,8 +163,8 @@ func TestComputeDerived_ProviderScopeAndUntouchedProviders(t *testing.T) {
 	cfg := clientconfig.Default()
 	cfg.KnownKBs = []string{"kb-a"}
 	cfg.Paths = map[string]string{"worked-on": repo}
-	decl := provisioning.PathRegistry{Repos: map[string]provisioning.PathDecl{"worked-on": {Description: "d", Remote: "example.com/owner/worked-on"}}}
-	if st := derive(cfg, prefetchOf(map[string]provisioning.PathRegistry{"kb-a": decl})); len(st.Bindings) != 0 {
+	decl := contract.PathRegistry{Repos: map[string]contract.PathDecl{"worked-on": {Description: "d", Remote: "example.com/owner/worked-on"}}}
+	if st := derive(cfg, prefetchOf(map[string]contract.PathRegistry{"kb-a": decl})); len(st.Bindings) != 0 {
 		t.Errorf("a provider in provider scope must not derive: %+v", st.Bindings)
 	}
 	// `sync --client codex` leaves claude's derived list as it was.
@@ -209,12 +210,12 @@ func materializeDerived(t *testing.T, provider string, tracked ...string) string
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifests := map[string]provisioning.Manifest{}
+	manifests := map[string]contract.Manifest{}
 	for _, p := range projections {
 		if !p.BundleOnly {
 			manifests[projectionKey(p)] = instructionsManifest("kb-a", "Rules of kb-a.\n")
 		} else {
-			manifests[projectionKey(p)] = provisioning.Manifest{}
+			manifests[projectionKey(p)] = contract.Manifest{}
 		}
 	}
 	if _, err := materializeForProviders(manifests, projections, target, "", false, false, portabilityOptions{}, nil); err != nil {
@@ -319,10 +320,10 @@ func TestDerivedGitErrorSkipsOnlyThatBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifests := map[string]provisioning.Manifest{}
+	manifests := map[string]contract.Manifest{}
 	for _, p := range projections {
 		if p.BundleOnly {
-			manifests[projectionKey(p)] = provisioning.Manifest{}
+			manifests[projectionKey(p)] = contract.Manifest{}
 		} else {
 			manifests[projectionKey(p)] = instructionsManifest("kb-a", "Rules of kb-a.\n")
 		}

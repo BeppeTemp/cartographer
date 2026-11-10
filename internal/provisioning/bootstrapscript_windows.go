@@ -12,7 +12,7 @@ import (
 // single error to say so.
 
 // bootstrapScriptName is the generated script's file name inside the hook's
-// destination directory (destDir("hook", BootstrapHookName, provider)).
+// destination directory (DestDir("hook", BootstrapHookName, provider)).
 // `.cmd` rather than `.bat`: both are batch, `.cmd` is the modern spelling and
 // is on the default PATHEXT.
 const bootstrapScriptName = "bootstrap.cmd"

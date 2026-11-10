@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // openCodeShapeMarker precedes the plugin shape's major version in the header
@@ -109,6 +110,6 @@ func OpenCodePluginShape(content string) int {
 
 // OpenCodePluginRelPath is a hook's generated plugin path relative to the base
 // directory of scope, in slash form.
-func OpenCodePluginRelPath(hookName string, scope Scope) string {
+func OpenCodePluginRelPath(hookName string, scope contract.Scope) string {
 	return openCodePluginRelPath(hookName, scope)
 }

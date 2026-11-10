@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -14,7 +15,7 @@ import (
 // out of Written; a refused write of a new artifact is not recorded in the
 // lockfile, while Apply's refuseArtifact keeps the previous entry of a refused
 // update, so the next sync retries and reports again either way.
-func refuse(result *AppliedResult, a Artifact, err error) bool {
+func refuse(result *AppliedResult, a contract.Artifact, err error) bool {
 	if !IsRefusal(err) {
 		return false
 	}
@@ -65,6 +66,6 @@ func refusePrune(result *AppliedResult, mf ManagedFile, err error) {
 			return
 		}
 	}
-	result.RefusedRemovals = append(result.RefusedRemovals, Artifact{Kind: mf.Kind, Name: mf.Name, Source: mf.Source})
+	result.RefusedRemovals = append(result.RefusedRemovals, contract.Artifact{Kind: mf.Kind, Name: mf.Name, Source: mf.Source})
 	result.Warnings = append(result.Warnings, fmt.Sprintf("%s/%s not removed: %v", mf.Kind, mf.Name, err))
 }

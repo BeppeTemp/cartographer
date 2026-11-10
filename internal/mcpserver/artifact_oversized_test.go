@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // oversizedKB has a skill "x" with a valid SKILL.md and a file one byte over
@@ -150,7 +150,7 @@ func TestSyncPullExcludesSkillOverFileBudget(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: many\ndescription: many\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < provisioning.ArtifactMaxFiles+5; i++ {
+	for i := 0; i < contract.ArtifactMaxFiles+5; i++ {
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%04d.txt", i)), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}

@@ -10,7 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // The Atlas UI's artifact routes (D238): what a KB ships to agent clients,
@@ -48,7 +48,7 @@ type uiKindInfo struct {
 	KBOnly bool `json:"kb_only"`
 }
 
-func uiKindInfoFrom(k provisioning.KindInfo) uiKindInfo {
+func uiKindInfoFrom(k contract.KindInfo) uiKindInfo {
 	return uiKindInfo{Kind: k.Kind, Title: k.Title, KBPath: k.KBPath, Doc: k.Doc, KBOnly: k.KBOnly}
 }
 
@@ -65,7 +65,7 @@ type uiArtifactKind struct {
 // from /secrets.
 func uiArtifactKindRows(counts map[string]int) []uiArtifactKind {
 	rows := []uiArtifactKind{}
-	for _, k := range provisioning.Kinds() {
+	for _, k := range contract.Kinds() {
 		if k.Kind == "secret" {
 			continue
 		}
@@ -85,17 +85,17 @@ func uiArtifactKindRows(counts map[string]int) []uiArtifactKind {
 // judge (the curated instructions): those list the providers whose destination
 // cell is supported, as provisioning.Destinations does, plus the clients that
 // get agents as skills.
-func uiClientsFor(kind, name string, modes []provisioning.ClientMode) []uiArtifactClient {
+func uiClientsFor(kind, name string, modes []contract.ClientMode) []uiArtifactClient {
 	names := map[configurator.Provider]string{}
 	for _, d := range configurator.Providers() {
 		names[d.Provider] = d.DisplayName
 	}
 	if modes == nil {
 		if name == "" {
-			modes = provisioning.KindClientModes(kind)
+			modes = contract.KindClientModes(kind)
 		} else {
-			for _, p := range provisioning.Destinations(kind, name) {
-				modes = append(modes, provisioning.ClientMode{Provider: p})
+			for _, p := range contract.Destinations(kind, name) {
+				modes = append(modes, contract.ClientMode{Provider: p})
 			}
 		}
 	}
@@ -115,8 +115,8 @@ func modeJudged(a kbArtifact) bool {
 // resolver a sync runs (provisioning.ClientModes): the panel cannot say
 // something a sync would not do. Only artifacts with a manifest entry take
 // part; a nil map means none is judged.
-func clientModesFor(catalog kbArtifactCatalog) map[string][]provisioning.ClientMode {
-	var arts []provisioning.Artifact
+func clientModesFor(catalog kbArtifactCatalog) map[string][]contract.ClientMode {
+	var arts []contract.Artifact
 	for _, a := range catalog.Artifacts {
 		if !modeJudged(a) {
 			continue
@@ -136,7 +136,7 @@ func clientModesFor(catalog kbArtifactCatalog) map[string][]provisioning.ClientM
 	if len(arts) == 0 {
 		return nil
 	}
-	return provisioning.ClientModes(arts, provisioning.ProjectOptions{})
+	return contract.ClientModes(arts, contract.ProjectOptions{})
 }
 
 type uiArtifactFile struct {
@@ -247,7 +247,7 @@ func attachFindings(a *uiArtifact, findings []lint.Finding) {
 	}
 }
 
-func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]struct{}, modes map[string][]provisioning.ClientMode) uiArtifact {
+func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]struct{}, modes map[string][]contract.ClientMode) uiArtifact {
 	out := uiArtifact{
 		Kind:        a.Kind,
 		Name:        a.Name,
@@ -264,10 +264,10 @@ func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]str
 	// it does reach clients: sync folds it into the generated instructions
 	// block (D61). Templates never leave the KB, and the matrix has no row
 	// for them.
-	var judged []provisioning.ClientMode
+	var judged []contract.ClientMode
 	if modes != nil && modeJudged(a) {
 		// Judged and received by nobody is an empty list, not the matrix.
-		judged = append([]provisioning.ClientMode{}, modes[a.Kind+"/"+a.Name]...)
+		judged = append([]contract.ClientMode{}, modes[a.Kind+"/"+a.Name]...)
 	}
 	out.Clients = uiClientsFor(a.Kind, a.Name, judged)
 	for _, f := range a.Files {

@@ -39,7 +39,10 @@ var serverSide = []string{
 var forbidden = []string{"kb", "mcpserver", "search", "graphalgo", "sqlindex", "lint"}
 
 // chain returns the import chain from pkg to a forbidden package, or nil.
-func chain(t *testing.T, pkg string) []string {
+func chain(t *testing.T, pkg string) []string { return chainTo(t, pkg, forbidden) }
+
+// chainTo is chain against an explicit list of forbidden packages.
+func chainTo(t *testing.T, pkg string, forbidden []string) []string {
 	t.Helper()
 	cmd := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}\t{{join .Imports \" \"}}", "./internal/"+pkg)
 	cmd.Dir = filepath.Join("..", "..")
@@ -134,5 +137,20 @@ func TestEveryImportedPackageIsClassified(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("no import checked")
+	}
+}
+
+// The server links the wire contract of provisioning, never the half that writes
+// into other people's home directories (D-new-client-import-firewall). Transitive,
+// like the client firewall: the first hop of the chain is named.
+func TestServerNeverLinksTheApply(t *testing.T) {
+	apply := []string{"provisioning", "plugin", "mcpbridge"}
+	for _, pkg := range []string{"mcpserver", "lint", "kb", "config", "audit", "auth", "sqlindex", "search"} {
+		if c := chainTo(t, pkg, apply); c != nil {
+			t.Errorf("server-side internal/%s reaches the apply half: %s", pkg, strings.Join(c, " -> "))
+		}
+	}
+	if c := chainTo(t, "provisioning/contract", []string{"kb", "provisioning", "plugin", "mcpbridge"}); c != nil {
+		t.Errorf("internal/provisioning/contract reaches the data plane or the apply half: %s", strings.Join(c, " -> "))
 	}
 }

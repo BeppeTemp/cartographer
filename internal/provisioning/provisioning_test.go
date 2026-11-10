@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
@@ -35,11 +36,11 @@ func TestContentHashDir_Determinismo(t *testing.T) {
 		"skill/extra.md": &fstest.MapFile{Data: []byte("extra")},
 	}
 
-	h1, err := provisioning.ContentHashDir(fsys, "skill")
+	h1, err := contract.ContentHashDir(fsys, "skill")
 	if err != nil {
 		t.Fatalf("first hash: %v", err)
 	}
-	h2, err := provisioning.ContentHashDir(fsys, "skill")
+	h2, err := contract.ContentHashDir(fsys, "skill")
 	if err != nil {
 		t.Fatalf("second hash: %v", err)
 	}
@@ -56,8 +57,8 @@ func TestContentHashDir_CambioContenuto(t *testing.T) {
 		"skill/SKILL.md": &fstest.MapFile{Data: []byte("version-two")},
 	}
 
-	h1, _ := provisioning.ContentHashDir(fsys1, "skill")
-	h2, _ := provisioning.ContentHashDir(fsys2, "skill")
+	h1, _ := contract.ContentHashDir(fsys1, "skill")
+	h2, _ := contract.ContentHashDir(fsys2, "skill")
 	if h1 == h2 {
 		t.Error("ContentHashDir: different content must produce a different hash")
 	}
@@ -74,8 +75,8 @@ func TestContentHashDir_OrdineFile(t *testing.T) {
 		"skill/a.md": &fstest.MapFile{Data: []byte("aaa")},
 	}
 
-	h1, _ := provisioning.ContentHashDir(fsys1, "skill")
-	h2, _ := provisioning.ContentHashDir(fsys2, "skill")
+	h1, _ := contract.ContentHashDir(fsys1, "skill")
+	h2, _ := contract.ContentHashDir(fsys2, "skill")
 	if h1 != h2 {
 		t.Errorf("ContentHashDir: iteration order must not change the hash: %q != %q", h1, h2)
 	}
@@ -84,7 +85,7 @@ func TestContentHashDir_OrdineFile(t *testing.T) {
 // --- BuildManifest ---
 
 func TestBuildManifest_BundledSkillInventory(t *testing.T) {
-	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(skillbundle.FS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest bundled skills: %v", err)
 	}
@@ -105,11 +106,11 @@ func TestBuildManifest_BundledSkillInventory(t *testing.T) {
 func TestBuildManifest_RevisioneDeterministica(t *testing.T) {
 	bundleFS := makeBundleFS("Body.")
 
-	m1, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
-	m2, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -123,7 +124,7 @@ func TestBuildManifest_RevisioneDeterministica(t *testing.T) {
 
 func TestBuildManifest_TemplatesAreIgnored(t *testing.T) {
 	root := t.TempDir()
-	baseline, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, provisioning.BuildOptions{})
+	baseline, err := contract.BuildManifest(nil, map[string]string{"kb": root}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestBuildManifest_TemplatesAreIgnored(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: Note\n---\n# Note\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	withTemplate, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, provisioning.BuildOptions{})
+	withTemplate, err := contract.BuildManifest(nil, map[string]string{"kb": root}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,8 +152,8 @@ func TestBuildManifest_CambioContenuto(t *testing.T) {
 	bundleFS1 := makeBundleFS("Original body.")
 	bundleFS2 := makeBundleFS("Modified body.")
 
-	m1, _ := provisioning.BuildManifest(bundleFS1, nil, provisioning.BuildOptions{})
-	m2, _ := provisioning.BuildManifest(bundleFS2, nil, provisioning.BuildOptions{})
+	m1, _ := contract.BuildManifest(bundleFS1, nil, contract.BuildOptions{})
+	m2, _ := contract.BuildManifest(bundleFS2, nil, contract.BuildOptions{})
 
 	if m1.Revision == m2.Revision {
 		t.Error("BuildManifest: different content must produce a different revision")
@@ -161,7 +162,7 @@ func TestBuildManifest_CambioContenuto(t *testing.T) {
 
 func TestBuildManifest_SkillBundleBuiltIn(t *testing.T) {
 	bundleFS := makeBundleFS("Body.")
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -182,7 +183,7 @@ func TestBuildManifest_KBSkillUnsignedWithoutSigner(t *testing.T) {
 	os.MkdirAll(skillDir, 0o755)
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: my-skill\ndescription: Test\n---\nBody.\n"), 0o644)
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"test-kb": kbRoot}, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(nil, map[string]string{"test-kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -209,17 +210,17 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var skillArtifact provisioning.Artifact
+	var skillArtifact contract.Artifact
 	for _, a := range m1.Artifacts {
 		if a.Kind == "skill" {
 			skillArtifact = a
 		}
 	}
-	files, err := provisioning.ReadArtifactFiles(skillArtifact, nil, map[string]string{"kb": kbRoot})
+	files, err := contract.ReadArtifactFiles(skillArtifact, nil, map[string]string{"kb": kbRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,11 +238,11 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 	if err := os.Chmod(script, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var skillArtifact2 provisioning.Artifact
+	var skillArtifact2 contract.Artifact
 	for _, a := range m2.Artifacts {
 		if a.Kind == "skill" {
 			skillArtifact2 = a
@@ -253,15 +254,15 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 }
 
 func TestApply_CorrectsExecutableModeDriftWithoutDryRunMutation(t *testing.T) {
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision: "mode-drift",
-		Artifacts: []provisioning.Artifact{{
+		Artifacts: []contract.Artifact{{
 			Kind:        "skill",
 			Name:        "mode",
 			Source:      "kb:test",
 			ContentHash: "mode-hash",
 			Signed:      true,
-			Files: []provisioning.ArtifactFile{
+			Files: []contract.ArtifactFile{
 				{Path: "SKILL.md", Content: []byte("---\nname: mode\ndescription: test\n---\n")},
 				{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
 			},
@@ -316,13 +317,13 @@ func TestBuildManifest_DedupBundleVsKB(t *testing.T) {
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: kb-create\ndescription: KB version\n---\nKB body.\n"), 0o644)
 
-	m, err := provisioning.BuildManifest(bundleFS, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, map[string]string{"mia-kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	var count int
-	var chosen provisioning.Artifact
+	var chosen contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "skill" && a.Name == "kb-create" {
 			count++
@@ -337,7 +338,7 @@ func TestBuildManifest_DedupBundleVsKB(t *testing.T) {
 	}
 
 	// The revision must remain deterministic even with the collision.
-	m2, _ := provisioning.BuildManifest(bundleFS, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
+	m2, _ := contract.BuildManifest(bundleFS, map[string]string{"mia-kb": kbRoot}, contract.BuildOptions{})
 	if m.Revision != m2.Revision {
 		t.Errorf("dedup: non-deterministic revision: %q != %q", m.Revision, m2.Revision)
 	}
@@ -386,9 +387,9 @@ func TestReadLock_FileNonEsistente(t *testing.T) {
 // --- ComputeDiff ---
 
 func TestComputeDiff_InSync(t *testing.T) {
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision: "rev1",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{Kind: "skill", Name: "kb-create", Source: "bundle", ContentHash: "hash1", Signed: true},
 		},
 	}
@@ -408,9 +409,9 @@ func TestComputeDiff_InSync(t *testing.T) {
 }
 
 func TestComputeDiff_Added(t *testing.T) {
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision: "rev2",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{Kind: "skill", Name: "nuova-skill", Source: "bundle", ContentHash: "hashN", Signed: true},
 		},
 	}
@@ -425,9 +426,9 @@ func TestComputeDiff_Added(t *testing.T) {
 }
 
 func TestComputeDiff_Updated(t *testing.T) {
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision: "rev2",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{Kind: "skill", Name: "kb-create", Source: "bundle", ContentHash: "hash-nuovo", Signed: true},
 		},
 	}
@@ -444,9 +445,9 @@ func TestComputeDiff_Updated(t *testing.T) {
 }
 
 func TestComputeDiff_Removed(t *testing.T) {
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision:  "rev2",
-		Artifacts: []provisioning.Artifact{},
+		Artifacts: []contract.Artifact{},
 	}
 	lock := provisioning.Lock{
 		AppliedRevision: "rev1",
@@ -466,7 +467,7 @@ func TestApply_ScriveTrusted(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Body skill bundled.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -519,7 +520,7 @@ func TestApply_InstallsNonSignedKBArtifact(t *testing.T) {
 	os.MkdirAll(skillDir, 0o755)
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: kb-skill\ndescription: Test\n---\nBody.\n"), 0o644)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -555,9 +556,9 @@ func TestApply_PruneObsoleto(t *testing.T) {
 	os.WriteFile(obsoleteFile, []byte("obsolete"), 0o644)
 
 	// Empty manifest (no skills) but a lock with the obsolete skill.
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision:  "rev-nuovo",
-		Artifacts: []provisioning.Artifact{},
+		Artifacts: []contract.Artifact{},
 	}
 
 	lock := provisioning.Lock{
@@ -593,7 +594,7 @@ func TestApply_DryRun(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Body dry run.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -631,7 +632,7 @@ func TestApply_Idempotente(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Idempotent body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -670,7 +671,7 @@ func TestApply_OpenCode_Materializza(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("OpenCode test body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -714,7 +715,7 @@ func TestApply_Codex_Materializza(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Codex test body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -755,7 +756,7 @@ func TestApply_Kiro_Materializza(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Kiro test body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -796,7 +797,7 @@ func TestApply_ScriveLockfile(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Lock test body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -832,11 +833,11 @@ func TestApply_ScriveLockfile(t *testing.T) {
 // --- MergeArtifacts ---
 
 func TestMergeArtifacts_DedupPrecedenzaKB(t *testing.T) {
-	artifacts := []provisioning.Artifact{
+	artifacts := []contract.Artifact{
 		{Kind: "skill", Name: "kb-create", Source: "bundle", ContentHash: "hash-bundle", Signed: true},
 		{Kind: "skill", Name: "kb-create", Source: "kb:homelab", ContentHash: "hash-kb", Signed: false},
 	}
-	m := provisioning.MergeArtifacts(artifacts)
+	m := contract.MergeArtifacts(artifacts)
 	if len(m.Artifacts) != 1 {
 		t.Fatalf("MergeArtifacts: expected 1 artifact after dedup, got %d", len(m.Artifacts))
 	}
@@ -846,13 +847,13 @@ func TestMergeArtifacts_DedupPrecedenzaKB(t *testing.T) {
 }
 
 func TestMergeArtifacts_RevisioneDeterministica(t *testing.T) {
-	a := []provisioning.Artifact{
+	a := []contract.Artifact{
 		{Kind: "skill", Name: "b", Source: "bundle", ContentHash: "hb"},
 		{Kind: "skill", Name: "a", Source: "bundle", ContentHash: "ha"},
 	}
-	m1 := provisioning.MergeArtifacts(a)
+	m1 := contract.MergeArtifacts(a)
 	// Reversed input order → same revision (deterministic internal sorting).
-	m2 := provisioning.MergeArtifacts([]provisioning.Artifact{a[1], a[0]})
+	m2 := contract.MergeArtifacts([]contract.Artifact{a[1], a[0]})
 	if m1.Revision != m2.Revision {
 		t.Errorf("MergeArtifacts: revision not deterministic with respect to input order: %q != %q", m1.Revision, m2.Revision)
 	}
@@ -862,9 +863,9 @@ func TestMergeArtifacts_RevisioneDeterministica(t *testing.T) {
 
 func TestReadArtifactFiles_Bundle(t *testing.T) {
 	bundleFS := makeBundleFS("Body for ReadArtifactFiles.")
-	a := provisioning.Artifact{Kind: "skill", Name: "kb-create", Source: "bundle"}
+	a := contract.Artifact{Kind: "skill", Name: "kb-create", Source: "bundle"}
 
-	files, err := provisioning.ReadArtifactFiles(a, bundleFS, nil)
+	files, err := contract.ReadArtifactFiles(a, bundleFS, nil)
 	if err != nil {
 		t.Fatalf("ReadArtifactFiles: %v", err)
 	}
@@ -886,8 +887,8 @@ func TestReadArtifactFiles_KB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a := provisioning.Artifact{Kind: "skill", Name: "my-skill", Source: "kb:homelab"}
-	files, err := provisioning.ReadArtifactFiles(a, nil, map[string]string{"homelab": kbRoot})
+	a := contract.Artifact{Kind: "skill", Name: "my-skill", Source: "kb:homelab"}
+	files, err := contract.ReadArtifactFiles(a, nil, map[string]string{"homelab": kbRoot})
 	if err != nil {
 		t.Fatalf("ReadArtifactFiles: %v", err)
 	}
@@ -900,14 +901,14 @@ func TestReadArtifactFiles_KB(t *testing.T) {
 
 func TestApply_ArtifactFiles_InMemory(t *testing.T) {
 	baseDir := t.TempDir()
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "skill", Name: "remote-skill", Source: "kb:kb-a",
 		ContentHash: "hash1", Signed: true,
-		Files: []provisioning.ArtifactFile{
+		Files: []contract.ArtifactFile{
 			{Path: "SKILL.md", Content: []byte("---\nname: remote-skill\n---\nBody.\n")},
 		},
 	}
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	opts := provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
@@ -951,7 +952,7 @@ func sourceEnvApply(t *testing.T, lock provisioning.Lock) (kbRoot, baseDir strin
 		t.Fatal(err)
 	}
 	kbRoots := map[string]string{"kb-a": kbRoot}
-	m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, kbRoots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1006,7 +1007,7 @@ func TestApply_DryRunUpdatedSkillDoesNotPruneSourceEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	kbRoots := map[string]string{"kb-a": kbRoot}
-	m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, kbRoots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1027,12 +1028,12 @@ func TestApply_DryRunUpdatedSkillDoesNotPruneSourceEnv(t *testing.T) {
 
 // dryRunPlan updates the skill of a sourceEnvApply KB and returns the manifest
 // for it, so a test can plan the update and then run it for real.
-func dryRunPlan(t *testing.T, kbRoot string, kbRoots map[string]string) provisioning.Manifest {
+func dryRunPlan(t *testing.T, kbRoot string, kbRoots map[string]string) contract.Manifest {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(kbRoot, "skills", "my-skill", "SKILL.md"), []byte("---\nname: my-skill\ndescription: d\n---\nChanged.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, kbRoots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1103,14 +1104,14 @@ func TestDisconnect_SourceEnvRemoved(t *testing.T) {
 
 func TestApply_SkillShippingSourceEnvIsRefused(t *testing.T) {
 	baseDir := t.TempDir()
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "skill", Name: "clash", Source: "kb:kb-a", ContentHash: "h", Signed: true,
-		Files: []provisioning.ArtifactFile{
+		Files: []contract.ArtifactFile{
 			{Path: "SKILL.md", Content: []byte("---\nname: clash\n---\nBody.\n")},
 			{Path: "SOURCE.env", Content: []byte("MINE=1\n")},
 		},
 	}
-	res, err := provisioning.Apply(provisioning.MergeArtifacts([]provisioning.Artifact{a}), provisioning.ApplyOptions{
+	res, err := provisioning.Apply(contract.MergeArtifacts([]contract.Artifact{a}), provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
 	if err != nil {
@@ -1131,16 +1132,16 @@ func TestApply_SkillShippingSourceEnvIsRefused(t *testing.T) {
 func TestApply_RifiutaPathTraversal(t *testing.T) {
 	baseDir := t.TempDir()
 
-	cases := []provisioning.Artifact{
+	cases := []contract.Artifact{
 		{Kind: "skill", Name: "evil", Source: "kb:x", ContentHash: "h1", Signed: true,
-			Files: []provisioning.ArtifactFile{{Path: "../../escape.md", Content: []byte("x")}}},
+			Files: []contract.ArtifactFile{{Path: "../../escape.md", Content: []byte("x")}}},
 		{Kind: "skill", Name: "evil", Source: "kb:x", ContentHash: "h2", Signed: true,
-			Files: []provisioning.ArtifactFile{{Path: "/etc/escape.md", Content: []byte("x")}}},
+			Files: []contract.ArtifactFile{{Path: "/etc/escape.md", Content: []byte("x")}}},
 		{Kind: "skill", Name: "../evil", Source: "kb:x", ContentHash: "h3", Signed: true,
-			Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("x")}}},
+			Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("x")}}},
 	}
 	for i, a := range cases {
-		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+		m := contract.MergeArtifacts([]contract.Artifact{a})
 		opts := provisioning.ApplyOptions{
 			Provider: configurator.ProviderClaudeCode,
 			BaseDir:  baseDir,
@@ -1164,7 +1165,7 @@ func TestApply_SkipLockWrite(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Skip lock body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -1267,16 +1268,16 @@ func TestApply_RefusesSymlinkedSkillDirAndKeepsGoing(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on Windows")
 	}
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision: "symlink",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{
 				Kind: "skill", Name: "linked", Source: "kb:test", ContentHash: "h1", Signed: true,
-				Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: linked\ndescription: test\n---\n")}},
+				Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: linked\ndescription: test\n---\n")}},
 			},
 			{
 				Kind: "skill", Name: "real", Source: "kb:test", ContentHash: "h2", Signed: true,
-				Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: real\ndescription: test\n---\n")}},
+				Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: real\ndescription: test\n---\n")}},
 			},
 		},
 	}
@@ -1345,40 +1346,40 @@ func TestApply_RefusesSymlinkedSkillDirAndKeepsGoing(t *testing.T) {
 func TestDetectCollisions(t *testing.T) {
 	cases := []struct {
 		name      string
-		artifacts []provisioning.Artifact
+		artifacts []contract.Artifact
 		want      []provisioning.Collision
 	}{
 		{
 			name: "no collision",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				{Kind: "skill", Name: "alpha", Source: "kb:one"},
 				{Kind: "skill", Name: "beta", Source: "kb:two"},
 			},
 		},
 		{
 			name: "kb versus bundle is a deliberate override, not a collision",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				{Kind: "skill", Name: "alpha", Source: "bundle"},
 				{Kind: "skill", Name: "alpha", Source: "kb:one"},
 			},
 		},
 		{
 			name: "the same bundled artifact repeated across per-KB pulls",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				{Kind: "skill", Name: "alpha", Source: "bundle"},
 				{Kind: "skill", Name: "alpha", Source: "bundle"},
 			},
 		},
 		{
 			name: "the same artifact twice from one KB",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				{Kind: "skill", Name: "alpha", Source: "kb:one"},
 				{Kind: "skill", Name: "alpha", Source: "kb:one"},
 			},
 		},
 		{
 			name: "two KBs claim one skill",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				{Kind: "skill", Name: "alpha", Source: "kb:two"},
 				{Kind: "skill", Name: "alpha", Source: "kb:one"},
 			},
@@ -1386,7 +1387,7 @@ func TestDetectCollisions(t *testing.T) {
 		},
 		{
 			name: "collisions on several kinds are all reported, in order",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				{Kind: "hook", Name: "h", Source: "kb:one"},
 				{Kind: "hook", Name: "h", Source: "kb:two"},
 				{Kind: "agent", Name: "a", Source: "kb:one"},
@@ -1399,7 +1400,7 @@ func TestDetectCollisions(t *testing.T) {
 		},
 		{
 			name: "three KBs claim one name",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				{Kind: "skill", Name: "alpha", Source: "kb:c"},
 				{Kind: "skill", Name: "alpha", Source: "kb:a"},
 				{Kind: "skill", Name: "alpha", Source: "kb:b"},
@@ -1426,7 +1427,7 @@ func TestDetectCollisions(t *testing.T) {
 }
 
 func TestMergeArtifactsStrict(t *testing.T) {
-	clean := []provisioning.Artifact{
+	clean := []contract.Artifact{
 		{Kind: "skill", Name: "alpha", Source: "bundle", ContentHash: "h1"},
 		{Kind: "skill", Name: "alpha", Source: "kb:one", ContentHash: "h2"},
 	}
@@ -1438,11 +1439,11 @@ func TestMergeArtifactsStrict(t *testing.T) {
 	if len(m.Artifacts) != 1 || m.Artifacts[0].Source != "kb:one" {
 		t.Errorf("merged = %+v, want the single kb:one artifact", m.Artifacts)
 	}
-	if m.Revision != provisioning.MergeArtifacts(clean).Revision {
+	if m.Revision != contract.MergeArtifacts(clean).Revision {
 		t.Error("strict merge produced a different revision than the tolerant one")
 	}
 
-	colliding := []provisioning.Artifact{
+	colliding := []contract.Artifact{
 		{Kind: "skill", Name: "alpha", Source: "kb:one", ContentHash: "h1"},
 		{Kind: "skill", Name: "alpha", Source: "kb:two", ContentHash: "h2"},
 	}
@@ -1467,26 +1468,26 @@ func TestMergeArtifactsStrict(t *testing.T) {
 func TestDetectDirectiveCollisions(t *testing.T) {
 	cases := []struct {
 		name      string
-		artifacts []provisioning.Artifact
+		artifacts []contract.Artifact
 		wantKeys  []string // Key of each expected collision, in order
 	}{
 		{
 			name: "no directives declared",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "Plain prose, no directive.\n"),
 				instructionsArtifact("two", "More prose.\n"),
 			},
 		},
 		{
 			name: "same key, same value: no collision",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 			},
 		},
 		{
 			name: "same key, different value: collision",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
 			},
@@ -1494,21 +1495,21 @@ func TestDetectDirectiveCollisions(t *testing.T) {
 		},
 		{
 			name: "different keys: no collision",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:language:it -->\n"),
 			},
 		},
 		{
 			name: "one KB silent on the key: no collision",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 				instructionsArtifact("two", "No directive here.\n"),
 			},
 		},
 		{
 			name: "several keys per KB, only the disagreement is reported",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n<!-- cartographer:directive:language:it -->\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC+2 -->\n<!-- cartographer:directive:language:en -->\n"),
 			},
@@ -1516,7 +1517,7 @@ func TestDetectDirectiveCollisions(t *testing.T) {
 		},
 		{
 			name: "three KBs, three values, one collision naming all three",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("a", "<!-- cartographer:directive:env:staging -->\n"),
 				instructionsArtifact("b", "<!-- cartographer:directive:env:prod -->\n"),
 				instructionsArtifact("c", "<!-- cartographer:directive:env:dev -->\n"),
@@ -1525,35 +1526,35 @@ func TestDetectDirectiveCollisions(t *testing.T) {
 		},
 		{
 			name: "documenting the syntax mid-paragraph does not trigger it",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "See the marker syntax, `<!-- cartographer:directive:timezone:UTC+2 -->`, for details.\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
 			},
 		},
 		{
 			name: "documenting the syntax inside a fenced code block does not trigger it",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "Example:\n```\n<!-- cartographer:directive:timezone:UTC+2 -->\n```\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
 			},
 		},
 		{
 			name: "malformed marker: empty value is not recognised",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "<!-- cartographer:directive:timezone: -->\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
 			},
 		},
 		{
 			name: "malformed marker: extra colon in the value is not recognised",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "<!-- cartographer:directive:time:10:30 -->\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:time:UTC-5 -->\n"),
 			},
 		},
 		{
 			name: "a KB that opted out of the preamble may still declare a directive",
-			artifacts: []provisioning.Artifact{
+			artifacts: []contract.Artifact{
 				instructionsArtifact("one", "<!-- cartographer: preamble: none -->\n<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
 			},
@@ -1561,11 +1562,11 @@ func TestDetectDirectiveCollisions(t *testing.T) {
 		},
 		{
 			name: "non-instructions artifacts are ignored even if their content matches",
-			artifacts: []provisioning.Artifact{
-				{Kind: "skill", Name: "one", Source: "kb:one", Files: []provisioning.ArtifactFile{
+			artifacts: []contract.Artifact{
+				{Kind: "skill", Name: "one", Source: "kb:one", Files: []contract.ArtifactFile{
 					{Path: "SKILL.md", Content: []byte("<!-- cartographer:directive:timezone:UTC+2 -->\n")},
 				}},
-				{Kind: "skill", Name: "two", Source: "kb:two", Files: []provisioning.ArtifactFile{
+				{Kind: "skill", Name: "two", Source: "kb:two", Files: []contract.ArtifactFile{
 					{Path: "SKILL.md", Content: []byte("<!-- cartographer:directive:timezone:UTC-5 -->\n")},
 				}},
 			},
@@ -1594,7 +1595,7 @@ func TestDetectDirectiveCollisions(t *testing.T) {
 // directive collision alone fails the merge with a *CollisionError naming the
 // key, both values and both KBs, without a kind+name collision in the mix.
 func TestMergeArtifactsStrict_DirectiveCollision(t *testing.T) {
-	colliding := []provisioning.Artifact{
+	colliding := []contract.Artifact{
 		instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 		instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
 	}
@@ -1617,7 +1618,7 @@ func TestMergeArtifactsStrict_DirectiveCollision(t *testing.T) {
 	}
 
 	// Agreeing on the value must still merge cleanly.
-	agreeing := []provisioning.Artifact{
+	agreeing := []contract.Artifact{
 		instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 		instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
 	}
@@ -1629,7 +1630,7 @@ func TestMergeArtifactsStrict_DirectiveCollision(t *testing.T) {
 // TestMergeArtifactsStrict_BothCollisionKinds: a structural collision and a
 // directive collision in the same merge are both reported in one error.
 func TestMergeArtifactsStrict_BothCollisionKinds(t *testing.T) {
-	artifacts := []provisioning.Artifact{
+	artifacts := []contract.Artifact{
 		{Kind: "skill", Name: "alpha", Source: "kb:one", ContentHash: "h1"},
 		{Kind: "skill", Name: "alpha", Source: "kb:two", ContentHash: "h2"},
 		instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
@@ -1667,12 +1668,12 @@ func TestDetectDirectiveCollisions_ScopedToWhatItIsGiven(t *testing.T) {
 
 	// Provider A is bound only to "one": no other KB's directive is ever in
 	// the slice it merges, so there is nothing to collide with.
-	if got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{one}); len(got) != 0 {
+	if got := provisioning.DetectDirectiveCollisions([]contract.Artifact{one}); len(got) != 0 {
 		t.Errorf("provider bound only to kb:one reported a collision: %+v", got)
 	}
 
 	// Provider B is bound to both: the same two artifacts now collide.
-	if got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{one, two}); len(got) != 1 {
+	if got := provisioning.DetectDirectiveCollisions([]contract.Artifact{one, two}); len(got) != 1 {
 		t.Errorf("provider bound to both KBs did not report the collision: %+v", got)
 	}
 }
@@ -1680,7 +1681,7 @@ func TestDetectDirectiveCollisions_ScopedToWhatItIsGiven(t *testing.T) {
 // TestMergeArtifactsStaysTolerant: BuildManifest merges one KB plus the bundle,
 // where a KB↔KB collision cannot arise, and must keep its existing behaviour.
 func TestMergeArtifactsStaysTolerant(t *testing.T) {
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{
+	m := contract.MergeArtifacts([]contract.Artifact{
 		{Kind: "skill", Name: "alpha", Source: "kb:two", ContentHash: "h2"},
 		{Kind: "skill", Name: "alpha", Source: "kb:one", ContentHash: "h1"},
 	})
@@ -1701,7 +1702,7 @@ func TestMergeArtifactsStaysTolerant(t *testing.T) {
 func TestSelectForSourcesKeepsBundleOverriddenElsewhere(t *testing.T) {
 	// What kb-two's own sync_pull returns: the server merged bundle+KB for
 	// kb-two only, so the bundled copy is still there.
-	kbTwoResponse := []provisioning.Artifact{
+	kbTwoResponse := []contract.Artifact{
 		{Kind: "skill", Name: "shared", Source: "bundle", ContentHash: "bundled"},
 		{Kind: "skill", Name: "other", Source: "kb:two", ContentHash: "two"},
 	}
@@ -1722,7 +1723,7 @@ func TestSelectForSourcesKeepsBundleOverriddenElsewhere(t *testing.T) {
 }
 
 func TestSelectForSources(t *testing.T) {
-	candidates := []provisioning.Artifact{
+	candidates := []contract.Artifact{
 		{Kind: "skill", Name: "a", Source: "kb:one"},
 		{Kind: "skill", Name: "b", Source: "kb:two"},
 		{Kind: "skill", Name: "c", Source: "bundle"},
@@ -1750,7 +1751,7 @@ func TestSelectForSources(t *testing.T) {
 // different KB sets would sit at the same revision string, ComputeDiff.InSync
 // would lie, and changing a binding would produce no drift at all.
 func TestFilterForProviderRecomputesRevision(t *testing.T) {
-	full := provisioning.MergeArtifacts([]provisioning.Artifact{
+	full := contract.MergeArtifacts([]contract.Artifact{
 		{Kind: "skill", Name: "a", Source: "kb:one", ContentHash: "h1"},
 		{Kind: "agent", Name: "b", Source: "kb:one", ContentHash: "h2"},
 	})
@@ -1773,9 +1774,9 @@ func TestFilterForProviderRecomputesRevision(t *testing.T) {
 // TestManagedFileRecordsSource: provenance in the lockfile is what lets status
 // attribute a file to a KB and doctor spot one from a KB no longer bound.
 func TestManagedFileRecordsSource(t *testing.T) {
-	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{{
+	m := contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{{
 		Kind: "skill", Name: "example", Source: "kb:homelab", ContentHash: "h",
-		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example")}},
+		Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example")}},
 	}}}
 	applied, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderClaudeCode, BaseDir: t.TempDir(), SkipLockWrite: true,
@@ -1820,7 +1821,7 @@ func TestBuildManifest_InvalidSkillExcludedAndAttributed(t *testing.T) {
 	writeSkill(t, kbRoot, "good-two", "good-two")
 
 	var diagnostics []string
-	m, err := provisioning.BuildManifest(nil, map[string]string{"wiki": kbRoot}, provisioning.BuildOptions{
+	m, err := contract.BuildManifest(nil, map[string]string{"wiki": kbRoot}, contract.BuildOptions{
 		SkillDiagnostic: func(msg string) { diagnostics = append(diagnostics, msg) },
 	})
 	if err != nil {
@@ -1864,7 +1865,7 @@ func TestBuildManifest_AgreesWithTheMCPChannel(t *testing.T) {
 		t.Run(tc.dir, func(t *testing.T) {
 			kbRoot := t.TempDir()
 			writeSkill(t, kbRoot, tc.dir, tc.name)
-			m, err := provisioning.BuildManifest(nil, map[string]string{"wiki": kbRoot}, provisioning.BuildOptions{})
+			m, err := contract.BuildManifest(nil, map[string]string{"wiki": kbRoot}, contract.BuildOptions{})
 			if err != nil {
 				t.Fatalf("BuildManifest: %v", err)
 			}
@@ -1904,7 +1905,7 @@ func TestBuildManifest_SkillWithUnparseableFrontmatterExcludedAndAttributed(t *t
 	}
 
 	var diagnostics []string
-	m, err := provisioning.BuildManifest(nil, map[string]string{"wiki": kbRoot}, provisioning.BuildOptions{
+	m, err := contract.BuildManifest(nil, map[string]string{"wiki": kbRoot}, contract.BuildOptions{
 		SkillDiagnostic: func(msg string) { diagnostics = append(diagnostics, msg) },
 	})
 	if err != nil {
@@ -1936,19 +1937,19 @@ func TestBuildManifest_SkillWithUnparseableFrontmatterExcludedAndAttributed(t *t
 
 func TestBuildManifest_CLISkillOnlyOnRequest(t *testing.T) {
 	t.Parallel()
-	has := func(m provisioning.Manifest) bool {
+	has := func(m contract.Manifest) bool {
 		for _, a := range m.Artifacts {
-			if a.Name == provisioning.CLISkillName {
+			if a.Name == contract.CLISkillName {
 				return true
 			}
 		}
 		return false
 	}
-	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(skillbundle.FS, nil, contract.BuildOptions{})
 	if err != nil || has(m) {
 		t.Fatalf("default manifest must omit the CLI skill (err=%v)", err)
 	}
-	m, err = provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{IncludeCLISkill: true})
+	m, err = contract.BuildManifest(skillbundle.FS, nil, contract.BuildOptions{IncludeCLISkill: true})
 	if err != nil || !has(m) {
 		t.Fatalf("IncludeCLISkill must list it (err=%v)", err)
 	}
@@ -1958,7 +1959,7 @@ func TestBuildManifest_CLISkillOnlyOnRequest(t *testing.T) {
 // not move the manifest revision.
 func TestBuildManifest_VariantsFolderIsIgnored(t *testing.T) {
 	root := t.TempDir()
-	baseline, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, provisioning.BuildOptions{})
+	baseline, err := contract.BuildManifest(nil, map[string]string{"kb": root}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1968,7 +1969,7 @@ func TestBuildManifest_VariantsFolderIsIgnored(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "variants", "x.yaml"), []byte("name: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": root}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

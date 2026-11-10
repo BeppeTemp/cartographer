@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestResolveHookCommand_POSIXQuotingRunsTheIntendedFile(t *testing.T) {
@@ -68,7 +69,7 @@ func TestOpenCodePlugin1_CommandIsBoundToAConst(t *testing.T) {
 	for _, cmd := range cmds {
 		for _, hook := range []string{"SessionStart", "PreToolUse"} {
 			mapping := openCodeHookEvents[hook]
-			src := generateOpenCodePlugin("h", hookSpec{Event: hook}, mapping, cmd, 1)
+			src := generateOpenCodePlugin("h", contract.HookSpec{Event: hook}, mapping, cmd, 1)
 			if strings.Contains(src, "$`sh -c "+mustJSONString(cmd)) {
 				t.Fatalf("command pasted into the template literal:\n%s", src)
 			}
@@ -136,7 +137,7 @@ func TestRemovers_LeaveAFileThatDoesNotNameTheirHookAlone(t *testing.T) {
 }
 
 func TestUnknownHookEvent_NamesTheRegistrarsThatRegisterIt(t *testing.T) {
-	msg := UnknownHookEvent([]byte(`{"event":"Notificatoin","command":"x.sh"}`))
+	msg := contract.UnknownHookEvent([]byte(`{"event":"Notificatoin","command":"x.sh"}`))
 	for _, p := range []string{"claude", "codex", "copilot", "crush", "kiro", "pi"} {
 		if !strings.Contains(msg, p) {
 			t.Errorf("message does not name %s: %s", p, msg)
@@ -243,7 +244,7 @@ func TestOpenCodeWriteFindings_ProbeAnswering2ThenFailingKeepsTheShape(t *testin
 		t.Fatal(err)
 	}
 	base := t.TempDir()
-	rel, _, ok, err := registerOpenCodePlugin(base, WriteFindingsHookName, dest, ScopeGlobal)
+	rel, _, ok, err := registerOpenCodePlugin(base, contract.WriteFindingsHookName, dest, contract.ScopeGlobal)
 	if err != nil || !ok {
 		t.Fatalf("register: %v %v", ok, err)
 	}

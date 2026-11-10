@@ -7,14 +7,15 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // skillArtifact builds a built-in skill with the given files, so Apply
 // materializes it without an approval step.
-func skillArtifact(name, hash string, files map[string]string) provisioning.Artifact {
-	a := provisioning.Artifact{Kind: "skill", Name: name, ContentHash: hash, Source: "bundle", BuiltIn: true}
+func skillArtifact(name, hash string, files map[string]string) contract.Artifact {
+	a := contract.Artifact{Kind: "skill", Name: name, ContentHash: hash, Source: "bundle", BuiltIn: true}
 	for _, path := range sortedKeys(files) {
-		a.Files = append(a.Files, provisioning.ArtifactFile{Path: path, Content: []byte(files[path])})
+		a.Files = append(a.Files, contract.ArtifactFile{Path: path, Content: []byte(files[path])})
 	}
 	return a
 }
@@ -40,7 +41,7 @@ func sortedKeys(m map[string]string) []string {
 // inside a live skill directory.
 func TestApply_RemovesFilesAnArtifactNoLongerOwns(t *testing.T) {
 	base := t.TempDir()
-	first := provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{
+	first := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 		skillArtifact("alpha", "h1", map[string]string{"SKILL.md": "# alpha\n", "reference.md": "old reference\n"}),
 	}}
 	res, err := provisioning.Apply(first, provisioning.ApplyOptions{Provider: "claude", BaseDir: base, SkipLockWrite: true})
@@ -60,7 +61,7 @@ func TestApply_RemovesFilesAnArtifactNoLongerOwns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second := provisioning.Manifest{Revision: "r2", Artifacts: []provisioning.Artifact{
+	second := contract.Manifest{Revision: "r2", Artifacts: []contract.Artifact{
 		skillArtifact("alpha", "h2", map[string]string{"SKILL.md": "# alpha v2\n"}),
 	}}
 	res2, err := provisioning.Apply(second, provisioning.ApplyOptions{Provider: "claude", BaseDir: base, SkipLockWrite: true, Lock: res.NewLock})
@@ -97,7 +98,7 @@ func TestApply_RemovesFilesAnArtifactNoLongerOwns(t *testing.T) {
 // silent orphan.
 func TestApply_DryRunReportsRemovalWithoutDeleting(t *testing.T) {
 	base := t.TempDir()
-	first := provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{
+	first := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 		skillArtifact("alpha", "h1", map[string]string{"SKILL.md": "# alpha\n", "reference.md": "old\n"}),
 	}}
 	res, err := provisioning.Apply(first, provisioning.ApplyOptions{Provider: "claude", BaseDir: base, SkipLockWrite: true})
@@ -105,7 +106,7 @@ func TestApply_DryRunReportsRemovalWithoutDeleting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second := provisioning.Manifest{Revision: "r2", Artifacts: []provisioning.Artifact{
+	second := contract.Manifest{Revision: "r2", Artifacts: []contract.Artifact{
 		skillArtifact("alpha", "h2", map[string]string{"SKILL.md": "# alpha v2\n"}),
 	}}
 	res2, err := provisioning.Apply(second, provisioning.ApplyOptions{Provider: "claude", BaseDir: base, SkipLockWrite: true, DryRun: true, Lock: res.NewLock})

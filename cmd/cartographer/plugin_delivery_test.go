@@ -9,6 +9,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // deliveryMachine installs the plugin folder (approved) into a fresh home and
@@ -42,7 +43,7 @@ func lockedNames(t *testing.T, home string) map[string]string {
 	out := map[string]string{}
 	for _, mf := range lock.ForProvider("claude").Managed {
 		// Only what plugins installed: the synthetic hooks are not theirs.
-		if provisioning.IsPluginSource(mf.Source) {
+		if contract.IsPluginSource(mf.Source) {
 			out[mf.Kind+"/"+mf.Name] = mf.Source
 		}
 	}
@@ -226,7 +227,7 @@ func TestKBAgainstKBCollisionStillStopsTheSyncWithPlugins(t *testing.T) {
 
 func TestPluginArtifactsReachOnlyTheGlobalProjection(t *testing.T) {
 	_, cfg := deliveryMachine(t, "http://127.0.0.1:1", writePlugin(t, "team-forks", nil))
-	cs := candidateSet{Named: map[string][]provisioning.Artifact{}, Plugins: loadActivePlugins(cfg).Artifacts}
+	cs := candidateSet{Named: map[string][]contract.Artifact{}, Plugins: loadActivePlugins(cfg).Artifacts}
 	if len(cs.Plugins) != 1 {
 		t.Fatalf("loaded %d plugin artifacts, want 1", len(cs.Plugins))
 	}
@@ -244,15 +245,15 @@ func TestPluginArtifactsReachOnlyTheGlobalProjection(t *testing.T) {
 }
 
 func TestPluginHookAuthorizationDependsOnTheActiveSet(t *testing.T) {
-	hook := provisioning.Artifact{Kind: "hook", Name: "guard", Source: "plugin:team-forks"}
+	hook := contract.Artifact{Kind: "hook", Name: "guard", Source: "plugin:team-forks"}
 	if provisioning.ArtifactAuthorized(hook, provisioning.ApplyOptions{}) {
 		t.Error("a plugin hook was authorized with no active plugin")
 	}
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{hook}}
+	m := contract.Manifest{Artifacts: []contract.Artifact{hook}}
 	if !provisioning.ArtifactAuthorized(hook, provisioning.ApplyOptions{ActivePlugins: manifestPlugins(m)}) {
 		t.Error("a plugin hook of an active plugin was not authorized")
 	}
-	kbHook := provisioning.Artifact{Kind: "hook", Name: "guard", Source: "kb:one"}
+	kbHook := contract.Artifact{Kind: "hook", Name: "guard", Source: "kb:one"}
 	if provisioning.ArtifactAuthorized(kbHook, provisioning.ApplyOptions{ActivePlugins: map[string]bool{"one": true}}) {
 		t.Error("a KB hook still waits for its approval (D1141)")
 	}

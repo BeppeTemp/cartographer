@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skill"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
@@ -105,7 +105,7 @@ func renderKBGuide(ctx requestContext, k *kb.KB, bundle fs.FS) string {
 		if !isProvisioned(ctx) {
 			sb.WriteString("This is the text already sent in the `initialize` instructions.\n\n")
 		}
-		sb.WriteString(provisioning.RenderGuide([]provisioning.GuideKB{g}, provisioning.GuideOptions{
+		sb.WriteString(contract.RenderGuide([]contract.GuideKB{g}, contract.GuideOptions{
 			Routed:     len(routedSetFrom(ctx)) >= 2,
 			ReadOnly:   !writesAnyKB(ctx, []string{name}),
 			Procedures: procedureLines(bundle),

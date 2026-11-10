@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // usageHome builds a fake home with a lockfile that manages the given skills
@@ -270,7 +271,7 @@ func TestScanUsage_Copilot_SkillActivation(t *testing.T) {
 	if len(got) != 1 {
 		t.Errorf("only the skill activation of a managed skill may count: %+v", got)
 	}
-	supported, _, _ := provisioning.UsageProviders()
+	supported, _, _ := contract.UsageProviders()
 	if !strings.Contains(strings.Join(supported, ","), "copilot") {
 		t.Errorf("supported = %v, want copilot", supported)
 	}
@@ -284,7 +285,7 @@ func TestScanUsage_UnsupportedProvidersContributeNothing(t *testing.T) {
 			t.Errorf("%s: got %+v, err %v, want empty", p, got, err)
 		}
 	}
-	_, _, unsupported := provisioning.UsageProviders()
+	_, _, unsupported := contract.UsageProviders()
 	if len(unsupported) != 5 {
 		t.Errorf("unsupported = %v", unsupported)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 var hookProviders = []configurator.Provider{
@@ -18,7 +19,7 @@ var hookProviders = []configurator.Provider{
 	configurator.ProviderOpenCode, configurator.ProviderAntigravity,
 }
 
-func hookManifest(t *testing.T, hookJSON string) (provisioning.Manifest, string) {
+func hookManifest(t *testing.T, hookJSON string) (contract.Manifest, string) {
 	t.Helper()
 	kbRoot := t.TempDir()
 	dir := filepath.Join(kbRoot, "hooks", "guard")
@@ -33,7 +34,7 @@ func hookManifest(t *testing.T, hookJSON string) (provisioning.Manifest, string)
 	if err := os.WriteFile(filepath.Join(dir, "run.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}

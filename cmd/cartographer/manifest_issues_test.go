@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // issuesPayload is syncPullPayload plus the issues a server names for an
@@ -218,7 +218,7 @@ func TestStatus_JSONIssuesDoNotChangeStateOrExit(t *testing.T) {
 
 func TestIssuesForProjection_Selection(t *testing.T) {
 	cs := candidateSet{
-		Named:      map[string][]provisioning.Artifact{"a": nil, "b": nil},
+		Named:      map[string][]contract.Artifact{"a": nil, "b": nil},
 		Issues:     map[string][]string{"a": {"ia"}, "b": {"ib"}},
 		BareIssues: []string{"bare"},
 	}
@@ -277,16 +277,16 @@ func TestIssuesForProjection_Selection(t *testing.T) {
 // to one of them report the same issue: it is printed once, with the KB's name
 // because the run as a whole reads more than one.
 func TestManifestIssues_SameIssueAcrossProjectionsIsOneLine(t *testing.T) {
-	is := provisioning.KBIssue{KB: "kb-a", Text: "skill \"x\" excluded"}
-	got := manifestIssues(map[string]provisioning.Manifest{
-		"claude":    {KBIssues: []provisioning.KBIssue{is}, ReadKBs: []string{"kb-a", "kb-b"}},
-		"claude@/w": {KBIssues: []provisioning.KBIssue{is}, ReadKBs: []string{"kb-a"}},
+	is := contract.KBIssue{KB: "kb-a", Text: "skill \"x\" excluded"}
+	got := manifestIssues(map[string]contract.Manifest{
+		"claude":    {KBIssues: []contract.KBIssue{is}, ReadKBs: []string{"kb-a", "kb-b"}},
+		"claude@/w": {KBIssues: []contract.KBIssue{is}, ReadKBs: []string{"kb-a"}},
 	})
 	if len(got) != 1 || got[0] != "kb-a: skill \"x\" excluded" {
 		t.Errorf("got %q, want one prefixed line", got)
 	}
-	single := manifestIssues(map[string]provisioning.Manifest{
-		"claude@/w": {KBIssues: []provisioning.KBIssue{is}, ReadKBs: []string{"kb-a"}},
+	single := manifestIssues(map[string]contract.Manifest{
+		"claude@/w": {KBIssues: []contract.KBIssue{is}, ReadKBs: []string{"kb-a"}},
 	})
 	if len(single) != 1 || single[0] != "skill \"x\" excluded" {
 		t.Errorf("single-KB run: got %q, want the bare issue", single)

@@ -5,45 +5,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
-
-// PathDecl is one key a KB declares in its paths.yaml (D263), as sync_pull's
-// `path_registry` field carries it. It mirrors kb.PathDecl's JSON tags — the
-// wire format — without importing the server's data plane into the client.
-// Remote, for a repo key, is already normalized by the server.
-type PathDecl struct {
-	Description string `json:"description"`
-	Default     string `json:"default,omitempty"`
-	Remote      string `json:"remote,omitempty"`
-	// Bind mirrors kb.PathDecl.Bind: nil or true binds the declared repository
-	// to its KB (D1019), false opts it out.
-	Bind *bool `json:"bind,omitempty"`
-}
-
-// BindsRepo reports whether the declared repository is bound to its KB.
-func (d PathDecl) BindsRepo() bool { return d.Bind == nil || *d.Bind }
-
-// PathRegistry is one KB's declared placeholder vocabulary (D263): `paths`
-// declares {{path:<key>}} keys, `repos` {{repo:<key>}} keys. Unsigned KB
-// content, like a concept body: it can only propose a home-anchored path, only
-// as a fallback, and only one that exists — it never executes anything.
-type PathRegistry struct {
-	Paths map[string]PathDecl `json:"paths,omitempty"`
-	Repos map[string]PathDecl `json:"repos,omitempty"`
-}
-
-// byID flattens the registry to "kind:key" -> declaration.
-func (r PathRegistry) byID() map[string]PathDecl {
-	out := make(map[string]PathDecl, len(r.Paths)+len(r.Repos))
-	for k, d := range r.Paths {
-		out["path:"+k] = d
-	}
-	for k, d := range r.Repos {
-		out["repo:"+k] = d
-	}
-	return out
-}
 
 // MergePathRegistries folds the registries of the KBs bound to one projection
 // into one "kind:key" -> declaration map, plus the kbs declaring each key.
@@ -51,7 +15,7 @@ func (r PathRegistry) byID() map[string]PathDecl {
 // follow alphabetically. When two KBs declare one key with a different
 // default or remote, the first in that order wins and a warning names both —
 // never an error: resolution must not block a sync (D75 WP3).
-func MergePathRegistries(order []string, regs map[string]PathRegistry) (map[string]PathDecl, map[string][]string, []string) {
+func MergePathRegistries(order []string, regs map[string]contract.PathRegistry) (map[string]contract.PathDecl, map[string][]string, []string) {
 	if len(regs) == 0 {
 		return nil, nil, nil
 	}
@@ -72,12 +36,12 @@ func MergePathRegistries(order []string, regs map[string]PathRegistry) (map[stri
 	sort.Strings(rest)
 	kbs = append(kbs, rest...)
 
-	decls := map[string]PathDecl{}
+	decls := map[string]contract.PathDecl{}
 	declaredBy := map[string][]string{}
 	winner := map[string]string{}
 	var warnings []string
 	for _, kb := range kbs {
-		byID := regs[kb].byID()
+		byID := regs[kb].ByID()
 		ids := make([]string, 0, len(byID))
 		for id := range byID {
 			ids = append(ids, id)
@@ -104,7 +68,7 @@ func MergePathRegistries(order []string, regs map[string]PathRegistry) (map[stri
 	return decls, declaredBy, warnings
 }
 
-func describeDecl(d PathDecl) string {
+func describeDecl(d contract.PathDecl) string {
 	var parts []string
 	if d.Default != "" {
 		parts = append(parts, "default "+d.Default)

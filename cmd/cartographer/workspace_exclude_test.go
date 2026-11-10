@@ -10,6 +10,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // #656: the exclude block is one per workspace, so it carries the roots of
@@ -70,8 +71,8 @@ func TestWorkspaceProvidersKeepsUntouchedAndDropsLeaving(t *testing.T) {
 		lf.SetProjection(provisioning.Projection{Provider: p, Workspace: ws}, provisioning.Lock{})
 	}
 	declared := []syncProjection{
-		{Provider: "claude", Workspace: ws, Scope: provisioning.ScopeProject},
-		{Provider: "codex", Workspace: "/other", Scope: provisioning.ScopeProject},
+		{Provider: "claude", Workspace: ws, Scope: contract.ScopeProject},
+		{Provider: "codex", Workspace: "/other", Scope: contract.ScopeProject},
 	}
 	got := strings.Join(workspaceProviders(lf, declared, ws), ",")
 	if got != "claude,kiro" {
@@ -109,10 +110,10 @@ func TestPrepareWorkspace_OwnsArtifactsNotDirectories(t *testing.T) {
 	}
 	git("add", ".agents/skills/own/SKILL.md")
 
-	p := syncProjection{Provider: "codex", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
+	p := syncProjection{Provider: "codex", Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject}
 	owner := func(name string) ownedPathsFunc {
-		m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "skill", Name: name}}}
-		return workspaceOwnership(&provisioning.LockFile{}, []syncProjection{p}, map[string]provisioning.Manifest{projectionKey(p): m}, ws)
+		m := contract.Manifest{Artifacts: []contract.Artifact{{Kind: "skill", Name: name}}}
+		return workspaceOwnership(&provisioning.LockFile{}, []syncProjection{p}, map[string]contract.Manifest{projectionKey(p): m}, ws)
 	}
 	exclude := func() string {
 		b, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))

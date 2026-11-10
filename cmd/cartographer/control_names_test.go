@@ -10,6 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestResolveKBTargets_RefusesAdvertisedNameWithControlCharacters(t *testing.T) {
@@ -34,11 +35,11 @@ func TestHasControlRune(t *testing.T) {
 }
 
 func TestPrintApplySummary_NeverPrintsAControlCharacterRaw(t *testing.T) {
-	bad := provisioning.Artifact{Kind: "agent", Name: "a\x1b]0;pwn\x07\nforged", Source: "kb:k\x1b[2J"}
+	bad := contract.Artifact{Kind: "agent", Name: "a\x1b]0;pwn\x07\nforged", Source: "kb:k\x1b[2J"}
 	results := map[string]provisioning.AppliedResult{"claude-code": {
-		NeedsApproval: []provisioning.Artifact{bad},
-		Unsupported:   []provisioning.Artifact{bad},
-		Refused:       []provisioning.Artifact{bad},
+		NeedsApproval: []contract.Artifact{bad},
+		Unsupported:   []contract.Artifact{bad},
+		Refused:       []contract.Artifact{bad},
 		Warnings:      []string{"agent " + bad.Name + " not installed"},
 	}}
 	var buf bytes.Buffer
@@ -91,7 +92,7 @@ func TestEnumerateKBs_RefusesAdvertisedNameWithControlCharacters(t *testing.T) {
 // feeds an ESC and a newline to each and asserts neither reaches the output.
 func TestServerChosenTextNeverReachesTheTerminalRaw(t *testing.T) {
 	const evil = "x\x1b]0;t\x07\nforged‮"
-	art := provisioning.Artifact{Kind: evil, Name: evil, Source: evil}
+	art := contract.Artifact{Kind: evil, Name: evil, Source: evil}
 	mf := provisioning.ManagedFile{Kind: evil, Name: evil, Path: evil, Source: evil}
 	results := map[string]provisioning.AppliedResult{"claude-code": {
 		Written:       []provisioning.ManagedFile{mf},
@@ -99,9 +100,9 @@ func TestServerChosenTextNeverReachesTheTerminalRaw(t *testing.T) {
 		Healed:        []provisioning.ManagedFile{mf},
 		Relocated:     []provisioning.ManagedFile{mf},
 		Divergent:     []provisioning.DriftFinding{{Kind: evil, Name: evil, Path: evil, Reason: evil}},
-		NeedsApproval: []provisioning.Artifact{art},
-		Unsupported:   []provisioning.Artifact{art},
-		Refused:       []provisioning.Artifact{art},
+		NeedsApproval: []contract.Artifact{art},
+		Unsupported:   []contract.Artifact{art},
+		Refused:       []contract.Artifact{art},
 		Warnings:      []string{evil},
 	}}
 	var buf bytes.Buffer
