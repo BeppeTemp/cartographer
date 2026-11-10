@@ -1,4 +1,4 @@
-// Package tray is the core of the status icon (D1482): the health model of
+// Package tray is the core of the status icon: the health model of
 // the local server or, on a machine with no local service, of the server the
 // client is connected to, the poll loop that keeps it current and the generated
 // monochrome icons. It draws nothing itself: the

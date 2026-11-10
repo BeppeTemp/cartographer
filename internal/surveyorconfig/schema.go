@@ -1,4 +1,4 @@
-// Package surveyorconfig holds the key table of the Surveyor config file (D1258): the one list of keys the file accepts.
+// Package surveyorconfig holds the key table of the Surveyor config file: the one list of keys the file accepts.
 //
 // It is a leaf package (settingschema and the standard library only) so the
 // server can render a surveyor's settings without linking the surveyor. The loader

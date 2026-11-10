@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // The pieces of the instructions text, shared by two renderings (D1097): the
@@ -283,7 +283,7 @@ type ProcedureLine struct{ Short, UseWhen string }
 // only, never the managed block (paid on every model call, D1182).
 func coldStartSection() string {
 	return fmt.Sprintf("This KB is empty. Create its first map with `map_create` (`name` kebab-case, `title`; `kind: journal` for a dated log of events or sources), then write pages with `concept_write`. Reserved map name: %s. Documented services are pages under `services/<id>`, not a map.\n\n",
-		strings.Join(kb.ReservedMapNames, ", "))
+		strings.Join(okf.ReservedMapNames, ", "))
 }
 
 // RenderGuide renders the operating guide the server sends in `initialize`
