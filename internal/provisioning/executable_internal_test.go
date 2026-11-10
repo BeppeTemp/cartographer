@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/execbit"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // withExecBitSupport forces the branch executableOnDisk takes, both ways,
@@ -39,7 +40,7 @@ func withExecBitSupport(t *testing.T, supported bool) {
 // inside the digest.
 func TestContentHashFilesIsFrozen(t *testing.T) {
 	const want = "97eccf24a5e4b0d9ff202338846a6924b3b0ccb413d250b23c1fd4ac7aeda7f4"
-	got := ContentHashFiles([]ArtifactFile{
+	got := ContentHashFiles([]contract.ArtifactFile{
 		{Path: "SKILL.md", Content: []byte("---\nname: fixture\n---\nBody.\n")},
 		{Path: "scripts/check.sh", Content: []byte("#!/bin/sh\nexit 0\n"), Executable: true},
 		{Path: "scripts/notes.txt", Content: []byte("plain\n")},
@@ -52,7 +53,7 @@ func TestContentHashFilesIsFrozen(t *testing.T) {
 	}
 	// And the flag is genuinely part of the digest — otherwise the fixture above
 	// would prove nothing about it.
-	same := ContentHashFiles([]ArtifactFile{
+	same := ContentHashFiles([]contract.ArtifactFile{
 		{Path: "SKILL.md", Content: []byte("---\nname: fixture\n---\nBody.\n")},
 		{Path: "scripts/check.sh", Content: []byte("#!/bin/sh\nexit 0\n")},
 		{Path: "scripts/notes.txt", Content: []byte("plain\n")},
@@ -158,7 +159,7 @@ func TestRecomputedHashMatchesTheWriterOnEitherPlatform(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				dir := t.TempDir()
-				var declared []ArtifactFile
+				var declared []contract.ArtifactFile
 				var execPaths []string
 				for rel, exe := range c.files {
 					full := filepath.Join(dir, filepath.FromSlash(rel))
@@ -168,7 +169,7 @@ func TestRecomputedHashMatchesTheWriterOnEitherPlatform(t *testing.T) {
 					content := []byte("content of " + rel + "\n")
 					mode := os.FileMode(0o644)
 					// The floor the writer applies, and the mode it writes.
-					effective := effectiveExecutable(c.kind, rel, exe)
+					effective := contract.EffectiveExecutable(c.kind, rel, exe)
 					if effective {
 						mode = 0o755
 						execPaths = append(execPaths, rel)
@@ -176,10 +177,10 @@ func TestRecomputedHashMatchesTheWriterOnEitherPlatform(t *testing.T) {
 					if err := os.WriteFile(full, content, mode); err != nil {
 						t.Fatal(err)
 					}
-					declared = append(declared, ArtifactFile{Path: rel, Content: content, Executable: effective})
+					declared = append(declared, contract.ArtifactFile{Path: rel, Content: content, Executable: effective})
 				}
 				// Exactly what copyArtifactFiles records.
-				writerHash := hashArtifactFiles(declared)
+				writerHash := contract.HashArtifactFiles(declared)
 				mf := ManagedFile{Kind: c.kind, Name: "fixture", MaterializedHash: writerHash, ExecutablePaths: execPaths}
 
 				withExecBitSupport(t, supported)
@@ -195,7 +196,7 @@ func TestRecomputedHashMatchesTheWriterOnEitherPlatform(t *testing.T) {
 				if err != nil {
 					t.Fatalf("readManagedFiles: %v", err)
 				}
-				if got := hashArtifactFiles(files); got != writerHash {
+				if got := contract.HashArtifactFiles(files); got != writerHash {
 					t.Errorf("readManagedFiles hashed %q, writer recorded %q", got, writerHash)
 				}
 			})
@@ -215,7 +216,7 @@ func TestWithoutExecutablePathsASkillHelperDrifts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "check.sh"), []byte("exit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writerHash := hashArtifactFiles([]ArtifactFile{
+	writerHash := contract.HashArtifactFiles([]contract.ArtifactFile{
 		{Path: "SKILL.md", Content: []byte("body\n")},
 		{Path: "check.sh", Content: []byte("exit 0\n"), Executable: true},
 	})

@@ -7,35 +7,36 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // Destinations is what the Atlas UI shows as an artifact's clients (D238): it
 // must name exactly the supported cells of the matrix sync writes from, in
 // registry order.
 func TestDestinationsFollowTheMatrix(t *testing.T) {
-	for kind, row := range destinationMatrix {
+	for kind, row := range contract.DestinationMatrix {
 		var want []configurator.Provider
 		for _, d := range configurator.Providers() {
-			if cell, ok := row[d.Provider]; ok && !cell.unsupported {
+			if cell, ok := row[d.Provider]; ok && !cell.Unsupported {
 				want = append(want, d.Provider)
 			}
 		}
-		if got := Destinations(kind, "x"); !slices.Equal(got, want) {
+		if got := contract.Destinations(kind, "x"); !slices.Equal(got, want) {
 			t.Errorf("Destinations(%q) = %v, want %v", kind, got, want)
 		}
 	}
 }
 
 func TestDestinationsSpotChecks(t *testing.T) {
-	agent := Destinations("agent", "reviewer")
+	agent := contract.Destinations("agent", "reviewer")
 	if !slices.Contains(agent, configurator.ProviderClaudeCode) || slices.Contains(agent, configurator.ProviderCrush) {
 		t.Errorf("agent destinations = %v, want Claude Code and not Crush", agent)
 	}
-	if hook := Destinations("hook", "guard"); !slices.Contains(hook, configurator.ProviderKiro) || !slices.Contains(hook, configurator.ProviderClaudeCode) {
+	if hook := contract.Destinations("hook", "guard"); !slices.Contains(hook, configurator.ProviderKiro) || !slices.Contains(hook, configurator.ProviderClaudeCode) {
 		t.Errorf("hook destinations = %v, want Kiro (D300) and Claude Code", hook)
 	}
 	for _, kind := range []string{"template", "unknown", ""} {
-		if got := Destinations(kind, "x"); len(got) != 0 {
+		if got := contract.Destinations(kind, "x"); len(got) != 0 {
 			t.Errorf("Destinations(%q) = %v, want none", kind, got)
 		}
 	}
@@ -47,17 +48,17 @@ func TestDestinationsSpotChecks(t *testing.T) {
 // $HOME/.copilot could be pruned). A cell that is a file at the base dir itself
 // (.claude.json, AGENTS.md) has no root to keep.
 func TestEveryDestinationRootIsAPruneBoundary(t *testing.T) {
-	for scope, matrix := range map[string]map[string]map[configurator.Provider]destination{
-		"global": destinationMatrix, "project": projectDestinationMatrix,
+	for scope, matrix := range map[string]map[string]map[configurator.Provider]contract.Destination{
+		"global": contract.DestinationMatrix, "project": contract.ProjectDestinationMatrix,
 	} {
 		for kind, row := range matrix {
 			for provider, cell := range row {
-				if cell.unsupported || (len(cell.dir) == 1 && !cell.named) {
+				if cell.Unsupported || (len(cell.Dir) == 1 && !cell.Named) {
 					continue
 				}
-				root := cell.dir[0]
-				if root == ".config" && len(cell.dir) > 1 {
-					root = filepath.Join(cell.dir[:2]...)
+				root := cell.Dir[0]
+				if root == ".config" && len(cell.Dir) > 1 {
+					root = filepath.Join(cell.Dir[:2]...)
 				}
 				if !provisioningRootDirs[root] {
 					t.Errorf("%s %s/%s lives under %q, which is not in provisioningRootDirs", scope, kind, provider, root)

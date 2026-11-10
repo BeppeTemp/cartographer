@@ -10,7 +10,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // homeUIHandler mounts the UI fixture with a "whole" and a "narrow" token and
@@ -120,7 +120,7 @@ func TestUIAPI_ArtifactsCarryTheConceptsTheyReference(t *testing.T) {
 func TestArtifactConceptRefs(t *testing.T) {
 	t.Parallel()
 	exists := map[okf.ConceptID]struct{}{"a/b": {}, "c/d": {}, "e/f": {}}
-	a := kbArtifact{Files: []provisioning.ArtifactFile{
+	a := kbArtifact{Files: []contract.ArtifactFile{
 		{Path: "SKILL.md", Content: []byte("See [[a/b|B]], c/d/index.md and e/f. Also x/y and /a/b.\n")},
 		{Path: "logo.bin", Content: []byte{0xff, 0xfe}},
 	}}

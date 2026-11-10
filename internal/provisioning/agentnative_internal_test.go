@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"gopkg.in/yaml.v3"
 )
 
@@ -16,9 +17,9 @@ func TestRenderNativeTOML_ScalarsAreRenderedFromTheDecodedValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := doc.Content[0]
-	var fields []nativeField
+	var fields []contract.NativeField
 	for i := 0; i+1 < len(m.Content); i += 2 {
-		fields = append(fields, nativeField{Key: m.Content[i].Value, Value: m.Content[i+1]})
+		fields = append(fields, contract.NativeField{Key: m.Content[i].Value, Value: m.Content[i+1]})
 	}
 	got, err := renderNativeTOML(fields)
 	if err != nil {

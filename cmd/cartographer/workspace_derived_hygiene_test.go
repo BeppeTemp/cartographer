@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // trackedRepo is a git repository tracking the given files (path -> content).
@@ -39,19 +40,19 @@ func trackedRepo(t *testing.T, files map[string]string) string {
 }
 
 func kiroProjection(ws string, derived bool) syncProjection {
-	p := syncProjection{Provider: "kiro", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, Derived: derived}
+	p := syncProjection{Provider: "kiro", Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject, Derived: derived}
 	if derived {
 		p.SharedSkipped, p.SkipKinds = derivedSharedSkips(p.Provider, ws)
 	}
 	return p
 }
 
-func skillAndMCPManifest() provisioning.Manifest {
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{
+func skillAndMCPManifest() contract.Manifest {
+	m := contract.Manifest{Artifacts: []contract.Artifact{
 		{Kind: "skill", Name: "example", Source: "bundle", BuiltIn: true, ContentHash: "h-skill",
-			Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example\n")}}},
+			Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example\n")}}},
 		{Kind: "mcp", Name: "tools", Source: "bundle", BuiltIn: true, ContentHash: "h-mcp",
-			Files: []provisioning.ArtifactFile{{Path: "tools.json", Content: []byte(`{"type":"http","url":"https://tools.example.com/mcp"}`)}}},
+			Files: []contract.ArtifactFile{{Path: "tools.json", Content: []byte(`{"type":"http","url":"https://tools.example.com/mcp"}`)}}},
 	}}
 	m.Revision = "r"
 	return m
@@ -59,7 +60,7 @@ func skillAndMCPManifest() provisioning.Manifest {
 
 func sync1181(t *testing.T, projections []syncProjection) error {
 	t.Helper()
-	manifests := map[string]provisioning.Manifest{}
+	manifests := map[string]contract.Manifest{}
 	for _, p := range projections {
 		manifests[projectionKey(p)] = skillAndMCPManifest()
 	}
@@ -132,7 +133,7 @@ func TestDerivedWorkspace_TrackedMCPFileKeepsItsLockEntries(t *testing.T) {
 	}
 	m := skillAndMCPManifest()
 	m.Artifacts = m.Artifacts[:1]
-	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, dir, "", false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(map[string]contract.Manifest{projectionKey(p): m}, []syncProjection{p}, dir, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(filepath.Join(ws, ".kiro", "settings", "mcp.json")); string(got) != original {
@@ -164,22 +165,22 @@ func TestDerivedWorkspace_TrackedMCPFileKeepsItsLockEntries(t *testing.T) {
 // entries, while the rest is projected.
 func TestDerivedWorkspace_TrackedHookFileKeepsItsLockEntries(t *testing.T) {
 	ws := trackedRepo(t, map[string]string{"README.md": "x\n"})
-	hook := provisioning.Artifact{Kind: "hook", Name: "guard", Source: "bundle", BuiltIn: true, ContentHash: "h-hook", Files: []provisioning.ArtifactFile{
+	hook := contract.Artifact{Kind: "hook", Name: "guard", Source: "bundle", BuiltIn: true, ContentHash: "h-hook", Files: []contract.ArtifactFile{
 		{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)},
 		{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
 	}}
 	skill := skillAndMCPManifest().Artifacts[0]
 	dir := t.TempDir()
-	apply := func(p syncProjection, artifacts ...provisioning.Artifact) {
+	apply := func(p syncProjection, artifacts ...contract.Artifact) {
 		t.Helper()
-		m := provisioning.Manifest{Revision: "r", Artifacts: artifacts}
-		if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, dir, "", false, false, portabilityOptions{}, nil); err != nil {
+		m := contract.Manifest{Revision: "r", Artifacts: artifacts}
+		if _, err := materializeForProviders(map[string]contract.Manifest{projectionKey(p): m}, []syncProjection{p}, dir, "", false, false, portabilityOptions{}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// An earlier sync registered the hook, then the repository started
 	// tracking the registration file (forced: that sync excluded it).
-	explicit := syncProjection{Provider: "antigravity", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
+	explicit := syncProjection{Provider: "antigravity", Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject}
 	apply(explicit, hook)
 	const reg = ".agents/hooks.json"
 	original, err := os.ReadFile(filepath.Join(ws, filepath.FromSlash(reg)))
@@ -196,7 +197,7 @@ func TestDerivedWorkspace_TrackedHookFileKeepsItsLockEntries(t *testing.T) {
 	// The KB still serves the hook, changed: a derived sync must not apply it.
 	changed := hook
 	changed.ContentHash = "h-hook-2"
-	changed.Files = []provisioning.ArtifactFile{hook.Files[0], {Path: "run.sh", Content: []byte("#!/bin/sh\necho changed\n"), Executable: true}}
+	changed.Files = []contract.ArtifactFile{hook.Files[0], {Path: "run.sh", Content: []byte("#!/bin/sh\necho changed\n"), Executable: true}}
 	apply(p, skill, changed)
 
 	if got, _ := os.ReadFile(filepath.Join(ws, filepath.FromSlash(reg))); !bytes.Equal(got, original) {
@@ -228,8 +229,8 @@ func TestDerivedWorkspace_TrackedHookFileKeepsItsLockEntries(t *testing.T) {
 func TestDerivedWorkspace_InvalidNameSkipsOnlyDerived(t *testing.T) {
 	ws := trackedRepo(t, map[string]string{"README.md": "x\n"})
 	bad := func(p syncProjection) error {
-		m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{{Kind: "skill", Name: "x\n!/src", Source: "bundle", BuiltIn: true, ContentHash: "h"}}}
-		_, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil)
+		m := contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{{Kind: "skill", Name: "x\n!/src", Source: "bundle", BuiltIn: true, ContentHash: "h"}}}
+		_, err := materializeForProviders(map[string]contract.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil)
 		return err
 	}
 	if err := bad(kiroProjection(ws, true)); err != nil {
@@ -242,15 +243,15 @@ func TestDerivedWorkspace_InvalidNameSkipsOnlyDerived(t *testing.T) {
 }
 
 func claudeDerivedProjection(ws string) syncProjection {
-	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, Derived: true}
+	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject, Derived: true}
 	p.InstructionsRel, p.InstructionsSkipped = derivedInstructions(p.Provider, ws)
 	p.SharedSkipped, p.SkipKinds = derivedSharedSkips(p.Provider, ws)
 	p.HookSettingsRel = derivedHookSettings(p.Provider, p.SkipKinds)
 	return p
 }
 
-func bundleHook(name string) provisioning.Artifact {
-	return provisioning.Artifact{Kind: "hook", Name: name, Source: "bundle", BuiltIn: true, ContentHash: "h-" + name, Files: []provisioning.ArtifactFile{
+func bundleHook(name string) contract.Artifact {
+	return contract.Artifact{Kind: "hook", Name: name, Source: "bundle", BuiltIn: true, ContentHash: "h-" + name, Files: []contract.ArtifactFile{
 		{Path: "hook.json", Content: []byte(`{"event":"PreToolUse","matcher":"Bash","command":"./run.sh"}`)},
 		{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
 	}}
@@ -283,8 +284,8 @@ func TestDerivedWorkspace_ClaudeHooksGoToSettingsLocal(t *testing.T) {
 	if p.HookSettingsRel != provisioning.ClaudeLocalSettings {
 		t.Fatalf("HookSettingsRel = %q", p.HookSettingsRel)
 	}
-	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{bundleHook("guard"), bundleHook("audit")}}
-	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+	m := contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{bundleHook("guard"), bundleHook("audit")}}
+	if _, err := materializeForProviders(map[string]contract.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(filepath.Join(ws, ".claude", "settings.json")); string(got) != trackedClaudeSettings {
@@ -313,8 +314,8 @@ func TestDerivedWorkspace_TrackedClaudeSettingsLocalSkipsHooks(t *testing.T) {
 	if p.HookSettingsRel != "" || !slices.Contains(p.SkipKinds, "hook") || !slices.Contains(p.SharedSkipped, provisioning.ClaudeLocalSettings) {
 		t.Fatalf("projection = %+v, want hooks skipped", p)
 	}
-	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{bundleHook("guard")}}
-	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+	m := contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{bundleHook("guard")}}
+	if _, err := materializeForProviders(map[string]contract.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(filepath.Join(ws, ".claude", "settings.local.json")); string(got) != own {
@@ -360,14 +361,14 @@ func TestTrackedClaudeHookSettings(t *testing.T) {
 func TestDerivedWorkspace_ClaudeLocalFilesExcludedOnFirstSync(t *testing.T) {
 	ws := trackedRepo(t, map[string]string{".claude/settings.json": trackedClaudeSettings, "CLAUDE.md": "# own\n"})
 	p := claudeDerivedProjection(ws)
-	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{
+	m := contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{
 		bundleHook("guard"),
-		{Kind: "instructions", Name: "kb-a", Source: "kb-a", ContentHash: "h-i", Files: []provisioning.ArtifactFile{{Path: "CLAUDE.md", Content: []byte("kb text\n")}}},
+		{Kind: "instructions", Name: "kb-a", Source: "kb-a", ContentHash: "h-i", Files: []contract.ArtifactFile{{Path: "CLAUDE.md", Content: []byte("kb text\n")}}},
 	}}
 	var results map[string]provisioning.AppliedResult
 	var err error
 	out := withStdout(t, func() {
-		results, err = materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil)
+		results, err = materializeForProviders(map[string]contract.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil)
 		if err == nil {
 			printApplySummary(os.Stdout, t.TempDir(), results, false)
 		}
@@ -399,17 +400,17 @@ func TestDerivedWorkspace_ClaudeLocalFilesSurviveAnotherProvider(t *testing.T) {
 	for _, order := range [][]string{{"claude", "codex"}, {"codex", "claude"}} {
 		ws := trackedRepo(t, map[string]string{".claude/settings.json": trackedClaudeSettings, "CLAUDE.md": "# own\n"})
 		var ps []syncProjection
-		manifests := map[string]provisioning.Manifest{}
+		manifests := map[string]contract.Manifest{}
 		for _, prov := range order {
 			var p syncProjection
 			if prov == "claude" {
 				p = claudeDerivedProjection(ws)
 			} else {
-				p = syncProjection{Provider: prov, Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, Derived: true}
+				p = syncProjection{Provider: prov, Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject, Derived: true}
 				p.SharedSkipped, p.SkipKinds = derivedSharedSkips(prov, ws)
 			}
 			ps = append(ps, p)
-			manifests[projectionKey(p)] = provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{bundleHook("guard")}}
+			manifests[projectionKey(p)] = contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{bundleHook("guard")}}
 		}
 		if _, err := materializeForProviders(manifests, ps, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
 			t.Fatal(err)
@@ -425,9 +426,9 @@ func TestDerivedWorkspace_ClaudeLocalFilesSurviveAnotherProvider(t *testing.T) {
 // refusal, and the file is not excluded: it is the user's (#1275 review).
 func TestExplicitWorkspace_TrackedSettingsLocalIsNotRefusedNorExcluded(t *testing.T) {
 	ws := trackedRepo(t, map[string]string{".claude/settings.local.json": "{}\n"})
-	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
-	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{bundleHook("guard")}}
-	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject}
+	m := contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{bundleHook("guard")}}
+	if _, err := materializeForProviders(map[string]contract.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	excl, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))

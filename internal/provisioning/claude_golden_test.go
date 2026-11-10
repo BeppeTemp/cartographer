@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // The Claude Code golden (D1656): what a sync of a pre-feature KB (2 skills, 2
@@ -93,7 +94,7 @@ func TestClaudeCodeGoldenIsUnchanged(t *testing.T) {
 		t.Skip("the golden spells POSIX paths and hook commands")
 	}
 	kbRoot := goldenKB(t)
-	m, err := BuildManifest(nil, map[string]string{"kb-a": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestClaudeCodeGoldenIsUnchanged(t *testing.T) {
 
 // projectForGolden is the projection under test: since the degradation slice,
 // ProjectManifest (the capture on main used FilterForProvider, same output).
-func projectForGolden(m Manifest, p configurator.Provider) Manifest {
-	pm, _ := ProjectManifest(m, p, ScopeGlobal, ProjectOptions{})
+func projectForGolden(m contract.Manifest, p configurator.Provider) contract.Manifest {
+	pm, _ := ProjectManifest(m, p, contract.ScopeGlobal, contract.ProjectOptions{})
 	return pm
 }

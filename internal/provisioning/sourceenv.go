@@ -3,6 +3,8 @@ package provisioning
 import (
 	"fmt"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // generatedArtifactFiles returns the files Cartographer adds to an artifact's
@@ -13,13 +15,13 @@ import (
 // impossible. That one artifact fails with a warning naming it; the rest of
 // the sync completes, and the collision persists (nothing is recorded in the
 // lockfile) until the KB is fixed.
-func generatedArtifactFiles(a Artifact, opts ApplyOptions, files []ArtifactFile) (generated []ArtifactFile, warning string, ok bool) {
+func generatedArtifactFiles(a contract.Artifact, opts ApplyOptions, files []contract.ArtifactFile) (generated []contract.ArtifactFile, warning string, ok bool) {
 	// A skill derived from an agent ships no script: SOURCE.env would be noise.
 	if a.Kind != "skill" || a.DerivedFrom != nil {
 		return nil, "", true
 	}
 	if kbName, fromKB := kbSourceName(a); fromKB {
-		generated = []ArtifactFile{{Path: skillSourceEnvFile, Content: skillSourceEnv(kbName, opts.KBRoots[kbName])}}
+		generated = []contract.ArtifactFile{{Path: skillSourceEnvFile, Content: skillSourceEnv(kbName, opts.KBRoots[kbName])}}
 	}
 	for _, g := range generated {
 		for _, f := range files {

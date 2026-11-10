@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // TestApply_ProjectClaude_ImportsAgentsMD: AGENTS.md present, no CLAUDE.md →
@@ -24,12 +25,12 @@ func TestApply_ProjectClaude_ImportsAgentsMD(t *testing.T) {
 	}
 
 	a := instructionsArtifact("kb-a", "KB content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -57,12 +58,12 @@ func TestApply_ProjectClaude_NoImportWithoutAgentsMD(t *testing.T) {
 	// No AGENTS.md in the project root.
 
 	a := instructionsArtifact("kb-a", "KB content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -91,12 +92,12 @@ func TestApply_ProjectClaude_NoDuplicateImport(t *testing.T) {
 	}
 
 	a := instructionsArtifact("kb-a", "KB content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -125,12 +126,12 @@ func TestApply_ProjectClaude_UnbindRemovesCreatedFile(t *testing.T) {
 	}
 
 	a := instructionsArtifact("kb-a", "KB content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
@@ -143,11 +144,11 @@ func TestApply_ProjectClaude_UnbindRemovesCreatedFile(t *testing.T) {
 	}
 
 	// Unbind: empty manifest, lock from the first apply.
-	empty := provisioning.MergeArtifacts(nil)
+	empty := contract.MergeArtifacts(nil)
 	if _, err := provisioning.Apply(empty, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     res.NewLock,
 	}); err != nil {
 		t.Fatalf("Apply (unbind): %v", err)
@@ -169,12 +170,12 @@ func TestApply_UserScope_NoImport(t *testing.T) {
 	}
 
 	a := instructionsArtifact("kb-a", "KB content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeGlobal,
+		Scope:    contract.ScopeGlobal,
 		Lock:     provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -196,13 +197,13 @@ func TestApply_ProjectClaude_AgentsMDAppearsTriggersRewrite(t *testing.T) {
 	baseDir := t.TempDir()
 
 	a := instructionsArtifact("kb-a", "KB content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	// First apply: no AGENTS.md → no import.
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
@@ -225,7 +226,7 @@ func TestApply_ProjectClaude_AgentsMDAppearsTriggersRewrite(t *testing.T) {
 	res2, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     res.NewLock,
 	})
 	if err != nil {
@@ -253,13 +254,13 @@ func TestApply_ProjectClaude_AgentsMDDisappearsTriggersRewrite(t *testing.T) {
 	}
 
 	a := instructionsArtifact("kb-a", "KB content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	// First apply: AGENTS.md present → import in block.
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
@@ -280,7 +281,7 @@ func TestApply_ProjectClaude_AgentsMDDisappearsTriggersRewrite(t *testing.T) {
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     res.NewLock,
 	}); err != nil {
 		t.Fatalf("Apply 2: %v", err)
@@ -304,12 +305,12 @@ func TestApply_ProjectCodex_NoImport(t *testing.T) {
 	}
 
 	a := instructionsArtifact("kb-a", "KB content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderCodex,
 		BaseDir:  baseDir,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		Lock:     provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)

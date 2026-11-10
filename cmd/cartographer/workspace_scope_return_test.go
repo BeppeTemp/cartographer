@@ -9,6 +9,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // scopeReturnHome is a config dir with providers connected and one explicit
@@ -240,11 +241,11 @@ func TestConnectWorkspaceWarnsWhenNoHookDestination(t *testing.T) {
 // workspace destination is neither pending nor drift there, and the resolver
 // carries the skipped note that sync prints and the instructions block names.
 func TestStatusWorkspaceHookWithoutDestinationIsNotDrift(t *testing.T) {
-	hook := provisioning.Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a",
-		Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"Stop","command":"x"}`)}}}
-	ps := []syncProjection{{Provider: "kiro", Workspace: "/ws/r", Scope: provisioning.ScopeProject}}
-	manifests := map[string]provisioning.Manifest{projectionKey(ps[0]): {Artifacts: []provisioning.Artifact{hook}}}
-	resolved := resolveProjectionSet(ps, manifests, provisioning.ProjectOptions{})
+	hook := contract.Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a",
+		Files: []contract.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"Stop","command":"x"}`)}}}
+	ps := []syncProjection{{Provider: "kiro", Workspace: "/ws/r", Scope: contract.ScopeProject}}
+	manifests := map[string]contract.Manifest{projectionKey(ps[0]): {Artifacts: []contract.Artifact{hook}}}
+	resolved := resolveProjectionSet(ps, manifests, contract.ProjectOptions{})
 	_, skipped := provisioning.ReportNotes(resolved[projectionKey(ps[0])].Notes)
 	if len(skipped) != 1 || skipped[0].Artifact != "hook/guard" || !strings.Contains(skipped[0].Reason, "no workspace destination") {
 		t.Fatalf("skipped = %+v", skipped)

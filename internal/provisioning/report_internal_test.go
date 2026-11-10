@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestReportNotesSplitsDegradedAndSkipped(t *testing.T) {
-	d, s := ReportNotes([]ProjectionNote{
-		{NoteDegraded, "agent/x", "agent -> skill"},
-		{NoteDegradedSkipped, "agent/c", "a skill of that name exists"},
-		{NoteSkipped, "skill/y", "requires agent/x (skipped: strict_tools)"},
+	d, s := ReportNotes([]contract.ProjectionNote{
+		{Kind: contract.NoteDegraded, Artifact: "agent/x", Reason: "agent -> skill"},
+		{Kind: contract.NoteDegradedSkipped, Artifact: "agent/c", Reason: "a skill of that name exists"},
+		{Kind: contract.NoteSkipped, Artifact: "skill/y", Reason: "requires agent/x (skipped: strict_tools)"},
 	})
 	if want := []DegradedNote{{Artifact: "agent/x", As: "skill/x"}}; !reflect.DeepEqual(d, want) {
 		t.Errorf("degraded = %+v, want %+v", d, want)
@@ -30,16 +31,16 @@ func TestReportNotesSplitsDegradedAndSkipped(t *testing.T) {
 
 func TestApplyReportsUnverifiedCapabilitiesOfInstalledArtifacts(t *testing.T) {
 	p := configurator.ProviderClaudeCode
-	t.Cleanup(func() { capabilityOverride = nil })
-	capabilityOverride = func(_ configurator.Provider, _ Scope, id Capability) (CapStatus, bool) {
+	t.Cleanup(func() { contract.CapabilityOverride = nil })
+	contract.CapabilityOverride = func(_ configurator.Provider, _ contract.Scope, id contract.Capability) (contract.CapStatus, bool) {
 		switch id {
-		case CapAgentDelegate, CapAgentInvoke, "hook.Stop":
-			return CapUnverified, true
+		case contract.CapAgentDelegate, contract.CapAgentInvoke, "hook.Stop":
+			return contract.CapUnverified, true
 		}
-		return CapVerified, true
+		return contract.CapVerified, true
 	}
-	hookFiles := []ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"Stop","command":"./run.sh"}`)}, {Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true}}
-	hook := Artifact{Kind: "hook", Name: "stopper", Source: "kb:kb-a", ContentHash: ContentHashFiles(hookFiles), Files: hookFiles}
+	hookFiles := []contract.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"Stop","command":"./run.sh"}`)}, {Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true}}
+	hook := contract.Artifact{Kind: "hook", Name: "stopper", Source: "kb:kb-a", ContentHash: ContentHashFiles(hookFiles), Files: hookFiles}
 
 	// An agent and a hook not yet approved are not installed: nothing to report.
 	m := manifestOf(agentArt("helper", helperAgent), hook)
@@ -47,7 +48,7 @@ func TestApplyReportsUnverifiedCapabilitiesOfInstalledArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []Capability{CapAgentDelegate, CapAgentInvoke}; !reflect.DeepEqual(res.Unverified, want) {
+	if want := []contract.Capability{contract.CapAgentDelegate, contract.CapAgentInvoke}; !reflect.DeepEqual(res.Unverified, want) {
 		t.Errorf("unapproved hook must not count: Unverified = %v, want %v", res.Unverified, want)
 	}
 
@@ -56,13 +57,13 @@ func TestApplyReportsUnverifiedCapabilitiesOfInstalledArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []Capability{CapAgentDelegate, CapAgentInvoke, "hook.Stop"}; !reflect.DeepEqual(res.Unverified, want) {
+	if want := []contract.Capability{contract.CapAgentDelegate, contract.CapAgentInvoke, "hook.Stop"}; !reflect.DeepEqual(res.Unverified, want) {
 		t.Errorf("Unverified = %v, want %v", res.Unverified, want)
 	}
 
 	// A verified cell is not reported; a skill alone reports nothing.
-	capabilityOverride = func(_ configurator.Provider, _ Scope, id Capability) (CapStatus, bool) {
-		return CapVerified, true
+	contract.CapabilityOverride = func(_ configurator.Provider, _ contract.Scope, id contract.Capability) (contract.CapStatus, bool) {
+		return contract.CapVerified, true
 	}
 	res, err = Apply(m, ApplyOptions{Provider: p, BaseDir: t.TempDir(), ApprovedMCP: approved})
 	if err != nil {

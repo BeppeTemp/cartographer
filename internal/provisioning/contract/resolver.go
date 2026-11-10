@@ -1,4 +1,4 @@
-package provisioning
+package contract
 
 import (
 	"fmt"
@@ -109,7 +109,7 @@ func ResolveProjections(inputs []ProjectionInput, opts ProjectOptions) map[strin
 	rs := make([]*resolveInput, len(inputs))
 	order := make([]int, len(inputs))
 	for i, in := range inputs {
-		out, notes, dropped := projectOne(in.Manifest, in.Provider, in.Scope, opts)
+		out, notes, dropped := ProjectOne(in.Manifest, in.Provider, in.Scope, opts)
 		r := &resolveInput{in: in, out: out, notes: notes, dropped: dropped, byID: map[string][]*resolveEntry{}}
 		for _, a := range out.Artifacts {
 			e := &resolveEntry{art: a, alive: true}
@@ -253,7 +253,7 @@ func ResolveProjections(inputs []ProjectionInput, opts ProjectOptions) map[strin
 				}
 				notes = append(notes, ProjectionNote{NoteSkipped, e.originID(), e.reason(0)})
 			}
-			out.Revision = computeRevision(out.Artifacts)
+			out.Revision = ComputeRevision(out.Artifacts)
 		}
 		res[r.in.Key] = ProjectionResult{Manifest: out, Notes: notes}
 	}

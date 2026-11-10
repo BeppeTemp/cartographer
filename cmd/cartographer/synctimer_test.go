@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -168,7 +169,7 @@ func TestKiroHookLimitWarningPrintedOnce(t *testing.T) {
 	ackSessionHookLimit(dir, []string{"kiro"})
 
 	// A sync rebuilds the lock: the acknowledgement must survive it.
-	m := provisioning.Manifest{Revision: "r2"}
+	m := contract.Manifest{Revision: "r2"}
 	if _, err := materializeForProviders(uniformManifests(m, []string{"kiro"}), globalProjections([]string{"kiro"}, dir), dir, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}

@@ -162,7 +162,7 @@ unique token; ask the client to repeat it.
 - Skill and agent discovery: `codex debug prompt-input` lists the catalogued
   skills; check `$HOME/.codex/skills/` (global, D192) and project
   `.agents/skills/` (D193). The client's own discovery output is what
-  `internal/provisioning/clientcompat_test.go` asserts: run it with the client
+  `internal/provisioning/contract/clientcompat_test.go` asserts: run it with the client
   installed.
 - Agent: TOML in `$HOME/.codex/agents/`; listed under its `name`.
 - Hook: entry in `$HOME/.codex/hooks.json`, sentinel plus negative control. Hook

@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
@@ -381,7 +382,7 @@ func TestCmdPathsSuggest_FindsDefault(t *testing.T) {
 			Provider:               "claude",
 			UnresolvedPlaceholders: map[string]string{"path:data": "no entry", "path:notes": "no entry", "path:none": "no entry"},
 			PlaceholderSources:     map[string][]string{"path:data": {"kb-a"}, "path:notes": {"kb-a"}, "path:none": {"kb-a"}},
-			PlaceholderDecls:       map[string]provisioning.PathDecl{"path:data": {Description: "the data dir", Default: "~/testpath"}},
+			PlaceholderDecls:       map[string]contract.PathDecl{"path:data": {Description: "the data dir", Default: "~/testpath"}},
 		},
 	}}
 	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
@@ -498,11 +499,11 @@ func TestCmdPathsSuggest_IgnoresDefaultWithBackslashOrColon(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
 	writeClientConfig(t, home, "future_key: kept\n")
-	decls := map[string]provisioning.PathDecl{}
+	decls := map[string]contract.PathDecl{}
 	unresolved := map[string]string{}
 	sources := map[string][]string{}
 	for key, def := range map[string]string{"path:bs": `~/a\..\b`, "path:colon": "~/C:/x"} {
-		decls[key], unresolved[key], sources[key] = provisioning.PathDecl{Description: "d", Default: def}, "no entry", []string{"kb-a"}
+		decls[key], unresolved[key], sources[key] = contract.PathDecl{Description: "d", Default: def}, "no entry", []string{"kb-a"}
 	}
 	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": {
 		Provider: "claude", UnresolvedPlaceholders: unresolved, PlaceholderSources: sources, PlaceholderDecls: decls,

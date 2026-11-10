@@ -14,6 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // cmdSync re-fetches the manifest from the configured server (sync_pull) and
@@ -517,7 +518,7 @@ func (e partialSyncError) Error() string {
 // dropped, not only that projection: its MCP entries, bootstrap and lockfile
 // entry then stay exactly as they were, which is what "kept its previous
 // state" has to mean for the operator reading the report.
-func dropUnbuiltProviders(targets []string, projections []syncProjection, manifests map[string]provisioning.Manifest) ([]string, []syncProjection, []string) {
+func dropUnbuiltProviders(targets []string, projections []syncProjection, manifests map[string]contract.Manifest) ([]string, []syncProjection, []string) {
 	unbuilt := map[string]bool{}
 	for _, p := range projections {
 		if _, ok := manifests[projectionKey(p)]; !ok {

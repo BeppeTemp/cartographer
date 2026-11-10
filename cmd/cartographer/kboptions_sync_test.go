@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // kbFullPayload is the sync_pull answer of a KB with a skill, a subagent and
@@ -19,10 +20,10 @@ func kbFullPayload(t *testing.T, kb, skill string) string {
 	t.Helper()
 	type file struct{ path, content string }
 	mk := func(kind, name string, files ...file) map[string]any {
-		pf := make([]provisioning.ArtifactFile, 0, len(files))
+		pf := make([]contract.ArtifactFile, 0, len(files))
 		jf := make([]map[string]any, 0, len(files))
 		for _, f := range files {
-			pf = append(pf, provisioning.ArtifactFile{Path: f.path, Content: []byte(f.content)})
+			pf = append(pf, contract.ArtifactFile{Path: f.path, Content: []byte(f.content)})
 			jf = append(jf, map[string]any{"path": f.path, "content_b64": base64.StdEncoding.EncodeToString([]byte(f.content))})
 		}
 		return map[string]any{"kind": kind, "name": name, "source": "kb:" + kb, "content_hash": provisioning.ContentHashFiles(pf), "files": jf}
@@ -187,7 +188,7 @@ func TestKBArtifactsOptOutAvoidsCollision(t *testing.T) {
 func TestDropKBArtifactsKeepsBundleAndOtherKBs(t *testing.T) {
 	cfg := &clientconfig.Config{}
 	cfg.SetKBArtifacts("kb-a", false)
-	in := []provisioning.Artifact{
+	in := []contract.Artifact{
 		{Kind: "skill", Name: "s", Source: "kb:kb-a"},
 		{Kind: "agent", Name: "a", Source: "kb:kb-a"},
 		{Kind: "hook", Name: "h", Source: "kb:kb-a"},
@@ -217,7 +218,7 @@ func TestKBArtifactsOptOutInAWorkspaceProjection(t *testing.T) {
 	ws := t.TempDir()
 	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"kb-a", "kb-b"}, Agents: []string{"claude"}}
 	cfg.SetKBArtifacts("kb-a", false)
-	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, KBs: []string{"kb-a", "kb-b"}}
+	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject, KBs: []string{"kb-a", "kb-b"}}
 	ms, _, err := buildProjectionManifests(syncStreams{}, cfg, []syncProjection{p}, false, nil)
 	if err != nil {
 		t.Fatalf("buildProjectionManifests: %v", err)

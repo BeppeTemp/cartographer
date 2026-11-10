@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func trackedKB(t *testing.T) string {
@@ -45,7 +45,7 @@ func trackedKB(t *testing.T) string {
 func TestKBArtifacts_OnlyTrackedFiles(t *testing.T) {
 	root := trackedKB(t)
 	roots := map[string]string{"kb-a": root}
-	before, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+	before, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestKBArtifacts_OnlyTrackedFiles(t *testing.T) {
 		}
 	}
 
-	after, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+	after, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestKBArtifacts_OnlyTrackedFiles(t *testing.T) {
 		if a.Kind != "skill" && a.Kind != "hook" {
 			continue
 		}
-		files, err := provisioning.ReadArtifactFiles(a, nil, roots)
+		files, err := contract.ReadArtifactFiles(a, nil, roots)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +105,7 @@ func TestBuildManifest_BrokenGitWithholdsOnlyThatKB(t *testing.T) {
 	if err := os.Remove(filepath.Join(bad, ".git", "index")); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": good, "kb-b": bad}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": good, "kb-b": bad}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestKBArtifacts_SkillNeedsTrackedSkillMDAndCacheFollowsCommits(t *testing.T
 		}
 	}
 	has := func() bool {
-		m, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+		m, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,10 +1,10 @@
 package provisioning
 
 import (
-	"path"
-	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // What a sync reports about the decisions of the resolver (D1656): the agents
@@ -29,15 +29,15 @@ type SkippedNote struct {
 // of that name, no description) is reported as skipped: it is not installed.
 // Both lists keep the order of the notes, which the resolver makes
 // deterministic.
-func ReportNotes(notes []ProjectionNote) (degraded []DegradedNote, skipped []SkippedNote) {
+func ReportNotes(notes []contract.ProjectionNote) (degraded []DegradedNote, skipped []SkippedNote) {
 	for _, n := range notes {
 		switch n.Kind {
-		case NoteDegraded:
+		case contract.NoteDegraded:
 			_, name, _ := strings.Cut(n.Artifact, "/")
 			degraded = append(degraded, DegradedNote{Artifact: n.Artifact, As: "skill/" + name})
-		case NoteDegradedSkipped:
+		case contract.NoteDegradedSkipped:
 			skipped = append(skipped, SkippedNote{Artifact: n.Artifact, Reason: "not installed as a skill (" + n.Reason + ")"})
-		case NoteSkipped:
+		case contract.NoteSkipped:
 			skipped = append(skipped, SkippedNote{Artifact: n.Artifact, Reason: n.Reason})
 		}
 	}
@@ -49,73 +49,20 @@ func ReportNotes(notes []ProjectionNote) (degraded []DegradedNote, skipped []Ski
 // `unverified`: both agent capabilities for a native agent when neither is
 // verified, and the `hook.<Event>` of a hook. Skill and mcp cells are not
 // reported: every sync installs them, so the line would never go away.
-func unverifiedCapabilities(m Manifest, opts ApplyOptions) []Capability {
-	set := map[Capability]bool{}
+func unverifiedCapabilities(m contract.Manifest, opts ApplyOptions) []contract.Capability {
+	set := map[contract.Capability]bool{}
 	for _, a := range m.Artifacts {
-		if a.BuiltIn || a.DerivedFrom != nil || destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
+		if a.BuiltIn || a.DerivedFrom != nil || contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
 			continue
 		}
-		for _, id := range unverifiedFor(a, opts) {
+		for _, id := range contract.UnverifiedFor(a, opts.Provider, opts.Scope, opts.BundleFS, opts.KBRoots) {
 			set[id] = true
 		}
 	}
-	out := make([]Capability, 0, len(set))
+	out := make([]contract.Capability, 0, len(set))
 	for id := range set {
 		out = append(out, id)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
-}
-
-// unverifiedFor is the capabilities one artifact depends on while their status
-// is `unverified`: the agent pair for a native agent, the event of a hook. It
-// judges neither authorization nor destination; the callers do.
-func unverifiedFor(a Artifact, opts ApplyOptions) []Capability {
-	var out []Capability
-	switch a.Kind {
-	case "agent":
-		if strictAgentSkipped(a, opts.Provider) {
-			return nil
-		}
-		d, i := CapabilityStatus(opts.Provider, opts.Scope, CapAgentDelegate), CapabilityStatus(opts.Provider, opts.Scope, CapAgentInvoke)
-		if d == CapUnverified && i != CapVerified {
-			out = append(out, CapAgentDelegate)
-		}
-		if i == CapUnverified && d != CapVerified {
-			out = append(out, CapAgentInvoke)
-		}
-	case "hook":
-		if isReservedHook(a.Kind, a.Name) {
-			return nil
-		}
-		spec, ok := hookSpecOf(a, opts)
-		if !ok || !hookEventKnown(spec.Event) {
-			return nil
-		}
-		id := Capability(hookCapPrefix + spec.Event)
-		if CapabilityStatus(opts.Provider, opts.Scope, id) == CapUnverified {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
-// hookSpecOf reads the hook.json of a hook artifact, from memory or from its
-// source; ok is false when it is absent or unreadable.
-func hookSpecOf(a Artifact, opts ApplyOptions) (hookSpec, bool) {
-	files := a.Files
-	if len(files) == 0 {
-		var err error
-		if files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots); err != nil {
-			return hookSpec{}, false
-		}
-	}
-	for _, f := range files {
-		if path.Clean(filepath.ToSlash(f.Path)) != "hook.json" {
-			continue
-		}
-		spec, err := parseHookSpec(f.Content)
-		return spec, err == nil
-	}
-	return hookSpec{}, false
 }

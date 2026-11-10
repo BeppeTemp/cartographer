@@ -18,6 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const nativeAgentSrc = `---
@@ -137,7 +138,7 @@ func TestApply_ProvidersReservedKeyOrUnknownClientFailsTheTranslation(t *testing
 }
 
 func TestParseAgentRestriction_ListsNativeClients(t *testing.T) {
-	r := provisioning.ParseAgentRestriction([]byte(nativeAgentSrc))
+	r := contract.ParseAgentRestriction([]byte(nativeAgentSrc))
 	if r == nil || !strings.EqualFold(strings.Join(r.Native, ","), "antigravity,codex,kiro,opencode") {
 		t.Fatalf("got %+v", r)
 	}
@@ -211,7 +212,7 @@ func TestKiroV2OnlyKeyWarnings(t *testing.T) {
 		}
 		return fm
 	}
-	w := provisioning.KiroV2OnlyKeyWarnings(parse("providers:\n  kiro:\n    tools: [read]\n    allowedTools: [read]\n    toolsSettings:\n      shell: {}\n"))
+	w := contract.KiroV2OnlyKeyWarnings(parse("providers:\n  kiro:\n    tools: [read]\n    allowedTools: [read]\n    toolsSettings:\n      shell: {}\n"))
 	if len(w) != 2 || !strings.Contains(w[0], "allowedTools") || !strings.Contains(w[1], "toolsSettings") || !strings.Contains(w[0], "permissions") {
 		t.Errorf("V2 keys not named: %q", w)
 	}
@@ -220,7 +221,7 @@ func TestKiroV2OnlyKeyWarnings(t *testing.T) {
 		"providers:\n  codex: { allowedTools: [x] }\n",
 		"",
 	} {
-		if w := provisioning.KiroV2OnlyKeyWarnings(parse(ok)); len(w) != 0 {
+		if w := contract.KiroV2OnlyKeyWarnings(parse(ok)); len(w) != 0 {
 			t.Errorf("warned for %q: %q", ok, w)
 		}
 	}

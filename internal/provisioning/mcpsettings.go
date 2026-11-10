@@ -22,6 +22,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -48,17 +49,17 @@ func mcpServerMarkers(name string) (begin, end string) {
 // merges it into provider's native config file at baseDir, returning the path
 // (relative to baseDir) of the file touched — the same shared file
 // `cartographer connect` itself writes Cartographer's own "cartographer" entry
-// into (see destDir(kind:"mcp", ...)) — plus any non-fatal warnings from
+// into (see DestDir(kind:"mcp", ...)) — plus any non-fatal warnings from
 // EmitServer (e.g. a header codex cannot represent, D69 WP3).
-func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provider configurator.Provider, scope Scope) (relPath string, warnings []string, err error) {
+func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provider configurator.Provider, scope contract.Scope) (relPath string, warnings []string, err error) {
 	r, err := configurator.EmitServer(name, spec, provider)
 	if err != nil {
 		return "", nil, err
 	}
 	// The emitter knows the global file only. In a workspace the entry goes to
 	// the project cell of the destination matrix (D363: Crush's .crush.json).
-	if scope == ScopeProject {
-		if dest := destDirScoped("mcp", "", provider, scope); dest != "" {
+	if scope == contract.ScopeProject {
+		if dest := contract.DestDirScoped("mcp", "", provider, scope); dest != "" {
 			r.FilePath = dest
 		}
 	}
@@ -197,7 +198,7 @@ func isEmptyMCPProviderShell(settings map[string]interface{}) bool {
 }
 
 // mcpProviderFromPath infers which provider a "mcp" kind ManagedFile was
-// materialized for from its Path (destDir gives each provider its own shared
+// materialized for from its Path (DestDir gives each provider its own shared
 // config file — ".claude.json", ".codex/config.toml", ".config/opencode/opencode.json",
 // ".kiro/settings/mcp.json"), so PruneManaged can strip the matching
 // provider-native registration without needing its own provider parameter
@@ -233,7 +234,7 @@ func mcpProviderFromPath(path string) configurator.Provider {
 // up what an older client left in a repository: it runs on every project
 // projection, and is a no-op once the entry is gone.
 func PruneServerEntry(baseDir string, provider configurator.Provider, lock Lock, dryRun bool) (Lock, error) {
-	cell := destDirScoped("mcp", "", provider, ScopeProject)
+	cell := contract.DestDirScoped("mcp", "", provider, contract.ScopeProject)
 	if cell == "" {
 		return lock, nil
 	}

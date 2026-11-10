@@ -24,16 +24,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
-// hookSpec is the hook.json format (KB, hooks/<name>/hook.json): the Claude
-// Code event (e.g. "PostToolUse", "SessionStart"), an optional matcher and the
-// command to run — relative to the hook's directory unless absolute (see
-// resolveHookCommand).
-type hookSpec struct {
-	Event   string `json:"event"`
-	Matcher string `json:"matcher,omitempty"`
-	Command string `json:"command"`
-}
-
 // registerHookSettings reads the hook.json just materialized in fullDestDir and
 // updates <baseDir>/.claude/settings.json (creating it if absent) with its entry
 // in hooks.<Event>[] (D57). Best-effort on hook.json's content: a missing,
@@ -286,8 +276,8 @@ func ClaudeSettingsHookEntries(baseDir string, hookNames []string) (int, error) 
 // would also silently stop resolving a `\scripts\run.sh` declared in hook.json —
 // a semantic change this is not the place to make.
 func resolveHookCommand(command, hookDirAbs string) string {
-	bin, rest, hasRest := splitHookCommand(strings.TrimSpace(command))
-	bin = unquoteHookToken(bin)
+	bin, rest, hasRest := contract.SplitHookCommand(strings.TrimSpace(command))
+	bin = contract.UnquoteHookToken(bin)
 	if !contract.IsAbsCommandPath(bin) && !strings.HasPrefix(bin, "$") && strings.ContainsAny(bin, `/\`) {
 		bin = filepath.Join(hookDirAbs, bin)
 	}
@@ -304,7 +294,7 @@ func resolveHookCommand(command, hookDirAbs string) string {
 // backtick and `\` still expand, and an unquoted `&` or apostrophe breaks the
 // line. A `$VAR`-led token is the shell's to expand and is only double-quoted
 // when it holds a space. On Windows the host's shells take double quotes, and
-// only a space asks for them. unquoteHookToken undoes both forms, so
+// only a space asks for them. UnquoteHookToken undoes both forms, so
 // resolving twice gives the same string.
 func quoteHookBin(bin string, windows bool) string {
 	if windows || strings.HasPrefix(bin, "$") {
@@ -319,36 +309,6 @@ func quoteHookBin(bin string, windows bool) string {
 		return `'` + strings.ReplaceAll(bin, `'`, `'\''`) + `'`
 	}
 	return bin
-}
-
-// splitHookCommand splits a hook command line into its leading executable token
-// and the rest, verbatim. The token ends at the first space, unless it opens with
-// a double quote, in which case it ends at the closing quote — that is the case
-// resolveHookCommand's own previous output falls into.
-func splitHookCommand(command string) (bin, rest string, hasRest bool) {
-	if strings.HasPrefix(command, `'`) {
-		// A single-quoted token ends at the first quote that is not the middle
-		// of an escaped apostrophe ('\'').
-		for i := 1; i < len(command); i++ {
-			if command[i] != '\'' {
-				continue
-			}
-			if strings.HasPrefix(command[i:], `'\''`) {
-				i += 3
-				continue
-			}
-			bin, rest = command[:i+1], strings.TrimPrefix(command[i+1:], " ")
-			return bin, rest, rest != ""
-		}
-	}
-	if strings.HasPrefix(command, `"`) {
-		if end := strings.Index(command[1:], `"`); end >= 0 {
-			bin, rest = command[:end+2], strings.TrimPrefix(command[end+2:], " ")
-			return bin, rest, rest != ""
-		}
-	}
-	bin, rest, hasRest = strings.Cut(command, " ")
-	return bin, rest, hasRest
 }
 
 // hookOwnershipMarker is the substring that marks a settings.json hook entry's
@@ -731,13 +691,13 @@ func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
 }
 
 // hookProviderFromPath infers which provider materialized a hook's ManagedFile
-// from its Path prefix (destDir gives each provider its own hooks directory:
+// from its Path prefix (DestDir gives each provider its own hooks directory:
 // ".claude/hooks/<name>/..." vs ".codex/hooks/<name>/..." vs
 // ".opencode/hooks/<name>/..."), so PruneManaged can strip the matching
 // provider-native registration without needing its own provider parameter.
 // Returns "" for a path under none of the three (defensive; not expected in
 // practice since kind "hook" only ever materializes under these providers,
-// see destDir).
+// see DestDir).
 func hookProviderFromPath(path string) string {
 	slash := filepath.ToSlash(path)
 	switch {
@@ -931,15 +891,15 @@ var openCodeHookEvents = map[string]openCodeMapping{
 // openCodePluginRelPath returns hookName's generated plugin path, relative to
 // baseDir: <baseDir>/.config/opencode/plugins/cartographer-<name>.js in the
 // global scope (baseDir is the user's home, same as the "instructions"
-// destDir case, ".config/opencode/AGENTS.md"), and
+// DestDir case, ".config/opencode/AGENTS.md"), and
 // <workspace>/.opencode/plugins/cartographer-<name>.js in the project scope —
 // the only plugin directory OpenCode reads inside a project (probed on 2.2.5,
 // documented for 1.x; #1827, docs/harnesses.md). The workspace base dir has no
 // ".config" for OpenCode to read.
-func openCodePluginRelPath(hookName string, scope Scope) string {
+func openCodePluginRelPath(hookName string, scope contract.Scope) string {
 	// Slash: this is reported in AppliedResult.Written and recorded in the
 	// lockfile beside every other destination, not walked on this host.
-	if scope == ScopeProject {
+	if scope == contract.ScopeProject {
 		return ".opencode/plugins/cartographer-" + hookName + ".js"
 	}
 	return ".config/opencode/plugins/cartographer-" + hookName + ".js"
@@ -959,7 +919,7 @@ func openCodePluginRelPath(hookName string, scope Scope) string {
 //   - warning: non-empty only when the event was well-formed but has no
 //     OpenCode equivalent — Apply surfaces this via AppliedResult.Warnings
 //     instead of failing (the hook's files are still materialized).
-func registerOpenCodePlugin(baseDir, hookName, fullDestDir string, scope Scope) (relPath, warning string, registered bool, err error) {
+func registerOpenCodePlugin(baseDir, hookName, fullDestDir string, scope contract.Scope) (relPath, warning string, registered bool, err error) {
 	spec, specErr := loadHookSpec(fullDestDir)
 	if specErr != nil {
 		return "", hookSpecWarning(hookName, configurator.ProviderOpenCode, specErr), false, nil
@@ -980,7 +940,7 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string, scope Scope) 
 		warning = fmt.Sprintf("hook %q: "+openCodeVersionUnreadableMarker+" (opencode --version), plugin written for OpenCode %d.x; run cartographer sync once the opencode command is on PATH if this client is another major", hookName, shape)
 	}
 	var content string
-	if hookName == WriteFindingsHookName && shape >= 2 {
+	if hookName == contract.WriteFindingsHookName && shape >= 2 {
 		content = generateOpenCodeWriteFindingsPlugin(command)
 	} else {
 		content = generateOpenCodePlugin(hookName, spec, mapping, command, shape)
@@ -1031,15 +991,15 @@ func recordedOpenCodePlugins(managed []ManagedFile, hookName string) []string {
 // either layout.
 func isOpenCodePluginPath(path, hookName string) bool {
 	p := filepath.ToSlash(path)
-	return p == openCodePluginRelPath(hookName, ScopeGlobal) || p == openCodePluginRelPath(hookName, ScopeProject)
+	return p == openCodePluginRelPath(hookName, contract.ScopeGlobal) || p == openCodePluginRelPath(hookName, contract.ScopeProject)
 }
 
 // movedOpenCodePlugin returns the lock entries of hook a that hold its
 // generated OpenCode plugin at a path other than the one the scope writes
 // today (#1827: the workspace plugin moved from .config/opencode/plugins to
 // .opencode/plugins). Other kinds and providers: nil.
-func movedOpenCodePlugin(previous []ManagedFile, a Artifact, provider configurator.Provider, scope Scope) []ManagedFile {
-	if a.Kind != "hook" || provider != configurator.ProviderOpenCode || isReservedHook(a.Kind, a.Name) {
+func movedOpenCodePlugin(previous []ManagedFile, a contract.Artifact, provider configurator.Provider, scope contract.Scope) []ManagedFile {
+	if a.Kind != "hook" || provider != configurator.ProviderOpenCode || contract.IsReservedHook(a.Kind, a.Name) {
 		return nil
 	}
 	want := openCodePluginRelPath(a.Name, scope)
@@ -1095,14 +1055,14 @@ func openCodePluginIdentifier(hookName string) string {
 func generateOpenCodeWriteFindingsPlugin(command string) string {
 	re := "_(" + strings.Join(WriteFindingsTools, "|") + ")$"
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "// cartographer:hook:%s — generated by Cartographer, do not edit.\n", WriteFindingsHookName)
+	fmt.Fprintf(&sb, "// cartographer:hook:%s — generated by Cartographer, do not edit.\n", contract.WriteFindingsHookName)
 	fmt.Fprintf(&sb, "// %s2\n", openCodeShapeMarker)
 	sb.WriteString("// KB event: PostToolUse → OpenCode 2.x: ctx.tool.hook(\"execute.after\"), message appended to result.output\n\n")
 	sb.WriteString("import { spawnSync } from \"node:child_process\"\n\n")
 	fmt.Fprintf(&sb, "const command = %s\n", mustJSONString(command))
 	fmt.Fprintf(&sb, "const writeTools = /%s/\n\n", re)
 	sb.WriteString("export default {\n")
-	fmt.Fprintf(&sb, "  id: %s,\n", mustJSONString("cartographer."+WriteFindingsHookName))
+	fmt.Fprintf(&sb, "  id: %s,\n", mustJSONString("cartographer."+contract.WriteFindingsHookName))
 	sb.WriteString("  async setup(ctx) {\n")
 	sb.WriteString("    await ctx.tool.hook(\"execute.after\", (event) => {\n")
 	sb.WriteString("      try {\n")
@@ -1147,7 +1107,7 @@ func generateOpenCodeWriteFindingsPlugin(command string) string {
 // case-insensitive substring match (either direction) per "|" token instead of
 // an exact-name comparison. An empty matcher always matches (same as Claude
 // Code's own "no matcher" semantics).
-func generateOpenCodePlugin(hookName string, spec hookSpec, mapping openCodeMapping, command string, major int) string {
+func generateOpenCodePlugin(hookName string, spec contract.HookSpec, mapping openCodeMapping, command string, major int) string {
 	if major >= 2 {
 		return generateOpenCodePluginV2(hookName, spec, mapping, command)
 	}
@@ -1294,7 +1254,7 @@ func writeJSONFile(baseDir, path string, data []byte) error {
 // the session events). The command runs through node:child_process rather than
 // the 1.x `$` helper, which the 2.x context does not document. A non-zero exit
 // throws, so a blocking hook (env-block) still blocks, as `$` did on 1.x.
-func generateOpenCodePluginV2(hookName string, spec hookSpec, mapping openCodeMapping, command string) string {
+func generateOpenCodePluginV2(hookName string, spec contract.HookSpec, mapping openCodeMapping, command string) string {
 	commandLit := mustJSONString(command)
 
 	var sb strings.Builder

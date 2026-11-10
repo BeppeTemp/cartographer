@@ -10,11 +10,12 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // driftKB builds a KB with one skill (script included), one agent and one hook,
 // then applies it, returning the base dir and the resulting lock.
-func driftKB(t *testing.T, opts ...func(*ApplyOptions)) (baseDir string, m Manifest, applied AppliedResult, kbRoot string) {
+func driftKB(t *testing.T, opts ...func(*ApplyOptions)) (baseDir string, m contract.Manifest, applied AppliedResult, kbRoot string) {
 	t.Helper()
 	kbRoot = t.TempDir()
 
@@ -32,7 +33,7 @@ func driftKB(t *testing.T, opts ...func(*ApplyOptions)) (baseDir string, m Manif
 	os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
 
 	var err error
-	m, err = BuildManifest(nil, map[string]string{"wiki": kbRoot}, BuildOptions{})
+	m, err = contract.BuildManifest(nil, map[string]string{"wiki": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestVerifyManaged_SharedFileEntriesArePresenceChecked(t *testing.T) {
 	kbRoot := t.TempDir()
 	os.WriteFile(filepath.Join(kbRoot, "instructions.md"), []byte("Use this KB.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"wiki": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"wiki": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -277,7 +278,7 @@ func TestApply_HealsMissingAgentAndInstructionsBlock(t *testing.T) {
 	os.WriteFile(filepath.Join(kbRoot, "agents", "reviewer.md"), []byte("---\nname: reviewer\n---\nBody.\n"), 0o644)
 	os.WriteFile(filepath.Join(kbRoot, "instructions.md"), []byte("Use this KB.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"wiki": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"wiki": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -318,7 +319,7 @@ func TestApply_HealsMissingAgentAndInstructionsBlock(t *testing.T) {
 // artifacts were already on disk without a lock entry).
 func TestApply_BadArtifactNameCostsOnlyItself(t *testing.T) {
 	_, m, _, kbRoot := driftKB(t)
-	for _, bad := range []Artifact{
+	for _, bad := range []contract.Artifact{
 		{Kind: "agent", Name: "", Source: "kb:wiki", ContentHash: "x"},
 		{Kind: "hook", Name: `a\b`, Source: "kb:wiki", ContentHash: "x"},
 		{Kind: "agent", Name: "../escape", Source: "kb:wiki", ContentHash: "x"},
@@ -349,7 +350,7 @@ func TestBuildManifest_ExcludesBadAgentAndHookNames(t *testing.T) {
 	os.MkdirAll(filepath.Join(kbRoot, "agents"), 0o755)
 	os.WriteFile(filepath.Join(kbRoot, "agents", ".md"), []byte("x\n"), 0o644)
 	os.WriteFile(filepath.Join(kbRoot, "agents", "ok.md"), []byte("x\n"), 0o644)
-	m, err := BuildManifest(nil, map[string]string{"wiki": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"wiki": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

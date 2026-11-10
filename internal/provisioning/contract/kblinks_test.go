@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // A KB comes from a remote, and git stores symlinks. An artifact is made of
@@ -84,7 +84,7 @@ func goodArtifacts(t *testing.T, root string) {
 	linkWrite(t, root, "mcp/good.json", mcpJSON)
 }
 
-func hasArtifact(m provisioning.Manifest, kind, name string) bool {
+func hasArtifact(m contract.Manifest, kind, name string) bool {
 	for _, a := range m.Artifacts {
 		if a.Kind == kind && a.Name == name {
 			return true
@@ -93,7 +93,7 @@ func hasArtifact(m provisioning.Manifest, kind, name string) bool {
 	return false
 }
 
-func issueNaming(m provisioning.Manifest, parts ...string) bool {
+func issueNaming(m contract.Manifest, parts ...string) bool {
 	for _, issue := range m.Issues {
 		ok := true
 		for _, p := range parts {
@@ -106,7 +106,7 @@ func issueNaming(m provisioning.Manifest, parts ...string) bool {
 	return false
 }
 
-func assertNoSecret(t *testing.T, what string, files []provisioning.ArtifactFile, err error) {
+func assertNoSecret(t *testing.T, what string, files []contract.ArtifactFile, err error) {
 	t.Helper()
 	for _, f := range files {
 		if strings.Contains(string(f.Content), linkSecret) {
@@ -151,7 +151,7 @@ func TestKBArtifacts_ARegularFileIsRequired(t *testing.T) {
 			}
 
 			roots := map[string]string{"kb-a": root}
-			m, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+			m, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 			if err != nil {
 				t.Fatalf("one linked artifact fails the manifest of the others: %v", err)
 			}
@@ -184,17 +184,17 @@ func TestKBArtifacts_ARegularFileIsRequired(t *testing.T) {
 			// What the manifest lists is read without a link in the way, and what
 			// it does not list is refused by the reader too.
 			for _, a := range m.Artifacts {
-				files, err := provisioning.ReadArtifactFiles(a, nil, roots)
+				files, err := contract.ReadArtifactFiles(a, nil, roots)
 				assertNoSecret(t, a.Kind+"/"+a.Name, files, err)
 			}
-			for _, a := range []provisioning.Artifact{
+			for _, a := range []contract.Artifact{
 				{Kind: "skill", Name: "inner"}, {Kind: "skill", Name: "deep"}, {Kind: "skill", Name: "skilllink"},
 				{Kind: "skill", Name: "dirlink"}, {Kind: "hook", Name: "inner"}, {Kind: "hook", Name: "dirlink"},
 				{Kind: "agent", Name: "filelink"}, {Kind: "agent", Name: "directory"},
 				{Kind: "mcp", Name: "filelink"}, {Kind: "mcp", Name: "directory"},
 			} {
 				a.Source = "kb:kb-a"
-				files, err := provisioning.ReadArtifactFiles(a, nil, roots)
+				files, err := contract.ReadArtifactFiles(a, nil, roots)
 				assertNoSecret(t, a.Kind+"/"+a.Name, files, err)
 				if err == nil {
 					t.Errorf("ReadArtifactFiles(%s/%s) read through a link: %d files", a.Kind, a.Name, len(files))
@@ -220,7 +220,7 @@ func TestKBArtifacts_AKindDirectoryThatIsALinkServesNothing(t *testing.T) {
 			linkTo(t, root, dir, out)
 			roots := map[string]string{"kb-a": root}
 
-			m, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+			m, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -232,11 +232,11 @@ func TestKBArtifacts_AKindDirectoryThatIsALinkServesNothing(t *testing.T) {
 			if !issueNaming(m, dir, "symlink") {
 				t.Errorf("no issue names %s/ as a link: %v", dir, m.Issues)
 			}
-			for _, a := range []provisioning.Artifact{
+			for _, a := range []contract.Artifact{
 				{Kind: "skill", Name: "x"}, {Kind: "hook", Name: "x"}, {Kind: "agent", Name: "x"}, {Kind: "mcp", Name: "x"},
 			} {
 				a.Source = "kb:kb-a"
-				files, err := provisioning.ReadArtifactFiles(a, nil, roots)
+				files, err := contract.ReadArtifactFiles(a, nil, roots)
 				assertNoSecret(t, a.Kind+"/x", files, err)
 				if err == nil && dir == kindDir(a.Kind) {
 					t.Errorf("ReadArtifactFiles(%s/x) read through %s/, a link: %d files", a.Kind, dir, len(files))
@@ -269,7 +269,7 @@ func TestKBArtifacts_AnUntrackedLinkDoesNotStopTheArtifact(t *testing.T) {
 	linkTo(t, root, "skills/good/local-notes", filepath.Join(out, "secret.txt"))
 	roots := map[string]string{"kb-a": root}
 
-	m, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestKBArtifacts_AnUntrackedLinkDoesNotStopTheArtifact(t *testing.T) {
 		t.Fatalf("an untracked link stopped the skill: %v", m.Issues)
 	}
 	for _, a := range m.Artifacts {
-		files, err := provisioning.ReadArtifactFiles(a, nil, roots)
+		files, err := contract.ReadArtifactFiles(a, nil, roots)
 		assertNoSecret(t, a.Kind+"/"+a.Name, files, err)
 		if err != nil {
 			t.Errorf("ReadArtifactFiles(%s/%s): %v", a.Kind, a.Name, err)

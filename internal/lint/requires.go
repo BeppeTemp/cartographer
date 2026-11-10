@@ -11,7 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // checkRequires reports every `requires` declaration the artifact write gate
@@ -42,8 +42,8 @@ func checkRequires(k *kb.KB, files []artifactText) []Finding {
 		case f.rel == "instructions.md":
 			if fmRaw, _, ok := okf.SplitFrontmatter(f.content); ok {
 				if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
-					if _, has := fm.Get(provisioning.RequiresKey); has {
-						add(f.rel, fmt.Sprintf("instructions.md cannot declare %q: it applies to skills, agents and hooks only", provisioning.RequiresKey))
+					if _, has := fm.Get(contract.RequiresKey); has {
+						add(f.rel, fmt.Sprintf("instructions.md cannot declare %q: it applies to skills, agents and hooks only", contract.RequiresKey))
 					}
 				}
 			}
@@ -66,7 +66,7 @@ func frontmatterRequires(kind, name, content string) error {
 	if err != nil {
 		return nil
 	}
-	return provisioning.ValidateFrontmatterRequires(kind, name, fm)
+	return contract.ValidateFrontmatterRequires(kind, name, fm)
 }
 
 func hookRequiresFindings(k *kb.KB) []Finding {
@@ -84,9 +84,9 @@ func hookRequiresFindings(k *kb.KB) []Finding {
 		if err != nil {
 			continue // hook_invalid reports a missing hook.json
 		}
-		if err := provisioning.ValidateHookRequires(e.Name(), data); err != nil {
+		if err := contract.ValidateHookRequires(e.Name(), data); err != nil {
 			// Malformed JSON is hook_invalid's finding, not a second one here.
-			if errors.Is(err, provisioning.ErrHookJSON) {
+			if errors.Is(err, contract.ErrHookJSON) {
 				continue
 			}
 			findings = append(findings, newFinding("requires_invalid", Finding{
@@ -116,7 +116,7 @@ func mcpRequiresFindings(k *kb.KB) []Finding {
 		if mcpHasRequires(data) {
 			findings = append(findings, newFinding("requires_invalid", Finding{
 				Path:    rel,
-				Message: fmt.Sprintf("mcp descriptor %s cannot declare %q: it applies to skills, agents and hooks only", e.Name(), provisioning.RequiresKey),
+				Message: fmt.Sprintf("mcp descriptor %s cannot declare %q: it applies to skills, agents and hooks only", e.Name(), contract.RequiresKey),
 			}))
 		}
 	}
@@ -156,6 +156,6 @@ func mcpHasRequires(data []byte) bool {
 	if json.Unmarshal(data, &raw) != nil {
 		return false
 	}
-	_, ok := raw[provisioning.RequiresKey]
+	_, ok := raw[contract.RequiresKey]
 	return ok
 }

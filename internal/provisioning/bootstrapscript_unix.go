@@ -16,7 +16,7 @@ import (
 // value — a test that needs it must derive it the same way.
 
 // bootstrapScriptName is the generated script's file name inside the hook's
-// destination directory (destDir("hook", BootstrapHookName, provider)).
+// destination directory (DestDir("hook", BootstrapHookName, provider)).
 const bootstrapScriptName = "bootstrap.sh"
 
 // bootstrapScriptContent is the deterministic body of the generated bootstrap

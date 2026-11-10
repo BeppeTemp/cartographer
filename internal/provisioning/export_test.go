@@ -8,6 +8,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // TestMain pins the OpenCode probe to "not installed" so no test depends on the
@@ -68,11 +69,11 @@ func ProjectOwnedPaths(provider configurator.Provider) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, kind := range artifactKinds {
-		cell, ok := projectDestinationMatrix[kind][provider]
-		if !ok || cell.unsupported {
+		cell, ok := contract.ProjectDestinationMatrix[kind][provider]
+		if !ok || cell.Unsupported {
 			continue
 		}
-		rel := path.Join(cell.dir...)
+		rel := path.Join(cell.Dir...)
 		if rel == "" || rel == "." || seen[rel] {
 			continue
 		}

@@ -18,6 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // makeKBWithArchives creates a minimal KB (just data/<archive>/<pages>.md, no
@@ -42,7 +43,7 @@ func makeKBWithArchives(t *testing.T, archives map[string][]string) string {
 
 // findInstructionsArtifact looks for the kind=="instructions" artifact with the
 // given Name in m, failing the test if absent.
-func findInstructionsArtifact(t *testing.T, m provisioning.Manifest, kbName string) provisioning.Artifact {
+func findInstructionsArtifact(t *testing.T, m contract.Manifest, kbName string) contract.Artifact {
 	t.Helper()
 	for _, a := range m.Artifacts {
 		if a.Kind == "instructions" && a.Name == kbName {
@@ -50,22 +51,22 @@ func findInstructionsArtifact(t *testing.T, m provisioning.Manifest, kbName stri
 		}
 	}
 	t.Fatalf("no instructions artifact for KB %q: %+v", kbName, m.Artifacts)
-	return provisioning.Artifact{}
+	return contract.Artifact{}
 }
 
 // instructionsArtifact manually builds an already-signed Artifact of kind
 // "instructions", with content and ContentHash (direct sha256, only to
 // differentiate the artifacts in tests — Apply doesn't recompute the hash, it
 // trusts the one provided, like every other kind).
-func instructionsArtifact(name, content string) provisioning.Artifact {
+func instructionsArtifact(name, content string) contract.Artifact {
 	h := sha256.Sum256([]byte(content))
-	return provisioning.Artifact{
+	return contract.Artifact{
 		Kind:        "instructions",
 		Name:        name,
 		Source:      "kb:" + name,
 		ContentHash: fmt.Sprintf("%x", h),
 		Signed:      true,
-		Files:       []provisioning.ArtifactFile{{Path: "instructions.md", Content: []byte(content)}},
+		Files:       []contract.ArtifactFile{{Path: "instructions.md", Content: []byte(content)}},
 	}
 }
 
@@ -77,11 +78,11 @@ func TestBuildManifest_Instructions_Determinismo(t *testing.T) {
 		"topics":   {"networking.md"},
 	})
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestBuildManifest_Instructions_Determinismo(t *testing.T) {
 	// A new page in an existing archive does NOT change the content (no
 	// counts, D65): the hash stays stable and the block doesn't need re-syncing.
 	os.WriteFile(filepath.Join(kbRoot, "data", "entities", "new.md"), []byte("# new\n"), 0o644)
-	m3, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m3, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 3: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestBuildManifest_Instructions_Determinismo(t *testing.T) {
 	// A new archive, on the other hand, changes the listed structure: the hash must change.
 	os.MkdirAll(filepath.Join(kbRoot, "data", "incidents"), 0o755)
 	os.WriteFile(filepath.Join(kbRoot, "data", "incidents", "i1.md"), []byte("# i1\n"), 0o644)
-	m4, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m4, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 4: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestBuildManifest_Instructions_ArchiviElencatiEdEsclusioneInfra(t *testing.
 		os.MkdirAll(filepath.Join(kbRoot, d), 0o755)
 	}
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -179,7 +180,7 @@ func TestBuildManifest_Instructions_NessunArchivio(t *testing.T) {
 	kbRoot := t.TempDir()
 	os.MkdirAll(filepath.Join(kbRoot, "data"), 0o755)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"vuota": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"vuota": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -203,7 +204,7 @@ func TestBuildManifest_Instructions_SezioneAgent(t *testing.T) {
 		"---\nname: zorro\ndescription: Defends the KB from intruders\n---\nzorro prompt.\n")
 	writeFile(t, filepath.Join(agentsDir, "anonimo.md"), "No frontmatter here.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -225,7 +226,7 @@ func TestBuildManifest_Instructions_SezioneAgent(t *testing.T) {
 func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -247,7 +248,7 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 // in the write that records the first progress.
 func TestBuildManifest_Instructions_StatusBulletSaysWhenWorkMoves(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -284,7 +285,7 @@ func TestGenerateInstructions_WithDefaultFile(t *testing.T) {
 	if _, err := kb.Init(kbRoot); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -297,7 +298,7 @@ func TestGenerateInstructions_WithDefaultFile(t *testing.T) {
 	if strings.Contains(content, "cartographer: preamble: none") {
 		t.Errorf("the default instructions.md must not opt out of the operational bullets:\n%s", content)
 	}
-	body, _ := provisioning.KBCuratedInstructions(kbRoot)
+	body, _ := contract.KBCuratedInstructions(kbRoot)
 	for _, want := range []string{"Status convention", "Write discipline", "gate_check"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the default instructions.md lacks %q:\n%s", want, body)
@@ -309,7 +310,7 @@ func TestBuildManifest_Instructions_CuratoSenzaFrontmatter(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"), "<!-- cartographer: block: full -->\nRule: bulk reads -> explorer.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -333,7 +334,7 @@ func TestBuildManifest_Instructions_CuratoConFrontmatter(t *testing.T) {
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
 		"---\ntitle: orchestration\n---\n<!-- cartographer: block: full -->\nDelegate mechanical work to OpenCode.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -356,7 +357,7 @@ func TestBuildManifest_Instructions_HashStabileConDescriptionAgent(t *testing.T)
 	agentPath := filepath.Join(agentsDir, "reviewer.md")
 	writeFile(t, agentPath, "---\ndescription: First version\n---\nPrompt.\n")
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
@@ -366,7 +367,7 @@ func TestBuildManifest_Instructions_HashStabileConDescriptionAgent(t *testing.T)
 	// change the block. (The updated description still travels with the
 	// "agent" kind artifact, which has its own ContentHash.)
 	writeFile(t, agentPath, "---\ndescription: Second version\n---\nPrompt.\n")
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -378,7 +379,7 @@ func TestBuildManifest_Instructions_HashStabileConDescriptionAgent(t *testing.T)
 
 	// An extra agent, on the other hand, changes the list of names: the hash must change.
 	writeFile(t, filepath.Join(agentsDir, "nuovo.md"), "---\ndescription: X\n---\nPrompt.\n")
-	m3, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m3, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 3: %v", err)
 	}
@@ -398,14 +399,14 @@ func TestBuildManifest_Instructions_HashCambiaConCurato(t *testing.T) {
 	instrPath := filepath.Join(kbRoot, "instructions.md")
 	writeFile(t, instrPath, "<!-- cartographer: block: full -->\nVersion one.\n")
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
 	h1 := findInstructionsArtifact(t, m1, "homelab").ContentHash
 
 	writeFile(t, instrPath, "<!-- cartographer: block: full -->\nVersion two.\n")
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -433,7 +434,7 @@ func writeFile(t *testing.T, path, content string) {
 func TestApply_Instructions_CreaFileNuovo(t *testing.T) {
 	baseDir := t.TempDir()
 	a := instructionsArtifact("homelab", "Test content for homelab.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
@@ -478,7 +479,7 @@ func TestApply_Instructions_TuttiIQuattroProvider(t *testing.T) {
 	for _, c := range cases {
 		baseDir := t.TempDir()
 		a := instructionsArtifact("homelab", "Content for "+string(c.provider)+".\n")
-		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+		m := contract.MergeArtifacts([]contract.Artifact{a})
 
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 			Provider: c.provider,
@@ -508,7 +509,7 @@ func TestApply_Instructions_AppendAFileUtenteEsistente(t *testing.T) {
 	}
 
 	a := instructionsArtifact("homelab", "Generated section.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
@@ -545,7 +546,7 @@ func TestApply_Instructions_RiscritturaTraMarkerEsistenti(t *testing.T) {
 	}
 
 	a1 := instructionsArtifact("homelab", "Version one.\n")
-	m1 := provisioning.MergeArtifacts([]provisioning.Artifact{a1})
+	m1 := contract.MergeArtifacts([]contract.Artifact{a1})
 	res1, err := provisioning.Apply(m1, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
@@ -554,7 +555,7 @@ func TestApply_Instructions_RiscritturaTraMarkerEsistenti(t *testing.T) {
 	}
 
 	a2 := instructionsArtifact("homelab", "Version two, updated.\n")
-	m2 := provisioning.MergeArtifacts([]provisioning.Artifact{a2})
+	m2 := contract.MergeArtifacts([]contract.Artifact{a2})
 	_, err = provisioning.Apply(m2, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: res1.NewLock,
 	})
@@ -584,7 +585,7 @@ func TestApply_Instructions_RiscritturaTraMarkerEsistenti(t *testing.T) {
 func TestApply_Instructions_Idempotente(t *testing.T) {
 	baseDir := t.TempDir()
 	a := instructionsArtifact("homelab", "Stable content.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	res1, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
@@ -617,7 +618,7 @@ func TestApply_Instructions_NonFirmato_Installed(t *testing.T) {
 	baseDir := t.TempDir()
 	a := instructionsArtifact("homelab", "Content.\n")
 	a.Signed = false
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
@@ -646,7 +647,7 @@ func TestApply_Instructions_RimozioneBlocco_UtenteSopravvive(t *testing.T) {
 	}
 
 	a := instructionsArtifact("homelab", "Section to remove.\n")
-	m1 := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m1 := contract.MergeArtifacts([]contract.Artifact{a})
 	res1, err := provisioning.Apply(m1, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
@@ -655,7 +656,7 @@ func TestApply_Instructions_RimozioneBlocco_UtenteSopravvive(t *testing.T) {
 	}
 
 	// The KB disappears from the manifest (e.g. the server disconnects it).
-	m2 := provisioning.Manifest{Revision: "empty"}
+	m2 := contract.Manifest{Revision: "empty"}
 	res2, err := provisioning.Apply(m2, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: res1.NewLock,
 	})
@@ -694,7 +695,7 @@ func TestApply_Instructions_RimozioneBlocco_UtenteSopravvive(t *testing.T) {
 func TestApply_Instructions_RimozioneBlocco_FileSoloBlocco_Rimosso(t *testing.T) {
 	baseDir := t.TempDir() // no pre-existing CLAUDE.md: Apply creates it from scratch, block only.
 	a := instructionsArtifact("homelab", "Content.\n")
-	m1 := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m1 := contract.MergeArtifacts([]contract.Artifact{a})
 	res1, err := provisioning.Apply(m1, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
@@ -707,7 +708,7 @@ func TestApply_Instructions_RimozioneBlocco_FileSoloBlocco_Rimosso(t *testing.T)
 		t.Fatalf("CLAUDE.md not created: %v", err)
 	}
 
-	m2 := provisioning.Manifest{Revision: "empty"}
+	m2 := contract.Manifest{Revision: "empty"}
 	if _, err := provisioning.Apply(m2, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: res1.NewLock,
 	}); err != nil {
@@ -725,7 +726,7 @@ func TestApply_Instructions_GruppoDueKB(t *testing.T) {
 	baseDir := t.TempDir()
 	aZ := instructionsArtifact("zeta", "Zeta section.\n")
 	aA := instructionsArtifact("alfa", "Alfa section.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{aZ, aA})
+	m := contract.MergeArtifacts([]contract.Artifact{aZ, aA})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
@@ -758,7 +759,7 @@ func TestApply_Instructions_GruppoRimozioneUnaKB(t *testing.T) {
 	baseDir := t.TempDir()
 	aZ := instructionsArtifact("zeta", "Zeta section.\n")
 	aA := instructionsArtifact("alfa", "Alfa section.\n")
-	m1 := provisioning.MergeArtifacts([]provisioning.Artifact{aZ, aA})
+	m1 := contract.MergeArtifacts([]contract.Artifact{aZ, aA})
 	res1, err := provisioning.Apply(m1, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
@@ -767,7 +768,7 @@ func TestApply_Instructions_GruppoRimozioneUnaKB(t *testing.T) {
 	}
 
 	// "zeta" disappears from the manifest (e.g. one of the two KBs disconnects).
-	m2 := provisioning.MergeArtifacts([]provisioning.Artifact{aA})
+	m2 := contract.MergeArtifacts([]contract.Artifact{aA})
 	res2, err := provisioning.Apply(m2, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: res1.NewLock,
 	})
@@ -792,9 +793,9 @@ func TestApply_Instructions_GruppoRimozioneUnaKB(t *testing.T) {
 // --- KindCounts with instructions ---
 
 func TestKindCounts_Instructions(t *testing.T) {
-	m := provisioning.Manifest{
+	m := contract.Manifest{
 		Revision: "r1",
-		Artifacts: []provisioning.Artifact{
+		Artifacts: []contract.Artifact{
 			{Kind: "instructions", Name: "alfa", ContentHash: "h1", Signed: true},
 			{Kind: "instructions", Name: "zeta", ContentHash: "h2", Signed: true},
 		},
@@ -824,7 +825,7 @@ func TestPruneManaged_Instructions_DuplicatiStessoPath(t *testing.T) {
 
 	a1 := instructionsArtifact("alfa", "Alfa section.\n")
 	a2 := instructionsArtifact("zeta", "Zeta section.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a1, a2})
+	m := contract.MergeArtifacts([]contract.Artifact{a1, a2})
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
@@ -859,7 +860,7 @@ func TestPruneManaged_Instructions_DuplicatiStessoPath(t *testing.T) {
 }
 
 // instructionsContent returns the generated block for kbName in m.
-func instructionsContent(t *testing.T, m provisioning.Manifest, kbName string) string {
+func instructionsContent(t *testing.T, m contract.Manifest, kbName string) string {
 	t.Helper()
 	a := findInstructionsArtifact(t, m, kbName)
 	if len(a.Files) != 1 {
@@ -872,7 +873,7 @@ func instructionsContent(t *testing.T, m provisioning.Manifest, kbName string) s
 // a server registers (D325). Golden: the operational lines, verbatim.
 func TestBuildManifest_Instructions_ToolNames(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"router.md"}})
-	plain, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	plain, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -892,7 +893,7 @@ func TestBuildManifest_Instructions_ToolNames(t *testing.T) {
 
 // --- D154: the block describes what THIS client received ---
 
-func agentManifest(t *testing.T, kbRoot string, names ...string) provisioning.Manifest {
+func agentManifest(t *testing.T, kbRoot string, names ...string) contract.Manifest {
 	t.Helper()
 	agentsDir := filepath.Join(kbRoot, "agents")
 	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
@@ -901,7 +902,7 @@ func agentManifest(t *testing.T, kbRoot string, names ...string) provisioning.Ma
 	for _, n := range names {
 		writeFile(t, filepath.Join(agentsDir, n+".md"), "---\nname: "+n+"\ndescription: Agent "+n+".\n---\nPrompt.\n")
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -1042,7 +1043,7 @@ func TestGenerateKBInstructions_PreambleNoneDirective(t *testing.T) {
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
 		"<!-- cartographer: preamble: none -->\n<!-- cartographer: block: full -->\nRegola: leggi prima l'indice.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1075,7 +1076,7 @@ func TestGenerateKBInstructions_DirectiveNotOnFirstLineIsContent(t *testing.T) {
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
 		"How to opt out of the preamble:\n<!-- cartographer: preamble: none -->\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1098,7 +1099,7 @@ func TestGenerateKBInstructions_DirectiveDeclaredAndVisible(t *testing.T) {
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
 		"<!-- cartographer: block: full -->\nSome notes first.\n\n<!-- cartographer:directive:timezone:UTC+2 -->\n\nMore notes after.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1112,7 +1113,7 @@ func TestGenerateKBInstructions_DirectiveDeclaredAndVisible(t *testing.T) {
 		t.Errorf("the surrounding curated prose is missing:\n%s", content)
 	}
 
-	got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{a})
+	got := provisioning.DetectDirectiveCollisions([]contract.Artifact{a})
 	if len(got) != 0 {
 		t.Errorf("a single KB's own directive is never a collision: %+v", got)
 	}
@@ -1127,16 +1128,16 @@ func TestBuildManifest_DirectiveCollision_EndToEnd(t *testing.T) {
 	twoRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	writeFile(t, filepath.Join(twoRoot, "instructions.md"), "<!-- cartographer: block: full -->\n<!-- cartographer:directive:timezone:UTC-5 -->\n")
 
-	mOne, err := provisioning.BuildManifest(nil, map[string]string{"one": oneRoot}, provisioning.BuildOptions{})
+	mOne, err := contract.BuildManifest(nil, map[string]string{"one": oneRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	mTwo, err := provisioning.BuildManifest(nil, map[string]string{"two": twoRoot}, provisioning.BuildOptions{})
+	mTwo, err := contract.BuildManifest(nil, map[string]string{"two": twoRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	candidates := append(append([]provisioning.Artifact{}, mOne.Artifacts...), mTwo.Artifacts...)
+	candidates := append(append([]contract.Artifact{}, mOne.Artifacts...), mTwo.Artifacts...)
 	_, err = provisioning.MergeArtifactsStrict(candidates)
 	if err == nil {
 		t.Fatal("MergeArtifactsStrict accepted two KBs disagreeing on a directive")
@@ -1159,13 +1160,13 @@ func TestGenerateKBInstructions_DirectiveDocumentedInProseIsNotDeclared(t *testi
 		"<!-- cartographer: block: full -->\nTo declare a directive, write a line like:\n```\n<!-- cartographer:directive:timezone:UTC+2 -->\n```\n"+
 			"or inline: `<!-- cartographer:directive:timezone:UTC+2 -->`.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := findInstructionsArtifact(t, m, "homelab")
 
-	got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{
+	got := provisioning.DetectDirectiveCollisions([]contract.Artifact{
 		a,
 		instructionsArtifact("other", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
 	})
@@ -1185,9 +1186,9 @@ func TestGenerateKBInstructions_DirectiveDocumentedInProseIsNotDeclared(t *testi
 // buildSignedManifest builds a manifest from kbRoots and marks every artifact
 // Signed, the same shortcut agentManifest already uses so Apply doesn't need
 // a real signer in these tests.
-func buildSignedManifest(t *testing.T, kbRoots map[string]string) provisioning.Manifest {
+func buildSignedManifest(t *testing.T, kbRoots map[string]string) contract.Manifest {
 	t.Helper()
-	m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, kbRoots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -1336,7 +1337,7 @@ func TestGenerateKBInstructions_ScopeSentenceSoloConCurato(t *testing.T) {
 	writeFile(t, filepath.Join(withCurated, "instructions.md"), "<!-- cartographer: block: full -->\nSome curated rule.\n")
 	withoutCurated := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": withCurated}, provisioning.BuildOptions{})
+	m1, err := contract.BuildManifest(nil, map[string]string{"homelab": withCurated}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest (curated): %v", err)
 	}
@@ -1345,7 +1346,7 @@ func TestGenerateKBInstructions_ScopeSentenceSoloConCurato(t *testing.T) {
 		t.Errorf("expected the scope sentence when curated content exists:\n%s", content1)
 	}
 
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": withoutCurated}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"homelab": withoutCurated}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest (no curated): %v", err)
 	}
@@ -1429,7 +1430,7 @@ func TestApply_Instructions_OrdineDaBinding(t *testing.T) {
 	baseDir := t.TempDir()
 	aZ := instructionsArtifact("zeta", "Zeta section.\n")
 	aA := instructionsArtifact("alfa", "Alfa section.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{aZ, aA})
+	m := contract.MergeArtifacts([]contract.Artifact{aZ, aA})
 	path := filepath.Join(baseDir, ".claude", "CLAUDE.md")
 
 	// Explicit binding order: zeta before alfa.
@@ -1489,7 +1490,7 @@ func TestApply_Instructions_IdempotenteMultiKB(t *testing.T) {
 	aZ := instructionsArtifact("zeta", "Zeta stable.\n")
 	aA := instructionsArtifact("alfa", "Alfa stable.\n")
 	aB := instructionsArtifact("beta", "Beta stable.\n")
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{aZ, aA, aB})
+	m := contract.MergeArtifacts([]contract.Artifact{aZ, aA, aB})
 	path := filepath.Join(baseDir, ".claude", "CLAUDE.md")
 
 	res1, err := provisioning.Apply(m, provisioning.ApplyOptions{
@@ -1525,13 +1526,13 @@ func TestApply_Instructions_IdempotenteMultiKB(t *testing.T) {
 func TestBuildManifest_Instructions_RoutedMount(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"router.md"}})
 
-	plain, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	plain, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest plain: %v", err)
 	}
 	plainContent := instructionsContent(t, plain, "homelab")
 
-	routed, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{RoutedMount: true})
+	routed, err := contract.BuildManifest(nil, map[string]string{"homelab": kbRoot}, contract.BuildOptions{RoutedMount: true})
 	if err != nil {
 		t.Fatalf("BuildManifest routed: %v", err)
 	}

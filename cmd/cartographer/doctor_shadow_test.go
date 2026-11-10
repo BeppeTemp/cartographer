@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // shadowRepo is a git repository with the given files; tracked ones are added.
@@ -42,7 +42,7 @@ func shadowRepo(t *testing.T, tracked []string, untracked []string) string {
 	return dir
 }
 
-func shadowFixture(workspaces map[string][]string, arts ...provisioning.Artifact) (*clientconfig.Config, candidateSet) {
+func shadowFixture(workspaces map[string][]string, arts ...contract.Artifact) (*clientconfig.Config, candidateSet) {
 	cfg := &clientconfig.Config{KnownKBs: []string{"kb-a"}, Agents: []string{"claude", "codex"}}
 	for provider, paths := range workspaces {
 		for _, p := range paths {
@@ -52,11 +52,11 @@ func shadowFixture(workspaces map[string][]string, arts ...provisioning.Artifact
 			cfg.Workspaces[provider] = append(cfg.Workspaces[provider], clientconfig.WorkspaceBinding{Path: p, KBs: []string{"kb-a"}})
 		}
 	}
-	return cfg, candidateSet{Named: map[string][]provisioning.Artifact{"kb-a": arts}}
+	return cfg, candidateSet{Named: map[string][]contract.Artifact{"kb-a": arts}}
 }
 
-func kbArt(kind, name string) provisioning.Artifact {
-	return provisioning.Artifact{Kind: kind, Name: name, Source: "kb:kb-a"}
+func kbArt(kind, name string) contract.Artifact {
+	return contract.Artifact{Kind: kind, Name: name, Source: "kb:kb-a"}
 }
 
 func TestCheckWorkspaceShadows(t *testing.T) {

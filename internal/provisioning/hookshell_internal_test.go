@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // pretendWindows sets the hookHostWindows seam for the duration of a test.
@@ -87,7 +88,7 @@ func TestWindowsHookCommandIsWrittenWithForwardSlashes(t *testing.T) {
 	if got != want {
 		t.Fatalf("command = %q, want %q", got, want)
 	}
-	if !commandOwnedBy(got, hookOwnershipMarker(BootstrapHookName)) {
+	if !commandOwnedBy(got, hookOwnershipMarker(contract.BootstrapHookName)) {
 		t.Errorf("commandOwnedBy(%q) = false: the entry would be neither idempotent nor prunable", got)
 	}
 }
@@ -198,7 +199,7 @@ func TestClaudeHookWithAMissingCommandFileIsUnrunnable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gone := filepath.Join(baseDir, ".claude", "hooks", BootstrapHookName, "renamed.sh")
+	gone := filepath.Join(baseDir, ".claude", "hooks", contract.BootstrapHookName, "renamed.sh")
 	writeSettings(t, baseDir, map[string]interface{}{
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{

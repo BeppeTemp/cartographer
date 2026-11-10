@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const forkCLI = `schema: 1
@@ -103,7 +103,7 @@ func TestProviderFixturesParse(t *testing.T) {
 }
 
 func TestProviderSpecSizeCapIsTheArtifactCap(t *testing.T) {
-	_, problems := ParseProvider("fork-cli", []byte(strings.Repeat("#", provisioning.ArtifactMaxFileSize+1)))
+	_, problems := ParseProvider("fork-cli", []byte(strings.Repeat("#", contract.ArtifactMaxFileSize+1)))
 	if len(problems) != 1 || !strings.Contains(problems[0], "cap") {
 		t.Fatalf("problems = %v", problems)
 	}
@@ -177,7 +177,7 @@ func TestParseProviderRejects(t *testing.T) {
 		{"capability id", cli("agent.delegate", "no.such.id"), "fork-cli", "no.such.id"},
 		{"two documents", forkCLI + "---\nschema: 1\n", "fork-cli", "more than one"},
 		{"empty", "", "fork-cli", "empty"},
-		{"oversized", strings.Repeat("#", provisioning.ArtifactMaxFileSize+1), "fork-cli", "cap"},
+		{"oversized", strings.Repeat("#", contract.ArtifactMaxFileSize+1), "fork-cli", "cap"},
 		{"no detection", noDetect, "fork-cli", "detect"},
 		{"empty dirs list", swapText(t, noDetect, "detect:\n", "detect:\n  dirs: []\n"), "fork-cli", "detect: needs"},
 		{"trailing dot", cli(`".fork-cli/skills"`, `".fork-cli/skills."`), "fork-cli", "ends in a dot"},

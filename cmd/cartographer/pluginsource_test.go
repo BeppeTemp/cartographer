@@ -6,6 +6,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestCheckUnboundResiduesPluginSource(t *testing.T) {
@@ -47,7 +48,7 @@ func TestCheckUnboundResiduesPluginSource(t *testing.T) {
 func TestPluginSkillSurvivesKBArtifactsOptOut(t *testing.T) {
 	cfg := &clientconfig.Config{}
 	cfg.SetKBArtifacts("kb-a", false)
-	out := dropKBArtifacts(cfg, []provisioning.Artifact{
+	out := dropKBArtifacts(cfg, []contract.Artifact{
 		{Kind: "skill", Name: "s", Source: "kb:kb-a"},
 		{Kind: "skill", Name: "p", Source: "plugin:team-forks"},
 		{Kind: "hook", Name: "h", Source: "plugin:team-forks"},
@@ -58,7 +59,7 @@ func TestPluginSkillSurvivesKBArtifactsOptOut(t *testing.T) {
 }
 
 func TestSnapshotTrustOfAPluginArtifactIsPlugin(t *testing.T) {
-	got := snapshotArtifacts([]provisioning.Artifact{
+	got := snapshotArtifacts([]contract.Artifact{
 		{Kind: "hook", Name: "h", Source: "plugin:team-forks", ContentHash: "x"},
 		{Kind: "skill", Name: "s", Source: "plugin:team-forks", ContentHash: "x"},
 	}, &clientconfig.Config{})

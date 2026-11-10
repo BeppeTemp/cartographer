@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // With an artifact waiting for approval, a second sync of the same manifest
@@ -12,15 +14,15 @@ import (
 func TestApply_PendingApprovalSecondRunWritesNothing(t *testing.T) {
 	for _, p := range approvalProviders {
 		base := t.TempDir()
-		m := Manifest{Revision: "r1", Artifacts: []Artifact{
+		m := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 			{Kind: "instructions", Name: "kb-a", Source: "kb:kb-a", ContentHash: "i1",
-				Files: []ArtifactFile{{Path: "instructions.md", Content: []byte("Use kb-a.\n")}}},
+				Files: []contract.ArtifactFile{{Path: "instructions.md", Content: []byte("Use kb-a.\n")}}},
 			{Kind: "skill", Name: "s1", Source: "kb:kb-a", ContentHash: "s1",
-				Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: s1\ndescription: d\n---\nbody\n")}}},
+				Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: s1\ndescription: d\n---\nbody\n")}}},
 			{Kind: "agent", Name: "a1", Source: "kb:kb-a", ContentHash: "a1",
-				Files: []ArtifactFile{{Path: "a1.md", Content: []byte("---\nname: a1\ndescription: d\n---\nbody\n")}}},
+				Files: []contract.ArtifactFile{{Path: "a1.md", Content: []byte("---\nname: a1\ndescription: d\n---\nbody\n")}}},
 			{Kind: "agent", Name: "a2", Source: "kb:kb-a", ContentHash: "a2",
-				Files: []ArtifactFile{{Path: "a2.md", Content: []byte("---\nname: a2\ndescription: d\nhooks:\n  Stop: []\n---\nbody\n")}}},
+				Files: []contract.ArtifactFile{{Path: "a2.md", Content: []byte("---\nname: a2\ndescription: d\nhooks:\n  Stop: []\n---\nbody\n")}}},
 			hookArtifact("h1", "#!/bin/sh\nexit 0\n"),
 		}}
 		opts := ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true}

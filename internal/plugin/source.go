@@ -12,7 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // Source is where a plugin comes from: a git remote at a ref, or a folder.
@@ -108,7 +108,7 @@ func Fetch(ctx context.Context, s Source, tmpParent string) ([]TreeFile, string,
 	}
 	entries, sha, err := gitx.FetchTree(ctx, s.Remote, s.Ref, tmpParent, gitx.TreeLimits{
 		MaxEntries:  MaxFiles,
-		MaxFileSize: provisioning.ArtifactMaxFileSize,
+		MaxFileSize: contract.ArtifactMaxFileSize,
 		MaxTotal:    MaxBytes,
 		Skip:        func(p string) bool { first, _, _ := strings.Cut(p, "/"); return ignored(first) },
 	})
@@ -157,8 +157,8 @@ func readFolder(root string) ([]TreeFile, error) {
 			files = append(files, TreeFile{Path: rel, Special: true})
 			return nil
 		}
-		if fi.Size() > int64(provisioning.ArtifactMaxFileSize) {
-			return fmt.Errorf("%s: %d bytes, over the %d cap of a file", rel, fi.Size(), provisioning.ArtifactMaxFileSize)
+		if fi.Size() > int64(contract.ArtifactMaxFileSize) {
+			return fmt.Errorf("%s: %d bytes, over the %d cap of a file", rel, fi.Size(), contract.ArtifactMaxFileSize)
 		}
 		if len(files) >= MaxFiles {
 			return fmt.Errorf("more than %d files", MaxFiles)
@@ -169,13 +169,13 @@ func readFolder(root string) ([]TreeFile, error) {
 		if err != nil {
 			return err
 		}
-		b, err := io.ReadAll(io.LimitReader(fh, int64(provisioning.ArtifactMaxFileSize)+1))
+		b, err := io.ReadAll(io.LimitReader(fh, int64(contract.ArtifactMaxFileSize)+1))
 		fh.Close()
 		if err != nil {
 			return err
 		}
-		if len(b) > provisioning.ArtifactMaxFileSize {
-			return fmt.Errorf("%s: over the %d cap of a file", rel, provisioning.ArtifactMaxFileSize)
+		if len(b) > contract.ArtifactMaxFileSize {
+			return fmt.Errorf("%s: over the %d cap of a file", rel, contract.ArtifactMaxFileSize)
 		}
 		if total += len(b); total > MaxBytes {
 			return fmt.Errorf("%s: more than %d bytes in all", rel, MaxBytes)

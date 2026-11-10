@@ -8,6 +8,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
@@ -158,7 +159,7 @@ func computeDerived(cfg *clientconfig.Config, targets, providers []string, pre *
 			continue
 		}
 		var decls []clientconfig.DeclaredRepo
-		decl := map[string]provisioning.PathDecl{}
+		decl := map[string]contract.PathDecl{}
 		for _, kb := range bound {
 			reg, ok := pre.cs.PathRegistries[kb]
 			if !ok {
@@ -224,7 +225,7 @@ func derivedInstructions(provider, workspace string) (override, skipped string) 
 }
 
 // withoutInstructions drops the instructions artifacts from m.
-func withoutInstructions(m provisioning.Manifest) provisioning.Manifest {
+func withoutInstructions(m contract.Manifest) contract.Manifest {
 	out := m
 	out.Artifacts = nil
 	for _, a := range m.Artifacts {
@@ -316,7 +317,7 @@ func derivedHookSettings(provider string, skipKinds []string) string {
 }
 
 // withoutKinds drops the artifacts of the given kinds from m.
-func withoutKinds(m provisioning.Manifest, kinds []string) provisioning.Manifest {
+func withoutKinds(m contract.Manifest, kinds []string) contract.Manifest {
 	if len(kinds) == 0 {
 		return m
 	}

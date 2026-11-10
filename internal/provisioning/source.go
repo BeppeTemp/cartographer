@@ -3,28 +3,16 @@ package provisioning
 import (
 	"sort"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
-
-// pluginSourcePrefix opens the Source of an artifact a plugin contributes
-// ("plugin:<name>"). Such an artifact is built on the client from the approved
-// tree of an installed plugin (never served, never signed): it is authorized
-// only while its plugin is in ApplyOptions.ActivePlugins, and nothing else
-// about it is trusted. No site that tests a KB or bundle source treats it as
-// either (source_audit_test.go classifies every one of them).
-const pluginSourcePrefix = "plugin:"
-
-// IsPluginSource reports whether s is "plugin:<name>" with a valid name.
-func IsPluginSource(s string) bool {
-	name, ok := strings.CutPrefix(s, pluginSourcePrefix)
-	return ok && validArtifactName(name)
-}
 
 // PluginName returns the plugin of a plugin source, or "" for anything else.
 func PluginName(s string) string {
-	if !IsPluginSource(s) {
+	if !contract.IsPluginSource(s) {
 		return ""
 	}
-	return strings.TrimPrefix(s, pluginSourcePrefix)
+	return strings.TrimPrefix(s, contract.PluginSourcePrefix)
 }
 
 // PluginCollision is a kind and name claimed by a plugin and by at least one
@@ -43,7 +31,7 @@ type PluginCollision struct {
 // business: MergeArtifactsStrict keeps refusing it. Callers run it before
 // MergeArtifactsStrict. The same source repeated is not a collision (the per-KB
 // merge carries the bundled artifacts once per KB).
-func DropPluginCollisions(artifacts []Artifact) (kept []Artifact, dropped []PluginCollision) {
+func DropPluginCollisions(artifacts []contract.Artifact) (kept []contract.Artifact, dropped []PluginCollision) {
 	type key struct{ kind, name string }
 	sources := map[key]map[string]bool{}
 	for _, a := range artifacts {
@@ -62,7 +50,7 @@ func DropPluginCollisions(artifacts []Artifact) (kept []Artifact, dropped []Plug
 		hasPlugin := false
 		list := make([]string, 0, len(set))
 		for s := range set {
-			hasPlugin = hasPlugin || IsPluginSource(s)
+			hasPlugin = hasPlugin || contract.IsPluginSource(s)
 			list = append(list, s)
 		}
 		if !hasPlugin {
@@ -84,7 +72,7 @@ func DropPluginCollisions(artifacts []Artifact) (kept []Artifact, dropped []Plug
 	})
 	for _, a := range artifacts {
 		k := key{a.Kind, a.Name}
-		if drop[k] || (dropPlugin[k] && IsPluginSource(a.Source)) {
+		if drop[k] || (dropPlugin[k] && contract.IsPluginSource(a.Source)) {
 			continue
 		}
 		kept = append(kept, a)

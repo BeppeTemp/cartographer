@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // workspacescope.go (D193) — the project-local half of the kind × provider
@@ -23,227 +24,13 @@ import (
 // contracts that change outside this project's release cycle — re-verify before
 // changing one, and keep the citation next to it.
 
-// Scope selects which half of the matrix a lookup reads.
-type Scope int
-
-const (
-	// ScopeGlobal is the historical destination set, under the user's home.
-	ScopeGlobal Scope = iota
-	// ScopeProject is the per-workspace destination set, under a bound
-	// workspace's own directory.
-	ScopeProject
-)
-
-// projectDestinationMatrix is destinationMatrix's project-local counterpart.
-//
-// Sources (D193 audit):
-//
-//   - Claude Code: .claude/skills/, .claude/agents/, .claude/settings.json,
-//     .mcp.json, ./CLAUDE.md — https://code.claude.com/docs/en/skills,
-//     /memory, /sub-agents, /hooks, /mcp.
-//
-//   - Codex: .agents/skills and .codex/{agents,hooks.json,config.toml} along
-//     cwd→repository root — https://developers.openai.com/codex/skills,
-//     /subagents, /hooks, /mcp. The project must be *trusted* or Codex ignores
-//     the .codex/ layer entirely, which is why the projection reports itself
-//     inactive there rather than claiming success (see CodexProjectTrusted).
-//
-//   - Kiro: .kiro/skills/ (workspace wins over global) —
-//     https://kiro.dev/docs/skills/.
-//
-//   - OpenCode: .opencode/skills, .opencode/agent, .opencode/plugins, project
-//     opencode.json and AGENTS.md — https://opencode.ai/docs/skills, /rules,
-//     /agents, /plugins.
-//
-//   - Crush: .crush/skills, one of the project skill directories it scans by
-//     default — https://github.com/charmbracelet/crush/tree/main/docs/config.
-//     Its project `.crush.json` was probed on v0.98.0 (D363): its `mcp` and
-//     `hooks` entries are used by the session, so the mcp and hook cells are
-//     supported (hooks live in .crush/hooks/, registered in .crush.json). The
-//     agent and instructions cells are not probed and still fail closed
-//     (docs/harnesses.md, ## crush).
-//
-//   - Antigravity (D364, `agy` 1.3.2): the workspace `.agents/` layer — skills,
-//     agents, hooks.json, mcp_config.json — plus AGENTS.md, all probed against a
-//     negative control. Its rules directory is deliberately not used: a rule is
-//     read only with `trigger: always_on` frontmatter, which is why the
-//     instructions cell is the AGENTS.md block instead.
-//
-//   - Copilot CLI and VS Code's Copilot harness (D676, 1.0.94; VS Code 1.145.2): AGENTS.md ("Repository instructions") and
-//     .agents/skills/ ("Project skills") are listed natively; in a trusted
-//     workspace VS Code also loads .github/agents/*.agent.md and
-//     .github/hooks/*.json (2026-11-09), the agent and hook cells. The mcp cell
-//     stays unsupported: .mcp.json is not loaded with VS Code's default
-//     settings and the CLI does not list it in an untrusted folder.
-//
-//   - Cline (bundle 4.1.26): every cell is unsupported. Cline declares no MCP
-//     roots and starts the bridge with the extension host's cwd, so every
-//     session is unbound and served the provider-default read-only tools; a
-//     bound folder would receive skills and instructions that explain write
-//     tools (D1018). The locations a later plan flips: skills .cline/skills or
-//     .agents/skills, instructions AGENTS.md, agents .cline/agents/<n>.yaml,
-//     hooks .clinerules/hooks. What flips it: Cline declaring roots, or a
-//     per-workspace MCP settings file.
-//
-// A provider in workspace scope that cannot project a kind reports it as
-// unsupported, never silently degraded to the global catalogue — degrading is
-// exactly the exposure this plan exists to prevent.
-var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
-	"mcp": {
-		configurator.ProviderClaudeCode: at(".mcp.json"),
-		configurator.ProviderCodex:      at(".codex", "config.toml"),
-		configurator.ProviderOpenCode:   at("opencode.json"),
-		configurator.ProviderKiro:       at(".kiro", "settings", "mcp.json"),
-		// antigravity: the global shape (`mcpServers`) in the workspace's
-		// .agents/mcp_config.json; `agy mcp list` shows only the global servers
-		// but the session has the project ones (probed on 1.3.2, D364).
-		configurator.ProviderAntigravity: at(".agents", "mcp_config.json"),
-		configurator.ProviderCrush:       at(".crush.json"),
-		// copilot: `.mcp.json` / `.github/mcp.json` are documented but
-		// `copilot mcp list` does not list them in an untrusted folder
-		// (1.0.94, D676), and VS Code 1.145.2 did not load `.mcp.json` with
-		// its default settings in a trusted workspace (2026-11-09): it reads
-		// it only behind an experimental setting, so no cell is declared.
-		configurator.ProviderCopilot: unsupportedDest,
-		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
-		configurator.ProviderPi:    unsupportedDest,
-		configurator.ProviderCline: unsupportedDest,
-	},
-	"instructions": {
-		// The project root's own CLAUDE.md is the file Claude Code reads for a
-		// project; .claude/CLAUDE.md is the alternative. The root file is
-		// chosen because it is the one a repository already has, and the block
-		// is marker-delimited so it coexists with the user's own text.
-		// D293: creating this file hides a project's AGENTS.md from the
-		// built-in agents-md@builtin plugin (on by default since 2.1.277),
-		// so the managed block prepends an @AGENTS.md import when one exists.
-		configurator.ProviderClaudeCode: at("CLAUDE.md"),
-		configurator.ProviderCodex:      at("AGENTS.md"),
-		configurator.ProviderOpenCode:   at("AGENTS.md"),
-		configurator.ProviderKiro:       at(".kiro", "steering", "cartographer.md"),
-		// antigravity: AGENTS.md, read by `agy` (D364). Not .agents/rules/: a
-		// rule is read only with `trigger: always_on` in its frontmatter, so a
-		// plain rule file would be written and silently ignored.
-		configurator.ProviderAntigravity: at("AGENTS.md"),
-		configurator.ProviderCrush:       unsupportedDest,
-		// copilot: AGENTS.md is read natively as "Repository instructions"
-		// (probed on 1.0.94, D676).
-		configurator.ProviderCopilot: at("AGENTS.md"),
-		// pi: AGENTS.md is read without trust, from every ancestor directory
-		// (probe 2 on Pi 1.5.0). CLAUDE.local.md is not read.
-		configurator.ProviderPi:    at("AGENTS.md"),
-		configurator.ProviderCline: unsupportedDest,
-	},
-	"agent": {
-		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
-		configurator.ProviderCodex:      perName(".toml", ".codex", "agents"),
-		configurator.ProviderOpenCode:   perName(".md", ".opencode", "agent"),
-		// kiro: the same JSON agent config as the global cell, in the
-		// workspace's own agent directory, which `kiro-cli agent list` reports
-		// as "Workspace" and which wins over the global one (D195).
-		configurator.ProviderKiro:        perName(".json", ".kiro", "agents"),
-		configurator.ProviderAntigravity: perName(".md", ".agents", "agents"),
-		configurator.ProviderCrush:       unsupportedDest,
-		// copilot: .github/agents is gated on folder trust (`copilot --help`,
-		// D676); in a trusted workspace VS Code 1.145.2 lists the agent and
-		// answers as it (2026-11-09). The untrusted control was not run.
-		configurator.ProviderCopilot: perName(".agent.md", ".github", "agents"),
-		// pi: no subagents.
-		configurator.ProviderPi:    unsupportedDest,
-		configurator.ProviderCline: unsupportedDest,
-	},
-	"hook": {
-		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
-		configurator.ProviderCodex:      perName("", ".codex", "hooks"),
-		configurator.ProviderOpenCode:   perName("", ".opencode", "hooks"),
-		// kiro: a workspace .kiro/hooks/ fires in exactly the sessions the
-		// global ~/.kiro/hooks/ does, `kiro-cli chat --v3 --tui` (probed on
-		// 2.26.1), so a project-local copy of the global registration (D300)
-		// would reach no session the global one misses. Kept unsupported until
-		// a mode fires one and not the other.
-		configurator.ProviderKiro: unsupportedDest,
-		// antigravity: the files live in .agents/hooks/<n>/ and the entry in
-		// .agents/hooks.json (same schema as the global file); the registration
-		// file is picked from the hook's path (antigravitySettingsRel).
-		configurator.ProviderAntigravity: perName("", ".agents", "hooks"),
-		configurator.ProviderCrush:       perName("", ".crush", "hooks"),
-		// copilot: .github/hooks is gated on folder trust (`copilot --help`,
-		// D676); in a trusted workspace VS Code 1.145.2 fires
-		// .github/hooks/*.json for the three events (2026-11-09). Copilot parses
-		// every *.json below that directory, so as in the global cell only the
-		// registration .github/hooks/cartographer-<n>.json lives there and the
-		// hook's files are here (registerCopilotHook).
-		configurator.ProviderCopilot: perName("", ".github", "cartographer-hooks"),
-		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
-		configurator.ProviderPi:    unsupportedDest,
-		configurator.ProviderCline: unsupportedDest,
-	},
-	"skill": {
-		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
-		// The repository path Codex documents for skills. The global cell still
-		// points at .codex/skills for the reason D192 records; this is the
-		// target that only became reachable once a workspace scope existed.
-		configurator.ProviderCodex:    perName("", ".agents", "skills"),
-		configurator.ProviderKiro:     perName("", ".kiro", "skills"),
-		configurator.ProviderOpenCode: perName("", ".opencode", "skills"),
-		// The .agents/skills directory `agy` scans in a workspace, shared with
-		// Codex: both write the same bytes, and a prune keeps what another
-		// projection of the workspace still records (ApplyOptions.CoOwnedPaths).
-		configurator.ProviderAntigravity: perName("", ".agents", "skills"),
-		configurator.ProviderCrush:       perName("", ".crush", "skills"),
-		// copilot: ".agents/skills/" is listed as "Project skills", shared with
-		// Codex and Antigravity (probed on 1.0.94, D676).
-		configurator.ProviderCopilot: perName("", ".agents", "skills"),
-		// pi: project `.pi/*` and `.agents/skills` load only after project trust (probe 3 on Pi 1.5.0).
-		configurator.ProviderPi:    unsupportedDest,
-		configurator.ProviderCline: unsupportedDest,
-	},
-}
-
-// cellFor is the one read of a destination cell of a scope: the static matrix,
-// then the cells a registered plugin provider declared (plugincells.go). A kind
-// or provider neither holds is not found, which every caller treats as
-// unsupported.
-func cellFor(scope Scope, kind string, provider configurator.Provider) (destination, bool) {
-	if cell, ok := matrixFor(scope)[kind][provider]; ok {
-		return cell, true
-	}
-	return pluginCell(scope, kind, provider)
-}
-
-// matrixFor returns the destination matrix for a scope.
-func matrixFor(scope Scope) map[string]map[configurator.Provider]destination {
-	if scope == ScopeProject {
-		return projectDestinationMatrix
-	}
-	return destinationMatrix
-}
-
-// destDirScoped is destDir with the scope axis. destDir is the ScopeGlobal
-// case and keeps its signature, because every caller that has no workspace to
-// speak of is asking exactly that question.
-func destDirScoped(kind, name string, provider configurator.Provider, scope Scope) string {
-	cell, ok := cellFor(scope, kind, provider)
-	if !ok || cell.unsupported {
-		return ""
-	}
-	// A destination is a slash path, not a host path: it is written into
-	// provider configuration and into .git/info/exclude, both of which are
-	// read on every platform and both of which want forward slashes.
-	if !cell.named {
-		return path.Join(cell.dir...)
-	}
-	segments := append(append([]string{}, cell.dir...), name+cell.suffix)
-	return path.Join(segments...)
-}
-
 // SupportsProjectScope reports whether provider can project any artifact kind
 // into a workspace. False is an honest answer, not a degradation: a provider
 // that cannot project must be reported as unsupported rather than quietly
 // served from the global catalogue (decision 11).
 func SupportsProjectScope(provider configurator.Provider) bool {
 	for _, kind := range artifactKinds {
-		if cell, ok := cellFor(ScopeProject, kind, provider); ok && !cell.unsupported {
+		if cell, ok := contract.CellFor(contract.ScopeProject, kind, provider); ok && !cell.Unsupported {
 			return true
 		}
 	}
@@ -289,10 +76,10 @@ func ProjectSharedHookFiles(provider configurator.Provider) []string {
 // projectHookPlugin is the generated registration file of hook name in a
 // workspace, "" when the provider has none or cannot hold a hook there.
 func projectHookPlugin(provider configurator.Provider, name string) string {
-	if destDirScoped("hook", name, provider, ScopeProject) == "" {
+	if contract.DestDirScoped("hook", name, provider, contract.ScopeProject) == "" {
 		return ""
 	}
-	return HookPluginRelPath(provider, name, ScopeProject)
+	return HookPluginRelPath(provider, name, contract.ScopeProject)
 }
 
 // ProjectRegistrationFiles returns the registration files a projection of
@@ -308,11 +95,11 @@ func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []
 	seen := map[string]bool{}
 	var out []string
 	for _, kind := range artifactKinds {
-		cell, ok := cellFor(ScopeProject, kind, provider)
-		if !ok || cell.unsupported {
+		cell, ok := contract.CellFor(contract.ScopeProject, kind, provider)
+		if !ok || cell.Unsupported {
 			continue
 		}
-		rel := path.Join(cell.dir...)
+		rel := path.Join(cell.Dir...)
 		if rel == "" || rel == "." {
 			continue
 		}
@@ -350,16 +137,16 @@ func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []
 // or that holds a newline or a gitignore special character, fails the
 // projection with the error Apply gives for it, and a lock path outside the
 // provider's own destinations is dropped. Nothing is written either way.
-func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock Lock) ([]string, error) {
+func ProjectOwnedArtifactPaths(provider configurator.Provider, m contract.Manifest, lock Lock) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
 	var roots []string
 	for _, kind := range artifactKinds {
-		cell, ok := cellFor(ScopeProject, kind, provider)
-		if !ok || cell.unsupported {
+		cell, ok := contract.CellFor(contract.ScopeProject, kind, provider)
+		if !ok || cell.Unsupported {
 			continue
 		}
-		if rel := path.Join(cell.dir...); rel != "" && rel != "." {
+		if rel := path.Join(cell.Dir...); rel != "" && rel != "." {
 			roots = append(roots, rel)
 		}
 	}
@@ -367,9 +154,9 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	// The hook companions sit outside the hook directories (Codex's hooks.json,
 	// OpenCode's generated plugins): they are written by the same projection, so
 	// they are as much its own as the hook's files (#1199).
-	if destDirScoped("hook", "x", provider, ScopeProject) != "" {
+	if contract.DestDirScoped("hook", "x", provider, contract.ScopeProject) != "" {
 		roots = append(roots, projectSharedHookFiles[provider]...)
-		if plugin := HookPluginRelPath(provider, "x", ScopeProject); plugin != "" {
+		if plugin := HookPluginRelPath(provider, "x", contract.ScopeProject); plugin != "" {
 			roots = append(roots, path.Dir(plugin))
 		}
 	}
@@ -390,17 +177,17 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 		out = append(out, rel)
 	}
 	for _, kind := range artifactKinds {
-		cell, ok := cellFor(ScopeProject, kind, provider)
-		if !ok || cell.unsupported {
+		cell, ok := contract.CellFor(contract.ScopeProject, kind, provider)
+		if !ok || cell.Unsupported {
 			continue
 		}
-		if !cell.named {
-			add(path.Join(cell.dir...))
+		if !cell.Named {
+			add(path.Join(cell.Dir...))
 			continue
 		}
 		if kind == "hook" {
-			for name := range reservedHookNames {
-				add(destDirScoped(kind, name, provider, ScopeProject))
+			for name := range contract.ReservedHookNames {
+				add(contract.DestDirScoped(kind, name, provider, contract.ScopeProject))
 				add(projectHookPlugin(provider, name))
 			}
 		}
@@ -408,8 +195,8 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	// The shared hook file is owned only once a hook is registered in it: the
 	// projection carries one, or the lock records one. Before that it is the
 	// user's, and excluding it would hide it.
-	projected, _ := ProjectManifest(m, provider, ScopeProject, ProjectOptions{})
-	if destDirScoped("hook", "x", provider, ScopeProject) != "" && hasHook(projected, lock) {
+	projected, _ := ProjectManifest(m, provider, contract.ScopeProject, contract.ProjectOptions{})
+	if contract.DestDirScoped("hook", "x", provider, contract.ScopeProject) != "" && hasHook(projected, lock) {
 		for _, rel := range projectSharedHookFiles[provider] {
 			add(rel)
 		}
@@ -420,7 +207,7 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 		if !ownableName(a.Name) {
 			return nil, &InvalidArtifactNameError{Name: a.Name}
 		}
-		add(destDirScoped(a.Kind, a.Name, provider, ScopeProject))
+		add(contract.DestDirScoped(a.Kind, a.Name, provider, contract.ScopeProject))
 		if a.Kind == "hook" {
 			add(projectHookPlugin(provider, a.Name))
 		}
@@ -436,7 +223,7 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 }
 
 // hasHook reports whether m carries a hook or lock records one.
-func hasHook(m Manifest, lock Lock) bool {
+func hasHook(m contract.Manifest, lock Lock) bool {
 	for _, a := range m.Artifacts {
 		if a.Kind == "hook" {
 			return true
@@ -463,7 +250,7 @@ func (e *InvalidArtifactNameError) Error() string {
 // segment) plus what a path written into .git/info/exclude must not carry: a
 // line break, a gitignore glob or negation, a comment, or edge spaces.
 func ownableName(name string) bool {
-	if !validArtifactName(name) {
+	if !contract.ValidArtifactName(name) {
 		return false
 	}
 	if strings.ContainsAny(name, "\n\r*?[!\\#") || strings.TrimSpace(name) != name {
@@ -478,7 +265,7 @@ func ownableName(name string) bool {
 // and only the second is a decision.
 func validateProjectMatrix() error {
 	for _, kind := range artifactKinds {
-		row, ok := projectDestinationMatrix[kind]
+		row, ok := contract.ProjectDestinationMatrix[kind]
 		if !ok {
 			return fmt.Errorf("provisioning: project destination matrix has no row for kind %q", kind)
 		}
@@ -671,10 +458,10 @@ func WithoutCoOwned(managed []ManagedFile, coOwned map[string]bool) []ManagedFil
 	return out
 }
 
-// ProjectDestination is destDirScoped's project half, exported for the client,
+// ProjectDestination is DestDirScoped's project half, exported for the client,
 // which needs to know which paths a projection owns before it writes any.
 func ProjectDestination(kind, name string, provider configurator.Provider) string {
-	return destDirScoped(kind, name, provider, ScopeProject)
+	return contract.DestDirScoped(kind, name, provider, contract.ScopeProject)
 }
 
 // ClaudeLocalInstructions is the untracked file Claude Code reads beside
@@ -702,17 +489,17 @@ func OwnedLocalInstructions(workspaceDir string, provider configurator.Provider)
 // provider cannot materialize **in this scope** is not missing, it simply does
 // not apply here. It never degrades an agent to a skill: kept for API
 // stability, the sync and status paths use ProjectManifest.
-func FilterForProviderScoped(m Manifest, provider configurator.Provider, scope Scope) Manifest {
-	if scope == ScopeGlobal {
+func FilterForProviderScoped(m contract.Manifest, provider configurator.Provider, scope contract.Scope) contract.Manifest {
+	if scope == contract.ScopeGlobal {
 		return FilterForProvider(m, provider)
 	}
-	var out Manifest
+	var out contract.Manifest
 	for _, a := range m.Artifacts {
-		if destDirScoped(a.Kind, a.Name, provider, scope) != "" && !strictAgentSkipped(a, provider) {
+		if contract.DestDirScoped(a.Kind, a.Name, provider, scope) != "" && !contract.StrictAgentSkipped(a, provider) {
 			out.Artifacts = append(out.Artifacts, a)
 		}
 	}
-	out.Revision = computeRevision(out.Artifacts)
+	out.Revision = contract.ComputeRevision(out.Artifacts)
 	// Skipped carries the warnings VerifiedManifest left for Apply to
 	// print; a real sync applies the filtered manifest, so they must survive.
 	out.Skipped = m.Skipped

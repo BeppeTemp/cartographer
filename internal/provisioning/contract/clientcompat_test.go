@@ -1,4 +1,4 @@
-package provisioning
+package contract
 
 // clientcompat_test.go (D192 WP5) — the alarm for a divergence between the path
 // Cartographer writes and the path the client actually reads.
@@ -76,7 +76,7 @@ func TestCodexDiscoversDeclaredSkillDestination(t *testing.T) {
 	if !clientInstalled(configurator.ProviderCodex) {
 		t.Skip("codex is not installed on this machine")
 	}
-	dest := destDir("skill", "probe", configurator.ProviderCodex)
+	dest := DestDir("skill", "probe", configurator.ProviderCodex)
 	if dest == "" {
 		t.Skip("codex declares no skill destination")
 	}
@@ -120,7 +120,7 @@ func TestOpenCodeDeclaresItsConfigDirectory(t *testing.T) {
 		t.Fatalf("`opencode debug paths` printed no home/config line: its output format changed\n%s", out)
 	}
 	for _, kind := range []string{"skill", "agent"} {
-		dest := destDir(kind, "probe", configurator.ProviderOpenCode)
+		dest := DestDir(kind, "probe", configurator.ProviderOpenCode)
 		if dest == "" {
 			t.Errorf("opencode declares no global %s destination", kind)
 			continue

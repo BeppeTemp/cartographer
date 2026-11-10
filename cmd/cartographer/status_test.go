@@ -14,6 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -74,7 +75,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			// Since D170 the lock records the revision of the manifest a
 			// provider actually receives, so the fixture derives it from the
 			// same manifest it serves rather than hardcoding a matching pair.
-			served := provisioning.Manifest{Revision: "rev1"}
+			served := contract.Manifest{Revision: "rev1"}
 			appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
 			if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{
 				"claude": {Provider: "claude", AppliedRevision: appliedRev},
@@ -87,7 +88,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 				return &client.Health{Version: tc.serverVersion}, nil
 			}
-			statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+			statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 				return uniformManifests(served, projectionProviders(ps)), nil
 			}
 			statusServiceFn = func() (service.Status, error) { return service.Status{Installed: tc.serviceInstalled}, nil }
@@ -136,8 +137,8 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash skill dir: %v", err)
 	}
-	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{
-		{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true, Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: runbooks\ndescription: d\n---\nBody.\n")}}},
+	served := contract.Manifest{Revision: "rev1", Artifacts: []contract.Artifact{
+		{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true, Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: runbooks\ndescription: d\n---\nBody.\n")}}},
 	}}
 	// D170: the lock carries the revision of the provider's own view.
 	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
@@ -152,7 +153,7 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
@@ -204,7 +205,7 @@ func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	if err := os.WriteFile(path, block, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{
+	served := contract.Manifest{Revision: "rev1", Artifacts: []contract.Artifact{
 		{Kind: "instructions", Name: "wiki", Source: "kb:wiki", ContentHash: "source-hash", Signed: true},
 	}}
 	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderCodex).Revision
@@ -218,7 +219,7 @@ func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
@@ -271,13 +272,13 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 	}
 	canon := cfg.WorkspaceBindings("claude")[0].Path
 
-	bundle := provisioning.Artifact{Kind: "skill", Name: "cartographer-ops", Source: "bundle", ContentHash: "bundle-hash", Signed: true}
-	kbSkill := provisioning.Artifact{Kind: "skill", Name: "runbooks", Source: "kb:kb-a", ContentHash: "kb-hash", Signed: true, Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: runbooks\ndescription: d\n---\nBody.\n")}}}
+	bundle := contract.Artifact{Kind: "skill", Name: "cartographer-ops", Source: "bundle", ContentHash: "bundle-hash", Signed: true}
+	kbSkill := contract.Artifact{Kind: "skill", Name: "runbooks", Source: "kb:kb-a", ContentHash: "kb-hash", Signed: true, Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: runbooks\ndescription: d\n---\nBody.\n")}}}
 	claude := configurator.ProviderClaudeCode
-	globalM := provisioning.Manifest{Artifacts: []provisioning.Artifact{bundle}}
-	wsM := provisioning.Manifest{Artifacts: []provisioning.Artifact{kbSkill}}
-	globalM.Revision = provisioning.FilterForProviderScoped(globalM, claude, provisioning.ScopeGlobal).Revision
-	wsM.Revision = provisioning.FilterForProviderScoped(wsM, claude, provisioning.ScopeProject).Revision
+	globalM := contract.Manifest{Artifacts: []contract.Artifact{bundle}}
+	wsM := contract.Manifest{Artifacts: []contract.Artifact{kbSkill}}
+	globalM.Revision = provisioning.FilterForProviderScoped(globalM, claude, contract.ScopeGlobal).Revision
+	wsM.Revision = provisioning.FilterForProviderScoped(wsM, claude, contract.ScopeProject).Revision
 
 	var lf provisioning.LockFile
 	lf.SetProjection(provisioning.Projection{Provider: "claude"}, provisioning.Lock{AppliedRevision: globalM.Revision, Managed: []provisioning.ManagedFile{
@@ -293,8 +294,8 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
-		out := map[string]provisioning.Manifest{}
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
+		out := map[string]contract.Manifest{}
 		for _, p := range ps {
 			if p.BundleOnly {
 				out[projectionKey(p)] = globalM
@@ -379,11 +380,11 @@ func TestStatus_BuildsAllProjectionsInOneCall(t *testing.T) {
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
 	var calls [][]syncProjection
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 		calls = append(calls, ps)
-		out := map[string]provisioning.Manifest{}
+		out := map[string]contract.Manifest{}
 		for _, p := range ps {
-			out[projectionKey(p)] = provisioning.Manifest{}
+			out[projectionKey(p)] = contract.Manifest{}
 		}
 		return out, nil
 	}
@@ -429,8 +430,8 @@ func TestStatus_WorkspaceProblemNamesTheCause(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
-		return map[string]provisioning.Manifest{}, nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
+		return map[string]contract.Manifest{}, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -470,9 +471,9 @@ func TestStatus_PlaceholderResolutionDriftIsDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := []byte("---\nname: runbooks\ndescription: d\n---\nTools: {{path:tools}}\n")
-	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{{
+	served := contract.Manifest{Revision: "rev1", Artifacts: []contract.Artifact{{
 		Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true,
-		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: src}},
+		Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: src}},
 	}}}
 	lock := provisioning.Lock{
 		Provider: "claude", AppliedRevision: provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision,
@@ -488,7 +489,7 @@ func TestStatus_PlaceholderResolutionDriftIsDrift(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
@@ -527,9 +528,9 @@ func TestStatus_HeldPreExistingHookIsPendingUntilApproved(t *testing.T) {
 	if err := clientconfig.Save(home, cfg); err != nil {
 		t.Fatal(err)
 	}
-	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{{
+	served := contract.Manifest{Revision: "rev1", Artifacts: []contract.Artifact{{
 		Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: "hook-hash",
-		Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)}},
+		Files: []contract.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)}},
 	}}}
 	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
 	lock := provisioning.Lock{Provider: "claude", AppliedRevision: appliedRev, Managed: []provisioning.ManagedFile{{
@@ -548,7 +549,7 @@ func TestStatus_HeldPreExistingHookIsPendingUntilApproved(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
@@ -586,10 +587,10 @@ func TestStatus_HeldPreExistingHookIsPendingUntilApproved(t *testing.T) {
 // written` note says so, and the diff must not list it as missing.
 func TestWorkspaceProviderDiff_DerivedTrackedInstructionsAreNotPending(t *testing.T) {
 	ws := t.TempDir()
-	instr := provisioning.Artifact{Kind: "instructions", Name: "kb-a", Source: "kb:kb-a", ContentHash: "h1", Signed: true}
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{instr}}
-	sp := syncProjection{Provider: "codex", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, Derived: true, InstructionsSkipped: "AGENTS.md"}
-	manifests := map[string]provisioning.Manifest{projectionKey(sp): m}
+	instr := contract.Artifact{Kind: "instructions", Name: "kb-a", Source: "kb:kb-a", ContentHash: "h1", Signed: true}
+	m := contract.Manifest{Artifacts: []contract.Artifact{instr}}
+	sp := syncProjection{Provider: "codex", Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject, Derived: true, InstructionsSkipped: "AGENTS.md"}
+	manifests := map[string]contract.Manifest{projectionKey(sp): m}
 	var lf provisioning.LockFile
 
 	_, d, _ := workspaceProviderDiff(&clientconfig.Config{}, []syncProjection{sp}, manifests, nil, lf, t.TempDir())
@@ -610,11 +611,11 @@ func TestWorkspaceProviderDiff_DerivedTrackedInstructionsAreNotPending(t *testin
 // resolution the sync uses: a derived Claude Code binding registers in
 // .claude/settings.local.json, a bound or global one in .claude/settings.json.
 func TestStatusNamesTheHookSettingsFileSyncUses(t *testing.T) {
-	hook := provisioning.Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: "h"}
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{hook}}
-	derived := syncProjection{Provider: "claude", Workspace: "/ws", BaseDir: "/ws", Scope: provisioning.ScopeProject, Derived: true}
+	hook := contract.Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: "h"}
+	m := contract.Manifest{Artifacts: []contract.Artifact{hook}}
+	derived := syncProjection{Provider: "claude", Workspace: "/ws", BaseDir: "/ws", Scope: contract.ScopeProject, Derived: true}
 	derived.HookSettingsRel = derivedHookSettings("claude", derived.SkipKinds)
-	plain := syncProjection{Provider: "claude", Workspace: "/ws2", BaseDir: "/ws2", Scope: provisioning.ScopeProject}
+	plain := syncProjection{Provider: "claude", Workspace: "/ws2", BaseDir: "/ws2", Scope: contract.ScopeProject}
 
 	for _, tc := range []struct {
 		name string
@@ -625,7 +626,7 @@ func TestStatusNamesTheHookSettingsFileSyncUses(t *testing.T) {
 		{"explicit", plain, "in .claude/settings.json"},
 	} {
 		arts := []statusArtifact{{Kind: "hook", Name: "guard", Source: "kb:kb-a"}}
-		tagHookSettings(arts, []syncProjection{tc.sp}, map[string]provisioning.Manifest{projectionKey(tc.sp): m})
+		tagHookSettings(arts, []syncProjection{tc.sp}, map[string]contract.Manifest{projectionKey(tc.sp): m})
 		out := withStdout(t, func() { printHookRegistrationHint("claude", arts[0], "new hook") })
 		if !strings.Contains(out, tc.want) {
 			t.Errorf("%s: %q, want %q", tc.name, out, tc.want)
@@ -689,7 +690,7 @@ func TestStatus_StaleBridgeEntryIsDrift(t *testing.T) {
 	if err := clientconfig.Save(home, cfg); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
-	served := provisioning.Manifest{Revision: "rev1"}
+	served := contract.Manifest{Revision: "rev1"}
 	lock := provisioning.Lock{Provider: "claude", AppliedRevision: provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision}
 	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": lock}}); err != nil {
 		t.Fatalf("write lockfile: %v", err)
@@ -706,7 +707,7 @@ func TestStatus_StaleBridgeEntryIsDrift(t *testing.T) {
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 		return &client.Health{Version: "v1.0.0", MountMode: "routed", RoutedPath: "/mcp/routed"}, nil
 	}
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
@@ -760,7 +761,7 @@ func TestStatus_ManifestFailureAfterHealthyServer(t *testing.T) {
 			oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 			version = "v1.0.0"
 			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-			statusManifestsFn = func(*clientconfig.Config, []syncProjection) (map[string]provisioning.Manifest, error) {
+			statusManifestsFn = func(*clientconfig.Config, []syncProjection) (map[string]contract.Manifest, error) {
 				return nil, tc.err
 			}
 			statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
@@ -805,16 +806,16 @@ func TestPrintHookRegistrationHint_OpenCodePluginScope(t *testing.T) {
 // #1827: a hook a derived workspace projection receives is tagged project-scope;
 // one only the global projection receives is not.
 func TestTagProjectScope_DerivedProjection(t *testing.T) {
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "hook", Name: "guard"}}}
-	derived := syncProjection{Provider: "opencode", Workspace: "/ws", BaseDir: "/ws", Scope: provisioning.ScopeProject, Derived: true}
-	global := syncProjection{Provider: "opencode", BaseDir: "/home", Scope: provisioning.ScopeGlobal}
+	m := contract.Manifest{Artifacts: []contract.Artifact{{Kind: "hook", Name: "guard"}}}
+	derived := syncProjection{Provider: "opencode", Workspace: "/ws", BaseDir: "/ws", Scope: contract.ScopeProject, Derived: true}
+	global := syncProjection{Provider: "opencode", BaseDir: "/home", Scope: contract.ScopeGlobal}
 	arts := []statusArtifact{{Kind: "hook", Name: "guard"}}
-	tagProjectScope(arts, []syncProjection{derived}, map[string]provisioning.Manifest{projectionKey(derived): m})
+	tagProjectScope(arts, []syncProjection{derived}, map[string]contract.Manifest{projectionKey(derived): m})
 	if !arts[0].ProjectScope {
 		t.Error("a derived projection's hook is not tagged project-scope")
 	}
 	arts = []statusArtifact{{Kind: "hook", Name: "guard"}}
-	tagProjectScope(arts, []syncProjection{global}, map[string]provisioning.Manifest{projectionKey(global): m})
+	tagProjectScope(arts, []syncProjection{global}, map[string]contract.Manifest{projectionKey(global): m})
 	if arts[0].ProjectScope {
 		t.Error("a global projection's hook is tagged project-scope")
 	}

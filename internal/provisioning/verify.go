@@ -26,6 +26,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // Drift reasons reported by VerifyManaged.
@@ -149,7 +150,7 @@ func RepairManagedHashes(lock Lock, provider configurator.Provider, baseDir stri
 		// ordered set of files: a value computed any other way would never match
 		// a future Apply, turning an unverifiable entry into a permanently
 		// drifted one — worse than the gap.
-		lock.Managed[i].MaterializedHash = hashArtifactFiles(files)
+		lock.Managed[i].MaterializedHash = contract.HashArtifactFiles(files)
 		lock.Managed[i].AdoptedAt = now
 		repaired = append(repaired, lock.Managed[i])
 	}
@@ -171,7 +172,7 @@ var execBitSupported = execbit.Supported
 //
 // This is where the hash's two sides are deliberately asymmetric, and the
 // asymmetry is the non-obvious part. The writer records MaterializedHash from
-// its *declared intent* — effectiveExecutable over the flag the KB shipped
+// its *declared intent* — EffectiveExecutable over the flag the KB shipped
 // (copyArtifactFiles) — while this side observes the filesystem. On unix the two
 // agree and the filesystem stays the authority, because there an external chmod
 // is real drift and reporting it is the point. Where the filesystem carries no
@@ -179,29 +180,24 @@ var execBitSupported = execbit.Supported
 // it back yields false for a file the writer hashed as executable, so a skill
 // shipping an executable helper would report drift on every check forever. There
 // the intent is reconstructed from the lockfile instead — ExecutablePaths, with
-// effectiveExecutable(kind, path, false) as the fallback, which is exact for a
+// EffectiveExecutable(kind, path, false) as the fallback, which is exact for a
 // hook and is what a lockfile written before that field already meant.
 func (mf ManagedFile) executableOnDisk(rel string, onDisk bool) bool {
 	if execBitSupported {
-		return effectiveExecutable(mf.Kind, rel, onDisk)
+		return contract.EffectiveExecutable(mf.Kind, rel, onDisk)
 	}
 	for _, p := range mf.ExecutablePaths {
 		if p == rel {
 			return true
 		}
 	}
-	return effectiveExecutable(mf.Kind, rel, false)
+	return contract.EffectiveExecutable(mf.Kind, rel, false)
 }
 
-// agentHashPath is the path a managed agent's single file is hashed under,
-// whatever the client's file is called: Apply, verify and `doctor
-// --repair-hashes` must agree, or a repaired agent reads as modified.
-func agentHashPath(name string) string { return name + ".md" }
-
 // readManagedFiles reads the on-disk bytes of one managed artifact in the shape
-// hashArtifactFiles expects: one entry for a single-file kind, every file under
+// HashArtifactFiles expects: one entry for a single-file kind, every file under
 // the directory for a skill or hook.
-func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
+func readManagedFiles(mf ManagedFile, full string) ([]contract.ArtifactFile, error) {
 	info, err := os.Lstat(full)
 	if err != nil {
 		return nil, err
@@ -215,11 +211,11 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 		if mf.Kind == "agent" {
 			// The name the hash is taken under at Apply and in verify, not the
 			// client's file name (reviewer.toml, .json, .agent.md).
-			base = agentHashPath(mf.Name)
+			base = contract.AgentHashPath(mf.Name)
 		}
-		return []ArtifactFile{{Path: base, Content: data, Executable: mf.executableOnDisk(base, execbit.IsExecutable(info.Mode()))}}, nil
+		return []contract.ArtifactFile{{Path: base, Content: data, Executable: mf.executableOnDisk(base, execbit.IsExecutable(info.Mode()))}}, nil
 	}
-	var files []ArtifactFile
+	var files []contract.ArtifactFile
 	walkErr := filepath.WalkDir(full, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -245,7 +241,7 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 		// recomputes — permanently, where the filesystem has no such bit. See
 		// executableOnDisk for the rest of that asymmetry.
 		slashRel := filepath.ToSlash(rel)
-		files = append(files, ArtifactFile{Path: slashRel, Content: data, Executable: mf.executableOnDisk(slashRel, execbit.IsExecutable(fi.Mode()))})
+		files = append(files, contract.ArtifactFile{Path: slashRel, Content: data, Executable: mf.executableOnDisk(slashRel, execbit.IsExecutable(fi.Mode()))})
 		return nil
 	})
 	if walkErr != nil {
@@ -271,7 +267,7 @@ func VerifyManaged(lock Lock, provider configurator.Provider, baseDir string) []
 	return findings
 }
 
-func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir string, scope Scope, managed []ManagedFile) (DriftFinding, bool) {
+func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir string, scope contract.Scope, managed []ManagedFile) (DriftFinding, bool) {
 	finding := DriftFinding{Kind: mf.Kind, Name: mf.Name, Path: mf.Path}
 
 	switch mf.Kind {
@@ -358,7 +354,7 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		var data []byte
 		data, err = os.ReadFile(full)
 		if err == nil {
-			onDisk = hashArtifactFiles([]ArtifactFile{{Path: agentHashPath(mf.Name), Content: data}})
+			onDisk = contract.HashArtifactFiles([]contract.ArtifactFile{{Path: contract.AgentHashPath(mf.Name), Content: data}})
 		}
 	default:
 		// skill/hook: a directory of its own. Hashed through the lockfile
@@ -441,11 +437,11 @@ func foreignFiles(dir string, owned map[string]bool) []string {
 // the path relative to baseDir and the absolute one. ok is false when the
 // artifact has no destination for this provider: an unsupported kind is not
 // drift, it simply does not concern it.
-func managedDest(mf ManagedFile, provider configurator.Provider, baseDir string, scope Scope) (rel, full string, ok bool) {
+func managedDest(mf ManagedFile, provider configurator.Provider, baseDir string, scope contract.Scope) (rel, full string, ok bool) {
 	rel = mf.Path
 	if mf.Kind != "agent" {
 		// skill/hook: a directory of its own.
-		if rel = destDirScoped(mf.Kind, mf.Name, provider, scope); rel == "" {
+		if rel = contract.DestDirScoped(mf.Kind, mf.Name, provider, scope); rel == "" {
 			return "", "", false
 		}
 	}

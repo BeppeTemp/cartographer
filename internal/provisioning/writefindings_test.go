@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func readPostToolUse(t *testing.T, baseDir string) []struct {
@@ -59,7 +60,7 @@ func TestEnsureWriteFindingsHook_Claude_InstallsIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hookDir := filepath.Join(baseDir, ".claude", "hooks", provisioning.WriteFindingsHookName)
+	hookDir := filepath.Join(baseDir, ".claude", "hooks", contract.WriteFindingsHookName)
 	script, err := os.ReadFile(filepath.Join(hookDir, provisioning.WriteFindingsScriptNameForTest))
 	if err != nil {
 		t.Fatalf("script: %v", err)
@@ -97,7 +98,7 @@ func TestEnsureWriteFindingsHook_RewritesChangedScript(t *testing.T) {
 	if _, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderClaudeCode, provisioning.Lock{}, true, false); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(baseDir, ".claude", "hooks", provisioning.WriteFindingsHookName, provisioning.WriteFindingsScriptNameForTest)
+	p := filepath.Join(baseDir, ".claude", "hooks", contract.WriteFindingsHookName, provisioning.WriteFindingsScriptNameForTest)
 	if err := os.WriteFile(p, []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -160,21 +161,21 @@ func TestEnsureWriteFindingsHook_DisabledRemovesAndIsIdempotent(t *testing.T) {
 		}
 	}
 	for _, mf := range lock.Managed {
-		if mf.Name == provisioning.WriteFindingsHookName {
+		if mf.Name == contract.WriteFindingsHookName {
 			t.Errorf("entry survived: %+v", mf)
 		}
 	}
 	if len(lock.Managed) != len(boot.Managed) {
 		t.Errorf("the bootstrap entries must be untouched: %+v", lock.Managed)
 	}
-	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "hooks", provisioning.WriteFindingsHookName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "hooks", contract.WriteFindingsHookName)); !os.IsNotExist(err) {
 		t.Errorf("hook dir still there: %v", err)
 	}
 	data, _ := os.ReadFile(filepath.Join(baseDir, ".claude", "settings.json"))
-	if strings.Contains(string(data), provisioning.WriteFindingsHookName) || strings.Contains(string(data), "PostToolUse") {
+	if strings.Contains(string(data), contract.WriteFindingsHookName) || strings.Contains(string(data), "PostToolUse") {
 		t.Errorf("settings.json still registers it: %s", data)
 	}
-	if !strings.Contains(string(data), provisioning.BootstrapHookName) {
+	if !strings.Contains(string(data), contract.BootstrapHookName) {
 		t.Errorf("the bootstrap registration was lost: %s", data)
 	}
 }
@@ -188,11 +189,11 @@ func TestPruneManaged_WriteFindingsHook_DisconnectRemovesAll(t *testing.T) {
 	if _, err := provisioning.PruneManaged(lock.Managed, baseDir, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "hooks", provisioning.WriteFindingsHookName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "hooks", contract.WriteFindingsHookName)); !os.IsNotExist(err) {
 		t.Errorf("hook dir still there: %v", err)
 	}
 	data, _ := os.ReadFile(filepath.Join(baseDir, ".claude", "settings.json"))
-	if strings.Contains(string(data), provisioning.WriteFindingsHookName) {
+	if strings.Contains(string(data), contract.WriteFindingsHookName) {
 		t.Errorf("settings.json still registers it: %s", data)
 	}
 }
@@ -200,16 +201,16 @@ func TestPruneManaged_WriteFindingsHook_DisconnectRemovesAll(t *testing.T) {
 func TestWriteFindingsHook_ReservedNameAndNotAnOrphan(t *testing.T) {
 	// Not an orphan in ComputeDiff.
 	lock := provisioning.Lock{AppliedRevision: "r", Managed: []provisioning.ManagedFile{
-		{Kind: "hook", Name: provisioning.WriteFindingsHookName, Path: ".claude/hooks/cartographer-write-findings/hook.json", ContentHash: "x"},
+		{Kind: "hook", Name: contract.WriteFindingsHookName, Path: ".claude/hooks/cartographer-write-findings/hook.json", ContentHash: "x"},
 	}}
-	if d := provisioning.ComputeDiff(provisioning.Manifest{Revision: "r"}, lock); len(d.Removed) != 0 {
+	if d := provisioning.ComputeDiff(contract.Manifest{Revision: "r"}, lock); len(d.Removed) != 0 {
 		t.Errorf("orphan: %+v", d.Removed)
 	}
 
 	// A KB hook of the same name is ignored with a warning.
 	kbRoot := t.TempDir()
-	writeHookKB(t, kbRoot, provisioning.WriteFindingsHookName, "PostToolUse", "", "./x.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	writeHookKB(t, kbRoot, contract.WriteFindingsHookName, "PostToolUse", "", "./x.sh")
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +246,7 @@ func TestWriteFindingsHook_CoveredByVerification(t *testing.T) {
 	if f := provisioning.VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir); len(f) != 0 {
 		t.Fatalf("clean install reports drift: %+v", f)
 	}
-	p := filepath.Join(baseDir, ".claude", "hooks", provisioning.WriteFindingsHookName, provisioning.WriteFindingsScriptNameForTest)
+	p := filepath.Join(baseDir, ".claude", "hooks", contract.WriteFindingsHookName, provisioning.WriteFindingsScriptNameForTest)
 	if err := os.WriteFile(p, []byte("changed"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +278,7 @@ func TestEnsureWriteFindingsHook_Codex_UsesContextChannel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hookDir := filepath.Join(baseDir, ".codex", "hooks", provisioning.WriteFindingsHookName)
+	hookDir := filepath.Join(baseDir, ".codex", "hooks", contract.WriteFindingsHookName)
 	for _, f := range []string{"hook.json", provisioning.WriteFindingsScriptNameForTest} {
 		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
 			t.Errorf("missing %s: %v", f, err)
@@ -325,7 +326,7 @@ func TestEnsureWriteFindingsHook_Codex_UsesContextChannel(t *testing.T) {
 	if _, err := provisioning.EnsureWriteFindingsHook(claudeDir, configurator.ProviderClaudeCode, provisioning.Lock{}, true, false); err != nil {
 		t.Fatal(err)
 	}
-	cs, _ := os.ReadFile(filepath.Join(claudeDir, ".claude", "hooks", provisioning.WriteFindingsHookName, "hook.json"))
+	cs, _ := os.ReadFile(filepath.Join(claudeDir, ".claude", "hooks", contract.WriteFindingsHookName, "hook.json"))
 	if strings.Contains(string(cs), "--channel") {
 		t.Errorf("claude hook.json must keep the default channel: %s", cs)
 	}
@@ -343,7 +344,7 @@ func TestEnsureWriteFindingsHook_Codex_UsesContextChannel(t *testing.T) {
 		t.Errorf("hook dir still there: %v", err)
 	}
 	data, _ = os.ReadFile(filepath.Join(baseDir, ".codex", "hooks.json"))
-	if strings.Contains(string(data), provisioning.WriteFindingsHookName) || !strings.Contains(string(data), "/usr/bin/true") {
+	if strings.Contains(string(data), contract.WriteFindingsHookName) || !strings.Contains(string(data), "/usr/bin/true") {
 		t.Errorf("hooks.json after removal: %s", data)
 	}
 }
@@ -355,7 +356,7 @@ func TestEnsureWriteFindingsHook_OpenCode2_DedicatedPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+provisioning.WriteFindingsHookName+".js")
+	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+contract.WriteFindingsHookName+".js")
 	data, err := os.ReadFile(plugin)
 	if err != nil {
 		t.Fatalf("plugin: %v", err)
@@ -364,7 +365,7 @@ func TestEnsureWriteFindingsHook_OpenCode2_DedicatedPlugin(t *testing.T) {
 	var tools []string
 	tools = append(tools, provisioning.WriteFindingsTools...)
 	for _, want := range []string{
-		"cartographer:hook:" + provisioning.WriteFindingsHookName,
+		"cartographer:hook:" + contract.WriteFindingsHookName,
 		"cartographer:opencode-plugin-shape=2",
 		`ctx.tool.hook("execute.after"`,
 		"/_(" + strings.Join(tools, "|") + ")$/",
@@ -385,7 +386,7 @@ func TestEnsureWriteFindingsHook_OpenCode2_DedicatedPlugin(t *testing.T) {
 	if strings.Contains(src, "--channel") {
 		t.Errorf("OpenCode reads stderr on exit 2, no --channel:\n%s", src)
 	}
-	if _, err := os.Stat(filepath.Join(baseDir, ".opencode", "hooks", provisioning.WriteFindingsHookName, provisioning.WriteFindingsScriptNameForTest)); err != nil {
+	if _, err := os.Stat(filepath.Join(baseDir, ".opencode", "hooks", contract.WriteFindingsHookName, provisioning.WriteFindingsScriptNameForTest)); err != nil {
 		t.Errorf("hook files not written: %v", err)
 	}
 
@@ -413,7 +414,7 @@ func TestEnsureWriteFindingsHook_OpenCode1_NothingAndPrunes(t *testing.T) {
 	if err != nil || len(lock.Managed) == 0 {
 		t.Fatalf("setup: %v %+v", err, lock)
 	}
-	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+provisioning.WriteFindingsHookName+".js")
+	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+contract.WriteFindingsHookName+".js")
 
 	for _, v := range []string{"1.18.34"} {
 		t.Run("version "+v, func(t *testing.T) {
@@ -450,7 +451,7 @@ func TestEnsureWriteFindingsHook_OpenCodeUnreadableKeepsThePlugin(t *testing.T) 
 	if err != nil || len(lock.Managed) == 0 {
 		t.Fatalf("setup: %v %+v", err, lock)
 	}
-	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+provisioning.WriteFindingsHookName+".js")
+	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+contract.WriteFindingsHookName+".js")
 
 	got, note, err := provisioning.EnsureWriteFindingsHookNote(baseDir, configurator.ProviderOpenCode, lock, true, false)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // DefaultProviderEnv is the machine ResolveProvider reads at run time.
@@ -61,7 +62,7 @@ func loadProviders(files []TreeFile) ([]Contribution, []string) {
 		}
 		specs = append(specs, spec)
 		s := spec
-		out = append(out, Contribution{Point: "providers", Kind: "provider", Name: spec.Name, Files: []provisioning.ArtifactFile{{Path: path.Base(f.Path), Content: f.Content}}, Provider: &s})
+		out = append(out, Contribution{Point: "providers", Kind: "provider", Name: spec.Name, Files: []contract.ArtifactFile{{Path: path.Base(f.Path), Content: f.Content}}, Provider: &s})
 	}
 	problems = append(problems, ProviderNameClashes(specs)...)
 	return out, problems

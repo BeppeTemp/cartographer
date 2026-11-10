@@ -13,9 +13,10 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
-func restrictedAgentManifest(t *testing.T, agents map[string]string) (provisioning.Manifest, string) {
+func restrictedAgentManifest(t *testing.T, agents map[string]string) (contract.Manifest, string) {
 	t.Helper()
 	kbRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(kbRoot, "agents"), 0o755); err != nil {
@@ -26,7 +27,7 @@ func restrictedAgentManifest(t *testing.T, agents map[string]string) (provisioni
 			t.Fatal(err)
 		}
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -39,7 +40,7 @@ const (
 	plainSrc    = "---\nname: helper\ndescription: General\n---\nBody.\n"
 )
 
-func applyAgents(t *testing.T, m provisioning.Manifest, kbRoot string, p configurator.Provider, lock provisioning.Lock) (provisioning.AppliedResult, string) {
+func applyAgents(t *testing.T, m contract.Manifest, kbRoot string, p configurator.Provider, lock provisioning.Lock) (provisioning.AppliedResult, string) {
 	t.Helper()
 	base := t.TempDir()
 	res, err := provisioning.Apply(provisioning.FilterForProvider(m, p), provisioning.ApplyOptions{
@@ -161,7 +162,7 @@ func TestApply_StrictAgentInstalledEarlierIsPruned(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(kbRoot, "agents", "auditor.md"), []byte(strictSrc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,16 +179,16 @@ func TestApply_StrictAgentInstalledEarlierIsPruned(t *testing.T) {
 func TestParseAgentRestriction(t *testing.T) {
 	cases := []struct {
 		name, src string
-		want      *provisioning.AgentRestriction
+		want      *contract.AgentRestriction
 	}{
 		{"none", plainSrc, nil},
 		{"no frontmatter", "Body only", nil},
-		{"csv", explorerSrc, &provisioning.AgentRestriction{Tools: "Read, Grep"}},
-		{"list strict", strictSrc, &provisioning.AgentRestriction{Tools: "Read, Grep", Strict: true}},
+		{"csv", explorerSrc, &contract.AgentRestriction{Tools: "Read, Grep"}},
+		{"list strict", strictSrc, &contract.AgentRestriction{Tools: "Read, Grep", Strict: true}},
 		{"strict without tools is nothing to protect", "---\nname: x\nstrict_tools: true\n---\nb", nil},
 	}
 	for _, c := range cases {
-		got := provisioning.ParseAgentRestriction([]byte(c.src))
+		got := contract.ParseAgentRestriction([]byte(c.src))
 		if (got == nil) != (c.want == nil) || (got != nil && !reflect.DeepEqual(*got, *c.want)) {
 			t.Errorf("%s: got %+v want %+v", c.name, got, c.want)
 		}

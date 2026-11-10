@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestBuildManifestSignatureVerificationAndRotation(t *testing.T) {
@@ -33,18 +34,18 @@ func TestBuildManifestSignatureVerificationAndRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	roots := map[string]string{"signed": filepath.Join(root, "signed"), "unsigned": filepath.Join(root, "unsigned")}
-	firstManifest, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{Signers: map[string]ed25519.PrivateKey{"signed": first}})
+	firstManifest, err := contract.BuildManifest(nil, roots, contract.BuildOptions{Signers: map[string]ed25519.PrivateKey{"signed": first}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotatedManifest, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{Signers: map[string]ed25519.PrivateKey{"signed": second}})
+	rotatedManifest, err := contract.BuildManifest(nil, roots, contract.BuildOptions{Signers: map[string]ed25519.PrivateKey{"signed": second}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if firstManifest.Revision != rotatedManifest.Revision {
 		t.Fatalf("signature rotation changed revision: %s != %s", firstManifest.Revision, rotatedManifest.Revision)
 	}
-	var signed, unsigned provisioning.Artifact
+	var signed, unsigned contract.Artifact
 	for _, artifact := range firstManifest.Artifacts {
 		switch artifact.Source {
 		case "kb:signed":
@@ -87,7 +88,7 @@ func TestVerifiedManifest_PinnedKBRejectsStrippedSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 	pub := priv.Public().(ed25519.PublicKey)
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h"}}}
+	m := contract.Manifest{Artifacts: []contract.Artifact{{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h"}}}
 	_, err = provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{"kb-a": {pub}})
 	if err == nil || !strings.Contains(err.Error(), `KB "kb-a"`) || !strings.Contains(err.Error(), "skill/s") {
 		t.Fatalf("stripped signature error = %v", err)
@@ -108,7 +109,7 @@ func TestVerifiedManifest_SignatureFailuresWrapErrSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: hash, Signature: sig}}}
+	m := contract.Manifest{Artifacts: []contract.Artifact{{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: hash, Signature: sig}}}
 	if _, err := provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{"kb-a": {pubA}}); err != nil {
 		t.Fatalf("matching pin: %v", err)
 	}

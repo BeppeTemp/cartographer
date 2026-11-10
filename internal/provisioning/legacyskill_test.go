@@ -3,6 +3,8 @@ package provisioning
 import (
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // One warning per KB that carries a pre-D958 bundled-skill name, however many
@@ -10,7 +12,7 @@ import (
 // artifact stay quiet.
 func TestLegacySkillWarnings_OncePerKB(t *testing.T) {
 	t.Parallel()
-	m := Manifest{Artifacts: []Artifact{
+	m := contract.Manifest{Artifacts: []contract.Artifact{
 		{Source: "kb:kb-a", Kind: "skill", Name: "kb-create"},
 		{Source: "kb:kb-a", Kind: "skill", Name: "kb-ingest"},
 		{Source: "kb:kb-a", Kind: "skill", Name: "cartographer-kb-create"},

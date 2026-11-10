@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestParseSourceSpellings(t *testing.T) {
@@ -174,8 +174,8 @@ func TestFetchGit(t *testing.T) {
 
 func TestFolderTotalCap(t *testing.T) {
 	dir := t.TempDir()
-	chunk := strings.Repeat("x", provisioning.ArtifactMaxFileSize)
-	for i := 0; i < MaxBytes/provisioning.ArtifactMaxFileSize+1; i++ {
+	chunk := strings.Repeat("x", contract.ArtifactMaxFileSize)
+	for i := 0; i < MaxBytes/contract.ArtifactMaxFileSize+1; i++ {
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%02d.bin", i)), []byte(chunk), 0o644); err != nil {
 			t.Fatal(err)
 		}

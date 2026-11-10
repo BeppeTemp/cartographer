@@ -7,7 +7,7 @@ import (
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // checkHooks reports every hooks/<name>/hook.json that artifact_write would now
@@ -35,15 +35,15 @@ func checkHooks(k *kb.KB) []Finding {
 		if readErr != nil {
 			problem = fmt.Errorf("hook.json not found")
 		} else {
-			_, problem = provisioning.ValidateHookJSON(data)
+			_, problem = contract.ValidateHookJSON(data)
 		}
 		msg := ""
 		switch {
 		case problem != nil:
 			msg = fmt.Sprintf("hook %q would be skipped at sync, never firing: %v", e.Name(), problem)
-		case provisioning.UnknownHookEvent(data) != "":
+		case contract.UnknownHookEvent(data) != "":
 			// Registered as declared, so not skipped; a typo still never fires.
-			msg = fmt.Sprintf("hook %q: %s", e.Name(), provisioning.UnknownHookEvent(data))
+			msg = fmt.Sprintf("hook %q: %s", e.Name(), contract.UnknownHookEvent(data))
 		default:
 			continue
 		}

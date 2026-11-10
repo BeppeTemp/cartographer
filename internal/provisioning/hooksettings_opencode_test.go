@@ -17,6 +17,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func pluginPath(baseDir, name string) string {
@@ -28,7 +29,7 @@ func TestApply_OpenCode_Hook_GeneraPluginToolBefore(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PreToolUse", "Bash", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestApply_OpenCode_Hook_GeneraPluginSessionStart(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "greet", "SessionStart", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -134,7 +135,7 @@ func TestApply_OpenCode_Hook_ReApply_Idempotente(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -184,7 +185,7 @@ func TestApply_OpenCode_Hook_Removed_RimuovePluginEFile(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -208,7 +209,7 @@ func TestApply_OpenCode_Hook_Removed_RimuovePluginEFile(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(kbRoot, "hooks", "notify")); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest (2): %v", err)
 	}
@@ -234,7 +235,7 @@ func TestApply_OpenCode_Hook_EventoNonMappato_NessunPluginNessunErrore(t *testin
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "onprompt", "UserPromptSubmit", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -283,7 +284,7 @@ func applyOpenCodeHookWarnings(t *testing.T, version, event, matcher string) (st
 	defer provisioning.SetOpenCodeVersionForTest(version)()
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", event, matcher, "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -377,7 +378,7 @@ func TestOpenCodeRegistry_DeclaresPluginMajors(t *testing.T) {
 func TestApply_OpenCode_Hook_ProjectScopeWritesProjectPluginDir(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -385,7 +386,7 @@ func TestApply_OpenCode_Hook_ProjectScopeWritesProjectPluginDir(t *testing.T) {
 	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		BaseDir:  ws,
 	}
 	res, err := provisioning.Apply(m, opts)
@@ -403,7 +404,7 @@ func TestApply_OpenCode_Hook_ProjectScopeWritesProjectPluginDir(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(kbRoot, "hooks", "notify")); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m2, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest (2): %v", err)
 	}
@@ -422,7 +423,7 @@ func TestApply_OpenCode_Hook_ProjectScopeWritesProjectPluginDir(t *testing.T) {
 func TestApply_OpenCode_Hook_ProjectScopeRelocatesOldPlugin(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -430,7 +431,7 @@ func TestApply_OpenCode_Hook_ProjectScopeRelocatesOldPlugin(t *testing.T) {
 	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		BaseDir:  ws,
 	}
 	res, err := provisioning.Apply(m, opts)
@@ -508,7 +509,7 @@ func TestApply_OpenCode_Hook_ProjectScopeSymlinkedPluginsRefusedBeforeWrite(t *t
 	}
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -522,7 +523,7 @@ func TestApply_OpenCode_Hook_ProjectScopeSymlinkedPluginsRefusedBeforeWrite(t *t
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		BaseDir:  ws,
 	})
 	if err != nil {
@@ -544,7 +545,7 @@ func TestApply_OpenCode_Hook_ProjectScopeSymlinkedPluginsRefusedBeforeWrite(t *t
 func TestApply_OpenCode_Hook_OwnScriptNamedLikePluginIsNotMoved(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -552,7 +553,7 @@ func TestApply_OpenCode_Hook_OwnScriptNamedLikePluginIsNotMoved(t *testing.T) {
 	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
-		Scope:    provisioning.ScopeProject,
+		Scope:    contract.ScopeProject,
 		BaseDir:  ws,
 	}
 	res, err := provisioning.Apply(m, opts)

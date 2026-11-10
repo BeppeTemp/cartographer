@@ -12,11 +12,12 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // placeholderKB builds a one-KB manifest whose artifacts cite no placeholder:
 // whatever the table shows then comes from ApplyOptions.Placeholders.
-func placeholderKB(t *testing.T) (Manifest, string) {
+func placeholderKB(t *testing.T) (contract.Manifest, string) {
 	t.Helper()
 	kbRoot := t.TempDir()
 	agentsDir := filepath.Join(kbRoot, "agents")
@@ -26,7 +27,7 @@ func placeholderKB(t *testing.T) (Manifest, string) {
 	if err := os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nNo placeholder here.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -161,9 +162,9 @@ func TestApply_PathsEntryRewritesBlockAndClearsUnresolved(t *testing.T) {
 // artifacts it holds, so the table is the same whether or not an artifact was
 // rewritten in this run — and complete against a server that lists nothing.
 func TestPlaceholderSources_UnionsListedAndArtifactKeys(t *testing.T) {
-	m := Manifest{Artifacts: []Artifact{
-		{Kind: "skill", Name: "s", Source: "kb:kb-a", Signed: true, Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte("{{repo:tool}} {{\\path:doc}} {{path:<name>}}")}}},
-		{Kind: "skill", Name: "b", Source: "bundle", BuiltIn: true, Signed: true, Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte("{{path:bundled}}")}}},
+	m := contract.Manifest{Artifacts: []contract.Artifact{
+		{Kind: "skill", Name: "s", Source: "kb:kb-a", Signed: true, Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("{{repo:tool}} {{\\path:doc}} {{path:<name>}}")}}},
+		{Kind: "skill", Name: "b", Source: "bundle", BuiltIn: true, Signed: true, Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("{{path:bundled}}")}}},
 	}}
 	got := placeholderSources(m, ApplyOptions{Placeholders: map[string][]string{"path:concept": {"kb-b"}, "repo:tool": {"kb-b"}}})
 	want := map[string][]string{

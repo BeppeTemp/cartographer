@@ -13,9 +13,10 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
-func writeCopilotProjectKB(t *testing.T, event, matcher string) (string, provisioning.Manifest) {
+func writeCopilotProjectKB(t *testing.T, event, matcher string) (string, contract.Manifest) {
 	t.Helper()
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "guard", event, matcher, "./notify.sh")
@@ -25,18 +26,18 @@ func writeCopilotProjectKB(t *testing.T, event, matcher string) (string, provisi
 	if err := os.WriteFile(filepath.Join(kbRoot, "agents", "reviewer.md"), []byte("---\nname: reviewer\ndescription: Reviews\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return kbRoot, m
 }
 
-func applyCopilotProject(t *testing.T, kbRoot string, m provisioning.Manifest, baseDir string, lock provisioning.Lock) provisioning.AppliedResult {
+func applyCopilotProject(t *testing.T, kbRoot string, m contract.Manifest, baseDir string, lock provisioning.Lock) provisioning.AppliedResult {
 	t.Helper()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		KBRoots: map[string]string{"kb": kbRoot}, ApprovedMCP: approveAll(m),
-		Provider: configurator.ProviderCopilot, BaseDir: baseDir, Scope: provisioning.ScopeProject, Lock: lock,
+		Provider: configurator.ProviderCopilot, BaseDir: baseDir, Scope: contract.ScopeProject, Lock: lock,
 	})
 	if err != nil {
 		t.Fatal(err)

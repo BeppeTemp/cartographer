@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // The fixed per-call cost (#1206): what an agent pays on every model call,
@@ -305,11 +306,11 @@ func (b measuredBlock) heaviestLines(n int) string {
 // KB roots to materialise and are not part of the block).
 func measureBlock(t *testing.T, roots map[string]string) measuredBlock {
 	t.Helper()
-	m, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{RoutedMount: true})
+	m, err := contract.BuildManifest(nil, roots, contract.BuildOptions{RoutedMount: true})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	var instr []provisioning.Artifact
+	var instr []contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "instructions" {
 			// The trust shortcut provisioning's own tests take: Apply needs no
@@ -324,7 +325,7 @@ func measureBlock(t *testing.T, roots map[string]string) measuredBlock {
 	}
 	sort.Strings(order)
 	base := t.TempDir()
-	if _, err := provisioning.Apply(provisioning.MergeArtifacts(instr), provisioning.ApplyOptions{
+	if _, err := provisioning.Apply(contract.MergeArtifacts(instr), provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode, BaseDir: base, SkipLockWrite: true,
 		ExpandPlaceholders: true, KBOrder: order,
 	}); err != nil {

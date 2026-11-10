@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -253,9 +254,9 @@ func printHookRegistrationHint(provider string, a statusArtifact, lead string) {
 	p := configurator.Provider(provider)
 	// The same resolution sync prints with (#1300): a derived workspace binding
 	// registers in its untracked .claude/settings.local.json.
-	scope := provisioning.ScopeGlobal
+	scope := contract.ScopeGlobal
 	if a.ProjectScope {
-		scope = provisioning.ScopeProject
+		scope = contract.ScopeProject
 	}
 	rel, plugin := hookRegistrationTarget(p, a.Name, provisioning.HookPluginRelPath(p, a.Name, scope), a.HookSettings)
 	switch {

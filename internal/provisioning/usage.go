@@ -94,16 +94,6 @@ var usageScanners = map[string]usageScanner{
 	"cline":       scanNone("cline: session transcript format not probed"),
 }
 
-// UsageProviders reports which providers contribute what, for kb_status and
-// the docs: full per-activation, partial (catalogue timestamp plus path
-// reads), or none.
-func UsageProviders() (supported, partial, unsupported []string) {
-	supported = []string{"claude", "copilot", "kiro"}
-	partial = []string{"codex"}
-	unsupported = []string{"antigravity", "crush", "opencode", "pi", "cline"}
-	return
-}
-
 func scanNone(reason string) usageScanner {
 	return func(string, []usageTarget, time.Time) []usageEvent {
 		slog.Debug("usage scan skipped", "reason", reason)

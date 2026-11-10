@@ -17,7 +17,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/plugin/star"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // pluginSchema versions the JSON of the plugin commands, like statusSchema.
@@ -478,11 +478,11 @@ func pluginShow(args []string) int {
 	pluginPreview(os.Stdout, p, e, cfg)
 	printPluginSettings(os.Stdout, p, e)
 	if flags["--files"] {
-		var fs []provisioning.ArtifactFile
+		var fs []contract.ArtifactFile
 		for _, f := range p.Files {
-			fs = append(fs, provisioning.ArtifactFile{Path: f.Path, Content: f.Content, Executable: f.Executable})
+			fs = append(fs, contract.ArtifactFile{Path: f.Path, Content: f.Content, Executable: f.Executable})
 		}
-		printApprovalContent(os.Stdout, provisioning.Artifact{Kind: "plugin", Name: pos[0]}, fs)
+		printApprovalContent(os.Stdout, contract.Artifact{Kind: "plugin", Name: pos[0]}, fs)
 		printScriptContent(os.Stdout, p)
 	}
 	return 0

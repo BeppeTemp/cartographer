@@ -22,6 +22,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
@@ -32,7 +33,7 @@ func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
 
-	hookDir := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName)
+	hookDir := filepath.Join(baseDir, ".claude", "hooks", contract.BootstrapHookName)
 	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
 			t.Errorf("expected file %s: %v", f, err)
@@ -76,7 +77,7 @@ func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
 		t.Fatalf("expected 2 ManagedFile (hook.json+script), got %d: %+v", len(lock.Managed), lock.Managed)
 	}
 	for _, mf := range lock.Managed {
-		if mf.Kind != "hook" || mf.Name != provisioning.BootstrapHookName {
+		if mf.Kind != "hook" || mf.Name != contract.BootstrapHookName {
 			t.Errorf("unexpected ManagedFile: %+v", mf)
 		}
 	}
@@ -110,7 +111,7 @@ func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
 
 func TestEnsureBootstrapHook_Claude_ScriptPreesistenteNonEseguibile(t *testing.T) {
 	baseDir := t.TempDir()
-	hookDir := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName)
+	hookDir := filepath.Join(baseDir, ".claude", "hooks", contract.BootstrapHookName)
 	if err := os.MkdirAll(hookDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestEnsureBootstrapHook_Codex_MaterializzaERegistra(t *testing.T) {
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
 
-	hookDir := filepath.Join(baseDir, ".codex", "hooks", provisioning.BootstrapHookName)
+	hookDir := filepath.Join(baseDir, ".codex", "hooks", contract.BootstrapHookName)
 	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
 			t.Errorf("expected file %s: %v", f, err)
@@ -161,7 +162,7 @@ func TestEnsureBootstrapHook_Codex_MaterializzaERegistra(t *testing.T) {
 		if err != nil {
 			t.Fatalf("hooks.json not written: %v", err)
 		}
-		if n := strings.Count(string(data), provisioning.BootstrapHookName); n != 1 {
+		if n := strings.Count(string(data), contract.BootstrapHookName); n != 1 {
 			t.Errorf("run %d: bootstrap hook named %d times in hooks.json, want 1:\n%s", run, n, data)
 		}
 		var doc map[string]map[string][]interface{}
@@ -189,7 +190,7 @@ func TestEnsureBootstrapHook_OpenCode_MaterializzaERegistra(t *testing.T) {
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
 
-	hookDir := filepath.Join(baseDir, ".opencode", "hooks", provisioning.BootstrapHookName)
+	hookDir := filepath.Join(baseDir, ".opencode", "hooks", contract.BootstrapHookName)
 	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
 			t.Errorf("expected file %s: %v", f, err)
@@ -235,14 +236,14 @@ func TestEnsureBootstrapHook_Kiro_RegistersSessionStart(t *testing.T) {
 	if len(lock.Managed) != 2 {
 		t.Fatalf("kiro: expected hook.json + script, got %+v", lock.Managed)
 	}
-	hookDir := filepath.Join(baseDir, ".kiro", "hooks", "cartographer", provisioning.BootstrapHookName)
+	hookDir := filepath.Join(baseDir, ".kiro", "hooks", "cartographer", contract.BootstrapHookName)
 	for _, mf := range lock.Managed {
 		if !strings.HasPrefix(filepath.Join(baseDir, mf.Path), hookDir+string(filepath.Separator)) {
 			t.Errorf("managed file outside %s: %s", hookDir, mf.Path)
 		}
 	}
 	hooks := kiroHookDoc(t, baseDir)
-	if len(hooks) != 1 || hooks[0]["name"] != provisioning.BootstrapHookName || hooks[0]["trigger"] != "SessionStart" {
+	if len(hooks) != 1 || hooks[0]["name"] != contract.BootstrapHookName || hooks[0]["trigger"] != "SessionStart" {
 		t.Fatalf("cartographer.json = %v", hooks)
 	}
 
@@ -304,7 +305,7 @@ func TestEnsureBootstrapHook_Antigravity_MaterializzaERegistra(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
-	hookDir := filepath.Join(baseDir, ".gemini", "config", "hooks", provisioning.BootstrapHookName)
+	hookDir := filepath.Join(baseDir, ".gemini", "config", "hooks", contract.BootstrapHookName)
 	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
 			t.Errorf("expected file %s: %v", f, err)
@@ -326,9 +327,9 @@ func TestEnsureBootstrapHook_Antigravity_MaterializzaERegistra(t *testing.T) {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		t.Fatalf("parse hooks.json: %v", err)
 	}
-	hookEntry, ok := settings["cartographer-"+provisioning.BootstrapHookName]
+	hookEntry, ok := settings["cartographer-"+contract.BootstrapHookName]
 	if !ok {
-		t.Fatalf("expected cartographer-%s in hooks.json: %s", provisioning.BootstrapHookName, data)
+		t.Fatalf("expected cartographer-%s in hooks.json: %s", contract.BootstrapHookName, data)
 	}
 	if !hookEntry.Enabled {
 		t.Errorf("enabled: expected true")
@@ -386,7 +387,7 @@ func TestPruneManaged_BootstrapHook_RimuoveTutto(t *testing.T) {
 		t.Fatalf("expected %d pruned, got %d", len(lock.Managed), len(pruned))
 	}
 
-	hookDir := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName)
+	hookDir := filepath.Join(baseDir, ".claude", "hooks", contract.BootstrapHookName)
 	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		p := filepath.Join(hookDir, f)
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
@@ -402,7 +403,7 @@ func TestPruneManaged_BootstrapHook_RimuoveTutto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read settings.json: %v", err)
 	}
-	if strings.Contains(string(data), provisioning.BootstrapHookName) {
+	if strings.Contains(string(data), contract.BootstrapHookName) {
 		t.Errorf("settings.json still references the bootstrap hook: %s", data)
 	}
 	if strings.Contains(string(data), "SessionStart") {
@@ -418,11 +419,11 @@ func TestComputeDiff_BootstrapHook_NonOrfano(t *testing.T) {
 	lock := provisioning.Lock{
 		AppliedRevision: "rev1",
 		Managed: []provisioning.ManagedFile{
-			{Kind: "hook", Name: provisioning.BootstrapHookName, Path: ".claude/hooks/cartographer-bootstrap/hook.json", ContentHash: "x"},
-			{Kind: "hook", Name: provisioning.BootstrapHookName, Path: ".claude/hooks/cartographer-bootstrap/" + provisioning.BootstrapScriptNameForTest, ContentHash: "x"},
+			{Kind: "hook", Name: contract.BootstrapHookName, Path: ".claude/hooks/cartographer-bootstrap/hook.json", ContentHash: "x"},
+			{Kind: "hook", Name: contract.BootstrapHookName, Path: ".claude/hooks/cartographer-bootstrap/" + provisioning.BootstrapScriptNameForTest, ContentHash: "x"},
 		},
 	}
-	m := provisioning.Manifest{Revision: "rev1"} // no artifacts: as if the server did not know the bootstrap (it never could)
+	m := contract.Manifest{Revision: "rev1"} // no artifacts: as if the server did not know the bootstrap (it never could)
 
 	d := provisioning.ComputeDiff(m, lock)
 	if len(d.Removed) != 0 {
@@ -444,7 +445,7 @@ func TestApply_ManifestVuoto_NonRimuoveBootstrap(t *testing.T) {
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
 
-	res, err := provisioning.Apply(provisioning.Manifest{}, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(contract.Manifest{}, provisioning.ApplyOptions{
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
 		Lock:     lock,
@@ -454,13 +455,13 @@ func TestApply_ManifestVuoto_NonRimuoveBootstrap(t *testing.T) {
 	}
 
 	for _, mf := range res.Pruned {
-		if mf.Name == provisioning.BootstrapHookName {
+		if mf.Name == contract.BootstrapHookName {
 			t.Errorf("the bootstrap hook should not have been pruned: %+v", mf)
 		}
 	}
 	var stillManaged int
 	for _, mf := range res.NewLock.Managed {
-		if mf.Kind == "hook" && mf.Name == provisioning.BootstrapHookName {
+		if mf.Kind == "hook" && mf.Name == contract.BootstrapHookName {
 			stillManaged++
 		}
 	}
@@ -468,7 +469,7 @@ func TestApply_ManifestVuoto_NonRimuoveBootstrap(t *testing.T) {
 		t.Errorf("expected the bootstrap hook still managed (2 files) in the new Lock, found %d", stillManaged)
 	}
 
-	scriptPath := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName, provisioning.BootstrapScriptNameForTest)
+	scriptPath := filepath.Join(baseDir, ".claude", "hooks", contract.BootstrapHookName, provisioning.BootstrapScriptNameForTest)
 	if _, err := os.Stat(scriptPath); err != nil {
 		t.Errorf("the bootstrap script should not have disappeared from disk: %v", err)
 	}
@@ -479,9 +480,9 @@ func TestApply_ManifestVuoto_NonRimuoveBootstrap(t *testing.T) {
 // with a warning, never materialized.
 func TestApply_NomeRiservatoInKB_Warning(t *testing.T) {
 	kbRoot := t.TempDir()
-	writeHookKB(t, kbRoot, provisioning.BootstrapHookName, "PostToolUse", "", "./notify.sh")
+	writeHookKB(t, kbRoot, contract.BootstrapHookName, "PostToolUse", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -512,7 +513,7 @@ func TestApply_NomeRiservatoInKB_Warning(t *testing.T) {
 		t.Errorf("expected a warning about the reserved name, got: %v", res.Warnings)
 	}
 	for _, mf := range res.NewLock.Managed {
-		if mf.Name == provisioning.BootstrapHookName {
+		if mf.Name == contract.BootstrapHookName {
 			t.Errorf("the reserved KB hook should not have ended up in the Lock: %+v", mf)
 		}
 	}
@@ -605,7 +606,7 @@ func TestBootstrapHookJSONReferencesThePlatformScript(t *testing.T) {
 	if _, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderClaudeCode, provisioning.Lock{}, false); err != nil {
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
-	hookDir := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName)
+	hookDir := filepath.Join(baseDir, ".claude", "hooks", contract.BootstrapHookName)
 	data, err := os.ReadFile(filepath.Join(hookDir, "hook.json"))
 	if err != nil {
 		t.Fatalf("read hook.json: %v", err)

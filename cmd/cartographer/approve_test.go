@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestParseApproveMCPArgs(t *testing.T) {
@@ -22,25 +22,25 @@ func TestParseApproveMCPArgs(t *testing.T) {
 	}
 }
 
-func approveFixture(t *testing.T, interactive bool) (home string, artifacts []provisioning.Artifact) {
+func approveFixture(t *testing.T, interactive bool) (home string, artifacts []contract.Artifact) {
 	t.Helper()
 	home = t.TempDir()
 	setHome(t, home)
 	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}); err != nil {
 		t.Fatal(err)
 	}
-	artifacts = []provisioning.Artifact{
-		{Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: "hook-hash-0123456789", Files: []provisioning.ArtifactFile{
+	artifacts = []contract.Artifact{
+		{Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: "hook-hash-0123456789", Files: []contract.ArtifactFile{
 			{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)},
 			{Path: "run.sh", Content: []byte("#!/bin/sh\necho SCRIPT-BODY\n"), Executable: true},
 		}},
-		{Kind: "skill", Name: "plain", Source: "kb:kb-a", ContentHash: "skill-hash", Files: []provisioning.ArtifactFile{
+		{Kind: "skill", Name: "plain", Source: "kb:kb-a", ContentHash: "skill-hash", Files: []contract.ArtifactFile{
 			{Path: "SKILL.md", Content: []byte("---\nname: plain\ndescription: d\n---\n")},
 		}},
 	}
 	oldM, oldI := approveManifest, approveInteractive
-	approveManifest = func(*clientconfig.Config) (provisioning.Manifest, error) {
-		return provisioning.Manifest{Revision: "r", Artifacts: artifacts}, nil
+	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+		return contract.Manifest{Revision: "r", Artifacts: artifacts}, nil
 	}
 	approveInteractive = func() bool { return interactive }
 	t.Cleanup(func() { approveManifest, approveInteractive = oldM, oldI })

@@ -21,6 +21,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // The logic behind the Cline dispatcher files (clinehooks.go): `cartographer
@@ -84,7 +85,7 @@ type ClineDispatchResult struct {
 // clineHook is one materialized hook that has a Cline event.
 type clineHook struct {
 	name, dir, clineEvent string
-	spec                  hookSpec
+	spec                  contract.HookSpec
 	matcher               *regexp.Regexp // nil: every tool
 }
 

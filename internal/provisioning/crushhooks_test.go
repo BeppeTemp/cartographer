@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func readJSONFile(t *testing.T, path string) map[string]any {
@@ -39,7 +40,7 @@ func crushHookManaged(res provisioning.AppliedResult, name string) []provisionin
 func TestApplyAndPrune_CrushGlobalHook(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "guard", "PreToolUse", "Edit|Write", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,7 @@ func TestApplyAndPrune_CrushGlobalHook(t *testing.T) {
 func TestPruneManaged_CrushHookDropsEmptiedContainers(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "guard", "PreToolUse", "", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestPruneManaged_CrushHookDropsEmptiedContainers(t *testing.T) {
 func TestApply_CrushHookOtherEventWarnsAndRegistersNothing(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "after", "PostToolUse", "Edit", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +181,7 @@ func TestApplyAndPrune_CrushProjectScope(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "guard", "PreToolUse", "bash", "./notify.sh")
 	writeMCPFixture(t, kbRoot, "docs", `{"type":"http","url":"https://example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +189,7 @@ func TestApplyAndPrune_CrushProjectScope(t *testing.T) {
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		KBRoots:     map[string]string{"kb": kbRoot},
 		ApprovedMCP: approveAll(m),
-		Provider:    configurator.ProviderCrush, BaseDir: baseDir, Scope: provisioning.ScopeProject,
+		Provider:    configurator.ProviderCrush, BaseDir: baseDir, Scope: contract.ScopeProject,
 		Lock: provisioning.Lock{},
 	})
 	if err != nil {

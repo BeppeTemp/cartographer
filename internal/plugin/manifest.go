@@ -13,10 +13,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
+	"gopkg.in/yaml.v3"
 )
 
 // ManifestFile is the name of the manifest at a plugin's root.
@@ -101,8 +101,8 @@ type Options struct {
 // `cartographer` range is checked before anything else and is then the only one.
 func ParseManifest(data []byte, opts Options) (Manifest, []string) {
 	var m Manifest
-	if len(data) > provisioning.ArtifactMaxFileSize {
-		return m, []string{fmt.Sprintf("manifest: %d bytes, over the %d cap", len(data), provisioning.ArtifactMaxFileSize)}
+	if len(data) > contract.ArtifactMaxFileSize {
+		return m, []string{fmt.Sprintf("manifest: %d bytes, over the %d cap", len(data), contract.ArtifactMaxFileSize)}
 	}
 	// Aliases are refused before the strict decode: a custom UnmarshalYAML resets
 	// yaml.v3's alias accounting, so one anchored scalar could be repeated at will.

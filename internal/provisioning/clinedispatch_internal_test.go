@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // clineBase is a fake home; the SessionStart markers go to a temp dir of the test.
@@ -34,7 +36,7 @@ func writeClineHook(t *testing.T, base, name, event, matcher, script string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	spec, _ := json.Marshal(hookSpec{Event: event, Matcher: matcher, Command: "./run.sh"})
+	spec, _ := json.Marshal(contract.HookSpec{Event: event, Matcher: matcher, Command: "./run.sh"})
 	if err := os.WriteFile(filepath.Join(dir, "hook.json"), spec, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +155,7 @@ func TestCapRunes(t *testing.T) {
 // The hook command is built through the #1632 seam: on Windows the executable
 // gets forward slashes, because the shell running it deletes a backslash.
 func TestClineHookCommandUsesForwardSlashesOnWindows(t *testing.T) {
-	h := clineHook{dir: `C:\Users\user\.cline\cartographer-hooks\g`, spec: hookSpec{Command: "./run.sh --flag"}}
+	h := clineHook{dir: `C:\Users\user\.cline\cartographer-hooks\g`, spec: contract.HookSpec{Command: "./run.sh --flag"}}
 	pretendWindows(t, true)
 	if got, want := clineHookCommand(h), `C:/Users/user/.cline/cartographer-hooks/g/run.sh --flag`; got != want {
 		t.Errorf("command = %s, want %s", got, want)

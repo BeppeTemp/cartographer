@@ -11,12 +11,13 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestApply_RelocatesArtifactWhoseDestinationMoved(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Relocation body.")
-	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(bundleFS, nil, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestApply_RelocatesArtifactWhoseDestinationMoved(t *testing.T) {
 func TestApply_RelocatesWorkspaceMCPEntryToProjectCell(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestApply_RelocatesWorkspaceMCPEntryToProjectCell(t *testing.T) {
 	ws := t.TempDir()
 	opts := provisioning.ApplyOptions{
 		KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode,
-		BaseDir: ws, Scope: provisioning.ScopeProject,
+		BaseDir: ws, Scope: contract.ScopeProject,
 		ApprovedMCP: map[string]string{"kb:kb\x00tools": a.ContentHash},
 	}
 	res, err := provisioning.Apply(m, opts)
@@ -171,7 +172,7 @@ func TestApply_RelocatesWorkspaceMCPEntryToProjectCell(t *testing.T) {
 func TestApply_RelocatesOpenCodeMCPEntryToGlobalConfig(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

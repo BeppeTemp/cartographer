@@ -10,6 +10,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -28,7 +29,7 @@ func TestApply_ListedDirLinkIsFollowedAndTheLockStaysLogical(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	m := provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{instructionsArtifact("kb-a", "KB content.\n")}}
+	m := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{instructionsArtifact("kb-a", "KB content.\n")}}
 	opts := provisioning.ApplyOptions{Provider: configurator.ProviderCline, BaseDir: home}
 
 	// Unlisted: refused, nothing lands in the target.
@@ -95,7 +96,7 @@ func TestApply_DryRunReportsAListedMCPConfigLink(t *testing.T) {
 	}
 	safewrite.SetAllowedLinks([]string{link})
 	t.Cleanup(safewrite.ResetAllowedLinks)
-	res, err := provisioning.Apply(provisioning.Manifest{Revision: "r1", Artifacts: []provisioning.Artifact{mcp}},
+	res, err := provisioning.Apply(contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{mcp}},
 		provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: home, DryRun: true, KBRoots: map[string]string{"kb": kbRoot}, SkipLockWrite: true,
 			ApprovedMCP: map[string]string{"kb:kb\x00wiki-tools": mcp.ContentHash}})
 	if err != nil {

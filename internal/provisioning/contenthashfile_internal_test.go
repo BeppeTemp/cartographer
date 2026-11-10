@@ -24,14 +24,14 @@ func TestContentHashFile_RefusesALink(t *testing.T) {
 		t.Fatal(err)
 	}
 	var linkErr *contract.KBSymlinkError
-	if _, err := contentHashFile(link); !errors.As(err, &linkErr) {
+	if _, err := contract.ContentHashFile(link); !errors.As(err, &linkErr) {
 		t.Fatalf("contentHashFile(link) = %v, want a *contract.KBSymlinkError", err)
 	}
 	real := filepath.Join(dir, "y.json")
 	if err := os.WriteFile(real, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := contentHashFile(real); err != nil {
+	if _, err := contract.ContentHashFile(real); err != nil {
 		t.Fatalf("contentHashFile(regular file): %v", err)
 	}
 }

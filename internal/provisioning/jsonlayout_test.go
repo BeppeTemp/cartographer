@@ -8,6 +8,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // #1502: registering a hook edits a file other tools and the user also write
@@ -30,7 +31,7 @@ func TestHookRegistration_KeepsTheLayoutOfSharedJSON(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			kbRoot := t.TempDir()
 			writeHookKB(t, kbRoot, "guard", "PreToolUse", "Edit|Write", "./notify.sh")
-			m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+			m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,7 +73,7 @@ func TestHookRegistration_KeepsTheLayoutOfSharedJSON(t *testing.T) {
 func TestMCPRegisterAndPrune_KeepTheLayoutOfSharedJSON(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "wiki-tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

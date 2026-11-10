@@ -2,12 +2,12 @@ package main
 
 import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // cliSkillName is the bundled skill that teaches an agent to reach the KB
 // through `cartographer call`.
-const cliSkillName = provisioning.CLISkillName
+const cliSkillName = contract.CLISkillName
 
 // usesCLI is the provider predicate, a variable so a test can inject one.
 var usesCLI = configurator.UsesCLI
@@ -36,11 +36,11 @@ func skipsMCPEntry(provider string) bool {
 // BuiltIn, not signed, so dropping one is safe): ComputeDiff then lists
 // nothing, the lockfile-driven prune removes a copy installed earlier, and the
 // status counts are computed against the filtered manifest.
-func withoutCLISkill(provider string, m provisioning.Manifest) provisioning.Manifest {
+func withoutCLISkill(provider string, m contract.Manifest) contract.Manifest {
 	if usesCLI(configurator.Provider(provider)) {
 		return m
 	}
-	kept := make([]provisioning.Artifact, 0, len(m.Artifacts))
+	kept := make([]contract.Artifact, 0, len(m.Artifacts))
 	for _, a := range m.Artifacts {
 		if a.Kind == "skill" && a.Name == cliSkillName && a.Source == "bundle" {
 			continue

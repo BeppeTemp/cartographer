@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // clineStubBase is a fake home with a stub cartographer binary the dispatchers
@@ -36,7 +37,7 @@ func addClineHook(t *testing.T, base, name, event, matcher, script string) (warn
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	spec, _ := json.Marshal(hookSpec{Event: event, Matcher: matcher, Command: "./run.sh"})
+	spec, _ := json.Marshal(contract.HookSpec{Event: event, Matcher: matcher, Command: "./run.sh"})
 	if err := os.WriteFile(filepath.Join(dir, "hook.json"), spec, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestClineHooksDirSymlinkIsRefusedBeforeAnyWrite(t *testing.T) {
 	if err := os.Symlink(elsewhere, clineHooksDir(base)); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g", ScopeGlobal); err == nil {
+	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g", contract.ScopeGlobal); err == nil {
 		t.Error("a symlinked Documents/Cline/Hooks was not refused")
 	}
 	if _, err := reconcileClineDispatchers(base, ""); err != nil {
@@ -405,7 +406,7 @@ func TestClineDocumentsRootMayBeALinkButNothingBelowIt(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), filepath.Join(real, "Cline")); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g", ScopeGlobal); err == nil || !errors.Is(err, ErrSymlinkDestination) {
+	if err := checkHookRegistrationTarget(base, configurator.ProviderCline, "g", ".cline/cartographer-hooks/g", contract.ScopeGlobal); err == nil || !errors.Is(err, ErrSymlinkDestination) {
 		t.Errorf("a link at Documents/Cline must be refused, got %v", err)
 	}
 }

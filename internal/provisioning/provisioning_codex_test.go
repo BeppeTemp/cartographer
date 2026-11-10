@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // --- Agent → TOML (D58) ---
@@ -22,11 +23,11 @@ func TestApply_Codex_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 	baseDir := t.TempDir()
 	src := "---\nname: reviewer\ndescription: Reviews the code\ntools: Read, Grep\nmodel: sonnet\n---\nReviewer system prompt.\n"
 
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "agent", Name: "reviewer", Source: "kb:x", ContentHash: "h1", Signed: true,
-		Files: []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
+		Files: []contract.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
 	}
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderCodex,
@@ -60,11 +61,11 @@ func TestApply_Codex_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	baseDir := t.TempDir()
 	src := "Body only, no frontmatter.\n"
 
-	a := provisioning.Artifact{
+	a := contract.Artifact{
 		Kind: "agent", Name: "plain", Source: "kb:x", ContentHash: "h1", Signed: true,
-		Files: []provisioning.ArtifactFile{{Path: "plain.md", Content: []byte(src)}},
+		Files: []contract.ArtifactFile{{Path: "plain.md", Content: []byte(src)}},
 	}
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	m := contract.MergeArtifacts([]contract.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderCodex,
@@ -110,7 +111,7 @@ func writeCodexHookKB(t *testing.T, kbRoot, name, event, matcher, command string
 // applyCodexHookKB builds the manifest of kbRoot and applies it for Codex.
 func applyCodexHookKB(t *testing.T, kbRoot, baseDir string, lock provisioning.Lock) provisioning.AppliedResult {
 	t.Helper()
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}

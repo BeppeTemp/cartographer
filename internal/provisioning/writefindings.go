@@ -6,7 +6,7 @@
 //
 // It goes through ensureSyntheticHook, the same no-follow writers and the same
 // registration primitives as the bootstrap hook; its name is in
-// reservedHookNames, so a KB hook of the same name is ignored and the hook is
+// ReservedHookNames, so a KB hook of the same name is ignored and the hook is
 // never an orphan in ComputeDiff.
 
 package provisioning
@@ -16,11 +16,8 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
-
-// WriteFindingsHookName is the reserved hook name of the client-generated
-// write-findings hook (D353).
-const WriteFindingsHookName = "cartographer-write-findings"
 
 // WriteFindingsTools are the MCP tools whose response carries `findings`
 // (D312). A test in internal/mcpserver checks this list against the handlers
@@ -56,13 +53,13 @@ func writeFindingsHookJSON(provider configurator.Provider) []byte {
 		// command filters on the tool name itself (D676).
 		matcher = ""
 	}
-	data, err := json.Marshal(hookSpec{
+	data, err := json.Marshal(contract.HookSpec{
 		Event:   "PostToolUse",
 		Matcher: matcher,
 		Command: command,
 	})
 	if err != nil {
-		// hookSpec is a plain struct of strings: Marshal cannot fail on it.
+		// HookSpec is a plain struct of strings: Marshal cannot fail on it.
 		panic(err)
 	}
 	return data
@@ -73,7 +70,7 @@ func writeFindingsHookJSON(provider configurator.Provider) []byte {
 func writeFindingsSyntheticFor(provider configurator.Provider) syntheticHook {
 	hookJSON := writeFindingsHookJSON(provider)
 	return syntheticHook{
-		name:          WriteFindingsHookName,
+		name:          contract.WriteFindingsHookName,
 		hookJSON:      func() []byte { return hookJSON },
 		scriptName:    writeFindingsScriptName,
 		scriptContent: writeFindingsScriptContent,
@@ -93,25 +90,13 @@ func SupportsWriteFindingsHook(provider configurator.Provider) bool {
 	return m.writeFindingsHook
 }
 
-// reservedHookNames are the hook names the client generates itself: a KB hook
-// carrying one is ignored with a warning (Apply), and a managed entry carrying
-// one is never driven by the server manifest (ComputeDiff, Apply).
-var reservedHookNames = map[string]bool{
-	BootstrapHookName:     true,
-	WriteFindingsHookName: true,
-}
-
-func isReservedHook(kind, name string) bool {
-	return kind == "hook" && reservedHookNames[name]
-}
-
 // SourceClient marks a lock entry the client generates itself rather than
 // takes from a KB manifest (D717): ComputeDiff never lists it as removed and
 // Apply carries it forward, like a reserved hook.
 const SourceClient = "client"
 
 func isClientOwned(mf ManagedFile) bool {
-	return isReservedHook(mf.Kind, mf.Name) || mf.Source == SourceClient
+	return contract.IsReservedHook(mf.Kind, mf.Name) || mf.Source == SourceClient
 }
 
 // EnsureWriteFindingsHook materializes and registers the write-findings hook
@@ -133,7 +118,7 @@ func EnsureWriteFindingsHook(baseDir string, provider configurator.Provider, loc
 func EnsureWriteFindingsHookNote(baseDir string, provider configurator.Provider, lock Lock, enabled, dryRun bool) (Lock, string, error) {
 	if enabled && provider == configurator.ProviderOpenCode && openCodeMajor() == 0 {
 		for _, mf := range lock.Managed {
-			if mf.Kind == "hook" && mf.Name == WriteFindingsHookName {
+			if mf.Kind == "hook" && mf.Name == contract.WriteFindingsHookName {
 				return lock, "opencode: `opencode` not on PATH: kept the installed write-findings plugin; run `cartographer sync` once it is on PATH", nil
 			}
 		}
@@ -151,7 +136,7 @@ func ensureWriteFindingsHook(baseDir string, provider configurator.Provider, loc
 	}
 	var drop, keep []ManagedFile
 	for _, mf := range lock.Managed {
-		if mf.Kind == "hook" && mf.Name == WriteFindingsHookName {
+		if mf.Kind == "hook" && mf.Name == contract.WriteFindingsHookName {
 			drop = append(drop, mf)
 		} else {
 			keep = append(keep, mf)

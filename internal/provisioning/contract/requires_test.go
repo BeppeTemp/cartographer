@@ -1,11 +1,10 @@
-package provisioning
+package contract
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestValidateRequires(t *testing.T) {
@@ -138,7 +137,7 @@ func TestParseHookSpec_IgnoresRequires(t *testing.T) {
 		`{"event":"Stop","command":"x","requires":"oops"}`,
 		`{"event":"Stop","command":"x","requires":[1,2]}`,
 	} {
-		spec, err := parseHookSpec([]byte(data))
+		spec, err := ParseHookSpec([]byte(data))
 		if err != nil || spec.Event != "Stop" || spec.Command != "x" {
 			t.Errorf("%s: %+v, %v", data, spec, err)
 		}
@@ -147,7 +146,7 @@ func TestParseHookSpec_IgnoresRequires(t *testing.T) {
 
 func TestMCPDescriptorRefusesRequires(t *testing.T) {
 	data := []byte(`{"type":"http","url":"https://example.com/mcp","requires":["skill:a"]}`)
-	if _, err := contract.ParseMCPServerSpec("example", data); err == nil {
+	if _, err := ParseMCPServerSpec("example", data); err == nil {
 		t.Fatal("an mcp descriptor with requires was accepted")
 	}
 }

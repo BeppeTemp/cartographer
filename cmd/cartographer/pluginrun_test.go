@@ -9,6 +9,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const cmdScript = `def hello(args):
@@ -213,7 +214,7 @@ func TestEventsRunInPluginOrderAndAFailureIsOnlyAWarning(t *testing.T) {
 }
 
 func TestEventFieldsCountPendingAndConnectCountsWritesAsInstalled(t *testing.T) {
-	r := map[string]provisioning.AppliedResult{"p": {Written: make([]provisioning.ManagedFile, 2), NeedsApproval: make([]provisioning.Artifact, 3)}}
+	r := map[string]provisioning.AppliedResult{"p": {Written: make([]provisioning.ManagedFile, 2), NeedsApproval: make([]contract.Artifact, 3)}}
 	f := eventFields(eventConnectAfter, nil, nil, r, nil)
 	if f["installed"] != 2 || f["updated"] != 0 || f["pending"] != 3 || len(f["errors"].([]string)) != 0 || len(f["providers"].([]string)) != 0 {
 		t.Errorf("%v", f)

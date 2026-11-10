@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const testHome = "/home/user"
@@ -68,20 +69,20 @@ func TestPluginCells_Destinations(t *testing.T) {
 	registerCells(t, forkCLI())
 	p := configurator.Provider("fork-cli")
 	for _, c := range []struct {
-		scope Scope
+		scope contract.Scope
 		kind  string
 		want  string
 	}{
-		{ScopeGlobal, "skill", ".fork-cli/skills/x"},
-		{ScopeGlobal, "agent", ".fork-cli/agents/x.md"},
-		{ScopeGlobal, "instructions", ".fork-cli/FORK-CLI.md"},
-		{ScopeGlobal, "hook", ""},
-		{ScopeGlobal, "mcp", ""},
-		{ScopeProject, "skill", ".fork-cli/skills/x"},
-		{ScopeProject, "instructions", "AGENTS.md"},
-		{ScopeProject, "agent", ""},
+		{contract.ScopeGlobal, "skill", ".fork-cli/skills/x"},
+		{contract.ScopeGlobal, "agent", ".fork-cli/agents/x.md"},
+		{contract.ScopeGlobal, "instructions", ".fork-cli/FORK-CLI.md"},
+		{contract.ScopeGlobal, "hook", ""},
+		{contract.ScopeGlobal, "mcp", ""},
+		{contract.ScopeProject, "skill", ".fork-cli/skills/x"},
+		{contract.ScopeProject, "instructions", "AGENTS.md"},
+		{contract.ScopeProject, "agent", ""},
 	} {
-		if got := destDirScoped(c.kind, "x", p, c.scope); got != c.want {
+		if got := contract.DestDirScoped(c.kind, "x", p, c.scope); got != c.want {
 			t.Errorf("scope %d %s = %q, want %q", c.scope, c.kind, got, c.want)
 		}
 	}
@@ -89,11 +90,11 @@ func TestPluginCells_Destinations(t *testing.T) {
 		t.Error("a provider with project cells supports the project scope")
 	}
 	// A built-in is untouched, and an unregistered name has no cell.
-	if _, ok := cellFor(ScopeGlobal, "skill", "nobody"); ok {
+	if _, ok := contract.CellFor(contract.ScopeGlobal, "skill", "nobody"); ok {
 		t.Error("cellFor invented a cell")
 	}
 	UnregisterPluginCells("fork-cli")
-	if got := destDir("skill", "x", p); got != "" {
+	if got := contract.DestDir("skill", "x", p); got != "" {
 		t.Errorf("an unregistered provider kept a cell: %q", got)
 	}
 }
@@ -103,7 +104,7 @@ func TestPluginCells_AgentFormatSuffixAndTranslation(t *testing.T) {
 	c.Global.Agent.AgentFormat = "copilot"
 	registerCells(t, c)
 	p := configurator.Provider("fork-cli")
-	if got := destDir("agent", "x", p); !strings.HasSuffix(got, "/x.agent.md") {
+	if got := contract.DestDir("agent", "x", p); !strings.HasSuffix(got, "/x.agent.md") {
 		t.Errorf("copilot-format agent = %q", got)
 	}
 	UnregisterPluginCells("fork-cli")
@@ -159,7 +160,7 @@ func TestPluginCells_OverlapRefusals(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), ".claude/skills") || !strings.Contains(err.Error(), "claude") {
 		t.Fatalf("a skills dir equal to Claude Code's must be refused naming both, got %v", err)
 	}
-	if got := destDir("skill", "x", "fork-cli"); got != "" {
+	if got := contract.DestDir("skill", "x", "fork-cli"); got != "" {
 		t.Errorf("a refused provider left a cell: %q", got)
 	}
 
@@ -198,15 +199,15 @@ func TestReplacePluginCells_RefusesBothClaimants(t *testing.T) {
 		if len(refused) != 2 || refused[0].Name != "fork-cli" || refused[1].Name != "fork-two" {
 			t.Fatalf("refused = %+v", refused)
 		}
-		if _, ok := pluginFor("fork-ext"); !ok {
+		if _, ok := contract.PluginFor("fork-ext"); !ok {
 			t.Fatal("the unrelated provider was dropped")
 		}
-		if _, ok := pluginFor("fork-cli"); ok {
+		if _, ok := contract.PluginFor("fork-cli"); ok {
 			t.Fatal("a refused claimant stayed registered")
 		}
 	}
 	ReplacePluginCells(nil, testHome)
-	if _, ok := pluginFor("fork-ext"); ok {
+	if _, ok := contract.PluginFor("fork-ext"); ok {
 		t.Error("an empty replacement left a provider")
 	}
 }
@@ -277,7 +278,7 @@ func TestPluginCells_ApplyAndPrune(t *testing.T) {
 	write("agents/a1.md", "---\nname: a1\ndescription: An agent\n---\nBody.\n")
 	write("instructions.md", "Be kind.\n")
 	roots := map[string]string{"kb-a": kb}
-	m, err := BuildManifest(nil, roots, BuildOptions{})
+	m, err := contract.BuildManifest(nil, roots, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +298,7 @@ func TestPluginCells_ApplyAndPrune(t *testing.T) {
 		t.Errorf("a cli provider's block lacks its provider name:\n%s", b)
 	}
 
-	empty, err := BuildManifest(nil, map[string]string{"kb-a": t.TempDir()}, BuildOptions{})
+	empty, err := contract.BuildManifest(nil, map[string]string{"kb-a": t.TempDir()}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,20 +319,20 @@ func TestPluginCells_ApplyAndPrune(t *testing.T) {
 func TestPluginCells_CapabilitiesFollowCellsAndDeclaration(t *testing.T) {
 	registerCells(t, forkCLI())
 	p := configurator.Provider("fork-cli")
-	if got := CapabilityStatus(p, ScopeGlobal, CapSkill); got != CapabilityStatus("crush", ScopeGlobal, CapSkill) {
+	if got := contract.CapabilityStatus(p, contract.ScopeGlobal, contract.CapSkill); got != contract.CapabilityStatus("crush", contract.ScopeGlobal, contract.CapSkill) {
 		t.Errorf("skill of a fork of a probed base = %s, want the base's", got)
 	}
 	// A different agent layout is not the base's probe.
-	if got := CapabilityStatus(p, ScopeGlobal, CapAgentDelegate); got != CapUnverified {
+	if got := contract.CapabilityStatus(p, contract.ScopeGlobal, contract.CapAgentDelegate); got != contract.CapUnverified {
 		t.Errorf("agent.delegate with another layout = %s, want unverified", got)
 	}
-	if got := CapabilityStatus(p, ScopeGlobal, CapMCP); got != CapAbsent {
+	if got := contract.CapabilityStatus(p, contract.ScopeGlobal, contract.CapMCP); got != contract.CapAbsent {
 		t.Errorf("mcp without a cell = %s, want absent", got)
 	}
-	if got := CapabilityStatus(p, ScopeProject, CapAgentDelegate); got != CapAbsent {
+	if got := contract.CapabilityStatus(p, contract.ScopeProject, contract.CapAgentDelegate); got != contract.CapAbsent {
 		t.Errorf("agent without a project cell = %s, want absent", got)
 	}
-	if got := CapabilityStatus(p, ScopeGlobal, Capability("hook.PostToolUse")); got != CapAbsent {
+	if got := contract.CapabilityStatus(p, contract.ScopeGlobal, contract.Capability("hook.PostToolUse")); got != contract.CapAbsent {
 		t.Errorf("hook capability = %s, want absent", got)
 	}
 	UnregisterPluginCells("fork-cli")
@@ -340,10 +341,10 @@ func TestPluginCells_CapabilitiesFollowCellsAndDeclaration(t *testing.T) {
 	c.Capabilities = map[string]string{"skill": "verified", "agent.invoke": "verified"}
 	c.InvokeHint = "@name"
 	registerCells(t, c)
-	if got := CapabilityStatus(p, ScopeGlobal, CapSkill); got != CapVerified {
+	if got := contract.CapabilityStatus(p, contract.ScopeGlobal, contract.CapSkill); got != contract.CapVerified {
 		t.Errorf("declared skill = %s", got)
 	}
-	if got := InvokeHint(p, ScopeGlobal); got != "@name" {
+	if got := InvokeHint(p, contract.ScopeGlobal); got != "@name" {
 		t.Errorf("invoke hint = %q", got)
 	}
 }
@@ -352,7 +353,7 @@ func TestPluginCells_OwnMCPFileIsACell(t *testing.T) {
 	c := forkCLI()
 	c.MCPFile = []string{".fork-cli", "mcp.json"}
 	registerCells(t, c)
-	if got := destDir("mcp", "", "fork-cli"); got != ".fork-cli/mcp.json" {
+	if got := contract.DestDir("mcp", "", "fork-cli"); got != ".fork-cli/mcp.json" {
 		t.Errorf("mcp cell = %q", got)
 	}
 }
@@ -364,10 +365,10 @@ func TestPluginHookCellIsBuiltForTheSharedDispatcher(t *testing.T) {
 		t.Fatalf("notes = %q", notes)
 	}
 	p := configurator.Provider("fork-ext")
-	if got := destDir("hook", "x", p); got != forkHookDir+"/x" {
+	if got := contract.DestDir("hook", "x", p); got != forkHookDir+"/x" {
 		t.Errorf("hook destination = %q", got)
 	}
-	if got := destDirScoped("hook", "x", p, ScopeProject); got != "" {
+	if got := contract.DestDirScoped("hook", "x", p, contract.ScopeProject); got != "" {
 		t.Errorf("project hook destination = %q", got)
 	}
 	if _, ok := mechanismFor(p); !ok {
@@ -379,7 +380,7 @@ func TestPluginHookCellIsBuiltForTheSharedDispatcher(t *testing.T) {
 	if hookProviderFromPath(forkHookDir+"/x/hook.json") != "cline" {
 		t.Error("a plugin provider's hook files are removed through the base's registrar")
 	}
-	if !hookEventReaches("PostToolUse", p) || hookEventReaches("Stop", p) {
+	if !contract.HookEventReaches("PostToolUse", p) || contract.HookEventReaches("Stop", p) {
 		t.Error("event reach must follow the base")
 	}
 }
@@ -392,7 +393,7 @@ func TestPluginHookCellIsLostOnABaseWithoutTheSharedDispatcher(t *testing.T) {
 		t.Fatalf("notes = %q", notes)
 	}
 	p := configurator.Provider("fork-ext")
-	if got := destDir("hook", "x", p); got != "" {
+	if got := contract.DestDir("hook", "x", p); got != "" {
 		t.Errorf("hook destination = %q, want none", got)
 	}
 	if _, ok := mechanismFor(p); ok {
@@ -403,16 +404,16 @@ func TestPluginHookCellIsLostOnABaseWithoutTheSharedDispatcher(t *testing.T) {
 	}
 }
 
-func pluginHookArtifact(name, event string) Artifact {
+func pluginHookArtifact(name, event string) contract.Artifact {
 	return builtInHook(name, "h-"+name, map[string]string{
 		"hook.json": `{"event":"` + event + `","command":"./extra.sh"}`,
 		"extra.sh":  "#!/bin/sh\ncat >/dev/null\necho 'from " + name + "' >&2\nexit 2\n",
 	})
 }
 
-func applyHooks(t *testing.T, p configurator.Provider, base string, lock Lock, arts ...Artifact) AppliedResult {
+func applyHooks(t *testing.T, p configurator.Provider, base string, lock Lock, arts ...contract.Artifact) AppliedResult {
 	t.Helper()
-	res, err := Apply(Manifest{Revision: "r", Artifacts: arts}, ApplyOptions{Provider: p, BaseDir: base, Lock: lock, SkipLockWrite: true})
+	res, err := Apply(contract.Manifest{Revision: "r", Artifacts: arts}, ApplyOptions{Provider: p, BaseDir: base, Lock: lock, SkipLockWrite: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +685,7 @@ func TestComputeDiffResolved_CLIProviderInSyncAfterApply(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = configurator.ReplacePlugins(nil) })
 
-	m := MergeArtifacts([]Artifact{instructionsArtifactForExpandTest("kb-a", "Be kind.\n")})
+	m := contract.MergeArtifacts([]contract.Artifact{instructionsArtifactForExpandTest("kb-a", "Be kind.\n")})
 	for _, name := range []string{"fork-cli", "fork-mcp"} {
 		opts := ApplyOptions{
 			Provider: configurator.Provider(name), BaseDir: t.TempDir(),

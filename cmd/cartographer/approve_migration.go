@@ -9,6 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // migratePreApprovalInstalls is the one-time migration of D1166: a hook, skill
@@ -25,7 +26,7 @@ import (
 // complete says that every KB was pulled: with a failed pull a KB's artifacts
 // are missing from the manifests, so the migration waits for a whole run
 // instead of spending its single chance.
-func migratePreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]provisioning.Manifest, projections []syncProjection, complete bool) bool {
+func migratePreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]contract.Manifest, projections []syncProjection, complete bool) bool {
 	return migratePreApprovals(w, "approved", cfg, lockFile, manifests, projections, complete)
 }
 
@@ -33,7 +34,7 @@ func migratePreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile 
 // (#1176): it prints `would approve …` for what the real sync would approve and
 // returns the approval hashes that sync would apply with, so the dry run reports
 // needs_approval only for the rest. cfg, its marker included, is left untouched.
-func previewPreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]provisioning.Manifest, projections []syncProjection, complete bool) map[string]string {
+func previewPreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]contract.Manifest, projections []syncProjection, complete bool) map[string]string {
 	scratch := clientconfig.Config{ApprovalsMigrated: cfg.ApprovalsMigrated, MCPApprovals: map[string]map[string]clientconfig.MCPApproval{}}
 	for source, entries := range cfg.MCPApprovals {
 		scratch.MCPApprovals[source] = maps.Clone(entries)
@@ -42,7 +43,7 @@ func previewPreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile 
 	return scratch.ApprovedMCPHashes()
 }
 
-func migratePreApprovals(w io.Writer, verb string, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]provisioning.Manifest, projections []syncProjection, complete bool) bool {
+func migratePreApprovals(w io.Writer, verb string, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]contract.Manifest, projections []syncProjection, complete bool) bool {
 	if cfg.ApprovalsMigrated || !complete {
 		return false
 	}

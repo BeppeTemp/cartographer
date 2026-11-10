@@ -11,17 +11,18 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
 // stubBareStatus fixes the remote read bare `cartographer` shares with
 // `status`: the health answer and the manifest the server serves.
-func stubBareStatus(t *testing.T, health *client.Health, healthErr error, served provisioning.Manifest) {
+func stubBareStatus(t *testing.T, health *client.Health, healthErr error, served contract.Manifest) {
 	t.Helper()
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return health, healthErr }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
@@ -92,7 +93,7 @@ func TestBare_InSyncProviderAndServerLines(t *testing.T) {
 	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}); err != nil {
 		t.Fatal(err)
 	}
-	served := provisioning.Manifest{Revision: "rev1"}
+	served := contract.Manifest{Revision: "rev1"}
 	stubBareStatus(t, &client.Health{Version: "v1.0.0", LatestVersion: "v1.1.0"}, nil, served)
 	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
 	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{
@@ -123,7 +124,7 @@ func TestBare_DriftSuggestsSync(t *testing.T) {
 	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}); err != nil {
 		t.Fatal(err)
 	}
-	served := provisioning.Manifest{Revision: "rev2", Artifacts: []provisioning.Artifact{{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "h", Signed: true}}}
+	served := contract.Manifest{Revision: "rev2", Artifacts: []contract.Artifact{{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "h", Signed: true}}}
 	stubBareStatus(t, &client.Health{Version: "v1.0.0"}, nil, served)
 	out := runBareOut(t)
 	if !strings.Contains(out, "  [claude] drift - run `cartographer sync`") {
@@ -138,7 +139,7 @@ func TestBare_UnreachableServerStillPrintsTheUsageAndExitsZero(t *testing.T) {
 	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}); err != nil {
 		t.Fatal(err)
 	}
-	stubBareStatus(t, nil, &net.OpError{Op: "dial", Err: errors.New("refused")}, provisioning.Manifest{})
+	stubBareStatus(t, nil, &net.OpError{Op: "dial", Err: errors.New("refused")}, contract.Manifest{})
 	out := runBareOut(t)
 	if !strings.Contains(out, "could not reach https://cartographer.example/mcp") {
 		t.Errorf("output = %q, want the unreachable message", out)

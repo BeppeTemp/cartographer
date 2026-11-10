@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 var update = flag.Bool("update", false, "rewrite the generated blocks instead of checking them")
@@ -651,14 +652,14 @@ func ledgerCapabilities(ledger, probes string, errf func(format string, args ...
 			errf("docs/harnesses.md %s: capability line %q is not `<scope> <id> <status>`", provider, line)
 			continue
 		}
-		switch provisioning.CapStatus(f[2]) {
-		case provisioning.CapVerified:
+		switch contract.CapStatus(f[2]) {
+		case contract.CapVerified:
 			if len(f) != 5 || !date.MatchString(f[3]) {
 				errf("docs/harnesses.md %s: verified line %q needs `<YYYY-MM-DD> <probes.md recipe>`", provider, line)
 			} else if !strings.Contains(probes, f[4]) {
 				errf("docs/harnesses.md %s: verified line %q names recipe %q, which does not appear in probes.md", provider, line, f[4])
 			}
-		case provisioning.CapUnverified, provisioning.CapAbsent:
+		case contract.CapUnverified, contract.CapAbsent:
 			if len(f) != 3 {
 				errf("docs/harnesses.md %s: capability line %q takes no date or recipe", provider, line)
 			}

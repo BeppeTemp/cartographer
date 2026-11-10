@@ -6,6 +6,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // translateAgentForCline adapts an "agent" artifact (a Claude Code subagent .md)
@@ -23,7 +24,7 @@ import (
 func translateAgentForCline(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name
-	var native []nativeField
+	var native []contract.NativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -34,7 +35,7 @@ func translateAgentForCline(name string, content []byte) ([]byte, error) {
 				description = s
 			}
 		}
-		if native, err = nativeFieldsFor(fm, configurator.ProviderCline); err != nil {
+		if native, err = contract.NativeFieldsFor(fm, configurator.ProviderCline); err != nil {
 			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 		}
 	} else {
@@ -50,9 +51,9 @@ func translateAgentForCline(name string, content []byte) ([]byte, error) {
 
 	var sb strings.Builder
 	sb.WriteString("---\nname: ")
-	sb.WriteString(yamlQuoteScalar(name))
+	sb.WriteString(contract.YamlQuoteScalar(name))
 	sb.WriteString("\ndescription: ")
-	sb.WriteString(yamlQuoteScalar(description))
+	sb.WriteString(contract.YamlQuoteScalar(description))
 	sb.WriteString("\n")
 	sb.WriteString(extra)
 	sb.WriteString("---\n")

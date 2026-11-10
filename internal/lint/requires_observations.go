@@ -13,7 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skill"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
@@ -50,7 +50,7 @@ func kbArtifactRequires(k *kb.KB, skills []skill.Skill) []artifactRequires {
 		fmRaw, _, _ := okf.SplitFrontmatter(skillFileText(k, s))
 		var entries []string
 		if fm, err := okf.ParseFrontmatter(fmRaw); err == nil && fm != nil {
-			entries, _, _ = provisioning.RequiresFromFrontmatter(fm)
+			entries, _, _ = contract.RequiresFromFrontmatter(fm)
 		}
 		out = append(out, artifactRequires{kind: "skill", name: path.Base(s.DirPath), path: skillFile(s), entries: entries, body: s.Body})
 	}
@@ -60,7 +60,7 @@ func kbArtifactRequires(k *kb.KB, skills []skill.Skill) []artifactRequires {
 		if data, err := os.ReadFile(filepath.Join(k.Root, filepath.FromSlash(rel))); err == nil {
 			fmRaw, _, _ := okf.SplitFrontmatter(string(data))
 			if fm, err := okf.ParseFrontmatter(fmRaw); err == nil && fm != nil {
-				entries, _, _ = provisioning.RequiresFromFrontmatter(fm)
+				entries, _, _ = contract.RequiresFromFrontmatter(fm)
 			}
 		}
 		out = append(out, artifactRequires{kind: "agent", name: name, path: rel, entries: entries})

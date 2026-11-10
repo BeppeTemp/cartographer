@@ -9,7 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
@@ -25,7 +25,7 @@ import (
 // so a guide never names a KB the caller cannot read. Nothing here fails a
 // handshake: an unreadable or symlinked file yields no curated section.
 // Reusable with one KB and a request context.
-func GuideKB(ctx context.Context, k *kb.KB, name string) (g provisioning.GuideKB, ok bool) {
+func GuideKB(ctx context.Context, k *kb.KB, name string) (g contract.GuideKB, ok bool) {
 	// The set of a routed view already holds only readable KBs and the metadata
 	// gate asks the same of a per-KB endpoint: this is the belt that keeps a
 	// stale set from leaking a name.
@@ -51,7 +51,7 @@ func GuideKB(ctx context.Context, k *kb.KB, name string) (g provisioning.GuideKB
 	// rule for the file itself). A symlink is refused: a file outside the KB
 	// must not reach a handshake.
 	if rejectArtifactSymlinks(k.Root, "instructions.md") == nil {
-		g.Curated, g.SkipPreamble = provisioning.KBCuratedInstructions(k.Root)
+		g.Curated, g.SkipPreamble = contract.KBCuratedInstructions(k.Root)
 	}
 	return g, true
 }
@@ -59,16 +59,16 @@ func GuideKB(ctx context.Context, k *kb.KB, name string) (g provisioning.GuideKB
 // procedureLines are the served procedures whose body the bundle holds, for the
 // guide's list (#1316). The one copy of the line source: connectionGuide
 // (initialize) and renderKBGuide (kb_guide) both call it. No bundle, no list.
-func procedureLines(bundle fs.FS) []provisioning.ProcedureLine {
+func procedureLines(bundle fs.FS) []contract.ProcedureLine {
 	if bundle == nil {
 		return nil
 	}
-	var lines []provisioning.ProcedureLine
+	var lines []contract.ProcedureLine
 	for _, p := range skillbundle.Procedures() {
 		if _, err := p.Body(bundle); err != nil {
 			continue
 		}
-		lines = append(lines, provisioning.ProcedureLine{Short: p.Short, UseWhen: p.UseWhen})
+		lines = append(lines, contract.ProcedureLine{Short: p.Short, UseWhen: p.UseWhen})
 	}
 	return lines
 }
@@ -79,7 +79,7 @@ func guideArchiveNames(root string) []string {
 	if fi, err := os.Lstat(filepath.Join(root, "data")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
 		return nil
 	}
-	return provisioning.KBArchiveNames(root)
+	return contract.KBArchiveNames(root)
 }
 
 // connectionGuide renders the guide of the connection this Server answers, or
@@ -105,7 +105,7 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 		}
 		entries = append(entries, entry{name, s.kbRef})
 	}
-	var kbs []provisioning.GuideKB
+	var kbs []contract.GuideKB
 	var names []string
 	for _, e := range entries {
 		if g, ok := GuideKB(ctx, e.k, e.name); ok {
@@ -122,7 +122,7 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 	if !readOnly && !writesAnyKB(ctx, names) {
 		readOnly = true
 	}
-	return provisioning.RenderGuide(kbs, provisioning.GuideOptions{Routed: routed, ReadOnly: readOnly, Procedures: procedureLines(s.guideBundle)})
+	return contract.RenderGuide(kbs, contract.GuideOptions{Routed: routed, ReadOnly: readOnly, Procedures: procedureLines(s.guideBundle)})
 }
 
 // entryInstructions is what a provisioned connection receives first

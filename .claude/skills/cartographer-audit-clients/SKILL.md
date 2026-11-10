@@ -6,9 +6,9 @@ description: "Use when the user asks to check, audit or re-verify an agent clien
 # cartographer-audit-clients — what changed in the supported clients, and what to do
 
 The baseline is `docs/harnesses.md` (one `## <provider-id>` section per client);
-the matrix it protects is `destinationMatrix`
-(`internal/provisioning/provisioning.go`), `projectDestinationMatrix`
-(`internal/provisioning/workspacescope.go`) and the descriptors in
+the matrix it protects is `DestinationMatrix`
+(`internal/provisioning/contract/provisioning.go`), `ProjectDestinationMatrix`
+(`internal/provisioning/contract/workspacescope.go`) and the descriptors in
 `internal/configurator/registry.go`. Why this is a procedure and not a CI job:
 D292.
 

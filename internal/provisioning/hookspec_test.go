@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func TestValidateHookJSON(t *testing.T) {
@@ -26,7 +27,7 @@ func TestValidateHookJSON(t *testing.T) {
 		{"inner dotdot staying inside", `{"event":"Stop","command":"a/../run.sh"}`, ""},
 	}
 	for _, c := range cases {
-		_, err := ValidateHookJSON([]byte(c.json))
+		_, err := contract.ValidateHookJSON([]byte(c.json))
 		if c.wantErr == "" {
 			if err != nil {
 				t.Errorf("%s: unexpected error %v", c.name, err)
@@ -40,14 +41,14 @@ func TestValidateHookJSON(t *testing.T) {
 }
 
 func TestValidateHookJSON_ReportsClientsThatWillNotFire(t *testing.T) {
-	misses, err := ValidateHookJSON([]byte(`{"event":"PreInvocation","command":"./x.sh"}`))
+	misses, err := contract.ValidateHookJSON([]byte(`{"event":"PreInvocation","command":"./x.sh"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(misses, ","); got != "claude,codex,opencode,kiro,crush,copilot,pi,cline" {
 		t.Errorf("PreInvocation misses = %q, want claude,codex,opencode,kiro,crush,copilot,pi,cline", got)
 	}
-	misses, _ = ValidateHookJSON([]byte(`{"event":"Stop","command":"./x.sh"}`))
+	misses, _ = contract.ValidateHookJSON([]byte(`{"event":"Stop","command":"./x.sh"}`))
 	// Crush fires only PreToolUse (probed on v0.98.0, D363).
 	if got := strings.Join(misses, ","); got != "crush,copilot,pi,cline" {
 		t.Errorf("Stop misses = %q, want crush,copilot,pi,cline", got)
@@ -55,7 +56,7 @@ func TestValidateHookJSON_ReportsClientsThatWillNotFire(t *testing.T) {
 	// Copilot fires only SessionStart, PreToolUse and PostToolUse (probed on
 	// 1.0.94, D676); so does Pi (probed on 1.5.0).
 	// Kiro's tool events were never probed (D300): not claimed.
-	misses, _ = ValidateHookJSON([]byte(`{"event":"PreToolUse","command":"./x.sh"}`))
+	misses, _ = contract.ValidateHookJSON([]byte(`{"event":"PreToolUse","command":"./x.sh"}`))
 	if got := strings.Join(misses, ","); got != "kiro" {
 		t.Errorf("PreToolUse misses = %q, want kiro", got)
 	}
@@ -65,16 +66,16 @@ func TestValidateHookJSON_ReportsClientsThatWillNotFire(t *testing.T) {
 // OpenCode and Antigravity registrars keep must not drift from it (D284).
 func TestHookEventVocabularyAgreesWithRegistrars(t *testing.T) {
 	for event := range openCodeHookEvents {
-		if !hookEventReaches(event, configurator.ProviderOpenCode) {
+		if !contract.HookEventReaches(event, configurator.ProviderOpenCode) {
 			t.Errorf("openCodeHookEvents maps %q but the vocabulary says opencode does not fire it", event)
 		}
 	}
 	for event := range antigravityHookEvents {
-		if !hookEventReaches(event, configurator.ProviderAntigravity) {
+		if !contract.HookEventReaches(event, configurator.ProviderAntigravity) {
 			t.Errorf("antigravityHookEvents maps %q but the vocabulary says antigravity does not fire it", event)
 		}
 	}
-	for event, providers := range hookEventReach {
+	for event, providers := range contract.HookEventReach {
 		for _, p := range providers {
 			switch p {
 			case configurator.ProviderCline:
@@ -97,11 +98,11 @@ func TestHookEventVocabularyAgreesWithRegistrars(t *testing.T) {
 // An event outside the vocabulary warns (a client may fire more than the repo
 // encodes, e.g. Claude Code's Notification) instead of rejecting the write.
 func TestUnknownHookEvent(t *testing.T) {
-	if w := UnknownHookEvent([]byte(`{"event":"Notification","command":"./x.sh"}`)); !strings.Contains(w, `"Notification"`) {
+	if w := contract.UnknownHookEvent([]byte(`{"event":"Notification","command":"./x.sh"}`)); !strings.Contains(w, `"Notification"`) {
 		t.Errorf("unknown event: want a warning naming it, got %q", w)
 	}
 	for _, j := range []string{`{"event":"Stop","command":"./x.sh"}`, `{"event":`} {
-		if w := UnknownHookEvent([]byte(j)); w != "" {
+		if w := contract.UnknownHookEvent([]byte(j)); w != "" {
 			t.Errorf("%s: want no warning, got %q", j, w)
 		}
 	}

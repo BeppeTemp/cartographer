@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // multiKBServer supplies the two client endpoints exercised by connect: /health
@@ -1178,7 +1179,7 @@ func TestPrepareWorkspace_ALinkedGitDirIsAWarning(t *testing.T) {
 	}
 	exclude := filepath.Join(real, ".git", "info", "exclude")
 	before, _ := os.ReadFile(exclude)
-	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
+	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: contract.ScopeProject}
 	if err := prepareWorkspace(syncStreams{}, p, []string{"claude"}, false, rootsOwned); err != nil {
 		t.Fatalf("prepareWorkspace = %v, want the refusal as a warning", err)
 	}
@@ -1207,7 +1208,7 @@ func assertBootstrapOnlyForClaude(t *testing.T, dir, elsewhere string) {
 	}
 	var claude bool
 	for _, mf := range lf.ForProvider("claude").Managed {
-		if mf.Name == provisioning.BootstrapHookName {
+		if mf.Name == contract.BootstrapHookName {
 			claude = true
 		}
 	}
@@ -1215,7 +1216,7 @@ func assertBootstrapOnlyForClaude(t *testing.T, dir, elsewhere string) {
 		t.Errorf("the plain provider got no bootstrap hook: %+v", lf.ForProvider("claude").Managed)
 	}
 	for _, mf := range lf.ForProvider("codex").Managed {
-		if mf.Name == provisioning.BootstrapHookName {
+		if mf.Name == contract.BootstrapHookName {
 			t.Errorf("the refused provider is recorded as installed: %+v", mf)
 		}
 	}

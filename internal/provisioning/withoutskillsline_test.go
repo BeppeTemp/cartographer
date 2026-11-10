@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // TestWithoutSkillsLineMatchesGenerate pins #1408: stripping the skills line of
@@ -19,7 +20,7 @@ func TestWithoutSkillsLineMatchesGenerate(t *testing.T) {
 		{"preamble none", "<!-- cartographer: preamble: none -->\n<!-- cartographer: block: full -->\nOnly this.\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			build := func(withSkills bool) provisioning.Artifact {
+			build := func(withSkills bool) contract.Artifact {
 				return goldenBlock(t, func(root string) {
 					writeFile(t, filepath.Join(root, "data", "entities", "b.md"), "# b\n")
 					if tc.instructions != "" {
@@ -50,12 +51,12 @@ func TestWithoutSkillsLineMatchesGenerate(t *testing.T) {
 }
 
 func TestWithoutSkillsLineLeavesOthersAlone(t *testing.T) {
-	skill := provisioning.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a"}
+	skill := contract.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a"}
 	if got := provisioning.WithoutSkillsLine(skill); got.Name != "s" || got.Files != nil {
 		t.Errorf("skill changed: %+v", got)
 	}
-	bundle := provisioning.Artifact{Kind: "instructions", Name: "x", Source: "bundle",
-		Files: []provisioning.ArtifactFile{{Path: "instructions.md", Content: []byte("a\n\nSkills: x.\n")}}}
+	bundle := contract.Artifact{Kind: "instructions", Name: "x", Source: "bundle",
+		Files: []contract.ArtifactFile{{Path: "instructions.md", Content: []byte("a\n\nSkills: x.\n")}}}
 	if got := provisioning.WithoutSkillsLine(bundle); string(got.Files[0].Content) != "a\n\nSkills: x.\n" {
 		t.Error("non-KB artifact rewritten")
 	}

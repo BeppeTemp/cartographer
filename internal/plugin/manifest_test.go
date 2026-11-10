@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const validManifest = `schema: 1
@@ -97,7 +97,7 @@ func TestParseManifestProblems(t *testing.T) {
 		{"unknown nested key", validManifest + "permissions:\n  disk: all\n", `unknown key "disk"`},
 		{"alias", validManifest + "x: &a 1\ny: *a\n", "aliases"},
 		{"second document", validManifest + "---\nschema: 1\n", "more than one"},
-		{"oversized", validManifest + "# " + strings.Repeat("x", provisioning.ArtifactMaxFileSize) + "\n", "over the"},
+		{"oversized", validManifest + "# " + strings.Repeat("x", contract.ArtifactMaxFileSize) + "\n", "over the"},
 		{"not yaml", "schema: [", "manifest:"},
 		{"no schema", edit("schema", ""), "schema: required"},
 		{"schema 2", edit("schema", "schema: 2"), "unsupported plugin schema 2"},

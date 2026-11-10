@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // pluginSet is what the installed plugins contribute to one run.
@@ -19,7 +20,7 @@ type pluginSet struct {
 	// Artifacts are the skills, agents and hooks of the active plugins, Files
 	// in memory, read back from the store and re-validated to the approved
 	// digest by plugin.State at this very call.
-	Artifacts []provisioning.Artifact
+	Artifacts []contract.Artifact
 	// Unreadable names the plugins that are enabled and approved but whose
 	// approved tree cannot be used now (not fetched, modified, invalid, or no
 	// store at all). They contribute nothing and retire nothing: what they
@@ -74,7 +75,7 @@ func loadActivePlugins(cfg *clientconfig.Config) pluginSet {
 // that contribute an artifact to it. A manifest carries a "plugin:" artifact
 // only from loadActivePlugins (pullTarget refuses a served one and
 // VerifiedManifest refuses a signed one), so this is the active set of that run.
-func manifestPlugins(m provisioning.Manifest) map[string]bool {
+func manifestPlugins(m contract.Manifest) map[string]bool {
 	var out map[string]bool
 	for _, a := range m.Artifacts {
 		if name := provisioning.PluginName(a.Source); name != "" {
@@ -229,7 +230,7 @@ func describePluginCollision(c provisioning.PluginCollision) string {
 		switch {
 		case s == "bundle":
 			labels[i] = "the bundle"
-		case provisioning.IsPluginSource(s):
+		case contract.IsPluginSource(s):
 			labels[i] = "plugin " + strings.TrimPrefix(s, "plugin:")
 		default:
 			labels[i] = "KB " + strings.TrimPrefix(s, "kb:")
@@ -249,7 +250,7 @@ func describePluginCollision(c provisioning.PluginCollision) string {
 // through report (nil: silent), then merges strictly so KB against KB is still
 // an error. Dropping comes first, or the strict merge would see plugin against
 // KB as a plain KB collision or let one claimant win silently.
-func mergeAcrossPlugins(arts []provisioning.Artifact, report func(provisioning.PluginCollision)) (provisioning.Manifest, error) {
+func mergeAcrossPlugins(arts []contract.Artifact, report func(provisioning.PluginCollision)) (contract.Manifest, error) {
 	kept, dropped := provisioning.DropPluginCollisions(arts)
 	if report != nil {
 		for _, c := range dropped {

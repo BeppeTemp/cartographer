@@ -94,7 +94,7 @@ func cmdApprove(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	var matches []provisioning.Artifact
+	var matches []contract.Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == kind && a.Name == name && (kbName == "" || a.Source == "kb:"+kbName) {
 			matches = append(matches, a)
@@ -199,7 +199,7 @@ func approvableKind(k string) bool {
 
 // approvalEntryName is the name the approval is stored under in the source KB.
 func approvalEntryName(kind, name string) string {
-	return provisioning.ApprovalName(provisioning.Artifact{Kind: kind, Name: name})
+	return provisioning.ApprovalName(contract.Artifact{Kind: kind, Name: name})
 }
 
 // printApprovalPreview prints what approving a would let run, the one thing both
@@ -208,10 +208,10 @@ func approvalEntryName(kind, name string) string {
 // size and execute bit and the content of the files that decide what runs.
 // Everything the server chose (names, source, paths, target) goes through
 // escapeControl.
-func printApprovalPreview(w io.Writer, a provisioning.Artifact) error {
+func printApprovalPreview(w io.Writer, a contract.Artifact) error {
 	source := escapeControl(strings.TrimPrefix(a.Source, "kb:"))
 	name := escapeControl(a.Name)
-	files, err := provisioning.ReadArtifactFiles(a, nil, nil)
+	files, err := contract.ReadArtifactFiles(a, nil, nil)
 	if a.Kind == "mcp" {
 		if err != nil || len(files) != 1 {
 			return fmt.Errorf("invalid MCP descriptor")
@@ -256,14 +256,14 @@ const maxApprovalLines = 200
 // with its size and execute bit, then the content of the files that decide what
 // runs (hook.json, every executable file, the frontmatter of a skill or agent
 // that declares hooks or MCP servers) (D1141).
-func printApprovalContent(w io.Writer, a provisioning.Artifact, files []provisioning.ArtifactFile) {
+func printApprovalContent(w io.Writer, a contract.Artifact, files []contract.ArtifactFile) {
 	printApprovalFiles(w, a, files, false)
 }
 
 // printApprovalFiles is printApprovalContent; all also prints the content of the
 // files that do not decide what runs (a skill or agent body), for an update that
 // asks consent for a changed text.
-func printApprovalFiles(w io.Writer, a provisioning.Artifact, files []provisioning.ArtifactFile, all bool) {
+func printApprovalFiles(w io.Writer, a contract.Artifact, files []contract.ArtifactFile, all bool) {
 	fmt.Fprintln(w, "files:")
 	for _, f := range files {
 		mark := ""
@@ -325,7 +325,7 @@ func cmdApprovePending(args []string) int {
 		return 2
 	}
 	opts := provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes()}
-	var pending, mcps []provisioning.Artifact
+	var pending, mcps []contract.Artifact
 	for _, a := range m.Artifacts {
 		if kbName != "" && a.Source != "kb:"+kbName {
 			continue

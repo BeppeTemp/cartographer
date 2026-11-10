@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func countBlocks(s string) int { return strings.Count(s, provenanceBlockBeginPrefix) }
@@ -20,7 +21,7 @@ func TestStampArtifact_OnlyStampedKinds(t *testing.T) {
 		"skill": true, "agent": true,
 		"hook": false, "mcp": false, "instructions": false,
 	} {
-		got := stampArtifact(content, Artifact{Kind: kind, Name: "x", Source: "kb:wiki", ContentHash: "h"})
+		got := stampArtifact(content, contract.Artifact{Kind: kind, Name: "x", Source: "kb:wiki", ContentHash: "h"})
 		stamped := countBlocks(string(got)) == 1
 		if stamped != want {
 			t.Errorf("kind %q: stamped=%v, want %v (%s)", kind, stamped, want, got)
@@ -32,7 +33,7 @@ func TestStampArtifact_OnlyStampedKinds(t *testing.T) {
 }
 
 func TestStampArtifact_IsAFixedPoint(t *testing.T) {
-	a := Artifact{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "abc123"}
+	a := contract.Artifact{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "abc123"}
 	once := stampArtifact([]byte("# Runbooks\n\nBody.\n"), a)
 	twice := stampArtifact(once, a)
 	if string(once) != string(twice) {
@@ -52,7 +53,7 @@ func TestStampArtifact_IsAFixedPoint(t *testing.T) {
 }
 
 func TestStampArtifact_Content(t *testing.T) {
-	kb := stampArtifact([]byte("# Body\n"), Artifact{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "abc123"})
+	kb := stampArtifact([]byte("# Body\n"), contract.Artifact{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "abc123"})
 	for _, want := range []string{`KB "wiki"`, "skills/runbooks/SKILL.md", "abc123", "artifact_write"} {
 		if !strings.Contains(string(kb), want) {
 			t.Errorf("KB stamp does not mention %q:\n%s", want, kb)
@@ -64,7 +65,7 @@ func TestStampArtifact_Content(t *testing.T) {
 		t.Errorf("stamp must not carry the manifest revision:\n%s", kb)
 	}
 
-	bundled := stampArtifact([]byte("# Body\n"), Artifact{Kind: "skill", Name: "kb-create", Source: "bundle", BuiltIn: true, ContentHash: "def456"})
+	bundled := stampArtifact([]byte("# Body\n"), contract.Artifact{Kind: "skill", Name: "kb-create", Source: "bundle", BuiltIn: true, ContentHash: "def456"})
 	if strings.Contains(string(bundled), "artifact_write") {
 		t.Errorf("a bundled artifact has no KB to write back to:\n%s", bundled)
 	}
@@ -72,13 +73,13 @@ func TestStampArtifact_Content(t *testing.T) {
 		t.Errorf("bundled stamp does not state its source:\n%s", bundled)
 	}
 
-	agent := stampArtifact([]byte("Body.\n"), Artifact{Kind: "agent", Name: "reviewer", Source: "kb:wiki", ContentHash: "h"})
+	agent := stampArtifact([]byte("Body.\n"), contract.Artifact{Kind: "agent", Name: "reviewer", Source: "kb:wiki", ContentHash: "h"})
 	if !strings.Contains(string(agent), "agents/reviewer.md") {
 		t.Errorf("agent stamp does not name its KB path:\n%s", agent)
 	}
 
 	// Empty content: block only, no leading blank lines.
-	empty := stampArtifact(nil, Artifact{Kind: "skill", Name: "x", Source: "kb:wiki", ContentHash: "h"})
+	empty := stampArtifact(nil, contract.Artifact{Kind: "skill", Name: "x", Source: "kb:wiki", ContentHash: "h"})
 	if !strings.HasPrefix(string(empty), provenanceBlockBeginPrefix) {
 		t.Errorf("empty content should yield the block alone, got %q", empty)
 	}
@@ -89,12 +90,12 @@ func TestStampArtifact_Content(t *testing.T) {
 // warning: failing the whole sync over one malformed KB artifact would be
 // disproportionate.
 func TestApply_SkillWithoutPrincipalFile_WarnsAndMaterializes(t *testing.T) {
-	m := Manifest{Revision: "r1", Artifacts: []Artifact{{
+	m := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{{
 		Kind:        "skill",
 		Name:        "broken",
 		Source:      "kb:wiki",
 		ContentHash: "h",
-		Files:       []ArtifactFile{{Path: "notes.md", Content: []byte("no SKILL.md here\n")}},
+		Files:       []contract.ArtifactFile{{Path: "notes.md", Content: []byte("no SKILL.md here\n")}},
 	}}}
 
 	baseDir := t.TempDir()
@@ -125,12 +126,12 @@ func TestApply_SkillWithoutPrincipalFile_WarnsAndMaterializes(t *testing.T) {
 func TestApply_HookFilesAreByteIdentical(t *testing.T) {
 	script := "#!/bin/sh\necho hi\n"
 	hookJSON := "{\"event\":\"SessionStart\",\"command\":\"./run.sh\"}\n"
-	m := Manifest{Revision: "r1", Artifacts: []Artifact{{
+	m := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{{
 		Kind:        "hook",
 		Name:        "greet",
 		Source:      "kb:wiki",
 		ContentHash: "h",
-		Files: []ArtifactFile{
+		Files: []contract.ArtifactFile{
 			{Path: "run.sh", Content: []byte(script), Executable: true},
 			{Path: "hook.json", Content: []byte(hookJSON)},
 		},
@@ -164,7 +165,7 @@ func TestApply_PlaceholderArtifact_NoDriftOnResync(t *testing.T) {
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: runbooks\ndescription: d\n---\nSee {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -216,7 +217,7 @@ func TestApply_PlaceholderArtifact_NoDriftOnResync(t *testing.T) {
 // what was between them. Now the quote and the text after it survive, and a
 // second stamp is a fixed point.
 func TestStampArtifact_KeepsAQuotedProvenanceBlock(t *testing.T) {
-	a := Artifact{Kind: "skill", Name: "d138", Source: "kb:wiki", ContentHash: "h"}
+	a := contract.Artifact{Kind: "skill", Name: "d138", Source: "kb:wiki", ContentHash: "h"}
 	src := "How the stamp looks:\n\n```\n" + provenanceBlockBegin + "\nKEEP-ME\n" + provenanceBlockEnd + "\n```\n\nKEEP-TOO\n"
 	once := string(stampArtifact([]byte(src), a))
 	if !strings.Contains(once, "KEEP-ME") || !strings.Contains(once, "KEEP-TOO") || !strings.HasPrefix(once, src) {

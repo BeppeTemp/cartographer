@@ -8,14 +8,15 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // hookArtifact is a built-in hook (no approval step) with the given files.
-func builtInHook(name, hash string, files map[string]string) Artifact {
-	a := Artifact{Kind: "hook", Name: name, ContentHash: hash, Source: "bundle", BuiltIn: true}
+func builtInHook(name, hash string, files map[string]string) contract.Artifact {
+	a := contract.Artifact{Kind: "hook", Name: name, ContentHash: hash, Source: "bundle", BuiltIn: true}
 	for _, p := range []string{"hook.json", "extra.sh"} {
 		if body, ok := files[p]; ok {
-			a.Files = append(a.Files, ArtifactFile{Path: p, Content: []byte(body)})
+			a.Files = append(a.Files, contract.ArtifactFile{Path: p, Content: []byte(body)})
 		}
 	}
 	return a
@@ -26,8 +27,8 @@ func builtInHook(name, hash string, files map[string]string) Artifact {
 // installed but not registered.
 func guardHookJSON(t *testing.T, p configurator.Provider) string {
 	t.Helper()
-	for _, ev := range HookEventNames() {
-		if hookEventReaches(ev, p) {
+	for _, ev := range contract.HookEventNames() {
+		if contract.HookEventReaches(ev, p) {
 			return `{"event":"` + ev + `","command":"./extra.sh"}`
 		}
 	}
@@ -45,7 +46,7 @@ func registrationFiles(p configurator.Provider, name string) []string {
 		out = append(out, filepath.Join(m.settingsFile...))
 	}
 	if m.pluginPath != nil {
-		out = append(out, m.pluginPath(name, ScopeGlobal))
+		out = append(out, m.pluginPath(name, contract.ScopeGlobal))
 	}
 	return out
 }
@@ -67,7 +68,7 @@ func readAll(t *testing.T, base string, rels []string) string {
 // file only. The registration goes when the hook itself is pruned, on every
 // provider with a hook cell.
 func TestApply_DroppedHookFileKeepsTheRegistration(t *testing.T) {
-	providers := Destinations("hook", "guard")
+	providers := contract.Destinations("hook", "guard")
 	if len(providers) == 0 {
 		t.Fatal("no provider has a hook cell")
 	}
@@ -83,7 +84,7 @@ func TestApply_DroppedHookFileKeepsTheRegistration(t *testing.T) {
 				t.Fatalf("%s has a hook cell and no registration mechanism", p)
 			}
 			base := t.TempDir()
-			first := Manifest{Revision: "r1", Artifacts: []Artifact{
+			first := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 				builtInHook("guard", "h1", map[string]string{"hook.json": guardHookJSON(t, p), "extra.sh": "#!/bin/sh\n"}),
 			}}
 			res, err := Apply(first, ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true})
@@ -99,7 +100,7 @@ func TestApply_DroppedHookFileKeepsTheRegistration(t *testing.T) {
 				t.Fatalf("%s: the first apply did not register the hook (warnings %v): %s", p, res.Warnings, before)
 			}
 
-			second := Manifest{Revision: "r2", Artifacts: []Artifact{
+			second := contract.Manifest{Revision: "r2", Artifacts: []contract.Artifact{
 				builtInHook("guard", "h2", map[string]string{"hook.json": guardHookJSON(t, p)}),
 			}}
 			res2, err := Apply(second, ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true, Lock: res.NewLock})
@@ -123,7 +124,7 @@ func TestApply_DroppedHookFileKeepsTheRegistration(t *testing.T) {
 			if !dropped || !kept {
 				t.Errorf("%s: pruned %v / lock %v, want extra.sh pruned and hook.json kept", p, res2.Pruned, res2.NewLock.Managed)
 			}
-			destRel := destDirScoped("hook", "guard", p, ScopeGlobal)
+			destRel := contract.DestDirScoped("hook", "guard", p, contract.ScopeGlobal)
 			if _, err := os.Stat(filepath.Join(base, destRel, "extra.sh")); !os.IsNotExist(err) {
 				t.Errorf("%s: the dropped file is still on disk (err=%v)", p, err)
 			}
@@ -132,7 +133,7 @@ func TestApply_DroppedHookFileKeepsTheRegistration(t *testing.T) {
 			}
 
 			// The hook itself leaving the manifest still strips the registration.
-			res3, err := Apply(Manifest{Revision: "r3"}, ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true, Lock: res2.NewLock})
+			res3, err := Apply(contract.Manifest{Revision: "r3"}, ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true, Lock: res2.NewLock})
 			if err != nil {
 				t.Fatalf("third apply: %v", err)
 			}
@@ -166,7 +167,7 @@ func TestApply_RefusedUpdateKeepsThePreviousLockEntry(t *testing.T) {
 
 	t.Run("hook registration target behind a link", func(t *testing.T) {
 		base, elsewhere := t.TempDir(), t.TempDir()
-		first := Manifest{Revision: "r1", Artifacts: []Artifact{
+		first := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 			builtInHook("guard", "h1", map[string]string{"hook.json": guardHookJSON(t, configurator.ProviderClaudeCode), "extra.sh": "old script\n"}),
 		}}
 		res, err := Apply(first, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, SkipLockWrite: true})
@@ -181,7 +182,7 @@ func TestApply_RefusedUpdateKeepsThePreviousLockEntry(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		second := Manifest{Revision: "r2", Artifacts: []Artifact{
+		second := contract.Manifest{Revision: "r2", Artifacts: []contract.Artifact{
 			builtInHook("guard", "h2", map[string]string{"hook.json": guardHookJSON(t, configurator.ProviderClaudeCode), "extra.sh": "new script\n"}),
 		}}
 		res2, err := Apply(second, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, SkipLockWrite: true, Lock: res.NewLock})
@@ -202,7 +203,7 @@ func TestApply_RefusedUpdateKeepsThePreviousLockEntry(t *testing.T) {
 			}
 		}
 		// The script is not overwritten while its registration is refused.
-		data, err := os.ReadFile(filepath.Join(base, destDirScoped("hook", "guard", configurator.ProviderClaudeCode, ScopeGlobal), "extra.sh"))
+		data, err := os.ReadFile(filepath.Join(base, contract.DestDirScoped("hook", "guard", configurator.ProviderClaudeCode, contract.ScopeGlobal), "extra.sh"))
 		if err != nil || string(data) != "old script\n" {
 			t.Errorf("the script was overwritten by a refused update: %q, %v", data, err)
 		}
@@ -213,10 +214,10 @@ func TestApply_RefusedUpdateKeepsThePreviousLockEntry(t *testing.T) {
 
 	t.Run("skill file behind a link", func(t *testing.T) {
 		base, elsewhere := t.TempDir(), t.TempDir()
-		skill := func(hash, body string) Manifest {
-			return Manifest{Revision: hash, Artifacts: []Artifact{{
+		skill := func(hash, body string) contract.Manifest {
+			return contract.Manifest{Revision: hash, Artifacts: []contract.Artifact{{
 				Kind: "skill", Name: "alpha", ContentHash: hash, Source: "bundle", BuiltIn: true,
-				Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte(body)}},
+				Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte(body)}},
 			}}}
 		}
 		res, err := Apply(skill("h1", "# alpha\n"), ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, SkipLockWrite: true})
@@ -300,13 +301,13 @@ func registrationText(base string, rels []string) string {
 // the client never fires) must not leave the previous registration firing: an
 // update that the registrar skips strips the old entry, and the warning stays.
 func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T) {
-	for _, p := range Destinations("hook", "guard") {
+	for _, p := range contract.Destinations("hook", "guard") {
 		if p == configurator.ProviderCline {
 			continue // no per-hook registration: see TestApply_DroppedHookFileKeepsTheRegistration
 		}
 		unreached := ""
-		for _, ev := range HookEventNames() {
-			if !hookEventReaches(ev, p) {
+		for _, ev := range contract.HookEventNames() {
+			if !contract.HookEventReaches(ev, p) {
 				unreached = ev
 				break
 			}
@@ -321,7 +322,7 @@ func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T
 		for name, spec := range cases {
 			t.Run(string(p)+"/"+name, func(t *testing.T) {
 				base := t.TempDir()
-				first := Manifest{Revision: "r1", Artifacts: []Artifact{
+				first := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{
 					builtInHook("guard", "h1", map[string]string{"hook.json": guardHookJSON(t, p), "extra.sh": "#!/bin/sh\n"}),
 				}}
 				res, err := Apply(first, ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true})
@@ -337,7 +338,7 @@ func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T
 				if spec != "" {
 					files["hook.json"] = spec
 				}
-				second := Manifest{Revision: "r2", Artifacts: []Artifact{builtInHook("guard", "h2", files)}}
+				second := contract.Manifest{Revision: "r2", Artifacts: []contract.Artifact{builtInHook("guard", "h2", files)}}
 				res2, err := Apply(second, ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true, Lock: res.NewLock})
 				if err != nil {
 					t.Fatalf("second apply: %v", err)
@@ -348,7 +349,7 @@ func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T
 				if w := warningsMentioning(res2, `hook "guard"`); len(w) == 0 {
 					t.Errorf("no warning for the skipped registration: %v", res2.Warnings)
 				}
-				if _, err := os.Stat(filepath.Join(base, destDirScoped("hook", "guard", p, ScopeGlobal), "extra.sh")); err != nil {
+				if _, err := os.Stat(filepath.Join(base, contract.DestDirScoped("hook", "guard", p, contract.ScopeGlobal), "extra.sh")); err != nil {
 					t.Errorf("the hook's remaining file is gone: %v", err)
 				}
 
@@ -374,7 +375,7 @@ func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T
 					t.Errorf("the lock lost the remaining script: %+v", res2.NewLock.Managed)
 				}
 				if pluginPath := hookMechanisms[p].pluginPath; pluginPath != nil {
-					companion := filepath.FromSlash(pluginPath("guard", ScopeGlobal))
+					companion := filepath.FromSlash(pluginPath("guard", contract.ScopeGlobal))
 					inLock := func(l Lock) bool {
 						for _, mf := range l.Managed {
 							if filepath.Clean(filepath.FromSlash(mf.Path)) == companion {
@@ -422,10 +423,10 @@ func TestApply_RefusedWorkspaceHookUpdateKeepsThePreviousLockEntry(t *testing.T)
 		t.Run(string(p), func(t *testing.T) {
 			base, elsewhere := t.TempDir(), t.TempDir()
 			opts := func(lock Lock) ApplyOptions {
-				return ApplyOptions{Provider: p, Scope: ScopeProject, BaseDir: base, SkipLockWrite: true, Lock: lock}
+				return ApplyOptions{Provider: p, Scope: contract.ScopeProject, BaseDir: base, SkipLockWrite: true, Lock: lock}
 			}
-			hook := func(hash, script string) Manifest {
-				return Manifest{Revision: hash, Artifacts: []Artifact{
+			hook := func(hash, script string) contract.Manifest {
+				return contract.Manifest{Revision: hash, Artifacts: []contract.Artifact{
 					builtInHook("guard", hash, map[string]string{"hook.json": guardHookJSON(t, p), "extra.sh": script}),
 				}}
 			}
@@ -458,7 +459,7 @@ func TestApply_RefusedWorkspaceHookUpdateKeepsThePreviousLockEntry(t *testing.T)
 					t.Errorf("entry %s = %q, want the previous hash", mf.Path, mf.ContentHash)
 				}
 			}
-			data, err := os.ReadFile(filepath.Join(base, destDirScoped("hook", "guard", p, ScopeProject), "extra.sh"))
+			data, err := os.ReadFile(filepath.Join(base, contract.DestDirScoped("hook", "guard", p, contract.ScopeProject), "extra.sh"))
 			if err != nil || string(data) != "old script\n" {
 				t.Errorf("the script was overwritten by a refused update: %q, %v", data, err)
 			}
@@ -476,10 +477,10 @@ func TestApply_RefusedInstructionsBlockKeepsThePreviousLockEntries(t *testing.T)
 		t.Skip("symlink semantics differ on Windows")
 	}
 	base, elsewhere := t.TempDir(), t.TempDir()
-	instr := func(hash, body string) Manifest {
-		return Manifest{Revision: hash, Artifacts: []Artifact{{
+	instr := func(hash, body string) contract.Manifest {
+		return contract.Manifest{Revision: hash, Artifacts: []contract.Artifact{{
 			Kind: "instructions", Name: "kb-a", ContentHash: hash, Source: "kb:kb-a",
-			Files: []ArtifactFile{{Path: "instructions.md", Content: []byte(body)}},
+			Files: []contract.ArtifactFile{{Path: "instructions.md", Content: []byte(body)}},
 		}}}
 	}
 	opts := func(lock Lock) ApplyOptions {
@@ -533,10 +534,10 @@ func TestApply_RefusedMultiFileUpdateRewritesNoFile(t *testing.T) {
 		t.Skip("symlink semantics differ on Windows")
 	}
 	base, elsewhere := t.TempDir(), t.TempDir()
-	skill := func(hash, suffix string) Manifest {
-		return Manifest{Revision: hash, Artifacts: []Artifact{{
+	skill := func(hash, suffix string) contract.Manifest {
+		return contract.Manifest{Revision: hash, Artifacts: []contract.Artifact{{
 			Kind: "skill", Name: "alpha", ContentHash: hash, Source: "bundle", BuiltIn: true,
-			Files: []ArtifactFile{
+			Files: []contract.ArtifactFile{
 				{Path: "SKILL.md", Content: []byte("# alpha " + suffix + "\n")},
 				{Path: "zz-reference.md", Content: []byte("reference " + suffix + "\n")},
 			},
@@ -584,9 +585,9 @@ func TestApply_RefusedInstructionsRemovalKeepsThePathsHash(t *testing.T) {
 	opts := func(lock Lock) ApplyOptions {
 		return ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, SkipLockWrite: true, Lock: lock}
 	}
-	first := Manifest{Revision: "r1", Artifacts: []Artifact{{
+	first := contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{{
 		Kind: "instructions", Name: "kb-a", ContentHash: "h1", Source: "kb:kb-a",
-		Files: []ArtifactFile{{Path: "instructions.md", Content: []byte("first\n")}},
+		Files: []contract.ArtifactFile{{Path: "instructions.md", Content: []byte("first\n")}},
 	}}}
 	res, err := Apply(first, opts(Lock{}))
 	if err != nil {
@@ -608,7 +609,7 @@ func TestApply_RefusedInstructionsRemovalKeepsThePathsHash(t *testing.T) {
 	if err := os.Symlink(target, file); err != nil {
 		t.Fatal(err)
 	}
-	res2, err := Apply(Manifest{Revision: "r2"}, opts(res.NewLock))
+	res2, err := Apply(contract.Manifest{Revision: "r2"}, opts(res.NewLock))
 	if err != nil {
 		t.Fatalf("second apply: %v", err)
 	}

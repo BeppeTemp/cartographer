@@ -9,15 +9,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
-func kbOrderInstructions(name string) provisioning.Artifact {
+func kbOrderInstructions(name string) contract.Artifact {
 	body := name + " section.\n"
-	return provisioning.Artifact{
+	return contract.Artifact{
 		Kind: "instructions", Name: name, Source: "kb:" + name, Signed: true,
 		ContentHash: fmt.Sprintf("%x", sha256.Sum256([]byte(body))),
-		Files:       []provisioning.ArtifactFile{{Path: "instructions.md", Content: []byte(body)}},
+		Files:       []contract.ArtifactFile{{Path: "instructions.md", Content: []byte(body)}},
 	}
 }
 
@@ -40,12 +40,12 @@ func TestProjectionKBOrder(t *testing.T) {
 func TestSharedWorkspaceAgentsMD_NotRewrittenAcrossProviders(t *testing.T) {
 	dir := t.TempDir()
 	ws := t.TempDir()
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{kbOrderInstructions("kb-a"), kbOrderInstructions("kb-b"), kbOrderInstructions("kb-c")})
+	m := contract.MergeArtifacts([]contract.Artifact{kbOrderInstructions("kb-a"), kbOrderInstructions("kb-b"), kbOrderInstructions("kb-c")})
 	mk := func(p string) syncProjection {
-		return syncProjection{Provider: p, Workspace: ws, BaseDir: ws, KBs: []string{"kb-a", "kb-b", "kb-c"}, Scope: provisioning.ScopeProject}
+		return syncProjection{Provider: p, Workspace: ws, BaseDir: ws, KBs: []string{"kb-a", "kb-b", "kb-c"}, Scope: contract.ScopeProject}
 	}
 	ps := []syncProjection{mk("codex"), mk("opencode")}
-	manifests := map[string]provisioning.Manifest{projectionKey(ps[0]): m, projectionKey(ps[1]): m}
+	manifests := map[string]contract.Manifest{projectionKey(ps[0]): m, projectionKey(ps[1]): m}
 	kbOrder := map[string][]string{"codex": {"kb-c", "kb-a", "kb-b"}, "opencode": {"kb-b", "kb-c", "kb-a"}}
 
 	run := func() string {

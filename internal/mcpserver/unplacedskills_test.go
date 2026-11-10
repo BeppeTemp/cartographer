@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // D1700: a client that cannot install a KB's skills as files is told to read
@@ -48,14 +49,14 @@ func TestSyncPullListsTheCLISkillOnlyWhenAsked(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
 	bundle := fstest.MapFS{
-		"bundled/" + provisioning.CLISkillName + "/SKILL.md": {Data: []byte("---\nname: cartographer-cli\ndescription: x\nversion: \"1\"\n---\nbody\n")},
+		"bundled/" + contract.CLISkillName + "/SKILL.md": {Data: []byte("---\nname: cartographer-cli\ndescription: x\nversion: \"1\"\n---\nbody\n")},
 	}
 	has := func(args string) bool {
 		res, err := toolSyncPull(k, bundle, false, nil).Handler(narrowCtx, json.RawMessage(args))
 		if err != nil || res.IsError {
 			t.Fatalf("sync_pull %s: %v %+v", args, err, res)
 		}
-		return strings.Contains(res.Content[0].Text, `"name":"`+provisioning.CLISkillName+`"`)
+		return strings.Contains(res.Content[0].Text, `"name":"`+contract.CLISkillName+`"`)
 	}
 	if has(`{}`) {
 		t.Error("the cli skill is listed without the request")

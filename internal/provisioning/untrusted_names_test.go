@@ -6,14 +6,15 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 const hookingSkill = "---\nname: s\ndescription: d\nhooks:\n  Stop: []\n---\nbody\n"
 
 func TestArtifactRequiresApproval_NonCanonicalPathsAreNotAWayAround(t *testing.T) {
 	for _, p := range []string{"SKILL.md", "./SKILL.md", "a/../SKILL.md", "skill.md/"} {
-		a := Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h",
-			Files: []ArtifactFile{{Path: p, Content: []byte(hookingSkill)}}}
+		a := contract.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h",
+			Files: []contract.ArtifactFile{{Path: p, Content: []byte(hookingSkill)}}}
 		if !ArtifactRequiresApproval(a, ApplyOptions{}) {
 			t.Errorf("path %q: a skill declaring hooks must require approval", p)
 		}
@@ -21,7 +22,7 @@ func TestArtifactRequiresApproval_NonCanonicalPathsAreNotAWayAround(t *testing.T
 }
 
 func TestApply_NonCanonicalFilePathsAreRefusedAndWriteNothing(t *testing.T) {
-	cases := map[string][]ArtifactFile{
+	cases := map[string][]contract.ArtifactFile{
 		"dot-slash": {{Path: "./SKILL.md", Content: []byte(hookingSkill)}},
 		"dotdot":    {{Path: "a/../SKILL.md", Content: []byte(hookingSkill)}},
 		"duplicate": {{Path: "SKILL.md", Content: []byte("---\nname: s\ndescription: d\n---\n")}, {Path: "./SKILL.md", Content: []byte(hookingSkill)}},
@@ -31,8 +32,8 @@ func TestApply_NonCanonicalFilePathsAreRefusedAndWriteNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := configurator.ProviderClaudeCode
 			base := t.TempDir()
-			a := Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h", Files: files}
-			_, _ = Apply(Manifest{Revision: "h", Artifacts: []Artifact{a}}, ApplyOptions{Provider: p, BaseDir: base})
+			a := contract.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h", Files: files}
+			_, _ = Apply(contract.Manifest{Revision: "h", Artifacts: []contract.Artifact{a}}, ApplyOptions{Provider: p, BaseDir: base})
 			for _, f := range []string{"SKILL.md", "skill.md"} {
 				if exists(filepath.Join(installedAt(p, base, a), f)) {
 					t.Fatalf("%s: %s was written", name, f)
@@ -40,19 +41,19 @@ func TestApply_NonCanonicalFilePathsAreRefusedAndWriteNothing(t *testing.T) {
 			}
 		})
 	}
-	if err := CheckArtifactFilePaths([]ArtifactFile{{Path: "a/b.md"}, {Path: "SKILL.md"}}); err != nil {
+	if err := CheckArtifactFilePaths([]contract.ArtifactFile{{Path: "a/b.md"}, {Path: "SKILL.md"}}); err != nil {
 		t.Fatalf("canonical paths: %v", err)
 	}
 }
 
 func TestValidArtifactName_RefusesDotsSeparatorsAndReservedNames(t *testing.T) {
 	for _, n := range []string{"", ".", "..", "a/b", `a\b`, "con", "NUL", "com1", "LPT9", "aux.txt"} {
-		if validArtifactName(n) || ownableName(n) {
+		if contract.ValidArtifactName(n) || ownableName(n) {
 			t.Errorf("%q must not be a valid artifact name", n)
 		}
 	}
 	for _, n := range []string{"my-skill", "console", "comm", "a.b"} {
-		if !validArtifactName(n) {
+		if !contract.ValidArtifactName(n) {
 			t.Errorf("%q must stay valid", n)
 		}
 	}
@@ -69,9 +70,9 @@ func TestApply_ArtifactNamedDotNeverTouchesTheUsersOwnSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{".", ".."} {
-		a := Artifact{Kind: "skill", Name: name, Source: "kb:kb-a", ContentHash: "h",
-			Files: []ArtifactFile{{Path: "my-own-skill/SKILL.md", Content: []byte("evil")}}}
-		res, _ := Apply(Manifest{Revision: "h", Artifacts: []Artifact{a}}, ApplyOptions{Provider: p, BaseDir: base})
+		a := contract.Artifact{Kind: "skill", Name: name, Source: "kb:kb-a", ContentHash: "h",
+			Files: []contract.ArtifactFile{{Path: "my-own-skill/SKILL.md", Content: []byte("evil")}}}
+		res, _ := Apply(contract.Manifest{Revision: "h", Artifacts: []contract.Artifact{a}}, ApplyOptions{Provider: p, BaseDir: base})
 		if len(res.Refused) != 1 {
 			t.Errorf("name %q must be refused: %+v", name, res)
 		}
@@ -86,7 +87,7 @@ func TestValidArtifactFilePath_RefusesWindowsSpellings(t *testing.T) {
 		if ValidArtifactFilePath(p) {
 			t.Errorf("%q must be refused", p)
 		}
-		if CheckArtifactFilePaths([]ArtifactFile{{Path: p}}) == nil {
+		if CheckArtifactFilePaths([]contract.ArtifactFile{{Path: p}}) == nil {
 			t.Errorf("%q must fail CheckArtifactFilePaths", p)
 		}
 	}
@@ -99,7 +100,7 @@ func TestValidArtifactFilePath_RefusesWindowsSpellings(t *testing.T) {
 
 func TestValidArtifactName_RefusesTrailingDotBlankAndStream(t *testing.T) {
 	for _, n := range []string{"foo.", "foo..", "foo ", "foo:bar"} {
-		if validArtifactName(n) || ownableName(n) {
+		if contract.ValidArtifactName(n) || ownableName(n) {
 			t.Errorf("%q must not be a valid artifact name", n)
 		}
 	}
@@ -109,12 +110,12 @@ func TestApply_WindowsSpellingsOfSkillMDAreRefusedAndWriteNothing(t *testing.T) 
 	for _, path := range []string{"SKILL.md.", "SKILL.md ", "SKILL.md./x"} {
 		p := configurator.ProviderClaudeCode
 		base := t.TempDir()
-		a := Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h",
-			Files: []ArtifactFile{{Path: path, Content: []byte(hookingSkill)}}}
+		a := contract.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h",
+			Files: []contract.ArtifactFile{{Path: path, Content: []byte(hookingSkill)}}}
 		if !ArtifactRequiresApproval(a, ApplyOptions{}) && ValidArtifactFilePath(path) {
 			t.Errorf("%q: neither gated nor refused", path)
 		}
-		res, err := Apply(Manifest{Revision: "h", Artifacts: []Artifact{a}}, ApplyOptions{Provider: p, BaseDir: base})
+		res, err := Apply(contract.Manifest{Revision: "h", Artifacts: []contract.Artifact{a}}, ApplyOptions{Provider: p, BaseDir: base})
 		if err != nil || len(res.Refused) != 1 {
 			t.Errorf("%q: want one refusal and no error, got %v %+v", path, err, res)
 		}
@@ -127,11 +128,11 @@ func TestApply_WindowsSpellingsOfSkillMDAreRefusedAndWriteNothing(t *testing.T) 
 func TestApply_RefusedFilePathSkipsOnlyThatArtifactAndLeavesNoDir(t *testing.T) {
 	p := configurator.ProviderClaudeCode
 	base := t.TempDir()
-	bad := Artifact{Kind: "skill", Name: "bad", Source: "kb:kb-a", ContentHash: "h1",
-		Files: []ArtifactFile{{Path: "../SKILL.md", Content: []byte("x")}}}
-	good := Artifact{Kind: "skill", Name: "good", Source: "kb:kb-a", ContentHash: "h2",
-		Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: good\ndescription: d\n---\n")}}}
-	res, err := Apply(Manifest{Revision: "h", Artifacts: []Artifact{bad, good}}, ApplyOptions{Provider: p, BaseDir: base})
+	bad := contract.Artifact{Kind: "skill", Name: "bad", Source: "kb:kb-a", ContentHash: "h1",
+		Files: []contract.ArtifactFile{{Path: "../SKILL.md", Content: []byte("x")}}}
+	good := contract.Artifact{Kind: "skill", Name: "good", Source: "kb:kb-a", ContentHash: "h2",
+		Files: []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: good\ndescription: d\n---\n")}}}
+	res, err := Apply(contract.Manifest{Revision: "h", Artifacts: []contract.Artifact{bad, good}}, ApplyOptions{Provider: p, BaseDir: base})
 	if err != nil {
 		t.Fatalf("a refused artifact must not abort the sync: %v", err)
 	}
@@ -151,11 +152,11 @@ func TestApply_RefusedFilePathSkipsOnlyThatArtifactAndLeavesNoDir(t *testing.T) 
 
 func TestValidArtifactName_RefusesEveryControlCharacter(t *testing.T) {
 	for _, n := range []string{"a\x1bb", "a\x1b]0;x\x07", "a\x7fb", "a\u0085b", "a\u009bb", "a\x00b", "a\nb", "a\tb"} {
-		if validArtifactName(n) || ValidArtifactName(n) {
+		if contract.ValidArtifactName(n) || ValidArtifactName(n) {
 			t.Errorf("%q must not be a valid artifact name", n)
 		}
 	}
-	if !validArtifactName("café-agent_1") {
+	if !contract.ValidArtifactName("café-agent_1") {
 		t.Error("a printable non-ASCII name must stay valid")
 	}
 }
