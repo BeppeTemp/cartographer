@@ -420,3 +420,46 @@ func TestSurveyors_OldRoutesAreGone(t *testing.T) {
 		}
 	}
 }
+
+// The heartbeat's tasks list: stored, interval clamped to 3600..691200
+// (default 86400), a bad kind or more than 16 entries is a 400 naming tasks,
+// and a beat without the field is what an older Surveyor sends.
+func TestSurveyors_TasksAreStoredAndClamped(t *testing.T) {
+	t.Parallel()
+	f := newSurveyorFixture(t)
+	tasks := []map[string]any{
+		{"kind": "repair", "interval_seconds": 10},
+		{"kind": "doctor"},
+		{"kind": "poll", "interval_seconds": 99999999},
+		{"kind": "prompt", "interval_seconds": 7200},
+	}
+	if rr := f.post(t, "surveyor-a", beat(map[string]any{"tasks": tasks})); rr.Code != http.StatusOK {
+		t.Fatalf("tasks: %d %s", rr.Code, rr.Body)
+	}
+	got := f.multi.surveyors.live("kb-a")[0].Tasks
+	want := []int{3600, 86400, 691200, 7200}
+	if len(got) != 4 {
+		t.Fatalf("tasks = %+v", got)
+	}
+	for i, w := range want {
+		if got[i].IntervalSeconds != w {
+			t.Errorf("task %d interval = %d, want %d", i, got[i].IntervalSeconds, w)
+		}
+	}
+	many := make([]map[string]any, 17)
+	for i := range many {
+		many[i] = map[string]any{"kind": "repair"}
+	}
+	for name, bad := range map[string][]map[string]any{"seventeen": many, "bad kind": {{"kind": "Repair!"}}, "empty kind": {{"kind": ""}}} {
+		rr := f.post(t, "surveyor-a", beat(map[string]any{"tasks": bad}))
+		if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "tasks") {
+			t.Errorf("%s: %d %s", name, rr.Code, rr.Body)
+		}
+	}
+	if rr := f.post(t, "surveyor-a", beat(nil)); rr.Code != http.StatusOK {
+		t.Fatalf("no tasks: %d", rr.Code)
+	}
+	if got := f.multi.surveyors.live("kb-a")[0].Tasks; len(got) != 0 {
+		t.Errorf("tasks without the field = %+v", got)
+	}
+}

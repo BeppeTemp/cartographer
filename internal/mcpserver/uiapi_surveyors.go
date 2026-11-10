@@ -28,6 +28,10 @@ const (
 	maxSurveyorBody          = 64 << 10
 	maxSurveyorKBs           = 32
 	maxSurveyorBudgets       = 8
+	maxSurveyorTasks         = 16
+	minTaskInterval          = 3600
+	maxTaskInterval          = 8 * 24 * 3600
+	defaultTaskInterval      = 24 * 3600
 	maxSurveyorsPerPrincipal = 16
 	maxSurveyorsTotal        = 256
 	minSurveyorInterval      = 15
@@ -48,6 +52,7 @@ var (
 	profileRe       = regexp.MustCompile(`^[a-z0-9._-]{1,40}$`)
 	surveyorStates  = map[string]bool{"idle": true, "running": true, "waiting": true, "budget_exhausted": true, "stopped": true}
 	surveyorTierSet = map[string]bool{"": true, "small": true, "large": true}
+	taskKindRe      = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 )
 
 // surveyorBudget is one model profile's spend against its daily limit (D1258).
@@ -66,6 +71,13 @@ type surveyorLastRun struct {
 	Commits     int64     `json:"commits"`
 }
 
+// surveyorTask is one task kind a surveyor declares it runs, with how often it
+// intends to (seconds, clamped to 3600..691200).
+type surveyorTask struct {
+	Kind            string `json:"kind"`
+	IntervalSeconds int    `json:"interval_seconds"`
+}
+
 // surveyorDecl is one accepted heartbeat. KBs holds only the KBs the principal
 // may write and this server mounts.
 type surveyorDecl struct {
@@ -79,6 +91,7 @@ type surveyorDecl struct {
 	LastRun         *surveyorLastRun
 	Budgets         []surveyorBudget
 	NextWindowAt    *time.Time
+	Tasks           []surveyorTask
 	ReceivedAt      time.Time
 }
 
@@ -240,6 +253,7 @@ type surveyorBeat struct {
 	} `json:"last_run"`
 	Budgets      []surveyorBudget `json:"budgets"`
 	NextWindowAt *time.Time       `json:"next_window_at"`
+	Tasks        []surveyorTask   `json:"tasks"`
 }
 
 // cleanText truncates to max runes and strips control characters: what a
@@ -315,6 +329,25 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 	case len(beat.Budgets) > maxSurveyorBudgets:
 		bad("at most 8 budgets", "budgets")
 		return
+	case len(beat.Tasks) > maxSurveyorTasks:
+		bad("tasks lists at most 16 kinds", "tasks")
+		return
+	}
+	tasks := make([]surveyorTask, 0, len(beat.Tasks))
+	for _, t := range beat.Tasks {
+		if !taskKindRe.MatchString(t.Kind) {
+			bad("a task needs a kind of [a-z0-9-], 1-32 characters", "tasks")
+			return
+		}
+		switch {
+		case t.IntervalSeconds == 0:
+			t.IntervalSeconds = defaultTaskInterval
+		case t.IntervalSeconds < minTaskInterval:
+			t.IntervalSeconds = minTaskInterval
+		case t.IntervalSeconds > maxTaskInterval:
+			t.IntervalSeconds = maxTaskInterval
+		}
+		tasks = append(tasks, t)
 	}
 	budgets := make([]surveyorBudget, 0, len(beat.Budgets))
 	for _, b := range beat.Budgets {
@@ -365,7 +398,7 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 		d := surveyorDecl{
 			Principal: p.ID, Surveyor: beat.Surveyor, Perimeter: beat.Perimeter,
 			Version: cleanText(beat.Version, 32), KBs: accepted, State: beat.State,
-			IntervalSeconds: interval, Budgets: budgets, ReceivedAt: now.UTC(),
+			IntervalSeconds: interval, Budgets: budgets, Tasks: tasks, ReceivedAt: now.UTC(),
 		}
 		if lr := beat.LastRun; lr != nil {
 			at := lr.At

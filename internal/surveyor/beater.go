@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -38,7 +39,10 @@ type Beater struct {
 	Version   string
 	KBs       []string
 	Tiers     map[string]string // profile name -> tier
-	Interval  time.Duration     // DefaultBeatInterval when zero
+	// Tasks are the task kinds this surveyor runs (DeclaredTasks), sent with
+	// every beat; empty sends none, which is what a surveyor without the field did.
+	Tasks    []TaskDecl
+	Interval time.Duration // DefaultBeatInterval when zero
 	// Settings is the report posted after the first beat and whenever an answer
 	// says settings_wanted; nil posts none.
 	Settings *surveyorconfig.Report
@@ -131,11 +135,41 @@ type beatBody struct {
 	LastRun         *beatLastRun `json:"last_run,omitempty"`
 	Budgets         []beatBudget `json:"budgets,omitempty"`
 	NextWindowAt    *time.Time   `json:"next_window_at,omitempty"`
+	Tasks           []TaskDecl   `json:"tasks,omitempty"`
+}
+
+// TaskDecl is one task kind a heartbeat declares. IntervalSeconds, when set, is
+// how often this surveyor intends to run it.
+type TaskDecl struct {
+	Kind            string `json:"kind"`
+	IntervalSeconds int    `json:"interval_seconds,omitempty"`
+}
+
+// DeclaredTasks lists the task kinds of a config for the heartbeat: names
+// deduplicated and sorted, with the interval for the kinds that have one
+// (repair, from repair_interval).
+func DeclaredTasks(cfg *Config) []TaskDecl {
+	byKind := map[string]TaskDecl{}
+	for _, t := range cfg.Tasks {
+		d := TaskDecl{Kind: t.Kind}
+		if t.Kind == repairKindName {
+			if iv, ok := t.Options["repair_interval"].(time.Duration); ok {
+				d.IntervalSeconds = int(iv / time.Second)
+			}
+		}
+		byKind[t.Kind] = d
+	}
+	out := make([]TaskDecl, 0, len(byKind))
+	for _, d := range byKind {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
+	return out
 }
 
 func (b *Beater) body(s State) beatBody {
 	out := beatBody{Surveyor: b.Surveyor, Perimeter: b.Perimeter, Version: b.Version, KBs: b.KBs, State: s.Run,
-		IntervalSeconds: int(b.interval() / time.Second)}
+		IntervalSeconds: int(b.interval() / time.Second), Tasks: b.Tasks}
 	if !s.LastRun.At.IsZero() {
 		out.LastRun = &beatLastRun{At: s.LastRun.At.UTC(), UnitsDone: s.LastRun.Units, Commits: s.LastRun.Commits}
 	}

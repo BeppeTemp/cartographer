@@ -156,6 +156,9 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "tasks[].kbs", Scope: settingschema.ScopeSurveyor, Type: "list", Values: "a non-empty subset of the perimeter's kbs", Default: "[]",
 		Example:     "- kb-a",
 		Description: "Prompt task: the KBs it runs on; omit it for every KB of the perimeter."},
+	// Task kind repair (no model).
+	{Path: "tasks[].repair_interval", Scope: settingschema.ScopeSurveyor, Type: "duration", Values: "Go duration of at least 1h", Default: "24h", Example: "24h",
+		Description: "Repair task: how long a KB rests after a repair run before the Surveyor repairs it again (a restart repairs once). A repair task takes no model."},
 	// Task kind poll (D1262).
 	{Path: "tasks[].default_interval", Scope: settingschema.ScopeSurveyor, Type: "duration", Values: "Go duration at or above min_interval", Default: "24h", Example: "12h",
 		Description: "Poll task: how long after its last check a feed is due again, unless the Source sets feed_interval."},

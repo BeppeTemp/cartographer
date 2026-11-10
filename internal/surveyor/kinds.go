@@ -40,6 +40,11 @@ type Kind struct {
 	// the entries before it left (synthesis), and an entry listed first would
 	// shadow them. The loader refuses any other position.
 	Last bool
+	// NoModel means the kind never calls a model: its entry sets no model
+	// profile (a model: key is a load error), the runner builds no model
+	// client for it and spends no grant on it. A config whose every task is
+	// NoModel may omit models.
+	NoModel bool
 	// Build is the execution half: it makes one Instance from the decoded
 	// options of one tasks[] entry (so two entries of a repeatable kind are two
 	// independent instances). A kind without Build can be loaded and described
@@ -123,7 +128,7 @@ func NewKinds(kinds ...Kind) *Kinds {
 // DefaultKinds is the production registry: each plan that adds a task kind
 // registers it here, one line apiece.
 func DefaultKinds() *Kinds {
-	return NewKinds(IngestKind(), DoctorKind(), PollKind(), promptKind(), SynthesisKind())
+	return NewKinds(IngestKind(), DoctorKind(), PollKind(), promptKind(), RepairKind(), SynthesisKind())
 }
 
 // Lookup returns the kind with the given name.

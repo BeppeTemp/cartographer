@@ -93,6 +93,7 @@ type Runner struct {
 	cfg       *Config
 	opt       RunnerOptions
 	instances []Instance // by cfg.Tasks index
+	noModel   []bool     // by cfg.Tasks index: a NoModel kind has no profile, grant or model
 	budget    *Budget
 	replica   string
 	last      LastRun
@@ -136,10 +137,11 @@ func NewRunner(cfg *Config, kinds *Kinds, opt RunnerOptions) (*Runner, error) {
 			prof, _ := cfg.Profile(t.Profile)
 			b.Bind(cfg, prof)
 		}
-		if _, ok := opt.Models[t.Profile]; !ok {
+		if _, ok := opt.Models[t.Profile]; !ok && !k.NoModel {
 			return nil, fmt.Errorf("tasks[%d]: no model built for profile %q", i, t.Profile)
 		}
 		r.instances = append(r.instances, inst)
+		r.noModel = append(r.noModel, k.NoModel)
 	}
 	var loc *time.Location
 	if cfg.Window != nil {
@@ -262,8 +264,8 @@ func (r *Runner) tick(ctx context.Context) int {
 		return ExitOK
 	}
 	runnable := false
-	for _, t := range r.cfg.Tasks {
-		if r.budget.Grant(t.Profile) > 0 {
+	for i, t := range r.cfg.Tasks {
+		if r.noModel[i] || r.budget.Grant(t.Profile) > 0 {
 			runnable = true
 		}
 	}
@@ -315,7 +317,7 @@ kbs:
 				if disabled[t.Profile] || broken[i] {
 					continue
 				}
-				if r.budget.Grant(t.Profile) <= 0 {
+				if !r.noModel[i] && r.budget.Grant(t.Profile) <= 0 { // a NoModel task spends no tokens
 					budget = true
 					continue
 				}
@@ -345,7 +347,9 @@ kbs:
 			}
 			t := r.cfg.Tasks[idx]
 			tried[idx][kb+"\x00"+item.Key] = true
-			r.budget.Touch(kb)
+			if !r.noModel[idx] {
+				r.budget.Touch(kb)
+			}
 			prof, _ := r.cfg.Profile(t.Profile)
 			started := r.opt.Now()
 			res, err := r.instances[idx].Run(ctx, item, Runtime{
@@ -354,8 +358,13 @@ kbs:
 			})
 			r.opt.Logf("%s", taskMetric(r.cfg.Name, r.replica, kb, t, prof.Model, item.Key, r.opt.Now().Sub(started), res, err))
 			r.budget.Charge(kb, t.Profile, res.Tokens)
-			r.budget.Note(kb, res.Units, res.Commits)
-			r.budget.Summarize(kb, res.Summary)
+			// A NoModel task that did nothing (a repair with nothing to fix) leaves no
+			// closing entry: it would be a commit in a KB nothing else changed, every
+			// interval. Note touches the KB, so it is skipped too.
+			if !r.noModel[idx] || res.Units > 0 || res.Commits > 0 || err != nil {
+				r.budget.Note(kb, res.Units, res.Commits)
+				r.budget.Summarize(kb, res.Summary)
+			}
 			switch {
 			case err == nil:
 				consecutive = 0
