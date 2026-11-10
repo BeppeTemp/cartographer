@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -351,7 +351,7 @@ func TestGuide_ColdStartAndProceduresInInitialize(t *testing.T) {
 func TestMapCreateDescriptionNamesReservedNames(t *testing.T) {
 	t.Parallel()
 	d := toolMapCreate(setupTestKB(t)).Description
-	for _, r := range kb.ReservedMapNames {
+	for _, r := range okf.ReservedMapNames {
 		if !strings.Contains(d, r) {
 			t.Errorf("map_create description does not name reserved %q: %s", r, d)
 		}

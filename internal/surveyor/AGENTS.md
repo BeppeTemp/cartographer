@@ -9,7 +9,7 @@ money and writes to KBs when nobody is looking.
   come from the config directory or the binary, never from what a KB contains.
 - **The budget is rebuilt from the KBs' logs, never from local disk** (`budget.go`): a Surveyor has no
   volume. The closing entry's format is the contract the reader parses.
-- **`serve` never links this package**, and this package imports no `internal/mcpserver` or
+- **`serve` never links this package** (the binary does: `cartographer surveyor` is a subcommand of the same executable), and this package imports no `internal/mcpserver` or
   `internal/kb` (`imports_test.go` pins both).
 - **Shutdown writes the closing entries through the short-timeout caller** (`RunnerOptions.CloseCallers`):
   client calls take no context and time out at 30 s, more than Kubernetes' grace period.

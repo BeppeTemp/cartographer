@@ -666,31 +666,21 @@ func ensureInfoExclude(kbDir, entry string) error {
 }
 
 // ServicesNamespace is the first ID segment of the service-descriptor
-// namespace. Unlike every map, it is rooted at kb.Root, not DataRoot():
-// ResolvePath is the one place that picks the root, and every operation that
-// turns a concept ID into a physical path must go through it — a direct
-// filepath.Join(kb.DataRoot(), id) lands in data/services/, which no read
-// ever looks at (D269). For the same reason it is not a valid map or journal
-// name (see CreateMapWithContract).
-const ServicesNamespace = "services"
-
-// ReservedMapNames is the one set of map names map_create and ScaffoldMap
-// refuse (#1316); only ServicesNamespace today. The refusal text, the
-// map_create description and the cold-start section of the initialize guide
-// all read it, so the messages cannot drift. TRAP: `skills`, `agents`, `hooks`
-// are filtered out of the maps list but are not refused here, on purpose.
-var ReservedMapNames = []string{ServicesNamespace}
+// namespace; the value lives in okf (see okf.ServicesNamespace) so that client
+// packages can read it without linking the data plane. The reserved map names
+// are okf.ReservedMapNames.
+const ServicesNamespace = okf.ServicesNamespace
 
 // reservedMapError is the refusal for a reserved map name: it names the set,
 // says where documented services live and offers a name that passes the
 // kebab-case check, so the agent can act on it in one call.
 func reservedMapError(name string) error {
 	return fmt.Errorf("%w: map name %q is reserved for service descriptors (the KB-root %s/ namespace); reserved names: %s. Documented services are written as pages under %s/<id> (type Service), not in a map; for other notes choose another name, e.g. service-notes",
-		okf.ErrInvalidPath, name, ServicesNamespace, strings.Join(ReservedMapNames, ", "), ServicesNamespace)
+		okf.ErrInvalidPath, name, ServicesNamespace, strings.Join(okf.ReservedMapNames, ", "), ServicesNamespace)
 }
 
 func isReservedMapName(name string) bool {
-	for _, r := range ReservedMapNames {
+	for _, r := range okf.ReservedMapNames {
 		if name == r {
 			return true
 		}

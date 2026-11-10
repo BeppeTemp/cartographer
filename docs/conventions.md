@@ -11,6 +11,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 ## Go style
 
 - `gofmt` always clean (`make fmt`). `go vet` with no warnings.
+- Import direction: the client packages (`internal/boundaries` lists them) link none of `kb`, `mcpserver`, `search`, `graphalgo`, `sqlindex`, `lint`, at any depth; a constant both sides need lives in `okf`. `TestClientPackagesLinkNoDataPlane` pins it.
 - Errors: wrap with `fmt.Errorf("context: %w", err)`; export sentinel errors in `okf` and compare them with `errors.Is`. No `panic` in the normal flow.
 - Comments: only when the WHY is not obvious. No comments that repeat what the code does. No TODOs left half-done, no temporary fixes: minimal and complete changes.
 

@@ -1,4 +1,4 @@
-// Package gitxtest is a git smart-HTTP server for tests (D996): the real
+// Package gitxtest is a git smart-HTTP server for tests: the real
 // git-http-backend behind basic authentication, in process, so a test meets
 // what a forge's HTTPS endpoint does (a 401, a credential helper, a pre-receive
 // hook's "remote:" lines) without a network. Only _test.go files import it.

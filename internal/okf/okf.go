@@ -18,6 +18,22 @@ var (
 	ErrInvalidConcept = errors.New("invalid concept")
 )
 
+// ServicesNamespace is the first ID segment of the service-descriptor
+// namespace. Unlike every map, it is rooted at kb.Root, not DataRoot():
+// ResolvePath is the one place that picks the root, and every operation that
+// turns a concept ID into a physical path must go through it — a direct
+// filepath.Join(kb.DataRoot(), id) lands in data/services/, which no read
+// ever looks at (D269). For the same reason it is not a valid map or journal
+// name (see CreateMapWithContract).
+const ServicesNamespace = "services"
+
+// ReservedMapNames is the one set of map names map_create and ScaffoldMap
+// refuse (#1316); only ServicesNamespace today. The refusal text, the
+// map_create description and the cold-start section of the initialize guide
+// all read it, so the messages cannot drift. TRAP: `skills`, `agents`, `hooks`
+// are filtered out of the maps list but are not refused here, on purpose.
+var ReservedMapNames = []string{ServicesNamespace}
+
 // ConceptID identifies a concept as a path relative to the KB root without the .md extension.
 type ConceptID string
 
