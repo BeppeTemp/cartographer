@@ -351,7 +351,7 @@ otherwise silent — no client, compiler or linter reports any of them:
 `deploy/helm/cartographer/` (D1441). It needs `helm` and `jq` and no cluster, and `scripts/install-helm.sh <dir>` installs
 the pinned Helm release (one pin, shared by `ci.yml`, `release.yml` and `preview.yml`). It runs `helm lint --strict` and
 `helm template` over every file of the chart's `ci/` directory (Meridian minimal and full, the two partitioned releases,
-the YAML-token source, a scheduled Surveyor and an exec-recipe Surveyor) and asserts on what is rendered: one server
+the YAML-token source, a scheduled Surveyor, an exec-recipe Surveyor, the two Surveyors-only releases and Meridian without the Atlas) and asserts on what is rendered: one server
 `Deployment` with `replicas: 1` and `Recreate`, no `StatefulSet` or autoscaler, **no `Secret` object**, no literal
 secret in an environment, the credentials Secret mounted with `defaultMode: 0440` next to an `fsGroup`, the quoted
 `mode: "on"` and `http: ":39273"` in `config.yaml`, the Service selecting the server only, the kept claim (absent with
