@@ -42,6 +42,7 @@ mustnt() { ! grep -Eq -- "$3" "$2" || fail "$1: $4"; }
 
 # neg <substring> <yaml> [nobase]: helm template must exit non-zero with the substring.
 # The base values give a valid token source, so each case breaks exactly one thing.
+# (${args[@]+...} keeps an empty array legal under set -u on bash 3.2, macOS.)
 neg() {
   local want=$1 yaml=$2 out args=()
   printf '%s\n' "$yaml" >"$work/neg-case.yaml"
@@ -49,7 +50,7 @@ neg() {
     printf 'meridian: {tokens: {existingSecret: {name: t}}, credentials: {enabled: false}}\n' >"$work/neg-base.yaml"
     args=(-f "$work/neg-base.yaml")
   fi
-  if out=$(helm template ci "$chart" "${args[@]}" -f "$work/neg-case.yaml" 2>&1); then
+  if out=$(helm template ci "$chart" ${args[@]+"${args[@]}"} -f "$work/neg-case.yaml" 2>&1); then
     fail "negative case accepted, want '$want': $yaml"
   fi
   case $out in *"$want"*) ;; *) fail "negative case '$yaml' failed without '$want': $out" ;; esac
@@ -73,14 +74,24 @@ for f in "$chart"/ci/*.yaml; do
 done
 
 # Every release: the invariants that do not depend on the values.
-check_release() {
-  local label=$1 f d p
+check_common() {
+  local label=$1 f
   [ -z "$(docs "$label" StatefulSet)$(docs "$label" HorizontalPodAutoscaler)" ] || fail "$label: a StatefulSet or an HPA"
   [ -z "$(docs "$label" Secret)" ] || fail "$label: the chart renders a Secret"
   # An environment entry named like a secret is a reference, never a literal.
   for f in "$work/$label"/doc-*.yaml; do
     ! grep -B1 -hE '^ +value:' "$f" | grep -iqE 'name:.*(TOKEN|KEY|SECRET|PASSWORD)' || fail "$label: a literal secret value in an environment ($f)"
   done
+  for f in $(docs "$label" Deployment) $(docs "$label" CronJob); do
+    grep -qE 'component: surveyor-' "$f" || continue
+    mustnt "$label" "$f" '^ +ports:|Probe:|persistentVolumeClaim|^ +secret:' "a Surveyor with a port, a probe or a persistent volume ($f)"
+    must "$label" "$f" 'emptyDir: \{\}' "a Surveyor without its temp emptyDir ($f)"
+  done
+}
+
+# A release with Meridian: one Deployment, its ConfigMap and its Service.
+check_meridian() {
+  local label=$1 d p
   d=$(one "$label" Deployment meridian)
   must "$label" "$d" '^  replicas: 1$' "Meridian is not one replica"
   must "$label" "$d" '^    type: Recreate$' "Meridian strategy is not Recreate"
@@ -100,17 +111,32 @@ check_release() {
   p=$(one "$label" Service meridian)
   must "$label" "$p" '^      port: 39273$' "the Service does not expose 39273"
   must "$label" "$p" 'app.kubernetes.io/component: meridian$' "the Service does not select Meridian"
-  for f in $(docs "$label" Deployment) $(docs "$label" CronJob); do
-    grep -qE 'component: surveyor-' "$f" || continue
-    mustnt "$label" "$f" '^ +ports:|Probe:|persistentVolumeClaim|^ +secret:' "a Surveyor with a port, a probe or a persistent volume ($f)"
-    must "$label" "$f" 'emptyDir: \{\}' "a Surveyor without its temp emptyDir ($f)"
+}
+
+# A release without Meridian (meridian.enabled=false): Surveyor objects only.
+check_surveyor_only() {
+  local label=$1 f n=0
+  [ -z "$(docs "$label" Service)$(docs "$label" Ingress)$(docs "$label" PersistentVolumeClaim)" ] || fail "$label: a Service, an Ingress or a claim in a Surveyor-only release"
+  for f in "$work/$label"/doc-*.yaml; do
+    ! grep -qx '    app.kubernetes.io/component: meridian' "$f" || fail "$label: an object of component meridian ($f)"
+    n=$((n + 1))
+  done
+  [ "$n" -gt 0 ] || fail "$label: renders nothing"
+  for f in $(docs "$label" Deployment); do
+    grep -qE 'component: surveyor-' "$f" || fail "$label: a Deployment that is not a Surveyor one ($f)"
   done
 }
 
+# The loop takes every file ending in -values.yaml: a new ci/ file must keep that suffix
+# or it is never rendered. A file named surveyor-only* has no Meridian; all others do.
 for f in "$chart"/ci/*-values.yaml; do
   name=$(basename "$f" -values.yaml)
   render "$name" ci -f "$f"
-  check_release "$name"
+  check_common "$name"
+  case $name in
+    surveyor-only*) check_surveyor_only "$name" ;;
+    *) check_meridian "$name" ;;
+  esac
 done
 
 # What differs per case.
@@ -134,6 +160,16 @@ d=$(one meridian-yaml-tokens Deployment meridian)
 mustnt meridian-yaml-tokens "$d" 'CARTOGRAPHER_TOKENS' "source (b) sets CARTOGRAPHER_TOKENS, which would replace the YAML tokens"
 must meridian-yaml-tokens "$d" 'name: "cartographer-token-env"$' "extraEnvFrom is not an envFrom secretRef"
 must meridian-yaml-tokens "$(one meridian-yaml-tokens ConfigMap meridian)" 'artifacts: r$' "the Surveyor role lost artifacts: r"
+
+# Surveyors only: the injected server_url is meridian.url plus /mcp.
+c=$(one surveyor-only ConfigMap surveyor-docs-night)
+must surveyor-only "$c" 'server_url: https://wiki.example.com/mcp$' "no server_url from meridian.url"
+mustnt surveyor-only "$c" 'allow_insecure_http' "an https meridian.url got allow_insecure_http"
+one surveyor-only CronJob >/dev/null
+one surveyor-only Deployment surveyor-inventory >/dev/null
+c=$(one surveyor-only-http ConfigMap surveyor-docs-night)
+must surveyor-only-http "$c" 'server_url: http://meridian.internal.example.com:39273/mcp$' "no server_url from the http meridian.url"
+must surveyor-only-http "$c" 'allow_insecure_http: true$' "an http meridian.url without allow_insecure_http"
 
 # The partitioned pair: two releases, no object in common.
 render pa rel-a -f "$chart/ci/partitioned-a-values.yaml"
@@ -202,6 +238,17 @@ neg "holds a /" "{surveyors: [{name: a, files: {\"d/x\": t}, $sv}]}"
 neg "collides with the Surveyor config" "{surveyors: [{name: a, files: {surveyor.yaml: t}, $sv}]}"
 neg "52 characters" "{surveyors: [{name: $(printf 'x%.0s' $(seq 40)), $sv}]}"
 neg "typo" '{surveyors: [{name: a, mode: deployment, existingSecret: e, config: {kbs: []}, typo: 1}]}'
+
+# Meridian disabled (nobase: there is no token source to add).
+so='surveyors: [{name: a, mode: deployment, existingSecret: e, config: {kbs: [kb-a]}}]'
+neg "renders nothing" '{meridian: {enabled: false, url: "https://m.example.com"}}' nobase
+neg "meridian.url is required" "{meridian: {enabled: false}, $so}" nobase
+neg "/meridian/url" "{meridian: {enabled: false, url: ftp://m.example.com}, $so}" nobase
+neg "meridian.url applies to" '{meridian: {url: "https://m.example.com", tokens: {existingSecret: {name: t}}, credentials: {enabled: false}}}' nobase
+for k in 'ingress: {enabled: true}' 'tokens: {existingSecret: {name: t}}' 'persistence: {existingClaim: c}' 'persistence: {emptyDir: true}' \
+  'config: {kbs: [{remote: "https://git.example.com/user/kb-a.git"}]}' 'config: {auth: {tokens: ["${A}"]}}' 'extraEnvFrom: [e]' 'credentials: {existingSecret: {name: c}}'; do
+  neg "is ignored when meridian.enabled=false" "{meridian: {enabled: false, url: \"https://m.example.com\", $k}, $so}" nobase
+done
 
 # Explicit zeros are honoured (default would turn them into 1 / 3 / 1 / 30), and a files text whose
 # first line is deeper than the next ones is still valid YAML (a bare | block would break).

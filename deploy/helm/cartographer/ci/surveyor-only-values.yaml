@@ -1,0 +1,19 @@
+# Surveyors only: no Meridian object, the entries reach an external Meridian by URL.
+meridian:
+  enabled: false
+  url: https://wiki.example.com
+imagePullSecrets: []
+surveyors:
+  - name: docs-night
+    mode: cronjob
+    schedule: "15 2 * * *"
+    existingSecret: docs-night-env
+    config:
+      token_env: SURVEYOR_TOKEN
+      kbs: [kb-a]
+  - name: inventory
+    mode: deployment
+    existingSecret: inventory-env
+    config:
+      token_env: SURVEYOR_TOKEN
+      kbs: [kb-a]

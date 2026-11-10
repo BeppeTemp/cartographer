@@ -1,4 +1,5 @@
 {{- include "cartographer.validate" . -}}
+{{- if .Values.meridian.enabled -}}
 {{- $i := .Values.meridian.ingress }}
 {{- if $i.enabled }}
 apiVersion: networking.k8s.io/v1
@@ -34,4 +35,5 @@ spec:
                   number: {{ $.Values.meridian.service.port }}
           {{- end }}
     {{- end }}
+{{- end }}
 {{- end }}
