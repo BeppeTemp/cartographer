@@ -26,7 +26,8 @@ credentials_dir: /etc/cartographer/credentials
 maintenance:
   # Run the safe repairs of every KB in the background, once a day and after a
   # pull that changed it. false stops that timer only: repair on write, the
-  # write gate and kb_repair are not affected.
+  # write gate and kb_repair are not affected. While a live Surveyor declaring
+  # the repair task keeps repairing a KB, the timer skips that KB.
   # Default: true · Env CARTOGRAPHER_MAINTENANCE_AUTO_REPAIR · needs a restart
   auto_repair: true
 

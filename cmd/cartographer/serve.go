@@ -663,6 +663,9 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 				s.SetLatestVersionSource(latestVersion)
 				s.SetAutoRepairEnabled(autoRepair)
 				if autoRepair {
+					// A live Surveyor that repairs this KB owns it: the timer
+					// skips its runs meanwhile (D1892).
+					s.SetRepairDelegation(multi.RepairDelegation(name, s))
 					s.StartAutoRepair(repairCtx)
 				}
 			})

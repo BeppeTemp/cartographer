@@ -29,6 +29,9 @@ type maintenanceAutoRepair struct {
 	Default      bool     `json:"default"`
 	Checks       []string `json:"checks"`
 	IntervalDays int      `json:"interval_days"`
+	// DelegatedTo lists the live Surveyors that own this KB's repair: the
+	// server's timer is paused for as long as it is non-empty.
+	DelegatedTo []string `json:"delegated_to"`
 }
 
 type maintenanceRepair struct {
@@ -94,10 +97,16 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 				Default:      true,
 				Checks:       lint.AutoRepairChecks(),
 				IntervalDays: kb.AutoRepairIntervalDays,
+				DelegatedTo:  []string{},
 			},
 			DoctorInterval: kb.DoctorSuggestionDays,
 			Repairs:        []maintenanceRepair{},
 			Runs:           []autoRepairRun{},
+		}
+		if srv.repairDelegation != nil {
+			if ids := srv.repairDelegation(); len(ids) > 0 {
+				out.AutoRepair.DelegatedTo = ids
+			}
 		}
 		if run, ok := lastAutoRepairRun(k); ok {
 			out.LastAutoRepair = &run
