@@ -9,11 +9,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -196,7 +198,10 @@ func matchesSelector(values []string, value string) bool {
 // to the immutable policy it grants. Unrestricted access is declared by the
 // caller (Policy.Admin), never inferred from an empty policy (D179).
 type TokenStore struct {
-	hashes map[string]tokenEntry
+	// snap is the immutable set of tokens in force. Replace swaps it whole, so
+	// a request reads one consistent set and never a half-updated map; a
+	// request already past lookup finishes with the principal it resolved.
+	snap atomic.Pointer[tokenSnapshot]
 	// now is the clock expiry is judged by; tests inject theirs.
 	now func() time.Time
 	// expiredLogged remembers the ids already reported as expired, so a client
@@ -205,6 +210,12 @@ type TokenStore struct {
 	// required is set by RequireAuth for a deployment that configured
 	// authentication: such a store enforces even when empty (D179).
 	required bool
+}
+
+// tokenSnapshot is one immutable generation of the store's tokens, keyed by
+// the token hash. It is never modified after it is published.
+type tokenSnapshot struct {
+	hashes map[string]tokenEntry
 }
 
 // tokenEntry is what the store keeps per hash: the principal and when its
@@ -260,7 +271,15 @@ func NewTokenStore(tokens []string) *TokenStore {
 // requires authentication must mark the store with RequireAuth so an empty
 // result fails closed rather than disabling enforcement.
 func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
-	ts := &TokenStore{hashes: make(map[string]tokenEntry), now: time.Now}
+	ts := &TokenStore{now: time.Now}
+	ts.snap.Store(buildSnapshot(tokens))
+	return ts
+}
+
+// buildSnapshot hashes and compiles the tokens into a snapshot; entries with
+// an empty token value are skipped.
+func buildSnapshot(tokens []ScopedToken) *tokenSnapshot {
+	snap := &tokenSnapshot{hashes: make(map[string]tokenEntry)}
 	for _, st := range tokens {
 		if st.Token != "" {
 			h := hashToken(st.Token)
@@ -296,13 +315,29 @@ func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
 					policy.Permissions[i].ReadOnlyArtifacts = true
 				}
 			}
-			ts.hashes[h] = tokenEntry{
+			snap.hashes[h] = tokenEntry{
 				principal: Principal{ID: id, Policy: clonePolicy(policy), Kind: kind, Via: st.Via},
 				expiresAt: st.ExpiresAt,
 			}
 		}
 	}
-	return ts
+	return snap
+}
+
+// Replace swaps the tokens in force for a new set, on a running store: a
+// reload of the configuration (tokens, roles) needs no restart. The set is
+// compiled exactly as at construction. A store that enforces authentication
+// (RequireAuth) refuses a set with no usable token and keeps the old one, the
+// fail-closed rule of D179 applied to a reload: an emptied file must not turn
+// into a locked-out or, worse, an open server. A request in flight finishes
+// with the principal it resolved (principals are immutable copies).
+func (ts *TokenStore) Replace(tokens []ScopedToken) error {
+	snap := buildSnapshot(tokens)
+	if ts.required && len(snap.hashes) == 0 {
+		return errors.New("the new token set has no usable token and authentication is required")
+	}
+	ts.snap.Store(snap)
+	return nil
 }
 
 // IsEnabled returns true if authentication is enforced for requests.
@@ -312,13 +347,13 @@ func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
 // credential fails closed instead of serving every request as a local admin
 // (D179).
 func (ts *TokenStore) IsEnabled() bool {
-	return ts.required || len(ts.hashes) > 0
+	return ts.required || len(ts.snap.Load().hashes) > 0
 }
 
 // TokenCount reports how many usable tokens the store holds — the count AFTER
 // unusable entries were dropped, which is the number a caller must check
 // against its own expectations rather than the number of configured records.
-func (ts *TokenStore) TokenCount() int { return len(ts.hashes) }
+func (ts *TokenStore) TokenCount() int { return len(ts.snap.Load().hashes) }
 
 // RequireAuth marks the store as enforcing regardless of how many tokens it
 // holds. serve calls it whenever auth resolved to "on", so the decision to
@@ -335,7 +370,7 @@ func (ts *TokenStore) RequireAuth() *TokenStore {
 // (once per token, by id, never by value) and otherwise indistinguishable from
 // an unknown one.
 func (ts *TokenStore) lookup(token string) (Principal, lookupStatus) {
-	e, ok := ts.hashes[hashToken(token)]
+	e, ok := ts.snap.Load().hashes[hashToken(token)]
 	if !ok {
 		return Principal{}, lookupUnknown
 	}

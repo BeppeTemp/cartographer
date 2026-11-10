@@ -428,7 +428,8 @@ configuration keeps loading unchanged; a token from `CARTOGRAPHER_TOKENS` or
 
 An expired token gets the same 401 as an unknown one, so a response never says
 which. The server logs it once per token, by id, and logs at startup each token
-that expires within 14 days (id and date, never a value).
+that expires within 14 days (id and date, never a value), and again on a
+reload that applies.
 
 The two non-human kinds follow one rule, the minimal one the code allows, not
 "read-only": both kinds write legitimately (a Surveyor commits content, a client
@@ -439,6 +440,30 @@ whatever its rules say (the server forces `artifacts: r` on its permissions). Th
 Surveyor's tool allowlist stays its own (D1257). A read-only token, such as a
 dashboard, is a `client` token with `r` scopes: read-only is the scope's
 decision, not the kind's.
+
+### Reloading tokens and roles without a restart
+
+A running server applies a changed `auth` section (tokens and roles) without a
+restart: on `SIGHUP` (not on Windows, which has none) and by polling the config
+file every `auth.reload_interval` (default `30s`; `0` stops the polling). The
+poll compares a hash of the file bytes. A reload re-runs what startup runs
+(YAML, environment, flags, strict validation, role compilation) and swaps the
+result in whole: a request already past authentication finishes with the
+principal it resolved, the next one sees the new set, and a removed token's open
+MCP session fails on its next request (the transport is stateless).
+
+A token whose `expires_at` passed after startup is left out of the new set with a
+log line instead of failing the reload, so removing a leaked token is never
+blocked by one that ran out. A reload that does not apply keeps the tokens in force and logs why, never a
+value: the file is unreadable or deleted, fails validation (the poll retries the same content
+until it changes, logging once), turns authentication
+off or names another mode than the running one (both need a restart), or leaves no usable token. A
+reload that changes only keys outside `auth` is ignored with one line (`restart
+required for non-auth keys`). An applied reload logs the count of tokens added,
+removed and changed, and the tokens expiring within 14 days, like startup. Two
+reloads never run at once. Without a config file (environment and flags only)
+`SIGHUP` re-reads the environment of the running process, which does not change,
+so only the file route is useful in practice.
 
 ### How a permission is enforced
 
