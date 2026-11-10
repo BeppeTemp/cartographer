@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 )
@@ -25,7 +26,11 @@ import (
 // ValidateAuth rejects an auth configuration that would grant more than the
 // operator wrote. It is called for every mode, including "off": a latent typo
 // must not become an exposure on the day someone enables authentication.
-func ValidateAuth(a AuthConfig) error {
+func ValidateAuth(a AuthConfig) error { return ValidateAuthAt(a, time.Now()) }
+
+// ValidateAuthAt is ValidateAuth judged at a given instant: an expires_at not
+// after it is a startup error (a typo must not silently disable a token).
+func ValidateAuthAt(a AuthConfig, now time.Time) error {
 	switch a.Mode {
 	case "", "auto", "on", "off":
 	default:
@@ -64,6 +69,29 @@ func ValidateAuth(a AuthConfig) error {
 		for _, scope := range tok.Scopes {
 			if _, err := auth.ParseScopesStrict(scope); err != nil {
 				return fmt.Errorf("%s: %w", where, err)
+			}
+		}
+		kind, err := auth.ParseKind(tok.Kind)
+		if err != nil {
+			return fmt.Errorf("%s: %w", where, err)
+		}
+		if tok.ExpiresAt != "" {
+			exp, err := time.Parse(time.RFC3339, tok.ExpiresAt)
+			if err != nil {
+				return fmt.Errorf("%s: expires_at is not an RFC 3339 timestamp (like 2027-01-31T00:00:00Z)", where)
+			}
+			if !exp.After(now) {
+				return fmt.Errorf("%s: expires_at %s is already past", where, tok.ExpiresAt)
+			}
+		}
+		if kind.NonHuman() {
+			if tok.ExpiresAt == "" {
+				return fmt.Errorf("%s: a %s token must declare expires_at", where, kind)
+			}
+			// An admin token is the one that writes neither scopes nor roles;
+			// a machine token always names the KBs it may touch.
+			if len(tok.Scopes) == 0 && len(tok.Roles) == 0 {
+				return fmt.Errorf("%s: a %s token is never admin: declare scopes or roles naming its KBs", where, kind)
 			}
 		}
 	}

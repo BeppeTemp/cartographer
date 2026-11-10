@@ -177,6 +177,12 @@ type TokenSpec struct {
 	// audit records. When empty a non-secret ID is derived from the token
 	// hash, never from a plaintext prefix.
 	ID string `yaml:"id,omitempty"`
+	// Kind is what the token stands for: "human" (default), "client" or
+	// "surveyor". The environment and flag forms cannot carry it and are human.
+	Kind string `yaml:"kind,omitempty"`
+	// ExpiresAt is an RFC 3339 timestamp after which the token is refused;
+	// required for the non-human kinds.
+	ExpiresAt string `yaml:"expires_at,omitempty"`
 	// ScopesDeclared records that the entry wrote a scope or role list
 	// (`scopes:` or `roles:` in YAML, `|` in the env form). A declared list that ends up empty is refused
 	// by ValidateAuth: the admin token is the one that writes no scopes at all.

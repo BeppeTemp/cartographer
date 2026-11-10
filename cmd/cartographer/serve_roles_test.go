@@ -113,3 +113,35 @@ func TestLegacyTokenWithoutRolesStaysAdmin(t *testing.T) {
 		t.Fatal("legacy unscoped token lost admin access")
 	}
 }
+
+// TestSurveyorTokenCannotChangeArtifacts: a surveyor whose role says
+// artifacts: rw still has artifacts withheld; a client keeps them; the kind
+// and the expiry reach the store.
+func TestSurveyorTokenCannotChangeArtifacts(t *testing.T) {
+	roles := []config.RoleSpec{{Name: "w", Rules: []config.RuleSpec{{KB: "docs", Access: "rw", Artifacts: "rw"}}}}
+	specs := []config.TokenSpec{
+		{Token: "s", ID: "s", Kind: "surveyor", ExpiresAt: "2999-01-01T00:00:00Z", Roles: []string{"w"}},
+		{Token: "c", ID: "c", Kind: "client", ExpiresAt: "2999-01-01T00:00:00Z", Roles: []string{"w"}},
+		{Token: "h", ID: "h", Roles: []string{"w"}},
+	}
+	out := scopedTokensWithRoles(specs, roles)
+	ts := auth.NewScopedTokenStore(out).RequireAuth()
+	s, _ := ts.PrincipalOf("s")
+	c, _ := ts.PrincipalOf("c")
+	h, _ := ts.PrincipalOf("h")
+	if s.Kind != auth.KindSurveyor || c.Kind != auth.KindClient || h.Kind != auth.KindHuman {
+		t.Errorf("kinds: %q %q %q", s.Kind, c.Kind, h.Kind)
+	}
+	if s.Policy.AllowsArtifactWrite("docs") {
+		t.Error("surveyor may change artifacts")
+	}
+	if !s.Policy.Allows("docs", "", "", "Note", true) {
+		t.Error("surveyor lost its content writes")
+	}
+	if !c.Policy.AllowsArtifactWrite("docs") || !h.Policy.AllowsArtifactWrite("docs") {
+		t.Error("client and human keep artifact writes")
+	}
+	if out[0].ExpiresAt.IsZero() || !out[2].ExpiresAt.IsZero() {
+		t.Error("expiry not compiled")
+	}
+}

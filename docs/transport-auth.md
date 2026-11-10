@@ -332,7 +332,10 @@ stops startup rather than being reinterpreted (D179). Refused:
   the same token do not excuse a malformed scope;
 - an environment/flag entry with a scope separator but no token (`|kb:docs:r`);
 - a reference to an undeclared role, a duplicate principal id, an unknown auth
-  mode.
+  mode;
+- an unknown token `kind`, an `expires_at` that is not an RFC 3339 timestamp or
+  is not in the future (a typo must not silently disable a token), and the
+  non-human rules of §Token kinds and expiry.
 
 Validation runs for every mode, `off` included, so a latent typo does not become
 an exposure the day authentication is enabled. Diagnostics name the offending
@@ -415,6 +418,27 @@ duplicate role or principal ID, two tokens with one secret value, an unknown rol
 access other than `r`/`rw`, an empty or traversal selector, or a selector
 declared both as a map and a journal. No diagnostic ever contains a token
 value.
+
+### Token kinds and expiry
+
+A token has an optional `kind` (`human`, the default, `client` or `surveyor`) and
+an optional `expires_at` (RFC 3339, UTC or with an offset). Every released
+configuration keeps loading unchanged; a token from `CARTOGRAPHER_TOKENS` or
+`--tokens` cannot carry either and is `human`.
+
+An expired token gets the same 401 as an unknown one, so a response never says
+which. The server logs it once per token, by id, and logs at startup each token
+that expires within 14 days (id and date, never a value).
+
+The two non-human kinds follow one rule, the minimal one the code allows, not
+"read-only": both kinds write legitimately (a Surveyor commits content, a client
+is what an agent writes through). A `surveyor` or `client` token must declare
+`expires_at`, must declare scopes or roles (it is never admin) and so always
+names its KBs; a `surveyor` token additionally can never change artifacts,
+whatever its rules say (the server forces `artifacts: r` on its permissions). The
+Surveyor's tool allowlist stays its own (D1257). A read-only token, such as a
+dashboard, is a `client` token with `r` scopes: read-only is the scope's
+decision, not the kind's.
 
 ### How a permission is enforced
 

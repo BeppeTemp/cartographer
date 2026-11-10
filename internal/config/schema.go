@@ -42,8 +42,9 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Bearer-token authentication of the HTTP transport. auto turns it on when at least one token is configured."},
 	{Path: "auth.tokens", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Env: "CARTOGRAPHER_TOKENS", Flag: "--tokens", Restart: true, Secret: true,
 		Example:     "- token: ${CARTOGRAPHER_TOKEN_CI}\n  id: ci\n  scopes: [kb:kb-a:rw]\n- ${CARTOGRAPHER_TOKEN_ADMIN}",
-		Description: "Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles and id. A token may be written ${NAME} to read it from the environment.",
+		Description: "Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles, id, kind (human, client or surveyor) and expires_at (RFC 3339; required for client and surveyor, which are never admin). A token may be written ${NAME} to read it from the environment.",
 		Previous: []string{
+			"Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles and id. A token may be written ${NAME} to read it from the environment.",
 			"Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles, id, author_name and author_email. A token may be written ${NAME} to read it from the environment.",
 		}},
 	{Path: "auth.roles", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,

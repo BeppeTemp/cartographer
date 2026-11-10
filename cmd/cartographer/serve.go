@@ -540,7 +540,9 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		// the count resolveAuth decided on: the store drops unusable entries,
 		// so a configuration that asked for authentication could produce an
 		// empty store and serve every request as a local admin.
-		store = auth.NewScopedTokenStore(scopedTokensWithRoles(authCfg.Tokens, authCfg.Roles)).RequireAuth()
+		scoped := scopedTokensWithRoles(authCfg.Tokens, authCfg.Roles)
+		store = auth.NewScopedTokenStore(scoped).RequireAuth()
+		logExpiringTokens(scoped, time.Now())
 		if store.TokenCount() == 0 {
 			log.Fatal("auth is enabled but no usable token was configured (see auth.tokens, CARTOGRAPHER_TOKENS or --tokens)")
 		}
@@ -796,6 +798,11 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 		// now refuses the configuration outright (D179), so reaching this point
 		// with unparsed scopes is impossible.
 		var policy auth.Policy
+		kind, _ := auth.ParseKind(spec.Kind) // config.ValidateAuth refused an unknown one
+		var expires time.Time
+		if spec.ExpiresAt != "" {
+			expires, _ = time.Parse(time.RFC3339, spec.ExpiresAt) // validated likewise
+		}
 		for _, name := range spec.Roles {
 			for _, rule := range byName[name].Rules {
 				policy.Permissions = append(policy.Permissions, auth.Permission{
@@ -820,9 +827,21 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 			Scopes:    scopes,
 			Principal: principalID(spec),
 			Policy:    policy,
+			Kind:      kind,
+			ExpiresAt: expires,
 		}
 	}
 	return out
+}
+
+// logExpiringTokens names (id and date, never a value) each token that expires
+// within 14 days, so a rotation is not found out by a 401.
+func logExpiringTokens(tokens []auth.ScopedToken, now time.Time) {
+	for _, t := range tokens {
+		if !t.ExpiresAt.IsZero() && t.ExpiresAt.After(now) && t.ExpiresAt.Before(now.AddDate(0, 0, 14)) {
+			log.Printf("auth: token %q expires at %s", t.Principal, t.ExpiresAt.UTC().Format(time.RFC3339))
+		}
+	}
 }
 
 // principalID returns a stable, non-secret identifier for logs and audit
