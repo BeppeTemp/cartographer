@@ -58,6 +58,11 @@ func TestAllowlistNamesExistInTheServerRegistry(t *testing.T) {
 	names = append(names, surveyor.DefaultTools()...)
 	names = append(names, surveyor.DenyTools()...)
 	for _, n := range names {
+		// Removed from the server on purpose and kept in the deny list: a
+		// Surveyor newer than its server must still never offer it.
+		if n == "sync_apply" {
+			continue
+		}
 		if _, ok := tools[n]; !ok {
 			t.Errorf("%s is not a registered tool", n)
 		}

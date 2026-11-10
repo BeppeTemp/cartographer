@@ -17,7 +17,7 @@ import (
 )
 
 // pushFlushTimeout bounds how long a sync-sensitive tool handler (D76/WP4:
-// sync_check/sync_apply/sync_pull, git_conflict_resolve) waits for a pending
+// sync_check/sync_pull, git_conflict_resolve) waits for a pending
 // async push to complete via k.FlushPush before proceeding anyway — a flush
 // failure/timeout is logged and non-fatal, consistent with push errors
 // elsewhere in this file.

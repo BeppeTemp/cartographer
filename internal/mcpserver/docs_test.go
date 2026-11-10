@@ -43,6 +43,7 @@ var toolPrefixes = []string{
 var docsNonTools = map[string]bool{
 	"artifact_signing_seed": true,
 	"concept_too_large":     true, // refusal code of the 1 MiB cap (D1276), not a tool
+	"sync_apply":            true, // removed in 0.29 (D-new-sync-apply-removed); the docs say so once
 	// kbs[] / settings.yaml keys (D746), not tools
 	"git_base_branch": true, "git_forge": true, "git_working_branch": true, "git_branch": true,
 	"artifact_prefix":    true, // settings.yaml key (D-new-artifact-prefix), not a tool

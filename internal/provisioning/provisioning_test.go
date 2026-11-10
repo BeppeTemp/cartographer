@@ -939,7 +939,7 @@ func TestApply_ArtifactFiles_InMemory(t *testing.T) {
 // --- SOURCE.env (D316) ---
 
 // sourceEnvApply materializes a local KB with one skill, applied through KBRoots the way a
-// local deployment (or the server's sync_apply) does.
+// local deployment does.
 func sourceEnvApply(t *testing.T, lock provisioning.Lock) (kbRoot, baseDir string, res provisioning.AppliedResult) {
 	t.Helper()
 	kbRoot = t.TempDir()

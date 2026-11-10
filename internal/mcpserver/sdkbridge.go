@@ -287,6 +287,9 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 		// for a name this server has no allow-list entry for.
 		msg := s.legacyToolMessage(ctx, name)
 		if msg == "" {
+			msg = removedToolMessage(ctx, name)
+		}
+		if msg == "" {
 			msg = "tool not found: " + name
 		}
 		result := errorResult(msg)

@@ -12,7 +12,7 @@ stdio transport on the client side, nor a separate binary — see
 [the Compass decision records](decisions.md#client-configurator) for the
 rationale. Generating the MCP config files (`internal/configurator`) and the
 materialization logic (`internal/provisioning`) are the same used server-side by
-`sync_check`/`sync_apply` (`docs/sync.md`).
+`sync_check`/`sync_pull` (`docs/sync.md`).
 
 ## Subcommands
 

@@ -39,7 +39,7 @@ const skillSourceEnvFile = "SOURCE.env"
 
 // skillSourceEnv renders SOURCE.env: KEY=VALUE lines a script can `source` or
 // grep. CARTOGRAPHER_KB_ROOT is written only when the KB's root is on this
-// machine (a local deployment, or the server's own sync_apply): a client fed
+// machine (a local deployment): a client fed
 // over HTTP has no local copy of the KB, and a server path would point at
 // nothing. Values are not shell-quoted; a consumer that may meet a path with
 // spaces quotes it. Deterministic, so an unchanged skill re-materializes

@@ -367,7 +367,7 @@ func TestBlock_Budget(t *testing.T) {
 	budget("brief section", len(section), 357, 512)
 }
 
-// #1502: sync_apply expands nothing, so the shared operational section was never
+// #1502: a server-built manifest expands nothing, so the shared operational section was never
 // folded into the recorded hash there: a release that edits it left the block
 // old until an instructions or agent artifact changed.
 func TestShared_NonExpandingApplyRewritesWhenTheSharedTextChanges(t *testing.T) {

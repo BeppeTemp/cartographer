@@ -34,7 +34,6 @@ const (
 	denyNoKBAccess       = "no_kb_access"
 	denyNoPrincipal      = "no_principal"
 	denyUnboundFolder    = "unbound_folder"
-	denyLocalOnly        = "local_only"
 	denyReadOnlyProfile  = "read_only_profile"
 	denyArtifactsRO      = "artifacts_read_only"
 	denyReadOnlyKB       = "read_only_kb"
@@ -50,7 +49,6 @@ var denyHints = map[string]string{
 	denyMissingID:        "this write needs a non-empty id",
 	denyNoKBAccess:       "the token has no access to this KB",
 	denyNoPrincipal:      "no principal resolved for this connection",
-	denyLocalOnly:        "this tool acts on the host the server runs on and is available only to the local operator (stdio, or HTTP with authentication off); use sync_pull from a client",
 	denyArtifactsRO:      "the token's rule for this KB carries artifacts: r, which withholds the tools that change skills, agents and hooks",
 	denyReadOnlyKB:       "this KB is read-only on this connection (knowledge_bases access: read on the client): the other KBs of the connection stay writable",
 	denyReadOnlyProfile:  "this connection was opened read-only (access=read-min): connect without it to write",
@@ -97,7 +95,7 @@ func resourceClassForTool(name string) string {
 		return resourceBatch
 	case "index_patch":
 		return resourceCuratedIndex
-	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "ingest_setup", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "reindex", "kb_status", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "artifact_move", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
+	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "ingest_setup", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_pull", "reindex", "kb_status", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "artifact_move", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
 		return resourceWhole
 	default:
 		return ""
@@ -109,9 +107,6 @@ func resourceClassForTool(name string) string {
 func installPolicy(s *Server, k *kb.KB) {
 	s.SetAuthorizer(func(ctx context.Context, tool string, args json.RawMessage) error {
 		p := auth.PrincipalFromContext(ctx)
-		if err := authorizeLocalOnly(p, tool); err != nil {
-			return err
-		}
 		if p.ID != "" && p.Policy.Admin {
 			return nil
 		}
@@ -132,17 +127,6 @@ func installPolicy(s *Server, k *kb.KB) {
 // reauthorizeUnderLock repeats the same decision immediately before a
 // mutation. A changed concept classification between dispatch and git lock
 // therefore cannot turn a previously authorized request into a write.
-// localOnlyTools act on the filesystem of the host the server runs on, with the
-// server's own permissions, at a path the caller names. Only the principal the
-// server creates for a trusted local caller may run them: no token, admin or
-// not, reaches them over the network. Checked before the admin shortcut.
-func authorizeLocalOnly(p auth.Principal, tool string) error {
-	if tool == "sync_apply" && !p.Local {
-		return deny(denyLocalOnly)
-	}
-	return nil
-}
-
 func reauthorizeUnderLock(ctx context.Context, k *kb.KB, tool string, args json.RawMessage) error {
 	p := auth.PrincipalFromContext(ctx)
 	if p.ID != "" && p.Policy.Admin {
