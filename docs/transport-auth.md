@@ -578,6 +578,14 @@ amplification per session is measurable from the log without logging content.
 The field is hashed only when present, so events written before it verify
 unchanged.
 
+A record also names the kind of the token behind the principal
+(`principal_kind`: `human`, `client` or `surveyor`; empty when the call has no
+principal) and, when a trusted proxy named a person, the id of the proxy token
+that carried the request (`via`), so a write by `user:alice` through an SSO
+proxy reads as the person, the kind and the bearer. Both are trailing
+`omitempty` fields hashed only when present, like `result_bytes`, so events
+written before them verify unchanged.
+
 Entries form a JSONL hash chain signed with Ed25519: altering one recorded
 entry invalidates every entry after it.
 

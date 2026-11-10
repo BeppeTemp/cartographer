@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
+	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
 // This file is the single seam (D119) that turns every dispatched tools/call
@@ -205,6 +207,21 @@ func classifyOutcome(result ToolResult, err error) string {
 	}
 }
 
+// auditWho is the attribution a record carries: the principal id, the kind of
+// token behind it and, for a person named by a trusted proxy, that token's id.
+type auditWho struct{ id, kind, via string }
+
+// auditWhoOf reads the attribution from the request's principal. A principal
+// with an id and no kind is human (the zero Kind); no id, no kind.
+func auditWhoOf(ctx context.Context) auditWho {
+	p := auth.PrincipalFromContext(ctx)
+	w := auditWho{id: p.ID, kind: string(p.Kind), via: p.Via}
+	if w.kind == "" && w.id != "" {
+		w.kind = string(auth.KindHuman)
+	}
+	return w
+}
+
 // auditCall correlates one tool call's attempt and completion audit events.
 // recorded is false when there is nothing to pair a completion with — either
 // no audit sink is attached, or the attempt itself failed to append in
@@ -213,7 +230,7 @@ func classifyOutcome(result ToolResult, err error) string {
 // reported as chain corruption by audit.VerifyAudit.
 type auditCall struct {
 	requestID string
-	principal string
+	who       auditWho
 	tool      string
 	readOnly  bool
 	resources map[string]string
@@ -230,22 +247,22 @@ type auditCall struct {
 //   - sink attached, append fails, required mode: (call, rejected, false) —
 //     the caller must return rejected to the client WITHOUT ever invoking the
 //     tool handler (fail closed) and must not call end.
-func (s *Server) beginAuditCall(principal, tool string, readOnly bool, resources map[string]string) (call auditCall, rejected ToolResult, ok bool) {
+func (s *Server) beginAuditCall(who auditWho, tool string, readOnly bool, resources map[string]string) (call auditCall, rejected ToolResult, ok bool) {
 	s.mu.Lock()
 	log, kbName, transport := s.auditLog, s.kbName, s.transport
 	s.mu.Unlock()
 
 	call = auditCall{
-		requestID: newAuditRequestID(), principal: principal, tool: tool,
+		requestID: newAuditRequestID(), who: who, tool: tool,
 		readOnly: readOnly, resources: resources, start: time.Now(),
 	}
 	if log == nil {
 		return call, ToolResult{}, true
 	}
 	_, err := log.AppendEvent(audit.Entry{
-		RequestID: call.requestID, PrincipalID: principal, Transport: transport, KB: kbName,
+		RequestID: call.requestID, PrincipalID: who.id, Transport: transport, KB: kbName,
 		Tool: tool, ReadOnly: readOnly, Resources: resources,
-		Phase: audit.PhaseAttempt,
+		Phase: audit.PhaseAttempt, PrincipalKind: who.kind, Via: who.via,
 	})
 	if err != nil {
 		if log.Required() {
@@ -279,11 +296,11 @@ func (c auditCall) end(s *Server, outcome string, result ToolResult) {
 		return
 	}
 	_, _ = log.AppendEvent(audit.Entry{
-		RequestID: c.requestID, PrincipalID: c.principal, Transport: transport, KB: kbName,
+		RequestID: c.requestID, PrincipalID: c.who.id, Transport: transport, KB: kbName,
 		Tool: c.tool, ReadOnly: c.readOnly, Resources: c.resources,
 		Phase: audit.PhaseCompletion, Outcome: outcome,
 		DurationMs: time.Since(c.start).Milliseconds(), CommitSHA: result.CommitSHA,
-		ResultBytes: resultBytes(result),
+		ResultBytes: resultBytes(result), PrincipalKind: c.who.kind, Via: c.who.via,
 	})
 }
 
@@ -307,14 +324,14 @@ func resultBytes(result ToolResult) int64 {
 // caller's already-decided error response — if the sink itself is
 // unavailable, the denial is simply not recorded (best_effort) rather than
 // failing the already-decided rejection a second time.
-func (s *Server) auditDenied(principal, toolName string, rawArgs json.RawMessage) {
-	s.auditDeniedFor("", principal, toolName, rawArgs)
+func (s *Server) auditDenied(who auditWho, toolName string, rawArgs json.RawMessage) {
+	s.auditDeniedFor("", who, toolName, rawArgs)
 }
 
 // auditDeniedFor is auditDenied attributing the event to kbOverride when it
 // is not empty (a routed view has no KB of its own: the KB the refusal
 // resolved to, never a name the caller merely typed).
-func (s *Server) auditDeniedFor(kbOverride, principal, toolName string, rawArgs json.RawMessage) {
+func (s *Server) auditDeniedFor(kbOverride string, who auditWho, toolName string, rawArgs json.RawMessage) {
 	s.mu.Lock()
 	log, kbName, transport := s.auditLog, s.kbName, s.transport
 	s.mu.Unlock()
@@ -335,9 +352,9 @@ func (s *Server) auditDeniedFor(kbOverride, principal, toolName string, rawArgs 
 	start := time.Now()
 
 	_, err := log.AppendEvent(audit.Entry{
-		RequestID: requestID, PrincipalID: principal, Transport: transport, KB: kbName,
+		RequestID: requestID, PrincipalID: who.id, Transport: transport, KB: kbName,
 		Tool: canonical, ReadOnly: readOnly, Resources: resources,
-		Phase: audit.PhaseAttempt,
+		Phase: audit.PhaseAttempt, PrincipalKind: who.kind, Via: who.via,
 	})
 	if err != nil {
 		// Sink unhealthy: nothing safe to record for this denial (a
@@ -347,8 +364,9 @@ func (s *Server) auditDeniedFor(kbOverride, principal, toolName string, rawArgs 
 		return
 	}
 	_, _ = log.AppendEvent(audit.Entry{
-		RequestID: requestID, PrincipalID: principal, Transport: transport, KB: kbName,
+		RequestID: requestID, PrincipalID: who.id, Transport: transport, KB: kbName,
 		Tool: canonical, ReadOnly: readOnly, Resources: resources,
+		PrincipalKind: who.kind, Via: who.via,
 		Phase: audit.PhaseCompletion, Outcome: audit.OutcomeUnauthorized,
 		DurationMs: time.Since(start).Milliseconds(),
 	})

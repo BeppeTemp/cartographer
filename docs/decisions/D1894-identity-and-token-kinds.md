@@ -82,3 +82,9 @@ permission on a KB where the token has no whole-KB rule of the needed mode,
 and the person gets the secrets restriction the token's visibility and
 authority imply. Token ids starting with `user:` are reserved for people.
 Direct OIDC stays a plugin filling `auth.IdentityResolver`.
+
+**Attribution.** An audit record carries `principal_kind` (the kind of the token
+behind the principal) and `via` (the proxy token's id when a trusted proxy named
+the person). They are trailing `omitempty` fields of the canonical entry, hashed
+only when present like `result_bytes` (D301), so every record written before
+verifies unchanged; the canonical struct only ever gains fields of this shape.

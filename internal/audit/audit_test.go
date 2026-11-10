@@ -1552,3 +1552,34 @@ func TestOpenDoesNotTruncateWhenTheArchivedSegmentDiffers(t *testing.T) {
 		t.Fatal("the active log was truncated against a segment that does not match it")
 	}
 }
+
+// TestAttributionFieldsKeepOldHashes pins D1894: a record without
+// principal_kind and via hashes as before they existed, a log mixing old and
+// new records verifies, and a tampered via breaks the chain.
+func TestAttributionFieldsKeepOldHashes(t *testing.T) {
+	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	old := Entry{Version: VersionV2, ID: "e1", Timestamp: ts, Phase: PhaseCompletion, RequestID: "r", Tool: "t", Outcome: OutcomeSuccess, PrevHash: "p", ResultBytes: 5}
+	pre := `{"version":2,"id":"e1","timestamp":"2026-01-02T03:04:05Z","phase":"completion","request_id":"r","principal_id":"","transport":"","kb":"","tool":"t","read_only":false,"outcome":"success","duration_ms":0,"prev_hash":"p","result_bytes":5}`
+	sum := sha256.Sum256([]byte(pre))
+	if got := computeHash(old); got != hex.EncodeToString(sum[:]) {
+		t.Fatalf("hash of an old record changed: %s", got)
+	}
+	l, path := tempLog(t)
+	for i, via := range []string{"", "sso-token"} {
+		req := fmt.Sprintf("req-%d", i)
+		if _, err := l.AppendEvent(Entry{RequestID: req, Phase: PhaseAttempt, Tool: "t", PrincipalID: "user:a", PrincipalKind: "human", Via: via}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.AppendEvent(Entry{RequestID: req, Phase: PhaseCompletion, Tool: "t", Outcome: OutcomeSuccess, PrincipalID: "user:a", PrincipalKind: "human", Via: via}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s, err := verifyLog(path, nil); err != nil || s.Valid != 4 {
+		t.Fatalf("mixed log: %+v %v", s, err)
+	}
+	data, _ := os.ReadFile(path)
+	os.WriteFile(path, []byte(strings.Replace(string(data), `"via":"sso-token"`, `"via":"other"`, 1)), 0o600)
+	if s, err := verifyLog(path, nil); err == nil && s.Valid == 4 {
+		t.Fatal("tampered via still verifies")
+	}
+}

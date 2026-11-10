@@ -17,7 +17,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
@@ -274,7 +273,8 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 		args = json.RawMessage(`{}`)
 	}
 
-	principal := auth.PrincipalFromContext(ctx).ID
+	who := auditWhoOf(ctx)
+	principal := who.id
 
 	s.mu.Lock()
 	tool := s.tools[name]
@@ -293,7 +293,7 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 			msg = "tool not found: " + name
 		}
 		result := errorResult(msg)
-		call, rejected, ok := s.beginAuditCall(principal, name, false, nil)
+		call, rejected, ok := s.beginAuditCall(who, name, false, nil)
 		if !ok {
 			return rejected, nil
 		}
@@ -303,20 +303,20 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 
 	if !exactArgumentKeys(args) {
 		// Refused before authorization: see exactArgumentKeys.
-		s.auditDenied(principal, name, args)
+		s.auditDenied(who, name, args)
 		return errorResult(deny(denyBadArguments).Error()), nil
 	}
 
 	if err := s.authorize(ctx, name, args); err != nil {
 		// D119/D132: the denial is audited at the point the decision happens,
 		// not where the call would have been dispatched.
-		s.auditDenied(principal, name, args)
+		s.auditDenied(who, name, args)
 		return errorResult(err.Error()), nil
 	}
 
 	if check != nil {
 		if err := check(tool, args); err != nil {
-			s.auditDenied(principal, name, args)
+			s.auditDenied(who, name, args)
 			return ToolResult{}, err
 		}
 	}
@@ -329,7 +329,7 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	var rejected ToolResult
 	ok := true
 	if !refusalsOnly {
-		call, rejected, ok = s.beginAuditCall(principal, name, tool.ReadOnly, resources)
+		call, rejected, ok = s.beginAuditCall(who, name, tool.ReadOnly, resources)
 	}
 	if !ok {
 		// Required mode, attempt-phase append failed: reject before the tool

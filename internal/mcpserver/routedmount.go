@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
@@ -632,7 +631,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string, sink *Serve
 		// attributed only once resolved within the set.
 		refuse := func(kbFor string, res ToolResult) (ToolResult, error) {
 			if sink != nil {
-				sink.auditDeniedFor(kbFor, auth.PrincipalFromContext(ctx).ID, toolName, args)
+				sink.auditDeniedFor(kbFor, auditWhoOf(ctx), toolName, args)
 			}
 			return res, nil
 		}
