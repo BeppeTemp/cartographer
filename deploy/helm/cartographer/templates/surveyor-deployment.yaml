@@ -22,7 +22,7 @@ spec:
     metadata:
       annotations:
         # The file is read once at start: a config change restarts the pod.
-        checksum/config: {{ toJson (list .config .files $root.Values.meridian.service.port) | sha256sum }}
+        checksum/config: {{ toJson (list .config .files (ternary $root.Values.meridian.service.port $root.Values.meridian.url $root.Values.meridian.enabled)) | sha256sum }}
         {{- with .podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

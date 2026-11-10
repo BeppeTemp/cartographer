@@ -2,7 +2,7 @@
 {{- $full := include "cartographer.fullname" . -}}
 {{- $s := .Values.meridian -}}
 Cartographer {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }}.
-
+{{ if $s.enabled }}
 Reach Meridian (the MCP endpoint is /mcp, the Atlas is /ui/):
 
   kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ $full }} {{ $s.service.port }}:{{ $s.service.port }}
@@ -44,4 +44,18 @@ WARNING: a Surveyor entry has no server_url, so it reaches Meridian at
 http://{{ $full }}:{{ $s.service.port }}/mcp with allow_insecure_http set: its
 token crosses the pod network in clear. Set server_url to the Ingress's HTTPS
 URL when you do not trust the pod network.
+{{- end }}
+{{- else }}
+Meridian is not part of this release: the Surveyors reach {{ include "cartographer.serverURL" . }}
+
+Secrets this release expects (it creates none and renders no secret value):
+{{- range .Values.surveyors }}
+  - {{ .existingSecret }}: the environment of the Surveyor {{ .name }}, with the token named by its token_env.
+{{- end }}
+A change in a Secret does not restart the pod: restart it after rotating a token.
+{{- if and (include "cartographer.injectsServerURL" .) (hasPrefix "http://" (include "cartographer.serverURL" .)) }}
+
+WARNING: meridian.url is plain HTTP and allow_insecure_http is set: the Surveyors'
+token crosses the network in clear. Use an https:// URL when you do not trust it.
+{{- end }}
 {{- end }}

@@ -15,6 +15,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "enabled": { "type": "boolean" },
+        "url": { "type": "string", "pattern": "^(https?://[^/]+(/.*)?)?$" },
         "image": { "$ref": "#/definitions/image" },
         "config": { "type": "object" },
         "tokens": {

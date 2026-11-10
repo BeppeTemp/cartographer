@@ -1,0 +1,12 @@
+# Surveyors only, against a plain-HTTP Meridian: allow_insecure_http is injected.
+meridian:
+  enabled: false
+  url: http://meridian.internal.example.com:39273
+surveyors:
+  - name: docs-night
+    mode: cronjob
+    schedule: "15 2 * * *"
+    existingSecret: docs-night-env
+    config:
+      token_env: SURVEYOR_TOKEN
+      kbs: [kb-a]

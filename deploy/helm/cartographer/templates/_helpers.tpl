@@ -49,9 +49,24 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- if $yes -}}yes{{- end -}}
 {{- end -}}
 
+{{/* The server_url injected in an entry without its own: the in-release Service, or meridian.url
+     (a trailing / trimmed, /mcp appended unless already there) when the release has no Meridian. */}}
+{{- define "cartographer.serverURL" -}}
+{{- if .Values.meridian.enabled -}}
+{{- printf "http://%s:%v/mcp" (include "cartographer.fullname" .) .Values.meridian.service.port -}}
+{{- else -}}
+{{- $u := trimSuffix "/" .Values.meridian.url -}}
+{{- if hasSuffix "/mcp" $u -}}{{- $u -}}{{- else -}}{{- printf "%s/mcp" $u -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Every template-time refusal lives here; the output is empty. */}}
 {{- define "cartographer.validate" -}}
+{{- if .Values.meridian.enabled -}}
 {{- $s := .Values.meridian -}}
+{{- if $s.url -}}
+{{- fail "meridian.url applies to meridian.enabled=false only: an enabled release reaches its own Meridian" -}}
+{{- end -}}
 {{- $cfg := $s.config -}}
 {{- range $k := list "http" "data" "credentials_dir" -}}
 {{- if hasKey $cfg $k -}}
@@ -86,6 +101,27 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- end -}}
 {{- if and $s.ingress.enabled (not $s.ingress.hosts) -}}
 {{- fail "meridian.ingress.enabled needs meridian.ingress.hosts: name at least one host" -}}
+{{- end -}}
+{{- else -}}
+{{- $s := .Values.meridian -}}
+{{- if not .Values.surveyors -}}
+{{- fail "a release with no Meridian and no Surveyor renders nothing: add a surveyors entry or set meridian.enabled=true" -}}
+{{- end -}}
+{{- if and (include "cartographer.injectsServerURL" .) (not $s.url) -}}
+{{- fail "meridian.url is required when meridian.enabled=false: the Surveyors need the address of the Meridian they report to (or set server_url in every entry's config)" -}}
+{{- end -}}
+{{- if and $s.url (not (regexMatch "^https?://[^/]+(/.*)?$" $s.url)) -}}
+{{- fail "meridian.url must be an http:// or https:// URL, e.g. https://wiki.example.com" -}}
+{{- end -}}
+{{- if $s.ingress.enabled -}}{{- fail "meridian.ingress.enabled is ignored when meridian.enabled=false: remove it" -}}{{- end -}}
+{{- if $s.tokens.existingSecret.name -}}{{- fail "meridian.tokens.existingSecret.name is ignored when meridian.enabled=false: the token lives in each entry's existingSecret" -}}{{- end -}}
+{{- if $s.persistence.existingClaim -}}{{- fail "meridian.persistence.existingClaim is ignored when meridian.enabled=false: remove it" -}}{{- end -}}
+{{- if $s.persistence.emptyDir -}}{{- fail "meridian.persistence.emptyDir is ignored when meridian.enabled=false: remove it" -}}{{- end -}}
+{{- if $s.config.kbs -}}{{- fail "meridian.config.kbs is ignored when meridian.enabled=false: remove it" -}}{{- end -}}
+{{- $auth := default (dict) $s.config.auth -}}
+{{- if or (gt (len $auth) 1) (and (hasKey $auth "mode") (ne (toString $auth.mode) "on")) (and (not (hasKey $auth "mode")) $auth) -}}{{- fail "meridian.config.auth is ignored when meridian.enabled=false: remove it" -}}{{- end -}}
+{{- if $s.extraEnvFrom -}}{{- fail "meridian.extraEnvFrom is ignored when meridian.enabled=false: remove it" -}}{{- end -}}
+{{- if $s.credentials.existingSecret.name -}}{{- fail "meridian.credentials.existingSecret.name is ignored when meridian.enabled=false: remove it" -}}{{- end -}}
 {{- end -}}
 {{- $seen := dict -}}
 {{- range $i, $sv := .Values.surveyors -}}

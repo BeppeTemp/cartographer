@@ -9,6 +9,18 @@ fullnameOverride: ""
 imagePullSecrets: []
 
 meridian:
+  # false deploys no Meridian object (no Deployment, Service, Ingress, claim or ConfigMap):
+  # the release holds Surveyors only and they reach an external Meridian at meridian.url.
+  # The token of that Meridian comes from each entry's existingSecret (token_env).
+  # With false, the Meridian settings the chart can tell are set (ingress, tokens, claim,
+  # emptyDir, config.kbs and config.auth, extraEnvFrom, credentials) are refused; the others
+  # (image, probes, resources, ...) cannot be told from their defaults and are ignored.
+  enabled: true
+  # Base URL of the external Meridian, e.g. https://wiki.example.com (the chart appends
+  # /mcp). Required when enabled is false and an entry sets no server_url of its own;
+  # refused while enabled is true.
+  url: ""
+
   image:
     repository: ghcr.io/beppetemp/cartographer
     # Empty means the chart's appVersion, the tag of the release the chart ships with.
