@@ -46,6 +46,28 @@ die() { echo "signoff: $*" >&2; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
 cd "$(git rev-parse --show-toplevel)"
 
+# signoff.sh --probe <linux|windows> <packages> <race packages> (comma-separated, `-` for
+# none): the lander's bisection step (scripts/land.sh, D1878). It runs, on this
+# tree, only the command the targeted retry below ran when it confirmed a red run (its
+# `signoff: probe:` line): no refusal, no push, no status. Exit 0 green, 75 the machine is
+# unavailable, anything else red.
+if [ "${1:-}" = --probe ]; then
+  plat=${2:?--probe <linux|windows> <packages> <race packages>} p0=${3:--} p1=${4:--}
+  [ "$p0" != - ] || p0=
+  [ "$p1" != - ] || p1=
+  read -r -a mk <<<"${SIGNOFF_MAKE:-make}"
+  rc=0
+  # shellcheck disable=SC2086  # the package lists are word lists on purpose
+  if [ "$plat" = windows ]; then
+    read -r -a wmk <<<"${SIGNOFF_WINDOWS:?the probe of a Windows failure needs SIGNOFF_WINDOWS}"
+    [ -z "$p0" ] || "${wmk[@]}" go test -count=1 -timeout 20m ${p0//,/ } || rc=$?
+  else
+    [ -z "$p0" ] || "${mk[@]}" test-rerun RERUN_PKGS="$p0" || rc=$?
+    [ "$rc" != 0 ] || [ -z "$p1" ] || "${mk[@]}" test-rerun RERUN_PKGS="$p1" RERUN_RACE=1 || rc=$?
+  fi
+  exit "$rc"
+fi
+
 # 1. Refusals.
 branch=$(git symbolic-ref --short -q HEAD || true)
 [ -n "$branch" ] || die "HEAD is detached: check out the branch to sign off"
@@ -166,7 +188,11 @@ retry() { # $1 = linux|windows, $2 = the red log; 0 when the retry is green
   case "$rrc" in
     0) echo "signoff: flaky:$names failed and passed on a targeted retry" >&2; flaky="$flaky$names"; return 0 ;;
     75) echo "signoff: the targeted retry could not run (machine unavailable)" >&2; return 1 ;;
-    *) echo "signoff: confirmed on a targeted retry:$names" >&2; return 1 ;;
+    *) echo "signoff: confirmed on a targeted retry:$names" >&2
+       # The lander bisects a red train with this command only (signoff.sh --probe).
+       p0=${p0// /,} p1=${p1// /,}
+       echo "signoff: probe: $1 ${p0:--} ${p1:--}" >&2
+       return 1 ;;
   esac
 }
 
