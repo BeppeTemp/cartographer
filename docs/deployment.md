@@ -147,11 +147,12 @@ to *this invocation*, not to the served configuration: two services sharing one 
 still be able to log to two files.
 
 Every key (listen address `http`, `auth`, `data`, `credentials_dir`, `audit`, `git.identities`,
-`web.enabled`, `update_check`, `kbs[]`) is in `config.example.yaml`, with its default and its environment variable
+`web.enabled`, `update_check`, `kbs[]`, `components[]`) is in `config.example.yaml`, with its default and its environment variable
 and flag. Notes the example cannot carry: `data` is a directory whose subfolders are auto-discovered as KBs, and
 paths already mounted explicitly (`kbs[]`, including remote KBs cloned into it) are excluded from discovery, so
 there is no double mount; the credentials directory defaults to `<data>/credentials`; `auth.tokens` is better
 given by `CARTOGRAPHER_TOKENS` because it is a secret; `kbs[].name` fixes the KB's name (D53).
+`components[]` (the Surveyors the server expects, an alarm when one is silent, → `control-plane.md` §Component contract) is YAML only: a list of mappings has no environment or flag form, and the Helm chart does not render it yet.
 
 An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` for `roles:`, a rule's `map:` for `maps:`) stops Meridian at startup, naming the key and its line, and so does a top-level `Auth:`, a root `tokens:`/`roles:` or any unknown top-level key that mentions `auth` or `token` or is within two edits of `auth` (`auht:`, `authentication:`, `token:`): a dropped key would otherwise change who may do what. A token that declares a scope list which comes out empty (`scopes: []`, `roles: []`, `tok|`) is refused too, and so is a rule whose `maps`, `journals` or `types` is written but empty (`maps: []`, a bare `maps:`): only an omitted key means all. The admin token is the one that writes no `scopes` and no `roles` at all.
 

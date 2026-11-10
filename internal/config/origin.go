@@ -301,6 +301,12 @@ func (c *Config) serverValue(path string) (any, bool) {
 			names = append(names, s.MountName())
 		}
 		return names, len(names) > 0
+	case "components":
+		names := []string{}
+		for _, s := range c.Components {
+			names = append(names, s.Name)
+		}
+		return names, len(names) > 0
 	case "git.identities":
 		return c.GitIdentities, len(c.GitIdentities) > 0
 	case "audit.log":

@@ -37,6 +37,11 @@ type Config struct {
 	UpdateCheck bool
 	// Maintenance holds the server's background maintenance switches.
 	Maintenance MaintenanceConfig
+	// Components is the registry of expected components (YAML `components:`
+	// only): a silent one is a health state (componentproto.StateSilent). The
+	// KB names are checked against the mounted KBs by UnmountedComponentKBs once
+	// they are known.
+	Components []ComponentSpec
 	// GitIdentities is the git identity ("Name <email>") the server commits as,
 	// one per KB name and "default" for every KB without an entry (D950). Read
 	// it through IdentityFor. Without an entry the server identity applies.
@@ -360,7 +365,8 @@ type rawConfig struct {
 	Web            rawWeb   `yaml:"web"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
-	UpdateCheck *bool `yaml:"update_check"`
+	UpdateCheck *bool          `yaml:"update_check"`
+	Components  []rawComponent `yaml:"components"`
 	Maintenance struct {
 		// AutoRepair is a pointer: the default is true, so absent differs from false.
 		AutoRepair *bool `yaml:"auto_repair"`
@@ -565,6 +571,9 @@ func Load(path string) (*Config, error) {
 	if err := checkAuthKeys(data); err != nil {
 		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
+	if err := checkComponentKeys(data); err != nil {
+		return nil, fmt.Errorf("config: parse %q: %w", path, err)
+	}
 
 	cfg := Default()
 	var specs []KBSpec
@@ -643,6 +652,12 @@ func Load(path string) (*Config, error) {
 	if err := ValidateAuthRoles(cfg.Auth); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
+
+	comps, err := componentSpecs(raw.Components)
+	if err != nil {
+		return nil, fmt.Errorf("config: components: %w", err)
+	}
+	cfg.Components = comps
 
 	if raw.Web.Enabled != nil {
 		cfg.Web.Enabled = *raw.Web.Enabled

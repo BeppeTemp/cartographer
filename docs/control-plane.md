@@ -468,6 +468,18 @@ process, that the server is old: later reports go straight to the alias. The Sur
 fallback (never released). The Surveyor's `/api/surveyors`, `/api/surveyor-settings` and
 `GET /api/ui/v1/kbs/{kb}/workers` were never released: they are gone, with no alias.
 
+**Registry of expected components.** The server config may list the components it expects (`components:`, YAML
+only: `kind` (`surveyor`), `name` (the Surveyor's `perimeter`), `kbs` (mounted KBs), `min_replicas` 1..16, default
+1; an unknown kind, a bad name, a duplicate, or an unknown key stops the start; an entry naming a KB the server did not mount is logged as a warning at start and kept).
+Each entry gives, per KB it names, a health state (`componentproto.States`): `up` (live replicas >= `min_replicas`),
+`degraded` (some live, fewer), `silent` (expected, none live; `last_seen_at` is the last beat this process saw,
+null = never), `starting` (expected, never seen, within three heartbeat intervals of the process start) and
+`undeclared` (a live Surveyor not in the registry; informational, only when the registry is not empty). The state
+is in memory like the heartbeats: a restarted server is `starting` again. `/health` and `/ready` do not change
+meaning: a silent Surveyor never restarts the server; each transition into `silent` or `degraded`, and each
+recovery, is logged once on stderr when the state is read (`MultiKBServer.ComponentStatus`, which answers
+nothing for a KB the caller does not see whole). An absent or empty registry changes nothing observable.
+
 ### Usage reports (`POST /api/component/v1/usage`, D326)
 
 Which skills and agents the clients actually load is invisible to Meridian: a skill

@@ -699,6 +699,16 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 			log.Printf("mounted KB %q at %s", name, k.Root)
 		}
 
+		// The registry of expected components (components:). An entry naming a
+		// KB that is not mounted is said loudly and kept: a KB that failed to
+		// mount must not become an outage of every other one.
+		if settingsCfg != nil {
+			for _, line := range config.UnmountedComponentKBs(settingsCfg.Components, names) {
+				log.Printf("warning: %s", line)
+			}
+			multi.SetComponents(settingsCfg.Components)
+		}
+
 		// D187/D288: the routed mount is the one agent-facing topology, always
 		// served. The per-KB endpoints above stay as plumbing (the routed mount
 		// dispatches into them) and for clients not yet re-synced. It is enabled

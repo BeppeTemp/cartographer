@@ -42,6 +42,11 @@ server	audit.mode	With best_effort a failed append is logged and the call carrie
 server	audit.max_segment_bytes	Size after which the active log segment is rotated (64 MiB by default), so retention has segments to delete.
 server	audit.archive_dir	Directory of rotated segments; empty keeps them beside the log.
 server	audit.retention_days	Rotated segments older than this are deleted once their checkpoint is written.
+server	components	The components the server expects to hear from. A declared Surveyor with fewer live replicas than min_replicas is degraded, one with none is silent (an alarm in the components view; /health and /ready do not change); for the first minutes after a start it is starting. Absent or empty: no expectation and no alarm. YAML only (a list of mappings has no environment or flag form), and the Helm chart does not render it yet.
+server	components[].kind	What is expected. Only surveyor in this release; an unknown kind refuses the start.
+server	components[].name	The Surveyor's perimeter (lowercase letters, digits and dashes, up to 40), unique per kind.
+server	components[].kbs	The KBs the component must cover; each must be a mounted KB, so a typo cannot silence the alarm.
+server	components[].min_replicas	Live replicas below which the component is degraded.
 server	web.enabled	Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes.
 kb	usage_stale_days	Days a skill or agent may go unused by every client before kb_status.usage counts it as stale. A value under 7 is raised to 7 with a warning; there is no value that turns the signal off.
 kb	artifact_prefix	Scope word every skill and agent of this KB must start with, followed by a hyphen: acme requires acme-review-mr. A skill or agent without it is an artifact_unprefixed finding, and a write that introduces one is refused. Empty or absent: nothing is checked.

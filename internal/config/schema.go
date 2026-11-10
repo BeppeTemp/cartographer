@@ -119,6 +119,18 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "audit.retention_days", Scope: settingschema.ScopeServer, Type: "int", Values: "days; 0 keeps everything", Default: "90", Restart: true,
 		Description: "Rotated segments older than this are deleted once their checkpoint is written."},
 
+	{Path: "components", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
+		Example:     "- kind: surveyor\n  name: nightly\n  kbs: [kb-a]\n  min_replicas: 1",
+		Description: "The components the server expects to hear from. A declared Surveyor with fewer live replicas than min_replicas is degraded, one with none is silent (an alarm in the components view; /health and /ready do not change); for the first minutes after a start it is starting. Absent or empty: no expectation and no alarm. YAML only (a list of mappings has no environment or flag form), and the Helm chart does not render it yet."},
+	{Path: "components[].kind", Scope: settingschema.ScopeServer, Type: "string", Values: "surveyor", Default: `""`, Restart: true,
+		Description: "What is expected. Only surveyor in this release; an unknown kind refuses the start."},
+	{Path: "components[].name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
+		Description: "The Surveyor's perimeter (lowercase letters, digits and dashes, up to 40), unique per kind."},
+	{Path: "components[].kbs", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
+		Description: "The KBs the component must cover; each must be a mounted KB, so a typo cannot silence the alarm."},
+	{Path: "components[].min_replicas", Scope: settingschema.ScopeServer, Type: "int", Values: "1 to 16", Default: "1", Restart: true,
+		Description: "Live replicas below which the component is degraded."},
+
 	{Path: "web.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_WEB_ENABLED", Flag: "--web-enabled", Restart: true, Example: "true",
 		Description: "Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes."},
 }}
