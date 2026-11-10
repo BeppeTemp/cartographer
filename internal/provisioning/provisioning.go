@@ -62,7 +62,7 @@ type Artifact struct {
 	// (e.g. received via the sync_pull MCP tool on a remote HTTP client, with
 	// no filesystem shared with the server). When present, Apply materializes
 	// from here instead of walking BundleFS/KBRoots. Not part of the JSON
-	// manifest exposed by sync_check/sync_apply/sync_pull (that uses dedicated
+	// manifest exposed by sync_check/sync_pull (that uses dedicated
 	// structures).
 	Files []ArtifactFile `json:"-"`
 
@@ -97,8 +97,8 @@ type BuildOptions struct {
 	SkillDiagnostic func(string)
 	// IncludeCLISkill lists the bundled CLISkillName skill. False for every
 	// built-in caller: no built-in provider reaches Cartographer through
-	// `cartographer call`, so the server leaves the skill out of sync_check,
-	// sync_apply and sync_pull and an older client, which has no client-side
+	// `cartographer call`, so the server leaves the skill out of sync_check
+	// and sync_pull and an older client, which has no client-side
 	// filter, never receives it. sync_pull sets it only when the client asks
 	// (include_cli_skill), which every current client does (it filters the skill
 	// per provider, cliskill.go).
@@ -1876,7 +1876,7 @@ func ReadLock(path string) (Lock, error) {
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return Lock{}, fmt.Errorf("provisioning: parse lock %s: %w", path, err)
 	}
-	// Read as untrusted like ReadLockFile (#1824): sync_apply prunes from it.
+	// Read as untrusted like ReadLockFile (#1824): the client prunes from it.
 	lock, _ = sanitizeLock(lock.Provider, "", lock)
 	return lock, nil
 }
@@ -1903,7 +1903,7 @@ func WriteLock(path string, lock Lock) error {
 // client (cartographer connect/sync): one Lock per connected provider, indexed by
 // provider name, in the same .cartographer-sync.lock.json file (LockFileName).
 //
-// Backward compatibility: v1 lockfiles (written by the sync_apply MCP tool or the
+// Backward compatibility: v1 lockfiles (written by the removed `sync_apply` MCP tool or the
 // old cartographer-configure, a single provider with a top-level "provider"
 // field) are automatically migrated on read by ReadLockFile.
 type LockFile struct {
@@ -3305,7 +3305,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 			triggered = true
 		}
 	} else if len(signed) > 0 {
-		// The server side (sync_apply) expands nothing and has no paths section,
+		// A server-built manifest expands nothing and has no paths section,
 		// but the shared operational section is still client-owned text of the
 		// block: without its hash a release that edits it left the block old
 		// until an instructions or agent artifact changed (#1502).

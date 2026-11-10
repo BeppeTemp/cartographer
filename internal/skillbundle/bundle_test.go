@@ -175,7 +175,7 @@ var advancedTools = []string{
 	"concept_merge", "concept_collapse", "concept_archive", "concept_transfer",
 	"artifact_move", "artifact_list", "commit_gate", "contradiction_report",
 	"conflict_resolve", "repair_revert", "reindex", "graph_path",
-	"sync_check", "sync_apply", "sync_pull", "sync_status",
+	"sync_check", "sync_pull", "sync_status",
 	"skill_list", "skill_install", // service_get, secret_resolve, secret_set left D1191
 	"service_list",
 }

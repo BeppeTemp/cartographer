@@ -17,6 +17,11 @@ import (
 // risky tool: kb_repair (doctor, #1261) and conflict_resolve (synthesis, #1263)
 // stay allowable, and a per-task allowlist narrows the rest. Matching is by
 // exact name, plus the artifact_ prefix.
+//
+// "sync_apply" stays although the server no longer registers it: a Surveyor
+// newer than its server must still never offer it, and a Surveyor older than
+// the removal talks to servers that have it. The list is a "never" list, not a
+// registry of what exists.
 var denyTools = []string{
 	"concept_delete", "repair_revert", "concept_transfer",
 	"secret_resolve", "secret_set", "skill_install", "git_conflict_resolve",

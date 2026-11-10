@@ -22,7 +22,6 @@ func TestPolicyWriteClassesDenyOutsideWholeOrBoundary(t *testing.T) {
 		"artifact_write":   `{"path":"instructions.md","content":"x"}`,
 		"secret_set":       `{"path":"secrets/x.sops.yaml","key":"x","value":"y"}`,
 		"conflict_resolve": `{"contradiction_id":"manutenzione/test-runbook","resolution":"x"}`,
-		"sync_apply":       `{}`,
 		"concept_move":     `{"source_id":"manutenzione/test-runbook","target_id":"other/moved"}`,
 		"supersede":        `{"source_id":"manutenzione/test-runbook","target_id":"other/replacement"}`,
 		"concept_write":    `{"id":"manutenzione/new","frontmatter":{"type":"Secret"},"body":"x"}`,

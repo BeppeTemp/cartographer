@@ -388,8 +388,7 @@ func TestKBGuide_BlockScalarSkillDescription(t *testing.T) {
 }
 
 // The bundle carries cartographer-cli, but no built-in provider reaches
-// Cartographer through `cartographer call`: sync_pull and a sync_apply dry run
-// never list it, so an older client with no client-side filter cannot install
+// Cartographer through `cartographer call`: sync_pull never lists it, so an older client with no client-side filter cannot install
 // it either (D1658). skill_install by name stays an explicit KB-author act.
 func TestSyncToolsLeaveTheCLISkillOut(t *testing.T) {
 	t.Parallel()
@@ -397,11 +396,6 @@ func TestSyncToolsLeaveTheCLISkillOut(t *testing.T) {
 	pull := guideText(t, s.callTool(withProvisioned(authLocalContext()), "sync_pull", json.RawMessage(`{}`)))
 	if !strings.Contains(pull, "cartographer-ops") || strings.Contains(pull, "cartographer-cli") {
 		t.Errorf("sync_pull must list the bundle without cartographer-cli:\n%.400s", pull)
-	}
-	args, _ := json.Marshal(map[string]any{"base_dir": t.TempDir(), "dry_run": true})
-	apply := guideText(t, s.callTool(authLocalContext(), "sync_apply", args))
-	if strings.Contains(apply, "cartographer-cli") {
-		t.Errorf("sync_apply must not plan cartographer-cli:\n%s", apply)
 	}
 	if res := s.callTool(authLocalContext(), "sync_check", json.RawMessage(`{}`)); strings.Contains(guideText(t, res), "cartographer-cli") {
 		t.Errorf("sync_check lists cartographer-cli")

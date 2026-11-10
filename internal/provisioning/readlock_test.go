@@ -160,7 +160,7 @@ func TestReadLockFile_DropsEntriesOfUntrustedBaseDir(t *testing.T) {
 	}
 }
 
-// ReadLock (sync_apply's reader) filters like ReadLockFile.
+// ReadLock filters like ReadLockFile.
 func TestReadLock_DropsNonLocalPaths(t *testing.T) {
 	path := writeRawLock(t, t.TempDir(), map[string]any{
 		"applied_revision": "r", "provider": "claude",

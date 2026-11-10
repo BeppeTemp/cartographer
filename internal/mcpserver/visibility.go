@@ -58,6 +58,33 @@ func (s *Server) legacyToolMessage(ctx context.Context, name string) string {
 	return msg + "."
 }
 
+// removedTools names the tools a released server registered and this one no
+// longer does, with what to do instead. It is consulted only on the unknown-tool
+// path, so a removed name is never registered and never in tools/list. D151 keeps
+// the not-found text identical for every absent tool; a removal adds the pointer
+// an agent needs, and only here (see removedToolMessage).
+var removedTools = map[string]struct{ operator, other string }{
+	"sync_apply": {
+		operator: "materialize with `cartographer sync` on the machine whose files they are (it reads the manifest through `sync_pull`)",
+		other:    "use `sync_pull` to read the manifest",
+	},
+}
+
+// removedToolMessage answers a call to a removed tool, or "" for any other name.
+// The CLI command is for a provisioned client only (D1101), as in
+// legacyToolMessage.
+func removedToolMessage(ctx context.Context, name string) string {
+	r, ok := removedTools[name]
+	if !ok {
+		return ""
+	}
+	hint := r.other
+	if addressesOperator(ctx) {
+		hint = r.operator
+	}
+	return "tool not found: " + name + " — removed in 0.29: it wrote the client's files from inside the server; " + hint
+}
+
 // advancedToolNames is the source-of-truth list of tool names hidden from
 // tools/list under the default "agent" tools profile (D65). They stay fully
 // registered and callable via tools/call — the CLI client (sync_pull, D57) and
@@ -120,7 +147,6 @@ var advancedToolNames = map[string]bool{
 	"conflict_resolve":     true,
 	"reindex":              true,
 	"sync_check":           true,
-	"sync_apply":           true,
 	"sync_pull":            true,
 	"sync_status":          true,
 	"skill_list":           true,

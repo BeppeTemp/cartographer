@@ -40,7 +40,7 @@ type Deps struct {
 //     with the files first (D245), so a write — or any other change to a
 //     concept file — is reflected by the next search.
 //   - skill_list: if deps.BundleFS is set, uses the bundle-aware variant and also
-//     registers skill_install, sync_check, sync_apply and sync_pull; otherwise uses
+//     registers skill_install, sync_check and sync_pull; otherwise uses
 //     the installed-only variant.
 //
 // Builds the keyword index at registration time.
@@ -191,7 +191,6 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		register(toolSkillListWithBundle(k, deps.BundleFS))
 		register(gitWrap(k, toolSkillInstall(k, deps.BundleFS)))
 		register(toolSyncCheck(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner))
-		register(toolSyncApply(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner))
 		register(toolSyncPull(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner))
 	} else {
 		register(toolSkillList(k))

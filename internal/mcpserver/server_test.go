@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -3528,111 +3527,6 @@ func TestServer_SyncCheck(t *testing.T) {
 	json.Unmarshal([]byte(tr2.Content[0].Text), &result2)
 	if result2["in_sync"] != true {
 		t.Errorf("sync_check: expected in_sync=true with the correct revision: %v", result2)
-	}
-}
-
-func TestServer_SyncApply(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	baseDir := t.TempDir()
-
-	bundleFS := fstest.MapFS{
-		"bundled/kb-create/SKILL.md": &fstest.MapFile{
-			Data: []byte("---\nname: kb-create\ndescription: Guide KB creation\nversion: \"1.0\"\n---\nBody.\n"),
-		},
-	}
-
-	s := New("1.0.0")
-	RegisterKBTools(s, k, Deps{BundleFS: bundleFS})
-
-	argsApply := fmt.Sprintf(`{"base_dir":%q}`, baseDir)
-	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sync_apply","arguments":` + argsApply + `}}`,
-	}
-	resps := runMCPSequence(t, s, msgs)
-
-	if len(resps) != 2 {
-		t.Fatalf("expected 2 responses, received %d", len(resps))
-	}
-
-	tr := decodeToolResult(t, resps[1])
-	if tr.IsError {
-		t.Fatalf("sync_apply: isError=true: %v", tr.Content)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
-		t.Fatalf("sync_apply: response is not JSON: %v", err)
-	}
-
-	// Verify new_revision is populated.
-	newRev, ok := result["new_revision"].(string)
-	if !ok || newRev == "" {
-		t.Errorf("sync_apply: new_revision empty or missing: %v", result)
-	}
-
-	// Verify SKILL.md was written into base_dir.
-	skillPath := filepath.Join(baseDir, ".claude", "skills", "kb-create", "SKILL.md")
-	if _, err := os.Stat(skillPath); err != nil {
-		t.Errorf("sync_apply: SKILL.md not found in %s: %v", skillPath, err)
-	}
-
-	// Verify the lockfile was written.
-	lockPath := filepath.Join(baseDir, ".cartographer-sync.lock.json")
-	if _, err := os.Stat(lockPath); err != nil {
-		t.Errorf("sync_apply: lockfile not found in %s: %v", lockPath, err)
-	}
-}
-
-// A KB hook is never installed by sync_apply, which holds no local approval,
-// signed by the server or not (D1141): it lands in needs_approval.
-func TestServer_SyncApply_HookNeedsApproval(t *testing.T) {
-	t.Parallel()
-	_, priv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, signer := range map[string]ed25519.PrivateKey{"unsigned": nil, "signed": priv} {
-		signer := signer
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			k := setupTestKB(t)
-			hookDir := filepath.Join(k.Root, "hooks", "guard")
-			if err := os.MkdirAll(hookDir, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"SessionStart","command":"./run.sh"}`+"\n"), 0o644)
-			os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
-			commitFixtures(t, k.Root)
-			baseDir := t.TempDir()
-
-			s := New("1.0.0")
-			RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}, ArtifactSigner: signer})
-			resps := runMCPSequence(t, s, []string{
-				`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-				`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sync_apply","arguments":` + fmt.Sprintf(`{"base_dir":%q}`, baseDir) + `}}`,
-			})
-			tr := decodeToolResult(t, resps[1])
-			if tr.IsError {
-				t.Fatalf("sync_apply: %v", tr.Content)
-			}
-			var result struct {
-				NeedsApproval []struct{ Kind, Name string } `json:"needs_approval"`
-			}
-			if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
-				t.Fatal(err)
-			}
-			if len(result.NeedsApproval) != 1 || result.NeedsApproval[0].Kind != "hook" {
-				t.Errorf("want the hook in needs_approval, got %+v", result.NeedsApproval)
-			}
-			if _, err := os.Stat(filepath.Join(baseDir, ".claude", "hooks", "guard")); err == nil {
-				t.Error("sync_apply installed an unapproved hook")
-			}
-			if _, err := os.Stat(filepath.Join(baseDir, ".claude", "settings.json")); err == nil {
-				t.Error("sync_apply registered an unapproved hook")
-			}
-		})
 	}
 }
 
