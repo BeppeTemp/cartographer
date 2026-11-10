@@ -70,7 +70,7 @@ const (
 var doctorAllowWords = []string{doctorAllowRepair, doctorAllowPages, doctorAllowStructure, doctorAllowArchive}
 
 // doctorRepairs are the checks a run may repair, and the word each needs. The
-// server's background repair already applies what is safe to run with no person,
+// server's background repair or a repair task already applies what is safe to run with no person,
 // so these are the fixes it leaves for someone to ask for, and a check not named
 // here never runs: reciprocal_link_item can drop hundreds of edges in one commit
 // (D309), legacy_skill_name moves skills, and junk_file changes what git tracks.

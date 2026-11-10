@@ -42,7 +42,7 @@ func TestDocumentedSurveyorConfigLoads(t *testing.T) {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := LoadConfig(path, NewKinds(Kind{Name: "ingest"}, promptKind())); err != nil {
+		if _, err := LoadConfig(path, NewKinds(Kind{Name: "ingest"}, promptKind(), RepairKind())); err != nil {
 			t.Errorf("docs/deployment.md surveyor example %d does not load: %v\n%s", n, err, body)
 		}
 	}

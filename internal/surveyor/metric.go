@@ -16,6 +16,10 @@ func taskMetric(perimeter, replica, kb string, t TaskSpec, model, key string, d 
 		"steps": res.Steps, "max_prompt_tokens": res.MaxPromptTokens, "tool_calls": res.ToolCalls, "tool_errors": res.ToolErrors,
 		"units": res.Units, "commits": res.Commits, "summary": res.Summary,
 	}
+	if t.Profile == "" { // a NoModel task
+		delete(m, "profile")
+		delete(m, "model")
+	}
 	if err != nil {
 		m["error"] = oneLine(err.Error())
 	}

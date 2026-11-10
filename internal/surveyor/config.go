@@ -532,7 +532,10 @@ const (
 
 func (v *validator) models() error {
 	if len(v.raw.Models) == 0 {
-		return v.errf("models", v.line("models"), "required: at least one model profile")
+		if v.needsModel() {
+			return v.errf("models", v.line("models"), "required: at least one model profile")
+		}
+		return nil // every task is a NoModel kind
 	}
 	if len(v.raw.Models) > MaxProfiles {
 		return v.errf("models", v.line("models"), "at most %d model profiles (the server refuses a heartbeat with more budgets)", MaxProfiles)
@@ -614,6 +617,29 @@ func (v *validator) models() error {
 		v.c.Models = append(v.c.Models, p)
 	}
 	return nil
+}
+
+// needsModel says whether some tasks[] entry may call a model. No tasks, an
+// unnamed kind or an unknown one count as needing it, so those configs keep
+// the errors they had.
+func (v *validator) needsModel() bool {
+	if len(v.raw.Tasks) == 0 {
+		return true
+	}
+	for _, n := range v.raw.Tasks {
+		name := ""
+		if n.Kind == yaml.MappingNode {
+			for j := 0; j+1 < len(n.Content); j += 2 {
+				if n.Content[j].Value == "kind" {
+					name = n.Content[j+1].Value
+				}
+			}
+		}
+		if k, ok := v.kinds.Lookup(name); !ok || !k.NoModel {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *validator) schedule() error {
@@ -699,13 +725,19 @@ func (v *validator) tasks() error {
 			return v.errf(at+".kind", kindNode.Line, "unknown kind %q: %s", kindName, v.kindList())
 		}
 		t.Kind = kindName
-		if t.Profile == "" {
+		switch {
+		case kind.NoModel:
+			if t.Profile != "" {
+				return v.errf(at+".model", n.Line, "a %s task takes no model: remove this key", kind.Name)
+			}
+		case t.Profile == "":
 			return v.errf(at+".model", n.Line, "required: one of the profiles %s", v.profileList())
+		default:
+			if _, ok := v.c.Profile(t.Profile); !ok {
+				return v.errf(at+".model", n.Line, "unknown profile %q: defined %s", t.Profile, v.profileList())
+			}
+			used[t.Profile] = true
 		}
-		if _, ok := v.c.Profile(t.Profile); !ok {
-			return v.errf(at+".model", n.Line, "unknown profile %q: defined %s", t.Profile, v.profileList())
-		}
-		used[t.Profile] = true
 		if err := v.options(at, n, kind, &t); err != nil {
 			return err
 		}

@@ -461,7 +461,11 @@ Body (one JSON object, `application/json`, 64 KiB cap): `surveyor` (this process
 `perimeter` (1-40 of `[a-z0-9-]`, shared by replicas), `version`, `kbs` (1-32 names), `state` (`idle`,
 `running`, `waiting`, `budget_exhausted`, `stopped`), `interval_seconds` (clamped to 15-3600, default 60),
 `last_run` (`{at, units_done, tokens_spent, commits}`), `budgets` (at most 8 `{profile, tier, spent, limit}`, one
-per model profile, never summed) and `next_window_at` (omitted when past or more than 8 days ahead). A
+per model profile, never summed), `next_window_at` (omitted when past or more than 8 days ahead) and the
+optional `tasks` (at most 16 `{kind, interval_seconds?}`: the task kinds the Surveyor runs, `kind` of
+`[a-z0-9-]` up to 32 characters, `interval_seconds` how often it intends to run it, clamped to 3600-691200,
+default 86400; a bad kind or more than 16 entries is a `400` naming `tasks`; an older Surveyor sends none and an
+older Meridian ignores the field). A
 `last_run.at` more than a day ahead is clamped to now; counters are clamped to `0..2^40`; text is truncated
 and stripped of control characters. `received_at` is Meridian's clock.
 

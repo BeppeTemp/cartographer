@@ -13,6 +13,7 @@ money and writes to KBs when nobody is looking.
   `internal/kb` (`imports_test.go` pins both).
 - **Shutdown writes the closing entries through the short-timeout caller** (`RunnerOptions.CloseCallers`):
   client calls take no context and time out at 30 s, more than Kubernetes' grace period.
+- **A `NoModel` kind never reaches a model client** (`repair.go`, `Kind.NoModel`): its entry has no profile, the runner skips the grant gate for it, and `Runtime.Profile`/`Model` are zero; a kind that needs a model must not set it.
 - **Adding a task kind**: declare its options in `internal/surveyorconfig/schema.go`, write the kind
   (`Name`, `Options`, `Validate`, `Build` returning an `Instance`) and add one line to `DefaultKinds()`.
 - **A synthesis write never targets an existing concept and never uses a blocking contradiction kind**
