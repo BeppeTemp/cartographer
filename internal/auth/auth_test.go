@@ -590,3 +590,67 @@ func TestSurveyorKindForcesReadOnlyArtifacts(t *testing.T) {
 		t.Error("a client keeps artifact writes")
 	}
 }
+
+// Replace swaps the tokens of a running store: the new one authorises, the
+// removed one is refused, and an empty set is refused when authentication is
+// required (the store keeps what it had).
+func TestTokenStoreReplace(t *testing.T) {
+	ts := NewScopedTokenStore([]ScopedToken{{Token: "old-token-aaaa", Principal: "old", Policy: Policy{Admin: true}}}).RequireAuth()
+	if _, ok := ts.Validate("old-token-aaaa"); !ok {
+		t.Fatal("the initial token is refused")
+	}
+	if err := ts.Replace(nil); err == nil {
+		t.Fatal("an empty set replaced a required store")
+	}
+	if _, ok := ts.Validate("old-token-aaaa"); !ok {
+		t.Fatal("a refused Replace dropped the token in force")
+	}
+	if err := ts.Replace([]ScopedToken{{Token: "new-token-bbbb", Principal: "new", Policy: Policy{Admin: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ts.Validate("old-token-aaaa"); ok {
+		t.Error("the removed token still validates")
+	}
+	if id, ok := ts.Validate("new-token-bbbb"); !ok || id != "new" {
+		t.Errorf("the new token = %q, %v", id, ok)
+	}
+	if ts.TokenCount() != 1 {
+		t.Errorf("TokenCount = %d, want 1", ts.TokenCount())
+	}
+}
+
+// Concurrent requests and Replace under -race: every request resolves against
+// one whole snapshot, so a token present in both sets never fails.
+func TestTokenStoreReplaceConcurrent(t *testing.T) {
+	keep := ScopedToken{Token: "keep-token-cccc", Principal: "keep", Policy: Policy{Admin: true}}
+	ts := NewScopedTokenStore([]ScopedToken{keep}).RequireAuth()
+	h := ts.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			extra := ScopedToken{Token: "extra-token-" + string(rune('a'+i%26)), Policy: Policy{Admin: true}}
+			if err := ts.Replace([]ScopedToken{keep, extra}); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	for i := 0; i < 500; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer keep-token-cccc")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("request %d = %d during a Replace", i, rr.Code)
+		}
+	}
+	close(stop)
+	<-done
+}

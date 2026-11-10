@@ -105,20 +105,31 @@ func cmdServe(args []string) int {
 		detachOwnConsole()
 	}
 
-	cfg, err := loadServeConfig(fs, config.FlagOverrides{
+	overrides := config.FlagOverrides{
 		HTTP:        httpFlag,
 		KB:          kbFlag,
 		Data:        dataFlag,
 		Tokens:      tokensFlag,
 		WebEnabled:  webEnabledFlag,
 		UpdateCheck: updateCheckFlag,
-	}, *configFlag)
+	}
+	cfg, err := loadServeConfig(fs, overrides, *configFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
 	announceConfig(cfg, envFallback(*configFlag, "CARTOGRAPHER_CONFIG"))
 
-	runServe(cfg)
+	configPath := envFallback(*configFlag, "CARTOGRAPHER_CONFIG")
+	runServe(cfg, &authReload{
+		Path: configPath,
+		Load: func() (config.AuthConfig, error) {
+			c, err := loadServeConfigAt(fs, overrides, *configFlag, time.Time{})
+			if err != nil {
+				return config.AuthConfig{}, err
+			}
+			return c.Auth, nil
+		},
+	})
 	return 0
 }
 
@@ -127,6 +138,13 @@ func cmdServe(args []string) int {
 // Flags are applied only for those actually passed on the command line
 // (fs.Visit), so unset flags never clobber env/YAML values.
 func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFlagVal string) (*config.Config, error) {
+	return loadServeConfigAt(fs, overrides, configFlagVal, time.Now())
+}
+
+// loadServeConfigAt is loadServeConfig with the instant a token's expires_at is
+// judged against. A reload passes the zero time: a token that expired after
+// startup is not a reason to refuse the file (see authReloader.dropExpired).
+func loadServeConfigAt(fs *flag.FlagSet, overrides config.FlagOverrides, configFlagVal string, now time.Time) (*config.Config, error) {
 	configPath := envFallback(configFlagVal, "CARTOGRAPHER_CONFIG")
 
 	var cfg *config.Config
@@ -166,7 +184,7 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 	// Validate the configuration that will actually be served, not just the
 	// YAML: environment- and flag-supplied tokens reach the listener too, and
 	// an invalid one used to widen access rather than stop startup (D179).
-	if err := config.ValidateAuth(cfg.Auth); err != nil {
+	if err := config.ValidateAuthAt(cfg.Auth, now); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
 	// A configuration that asks for the server git profile, or still names a
@@ -456,7 +474,7 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 }
 
 // runServe opens/bootstraps all configured KBs and starts the server.
-func runServe(cfg *config.Config) {
+func runServe(cfg *config.Config, reload *authReload) {
 	if err := checkCredentialsDir(cfg); err != nil {
 		log.Fatal(err)
 	}
@@ -475,7 +493,7 @@ func runServe(cfg *config.Config) {
 	if cfg.HTTP != "" {
 		// serveHTTP installs its own signal handler; the context only stops a
 		// bootstrap clone when the server is asked to end.
-		if err := serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.Web.Enabled, auditLog, latestVersion, cfg); err != nil {
+		if err := serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, reload, cfg.Web.Enabled, auditLog, latestVersion, cfg); err != nil {
 			log.Fatalf("HTTP server error: %v", err)
 		}
 	} else {
@@ -520,7 +538,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]
 // listener starts; a failure inside boot stays fatal. The port is bound
 // synchronously, before boot is started: a second serve on a taken port returns
 // the error at once, without cloning, committing or indexing anything.
-func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config) error {
+func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, reload *authReload, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config) error {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -547,6 +565,11 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 			log.Fatal("auth is enabled but no usable token was configured (see auth.tokens, CARTOGRAPHER_TOKENS or --tokens)")
 		}
 		log.Printf("HTTP auth enabled (%d token(s))", store.TokenCount())
+		if reload != nil {
+			// Tokens and roles are applied to the running store when the config
+			// file changes or on SIGHUP; stopped with the server.
+			defer reload.start(store, scoped, authCfg.Mode, authCfg.ReloadInterval)()
+		}
 	} else {
 		store = auth.NewTokenStore(nil)
 		if len(authCfg.Tokens) > 0 {

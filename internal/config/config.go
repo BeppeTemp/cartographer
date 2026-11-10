@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"gopkg.in/yaml.v3"
@@ -78,7 +79,14 @@ type AuthConfig struct {
 	// Roles are named, reusable permission sets referenced by TokenSpec.Roles
 	// (D118). A deployment that only uses `scopes` declares none.
 	Roles []RoleSpec `yaml:"roles,omitempty"`
+	// ReloadInterval is how often a running server looks at the config file for
+	// a changed auth section (tokens, roles) and applies it without a restart.
+	// Zero stops the polling; SIGHUP reloads at any time, whatever this says.
+	ReloadInterval time.Duration `yaml:"-"`
 }
+
+// DefaultAuthReloadInterval is the poll of the config file for auth changes.
+const DefaultAuthReloadInterval = 30 * time.Second
 
 // RoleSpec is a named set of allow rules. Roles referenced by one token are
 // unioned; there are deliberately no deny rules, so evaluation is
@@ -308,7 +316,7 @@ type MaintenanceConfig struct {
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
-		Auth:        AuthConfig{Mode: "auto"},
+		Auth:        AuthConfig{Mode: "auto", ReloadInterval: DefaultAuthReloadInterval},
 		Audit:       AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		Web:         WebConfig{Enabled: true},
 		UpdateCheck: true,
@@ -366,6 +374,8 @@ type rawAuth struct {
 	Mode   string      `yaml:"mode"`
 	Tokens []TokenSpec `yaml:"tokens"`
 	Roles  []RoleSpec  `yaml:"roles"`
+	// ReloadInterval is a duration string; a pointer so that 0 differs from absent.
+	ReloadInterval *string `yaml:"reload_interval"`
 }
 
 // checkAuthKeys refuses what would silently drop or widen authentication: an
@@ -599,6 +609,13 @@ func Load(path string) (*Config, error) {
 		cfg.Auth.Tokens[i].Token = tok
 	}
 	cfg.Auth.Roles = raw.Auth.Roles
+	if raw.Auth.ReloadInterval != nil {
+		d, err := time.ParseDuration(strings.TrimSpace(*raw.Auth.ReloadInterval))
+		if err != nil {
+			return nil, fmt.Errorf("config: auth.reload_interval: %w", err)
+		}
+		cfg.Auth.ReloadInterval = d
+	}
 	if err := ValidateAuthRoles(cfg.Auth); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}

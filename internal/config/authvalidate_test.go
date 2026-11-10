@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -206,5 +208,37 @@ func TestValidateAuthKindAndExpiry(t *testing.T) {
 				t.Error("diagnostic leaks the token value")
 			}
 		})
+	}
+}
+
+// auth.reload_interval: absent is the default poll, 0 stops it, a duration sets
+// it, a negative or unparsable value refuses startup.
+func TestAuthReloadInterval(t *testing.T) {
+	load := func(body string) (*config.Config, error) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return config.Load(path)
+	}
+	for body, want := range map[string]time.Duration{
+		"auth:\n  mode: off\n":                            config.DefaultAuthReloadInterval,
+		"auth:\n  mode: off\n  reload_interval: 0\n":      0,
+		"auth:\n  mode: off\n  reload_interval: 5s\n":     5 * time.Second,
+		"auth:\n  mode: off\n  reload_interval: \"2m\"\n": 2 * time.Minute,
+	} {
+		cfg, err := load(body)
+		if err != nil {
+			t.Fatalf("%q: %v", body, err)
+		}
+		if cfg.Auth.ReloadInterval != want {
+			t.Errorf("%q: interval = %s, want %s", body, cfg.Auth.ReloadInterval, want)
+		}
+	}
+	if _, err := load("auth:\n  reload_interval: soon\n"); err == nil {
+		t.Error("an unparsable interval loaded")
+	}
+	if err := config.ValidateAuth(config.AuthConfig{ReloadInterval: -time.Second}); err == nil {
+		t.Error("a negative interval validated")
 	}
 }

@@ -1673,7 +1673,10 @@ tool operations. There is no separate runtime token-registration command.
 `auth.roles` declares named permission sets that narrow a token below whole-KB
 granularity (D118). Semantics, the resource classes and the enforcement
 guarantees are in [transport-auth](transport-auth.md) §Roles and fine-grained
-permissions; this is the operator view.
+permissions; this is the operator view. Tokens and roles are reloaded on a running
+server, on `SIGHUP` or when the file changes (`auth.reload_interval`, default `30s`, `0`
+stops the polling): [transport-auth](transport-auth.md) §Reloading tokens and roles
+without a restart.
 
 ```yaml
 auth:

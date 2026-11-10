@@ -30,5 +30,18 @@ it is a startup error.
 token with `r` scopes: read-only stays the scope's decision. `Principal.Kind` is
 what the component routes read to enforce the kind. The environment and flag
 token forms cannot carry a kind and stay `human`. Later changes of the same
-series extend this decision with reload, the secrets restriction (which also
-amends D261) and the trusted-proxy identity.
+series extend this decision with the secrets restriction (which also amends
+D261) and the trusted-proxy identity.
+
+**Reload.** Tokens and roles are applied to a running server: the store holds an
+immutable snapshot behind an atomic pointer and `Replace` swaps it whole, on
+`SIGHUP` and on a poll of the config file (`auth.reload_interval`, default 30s,
+0 off). A reload that fails validation, turns auth off, names another auth mode
+than the running one, or would leave no usable token, keeps the old set (the
+D179 fail-closed rule); a refused content is retried by the poll until the file
+changes, so a half-saved edit that is completed applies. A token that expired
+after startup is not a validation error on reload: it is left out of the new
+set with a log line, because it already fails at lookup and the edit that
+removes a leaked token must not be blocked by one that merely ran out (startup
+still refuses a past `expires_at`). The default is on because a file edit that
+waits for a restart nobody remembers is how a revoked token stays valid.

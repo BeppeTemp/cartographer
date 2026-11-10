@@ -1,0 +1,271 @@
+package main
+
+import (
+	"bytes"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/config"
+)
+
+const reloadBase = "http: \"127.0.0.1:9090\"\nauth:\n  mode: on\n  tokens:\n    - token: tok-aaaa-0123456789\n      id: a\n      scopes: [kb:kb-a:rw]\n"
+
+// reloadFixture starts a store from a temp config file the way serve does and
+// returns the reloader, the store and the file path.
+func reloadFixture(t *testing.T, body string) (*authReloader, *auth.TokenStore, string) {
+	t.Helper()
+	t.Setenv("CARTOGRAPHER_TOKENS", "")
+	t.Setenv("CARTOGRAPHER_AUTH", "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	write := func(s string) {
+		if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(body)
+	load := func() (config.AuthConfig, error) {
+		c, err := loadServeConfigAt(serveFlagSet(), config.FlagOverrides{}, path, time.Time{})
+		if err != nil {
+			return config.AuthConfig{}, err
+		}
+		return c.Auth, nil
+	}
+	cfg, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped := scopedTokensWithRoles(cfg.Auth.Tokens, cfg.Auth.Roles)
+	store := auth.NewScopedTokenStore(scoped).RequireAuth()
+	return newAuthReloader(store, load, path, scoped, cfg.Auth.Mode), store, path
+}
+
+func reloadLog(t *testing.T) *bytes.Buffer {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	return &buf
+}
+
+func TestAuthReloadAppliesAddRemoveAndKeepsOnInvalid(t *testing.T) {
+	r, store, path := reloadFixture(t, reloadBase)
+	buf := reloadLog(t)
+	rewrite := func(s string) {
+		if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Add a token: the next tick applies it.
+	rewrite(reloadBase + "    - token: tok-bbbb-0123456789\n      id: b\n      scopes: [kb:kb-a:r]\n")
+	r.poll()
+	if id, ok := store.Validate("tok-bbbb-0123456789"); !ok || id != "b" {
+		t.Fatalf("the added token = %q, %v\n%s", id, ok, buf)
+	}
+	if !strings.Contains(buf.String(), "1 token(s) added, 0 removed, 0 changed") {
+		t.Errorf("the log does not count the change:\n%s", buf)
+	}
+	if strings.Contains(buf.String(), "tok-bbbb") {
+		t.Error("the log shows a token value")
+	}
+
+	// An unchanged file is not reloaded.
+	buf.Reset()
+	r.poll()
+	if buf.Len() != 0 {
+		t.Errorf("an unchanged file logged:\n%s", buf)
+	}
+
+	// An invalid file keeps the store.
+	rewrite(reloadBase + "    - token: tok-cccc\n      id: c\n      scopes: [bogus]\n")
+	r.poll()
+	if _, ok := store.Validate("tok-bbbb-0123456789"); !ok {
+		t.Error("an invalid file dropped the tokens in force")
+	}
+	if !strings.Contains(buf.String(), "refused, keeping the tokens in force") {
+		t.Errorf("the refusal is not logged:\n%s", buf)
+	}
+
+	// Removing a token refuses it.
+	rewrite(reloadBase)
+	r.poll()
+	if _, ok := store.Validate("tok-bbbb-0123456789"); ok {
+		t.Error("the removed token still validates")
+	}
+	if _, ok := store.Validate("tok-aaaa-0123456789"); !ok {
+		t.Error("the kept token was refused")
+	}
+
+	// Deleting the file keeps the store.
+	buf.Reset()
+	os.Remove(path)
+	r.poll()
+	r.poll()
+	if _, ok := store.Validate("tok-aaaa-0123456789"); !ok {
+		t.Error("a deleted file dropped the tokens")
+	}
+	if strings.Count(buf.String(), "unreadable") != 1 {
+		t.Errorf("a missing file should be logged once:\n%s", buf)
+	}
+}
+
+func TestAuthReloadRefusesAuthOffAndNonAuthOnly(t *testing.T) {
+	r, store, path := reloadFixture(t, reloadBase)
+	buf := reloadLog(t)
+
+	// A change outside auth: ignored with one line.
+	if err := os.WriteFile(path, []byte(reloadBase+"update_check: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.poll()
+	if !strings.Contains(buf.String(), "restart required for non-auth keys") {
+		t.Errorf("the non-auth change is not reported:\n%s", buf)
+	}
+
+	// Auth turned off: refused.
+	buf.Reset()
+	if err := os.WriteFile(path, []byte("http: \"127.0.0.1:9090\"\nauth:\n  mode: off\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.poll()
+	if _, ok := store.Validate("tok-aaaa-0123456789"); !ok || !strings.Contains(buf.String(), "turns authentication off") {
+		t.Errorf("auth off was not refused:\n%s", buf)
+	}
+}
+
+// The loop reloads on a tick (injected) and on the reload signal, and stops.
+func TestAuthReloadRunTickAndSignal(t *testing.T) {
+	r, store, path := reloadFixture(t, reloadBase)
+	reloadLog(t)
+	tick := make(chan time.Time)
+	sig := make(chan struct{})
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { r.run(tick, sig, stop); close(done) }()
+
+	if err := os.WriteFile(path, []byte(reloadBase+"    - token: tok-bbbb-0123456789\n      id: b\n      scopes: [kb:kb-a:r]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tick <- time.Now()
+	sig <- struct{}{} // the loop took the tick, so it has finished the reload before this send returns
+	if _, ok := store.Validate("tok-bbbb-0123456789"); !ok {
+		t.Error("the tick did not apply the file")
+	}
+	close(stop)
+	<-done
+}
+
+// The expiry warning is repeated on a reload, not only at startup.
+func TestAuthReloadWarnsOfExpiringTokens(t *testing.T) {
+	r, _, path := reloadFixture(t, reloadBase)
+	buf := reloadLog(t)
+	soon := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	body := reloadBase + "    - token: tok-dddd-0123456789\n      id: d\n      kind: client\n      expires_at: \"" + soon + "\"\n      scopes: [kb:kb-a:r]\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.poll()
+	if !strings.Contains(buf.String(), `token "d" expires at`) {
+		t.Errorf("no expiry warning on reload:\n%s", buf)
+	}
+}
+
+// A token that expired after startup does not block the edit that removes
+// another one (the leaked-token case), and is left out with a log line.
+func TestAuthReloadSurvivesATokenExpiredSinceStartup(t *testing.T) {
+	soon := time.Now().Add(2 * time.Second).UTC().Format(time.RFC3339)
+	entry := "    - token: tok-eeee-0123456789\n      id: e\n      kind: client\n      expires_at: \"" + soon + "\"\n      scopes: [kb:kb-a:r]\n"
+	leaked := "    - token: tok-ffff-0123456789\n      id: f\n      scopes: [kb:kb-a:rw]\n"
+	r, store, path := reloadFixture(t, reloadBase+entry+leaked)
+	buf := reloadLog(t)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) } // the entry has run out since startup
+	if err := os.WriteFile(path, []byte(reloadBase+entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.poll()
+	if _, ok := store.Validate("tok-ffff-0123456789"); ok {
+		t.Errorf("the leaked token was not removed:\n%s", buf)
+	}
+	if !strings.Contains(buf.String(), `token "e" expired`) {
+		t.Errorf("the expired entry is not named:\n%s", buf)
+	}
+}
+
+// A refused content is retried by the poll (without repeating the line), so a
+// half-saved file that is then completed applies.
+func TestAuthReloadRetriesRefusedContent(t *testing.T) {
+	r, store, path := reloadFixture(t, reloadBase)
+	buf := reloadLog(t)
+	bad := reloadBase + "    - token: tok-gggg-0123456789\n      id: g\n      scopes: [bogus]\n"
+	os.WriteFile(path, []byte(bad), 0o600)
+	r.poll()
+	r.poll()
+	if strings.Count(buf.String(), "refused") != 1 {
+		t.Errorf("the refusal should be logged once:\n%s", buf)
+	}
+	// The failure was environmental, not the content: the same bytes apply
+	// once the loader accepts them.
+	good := r.load
+	r.load = func() (config.AuthConfig, error) {
+		cfg, err := good()
+		if err == nil {
+			return cfg, nil
+		}
+		return config.AuthConfig{Mode: "on", Tokens: []config.TokenSpec{{Token: "tok-aaaa-0123456789", ID: "a", Scopes: []string{"kb:kb-a:rw"}}, {Token: "tok-gggg-0123456789", ID: "g", Scopes: []string{"kb:kb-a:r"}}}}, nil
+	}
+	r.poll()
+	if _, ok := store.Validate("tok-gggg-0123456789"); !ok {
+		t.Errorf("a refused content was never retried:\n%s", buf)
+	}
+}
+
+// Switching the auth mode (on to auto) is refused: it needs a restart.
+func TestAuthReloadRefusesAModeChange(t *testing.T) {
+	r, store, path := reloadFixture(t, reloadBase)
+	buf := reloadLog(t)
+	os.WriteFile(path, []byte(strings.Replace(reloadBase, "mode: on", "mode: auto", 1)+"    - token: tok-hhhh-0123456789\n      id: h\n      scopes: [kb:kb-a:r]\n"), 0o600)
+	r.poll()
+	if _, ok := store.Validate("tok-hhhh-0123456789"); ok || !strings.Contains(buf.String(), "changing the mode needs a restart") {
+		t.Errorf("a mode change was applied or not explained:\n%s", buf)
+	}
+}
+
+// A signal reload racing a poll: serialised by the mutex, run under -race.
+func TestAuthReloadRacingTriggers(t *testing.T) {
+	r, store, path := reloadFixture(t, reloadBase)
+	reloadLog(t)
+	os.WriteFile(path, []byte(reloadBase+"    - token: tok-iiii-0123456789\n      id: i\n      scopes: [kb:kb-a:r]\n"), 0o600)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); r.poll() }()
+		go func() { defer wg.Done(); r.Reload("SIGHUP") }()
+	}
+	wg.Wait()
+	if _, ok := store.Validate("tok-iiii-0123456789"); !ok || store.TokenCount() != 2 {
+		t.Errorf("racing reloads left %d token(s)", store.TokenCount())
+	}
+}
+
+// With a refused content retried every tick, the "expired, left out" line is
+// logged once too, not once per tick.
+func TestAuthReloadLogsAnExpiredDropOnce(t *testing.T) {
+	soon := time.Now().Add(2 * time.Second).UTC().Format(time.RFC3339)
+	entry := "    - token: tok-jjjj-0123456789\n      id: j\n      kind: client\n      expires_at: \"" + soon + "\"\n      scopes: [kb:kb-a:r]\n"
+	r, _, path := reloadFixture(t, reloadBase+entry)
+	buf := reloadLog(t)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+	// Only the expired entry is left: Replace refuses an empty set, every tick.
+	os.WriteFile(path, []byte("http: \"127.0.0.1:9090\"\nauth:\n  mode: on\n  tokens:\n"+entry), 0o600)
+	for i := 0; i < 3; i++ {
+		r.poll()
+	}
+	if n := strings.Count(buf.String(), `token "j" expired`); n != 1 {
+		t.Errorf("the drop line was logged %d times:\n%s", n, buf)
+	}
+}

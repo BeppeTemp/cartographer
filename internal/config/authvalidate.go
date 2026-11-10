@@ -36,6 +36,9 @@ func ValidateAuthAt(a AuthConfig, now time.Time) error {
 	default:
 		return fmt.Errorf("mode %q: want \"auto\", \"on\" or \"off\"", a.Mode)
 	}
+	if a.ReloadInterval < 0 {
+		return fmt.Errorf("reload_interval %s: must not be negative (0 stops the polling)", a.ReloadInterval)
+	}
 	if err := ValidateAuthRoles(a); err != nil {
 		return err
 	}

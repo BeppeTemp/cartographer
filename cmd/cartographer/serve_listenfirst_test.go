@@ -84,7 +84,7 @@ func TestServeHTTPListensBeforeBootstrap(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() {
-		serveHTTP(addr, boot, config.AuthConfig{Mode: "off"}, false, nil, nil, nil)
+		serveHTTP(addr, boot, config.AuthConfig{Mode: "off"}, nil, false, nil, nil, nil)
 		close(done)
 	}()
 	t.Cleanup(func() {
@@ -160,7 +160,7 @@ func TestServeHTTPBindFailureBeforeBootstrap(t *testing.T) {
 		booted <- struct{}{}
 		return kbBootstrap{}
 	}
-	if err := serveHTTP(ln.Addr().String(), boot, config.AuthConfig{Mode: "off"}, false, nil, nil, nil); err == nil {
+	if err := serveHTTP(ln.Addr().String(), boot, config.AuthConfig{Mode: "off"}, nil, false, nil, nil, nil); err == nil {
 		t.Fatal("serveHTTP on a taken port returned nil")
 	}
 	select {

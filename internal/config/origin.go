@@ -266,6 +266,8 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return c.Maintenance.AutoRepair, true
 	case "auth.mode":
 		return str(c.Auth.Mode)
+	case "auth.reload_interval":
+		return c.Auth.ReloadInterval.String(), true
 	case "auth.tokens":
 		return len(c.Auth.Tokens), len(c.Auth.Tokens) > 0
 	case "auth.roles":
