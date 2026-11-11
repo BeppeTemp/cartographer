@@ -133,12 +133,20 @@ type Options struct {
 	// ReservedName reports a built-in command name a plugin must not take;
 	// nil reserves none.
 	ReservedName func(string) bool
-	// CheckScripts loads the script files of a tree (plugin.star and lib/) and
+	// CheckScripts loads the script files of a side's tree (plugin.star and lib/
+	// for the client) and
 	// returns why they do not, one problem each; nil checks nothing. It is a hook
 	// because the Starlark runtime lives in internal/plugin/star, which imports
 	// this package.
-	CheckScripts func(files []TreeFile) []string
+	CheckScripts func(side Side, files []TreeFile) []string
+	// Side limits what ReadTree loads to the contribution points of one side:
+	// a component loads only its own. Empty loads every side (plugin validate,
+	// plugin vendor). The digest and the stored files never depend on it.
+	Side Side
 }
+
+// loads reports whether the points and scripts of a side are loaded.
+func (o Options) loads(s Side) bool { return o.Side == "" || o.Side == s }
 
 // ParseManifest reads and checks manifest bytes. The returned problems are every
 // problem it can read (a YAML type error stops the semantic checks, which then

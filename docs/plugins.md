@@ -63,7 +63,7 @@ components:
   (`skills/: declare sdk.artifacts under components.client`). Under schema 2 a top-level entry no family claims is stored, digested and reported in `Plugin.Unknown` (`entry <name>`), never loaded; under schema 1 it stays the error it was.
 - Families (`plugin.Families`): client `artifacts` (`skills/`, `agents/`, `hooks/`), `providers` (`providers/`), `scripts`
   (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`). A name belongs to one family only. This version
-  registers the families and reads and checks their declarations; nothing yet loads a side other than the client, and `presets/` and `roles/` have no loader.
+  registers the families and reads and checks their declarations; no side other than the client has a loader yet, and `presets/` and `roles/` have none.
 - Permissions per side: the client may ask for everything schema 1 allows; the Surveyor for `net` and `env` (`kb` and `files` are
   `components.surveyor.permissions.<key>: not allowed on the surveyor side`); the server and the Atlas for nothing.
   `Manifest.Permissions` is always the client side's.
@@ -101,8 +101,9 @@ the same functions the MCP artifact tools call, so a plugin and a KB cannot disa
 ## Contribution points
 
 A point is a top-level folder of the plugin that contributes something, registered in code (`plugin.Register`; a
-duplicate or invalid name panics at start). A point has a side: `client` points are loaded, `server` is declared
-and never loaded. 0.28 registers `skills`, `agents`, `hooks` and `providers`, and a test pins the exact set.
+duplicate or invalid name panics at start). A point has a side (any of the four) and belongs to a registered family of that side
+(`Register` panics on a folder no family of the side owns). `Options.Side` limits what `ReadTree` loads to one side's
+points; empty loads every side. Only a client point's contributions become artifacts to install. This build registers `skills`, `agents`, `hooks` and `providers`, and a test pins the exact set.
 
 | Point | Layout | Check |
 |---|---|---|
@@ -127,6 +128,10 @@ loading share them.
 - At the top: the manifest and one folder per registered point. `README*`, `LICENSE*`, `CHANGELOG*`, `docs/` and `.git*`
   are ignored and never stored, checked or part of the digest. `plugin.star` and flat `lib/*.star` files are read and loaded (Starlark, 20 million steps and 256 MiB of heap growth at most; `load()` reaches only `lib/` files of the tree, and the capability modules refuse every call at load in this version), and run only on an otherwise valid tree (after the caps and the manifest); a script that does not load is a problem of the tree (a step cap reads as at a call, `plugin.star:4:11: the script ran more than N steps`), and the approval preview shows each script in full with its registrations. `mcp/`
   and `instructions.md` are not contribution points in this version, and under schema 1 any other entry is an error naming it and listing what a tree may hold (schema 2: reported, above).
+- Sides: a command loads its own side (`Options.Side`: the client commands pass `client`, `plugin validate` passes none and so
+  checks every side). A side whose `sdk` this build cannot meet is not loaded and reports no problems of its own. The stored files and the
+  digest do not depend on the side asked for. Under schema 2 a top-level `tests/` folder (a plugin's own fixtures) is ignored like `docs/`:
+  never stored, never digested; under schema 1 it stays an unknown entry.
 - Paths are canonical slash paths (`provisioning.ValidArtifactFilePath`) without control or format characters (bidi overrides, zero-width), unique ignoring case; a symlink or
   non-regular file, a file over the artifact file cap, more than 2000 files or 8 MiB in all is an error.
 - Each contribution becomes an artifact with source `plugin:<name>`, its files in memory and

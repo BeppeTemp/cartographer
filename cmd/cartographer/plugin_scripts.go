@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin"
@@ -12,7 +13,16 @@ import (
 // pluginProgram loads the scripts of a validated tree: (nil, nil) for a plugin
 // without any. ReadTree already refused a tree whose scripts do not load, so an
 // error here is a tree that bypassed it.
-func pluginProgram(p plugin.Plugin) (*star.Program, error) { return star.Load(p.Files) }
+//
+// A schema 2 plugin whose client side is absent or has an unmet sdk is not
+// loaded either, the same rule points and CheckScripts apply (tree.go): (nil,
+// nil), as for a plugin without scripts.
+func pluginProgram(p plugin.Plugin) (*star.Program, error) {
+	if p.Unsupported != nil && (p.Unsupported[plugin.SideClient] != "" || !slices.Contains(p.Sides, plugin.SideClient)) {
+		return nil, nil
+	}
+	return star.Load(p.Files)
+}
 
 // pluginToolNames are the names of the tools a plugin registers, sorted: the
 // `tools` hint recorded at approval. A tree that does not load yields none.

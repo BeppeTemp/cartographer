@@ -248,6 +248,9 @@ func pluginApprove(args []string) int {
 		}
 		return pluginFail(1, "%s", escapeControl(err.Error()))
 	}
+	if msg := clientSideProblem(p); msg != "" {
+		return pluginFail(1, "%s; nothing was approved", msg)
+	}
 	printConsent(c.out, p, e, cfg)
 	if !c.yes {
 		if c.json || !pluginInteractive() {
@@ -320,6 +323,8 @@ func (c lifecycleCtx) updateOne(name string) int {
 		return fail("the fetched tree is not a valid plugin (%s)", escapeControl(joinProblems(probs)))
 	case p.Manifest.Name != name:
 		return fail("the source names the plugin %q", escapeControl(p.Manifest.Name))
+	case clientSideProblem(p) != "":
+		return fail("%s", clientSideProblem(p))
 	}
 	if p.Digest == e.Approved && p.Digest == e.Installed {
 		fmt.Fprintf(c.out, "%s %s is up to date\n", name, e.Version)
