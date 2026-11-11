@@ -231,3 +231,33 @@ api:
 #     name: nightly
 #     kbs: [kb-a]
 #     min_replicas: 1
+
+# The read-only store the pinned plugins are read from:
+# <dir>/<name>/<digest>/, filled by cartographer plugin vendor. The server
+# never writes into it and never fetches. Required when plugins is set. YAML
+# only.
+# Values: absolute path · needs a restart
+# plugins_dir: ""
+
+# Plugins whose server side this server loads, by plugin name: the digest
+# pinned here is the only consent. At start a tree whose digest differs, or a
+# plugin that is missing, has no server side or cannot load here, stops the
+# server with the plugin named; a changed plugin needs a new digest and a
+# restart. Empty: the server loads no plugin. YAML only.
+# Needs a restart
+# plugins:
+#   {name}:
+#     Tree digest of the approved plugin, as printed by cartographer plugin
+#     vendor. Required.
+#     Values: 64 lowercase hex · needs a restart
+#     digest: ""
+#
+#     Set to false to skip the pin: the tree is not read, but the name and digest
+#     are still validated.
+#     Needs a restart
+#     enabled: true
+#
+#     Scalar settings handed to the plugin, typed by the settings its manifest
+#     declares.
+#     Needs a restart
+#     settings: {}

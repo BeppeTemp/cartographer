@@ -131,6 +131,18 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "components[].min_replicas", Scope: settingschema.ScopeServer, Type: "int", Values: "1 to 16", Default: "1", Restart: true,
 		Description: "Live replicas below which the component is degraded."},
 
+	{Path: "plugins_dir", Scope: settingschema.ScopeServer, Type: "string", Values: "absolute path", Default: `""`, Restart: true,
+		Description: "The read-only store the pinned plugins are read from: <dir>/<name>/<digest>/, filled by cartographer plugin vendor. The server never writes into it and never fetches. Required when plugins is set. YAML only."},
+	{Path: "plugins", Scope: settingschema.ScopeServer, Type: "map", Default: "{}", Restart: true,
+		Description: "Plugins whose server side this server loads, by plugin name: the digest pinned here is the only consent. At start a tree whose digest differs, or a plugin that is missing, has no server side or cannot load here, stops the server with the plugin named; a changed plugin needs a new digest and a restart. Empty: the server loads no plugin. YAML only."},
+	{Path: "plugins.{name}.digest", Scope: settingschema.ScopeServer, Type: "string", Values: "64 lowercase hex", Default: `""`, Restart: true,
+		Description: "Tree digest of the approved plugin, as printed by cartographer plugin vendor. Required."},
+	{Path: "plugins.{name}.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Restart: true,
+		Description: "Set to false to skip the pin: the tree is not read, but the name and digest are still validated.",
+		Previous:    []string{"Set to false to skip the pin without loading or checking it."}},
+	{Path: "plugins.{name}.settings", Scope: settingschema.ScopeServer, Type: "map", Default: "{}", Restart: true,
+		Description: "Scalar settings handed to the plugin, typed by the settings its manifest declares."},
+
 	{Path: "web.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_WEB_ENABLED", Flag: "--web-enabled", Restart: true, Example: "true",
 		Description: "Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes."},
 

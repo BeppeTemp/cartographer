@@ -18,6 +18,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/connector"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/recipe"
 	"github.com/BeppeTemp/cartographer/internal/surveyorconfig"
@@ -125,6 +126,14 @@ type Config struct {
 	// ExecRecipes are the recipes.<name> of kind exec (protocol v1, D1262), commands
 	// already resolved; they come from this file and from nowhere else.
 	ExecRecipes []recipe.ExecConfig
+	// PluginsDir is plugins_dir resolved against the config directory and
+	// PluginPins the plugins entries, by name; LoadPlugins turns them into
+	// Plugins at start.
+	PluginsDir string
+	PluginPins map[string]PluginPin
+	// Plugins are the pinned plugins that have a surveyor side, loaded and
+	// verified by LoadPlugins; empty before it runs.
+	Plugins []*core.Plugin
 	// Warnings are conditions worth one line at start that do not stop it.
 	Warnings []string
 
@@ -183,6 +192,8 @@ type rawConfig struct {
 	Connectors map[string]rawConnector `yaml:"connectors"`
 	Recipes    map[string]rawRecipe    `yaml:"recipes"`
 	Git        rawGit                  `yaml:"git"`
+	PluginsDir string                  `yaml:"plugins_dir"`
+	Plugins    map[string]rawPluginPin `yaml:"plugins"`
 }
 
 type rawModel struct {
@@ -518,6 +529,9 @@ func (v *validator) run() error {
 		return err
 	}
 	if err := v.recipes(); err != nil {
+		return err
+	}
+	if err := v.plugins(); err != nil {
 		return err
 	}
 	return v.tasks()

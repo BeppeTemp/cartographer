@@ -30,6 +30,19 @@ type PinProblem struct {
 
 func (p PinProblem) Error() string { return p.Name + ": " + p.Reason }
 
+// CheckPin reports why a configured pin is malformed: a name that is no plugin
+// name or a digest that is not 64 lowercase hex. Config loaders call it at load
+// so a bad pin stops the start with the key path, before any disk access.
+func CheckPin(name string, pin Pin) error {
+	if err := checkName(name); err != nil {
+		return errors.New("not a valid plugin name")
+	}
+	if !digestRe.MatchString(pin.Digest) {
+		return errors.New("the digest is not 64 lowercase hex characters")
+	}
+	return nil
+}
+
 // LoadPinned opens every enabled pin of a component through a read-only store
 // rooted at storeDir and returns the active plugins that have the component's
 // side, in name order. Every enabled pin that does not load is a problem: its
@@ -51,12 +64,8 @@ func LoadPinned(storeDir string, pins map[string]Pin, side Side, opts Options) (
 		if !pin.Enabled {
 			continue
 		}
-		if err := checkName(n); err != nil {
-			probs = append(probs, PinProblem{n, "not a valid plugin name"})
-			continue
-		}
-		if !digestRe.MatchString(pin.Digest) {
-			probs = append(probs, PinProblem{n, "the digest is not 64 lowercase hex characters"})
+		if err := CheckPin(n, pin); err != nil {
+			probs = append(probs, PinProblem{n, err.Error()})
 			continue
 		}
 		st, p := State(n, pin, store, opts)

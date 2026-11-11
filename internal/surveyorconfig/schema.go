@@ -128,6 +128,17 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "recipes.{name}.exec.max_content_bytes", Scope: settingschema.ScopeSurveyor, Type: "int", Values: "bytes, at most 1 MiB", Default: "131072",
 		Description: "Exec recipe: largest inline content of one entry."},
 
+	{Path: "plugins_dir", Scope: settingschema.ScopeSurveyor, Type: "string", Values: "path, absolute or relative to the config directory", Default: `""`,
+		Description: "The read-only store the pinned plugins are read from: <dir>/<name>/<digest>/, filled by cartographer plugin vendor. The Surveyor never writes into it and never fetches. Required when plugins is set."},
+	{Path: "plugins", Scope: settingschema.ScopeSurveyor, Type: "map", Default: "{}",
+		Description: "Plugins whose surveyor side this Surveyor loads, by plugin name: the digest pinned here is the only consent. At start a tree whose digest differs, or a plugin that is missing, has no surveyor side or cannot load here, stops the Surveyor with the plugin named; a changed plugin needs a new digest and a restart."},
+	{Path: "plugins.{name}.digest", Scope: settingschema.ScopeSurveyor, Type: "string", Values: "64 lowercase hex", Default: `""`,
+		Description: "Tree digest of the approved plugin, as printed by cartographer plugin vendor. Required."},
+	{Path: "plugins.{name}.enabled", Scope: settingschema.ScopeSurveyor, Type: "bool", Default: "true",
+		Description: "Set to false to skip the pin: the tree is not read, but the name and digest are still validated."},
+	{Path: "plugins.{name}.settings", Scope: settingschema.ScopeSurveyor, Type: "map", Default: "{}",
+		Description: "Scalar settings handed to the plugin, typed by the settings its manifest declares."},
+
 	{Path: "tasks", Scope: settingschema.ScopeSurveyor, Type: "list", Default: "[]",
 		Example:     "- kind: ingest\n  model: cloud",
 		Description: "The tasks the Surveyor runs, in priority order; each has a kind, a model profile and the options of its kind."},
