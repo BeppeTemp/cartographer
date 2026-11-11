@@ -27,6 +27,9 @@ type Deps struct {
 	// that touches two of them (concept_transfer, D760). Nil — single-KB stdio —
 	// makes that tool answer that it needs a server mounting both KBs.
 	KBByName func(name string) (*kb.KB, bool)
+	// Presets are the presets of the plugins pinned in the server config, for
+	// preset_list; none (the default) lists nothing.
+	Presets []PresetEntry
 }
 
 // RegisterKBTools registers all KB tools on the server, including search,
@@ -175,6 +178,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolArtifactRead(k))
 	register(toolArtifactList(k))
 	register(toolTemplateList(k))
+	register(toolPresetList(deps.Presets))
 	register(gitWrap(k, toolConceptNew(k, sim, facts)))
 	register(gitWrap(k, toolConceptMerge(k)))
 	register(gitWrap(k, toolConceptCollapse(k)))

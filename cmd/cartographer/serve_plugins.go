@@ -5,10 +5,30 @@ import (
 	"log"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/plugin/star"
 	_ "github.com/BeppeTemp/cartographer/internal/pluginserver" // registers the roles/ and presets/ families
 )
+
+// serverPresets are the presets of the pinned plugins, set once at start before
+// any KB is mounted and handed to preset_list (a server's data, not a KB's).
+var serverPresets []mcpserver.PresetEntry
+
+// presetEntries lists the presets of the plugins as preset_list returns them.
+func presetEntries(plugins []*core.Plugin) []mcpserver.PresetEntry {
+	var out []mcpserver.PresetEntry
+	for _, p := range plugins {
+		for _, c := range p.Contributions["presets"] {
+			e := mcpserver.PresetEntry{ID: p.Manifest.Name + "/" + c.Name, PluginVersion: p.Manifest.Version, Description: c.Preset.Description, Kind: c.Preset.Kind, Create: c.Preset.Create, Templates: []mcpserver.PresetTemplate{}}
+			for _, t := range c.Preset.Templates {
+				e.Templates = append(e.Templates, mcpserver.PresetTemplate{Slug: t.Slug, Path: "templates/" + t.Slug + ".md", Content: string(t.Content)})
+			}
+			out = append(out, e)
+		}
+	}
+	return out
+}
 
 // loadServerPlugins opens the plugins pinned in the server config through the
 // read-only store at plugins_dir. The digest in the config is the only consent:

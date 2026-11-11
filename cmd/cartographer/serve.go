@@ -122,7 +122,8 @@ func cmdServe(args []string) int {
 	}
 	announceConfig(cfg, envFallback(*configFlag, "CARTOGRAPHER_CONFIG"))
 	// The pins are checked before anything is mounted or listened on. Their
-	// roles expand into auth.roles (the reload applies the same plugins).
+	// roles expand into auth.roles (the reload applies the same plugins)
+	// and their presets feed preset_list.
 	serverPlugins, err := loadServerPlugins(cfg)
 	if err != nil {
 		log.Fatal(err)
@@ -130,6 +131,7 @@ func cmdServe(args []string) int {
 	if cfg.Auth, err = config.ExpandPluginRoles(cfg.Auth, serverPlugins, time.Now()); err != nil {
 		log.Fatal(err)
 	}
+	serverPresets = presetEntries(serverPlugins)
 	logServerPlugins(serverPlugins)
 
 	configPath := envFallback(*configFlag, "CARTOGRAPHER_CONFIG")
@@ -525,7 +527,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]
 	}
 	sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
 	s := mcpserver.New(version)
-	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner})
+	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner, Presets: serverPresets})
 	s.SetToolsProfile(toolsProfile)
 	s.SetAuditLog(auditLog)
 	s.SetKBName(k.AuthName)
@@ -698,7 +700,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 					s.SetDisplayName("cartographer:" + name)
 				}
 				sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], RoutedMount: true, KBByName: kbByName})
+				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], RoutedMount: true, KBByName: kbByName, Presets: serverPresets})
 				s.SetToolsProfile(toolsProfile)
 				s.SetAuditLog(auditLog)
 				s.SetKBName(name)
