@@ -71,6 +71,7 @@ internal/audit                  implements Cartographer's local, tamper-evident 
 internal/auth                   implements bearer-token authorization for the HTTP transport
 internal/blocktext              implements the marker-delimited "managed block" primitive
 internal/boundaries             is the client import firewall
+internal/branding               parses and judges the branding/ folder of a plugin's atlas side
 internal/changelog              regroups a release-please changelog by area
 internal/client                 is a minimal MCP client over HTTP (JSON-RPC 2.0)
 internal/clientconfig           reads and writes the client-side `.cartographer.yaml` file
