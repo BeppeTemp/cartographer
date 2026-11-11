@@ -46,8 +46,8 @@ any() { # any <ere> [<ere to drop>]
 }
 
 # Go packages the binary cannot import (kept equal to `go list` by the test). `plugin`
-# and `branding` leave the list in the change whose command imports them (the test fails if one stays listed once imported).
-not_in_binary='^internal/(changelog|gitx/gitxtest|kbtest|repodocs|testkbs|testtree|webui/gen|openapi/gen|surveyor/surveyortest|boundaries|branding)/'
+# leaves the list in the change whose command imports it (the test fails if it stays listed once imported).
+not_in_binary='^internal/(changelog|gitx/gitxtest|kbtest|repodocs|testkbs|testtree|webui/gen|openapi/gen|surveyor/surveyortest|boundaries)/'
 
 web_other=$(any '^(web/|test/lib/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')
 web_go=$(any '^(cmd|internal)/' '_test\.go$|'"$not_in_binary")

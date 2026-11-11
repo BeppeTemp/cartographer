@@ -28,6 +28,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
+	"github.com/BeppeTemp/cartographer/internal/pluginserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
@@ -138,6 +139,10 @@ func cmdServe(args []string) int {
 	}
 	serverPresets = presetEntries(serverPlugins)
 	logServerPlugins(serverPlugins)
+	if serverBranding, err = pluginserver.ActiveBranding(atlasOnes); err != nil {
+		log.Fatalf("config: plugins: %v", err)
+	}
+	logServerBranding(serverBranding, cfg.Web.Enabled)
 
 	configPath := envFallback(*configFlag, "CARTOGRAPHER_CONFIG")
 	runServe(cfg, &authReload{

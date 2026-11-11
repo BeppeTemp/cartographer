@@ -86,6 +86,7 @@ page that was not touched; the table and the file change together, and a test
 | New skill, service or secret handling | `skills-services-secrets.md` |
 | Client provisioning/sync logic | `sync.md` |
 | Plugin manifest, contribution points or store (`internal/plugin`, `internal/plugin/core`) | `plugins.md` |
+| Atlas branding plugin point: the branding folder, the accent derivation (`internal/branding`) | `plugins.md` §Atlas branding |
 | Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/`service`…) or server YAML config | `configurator.md` (Compass) / `deployment.md` (Meridian config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `contract.Kinds` (the Atlas lists it; a test fails without it, D864) |
