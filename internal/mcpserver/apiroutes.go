@@ -122,6 +122,10 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
 			m.uiSettings(w, r)
 		}},
+	{Pattern: "/extensions", Tier: tierInternal, Summary: "Read the plugin views, apps and plugins the Atlas shows", Response: uiExtensionsBody{},
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
+			m.uiExtensions(w, r)
+		}},
 	{Pattern: "/releases", Tier: tierInternal, Summary: "Read the release notes the Atlas shows",
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
 			m.uiReleases(w, r)

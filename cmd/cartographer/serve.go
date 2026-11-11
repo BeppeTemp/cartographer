@@ -124,10 +124,15 @@ func cmdServe(args []string) int {
 	// The pins are checked before anything is mounted or listened on. Their
 	// roles expand into auth.roles (the reload applies the same plugins)
 	// and their presets feed preset_list.
-	serverPlugins, err := loadServerPlugins(cfg)
+	serverPlugins, atlasOnes, err := loadPinnedPlugins(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
+	// A view over a route that is not a public GET stops the start.
+	if err := mcpserver.ValidateAtlasPlugins(atlasOnes); err != nil {
+		log.Fatal(err)
+	}
+	atlasPlugins = atlasOnes
 	if cfg.Auth, err = config.ExpandPluginRoles(cfg.Auth, serverPlugins, time.Now()); err != nil {
 		log.Fatal(err)
 	}
@@ -664,6 +669,9 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		multi.SetLatestVersionSource(latestVersion)
 		multi.SetFeedback(settingsCfg.FeedbackDestination()) // before MountKB: every server and routed view inherits it
 		multi.SetSettings(settingsCfg, string(updateChannelFn()))
+		if err := multi.SetAtlasPlugins(atlasPlugins); err != nil {
+			log.Fatal(err)
+		}
 		multi.SetReleasesSource(serverReleasesSource(settingsCfg, version))
 		// serverInfo.name (D102) identifies the mounted KB only when more than
 		// one is mounted — a single-KB HTTP server keeps the historical bare

@@ -125,7 +125,7 @@ and leave every comment already in the file alone.
 is the absolute path of a read-only store (`<dir>/<name>/<digest>/`, filled by `cartographer plugin vendor`, which
 prints the digest and these lines) and `plugins.<name>` carries `digest` (64 lowercase hex, required), `enabled`
 (default true) and `settings` (scalars). The pin is the only consent: at start, before anything is mounted, a
-pinned plugin whose tree digest differs, that is missing or edited, that has no `server` side or whose side this binary
+pinned plugin whose tree digest differs, that is missing or edited, that has neither a `server` nor an `atlas` side (the atlas side is data the Atlas draws, `docs/plugins.md` §The Atlas side) or whose side this binary
 cannot load stops the start with the plugin named; it is never loaded with a warning. A malformed digest, a relative
 `plugins_dir`, `plugins` without `plugins_dir` or an unknown key under an entry stops the load naming the key.
 `enabled: false` skips the pin: its tree is not read, but its name and digest are still validated. The keys are YAML only and need a restart (the auth reload does not re-read them); the

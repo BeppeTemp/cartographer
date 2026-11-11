@@ -332,6 +332,9 @@ type MultiKBServer struct {
 	surveyors surveyorStore
 	// components is the registry of expected components (components.go).
 	components componentRegistry
+	// extensions are the views, apps and plugins of GET /api/ui/v1/extensions
+	// (uiapi_extensions.go), set once before serving.
+	extensions extensionSet
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON
