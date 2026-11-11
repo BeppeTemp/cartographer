@@ -20,9 +20,9 @@ import (
 // builds no model client, writes no cursor, Source, unit or log entry.
 //
 // A system recipe goes through observeSystem, the poll's own steps 4 to 6: the
-// preflight, the state read through Load only (the store's Save is not in the
+// check, the state read through Load only (the store's Save is not in the
 // interface the dry run receives, so no state asset is written), the listing, its
-// validation and the diff. A refused preflight is exit class 3, nothing listed.
+// validation and the diff. A refused check is exit class 3, nothing listed.
 
 // Defaults of the poll task's options when the config has no poll entry.
 const (
@@ -61,8 +61,9 @@ type SourceTestReport struct {
 	Recipe, Shape, Kind, Locator string
 	SourceID                     string // "" when not registered
 	CursorIn, NextCursor         string
-	Identity, StateStatus        string // system recipes: the preflight's label and how the stored state was found
-	PreflightRefused             bool   // Failure came from the preflight: exit class 3
+	Identity, StateStatus        string // system recipes: the check's label and how the stored state was found
+	CheckRefused                 bool   // Failure came from a system recipe's check: exit class 3
+	CheckLabel                   string // a feed recipe's clean check: identity and detail, when it implements check
 	MaxEntries                   int
 	PollDefaults                 bool // no poll task in the config: the defaults above were used
 	Entries                      []SourceTestEntry
@@ -191,6 +192,9 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 		}
 	}
 
+	if err := rep.describe(ctx, rec, f, isSystem); err != nil || rep.Failure != nil {
+		return rep, err
+	}
 	if isSystem {
 		return rep, rep.observeSystem(ctx, rec, f, tools, in.Show)
 	}
@@ -219,12 +223,50 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 	}
 	rep.Tokens = (rep.ContentBytes + 3) / 4
 	if rep.Counts[recipe.Removed] > 0 {
-		rep.Warnings = append(rep.Warnings, "removed entries are listed; the poll only counts them")
+		rep.Warnings = append(rep.Warnings, "delete lines are listed; the poll only counts them")
 	}
 	if in.Show != "" && rep.Show == nil {
 		rep.Show = &SourceTestShow{Key: in.Show}
 	}
 	return rep, nil
+}
+
+// describe is the part of the dry run that only a protocol-v2 script has: for a
+// feed, its check. The poll itself runs it for a system recipe (observeSystem)
+// and not for a feed. A script that does not implement check (exit 64) is
+// skipped. A failure is in rep.Failure (exit class 1); an error is the context
+// ending.
+func (rep *SourceTestReport) describe(ctx context.Context, rec recipe.Recipe, f feed.Feed, isSystem bool) error {
+	ck, ok := rec.(recipe.Checker)
+	if isSystem || !ok {
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, pollListTimeout)
+	defer cancel()
+	v, err := ck.Check(cctx, feedRequest(f, 0))
+	switch {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case errors.Is(err, recipe.ErrUnsupported):
+	case err != nil:
+		rep.Failure = failureOf(err, recipe.CodeCheckFailed)
+	default:
+		rep.CheckLabel = identityLabel(v.Identity())
+		if v.Detail() != "" {
+			rep.CheckLabel += " — " + v.Detail()
+		}
+	}
+	return nil
+}
+
+// failureOf is the feed_error a recipe error would become: its own code, else
+// the default.
+func failureOf(err error, code string) *SourceTestFailure {
+	var re *recipe.Error
+	if errors.As(err, &re) {
+		return &SourceTestFailure{re.Code, re.Detail}
+	}
+	return &SourceTestFailure{code, err.Error()}
 }
 
 // execEnvCheck requires only the variables the chosen exec recipe lists: they are
@@ -288,13 +330,13 @@ func (rep *SourceTestReport) observeSystem(ctx context.Context, rec recipe.Recip
 		}, Source: f.ID}
 	}
 	start := time.Now()
-	obs, pf, preflight, err := observeSystem(ctx, sr, systemRequest(f), st, f.Cursor)
+	obs, pf, refused, err := observeSystem(ctx, sr, systemRequest(f), st, f.Cursor)
 	rep.Duration = time.Since(start)
 	if err != nil {
 		return err
 	}
 	if pf != nil {
-		rep.Failure, rep.PreflightRefused = (*SourceTestFailure)(pf), preflight
+		rep.Failure, rep.CheckRefused = (*SourceTestFailure)(pf), refused
 		return nil
 	}
 	rep.Identity = obs.Identity

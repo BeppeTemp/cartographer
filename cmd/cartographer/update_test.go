@@ -41,20 +41,28 @@ import (
 var testHome string
 
 func TestMain(m *testing.M) {
-	if len(os.Args) > 2 && os.Args[1] == "--exec-helper" { // the test binary as an operator's lister
+	if len(os.Args) > 2 && os.Args[1] == "--exec-helper" { // the test binary as an operator's lister (protocol v2)
+		var rq struct{ Verb string }
+		b, _ := io.ReadAll(os.Stdin)
+		_ = json.Unmarshal(b, &rq)
+		if os.Args[2] == "system" { // LISTER_VALUE is the check's read_only answer
+			switch rq.Verb {
+			case "check":
+				fmt.Println(`{"check":{"ok":true,"read_only":` + os.Getenv("LISTER_VALUE") + `,"identity":"dev-viewer","detail":"ok"}}`)
+			case "list":
+				fmt.Println(`{"entry":{"key":"namespace/team-a","title":"Team A","content":"deployment api"}}`)
+				fmt.Println(`{"next_cursor":""}`)
+			default:
+				os.Exit(64) // spec: not implemented
+			}
+			os.Exit(0)
+		}
+		if rq.Verb != "list" { // these listers implement list only
+			os.Exit(64)
+		}
 		if os.Args[2] == "fail" {
 			fmt.Fprintln(os.Stderr, "lister broke")
 			os.Exit(3)
-		}
-		if os.Args[2] == "system" { // LISTER_VALUE is the preflight's read_only answer
-			b, _ := io.ReadAll(os.Stdin)
-			if strings.Contains(string(b), `"mode":"preflight"`) {
-				fmt.Println(`{"read_only":` + os.Getenv("LISTER_VALUE") + `,"identity":"dev-viewer","detail":"ok"}`)
-			} else {
-				fmt.Println(`{"entry":{"key":"namespace/team-a","title":"Team A","content":"deployment api"}}`)
-				fmt.Println(`{"next_cursor":""}`)
-			}
-			os.Exit(0)
 		}
 		if os.Args[2] == "empty" {
 			fmt.Println(`{"next_cursor":"` + "c9" + `"}`)

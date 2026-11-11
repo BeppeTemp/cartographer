@@ -39,7 +39,7 @@ or a file the feed recipes can read.
 - The lister emits a normalized, deterministic snapshot: volatile fields dropped (timestamps, resource versions,
   counters), no secret value ever. Endpoint and identity come from the recipe's `env`, never from the `locator`.
 - Identity: a Kubernetes `view` ClusterRole (it excludes Secrets); a cloud read-only or view-only policy (check what
-  it can still read); for a metrics endpoint a read-only API token. The preflight answers true only if the
+  it can still read); for a metrics endpoint a read-only API token. The check answers `read_only: true` only if the
   write-class and secret-read questions answer no and a read question answers yes: an identity that can read nothing
   is a misconfiguration.
 - Worked example in the Cartographer repository:

@@ -13,7 +13,7 @@ import (
 )
 
 // rawRecipe is one recipes.<name> entry (D1262): under a built-in's name only
-// instructions_file; under any other name an exec recipe (protocol v1).
+// instructions_file; under any other name an exec recipe (protocol v2).
 type rawRecipe struct {
 	InstructionsFile string   `yaml:"instructions_file"`
 	Connector        string   `yaml:"connector"`

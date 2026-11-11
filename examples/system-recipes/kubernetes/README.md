@@ -29,8 +29,8 @@ Files: `lister.py` (the recipe's command), `instructions.md` (its instruction te
 ## Try it without a cluster
 
 ```sh
-echo '{"mode":"preflight","source":{}}' | LISTER_FIXTURES_DIR=testdata/view python3 lister.py
-echo '{"mode":"list","source":{"include":[]},"max_content_bytes":65536}' | LISTER_FIXTURES_DIR=testdata/view python3 lister.py
+echo '{"protocol":2,"verb":"check","config":{},"source":{}}' | LISTER_FIXTURES_DIR=testdata/view python3 lister.py
+echo '{"protocol":2,"verb":"list","config":{},"source":{"include":[]},"max_content_bytes":65536}' | LISTER_FIXTURES_DIR=testdata/view python3 lister.py
 ```
 
 With `LISTER_FIXTURES_DIR` set, `kubectl` is not run: the answer to each command is the file named after its
@@ -41,7 +41,7 @@ variable.
 ## Try it on a cluster
 
 1. Give the lister a **read-only identity**: a dedicated ServiceAccount bound to the `view` ClusterRole (it does not
-   include Secrets) and a kubeconfig that uses it. The preflight is a guard against a mistake here, not a security
+   include Secrets) and a kubeconfig that uses it. The check is a guard against a mistake here, not a security
    boundary: the script is yours.
 2. Put `lister.py` where the Surveyor can run it (a derived image `FROM` the Surveyor image with Python 3 and `kubectl`, see [Running scripts in the container](../../../docs/surveyor-recipes.md#running-scripts-in-the-container), or a mounted read-only
    volume) and add `recipe.yaml` to the Surveyor config, with `instructions.md` in the config directory. Set `KUBECTL`,

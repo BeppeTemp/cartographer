@@ -56,7 +56,7 @@ func TestExecListsEntriesAndTheCursor(t *testing.T) {
 	}
 }
 
-func TestExecStdinCarriesTheDocumentedFieldsAndModeListOnly(t *testing.T) {
+func TestExecStdinCarriesTheDocumentedFieldsAndVerbList(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "stdin.json")
 	r := helper(t, "stdin", f)
 	for _, cursor := range []string{"", "abc"} {
@@ -71,8 +71,11 @@ func TestExecStdinCarriesTheDocumentedFieldsAndModeListOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Only these keys: a new one is a protocol change (D1262: a new protocol number).
-		if len(m) != 6 || m["protocol"] != float64(1) || m["mode"] != "list" || m["max_entries"] != float64(7) || m["max_content_bytes"] != float64(100) {
+		if len(m) != 7 || m["protocol"] != float64(2) || m["verb"] != "list" || m["max_entries"] != float64(7) || m["max_content_bytes"] != float64(100) {
 			t.Fatalf("stdin = %s", b)
+		}
+		if cfg, ok := m["config"].(map[string]any); !ok || len(cfg) != 0 {
+			t.Errorf("config = %v, want an empty object (never null)", m["config"])
 		}
 		if (cursor == "") != (m["cursor"] == nil) || (cursor != "" && m["cursor"] != cursor) {
 			t.Errorf("cursor = %v for %q", m["cursor"], cursor)
@@ -104,9 +107,19 @@ func TestExecProtocolViolationsAreRefused(t *testing.T) {
 		"null cursor":   {helper(t, "nullcursor"), CodeProtocolError, "next_cursor is a string"},
 		"duplicate":     {helper(t, "dup"), CodeProtocolError, "duplicate key"},
 		"malformed":     {helper(t, "malformed"), CodeProtocolError, "not a JSON object"},
-		"unknown line":  {helper(t, "unknownline"), CodeProtocolError, "neither entry nor next_cursor"},
+		"unknown line":  {helper(t, "unknownline"), CodeProtocolError, "neither entry, delete nor next_cursor"},
 		"content cap":   {helper(t, "badentry", `{"key":"a","title":"A","revision":"1","change":"added","content":"`+strings.Repeat("x", 1025)+`"}`), CodeProtocolError, "content"},
-		"content/rm":    {helper(t, "badentry", `{"key":"a","change":"removed","content":"x"}`), CodeProtocolError, "removed"},
+		"removed":       {helper(t, "badentry", `{"key":"a","title":"A","revision":"1","change":"removed"}`), CodeProtocolError, "delete line"},
+		"after cursor":  {helper(t, "lines", `{"next_cursor":"x"}`, `{"delete":{"key":"a"}}`), CodeProtocolError, "nothing may follow"},
+		"del and entry": {helper(t, "lines", `{"entry":{"key":"a","title":"A","revision":"1","change":"added"}}`, `{"delete":{"key":"a"}}`, `{"next_cursor":"x"}`), CodeProtocolError, "duplicate key"},
+		"del twice":     {helper(t, "lines", `{"delete":{"key":"a"}}`, `{"delete":{"key":"a"}}`, `{"next_cursor":"x"}`), CodeProtocolError, "duplicate key"},
+		"del extra":     {helper(t, "lines", `{"delete":{"key":"a","reason":"x"}}`, `{"next_cursor":"x"}`), CodeProtocolError, "delete is"},
+		"del no key":    {helper(t, "lines", `{"delete":{}}`, `{"next_cursor":"x"}`), CodeProtocolError, "delete is"},
+		"del empty key": {helper(t, "lines", `{"delete":{"key":""}}`, `{"next_cursor":"x"}`), CodeProtocolError, "delete key"},
+		"del long key":  {helper(t, "lines", `{"delete":{"key":"`+strings.Repeat("k", 513)+`"}}`, `{"next_cursor":"x"}`), CodeProtocolError, "delete key"},
+		"del too many":  {helper(t, "lines", `{"delete":{"key":"a"}}`, `{"delete":{"key":"b"}}`, `{"delete":{"key":"c"}}`, `{"delete":{"key":"d"}}`, `{"next_cursor":"x"}`), CodeProtocolError, "max_entries"},
+		"two keys":      {helper(t, "lines", `{"delete":{"key":"a"},"entry":{}}`, `{"next_cursor":"x"}`), CodeProtocolError, "one key"},
+		"no list verb":  {helper(t, "exit64"), CodeListFailed, "does not implement list"},
 		"no title":      {helper(t, "badentry", `{"key":"a","revision":"1","change":"added"}`), CodeProtocolError, "title and revision"},
 		"no revision":   {helper(t, "badentry", `{"key":"a","title":"A","change":"modified"}`), CodeProtocolError, "title and revision"},
 		"bad change":    {helper(t, "badentry", `{"key":"a","title":"A","revision":"1","change":"renamed"}`), CodeProtocolError, "change"},
@@ -249,30 +262,32 @@ func sysRecipe(t *testing.T, log, answer string, extra ...string) SystemRecipe {
 	return r.(SystemRecipe)
 }
 
-func modes(t *testing.T, log string) []string {
+func verbs_(t *testing.T, log string) []string {
 	b, _ := os.ReadFile(log)
 	return strings.Fields(string(b))
 }
 
-func TestSystemRecipeIsListedOnlyAfterACleanPreflight(t *testing.T) {
-	log := filepath.Join(t.TempDir(), "modes")
-	r := sysRecipe(t, log, `{"read_only":true,"identity":"viewer\u001b[31m","detail":"ok\nline","extra":1}`)
+const cleanCheck = `{"check":{"ok":true,"read_only":true,"identity":"viewer\u001b[31m","detail":"ok\nline","extra":1}}`
+
+func TestSystemRecipeIsListedOnlyAfterACleanCheck(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "verbs")
+	r := sysRecipe(t, log, cleanCheck)
 	ctx, req := context.Background(), Request{ID: "src/s", Locator: "kubernetes://dev", MaxContentBytes: 500}
 	if r.Shape() != ShapeSystem {
 		t.Fatal("shape")
 	}
-	if _, err := r.List(ctx, req); err != ErrNeedsPreflight {
+	if _, err := r.List(ctx, req); err != ErrNeedsCheck {
 		t.Fatalf("generic List = %v", err)
 	}
-	if _, err := r.ListSystem(ctx, Verified{}, req); err != ErrNeedsPreflight {
+	if _, err := r.ListSystem(ctx, Verified{}, req); err != ErrNeedsCheck {
 		t.Fatalf("zero Verified = %v", err)
 	}
-	if len(modes(t, log)) != 0 {
-		t.Fatal("a script ran before the preflight")
+	if len(verbs_(t, log)) != 0 {
+		t.Fatal("a script ran before the check")
 	}
-	v, err := r.Preflight(ctx, req)
+	v, err := r.Check(ctx, req)
 	if err != nil || v.Identity() != "viewer [31m" || v.Detail() != "ok line" {
-		t.Fatalf("preflight = %+v, %v", v, err)
+		t.Fatalf("check = %+v, %v", v, err)
 	}
 	l, err := r.ListSystem(ctx, v, req)
 	if err != nil || len(l.Entries) != 2 || l.NextCursor != "" {
@@ -281,77 +296,82 @@ func TestSystemRecipeIsListedOnlyAfterACleanPreflight(t *testing.T) {
 	if e := l.Entries[0]; e.Content != "line1\nline2" || e.Revision != "" || e.Change != "" || e.Title != "namespace/a" {
 		t.Errorf("entry = %+v", e)
 	}
-	// The preflight runs again at the next poll: nothing is cached.
-	if _, err := r.Preflight(ctx, req); err != nil {
+	// The check runs again at the next poll: nothing is cached.
+	if _, err := r.Check(ctx, req); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(modes(t, log), ","); got != "preflight,list,preflight" {
-		t.Errorf("modes = %s", got)
+	if got := strings.Join(verbs_(t, log), ","); got != "check,list,check" {
+		t.Errorf("verbs = %s", got)
 	}
 	// A Verified of another recipe is not accepted.
 	other := NewExec(ExecConfig{Name: "other", Shape: ShapeSystem, Command: os.Args[0], Timeout: time.Second, MaxOutput: 100, MaxContent: 100}).(SystemRecipe)
-	if _, err := other.ListSystem(ctx, v, req); err != ErrNeedsPreflight {
+	if _, err := other.ListSystem(ctx, v, req); err != ErrNeedsCheck {
 		t.Errorf("foreign Verified = %v", err)
 	}
 }
 
-func TestSystemPreflightRefusalsNeverList(t *testing.T) {
+func TestSystemCheckRefusalsNeverList(t *testing.T) {
 	for name, tc := range map[string]struct {
 		answer string
 		extra  []string
+		code   string
 		want   string
 	}{
-		"false":           {`{"read_only":false,"identity":"admin","detail":"can read secrets"}`, nil, "identity_not_read_only: admin — can read secrets"},
-		"missing":         {`{"identity":"x"}`, nil, "identity_not_read_only"},
-		"string boolean":  {`{"read_only":"true"}`, nil, "identity_not_read_only"},
-		"empty":           {``, nil, "identity_not_read_only"},
-		"two objects":     {`{"read_only":true}{"read_only":true}`, nil, "identity_not_read_only"},
-		"not json":        {`yes`, nil, "identity_not_read_only"},
-		"true but exit 4": {`{"read_only":true}`, []string{"exit4"}, "exit 4: no kubeconfig"},
+		"read_only false": {`{"check":{"ok":true,"read_only":false,"identity":"admin","detail":"can read secrets"}}`, nil, CodeIdentityNotReadOnly, "admin — can read secrets"},
+		"read_only gone":  {`{"check":{"ok":true,"identity":"x"}}`, nil, CodeIdentityNotReadOnly, "read_only"},
+		"ok false":        {`{"check":{"ok":false,"read_only":true,"identity":"x","detail":"token expired"}}`, nil, CodeCheckFailed, "x — token expired"},
+		"ok gone":         {`{"check":{"read_only":true}}`, nil, CodeCheckFailed, "no boolean ok"},
+		"string boolean":  {`{"check":{"ok":true,"read_only":"true"}}`, nil, CodeCheckFailed, "wrong type"},
+		"empty":           {``, nil, CodeCheckFailed, "not exactly one"},
+		"two objects":     {`{"check":{"ok":true,"read_only":true}}{"check":{"ok":true,"read_only":true}}`, nil, CodeCheckFailed, "not exactly one"},
+		"not json":        {`yes`, nil, CodeCheckFailed, "not exactly one"},
+		"not wrapped":     {`{"ok":true,"read_only":true}`, nil, CodeCheckFailed, "not exactly one"},
+		"true but exit 4": {`{"check":{"ok":true,"read_only":true}}`, []string{"exit4"}, CodeCheckFailed, "exit 4: no kubeconfig"},
 	} {
-		log := filepath.Join(t.TempDir(), "modes")
+		log := filepath.Join(t.TempDir(), "verbs")
 		r := sysRecipe(t, log, tc.answer, tc.extra...)
-		_, err := r.Preflight(context.Background(), Request{ID: "s"})
+		_, err := r.Check(context.Background(), Request{ID: "s"})
 		e, ok := err.(*Error)
-		if !ok || e.Code != CodeIdentityNotReadOnly || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%s: %v, want %q", name, err, tc.want)
+		if !ok || e.Code != tc.code || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want %s containing %q", name, err, tc.code, tc.want)
 		}
-		if got := modes(t, log); len(got) != 1 || got[0] != "preflight" {
-			t.Errorf("%s: modes = %v, want the preflight only", name, got)
+		if got := verbs_(t, log); len(got) != 1 || got[0] != "check" {
+			t.Errorf("%s: verbs = %v, want the check only", name, got)
 		}
 	}
-	// The code is a contract (the Atlas shows feed_error).
-	if CodeIdentityNotReadOnly != "identity_not_read_only" {
+	// The codes are a contract (the Atlas shows feed_error).
+	if CodeIdentityNotReadOnly != "identity_not_read_only" || CodeCheckFailed != "check_failed" {
 		t.Error("code changed")
 	}
-	// Start failure and a timeout are refusals too.
+	// Start failure and a timeout are failures of the check too.
 	r := NewExec(ExecConfig{Name: "n", Shape: ShapeSystem, Command: filepath.Join(t.TempDir(), "absent"), Timeout: time.Second, MaxOutput: 100, MaxContent: 100}).(SystemRecipe)
-	if _, err := r.Preflight(context.Background(), Request{}); err == nil || err.(*Error).Code != CodeIdentityNotReadOnly {
+	if _, err := r.Check(context.Background(), Request{}); err == nil || err.(*Error).Code != CodeCheckFailed {
 		t.Errorf("start failure = %v", err)
 	}
 	r = NewExec(ExecConfig{Name: "n", Shape: ShapeSystem, Command: os.Args[0], Args: []string{execHelperFlag, "sleep"}, Timeout: 300 * time.Millisecond, MaxOutput: 100, MaxContent: 100}).(SystemRecipe)
-	if _, err := r.Preflight(context.Background(), Request{}); err == nil || err.(*Error).Code != CodeIdentityNotReadOnly {
+	if _, err := r.Check(context.Background(), Request{}); err == nil || err.(*Error).Code != CodeCheckFailed {
 		t.Errorf("timeout = %v", err)
 	}
-	// A feed recipe has no preflight.
-	if _, err := helper(t, "ok").(SystemRecipe).Preflight(context.Background(), Request{}); err == nil {
-		t.Error("a feed recipe answered a preflight")
+	// A system script with no check cannot prove its identity: a failure, never a pass.
+	r = helperWith(t, func(c *ExecConfig) { c.Shape = ShapeSystem }, "exit64").(SystemRecipe)
+	if _, err := r.Check(context.Background(), Request{}); err == nil || err.(*Error).Code != CodeCheckFailed || !strings.Contains(err.Error(), "does not implement check") {
+		t.Errorf("unsupported system check = %v", err)
 	}
 }
 
 func TestSystemRequestsCarryTheSystemShape(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "stdin.json")
 	r := helperWith(t, func(c *ExecConfig) { c.Shape = ShapeSystem }, "stdin", f).(SystemRecipe)
-	// The helper answers a next_cursor line only, which a preflight refuses; the
+	// The helper answers a next_cursor line only, which a check refuses; the
 	// stdin it saved is what is checked.
-	_, _ = r.Preflight(context.Background(), Request{ID: "src/s", Include: []string{"ns/*"}})
+	_, _ = r.Check(context.Background(), Request{ID: "src/s", Include: []string{"ns/*"}})
 	b, _ := os.ReadFile(f)
-	if !strings.Contains(string(b), `"mode":"preflight"`) || !strings.Contains(string(b), `"source_shape":"system"`) || !strings.Contains(string(b), `"include":["ns/*"]`) {
-		t.Errorf("preflight stdin = %s", b)
+	if !strings.Contains(string(b), `"verb":"check"`) || !strings.Contains(string(b), `"source_shape":"system"`) || !strings.Contains(string(b), `"include":["ns/*"]`) {
+		t.Errorf("check stdin = %s", b)
 	}
 	_, _ = r.ListSystem(context.Background(), verifiedFor(r), Request{ID: "src/s"}) // refused for its cursor; the stdin is what counts
 	b, _ = os.ReadFile(f)
-	if !strings.Contains(string(b), `"mode":"list"`) || !strings.Contains(string(b), `"cursor":null`) || !strings.Contains(string(b), `"max_entries":1000`) {
+	if !strings.Contains(string(b), `"verb":"list"`) || !strings.Contains(string(b), `"cursor":null`) || !strings.Contains(string(b), `"max_entries":1000`) {
 		t.Errorf("list stdin = %s", b)
 	}
 }
@@ -370,12 +390,17 @@ func TestSystemListingRulesAreRelaxedForContentOnly(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
+	// A system listing has no delete line: a group that is gone is absent.
+	r := helperWith(t, func(c *ExecConfig) { c.Shape = ShapeSystem }, "lines", `{"delete":{"key":"a"}}`, `{"next_cursor":""}`).(SystemRecipe)
+	if _, err := r.ListSystem(context.Background(), verifiedFor(r), Request{}); err == nil || !strings.Contains(err.Error(), "no delete lines") {
+		t.Errorf("delete in a system listing: %v", err)
+	}
 }
 
 func TestSystemListingWithANextCursorIsRefusedNotReadAsComplete(t *testing.T) {
-	log := filepath.Join(t.TempDir(), "modes")
-	r := sysRecipe(t, log, `{"read_only":true}`, "cursor")
-	v, err := r.Preflight(context.Background(), Request{ID: "s"})
+	log := filepath.Join(t.TempDir(), "verbs")
+	r := sysRecipe(t, log, `{"check":{"ok":true,"read_only":true}}`, "cursor")
+	v, err := r.Check(context.Background(), Request{ID: "s"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,3 +412,48 @@ func TestSystemListingWithANextCursorIsRefusedNotReadAsComplete(t *testing.T) {
 
 // verifiedFor builds a Verified for a test of the listing alone.
 func verifiedFor(r SystemRecipe) Verified { return Verified{recipe: r.Name(), ok: true} }
+
+func TestExecDeleteLinesBecomeRemovedEntries(t *testing.T) {
+	l, err := helper(t, "ok").List(context.Background(), Request{ID: "s", MaxEntries: 5})
+	if err != nil || len(l.Entries) != 3 || l.Entries[2].Key != "c.md" || l.Entries[2].Change != Removed {
+		t.Fatalf("listing = %+v, %v", l, err)
+	}
+}
+
+func TestExecVerbsThatAreNotImplementedExitSixtyFour(t *testing.T) {
+	r := helper(t, "exit64")
+	if _, err := r.(Checker).Check(context.Background(), Request{ID: "s"}); err != ErrUnsupported {
+		t.Errorf("feed check = %v", err)
+	}
+	listErr(t, r, CodeListFailed, "does not implement list")
+}
+
+func TestExecFeedCheckAnswersAndRedacts(t *testing.T) {
+	t.Setenv("WIKI_TOKEN", "s3cr3t-token-value")
+	mk := func(answer string) Checker {
+		return helperWith(t, func(c *ExecConfig) { c.Env = map[string]string{"API_TOKEN": "WIKI_TOKEN"} },
+			"byverb", filepath.Join(t.TempDir(), "v"), "-", answer).(Checker)
+	}
+	v, err := mk(`{"check":{"ok":true,"identity":"svc-reader","detail":"reads 12 spaces"}}`).Check(context.Background(), Request{ID: "s"})
+	if err != nil || v.Identity() != "svc-reader" || v.Detail() != "reads 12 spaces" {
+		t.Fatalf("check = %+v, %v", v, err)
+	}
+	// read_only is not asked of a feed.
+	if _, err := mk(`{"check":{"ok":true}}`).Check(context.Background(), Request{ID: "s"}); err != nil {
+		t.Errorf("feed check without read_only: %v", err)
+	}
+	_, err = mk(`{"check":{"ok":false,"detail":"401 for s3cr3t-token-value"}}`).Check(context.Background(), Request{ID: "s"})
+	e, ok := err.(*Error)
+	if !ok || e.Code != CodeCheckFailed || strings.Contains(e.Detail, "s3cr3t") || !strings.Contains(e.Detail, "401 for ***") {
+		t.Errorf("a failed check = %v", err)
+	}
+	// ok: false with nothing to show still says why the check failed.
+	if _, err := mk(`{"check":{"ok":false}}`).Check(context.Background(), Request{ID: "s"}); err == nil || err.Error() != "check_failed: the check answered ok: false" {
+		t.Errorf("empty failure = %v", err)
+	}
+	// An identity or a detail past its limit is cut, not refused.
+	v, err = mk(`{"check":{"ok":true,"identity":"`+strings.Repeat("i", 200)+`","detail":"`+strings.Repeat("d", 400)+`"}}`).Check(context.Background(), Request{ID: "s"})
+	if err != nil || len([]rune(v.Identity())) != 120 || len([]rune(v.Detail())) != 300 {
+		t.Errorf("limits: %d %d %v", len(v.Identity()), len(v.Detail()), err)
+	}
+}

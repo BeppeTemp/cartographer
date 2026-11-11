@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """A system lister that reports verdicts, not metrics, from a Prometheus HTTP API.
 
-It speaks protocol v1 of the Surveyor's exec recipes (docs/surveyor-recipes.md):
-one JSON request on stdin, mode "preflight" or "list", the answer on stdout.
+It speaks protocol v2 of the Surveyor's exec recipes (docs/surveyor-recipes.md):
+one JSON request on stdin, verb "check" or "list", the answer on stdout.
 The computing happens at the source, in PromQL; this script only turns each
 answer into one word of a fixed scale. A value that moves inside its band
 changes nothing, so the group keeps its revision and the poll spends no token.
@@ -173,16 +173,16 @@ def listing(req, checks):
     return out
 
 
-def preflight(identity):
+def check(identity):
     flags = api("/api/v1/status/flags")
     if not isinstance(flags, dict) or WRITE_FLAGS[0] not in flags:
-        return {"read_only": False, "identity": identity, "detail": "the endpoint does not report its flags"}
+        return {"check": {"ok": True, "read_only": False, "identity": identity, "detail": "the endpoint does not report its flags"}}
     open_flags = [f for f in WRITE_FLAGS if str(flags.get(f)).lower() == "true"]
     if open_flags:
-        return {"read_only": False, "identity": identity, "detail": "the endpoint takes writes: " + ", ".join(open_flags)}
+        return {"check": {"ok": True, "read_only": False, "identity": identity, "detail": "the endpoint takes writes: " + ", ".join(open_flags)}}
     api("/api/v1/rules", {"type": "alert"})  # an endpoint that can read nothing is a misconfiguration
-    return {"read_only": True, "identity": identity,
-            "detail": "checked: no write flag among %d, rules readable" % len(WRITE_FLAGS)}
+    return {"check": {"ok": True, "read_only": True, "identity": identity,
+                      "detail": "checked: no write flag among %d, rules readable" % len(WRITE_FLAGS)}}
 
 
 def main():
@@ -191,13 +191,15 @@ def main():
             raise Failure("usage: lister.py <checks.json>")
         req = json.load(sys.stdin)
         checks, identity = load_checks(sys.argv[1])
-        mode = req.get("mode")
-        if mode == "preflight":
-            lines = [preflight(identity)]
-        elif mode == "list":
+        if req.get("protocol") != 2:
+            return 64  # a protocol this script does not speak
+        verb = req.get("verb")
+        if verb == "check":
+            lines = [check(identity)]
+        elif verb == "list":
             lines = listing(req, checks)
         else:
-            raise Failure("unknown mode")
+            return 64  # a verb this script does not implement
     except Failure as e:
         sys.stderr.write("lister: %s\n" % e)
         return 2

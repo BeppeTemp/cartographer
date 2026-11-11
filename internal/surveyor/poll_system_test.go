@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	cleanPreflight = `{"read_only":true,"identity":"dev-viewer","detail":"ok"}`
-	snapCanary     = "CANARY-SNAPSHOT-9f3a"
+	cleanCheck = `{"check":{"ok":true,"read_only":true,"identity":"dev-viewer","detail":"ok"}}`
+	snapCanary = "CANARY-SNAPSHOT-9f3a"
 )
 
 // sysEnv is a system Source at sources/feed (so the pollEnv helpers apply), its
@@ -40,7 +40,7 @@ func newSysEnv(t *testing.T) *sysEnv {
 	e := &pollEnv{t: t, k: k, clock: time.Date(2031, 2, 3, 12, 0, 0, 0, time.UTC), model: &rmodel{answers: repeatAnswer(50)}}
 	s := &sysEnv{pollEnv: e, dir: dir}
 	e.in = e.instance(s.cfg())
-	s.preflight(cleanPreflight)
+	s.check(cleanCheck)
 	return s
 }
 
@@ -52,9 +52,9 @@ func (s *sysEnv) cfg() Config {
 	}}
 }
 
-func (s *sysEnv) preflight(answer string) {
+func (s *sysEnv) check(answer string) {
 	s.t.Helper()
-	if err := os.WriteFile(filepath.Join(s.dir, "preflight.json"), []byte(answer+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(s.dir, "check.json"), []byte(answer+"\n"), 0o600); err != nil {
 		s.t.Fatal(err)
 	}
 }
@@ -74,8 +74,8 @@ func (s *sysEnv) list(kv ...string) {
 	}
 }
 
-func (s *sysEnv) modes() string {
-	b, _ := os.ReadFile(filepath.Join(s.dir, "modes"))
+func (s *sysEnv) verbs() string {
+	b, _ := os.ReadFile(filepath.Join(s.dir, "verbs"))
 	return strings.Join(strings.Fields(string(b)), ",")
 }
 
@@ -140,8 +140,8 @@ func TestSystemPollFirstPollCreatesAUnitPerGroupAndASecondIsANoOp(t *testing.T) 
 	if !s.k.expanded["sources/feed"] || !strings.Contains(s.src().body, "("+system.StateFile+")") {
 		t.Errorf("source not expanded or not linked: %q", s.src().body)
 	}
-	if s.modes() != "preflight,list" || !strings.Contains(res.Summary, "identity=dev-viewer") || !strings.Contains(res.Summary, "added=2") {
-		t.Errorf("modes %s, summary %s", s.modes(), res.Summary)
+	if s.verbs() != "check,list" || !strings.Contains(res.Summary, "identity=dev-viewer") || !strings.Contains(res.Summary, "added=2") {
+		t.Errorf("modes %s, summary %s", s.verbs(), res.Summary)
 	}
 	// The second poll with no change: nothing is created or written but feed_checked_at.
 	batches, writes, expands := s.k.calls["concept_batch"], s.k.calls["asset_write"], s.k.calls["concept_expand"]
@@ -151,8 +151,8 @@ func TestSystemPollFirstPollCreatesAUnitPerGroupAndASecondIsANoOp(t *testing.T) 
 		s.k.calls["concept_expand"] != expands || s.k.calls["concept_patch"] != patches+2 { // the lease and the advance
 		t.Fatalf("second poll: %+v (%s); calls %v", res, res.Summary, s.k.calls)
 	}
-	if s.feed()["feed_cursor"] != sha(s.stateFile()) || s.modes() != "preflight,list,preflight,list" {
-		t.Errorf("cursor %v, modes %s", s.feed()["feed_cursor"], s.modes())
+	if s.feed()["feed_cursor"] != sha(s.stateFile()) || s.verbs() != "check,list,check,list" {
+		t.Errorf("cursor %v, modes %s", s.feed()["feed_cursor"], s.verbs())
 	}
 }
 
@@ -248,12 +248,15 @@ func TestSystemPollRefusalsWriteTheCodeAndLeaveCursorAndStateAlone(t *testing.T)
 		prep func(s *sysEnv)
 		want string
 	}{
-		"preflight false": {func(s *sysEnv) { s.preflight(`{"read_only":false,"identity":"admin","detail":"can read secrets"}`) }, "identity_not_read_only: admin"},
-		"preflight bad":   {func(s *sysEnv) { s.preflight(`nonsense`) }, "identity_not_read_only"},
-		"empty listing":   {func(s *sysEnv) { s.list() }, "empty_listing"},
-		"over the cap":    {func(s *sysEnv) { s.list("namespace/a", over) }, "protocol_error"},
-		"duplicate key":   {func(s *sysEnv) { s.list("namespace/a", "x", "namespace/a", "y") }, "protocol_error"},
-		"bad key":         {func(s *sysEnv) { s.list("no", "x") }, "protocol_error"},
+		"check read_only false": {func(s *sysEnv) {
+			s.check(`{"check":{"ok":true,"read_only":false,"identity":"admin","detail":"can read secrets"}}`)
+		}, "identity_not_read_only: admin"},
+		"check bad":     {func(s *sysEnv) { s.check(`nonsense`) }, "check_failed"},
+		"check not ok":  {func(s *sysEnv) { s.check(`{"check":{"ok":false,"detail":"token expired"}}`) }, "check_failed: token expired"},
+		"empty listing": {func(s *sysEnv) { s.list() }, "empty_listing"},
+		"over the cap":  {func(s *sysEnv) { s.list("namespace/a", over) }, "protocol_error"},
+		"duplicate key": {func(s *sysEnv) { s.list("namespace/a", "x", "namespace/a", "y") }, "protocol_error"},
+		"bad key":       {func(s *sysEnv) { s.list("no", "x") }, "protocol_error"},
 		"no final cursor": {func(s *sysEnv) {
 			os.WriteFile(filepath.Join(s.dir, "listing.jsonl"), []byte(`{"entry":{"key":"a","content":"x"}}`+"\n"), 0o600)
 		}, "protocol_error"},
@@ -275,14 +278,14 @@ func TestSystemPollRefusalsWriteTheCodeAndLeaveCursorAndStateAlone(t *testing.T)
 	s.list("namespace/a", "one")
 	s.src().fm["recipe"] = "my-feed"
 	s.mustPoll()
-	if got, _ := s.feed()["feed_error"].(string); !strings.HasPrefix(got, "recipe_shape") || s.modes() != "" {
-		t.Errorf("system Source, feed recipe: %q, modes %q", got, s.modes())
+	if got, _ := s.feed()["feed_error"].(string); !strings.HasPrefix(got, "recipe_shape") || s.verbs() != "" {
+		t.Errorf("system Source, feed recipe: %q, modes %q", got, s.verbs())
 	}
 	s = newSysEnv(t)
 	s.src().fm["recipe"], s.src().fm["source_shape"] = "k8s", "feed"
 	s.mustPoll()
-	if got, _ := s.feed()["feed_error"].(string); !strings.HasPrefix(got, "recipe_shape") || s.modes() != "" {
-		t.Errorf("feed Source, system recipe: %q, modes %q", got, s.modes())
+	if got, _ := s.feed()["feed_error"].(string); !strings.HasPrefix(got, "recipe_shape") || s.verbs() != "" {
+		t.Errorf("feed Source, system recipe: %q, modes %q", got, s.verbs())
 	}
 }
 
@@ -291,8 +294,8 @@ func TestSystemPollWithoutAPlanWritesNoState(t *testing.T) {
 	delete(s.k.pages, "ingest/plan")
 	s.list("namespace/a", "one")
 	s.mustPoll()
-	if got, _ := s.feed()["feed_error"].(string); !strings.HasPrefix(got, "no_ingest_plan") || s.k.expanded["sources/feed"] || s.feed()["feed_cursor"] != nil || s.modes() != "" {
-		t.Errorf("feed = %v, expanded %v, modes %q", s.feed(), s.k.expanded["sources/feed"], s.modes())
+	if got, _ := s.feed()["feed_error"].(string); !strings.HasPrefix(got, "no_ingest_plan") || s.k.expanded["sources/feed"] || s.feed()["feed_cursor"] != nil || s.verbs() != "" {
+		t.Errorf("feed = %v, expanded %v, modes %q", s.feed(), s.k.expanded["sources/feed"], s.verbs())
 	}
 }
 
@@ -378,8 +381,8 @@ func TestSystemPollTwoPollersOnOneSourceMakeOneSetOfUnits(t *testing.T) {
 	if err != nil || r2.Units != 0 {
 		t.Fatalf("the loser: %+v %v", r2, err)
 	}
-	if len(s.k.units()) != 2 || s.modes() != "preflight,list" {
-		t.Errorf("units %v, modes %s", s.k.units(), s.modes())
+	if len(s.k.units()) != 2 || s.verbs() != "check,list" {
+		t.Errorf("units %v, modes %s", s.k.units(), s.verbs())
 	}
 }
 
@@ -453,7 +456,7 @@ func TestSystemPollSkippedSourceIsNotPolledAndFencesSurviveBackticks(t *testing.
 	s := newSysEnv(t)
 	s.src().fm["ingest_status"] = "skipped"
 	s.list("namespace/a", "one")
-	if it, res, err := s.poll(); it != nil || err != nil || res.Units != 0 || s.modes() != "" {
+	if it, res, err := s.poll(); it != nil || err != nil || res.Units != 0 || s.verbs() != "" {
 		t.Fatalf("a skipped system was polled: %v %v", it, err)
 	}
 	s.src().fm["ingest_status"] = "pending"
@@ -469,7 +472,7 @@ func TestSystemVocabulariesMatchTheServer(t *testing.T) {
 	if strings.Join(kb.IngestObservedChanges, ",") != recipe.Added+","+recipe.Modified+","+recipe.Removed {
 		t.Errorf("observed_change values: %v", kb.IngestObservedChanges)
 	}
-	if !errors.Is(recipe.ErrNeedsPreflight, recipe.ErrNeedsPreflight) || recipe.CodeIdentityNotReadOnly != "identity_not_read_only" {
+	if !errors.Is(recipe.ErrNeedsCheck, recipe.ErrNeedsCheck) || recipe.CodeIdentityNotReadOnly != "identity_not_read_only" {
 		t.Error("contract")
 	}
 }
@@ -533,5 +536,20 @@ func TestSystemPollRefusalWithoutACheckNameSaysSo(t *testing.T) {
 	fe, _ := s.feed()["feed_error"].(string)
 	if !strings.Contains(fe, "unit_refused (no check named; answer withheld") || strings.Contains(fe, "hunter2") {
 		t.Errorf("feed_error = %q", fe)
+	}
+}
+
+// failingCheck is a system recipe whose check fails with an error that is not a
+// *recipe.Error, as a timeout of the poll's own context is.
+type failingCheck struct{ recipe.SystemRecipe }
+
+func (failingCheck) Check(context.Context, recipe.Request) (recipe.Verified, error) {
+	return recipe.Verified{}, errors.New("deadline hit")
+}
+
+func TestObserveSystemCheckErrorThatIsNotARecipeErrorIsCheckFailed(t *testing.T) {
+	_, pf, refused, err := observeSystem(context.Background(), failingCheck{}, recipe.Request{ID: "s"}, noState{}, "")
+	if err != nil || !refused || pf == nil || pf.Code != recipe.CodeCheckFailed {
+		t.Errorf("pf = %+v, refused %v, err %v: a timeout is not a read-only violation", pf, refused, err)
 	}
 }

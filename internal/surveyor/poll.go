@@ -137,7 +137,7 @@ func builtinHosts(cfg *Config) map[string][]string {
 type pollItem struct {
 	f      feed.Feed
 	perr   error
-	system bool // source_shape: system (D1372): listed after a preflight, diffed by the surveyor
+	system bool // source_shape: system (D1372): listed after a check, diffed by the surveyor
 }
 
 type listOut struct {
@@ -464,7 +464,7 @@ func feedPreconditions(reg *recipe.Registry, hosts map[string][]string, f feed.F
 	case !ok:
 		return nil, &pollFailure{codeRecipeUnknown, fmt.Sprintf("recipe %q is not known to this Surveyor", f.Recipe)}
 	case system && rec.Shape() != recipe.ShapeSystem:
-		// The recipe's shape, not the Source's label, decides whether the preflight
+		// The recipe's shape, not the Source's label, decides whether the check
 		// applies: a mismatch either way is refused, so a KB writer cannot dodge it.
 		return nil, &pollFailure{codeRecipeShape, fmt.Sprintf("recipe %q does not list a system", f.Recipe)}
 	case !system && rec.Shape() != recipe.ShapeFeed:

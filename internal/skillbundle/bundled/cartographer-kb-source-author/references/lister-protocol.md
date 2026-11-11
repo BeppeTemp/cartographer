@@ -1,4 +1,4 @@
-# Lister protocol v1 and the recipe config
+# Lister protocol v2 and the recipe config
 
 The full contract is `docs/surveyor-recipes.md` in the Cartographer repository; this is what a lister author needs.
 
@@ -6,35 +6,41 @@ The full contract is `docs/surveyor-recipes.md` in the Cartographer repository; 
 
 One JSON object, then closed:
 
-- `protocol`: `1`; `mode`: `"list"`, or `"preflight"` for a system recipe; a script receiving any other mode exits
-  non-zero.
-- `source`: `id`, `title`, `locator`, `source_kind`, `source_shape`, `include` (list of globs, `[]` if none).
-- `cursor`: the string returned last time, `null` on the first listing.
-- `max_entries`, `max_content_bytes`: limits the script keeps to.
+- `protocol`: `2`; `verb`: `"list"`, and optionally `"check"` (can the credentials
+  reach the source?); a system recipe must implement `"check"`. A script receiving another protocol number or a verb it
+  does not implement exits 64 with no output.
+- `config`: an object, `{}` for now.
+- `source` (`check`, `list`): `id`, `title`, `locator`, `source_kind`, `source_shape`, `include` (list of globs, `[]` if none).
+- `cursor` (`list`): the string returned last time, `null` on the first listing; `max_entries`, `max_content_bytes`:
+  limits the script keeps to.
 
-## The answer (stdout)
+## The answers (stdout)
 
-JSON lines: `{"entry": {...}}` repeated, then **exactly one last** `{"next_cursor": "<string>"}` (at most 1024
-bytes, opaque: the Surveyor never orders it). An entry has:
+`check`: exactly one line `{"check": {"ok": true, "detail": "...", "identity": "...", "read_only": true}}`;
+`ok: false` (or a non-zero exit) fails the check with `detail` shown. `read_only` is required for a system recipe.
 
-- `key` (required, at most 512 bytes, unique), `change` (`added`, `modified` or `removed`);
-- `title` and `revision` for `added` and `modified` (at most 200 bytes each); `revision` changes whenever the
-  content does;
+`list`: JSON lines, `{"entry": {...}}` and `{"delete": {"key": "..."}}` repeated, then **exactly one last**
+`{"next_cursor": "<string>"}` (at most 1024 bytes, opaque: the Surveyor never orders it). An entry has:
+
+- `key` (required, at most 512 bytes, unique, and not also deleted in the same listing), `change` (`added` or
+  `modified`; a deletion is a `delete` line, `removed` is refused);
+- `title` and `revision` (at most 200 bytes each); `revision` changes whenever the content does;
 - `locator` (optional, what the unit executor fetches; absent it is `<feed locator>#<key>`);
-- `content` (optional inline text, at most `max_content_bytes`, not on `removed`).
+- `content` (optional inline text, at most `max_content_bytes`).
 
-Return a cursor that covers exactly what you emitted.
+Return a cursor that covers exactly what you emitted. Delete lines are only counted: the Surveyor deletes nothing.
 
 ## System recipes (`shape: system`)
 
-The recipe sets `shape: system` and has no `connector`. Before every listing the Surveyor sends `mode: "preflight"`;
-the script answers exactly one JSON object, exit 0: `{"read_only": true, "identity": "...", "detail": "..."}`, true
-only if the identity can neither write nor read secrets (ask the system, do not echo a label). Anything else refuses
-the run. The listing then has `cursor: null`: one entry per group with required `content` (a normalized snapshot, volatile
-fields dropped, never a secret), the key a stable group name, and the final line `{"next_cursor": ""}`. The Surveyor
-computes each revision itself and diffs against the stored state. Endpoint and identity come from `exec.env`, never
-from the `locator`, which is only a label. Any failure: a message on stderr (no secret) and a non-zero
-exit. `removed` entries are only counted: the Surveyor deletes nothing.
+The recipe sets `shape: system` and has no `connector`. Before every listing the Surveyor sends `verb: "check"`; the
+script answers `{"check": {"ok": true, "read_only": true, "identity": "...", "detail": "..."}}`, `read_only` true only
+if the identity can neither write nor read secrets (ask the system, do not echo a label). `read_only` false or
+missing is `identity_not_read_only`; any other failure is `check_failed`. The listing then has `cursor: null`: one
+entry per group with required `content` (a normalized snapshot, volatile fields dropped, never a secret), the key a
+stable group name, no `delete` lines (a group that is gone is absent) and the final line `{"next_cursor": ""}`. The
+Surveyor computes each revision itself and diffs against the stored state. Endpoint and identity come from
+`exec.env`, never from the `locator`, which is only a label. Any failure: a message on stderr (no secret) and a
+non-zero exit.
 
 ## Config: `recipes.<name>`
 
@@ -63,17 +69,19 @@ recipes:
 import json, os, sys
 
 req = json.load(sys.stdin)
-if req.get("protocol") != 1:
-    sys.exit("unsupported protocol")
-if req.get("mode") == "preflight":  # system recipes only: ask the system what the identity can do
-    print(json.dumps({"read_only": False, "identity": "TODO", "detail": "replace with a real check"}))
+if req.get("protocol") != 2:
+    sys.exit(64)  # a protocol this script does not speak
+verb = req.get("verb")
+if verb == "check":  # can the credentials reach the source? a system recipe also proves read_only here
+    print(json.dumps({"check": {"ok": True, "read_only": False, "identity": "TODO", "detail": "replace with a real check"}}))
     sys.exit(0)
-if req.get("mode") != "list":
-    sys.exit("unsupported mode")
+if verb != "list":
+    sys.exit(64)  # a verb this script does not implement
 since = req["cursor"] or ""
 items = []  # replace: call the source's read-only API with os.environ["WIKI_TOKEN"], items newer than `since`
 for it in items[: req["max_entries"]]:
     print(json.dumps({"entry": {"key": it["id"], "title": it["title"],
                                 "revision": it["version"], "change": "modified"}}))
+# a page deleted at the source: print(json.dumps({"delete": {"key": page_id}}))
 print(json.dumps({"next_cursor": items[-1]["updated"] if items else since}))
 ```
