@@ -77,6 +77,7 @@ page that was not touched; the table and the file change together, and a test
 | What changes | File to update |
 |---|---|
 | New MCP tool or change to its interface | `control-plane.md` §MCP API |
+| A public API route, its tier or `docs/openapi.json` (`internal/mcpserver/apiroutes.go`) | `control-plane.md` §The public API document + `make openapi` |
 | Change to the KB model / OKF / filesystem layout | `data-plane.md` |
 | Change to transport, auth or scopes | `transport-auth.md` |
 | New or changed lint check | `internal/lint/registry.go` (the one spec), then regenerate the `data-plane.md` §Check catalogue (`CONTRIBUTING.md` §Adding a lint check) |

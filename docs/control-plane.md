@@ -390,6 +390,10 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 
 The routes are the entries of one table (`internal/mcpserver/apiroutes.go`), each with a tier (`stable`, `preview`, `internal`); this mount serves every tier (D1910).
 
+### The public API document
+
+The `stable` and `preview` routes are also served at `/api/v1` when `api.enabled` is set, and `GET /api/v1/openapi.json` describes them as an OpenAPI 3.1 document. It is generated from the route table (`apiRoutes`: summary, query parameters, the Go type of the 200 body, extra error statuses) by `internal/openapi`, which reflects the `json` tags of the response types; the error envelope and its codes are a shared component. `stable` routes must declare a response type, `preview` ones are a free-form object marked `x-stability: preview`, `internal` ones are absent. The document is served without a token (GET and HEAD only; any other method needs one like every other path), holds no data of any KB and never reads the principal. `docs/openapi.json` is the committed copy: `make openapi` regenerates it, and `TestOpenAPI_CommittedCopyIsCurrent` fails when it is stale, so a shape change shows in review. `api_contract_test.go` checks, in both directions, that the table and the document agree on a live handler, and that every stable route's live body fits its schema.
+
 | Route | Returns |
 |---|---|
 | `GET /api/ui/v1/kbs` | The mounted KBs the principal can see something in, with status, readiness, capabilities (computed at start, as on `/health`: a `secrets` `hint`, D1191, may be stale there, `kb_status` is live), `artifacts` (whether the principal may read the KB's artifacts) and `secrets` (whether the principal may open the Secrets panel and read its files, D708; it is not the capability state, which is `capabilities.secrets` here and in `kb_status`: a KB whose capability is `disabled` still says `true`). |

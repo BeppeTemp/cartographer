@@ -53,7 +53,8 @@ public path: it passes through the same origin check and token middleware as
 `/mcp`, is filtered with the same principal, and answers `404` — never `403` —
 for a KB or concept the principal cannot see, so it cannot be used to probe for
 existence. Only `/health`, the RFC 9728 metadata and the embedded UI's static bundle (`/ui`, `/ui/*`) are exempt from
-requiring a token (`/ready` is not); with auth on the middleware still reads one there, and attaches
+requiring a token (`/ready` is not), and so is `GET`/`HEAD /api/v1/openapi.json`, the public API's OpenAPI
+document (static, no KB data; any other method on it needs a token like every `/api/v1` path); with auth on the middleware still reads one there, and attaches
 the principal of a valid bearer and no principal otherwise, never the local admin (D1096).
 
 ### One routed topology (D288)

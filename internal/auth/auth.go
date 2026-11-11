@@ -492,7 +492,7 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ContextWithPrincipal(r.Context(), LocalAdminPrincipal())))
 			return
 		}
-		if isPublicPath(r.URL.Path) {
+		if isPublicRequest(r.Method, r.URL.Path) {
 			// TRAP: with auth on, a public path is exempt from *requiring* a
 			// token, not from reading one, and it never carries the local
 			// admin: a valid bearer brings its own principal, anything else
@@ -568,6 +568,16 @@ func isPublicPath(path string) bool {
 		path == WellKnownProtectedResourcePath ||
 		path == "/ui" || strings.HasPrefix(path, "/ui/") ||
 		path == "/api/v1/openapi.json"
+}
+
+// isPublicRequest is isPublicPath for a method: the OpenAPI document is public
+// to GET and HEAD only: only read methods are exempt, any other method needs a
+// token like every path. (A GET still shows whether the API is on, by design.)
+func isPublicRequest(method, path string) bool {
+	if path == "/api/v1/openapi.json" && method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+	return isPublicPath(path)
 }
 
 func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
