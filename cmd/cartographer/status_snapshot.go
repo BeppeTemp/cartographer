@@ -594,6 +594,7 @@ func statusResolveOptions(cfg *clientconfig.Config, provider string, m contract.
 		Paths:              cfg.Paths,
 		Placeholders:       m.Placeholders,
 		PathRegistries:     m.PathRegistries,
+		FeedbackMode:       m.FeedbackMode,
 		KBOrder:            kbOrderForProviders(cfg, []string{provider})[provider],
 	}
 }

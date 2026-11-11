@@ -13,6 +13,9 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
+
+	"github.com/BeppeTemp/cartographer/internal/secretscan"
 )
 
 // Repo is the public repository reports are filed against; a test pins it to
@@ -44,6 +47,42 @@ type Destination struct {
 type Report struct{ Kind, Title, Body string }
 
 var placeholderRE = regexp.MustCompile(`\{[^{}]*\}`)
+
+// secretQueryWords are the words that make a template's query key look like a
+// credential. A key is split into words on non-alphanumerics (`_ - [ ] .`) and
+// camelCase, and refused when one word equals an entry (case-insensitive), so
+// `assignee_ids`, `author` and `design` pass while `api_key`, `X-Auth` and
+// `accessToken` do not.
+var secretQueryWords = map[string]bool{
+	"token": true, "key": true, "apikey": true, "secret": true, "password": true, "passwd": true,
+	"auth": true, "authorization": true, "sig": true, "signature": true, "credential": true,
+}
+
+// keyWords splits a query key into lower-case words.
+func keyWords(key string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	rs := []rune(key)
+	for i, r := range rs {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			if unicode.IsUpper(r) && i > 0 && unicode.IsLower(rs[i-1]) {
+				flush() // camelCase boundary
+			}
+			cur = append(cur, r)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return words
+}
 
 // ParseDestination reads the setting: "github" (also ""), "off", or an URL
 // template that is https:// (http:// only to a loopback host), has its host
@@ -82,6 +121,19 @@ func ParseDestination(s string) (Destination, error) {
 	if err != nil || u.Hostname() == "" || u.User != nil {
 		return bad("not a valid URL")
 	}
+	// kb_status returns the template to every authenticated principal, so it
+	// must carry no secret: refuse a query key that names one, and any token the
+	// secret detector knows.
+	for key := range u.Query() {
+		for _, w := range keyWords(key) {
+			if secretQueryWords[w] {
+				return bad("the template must carry no secret: the query key \"" + key + "\" looks like a credential (it is shown to every authenticated caller of kb_status)")
+			}
+		}
+	}
+	if len(secretscan.Find(s)) > 0 {
+		return bad("the template must carry no secret: it contains a credential-shaped value (it is shown to every authenticated caller of kb_status)")
+	}
 	switch u.Scheme {
 	case "https":
 	case "http":
@@ -100,6 +152,14 @@ func (d Destination) Mode() Mode {
 		return ModeGitHub
 	}
 	return d.mode
+}
+
+// Template returns the URL template of a custom destination, "" otherwise.
+func (d Destination) Template() string {
+	if d.mode == ModeCustom {
+		return d.tmpl
+	}
+	return ""
 }
 
 func esc(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }

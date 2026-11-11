@@ -170,7 +170,7 @@ func TestBuildManifest_Instructions_ArchiviElencatiEdEsclusioneInfra(t *testing.
 	}
 	// The tools live in the shared operational section, written once per block (D1182).
 	for _, tool := range []string{"search", "atlas_overview", "concept_read", "concept_write", "log_append"} {
-		if !strings.Contains(provisioning.SharedOperationalSection(), tool) {
+		if !strings.Contains(provisioning.SharedOperationalSection(""), tool) {
 			t.Errorf("the shared operational section doesn't mention tool %q", tool)
 		}
 	}
@@ -253,7 +253,7 @@ func TestBuildManifest_Instructions_StatusBulletSaysWhenWorkMoves(t *testing.T) 
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	_ = m
-	content := provisioning.SharedOperationalSection()
+	content := provisioning.SharedOperationalSection("")
 	var bullet string
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "- status convention:") {
@@ -878,7 +878,7 @@ func TestBuildManifest_Instructions_ToolNames(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	_ = plain
-	plainContent := provisioning.SharedOperationalSection()
+	plainContent := provisioning.SharedOperationalSection("")
 	for _, want := range []string{
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n",
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n",
@@ -1547,7 +1547,7 @@ func TestBuildManifest_Instructions_RoutedMount(t *testing.T) {
 	// The tool names stay bare: a routed mount refuses a prefix, so imprinting
 	// a prefixed name would name a tool that does not exist.
 	// The tool names are in the shared operational section (D1182).
-	shared := provisioning.SharedOperationalSection()
+	shared := provisioning.SharedOperationalSection("")
 	for _, want := range []string{"`search`", "`atlas_overview`", "`concept_read`", "`concept_write`", "`log_append`"} {
 		if !strings.Contains(shared, want) {
 			t.Errorf("shared section does not name %s:\n%s", want, shared)
@@ -1562,7 +1562,7 @@ func TestBuildManifest_Instructions_RoutedMount(t *testing.T) {
 // fallback channel for clients whose SessionStart hook never fires.
 func TestGeneratedInstructionsContainUpdateDirective(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
-	content := provisioning.SharedOperationalSection()
+	content := provisioning.SharedOperationalSection("")
 	_ = kbRoot
 	for _, want := range []string{"`kb_status`", "`latest_version`", "`cartographer update check`", "explicit consent"} {
 		if !strings.Contains(content, want) {
@@ -1576,7 +1576,7 @@ func TestGeneratedInstructionsContainUpdateDirective(t *testing.T) {
 func TestGenerateKBInstructions_ContainsWriteFindingsGuidance(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	_ = kbRoot
-	content := provisioning.SharedOperationalSection()
+	content := provisioning.SharedOperationalSection("")
 	if !strings.Contains(content, "is refused with each finding's fix and nothing is committed") {
 		t.Errorf("write-gate guidance missing:\n%s", content)
 	}

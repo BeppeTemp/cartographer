@@ -34,14 +34,18 @@ func fiveArchives() contract.GuideKB {
 // the tool descriptions: pin the neutral part, curated bodies are outside it.
 func TestRenderGuide_Budget(t *testing.T) {
 	const (
-		sectionBudget = 2332 // bytes: measured 2120 with the three procedures listed (#1316, D285; was 1782 for 1620), plus at most 10 %
+		sectionBudget = 2531 // bytes: measured 2501 with the three procedures and the longest feedback bullet (custom; 2401 for github, 2120 off; D1925, #1316, D285), plus 30
 		routingBudget = 338  // bytes: measured 308 (five archives), plus at most 10 %
 	)
-	section := contract.GuideOperational(false, guideProcs())
-	t.Logf("operational section: %d bytes", len(section))
-	if len(section) > sectionBudget || len(section) > 2400 {
-		t.Errorf("the guide's operational section is %d bytes, over its budget of %d: it is paid by every handshake of every connection, trim it or raise the budget deliberately", len(section), sectionBudget)
+	// Every mode of feedback.destination must fit: the custom bullet is the longest.
+	for _, mode := range []string{"", "github", "custom", "off"} {
+		n := len(contract.GuideOperational(false, guideProcs(), mode))
+		t.Logf("operational section (feedback %q): %d bytes", mode, n)
+		if n > sectionBudget {
+			t.Errorf("the guide's operational section is %d bytes with feedback %q, over its budget of %d: it is paid by every handshake of every connection, trim it or raise the budget deliberately", n, mode, sectionBudget)
+		}
 	}
+	section := contract.GuideOperational(false, guideProcs(), "")
 	full := contract.RenderGuide([]contract.GuideKB{fiveArchives()}, contract.GuideOptions{Routed: true, Procedures: guideProcs()})
 	routing := strings.TrimSuffix(strings.TrimSuffix(full, section), "\n\n")
 	t.Logf("routing paragraph: %d bytes", len(routing))
@@ -295,7 +299,7 @@ func TestRenderGuide_ReadOnlyNamesKBGuide(t *testing.T) {
 	if !strings.Contains(g, "`kb_guide`") {
 		t.Errorf("the read-only guide does not name kb_guide:\n%s", g)
 	}
-	t.Logf("read-only operational section: %d bytes", len(contract.GuideOperational(true, nil)))
+	t.Logf("read-only operational section: %d bytes", len(contract.GuideOperational(true, nil, "")))
 }
 
 // What the server generates for an agent never tells it to read by sections as
@@ -307,8 +311,8 @@ func TestGuidanceDoesNotPushSectionReads(t *testing.T) {
 	texts := map[string]string{
 		"guide(routed)":      contract.RenderGuide([]contract.GuideKB{fiveArchives()}, contract.GuideOptions{Routed: true}),
 		"guide(read-only)":   contract.RenderGuide([]contract.GuideKB{fiveArchives()}, contract.GuideOptions{ReadOnly: true}),
-		"operational":        contract.GuideOperational(false, nil),
-		"shared operational": provisioning.SharedOperationalSection(),
+		"operational":        contract.GuideOperational(false, nil, ""),
+		"shared operational": provisioning.SharedOperationalSection(""),
 	}
 	err := fs.WalkDir(skillbundle.FS, "bundled", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {

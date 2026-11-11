@@ -262,7 +262,7 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 			return
 		}
 		log.Printf("cartographer: panic in tool %s: %v\n%s", name, r, debug.Stack())
-		res, resErr = errorResult(fmt.Sprintf("internal error: tool %s panicked", name)), nil
+		res, resErr = s.internalError(fmt.Sprintf("internal error: tool %s panicked", name)), nil
 		if open != nil {
 			func() {
 				defer func() { _ = recover() }() // the audit close must not re-panic
@@ -353,7 +353,7 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	open = nil
 	call.end(s, classifyOutcome(result, err), result)
 	if err != nil {
-		return errorResult("internal error: " + err.Error()), nil
+		return s.internalError("internal error: " + err.Error()), nil
 	}
 	return nudged, nil
 }

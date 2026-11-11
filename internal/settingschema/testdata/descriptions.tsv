@@ -48,6 +48,7 @@ server	components[].name	The Surveyor's perimeter (lowercase letters, digits and
 server	components[].kbs	The KBs the component must cover; each must be a mounted KB, so a typo cannot silence the alarm.
 server	components[].min_replicas	Live replicas below which the component is degraded.
 server	web.enabled	Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes.
+server	feedback.destination	Where agent bug and idea reports go. github opens a prefilled issue on the public repository; off removes the offer lines from the served instructions and the hint on internal errors; an https:// URL template (it must contain {title}) points agents at an internal tracker. Nothing is ever sent by the server.
 server	api.enabled	Serve the public read-only API at /api/v1 in HTTP mode, independent of web.enabled. Off by default: nothing is exposed until set.
 server	api.cors_origins	Browser origins allowed to read /api/v1, each scheme://host[:port] (http or https, no path, no *). Empty allows none.
 server	api.max_streams_per_token	Concurrent event streams one token may hold open on /api/v1.

@@ -24,6 +24,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
@@ -504,11 +505,11 @@ func runServe(cfg *config.Config, reload *authReload) {
 		bs := bootstrapKBs(cfg, func(string) {})
 		// Bootstrap is over: give Ctrl-C back its default effect.
 		stopBoot()
-		serveStdio(bs.kbs[0], bs.artifactSigners[0], bs.sqlIdxs, auditLog, latestVersion)
+		serveStdio(bs.kbs[0], bs.artifactSigners[0], bs.sqlIdxs, auditLog, latestVersion, cfg.FeedbackDestination())
 	}
 }
 
-func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
+func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string, fb feedback.Destination) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -520,6 +521,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]
 	s.SetKBName(k.AuthName)
 	s.SetTransport("stdio")
 	s.SetLatestVersionSource(latestVersion)
+	s.SetFeedback(fb)
 	log.Printf("stdio transport, KB: %s", k.Root)
 	// s.Run blocks on the stdio read loop and returns when the client closes
 	// stdin (or on a transport error) — that return is stdio's natural
@@ -648,6 +650,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		kbs, names, artifactSigners, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.sqlIdxs
 		multi := mcpserver.NewMultiKBServer(version)
 		multi.SetLatestVersionSource(latestVersion)
+		multi.SetFeedback(settingsCfg.FeedbackDestination()) // before MountKB: every server and routed view inherits it
 		multi.SetSettings(settingsCfg, string(updateChannelFn()))
 		multi.SetReleasesSource(serverReleasesSource(settingsCfg, version))
 		// serverInfo.name (D102) identifies the mounted KB only when more than

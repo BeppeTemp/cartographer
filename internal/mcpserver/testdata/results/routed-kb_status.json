@@ -38,6 +38,9 @@
     ],
     "server_started_at": "<time>"
   },
+  "feedback": {
+    "destination": "github"
+  },
   "has_remote": false,
   "kb": "kb",
   "last_push_at": null,

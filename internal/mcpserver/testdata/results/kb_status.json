@@ -29,6 +29,9 @@
       "unmapped_folder": 1
     }
   },
+  "feedback": {
+    "destination": "github"
+  },
   "has_remote": false,
   "kb": "kb",
   "last_push_at": null,

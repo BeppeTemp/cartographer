@@ -60,3 +60,7 @@ same knowledge, skills and instructions in the client's native format.
 
 If your knowledge fits in one repository and one person, a plain instruction file is
 simpler and you should use it.
+
+## Can I turn off the offer to report a bug from an agent?
+
+Yes. Set `feedback.destination: off` on the server (`CARTOGRAPHER_FEEDBACK_DESTINATION=off`): the served instructions stop naming when to offer a report and internal-error results lose their report hint. Set it to an `https://` URL template with `{title}` (and optionally `{kind}`, `{body}`) to send agents to your own tracker instead of GitHub. Nothing is ever sent by Cartographer: the user opens the link and submits it. See [deployment.md](deployment.md).

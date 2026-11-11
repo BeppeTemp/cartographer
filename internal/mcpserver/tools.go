@@ -153,12 +153,12 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolConflictResolve(k)))
 	cc := &conformanceCache{}
 	s.conformance = cc
-	register(toolKBStatus(k, misses, reads, s.version, s.knownLatestVersion, cc))
+	register(toolKBStatus(k, misses, reads, s.version, s.knownLatestVersion, s.feedbackDestination, cc))
 	register(toolKBReview(k, cc))
 	register(toolWorkList(k, cc))
 	// Core on every connection (D1100): a host that gives the model only tools
 	// reaches the guide and the procedures here, bundle or not.
-	register(toolKBGuide(k, deps))
+	register(toolKBGuide(k, deps, s.feedbackDestination))
 	register(toolContradictionReport(k))
 	register(gitWrap(k, toolSourceRegister(k)))
 	register(toolSourceList(k))
@@ -191,7 +191,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		register(toolSkillListWithBundle(k, deps.BundleFS))
 		register(gitWrap(k, toolSkillInstall(k, deps.BundleFS)))
 		register(toolSyncCheck(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner))
-		register(toolSyncPull(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner))
+		register(toolSyncPull(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner, s.feedbackDestination))
 	} else {
 		register(toolSkillList(k))
 	}

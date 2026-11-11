@@ -14,6 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/webui"
 )
 
@@ -314,6 +315,8 @@ type MultiKBServer struct {
 	api *APIConfig
 	// latestVersion is the /health source of a newer release (D254).
 	latestVersion func() string
+	// feedback is handed to every server the multi-KB server builds.
+	feedback feedback.Destination
 	// settings and updateChannel feed GET /api/ui/v1/settings (D743).
 	settings      *config.Config
 	updateChannel string
@@ -409,6 +412,7 @@ func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 	srv := New(m.version)
 	srv.liveSurveyor = m.surveyors.hasLive
 	srv.SetPolicyKB(name)
+	srv.SetFeedback(m.feedback)
 	setupFn(srv)
 	m.servers[name] = srv
 	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal"})

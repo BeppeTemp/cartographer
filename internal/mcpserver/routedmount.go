@@ -145,6 +145,7 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 	routed.readMinSession = mode == routedReadMin
 	routed.kbsReadOnly = mode == routedKBsReadOnly
 	routed.SetDisplayName("cartographer")
+	routed.SetFeedback(m.feedback)
 	routed.connKBs = append([]string(nil), set...)
 	routed.connKB = func(name string) *kb.KB {
 		if srv := m.servers[name]; srv != nil {

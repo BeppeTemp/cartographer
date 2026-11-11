@@ -59,6 +59,11 @@ type pulledManifestJSON struct {
 	// Issues are the artifacts the server left out of this response and why
 	// (Manifest.Issues); server text, escaped wherever it is printed.
 	Issues []string `json:"issues,omitempty"`
+	// Feedback is the server's feedback.destination mode; absent means github
+	// (an older server, or the default), so both ends agree.
+	Feedback *struct {
+		Destination string `json:"destination"`
+	} `json:"feedback,omitempty"`
 }
 
 // lockFilePath returns the path to the v2 multi-provider lockfile inside targetDir.
@@ -153,6 +158,40 @@ type candidateSet struct {
 	// kb_options does not apply, so they join each projection after the KB
 	// selection (forProvider, forProjection) and before the collision drop.
 	Plugins []contract.Artifact
+	// FeedbackModes is, per KB, the feedback.destination mode its sync_pull
+	// said ("" is github); BareFeedback the unnamed endpoint's. Selected per
+	// projection by feedbackForProjection, like the placeholder keys, so a KB
+	// whose pull failed never downgrades the block of a projection that does
+	// not read it (a projection that does is skipped whole).
+	FeedbackModes map[string]string
+	BareFeedback  string
+}
+
+// feedbackForProjection returns the feedback mode of the KBs a projection
+// reads, by placeholdersForProjection's selection. Across KBs off wins, then
+// custom (an offer that names the wrong tracker is worse than none).
+func (cs candidateSet) feedbackForProjection(cfg *clientconfig.Config, p syncProjection) string {
+	if p.BundleOnly {
+		return ""
+	}
+	if cs.HasBare {
+		if p.Workspace != "" {
+			return ""
+		}
+		if bound, explicit := cfg.BoundKBs(p.Provider); explicit && len(bound) == 0 {
+			return ""
+		}
+		return cs.BareFeedback
+	}
+	kbs := p.KBs
+	if p.Workspace == "" {
+		kbs, _ = cfg.BoundKBs(p.Provider)
+	}
+	mode := ""
+	for _, kb := range kbs {
+		mode = mergeFeedbackMode(mode, cs.FeedbackModes[kb])
+	}
+	return mode
 }
 
 // pathRegistriesForProjection returns the declared vocabularies of the KBs a
@@ -525,7 +564,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 // already holds the response (doctor, via serverFacts) passes it instead of
 // probing the server again.
 func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNames []string) (candidateSet, []kbPullFailure, error) {
-	cs := candidateSet{Named: make(map[string][]contract.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]contract.PathRegistry), Issues: make(map[string][]string), Plugins: loadActivePlugins(cfg).Artifacts}
+	cs := candidateSet{Named: make(map[string][]contract.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]contract.PathRegistry), Issues: make(map[string][]string), FeedbackModes: make(map[string]string), Plugins: loadActivePlugins(cfg).Artifacts}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	targets, err := resolveKBTargets(health, kbNames)
@@ -576,6 +615,11 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 			}
 			failed = append(failed, kbPullFailure{KB: target.Name, Err: err})
 			continue
+		}
+		if target.Name == "" {
+			cs.BareFeedback = mergeFeedbackMode(cs.BareFeedback, res.feedback)
+		} else if res.feedback != "" {
+			cs.FeedbackModes[target.Name] = res.feedback
 		}
 		for _, a := range res.artifacts {
 			key := a.Kind + "\x00" + a.Name + "\x00" + a.Source
@@ -634,6 +678,7 @@ type pullResult struct {
 	placeholders []string
 	pathRegistry *contract.PathRegistry
 	issues       []string
+	feedback     string
 	callErr      error
 	err          error
 }
@@ -689,7 +734,11 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 		}
 		arts = append(arts, art)
 	}
-	return pullResult{artifacts: arts, placeholders: pm.Placeholders, pathRegistry: pm.PathRegistry, issues: pm.Issues}
+	fb := ""
+	if pm.Feedback != nil {
+		fb = pm.Feedback.Destination
+	}
+	return pullResult{artifacts: arts, placeholders: pm.Placeholders, pathRegistry: pm.PathRegistry, issues: pm.Issues, feedback: fb}
 }
 
 // collisionsForProvider narrows DetectCollisions to the ones a single provider
@@ -863,6 +912,7 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 			// which — like every Manifest copy — does not carry it (D262).
 			Placeholders:   manifest.Placeholders,
 			PathRegistries: manifest.PathRegistries,
+			FeedbackMode:   manifest.FeedbackMode,
 			KBOrder:        projectionKBOrder(p, kbOrder),
 			// The plugins that contribute to this manifest, built from
 			// approved trees at this run (manifestPlugins).
@@ -1529,4 +1579,22 @@ func droppedEntryMessage(d provisioning.DroppedEntry) string {
 	}
 	return fmt.Sprintf("lockfile entry %s/%s of %s ignored: path %s (or its base dir) is not inside the client directory",
 		escapeControl(d.Kind), escapeControl(d.Name), where, escapeControl(d.Path))
+}
+
+// mergeFeedbackMode combines the modes two KBs' sync_pull reported: off wins,
+// then custom, else github ("").
+func mergeFeedbackMode(a, b string) string {
+	rank := func(m string) int {
+		switch m {
+		case contract.FeedbackOff:
+			return 2
+		case contract.FeedbackCustom:
+			return 1
+		}
+		return 0
+	}
+	if rank(b) > rank(a) {
+		return b
+	}
+	return a
 }

@@ -364,7 +364,11 @@ func TestBlock_Budget(t *testing.T) {
 			t.Errorf("%s is %d bytes, budget %d (+10%%, hard cap %d): the managed block is paid on every model call of every session; shrink it or raise the budget deliberately", name, got, measured, hard)
 		}
 	}
-	budget("shared section", len(provisioning.SharedOperationalSection()), 2146, 2560)
+	// Every mode of feedback.destination is paid by some block: the cap is the
+	// same for all of them (the custom bullet is the longest).
+	for mode, measured := range map[string]int{"": 2427, "github": 2427, "custom": 2527, "off": 2146} {
+		budget("shared section (feedback "+mode+")", len(provisioning.SharedOperationalSection(mode)), measured, 2560)
+	}
 	budget("brief section", len(section), 357, 512)
 }
 
@@ -468,5 +472,64 @@ func TestEnvironmentSection_KBTextEndingLikeASectionIsNotMisread(t *testing.T) {
 	})
 	if err != nil || len(res.Written) == 0 {
 		t.Fatalf("a new environment line must rewrite the block: %v %+v", err, res.Written)
+	}
+}
+
+// The feedback mode is in the shared operational text, so it is in the hash
+// the lock records for the client-owned tail of the block (the #1502 rule):
+// changing the setting rewrites the block once, then it is stable.
+func TestShared_FeedbackModeRewritesTheBlockOnce(t *testing.T) {
+	m := sharedKBs(t, 1, nil)
+	base := t.TempDir()
+	apply := func(mode string, lock provisioning.Lock) (provisioning.AppliedResult, string) {
+		t.Helper()
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: lock, FeedbackMode: mode})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(filepath.Join(base, ".claude", "CLAUDE.md"))
+		return res, string(data)
+	}
+	r1, c1 := apply("", provisioning.Lock{})
+	if !strings.Contains(c1, "cartographer-feedback") {
+		t.Fatalf("the default block must carry the feedback bullet:\n%s", c1)
+	}
+	if r, _ := apply("github", r1.NewLock); len(r.Written) != 0 {
+		t.Errorf("a missing mode is github: nothing may be written, got %v", r.Written)
+	}
+	r2, c2 := apply("off", r1.NewLock)
+	if len(r2.Written) == 0 || strings.Contains(c2, "cartographer-feedback") {
+		t.Fatalf("off must rewrite the block without the bullet: %v\n%s", r2.Written, c2)
+	}
+	if r, c := apply("off", r2.NewLock); len(r.Written) != 0 || c != c2 {
+		t.Errorf("a second apply with off must write nothing: %v", r.Written)
+	}
+	r3, c3 := apply("custom", r2.NewLock)
+	if len(r3.Written) == 0 || !strings.Contains(c3, "operator's tracker") {
+		t.Fatalf("custom must rewrite the block with the tracker variant: %v\n%s", r3.Written, c3)
+	}
+}
+
+// The feedback bullet is one line in each variant (D1110/D1182 size gate) and
+// absent for off.
+func TestFeedbackBulletVariants(t *testing.T) {
+	for _, mode := range []string{"", "github", "custom"} {
+		b := contract.FeedbackBullet(mode)
+		if strings.Count(b, "\n") != 1 || !strings.HasPrefix(b, "- ") || !strings.Contains(b, "`cartographer-feedback`") || !strings.Contains(b, "once per problem and per session") {
+			t.Errorf("mode %q: not a one-line offer bullet: %q", mode, b)
+		}
+	}
+	if contract.FeedbackBullet("off") != "" {
+		t.Error("off must have no bullet")
+	}
+	if !strings.Contains(contract.FeedbackBullet("custom"), "operator's tracker") || strings.Contains(contract.FeedbackBullet("github"), "operator's tracker") {
+		t.Error("only the custom variant names the operator's tracker")
+	}
+	for _, ro := range []bool{false, true} {
+		on := contract.GuideOperational(ro, nil, "")
+		off := contract.GuideOperational(ro, nil, "off")
+		if !strings.Contains(on, "cartographer-feedback") || strings.Contains(off, "cartographer-feedback") {
+			t.Errorf("readOnly=%v: the guide must carry the offer by default and not with off", ro)
+		}
 	}
 }

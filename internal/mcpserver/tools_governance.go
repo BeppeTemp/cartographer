@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -710,7 +711,7 @@ func missingKeyHint(k *kb.KB) string {
 	return msg + "no key in credentials_dir holds it: add " + name + ".age with that identity, then restart the service to load it"
 }
 
-func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
+func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, fb func() feedback.Destination, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
 		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings, fixable, last_doctor, doctor_suggested} (doctor_suggested true: maintenance is due, see kb_review; skill cartographer-kb-doctor if the client has it), usage of skills and agents. How to work in this KB: kb_guide. Read-only.",
@@ -937,6 +938,16 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				if latest := latestVersion(); latest != "" {
 					result["latest_version"] = latest
 				}
+			}
+			// The operator's feedback destination (authenticated on purpose:
+			// a custom template is an internal URL, so /health never has it).
+			if fb != nil {
+				d := fb()
+				fj := map[string]interface{}{"destination": string(d.Mode())}
+				if t := d.Template(); t != "" {
+					fj["url_template"] = t
+				}
+				result["feedback"] = fj
 			}
 			return jsonResult(result), nil
 		},

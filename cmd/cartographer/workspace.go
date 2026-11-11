@@ -981,6 +981,7 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		// Set after verification, which copies only the signed catalogue.
 		verified.Placeholders = cs.placeholdersForProjection(cfg, p)
 		verified.PathRegistries = cs.pathRegistriesForProjection(cfg, p)
+		verified.FeedbackMode = cs.feedbackForProjection(cfg, p)
 		verified.KBIssues, verified.ReadKBs = cs.issuesForProjection(cfg, p)
 		out[projectionKey(p)] = verified
 	}

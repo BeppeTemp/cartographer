@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skill"
@@ -29,7 +30,7 @@ const procedurePreface = "This procedure was written for an agent that can also 
 	"A skill it names that is not in the \"Procedures\" list is not available; a `references/<file>` it cites is read with `kb_guide`, `procedure` and `file`. " +
 	"\"The operator\" is the person you are working with: put to them what it asks you to put to the operator.\n\n"
 
-func toolKBGuide(k *kb.KB, deps Deps) Tool {
+func toolKBGuide(k *kb.KB, deps Deps, fb func() feedback.Destination) Tool {
 	return Tool{
 		Name: "kb_guide",
 		Description: "The operating guide, the procedures and the KB's skills. " +
@@ -52,7 +53,7 @@ func toolKBGuide(k *kb.KB, deps Deps) Tool {
 				if params.File != "" {
 					return errorResult("file belongs to a procedure: pass procedure too (" + strings.Join(names, ", ") + ")"), nil
 				}
-				return textResult(renderKBGuide(ctx, k, deps.BundleFS)), nil
+				return textResult(renderKBGuide(ctx, k, deps.BundleFS, fb().Mode())), nil
 			}
 			if deps.BundleFS == nil {
 				return errorResult("no bundled procedures on this server"), nil
@@ -96,7 +97,7 @@ func referenceList(refs []string) string {
 
 // renderKBGuide is the guide of this one KB (D1097's renderer over its
 // gatherer), then the procedures and, for a whole-KB reader, the KB's skills.
-func renderKBGuide(ctx requestContext, k *kb.KB, bundle fs.FS) string {
+func renderKBGuide(ctx requestContext, k *kb.KB, bundle fs.FS, feedbackMode feedback.Mode) string {
 	name := kbName(k)
 	var sb strings.Builder
 	if g, ok := GuideKB(ctx, k, name); ok {
@@ -109,6 +110,7 @@ func renderKBGuide(ctx requestContext, k *kb.KB, bundle fs.FS) string {
 			Routed:     len(routedSetFrom(ctx)) >= 2,
 			ReadOnly:   !writesAnyKB(ctx, []string{name}),
 			Procedures: procedureLines(bundle),
+			Feedback:   string(feedbackMode),
 		}))
 	}
 	if WholeVisible(ctx, k, false) {
