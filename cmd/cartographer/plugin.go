@@ -25,6 +25,7 @@ const pluginSchema = "cartographer.plugin/v1"
 const pluginUsage = `Usage: cartographer plugin new <name> [<dir>]
        cartographer plugin validate <dir> [--output table|json]
        cartographer plugin install <git-url>[@<ref>] | <folder> [--yes]
+       cartographer plugin vendor <git-url>[@<ref>] | <folder> --to <dir> [--side client|surveyor|server|atlas]
        cartographer plugin list [--output table|json]
        cartographer plugin show <name> [--files] [--output table|json]
        cartographer plugin approve <name> [--yes] [--output table|json]
@@ -66,6 +67,8 @@ func cmdPlugin(args []string) int {
 		return pluginValidate(rest)
 	case "install":
 		return pluginInstall(rest)
+	case "vendor":
+		return pluginVendor(rest)
 	case "list":
 		return pluginList(rest)
 	case "show":

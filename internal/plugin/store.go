@@ -21,9 +21,12 @@ import (
 //	plugins/.tmp-<name>-<n>/   a write in progress
 //
 // A digest directory is immutable: its name is the digest of what it holds, and
-// Open recomputes it. Put and GC are writers and run under the client lock
-// (provisioning.LockClientState), held by the caller; Open takes no lock, so a
-// read racing a write sees either state or ErrNotFetched.
+// Open recomputes it. Put and GC are writers: on the user cache they run under
+// the client lock (provisioning.LockClientState), held by the caller; a vendored
+// store (plugin vendor) is written by one process, the temp-dir-and-rename write
+// being race safe. Open takes no lock, so a read racing a write sees either
+// state or ErrNotFetched. A ReadOnly store, which headless components open,
+// refuses both writers.
 var (
 	// ErrNotFetched: no tree is stored under that name and digest.
 	ErrNotFetched = errors.New("plugin: not fetched")
@@ -31,6 +34,8 @@ var (
 	ErrModified = errors.New("plugin: stored tree was modified")
 	// ErrInvalid: the stored tree has its digest but fails ReadTree.
 	ErrInvalid = errors.New("plugin: stored tree is invalid")
+	// ErrReadOnly: Put or GC on a read-only store.
+	ErrReadOnly = errors.New("plugin: the store is read-only")
 )
 
 var digestRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -41,7 +46,10 @@ const tmpPrefix = ".tmp-"
 const tmpMaxAge = time.Hour
 
 // Store is the plugin cache rooted at Root.
-type Store struct{ Root string }
+type Store struct {
+	Root     string
+	ReadOnly bool
+}
 
 // DefaultStore is <cache dir>/plugins, the cache dir being the update check's.
 func DefaultStore() (Store, error) {
@@ -78,6 +86,9 @@ func (s Store) dir(name, digest string) (string, error) {
 // exists. An existing digest directory that verifies is kept; one that does not
 // is a corrupt cache and is replaced. The caller holds the client lock.
 func (s Store) Put(name string, files []TreeFile, want string, opts Options) error {
+	if s.ReadOnly {
+		return ErrReadOnly
+	}
 	final, err := s.dir(name, want)
 	if err != nil {
 		return err
@@ -216,6 +227,9 @@ type Keep struct{ Installed, Approved string }
 // leaves alone a name that is not a valid plugin name. The caller holds the
 // client lock.
 func (s Store) GC(keep map[string]Keep) error {
+	if s.ReadOnly {
+		return ErrReadOnly
+	}
 	s.sweep()
 	entries, err := os.ReadDir(s.Root)
 	if err != nil {

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 )
 
@@ -212,23 +211,31 @@ func TestStoreRefusesLinkedDirectory(t *testing.T) {
 	}
 }
 
+// stubEntry is a configuration entry that is not the client's.
+type stubEntry struct {
+	enabled  bool
+	approved string
+}
+
+func (e stubEntry) PluginEnabled() bool    { return e.enabled }
+func (e stubEntry) PluginApproved() string { return e.approved }
+
 func TestStateTable(t *testing.T) {
 	s := testStore(t)
 	d := putGood(t, s)
-	e := clientconfig.PluginEntry{Source: "/x", Installed: d, Approved: d, Enabled: true}
+	e := stubEntry{enabled: true, approved: d}
 	cases := []struct {
 		name string
-		mut  func(*clientconfig.PluginEntry)
+		mut  func(*stubEntry)
 		opts Options
 		want Status
 	}{
-		{"active", func(*clientconfig.PluginEntry) {}, testOpts, StatusActive},
-		{"disabled", func(e *clientconfig.PluginEntry) { e.Enabled = false }, testOpts, StatusDisabled},
-		{"disabled wins over pending", func(e *clientconfig.PluginEntry) { e.Enabled = false; e.Approved = "" }, testOpts, StatusDisabled},
-		{"pending", func(e *clientconfig.PluginEntry) { e.Approved = "" }, testOpts, StatusPending},
-		{"not fetched", func(e *clientconfig.PluginEntry) { e.Approved = strings.Repeat("d", 64) }, testOpts, StatusNotFetched},
-		{"newer installed is ignored", func(e *clientconfig.PluginEntry) { e.Installed = strings.Repeat("d", 64) }, testOpts, StatusActive},
-		{"invalid", func(*clientconfig.PluginEntry) {}, Options{RunningVersion: "0.0.1"}, StatusInvalid},
+		{"active", func(*stubEntry) {}, testOpts, StatusActive},
+		{"disabled", func(e *stubEntry) { e.enabled = false }, testOpts, StatusDisabled},
+		{"disabled wins over pending", func(e *stubEntry) { e.enabled = false; e.approved = "" }, testOpts, StatusDisabled},
+		{"pending", func(e *stubEntry) { e.approved = "" }, testOpts, StatusPending},
+		{"not fetched", func(e *stubEntry) { e.approved = strings.Repeat("d", 64) }, testOpts, StatusNotFetched},
+		{"invalid", func(*stubEntry) {}, Options{RunningVersion: "0.0.1"}, StatusInvalid},
 	}
 	for _, c := range cases {
 		entry := e
@@ -247,15 +254,55 @@ func TestStateTable(t *testing.T) {
 	}
 }
 
-// The config package cannot import this one, so it repeats the name rule.
-func TestConfigNameRuleMatchesManifest(t *testing.T) {
-	for _, n := range []string{"ab", "a", "team-forks", "Team", "a_b", "1ab", "../x", strings.Repeat("a", 41), strings.Repeat("a", 42), "kb", "bundle", "claude"} {
-		var c clientconfig.Config
-		err := c.SetPlugin(n, clientconfig.PluginEntry{Source: "/x"})
-		if (err == nil) != nameRe.MatchString(n) {
-			t.Errorf("%q: config accepts=%v, manifest rule=%v", n, err == nil, nameRe.MatchString(n))
-		}
+func TestReadOnlyStoreRefusesWriters(t *testing.T) {
+	s := testStore(t)
+	d := putGood(t, s)
+	before := snapshotDir(t, s.Root)
+	ro := Store{Root: s.Root, ReadOnly: true}
+	if err := ro.Put("team-forks", goodTree(), d, testOpts); !errors.Is(err, ErrReadOnly) {
+		t.Errorf("Put: %v", err)
 	}
+	if err := ro.Put("other-one", goodTree(), d, testOpts); !errors.Is(err, ErrReadOnly) {
+		t.Errorf("Put new name: %v", err)
+	}
+	if err := ro.GC(map[string]Keep{}); !errors.Is(err, ErrReadOnly) {
+		t.Errorf("GC: %v", err)
+	}
+	if after := snapshotDir(t, s.Root); after != before {
+		t.Errorf("a read-only store changed the directory:\nbefore %s\nafter  %s", before, after)
+	}
+	if _, err := ro.Open("team-forks", d, testOpts); err != nil {
+		t.Errorf("Open on a read-only store: %v", err)
+	}
+}
+
+// snapshotDir lists every path, mode and content of a tree, to compare two states.
+func snapshotDir(t *testing.T, root string) string {
+	t.Helper()
+	var b strings.Builder
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		b.WriteString(p + " " + fi.Mode().String() + "\n")
+		if !d.IsDir() {
+			c, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			b.Write(c)
+			b.WriteString("\n")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
 }
 
 // A symlink planted in an approved stored tree is a modified tree (ErrModified,

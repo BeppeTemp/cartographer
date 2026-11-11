@@ -178,7 +178,8 @@ validated, manifest included. It is a cache: it can be deleted and fetched again
 - `Open(name, digest)` reads the tree back and compares the digest: `ErrNotFetched` (nothing there),
   `ErrModified` (the digest differs, or the directory holds a link or a special file), `ErrInvalid` (same digest,
   but `ReadTree` now refuses it, for example because the running version no longer satisfies `cartographer`).
-  Readers take no lock. `Put` and `GC` run under the client lock, held by the caller.
+  Readers take no lock. On the user cache `Put` and `GC` run under the client lock, held by the caller. A store
+  with `ReadOnly` set (what a headless component opens) refuses both with `ErrReadOnly`.
 - `GC` keeps the `installed` and `approved` digest of each configured plugin and removes the rest, and any plugin
   directory that is not configured. It is best effort and never removes the approved tree.
 - A name is checked again at every path join, so `../x` never reaches `filepath.Join`. A host without the POSIX
@@ -191,7 +192,9 @@ folder, `ref` as typed (empty is the default branch), `sha` the resolved commit 
 entry, an empty `source`, or an `approved` without an `installed` is a load error naming the key. The key is
 a row of the schema in `internal/clientconfig/schema.go`, so `cartographer config` and the settings report list it.
 
-`plugin.State(name, entry, store, opts)` is the one rule for whether a plugin runs:
+`plugin.State(name, entry, store, opts)` takes any `plugin.Entry` (`PluginEnabled()`, `PluginApproved()`): the
+client's `clientconfig.PluginEntry` and a headless component's `plugin.Pin` (`Enabled`, `Digest`) both implement it,
+and `internal/plugin` imports no component config. It is the one rule for whether a plugin runs:
 
 | Status | When |
 |---|---|
@@ -204,6 +207,15 @@ a row of the schema in `internal/clientconfig/schema.go`, so `cartographer confi
 
 A newer `installed` digest never affects it. Why: `D1727`.
 
+### Pinned stores
+
+`plugin.LoadPinned(storeDir, pins, side, opts)` is what a headless component (the server, the Surveyor) calls: it
+opens each enabled pin through a read-only store rooted at `storeDir`, runs `State` with the pin's digest as the
+approval, and returns the active plugins that have `side`, in name order. Every enabled pin that does not load is a
+`PinProblem` (`<name>: <status>`, `no <side> side`, or the side's unsupported reason) and the caller refuses to start;
+a malformed digest (not 64 lowercase hex) is refused before any disk access; a disabled pin is skipped. Why:
+`D1922`.
+
 ## The `plugin` command
 
 `cartographer plugin` is listed in `help` and documented in [configurator.md](configurator.md#cartographer-plugin-subcommand).
@@ -213,6 +225,7 @@ A newer `installed` digest never affects it. Why: `D1727`.
 | `plugin new <name> [<dir>]` | Scaffolds a plugin: manifest (schema 2, version 0.1.0, `cartographer: ">=<running>"`, never below 0.29.0, `components.client.sdk.artifacts: 1`), a README and one example skill. It checks the name with the manifest rules (and the names of the commands) and the scaffold with `ReadTree` before writing, and refuses a non-empty `<dir>` (default `./<name>`). A point other than `skills/` gets no folder: git does not keep an empty one, and a `.gitkeep` in a point is a file the reader refuses. |
 | `plugin validate <dir>` | Runs `ReadTree` on the folder as it is, offline, storing nothing, and lists **every** problem as `path: reason`. Exit 0 clean, 1 with problems, 2 on usage. Run it before pushing. |
 | `plugin install <git-url>[@<ref>] \| <folder> [--yes]` | Acquires, validates, stores and records the plugin as `installed`, then prints the preview and asks `Enable <name> <version>? [y/N]` on a terminal. `y` or `--yes` sets `approved` to `installed` and `enabled`. Before asking it prints the content of what runs (hook scripts, `hook.json`, frontmatter that declares commands). Otherwise it stays pending (exit 0, last line `pending approval: run cartographer plugin install <arg> again on a terminal, or with --yes`); a declined update keeps the approved version active. A name installed from another source is refused with exit 2 and nothing written; the same source is an update and keeps the approval. |
+| `plugin vendor <git-url>[@<ref>] \| <folder> --to <dir> [--side <side>]` | Fills a pinned store: fetches like `install`, validates every side (a tree with problems is refused, nothing is stored), stores it under `<dir>/<name>/<digest>/`, prints the preview of each side the tree has (`--side` limits it to one), the digest and, for each headless side, the `plugins_dir` and `plugins.<name>.digest` lines to put in that component's config. A client side gets a note instead: it is approved with `install`. It writes neither `.cartographer.yaml` nor any approval and takes no client lock. |
 | `plugin list` | One row per configured plugin: version, `State`, short digest, redacted source, contributions per point, `update available` when `installed` differs from a non-empty `approved`. |
 | `plugin show <name> [--files]` | The preview again, from the store: the approved tree when active, else the installed one, and it says which. `--files` adds every file with its size and execute bit, and the content of the files that run, capped per file. |
 | `plugin approve <name> [--yes]` | Approves the **installed** digest: reads that tree back from the store (a tree that is not stored, modified or invalid is refused with `run cartographer plugin update <name>` and nothing is approved), prints the preview and the content of what runs, asks `Enable <name> <version>? [y/N]`. Without a terminal it needs `--yes` (exit 2 otherwise). Sets `approved` to `installed` and `enabled`, then collects the store. Nothing waiting: says so, exit 0. |
