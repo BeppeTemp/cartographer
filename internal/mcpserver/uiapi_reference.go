@@ -450,34 +450,39 @@ func uiAudit(w http.ResponseWriter, r *http.Request, name string, srv *Server) {
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{"enabled": true, "state": l.State(), "entries": rows})
 }
 
+// uiRuleRow is one permission rule of the caller, narrowed to mounted KBs.
+type uiRuleRow struct {
+	KB       string   `json:"kb"`
+	Write    bool     `json:"write"`
+	Maps     []string `json:"maps,omitempty"`
+	Journals []string `json:"journals,omitempty"`
+	Types    []string `json:"types,omitempty"`
+	// Artifacts is "r" for a rule that withholds the artifact write tools.
+	Artifacts string `json:"artifacts,omitempty"`
+}
+
+// uiWhoamiBody is the body of GET /whoami (fields in key order, as the map was).
+type uiWhoamiBody struct {
+	Admin       bool        `json:"admin"`
+	ID          string      `json:"id"`
+	Permissions []uiRuleRow `json:"permissions"`
+}
+
 // GET /whoami — who is looking: the principal behind the request and its
 // scopes. It is the caller's own policy, so nothing in it is anyone else's;
 // the rules are narrowed to the KBs this server mounts.
 func (m *MultiKBServer) uiWhoami(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalFromContext(r.Context())
-	type ruleRow struct {
-		KB       string   `json:"kb"`
-		Write    bool     `json:"write"`
-		Maps     []string `json:"maps,omitempty"`
-		Journals []string `json:"journals,omitempty"`
-		Types    []string `json:"types,omitempty"`
-		// Artifacts is "r" for a rule that withholds the artifact write tools.
-		Artifacts string `json:"artifacts,omitempty"`
-	}
-	rules := []ruleRow{}
+	rules := []uiRuleRow{}
 	for _, rule := range p.Policy.Permissions {
 		if _, mounted := m.servers[rule.KB]; !mounted {
 			continue
 		}
-		row := ruleRow{KB: rule.KB, Write: rule.Write, Maps: rule.Maps, Journals: rule.Journals, Types: rule.Types}
+		row := uiRuleRow{KB: rule.KB, Write: rule.Write, Maps: rule.Maps, Journals: rule.Journals, Types: rule.Types}
 		if rule.ReadOnlyArtifacts {
 			row.Artifacts = "r"
 		}
 		rules = append(rules, row)
 	}
-	writeUIJSON(w, http.StatusOK, map[string]interface{}{
-		"id":          p.ID,
-		"admin":       p.Policy.Admin,
-		"permissions": rules,
-	})
+	writeUIJSON(w, http.StatusOK, uiWhoamiBody{Admin: p.Policy.Admin, ID: p.ID, Permissions: rules})
 }

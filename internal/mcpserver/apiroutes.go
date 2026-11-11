@@ -46,6 +46,14 @@ type apiRoute struct {
 	Tier    apiTier
 	Summary string
 	Handler apiHandler
+	// Query are the query parameters the OpenAPI document declares.
+	Query []apiParam
+	// Response is a value of the 200 body's Go type; nil is a free-form
+	// object, allowed for preview routes only (TestAPIRoutes_TableIsComplete).
+	Response any
+	// Errors are the statuses besides 401 (and 404 on a KB route) the route
+	// documents.
+	Errors []int
 
 	segments []string
 }
@@ -81,13 +89,24 @@ func kbRoute(fn func(w http.ResponseWriter, r *http.Request, srv *Server)) apiHa
 	}
 }
 
+// apiParam is a documented query parameter.
+type apiParam struct {
+	Name, Description, Type string
+	Required                bool
+}
+
+var (
+	errsBadRequest = []int{http.StatusBadRequest}
+	limitParam     = apiParam{Name: "limit", Description: "Maximum number of items", Type: "integer"}
+)
+
 // apiRoutes is the table. Tiers: stable = what an external dashboard is
 // promised; preview = readable by one but may change in a minor release;
 // internal = the Atlas's own (settings, secrets, artifacts, operator panels).
 var apiRoutes = buildAPIRoutes([]apiRoute{
-	{Pattern: "/kbs", Tier: tierStable, Summary: "List the KBs the caller can see",
+	{Pattern: "/kbs", Tier: tierStable, Summary: "List the KBs the caller can see", Response: uiKBList{},
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) { m.uiListKBs(w, r) }},
-	{Pattern: "/whoami", Tier: tierStable, Summary: "Describe the caller's identity and permissions",
+	{Pattern: "/whoami", Tier: tierStable, Summary: "Describe the caller's identity and permissions", Response: uiWhoamiBody{},
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) { m.uiWhoami(w, r) }},
 	{Pattern: "/settings", Tier: tierInternal, Summary: "Read the server settings the Atlas edits",
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
@@ -98,15 +117,19 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 			m.uiReleases(w, r)
 		}},
 
-	{Pattern: "/kbs/{kb}/overview", Tier: tierStable, Summary: "Counts and collections of a KB",
+	{Pattern: "/kbs/{kb}/overview", Tier: tierStable, Summary: "Counts and collections of a KB", Response: uiOverviewBody{},
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, srv *Server) {
 			m.uiOverview(w, r, srv)
 		}},
-	{Pattern: "/kbs/{kb}/concept", Tier: tierStable, Summary: "Read one concept",
+	{Pattern: "/kbs/{kb}/concept", Tier: tierStable, Summary: "Read one concept", Response: uiConceptBody{}, Errors: errsBadRequest,
+		Query:   []apiParam{{Name: "id", Description: "Concept id", Required: true}},
 		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiConcept(w, r, srv.kbRef, srv) })},
-	{Pattern: "/kbs/{kb}/search", Tier: tierStable, Summary: "Keyword search over a KB",
+	{Pattern: "/kbs/{kb}/search", Tier: tierStable, Summary: "Keyword search over a KB", Response: apiSearchResult{}, Errors: errsBadRequest,
+		Query: []apiParam{{Name: "q", Description: "Query", Required: true}, {Name: "scope", Description: "A map name or id prefix"},
+			limitParam, {Name: "include_archived", Description: "1 to include archived pages"}},
 		Handler: kbRoute(uiSearch)},
-	{Pattern: "/kbs/{kb}/changes", Tier: tierStable, Summary: "Changes since a point in time",
+	{Pattern: "/kbs/{kb}/changes", Tier: tierStable, Summary: "Changes since a point in time", Response: changesSinceResult{}, Errors: errsBadRequest,
+		Query:   []apiParam{{Name: "since", Description: "RFC 3339 time or <N>d/<N>h, default 7d"}, limitParam},
 		Handler: kbRoute(uiChanges)},
 
 	{Pattern: "/kbs/{kb}/graph", Tier: tierPreview, Summary: "The link graph",
@@ -192,7 +215,7 @@ func (m *MultiKBServer) serveAPI(w http.ResponseWriter, r *http.Request, prefix 
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeUIError(w, http.StatusMethodNotAllowed, uiCodeMethodNotAllow,
-			"the UI API is read-only: use GET or HEAD", "")
+			"this API is read-only: use GET or HEAD", "")
 		return
 	}
 

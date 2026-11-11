@@ -121,27 +121,33 @@ func uiArchiveKind(k *kb.KB, name string) string {
 	return kind
 }
 
+// uiKBRow is one KB of GET /kbs.
+type uiKBRow struct {
+	Name         string                  `json:"name"`
+	Status       string                  `json:"status"`
+	Ready        bool                    `json:"ready"`
+	Capabilities map[string]KBCapability `json:"capabilities,omitempty"`
+	// Artifacts says whether this principal may open the Artifacts
+	// panel: they are whole-KB resources (D238).
+	Artifacts bool `json:"artifacts"`
+	// Secrets says whether this principal may open the Secrets panel.
+	Secrets bool `json:"secrets"`
+}
+
+type uiKBList struct {
+	KBs []uiKBRow `json:"kbs"`
+}
+
 func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	_, infos, _ := m.readiness()
-	type kbRow struct {
-		Name         string                  `json:"name"`
-		Status       string                  `json:"status"`
-		Ready        bool                    `json:"ready"`
-		Capabilities map[string]KBCapability `json:"capabilities,omitempty"`
-		// Artifacts says whether this principal may open the Artifacts
-		// panel: they are whole-KB resources (D238).
-		Artifacts bool `json:"artifacts"`
-		// Secrets says whether this principal may open the Secrets panel.
-		Secrets bool `json:"secrets"`
-	}
-	rows := []kbRow{}
+	rows := []uiKBRow{}
 	for _, info := range infos {
 		srv, ok := m.servers[info.Name]
 		if !ok || srv.kbRef == nil || !uiKBVisible(ctx, srv.kbRef) {
 			continue
 		}
-		rows = append(rows, kbRow{
+		rows = append(rows, uiKBRow{
 			Name:         info.Name,
 			Status:       info.Status,
 			Ready:        info.Status == "normal",
@@ -151,7 +157,35 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-	writeUIJSON(w, http.StatusOK, map[string]interface{}{"kbs": rows})
+	writeUIJSON(w, http.StatusOK, uiKBList{KBs: rows})
+}
+
+type uiCollectionRow struct {
+	Name     string `json:"name"`
+	Title    string `json:"title,omitempty"`
+	Kind     string `json:"kind"`
+	Concepts int    `json:"concepts"`
+	Expanded int    `json:"expanded_concepts"`
+	// Archive marks a map that lists retired pages by design (D820).
+	Archive bool `json:"archive"`
+}
+
+type uiConceptCounts struct {
+	ByStatus map[string]int `json:"by_status"`
+	ByType   map[string]int `json:"by_type"`
+	Total    int            `json:"total"`
+}
+
+type uiLintCounts struct {
+	ByCheck map[string]int `json:"by_check"`
+	Total   int            `json:"total"`
+}
+
+// uiOverviewBody is the body of GET /kbs/{kb}/overview.
+type uiOverviewBody struct {
+	Collections []uiCollectionRow `json:"collections"`
+	Concepts    uiConceptCounts   `json:"concepts"`
+	Lint        uiLintCounts      `json:"lint"`
 }
 
 func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *Server) {
@@ -191,28 +225,19 @@ func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *
 		}
 	}
 
-	type collectionRow struct {
-		Name     string `json:"name"`
-		Title    string `json:"title,omitempty"`
-		Kind     string `json:"kind"`
-		Concepts int    `json:"concepts"`
-		Expanded int    `json:"expanded_concepts"`
-		// Archive marks a map that lists retired pages by design (D820).
-		Archive bool `json:"archive"`
-	}
 	archives, err := k.ListArchives()
 	if err != nil {
 		writeUIInternal(w, "overview: list archives", err)
 		return
 	}
-	collections := []collectionRow{}
+	collections := []uiCollectionRow{}
 	counts := archiveCounts(res.Entries)
 	for _, name := range archives {
 		kind := uiArchiveKind(k, name)
 		if !VisibleCollection(ctx, k, name, kind) {
 			continue
 		}
-		row := collectionRow{Name: name, Kind: kind, Archive: isArchiveCollection(k, name, counts[name])}
+		row := uiCollectionRow{Name: name, Kind: kind, Archive: isArchiveCollection(k, name, counts[name])}
 		if agg, ok := perCollection[name]; ok {
 			row.Concepts, row.Expanded = agg.Concepts, agg.Expanded
 		}
@@ -231,17 +256,10 @@ func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *
 	}
 	byCheck := lint.CountsByCheck(findings)
 
-	payload := map[string]interface{}{
-		"collections": collections,
-		"concepts": map[string]interface{}{
-			"total":     len(res.Entries),
-			"by_type":   byType,
-			"by_status": byStatus,
-		},
-		"lint": map[string]interface{}{
-			"total":    len(findings),
-			"by_check": byCheck,
-		},
+	payload := uiOverviewBody{
+		Collections: collections,
+		Concepts:    uiConceptCounts{Total: len(res.Entries), ByType: byType, ByStatus: byStatus},
+		Lint:        uiLintCounts{Total: len(findings), ByCheck: byCheck},
 	}
 	writeUIJSON(w, http.StatusOK, payload)
 }
@@ -333,22 +351,44 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB, srv *Server) {
 		supersededBy = next
 	}
 
-	writeUIJSON(w, http.StatusOK, map[string]interface{}{
-		"id":            id,
-		"title":         title,
-		"collection":    conceptCollection(id),
-		"frontmatter":   frontmatter,
-		"body":          data.Body,
-		"body_bytes":    len(data.Body),
-		"outline":       headingsToOutline(okf.ListHeadings(data.Body)),
-		"content_hash":  data.ContentHash,
-		"outbound":      outbound,
-		"inbound":       inbound,
-		"broken":        brokenOutbound,
-		"used_by":       artifactsReading(ctx, srv, id),
-		"supersedes":    supersedes,
-		"superseded_by": supersededBy,
+	outline := []uiOutlineRow{}
+	for _, h := range okf.ListHeadings(data.Body) {
+		outline = append(outline, uiOutlineRow{Level: h.Level, Title: h.Title, Bytes: h.Bytes})
+	}
+	writeUIJSON(w, http.StatusOK, uiConceptBody{
+		ID: id, Title: title, Collection: conceptCollection(id), Frontmatter: frontmatter,
+		Body: data.Body, BodyBytes: len(data.Body), Outline: outline, ContentHash: data.ContentHash,
+		Outbound: outbound, Inbound: inbound, Broken: brokenOutbound, UsedBy: artifactsReading(ctx, srv, id),
+		Supersedes: supersedes, SupersededBy: supersededBy,
 	})
+}
+
+// uiConceptBody is the body of GET /kbs/{kb}/concept. The fields are in
+// alphabetical order of their JSON keys: the body used to be a map, which
+// marshals sorted, and the wire bytes must not change.
+type uiConceptBody struct {
+	Body         string                 `json:"body"`
+	BodyBytes    int                    `json:"body_bytes"`
+	Broken       []string               `json:"broken"`
+	Collection   string                 `json:"collection"`
+	ContentHash  string                 `json:"content_hash"`
+	Frontmatter  map[string]interface{} `json:"frontmatter"`
+	ID           string                 `json:"id"`
+	Inbound      []string               `json:"inbound"`
+	Outbound     []string               `json:"outbound"`
+	Outline      []uiOutlineRow         `json:"outline"`
+	SupersededBy string                 `json:"superseded_by"`
+	Supersedes   []string               `json:"supersedes"`
+	Title        string                 `json:"title"`
+	// UsedBy is null for a principal that cannot see the whole KB.
+	UsedBy []uiArtifactRef `json:"used_by"`
+}
+
+// uiOutlineRow is one heading of a concept's outline.
+type uiOutlineRow struct {
+	Bytes int    `json:"bytes"`
+	Level int    `json:"level"`
+	Title string `json:"title"`
 }
 
 // uiVisibleNeighbors returns, from one direction of id's links, the
