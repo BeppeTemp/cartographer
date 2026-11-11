@@ -1,6 +1,12 @@
 package mcpserver
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+)
 
 // A route has one definition with a tier and a summary, and no two routes
 // share a pattern.
@@ -49,5 +55,37 @@ func TestAPIRoutes_Tiers(t *testing.T) {
 	}
 	for p := range want {
 		t.Errorf("%s: not in the table", p)
+	}
+}
+
+// Every per-KB path demo/export.mjs lists is a route of the table: a renamed
+// route breaks this test, not only the docs workflow that builds the demo.
+func TestAPIRoutes_DemoExportPathsExist(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile(filepath.Join("..", "..", "demo", "export.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := regexp.MustCompile(`for \(const p of \[([^\]]*)\]\)`).FindSubmatch(src)
+	if list == nil {
+		t.Fatal("demo/export.mjs: the per-KB path list (`for (const p of [...])`) is gone; update this test")
+	}
+	paths := regexp.MustCompile(`"([^"]+)"`).FindAllSubmatch(list[1], -1)
+	if len(paths) == 0 {
+		t.Fatal("demo/export.mjs: the per-KB path list is empty")
+	}
+	for _, m := range paths {
+		p, _, _ := strings.Cut(string(m[1]), "?")
+		segs := append([]string{"kbs", "kb-a"}, strings.Split(p, "/")...)
+		found := false
+		for _, rt := range apiRoutes {
+			if rt.match(segs) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("demo/export.mjs exports /kbs/{kb}/%s, which is not a UI API route", p)
+		}
 	}
 }
