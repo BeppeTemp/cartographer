@@ -159,7 +159,7 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		// The signoff's targeted retry of the Go tests a red run named (scripts/signoff.sh).
 		"test-rerun": true,
 		// The fast tier: what an implementer runs while iterating; make gate is CI's.
-		"check": true, "check-run": true,
+		"check": true, "check-run": true, "check-hosted": true,
 		// The lander queues and lands from a maintainer's machine (scripts/land.sh).
 		"ready": true, "land": true, "land-status": true,
 		// The docker job builds with buildx (layer cache in the GitHub cache) and
