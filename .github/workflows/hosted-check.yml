@@ -1,0 +1,61 @@
+name: hosted-check
+
+# The implementer's fast-tier check (`make check-run`) on a GitHub-hosted runner, for when
+# the build host's single slot is busy. Triggered only by scripts/hosted-check.sh, which
+# pushes the worktree state to a throwaway `check/<slug>-<sha12>` branch, dispatches this
+# workflow on it, waits, and deletes the branch (the token here is read-only, so the
+# script does it). The job holds no secret; nothing here is a required check or a gate:
+# the train gate, `make signoff` and CI's `gate` run as before. GitHub only accepts a
+# dispatch for a workflow file that exists on the default branch.
+on:
+  workflow_dispatch:
+    inputs:
+      pkgs:
+        description: 'Go packages to test (may be empty, fmt-check and vet still run)'
+        type: string
+        default: ''
+      e2e:
+        description: Also run the e2e scenarios
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check
+    # A dispatch on main by mistake does nothing.
+    if: startsWith(github.ref, 'refs/heads/check/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Same identity and initial branch as ci.yml: the git-backed Go tests need them.
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      - name: check-run
+        env:
+          PKGS: ${{ inputs.pkgs }}
+          E2E: ${{ inputs.e2e && '1' || '' }}
+        run: |
+          # Defence in depth: the script validates too.
+          # Whole-string match (no newline), and no word starting with "-" (a go test flag).
+          bad() { echo "hosted-check: bad package list" >&2; exit 2; }
+          [[ $PKGS =~ ^[A-Za-z0-9_./\ -]*$ ]] || bad
+          for w in $PKGS; do
+            if [[ $w == -* ]]; then bad; fi
+          done
+          make check-run CHECK_PKGS="$PKGS" ${E2E:+CHECK_E2E=1}

@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run ready land land-status test-rerun
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status test-rerun
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -265,6 +265,11 @@ check-run: fmt-check vet
 	@[ -z "$(CHECK_E2E)" ] || [ -z "$(strip $(CHECK_PKGS))" ] || \
 	  E2E_HTTP_PORT=$${E2E_HTTP_PORT:-$$((40000 + $$(printf %s "$(CURDIR)" | cksum | cut -d' ' -f1) % 10000))} ./test/e2e/run.sh
 	@echo "check: OK"
+
+# Opt-in: the same fast tier on a GitHub-hosted runner (scripts/hosted-check.sh), parallel
+# where the build host has one slot. Not a gate.
+check-hosted: ## Fast tier on a GitHub-hosted runner (opt-in, no build host): make check-hosted [E2E=1]
+	@$(MAKE) check CHECK_MAKE=./scripts/hosted-check.sh
 
 # A maintainer's replacement for `make gate` + `git push`: the gate (and the web
 # legs when the diff needs them), the push, and the `signoff` status that CI's
