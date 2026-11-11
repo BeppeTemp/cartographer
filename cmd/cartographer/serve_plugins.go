@@ -7,6 +7,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/plugin/star"
+	_ "github.com/BeppeTemp/cartographer/internal/pluginserver" // registers the roles/ and presets/ families
 )
 
 // loadServerPlugins opens the plugins pinned in the server config through the
@@ -35,14 +36,11 @@ func loadServerPlugins(cfg *config.Config) ([]*core.Plugin, error) {
 // logServerPlugins says one line per active plugin.
 func logServerPlugins(plugins []*core.Plugin) {
 	for _, p := range plugins {
-		n := 0
-		for _, c := range p.Contributions {
-			n += len(c)
-		}
+		roles, presets := len(p.Contributions["roles"]), len(p.Contributions["presets"])
 		d := p.Digest
 		if len(d) > 12 {
 			d = d[:12]
 		}
-		log.Printf("plugin %s %s %s: %d server contributions", p.Manifest.Name, p.Manifest.Version, d, n)
+		log.Printf("plugin %s %s %s: roles %d, presets %d", p.Manifest.Name, p.Manifest.Version, d, roles, presets)
 	}
 }

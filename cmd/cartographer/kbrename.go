@@ -312,6 +312,11 @@ func scopeRefs(cfg *config.Config, old string) []string {
 				refs = append(refs, fmt.Sprintf("role %q rule %d: kb: %s", role.Name, i, rule.KB))
 			}
 		}
+		for _, k := range role.KBs {
+			if k == old {
+				refs = append(refs, fmt.Sprintf("role %q kbs: %s", role.Name, k))
+			}
+		}
 	}
 	return refs
 }

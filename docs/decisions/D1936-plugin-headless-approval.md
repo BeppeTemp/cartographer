@@ -22,6 +22,6 @@ file: a second place to keep in step with the config. Reading the pins on every 
 under a running server without the restart the operator expects. The Surveyor loading plugins inside `LoadConfig`:
 it has no version of the binary, which the manifest floor needs; `Config.LoadPlugins` takes the options at start.
 
-**Consequences.** Nothing consumes the loaded plugins yet: the server logs one line per active plugin and the
-Surveyor prints one; the data families (roles, presets) and the Surveyor families come in later changes. The
+**Consequences.** The server reads the loaded plugins' roles and presets (`D1937`); the Surveyor
+prints one line per plugin and its families come in a later change. The
 `surveyor --recipe` dry run does not load plugins. The Surveyor report shows `plugins.<name>.digest` (not secret).

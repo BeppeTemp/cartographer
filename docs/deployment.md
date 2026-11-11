@@ -129,7 +129,9 @@ pinned plugin whose tree digest differs, that is missing or edited, that has no 
 cannot load stops the start with the plugin named; it is never loaded with a warning. A malformed digest, a relative
 `plugins_dir`, `plugins` without `plugins_dir` or an unknown key under an entry stops the load naming the key.
 `enabled: false` skips the pin: its tree is not read, but its name and digest are still validated. The keys are YAML only and need a restart (the auth reload does not re-read them); the
-server never writes into the store and never fetches. Why: `D1936`.
+server never writes into the store and never fetches. Why: `D1936`. A pinned plugin's server side is data: its roles are
+taken by an `auth.roles` entry with `from: <plugin>/<role>` and `kbs: [<kb>, ...]` instead of `rules` (see
+[transport-auth.md](transport-auth.md) §Roles from a plugin).
 
 Every command that edits Meridian YAML in place (`kb rename`, `kb unmount`, `kb clone --branch`, the git-identity and `kb_aliases` migrations) writes it through one function: the document is re-encoded with a two-space indent (a config indented differently is normalized to it; comments, key order and values are kept), and replaced atomically (a temporary file beside it, `fsync`, rename; a symlink is followed and the mode kept). A crash or a full disk leaves the old file, never a truncated one without its `auth.tokens`.
 

@@ -121,10 +121,13 @@ func cmdServe(args []string) int {
 		log.Fatal(err)
 	}
 	announceConfig(cfg, envFallback(*configFlag, "CARTOGRAPHER_CONFIG"))
-	// The pins are checked before anything is mounted or listened on; nothing
-	// consumes the plugins yet, so they are verified and reported.
+	// The pins are checked before anything is mounted or listened on. Their
+	// roles expand into auth.roles (the reload applies the same plugins).
 	serverPlugins, err := loadServerPlugins(cfg)
 	if err != nil {
+		log.Fatal(err)
+	}
+	if cfg.Auth, err = config.ExpandPluginRoles(cfg.Auth, serverPlugins, time.Now()); err != nil {
 		log.Fatal(err)
 	}
 	logServerPlugins(serverPlugins)
@@ -137,7 +140,7 @@ func cmdServe(args []string) int {
 			if err != nil {
 				return config.AuthConfig{}, err
 			}
-			return c.Auth, nil
+			return config.ExpandPluginRoles(c.Auth, serverPlugins, time.Time{})
 		},
 	})
 	return 0

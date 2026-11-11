@@ -183,6 +183,12 @@ const DefaultAuthReloadInterval = 30 * time.Second
 type RoleSpec struct {
 	Name  string     `yaml:"name"`
 	Rules []RuleSpec `yaml:"rules"`
+	// From takes the rules from a role of a pinned plugin ("<plugin>/<role>")
+	// instead of writing them: KBs names the KBs they apply to, one copy of
+	// each rule per KB. Exclusive with Rules. ExpandPluginRoles replaces both
+	// with the expanded Rules at start, so nothing past it sees From.
+	From string   `yaml:"from,omitempty"`
+	KBs  []string `yaml:"kbs,omitempty"`
 }
 
 // RuleSpec is one allow rule inside a role. Empty Maps, Journals and Types are
@@ -1033,6 +1039,12 @@ func ValidateAuthRoles(a AuthConfig) error {
 			return fmt.Errorf("duplicate role %q", role.Name)
 		}
 		seen[role.Name] = true
+		if err := validatePluginRole(role); err != nil {
+			return err
+		}
+		if role.From != "" {
+			continue // its rules come from the plugin; ExpandPluginRoles then validates them
+		}
 		if len(role.Rules) == 0 {
 			return fmt.Errorf("role %q has no rules", role.Name)
 		}

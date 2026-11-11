@@ -420,6 +420,25 @@ access other than `r`/`rw`, an empty or traversal selector, or a selector
 declared both as a map and a journal. No diagnostic ever contains a token
 value.
 
+### Roles from a plugin
+
+A role can take its rules from a plugin pinned in `plugins` (`docs/plugins.md` §Server data) instead of writing them:
+
+```yaml
+auth:
+  roles:
+    - name: runbook-editor
+      from: team-data/runbook-editor
+      kbs: [homelab, reference]
+```
+
+`from` is `<plugin>/<role>` and is exclusive with `rules`; `kbs` is required and names the KBs the template applies to
+(a plugin cannot know them): the role becomes one copy of each template rule per KB, then goes through the validation
+above like a role written by hand. Tokens reference `runbook-editor`, the operator's name. The plugin only supplies the
+template: a token has the permissions only if its `roles` names this entry, an unknown or unpinned plugin, a missing role
+or a `from` role named like another role is a start error, and a reload re-applies the plugins loaded at start (a pin
+change needs a restart). `kb rename` reports the old name in `kbs` like one in a rule.
+
 ### Token kinds and expiry
 
 A token has an optional `kind` (`human`, the default, `client` or `surveyor`) and

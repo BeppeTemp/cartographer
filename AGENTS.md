@@ -91,6 +91,7 @@ internal/openapi                builds an OpenAPI document from Go types
 internal/plugin                 is the client side of a Cartographer plugin
 internal/plugin/core            is the half of the plugin system the server and the Surveyor link
 internal/plugin/star            runs the Starlark script of a plugin
+internal/pluginserver           loads the data families of a plugin's server side
 internal/procattr               sets the process attributes every child of Cartographer shares
 internal/provisioning           manages the synchronization of artifacts (skill, agent, hook — D48
 internal/provisioning/contract  is the wire contract of provisioning
