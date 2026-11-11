@@ -1,4 +1,4 @@
-package plugin
+package core
 
 import (
 	"fmt"
@@ -295,4 +295,18 @@ func (r ResolvedProvider) Registration(origin string, active bool) configurator.
 		Binaries: r.Binaries, DetectDirs: r.DetectDirs,
 		MCPMode: r.MCPMode, MCPConfig: r.MCPConfig, MCPStale: r.MCPStale,
 	}
+}
+
+// Providers returns the providers of p resolved for env, in name order, with the
+// reasons paths were left out kept in each one's LeftOut.
+func (p Plugin) Providers(env ProviderEnv) []ResolvedProvider {
+	var out []ResolvedProvider
+	for _, c := range p.Contributions["providers"] {
+		if c.Provider == nil {
+			continue
+		}
+		r, _ := ResolveProvider(*c.Provider, env) // the reasons stay in r.LeftOut
+		out = append(out, r)
+	}
+	return out
 }

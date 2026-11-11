@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -100,7 +100,7 @@ func TestSnapshotPluginsInvalidAndStoreUnavailable(t *testing.T) {
 		t.Errorf("state %q, want invalid", got)
 	}
 	version = old
-	pluginStoreFn = func() (plugin.Store, error) { return plugin.Store{}, os.ErrPermission }
+	pluginStoreFn = func() (core.Store, error) { return core.Store{}, os.ErrPermission }
 	if got := stateOf(t, cfg, "plug-new").State; got != "store unavailable" {
 		t.Errorf("state %q, want store unavailable", got)
 	}
@@ -339,7 +339,7 @@ func TestDoctorStoreUnavailableIsOneFinding(t *testing.T) {
 	home := pluginFixture(t)
 	installPlugin(t, writePlugin(t, "plug-x", nil), true)
 	cfg := mustCfg(t, home)
-	pluginStoreFn = func() (plugin.Store, error) { return plugin.Store{}, os.ErrPermission }
+	pluginStoreFn = func() (core.Store, error) { return core.Store{}, os.ErrPermission }
 	var stores int
 	for _, f := range checkPlugins(cfg, "", nil) {
 		if f.Check == "plugin-store" {

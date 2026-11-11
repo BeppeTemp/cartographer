@@ -9,18 +9,19 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func init() {
-	Register(Point{Dir: "skills", Side: SideClient, Load: loadSkills, Preview: previewArtifact})
-	Register(Point{Dir: "agents", Side: SideClient, Load: loadAgents, Preview: previewArtifact})
-	Register(Point{Dir: "hooks", Side: SideClient, Load: loadHooks, Preview: previewArtifact, Executable: true})
-	Register(Point{Dir: "providers", Side: SideClient, Load: loadProviders, Preview: previewProvider})
+	core.Register(core.Point{Dir: "skills", Side: core.SideClient, Load: loadSkills, Preview: previewArtifact})
+	core.Register(core.Point{Dir: "agents", Side: core.SideClient, Load: loadAgents, Preview: previewArtifact})
+	core.Register(core.Point{Dir: "hooks", Side: core.SideClient, Load: loadHooks, Preview: previewArtifact, Executable: true})
+	core.Register(core.Point{Dir: "providers", Side: core.SideClient, Load: loadProviders, Preview: previewProvider})
 }
 
-func previewArtifact(w io.Writer, c Contribution) {
+func previewArtifact(w io.Writer, c core.Contribution) {
 	fmt.Fprintf(w, "%s %q (%d files)\n", c.Kind, c.Name, len(c.Files))
 	if c.Description != "" {
 		fmt.Fprintf(w, "  description: %s\n", esc(c.Description))
@@ -39,7 +40,7 @@ func previewArtifact(w io.Writer, c Contribution) {
 // group splits the files of a point into per-entry groups: skills/<name>/...
 // (dirs true) or agents/<name>.md (dirs false). Paths in a group are relative to
 // the entry.
-func group(dir string, files []TreeFile, dirs bool) (map[string][]contract.ArtifactFile, []string) {
+func group(dir string, files []core.TreeFile, dirs bool) (map[string][]contract.ArtifactFile, []string) {
 	out := map[string][]contract.ArtifactFile{}
 	var problems []string
 	for _, f := range files {
@@ -62,14 +63,14 @@ func group(dir string, files []TreeFile, dirs bool) (map[string][]contract.Artif
 }
 
 // load runs check on every entry of a point, in name order.
-func load(dir, kind string, files []TreeFile, dirs bool, check func(name string, fs []contract.ArtifactFile) (exec []string, problems []string)) ([]Contribution, []string) {
+func load(dir, kind string, files []core.TreeFile, dirs bool, check func(name string, fs []contract.ArtifactFile) (exec []string, problems []string)) ([]core.Contribution, []string) {
 	groups, problems := group(dir, files, dirs)
 	names := make([]string, 0, len(groups))
 	for n := range groups {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	var out []Contribution
+	var out []core.Contribution
 	for _, name := range names {
 		fs := groups[name]
 		sort.Slice(fs, func(i, j int) bool { return fs[i].Path < fs[j].Path })
@@ -100,7 +101,7 @@ func load(dir, kind string, files []TreeFile, dirs bool, check func(name string,
 			problems = append(problems, where+": "+p)
 		}
 		if len(probs) == 0 {
-			c := Contribution{Point: dir, Kind: kind, Name: name, Files: fs, Executable: exec}
+			c := core.Contribution{Point: dir, Kind: kind, Name: name, Files: fs, Executable: exec}
 			if data, ok := find(fs, "SKILL.md"); ok && kind == "skill" {
 				c.Description = descriptionOf(data)
 			} else if kind == "agent" {
@@ -127,7 +128,7 @@ func find(fs []contract.ArtifactFile, p string) ([]byte, bool) {
 	return nil, false
 }
 
-func loadSkills(files []TreeFile) ([]Contribution, []string) {
+func loadSkills(files []core.TreeFile) ([]core.Contribution, []string) {
 	return load("skills", "skill", files, true, func(name string, fs []contract.ArtifactFile) ([]string, []string) {
 		data, ok := find(fs, "SKILL.md")
 		if !ok {
@@ -140,7 +141,7 @@ func loadSkills(files []TreeFile) ([]Contribution, []string) {
 	})
 }
 
-func loadAgents(files []TreeFile) ([]Contribution, []string) {
+func loadAgents(files []core.TreeFile) ([]core.Contribution, []string) {
 	return load("agents", "agent", files, false, func(name string, fs []contract.ArtifactFile) ([]string, []string) {
 		if err := contract.ValidateAgentFile(name, fs[0].Content); err != nil {
 			return nil, []string{err.Error()}
@@ -149,7 +150,7 @@ func loadAgents(files []TreeFile) ([]Contribution, []string) {
 	})
 }
 
-func loadHooks(files []TreeFile) ([]Contribution, []string) {
+func loadHooks(files []core.TreeFile) ([]core.Contribution, []string) {
 	return load("hooks", "hook", files, true, func(name string, fs []contract.ArtifactFile) ([]string, []string) {
 		if strings.EqualFold(name, contract.BootstrapHookName) || strings.EqualFold(name, contract.WriteFindingsHookName) {
 			return nil, []string{"the name is reserved"}

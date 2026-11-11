@@ -4,21 +4,23 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 func TestDiffReportsPermissionsFilesAndRanges(t *testing.T) {
-	old, probs := ReadTree(goodTree(), testOpts)
+	old, probs := core.ReadTree(goodTree(), testOpts)
 	if len(probs) != 0 {
 		t.Fatal(probs)
 	}
 	next := old
 	next.Manifest.Cartographer = ">=0.30.0"
-	next.Manifest.Permissions = &Permissions{Net: []string{"evil.example.com"}}
+	next.Manifest.Permissions = &core.Permissions{Net: []string{"evil.example.com"}}
 	next.Manifest.Depends = map[string]string{"other-plugin": ">=1.0.0"}
-	next.Files = append([]TreeFile{}, old.Files...)
+	next.Files = append([]core.TreeFile{}, old.Files...)
 	next.Files[0].Content = append([]byte("x"), next.Files[0].Content...)
-	next.Files = append(next.Files, TreeFile{Path: "skills/new/SKILL.md", Content: []byte("abc")})
-	d := Diff(old, next, ProviderEnv{GOOS: "linux", Home: "/home/user", Getenv: func(string) string { return "" }})
+	next.Files = append(next.Files, core.TreeFile{Path: "skills/new/SKILL.md", Content: []byte("abc")})
+	d := Diff(old, next, core.ProviderEnv{GOOS: "linux", Home: "/home/user", Getenv: func(string) string { return "" }})
 	var buf bytes.Buffer
 	DiffPrint(&buf, "p\x1b", d)
 	out := buf.String()
@@ -30,21 +32,21 @@ func TestDiffReportsPermissionsFilesAndRanges(t *testing.T) {
 	if strings.ContainsRune(out, 0x1b) {
 		t.Errorf("raw control character in the diff:\n%q", out)
 	}
-	if !Diff(old, old, ProviderEnv{}).Empty() {
+	if !Diff(old, old, core.ProviderEnv{}).Empty() {
 		t.Error("identical trees must give an empty delta")
 	}
 }
 
 func TestDiffPrintShowsDigestsWhenVersionsEqual(t *testing.T) {
-	old, probs := ReadTree(goodTree(), testOpts)
+	old, probs := core.ReadTree(goodTree(), testOpts)
 	if len(probs) != 0 {
 		t.Fatal(probs)
 	}
 	next := old
 	next.Digest = strings.Repeat("a", 64)
-	next.Files = append([]TreeFile{}, old.Files...)
+	next.Files = append([]core.TreeFile{}, old.Files...)
 	next.Files[0].Content = append([]byte("x"), next.Files[0].Content...)
-	d := Diff(old, next, ProviderEnv{})
+	d := Diff(old, next, core.ProviderEnv{})
 	if d.OldDigest != old.Digest || d.NewDigest != next.Digest {
 		t.Fatalf("digests not carried: %+v", d)
 	}
@@ -57,7 +59,7 @@ func TestDiffPrintShowsDigestsWhenVersionsEqual(t *testing.T) {
 
 	next.Manifest.Version = "9.9.9"
 	buf.Reset()
-	DiffPrint(&buf, "p", Diff(old, next, ProviderEnv{}))
+	DiffPrint(&buf, "p", Diff(old, next, core.ProviderEnv{}))
 	if !strings.Contains(buf.String(), "approved "+old.Manifest.Version+" -> new 9.9.9:") {
 		t.Errorf("different versions must print versions only:\n%s", buf.String())
 	}

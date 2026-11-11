@@ -3,6 +3,7 @@ package plugin
 import (
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -13,14 +14,14 @@ import (
 // file is a cell only when it is the provider's own literal file: the base's
 // file is the base's, and a pattern is written by the registry's own expansion
 // (configurator.Apply), never as a destination of the KB's MCP descriptors.
-func ProviderCells(r ResolvedProvider, active bool) provisioning.PluginCells {
-	conv := func(c *ProviderCell) *provisioning.PluginCell {
+func ProviderCells(r core.ResolvedProvider, active bool) provisioning.PluginCells {
+	conv := func(c *core.ProviderCell) *provisioning.PluginCell {
 		if c == nil {
 			return nil
 		}
 		return &provisioning.PluginCell{Dir: c.Dir, File: c.File, AgentFormat: c.AgentFormat}
 	}
-	scope := func(s ProviderScope) provisioning.PluginScopeCells {
+	scope := func(s core.ProviderScope) provisioning.PluginScopeCells {
 		return provisioning.PluginScopeCells{Skill: conv(s.Skill), Agent: conv(s.Agent), Instructions: conv(s.Instructions), Hook: conv(s.Hook)}
 	}
 	out := provisioning.PluginCells{

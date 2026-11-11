@@ -9,6 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // pluginVendor fills a pinned store: the directory a headless component (the
@@ -40,7 +41,7 @@ func pluginVendor(args []string) int {
 	if !ok || len(pos) != 1 || to == "" {
 		return pluginFail(2, "%s", pluginUsage)
 	}
-	if only != "" && !slices.Contains(plugin.Sides(), plugin.Side(only)) {
+	if only != "" && !slices.Contains(core.Sides(), core.Side(only)) {
 		return pluginFail(2, "--side %q is not one of client, surveyor, server, atlas", only)
 	}
 	dir, err := filepath.Abs(to)
@@ -69,13 +70,13 @@ func pluginVendor(args []string) int {
 	}
 	sides := p.Sides
 	if only != "" {
-		if !slices.Contains(sides, plugin.Side(only)) {
+		if !slices.Contains(sides, core.Side(only)) {
 			return pluginFail(1, "plugin %s has no %s side", escapeControl(p.Manifest.Name), only)
 		}
-		sides = []plugin.Side{plugin.Side(only)}
+		sides = []core.Side{core.Side(only)}
 	}
 	// One process writes a vendored store; the temp-dir-and-rename write is race safe.
-	if err := (plugin.Store{Root: filepath.Join(dir)}).Put(p.Manifest.Name, files, p.Digest, opts); err != nil {
+	if err := (core.Store{Root: filepath.Join(dir)}).Put(p.Manifest.Name, files, p.Digest, opts); err != nil {
 		return pluginFail(1, "%v", err)
 	}
 	name := p.Manifest.Name
@@ -90,13 +91,13 @@ func pluginVendor(args []string) int {
 	fmt.Printf("Stored %s in %s\ndigest %s\n", escapeControl(name), escapeControl(dir), p.Digest)
 	for _, s := range sides {
 		switch {
-		case s == plugin.SideClient:
+		case s == core.SideClient:
 			fmt.Println("client side: approve it with `cartographer plugin install`, a pin does not apply to it")
 			continue
 		case p.Unsupported[s] != "":
 			fmt.Printf("\n%s side: not pinnable, this build cannot load it: %s\n", s, escapeControl(p.Unsupported[s]))
 			continue
-		case s == plugin.SideAtlas:
+		case s == core.SideAtlas:
 			fmt.Println("\natlas side: no component config reads a pin yet, nothing to pin")
 			continue
 		}

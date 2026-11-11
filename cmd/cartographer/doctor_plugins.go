@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
@@ -62,7 +62,7 @@ func checkPlugins(cfg *clientconfig.Config, only string, lock *provisioning.Lock
 // checkOnePlugin judges the approved tree of an enabled plugin and the installed
 // one of any plugin. A disabled plugin is a state, not a finding, and its approved
 // tree is not read.
-func checkOnePlugin(name string, e clientconfig.PluginEntry, store plugin.Store, storeErr error) []doctorFinding {
+func checkOnePlugin(name string, e clientconfig.PluginEntry, store core.Store, storeErr error) []doctorFinding {
 	var out []doctorFinding
 	n := escapeControl(name)
 	update := "cartographer plugin update " + n
@@ -70,11 +70,11 @@ func checkOnePlugin(name string, e clientconfig.PluginEntry, store plugin.Store,
 		_, err := store.Open(name, e.Approved, pluginOpts())
 		switch {
 		case err == nil:
-		case errors.Is(err, plugin.ErrNotFetched):
+		case errors.Is(err, core.ErrNotFetched):
 			out = append(out, doctorFinding{Check: "plugin-store", Severity: doctorWarning,
 				Message: fmt.Sprintf("plugin %s is approved but its tree is not in the store: nothing is installed from it and what it installed stays", n),
 				Fix:     update})
-		case errors.Is(err, plugin.ErrInvalid):
+		case errors.Is(err, core.ErrInvalid):
 			out = append(out, doctorFinding{Check: "plugin-invalid", Severity: doctorError,
 				Message: fmt.Sprintf("plugin %s: the approved tree is not valid: %s", n, escapeControl(err.Error())),
 				Fix:     update})
@@ -86,7 +86,7 @@ func checkOnePlugin(name string, e clientconfig.PluginEntry, store plugin.Store,
 	}
 	if e.Installed != "" && e.Installed != e.Approved && storeErr == nil {
 		// A pending or newer tree that does not validate cannot be approved.
-		if _, err := store.Open(name, e.Installed, pluginOpts()); errors.Is(err, plugin.ErrInvalid) {
+		if _, err := store.Open(name, e.Installed, pluginOpts()); errors.Is(err, core.ErrInvalid) {
 			out = append(out, doctorFinding{Check: "plugin-invalid", Severity: doctorWarning,
 				Message: fmt.Sprintf("plugin %s: the installed version cannot be approved: %s", n, escapeControl(err.Error())),
 				Fix:     update})

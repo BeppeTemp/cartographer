@@ -9,12 +9,13 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/repodocs"
 )
 
 // examplePlugin reads test/e2e/fixtures/plugin-example, the plugin the docs
 // tutorial and the e2e scenario 28 are built on.
-func examplePlugin(t *testing.T) (plugin.Plugin, *Program) {
+func examplePlugin(t *testing.T) (core.Plugin, *Program) {
 	t.Helper()
 	root, err := repodocs.Root()
 	if err != nil {
@@ -28,7 +29,7 @@ func examplePlugin(t *testing.T) (plugin.Plugin, *Program) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, problems := plugin.ReadTree(files, plugin.Options{})
+	p, problems := core.ReadTree(files, core.Options{})
 	if len(problems) != 0 {
 		t.Fatalf("the example plugin does not validate: %v", problems)
 	}

@@ -14,18 +14,18 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/plugin/star"
 )
 
 // scripted is an active plugin that carries a script: what a command, an event
-// or a tool runs. Only plugin.State yields one (enabled, approved at the
+// or a tool runs. Only core.State yields one (enabled, approved at the
 // installed digest, the stored tree intact), so an unapproved or stale tree
 // never runs.
 type scripted struct {
 	name  string
 	entry clientconfig.PluginEntry
-	p     plugin.Plugin
+	p     core.Plugin
 	prog  *star.Program
 }
 
@@ -48,7 +48,7 @@ func scriptedPlugins(cfg *clientconfig.Config, warn io.Writer) []scripted {
 	var out []scripted
 	for _, n := range names {
 		e := cfg.Plugins[n]
-		_, p := plugin.State(n, e, store, pluginOpts())
+		_, p := core.State(n, e, store, pluginOpts())
 		if p == nil {
 			continue
 		}
@@ -164,10 +164,10 @@ func runPluginCommand(name string, args []string) (code int, handled bool) {
 	if err != nil {
 		return pluginFail(1, "%s", escapeText(err.Error())), true
 	}
-	st, p := plugin.State(name, e, store, pluginOpts())
+	st, p := core.State(name, e, store, pluginOpts())
 	if p == nil {
 		why := "not approved"
-		if st != plugin.StatusPending {
+		if st != core.StatusPending {
 			why = string(st)
 		}
 		return pluginFail(2, "plugin %s is installed but %s: run \"cartographer plugin show %s\"", escapeControl(name), why, escapeControl(name)), true

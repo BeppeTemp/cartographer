@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
@@ -98,23 +99,23 @@ func remoteLike(r string) bool {
 // Fetch brings the files of the source into memory; nothing is stored. tmpParent
 // holds the throwaway repository of a git fetch. A git source also returns the
 // resolved 40-hex commit; a folder is a snapshot and returns "".
-func Fetch(ctx context.Context, s Source, tmpParent string) ([]TreeFile, string, error) {
+func Fetch(ctx context.Context, s Source, tmpParent string) ([]core.TreeFile, string, error) {
 	if !s.Git {
-		files, err := readFolder(s.Path)
+		files, err := core.ReadFolder(s.Path)
 		return files, "", err
 	}
 	entries, sha, err := gitx.FetchTree(ctx, s.Remote, s.Ref, tmpParent, gitx.TreeLimits{
-		MaxEntries:  MaxFiles,
+		MaxEntries:  core.MaxFiles,
 		MaxFileSize: contract.ArtifactMaxFileSize,
-		MaxTotal:    MaxBytes,
-		Skip:        func(p string) bool { first, _, _ := strings.Cut(p, "/"); return ignored(first) },
+		MaxTotal:    core.MaxBytes,
+		Skip:        func(p string) bool { first, _, _ := strings.Cut(p, "/"); return core.Ignored(first) },
 	})
 	if err != nil {
 		return nil, "", err
 	}
-	files := make([]TreeFile, len(entries))
+	files := make([]core.TreeFile, len(entries))
 	for i, e := range entries {
-		files[i] = TreeFile{Path: e.Path, Content: e.Content, Executable: e.Executable}
+		files[i] = core.TreeFile{Path: e.Path, Content: e.Content, Executable: e.Executable}
 	}
 	return files, sha, nil
 }

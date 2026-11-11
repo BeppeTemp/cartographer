@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // netCall runs body as a tool with the given permissions and returns its result.
-func netCall(t *testing.T, perms *plugin.Permissions, seams *netSeams, body string) (Result, error) {
+func netCall(t *testing.T, perms *core.Permissions, seams *netSeams, body string) (Result, error) {
 	t.Helper()
 	src := "def go(a):\n    " + strings.ReplaceAll(strings.TrimSpace(body), "\n", "\n    ") + "\ntool(\"go\", go, \"go\")\n"
 	r := toolReq("go", `{}`)
@@ -28,7 +28,7 @@ func netCall(t *testing.T, perms *plugin.Permissions, seams *netSeams, body stri
 	return mustLoad(t, src).call(context.Background(), r, callOpts{net: seams})
 }
 
-func netPerms(hosts ...string) *plugin.Permissions { return &plugin.Permissions{Net: hosts} }
+func netPerms(hosts ...string) *core.Permissions { return &core.Permissions{Net: hosts} }
 
 func decode(t *testing.T, res Result) map[string]any {
 	t.Helper()
@@ -80,7 +80,7 @@ func TestForbiddenAddr(t *testing.T) {
 }
 
 func TestNetAbsentWithoutPermission(t *testing.T) {
-	for _, perms := range []*plugin.Permissions{nil, {}, {KB: "read"}} {
+	for _, perms := range []*core.Permissions{nil, {}, {KB: "read"}} {
 		_, err := netCall(t, perms, nil, `return http.request("GET", "https://example.com/")`)
 		if ce := callErr(t, err, Denied); !strings.Contains(ce.Msg, "permissions.net") {
 			t.Errorf("message %q", ce.Msg)
@@ -99,7 +99,7 @@ func TestEnvGet(t *testing.T) {
 	run := func(body string) (Result, error) {
 		p := mustLoad(t, "def go(a):\n    "+body+"\ntool(\"go\", go, \"go\")\n")
 		r := toolReq("go", `{}`)
-		r.Permissions = &plugin.Permissions{Env: []string{"TOKEN", "UNSET_ONE"}}
+		r.Permissions = &core.Permissions{Env: []string{"TOKEN", "UNSET_ONE"}}
 		r.Host = Host{LookupEnv: look}
 		return p.Call(context.Background(), r)
 	}
@@ -169,7 +169,7 @@ func TestHTTPSchemeAndHostRules(t *testing.T) {
 		t.Errorf("loopback http: %q %v", res.Text, err)
 	}
 	for name, c := range map[string]struct {
-		perms *plugin.Permissions
+		perms *core.Permissions
 		url   string
 	}{
 		"http elsewhere":       {netPerms("example.com"), "http://example.com/"},
@@ -225,7 +225,7 @@ func TestHTTPRedirects(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	get := func(perms *plugin.Permissions, path string) (Result, error) {
+	get := func(perms *core.Permissions, path string) (Result, error) {
 		return netCall(t, perms, nil, fmt.Sprintf(`return http.request("GET", %q, headers={"Authorization": "Bearer t"})["body"]`, srv.URL+path))
 	}
 	// Inside the list: followed, and the credential does not follow to another host.

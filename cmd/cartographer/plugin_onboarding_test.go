@@ -11,7 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 func prep(t *testing.T, o pluginPrep) (code int, out, errOut string) {
@@ -247,7 +247,7 @@ func TestWarnPluginEscapesTheErrorItQuotes(t *testing.T) {
 func TestPreparePluginsEscapesWhatAFailureQuotes(t *testing.T) {
 	pluginFixture(t)
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, plugin.ManifestFile), []byte("schema: 1\nname: x\n\x1b[31mred"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, core.ManifestFile), []byte("schema: 1\nname: x\n\x1b[31mred"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errOut := prep(t, pluginPrep{Sources: []string{dir}})

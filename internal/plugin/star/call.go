@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/google/jsonschema-go/jsonschema"
 	"go.starlark.net/starlark"
 )
@@ -105,10 +105,10 @@ type Request struct {
 	KBReadOnly bool
 
 	// Permissions are the manifest's, nil for none.
-	Permissions *plugin.Permissions
+	Permissions *core.Permissions
 	// Declared are the manifest's settings and Values the user's; Call types
 	// them, applies the defaults and hands the script `settings`.
-	Declared map[string]plugin.Setting
+	Declared map[string]core.Setting
 	Values   map[string]any
 
 	Host Host

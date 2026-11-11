@@ -6,6 +6,8 @@ import (
 	"io"
 	"maps"
 	"slices"
+
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // FileChange is one file that differs between two trees.
@@ -46,11 +48,11 @@ func (d Delta) Empty() bool {
 
 // Diff compares an approved tree with a newer one, resolving provider
 // destinations against env (the machine's home).
-func Diff(old, next Plugin, env ProviderEnv) Delta {
+func Diff(old, next core.Plugin, env core.ProviderEnv) Delta {
 	d := Delta{OldVersion: old.Manifest.Version, NewVersion: next.Manifest.Version,
 		OldDigest: old.Digest, NewDigest: next.Digest,
 		CartographerFrom: old.Manifest.Cartographer, CartographerTo: next.Manifest.Cartographer}
-	oldFiles := map[string]TreeFile{}
+	oldFiles := map[string]core.TreeFile{}
 	for _, f := range old.Files {
 		oldFiles[f.Path] = f
 	}
@@ -86,7 +88,7 @@ func dependLines(m map[string]string) []string {
 }
 
 // permissionLines flattens a permissions block into comparable lines.
-func permissionLines(p *Permissions) []string {
+func permissionLines(p *core.Permissions) []string {
 	if p == nil {
 		return nil
 	}
@@ -112,7 +114,7 @@ func permissionLines(p *Permissions) []string {
 }
 
 // providerPaths is every destination line of every provider of p on env's machine.
-func providerPaths(p Plugin, env ProviderEnv) []string {
+func providerPaths(p core.Plugin, env core.ProviderEnv) []string {
 	var out []string
 	for _, r := range p.Providers(env) {
 		for _, l := range r.Paths(env.Home) {

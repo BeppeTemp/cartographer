@@ -6,22 +6,24 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // The surveyor family of these tests exists only in the test binary: this build
 // has no surveyor point yet, and a side must be loadable on its own.
 func init() {
-	RegisterFamily(Family{Side: SideSurveyor, Name: "reports", Level: 1, Dirs: []string{"reports"}})
-	Register(Point{
-		Dir: "reports", Side: SideSurveyor,
-		Load: func(files []TreeFile) ([]Contribution, []string) {
-			var cs []Contribution
+	core.RegisterFamily(core.Family{Side: core.SideSurveyor, Name: "reports", Level: 1, Dirs: []string{"reports"}})
+	core.Register(core.Point{
+		Dir: "reports", Side: core.SideSurveyor,
+		Load: func(files []core.TreeFile) ([]core.Contribution, []string) {
+			var cs []core.Contribution
 			for _, f := range files {
-				cs = append(cs, Contribution{Point: "reports", Kind: "report", Name: strings.TrimPrefix(f.Path, "reports/")})
+				cs = append(cs, core.Contribution{Point: "reports", Kind: "report", Name: strings.TrimPrefix(f.Path, "reports/")})
 			}
 			return cs, nil
 		},
-		Preview: func(w io.Writer, c Contribution) { _, _ = w.Write([]byte("report " + c.Name + "\n")) },
+		Preview: func(w io.Writer, c core.Contribution) { _, _ = w.Write([]byte("report " + c.Name + "\n")) },
 	})
 }
 
@@ -38,21 +40,21 @@ components:
     sdk: {reports: 1}
 `
 
-func twoSideTree(extra ...TreeFile) []TreeFile {
-	return schema2Tree(twoSides, append([]TreeFile{tf("reports/daily.txt", "x")}, extra...)...)
+func twoSideTree(extra ...core.TreeFile) []core.TreeFile {
+	return schema2Tree(twoSides, append([]core.TreeFile{tf("reports/daily.txt", "x")}, extra...)...)
 }
 
 func TestReadTreeLoadsEachSideAlone(t *testing.T) {
 	opts := v2Opts
-	read := func(side Side) Plugin {
+	read := func(side core.Side) core.Plugin {
 		opts.Side = side
-		p, probs := ReadTree(twoSideTree(), opts)
+		p, probs := core.ReadTree(twoSideTree(), opts)
 		if len(probs) != 0 {
 			t.Fatalf("%q: %v", side, probs)
 		}
 		return p
 	}
-	client, surveyor, every := read(SideClient), read(SideSurveyor), read("")
+	client, surveyor, every := read(core.SideClient), read(core.SideSurveyor), read("")
 	if len(client.Contributions["skills"]) != 1 || len(client.Contributions["reports"]) != 0 {
 		t.Errorf("client side: %v", client.Contributions)
 	}
@@ -69,83 +71,46 @@ func TestReadTreeLoadsEachSideAlone(t *testing.T) {
 	if len(every.Artifacts) != 1 || every.Artifacts[0].Kind != "skill" {
 		t.Errorf("artifacts: %v", every.Artifacts)
 	}
-	if !slices.Equal(every.Sides, []Side{SideClient, SideSurveyor}) {
+	if !slices.Equal(every.Sides, []core.Side{core.SideClient, core.SideSurveyor}) {
 		t.Errorf("sides: %v", every.Sides)
 	}
 }
 
-func TestUnsupportedSideIsNotLoaded(t *testing.T) {
-	manifest := strings.Replace(twoSides, "reports: 1", "reports: 2", 1)
-	opts := v2Opts
-	opts.Side = SideSurveyor
-	p, probs := ReadTree(schema2Tree(manifest, tf("reports/daily.txt", "x")), opts)
-	if len(probs) != 0 || p.Unsupported[SideSurveyor] != "needs sdk reports 2 (this build has 1)" || len(p.Contributions["reports"]) != 0 {
-		t.Errorf("%v %v %v", probs, p.Unsupported, p.Contributions)
-	}
-}
-
 func TestRegisterNeedsAFamilyOfTheSide(t *testing.T) {
-	for name, pt := range map[string]Point{
-		"no family":  {Dir: "orphan", Side: SideSurveyor},
-		"wrong side": {Dir: "reports", Side: SideAtlas},
+	for name, pt := range map[string]core.Point{
+		"no family":  {Dir: "orphan", Side: core.SideSurveyor},
+		"wrong side": {Dir: "reports", Side: core.SideAtlas},
 	} {
-		pt.Load = func([]TreeFile) ([]Contribution, []string) { return nil, nil }
-		pt.Preview = func(io.Writer, Contribution) {}
+		pt.Load = func([]core.TreeFile) ([]core.Contribution, []string) { return nil, nil }
+		pt.Preview = func(io.Writer, core.Contribution) {}
 		func() {
 			defer func() {
 				if recover() == nil {
 					t.Errorf("%s: Register did not panic", name)
 				}
 			}()
-			Register(pt)
+			core.Register(pt)
 		}()
 	}
-	if pt, _ := points["skills"]; pt.Family != "artifacts" {
-		t.Errorf("family of skills: %q", pt.Family)
-	}
-}
-
-func TestTestsFolderIsIgnoredUnderSchema2Only(t *testing.T) {
-	base, _ := ReadTree(schema2Tree(validV2), v2Opts)
-	with, probs := ReadTree(schema2Tree(validV2, tf("tests/case/in.txt", "x")), v2Opts)
-	if len(probs) != 0 || with.Digest != base.Digest || len(with.Unknown) != 0 {
-		t.Errorf("%v: digest equal %v, unknown %v", probs, with.Digest == base.Digest, with.Unknown)
-	}
-	for _, f := range with.Files {
-		if strings.HasPrefix(f.Path, "tests/") {
-			t.Errorf("stored %s", f.Path)
+	for _, pt := range core.RegisteredPoints() {
+		if pt.Dir == "skills" && pt.Family != "artifacts" {
+			t.Errorf("family of skills: %q", pt.Family)
 		}
-	}
-	// A top-level file named tests is not the folder.
-	if _, probs = ReadTree(schema2Tree(validV2, tf("tests", "x")), v2Opts); len(probs) != 0 {
-		t.Errorf("a schema 2 file is reported, not fatal: %v", probs)
-	}
-	// Schema 1 stays what 0.28 said.
-	_, probs = ReadTree(append(goodTree(), tf("tests/a.txt", "x")), testOpts)
-	if len(probs) != 1 || !strings.HasPrefix(probs[0], "unknown entry `tests`") {
-		t.Errorf("schema 1: %v", probs)
-	}
-}
-
-func TestSchema1StaysClientOnly(t *testing.T) {
-	_, probs := ReadTree(append(goodTree(), tf("reports/a.txt", "x")), testOpts)
-	if len(probs) != 1 || !strings.HasPrefix(probs[0], "unknown entry `reports`") {
-		t.Errorf("a schema 1 tree with another side's folder: %v", probs)
 	}
 }
 
 func TestPreviewBySide(t *testing.T) {
 	opts := v2Opts
-	p, probs := ReadTree(twoSideTree(tf("extras/a.txt", "x")), opts)
+	p, probs := core.ReadTree(twoSideTree(tf("extras/a.txt", "x")), opts)
 	if len(probs) != 0 {
 		t.Fatal(probs)
 	}
-	show := func(side Side) string {
+	show := func(side core.Side) string {
 		var b bytes.Buffer
 		Preview(&b, p, PreviewInfo{Source: "src", Side: side, Have: func(string) (string, bool) { return "", false }}, opts)
 		return b.String()
 	}
-	client := show(SideClient)
+	client := show(core.SideClient)
 	for _, want := range []string{"sdk: artifacts 1", "other sides, not loaded here: surveyor", "not known to this build, stored but never loaded: entry extras", "skills/:"} {
 		if !strings.Contains(client, want) {
 			t.Errorf("client preview lacks %q:\n%s", want, client)
@@ -154,7 +119,7 @@ func TestPreviewBySide(t *testing.T) {
 	if strings.Contains(client, "report daily") {
 		t.Errorf("client preview shows the surveyor:\n%s", client)
 	}
-	surveyor := show(SideSurveyor)
+	surveyor := show(core.SideSurveyor)
 	if !strings.Contains(surveyor, "sdk: reports 1") || !strings.Contains(surveyor, "report daily.txt") ||
 		!strings.Contains(surveyor, "other sides, not loaded here: client") || strings.Contains(surveyor, "skills/:") {
 		t.Errorf("surveyor preview:\n%s", surveyor)

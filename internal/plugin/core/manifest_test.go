@@ -1,4 +1,4 @@
-package plugin
+package core
 
 import (
 	"strings"
@@ -328,7 +328,7 @@ func TestGlobProblemWildcardsInsideAClientFolder(t *testing.T) {
 		"{home}/.vscode/extensions/vendor.ext-*/package.json", "{home}/.config/vendor-cli/*",
 		"{app_data}/vendor/*", "{local_app_data}/vendor/c*", "{documents}/*", "{documents}/Rules/c*",
 	} {
-		if why := globProblem(g); why != "" {
+		if why := GlobProblem(g); why != "" {
 			t.Errorf("%q refused: %s", g, why)
 		}
 	}
@@ -340,7 +340,7 @@ func TestGlobProblemWildcardsInsideAClientFolder(t *testing.T) {
 		"{home}/*.yaml", "{home}/cartographer-data/**", "{home}/cartographer-data/*", "{home}/.local/share/cartographer/*",
 		"{xdg_config}/cartographer/*", "{app_data}/cartographer/**",
 	} {
-		if why := globProblem(g); why == "" {
+		if why := GlobProblem(g); why == "" {
 			t.Errorf("%q accepted", g)
 		}
 	}

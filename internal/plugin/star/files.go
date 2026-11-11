@@ -17,6 +17,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"go.starlark.net/starlark"
@@ -152,8 +153,8 @@ func (s *filesState) homeDir() (string, error) {
 	return filepath.Clean(h), nil
 }
 
-func (s *filesState) env(home string) plugin.ProviderEnv {
-	return plugin.ProviderEnv{GOOS: runtime.GOOS, Home: home, Getenv: func(k string) string {
+func (s *filesState) env(home string) core.ProviderEnv {
+	return core.ProviderEnv{GOOS: runtime.GOOS, Home: home, Getenv: func(k string) string {
 		v, _ := s.cc.lookupEnv(k)
 		return v
 	}}
@@ -196,7 +197,7 @@ func (s *filesState) stateDirs(home, homeReal string) [][]string {
 		bases = append(bases, d)
 	}
 	for _, a := range []string{"xdg_config", "app_data", "local_app_data"} {
-		if d, err := plugin.ExpandAnchor(s.env(home), a); err == nil {
+		if d, err := core.ExpandAnchor(s.env(home), a); err == nil {
 			bases = append(bases, filepath.FromSlash(d))
 		}
 	}
@@ -247,7 +248,7 @@ func (s *filesState) deny(home, homeReal string, segs []string) string {
 }
 
 // target runs the checks every operation shares, in order.
-func (s *filesState) target(op, raw string, list func(*plugin.Files) []string, write bool) (*fileTarget, error) {
+func (s *filesState) target(op, raw string, list func(*core.Files) []string, write bool) (*fileTarget, error) {
 	perms := s.cc.perms
 	if perms == nil || perms.Files == nil || len(list(perms.Files)) == 0 {
 		kind := "read"
@@ -273,7 +274,7 @@ func (s *filesState) locate(op string, fp fpath, grants []string, match bool) (*
 	if err != nil {
 		return nil, fileErr(op, fp.String(), err)
 	}
-	dir, err := plugin.ExpandAnchor(s.env(home), fp.anchor)
+	dir, err := core.ExpandAnchor(s.env(home), fp.anchor)
 	if err != nil {
 		return nil, denied("files.%s: %s", op, err)
 	}
@@ -345,7 +346,7 @@ func filesRead(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 	if err != nil {
 		return nil, err
 	}
-	t, err := c.files.target("read", p, func(f *plugin.Files) []string { return f.Read }, false)
+	t, err := c.files.target("read", p, func(f *core.Files) []string { return f.Read }, false)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +397,7 @@ func filesWrite(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tupl
 	if err != nil {
 		return nil, err
 	}
-	t, err := c.files.target("write", p, func(f *plugin.Files) []string { return f.Write }, true)
+	t, err := c.files.target("write", p, func(f *core.Files) []string { return f.Write }, true)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +424,7 @@ func filesRemove(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 	if err != nil {
 		return nil, err
 	}
-	t, err := c.files.target("remove", p, func(f *plugin.Files) []string { return f.Write }, true)
+	t, err := c.files.target("remove", p, func(f *core.Files) []string { return f.Write }, true)
 	if err != nil {
 		return nil, err
 	}

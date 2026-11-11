@@ -1,4 +1,4 @@
-package plugin
+package core
 
 import (
 	"bytes"
@@ -483,8 +483,8 @@ func (v *validator) permissions(base string, p *Permissions) {
 	v.list(base+".net", p.Net, hostProblem)
 	v.list(base+".env", p.Env, envProblem)
 	if p.Files != nil {
-		v.list(base+".files.read", p.Files.Read, globProblem)
-		v.list(base+".files.write", p.Files.Write, globProblem)
+		v.list(base+".files.read", p.Files.Read, GlobProblem)
+		v.list(base+".files.write", p.Files.Write, GlobProblem)
 	}
 }
 
@@ -501,10 +501,10 @@ func (v *validator) list(path string, items []string, check func(string) string)
 	}
 }
 
-// globProblem is the lexical part of a file permission: it starts with one
+// GlobProblem is the lexical part of a file permission: it starts with one
 // known placeholder, stays in slash form and never climbs with "..". Resolving
 // the placeholder under the home directory is the permission enforcer's.
-func globProblem(g string) string {
+func GlobProblem(g string) string {
 	if g == "" || len(g) > 200 {
 		return "must be 1 to 200 characters"
 	}

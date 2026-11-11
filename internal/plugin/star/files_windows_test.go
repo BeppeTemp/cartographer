@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"golang.org/x/sys/windows"
 )
 
@@ -18,7 +18,7 @@ import (
 func TestFilesWindowsAnchors(t *testing.T) {
 	e := newFileEnv(t, []string{"{app_data}/**", "{local_app_data}/**"}, []string{"{app_data}/**"})
 	roaming, local := filepath.Join(e.home, "AppData", "Roaming"), filepath.Join(e.home, "AppData", "Local")
-	e.perms = &plugin.Permissions{Files: e.perms.Files}
+	e.perms = &core.Permissions{Files: e.perms.Files}
 	run := func(body string) error {
 		t.Setenv("APPDATA", roaming)
 		t.Setenv("LOCALAPPDATA", local)

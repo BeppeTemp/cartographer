@@ -35,7 +35,7 @@ var sourceSites = map[string]struct {
 	"internal/kb/usage.go":                           {1, "server-side usage skips bundle and plugin sources"},
 	"internal/lint/values.go":                        {1, "token scope string, unrelated"},
 	"internal/mcpserver/tools_sync.go":               {1, "server side, KB only"},
-	"internal/plugin/manifest.go":                    {1, "reserved plugin names, not a source comparison"},
+	"internal/plugin/core/manifest.go":               {1, "reserved plugin names, not a source comparison"},
 	"internal/provisioning/approvalmigration.go":     {1, "refuses a non-KB source"},
 	"internal/provisioning/expand.go":                {2, "placeholders expand with an empty KB for a plugin (global placeholders only)"},
 	"internal/provisioning/kbguide.go":               {1, "instructions are KB-only"},

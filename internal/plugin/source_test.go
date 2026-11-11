@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
@@ -81,7 +82,7 @@ func TestFolderSnapshot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	put(ManifestFile, validManifest, 0o644)
+	put(core.ManifestFile, validManifest, 0o644)
 	put("skills/helper/SKILL.md", skillMD, 0o644)
 	put("README.md", "ignored", 0o644)
 	put("docs/page.txt", "ignored", 0o644)
@@ -99,10 +100,10 @@ func TestFolderSnapshot(t *testing.T) {
 	for _, f := range files {
 		paths = append(paths, f.Path)
 	}
-	if got := strings.Join(paths, ","); !strings.Contains(got, ManifestFile) || !strings.Contains(got, "skills/helper/SKILL.md") || strings.Contains(got, "README") || strings.Contains(got, "docs/") || strings.Contains(got, ".git") {
+	if got := strings.Join(paths, ","); !strings.Contains(got, core.ManifestFile) || !strings.Contains(got, "skills/helper/SKILL.md") || strings.Contains(got, "README") || strings.Contains(got, "docs/") || strings.Contains(got, ".git") {
 		t.Errorf("paths = %s", got)
 	}
-	if _, probs := ReadTree(files, Options{}); len(probs) != 0 {
+	if _, probs := core.ReadTree(files, core.Options{}); len(probs) != 0 {
 		t.Errorf("snapshot does not validate: %v", probs)
 	}
 
@@ -114,7 +115,7 @@ func TestFolderSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	_, probs := ReadTree(files, Options{})
+	_, probs := core.ReadTree(files, core.Options{})
 	if want := `"skills/helper/link.md": a symlink or non-regular file`; !slices.Contains(probs, want) {
 		t.Errorf("problems = %q, want %q", probs, want)
 	}
@@ -132,7 +133,7 @@ func TestFetchGit(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	for p, c := range map[string]string{ManifestFile: validManifest, "skills/helper/SKILL.md": skillMD, "README.md": "x", "docs/page.txt": "x"} {
+	for p, c := range map[string]string{core.ManifestFile: validManifest, "skills/helper/SKILL.md": skillMD, "README.md": "x", "docs/page.txt": "x"} {
 		full := filepath.Join(work, filepath.FromSlash(p))
 		_ = os.MkdirAll(filepath.Dir(full), 0o755)
 		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
@@ -152,7 +153,7 @@ func TestFetchGit(t *testing.T) {
 	if err != nil || len(sha) != 40 {
 		t.Fatalf("Fetch: %v, sha %q", err, sha)
 	}
-	if _, probs := ReadTree(files, Options{}); len(probs) != 0 {
+	if _, probs := core.ReadTree(files, core.Options{}); len(probs) != 0 {
 		t.Errorf("fetched tree does not validate: %v", probs)
 	}
 	for _, f := range files {
@@ -175,7 +176,7 @@ func TestFetchGit(t *testing.T) {
 func TestFolderTotalCap(t *testing.T) {
 	dir := t.TempDir()
 	chunk := strings.Repeat("x", contract.ArtifactMaxFileSize)
-	for i := 0; i < MaxBytes/contract.ArtifactMaxFileSize+1; i++ {
+	for i := 0; i < core.MaxBytes/contract.ArtifactMaxFileSize+1; i++ {
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%02d.bin", i)), []byte(chunk), 0o644); err != nil {
 			t.Fatal(err)
 		}

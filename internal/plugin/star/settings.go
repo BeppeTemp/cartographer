@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"go.starlark.net/starlark"
 )
 
@@ -77,7 +77,7 @@ func (s *settingsValue) get(name string) (starlark.Value, error) {
 // newSettings types the user's values by the manifest's declarations, applies
 // the defaults, and leaves a key with neither as None. A value of the wrong
 // type, or for a key the manifest does not declare, is an error.
-func newSettings(decl map[string]plugin.Setting, values map[string]any) (*settingsValue, error) {
+func newSettings(decl map[string]core.Setting, values map[string]any) (*settingsValue, error) {
 	s := &settingsValue{vals: map[string]starlark.Value{}}
 	for k := range decl {
 		s.keys = append(s.keys, k)

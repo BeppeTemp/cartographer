@@ -10,11 +10,11 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // parseSetting reads a command-line value as the type the manifest declares.
-func parseSetting(key string, st plugin.Setting, raw string) (any, error) {
+func parseSetting(key string, st core.Setting, raw string) (any, error) {
 	switch st.Type {
 	case "bool":
 		switch raw {
@@ -34,7 +34,7 @@ func parseSetting(key string, st plugin.Setting, raw string) (any, error) {
 	return raw, nil
 }
 
-func settingKeys(decl map[string]plugin.Setting) string {
+func settingKeys(decl map[string]core.Setting) string {
 	keys := make([]string, 0, len(decl))
 	for k := range decl {
 		keys = append(keys, k)
@@ -48,7 +48,7 @@ func settingKeys(decl map[string]plugin.Setting) string {
 
 // printPluginSettings lists every declared setting with its value and where the
 // value comes from: `set` by the user, or the manifest's `default`.
-func printPluginSettings(w io.Writer, p plugin.Plugin, e clientconfig.PluginEntry) {
+func printPluginSettings(w io.Writer, p core.Plugin, e clientconfig.PluginEntry) {
 	keys := make([]string, 0, len(p.Manifest.Settings))
 	for k := range p.Manifest.Settings {
 		keys = append(keys, k)

@@ -5,7 +5,14 @@ Compass of one machine; Meridian never loads it. A plugin adds agent clients (a 
 Cartographer does not know), skills, subagents and hooks, and, with a script, commands, MCP tools and sync handlers.
 It is installed with one command, pinned to a commit, and enabled only after the user approves what it does, version
 by version. This page describes the manifest, the version ranges it speaks, the contribution points, the tree
-reader, the store, the plugin commands, the script model and a worked example (`internal/plugin`).
+reader, the store, the plugin commands, the script model and a worked example.
+
+The code is two packages. `internal/plugin/core` holds what the server and the Surveyor link: the manifest, the
+families and the point registry, `ReadTree` and its digest, the pinned store and the provider descriptor with its
+resolver. It imports none of `provisioning`, `plugin` and `mcpbridge`, and `TestServerNeverLinksTheApply` pins it.
+`internal/plugin` is the client's: the loaders and previews of the skill, agent, hook and provider points, which
+register with `core.Register` at its `init` (so a binary that links only the core loads no client point, and reads
+the same tree to the same digest), the acquisition, the diff and `ProviderCells`.
 
 A plugin is trusted to the extent it was approved: the approval preview lists every permission, every file that runs
 and every script in full, and a script can reach nothing its approved manifest does not grant. Nothing about it
@@ -61,7 +68,7 @@ components:
   makes that side `unsupported` (`Plugin.Unsupported`, with the reason `needs sdk <family> <level> (this build has <n>)` or `unknown family <name>`), and the other sides are unaffected.
 - A tree folder or file of a registered family whose side does not declare that family is a problem
   (`skills/: declare sdk.artifacts under components.client`). Under schema 2 a top-level entry no family claims is stored, digested and reported in `Plugin.Unknown` (`entry <name>`), never loaded; under schema 1 it stays the error it was.
-- Families (`plugin.Families`): client `artifacts` (`skills/`, `agents/`, `hooks/`), `providers` (`providers/`), `scripts`
+- Families (`core.Families`): client `artifacts` (`skills/`, `agents/`, `hooks/`), `providers` (`providers/`), `scripts`
   (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`). A name belongs to one family only. This version
   registers the families and reads and checks their declarations; no side other than the client has a loader yet, and `presets/` and `roles/` have none.
 - Permissions per side: the client may ask for everything schema 1 allows; the Surveyor for `net` and `env` (`kb` and `files` are
@@ -100,7 +107,7 @@ the same functions the MCP artifact tools call, so a plugin and a KB cannot disa
 
 ## Contribution points
 
-A point is a top-level folder of the plugin that contributes something, registered in code (`plugin.Register`; a
+A point is a top-level folder of the plugin that contributes something, registered in code (`core.Register`; a
 duplicate or invalid name panics at start). A point has a side (any of the four) and belongs to a registered family of that side
 (`Register` panics on a folder no family of the side owns). `Options.Side` limits what `ReadTree` loads to one side's
 points; empty loads every side. Only a client point's contributions become artifacts to install. This build registers `skills`, `agents`, `hooks` and `providers`, and a test pins the exact set.
@@ -110,7 +117,7 @@ points; empty loads every side. Only a client point's contributions become artif
 | `skills` | `skills/<name>/SKILL.md` plus any files; the whole folder is the artifact, the executable bit is kept | `provisioning.ValidateSkillFile` |
 | `agents` | `agents/<name>.md` | `provisioning.ValidateAgentFile` |
 | `hooks` | `hooks/<name>/hook.json` plus the files it runs | `ValidateHookJSON` and `ValidateHookRequires`; unlike in a KB, a failure is an error, not a warning. The install preview shows the hook's command, event and `requires`, and lists every file with the executable bit (in a hook, every file but `hook.json`, as Compass materializes it, so the artifact hash equals the one sync computes). `cartographer-bootstrap` and `cartographer-write-findings` are refused. |
-| `providers` | `providers/<id>.yaml` | `plugin.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
+| `providers` | `providers/<id>.yaml` | `core.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
 | `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
 | `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
 | `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); a call reaches the network, the environment, files and KB tools only as the manifest grants (below) |
@@ -120,7 +127,7 @@ bundled one (the CLI skill included) is refused. Reserved and bundled names are 
 
 ## The tree reader
 
-`plugin.ReadTree` takes the files of a plugin in memory (`TreeFile`: slash path, content, executable bit and a
+`core.ReadTree` takes the files of a plugin in memory (`TreeFile`: slash path, content, executable bit and a
 flag for a symlink or non-regular file) and returns the validated `Plugin` and every problem found, sorted; the
 order of the files does not matter. It is the one function that knows the tree rules, so validating, installing and
 loading share them.
@@ -168,7 +175,7 @@ and the files are read once, a snapshot: a later edit of the folder needs an upd
 
 ## The store and the `plugins` key
 
-`plugin.Store` keeps fetched trees in `<user cache dir>/plugins/<name>/<digest>/`, exactly the files `ReadTree`
+`core.Store` keeps fetched trees in `<user cache dir>/plugins/<name>/<digest>/`, exactly the files `ReadTree`
 validated, manifest included. It is a cache: it can be deleted and fetched again from the recorded source.
 
 - `Put` validates the files, writes them to `plugins/.tmp-<name>-<random>/` through `safewrite`, reads that
@@ -192,9 +199,9 @@ folder, `ref` as typed (empty is the default branch), `sha` the resolved commit 
 entry, an empty `source`, or an `approved` without an `installed` is a load error naming the key. The key is
 a row of the schema in `internal/clientconfig/schema.go`, so `cartographer config` and the settings report list it.
 
-`plugin.State(name, entry, store, opts)` takes any `plugin.Entry` (`PluginEnabled()`, `PluginApproved()`): the
-client's `clientconfig.PluginEntry` and a headless component's `plugin.Pin` (`Enabled`, `Digest`) both implement it,
-and `internal/plugin` imports no component config. It is the one rule for whether a plugin runs:
+`core.State(name, entry, store, opts)` takes any `core.Entry` (`PluginEnabled()`, `PluginApproved()`): the
+client's `clientconfig.PluginEntry` and a headless component's `core.Pin` (`Enabled`, `Digest`) both implement it,
+and `internal/plugin/core` imports no component config. It is the one rule for whether a plugin runs:
 
 | Status | When |
 |---|---|
@@ -209,7 +216,7 @@ A newer `installed` digest never affects it. Why: `D1727`.
 
 ### Pinned stores
 
-`plugin.LoadPinned(storeDir, pins, side, opts)` is what a headless component (the server, the Surveyor) calls: it
+`core.LoadPinned(storeDir, pins, side, opts)` is what a headless component (the server, the Surveyor) calls: it
 opens each enabled pin through a read-only store rooted at `storeDir`, runs `State` with the pin's digest as the
 approval, and returns the active plugins that have `side`, in name order. Every enabled pin that does not load is a
 `PinProblem` (`<name>: <status>`, `no <side> side`, or the side's unsupported reason) and the caller refuses to start;
@@ -281,7 +288,7 @@ nothing. The agents step forwards `--approve-plugins` to `connect`. `sync` never
 ## Delivery
 
 `sync`, `connect`, `status`, `approve` and `doctor` see the plugins through `loadActivePlugins`
-(`cmd/cartographer/plugins_local.go`): for each configured, enabled and approved plugin it calls `plugin.State`, and
+(`cmd/cartographer/plugins_local.go`): for each configured, enabled and approved plugin it calls `core.State`, and
 an `active` one contributes its skills, agents and hooks with their files in memory and the manifest version.
 
 - **Where they land.** In the global projection of every connected provider, including the bundle-only global
@@ -309,8 +316,8 @@ an `active` one contributes its skills, agents and hooks with their files in mem
 ## Providers
 
 A `providers/<id>.yaml` describes an agent client as data: a fork or an in-house build of a built-in client. `<id>` is
-the provider id and the file stem. The descriptor is read by `plugin.ParseProvider` and resolved for the running
-machine by `plugin.ResolveProvider`; the registry (`configurator.RegisterPlugin`) holds the result beside the
+the provider id and the file stem. The descriptor is read by `core.ParseProvider` and resolved for the running
+machine by `core.ResolveProvider`; the registry (`configurator.RegisterPlugin`) holds the result beside the
 built-in providers. `providers` is a contribution point of the tree: a provider is registered at start (below) and
 installs no artifact.
 
@@ -322,7 +329,7 @@ problem is listed as `path: reason`, sorted. `seed` and `allow_call` are not key
 | Key | Rule |
 |---|---|
 | `schema` | `1`. |
-| `name` | Equal to the file stem, `^[a-z][a-z0-9-]{1,30}$`, not `all`, not a built-in provider id. A second provider of the same plugin with the same name is reported by `plugin.ProviderNameClashes`. |
+| `name` | Equal to the file stem, `^[a-z][a-z0-9-]{1,30}$`, not `all`, not a built-in provider id. A second provider of the same plugin with the same name is reported by `core.ProviderNameClashes`. |
 | `display_name` | One line of printable characters, at most 40. |
 | `base` | A built-in provider id: the formats and emitters the provider shares. |
 | `detect` | `binaries` (bare names, at most 16, no `/`, `\` or leading `-`) and `dirs` per OS (at most 16 each); at least one binary or dir. |
@@ -383,7 +390,7 @@ stays resolvable. `cartographer agents` labels such a row `<id> (plugin <name>, 
 
 ### Destination cells
 
-`provisioning.ReplacePluginCells` (data built by `ResolvedProvider.Cells`) makes the cells of the registered
+`provisioning.ReplacePluginCells` (data built by `plugin.ProviderCells`) makes the cells of the registered
 providers visible to every destination lookup: `cellFor` answers from the static matrix first, then from these. The
 static matrices and the capability table stay built-in. A provider whose global roots equal, contain or lie under a
 built-in's or another provider's is refused whole (both, when two candidates collide); a global cell may not sit in

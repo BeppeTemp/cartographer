@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"go.starlark.net/starlark"
 )
 
@@ -190,7 +190,7 @@ def who(a):
     return settings.name + ":" + a["i"]
 tool("who", who, "who", params={"type": "object"})
 `)
-	decl := map[string]plugin.Setting{"name": {Type: "string"}}
+	decl := map[string]core.Setting{"name": {Type: "string"}}
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
 		wg.Add(1)
@@ -221,7 +221,7 @@ def bad(a):
     return settings.nope
 tool("bad", bad, "bad")
 `)
-	decl := map[string]plugin.Setting{
+	decl := map[string]core.Setting{
 		"token": {Type: "string"},
 		"limit": {Type: "int", Default: 5},
 		"on":    {Type: "bool", Default: true},
@@ -386,7 +386,7 @@ tool("go", go, "go")
 `)
 	for _, mode := range []string{"one", "two"} {
 		r := toolReq("go", `{}`)
-		r.Declared, r.Values = map[string]plugin.Setting{"mode": {Type: "string"}}, map[string]any{"mode": mode}
+		r.Declared, r.Values = map[string]core.Setting{"mode": {Type: "string"}}, map[string]any{"mode": mode}
 		res, err := p.Call(context.Background(), r)
 		if err != nil || res.Text != mode+"/True" {
 			t.Errorf("%s: %q, %v", mode, res.Text, err)
@@ -581,7 +581,7 @@ tool("kind", kind, "kind", params={"type": "object", "properties": {"n": {"type"
 }
 
 func TestSettingsIntAcceptsDecodedNumbers(t *testing.T) {
-	decl := map[string]plugin.Setting{"n": {Type: "int"}}
+	decl := map[string]core.Setting{"n": {Type: "int"}}
 	for _, v := range []any{float64(7), json.Number("7"), 7, int64(7), uint64(7)} {
 		s, err := newSettings(decl, map[string]any{"n": v})
 		if err != nil || s.vals["n"].String() != "7" {

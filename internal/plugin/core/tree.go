@@ -1,4 +1,4 @@
-package plugin
+package core
 
 import (
 	"crypto/sha256"
@@ -46,8 +46,8 @@ type Plugin struct {
 	Unknown     []string
 }
 
-// ignored reports a top-level name that is never stored.
-func ignored(first string) bool {
+// Ignored reports a top-level name that is never stored.
+func Ignored(first string) bool {
 	u := strings.ToUpper(first)
 	return strings.HasPrefix(u, "README") || strings.HasPrefix(u, "LICENSE") ||
 		strings.HasPrefix(u, "CHANGELOG") || u == "DOCS" || strings.HasPrefix(first, ".git")
@@ -86,7 +86,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		}
 		seen[strings.ToLower(f.Path)] = true
 		switch {
-		case ignored(first):
+		case Ignored(first):
 			continue
 		case f.Special:
 			add("%q: a symlink or non-regular file", f.Path)

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // fakeKB records what kb.call hands the adapter.
@@ -51,7 +51,7 @@ func kbCallWith(t *testing.T, kb KBCaller, mode string, readOnly bool, body stri
 	t.Helper()
 	src := "def go(a):\n    " + strings.ReplaceAll(strings.TrimSpace(body), "\n", "\n    ") + "\ntool(\"go\", go, \"go\")\n"
 	r := toolReq("go", `{}`)
-	r.Permissions = &plugin.Permissions{KB: mode}
+	r.Permissions = &core.Permissions{KB: mode}
 	r.ReadOnly = readOnly
 	r.Host.KB = kb
 	return mustLoad(t, src).call(context.Background(), r, callOpts{})
@@ -121,7 +121,7 @@ func TestKBCallReadOnlyForAToolRegisteredWritesFalse(t *testing.T) {
 	f := newFakeKB()
 	src := "def go(a):\n    return kb.call(\"concept_write\", kb=\"kb-a\")\ntool(\"go\", go, \"go\")\n"
 	r := toolReq("go", `{}`)
-	r.Permissions = &plugin.Permissions{KB: "write"}
+	r.Permissions = &core.Permissions{KB: "write"}
 	r.KBReadOnly = true
 	r.Host.KB = f
 	_, err := mustLoad(t, src).call(context.Background(), r, callOpts{})

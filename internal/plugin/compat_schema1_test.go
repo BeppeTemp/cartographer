@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // The 0.28 compatibility guarantee: a schema-1 manifest and a tree that
@@ -26,8 +28,8 @@ type compatManifest struct {
 	Description  string
 	Cartographer string
 	Depends      map[string]string
-	Permissions  *Permissions
-	Settings     map[string]Setting
+	Permissions  *core.Permissions
+	Settings     map[string]core.Setting
 }
 
 type compatResult struct {
@@ -37,7 +39,7 @@ type compatResult struct {
 	Files    int    `json:",omitempty"`
 }
 
-var compatOpts = Options{
+var compatOpts = core.Options{
 	RunningVersion: "0.29.0",
 	ReservedName:   func(n string) bool { return n == "sync" || n == "plugin" },
 }
@@ -68,16 +70,16 @@ var compatManifests = map[string]string{
 	"setting":     compatBase + "settings:\n  Bad:\n    type: string\n    description: x\n",
 }
 
-func compatTrees(t *testing.T) map[string][]TreeFile {
+func compatTrees(t *testing.T) map[string][]core.TreeFile {
 	t.Helper()
-	out := map[string][]TreeFile{}
+	out := map[string][]core.TreeFile{}
 	root := filepath.Join("testdata", "schema1", "trees")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		var files []TreeFile
+		var files []core.TreeFile
 		base := filepath.Join(root, e.Name())
 		err := filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
@@ -88,7 +90,7 @@ func compatTrees(t *testing.T) map[string][]TreeFile {
 				return err
 			}
 			rel, _ := filepath.Rel(base, p)
-			files = append(files, TreeFile{Path: filepath.ToSlash(rel), Content: data})
+			files = append(files, core.TreeFile{Path: filepath.ToSlash(rel), Content: data})
 			return nil
 		})
 		if err != nil {
@@ -103,7 +105,7 @@ func compatResults(t *testing.T) map[string]compatResult {
 	t.Helper()
 	res := map[string]compatResult{}
 	for name, in := range compatManifests {
-		m, probs := ParseManifest([]byte(in), compatOpts)
+		m, probs := core.ParseManifest([]byte(in), compatOpts)
 		r := compatResult{Problems: probs}
 		if len(probs) == 0 {
 			r.Manifest = &compatManifest{m.Schema, m.Name, m.Version, m.DisplayName, m.Description, m.Cartographer, m.Depends, m.Permissions, m.Settings}
@@ -111,7 +113,7 @@ func compatResults(t *testing.T) map[string]compatResult {
 		res["manifest/"+name] = r
 	}
 	for name, files := range compatTrees(t) {
-		p, probs := ReadTree(files, compatOpts)
+		p, probs := core.ReadTree(files, compatOpts)
 		res["tree/"+name] = compatResult{Problems: probs, Digest: p.Digest, Files: len(p.Files)}
 	}
 	return res

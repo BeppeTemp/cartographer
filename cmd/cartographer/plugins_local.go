@@ -11,6 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
@@ -19,7 +20,7 @@ import (
 type pluginSet struct {
 	// Artifacts are the skills, agents and hooks of the active plugins, Files
 	// in memory, read back from the store and re-validated to the approved
-	// digest by plugin.State at this very call.
+	// digest by core.State at this very call.
 	Artifacts []contract.Artifact
 	// Unreadable names the plugins that are enabled and approved but whose
 	// approved tree cannot be used now (not fetched, modified, invalid, or no
@@ -56,14 +57,14 @@ func loadActivePlugins(cfg *clientconfig.Config) pluginSet {
 			set.Issues = append(set.Issues, fmt.Sprintf("plugin %s: the plugin store cannot be used: %v", n, storeErr))
 			continue
 		}
-		st, p := plugin.State(n, e, store, pluginOpts())
+		st, p := core.State(n, e, store, pluginOpts())
 		switch st {
-		case plugin.StatusActive:
+		case core.StatusActive:
 			for _, a := range p.Artifacts {
 				a.Version = p.Manifest.Version
 				set.Artifacts = append(set.Artifacts, a)
 			}
-		case plugin.StatusNotFetched, plugin.StatusModified, plugin.StatusInvalid:
+		case core.StatusNotFetched, core.StatusModified, core.StatusInvalid:
 			set.Unreadable[n] = true
 			set.Issues = append(set.Issues, fmt.Sprintf("plugin %s is %s: nothing is installed from it this run and what it installed stays", n, st))
 		}
@@ -95,8 +96,8 @@ func heldPlugins(cfg *clientconfig.Config) map[string]bool { return loadActivePl
 // memory until it is stored under the client lock.
 type fetchedPlugin struct {
 	name  string
-	files []plugin.TreeFile
-	p     plugin.Plugin
+	files []core.TreeFile
+	p     core.Plugin
 }
 
 // fetchMissingPlugins runs once per sync BEFORE the client lock is taken: a
@@ -126,7 +127,7 @@ func fetchMissingPlugins(st syncStreams, cfg *clientconfig.Config, dryRun bool) 
 		if !e.Enabled || e.Approved == "" {
 			continue
 		}
-		if state, _ := plugin.State(n, e, store, pluginOpts()); state != plugin.StatusNotFetched {
+		if state, _ := core.State(n, e, store, pluginOpts()); state != core.StatusNotFetched {
 			continue
 		}
 		if dryRun {
@@ -188,10 +189,10 @@ func pluginSourceSpec(e clientconfig.PluginEntry, redact bool) string {
 }
 
 // scriptFiles are the script files of a tree.
-func scriptFiles(files []plugin.TreeFile) []plugin.TreeFile {
-	var out []plugin.TreeFile
+func scriptFiles(files []core.TreeFile) []core.TreeFile {
+	var out []core.TreeFile
 	for _, f := range files {
-		if plugin.IsScriptPath(f.Path) {
+		if core.IsScriptPath(f.Path) {
 			out = append(out, f)
 		}
 	}
@@ -217,7 +218,7 @@ func fetchApproved(name string, e clientconfig.PluginEntry) (fetchedPlugin, erro
 	case p.Digest != e.Approved:
 		return fetchedPlugin{}, fmt.Errorf("the source no longer yields the approved version: reported as modified, run `cartographer plugin update %s` to review it", name)
 	}
-	if probs := pluginOpts().CheckScripts(plugin.SideClient, scriptFiles(files)); len(probs) > 0 {
+	if probs := pluginOpts().CheckScripts(core.SideClient, scriptFiles(files)); len(probs) > 0 {
 		return fetchedPlugin{}, fmt.Errorf("the fetched tree is not a valid plugin (%s): nothing is installed from it", strings.Join(probs, "; "))
 	}
 	return fetchedPlugin{name: name, files: files, p: p}, nil
@@ -302,7 +303,7 @@ func (o pluginPrep) fail(code int, format string, a ...any) int {
 // plugins --approve-plugins and the prompt can approve.
 type installedNow struct {
 	name  string
-	p     plugin.Plugin
+	p     core.Plugin
 	entry clientconfig.PluginEntry
 }
 
@@ -475,7 +476,7 @@ func installPluginSources(o pluginPrep, dir string, cfg *clientconfig.Config, sr
 // were never approved and whose stored digest is the one src yields at this call: the
 // leftover of a run that stopped before the consent. A source that cannot be
 // read, or yields another tree, leaves them pending (`plugin approve`, `plugin update`).
-func pendingSameTree(o pluginPrep, dir string, store plugin.Store, cfg *clientconfig.Config, names []string, src plugin.Source) []installedNow {
+func pendingSameTree(o pluginPrep, dir string, store core.Store, cfg *clientconfig.Config, names []string, src plugin.Source) []installedNow {
 	var waiting []string
 	for _, n := range names {
 		if e := cfg.Plugins[n]; e.Installed != "" && e.Approved == "" {
