@@ -28,6 +28,7 @@ test or a decision record: none of them is a preference.
   whole, so they walk it with `hiddenEntryUnder` first. The commit side holds the same line: `gitx.Commit` and
   `CommitPaths` refuse a gitlink (`gitx.ErrGitlink`). A new tool that writes under `skills/` or
   `hooks/` goes through the guard; one that renames or copies a directory checks its contents.
+- **A UI API read route is an entry of `apiRoutes` (`apiroutes.go`) with a tier and a summary**, never a `case` in a dispatcher: `TestAPIRoutes_TableIsComplete` fails otherwise.
 - **A tool's `ReadOnly` field and `readOnlyToolNames` are two halves of one fact.**
   `client.ReadOnlyToolNames` (`internal/client/readonly.go`, where a tool author adds the name) is the source-of-truth list; `TestReadOnlyToolsGolden` builds
   a real registry and fails if they diverge. A new read-only tool that is not in

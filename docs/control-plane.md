@@ -388,6 +388,8 @@ not speak JSON-RPC and no tool is added to the agent surface for it. It is not
 public either — it sits inside the same `OriginGuard` → bearer-token chain as
 `/mcp`, and `isPublicPath` does not exempt it.
 
+The routes are the entries of one table (`internal/mcpserver/apiroutes.go`), each with a tier (`stable`, `preview`, `internal`); this mount serves every tier (D1910).
+
 | Route | Returns |
 |---|---|
 | `GET /api/ui/v1/kbs` | The mounted KBs the principal can see something in, with status, readiness, capabilities (computed at start, as on `/health`: a `secrets` `hint`, D1191, may be stale there, `kb_status` is live), `artifacts` (whether the principal may read the KB's artifacts) and `secrets` (whether the principal may open the Secrets panel and read its files, D708; it is not the capability state, which is `capabilities.secrets` here and in `kb_status`: a KB whose capability is `disabled` still says `true`). |
