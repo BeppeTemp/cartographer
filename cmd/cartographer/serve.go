@@ -143,6 +143,10 @@ func cmdServe(args []string) int {
 		log.Fatalf("config: plugins: %v", err)
 	}
 	logServerBranding(serverBranding, cfg.Web.Enabled)
+	if serverHooks, err = buildServerHooks(cfg, serverPlugins); err != nil {
+		log.Fatal(err)
+	}
+	logServerHooks(serverHooks)
 
 	configPath := envFallback(*configFlag, "CARTOGRAPHER_CONFIG")
 	runServe(cfg, &authReload{

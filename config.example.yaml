@@ -235,6 +235,20 @@ api:
 #     kbs: [kb-a]
 #     min_replicas: 1
 
+# The hook points the server calls, one HTTP webhook each (protocol version
+# 1). A hook can supply an input or deny, never allow: the core decides first
+# and a hook can only turn an allow into a deny. An entry is active only when
+# its plugin is pinned in plugins. Empty or absent: the server behaves as
+# without hooks. YAML only.
+# Needs a restart
+# hooks:
+#   - name: acme/review
+#     point: write_veto
+#     plugin: acme
+#     url: https://hooks.example.com/veto
+#     credential: acme-review.token
+#     failure_policy: fail_closed
+
 # The read-only store the pinned plugins are read from:
 # <dir>/<name>/<digest>/, filled by cartographer plugin vendor. The server
 # never writes into it and never fetches. Required when plugins is set. YAML

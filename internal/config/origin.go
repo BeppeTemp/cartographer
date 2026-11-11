@@ -309,6 +309,12 @@ func (c *Config) serverValue(path string) (any, bool) {
 			names = append(names, s.Name)
 		}
 		return names, len(names) > 0
+	case "hooks":
+		names := []string{}
+		for _, h := range c.Hooks {
+			names = append(names, h.Name)
+		}
+		return names, len(names) > 0
 	case "plugins_dir":
 		return str(c.PluginsDir)
 	case "plugins":
