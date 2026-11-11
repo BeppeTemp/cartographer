@@ -62,6 +62,7 @@ Mutable state does not live in narrative documentation:
 | Connect/disconnect an agent (`setup`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`) | `configurator.md` |
 | Keep a client aligned with the KB skills | `sync.md` |
 | Install, approve or write a plugin (a client, a command, an MCP tool, a sync handler) | `plugins.md` |
+| Extend the Atlas (a read-only view or an external-app entry declared by a plugin) | `plugins.md` §The Atlas side |
 | Write or understand a test (unit/smoke/agent) | `testing.md` |
 
 ## Documentation maintenance rules

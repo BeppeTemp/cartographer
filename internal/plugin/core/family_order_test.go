@@ -6,7 +6,7 @@ import "testing"
 // before any init runs: it is a package-level var built by expression, which Go
 // initialises ahead of every init, whatever the file-name order.
 func TestFamiliesAreFilledBeforeAnyInit(t *testing.T) {
-	for _, dir := range []string{"skills", "agents", "hooks", "providers", LibDir, ScriptEntry, "presets", "roles"} {
+	for _, dir := range []string{"skills", "agents", "hooks", "providers", LibDir, ScriptEntry, "presets", "roles", "views", "apps"} {
 		if _, ok := FamilyOf(dir); !ok {
 			t.Errorf("no family owns %q", dir)
 		}

@@ -69,9 +69,9 @@ components:
 - A tree folder or file of a registered family whose side does not declare that family is a problem
   (`skills/: declare sdk.artifacts under components.client`). Under schema 2 a top-level entry no family claims is stored, digested and reported in `Plugin.Unknown` (`entry <name>`), never loaded; under schema 1 it stays the error it was.
 - Families (`core.Families`): client `artifacts` (`skills/`, `agents/`, `hooks/`), `providers` (`providers/`), `scripts`
-  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`). A name belongs to one family only. The client
+  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`); atlas `views` (`views/`) and `apps` (`apps/`). A name belongs to one family only. The client
   families load on the client; the server families `roles/` and `presets/` are loaded by `internal/pluginserver` (the server side of the plugin package, which may reach the data plane to
-  judge what it reads; `internal/plugin` is client-only and `internal/pluginserver` imports `internal/plugin/core`) and are data only; the Surveyor and Atlas have no loader yet.
+  judge what it reads; `internal/plugin` is client-only and `internal/pluginserver` imports `internal/plugin/core`) and are data only; the atlas families are loaded by `internal/atlasext` (below); the Surveyor has no loader yet.
 - Permissions per side: the client may ask for everything schema 1 allows; the Surveyor for `net` and `env` (`kb` and `files` are
   `components.surveyor.permissions.<key>: not allowed on the surveyor side`); the server and the Atlas for nothing.
   `Manifest.Permissions` is always the client side's.
@@ -508,6 +508,39 @@ root), the MCP mode with the file it writes and the stale files it removes, the 
 and the paths the resolver left out with the reason. Every string passes through `esc`. `plugin validate` runs the
 registry and cell checks as a dry run against the built-ins, so a provider whose roots collide with one is a problem
 of the tree.
+
+## The Atlas side
+
+A plugin's atlas side (`components.atlas.sdk: {views: 1, apps: 1}`) is **data only: no code ever runs in the Atlas**. Two
+points, loaded by `internal/atlasext` (which imports `internal/plugin/core` and `internal/provisioning/contract`, no data plane); the registered point set of the side
+is exactly `{views, apps}` (`TestAtlasPointSet`). Each file is `views/<name>.yaml` or `apps/<name>.yaml`, `<name>` matching
+`^[a-z][a-z0-9-]{0,39}$`, read as strictly as the manifest: an unknown key, a YAML alias, a second document, a file over 8 KiB
+or an executable file is a problem, reported as `path: reason` (`path: key: reason` for a key, including a wrong type), sorted. Two views (or two apps) of one plugin may not share a title.
+
+**A view** is a title, a public read-only route and one of four fixed renderers.
+
+| Key | Rule |
+|---|---|
+| `title` | required, one printable line, at most 60 characters |
+| `description` | optional, at most 200 |
+| `icon` | one of `list` (default), `sources`, `services`, `artifacts`, `key`, `paths`, `eye`, `lock`, `alert`, `person`; `TestIconsExistInTheAtlas` keeps them equal to `Icon.tsx` |
+| `scope` | `kb` (default; `{kb}` is the picked KB) or `global` |
+| `source.route` | required: a path starting with `/`, `{kb}` its only placeholder, no query, no `..`, no scheme or host: loading checks the shape only. That the route is a documented public read-only operation is `atlasext.Validate(file, routes)`, which asks a `RouteSet` (`IsPublicGET`) the server implements over the public route table, after replacing `{kb}` with a sample; the check is made when the server serves views (the UI API change), not at load |
+| `source.query` | optional, at most 8 string pairs; a value is one printable line of at most 200 characters and may hold `{kb}` and no other `{` |
+| `source.items` | optional dotted path (at most 5 segments of `[A-Za-z0-9_]`) to the array in the answer |
+| `renderer` | required: `table`, `list`, `stats` or `keyvalue` |
+| `columns` | `table`, `stats`, `keyvalue`: 1 to 8 entries; `list`: one. Each `{key: <dotted path>, label: <1-40 chars>, format: <format>}` |
+| `limit` | optional, 1 to 200 (`0` is refused), default 100 when absent |
+
+Formats are a closed set, each total over any JSON value: `text` (default), `number`, `date`, `relative`, `badge`
+(tone from the words `ok`, `warn`, `error`, `info`), `concept` (a concept ID, drawn as the Atlas's own link). There is no
+`link`, `html` or `markdown` format: a URL that arrives as data is never made clickable.
+
+**An app** is an entry that opens a separately hosted app in a new tab: `title` (at most 40), `description`, `icon`
+(default `paths`) and `url`, an absolute `https://` URL with a host, no user information and no fragment (`http://` only for
+`localhost`, `127.0.0.1` or `[::1]`). The Atlas hands the app nothing.
+
+The approval preview prints `view "<name>" (<renderer>) reads GET <route>` or `app "<name>" opens <url>`, then `data only: nothing runs`.
 
 ## Seeing plugins: `status`, `agents`, `doctor`
 

@@ -52,6 +52,10 @@ type Contribution struct {
 	// nil for every other kind.
 	Role   *Role
 	Preset *Preset
+	// View and App are the data the atlas side contributes (atlas.go); nil for
+	// every other kind.
+	View *View
+	App  *App
 }
 
 // Point is a place of the plugin tree that contributes something.
