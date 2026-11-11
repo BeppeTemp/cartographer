@@ -55,7 +55,7 @@ func loadProviders(files []TreeFile) ([]Contribution, []string) {
 				problems = append(problems, f.Path+": "+err.Error())
 				continue
 			}
-			if err := provisioning.CheckPluginCells(r.Cells(true), env.Home); err != nil {
+			if err := provisioning.CheckPluginCells(ProviderCells(r, true), env.Home); err != nil {
 				problems = append(problems, f.Path+": "+err.Error())
 				continue
 			}

@@ -113,7 +113,7 @@ func registerPluginProviders(errw io.Writer) {
 				continue
 			}
 			specs = append(specs, r.Registration(n, e.Enabled))
-			cells = append(cells, r.Cells(e.Enabled))
+			cells = append(cells, plugin.ProviderCells(r, e.Enabled))
 		}
 	}
 	// Cells first: a provider whose cells are refused is not registered, so the
