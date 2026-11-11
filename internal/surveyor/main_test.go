@@ -50,8 +50,8 @@ func TestMain(m *testing.M) {
 
 // systemHelper is a system lister driven by files in $SYS_FIXTURE_DIR: the
 // request's verb is appended to verbs, check.json is the check answer and
-// listing.jsonl the listing. A missing file is a failure (exit 3); any
-// other verb exits 64.
+// listing.jsonl the listing. A missing file is a failure (exit 3); spec is not
+// implemented (exit 64).
 func systemHelper() {
 	dir := os.Getenv("SYS_FIXTURE_DIR")
 	b, _ := io.ReadAll(os.Stdin)
@@ -74,14 +74,25 @@ func systemHelper() {
 	os.Exit(0)
 }
 
-// v2Helper is a feed lister that implements check and list: v2-badcheck
-// answers ok: false.
+// v2Helper is a feed lister that implements spec, check and list: v2-nocheck
+// does not declare check (and fails if it is called), v2-badcheck answers
+// ok: false.
 func v2Helper(mode, verb string) {
+	declared := `["spec","check","list"]`
+	if mode == "v2-nocheck" {
+		declared = `["spec","list"]`
+	}
 	switch verb {
+	case "spec":
+		fmt.Println(`{"spec":{"title":"Wiki","description":"d","shapes":["feed"],"verbs":` + declared + `,"settings":{"space":{"type":"string","required":true}},"env":[]}}`)
 	case "check":
-		if mode == "v2-badcheck" {
+		switch mode {
+		case "v2-nocheck":
+			fmt.Fprintln(os.Stderr, "check must not run")
+			os.Exit(3)
+		case "v2-badcheck":
 			fmt.Println(`{"check":{"ok":false,"detail":"no route to the wiki"}}`)
-		} else {
+		default:
 			fmt.Println(`{"check":{"ok":true,"identity":"svc-reader","detail":"12 spaces"}}`)
 		}
 	case "list":

@@ -38,6 +38,7 @@ recipes:
       timeout: 5m                                # default 5m, at most 1h
       max_output_bytes: 8388608                  # default 8 MiB, at most 64 MiB
       max_content_bytes: 131072                  # per entry; default 128 KiB, at most 1 MiB
+    settings: {space: ENG, limit: 50}            # optional scalars (string, number, bool), sent to the script as config
 ```
 
 - `connector` is a connector under `connectors`, or `git` / `fetch`; it must exist at load. Omit it when the script
@@ -47,6 +48,11 @@ recipes:
   key is an unknown key and fails the load. Every error names the key path and line.
 - `env` values are variable *names*: a literal secret is refused without being echoed, and a listed variable that is
   unset or empty refuses the listing naming the variable.
+- `settings` is a map of scalars handed to every verb as `config`. A built-in recipe takes none. A config load never
+  runs a script, so the settings are checked against the script's own `spec.settings` (no undeclared name, required
+  ones present, each of its type) only by `source test`, which fails to start (exit `2`) on a mismatch. A setting is a
+string (UTF-8, at most 4 KiB), a bool or a finite number in range, a name is 1 to 64 bytes and a recipe has at most
+64 settings; the load refuses anything else, naming the key and line.
 - `max_content_bytes` tops at 1 MiB, the unit executor's read cap, so the executor never truncates inline content.
 
 ## Inline content
@@ -68,17 +74,37 @@ The Surveyor starts the command **once per verb call**; a script implements the 
 | Field | Value |
 |---|---|
 | `protocol` | `2` |
-| `verb` | `"check"` or `"list"` |
-| `config` | an object, `{}` for now |
+| `verb` | `"spec"`, `"check"` or `"list"` |
+| `config` | the recipe's `settings`, an object (`{}` when there are none) |
 | `source` | `check` and `list`: `id`, `title`, `locator`, `source_kind`, `source_shape` (`"feed"`, or `"system"`), `include` (list of globs, `[]` if none) |
 | `cursor` | `list`: the string you returned last time, or `null` on the first poll |
 | `max_entries` | `list`: the most entries you may emit |
 | `max_content_bytes` | `list`: the most inline `content` bytes of one entry |
 
 A script that reads another `protocol` number, or a verb it does not implement, **exits 64 with no output**. For
-`check` that means "unsupported" (nothing to say, not a failure); for `list` it is a failure.
+`spec` and `check` that means "unsupported" (nothing to say, not a failure); for `list` it is a failure.
 
 **stdout**: JSON lines, stderr is logs (the Surveyor keeps at most 8 KiB, see Failures).
+
+### `spec`: self-description
+
+Exactly one line, at most 16 KiB:
+
+```json
+{"spec": {"title": "Wiki changes", "description": "Pages of a wiki changed since the cursor.",
+          "shapes": ["feed"], "verbs": ["spec", "check", "list"],
+          "settings": {"space": {"type": "string", "description": "The space to read.", "required": true}},
+          "env": ["WIKI_TOKEN"]}}
+```
+
+`title` (at most 120 characters) and `description` (500) are text for the operator, never an instruction to the
+Surveyor; `shapes` lists `feed`, `system` or both and must include the recipe's configured shape; `verbs` declares
+what the script implements and must include `list`; `settings` maps a name (`[a-z][a-z0-9_]*`) to `type` (`string`,
+`int`, `number`, `bool`), an optional `default`, `description` and `required`; `env` names the variables the script
+reads. At most 32 settings and 32 env names. A spec that breaks any of this fails with `spec_invalid`. Every text of
+a spec goes through the same redaction and control-character strip as a `check` detail (the values of `exec.env`
+become `***`) before it is printed. The poll never runs `spec` and calls `check` and `list` by contract: the gate
+that calls only the verbs a spec declares is an aid of `source test`, not a rule of the poll.
 
 ### `check`: credentials and reachability
 
@@ -91,7 +117,7 @@ Exactly one line, the answer to "can I reach the source with these credentials":
 `ok` is required; `detail` (at most 300 runes) and `identity` (120) are text with control characters stripped. `ok:
 false`, a non-zero exit, a timeout or an unreadable answer is `check_failed` and the detail is shown. `read_only` is
 required when the recipe's shape is `system` (below). `source test` runs `check` for a feed too (when the script does
-not implement it, it is skipped); a feed poll does not.
+not implement it, or its spec does not declare it, it is skipped); a feed poll does not.
 
 ### `list`
 
@@ -124,6 +150,7 @@ A failure sets the Source's `feed_error` to `<code>: <detail>` and leaves its cu
 | `list_failed` | `list` exited non-zero (`exit N` plus the stderr excerpt) or exited 64, timeout, output past `max_output_bytes`, the command cannot start, a listed variable unset |
 | `check_failed` | `check` answered `ok: false`, exited non-zero, timed out or answered something unreadable; for a system recipe also a script that does not implement `check`; nothing was listed |
 | `identity_not_read_only` | a system recipe's `check` answered `read_only` false or without it (see System recipes); nothing was listed |
+| `spec_invalid` | `spec` exited non-zero or broke the shape of a spec (`source test` only) |
 | `protocol_error` | malformed JSON, a line that is not `entry`, `delete` or `next_cursor`, a missing or non-final `next_cursor`, more entries than `max_entries`, a duplicate key, a field over its limit or missing, `content` over its cap, `change: removed` |
 
 On a timeout, an oversized output or a protocol error the Surveyor kills the whole process group, so a child your
@@ -141,7 +168,7 @@ cartographer surveyor source test --config <file> --source <id> [--kb <kb>]
 
 The command runs the listing the Surveyor will run: the same recipe registry, the same preconditions as the poll
 (parse of the Source, recipe known and of the Source's shape, a built-in's host on its list) and the same listing call,
-then prints what it got. A feed script's `check` is run first when it implements it. For a system recipe it runs the poll's check, then reads the stored state and diffs
+then prints what it got. A script that implements `spec` has it printed (`spec:` line) and its `settings` checked; a feed script's `check` is run first when it is declared. For a system recipe it runs the poll's check, then reads the stored state and diffs
 the listing against it (see System recipes). `--recipe` tries a recipe before registering a Source and needs neither the server nor the
 token; `--source` reads a registered Source (one `concept_read`, plus a `concept_list` for the plan warning) with the
 token in `token_env`. `--cursor <string>` lists from that cursor (default: empty, or the Source's `feed_cursor`);
@@ -152,7 +179,7 @@ be set, and an unset one is named, never its value.
 **Exit codes.** `0` the listing ran and passed the protocol checks; `1` the poll would write a `feed_error` for this
 Source or recipe, printed on stderr with the poll's own code and text; `2` the test could not start (usage, invalid
 config, unknown recipe, an unset variable, the Source or server unreadable); `3` a system recipe's check refused
-(`identity_not_read_only`, `check_failed`): nothing was listed, fix the identity and not the script. A failed feed `check` is class `1`, printed with its code.
+(`identity_not_read_only`, `check_failed`): nothing was listed, fix the identity and not the script. A failed `spec` or a failed feed `check` is class `1`, printed with its code.
 
 **Output** (stdout, plain text, tab-separated): `recipe`, `shape`, `kind`, `source`, `locator`, `cursor_in`, `config`;
 one row per entry (change, key, revision, content bytes, title; at most 50, then `(+N more)`); `counts`;
@@ -260,7 +287,7 @@ A reference lister for a Prometheus HTTP API, with its review task, ships in the
 
 ## Example
 
-A script that lists the pages of a wiki changed since the cursor (a timestamp) and checks its token.
+A script that lists the pages of a wiki changed since the cursor (a timestamp), describes itself and checks its token.
 It prints entries, a delete line for a page that is gone, then the cursor:
 
 ```python
@@ -276,7 +303,11 @@ req = json.load(sys.stdin)
 if req.get("protocol") != 2:
     sys.exit(64)
 verb = req.get("verb")
-if verb == "check":
+if verb == "spec":
+    print(json.dumps({"spec": {"title": "Wiki changes", "description": "Pages changed since the cursor.",
+                               "shapes": ["feed"], "verbs": ["spec", "check", "list"],
+                               "settings": {}, "env": ["WIKI_TOKEN"]}}))
+elif verb == "check":
     me = call("whoami")
     print(json.dumps({"check": {"ok": True, "identity": me["name"], "detail": "token accepted"}}))
 elif verb == "list":
