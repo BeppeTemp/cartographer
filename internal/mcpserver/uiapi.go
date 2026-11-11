@@ -381,7 +381,7 @@ type uiConceptBody struct {
 	Supersedes   []string               `json:"supersedes"`
 	Title        string                 `json:"title"`
 	// UsedBy is null for a principal that cannot see the whole KB.
-	UsedBy []uiArtifactRef `json:"used_by"`
+	UsedBy []uiArtifactRef `json:"used_by" openapi:"nullable"`
 }
 
 // uiOutlineRow is one heading of a concept's outline.

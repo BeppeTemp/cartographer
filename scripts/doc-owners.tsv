@@ -17,6 +17,7 @@
 # untouched in at most half of the commits that cross the 10-line floor. internal/gitx
 # is mapped to realign.go only: the package as a whole failed that rule.
 internal/mcpserver/tools_*.go	docs/control-plane.md	New MCP tool or change to its interface
+internal/mcpserver/apiroutes.go	docs/control-plane.md	A public API route, its tier or docs/openapi.json
 internal/config/*.go	docs/deployment.md	Server YAML config
 cmd/cartographer/serve.go	docs/deployment.md	Server YAML config
 cmd/cartographer/*.go	docs/configurator.md	Client subcommands

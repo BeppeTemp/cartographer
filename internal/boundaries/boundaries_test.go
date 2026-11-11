@@ -33,7 +33,7 @@ var exempt = map[string]string{
 var serverSide = []string{
 	"audit", "auth", "config", "kb", "lint", "mcpserver", "search", "sqlindex",
 	"sops", "graphalgo", "webui", "changelog", "repodocs", "testkbs", "testtree",
-	"kbtest", "gitx/gitxtest", "surveyor", "surveyorconfig",
+	"kbtest", "openapi", "gitx/gitxtest", "surveyor", "surveyorconfig",
 }
 
 var forbidden = []string{"kb", "mcpserver", "search", "graphalgo", "sqlindex", "lint"}

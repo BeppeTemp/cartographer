@@ -1,0 +1,1951 @@
+{
+  "components": {
+    "schemas": {
+      "ArtifactRef": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "type": "object"
+      },
+      "ChangesDay": {
+        "additionalProperties": false,
+        "properties": {
+          "upkeep": {
+            "type": "integer"
+          },
+          "work": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work"
+        ],
+        "type": "object"
+      },
+      "ChangesLinkEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "target_missing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source",
+          "target"
+        ],
+        "type": "object"
+      },
+      "ChangesLinks": {
+        "additionalProperties": false,
+        "properties": {
+          "added": {
+            "items": {
+              "$ref": "#/components/schemas/ChangesLinkEdge"
+            },
+            "type": "array"
+          },
+          "became_orphan": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "no_longer_orphan": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "$ref": "#/components/schemas/ChangesLinkEdge"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "added",
+          "became_orphan",
+          "no_longer_orphan",
+          "removed"
+        ],
+        "type": "object"
+      },
+      "ChangesSinceConcept": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_findings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "added": {
+            "type": "boolean"
+          },
+          "agents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "change": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_at": {
+            "type": "string"
+          },
+          "last_edit_at": {
+            "type": "string"
+          },
+          "ops": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "transfers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "authors",
+          "change",
+          "id",
+          "last_at",
+          "ops"
+        ],
+        "type": "object"
+      },
+      "ChangesSinceResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changes_by_day": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ChangesDay"
+            },
+            "type": "object"
+          },
+          "commit_count": {
+            "type": "integer"
+          },
+          "commits_by_agent": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "concepts": {
+            "items": {
+              "$ref": "#/components/schemas/ChangesSinceConcept"
+            },
+            "type": "array"
+          },
+          "head": {
+            "type": "string"
+          },
+          "links": {
+            "$ref": "#/components/schemas/ChangesLinks"
+          },
+          "links_note": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "other_changes": {
+            "type": "integer"
+          },
+          "since": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "commit_count",
+          "concepts",
+          "head",
+          "other_changes",
+          "since",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "CollectionRow": {
+        "additionalProperties": false,
+        "properties": {
+          "archive": {
+            "type": "boolean"
+          },
+          "concepts": {
+            "type": "integer"
+          },
+          "expanded_concepts": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "archive",
+          "concepts",
+          "expanded_concepts",
+          "kind",
+          "name"
+        ],
+        "type": "object"
+      },
+      "ConceptBody": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "body_bytes": {
+            "type": "integer"
+          },
+          "broken": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "frontmatter": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "inbound": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outbound": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outline": {
+            "items": {
+              "$ref": "#/components/schemas/OutlineRow"
+            },
+            "type": "array"
+          },
+          "superseded_by": {
+            "type": "string"
+          },
+          "supersedes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "used_by": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRef"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "body",
+          "body_bytes",
+          "broken",
+          "collection",
+          "content_hash",
+          "frontmatter",
+          "id",
+          "inbound",
+          "outbound",
+          "outline",
+          "superseded_by",
+          "supersedes",
+          "title",
+          "used_by"
+        ],
+        "type": "object"
+      },
+      "ConceptCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "by_status",
+          "by_type",
+          "total"
+        ],
+        "type": "object"
+      },
+      "Error": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "not_found",
+              "method_not_allowed",
+              "internal"
+            ],
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "KBCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "hint": {
+            "type": "string"
+          },
+          "setting": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "setting",
+          "state"
+        ],
+        "type": "object"
+      },
+      "KBList": {
+        "additionalProperties": false,
+        "properties": {
+          "kbs": {
+            "items": {
+              "$ref": "#/components/schemas/KBRow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kbs"
+        ],
+        "type": "object"
+      },
+      "KBRow": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "type": "boolean"
+          },
+          "capabilities": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/KBCapability"
+            },
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "secrets": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifacts",
+          "name",
+          "ready",
+          "secrets",
+          "status"
+        ],
+        "type": "object"
+      },
+      "LintCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "by_check": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "by_check",
+          "total"
+        ],
+        "type": "object"
+      },
+      "OutlineRow": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bytes",
+          "level",
+          "title"
+        ],
+        "type": "object"
+      },
+      "OverviewBody": {
+        "additionalProperties": false,
+        "properties": {
+          "collections": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionRow"
+            },
+            "type": "array"
+          },
+          "concepts": {
+            "$ref": "#/components/schemas/ConceptCounts"
+          },
+          "lint": {
+            "$ref": "#/components/schemas/LintCounts"
+          }
+        },
+        "required": [
+          "collections",
+          "concepts",
+          "lint"
+        ],
+        "type": "object"
+      },
+      "RelatedHit": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bytes",
+          "id"
+        ],
+        "type": "object"
+      },
+      "RuleRow": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "type": "string"
+          },
+          "journals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kb": {
+            "type": "string"
+          },
+          "maps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "write": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kb",
+          "write"
+        ],
+        "type": "object"
+      },
+      "SearchHit": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "read": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "snippet": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bytes",
+          "id",
+          "score"
+        ],
+        "type": "object"
+      },
+      "SearchResult": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_fallback": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "expanded_to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "or_fallback": {
+            "type": "boolean"
+          },
+          "query": {
+            "type": "string"
+          },
+          "related": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedHit"
+            },
+            "type": "array"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "mode",
+          "query",
+          "results"
+        ],
+        "type": "object"
+      },
+      "WhoamiBody": {
+        "additionalProperties": false,
+        "properties": {
+          "admin": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/RuleRow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "admin",
+          "id",
+          "permissions"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "A read-only API over the knowledge bases a bearer token may see. Writes are MCP tools. Routes marked x-stability preview may change in a minor release.",
+    "title": "Cartographer public API",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/kbs": {
+      "get": {
+        "operationId": "kbs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KBList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "List the KBs the caller can see",
+        "x-stability": "stable"
+      }
+    },
+    "/api/v1/kbs/{kb}/assets": {
+      "get": {
+        "operationId": "kbsAssets",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The assets of a concept",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/births": {
+      "get": {
+        "operationId": "kbsBirths",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The commit that added each concept",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/changes": {
+      "get": {
+        "operationId": "kbsChanges",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "RFC 3339 time or \u003cN\u003ed/\u003cN\u003eh, default 7d",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of items",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesSinceResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Changes since a point in time",
+        "x-stability": "stable"
+      }
+    },
+    "/api/v1/kbs/{kb}/checks": {
+      "get": {
+        "operationId": "kbsChecks",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The lint checks and their state",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/concept": {
+      "get": {
+        "operationId": "kbsConcept",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Concept id",
+            "in": "query",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConceptBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Read one concept",
+        "x-stability": "stable"
+      }
+    },
+    "/api/v1/kbs/{kb}/conflicts": {
+      "get": {
+        "operationId": "kbsConflicts",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Open git conflicts",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/feeds": {
+      "get": {
+        "operationId": "kbsFeeds",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Feeds of a KB",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/graph": {
+      "get": {
+        "operationId": "kbsGraph",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The link graph",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/history": {
+      "get": {
+        "operationId": "kbsHistory",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The commit history of a concept",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/journal": {
+      "get": {
+        "operationId": "kbsJournal",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The last entries of the KB log",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/lint": {
+      "get": {
+        "operationId": "kbsLint",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Lint findings",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/maintenance/review": {
+      "get": {
+        "operationId": "kbsMaintenanceReview",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The doctor's review agenda",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/maps": {
+      "get": {
+        "operationId": "kbsMaps",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Maps and journals with their ontology",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/overview": {
+      "get": {
+        "operationId": "kbsOverview",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Counts and collections of a KB",
+        "x-stability": "stable"
+      }
+    },
+    "/api/v1/kbs/{kb}/retired": {
+      "get": {
+        "operationId": "kbsRetired",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Retired pages",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/revision": {
+      "get": {
+        "operationId": "kbsRevision",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The KB revision, for change polling",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/search": {
+      "get": {
+        "operationId": "kbsSearch",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Query",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A map name or id prefix",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of items",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "1 to include archived pages",
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Keyword search over a KB",
+        "x-stability": "stable"
+      }
+    },
+    "/api/v1/kbs/{kb}/services": {
+      "get": {
+        "operationId": "kbsServices",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The Service concepts",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/sources": {
+      "get": {
+        "operationId": "kbsSources",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Registered sources",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/status": {
+      "get": {
+        "operationId": "kbsStatus",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Open gaps and searches that found nothing",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/work": {
+      "get": {
+        "operationId": "kbsWork",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Open work items and unchecked items",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "operationId": "openapi",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "This document",
+        "x-stability": "stable"
+      }
+    },
+    "/api/v1/whoami": {
+      "get": {
+        "operationId": "whoami",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhoamiBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Describe the caller's identity and permissions",
+        "x-stability": "stable"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ]
+}

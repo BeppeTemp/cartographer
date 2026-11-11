@@ -665,3 +665,19 @@ func TestIsPublicPath_APIDocumentOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestIsPublicRequest_DocumentIsReadOnlyPublic(t *testing.T) {
+	for _, m := range []string{http.MethodGet, http.MethodHead} {
+		if !isPublicRequest(m, "/api/v1/openapi.json") {
+			t.Errorf("%s of the document must be public", m)
+		}
+	}
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions} {
+		if isPublicRequest(m, "/api/v1/openapi.json") {
+			t.Errorf("%s of the document must need a token", m)
+		}
+	}
+	if !isPublicRequest(http.MethodPost, "/health") {
+		t.Error("other public paths keep their method-blind exemption")
+	}
+}

@@ -225,6 +225,11 @@ func (m *MultiKBServer) serveAPI(w http.ResponseWriter, r *http.Request, prefix 
 		segments = strings.Split(rest, "/")
 	}
 
+	if prefix == APIPrefix && len(segments) == 1 && "/"+segments[0] == apiOpenAPIPath {
+		serveOpenAPI(w)
+		return
+	}
+
 	var route *apiRoute
 	for i := range apiRoutes {
 		if apiRoutes[i].Tier&tiers != 0 && apiRoutes[i].match(segments) {
