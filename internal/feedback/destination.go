@@ -1,6 +1,7 @@
-// Package feedback builds the destination URL of a bug report an agent offers
-// about Cartographer itself: where the report goes (Destination) and the URL
-// that carries it (SubmitURL).
+// Package feedback redacts a bug report and builds its destination URL: where
+// the report goes (Destination), the URL that carries it (SubmitURL) and the
+// redactor that removes every name and secret the caller knows before the user
+// sees the draft (Redact).
 //
 // It is a leaf: no I/O, no clock, no globals, and no import of kb, lint,
 // mcpserver or search, so Compass and Meridian can both link it. Nothing here
