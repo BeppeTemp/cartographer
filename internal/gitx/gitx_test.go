@@ -1534,3 +1534,129 @@ func TestMoveRenames_IdenticalPagesPairingIsGits(t *testing.T) {
 	}
 	// Which source went to which target is git's pairing (a->d and c->b, or crosswise): not pinned.
 }
+
+func TestLogNameStatusRange(t *testing.T) {
+	dir := t.TempDir()
+	mustGit(t, dir, "init", "-q", "-b", "main")
+	mustGit(t, dir, "config", "user.name", "Tester")
+	mustGit(t, dir, "config", "user.email", "tester@example.test")
+	var shas []string
+	for _, name := range []string{"a", "b", "c"} {
+		if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mustGit(t, dir, "add", "-A")
+		mustGit(t, dir, "commit", "-q", "-m", "add "+name)
+		sha, err := HeadSHA(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		shas = append(shas, sha)
+	}
+
+	got, head, err := LogNameStatusRange(dir, shas[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head != shas[2] {
+		t.Fatalf("range head = %s, want the end of the range %s", head, shas[2])
+	}
+	if len(got) != 2 || got[0].SHA != shas[2] || got[1].SHA != shas[1] || got[0].Files[0].Path != "c.md" {
+		t.Fatalf("range = %+v", got)
+	}
+
+	if at, err := CommitTime(dir, shas[0]); err != nil || at.IsZero() {
+		t.Fatalf("CommitTime = %v, %v", at, err)
+	}
+	if _, err := CommitTime(dir, "HEAD"); !errors.Is(err, ErrUnknownRev) {
+		t.Errorf("CommitTime(HEAD) err = %v", err)
+	}
+
+	if got, _, err := LogNameStatusRange(dir, shas[2]); err != nil || len(got) != 0 {
+		t.Fatalf("empty range = %+v, %v", got, err)
+	}
+
+	for _, bad := range []string{
+		"", "HEAD", "main", "--all", "-n1", shas[0][:12], strings.ToUpper(shas[0]),
+		shas[0] + "..HEAD", strings.Repeat("0", 40),
+	} {
+		if _, _, err := LogNameStatusRange(dir, bad); !errors.Is(err, ErrUnknownRev) {
+			t.Errorf("from %q: err = %v, want ErrUnknownRev", bad, err)
+		}
+	}
+	if _, _, err := LogNameStatusRange(t.TempDir(), shas[0]); !errors.Is(err, ErrUnknownRev) {
+		t.Errorf("not a repository: err = %v", err)
+	}
+
+	old := MaxRangeCommits
+	MaxRangeCommits = 1
+	_, _, err = LogNameStatusRange(dir, shas[0])
+	MaxRangeCommits = old
+	if !errors.Is(err, ErrRangeTooLarge) {
+		t.Errorf("over the cap: err = %v", err)
+	}
+
+	// An annotated tag's own object name peels to its commit: the range and the
+	// commit time use the commit, and no error carries the tag's message.
+	mustGit(t, dir, "tag", "-a", "-m", "tag message secret", "v1", shas[0])
+	tagSHA, err := runGit(dir, "rev-parse", "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tagSHA = strings.TrimSpace(tagSHA)
+	if tagSHA == shas[0] {
+		t.Fatal("tag is not annotated")
+	}
+	if got, _, err := LogNameStatusRange(dir, tagSHA); err != nil || len(got) != 2 {
+		t.Errorf("range from a tag = %d commits, %v", len(got), err)
+	}
+	atTag, err := CommitTime(dir, tagSHA)
+	atCommit, _ := CommitTime(dir, shas[0])
+	if err != nil || !atTag.Equal(atCommit) {
+		t.Errorf("CommitTime(tag) = %v, %v; want %v", atTag, err, atCommit)
+	}
+	if blob, err := runGit(dir, "rev-parse", shas[0]+"^{tree}"); err == nil {
+		if _, err := CommitTime(dir, strings.TrimSpace(blob)); !errors.Is(err, ErrUnknownRev) {
+			t.Errorf("CommitTime(tree) = %v", err)
+		}
+	}
+
+	// LogNameStatusAt returns the head its commits end at.
+	if got, head, err := LogNameStatusAt(dir, time.Now().Add(-time.Hour)); err != nil || head != shas[2] || len(got) != 3 {
+		t.Errorf("LogNameStatusAt = %d commits, head %s, %v", len(got), head, err)
+	}
+	if got, head, err := LogNameStatusAt(t.TempDir(), time.Now()); err != nil || head != "" || len(got) != 0 {
+		t.Errorf("LogNameStatusAt(no repo) = %v, %q, %v", got, head, err)
+	}
+
+	// After a reset --hard the dropped commit exists but is no ancestor of HEAD.
+	mustGit(t, dir, "reset", "-q", "--hard", shas[0])
+	if _, _, err := LogNameStatusRange(dir, shas[2]); !errors.Is(err, ErrUnknownRev) {
+		t.Errorf("sha off the history: err = %v", err)
+	}
+}
+
+func TestLogNameStatusHeadErrors(t *testing.T) {
+	unborn := t.TempDir()
+	mustGit(t, unborn, "init", "-q", "-b", "main")
+	if got, head, err := LogNameStatusAt(unborn, time.Now().Add(-time.Hour)); err != nil || head != "" || len(got) != 0 {
+		t.Errorf("unborn LogNameStatusAt = %v, %q, %v; want empty and no error", got, head, err)
+	}
+	if _, _, err := LogNameStatusRange(unborn, strings.Repeat("a", 40)); !errors.Is(err, ErrUnknownRev) {
+		t.Errorf("unborn LogNameStatusRange err = %v, want ErrUnknownRev", err)
+	}
+
+	// A detached HEAD naming an object that does not exist is a failure to read
+	// HEAD, not an empty history.
+	broken := t.TempDir()
+	mustGit(t, broken, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(broken, ".git", "HEAD"), []byte(strings.Repeat("b", 40)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LogNameStatusAt(broken, time.Now().Add(-time.Hour)); err == nil {
+		t.Error("corrupt HEAD: LogNameStatusAt returned no error")
+	}
+	if _, _, err := LogNameStatusRange(broken, strings.Repeat("a", 40)); err == nil || errors.Is(err, ErrUnknownRev) {
+		t.Errorf("corrupt HEAD: LogNameStatusRange err = %v, want a non-ErrUnknownRev error", err)
+	}
+}
