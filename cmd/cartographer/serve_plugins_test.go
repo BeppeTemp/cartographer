@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
@@ -16,8 +17,22 @@ const serverOnlyPlugin = "schema: 2\nname: team-data\nversion: 1.2.0\ndisplay_na
 // returns the store root and the tree digest.
 func vendorServerPlugin(t *testing.T, manifest string) (string, string) {
 	t.Helper()
+	return vendorTree(t, []core.TreeFile{{Path: core.ManifestFile, Content: []byte(manifest)}})
+}
+
+// serverTree is a server plugin with the given files (path, content pairs).
+func serverTree(files ...string) []core.TreeFile {
+	out := []core.TreeFile{{Path: core.ManifestFile, Content: []byte(strings.Replace(serverOnlyPlugin, "server: {}", "server:\n    sdk: {roles: 1, presets: 1}", 1))}}
+	for i := 0; i+1 < len(files); i += 2 {
+		out = append(out, core.TreeFile{Path: files[i], Content: []byte(files[i+1])})
+	}
+	return out
+}
+
+// vendorTree is vendorServerPlugin for a whole tree.
+func vendorTree(t *testing.T, tree []core.TreeFile) (string, string) {
+	t.Helper()
 	opts := core.Options{RunningVersion: "0.29.0"}
-	tree := []core.TreeFile{{Path: core.ManifestFile, Content: []byte(manifest)}}
 	p, probs := core.ReadTree(tree, opts)
 	if len(probs) != 0 {
 		t.Fatal(probs)
@@ -71,5 +86,63 @@ func TestLoadServerPlugins(t *testing.T) {
 	c := &config.Config{PluginsDir: root2, Plugins: map[string]config.PluginPin{"team-data": {Digest: d2, Enabled: true}}}
 	if _, err := loadServerPlugins(c); err == nil || !strings.Contains(err.Error(), "no server side") {
 		t.Errorf("no server side: %v", err)
+	}
+}
+
+// TestServerRolesAreConsumed drives a pinned plugin through the start path: its
+// role expands into the operator's role, a token that names that role gets
+// exactly its permissions and no other token gets any.
+func TestServerRolesAreConsumed(t *testing.T) {
+	old := version
+	version = "0.29.0"
+	t.Cleanup(func() { version = old })
+	root, digest := vendorTree(t, serverTree(
+		"roles/runbook-editor.yaml", "description: Edit runbooks.\nrules:\n  - access: rw\n    maps: [infra]\n    types: [Runbook]\n  - access: r\n",
+	))
+	cfg := &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"team-data": {Digest: digest, Enabled: true}}, Auth: config.AuthConfig{
+		Roles:  []config.RoleSpec{{Name: "ops", From: "team-data/runbook-editor", KBs: []string{"docs"}}},
+		Tokens: []config.TokenSpec{{Token: "t1", ID: "ci", Roles: []string{"ops"}}, {Token: "t2", ID: "other", Scopes: []string{"kb:docs:r"}}},
+	}}
+	plugins, err := loadServerPlugins(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := config.ExpandPluginRoles(cfg.Auth, plugins, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := scopedTokensWithRoles(a.Tokens, a.Roles)
+	p := out[0].Policy
+	if !p.Allows("docs", "infra", "", "Runbook", true) || p.Allows("docs", "infra", "", "Service", true) || p.Allows("docs", "other", "", "Runbook", true) {
+		t.Error("the write rule must grant exactly its map and type")
+	}
+	if !p.Allows("docs", "other", "", "Service", false) || p.Allows("elsewhere", "infra", "", "Runbook", false) {
+		t.Error("the read rule applies to the named KB only")
+	}
+	if out[1].Policy.Allows("docs", "infra", "", "Runbook", true) {
+		t.Error("a token that does not name the role gets nothing from it")
+	}
+}
+
+// TestProxyCeilingJudgesPluginRoles: a proxy token naming a role from a plugin
+// whose template selects maps is refused at start and on a reload, as the same
+// rule written in auth.roles is.
+func TestProxyCeilingJudgesPluginRoles(t *testing.T) {
+	old := version
+	version = "0.29.0"
+	t.Cleanup(func() { version = old })
+	root, digest := vendorTree(t, serverTree("roles/mapped.yaml", "description: One map.\nrules:\n  - access: r\n    maps: [infra]\n"))
+	cfg := &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"team-data": {Digest: digest, Enabled: true}}, Auth: config.AuthConfig{
+		Roles:  []config.RoleSpec{{Name: "ops", From: "team-data/mapped", KBs: []string{"docs"}}},
+		Tokens: []config.TokenSpec{{Token: "t", ID: "sso", Roles: []string{"ops"}, Proxy: true}},
+	}}
+	plugins, err := loadServerPlugins(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, now := range map[string]time.Time{"start": time.Now(), "reload": {}} {
+		if _, err := config.ExpandPluginRoles(cfg.Auth, plugins, now); err == nil || !strings.Contains(err.Error(), `"sso"`) {
+			t.Errorf("%s: err = %v, want the proxy ceiling refusal", name, err)
+		}
 	}
 }

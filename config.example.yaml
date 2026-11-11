@@ -66,8 +66,11 @@ auth:
   # rules (kb, access r or rw, and optional maps, journals, types, artifacts: r
   # to withhold the skill, agent and hook write tools from a rule that otherwise
   # writes, and secrets: none to withhold the secret tools and the concept
-  # fields that point at a secret). A running server picks up a change without a
-  # restart.
+  # fields that point at a secret). A role may take its rules from a role of a
+  # pinned plugin instead (from: <plugin>/<role>, kbs: the KBs they apply to,
+  # one copy of each rule per KB); the plugin supplies the template and only the
+  # roles you name here, on the tokens you give them, apply. A running server
+  # picks up a change without a restart.
   # roles:
   #   - name: runbook-editor
   #     rules:

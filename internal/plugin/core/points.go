@@ -48,6 +48,10 @@ type Contribution struct {
 	// other kind. A provider is registered with the registries, never installed
 	// as an artifact.
 	Provider *ProviderSpec
+	// Role and Preset are the data a server family contributes (server.go);
+	// nil for every other kind.
+	Role   *Role
+	Preset *Preset
 }
 
 // Point is a place of the plugin tree that contributes something.

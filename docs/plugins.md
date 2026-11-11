@@ -69,8 +69,9 @@ components:
 - A tree folder or file of a registered family whose side does not declare that family is a problem
   (`skills/: declare sdk.artifacts under components.client`). Under schema 2 a top-level entry no family claims is stored, digested and reported in `Plugin.Unknown` (`entry <name>`), never loaded; under schema 1 it stays the error it was.
 - Families (`core.Families`): client `artifacts` (`skills/`, `agents/`, `hooks/`), `providers` (`providers/`), `scripts`
-  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`). A name belongs to one family only. This version
-  registers the families and reads and checks their declarations; no side other than the client has a loader yet, and `presets/` and `roles/` have none.
+  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`). A name belongs to one family only. The client
+  families load on the client; the server families `roles/` and `presets/` are loaded by `internal/pluginserver` (the server side of the plugin package, which may reach the data plane to
+  judge what it reads; `internal/plugin` is client-only and `internal/pluginserver` imports `internal/plugin/core`) and are data only; the Surveyor and Atlas have no loader yet.
 - Permissions per side: the client may ask for everything schema 1 allows; the Surveyor for `net` and `env` (`kb` and `files` are
   `components.surveyor.permissions.<key>: not allowed on the surveyor side`); the server and the Atlas for nothing.
   `Manifest.Permissions` is always the client side's.
@@ -118,6 +119,8 @@ points; empty loads every side. Only a client point's contributions become artif
 | `agents` | `agents/<name>.md` | `provisioning.ValidateAgentFile` |
 | `hooks` | `hooks/<name>/hook.json` plus the files it runs | `ValidateHookJSON` and `ValidateHookRequires`; unlike in a KB, a failure is an error, not a warning. The install preview shows the hook's command, event and `requires`, and lists every file with the executable bit (in a hook, every file but `hook.json`, as Compass materializes it, so the artifact hash equals the one sync computes). `cartographer-bootstrap` and `cartographer-write-findings` are refused. |
 | `providers` | `providers/<id>.yaml` | `core.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
+| `roles` (server) | `roles/<name>.yaml`: `description` (one line) and `rules` (at least one: `access` `r`\|`rw`, optional `maps`, `journals`, `types`, `artifacts`, `secrets`; **no `kb`**, a plugin does not know the deployment's KBs) | the `auth.roles` grammar (`config.ValidateAuthRoles`), so a role that loads expands into rules the server accepts; an unknown key, an executable file or any other file is a problem |
+| `presets` (server) | `presets/<name>/preset.yaml` (`description`, `kind` `map`\|`journal`, `title` and the contract keys `map_create` takes: `concept_types`, `required_fields`, `field_values`, `forbidden_fields`, `templates`, `default_template`) and `presets/<name>/templates/<slug>.md` | the contract as `map_create` judges it and each template as `artifact_write` does (`mcpserver.CheckPresetCreate`, `ValidateTemplate`); every `templates` slug and `default_template` names a template of the same preset |
 | `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
 | `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
 | `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); a call reaches the network, the environment, files and KB tools only as the manifest grants (below) |
@@ -236,6 +239,24 @@ tree digest differs, or that is missing, modified, has no side of the component 
 refuses the start with the plugin named; it is never loaded with a warning. A pin change takes a restart. Both
 components load only their own side, with `core.Options{RunningVersion, CheckScripts: star.Check}`; no client
 approval is consulted and nothing is written into the store. Why: `D1936`.
+
+### Server data: roles and presets
+
+A server plugin contributes **data**, never code, and only what a pinned digest approved. Two families, because a KB's
+behaviour is carried by the KB and must not differ per server (D746, D906):
+
+- **Roles** are used by the server's own authorization. A role of a plugin is a template: the operator's `auth.roles`
+  entry takes it with `from: <plugin>/<role>` and `kbs: [...]` (the KBs it applies to) instead of `rules`; at start
+  `config.ExpandPluginRoles` writes one copy of each rule per KB, and the same `ValidateAuthRoles` that judges a role
+  the operator wrote judges the result. Tokens name the operator's role, never the plugin's, and a token gets the role
+  only if the operator's config names it: a plugin cannot widen a principal, cannot shadow a role of the operator's
+  (a duplicate name is refused) and cannot deny (the grammar has no deny rule). An unknown plugin, an unpinned one or
+  a plugin without that role is a start error, as is a plugin whose role fails the rule grammar. The preview lists
+  each role with its rule count and widest access, and says when `artifacts: rw` is reachable. A reload of the auth
+  section re-applies the plugins loaded at start.
+- **Presets** are validated at load and carried with the plugin; the tool that hands them to a writer comes in the next change.
+
+The start log says `roles N, presets M` per plugin. The preview of a server side (`plugin vendor` prints it) lists both.
 
 ## The `plugin` command
 
@@ -741,6 +762,6 @@ Copilot CLI, not Antigravity or Kiro IDE.
 - No `mcp/` and no `instructions.md` contribution point.
 - A script runs no process, and a plugin tool reaches a client only through the stdio bridge (above).
 - The instructions block does not announce a plugin's agents and hooks.
-- A server loads a plugin only if its config pins the digest (above), and so far loads nothing from it; `sync_pull` refuses an artifact whose source is `plugin:`. There is no
-  plugin catalog and a KB cannot recommend a plugin.
+- A server loads a plugin only if its config pins the digest (above) and loads only its data families (`roles/`, `presets/`); `sync_pull` refuses an artifact whose source is `plugin:`. There is no
+  plugin catalog and a KB cannot recommend or require a plugin.
 - Plugins are never signed; the approval of one digest is the only consent, and it is per version.
