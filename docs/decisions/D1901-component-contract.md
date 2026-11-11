@@ -84,4 +84,5 @@ name of a run follows the heartbeat's pattern rather than a closed list, so a
 newer Surveyor with a new task kind is not refused.
 A kb-less alarm (not tied to a KB the principal was checked against) is shown on
 every KB of the perimeter with its code and time only: its free text is blanked.
-The replica id of a post must be one the principal has live.
+The replica id of a post must be one the principal has live. The Surveyor now fills `last_run.tokens_spent`, which the beat always
+accepted and nothing set.

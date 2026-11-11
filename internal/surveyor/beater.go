@@ -24,7 +24,17 @@ const beatCallTimeout = 5 * time.Second
 type BeatAPI interface {
 	Heartbeat(report any, timeout time.Duration) (*client.HeartbeatAnswer, error)
 	ReportSurveyorSettings(report any, timeout time.Duration) error
+	ReportRuns(report any, timeout time.Duration) (*client.RunsAnswer, error)
 }
+
+// maxRunHistory is how many finished runs the beater keeps, and the most a
+// post carries (the server keeps the same number).
+const maxRunHistory = 20
+
+// runsBackoffBeats is how many accepted beats go without a runs post after a
+// 4xx: ten beats of the default interval, so a server that lacks the route
+// costs about one POST every ten minutes.
+const runsBackoffBeats = 10
 
 // Beater is the Heartbeat and the IdleSource of a surveyor (D1259), both served by
 // the same answer of the component heartbeat (componentproto.HeartbeatPath). The runner hands it a snapshot with
@@ -59,11 +69,88 @@ type Beater struct {
 	answer   *client.HeartbeatAnswer
 	answerAt time.Time // local clock when the answer arrived
 	posted   bool
-	refused  bool // the server answered the settings report with a 4xx: not sent again
+	// runsSkip is how many accepted beats still go without a runs post after a
+	// 4xx; loggedRunsStatus is the status last logged, until a post succeeds.
+	runsSkip         int
+	loggedRunsStatus int
+	refused          bool // the server answered the settings report with a 4xx: not sent again
 	// logged* keep a protocol complaint to once per distinct cause: the beat
 	// repeats every interval and a server may be upgraded under the Surveyor.
 	loggedRefusal [2]int // (protocol, min_protocol) of the last 426 logged
 	loggedBehind  bool   // the "answer below ours" line was logged
+
+	// runs are the newest finished runs (oldest first), sent or not: the
+	// history is what refills a restarted server (runs_wanted).
+	runs []queuedRun
+	// alarms are the open alarms, by (code, kb, task); dirty means the server
+	// has not seen the current set.
+	alarms      map[alarmKey]time.Time
+	alarmsDirty bool
+	lastRunAt   time.Time
+}
+
+type queuedRun struct {
+	Run
+	sent bool
+}
+
+type alarmKey struct{ code, kb, task string }
+
+// Finished queues a finished task for the runs route; it also raises or
+// clears the alarm its outcome implies. It sends nothing: the post rides the
+// next beat (Beat sends at once when a run ends).
+func (b *Beater) Finished(r Run) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.runs = append(b.runs, queuedRun{Run: r})
+	if len(b.runs) > maxRunHistory {
+		b.runs = b.runs[len(b.runs)-maxRunHistory:]
+	}
+	if b.alarms == nil {
+		b.alarms = map[alarmKey]time.Time{}
+	}
+	if r.Outcome == componentproto.OutcomeOK {
+		for k := range b.alarms {
+			if k.kb == r.KB && k.task == r.Task {
+				delete(b.alarms, k)
+				b.alarmsDirty = true
+			}
+		}
+		return
+	}
+	if r.Alarm != "" {
+		k := alarmKey{r.Alarm, r.KB, r.Task}
+		if _, open := b.alarms[k]; !open {
+			b.alarms[k] = r.Started
+			b.alarmsDirty = true
+		}
+	}
+}
+
+type runsRun struct {
+	RunID       string    `json:"run_id"`
+	Task        string    `json:"task"`
+	KB          string    `json:"kb"`
+	StartedAt   time.Time `json:"started_at"`
+	DurationMS  int64     `json:"duration_ms"`
+	Outcome     string    `json:"outcome"`
+	Error       string    `json:"error,omitempty"`
+	TokensSpent int       `json:"tokens_spent"`
+}
+
+type runsAlarm struct {
+	Code   string    `json:"code"`
+	KB     string    `json:"kb,omitempty"`
+	Source string    `json:"source,omitempty"`
+	Since  time.Time `json:"since"`
+}
+
+type runsBody struct {
+	Protocol  int         `json:"protocol"`
+	ID        string      `json:"id"`
+	Perimeter string      `json:"perimeter"`
+	Runs      []runsRun   `json:"runs"`
+	Alarms    []runsAlarm `json:"alarms"`
 }
 
 func (b *Beater) interval() time.Duration {
@@ -94,8 +181,10 @@ func (b *Beater) Beat(_ context.Context, s State) {
 	first := !b.beaten
 	b.beaten = true
 	b.stopped = b.stopped || s.Run == StateStopped
+	ended := !s.LastRun.At.Equal(b.lastRunAt)
+	b.lastRunAt = s.LastRun.At
 	b.mu.Unlock()
-	if first || s.Run == StateStopped {
+	if first || ended || s.Run == StateStopped {
 		b.send()
 	}
 }
@@ -177,7 +266,7 @@ func (b *Beater) body(s State) beatBody {
 	out := beatBody{Protocol: componentproto.Protocol, Surveyor: b.Surveyor, Perimeter: b.Perimeter, Version: b.Version, KBs: b.KBs, State: s.Run,
 		IntervalSeconds: int(b.interval() / time.Second), Tasks: b.Tasks}
 	if !s.LastRun.At.IsZero() {
-		out.LastRun = &beatLastRun{At: s.LastRun.At.UTC(), UnitsDone: s.LastRun.Units, Commits: s.LastRun.Commits}
+		out.LastRun = &beatLastRun{At: s.LastRun.At.UTC(), UnitsDone: s.LastRun.Units, TokensSpent: s.LastRun.Tokens, Commits: s.LastRun.Commits}
 	}
 	for _, p := range s.Budgets {
 		out.Budgets = append(out.Budgets, beatBudget{Profile: p.Profile, Tier: b.Tiers[p.Profile], Spent: p.SpentToday, Limit: p.Daily})
@@ -246,9 +335,15 @@ func (b *Beater) send() {
 	b.answer, b.answerAt = a, b.now()
 	post := b.Settings != nil && s.Run != StateStopped && !b.refused && (!b.posted || a.SettingsWanted)
 	b.mu.Unlock()
-	if !post {
-		return
+	if post {
+		b.postSettings()
 	}
+	if s.Run != StateStopped {
+		b.postRuns(a)
+	}
+}
+
+func (b *Beater) postSettings() {
 	if err := b.API.ReportSurveyorSettings(b.Settings, beatCallTimeout); err != nil {
 		var re *client.RemoteError
 		if errors.As(err, &re) && re.HTTPStatus >= 400 && re.HTTPStatus < 500 {
@@ -265,6 +360,78 @@ func (b *Beater) send() {
 	}
 	b.mu.Lock()
 	b.posted = true
+	b.mu.Unlock()
+}
+
+// postRuns sends the runs the server has not acknowledged (all of the history
+// when the answer says runs_wanted) and the open alarms when they changed. A
+// failed post keeps everything for the next beat; the runs route never makes
+// the beat fail.
+func (b *Beater) postRuns(a *client.HeartbeatAnswer) {
+	b.mu.Lock()
+	if b.runsSkip > 0 {
+		b.runsSkip--
+		b.mu.Unlock()
+		return
+	}
+	var batch []int
+	for i, q := range b.runs {
+		if !q.sent || a.RunsWanted {
+			batch = append(batch, i)
+		}
+	}
+	if len(batch) == 0 && !b.alarmsDirty && !(a.RunsWanted && len(b.alarms) > 0) {
+		b.mu.Unlock()
+		return
+	}
+	body := runsBody{Protocol: componentproto.Protocol, ID: b.Surveyor, Perimeter: b.Perimeter, Runs: []runsRun{}, Alarms: []runsAlarm{}}
+	for _, i := range batch {
+		r := b.runs[i].Run
+		body.Runs = append(body.Runs, runsRun{RunID: r.ID, Task: r.Task, KB: r.KB, StartedAt: r.Started.UTC(),
+			DurationMS: r.Duration.Milliseconds(), Outcome: r.Outcome, Error: r.Error, TokensSpent: r.Tokens})
+	}
+	for k, since := range b.alarms {
+		body.Alarms = append(body.Alarms, runsAlarm{Code: k.code, KB: k.kb, Source: k.task, Since: since.UTC()})
+	}
+	sort.Slice(body.Alarms, func(i, j int) bool {
+		x, y := body.Alarms[i], body.Alarms[j]
+		return x.Code+x.KB+x.Source < y.Code+y.KB+y.Source
+	})
+	dirty := b.alarmsDirty
+	b.mu.Unlock()
+	if _, err := b.API.ReportRuns(body, beatCallTimeout); err != nil {
+		var re *client.RemoteError
+		if errors.As(err, &re) && re.HTTPStatus >= 400 && re.HTTPStatus < 500 {
+			// An older server (404), one that refuses the protocol (426), or a
+			// server that does not hold this declaration (it answers 404 then
+			// too, e.g. after a restart): back off for a while, then try again.
+			b.mu.Lock()
+			b.runsSkip = runsBackoffBeats
+			first := b.loggedRunsStatus != re.HTTPStatus
+			b.loggedRunsStatus = re.HTTPStatus
+			b.mu.Unlock()
+			if first {
+				b.logf("surveyor: runs report refused (%v): retried in %d beats", err, runsBackoffBeats)
+			}
+			return
+		}
+		b.logf("surveyor: runs report: %v", err)
+		return
+	}
+	b.mu.Lock()
+	b.runsSkip, b.loggedRunsStatus = 0, 0
+	sentIDs := map[string]bool{}
+	for _, r := range body.Runs {
+		sentIDs[r.RunID] = true
+	}
+	for i := range b.runs {
+		if sentIDs[b.runs[i].ID] {
+			b.runs[i].sent = true
+		}
+	}
+	if dirty {
+		b.alarmsDirty = false
+	}
 	b.mu.Unlock()
 }
 

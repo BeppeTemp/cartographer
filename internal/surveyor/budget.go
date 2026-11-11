@@ -348,6 +348,16 @@ func (b *Budget) totalUnits() (n int) {
 	return n
 }
 
+// totalTokens is what the run spent, over all profiles.
+func (b *Budget) totalTokens() (n int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, t := range b.run {
+		n += t
+	}
+	return n
+}
+
 func (b *Budget) totalCommits() (n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

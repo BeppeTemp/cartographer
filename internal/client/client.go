@@ -737,6 +737,7 @@ type HeartbeatAnswer struct {
 	ServerStartedAt time.Time `json:"server_started_at"`
 	Now             time.Time `json:"now"`
 	SettingsWanted  bool      `json:"settings_wanted"`
+	RunsWanted      bool      `json:"runs_wanted"`
 	Protocol        int       `json:"protocol"`
 	MinProtocol     int       `json:"min_protocol"`
 }
@@ -749,6 +750,23 @@ type HeartbeatAnswer struct {
 func (c *MCPClient) Heartbeat(report any, timeout time.Duration) (*HeartbeatAnswer, error) {
 	var a HeartbeatAnswer
 	if err := c.apiCallInto(http.MethodPost, componentproto.HeartbeatPath, "", report, &a, timeout); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// RunsAnswer is the answer of the runs report.
+type RunsAnswer struct {
+	Received  int    `json:"received"`
+	LastRunID string `json:"last_run_id"`
+}
+
+// ReportRuns posts a surveyor's finished runs and current alarms (a
+// JSON-encodable object that carries its own `protocol`). Errors are mapped as
+// on the heartbeat: 404 and 426 are *RemoteError.
+func (c *MCPClient) ReportRuns(report any, timeout time.Duration) (*RunsAnswer, error) {
+	var a RunsAnswer
+	if err := c.apiCallInto(http.MethodPost, componentproto.RunsPath, "", report, &a, timeout); err != nil {
 		return nil, err
 	}
 	return &a, nil

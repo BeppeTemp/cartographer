@@ -547,13 +547,16 @@ no runs for them (§Surveyor runs and alarms), so a restarted Meridian is refill
 
 The runs a Surveyor finished and the alarms it raises travel on their own route, not in the heartbeat: the
 beat is liveness and must never fail or grow because of a report (the reason the settings have their own
-route). Meridian accepts at most 20 runs per post; a heartbeat answer carrying `runs_wanted` asks the Surveyor
-for its recent history again.
+route). The Surveyor posts the runs finished since the last acknowledged post, at most 20, when a run ends
+and otherwise with the next beat; on `runs_wanted` it posts its whole recent history (20 at most). A task
+abandoned on shutdown, and a model-less task that did nothing, are not reported; a 4xx on this route (an older
+Meridian, a refused protocol, a declaration Meridian does not hold) pauses the posts for ten beats, logged once
+per status until a post succeeds.
 
 Body (32 KiB cap): `protocol`, `id` (the replica, as in the heartbeat's `surveyor`), `perimeter`, `runs`
 (at most 20 `{run_id, task, kb, started_at, duration_ms, outcome, error?, tokens_spent}`: `outcome` one of
 `ok`, `failed`, `skipped`, `budget_exhausted`, `error` 200 characters, `tokens_spent` the tokens the task
-spent) and `alarms` (at most 16 `{code, kb?, source?, since,
+spent, never zero for a task that called a model) and `alarms` (at most 16 `{code, kb?, source?, since,
 detail?}`, `code` one of `feed_failing`, `auth_refused`, `model_unreachable`; a post carries the whole current
 set and replaces the previous one). Answer `{received, last_run_id}`; `received` counts the runs kept: a run
 for a KB the principal cannot write or Meridian does not mount is dropped, not refused. It needs a live
