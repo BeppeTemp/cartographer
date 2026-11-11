@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"gopkg.in/yaml.v3"
 )
@@ -38,6 +39,9 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
+	// Feedback is where agent bug and idea reports go (YAML
+	// `feedback.destination`, env CARTOGRAPHER_FEEDBACK_DESTINATION).
+	Feedback FeedbackConfig
 	// Maintenance holds the server's background maintenance switches.
 	Maintenance MaintenanceConfig
 	// Components is the registry of expected components (YAML `components:`
@@ -78,6 +82,26 @@ type WebConfig struct {
 	// server is for, and an operator who does not want the extra surface turns
 	// it off in one place. Stdio mode never serves it, whatever this says.
 	Enabled bool
+}
+
+// FeedbackConfig is the `feedback:` block. Destination is the validated
+// setting string ("" means github); FeedbackDestination parses it.
+type FeedbackConfig struct {
+	Destination string
+}
+
+// FeedbackDestination returns the parsed destination. Load and FromEnv refuse
+// an invalid value, so the error cannot happen for a loaded config; a bad one
+// falls back to the default.
+func (c *Config) FeedbackDestination() feedback.Destination {
+	if c == nil {
+		return feedback.Destination{}
+	}
+	d, err := feedback.ParseDestination(c.Feedback.Destination)
+	if err != nil {
+		return feedback.Destination{}
+	}
+	return d
 }
 
 // APIConfig controls the public read-only API at /api/v1.
@@ -388,6 +412,7 @@ func Default() *Config {
 		Web:         WebConfig{Enabled: true},
 		API:         APIConfig{MaxStreamsPerToken: DefaultAPIMaxStreamsPerToken, MaxStreams: DefaultAPIMaxStreams},
 		UpdateCheck: true,
+		Feedback:    FeedbackConfig{Destination: "github"},
 		Maintenance: MaintenanceConfig{AutoRepair: true},
 	}
 }
@@ -413,6 +438,13 @@ type rawConfig struct {
 		// AutoRepair is a pointer: the default is true, so absent differs from false.
 		AutoRepair *bool `yaml:"auto_repair"`
 	} `yaml:"maintenance"`
+	Feedback rawFeedback `yaml:"feedback"`
+}
+
+// rawFeedback mirrors the `feedback:` block (a named type so the schema test
+// walks it).
+type rawFeedback struct {
+	Destination *string `yaml:"destination"`
 }
 
 // rawGit mirrors the `git:` block: the identities the server commits as (D950).
@@ -728,6 +760,12 @@ func Load(path string) (*Config, error) {
 	if raw.UpdateCheck != nil {
 		cfg.UpdateCheck = *raw.UpdateCheck
 	}
+	if raw.Feedback.Destination != nil {
+		if _, err := feedback.ParseDestination(*raw.Feedback.Destination); err != nil {
+			return nil, fmt.Errorf("config: %w", err)
+		}
+		cfg.Feedback.Destination = strings.TrimSpace(*raw.Feedback.Destination)
+	}
 	if raw.Maintenance.AutoRepair != nil {
 		cfg.Maintenance.AutoRepair = *raw.Maintenance.AutoRepair
 	}
@@ -796,6 +834,13 @@ func FromEnv(cfg *Config) error {
 		}
 		cfg.mark(OriginEnv, "update_check")
 		cfg.UpdateCheck = b
+	}
+	if v := os.Getenv("CARTOGRAPHER_FEEDBACK_DESTINATION"); v != "" {
+		if _, err := feedback.ParseDestination(v); err != nil {
+			return fmt.Errorf("CARTOGRAPHER_FEEDBACK_DESTINATION: %w", err)
+		}
+		cfg.mark(OriginEnv, "feedback.destination")
+		cfg.Feedback.Destination = strings.TrimSpace(v)
 	}
 	if v := os.Getenv("CARTOGRAPHER_MAINTENANCE_AUTO_REPAIR"); v != "" {
 		b, err := parseBool("CARTOGRAPHER_MAINTENANCE_AUTO_REPAIR", v)

@@ -21,6 +21,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -73,6 +74,8 @@ type Tool struct {
 // Server is the MCP stdio server.
 type Server struct {
 	version string
+	// feedback is the operator's feedback.destination (feedback.go).
+	feedback feedback.Destination
 	// reads is the KB's read-access log, set by RegisterKBTools; FlushReadAccess
 	// writes it at shutdown (D1529). Nil on a server with no KB tools.
 	reads *readAccessLog

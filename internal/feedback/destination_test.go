@@ -45,6 +45,19 @@ func TestParseDestination(t *testing.T) {
 		"https:///{title}",
 		"tracker.example.com/{title}",
 		"mailto:a@example.com?subject={title}",
+		// A template is shown to every authenticated caller of kb_status: no secret in it.
+		"https://tracker.example.com/new?t={title}&token=abc123",
+		"https://tracker.example.com/new?t={title}&API_KEY=abc123",
+		"https://tracker.example.com/new?t={title}&Secret=x",
+		"https://tracker.example.com/new?t={title}&password=x",
+		"https://tracker.example.com/new?t={title}&auth=x",
+		"https://tracker.example.com/new?t={title}&sig=x",
+		"https://tracker.example.com/new?t={title}&access_token=x",
+		"https://tracker.example.com/new?t={title}&accessToken=x",
+		"https://tracker.example.com/new?t={title}&api_key=x",
+		"https://tracker.example.com/new?t={title}&X-Auth=x",
+		"https://tracker.example.com/new?t={title}&apikey=x",
+		"https://tracker.example.com/new?t={title}&issue[private_token]=x",
 	} {
 		if _, err := ParseDestination(in); err == nil || !strings.Contains(err.Error(), "feedback.destination") {
 			t.Errorf("%q accepted or unnamed error: %v", in, err)
@@ -109,5 +122,34 @@ func TestContextBlock(t *testing.T) {
 	got := ContextBlock(Context{ClientVersion: "1.2.3", AgentClient: "agent\nx", OS: "linux", Arch: "amd64"})
 	if got != "- client version: 1.2.3\n- agent client: agent x\n- os/arch: linux amd64\n" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestTemplateIsCustomOnly(t *testing.T) {
+	d, err := ParseDestination("https://tracker.example.com/new?t={title}")
+	if err != nil || d.Template() != "https://tracker.example.com/new?t={title}" {
+		t.Fatalf("custom template = %q, %v", d.Template(), err)
+	}
+	if (Destination{}).Template() != "" {
+		t.Error("github has no template")
+	}
+}
+
+// The error for a secret-carrying template names the key, never the value.
+func TestParseDestinationSecretErrorDoesNotEchoTheValue(t *testing.T) {
+	t.Parallel()
+	_, err := ParseDestination("https://tracker.example.com/new?t={title}&token=hunter2-value")
+	if err == nil || !strings.Contains(err.Error(), "no secret") || strings.Contains(err.Error(), "hunter2-value") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// Query keys are judged by word, not substring: legitimate tracker fields pass.
+func TestParseDestinationAcceptsKeysThatOnlyContainAWord(t *testing.T) {
+	t.Parallel()
+	for _, k := range []string{"assignee_ids", "author", "design", "issue[assignee_ids]", "monkey", "labels", "milestone_id"} {
+		if _, err := ParseDestination("https://tracker.example.com/new?t={title}&" + k + "=1"); err != nil {
+			t.Errorf("key %q refused: %v", k, err)
+		}
 	}
 }

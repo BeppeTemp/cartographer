@@ -122,7 +122,7 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 	if !readOnly && !writesAnyKB(ctx, names) {
 		readOnly = true
 	}
-	return contract.RenderGuide(kbs, contract.GuideOptions{Routed: routed, ReadOnly: readOnly, Procedures: procedureLines(s.guideBundle)})
+	return contract.RenderGuide(kbs, contract.GuideOptions{Routed: routed, ReadOnly: readOnly, Procedures: procedureLines(s.guideBundle), Feedback: string(s.feedbackDestination().Mode())})
 }
 
 // entryInstructions is what a provisioned connection receives first

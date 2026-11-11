@@ -148,6 +148,10 @@ type Manifest struct {
 	// outside the revision; read off the projection's manifest into
 	// ApplyOptions.PathRegistries.
 	PathRegistries map[string]PathRegistry `json:"path_registries,omitempty"`
+	// FeedbackMode is client-side only: the feedback.destination mode the
+	// pulled KBs' server reported ("" is github). Read off the projection's
+	// manifest into ApplyOptions.FeedbackMode.
+	FeedbackMode string `json:"-"`
 }
 
 // ContentHashDir computes a deterministic sha256 hex of the entire dir folder

@@ -87,6 +87,33 @@ findingsBullet = "- act on the `findings` every write returns before moving on: 
 
 const placeholderBullet = "- `{{repo:<key>}}` and `{{path:<name>}}` in a page or a directive are machine-local path placeholders: keep them verbatim, never resolve or rewrite them;\n"
 
+// Feedback modes as the served instructions know them (feedback.destination;
+// this package cannot import internal/feedback). A missing or unknown mode is
+// github.
+const (
+	FeedbackGitHub = "github"
+	FeedbackCustom = "custom"
+	FeedbackOff    = "off"
+)
+
+const feedbackBullet = "- on a likely defect in Cartographer (an internal error, behaviour that contradicts the docs, a limit you must work around, a user complaint), offer once per problem and per session, if the user agrees, a report via the `cartographer-feedback` skill; never file or offer silently;\n"
+
+const feedbackBulletCustom = "- on a likely defect in Cartographer (an internal error, behaviour that contradicts the docs, a limit you must work around, a user complaint), offer once per problem and per session, if the user agrees, a report via the `cartographer-feedback` skill; never file or offer silently; it goes to the operator's tracker: use the link `cartographer feedback` prints (no shell: no link);\n"
+
+// FeedbackBullet is the operational bullet that says when to offer a report
+// (D1925). It is one line, client-neutral, and empty when the
+// operator switched feedback off: the offer lines and the internal-error hint
+// go together.
+func FeedbackBullet(mode string) string {
+	switch mode {
+	case FeedbackOff:
+		return ""
+	case FeedbackCustom:
+		return feedbackBulletCustom
+	}
+	return feedbackBullet
+}
+
 const conflictBullet = "- a write blocked by a git conflict is settled with `conflicts_list` and `git_conflict_resolve`.\n"
 
 const // #1316: the last line of the guide. The managed block does not carry any of
@@ -166,6 +193,9 @@ type GuideOptions struct {
 	// Procedures are the procedures this server serves with their body, as
 	// the caller builds them (pure here: no bundle I/O). Empty: no list.
 	Procedures []ProcedureLine
+	// Feedback is the feedback.destination mode ("github", "custom", "off"; ""
+	// is github): it selects the bullet that says when to offer a report.
+	Feedback string
 }
 
 // ProcedureLine is one served procedure in the guide's list (#1316).
@@ -204,7 +234,7 @@ func RenderGuide(kbs []GuideKB, opts GuideOptions) string {
 		allOptOut = allOptOut && k.SkipPreamble
 	}
 	if !allOptOut {
-		sb.WriteString(GuideOperational(opts.ReadOnly, opts.Procedures))
+		sb.WriteString(GuideOperational(opts.ReadOnly, opts.Procedures, opts.Feedback))
 	}
 	for _, k := range kbs {
 		if k.Curated == "" {
@@ -233,13 +263,14 @@ func procedureBullets(procs []ProcedureLine) string {
 }
 
 // GuideOperational is the guide's "Operational instructions" section alone.
-func GuideOperational(readOnly bool, procs []ProcedureLine) string {
+func GuideOperational(readOnly bool, procs []ProcedureLine, feedbackMode string) string {
 	var sb strings.Builder
 	sb.WriteString("Operational instructions:\n")
 	sb.WriteString(OrientationBullet)
 	if readOnly {
 		sb.WriteString(placeholderBullet)
 		sb.WriteString(procedureBullets(procs))
+		sb.WriteString(FeedbackBullet(feedbackMode))
 		sb.WriteString(wholeGuideBullet)
 		sb.WriteString(readOnlyBullet)
 		return sb.String()
@@ -251,6 +282,7 @@ func GuideOperational(readOnly bool, procs []ProcedureLine) string {
 	sb.WriteString(findingsBullet)
 	sb.WriteString(placeholderBullet)
 	sb.WriteString(procedureBullets(procs))
+	sb.WriteString(FeedbackBullet(feedbackMode))
 	sb.WriteString(wholeGuideBullet)
 	sb.WriteString(conflictBullet)
 	return sb.String()

@@ -321,6 +321,11 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return c.Audit.RetentionDays, true
 	case "web.enabled":
 		return c.Web.Enabled, true
+	case "feedback.destination":
+		if c.Feedback.Destination == "" {
+			return "github", true
+		}
+		return c.Feedback.Destination, true
 	case "api.enabled":
 		return c.API.Enabled, true
 	case "api.cors_origins":

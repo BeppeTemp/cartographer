@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -71,6 +72,7 @@ func TestLoadFullYAML(t *testing.T) {
 		Web:         WebConfig{Enabled: true},
 		API:         APIConfig{MaxStreamsPerToken: DefaultAPIMaxStreamsPerToken, MaxStreams: DefaultAPIMaxStreams},
 		UpdateCheck: true,
+		Feedback:    FeedbackConfig{Destination: "github"},
 		Maintenance: MaintenanceConfig{AutoRepair: true},
 	}
 
@@ -623,5 +625,53 @@ func TestAuditLogPath(t *testing.T) {
 	c.Audit.Log = "/var/log/carto.jsonl"
 	if c.AuditLogPath() != "/var/log/carto.jsonl" {
 		t.Errorf("AuditLogPath() = %q, want audit.log", c.AuditLogPath())
+	}
+}
+
+// feedback.destination (D1925): flag-less, env > YAML > default,
+// validated at load so a bad template refuses the start.
+func TestFeedbackDestinationSetting(t *testing.T) {
+	if got := Default().FeedbackDestination().Mode(); got != feedback.ModeGitHub {
+		t.Fatalf("default mode = %q, want github", got)
+	}
+	write := func(body string) string {
+		p := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	cfg, err := Load(write("feedback:\n  destination: off\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FeedbackDestination().Mode() != feedback.ModeOff {
+		t.Error("YAML `off` must switch feedback off")
+	}
+	cfg, err = Load(write("feedback:\n  destination: \"https://tracker.example.com/new?title={title}&body={body}\"\n"))
+	if err != nil || cfg.FeedbackDestination().Mode() != feedback.ModeCustom {
+		t.Fatalf("a valid template must load as custom: %v", err)
+	}
+	// An invalid value names the key and never echoes userinfo.
+	for _, bad := range []string{"ftp://x/{title}", "https://tracker.example.com/new", "https://user:pw@tracker.example.com/{title}", "https://tracker.example.com/{foo}{title}", "nonsense"} {
+		_, err := Load(write("feedback:\n  destination: \"" + bad + "\"\n"))
+		if err == nil || !strings.Contains(err.Error(), "feedback.destination") {
+			t.Errorf("%q: want an error naming feedback.destination, got %v", bad, err)
+		} else if strings.Contains(err.Error(), "pw@") {
+			t.Errorf("%q: the error echoes the userinfo: %v", bad, err)
+		}
+	}
+	// env wins over YAML and is validated too.
+	cfg, _ = Load(write("feedback:\n  destination: off\n"))
+	t.Setenv("CARTOGRAPHER_FEEDBACK_DESTINATION", "github")
+	if err := FromEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FeedbackDestination().Mode() != feedback.ModeGitHub {
+		t.Error("the environment must win over YAML")
+	}
+	t.Setenv("CARTOGRAPHER_FEEDBACK_DESTINATION", "ftp://x/{title}")
+	if err := FromEnv(cfg); err == nil || !strings.Contains(err.Error(), "CARTOGRAPHER_FEEDBACK_DESTINATION") {
+		t.Errorf("an invalid env value must be refused by name, got %v", err)
 	}
 }

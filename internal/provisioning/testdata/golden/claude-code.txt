@@ -90,7 +90,7 @@
       "source": "kb:kb-a"
     }
   ],
-  "paths_section_hash": "d1e55877c0df02093cf0e00887a66ea92a2354a3c581c0b82abc7bf6421a48fc"
+  "paths_section_hash": "9e225d9849a526664ef70dc5d92213864a432064e2cd96338acea0ea68ea5477"
 }
 === file .claude/CLAUDE.md
 <!-- cartographer:instructions:begin — block managed by Cartographer, do not edit by hand -->
@@ -108,6 +108,7 @@ Operational instructions:
 - every write is a git commit, revertible.
 - never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.
 - when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).
+- on a likely defect in Cartographer (an internal error, behaviour that contradicts the docs, a limit you must work around, a user complaint), offer once per problem and per session, if the user agrees, a report via the `cartographer-feedback` skill; never file or offer silently;
 - procedures, runbooks and incidents are read whole with `concept_read`, never answered from a search excerpt or a snippet;
 - `kb_guide` returns the full operating guide, each KB's own directives and its skills with descriptions, on demand: call it when a task touches a KB's own rules or when a skill name in a `Skills:` line looks relevant (on a routed connection it takes the `kb` argument like every tool).
 

@@ -1679,3 +1679,46 @@ func TestMaterializeForProviders_ReportsDroppedLockEntry(t *testing.T) {
 		t.Errorf("stderr does not report the dropped entry: %q", out)
 	}
 }
+
+// The feedback mode of sync_pull: absent is github, a mode decodes, and across
+// KBs off wins over custom wins over github.
+func TestPulledManifestFeedbackMode(t *testing.T) {
+	var none, off pulledManifestJSON
+	if err := json.Unmarshal([]byte(`{"revision":"r","artifacts":[]}`), &none); err != nil || none.Feedback != nil {
+		t.Fatalf("an older server sends no feedback field: %+v %v", none, err)
+	}
+	if err := json.Unmarshal([]byte(`{"revision":"r","artifacts":[],"feedback":{"destination":"off"}}`), &off); err != nil || off.Feedback == nil || off.Feedback.Destination != "off" {
+		t.Fatalf("feedback.destination did not decode: %+v %v", off, err)
+	}
+	for _, tc := range []struct{ a, b, want string }{
+		{"", "", ""}, {"", "custom", "custom"}, {"custom", "", "custom"}, {"custom", "off", "off"}, {"off", "custom", "off"}, {"off", "", "off"},
+	} {
+		if got := mergeFeedbackMode(tc.a, tc.b); got != tc.want {
+			t.Errorf("mergeFeedbackMode(%q,%q) = %q, want %q", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// The feedback mode is selected per projection from the KBs it reads: a KB
+// whose pull failed (absent from the map) never downgrades the block of a
+// projection bound to the others.
+func TestFeedbackForProjection_PartialFailureDoesNotDowngrade(t *testing.T) {
+	cs := candidateSet{FeedbackModes: map[string]string{"kb-a": "off"}} // kb-b's pull failed: no entry
+	cfg := &clientconfig.Config{KnownKBs: []string{"kb-a", "kb-b"}, Clients: map[string]clientconfig.ClientBinding{
+		"codex": {KBs: []string{"kb-b"}}, "claude": {KBs: []string{"kb-a"}},
+	}}
+	if got := cs.feedbackForProjection(cfg, syncProjection{Provider: "claude"}); got != "off" {
+		t.Errorf("a projection bound to the KB that said off = %q, want off", got)
+	}
+	if got := cs.feedbackForProjection(cfg, syncProjection{Provider: "codex"}); got != "" {
+		t.Errorf("a projection bound only to the failed KB reads nothing from it: %q", got)
+	}
+	both := &clientconfig.Config{KnownKBs: []string{"kb-a", "kb-b"}}
+	cs.FeedbackModes["kb-b"] = "custom"
+	if got := cs.feedbackForProjection(both, syncProjection{Provider: "claude"}); got != "off" {
+		t.Errorf("off wins over custom, got %q", got)
+	}
+	if got := cs.feedbackForProjection(both, syncProjection{Provider: "claude", BundleOnly: true}); got != "" {
+		t.Errorf("bundle-only = %q", got)
+	}
+}

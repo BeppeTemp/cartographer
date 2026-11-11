@@ -52,7 +52,7 @@ func TestSyncPullListsTheCLISkillOnlyWhenAsked(t *testing.T) {
 		"bundled/" + contract.CLISkillName + "/SKILL.md": {Data: []byte("---\nname: cartographer-cli\ndescription: x\nversion: \"1\"\n---\nbody\n")},
 	}
 	has := func(args string) bool {
-		res, err := toolSyncPull(k, bundle, false, nil).Handler(narrowCtx, json.RawMessage(args))
+		res, err := toolSyncPull(k, bundle, false, nil, nil).Handler(narrowCtx, json.RawMessage(args))
 		if err != nil || res.IsError {
 			t.Fatalf("sync_pull %s: %v %+v", args, err, res)
 		}

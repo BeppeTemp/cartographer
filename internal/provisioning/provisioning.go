@@ -250,6 +250,11 @@ type ApplyOptions struct {
 	// paths" table covers the whole KB and not only the artifacts this Apply
 	// rewrites. Only read when ExpandPlaceholders is set.
 	Placeholders map[string][]string
+	// FeedbackMode is the server's feedback.destination mode ("github",
+	// "custom", "off"; "" is github), from sync_pull. It selects the feedback
+	// bullet of the shared operational section, so it is part of the block's
+	// client-owned hash through that text.
+	FeedbackMode string
 	// PathRegistries are the bound KBs' declared placeholder vocabularies
 	// (D263), KB name -> registry. Merged in KBOrder (first KB wins on a
 	// conflicting default or remote, with a warning); a declared remote is
@@ -2347,7 +2352,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 			sections = append(sections, string(expandedContent[a.Name]))
 		}
 		if sharedSectionWanted(sections) {
-			sharedSection = SharedOperationalSection()
+			sharedSection = SharedOperationalSection(opts.FeedbackMode)
 		}
 	}
 	if opts.ExpandPlaceholders && len(signed) > 0 {
@@ -4125,7 +4130,7 @@ func instructionsResolutionDrift(m contract.Manifest, opts ApplyOptions, tracker
 	}
 	var shared string
 	if sharedSectionWanted(sections) {
-		shared = SharedOperationalSection()
+		shared = SharedOperationalSection(opts.FeedbackMode)
 	}
 	// The cli sentence is in the hash Apply records, so it is in this one (#1846).
 	cliPart := cliHashPartOf(cliSentenceFor(opts.Provider))

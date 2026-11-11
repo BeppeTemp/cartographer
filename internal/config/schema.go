@@ -134,6 +134,9 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "web.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_WEB_ENABLED", Flag: "--web-enabled", Restart: true, Example: "true",
 		Description: "Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes."},
 
+	{Path: "feedback.destination", Scope: settingschema.ScopeServer, Type: "string", Values: "github | off | URL template with {kind}, {title}, {body}", Default: "github", Env: "CARTOGRAPHER_FEEDBACK_DESTINATION", Restart: true, Example: "github",
+		Description: "Where agent bug and idea reports go. github opens a prefilled issue on the public repository; off removes the offer lines from the served instructions and the hint on internal errors; an https:// URL template (it must contain {title}) points agents at an internal tracker. Nothing is ever sent by the server."},
+
 	{Path: "api.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "false", Env: "CARTOGRAPHER_API_ENABLED", Flag: "--api-enabled", Restart: true, Example: "false",
 		Description: "Serve the public read-only API at /api/v1 in HTTP mode, independent of web.enabled. Off by default: nothing is exposed until set."},
 	{Path: "api.cors_origins", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,

@@ -81,7 +81,10 @@ const (
 // written once per block after the last KB's section (D1182) instead of once
 // per KB. Client-owned: no artifact hash covers it, so applyInstructionsGroup
 // folds it into the hash the lock records for the client-side tail of the block.
-func SharedOperationalSection() string {
+// feedbackMode is the server's feedback.destination mode ("" is github): it is
+// in the text, so a change of the setting rewrites the block once and `status`
+// does not call it drift.
+func SharedOperationalSection(feedbackMode string) string {
 	var sb strings.Builder
 	sb.WriteString(operationalHeading + "\n")
 	sb.WriteString(contract.OrientationBullet)
@@ -91,6 +94,7 @@ func SharedOperationalSection() string {
 	sb.WriteString(contract.CommitBullet)
 	sb.WriteString(gitBullet)
 	sb.WriteString(updateBullet)
+	sb.WriteString(contract.FeedbackBullet(feedbackMode))
 	sb.WriteString(readWholeBullet)
 	sb.WriteString(guideBullet)
 	return sb.String()

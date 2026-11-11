@@ -253,6 +253,8 @@ over 16 KiB (about 4k tokens, tokens = bytes/4, approximate), naming the three l
 
 **The block and Meridian's guide share one generator** (D1097): `internal/provisioning` builds the routing sentence, the shared bullets and the scope sentence once. The guide (`initialize`, `kb_guide`) is the full rendering; the block is the brief one, whose shared section adds the lines that need a Cartographer client (no git in the clone, `kb reauthor`, the update notice) and which the guide leaves out. The brief region of a KB is pinned by golden tests; D1182 changed its `ContentHash` once, so every `instructions` artifact is re-synced a single time on upgrade.
 
+**The shared section names when to offer a report** (D1925): one bullet says that, when a tool fails like a defect, behaviour contradicts the docs, the agent works around a limit or the user complains, it offers once per problem and per session, and only if the user agrees, to draft a report with the `cartographer-feedback` skill. The server's `feedback.destination` reaches the client through `sync_pull` (`custom` names the operator's tracker, `off` drops the bullet; absent is `github`) and is part of the shared section's text, so it is in the client-owned hash: changing the setting rewrites each block once on the next `sync`, and `status` reports no drift.
+
 **The operational bullets forbid git in the KB's clone** (D264): the last one tells the agent never to
 run git commands there and to report replication problems from `sync_status` to the operator. An
 agent's own `git init`, `checkout -b` or `push` is how a KB ends up forked across two branches of its

@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
@@ -151,7 +152,7 @@ type pulledArtifactJSON struct {
 // artifact's file contents embedded (base64). Meant for a remote HTTP client
 // that does not share the filesystem with the server: the client materializes
 // locally without reading bundle/KB directly. Read-only, no arguments required.
-func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey) Tool {
+func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey, fb func() feedback.Destination) Tool {
 	return Tool{
 		Name:     "sync_pull",
 		ReadOnly: true,
@@ -241,6 +242,13 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 			}
 			if issues := append(append(append([]string(nil), m.Issues...), registryIssues...), excluded...); len(issues) > 0 {
 				result["issues"] = issues
+			}
+			// Absent means github: a client or server that predates the setting
+			// agrees (the managed block only needs the mode).
+			if fb != nil {
+				if mode := fb().Mode(); mode != feedback.ModeGitHub {
+					result["feedback"] = map[string]interface{}{"destination": string(mode)}
+				}
 			}
 			return jsonResult(result), nil
 		},

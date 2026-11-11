@@ -135,6 +135,16 @@ web:
   # needs a restart
   enabled: true
 
+feedback:
+  # Where agent bug and idea reports go. github opens a prefilled issue on the
+  # public repository; off removes the offer lines from the served instructions
+  # and the hint on internal errors; an https:// URL template (it must contain
+  # {title}) points agents at an internal tracker. Nothing is ever sent by the
+  # server.
+  # Values: github | off | URL template with {kind}, {title}, {body} ·
+  # Default: github · Env CARTOGRAPHER_FEEDBACK_DESTINATION · needs a restart
+  destination: github
+
 api:
   # Serve the public read-only API at /api/v1 in HTTP mode, independent of
   # web.enabled. Off by default: nothing is exposed until set.
