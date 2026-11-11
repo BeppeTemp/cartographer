@@ -772,11 +772,19 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		// The origin check sits outside authentication (D128): a page that is not
 		// allowed to talk to this server should be turned away before its token is
 		// looked at.
-		handler := mcpserver.OriginGuard(store.Middleware(multi.Handler()))
+		//
+		// TRAP: APICORS sits inside OriginGuard and OUTSIDE the token middleware,
+		// because a CORS preflight carries no Authorization header and would be a
+		// 401 behind it. It touches /api/v1 only, and only with api.enabled.
+		authed := store.Middleware(multi.Handler())
+		if settingsCfg != nil && settingsCfg.API.Enabled {
+			authed = mcpserver.APICORS(settingsCfg.API.CORSOrigins, authed)
+		}
+		handler := mcpserver.OriginGuard(authed)
 		if webMounted {
 			// Outside the auth chain: the browser that types the bare address has
 			// no token yet (webui.RedirectRoot).
-			handler = mcpserver.OriginGuard(webui.RedirectRoot(store.Middleware(multi.Handler())))
+			handler = mcpserver.OriginGuard(webui.RedirectRoot(authed))
 		}
 
 		// The handler is complete before the gate opens, so no request can
