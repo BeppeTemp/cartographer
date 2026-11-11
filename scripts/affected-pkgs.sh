@@ -44,11 +44,13 @@ fi
 repo_readers="internal/repodocs"
 md_readers="internal/repodocs internal/mcpserver"
 # Every test that scans the source of the whole tree: internal/procattr
-# (TestEveryChildProcessIsHidden) and internal/repodocs read every package, so a Go
-# file changed anywhere can break them while no dependency edge says so. The
-# procattr guard is platform behaviour (Windows console windows), so --code keeps it.
+# (TestEveryChildProcessIsHidden), internal/repodocs and internal/boundaries (the
+# import graph of every package) read every package, so a Go file changed anywhere
+# can break them while no dependency edge says so. The procattr guard is platform
+# behaviour (Windows console windows), so --code keeps it; the import graph is not,
+# so --code leaves boundaries out like repodocs.
 guards_code="internal/procattr"
-guards_reader="internal/repodocs"
+guards_reader="internal/repodocs internal/boundaries"
 
 all=false
 seeds="" readers="" guards=""

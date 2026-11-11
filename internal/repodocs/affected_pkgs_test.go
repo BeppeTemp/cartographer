@@ -43,17 +43,17 @@ func TestAffectedPackagesSeedTable(t *testing.T) {
 		paths []string
 		want  string
 	}{
-		{"go file also selects the tree-scanning guards", []string{"internal/kb/kb.go"}, "./internal/kb ./internal/procattr ./internal/repodocs"},
-		{"test file", []string{"internal/audit/audit_test.go"}, "./internal/audit ./internal/procattr ./internal/repodocs"},
+		{"go file also selects the tree-scanning guards", []string{"internal/kb/kb.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/boundaries"},
+		{"test file", []string{"internal/audit/audit_test.go"}, "./internal/audit ./internal/procattr ./internal/repodocs ./internal/boundaries"},
 		{"testdata belongs to its package", []string{"internal/kb/testdata/x/y.md"}, "./internal/kb"},
 		{"embedded skill belongs to the embedding package", []string{"internal/skillbundle/bundled/cartographer-ops/SKILL.md"}, "./internal/skillbundle"},
-		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen ./internal/procattr ./internal/repodocs"},
+		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen ./internal/procattr ./internal/repodocs ./internal/boundaries"},
 		{"frontend is hashed by webui", []string{"web/src/lib/health.ts"}, "./internal/webui"},
 		{"markdown is read by repodocs and the tool-citation check", []string{"docs/testing.md"}, "./internal/repodocs ./internal/mcpserver"},
 		{"scripts and workflows are read by repodocs", []string{"scripts/signoff.sh", ".github/workflows/ci.yml", "Makefile"}, "./internal/repodocs"},
 		{"the module selects everything", []string{"docs/testing.md", "go.sum"}, "./..."},
-		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb ./internal/procattr ./internal/repodocs"},
-		{"a deleted package still selects the guards", []string{"internal/gone-for-good/x.go"}, "./internal/procattr ./internal/repodocs"},
+		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/boundaries"},
+		{"a deleted package still selects the guards", []string{"internal/gone-for-good/x.go"}, "./internal/procattr ./internal/repodocs ./internal/boundaries"},
 		{"nothing in, nothing out", nil, ""},
 	}
 	for _, c := range cases {
@@ -124,16 +124,18 @@ func TestAffectedPackagesDoesNotExpandReaders(t *testing.T) {
 	}
 }
 
-// TestEveryChildProcessIsHidden (internal/procattr) and the repodocs checks scan the
-// source of every package: a Go file changed anywhere must select them, in the fast
-// tier and, for procattr (Windows console windows), in the Windows leg too. A new
+// TestEveryChildProcessIsHidden (internal/procattr), the repodocs checks and the
+// import graph checks of internal/boundaries scan the source of every package: a Go
+// file changed anywhere must select them, in the fast tier and, for procattr
+// (Windows console windows), in the Windows leg too. A new import of a server-side
+// package that crosses a boundary once passed make check (#1926). A new
 // exec.Command without procattr.Hide in internal/gitx once passed make check and
 // failed only the train gate.
 func TestAffectedPackagesAlwaysRunsTheTreeScanningGuards(t *testing.T) {
 	needBash(t)
 	for _, args := range [][]string{nil, {"--seeds"}} {
 		got := " " + affected(t, []string{"internal/gitx/gitx.go"}, args...) + " "
-		for _, want := range []string{"./internal/gitx", "./internal/procattr", "./internal/repodocs"} {
+		for _, want := range []string{"./internal/gitx", "./internal/procattr", "./internal/repodocs", "./internal/boundaries"} {
 			if !strings.Contains(got, " "+want+" ") {
 				t.Errorf("%v: a Go change must select %s, got%s", args, want, got)
 			}
@@ -143,10 +145,12 @@ func TestAffectedPackagesAlwaysRunsTheTreeScanningGuards(t *testing.T) {
 	if !strings.Contains(got, " ./internal/procattr ") {
 		t.Errorf("--code must keep the procattr guard, got%s", got)
 	}
-	if strings.Contains(got, " ./internal/repodocs ") {
-		t.Errorf("--code must leave repodocs out, got%s", got)
+	for _, not := range []string{"./internal/repodocs", "./internal/boundaries"} {
+		if strings.Contains(got, " "+not+" ") {
+			t.Errorf("--code must leave %s out, got%s", not, got)
+		}
 	}
-	if got := affected(t, []string{"docs/testing.md"}); strings.Contains(got, "procattr") {
+	if got := affected(t, []string{"docs/testing.md"}); strings.Contains(got, "procattr") || strings.Contains(got, "boundaries") {
 		t.Errorf("a markdown change does not select procattr, got %q", got)
 	}
 }
