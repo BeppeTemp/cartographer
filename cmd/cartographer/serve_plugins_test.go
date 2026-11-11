@@ -146,3 +146,24 @@ func TestProxyCeilingJudgesPluginRoles(t *testing.T) {
 		}
 	}
 }
+
+// TestServerPresetsReachPresetList: a pinned plugin's preset becomes an entry of
+// preset_list with the templates at their paths.
+func TestServerPresetsReachPresetList(t *testing.T) {
+	old := version
+	version = "0.29.0"
+	t.Cleanup(func() { version = old })
+	root, digest := vendorTree(t, serverTree(
+		"presets/runbooks/preset.yaml", "description: Runbook map.\ntitle: Runbooks\nkind: map\ntemplates: [runbook]\n",
+		"presets/runbooks/templates/runbook.md", "---\ntype: Runbook\ntitle: {{title}}\n---\n# Procedure\n",
+	))
+	cfg := &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"team-data": {Digest: digest, Enabled: true}}}
+	plugins, err := loadServerPlugins(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := presetEntries(plugins)
+	if len(got) != 1 || got[0].ID != "team-data/runbooks" || got[0].PluginVersion != "1.2.0" || got[0].Templates[0].Path != "templates/runbook.md" || got[0].Templates[0].Content == "" {
+		t.Fatalf("presets = %+v", got)
+	}
+}

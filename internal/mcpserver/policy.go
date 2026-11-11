@@ -97,7 +97,7 @@ func resourceClassForTool(name string) string {
 		return resourceBatch
 	case "index_patch":
 		return resourceCuratedIndex
-	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "ingest_setup", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_pull", "reindex", "kb_status", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "artifact_move", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
+	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "preset_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "ingest_setup", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_pull", "reindex", "kb_status", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "artifact_move", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
 		return resourceWhole
 	default:
 		return ""

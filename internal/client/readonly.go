@@ -38,6 +38,7 @@ var ReadOnlyToolNames = map[string]bool{
 	"artifact_read":   true,
 	"artifact_list":   true,
 	"template_list":   true,
+	"preset_list":     true,
 	"asset_read":      true,
 	"asset_list":      true,
 	"source_list":     true,

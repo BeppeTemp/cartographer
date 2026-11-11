@@ -163,6 +163,9 @@ var advancedToolNames = map[string]bool{
 	// ingest_setup (D1201): a one-off, idempotent provisioning of the two
 	// ingest templates, reached by name from kb_guide and the planner skill.
 	"ingest_setup": true,
+	// preset_list: the presets of the plugins pinned in the server config,
+	// reached by name from the plugin's own instructions; server data, not a KB's.
+	"preset_list": true,
 }
 
 // ToolAdvanced reports whether the named tool is hidden from tools/list under

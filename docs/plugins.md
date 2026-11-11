@@ -254,7 +254,9 @@ behaviour is carried by the KB and must not differ per server (D746, D906):
   a plugin without that role is a start error, as is a plugin whose role fails the rule grammar. The preview lists
   each role with its rule count and widest access, and says when `artifacts: rw` is reachable. A reload of the auth
   section re-applies the plugins loaded at start.
-- **Presets** are validated at load and carried with the plugin; the tool that hands them to a writer comes in the next change.
+- **Presets** are handed to an authorised writer by `preset_list` (advanced, read-only: `docs/control-plane.md`),
+  who applies them with `artifact_write` for each template and `map_create`, under the caller's own scopes. The tool
+  returns no KB data and the same result for every principal.
 
 The start log says `roles N, presets M` per plugin. The preview of a server side (`plugin vendor` prints it) lists both.
 
