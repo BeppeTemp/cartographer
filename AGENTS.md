@@ -83,6 +83,7 @@ internal/execbit                reports whether the filesystem has the POSIX exe
 internal/feedback               redacts a bug report and builds its destination URL
 internal/gitx                   provides a git wrapper via os/exec for the Agentic Wiki
 internal/graphalgo              holds the graph algorithms behind the retrieval tools (D242)
+internal/hooks                  calls the hook points of the core
 internal/jsonorder              edits a JSON object without reformatting the rest
 internal/kb                     implements the data plane of the OKF knowledge base
 internal/lint                   implements deterministic lint checks on a KB scope
