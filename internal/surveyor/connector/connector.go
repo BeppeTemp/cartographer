@@ -42,6 +42,33 @@ const (
 // so routing by prefix cannot shadow a server tool.
 const Separator = "__"
 
+// Alias is the connector's name as the model sees it: a plugin connector's "/"
+// is written "--" ("acme-wiki/wiki" is offered as "acme-wiki--wiki__get_page").
+// The model never sees a "/", and the routing name cannot contain Separator
+// (no connector name does: its characters are a-z, 0-9, - and one /).
+func Alias(name string) string { return strings.ReplaceAll(name, "/", "--") }
+
+// CheckAliases refuses two connectors whose offered prefix is the same: an
+// operator-local "a--b" and a plugin's "a/b" would route to one another's
+// tools. Open runs it too and refuses to start any connector of a set that
+// fails it, so a caller that forgot the config-time check cannot route a call
+// (with credentials) to the wrong server.
+func CheckAliases(cfgs []Config) error {
+	seen := map[string]string{}
+	for _, c := range cfgs {
+		a := Alias(c.Name)
+		if prev, dup := seen[a]; dup {
+			return fmt.Errorf("connectors %q and %q both offer their tools as %q", prev, c.Name, a+Separator+"<tool>")
+		}
+		seen[a] = c.Name
+	}
+	return nil
+}
+
+// MaxToolNameLen is the longest tool name providers accept; a connector tool
+// whose offered name would be longer is not offered.
+const MaxToolNameLen = 64
+
 const (
 	maxDescriptionBytes = 300
 	maxSchemaBytes      = 8 << 10
@@ -84,6 +111,10 @@ type Set struct {
 	ctx  context.Context
 	logf func(format string, args ...any)
 	cfgs map[string]Config
+	// byAlias routes the prefix of an offered tool name to the connector.
+	byAlias map[string]string
+	// cfgErr is a CheckAliases failure: every Tools and Call answers it.
+	cfgErr error
 
 	mu   sync.Mutex
 	live map[string]*conn
@@ -105,10 +136,12 @@ func Open(ctx context.Context, cfgs []Config, logf func(string, ...any)) *Set {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	s := &Set{ctx: ctx, logf: logf, cfgs: map[string]Config{}, live: map[string]*conn{}}
+	s := &Set{ctx: ctx, logf: logf, cfgs: map[string]Config{}, byAlias: map[string]string{}, live: map[string]*conn{}}
 	for _, c := range cfgs {
 		s.cfgs[c.Name] = c
+		s.byAlias[Alias(c.Name)] = c.Name
 	}
+	s.cfgErr = CheckAliases(cfgs)
 	return s
 }
 
@@ -129,7 +162,11 @@ func (s *Set) Tools(ctx context.Context, name string) ([]Tool, error) {
 // Call runs an allowed tool by its qualified name. A name outside the allowlist
 // is refused without any request to the server.
 func (s *Set) Call(ctx context.Context, qualified string, args map[string]any) (Result, error) {
-	name, tool, ok := strings.Cut(qualified, Separator)
+	if s.cfgErr != nil {
+		return Result{}, s.cfgErr
+	}
+	alias, tool, ok := strings.Cut(qualified, Separator)
+	name := s.byAlias[alias]
 	cfg, known := s.cfgs[name]
 	if !ok || !known {
 		return Result{}, fmt.Errorf("connector: %q is not a connector tool", qualified)
@@ -194,6 +231,9 @@ func (s *Set) Close() {
 }
 
 func (s *Set) start(ctx context.Context, name string) (*conn, error) {
+	if s.cfgErr != nil {
+		return nil, s.cfgErr
+	}
 	cfg, ok := s.cfgs[name]
 	if !ok {
 		return nil, fmt.Errorf("connector %q is not declared in the Surveyor config", name)
@@ -252,8 +292,12 @@ func (s *Set) connect(ctx context.Context, cfg Config, c *conn) error {
 			s.logf("surveyor: connector %s: tool %s not offered: its input schema is over %d bytes", cfg.Name, t.Name, maxSchemaBytes)
 			continue
 		}
+		if full := Alias(cfg.Name) + Separator + t.Name; len(full) > MaxToolNameLen {
+			s.logf("surveyor: connector %s: tool %s not offered: %q is over %d characters, the cap providers enforce on a tool name", cfg.Name, t.Name, full, MaxToolNameLen)
+			continue
+		}
 		c.offered[t.Name] = true
-		c.tools = append(c.tools, Tool{Name: cfg.Name + Separator + t.Name, Description: cutUTF8(t.Description, maxDescriptionBytes), InputSchema: t.InputSchema})
+		c.tools = append(c.tools, Tool{Name: Alias(cfg.Name) + Separator + t.Name, Description: cutUTF8(t.Description, maxDescriptionBytes), InputSchema: t.InputSchema})
 	}
 	return nil
 }

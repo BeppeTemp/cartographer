@@ -23,7 +23,9 @@ Source's `feed_error` has the values of the listed variables replaced by `***`. 
 
 ## Config
 
-A name that is not a built-in (`[a-z0-9-]`, 1 to 40 characters) takes:
+A name that is not a built-in (`[a-z0-9-]`, 1 to 40 characters, never a `/`) takes. The unprefixed names are
+yours and the built-ins'; a name of the form `<plugin>/<name>` (at most 31 characters in all; each part starts and ends with a letter or digit) belongs to a pinned plugin, is never written in this
+file, and is what a Source stores (`recipe: acme-wiki/wiki`) like any other name:
 
 ```yaml
 recipes:

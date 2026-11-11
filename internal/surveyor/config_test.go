@@ -535,6 +535,7 @@ func TestLoadConfigConnectors(t *testing.T) {
 func TestLoadConfigConnectorErrors(t *testing.T) {
 	for name, tc := range map[string]struct{ yaml, want string }{
 		"bad name":          {"connectors:\n  Bad_Name:\n    transport: http\n", "connectors.Bad_Name (line "},
+		"plugin namespace":  {"connectors:\n  acme/wiki:\n    transport: http\n", "cannot contain"},
 		"reserved git":      {"connectors:\n  git:\n    transport: http\n", "reserved"},
 		"reserved artifact": {"connectors:\n  artifact:\n    transport: http\n", "reserved"},
 		"no transport":      {"connectors:\n  a:\n    tools: [x]\n", "connectors.a.transport (line "},
@@ -699,6 +700,7 @@ func TestLoadConfigExecRecipes(t *testing.T) {
 		"builtin settings":   {"recipes:\n  git-docs:\n    instructions_file: feed.md\n    settings: {a: b}\n", "recipes.git-docs (line "},
 		"settings list":      {"recipes:\n  mine:\n    instructions_file: feed.md\n    settings: {a: [1]}\n    exec: {command: x}\n", "recipes.mine.settings (line "},
 		"other shape":        {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: collection\n    exec: {command: x}\n", "recipes.mine.shape (line "},
+		"plugin namespace":   {"recipes:\n  acme/feed:\n    instructions_file: feed.md\n    exec: {command: x}\n", "cannot contain"},
 		"bad name":           {"recipes:\n  Bad_Name:\n    instructions_file: feed.md\n    exec: {command: x}\n", "recipes.Bad_Name (line "},
 		"no exec":            {"recipes:\n  mine:\n    instructions_file: feed.md\n", "recipes.mine (line "},
 		"no command":         {"recipes:\n  mine:\n    instructions_file: feed.md\n    exec: {args: [a]}\n", "recipes.mine.exec.command (line "},

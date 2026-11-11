@@ -724,12 +724,12 @@ fetch:
 `fetch.allow_private` is refused by default after DNS resolution (checked on every connection, redirects included): a
 Surveyor runs inside someone's network and must not become a proxy to it.
 
-**Connectors (D1262).** `connectors` is a mapping, by name (`[a-z0-9-]{1,30}`, not `git`, `fetch` or
-`artifact`), of external MCP servers the unit-execution task may read documents through. Each takes
+**Connectors (D1262).** `connectors` is a mapping, by name (`[a-z0-9-]{1,30}`, no `/`, not `git`, `fetch` or
+`artifact`; `<plugin>/<name>` names belong to plugins, at most 31 characters in all, each part starting and ending with a letter or digit), of external MCP servers the unit-execution task may read documents through. Each takes
 `transport: stdio` (`command`, `args`, `env`) or `transport: http` (`url`, `token_env`, `headers`,
 `allow_insecure_http`), plus `tools` (required), `call_timeout` (default 60s) and `max_result_bytes`
 (default 256 KiB). A Source names a connector in its `connector` field; nothing else in a KB selects
-one. The model is offered only the tools listed in `tools`, as `<connector>__<tool>`, and a call to any
+one. The model is offered only the tools listed in `tools`, as `<connector>__<tool>` (a plugin's `acme-wiki/wiki` is written `acme-wiki--wiki__<tool>`, and two connectors offering the same prefix are a load error; a set that reaches the run with such a pair refuses to start every connector of it; a tool whose offered name is over 64 characters, the cap providers enforce, is logged and not offered, for operator-local connectors too), and a call to any
 other is refused by the Surveyor before it reaches Meridian: Meridian's own tool list is untrusted.
 Every value of `env` and `headers`, and `token_env`, is the **name** of a variable of the Surveyor (a
 value is refused at load, without echoing it); the variable is read when the connector first starts,

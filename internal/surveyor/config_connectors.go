@@ -64,6 +64,9 @@ func (v *validator) connectors() error {
 			}
 			return v.line("connectors", name)
 		}
+		if strings.Contains(name, "/") {
+			return v.errf(at, ln(), "a connector name cannot contain \"/\": names of the form <plugin>/<name> belong to plugins, yours are unprefixed")
+		}
 		if !connectorNameRE.MatchString(name) {
 			return v.errf(at, ln(), "a connector name is 1 to 30 characters of a-z, 0-9 and -")
 		}
@@ -141,6 +144,9 @@ func (v *validator) connectors() error {
 			c.MaxResultBytes = r.MaxResultBytes
 		}
 		v.c.Connectors = append(v.c.Connectors, c)
+	}
+	if err := connector.CheckAliases(v.c.Connectors); err != nil {
+		return v.errf("connectors", v.line("connectors"), "%v", err)
 	}
 	return nil
 }

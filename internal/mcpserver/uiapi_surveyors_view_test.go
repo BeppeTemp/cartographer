@@ -179,6 +179,17 @@ func TestUIFeeds(t *testing.T) {
 	}
 }
 
+// A plugin recipe is named <plugin>/<name>: the Atlas row carries it whole.
+func TestUIFeeds_ShowsAQualifiedRecipeName(t *testing.T) {
+	t.Parallel()
+	f := newAtlasSurveyorFixture(t)
+	writeConcept(t, f, "visible/q.md", "---\ntype: Source\ntitle: S\nrecipe: acme-wiki/wiki\nfeed_error: \"list_failed: x\"\n---\nb\n")
+	rr := f.get("reader", "/kbs/kb-a/feeds")
+	if !strings.Contains(rr.Body.String(), `"recipe":"acme-wiki/wiki"`) {
+		t.Fatalf("%s", rr.Body.String())
+	}
+}
+
 func TestUIFeeds_CutsErrorAndCaps(t *testing.T) {
 	t.Parallel()
 	f := newAtlasSurveyorFixture(t)
