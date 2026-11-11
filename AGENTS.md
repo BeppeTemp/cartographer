@@ -78,7 +78,7 @@ internal/config                 is the server configuration of `cartographer ser
 internal/configurator           generates the MCP configuration of each agent client
 internal/defaults               holds the local endpoint defaults
 internal/execbit                reports whether the filesystem has the POSIX execute bit
-internal/feedback               builds the destination URL of a bug report an agent offers about Cartographer itself
+internal/feedback               redacts a bug report and builds its destination URL
 internal/gitx                   provides a git wrapper via os/exec for the Agentic Wiki
 internal/graphalgo              holds the graph algorithms behind the retrieval tools (D242)
 internal/jsonorder              edits a JSON object without reformatting the rest
