@@ -31,7 +31,26 @@ would spawn what an operator did not list. A default failure policy: either defa
 is wrong for some operator. Letting a hook answer `allow`: it would let a plugin
 widen what the core refused.
 
+**The registry.** One `Registry` is built once from the resolved entries and decides
+per call through the breaker and the operator's policy: `fail_closed` turns a
+failure into a deny (marked unavailable, so the caller can code it apart from the
+hook's own deny), `fail_open` continues with the failure recorded. Choices:
+
+- An unknown hook name is a wiring error and denies as unavailable; it never passes
+  silently. A nil registry means no hooks and answers an empty outcome, so the
+  call sites need no branch.
+- `dry_run` calls the hook and records `dry_run_deny`, but hands back nothing: an
+  empty answer and no opinion, with a flag on the outcome. An identity or resolver
+  answer must not take effect through a hook that is only being observed.
+- A call the caller cancelled is not a failure of the hook: the breaker and the
+  counters are untouched and a probe slot is released, so a client cannot open the
+  breaker by aborting requests. It still has no answer, so the failure policy
+  decides the request (`fail_closed` denies): a client must not be able to turn a
+  slow veto into an allow by cancelling.
+- A credential file is read at start and can be reread without dropping the one in
+  use; a missing or empty file refuses the start.
+
 **Consequences.** `internal/hooks` is a leaf, standard library only, imported by the
-points that call it, which must never call it under a KB lock. The registry that
-applies the policy, the server config that declares hooks and the points that call
-them arrive in later changes, each extending this record with its own choices.
+points that call it, which must never call it under a KB lock. The server config
+that declares hooks and the points that call the registry arrive in later changes,
+each extending this record with its own choices.
