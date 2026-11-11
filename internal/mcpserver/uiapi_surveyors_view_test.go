@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -45,44 +46,49 @@ func surveyorNames(t *testing.T, rr *httptest.ResponseRecorder) []string {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
 	var ans struct {
-		Surveyors []struct {
-			Surveyor string `json:"surveyor"`
-		} `json:"surveyors"`
+		Components []struct {
+			Replicas []struct {
+				ID string `json:"id"`
+			} `json:"replicas"`
+		} `json:"components"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &ans); err != nil {
 		t.Fatal(err)
 	}
 	var out []string
-	for _, w := range ans.Surveyors {
-		out = append(out, w.Surveyor)
+	for _, c := range ans.Components {
+		for _, w := range c.Replicas {
+			out = append(out, w.ID)
+		}
 	}
+	sort.Strings(out)
 	return out
 }
 
 func TestUISurveyors_ShowsLiveSurveyorsOfTheKB(t *testing.T) {
 	t.Parallel()
 	f := newAtlasSurveyorFixture(t)
-	if got := surveyorNames(t, f.get("reader", "/kbs/kb-a/surveyors")); len(got) != 0 {
+	if got := surveyorNames(t, f.get("reader", "/kbs/kb-a/components")); len(got) != 0 {
 		t.Fatalf("no surveyor declared, got %v", got)
 	}
-	if rr := f.get("reader", "/kbs/kb-a/surveyors"); !strings.Contains(rr.Body.String(), `"surveyors":[]`) {
+	if rr := f.get("reader", "/kbs/kb-a/components"); !strings.Contains(rr.Body.String(), `"components":[]`) {
 		t.Fatalf("empty must be [], got %s", rr.Body.String())
 	}
 	f.post(t, "surveyor-ab", beat(map[string]any{"surveyor": "w-2", "kbs": []string{"kb-a", "kb-b"}, "budgets": []map[string]any{{"profile": "cloud", "tier": "large", "spent": 5, "limit": 5}}}))
 	f.post(t, "surveyor-a", beat(map[string]any{"surveyor": "w-1"}))
-	if got := surveyorNames(t, f.get("reader", "/kbs/kb-a/surveyors")); strings.Join(got, ",") != "w-1,w-2" {
+	if got := surveyorNames(t, f.get("reader", "/kbs/kb-a/components")); strings.Join(got, ",") != "w-1,w-2" {
 		t.Fatalf("kb-a surveyors = %v", got)
 	}
-	if got := surveyorNames(t, f.get("other", "/kbs/kb-b/surveyors")); strings.Join(got, ",") != "w-2" {
+	if got := surveyorNames(t, f.get("other", "/kbs/kb-b/components")); strings.Join(got, ",") != "w-2" {
 		t.Fatalf("a surveyor declaring two KBs must show on both: %v", got)
 	}
-	body := f.get("reader", "/kbs/kb-a/surveyors").Body.String()
+	body := f.get("reader", "/kbs/kb-a/components").Body.String()
 	if strings.Contains(body, "surveyor-a") || strings.Contains(body, "principal") || !strings.Contains(body, `"spent":5`) {
 		t.Fatalf("principal leaked or budget missing: %s", body)
 	}
 	// A stale surveyor is absent.
 	f.clock.advance(time.Hour)
-	if got := surveyorNames(t, f.get("reader", "/kbs/kb-a/surveyors")); len(got) != 0 {
+	if got := surveyorNames(t, f.get("reader", "/kbs/kb-a/components")); len(got) != 0 {
 		t.Fatalf("stale surveyors shown: %v", got)
 	}
 }
@@ -92,15 +98,15 @@ func TestUISurveyors_Visibility(t *testing.T) {
 	f := newAtlasSurveyorFixture(t)
 	f.post(t, "surveyor-a", beat(nil))
 	for _, c := range []struct{ token, path string }{
-		{"narrow", "/kbs/kb-a/surveyors"}, // does not see the whole KB
-		{"other", "/kbs/kb-a/surveyors"},  // cannot see the KB
-		{"reader", "/kbs/nope/surveyors"},
+		{"narrow", "/kbs/kb-a/components"}, // does not see the whole KB
+		{"other", "/kbs/kb-a/components"},  // cannot see the KB
+		{"reader", "/kbs/nope/components"},
 	} {
 		if rr := f.get(c.token, c.path); rr.Code != http.StatusNotFound {
 			t.Errorf("%s %s = %d, want 404", c.token, c.path, rr.Code)
 		}
 	}
-	req := httptest.NewRequest(http.MethodPost, UIAPIPrefix+"/kbs/kb-a/surveyors", nil)
+	req := httptest.NewRequest(http.MethodPost, UIAPIPrefix+"/kbs/kb-a/components", nil)
 	req.Header.Set("Authorization", "Bearer reader")
 	rr := httptest.NewRecorder()
 	f.h.ServeHTTP(rr, req)

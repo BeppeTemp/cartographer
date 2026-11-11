@@ -167,8 +167,8 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiChecks(w, k)
 	case "work":
 		uiWork(w, r, srv)
-	case "surveyors":
-		m.uiSurveyors(w, r, segments[1], srv)
+	case "components":
+		m.uiComponents(w, r, segments[1], srv)
 	case "feeds":
 		uiFeeds(w, r, srv)
 	case "placeholders":
@@ -194,7 +194,7 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 			writeUINotFound(w)
 			return
 		}
-		uiMaintenance(w, r, srv, segments[3])
+		uiMaintenance(w, r, srv, segments[3], func() repairInfo { return m.repairInfoOf(segments[1], srv) })
 	default:
 		writeUINotFound(w)
 	}

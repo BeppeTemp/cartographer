@@ -256,6 +256,7 @@ site has no business scripting this server. The JSON-body routes (`/api/componen
 `application/json` (a cross-site form cannot set that type without a preflight),
 and refuse a body over their cap with HTTP 413 (1 MiB for a usage report, 256 KiB
 for a client settings report, 64 KiB for a Surveyor heartbeat, 128 KiB for a Surveyor settings report); the usage store itself is refused past 4 MiB.
+On the versioned routes (not the aliases) the token's kind is checked too: a `client` token on a Surveyor route, or a `surveyor` token on a Compass route, is HTTP 403 `wrong_token_kind` ([control-plane](control-plane.md) §Component contract).
 
 The same-origin rule alone does not tell a page served from a rebound DNS name
 from the real one: `Origin` and `Host` then both name that name. A server that

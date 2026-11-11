@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -340,7 +341,7 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	open = &call
 	// After the audit attempt: touchActivity reads the clock, and a panic there
 	// must still close the audit pair with internal_error (D1516).
-	s.touchActivity(principal, name)
+	s.touchActivity(principal, auth.PrincipalFromContext(ctx).Kind == auth.KindSurveyor, name)
 	result, err := tool.Handler(ctx, args)
 	// The nudge runs before the audit closes: a panic in it leaves the call
 	// open for the deferred recover, which audits the internal-error outcome

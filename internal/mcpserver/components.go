@@ -32,6 +32,18 @@ type componentRegistry struct {
 	// logged is the last state announced per (component, KB), so a transition
 	// is logged once and a recovery once.
 	logged map[componentKey]string
+	// repairSeen is whether the last accepted beat of an expected component
+	// declared the repair task: it is what makes a silent one a "fallback" of
+	// the repair (the server repairs again) rather than a KB nobody repaired.
+	repairSeen map[componentKey]bool
+	// repair is the repair state last read per KB and when it began (in
+	// memory, recorded when someone reads it).
+	repair map[string]repairStamp
+}
+
+type repairStamp struct {
+	state string
+	since time.Time
 }
 
 type componentKey struct{ kind, name, kb string }
@@ -51,13 +63,15 @@ func (r *componentRegistry) set(specs []config.ComponentSpec) {
 	r.startedAt = r.clock()
 	r.lastSeen = map[componentKey]time.Time{}
 	r.logged = map[componentKey]string{}
+	r.repairSeen = map[componentKey]bool{}
+	r.repair = map[string]repairStamp{}
 }
 
 // noteBeat records an accepted beat of a Surveyor with this perimeter, for the
 // KBs the server accepted for it (the ones its principal may write) that the
 // entry names: a beat for kb-b says nothing about the same name on kb-a, and a
 // principal cannot vouch for a KB it does not hold.
-func (r *componentRegistry) noteBeat(kind, name string, accepted []string, at time.Time) {
+func (r *componentRegistry) noteBeat(kind, name string, accepted []string, at time.Time, repair bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, c := range r.expected {
@@ -66,7 +80,9 @@ func (r *componentRegistry) noteBeat(kind, name string, accepted []string, at ti
 		}
 		for _, kb := range accepted {
 			if containsString(c.KBs, kb) {
-				r.lastSeen[componentKey{kind: kind, name: name, kb: kb}] = at
+				k := componentKey{kind: kind, name: name, kb: kb}
+				r.lastSeen[k] = at
+				r.repairSeen[k] = repair
 			}
 		}
 		return
@@ -168,4 +184,57 @@ func (m *MultiKBServer) ComponentStatus(ctx context.Context, kb string) (rows []
 		rows = []ComponentRow{}
 	}
 	return rows, true
+}
+
+// repairFallback returns the name of an expected component of kb that was last
+// seen declaring the repair task and is now silent: the server repairs the KB
+// again meanwhile (C's restart after silence). rows are status(kb).
+func (r *componentRegistry) repairFallback(kb string, rows []ComponentRow) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, row := range rows {
+		if row.Expected && row.State == componentproto.StateSilent &&
+			r.repairSeen[componentKey{kind: row.Kind, name: row.Name, kb: kb}] {
+			return row.Name, true
+		}
+	}
+	return "", false
+}
+
+// stampRepair records the repair state read for kb and returns when it began
+// as seen by this process. A "server" state never changed since the start has
+// no beginning to report (nil).
+func (r *componentRegistry) stampRepair(kb, state string, now time.Time) *time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.repair == nil {
+		r.repair = map[string]repairStamp{}
+	}
+	cur, ok := r.repair[kb]
+	if !ok || cur.state != state {
+		if !ok && state == "server" {
+			r.repair[kb] = repairStamp{state: state}
+			return nil
+		}
+		cur = repairStamp{state: state, since: now.UTC()}
+		r.repair[kb] = cur
+	}
+	if cur.since.IsZero() {
+		return nil
+	}
+	t := cur.since
+	return &t
+}
+
+// specsFor returns the registry entries of this kind and name.
+func (r *componentRegistry) specsFor(kind, name string) []config.ComponentSpec {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []config.ComponentSpec
+	for _, c := range r.expected {
+		if c.Kind == kind && c.Name == name {
+			out = append(out, c)
+		}
+	}
+	return out
 }
