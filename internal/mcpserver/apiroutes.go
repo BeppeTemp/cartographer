@@ -54,6 +54,10 @@ type apiRoute struct {
 	// Errors are the statuses besides 401 (and 404 on a KB route) the route
 	// documents.
 	Errors []int
+	// Events, when set, makes the route a server-sent event stream: the 200
+	// body is text/event-stream and these are its events (Response stays nil
+	// or the main payload). Tests that GET every route skip it.
+	Events []apiEvent
 
 	segments []string
 }
@@ -80,6 +84,12 @@ func (rt apiRoute) match(segments []string) bool {
 		}
 	}
 	return true
+}
+
+// apiEvent is one event name of a stream and the Go type of its data.
+type apiEvent struct {
+	Name string
+	Data any
 }
 
 // kbRoute adapts a handler that needs only the resolved server.

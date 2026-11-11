@@ -165,6 +165,15 @@ type Operation struct {
 	Errors []int
 	// Public says no bearer token is needed.
 	Public bool
+	// Events makes the operation a server-sent event stream: the 200 body is
+	// text/event-stream and each event's data has the given type.
+	Events []Event
+}
+
+// Event is one named event of a stream.
+type Event struct {
+	Name string
+	Type reflect.Type
 }
 
 // Document describes the whole API.
@@ -198,8 +207,16 @@ func Build(d Document) ([]byte, error) {
 		if op.Response != nil {
 			ok = r.Schema(op.Response)
 		}
-		responses := schema{"200": schema{"description": "OK",
-			"content": schema{"application/json": schema{"schema": ok}}}}
+		content := schema{"application/json": schema{"schema": ok}}
+		var events schema
+		if len(op.Events) > 0 {
+			events = schema{}
+			for _, ev := range op.Events {
+				events[ev.Name] = r.Schema(ev.Type)
+			}
+			content = schema{"text/event-stream": schema{"schema": schema{"type": "string"}, "x-events": events}}
+		}
+		responses := schema{"200": schema{"description": "OK", "content": content}}
 		for _, code := range op.Errors {
 			responses[fmt.Sprint(code)] = schema{"description": http.StatusText(code),
 				"content": schema{"application/json": schema{"schema": errRef}}}

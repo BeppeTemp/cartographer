@@ -50,6 +50,9 @@ func buildOpenAPIDocument() ([]byte, error) {
 		if rt.Response != nil {
 			op.Response = reflect.TypeOf(rt.Response)
 		}
+		for _, ev := range rt.Events {
+			op.Events = append(op.Events, openapi.Event{Name: ev.Name, Type: reflect.TypeOf(ev.Data)})
+		}
 		if rt.kbScoped() {
 			op.Params = append(op.Params, openapi.Param{Name: "kb", In: "path", Description: "KB name", Required: true})
 			op.Errors = append(op.Errors, http.StatusNotFound)

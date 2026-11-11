@@ -23,7 +23,10 @@ import (
 // contextKey is a private type for context keys to avoid collisions.
 type contextKey int
 
-const principalKey contextKey = 0
+const (
+	principalKey contextKey = 0
+	recheckKey   contextKey = 1
+)
 
 // Permission is one immutable allow rule. Empty Maps, Journals and Types are
 // wildcards; non-empty selectors are intersected. There are intentionally no
@@ -533,8 +536,42 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 			}
 		}
 		ctx := ContextWithPrincipal(r.Context(), principal)
+		ctx = context.WithValue(ctx, recheckKey, ts.recheck(r, token))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// Recheck answers, for a request that has outlived its authentication (an
+// event stream), who the bearer is now: the principal in force in the current
+// token generation, or false once the token is unknown, revoked or expired. A
+// narrowed token comes back narrowed. Nil when the request was not
+// authenticated by a token (auth off): there is nothing to revoke.
+type Recheck func() (Principal, bool)
+
+// RecheckFromContext returns the Recheck the middleware attached, or nil.
+func RecheckFromContext(ctx context.Context) Recheck {
+	fn, _ := ctx.Value(recheckKey).(Recheck)
+	return fn
+}
+
+// recheck repeats the middleware's lookup for token against the store as it is
+// now. It keeps r only to read the proxy identity headers again, never its body.
+func (ts *TokenStore) recheck(r *http.Request, token string) Recheck {
+	return func() (Principal, bool) {
+		proxy := ts.snap.Load().proxy
+		entry, st := ts.lookupEntry(token)
+		if st != lookupOK {
+			return Principal{}, false
+		}
+		principal := clonePrincipal(entry.principal)
+		if entry.proxy && proxy != nil {
+			var status int
+			if principal, status, _ = proxy.resolve(r, principal); status != 0 {
+				return Principal{}, false
+			}
+		}
+		return principal, true
+	}
 }
 
 // WellKnownProtectedResourcePath is the RFC 9728 discovery path for OAuth
