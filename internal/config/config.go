@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/feedback"
+	"github.com/BeppeTemp/cartographer/internal/hooks"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"gopkg.in/yaml.v3"
 )
@@ -49,6 +50,10 @@ type Config struct {
 	// KB names are checked against the mounted KBs by UnmountedComponentKBs once
 	// they are known.
 	Components []ComponentSpec
+	// Hooks are the hook points the operator wired (YAML `hooks:` only), judged
+	// at load; whether the plugin is approved and the credential readable is
+	// hooks.NewRegistry's at start.
+	Hooks []hooks.Hook
 	// PluginsDir is the read-only store the pinned plugins are read from and
 	// Plugins the digest pins, by plugin name (YAML only): the pin is the
 	// server's only consent to run a plugin's server side. See PluginPins.
@@ -445,6 +450,7 @@ type rawConfig struct {
 	// default is true.
 	UpdateCheck *bool                   `yaml:"update_check"`
 	Components  []rawComponent          `yaml:"components"`
+	Hooks       []rawHook               `yaml:"hooks"`
 	PluginsDir  string                  `yaml:"plugins_dir"`
 	Plugins     map[string]rawPluginPin `yaml:"plugins"`
 	Maintenance struct {
@@ -536,6 +542,8 @@ func checkAuthKeys(data []byte) error {
 			return fmt.Errorf("key %q at the top level (line %d, column %d): it belongs under auth", k.Value, k.Line, k.Column)
 		case looksLikeAuth(k.Value):
 			return fmt.Errorf("unknown key %q at the top level (line %d, column %d): did you mean %q", k.Value, k.Line, k.Column, "auth")
+		case looksLikeHooks(k.Value):
+			return fmt.Errorf("unknown key %q at the top level (line %d, column %d): did you mean %q", k.Value, k.Line, k.Column, "hooks")
 		default:
 			for name := range sections {
 				if strings.EqualFold(k.Value, name) {
@@ -561,7 +569,12 @@ func looksLikeAuth(key string) bool {
 	if strings.Contains(k, "auth") || strings.Contains(k, "token") {
 		return true
 	}
-	a, b := []rune(k), []rune("auth")
+	return editDistance(k, "auth") <= 2
+}
+
+// editDistance is the Levenshtein distance of two strings.
+func editDistance(x, y string) int {
+	a, b := []rune(x), []rune(y)
 	prev := make([]int, len(b)+1)
 	for j := range prev {
 		prev[j] = j
@@ -578,7 +591,7 @@ func looksLikeAuth(key string) bool {
 		}
 		prev = cur
 	}
-	return prev[len(b)] <= 2
+	return prev[len(b)]
 }
 
 // mappingPairs returns the key and value nodes of a mapping with its merge
@@ -670,6 +683,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
 	if err := checkPluginKeys(data); err != nil {
+		return nil, fmt.Errorf("config: parse %q: %w", path, err)
+	}
+	if err := checkHookKeys(data); err != nil {
 		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
 
@@ -767,6 +783,15 @@ func Load(path string) (*Config, error) {
 		pins[n] = p
 	}
 	cfg.Plugins = pins
+
+	hs, err := hookSpecs(raw.Hooks)
+	if err != nil {
+		return nil, fmt.Errorf("config: hooks: %w", err)
+	}
+	if err := pluginsPinned(hs, pins); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	cfg.Hooks = hs
 
 	if raw.Web.Enabled != nil {
 		cfg.Web.Enabled = *raw.Web.Enabled

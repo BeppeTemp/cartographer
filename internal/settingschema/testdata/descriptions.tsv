@@ -47,6 +47,19 @@ server	components[].kind	What is expected. Only surveyor in this release; an unk
 server	components[].name	The Surveyor's perimeter (lowercase letters, digits and dashes, up to 40), unique per kind.
 server	components[].kbs	The KBs the component must cover; each must be a mounted KB, so a typo cannot silence the alarm.
 server	components[].min_replicas	Live replicas below which the component is degraded.
+server	hooks	The hook points the server calls, one HTTP webhook each (protocol version 1). A hook can supply an input or deny, never allow: the core decides first and a hook can only turn an allow into a deny. An entry is active only when its plugin is pinned in plugins. Empty or absent: the server behaves as without hooks. YAML only.
+server	hooks[].name	The hook's name, namespaced by its plugin (lowercase letters, digits and dashes), unique.
+server	hooks[].point	The point of the core the hook serves.
+server	hooks[].plugin	The plugin that provides the hook; it must be the namespace of name and pinned (and enabled) in plugins.
+server	hooks[].url	Where the envelope is POSTed. TLS is verified, a redirect is never followed, credentials in the URL are refused.
+server	hooks[].credential	The file of the credentials directory holding the bearer sent as Authorization. A missing or empty file stops the start. Never the secret itself.
+server	hooks[].timeout	Deadline of the whole call, connect and body read included.
+server	hooks[].failure_policy	Required, no default: what a timeout, connection error, non-2xx, unparsable body or wrong version means. fail_closed denies, fail_open continues and records the failure. A secret_resolver must be fail_closed. After 5 consecutive failures the hook is skipped for 30s with the same policy applied.
+server	hooks[].mode	With dry_run the server calls the hook and records what it would have decided without blocking or failing closed.
+server	hooks[].kbs	For write_veto only: the KBs the hook is consulted for; empty means every KB.
+server	hooks[].batch_size	For audit_sink only: audit entries per delivery.
+server	hooks[].blocking	For audit_sink only: wait for the hook to acknowledge an attempt before the call runs. A footgun: a slow sink slows every call.
+server	hooks[].cache_ttl	For secret_resolver and identity only: how long an answer is reused.
 server	plugins_dir	The read-only store the pinned plugins are read from: <dir>/<name>/<digest>/, filled by cartographer plugin vendor. The server never writes into it and never fetches. Required when plugins is set. YAML only.
 server	plugins	Plugins whose server side (and atlas side: the Atlas branding) this server loads, by plugin name: the digest pinned here is the only consent. At start a tree whose digest differs, or a plugin that is missing, has neither a server nor an atlas side or cannot load here, stops the server with the plugin named; a changed plugin needs a new digest and a restart. Empty: the server loads no plugin. YAML only.
 server	plugins.{name}.digest	Tree digest of the approved plugin, as printed by cartographer plugin vendor. Required.

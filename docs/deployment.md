@@ -121,6 +121,28 @@ otherwise. Comments are ignored by the parser, so a file without them behaves
 identically. `kb create`/`kb clone` and `kb rename` give a `kbs[]` entry they add the comment of the keys they set,
 and leave every comment already in the file alone.
 
+**Hooks (`hooks:`).** The server calls external hooks over HTTP webhooks, protocol version 1; with no `hooks:` entry it
+behaves as without hooks. Each entry has `name` (`<plugin>/<name>`), `point` (`write_veto`, `audit_sink`,
+`secret_resolver`, `identity`), `plugin` (the namespace of `name`, which must be pinned and enabled in `plugins`), `url`
+(`https`, or `http` only to a loopback host; no credentials in it), `credential` (the name of a file in `credentials_dir`
+holding the bearer sent as `Authorization`; a missing or empty file stops the start), `timeout` (default `2s`, at most
+`10s`, over the whole call), `failure_policy` (`fail_open` or `fail_closed`, **required**) and `mode` (`enforce`, the
+default, or `dry_run`). Per-point keys: `kbs` (`write_veto`), `batch_size` and `blocking` (`audit_sink`), `cache_ttl`
+(`secret_resolver`, `identity`, at most `600s`). A misspelled key, a duplicate name or a `hook:` list stops the load. The
+keys are YAML only and need a restart. A hook only supplies an input or denies: `allow` or any unknown answer is "no
+opinion", so a hook cannot widen what the core refused. A failure (timeout, connection error, non-2xx, unparsable or
+oversized body, a response `version` other than the request's) is applied per the entry's policy:
+
+| `failure_policy` | `mode: enforce` | `mode: dry_run` |
+|---|---|---|
+| `fail_closed` | the request is denied | logged only |
+| `fail_open` | the request continues, the failure is logged | logged only |
+
+A `secret_resolver` must be `fail_closed`. After 5 consecutive failures a hook's circuit opens for 30 s and the policy
+applies without calling it; then one probe call decides whether it closes. A redirect is never followed and a response body
+is read up to 64 KiB. Failures and circuit transitions are logged with the hook name, never a body, URL query or credential.
+Why: `D1957`.
+
 **Pinned plugins (`plugins_dir`, `plugins`).** The server runs no plugin unless its own file pins one: `plugins_dir`
 is the absolute path of a read-only store (`<dir>/<name>/<digest>/`, filled by `cartographer plugin vendor`, which
 prints the digest and these lines) and `plugins.<name>` carries `digest` (64 lowercase hex, required), `enabled`
