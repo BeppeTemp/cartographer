@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
@@ -52,14 +53,14 @@ func TestLoadServerPlugins(t *testing.T) {
 	cfgWith := func(name, d string, enabled bool) *config.Config {
 		return &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{name: {Digest: d, Enabled: enabled, Line: 7}}}
 	}
-	if got, err := loadServerPlugins(&config.Config{}); err != nil || got != nil {
+	if got, _, err := loadPinnedPlugins(&config.Config{}); err != nil || got != nil {
 		t.Fatalf("no pins load nothing: %v %v", got, err)
 	}
-	got, err := loadServerPlugins(cfgWith("team-data", digest, true))
+	got, _, err := loadPinnedPlugins(cfgWith("team-data", digest, true))
 	if err != nil || len(got) != 1 || got[0].Manifest.Name != "team-data" {
 		t.Fatalf("pinned: %v %v", got, err)
 	}
-	if got, err := loadServerPlugins(cfgWith("team-data", strings.Repeat("a", 64), false)); err != nil || len(got) != 0 {
+	if got, _, err := loadPinnedPlugins(cfgWith("team-data", strings.Repeat("a", 64), false)); err != nil || len(got) != 0 {
 		t.Fatalf("a disabled pin is skipped unchecked: %v %v", got, err)
 	}
 	for name, tc := range map[string]struct {
@@ -69,7 +70,7 @@ func TestLoadServerPlugins(t *testing.T) {
 		"other digest": {cfgWith("team-data", strings.Repeat("a", 64), true), "team-data"},
 		"missing":      {cfgWith("absent", digest, true), "absent"},
 	} {
-		if _, err := loadServerPlugins(tc.cfg); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, _, err := loadPinnedPlugins(tc.cfg); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want a refusal naming %q", name, err, tc.want)
 		}
 	}
@@ -78,14 +79,14 @@ func TestLoadServerPlugins(t *testing.T) {
 	if err := os.WriteFile(edited, []byte(serverOnlyPlugin+"# edited\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadServerPlugins(cfgWith("team-data", digest, true)); err == nil || !strings.Contains(err.Error(), "plugins.team-data (line 7") {
+	if _, _, err := loadPinnedPlugins(cfgWith("team-data", digest, true)); err == nil || !strings.Contains(err.Error(), "plugins.team-data (line 7") {
 		t.Errorf("modified tree: %v", err)
 	}
-	// A plugin without a server side is a start error too.
+	// A plugin with neither a server nor an atlas side is a start error too.
 	root2, d2 := vendorServerPlugin(t, strings.Replace(serverOnlyPlugin, "server: {}", "surveyor: {}", 1))
 	c := &config.Config{PluginsDir: root2, Plugins: map[string]config.PluginPin{"team-data": {Digest: d2, Enabled: true}}}
-	if _, err := loadServerPlugins(c); err == nil || !strings.Contains(err.Error(), "no server side") {
-		t.Errorf("no server side: %v", err)
+	if _, _, err := loadPinnedPlugins(c); err == nil || !strings.Contains(err.Error(), "neither a server nor an atlas side") {
+		t.Errorf("neither side: %v", err)
 	}
 }
 
@@ -103,7 +104,7 @@ func TestServerRolesAreConsumed(t *testing.T) {
 		Roles:  []config.RoleSpec{{Name: "ops", From: "team-data/runbook-editor", KBs: []string{"docs"}}},
 		Tokens: []config.TokenSpec{{Token: "t1", ID: "ci", Roles: []string{"ops"}}, {Token: "t2", ID: "other", Scopes: []string{"kb:docs:r"}}},
 	}}
-	plugins, err := loadServerPlugins(cfg)
+	plugins, _, err := loadPinnedPlugins(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func TestProxyCeilingJudgesPluginRoles(t *testing.T) {
 		Roles:  []config.RoleSpec{{Name: "ops", From: "team-data/mapped", KBs: []string{"docs"}}},
 		Tokens: []config.TokenSpec{{Token: "t", ID: "sso", Roles: []string{"ops"}, Proxy: true}},
 	}}
-	plugins, err := loadServerPlugins(cfg)
+	plugins, _, err := loadPinnedPlugins(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,12 +159,46 @@ func TestServerPresetsReachPresetList(t *testing.T) {
 		"presets/runbooks/templates/runbook.md", "---\ntype: Runbook\ntitle: {{title}}\n---\n# Procedure\n",
 	))
 	cfg := &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"team-data": {Digest: digest, Enabled: true}}}
-	plugins, err := loadServerPlugins(cfg)
+	plugins, _, err := loadPinnedPlugins(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := presetEntries(plugins)
 	if len(got) != 1 || got[0].ID != "team-data/runbooks" || got[0].PluginVersion != "1.2.0" || got[0].Templates[0].Path != "templates/runbook.md" || got[0].Templates[0].Content == "" {
 		t.Fatalf("presets = %+v", got)
+	}
+}
+
+// A pin needs one of the two sides the Meridian serves: an atlas-only plugin
+// loads on the atlas side and is not a server plugin; a view over a route that
+// is not a public GET stops the start.
+func TestLoadPinnedPluginsAtlasSide(t *testing.T) {
+	old := version
+	version = "0.29.0"
+	t.Cleanup(func() { version = old })
+	manifest := strings.Replace(serverOnlyPlugin, "server: {}", "atlas:\n    sdk: {views: 1}", 1)
+	view := func(route string) core.TreeFile {
+		return core.TreeFile{Path: "views/sources.yaml", Content: []byte("title: Sources\nsource:\n  route: " + route + "\nrenderer: table\ncolumns:\n  - {key: name, label: Name}\n")}
+	}
+	tree := func(route string) []core.TreeFile {
+		return []core.TreeFile{{Path: core.ManifestFile, Content: []byte(manifest)}, view(route)}
+	}
+	root, digest := vendorTree(t, tree("/api/v1/kbs/{kb}/sources"))
+	cfg := &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"team-data": {Digest: digest, Enabled: true}}}
+	server, atlas, err := loadPinnedPlugins(cfg)
+	if err != nil || len(server) != 0 || len(atlas) != 1 || len(atlas[0].Contributions["views"]) != 1 {
+		t.Fatalf("server %v atlas %v err %v", server, atlas, err)
+	}
+	if err := mcpserver.ValidateAtlasPlugins(atlas); err != nil {
+		t.Fatal(err)
+	}
+	root, digest = vendorTree(t, tree("/api/ui/v1/kbs"))
+	cfg = &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"team-data": {Digest: digest, Enabled: true}}}
+	_, atlas, err = loadPinnedPlugins(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mcpserver.ValidateAtlasPlugins(atlas); err == nil || !strings.Contains(err.Error(), "source.route") {
+		t.Errorf("a UI API route must be refused: %v", err)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"sort"
 
 	_ "github.com/BeppeTemp/cartographer/internal/atlasext" // registers the views/ and apps/ points of the atlas side
 	"github.com/BeppeTemp/cartographer/internal/config"
@@ -31,27 +32,63 @@ func presetEntries(plugins []*core.Plugin) []mcpserver.PresetEntry {
 	return out
 }
 
-// loadServerPlugins opens the plugins pinned in the server config through the
-// read-only store at plugins_dir. The digest in the config is the only consent:
-// a tree that differs, a missing plugin, one without a server side or one this
-// build cannot load makes the start fail, naming the plugin (never "loaded with
-// a warning"). It runs once at start and not on the auth reload: changing a pin
-// takes a restart.
-func loadServerPlugins(cfg *config.Config) ([]*core.Plugin, error) {
+// atlasPlugins are the pinned plugins that have an atlas side, set once at
+// start and handed to the Atlas (MultiKBServer.SetAtlasPlugins).
+var atlasPlugins []*core.Plugin
+
+// loadPinnedPlugins opens the plugins pinned in the server config through the
+// read-only store at plugins_dir, once per side the Meridian serves: server
+// (roles, presets) and atlas (views, apps). The digest in the config is the
+// only consent: a tree that differs, a missing plugin, one with neither side or
+// one this build cannot load makes the start fail, naming the plugin (never
+// "loaded with a warning"). A pin needs one of the two sides, not both. It runs
+// once at start and not on the auth reload: changing a pin takes a restart.
+func loadPinnedPlugins(cfg *config.Config) (server, atlas []*core.Plugin, err error) {
 	if len(cfg.Plugins) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
-	opts := core.Options{RunningVersion: version, Side: core.SideServer, CheckScripts: star.Check}
-	plugins, probs := core.LoadPinned(cfg.PluginsDir, cfg.PluginPins(), core.SideServer, opts)
+	pins := cfg.PluginPins()
+	server, sp := core.LoadPinned(cfg.PluginsDir, pins, core.SideServer, core.Options{RunningVersion: version, Side: core.SideServer, CheckScripts: star.Check})
+	atlas, ap := core.LoadPinned(cfg.PluginsDir, pins, core.SideAtlas, core.Options{RunningVersion: version, Side: core.SideAtlas})
+	// "no <side> side" is LoadPinned's reason for a plugin that simply has no
+	// such side; it is a problem only when the plugin has neither.
+	noSide := func(side core.Side) string { return fmt.Sprintf("no %s side", side) }
+	atlasReason := map[string]string{}
+	for _, p := range ap {
+		atlasReason[p.Name] = p.Reason
+	}
+	var probs []core.PinProblem
+	seen := map[string]bool{}
+	for _, p := range sp {
+		if p.Reason == noSide(core.SideServer) {
+			r, failed := atlasReason[p.Name]
+			if !failed {
+				continue // atlas only, and it loaded
+			}
+			if r == noSide(core.SideAtlas) {
+				p.Reason = "neither a server nor an atlas side"
+			} else {
+				p.Reason = r
+			}
+		}
+		seen[p.Name] = true
+		probs = append(probs, p)
+	}
+	for _, p := range ap {
+		if p.Reason != noSide(core.SideAtlas) && !seen[p.Name] {
+			probs = append(probs, p)
+		}
+	}
 	if len(probs) > 0 {
+		sort.SliceStable(probs, func(i, j int) bool { return probs[i].Name < probs[j].Name })
 		p := probs[0]
 		err := fmt.Errorf("config: plugins.%s (line %d, plugins_dir %s): %s", p.Name, cfg.Plugins[p.Name].Line, cfg.PluginsDir, p.Reason)
 		if len(probs) > 1 {
 			err = fmt.Errorf("%w (and %d more)", err, len(probs)-1)
 		}
-		return nil, err
+		return nil, nil, err
 	}
-	return plugins, nil
+	return server, atlas, nil
 }
 
 // logServerPlugins says one line per active plugin.

@@ -464,10 +464,31 @@ func appURLProblem(s string) string {
 // declaration's path, put in front of each problem. {kb} is replaced by a
 // sample before the check, so a template and its expansion are one route.
 func Validate(file string, v core.View, routes RouteSet) []string {
+	if why := routeShape(v.Source.Route); why != "" {
+		return []string{file + ": source.route: " + fmt.Sprintf("%q %s", v.Source.Route, why)}
+	}
 	if routes == nil || !routes.IsPublicGET(strings.ReplaceAll(v.Source.Route, "{kb}", sampleKB)) {
 		return []string{file + ": source.route: " + fmt.Sprintf("%q is not a documented public read-only operation", v.Source.Route)}
 	}
 	return nil
+}
+
+var literalSegmentRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// routeShape is the strict form a route must have before the route table is
+// asked: a browser normalises what it fetches (`\` becomes `/`, `?` and `#` cut
+// the path, `%2e` is a dot), so only plain literal segments and a whole `{kb}`
+// segment are accepted. It returns why a route is refused, or "".
+func routeShape(route string) string {
+	if !strings.HasPrefix(route, "/") || strings.HasSuffix(route, "/") {
+		return "must start with / and not end with /"
+	}
+	for _, seg := range strings.Split(route[1:], "/") {
+		if seg != "{kb}" && !literalSegmentRe.MatchString(seg) {
+			return "has a segment that is not letters, digits, - or _ (or exactly {kb})"
+		}
+	}
+	return ""
 }
 
 func artifactFiles(f core.TreeFile) []contract.ArtifactFile {

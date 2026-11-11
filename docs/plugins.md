@@ -525,7 +525,7 @@ or an executable file is a problem, reported as `path: reason` (`path: key: reas
 | `description` | optional, at most 200 |
 | `icon` | one of `list` (default), `sources`, `services`, `artifacts`, `key`, `paths`, `eye`, `lock`, `alert`, `person`; `TestIconsExistInTheAtlas` keeps them equal to `Icon.tsx` |
 | `scope` | `kb` (default; `{kb}` is the picked KB) or `global` |
-| `source.route` | required: a path starting with `/`, `{kb}` its only placeholder, no query, no `..`, no scheme or host: loading checks the shape only. That the route is a documented public read-only operation is `atlasext.Validate(file, routes)`, which asks a `RouteSet` (`IsPublicGET`) the server implements over the public route table, after replacing `{kb}` with a sample; the check is made when the server serves views (the UI API change), not at load |
+| `source.route` | required: a path starting with `/`, `{kb}` its only placeholder, no query, no `..`, no scheme or host. Loading checks the shape only; when the server starts `atlasext.Validate` first requires every segment to be letters, digits, `-` or `_`, or exactly `{kb}`, with no trailing `/` (so `/kbs/{kb}/a.json` or `/x/{kb}y` stops the start with "has a segment that is not letters, digits, - or _ (or exactly {kb})"), then asks whether the route (with `{kb}` replaced by a sample) is a stable or preview GET route of the public API under `/api/v1`, not an event stream: `/mcp`, any `/api/ui/v1` route, an internal-tier route and an unknown path stop the start naming the plugin and the key (`TestAtlasViewsMustBePublicGET`) |
 | `source.query` | optional, at most 8 string pairs; a value is one printable line of at most 200 characters and may hold `{kb}` and no other `{` |
 | `source.items` | optional dotted path (at most 5 segments of `[A-Za-z0-9_]`) to the array in the answer |
 | `renderer` | required: `table`, `list`, `stats` or `keyvalue` |
@@ -539,6 +539,8 @@ Formats are a closed set, each total over any JSON value: `text` (default), `num
 **An app** is an entry that opens a separately hosted app in a new tab: `title` (at most 40), `description`, `icon`
 (default `paths`) and `url`, an absolute `https://` URL with a host, no user information and no fragment (`http://` only for
 `localhost`, `127.0.0.1` or `[::1]`). The Atlas hands the app nothing.
+
+The Meridian serves the approved declarations at `GET /api/ui/v1/extensions` (`docs/control-plane.md` §Read-only UI API). A pin (`plugins:` in the server config) needs a server side, an atlas side or both.
 
 The approval preview prints `view "<name>" (<renderer>) reads GET <route>` or `app "<name>" opens <url>`, then `data only: nothing runs`.
 
