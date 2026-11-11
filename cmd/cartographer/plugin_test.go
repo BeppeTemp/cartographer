@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -280,5 +282,107 @@ func TestPluginValidateReportsSides(t *testing.T) {
 	_, out = runPlugin(t, "validate", writePlugin(t, "team-forks", nil), "--output", "json")
 	if strings.Contains(out, `"sides"`) {
 		t.Errorf("schema 1 json grew keys:\n%s", out)
+	}
+}
+
+// plugin vendor fills a pinned store, prints the digest and the pin lines, and
+// writes neither the client config nor an approval; LoadPinned then accepts it.
+func TestPluginVendorFillsAPinnedStore(t *testing.T) {
+	home := pluginFixture(t)
+	// No sdk family is registered for the surveyor yet, so its side is declared bare.
+	src := t.TempDir()
+	manifest := "schema: 2\nname: feeds\nversion: 1.0.0\ndisplay_name: Feeds\ndescription: A feed reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor: {}\n"
+	if err := os.WriteFile(filepath.Join(src, "cartographer-plugin.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(t.TempDir(), "vendored")
+
+	code, out := runPlugin(t, "vendor", src, "--to", to)
+	if code != 0 {
+		t.Fatalf("vendor: exit %d\n%s", code, out)
+	}
+	_, probs := plugin.ReadTree(mustTree(t, src), plugin.Options{RunningVersion: version})
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	m := regexp.MustCompile(`digest ([0-9a-f]{64})`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no digest printed:\n%s", out)
+	}
+	for _, want := range []string{"plugins_dir:", "plugins:\n  feeds:\n    digest: " + m[1], "pin the surveyor side in the surveyor config"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if _, err := os.Stat(clientconfig.Path(home)); err == nil {
+		t.Error("vendor wrote the client config")
+	}
+	pins := map[string]plugin.Pin{"feeds": {Enabled: true, Digest: m[1]}}
+	got, pp := plugin.LoadPinned(to, pins, plugin.SideSurveyor, pluginOpts())
+	if len(pp) != 0 || len(got) != 1 {
+		t.Fatalf("LoadPinned: %v %v", got, pp)
+	}
+	if _, pp = plugin.LoadPinned(to, pins, plugin.SideServer, pluginOpts()); len(pp) != 1 || !strings.Contains(pp[0].Reason, "no server side") {
+		t.Errorf("a plugin without the side: %v", pp)
+	}
+
+	if code, _ = runPlugin(t, "vendor", src, "--to", to, "--side", "server"); code != 1 {
+		t.Errorf("--side the plugin lacks: exit %d", code)
+	}
+	if code, _ = runPlugin(t, "vendor", src); code != 2 {
+		t.Errorf("vendor without --to: exit %d", code)
+	}
+	bad := writePlugin(t, "team-forks", map[string]string{"stray/x": "no"})
+	if code, _ = runPlugin(t, "vendor", bad, "--to", filepath.Join(t.TempDir(), "v")); code != 1 {
+		t.Errorf("an invalid tree: exit %d", code)
+	}
+}
+
+func mustTree(t *testing.T, dir string) []plugin.TreeFile {
+	t.Helper()
+	files, _, err := plugin.Fetch(context.Background(), plugin.Source{Path: dir}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// The pin lines skip a side this build cannot load and the reserved atlas side.
+func TestPluginVendorSkipsSidesThatCannotBePinned(t *testing.T) {
+	pluginFixture(t)
+	src := t.TempDir()
+	manifest := "schema: 2\nname: feeds\nversion: 1.0.0\ndisplay_name: Feeds\ndescription: A feed reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1}\n  atlas: {}\n  server: {}\n"
+	if err := os.WriteFile(filepath.Join(src, "cartographer-plugin.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out := runPlugin(t, "vendor", src, "--to", filepath.Join(t.TempDir(), "v"))
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if strings.Contains(out, "# pin the surveyor") || strings.Contains(out, "# pin the atlas") {
+		t.Errorf("a side that cannot be pinned got pin lines:\n%s", out)
+	}
+	for _, want := range []string{"surveyor side: not pinnable", "unknown family recipes", "atlas side: no component config", "# pin the server side in the server config"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// --to may not be the client's own cache, which is written under the client lock.
+func TestPluginVendorRefusesTheClientCache(t *testing.T) {
+	pluginFixture(t)
+	cache, _ := pluginStoreFn()
+	src := writePlugin(t, "team-forks", nil)
+	for _, to := range []string{cache.Root, filepath.Join(cache.Root, "sub")} {
+		if code, out := runPlugin(t, "vendor", src, "--to", to); code != 2 {
+			t.Errorf("--to %s: exit %d\n%s", to, code, out)
+		}
+	}
+	if entries, _ := os.ReadDir(cache.Root); len(entries) != 0 {
+		t.Errorf("the cache was written: %v", entries)
+	}
+	if code, out := runPlugin(t, "vendor", src, "--to", filepath.Join(t.TempDir(), "elsewhere")); code != 0 {
+		t.Errorf("another directory: exit %d\n%s", code, out)
 	}
 }

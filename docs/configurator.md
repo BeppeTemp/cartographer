@@ -1226,6 +1226,7 @@ subcommands are:
 | `plugin new <name> [<dir>]` | Scaffolds a schema 2 plugin |
 | `plugin validate <dir> [--output table\|json]` | Checks a folder offline and lists every problem; prints what its scripts register. For a schema 2 plugin it also prints its sides, those this build cannot load and the entries it does not know (JSON: `sides`, `unsupported`, `unknown`, only under schema 2). `install`, `update` and `approve` refuse a schema 2 plugin without a loadable client side |
 | `plugin install <git-url>[@<ref>] \| <folder> [--yes]` | Fetches, validates and stores it, prints the preview and asks before enabling; `--yes` is the consent |
+| `plugin vendor <git-url>[@<ref>] \| <folder> --to <dir> [--side <side>]` | Stores a plugin in a directory a headless component reads read-only and prints its digest and the config lines that pin it; writes no approval |
 | `plugin list`, `plugin show <name> [--files]` | The plugins and their state; the preview again, from the store |
 | `plugin approve <name> [--yes]` | Approves the installed version after printing what runs; without a terminal it needs `--yes` |
 | `plugin update [<name>] [--yes]` | Fetches again and prints the diff; the approved version stays active until the new one is approved |

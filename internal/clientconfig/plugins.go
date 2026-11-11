@@ -69,6 +69,11 @@ type PluginEntry struct {
 	Settings map[string]any `yaml:"settings,omitempty"`
 }
 
+// PluginEnabled and PluginApproved make the entry a plugin.Entry (the plugin
+// package cannot import this one).
+func (e PluginEntry) PluginEnabled() bool    { return e.Enabled }
+func (e PluginEntry) PluginApproved() string { return e.Approved }
+
 // Same rule as the manifest's name (internal/plugin, which cannot be imported
 // here); a test in that package keeps the two equal.
 var (
