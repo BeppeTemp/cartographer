@@ -1223,7 +1223,7 @@ subcommands are:
 
 | Subcommand | What it does |
 |---|---|
-| `plugin new <name> [<dir>]` | Scaffolds a plugin |
+| `plugin new <name> [<dir>]` | Scaffolds a schema 2 plugin |
 | `plugin validate <dir> [--output table\|json]` | Checks a folder offline and lists every problem; prints what its scripts register |
 | `plugin install <git-url>[@<ref>] \| <folder> [--yes]` | Fetches, validates and stores it, prints the preview and asks before enabling; `--yes` is the consent |
 | `plugin list`, `plugin show <name> [--files]` | The plugins and their state; the preview again, from the store |

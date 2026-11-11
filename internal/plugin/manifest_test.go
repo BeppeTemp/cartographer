@@ -100,7 +100,7 @@ func TestParseManifestProblems(t *testing.T) {
 		{"oversized", validManifest + "# " + strings.Repeat("x", contract.ArtifactMaxFileSize) + "\n", "over the"},
 		{"not yaml", "schema: [", "manifest:"},
 		{"no schema", edit("schema", ""), "schema: required"},
-		{"schema 2", edit("schema", "schema: 2"), "unsupported plugin schema 2"},
+		{"schema 3", edit("schema", "schema: 3"), "unsupported plugin schema 3"},
 		{"schema 0", edit("schema", "schema: 0"), "unsupported plugin schema 0"},
 		{"no name", edit("name", ""), "name: required"},
 		{"name upper", edit("name", "name: Team"), "name:"},

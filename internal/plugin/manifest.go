@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"path"
 	"regexp"
 	"slices"
@@ -16,14 +17,23 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
+	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 	"gopkg.in/yaml.v3"
 )
 
 // ManifestFile is the name of the manifest at a plugin's root.
 const ManifestFile = "cartographer-plugin.yaml"
 
-// SchemaVersion is the only manifest schema this version reads.
-const SchemaVersion = 1
+const (
+	// Schema1 is the client-only manifest 0.28 shipped; it is read unchanged.
+	Schema1 = 1
+	// SchemaVersion is the highest manifest schema this version reads: schema 2
+	// declares component sides and an sdk level per extension-point family.
+	SchemaVersion = 2
+	// MinSchema2Floor is the lowest binary floor a schema 2 manifest may state.
+	MinSchema2Floor = "0.29.0"
+	maxSDKLevel     = 99
+)
 
 const (
 	maxDisplayName = 60
@@ -45,7 +55,8 @@ var (
 // under the home directory is the caller's, here only the lexical part is checked.
 var filePlaceholders = []string{"{home}", "{xdg_config}", "{app_data}", "{local_app_data}", "{documents}"}
 
-// Manifest is cartographer-plugin.yaml, schema 1.
+// Manifest is cartographer-plugin.yaml, schema 1 or 2. The yaml tags are
+// schema 1's; a schema 2 file is decoded into manifestV2 and normalised here.
 type Manifest struct {
 	Schema       *int               `yaml:"schema"`
 	Name         string             `yaml:"name"`
@@ -54,8 +65,42 @@ type Manifest struct {
 	Description  string             `yaml:"description"`
 	Cartographer string             `yaml:"cartographer"`
 	Depends      map[string]string  `yaml:"depends"`
-	Permissions  *Permissions       `yaml:"permissions"`
+	Permissions  *Permissions       `yaml:"permissions"` // the client side's, in either schema
 	Settings     map[string]Setting `yaml:"settings"`
+
+	// Components is the per-side view of both schemas. A schema 1 manifest is a
+	// client-only plugin whose sdk levels are the implicit ones.
+	Components map[Side]Component `yaml:"-"`
+	// UnknownSides are the side names of a schema 2 manifest this build does not
+	// know: reported, never an error.
+	UnknownSides []string `yaml:"-"`
+}
+
+// Component is what a manifest says about one side of the plugin.
+type Component struct {
+	// SDK maps an extension-point family to the level the plugin is written for.
+	// A declared entry is a requirement.
+	SDK         map[string]int
+	Permissions *Permissions
+}
+
+// manifestV2 is the strict shape of a schema 2 file. The sides stay nodes so a
+// side this build does not know is kept without being read.
+type manifestV2 struct {
+	Schema       *int                 `yaml:"schema"`
+	Name         string               `yaml:"name"`
+	Version      string               `yaml:"version"`
+	DisplayName  string               `yaml:"display_name"`
+	Description  string               `yaml:"description"`
+	Cartographer string               `yaml:"cartographer"`
+	Depends      map[string]string    `yaml:"depends"`
+	Settings     map[string]Setting   `yaml:"settings"`
+	Components   map[string]yaml.Node `yaml:"components"`
+}
+
+type sideV2 struct {
+	SDK         map[string]int `yaml:"sdk"`
+	Permissions *Permissions   `yaml:"permissions"`
 }
 
 // Permissions is what a plugin asks for. Here it is validated as data; nothing
@@ -133,26 +178,95 @@ func ParseManifest(data []byte, opts Options) (Manifest, []string) {
 		}
 	}
 
+	var sh struct {
+		Schema *int `yaml:"schema"`
+	}
+	if yaml.Unmarshal(data, &sh) == nil && sh.Schema != nil && *sh.Schema == SchemaVersion {
+		return parseV2(data, opts)
+	}
+
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&m); err != nil {
-		var te *yaml.TypeError
-		if errors.As(err, &te) {
-			var out []string
-			for _, e := range te.Errors {
-				if f := unknownField.FindStringSubmatch(e); f != nil {
-					e = fmt.Sprintf("unknown key %q", f[1])
-				}
-				out = append(out, "manifest: "+e)
-			}
-			sort.Strings(out)
-			return Manifest{}, out
-		}
-		return Manifest{}, []string{"manifest: " + err.Error()}
+		return Manifest{}, typeProblems(err)
 	}
 
 	var v validator
 	v.manifest(&m, opts)
+	sort.Strings(v.problems)
+	if len(v.problems) == 0 {
+		m.Components = map[Side]Component{SideClient: {
+			SDK:         map[string]int{"artifacts": 1, "providers": 1, "scripts": 1},
+			Permissions: m.Permissions,
+		}}
+	}
+	return m, v.problems
+}
+
+// typeProblems turns a strict-decode error into sorted "manifest: ..." problems.
+func typeProblems(err error) []string {
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		return []string{"manifest: " + err.Error()}
+	}
+	var out []string
+	for _, e := range te.Errors {
+		if f := unknownField.FindStringSubmatch(e); f != nil {
+			e = fmt.Sprintf("unknown key %q", f[1])
+		}
+		out = append(out, "manifest: "+e)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// parseV2 reads a schema 2 manifest: strict, with the sides normalised into
+// Components. Its Schema is set even when it has problems, so the tree reader
+// knows which schema's rules apply to the rest of the tree.
+func parseV2(data []byte, opts Options) (Manifest, []string) {
+	two := SchemaVersion
+	fail := func(p []string) (Manifest, []string) { return Manifest{Schema: &two}, p }
+	var raw manifestV2
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&raw); err != nil {
+		return fail(typeProblems(err))
+	}
+	m := Manifest{
+		Schema: raw.Schema, Name: raw.Name, Version: raw.Version, DisplayName: raw.DisplayName,
+		Description: raw.Description, Cartographer: raw.Cartographer, Depends: raw.Depends,
+		Settings: raw.Settings, Components: map[Side]Component{},
+	}
+	var v validator
+	var perr []string
+	for _, key := range slices.Sorted(maps.Keys(raw.Components)) {
+		side := Side(key)
+		if !slices.Contains(Sides(), side) {
+			m.UnknownSides = append(m.UnknownSides, key)
+			continue
+		}
+		node := raw.Components[key]
+		out, err := yaml.Marshal(&node)
+		var sv sideV2
+		if err == nil {
+			d := yaml.NewDecoder(bytes.NewReader(out))
+			d.KnownFields(true)
+			err = d.Decode(&sv)
+		}
+		if err != nil {
+			for _, e := range typeProblems(err) {
+				perr = append(perr, strings.Replace(e, "manifest: ", "components."+key+": ", 1))
+			}
+			continue
+		}
+		m.Components[side] = Component{SDK: sv.SDK, Permissions: sv.Permissions}
+	}
+	if len(perr) > 0 {
+		sort.Strings(perr)
+		return fail(perr)
+	}
+	m.Permissions = m.Components[SideClient].Permissions
+	v.manifestV2(&m, len(raw.Components), opts)
 	sort.Strings(v.problems)
 	return m, v.problems
 }
@@ -178,10 +292,23 @@ func q(s string) string {
 func (v *validator) manifest(m *Manifest, opts Options) {
 	switch {
 	case m.Schema == nil:
-		v.add("schema", "required (%d)", SchemaVersion)
-	case *m.Schema != SchemaVersion:
+		v.add("schema", "required (%d)", Schema1)
+	case *m.Schema != Schema1:
 		v.add("schema", "unsupported plugin schema %d", *m.Schema)
 	}
+	v.common(m, opts)
+	if m.Cartographer == "" {
+		v.add("cartographer", "required (a range such as >=0.28.0)")
+	} else if err := ValidRange(m.Cartographer); err != nil {
+		v.add("cartographer", "%v", err)
+	}
+	if m.Permissions != nil {
+		v.permissions("permissions", m.Permissions)
+	}
+}
+
+// common checks what both schemas hold the same way, plugin-wide.
+func (v *validator) common(m *Manifest, opts Options) {
 	v.name(m.Name, opts)
 	if m.Version == "" {
 		v.add("version", "required (X.Y.Z)")
@@ -190,16 +317,80 @@ func (v *validator) manifest(m *Manifest, opts Options) {
 	}
 	v.text("display_name", m.DisplayName, maxDisplayName, false)
 	v.text("description", m.Description, maxDescription, true)
-	if m.Cartographer == "" {
-		v.add("cartographer", "required (a range such as >=0.28.0)")
-	} else if err := ValidRange(m.Cartographer); err != nil {
-		v.add("cartographer", "%v", err)
-	}
 	v.depends(m.Depends)
-	if m.Permissions != nil {
-		v.permissions(m.Permissions)
-	}
 	v.settings(m.Settings)
+}
+
+// manifestV2 checks a schema 2 manifest; sides is the number of keys under
+// components, known or not.
+func (v *validator) manifestV2(m *Manifest, sides int, opts Options) {
+	v.common(m, opts)
+	switch {
+	case m.Cartographer == "":
+		v.add("cartographer", "required (a floor such as >=%s)", MinSchema2Floor)
+	case ValidRange(m.Cartographer) != nil:
+		v.add("cartographer", "%v", ValidRange(m.Cartographer))
+	default:
+		// ValidRange passed: one comparator, >=, at least the minimum floor.
+		t, _ := parseRange(m.Cartographer)
+		if c, ok := updatecheck.Cmp(t[0].ver, MinSchema2Floor); len(t) != 1 || t[0].op != ">=" || !ok || c < 0 {
+			v.add("cartographer", "a schema 2 manifest takes a floor, >=%s or later", MinSchema2Floor)
+		}
+	}
+	if sides == 0 {
+		v.add("components", "required, with at least one side (%s)", strings.Join(sidesText(), ", "))
+	}
+	for _, side := range Sides() {
+		c, ok := m.Components[side]
+		if !ok {
+			continue
+		}
+		base := "components." + string(side)
+		if len(c.SDK) > maxList {
+			v.add(base+".sdk", "%d entries, at most %d", len(c.SDK), maxList)
+		}
+		for fam, level := range c.SDK {
+			switch {
+			case !settingKeyRe.MatchString(fam):
+				v.add(base+".sdk", "%s must match %s", q(fam), settingKeyRe)
+			case level < 1 || level > maxSDKLevel:
+				v.add(base+".sdk."+fam, "%d is not a level from 1 to %d", level, maxSDKLevel)
+			}
+		}
+		if c.Permissions != nil {
+			v.sidePermissions(base+".permissions", side, c.Permissions)
+		}
+	}
+}
+
+func sidesText() []string {
+	out := make([]string, len(Sides()))
+	for i, s := range Sides() {
+		out[i] = string(s)
+	}
+	return out
+}
+
+// sidePermissions applies the per-side permission table: the client may ask for
+// everything, the Surveyor for net and env, the server and the Atlas for nothing.
+func (v *validator) sidePermissions(base string, side Side, p *Permissions) {
+	refuse := func(key string, asked bool) {
+		if asked {
+			v.add(base+"."+key, "not allowed on the %s side", side)
+		}
+	}
+	switch side {
+	case SideSurveyor:
+		refuse("kb", p.KB != "")
+		refuse("files", p.Files != nil)
+	case SideServer, SideAtlas:
+		refuse("kb", p.KB != "")
+		refuse("net", len(p.Net) > 0)
+		refuse("env", len(p.Env) > 0)
+		refuse("files", p.Files != nil)
+		return
+	}
+	v.permissions(base, p)
 }
 
 func (v *validator) name(name string, opts Options) {
@@ -276,17 +467,17 @@ func (v *validator) depends(d map[string]string) {
 	}
 }
 
-func (v *validator) permissions(p *Permissions) {
+func (v *validator) permissions(base string, p *Permissions) {
 	switch p.KB {
 	case "", "read", "write":
 	default:
-		v.add("permissions.kb", "%s is not read or write", q(p.KB))
+		v.add(base+".kb", "%s is not read or write", q(p.KB))
 	}
-	v.list("permissions.net", p.Net, hostProblem)
-	v.list("permissions.env", p.Env, envProblem)
+	v.list(base+".net", p.Net, hostProblem)
+	v.list(base+".env", p.Env, envProblem)
 	if p.Files != nil {
-		v.list("permissions.files.read", p.Files.Read, globProblem)
-		v.list("permissions.files.write", p.Files.Write, globProblem)
+		v.list(base+".files.read", p.Files.Read, globProblem)
+		v.list(base+".files.write", p.Files.Write, globProblem)
 	}
 }
 

@@ -94,3 +94,13 @@ func RangeMet(rng, running string) (bool, error) {
 	}
 	return true, nil
 }
+
+// Floor is the `cartographer` value `plugin new` writes in a schema 2 manifest:
+// the running core version, and never below the lowest floor schema 2 takes.
+func Floor(running string) string {
+	core := strings.TrimPrefix(coreRe.FindString(strings.TrimSpace(running)), "v")
+	if c, ok := updatecheck.Cmp(core, MinSchema2Floor); core == "" || !ok || c < 0 {
+		core = MinSchema2Floor
+	}
+	return ">=" + core
+}

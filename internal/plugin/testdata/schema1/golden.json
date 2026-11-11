@@ -1,0 +1,151 @@
+{
+  "manifest/alias": {
+    "Problems": [
+      "manifest: YAML aliases are not allowed"
+    ]
+  },
+  "manifest/bad name": {
+    "Problems": [
+      "name: \"Team\" must match ^[a-z][a-z0-9-]{1,40}$"
+    ]
+  },
+  "manifest/bad range": {
+    "Problems": [
+      "cartographer: \"~0.28\" is not a comparator: use \u003e=, \u003e, \u003c=, \u003c or = followed by X.Y.Z"
+    ]
+  },
+  "manifest/base": {
+    "Manifest": {
+      "Schema": 1,
+      "Name": "team-forks",
+      "Version": "1.2.3",
+      "DisplayName": "Team forks",
+      "Description": "Closed forks.",
+      "Cartographer": "\u003e=0.28.0",
+      "Depends": null,
+      "Permissions": null,
+      "Settings": null
+    },
+    "Problems": null
+  },
+  "manifest/empty": {
+    "Problems": [
+      "manifest: the file is empty"
+    ]
+  },
+  "manifest/env reserve": {
+    "Problems": [
+      "permissions.env[0]: \"PATH\" cannot be passed through: it is reserved"
+    ]
+  },
+  "manifest/files abs": {
+    "Problems": [
+      "permissions.files.read[0]: \"/etc/passwd\" must start with one of {home}, {xdg_config}, {app_data}, {local_app_data}, {documents} (no absolute or relative path)"
+    ]
+  },
+  "manifest/full": {
+    "Manifest": {
+      "Schema": 1,
+      "Name": "team-forks",
+      "Version": "1.2.3",
+      "DisplayName": "Team forks",
+      "Description": "Closed forks.",
+      "Cartographer": "\u003e=0.28.0",
+      "Depends": {
+        "base-skills": "\u003e=1.0.0"
+      },
+      "Permissions": {
+        "KB": "read",
+        "Net": [
+          "gitlab.example.com"
+        ],
+        "Files": null,
+        "Env": [
+          "LANG"
+        ]
+      },
+      "Settings": {
+        "endpoint": {
+          "Type": "string",
+          "Default": "https://example.com",
+          "Description": "Where."
+        }
+      }
+    },
+    "Problems": null
+  },
+  "manifest/nested": {
+    "Problems": [
+      "manifest: unknown key \"disk\""
+    ]
+  },
+  "manifest/net scheme": {
+    "Problems": [
+      "permissions.net[0]: \"https://example.com\" is not a lowercase host name (an exact host of at least two labels or *.suffix of at least two labels, no scheme, port or path)"
+    ]
+  },
+  "manifest/no schema": {
+    "Problems": [
+      "schema: required (1)"
+    ]
+  },
+  "manifest/not yaml": {
+    "Problems": [
+      "manifest: yaml: line 1: did not find expected node content"
+    ]
+  },
+  "manifest/pin-0.28": {
+    "Problems": [
+      "cartographer: needs Cartographer \u003e=0.28.0 \u003c0.29.0 (this is 0.29.0)"
+    ]
+  },
+  "manifest/reserved": {
+    "Problems": [
+      "name: \"sync\" is a built-in command name"
+    ]
+  },
+  "manifest/schema 0": {
+    "Problems": [
+      "schema: unsupported plugin schema 0"
+    ]
+  },
+  "manifest/schema 3": {
+    "Problems": [
+      "schema: unsupported plugin schema 3"
+    ]
+  },
+  "manifest/setting": {
+    "Problems": [
+      "settings: \"Bad\" must match ^[a-z][a-z0-9_]{0,40}$"
+    ]
+  },
+  "manifest/two docs": {
+    "Problems": [
+      "manifest: more than one YAML document"
+    ]
+  },
+  "manifest/unknown": {
+    "Problems": [
+      "manifest: unknown key \"colour\""
+    ]
+  },
+  "tree/example": {
+    "Problems": null,
+    "Digest": "2aafadffc1f2742d231411f2907e3c12f66ad4f44c1ca45c400dacc354d1c330",
+    "Files": 5
+  },
+  "tree/minimal": {
+    "Problems": [
+      "cartographer: needs Cartographer \u003e=0.28.0 \u003c0.29.0 (this is 0.29.0)"
+    ],
+    "Digest": "919c16a0a10c37b475c2ed9576fcb2d81957eeb30d61b0a1bdbaddd570ac6e68",
+    "Files": 2
+  },
+  "tree/unknown-entry": {
+    "Problems": [
+      "unknown entry `extras`: a plugin holds cartographer-plugin.yaml, plugin.star, lib/, agents/, hooks/, providers/, skills/ (README*, LICENSE*, CHANGELOG*, docs/ and .git* are ignored)"
+    ],
+    "Digest": "5d2952682ca7b1585012c0166fc5b534a078b6e5783604452ebba301b3de9896",
+    "Files": 2
+  }
+}

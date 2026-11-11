@@ -212,3 +212,20 @@ func TestPluginCommandIsInTheUsage(t *testing.T) {
 		t.Errorf("the plugin command is not listed in help:\n%s", out)
 	}
 }
+
+// A snapshot build of a core older than the schema 2 floor still scaffolds: the
+// check of its own output does not apply the running-version range.
+func TestPluginNewOnAnOlderCore(t *testing.T) {
+	pluginFixture(t)
+	old := version
+	version = "0.28.3"
+	t.Cleanup(func() { version = old })
+	dir := filepath.Join(t.TempDir(), "out")
+	if code, out := runPlugin(t, "new", "team-forks", dir); code != 0 {
+		t.Fatalf("new on 0.28.3: exit %d\n%s", code, out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, plugin.ManifestFile))
+	if err != nil || !strings.Contains(string(data), `cartographer: ">=0.29.0"`) {
+		t.Errorf("manifest %q, err %v", data, err)
+	}
+}
