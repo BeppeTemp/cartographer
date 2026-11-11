@@ -96,6 +96,7 @@ internal/repodocs               keeps this repository navigable by a coding agen
 internal/repoindex              resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
 internal/safewrite              guards client-side writes against symlinks
 internal/search                 implements an in-memory inverted keyword index for KB concepts
+internal/secretscan             finds potential credentials in text
 internal/service                manages the cartographer MCP server as a native per-user service
 internal/settingschema          describes a settings file's keys once, in code (D747)
 internal/skill                  loads and validates SKILL.md files (agentskills.io format)

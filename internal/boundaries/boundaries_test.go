@@ -17,7 +17,7 @@ const modPath = "github.com/BeppeTemp/cartographer/"
 var client = []string{
 	"agents", "artifactsig", "blocktext", "client", "clientconfig", "componentproto", "configurator",
 	"defaults", "execbit", "gitx", "jsonorder", "mcpbridge", "okf", "plugin",
-	"procattr", "provisioning", "provisioning/contract", "repoindex", "safewrite", "settingschema", "skill",
+	"procattr", "provisioning", "provisioning/contract", "repoindex", "safewrite", "secretscan", "settingschema", "skill",
 	"skillbundle", "updatecheck",
 }
 
