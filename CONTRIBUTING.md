@@ -427,7 +427,8 @@ from the template that fits:
   accepted work: at triage a maintainer adds `accepted` or closes it with the
   reason. Blank issues are disabled.
 - An agent can draft a bug or idea report with the bundled `cartographer-feedback`
-  skill: it files nothing and prints a prefilled URL for you to submit.
+  skill: it files nothing and prints a prefilled URL for you to submit;
+  `cartographer feedback` removes every real name before you do.
 - Contributors write no plans: they open a bug, an idea or a direct PR.
 
 The repository keeps only labels that a workflow or a skill reads, or that

@@ -42,6 +42,7 @@ var subcommands = []subcommand{
 	{"Compass", "client", "Manage which KBs each agent client receives"},
 	{"Compass", "workspace", "Bind a repository to the KBs a client receives there"},
 	{"Compass", "call", "Call one MCP tool from the command line"},
+	{"Compass", "feedback", "Draft a bug or idea report with every real name removed"},
 	{"Compass", "mcp", "Run the stdio bridge a client starts for a workspace-bound provider"},
 	{"Compass", "plugin", "Install, approve and manage plugins"},
 	{"Meridian", "serve", "Run Meridian, the MCP server"},
@@ -88,6 +89,7 @@ var (
 	workspaceFn     = cmdWorkspace
 	mcpFn           = cmdMCP
 	callFn          = cmdCall
+	feedbackFn      = cmdFeedback
 	setupFn         = cmdSetup
 	updateFn        = cmdUpdate
 	hookFn          = cmdHook
@@ -183,6 +185,8 @@ func run(args []string) int {
 		return mcpFn(rest)
 	case "call":
 		return callFn(rest)
+	case "feedback":
+		return feedbackFn(rest)
 	default:
 		if code, handled := pluginCommandFn(cmd, rest); handled {
 			return code
