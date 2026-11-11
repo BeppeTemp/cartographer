@@ -306,7 +306,8 @@ otherwise silent — no client, compiler or linter reports any of them:
 - the generated blocks are up to date — the decision index in `docs/decisions.md`
   and the code map in `AGENTS.md`. The generator **is** this test run with
   `-update`, which is all `make decisions-index` and `make codemap` do, so the
-  writer and the checker cannot disagree about the format;
+  writer and the checker cannot disagree about the format. The code map leaves
+  out test-helper packages and `gen` commands by a rule (`IsHelperPackage`);
 - every decision file is well formed, carries a known `topic`, holds no leftover
   template placeholder, and claims a number no other file claims;
 - every `D<n>` cited anywhere in the repository resolves to a record, is a

@@ -459,13 +459,24 @@ func Packages(root string) ([]Package, error) {
 		if !ok {
 			continue
 		}
-		pkgs = append(pkgs, Package{
-			Path:     strings.TrimPrefix(path, prefix),
-			Synopsis: shorten(doc),
-		})
+		path = strings.TrimPrefix(path, prefix)
+		if IsHelperPackage(path) {
+			continue
+		}
+		pkgs = append(pkgs, Package{Path: path, Synopsis: shorten(doc)})
 	}
 	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Path < pkgs[j].Path })
 	return pkgs, nil
+}
+
+// IsHelperPackage reports whether the code map leaves a package out: a package
+// an agent does not open to change behaviour. The rule is on the last element of
+// the import path, not a list: a test helper (`gitxtest`, `kbtest`, or the
+// synthetic test fleet `testkbs`, `testtree`: ends or starts with "test") and a
+// generator command (`gen`).
+func IsHelperPackage(path string) bool {
+	base := path[strings.LastIndexByte(path, '/')+1:]
+	return base == "gen" || strings.HasPrefix(base, "test") || strings.HasSuffix(base, "test")
 }
 
 // codeMapWidth is where a synopsis is cut. Wide enough for a useful line, narrow
