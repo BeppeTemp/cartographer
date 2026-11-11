@@ -202,6 +202,37 @@ func TestCodeMapIsUpToDate(t *testing.T) {
 		CodeMapBegin, CodeMapEnd, RenderCodeMap(pkgs), "make codemap")
 }
 
+// The code map skips test helpers and generator commands by a rule, not a list,
+// so a new helper package costs no line of the AGENTS.md budget (#1918).
+func TestCodeMapSkipsHelperPackages(t *testing.T) {
+	for path, want := range map[string]bool{
+		"internal/gitx/gitxtest":         true,
+		"internal/kbtest":                true,
+		"internal/surveyor/surveyortest": true,
+		"internal/testtree":              true,
+		"internal/testkbs":               true,
+		"internal/testkbs/gen":           true,
+		"internal/changelog/gen":         true,
+		"cmd/cartographer":               false,
+		"internal/kb":                    false,
+		"internal/gitx":                  false,
+		"internal/search":                false,
+	} {
+		if got := IsHelperPackage(path); got != want {
+			t.Errorf("IsHelperPackage(%q) = %v, want %v", path, got, want)
+		}
+	}
+	pkgs, err := Packages(repoRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pkgs {
+		if IsHelperPackage(p.Path) {
+			t.Errorf("Packages kept the helper package %s", p.Path)
+		}
+	}
+}
+
 // A `D<n>` in a comment is this repository's reference convention: no path, so it
 // survives a reworded title and costs almost nothing to write. The price is that
 // nothing about it is checked by the compiler, so this checks it — over every
