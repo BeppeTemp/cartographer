@@ -255,7 +255,7 @@ of other origins to allow (`mcp.allowed_origins` was removed): a page of another
 site has no business scripting this server. The JSON-body routes (`/api/component/v1/*` and the two aliases) also answer HTTP 415 to a body not sent as
 `application/json` (a cross-site form cannot set that type without a preflight),
 and refuse a body over their cap with HTTP 413 (1 MiB for a usage report, 256 KiB
-for a client settings report, 64 KiB for a Surveyor heartbeat, 128 KiB for a Surveyor settings report); the usage store itself is refused past 4 MiB.
+for a client settings report, 64 KiB for a Surveyor heartbeat, 128 KiB for a Surveyor settings report, 32 KiB for a Surveyor runs report); the usage store itself is refused past 4 MiB.
 On the versioned routes (not the aliases) the token's kind is checked too: a `client` token on a Surveyor route, or a `surveyor` token on a Compass route, is HTTP 403 `wrong_token_kind` ([control-plane](control-plane.md) §Component contract).
 
 The same-origin rule alone does not tell a page served from a rebound DNS name

@@ -42,16 +42,19 @@ func TestGolden(t *testing.T) {
 		"paths":  Paths(),
 		"legacy": []string{LegacyUsagePath, LegacyClientSettingsPath},
 		"kinds":  Kinds(), "states": States(), "tasks": TaskKinds(),
-		"codes": []string{CodeProtocolUnsupported, CodeWrongTokenKind},
+		"codes":    []string{CodeProtocolUnsupported, CodeWrongTokenKind},
+		"outcomes": Outcomes(), "alarms": ReportedAlarms(),
 	}
 	want := map[string]any{
 		"protocol": 1, "min": 1,
-		"paths":  []string{"/api/component/v1/heartbeat", "/api/component/v1/settings", "/api/component/v1/usage"},
-		"legacy": []string{"/api/usage", "/api/client-settings"},
-		"kinds":  []string{"surveyor", "client", "human"},
-		"states": []string{"up", "degraded", "silent", "starting", "undeclared"},
-		"tasks":  []string{"doctor", "ingest", "poll", "prompt", "repair", "synthesis"},
-		"codes":  []string{"protocol_unsupported", "wrong_token_kind"},
+		"paths":    []string{"/api/component/v1/heartbeat", "/api/component/v1/settings", "/api/component/v1/usage", "/api/component/v1/runs"},
+		"legacy":   []string{"/api/usage", "/api/client-settings"},
+		"kinds":    []string{"surveyor", "client", "human"},
+		"states":   []string{"up", "degraded", "silent", "starting", "undeclared"},
+		"tasks":    []string{"doctor", "ingest", "poll", "prompt", "repair", "synthesis"},
+		"codes":    []string{"protocol_unsupported", "wrong_token_kind"},
+		"outcomes": []string{"ok", "failed", "skipped", "budget_exhausted"},
+		"alarms":   []string{"feed_failing", "auth_refused", "model_unreachable"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("contract changed:\n got %v\nwant %v", got, want)
