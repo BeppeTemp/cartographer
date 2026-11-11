@@ -242,7 +242,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   is the changelog entry (a conventional title, body lines unwrapped, `Closes #n`; checked as
   `pr-title` and `plan-gate` would check a PR, `Size exception: <why>` included).
   `AFTER=<slug>` lands it after another queued change (a branch built on that change's
-  branch is queued with its own diff only), `HOLD=1` keeps it queued, `REVIEW=`
+  branch is queued with its own diff only, also once that change has landed; a slug neither queued
+  nor landed is refused), `HOLD=1` keeps it queued, `REVIEW=`
   records the review. The lander (`scripts/land.sh`, started by `make ready`, stopping when
   nothing is landable) cherry-picks up to 8 queued changes onto `main`, numbers their pending
   decisions, gates the train **once** with `make signoff` (the package of a named Go test that fails
