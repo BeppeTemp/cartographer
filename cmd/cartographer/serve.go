@@ -88,6 +88,7 @@ func cmdServe(args []string) int {
 	tokensFlag := fs.String("tokens", "", "Comma-separated bearer tokens (or CARTOGRAPHER_TOKENS)")
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
 	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
+	apiEnabledFlag := fs.Bool("api-enabled", false, "Serve the public read-only API at /api/v1 in HTTP mode (or CARTOGRAPHER_API_ENABLED)")
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer, and let the Atlas read the release history on demand; off, neither call is made (or CARTOGRAPHER_UPDATE_CHECK)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
 	fs.Parse(dropRemovedFlags(args))
@@ -111,6 +112,7 @@ func cmdServe(args []string) int {
 		Data:        dataFlag,
 		Tokens:      tokensFlag,
 		WebEnabled:  webEnabledFlag,
+		APIEnabled:  apiEnabledFlag,
 		UpdateCheck: updateCheckFlag,
 	}
 	cfg, err := loadServeConfig(fs, overrides, *configFlag)
@@ -175,6 +177,8 @@ func loadServeConfigAt(fs *flag.FlagSet, overrides config.FlagOverrides, configF
 			explicit.Tokens = overrides.Tokens
 		case "web-enabled":
 			explicit.WebEnabled = overrides.WebEnabled
+		case "api-enabled":
+			explicit.APIEnabled = overrides.APIEnabled
 		case "update-check":
 			explicit.UpdateCheck = overrides.UpdateCheck
 		}
@@ -753,6 +757,16 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 				webMounted = true
 				log.Printf("Atlas UI on http://%s%s", displayAddr(addr), webui.MountPath)
 			}
+		}
+
+		// The public read-only API (/api/v1): opt-in, independent of web.enabled.
+		if settingsCfg != nil && settingsCfg.API.Enabled {
+			multi.EnableAPI(mcpserver.APIConfig{
+				CORSOrigins:        settingsCfg.API.CORSOrigins,
+				MaxStreamsPerToken: settingsCfg.API.MaxStreamsPerToken,
+				MaxStreams:         settingsCfg.API.MaxStreams,
+			})
+			log.Printf("public API on http://%s%s", displayAddr(addr), mcpserver.APIPrefix)
 		}
 
 		// The origin check sits outside authentication (D128): a page that is not

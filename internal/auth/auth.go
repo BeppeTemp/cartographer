@@ -559,10 +559,15 @@ const WellKnownProtectedResourcePath = "/.well-known/oauth-protected-resource"
 // it to the UI is applied outside the auth chain (webui.RedirectRoot). With
 // the UI disabled none of the /ui paths is routed at all and they 404
 // regardless of this exemption.
+//
+// /api/v1/openapi.json is exempt too: the document describes the routes of an
+// open-source server and holds no data, so a generator or a browser tool reads
+// it without a token. Every other /api/v1 path stays behind the middleware.
 func isPublicPath(path string) bool {
 	return path == "/health" ||
 		path == WellKnownProtectedResourcePath ||
-		path == "/ui" || strings.HasPrefix(path, "/ui/")
+		path == "/ui" || strings.HasPrefix(path, "/ui/") ||
+		path == "/api/v1/openapi.json"
 }
 
 func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {

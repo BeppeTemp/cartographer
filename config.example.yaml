@@ -135,6 +135,28 @@ web:
   # needs a restart
   enabled: true
 
+api:
+  # Serve the public read-only API at /api/v1 in HTTP mode, independent of
+  # web.enabled. Off by default: nothing is exposed until set.
+  # Default: false · Env CARTOGRAPHER_API_ENABLED · flag --api-enabled ·
+  # needs a restart
+  enabled: false
+
+  # --- available settings: uncomment a key to set it ---
+
+  # Browser origins allowed to read /api/v1, each scheme://host[:port] (http or
+  # https, no path, no *). Empty allows none.
+  # Needs a restart
+  # cors_origins: []
+
+  # Concurrent event streams one token may hold open on /api/v1.
+  # Values: 1 or more, at most api.max_streams · needs a restart
+  # max_streams_per_token: 4
+
+  # Concurrent event streams the server holds open on /api/v1.
+  # Values: at least api.max_streams_per_token · needs a restart
+  # max_streams: 64
+
 # --- available settings: uncomment a key to set it ---
 
 # Look up the latest release once a day and report it in /health and kb_status

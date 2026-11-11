@@ -69,6 +69,7 @@ func TestLoadFullYAML(t *testing.T) {
 		Audit: AuditConfig{Log: "/data/audit.log", RetentionDays: 90, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		// The UI is on by default in HTTP mode; this YAML does not mention it.
 		Web:         WebConfig{Enabled: true},
+		API:         APIConfig{MaxStreamsPerToken: DefaultAPIMaxStreamsPerToken, MaxStreams: DefaultAPIMaxStreams},
 		UpdateCheck: true,
 		Maintenance: MaintenanceConfig{AutoRepair: true},
 	}

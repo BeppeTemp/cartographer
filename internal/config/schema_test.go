@@ -39,7 +39,7 @@ func yamlPaths(t reflect.Type, prefix string, out *[]string) {
 }
 
 // groups are mappings that only hold other keys: they need no entry of their own.
-var groups = map[string]bool{"auth": true, "git": true, "audit": true, "sops": true, "tools": true, "mcp": true, "web": true, "maintenance": true}
+var groups = map[string]bool{"auth": true, "git": true, "audit": true, "sops": true, "tools": true, "mcp": true, "web": true, "api": true, "maintenance": true}
 
 // movedAway reports whether p is the old path of a Moved key: the parser still
 // reads it, the schema documents its new home.

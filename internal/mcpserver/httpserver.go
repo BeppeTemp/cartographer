@@ -309,6 +309,9 @@ type MultiKBServer struct {
 	// /api/ui/v1 is routed and both fall through to 404, restoring exactly the
 	// HTTP surface that existed before the UI.
 	web *webMount
+	// api gates the public read-only API at /api/v1. Nil -- the default --
+	// means the prefix falls through to 404. Independent of web.
+	api *APIConfig
 	// latestVersion is the /health source of a newer release (D254).
 	latestVersion func() string
 	// settings and updateChannel feed GET /api/ui/v1/settings (D743).
@@ -337,6 +340,26 @@ type webMount struct {
 // it. Called by the HTTP server when web.enabled is on; never in stdio mode.
 func (m *MultiKBServer) EnableWeb(static http.Handler) {
 	m.web = &webMount{Static: static}
+}
+
+// APIPrefix is the public, versioned, read-only API.
+const APIPrefix = "/api/v1"
+
+// apiPublicTiers is the explicit mask of the tiers /api/v1 serves. Never "all
+// but internal": a tier added later must be closed on the public mount by default.
+const apiPublicTiers = tierStable | tierPreview
+
+// APIConfig is what the public API mount needs from the configuration.
+type APIConfig struct {
+	CORSOrigins        []string
+	MaxStreamsPerToken int
+	MaxStreams         int
+}
+
+// EnableAPI turns on the public read-only API at /api/v1 (api.enabled). It is
+// independent of EnableWeb.
+func (m *MultiKBServer) EnableAPI(cfg APIConfig) {
+	m.api = &cfg
 }
 
 // readiness folds every mounted KB's audit state into one verdict, and returns
@@ -704,6 +727,12 @@ func (m *MultiKBServer) Handler() http.Handler {
 		// any other unknown one, with no hint that it could have existed.
 		case m.web != nil && (r.URL.Path == UIAPIPrefix || strings.HasPrefix(r.URL.Path, UIAPIPrefix+"/")):
 			m.handleUIAPI(w, r)
+			return
+
+		// The public read-only API: no withOperator (generic wording), only the
+		// stable and preview tiers. Absent unless api.enabled.
+		case m.api != nil && (r.URL.Path == APIPrefix || strings.HasPrefix(r.URL.Path, APIPrefix+"/")):
+			m.serveAPI(w, r, APIPrefix, apiPublicTiers)
 			return
 
 		// The embedded UI (D227). The SPA owns everything below /ui/ and
