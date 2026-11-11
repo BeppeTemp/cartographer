@@ -289,6 +289,13 @@ func Handler() (http.Handler, error) {
 // why it can be this strict. style-src allows 'unsafe-inline' because React
 // sets element style attributes for the few values that are computed per
 // element; a style attribute cannot execute script.
+//
+// The policy is a constant: nothing a plugin declares (a view, an app link)
+// may add a directive, and the function takes no input so that stays true.
+// The Atlas extension tiers (D1938) rely on it: the
+// Atlas keeps its bearer token in browser storage, so no script but its own
+// may ever run in the page. TestContentSecurityPolicyIsExactlyTheShippedConstant
+// pins the exact set.
 func writeSecurityHeaders(w http.ResponseWriter) {
 	h := w.Header()
 	h.Set("Content-Security-Policy", strings.Join([]string{

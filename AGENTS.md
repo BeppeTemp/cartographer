@@ -66,6 +66,7 @@ The synopsis says which package to open; what it does is in `go doc <pkg>`.
 cmd/cartographer                Command cartographer is the single binary of the Agentic Wiki
 internal/agents                 detects which LLM agent CLIs/apps are installed locally
 internal/artifactsig            signs and verifies provisioning artifact envelopes
+internal/atlasext               loads the data a plugin's atlas side declares
 internal/audit                  implements Cartographer's local, tamper-evident audit trail
 internal/auth                   implements bearer-token authorization for the HTTP transport
 internal/blocktext              implements the marker-delimited "managed block" primitive

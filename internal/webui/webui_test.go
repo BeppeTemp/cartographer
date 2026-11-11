@@ -208,6 +208,85 @@ func TestHandlerSetsAStrictContentSecurityPolicy(t *testing.T) {
 	}
 }
 
+// shippedCSP is the whole policy, directive by directive. A directive missing
+// here is a directive that must not exist: frame-src, child-src, worker-src and
+// script-src-elem stay absent unless a reviewed change adds them here too.
+var shippedCSP = map[string]string{
+	"default-src":     "'self'",
+	"script-src":      "'self'",
+	"style-src":       "'self' 'unsafe-inline'",
+	"img-src":         "'self' data:",
+	"font-src":        "'self'",
+	"connect-src":     "'self'",
+	"object-src":      "'none'",
+	"base-uri":        "'none'",
+	"frame-ancestors": "'none'",
+	"form-action":     "'none'",
+}
+
+func parseCSP(csp string) map[string]string {
+	out := map[string]string{}
+	for _, d := range strings.Split(csp, ";") {
+		name, sources, _ := strings.Cut(strings.TrimSpace(d), " ")
+		out[name] = strings.TrimSpace(sources)
+	}
+	return out
+}
+
+func TestContentSecurityPolicyIsExactlyTheShippedConstant(t *testing.T) {
+	handler := newUIServer(t)
+	bundle, err := Assets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fs.ReadDir(bundle, "assets")
+	if err != nil || len(entries) == 0 {
+		t.Fatal("no assets to check")
+	}
+	paths := map[string]string{
+		"shell":    MountPath,
+		"asset":    MountPath + "assets/" + entries[0].Name(),
+		"fallback": MountPath + "some/route",
+		"missing":  MountPath + "assets/scene-missing.js",
+	}
+	for name, p := range paths {
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, p, nil))
+		got := parseCSP(rr.Header().Get("Content-Security-Policy"))
+		if len(got) != len(shippedCSP) {
+			t.Errorf("%s: directives %v, want exactly %v", name, got, shippedCSP)
+		}
+		for d, want := range shippedCSP {
+			if got[d] != want {
+				t.Errorf("%s: %s = %q, want %q", name, d, got[d], want)
+			}
+		}
+		for d, srcs := range got {
+			for _, src := range strings.Fields(srcs) {
+				switch {
+				case src == "'self'" || src == "'none'":
+				case src == "'unsafe-inline'" && d == "style-src":
+				case src == "data:" && d == "img-src":
+				default:
+					t.Errorf("%s: %s admits %q, which is a scheme, a host or an unsafe keyword", name, d, src)
+				}
+			}
+		}
+	}
+}
+
+// TestSecurityHeadersTakeNoInput: the policy cannot be parameterised by
+// configuration or by a plugin's declaration. A change that gives the function
+// an argument breaks this assignment at compile time and gets reviewed.
+func TestSecurityHeadersTakeNoInput(t *testing.T) {
+	var f func(http.ResponseWriter) = writeSecurityHeaders
+	rr := httptest.NewRecorder()
+	f(rr)
+	if rr.Header().Get("Content-Security-Policy") == "" {
+		t.Fatal("no policy written")
+	}
+}
+
 func TestHandlerIsReadOnly(t *testing.T) {
 	handler := newUIServer(t)
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {

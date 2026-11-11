@@ -16,6 +16,7 @@ test("the shell carries the CSP, and the CSP blocks inline and evaluated script"
   expect(csp).toContain("connect-src 'self'");
   expect(csp).toContain("object-src 'none'");
   expect(csp).not.toContain("unsafe-eval");
+  expect(csp).not.toContain("frame-src");
   await waitForAtlas(page);
 
   // Script injected through page.evaluate runs over the DevTools protocol,
