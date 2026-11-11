@@ -81,17 +81,17 @@ func lister(t *testing.T, fix string) recipe.SystemRecipe {
 
 func list(t *testing.T, r recipe.SystemRecipe, req recipe.Request) (recipe.Listing, error) {
 	t.Helper()
-	v, err := r.Preflight(context.Background(), req)
+	v, err := r.Check(context.Background(), req)
 	if err != nil {
-		t.Fatalf("preflight: %v", err)
+		t.Fatalf("check: %v", err)
 	}
 	return r.ListSystem(context.Background(), v, req)
 }
 
-func TestExampleKubernetesPreflight(t *testing.T) {
+func TestExampleKubernetesCheck(t *testing.T) {
 	fix := fixtures(t)
 	r := lister(t, fix)
-	v, err := r.Preflight(context.Background(), recipe.Request{ID: "s/k"})
+	v, err := r.Check(context.Background(), recipe.Request{ID: "s/k"})
 	if err != nil || v.Identity() != "dev-viewer" || !strings.HasPrefix(v.Detail(), "checked: ") {
 		t.Fatalf("view identity: %+v %v", v, err)
 	}
@@ -116,16 +116,20 @@ func TestExampleKubernetesPreflight(t *testing.T) {
 		} else {
 			os.WriteFile(filepath.Join(d, tc.file), []byte(tc.to), 0o600)
 		}
-		_, err := lister(t, d).Preflight(context.Background(), recipe.Request{ID: "s/k"})
+		_, err := lister(t, d).Check(context.Background(), recipe.Request{ID: "s/k"})
 		e, ok := err.(*recipe.Error)
-		if !ok || e.Code != recipe.CodeIdentityNotReadOnly || !strings.Contains(e.Detail, tc.want) {
-			t.Errorf("%s: %v, want %q", name, err, tc.want)
+		code := recipe.CodeIdentityNotReadOnly
+		if strings.Contains(tc.want, "exit 2") { // the lister could not ask: the check failed, it did not say the identity writes
+			code = recipe.CodeCheckFailed
+		}
+		if !ok || e.Code != code || !strings.Contains(e.Detail, tc.want) {
+			t.Errorf("%s: %v, want %s containing %q", name, err, code, tc.want)
 		}
 	}
 	// The cluster-admin refusal still names the identity.
 	d := fixtures(t)
 	edit(t, d, "auth_can-i_all_all.txt", "no", "yes")
-	if _, err := lister(t, d).Preflight(context.Background(), recipe.Request{}); err == nil || !strings.Contains(err.Error(), "dev-viewer") {
+	if _, err := lister(t, d).Check(context.Background(), recipe.Request{}); err == nil || !strings.Contains(err.Error(), "dev-viewer") {
 		t.Errorf("admin: %v", err)
 	}
 }
@@ -187,31 +191,31 @@ func raw(t *testing.T, fix, request string) []byte {
 
 func TestExampleKubernetesNeverUsesTheLocator(t *testing.T) {
 	d := fixtures(t) // only the files the pinned commands name: any other command fails on a missing fixture
-	neutral := raw(t, d, `{"protocol":1,"mode":"list","source":{"id":"s/k","locator":"kubernetes://dev-cluster","include":[]},"max_content_bytes":65536}`)
-	hostile := raw(t, d, `{"protocol":1,"mode":"list","source":{"id":"s/k","locator":"kubernetes://other-context","include":[]},"max_content_bytes":65536}`)
+	neutral := raw(t, d, `{"protocol":2,"verb":"list","config":{},"source":{"id":"s/k","locator":"kubernetes://dev-cluster","include":[]},"max_content_bytes":65536}`)
+	hostile := raw(t, d, `{"protocol":2,"verb":"list","config":{},"source":{"id":"s/k","locator":"kubernetes://other-context","include":[]},"max_content_bytes":65536}`)
 	if !bytes.Equal(neutral, hostile) || len(neutral) == 0 {
 		t.Error("the locator changed the output")
 	}
-	pf1 := raw(t, d, `{"mode":"preflight","source":{"locator":"kubernetes://a"}}`)
-	pf2 := raw(t, d, `{"mode":"preflight","source":{"locator":"--context=evil"}}`)
+	pf1 := raw(t, d, `{"protocol":2,"verb":"check","config":{},"source":{"locator":"kubernetes://a"}}`)
+	pf2 := raw(t, d, `{"protocol":2,"verb":"check","config":{},"source":{"locator":"--context=evil"}}`)
 	if !bytes.Equal(pf1, pf2) {
-		t.Error("the locator changed the preflight")
+		t.Error("the locator changed the check")
 	}
-	// include filters on the key; another mode fails.
-	inc := raw(t, d, `{"mode":"list","source":{"include":["namespace/team-b"]},"max_content_bytes":65536}`)
+	// include filters on the key; another verb exits 64.
+	inc := raw(t, d, `{"protocol":2,"verb":"list","config":{},"source":{"include":["namespace/team-b"]},"max_content_bytes":65536}`)
 	if strings.Contains(string(inc), "team-a") || !strings.Contains(string(inc), "team-b") {
 		t.Errorf("include: %s", inc)
 	}
 	cmd := exec.Command(python(t), filepath.Join(exampleDir, "lister.py"))
-	cmd.Stdin = strings.NewReader(`{"mode":"delete"}`)
-	if err := cmd.Run(); err == nil {
-		t.Error("an unknown mode exits zero")
+	cmd.Stdin = strings.NewReader(`{"protocol":2,"verb":"delete"}`)
+	if err := cmd.Run(); err == nil || cmd.ProcessState.ExitCode() != 64 {
+		t.Errorf("an unknown verb must exit 64, got %v", err)
 	}
 }
 
 func TestExampleKubernetesNamespaceOverTheCapFailsByName(t *testing.T) {
 	r := lister(t, fixtures(t))
-	v, err := r.Preflight(context.Background(), recipe.Request{ID: "s/k"})
+	v, err := r.Check(context.Background(), recipe.Request{ID: "s/k"})
 	if err != nil {
 		t.Fatal(err)
 	}

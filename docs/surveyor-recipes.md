@@ -1,4 +1,4 @@
-# Surveyor recipes: exec recipes and protocol v1
+# Surveyor recipes: exec recipes and protocol v2
 
 A **recipe** lists what changed in a feed Source since its cursor, with no model (zero tokens). Two kinds:
 
@@ -6,7 +6,7 @@ A **recipe** lists what changed in a feed Source since its cursor, with no model
 - **exec**: an executable the operator declares under `recipes.<name>` in the Surveyor config. It talks the JSON
   protocol below on stdin/stdout, so it can be written in any language and live in the operator's own repository.
 
-This page is the reference for the exec kind: its config keys, protocol v1, the failures and the trust model. The
+This page is the reference for the exec kind: its config keys, protocol v2, the failures and the trust model. The
 Surveyor section of [deployment.md](deployment.md) shows the rest of the Surveyor config.
 
 ## Trust model
@@ -59,37 +59,61 @@ that unit: no connector or network is involved. The asset text is searchable thr
 ID without `content_asset` is a planner's and is left alone; a staged unit of an older revision stays `draft`, inert,
 because the Surveyor never deletes.
 
-## Protocol v1
+## Protocol v2
 
-The Surveyor starts the command once per listing.
+The Surveyor starts the command **once per verb call**; a script implements the verbs it can.
 
 **stdin**: one JSON object, UTF-8, then closed.
 
 | Field | Value |
 |---|---|
-| `protocol` | `1` |
-| `mode` | `"list"`; a system recipe is sent `"preflight"` first (below) |
-| `source` | `id`, `title`, `locator`, `source_kind`, `source_shape` (`"feed"`, or `"system"`), `include` (list of globs, `[]` if none) |
-| `cursor` | the string you returned last time, or `null` on the first poll |
-| `max_entries` | the most entries you may emit |
-| `max_content_bytes` | the most inline `content` bytes of one entry |
+| `protocol` | `2` |
+| `verb` | `"check"` or `"list"` |
+| `config` | an object, `{}` for now |
+| `source` | `check` and `list`: `id`, `title`, `locator`, `source_kind`, `source_shape` (`"feed"`, or `"system"`), `include` (list of globs, `[]` if none) |
+| `cursor` | `list`: the string you returned last time, or `null` on the first poll |
+| `max_entries` | `list`: the most entries you may emit |
+| `max_content_bytes` | `list`: the most inline `content` bytes of one entry |
 
-**stdout**: JSON lines, one object each, blank lines ignored: `{"entry": {...}}` repeated, then **exactly one last**
-`{"next_cursor": "<string>"}`. Anything after it is an error.
+A script that reads another `protocol` number, or a verb it does not implement, **exits 64 with no output**. For
+`check` that means "unsupported" (nothing to say, not a failure); for `list` it is a failure.
+
+**stdout**: JSON lines, stderr is logs (the Surveyor keeps at most 8 KiB, see Failures).
+
+### `check`: credentials and reachability
+
+Exactly one line, the answer to "can I reach the source with these credentials":
+
+```json
+{"check": {"ok": true, "detail": "reads 12 spaces", "identity": "svc-reader", "read_only": true}}
+```
+
+`ok` is required; `detail` (at most 300 runes) and `identity` (120) are text with control characters stripped. `ok:
+false`, a non-zero exit, a timeout or an unreadable answer is `check_failed` and the detail is shown. `read_only` is
+required when the recipe's shape is `system` (below). `source test` runs `check` for a feed too (when the script does
+not implement it, it is skipped); a feed poll does not.
+
+### `list`
+
+JSON lines, one object each, blank lines ignored: `{"entry": {...}}` and `{"delete": {"key": "..."}}` repeated, then
+**exactly one last** `{"next_cursor": "<string>"}`. Anything after it is an error.
 
 | Entry field | Rule |
 |---|---|
-| `key` | required, at most 512 bytes, unique within the listing |
-| `change` | `added`, `modified` or `removed` |
-| `title`, `revision` | required for `added` and `modified`, at most 200 bytes each; `revision` is opaque and **must change whenever the entry's content changes** |
+| `key` | required, at most 512 bytes, unique within the listing (an entry and a delete count as one key) |
+| `change` | `added` or `modified`; `removed` is refused: a deletion is a `delete` line |
+| `title`, `revision` | required, at most 200 bytes each; `revision` is opaque and **must change whenever the entry's content changes** |
 | `locator` | optional, at most 2048 bytes; absent, the poll uses `<feed locator>#<key>` |
-| `content` | optional, `added` and `modified` only, at most `max_content_bytes` |
+| `content` | optional, at most `max_content_bytes` |
 
-Unknown fields inside an entry are ignored (v1 may grow optional ones); an unknown *line* is an error.
-`next_cursor` is at most 1024 bytes. The cursor is **opaque**: the Surveyor never orders or compares it, so ancestry
-or monotonicity is your concern. Return a cursor that covers exactly the entries you emitted: when more remain
-than `max_entries`, stop and return where you stopped. The cursor advances only after every entry of the listing is
-handled, and `removed` entries are only counted: the Surveyor never deletes a Source, a unit or a page.
+A `delete` line carries the key and nothing else (`{"delete": {"key": "page-7"}}`, same key limit). A delete line
+and an entry count against `max_entries` alike.
+
+Unknown fields inside an entry are ignored (a later version may grow optional ones); an unknown *line*, or a line with
+two keys, is an error. `next_cursor` is at most 1024 bytes. The cursor is **opaque**: the Surveyor never orders or
+compares it, so ancestry or monotonicity is your concern. Return a cursor that covers exactly the entries you
+emitted: when more remain than `max_entries`, stop and return where you stopped. The cursor advances only after every
+entry of the listing is handled, and delete lines are only counted: the Surveyor never deletes a Source, a unit or a page.
 
 ## Failures
 
@@ -97,13 +121,14 @@ A failure sets the Source's `feed_error` to `<code>: <detail>` and leaves its cu
 
 | Code | When |
 |---|---|
-| `list_failed` | non-zero exit (`exit N` plus the stderr excerpt), timeout, output past `max_output_bytes`, the command cannot start, a listed variable unset |
-| `identity_not_read_only` | a system recipe's preflight refused (see System recipes); nothing was listed |
-| `protocol_error` | malformed JSON, a line that is neither `entry` nor `next_cursor`, a missing or non-final `next_cursor`, more entries than `max_entries`, a duplicate key, a field over its limit or missing, `content` over its cap |
+| `list_failed` | `list` exited non-zero (`exit N` plus the stderr excerpt) or exited 64, timeout, output past `max_output_bytes`, the command cannot start, a listed variable unset |
+| `check_failed` | `check` answered `ok: false`, exited non-zero, timed out or answered something unreadable; for a system recipe also a script that does not implement `check`; nothing was listed |
+| `identity_not_read_only` | a system recipe's `check` answered `read_only` false or without it (see System recipes); nothing was listed |
+| `protocol_error` | malformed JSON, a line that is not `entry`, `delete` or `next_cursor`, a missing or non-final `next_cursor`, more entries than `max_entries`, a duplicate key, a field over its limit or missing, `content` over its cap, `change: removed` |
 
 On a timeout, an oversized output or a protocol error the Surveyor kills the whole process group, so a child your
 script started dies with it. The stderr excerpt is one line of at most 200 bytes, control characters removed,
-the values of your `env` variables replaced by `***`; the Surveyor keeps at most 8 KiB of stderr.
+the values of your `env` variables replaced by `***` (as is a `check` detail); the Surveyor keeps at most 8 KiB of stderr.
 The redaction is a literal match: a value under 4 bytes is not redacted (it would mangle unrelated text), and a
 transformed copy of a value (encoded, split, re-cased) is not caught. Do not print credentials, however short.
 
@@ -116,7 +141,7 @@ cartographer surveyor source test --config <file> --source <id> [--kb <kb>]
 
 The command runs the listing the Surveyor will run: the same recipe registry, the same preconditions as the poll
 (parse of the Source, recipe known and of the Source's shape, a built-in's host on its list) and the same listing call,
-then prints what it got. For a system recipe it runs the poll's preflight first, then reads the stored state and diffs
+then prints what it got. A feed script's `check` is run first when it implements it. For a system recipe it runs the poll's check, then reads the stored state and diffs
 the listing against it (see System recipes). `--recipe` tries a recipe before registering a Source and needs neither the server nor the
 token; `--source` reads a registered Source (one `concept_read`, plus a `concept_list` for the plan warning) with the
 token in `token_env`. `--cursor <string>` lists from that cursor (default: empty, or the Source's `feed_cursor`);
@@ -126,14 +151,14 @@ be set, and an unset one is named, never its value.
 
 **Exit codes.** `0` the listing ran and passed the protocol checks; `1` the poll would write a `feed_error` for this
 Source or recipe, printed on stderr with the poll's own code and text; `2` the test could not start (usage, invalid
-config, unknown recipe, an unset variable, the Source or server unreadable); `3` a system recipe's preflight refused
-(`identity_not_read_only`, an error or no answer): nothing was listed, fix the identity and not the script.
+config, unknown recipe, an unset variable, the Source or server unreadable); `3` a system recipe's check refused
+(`identity_not_read_only`, `check_failed`): nothing was listed, fix the identity and not the script. A failed feed `check` is class `1`, printed with its code.
 
 **Output** (stdout, plain text, tab-separated): `recipe`, `shape`, `kind`, `source`, `locator`, `cursor_in`, `config`;
 one row per entry (change, key, revision, content bytes, title; at most 50, then `(+N more)`); `counts`;
 `next_cursor` in full, to paste back with `--cursor`; `summary` (entries, content bytes, estimated tokens, duration).
 Warnings go to stderr as `warning:` lines, among them `no_ingest_plan` when no `IngestPlan` lists the Source.
-For a system recipe the header adds `preflight:` (the identity label) and `state:` (`no stored state`, `trusted, N
+For a system recipe the header adds `check:` (the identity label) and `state:` (`no stored state`, `trusted, N
 groups`, or `untrusted (reason)`, in which case the diff is against an empty state, as the poll's baseline rebuild
 would be); the rows are the changed groups in key order (revision computed by the Surveyor), `counts` adds `unchanged`,
 `--cursor` is ignored (a warning says so), `--show <key>` prints the group's `## Change` and `## Observed` sections as
@@ -159,29 +184,29 @@ Source is registered once (`source_register` with `source_shape: system` and `re
 unique per system, such as `kubernetes://dev-cluster`, which the lister must not use to choose a context, an endpoint
 or a file), and `feed_interval` and `feed_include` are set with `concept_patch`, as for a feed.
 
-**The recipe's shape, not the Source's label, decides whether the preflight applies**: a mismatch in either direction
+**The recipe's shape, not the Source's label, decides whether the system check applies**: a mismatch in either direction
 is `recipe_shape` and nothing runs.
 
-**Preflight (mode `"preflight"`)** runs before **every** listing and cannot be configured away. The Surveyor sends the
-same request as for `list` with `mode: "preflight"` and `source_shape: "system"`; the script answers **exactly one JSON
-object** on stdout, exit 0:
+**The `check` verb** runs before **every** listing and cannot be configured away. The Surveyor sends the
+same request as for `list` minus the cursor fields, with `verb: "check"` and `source_shape: "system"`; the script answers
+**exactly one JSON line** on stdout, exit 0:
 
 ```json
-{"read_only": true, "identity": "dev-viewer", "detail": "no write verbs, no secrets"}
+{"check": {"ok": true, "read_only": true, "identity": "dev-viewer", "detail": "no write verbs, no secrets"}}
 ```
 
-`read_only` is required and a JSON boolean; `identity` (at most 120 runes) and `detail` (at most 300) are optional text,
-control characters stripped. Anything but a clean `read_only: true` is a refusal: `false`, a non-zero exit, a timeout,
-empty or more-than-one-object output, a missing or non-boolean `read_only`, a command that cannot start, an unset
-`exec.env` variable. The Source then gets `feed_error: identity_not_read_only: <identity> — <detail>` (or the exit
-status and the stderr excerpt), nothing is listed, and the cursor and the state are untouched. The code is a contract.
-No code path lists a system recipe without a preceding clean preflight.
+`ok` and `read_only` are required JSON booleans for a system recipe; `identity` (at most 120 runes) and `detail` (at
+most 300) are optional text, control characters stripped. Only `ok: true` with `read_only: true` lets the listing run.
+`read_only` false or missing is `identity_not_read_only: <identity> — <detail>`; `ok: false`, a non-zero exit, a
+timeout, an unreadable answer, a command that cannot start, an unset `exec.env` variable or a script with no `check` at all
+is `check_failed` (with the exit status and the stderr excerpt where there is one). Nothing is listed and the cursor and
+the state are untouched. Both codes are a contract. No code path lists a system recipe without a preceding clean check.
 
-**The preflight is a guard against a misconfigured identity, not a security boundary**: the script is operator code and
+**The check is a guard against a misconfigured identity, not a security boundary**: the script is operator code and
 can lie. The boundary is a dedicated read-only identity (see [deployment.md](deployment.md) §The Surveyor).
 
 **List for a system**: `source_shape: "system"`, `cursor: null`, `max_entries: 1000`, `max_content_bytes`. The entry
-rules differ from a feed's: `content` is **required** (non-empty UTF-8, no NUL, at most `max_content_bytes`, a
+rules differ from a feed's: there are no `delete` lines (a group that is gone is absent from the listing, and the Surveyor sees the removal by diffing), `content` is **required** (non-empty UTF-8, no NUL, at most `max_content_bytes`, a
 normalized snapshot: volatile fields dropped, **never a secret**); `revision`, `change` and `title` are ignored or
 defaulted (the title is the key). The final line is still required as the end marker and must be `{"next_cursor": ""}`: a system listing is always complete, and a non-empty cursor (a lister that stopped early) is a `protocol_error`, because every group a partial listing leaves out would be read as removed. The
 Surveyor computes each group's revision itself, as the first 16 hex of sha256 over the content with CRLF folded to LF; it
@@ -199,8 +224,7 @@ A reference lister for Kubernetes ships in the repository, not in the binary:
 [`examples/system-recipes/kubernetes/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/kubernetes/README.md) (Python 3, standard library only,
 `kubectl`; tested with fixtures, no cluster).
 
-A script that receives a mode it does not know must exit non-zero. A change to this contract needs a new `protocol`
-number.
+A script that receives a verb it does not know exits 64. A change to this contract needs a new `protocol` number.
 
 ## Verdicts, not metrics
 
@@ -236,28 +260,40 @@ A reference lister for a Prometheus HTTP API, with its review task, ships in the
 
 ## Example
 
-A script that lists the pages of a wiki changed since the cursor (a timestamp). It prints entries, then the cursor:
+A script that lists the pages of a wiki changed since the cursor (a timestamp) and checks its token.
+It prints entries, a delete line for a page that is gone, then the cursor:
 
 ```python
 #!/usr/bin/env python3
 import json, os, sys, urllib.request
 
+def call(path):
+    api = urllib.request.Request("https://wiki.example.com/api/" + path,
+                                 headers={"Authorization": "Bearer " + os.environ["WIKI_TOKEN"]})
+    return json.load(urllib.request.urlopen(api))
+
 req = json.load(sys.stdin)
-if req["protocol"] != 1 or req["mode"] != "list":
-    sys.exit("unsupported request")
-since = req["cursor"] or "1970-01-01T00:00:00Z"
-api = urllib.request.Request(
-    "https://wiki.example.com/api/changes?since=" + since,
-    headers={"Authorization": "Bearer " + os.environ["WIKI_TOKEN"]},
-)
-pages = json.load(urllib.request.urlopen(api))["pages"][: req["max_entries"]]
-for p in pages:
-    print(json.dumps({"entry": {
-        "key": p["id"], "title": p["title"], "revision": p["version"],
-        "change": "added" if p["version"] == 1 else "modified",
-        "locator": "https://wiki.example.com/pages/" + p["id"],
-    }}))
-print(json.dumps({"next_cursor": pages[-1]["updated"] if pages else since}))
+if req.get("protocol") != 2:
+    sys.exit(64)
+verb = req.get("verb")
+if verb == "check":
+    me = call("whoami")
+    print(json.dumps({"check": {"ok": True, "identity": me["name"], "detail": "token accepted"}}))
+elif verb == "list":
+    since = req["cursor"] or "1970-01-01T00:00:00Z"
+    pages = call("changes?since=" + since)["pages"][: req["max_entries"]]
+    for p in pages:
+        if p.get("deleted"):
+            print(json.dumps({"delete": {"key": p["id"]}}))
+            continue
+        print(json.dumps({"entry": {
+            "key": p["id"], "title": p["title"], "revision": p["version"],
+            "change": "added" if p["version"] == 1 else "modified",
+            "locator": "https://wiki.example.com/pages/" + p["id"],
+        }}))
+    print(json.dumps({"next_cursor": pages[-1]["updated"] if pages else since}))
+else:
+    sys.exit(64)
 ```
 
 Errors go to stderr with a non-zero exit; never print a credential.

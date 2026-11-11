@@ -17,7 +17,7 @@ import (
 
 // The poll of a system Source (D1372): a read-only system has no
 // revisions, so the surveyor lists its current state through a recipe of shape
-// system (after a preflight of the lister's identity), hashes each group, diffs
+// system (after a check of the lister's identity), hashes each group, diffs
 // it against the state kept on the Source and turns only the changed groups into
 // IngestUnits. An unchanged system costs no model call. The order of writes is
 // units, then the state file, then (first time) the body link, then the cursor:
@@ -96,21 +96,21 @@ type systemObservation struct {
 	Changes  system.Changes
 }
 
-// observeSystem is steps 4 to 6 of the system poll: the preflight, before every
+// observeSystem is steps 4 to 6 of the system poll: the check, before every
 // listing, the state, then the listing, its validation and the diff. The dry run
 // of a recipe calls this same function. A non-nil *pollFailure is the feed_error
-// the poll writes; preflight says it came from the preflight (the dry run's exit
+// the poll writes; checkRefused says it came from the check (the dry run's exit
 // class 3: nothing was listed). A non-nil error is the context ending or a
 // failure of the call itself.
-func observeSystem(ctx context.Context, sr recipe.SystemRecipe, req recipe.Request, st stateLoader, cursor string) (obs *systemObservation, pf *pollFailure, preflight bool, err error) {
+func observeSystem(ctx context.Context, sr recipe.SystemRecipe, req recipe.Request, st stateLoader, cursor string) (obs *systemObservation, pf *pollFailure, checkRefused bool, err error) {
 	pctx, cancel := context.WithTimeout(ctx, pollListTimeout)
 	defer cancel()
-	v, perr := sr.Preflight(pctx, req)
+	v, perr := sr.Check(pctx, req)
 	if perr != nil {
 		if ctx.Err() != nil {
 			return nil, nil, false, ctx.Err()
 		}
-		code, detail := recipe.CodeIdentityNotReadOnly, perr.Error()
+		code, detail := recipe.CodeCheckFailed, perr.Error() // not a read-only verdict: a timeout or a lost connection says nothing about the identity
 		var re *recipe.Error
 		if errors.As(perr, &re) {
 			code, detail = re.Code, re.Detail

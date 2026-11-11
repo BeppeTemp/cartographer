@@ -1041,7 +1041,7 @@ validate a nested per-type grammar.
   (the snapshot) and for a removal `## Last observed`. A newer unit marks the group's
   still-`open` ones `skipped` with `superseded_by`. A vanished group is information: its
   owner page is marked "observed absent since <date>" and a gap is recorded, never a delete.
-  `feed_error` adds `identity_not_read_only`, `empty_listing`, `state_error` and
+  `feed_error` adds `identity_not_read_only`, `check_failed`, `empty_listing`, `state_error` and
   `groups_failed` (state saved, some groups owed). Cursor and state are written only after
   the units exist, so a crash re-lists and creates only what is missing.
 - **Ingest plan and units (D1201).** An ingest campaign is concepts, so it can be

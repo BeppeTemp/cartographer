@@ -123,7 +123,7 @@ type Config struct {
 	// load; GitAllowHosts is git.allow_hosts (empty: no feed uses the git reader).
 	RecipeInstructions map[string]string
 	GitAllowHosts      []string
-	// ExecRecipes are the recipes.<name> of kind exec (protocol v1, D1262), commands
+	// ExecRecipes are the recipes.<name> of kind exec (protocol v2, D1262), commands
 	// already resolved; they come from this file and from nowhere else.
 	ExecRecipes []recipe.ExecConfig
 	// PluginsDir is plugins_dir resolved against the config directory and

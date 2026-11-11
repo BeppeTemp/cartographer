@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """A system lister for Kubernetes: the reference recipe of `shape: system`.
 
-It speaks protocol v1 of the Surveyor's exec recipes (docs/surveyor-recipes.md):
-one JSON request on stdin, mode "preflight" or "list", the answer on stdout.
+It speaks protocol v2 of the Surveyor's exec recipes (docs/surveyor-recipes.md):
+one JSON request on stdin, verb "check" or "list", the answer on stdout.
 It talks to the cluster only through kubectl and never uses the request's
 source.locator to choose a context, namespace, file or command.
 
@@ -81,7 +81,7 @@ def can_i(verb, resource):
     return answer
 
 
-def preflight():
+def check():
     identity = "unknown"
     cfg = kubectl_json(["config", "view", "--minify", "-o", "json"])
     users = cfg.get("users") or []
@@ -89,11 +89,11 @@ def preflight():
         identity = str(users[0].get("name") or identity)
     for verb, resource, want in QUESTIONS:
         if can_i(verb, resource) != want:
-            return {"read_only": False, "identity": identity,
-                    "detail": "can-i %s %s answered %s, expected %s" % (verb, resource, "yes" if want == "no" else "no", want)}
-    return {"read_only": True, "identity": identity,
-            "detail": "checked: no * on *, no get/list/watch on secrets, no create on pods/exec, pods/attach or pods/portforward, "
-                      "no write verb on %d resources, list allowed on %d resources" % (len(WRITES), len(READS) + 1)}
+            return {"check": {"ok": True, "read_only": False, "identity": identity,
+                              "detail": "can-i %s %s answered %s, expected %s" % (verb, resource, "yes" if want == "no" else "no", want)}}
+    return {"check": {"ok": True, "read_only": True, "identity": identity,
+                      "detail": "checked: no * on *, no get/list/watch on secrets, no create on pods/exec, pods/attach or pods/portforward, "
+                                "no write verb on %d resources, list allowed on %d resources" % (len(WRITES), len(READS) + 1)}}
 
 
 def kv(d):
@@ -169,13 +169,15 @@ def listing(req):
 def main():
     try:
         req = json.load(sys.stdin)
-        mode = req.get("mode")
-        if mode == "preflight":
-            lines = [preflight()]
-        elif mode == "list":
+        if req.get("protocol") != 2:
+            return 64  # a protocol this script does not speak
+        verb = req.get("verb")
+        if verb == "check":
+            lines = [check()]
+        elif verb == "list":
             lines = listing(req)
         else:
-            raise Failure("unknown mode")
+            return 64  # a verb this script does not implement
     except Failure as e:
         sys.stderr.write("lister: %s\n" % e)
         return 2

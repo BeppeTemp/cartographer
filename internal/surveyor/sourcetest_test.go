@@ -40,6 +40,27 @@ func TestSourceTestRecipeModeListsAndPassesTheCursorOn(t *testing.T) {
 	}
 }
 
+func TestSourceTestRunsTheFeedCheck(t *testing.T) {
+	run := func(mode string) (*SourceTestReport, error) {
+		cfg := execCfg(mode, nil)
+		return SourceTest(context.Background(), &cfg, SourceTestInput{Recipe: "my-feed", Locator: "x"})
+	}
+	rep, err := run("v2")
+	if err != nil || rep.Failure != nil || rep.CheckLabel != "svc-reader — 12 spaces" || len(rep.Entries) != 1 {
+		t.Fatalf("%v %+v", err, rep)
+	}
+	// A check that fails is the poll-class failure (1) with the check's own code, and nothing is listed.
+	rep, err = run("v2-badcheck")
+	if err != nil || rep.Failure == nil || rep.Failure.Code != recipe.CodeCheckFailed || rep.CheckRefused || len(rep.Entries) != 0 {
+		t.Errorf("a failed feed check: %v %+v", err, rep)
+	}
+	// A script that implements list only is listed as before.
+	rep, err = run("")
+	if err != nil || rep.Failure != nil || rep.CheckLabel != "" {
+		t.Errorf("a list-only script: %v %+v", err, rep)
+	}
+}
+
 func TestSourceTestShowIsCappedAndMarked(t *testing.T) {
 	cfg := execCfg("content", nil)
 	rep, err := SourceTest(context.Background(), &cfg, SourceTestInput{Recipe: "my-feed", Locator: "x", Show: "a.md"})
@@ -206,7 +227,7 @@ func codeBlock(t *testing.T, text, lang string) string {
 
 func TestListerReferenceNamesTheProtocol(t *testing.T) {
 	ref := readRef(t)
-	for _, want := range []string{"`protocol`: `1`", `"list"`, recipe.Added, recipe.Modified, recipe.Removed, "next_cursor", "preflight", "read_only"} {
+	for _, want := range []string{"`protocol`: `2`", `"list"`, `"check"`, recipe.Added, recipe.Modified, "delete", "next_cursor", "read_only", "64"} {
 		if !strings.Contains(ref, want) {
 			t.Errorf("lister-protocol.md lacks %q", want)
 		}
@@ -256,24 +277,29 @@ func TestListerReferenceSkeletonProducesWhatTheRunnerAccepts(t *testing.T) {
 	cfg := func(script string, shape string) recipe.ExecConfig {
 		return recipe.ExecConfig{Name: "x", Shape: shape, Command: py, Args: []string{script}, Timeout: 20 * time.Second, MaxOutput: 1 << 20, MaxContent: 1 << 10}
 	}
-	// list mode (feed)
-	l, err := recipe.NewExec(cfg(write(src), "")).List(context.Background(), recipe.Request{ID: "s", MaxEntries: 5})
+	// list verb (feed)
+	fr := recipe.NewExec(cfg(write(src), ""))
+	l, err := fr.List(context.Background(), recipe.Request{ID: "s", MaxEntries: 5})
 	if err != nil || len(l.Entries) != 0 || l.NextCursor != "" {
 		t.Errorf("listing = %+v, %v", l, err)
 	}
-	// preflight mode (system): the skeleton answers it, refusing until the author replaces the check.
+	// check (feed): the skeleton passes its check.
+	if _, err := fr.(recipe.Checker).Check(context.Background(), recipe.Request{ID: "s"}); err != nil {
+		t.Errorf("the skeleton's feed check: %v", err)
+	}
+	// check (system): the skeleton answers it, refusing until the author replaces the check.
 	sr := recipe.NewExec(cfg(write(src), recipe.ShapeSystem)).(recipe.SystemRecipe)
-	_, err = sr.Preflight(context.Background(), recipe.Request{ID: "s"})
+	_, err = sr.Check(context.Background(), recipe.Request{ID: "s"})
 	var re *recipe.Error
 	if !errors.As(err, &re) || re.Code != recipe.CodeIdentityNotReadOnly || !strings.Contains(re.Detail, "replace with a real check") {
-		t.Errorf("the skeleton must answer a preflight with a clean refusal, got %v", err)
+		t.Errorf("the skeleton must answer a system check with a clean refusal, got %v", err)
 	}
 	ok := strings.Replace(src, `"read_only": False`, `"read_only": True`, 1)
 	if ok == src {
-		t.Fatal("the skeleton's preflight answer changed shape")
+		t.Fatal("the skeleton's check answer changed shape")
 	}
 	sr = recipe.NewExec(cfg(write(ok), recipe.ShapeSystem)).(recipe.SystemRecipe)
-	if _, err := sr.Preflight(context.Background(), recipe.Request{ID: "s"}); err != nil {
+	if _, err := sr.Check(context.Background(), recipe.Request{ID: "s"}); err != nil {
 		t.Errorf("a skeleton whose check says read_only: %v", err)
 	}
 }
@@ -298,7 +324,7 @@ func sysTest(t *testing.T, s *sysEnv, in SourceTestInput) *SourceTestReport {
 	return rep
 }
 
-func TestSourceTestSystemRecipeModePreflightsListsAndHasNoState(t *testing.T) {
+func TestSourceTestSystemRecipeChecksListsAndHasNoState(t *testing.T) {
 	s := newSysEnv(t)
 	s.list("namespace/team-a", "deployment api image:v1\n"+snapCanary, "namespace/team-b", "deployment web image:v1")
 	rep := sysTest(t, s, SourceTestInput{Recipe: "k8s", Locator: "kubernetes://dev-cluster"})
@@ -312,8 +338,8 @@ func TestSourceTestSystemRecipeModePreflightsListsAndHasNoState(t *testing.T) {
 	if rep.Entries[0].Key != "namespace/team-a" || rep.Entries[0].Revision != system.Revision("deployment api image:v1\n"+snapCanary) {
 		t.Errorf("entry = %+v", rep.Entries[0])
 	}
-	if s.modes() != "preflight,list" {
-		t.Errorf("modes = %s: the preflight must precede the listing", s.modes())
+	if s.verbs() != "check,list" {
+		t.Errorf("verbs = %s: the check must precede the listing", s.verbs())
 	}
 	if strings.Contains(fmt.Sprintf("%+v", rep), snapCanary) {
 		t.Error("the snapshot reached the report without --show")
@@ -387,37 +413,38 @@ func TestSourceTestSystemUntrustedStateAndEmptyListing(t *testing.T) {
 	s.feed()["feed_cursor"] = sha(s.stateFile())
 	s.list()
 	rep = sysTest(t, s, SourceTestInput{Source: "sources/feed", Tools: s.k})
-	if rep.Failure == nil || rep.Failure.Code != codeEmptyListing || rep.PreflightRefused {
+	if rep.Failure == nil || rep.Failure.Code != codeEmptyListing || rep.CheckRefused {
 		t.Errorf("%+v", rep)
 	}
 }
 
-func TestSourceTestSystemRefusedPreflightListsNothing(t *testing.T) {
-	for name, answer := range map[string]string{
-		"not read only": `{"read_only":false,"identity":"cluster-admin","detail":"can delete"}`,
-		"malformed":     `not json`,
-		"no boolean":    `{"identity":"x"}`,
+func TestSourceTestSystemRefusedCheckListsNothing(t *testing.T) {
+	for name, tc := range map[string]struct{ answer, code string }{
+		"not read only": {`{"check":{"ok":true,"read_only":false,"identity":"cluster-admin","detail":"can delete"}}`, recipe.CodeIdentityNotReadOnly},
+		"no read_only":  {`{"check":{"ok":true}}`, recipe.CodeIdentityNotReadOnly},
+		"not ok":        {`{"check":{"ok":false,"detail":"no route"}}`, recipe.CodeCheckFailed},
+		"malformed":     {`not json`, recipe.CodeCheckFailed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := newSysEnv(t)
 			s.list("namespace/team-a", "v1")
-			s.preflight(answer)
+			s.check(tc.answer)
 			rep := sysTest(t, s, SourceTestInput{Recipe: "k8s", Locator: "x"})
-			if !rep.PreflightRefused || rep.Failure == nil || rep.Failure.Code != recipe.CodeIdentityNotReadOnly || len(rep.Entries) != 0 {
+			if !rep.CheckRefused || rep.Failure == nil || rep.Failure.Code != tc.code || len(rep.Entries) != 0 {
 				t.Errorf("%+v", rep)
 			}
-			if s.modes() != "preflight" {
-				t.Errorf("modes = %s: nothing may be listed after a refusal", s.modes())
+			if s.verbs() != "check" {
+				t.Errorf("verbs = %s: nothing may be listed after a refusal", s.verbs())
 			}
 		})
 	}
 	s := newSysEnv(t)
-	if err := os.Remove(filepath.Join(s.dir, "preflight.json")); err != nil {
+	if err := os.Remove(filepath.Join(s.dir, "check.json")); err != nil {
 		t.Fatal(err)
 	}
 	rep := sysTest(t, s, SourceTestInput{Recipe: "k8s", Locator: "x"})
-	if !rep.PreflightRefused || s.modes() != "preflight" {
-		t.Errorf("a preflight that crashes is a refusal: %+v (%s)", rep, s.modes())
+	if !rep.CheckRefused || s.verbs() != "check" {
+		t.Errorf("a check that crashes is a refusal: %+v (%s)", rep, s.verbs())
 	}
 }
 
@@ -433,7 +460,7 @@ func TestSourceTestShapeMismatchReportsWhatThePollWrites(t *testing.T) {
 			s.list("namespace/team-a", "v1")
 			s.feed()["source_shape"], s.feed()["recipe"] = tc.shape, tc.recipe
 			rep := sysTest(t, s, SourceTestInput{Source: "sources/feed", Tools: s.k})
-			if rep.Failure == nil || rep.Failure.Code != codeRecipeShape || rep.PreflightRefused {
+			if rep.Failure == nil || rep.Failure.Code != codeRecipeShape || rep.CheckRefused {
 				t.Fatalf("%+v", rep)
 			}
 			s.mustPoll()
@@ -441,8 +468,8 @@ func TestSourceTestShapeMismatchReportsWhatThePollWrites(t *testing.T) {
 			if got != codeRecipeShape+": "+rep.Failure.Detail {
 				t.Errorf("poll wrote %q, dry run said %+v", got, rep.Failure)
 			}
-			if s.modes() != "" {
-				t.Errorf("the script ran (%s) despite the mismatch", s.modes())
+			if s.verbs() != "" {
+				t.Errorf("the script ran (%s) despite the mismatch", s.verbs())
 			}
 		})
 	}

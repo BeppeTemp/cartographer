@@ -29,7 +29,7 @@ func runExecHelper(mode string, args []string) {
 		fmt.Fprintln(out, `{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"hello","future_field":1}}`)
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, `{"entry":{"key":"b.md","title":"B","revision":"r2","change":"modified","locator":"https://example.com/b"}}`)
-		fmt.Fprintln(out, `{"entry":{"key":"c.md","change":"removed"}}`)
+		fmt.Fprintln(out, `{"delete":{"key":"c.md"}}`)
 		fmt.Fprintln(out, `{"next_cursor":"cur-2"}`)
 	case "stdin": // args[0] = file to copy stdin into
 		b, _ := io.ReadAll(os.Stdin)
@@ -91,14 +91,37 @@ func runExecHelper(mode string, args []string) {
 			_ = os.WriteFile(args[0], []byte(strconv.Itoa(c.Process.Pid)), 0o600)
 		}
 		time.Sleep(time.Minute)
-	case "sys": // args[0] = log of the modes received, args[1] = the preflight answer, args[2] = "exit4" (preflight exits 4) or "cursor" (the listing ends with a cursor)
+	case "exit64": // implements no verb
+		os.Exit(64)
+	case "lines": // every argument is printed as one line, verbatim: the test writes the whole answer
+		for _, l := range args {
+			fmt.Fprintln(out, l)
+		}
+	case "byverb": // args[0] = log of the verbs received; args[1], args[2] = answer to spec and to check ("-": exit 64; "exitN": stderr and exit N)
 		b, _ := io.ReadAll(os.Stdin)
-		var m struct{ Mode string }
+		var req struct{ Verb string }
+		_ = json.Unmarshal(b, &req)
+		f, _ := os.OpenFile(args[0], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		fmt.Fprintln(f, req.Verb)
+		f.Close()
+		answer := map[string]string{"spec": args[1], "check": args[2], "list": `{"next_cursor":"x"}`}[req.Verb]
+		switch {
+		case answer == "" || answer == "-":
+			os.Exit(64)
+		case strings.HasPrefix(answer, "exit"):
+			n, _ := strconv.Atoi(strings.TrimPrefix(answer, "exit"))
+			fmt.Fprintln(os.Stderr, "no kubeconfig")
+			os.Exit(n)
+		}
+		fmt.Fprintln(out, answer)
+	case "sys": // args[0] = log of the verbs received, args[1] = the check answer, args[2] = "exit4" (check exits 4) or "cursor" (the listing ends with a cursor)
+		b, _ := io.ReadAll(os.Stdin)
+		var m struct{ Verb string }
 		_ = json.Unmarshal(b, &m)
 		f, _ := os.OpenFile(args[0], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		fmt.Fprintln(f, m.Mode)
+		fmt.Fprintln(f, m.Verb)
 		f.Close()
-		if m.Mode == "preflight" {
+		if m.Verb == "check" {
 			fmt.Fprintln(out, args[1])
 			if len(args) > 2 && args[2] == "exit4" {
 				fmt.Fprintln(os.Stderr, "no kubeconfig")
@@ -106,7 +129,7 @@ func runExecHelper(mode string, args []string) {
 			}
 			break
 		}
-		fmt.Fprintln(out, `{"entry":{"key":"namespace/a","content":"line1\nline2","revision":"ignored","change":"removed"}}`)
+		fmt.Fprintln(out, `{"entry":{"key":"namespace/a","content":"line1\nline2","revision":"ignored","change":"modified"}}`)
 		fmt.Fprintln(out, `{"entry":{"key":"namespace/b","title":"B","content":"x"}}`)
 		if len(args) > 2 && args[2] == "cursor" { // a lister that stopped early
 			fmt.Fprintln(out, `{"next_cursor":"resume-here"}`)

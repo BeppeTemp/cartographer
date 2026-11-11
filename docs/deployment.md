@@ -780,9 +780,9 @@ recipes:
 ```
 
 **Exec recipes (D1262).** A recipe of your own is an executable declared under `recipes.<name>` with an `exec` block
-(`command`, `args`, `env`, `timeout`, `max_output_bytes`, `max_content_bytes`), an `instructions_file` and optionally
+(`command`, `args`, `env`, `timeout`, `max_output_bytes`, `max_content_bytes`), an `instructions_file`, and optionally
 a `connector`; it lists a feed over a JSON stdin/stdout protocol, with no shell, a per-call temp directory and only
-the environment variables you list. The keys, protocol v1 and the trust model are in
+the environment variables you list. The keys, protocol v2 and the trust model are in
 [surveyor-recipes.md](surveyor-recipes.md), which also describes `cartographer surveyor source test`, the dry run of a recipe. A script that needs an interpreter runs from a
 derived image (`FROM` the Surveyor image, §Example: a derived image for exec recipes) or from a mounted read-only volume, and the Surveyor now needs a
 **writable temp directory** (an `emptyDir` on Kubernetes) for exec recipes and git reads, which refines "no volume"
@@ -805,7 +805,7 @@ on any git version (`GIT_CONFIG_GLOBAL` alone needs git 2.32).
 instance) is a Source with `source_shape: system` and a `recipe` whose `shape` is `system`
 ([surveyor-recipes.md](surveyor-recipes.md) §System recipes). Register it once with `source_register` (`source_shape:
 system`, `recipe`, `locator` an opaque label such as `kubernetes://dev-cluster`) and set `feed_interval` and
-`feed_include` with `concept_patch`; an IngestPlan must list it in `sources`. Every poll runs the lister's preflight,
+`feed_include` with `concept_patch`; an IngestPlan must list it in `sources`. Every poll runs the lister's `check`,
 lists the current state grouped, diffs it against the state kept on the Source and creates one unit per **changed**
 group; the executor runs those units with KB tools only (no tool on the system). The reference lister, its recipe
 block and its README are in `examples/system-recipes/kubernetes/`; it needs Python 3 and `kubectl` in the image
@@ -821,10 +821,10 @@ baseline); a typical day changes a few namespaces, so a few thousand tokens; an 
 groups, the state file 8 MiB; over a cap is an error naming the group or the count (group coarser or filter with
 `feed_include`). A large first run is spread over polls by the poll task's `max_entries` and `feed_interval`.
 
-*Give the lister a read-only identity.* The preflight refuses a misconfigured identity but is not a security boundary
+*Give the lister a read-only identity.* The check refuses a misconfigured identity but is not a security boundary
 (the script is operator code); the boundary is the identity:
 - **Kubernetes**: a dedicated ServiceAccount bound to the `view` ClusterRole, which does not include Secrets; the
-  example's preflight refuses an identity that can read secrets, write pods, deployments or namespaces, or do anything
+  example's check refuses an identity that can read secrets, write pods, deployments or namespaces, or do anything
   on `*`.
 - **Cloud account**: a dedicated read-only / view-only policy; check what it can still read, since "read-only" can
   include secret values.

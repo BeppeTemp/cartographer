@@ -23,7 +23,7 @@ import (
 
 // Exit codes of `cartographer surveyor source test` (D1373): the listing ran and
 // passed (0); the poll would write a feed_error for this Source or recipe (1);
-// the test could not start (2); a system recipe's preflight refused (3): nothing
+// the test could not start (2); a system recipe's check refused (3): nothing
 // was listed, fix the identity and not the script.
 const (
 	sourceTestFail    = 1
@@ -57,7 +57,7 @@ func printSurveyorSourceUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "  test   Run the listing the Surveyor will run, with the real recipe, and print it. Writes nothing:")
 	fmt.Fprintln(w, "         no lease, cursor, Source, unit or log entry; no model is called.")
-	fmt.Fprintln(w, "Exit: 0 listed, 1 the poll would record a feed_error, 2 the test could not start, 3 a system recipe's preflight refused.")
+	fmt.Fprintln(w, "Exit: 0 listed, 1 the poll would record a feed_error, 2 the test could not start, 3 a system recipe's check refused.")
 }
 
 func cmdSurveyorSourceTest(args []string) int {
@@ -185,13 +185,15 @@ func printSourceTest(out, errw io.Writer, config string, r *surveyor.SourceTestR
 		clip(r.Recipe, 80), clip(r.Shape, 20), clip(r.Kind, 80), clip(src, 200), clip(r.Locator, 400), clip(r.CursorIn, 1100), clip(filepath.Base(config), 80))
 	if r.Failure != nil {
 		fmt.Fprintf(errw, "the poll would record: feed_error %s: %s\n", clip(r.Failure.Code, 60), clip(r.Failure.Detail, 400))
-		if r.PreflightRefused {
+		if r.CheckRefused {
 			return sourceTestRefused
 		}
 		return sourceTestFail
 	}
 	if r.Shape == "system" {
-		fmt.Fprintf(out, "preflight:\tread_only, identity %s\nstate:\t%s\n", clip(r.Identity, 80), clip(r.StateStatus, 200))
+		fmt.Fprintf(out, "check:\tread_only, identity %s\nstate:\t%s\n", clip(r.Identity, 80), clip(r.StateStatus, 200))
+	} else if r.CheckLabel != "" {
+		fmt.Fprintf(out, "check:\tok, %s\n", clip(r.CheckLabel, 400))
 	}
 	for i, e := range r.Entries {
 		if i == sourceTestRows {

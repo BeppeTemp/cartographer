@@ -44,7 +44,7 @@ Files: `lister.py` (the recipe's command), `checks.json` (the groups and signals
 
 | Key | Meaning |
 |---|---|
-| `identity` | Optional, the name the preflight reports. It is here and not in `exec.env` because the Surveyor redacts those values from what a lister prints |
+| `identity` | Optional, the name the check reports. It is here and not in `exec.env` because the Surveyor redacts those values from what a lister prints |
 | `groups[].key`, `title` | The group, as in §System recipes: one responsibility a page owns, never a person |
 | `groups[].alert_labels` | Optional: the alert rules whose labels hold all of these. A group with none matching prints `alerts: none` |
 | `signals[].name`, `query` | The line's name and an instant query that answers one series |

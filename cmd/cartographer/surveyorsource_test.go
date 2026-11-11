@@ -393,7 +393,7 @@ func TestSurveyorSourceSystemRecipeAndExit3(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errs)
 	}
-	for _, want := range []string{"shape:\tsystem", "preflight:\tread_only, identity dev-viewer", "state:\tno stored state",
+	for _, want := range []string{"shape:\tsystem", "check:\tread_only, identity dev-viewer", "state:\tno stored state",
 		"added\tnamespace/team-a\t", "counts:\tadded 1, modified 0, removed 0, unchanged 0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout lacks %q:\n%s", want, out)
@@ -402,7 +402,7 @@ func TestSurveyorSourceSystemRecipeAndExit3(t *testing.T) {
 	t.Setenv("LISTER_VAR", "false")
 	code, out, errs = runSource(t, "test", "--config", cfg, "--recipe", "my-feed", "--locator", "x")
 	if code != 3 || !strings.Contains(errs, "identity_not_read_only") || strings.Contains(out, "namespace/team-a") {
-		t.Errorf("a refused preflight: exit %d, stdout %q, stderr %q", code, out, errs)
+		t.Errorf("a refused check: exit %d, stdout %q, stderr %q", code, out, errs)
 	}
 }
 

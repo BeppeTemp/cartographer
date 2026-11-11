@@ -1115,7 +1115,7 @@ write failures it commits only successful paths and reports that the batch had e
 ### `cartographer surveyor source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc>)`
 
 The dry run of a Surveyor recipe: the listing the Surveyor will run, printed, with nothing written and no model called
-(exit `0` listed, `1` the poll would record a `feed_error`, `2` could not start, `3` a system recipe's preflight
+(exit `0` listed, `1` the poll would record a `feed_error`, `2` could not start, `3` a system recipe's check
 refused). Flags, output and limits are in [surveyor-recipes.md](surveyor-recipes.md#testing-a-recipe-before-deploying-it);
 `cartographer surveyor --config <file>` itself is described in [deployment.md](deployment.md#the-surveyor-a-third-role).
 

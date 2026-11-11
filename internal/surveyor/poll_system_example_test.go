@@ -155,7 +155,7 @@ func TestExampleVerdictRecipeAndReviewTaskLoad(t *testing.T) {
 	}
 }
 
-// The whole path with the example Kubernetes lister: preflight, listing, the
+// The whole path with the example Kubernetes lister: check, listing, the
 // poll and the KB. Skipped where there is no Python 3.
 func TestSystemPollWithTheExampleKubernetesLister(t *testing.T) {
 	py := python3(t)

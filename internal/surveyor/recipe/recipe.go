@@ -2,13 +2,14 @@
 //
 // A recipe is Go code shipped in the surveyor (the operator can replace its
 // instructions text and nothing else), or an executable the operator declares in
-// the surveyor config (exec.go, protocol v1). A Source can only name a recipe that
+// the surveyor config (exec.go, protocol v2). A Source can only name a recipe that
 // the registry holds: nothing a KB contains selects code, a command or a path.
 package recipe
 
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -22,7 +23,9 @@ const (
 	ShapeSystem = "system"
 )
 
-// Change values of an Entry.
+// Change values of an Entry. Removed is never a wire value (protocol v2 signals
+// a deletion with a delete line): the listing parser sets it on the Entry of a
+// deleted key, and a system diff uses it for a group that disappeared.
 const (
 	Added    = "added"
 	Modified = "modified"
@@ -64,6 +67,18 @@ type Recipe interface {
 	List(ctx context.Context, req Request) (Listing, error)
 }
 
+// Checker is a recipe that can check its credentials and reachability (the
+// check verb); for a system recipe the check also proves the identity read-only.
+// A recipe that does not implement the verb answers ErrUnsupported.
+type Checker interface {
+	Check(ctx context.Context, req Request) (Verified, error)
+}
+
+// ErrUnsupported is what a verb answers when the script exits 64 with no
+// output: it does not implement that verb. Check treats it as "nothing to say";
+// for list it is a failure.
+var ErrUnsupported = errors.New("recipe: the verb is not implemented by this recipe")
+
 // Error is a listing failure with the code that goes to the Source's
 // feed_error ("<code>: <detail>"). Detail never holds a credential: the
 // built-in recipes use none.
@@ -77,8 +92,11 @@ const (
 	CodeBadLocator     = "bad_locator"
 	CodeCursorInvalid  = "cursor_invalid"
 	CodeListFailed     = "list_failed"
-	// CodeIdentityNotReadOnly is the feed_error code of a failed preflight: a
-	// contract, the Atlas shows it (D1372).
+	// CodeCheckFailed is a check that answered ok: false, exited non-zero or gave
+	// an unreadable answer; the detail is shown.
+	CodeCheckFailed = "check_failed"
+	// CodeIdentityNotReadOnly is the feed_error code of a system check that did
+	// not answer read_only: true: a contract, the Atlas shows it (D1372).
 	CodeIdentityNotReadOnly = "identity_not_read_only"
 )
 

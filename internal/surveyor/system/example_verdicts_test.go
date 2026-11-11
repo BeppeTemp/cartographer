@@ -138,9 +138,9 @@ func verdictLister(t *testing.T, s *promStub, checks string) recipe.SystemRecipe
 		Env: env, Timeout: exampleTimeout(t, verdictDir), MaxOutput: 1 << 20, MaxContent: 8 << 10, Instructions: "x"}).(recipe.SystemRecipe)
 }
 
-func TestExampleVerdictsPreflight(t *testing.T) {
+func TestExampleVerdictsCheck(t *testing.T) {
 	s := newPromStub(t)
-	v, err := verdictLister(t, s, "").Preflight(context.Background(), recipe.Request{ID: "s/m"})
+	v, err := verdictLister(t, s, "").Check(context.Background(), recipe.Request{ID: "s/m"})
 	if err != nil || v.Identity() != "metrics-viewer" || !strings.HasPrefix(v.Detail(), "checked: ") {
 		t.Fatalf("clean endpoint: %+v %v", v, err)
 	}
@@ -158,10 +158,14 @@ func TestExampleVerdictsPreflight(t *testing.T) {
 	} {
 		p := newPromStub(t)
 		p.set(func() { tc.change(p) })
-		_, err := verdictLister(t, p, "").Preflight(context.Background(), recipe.Request{ID: "s/m"})
+		_, err := verdictLister(t, p, "").Check(context.Background(), recipe.Request{ID: "s/m"})
 		e, ok := err.(*recipe.Error)
-		if !ok || e.Code != recipe.CodeIdentityNotReadOnly || !strings.Contains(e.Detail, tc.want) {
-			t.Errorf("%s: %v, want %q", name, err, tc.want)
+		code := recipe.CodeIdentityNotReadOnly
+		if name == "not authorized" { // the lister could not ask: the check failed, it did not say the identity writes
+			code = recipe.CodeCheckFailed
+		}
+		if !ok || e.Code != code || !strings.Contains(e.Detail, tc.want) {
+			t.Errorf("%s: %v, want %s containing %q", name, err, code, tc.want)
 		}
 	}
 }
@@ -265,7 +269,7 @@ func TestExampleVerdictsFailuresNameTheSignal(t *testing.T) {
 	} {
 		p := newPromStub(t)
 		r := verdictLister(t, p, "")
-		v, err := r.Preflight(context.Background(), recipe.Request{ID: "s/m"})
+		v, err := r.Check(context.Background(), recipe.Request{ID: "s/m"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -293,7 +297,7 @@ func TestExampleVerdictsFollowsNoRedirect(t *testing.T) {
 	defer away.Close()
 	s := newPromStub(t)
 	r := verdictLister(t, s, "")
-	v, err := r.Preflight(context.Background(), recipe.Request{ID: "s/m"})
+	v, err := r.Check(context.Background(), recipe.Request{ID: "s/m"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,13 +341,13 @@ func TestExampleVerdictsChecksFile(t *testing.T) {
 		if err := os.WriteFile(path, []byte(tc.checks), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_, err := verdictLister(t, s, path).Preflight(context.Background(), recipe.Request{ID: "s/m"})
+		_, err := verdictLister(t, s, path).Check(context.Background(), recipe.Request{ID: "s/m"})
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want %q", name, err, tc.want)
 		}
 	}
 	r := verdictLister(t, s, "")
-	v, err := r.Preflight(context.Background(), recipe.Request{ID: "s/m"})
+	v, err := r.Check(context.Background(), recipe.Request{ID: "s/m"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
@@ -21,6 +22,15 @@ func TestMain(m *testing.M) {
 		systemHelper()
 	}
 	if len(os.Args) > 1 && os.Args[1] == execHelperFlag {
+		var rq struct{ Verb string }
+		b, _ := io.ReadAll(os.Stdin)
+		_ = json.Unmarshal(b, &rq)
+		if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "v2") {
+			v2Helper(os.Args[2], rq.Verb)
+		}
+		if rq.Verb != "list" { // these listers implement list only
+			os.Exit(64)
+		}
 		if len(os.Args) > 2 && os.Args[2] == "content" {
 			fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"Inline page text."}}`)
 			fmt.Println(`{"next_cursor":"c1"}`)
@@ -39,23 +49,44 @@ func TestMain(m *testing.M) {
 }
 
 // systemHelper is a system lister driven by files in $SYS_FIXTURE_DIR: the
-// request's mode is appended to modes, preflight.json is the preflight answer
-// and listing.jsonl the listing. A missing file is a failure (exit 3).
+// request's verb is appended to verbs, check.json is the check answer and
+// listing.jsonl the listing. A missing file is a failure (exit 3); any
+// other verb exits 64.
 func systemHelper() {
 	dir := os.Getenv("SYS_FIXTURE_DIR")
 	b, _ := io.ReadAll(os.Stdin)
-	var req struct{ Mode string }
+	var req struct{ Verb string }
 	_ = json.Unmarshal(b, &req)
-	if f, err := os.OpenFile(filepath.Join(dir, "modes"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
-		fmt.Fprintln(f, req.Mode)
+	if f, err := os.OpenFile(filepath.Join(dir, "verbs"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		fmt.Fprintln(f, req.Verb)
 		f.Close()
 	}
-	name := map[string]string{"preflight": "preflight.json", "list": "listing.jsonl"}[req.Mode]
+	name := map[string]string{"check": "check.json", "list": "listing.jsonl"}[req.Verb]
+	if name == "" {
+		os.Exit(64)
+	}
 	out, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "no fixture for", req.Mode)
+		fmt.Fprintln(os.Stderr, "no fixture for", req.Verb)
 		os.Exit(3)
 	}
 	os.Stdout.Write(out)
+	os.Exit(0)
+}
+
+// v2Helper is a feed lister that implements check and list: v2-badcheck
+// answers ok: false.
+func v2Helper(mode, verb string) {
+	switch verb {
+	case "check":
+		if mode == "v2-badcheck" {
+			fmt.Println(`{"check":{"ok":false,"detail":"no route to the wiki"}}`)
+		} else {
+			fmt.Println(`{"check":{"ok":true,"identity":"svc-reader","detail":"12 spaces"}}`)
+		}
+	case "list":
+		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"x"}}`)
+		fmt.Println(`{"next_cursor":"c1"}`)
+	}
 	os.Exit(0)
 }

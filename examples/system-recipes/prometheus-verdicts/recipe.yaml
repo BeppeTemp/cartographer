@@ -2,7 +2,7 @@
 #   source_register(source_shape: system, recipe: metrics-verdicts, locator: "metrics://production", ...)
 # The locator is an opaque label; the lister never uses it. The endpoint and the token come from the
 # variables below, set in the Surveyor's environment, never from a KB. Drop METRICS_TOKEN from env for
-# an endpoint without auth: a listed variable that is unset refuses the preflight.
+# an endpoint without auth: a listed variable that is unset refuses the check.
 recipes:
   metrics-verdicts:
     shape: system
