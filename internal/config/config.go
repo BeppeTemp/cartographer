@@ -49,6 +49,11 @@ type Config struct {
 	// KB names are checked against the mounted KBs by UnmountedComponentKBs once
 	// they are known.
 	Components []ComponentSpec
+	// PluginsDir is the read-only store the pinned plugins are read from and
+	// Plugins the digest pins, by plugin name (YAML only): the pin is the
+	// server's only consent to run a plugin's server side. See PluginPins.
+	PluginsDir string
+	Plugins    map[string]PluginPin
 	// GitIdentities is the git identity ("Name <email>") the server commits as,
 	// one per KB name and "default" for every KB without an entry (D950). Read
 	// it through IdentityFor. Without an entry the server identity applies.
@@ -432,8 +437,10 @@ type rawConfig struct {
 	API            rawAPI   `yaml:"api"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
-	UpdateCheck *bool          `yaml:"update_check"`
-	Components  []rawComponent `yaml:"components"`
+	UpdateCheck *bool                   `yaml:"update_check"`
+	Components  []rawComponent          `yaml:"components"`
+	PluginsDir  string                  `yaml:"plugins_dir"`
+	Plugins     map[string]rawPluginPin `yaml:"plugins"`
 	Maintenance struct {
 		// AutoRepair is a pointer: the default is true, so absent differs from false.
 		AutoRepair *bool `yaml:"auto_repair"`
@@ -656,6 +663,9 @@ func Load(path string) (*Config, error) {
 	if err := checkComponentKeys(data); err != nil {
 		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
+	if err := checkPluginKeys(data); err != nil {
+		return nil, fmt.Errorf("config: parse %q: %w", path, err)
+	}
 
 	cfg := Default()
 	var specs []KBSpec
@@ -740,6 +750,17 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: components: %w", err)
 	}
 	cfg.Components = comps
+
+	cfg.PluginsDir = raw.PluginsDir
+	pins, err := pluginPins(raw.PluginsDir, raw.Plugins)
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	for n, p := range pins {
+		p.Line = pluginLines(data)[n]
+		pins[n] = p
+	}
+	cfg.Plugins = pins
 
 	if raw.Web.Enabled != nil {
 		cfg.Web.Enabled = *raw.Web.Enabled

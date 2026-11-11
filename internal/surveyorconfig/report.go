@@ -45,6 +45,7 @@ var envName = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*( ?\((set|unset)\))?)?
 
 var (
 	nameRe   = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
+	digestRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	clockRe  = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 	zoneRe   = regexp.MustCompile(`^[A-Za-z0-9_+/-]{1,40}$`)
 	modelRe  = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,100}$`)
@@ -66,6 +67,7 @@ var stringShape = map[string]*regexp.Regexp{
 	"schedule.window.timezone": zoneRe,
 	"tasks[].kind":             kindRe,
 	"tasks[].model":            nameRe,
+	"plugins.{name}.digest":    digestRe,
 }
 
 // unsafeURL: a URL that is not http(s) with a host, or that carries credentials, a query or a fragment, or that does

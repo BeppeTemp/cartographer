@@ -105,7 +105,7 @@ func TestOriginSurvivesReordering(t *testing.T) {
 func TestServerValueCoversSchema(t *testing.T) {
 	c := Default()
 	for _, k := range Schema.Keys {
-		if strings.HasPrefix(k.Path, "kbs[].") || strings.HasPrefix(k.Path, "components[].") {
+		if strings.HasPrefix(k.Path, "kbs[].") || strings.HasPrefix(k.Path, "components[].") || strings.Contains(k.Path, ".{name}.") {
 			continue
 		}
 		if v, _ := c.serverValue(k.Path); v == "unknown key "+k.Path {

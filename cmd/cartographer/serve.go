@@ -121,6 +121,13 @@ func cmdServe(args []string) int {
 		log.Fatal(err)
 	}
 	announceConfig(cfg, envFallback(*configFlag, "CARTOGRAPHER_CONFIG"))
+	// The pins are checked before anything is mounted or listened on; nothing
+	// consumes the plugins yet, so they are verified and reported.
+	serverPlugins, err := loadServerPlugins(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	logServerPlugins(serverPlugins)
 
 	configPath := envFallback(*configFlag, "CARTOGRAPHER_CONFIG")
 	runServe(cfg, &authReload{

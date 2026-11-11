@@ -160,7 +160,9 @@ const (
 func (c *Config) Settings(kbNames []string) View {
 	v := View{Server: []Entry{}, KBs: []KBEntries{}}
 	for _, k := range Schema.Keys {
-		if strings.HasPrefix(k.Path, "kbs[].") {
+		// A name-keyed entry (plugins.{name}.digest) is one row per instance, not a
+		// setting with one value: the view shows the map key itself.
+		if strings.HasPrefix(k.Path, "kbs[].") || strings.Contains(k.Path, ".{name}.") {
 			continue
 		}
 		val, set := c.serverValue(k.Path)
@@ -306,6 +308,15 @@ func (c *Config) serverValue(path string) (any, bool) {
 		for _, s := range c.Components {
 			names = append(names, s.Name)
 		}
+		return names, len(names) > 0
+	case "plugins_dir":
+		return str(c.PluginsDir)
+	case "plugins":
+		names := []string{}
+		for n := range c.Plugins {
+			names = append(names, n)
+		}
+		sort.Strings(names)
 		return names, len(names) > 0
 	case "git.identities":
 		return c.GitIdentities, len(c.GitIdentities) > 0

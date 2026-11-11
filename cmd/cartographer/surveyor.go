@@ -15,6 +15,8 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/componentproto"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/star"
 	"github.com/BeppeTemp/cartographer/internal/surveyor"
 	"github.com/BeppeTemp/cartographer/internal/surveyorconfig"
 )
@@ -184,6 +186,14 @@ func surveyorStartup(ctx context.Context, path string, kinds *surveyor.Kinds, re
 	}
 	for _, w := range cfg.Warnings {
 		fmt.Fprintf(out, "surveyor: warning: %s\n", w)
+	}
+	// The pinned digest is the only consent: a plugin that does not match stops
+	// the start, before any model client or network call.
+	if err := cfg.LoadPlugins(core.Options{RunningVersion: version, CheckScripts: star.Check}); err != nil {
+		return nil, startFail(surveyorExitStart, "surveyor config %s: %v", path, err)
+	}
+	for _, p := range cfg.Plugins {
+		fmt.Fprintf(out, "surveyor: plugin %s %s %s\n", p.Manifest.Name, p.Manifest.Version, p.Digest[:12])
 	}
 
 	models := map[string]surveyor.Model{}

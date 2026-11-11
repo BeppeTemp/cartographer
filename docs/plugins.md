@@ -223,6 +223,20 @@ approval, and returns the active plugins that have `side`, in name order. Every 
 a malformed digest (not 64 lowercase hex) is refused before any disk access; a disabled pin is skipped. Why:
 `D1922`.
 
+### Headless approval: `plugins_dir` and `plugins`
+
+The pins reach `LoadPinned` from two config files, with the same keys: the server (`plugins_dir` absolute, `plugins`
+in `config.yaml`, side `server`; `cmd/cartographer/serve_plugins.go`) and the Surveyor (`plugins_dir` absolute or
+relative to the config directory, `plugins`, side `surveyor`; `Config.LoadPlugins` in `internal/surveyor`). Each
+`plugins.<name>` has `digest` (64 lowercase hex, required), `enabled` (default true) and `settings` (scalars). The
+digest is the component's only consent. The loaders validate at load, fail closed: an invalid name or digest, an
+unknown key under an entry, a non-scalar setting, `plugins` without `plugins_dir`, and on the server a relative
+`plugins_dir`, stop the start naming the key (and its line for the Surveyor). At start a pinned, enabled plugin whose
+tree digest differs, or that is missing, modified, has no side of the component or whose side is unsupported here
+refuses the start with the plugin named; it is never loaded with a warning. A pin change takes a restart. Both
+components load only their own side, with `core.Options{RunningVersion, CheckScripts: star.Check}`; no client
+approval is consulted and nothing is written into the store. Why: `D1936`.
+
 ## The `plugin` command
 
 `cartographer plugin` is listed in `help` and documented in [configurator.md](configurator.md#cartographer-plugin-subcommand).
@@ -727,6 +741,6 @@ Copilot CLI, not Antigravity or Kiro IDE.
 - No `mcp/` and no `instructions.md` contribution point.
 - A script runs no process, and a plugin tool reaches a client only through the stdio bridge (above).
 - The instructions block does not announce a plugin's agents and hooks.
-- A server never hosts or loads a plugin; `sync_pull` refuses an artifact whose source is `plugin:`. There is no
+- A server loads a plugin only if its config pins the digest (above), and so far loads nothing from it; `sync_pull` refuses an artifact whose source is `plugin:`. There is no
   plugin catalog and a KB cannot recommend a plugin.
 - Plugins are never signed; the approval of one digest is the only consent, and it is per version.

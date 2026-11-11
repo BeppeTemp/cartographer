@@ -121,6 +121,16 @@ otherwise. Comments are ignored by the parser, so a file without them behaves
 identically. `kb create`/`kb clone` and `kb rename` give a `kbs[]` entry they add the comment of the keys they set,
 and leave every comment already in the file alone.
 
+**Pinned plugins (`plugins_dir`, `plugins`).** The server runs no plugin unless its own file pins one: `plugins_dir`
+is the absolute path of a read-only store (`<dir>/<name>/<digest>/`, filled by `cartographer plugin vendor`, which
+prints the digest and these lines) and `plugins.<name>` carries `digest` (64 lowercase hex, required), `enabled`
+(default true) and `settings` (scalars). The pin is the only consent: at start, before anything is mounted, a
+pinned plugin whose tree digest differs, that is missing or edited, that has no `server` side or whose side this binary
+cannot load stops the start with the plugin named; it is never loaded with a warning. A malformed digest, a relative
+`plugins_dir`, `plugins` without `plugins_dir` or an unknown key under an entry stops the load naming the key.
+`enabled: false` skips the pin: its tree is not read, but its name and digest are still validated. The keys are YAML only and need a restart (the auth reload does not re-read them); the
+server never writes into the store and never fetches. Why: `D1936`.
+
 Every command that edits Meridian YAML in place (`kb rename`, `kb unmount`, `kb clone --branch`, the git-identity and `kb_aliases` migrations) writes it through one function: the document is re-encoded with a two-space indent (a config indented differently is normalized to it; comments, key order and values are kept), and replaced atomically (a temporary file beside it, `fsync`, rename; a symlink is followed and the mode kept). A crash or a full disk leaves the old file, never a truncated one without its `auth.tokens`.
 
 The old names of renamed KBs are not a setting (D906): they are a list of `{from, to}` items in the **server state file** `<data>/.cartographer/state.json` (`kb_aliases`), beside `update-check.json`. `kb rename` and `kb unmount` write it (offline, atomically), Meridian reads it at its start, and an operator never needs to edit it. It makes a routed `?kbs=<from>` select the KB mounted as `<to>`; it is validated when read (valid KB names, no `from` equal to its `to`, no duplicate `from`), and a mounted name always wins over an alias. A server YAML that still carries a `kb_aliases` key is realigned (D903): its items are moved into the state file first, and until then they resolve as before. A server with no `data` directory has no state file, hence no aliases.
@@ -739,6 +749,13 @@ connectors:
     env: {API_TOKEN: FILES_TOKEN}
     tools: [read_file]
 ```
+
+**Pinned plugins.** The Surveyor's config takes the same pair of keys: `plugins_dir` (absolute, or relative to the
+config file's directory) and `plugins.<name>` with `digest`, `enabled` and `settings`, for the plugin's `surveyor`
+side. The digest is the only consent: a plugin whose tree differs from it, or that is missing, edited, without a
+`surveyor` side or not loadable by this binary, stops the start with an error naming `plugins.<name>` and its line,
+before any model or network call; a malformed digest or `plugins` without `plugins_dir` is refused at load. The
+`recipe` dry run (`surveyor --recipe`) does not load plugins. A change of a pin takes a restart.
 
 **Recipes and the git reader (D1262).** A recipe lists what changed in a feed Source since its cursor, with no
 model; `git-docs` is the first built-in (Source `locator` = https repository URL, `feed_include` default

@@ -34,6 +34,8 @@ func yamlPaths(t reflect.Type, prefix string, out *[]string) {
 			yamlPaths(ft.Elem(), path+"[].", out)
 		case ft.Kind() == reflect.Slice && ft.Elem() == reflect.TypeOf(rawComponent{}):
 			yamlPaths(ft.Elem(), path+"[].", out)
+		case ft.Kind() == reflect.Map && ft.Elem() == reflect.TypeOf(rawPluginPin{}):
+			yamlPaths(ft.Elem(), path+".{name}.", out)
 		}
 	}
 }
