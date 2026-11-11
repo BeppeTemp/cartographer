@@ -269,10 +269,17 @@ func TestFeedbackSkillCarriesThePlaceholderRuleAndTheURLShapes(t *testing.T) {
 		"https://github.com/beppetemp/cartographer/issues/new?template=bug.md",
 		"https://github.com/beppetemp/cartographer/issues/new?template=idea.md",
 		"server_version", "cartographer version", "6000", "SECURITY.md",
+		"cartographer feedback", "Exit 3", "Offer once per", "<<'EOF'", "version: \"1.1\"",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the feedback skill no longer mentions %q", want)
 		}
+	}
+	if n := strings.Count(text, "\n"); n > 140 {
+		t.Errorf("the feedback skill has %d lines, cap 140", n)
+	}
+	if strings.Contains(text, "--title '") || strings.Contains(text, `--title "`) {
+		t.Error("the feedback skill puts the title on the command line: it goes in the heredoc as a first line")
 	}
 	for _, banned := range []string{"`gh ", "gh issue", "gh api", "gh pr", "GITHUB_TOKEN"} {
 		if strings.Contains(text, banned) {
