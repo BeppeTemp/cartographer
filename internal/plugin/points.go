@@ -20,9 +20,16 @@ type Side string
 const (
 	// SideClient points are loaded by the client of the machine.
 	SideClient Side = "client"
-	// SideServer is declared and never loaded: a server does not run plugins.
-	SideServer Side = "server"
+	// SideSurveyor, SideServer and SideAtlas are the other components a schema 2
+	// manifest declares. A contribution point is registered for the client
+	// side only until a component loads its own.
+	SideSurveyor Side = "surveyor"
+	SideServer   Side = "server"
+	SideAtlas    Side = "atlas"
 )
+
+// Sides lists every side in canonical order.
+func Sides() []Side { return []Side{SideClient, SideSurveyor, SideServer, SideAtlas} }
 
 // Contribution is what one folder entry of a point contributes: one skill, one
 // agent, one hook.

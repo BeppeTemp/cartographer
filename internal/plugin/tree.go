@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -35,6 +37,14 @@ type Plugin struct {
 	Artifacts     []contract.Artifact
 	Files         []TreeFile // every stored file, manifest included, sorted by path
 	Digest        string     // identifies the validated tree
+	// Sides are the sides the manifest declares, in canonical order (a schema 1
+	// plugin is client only); Unsupported says why a side cannot load in this
+	// build; Unknown lists what a schema 2 manifest or tree holds that this
+	// build knows no family or side for (`entry x`, `side y`): stored and
+	// digested, never loaded.
+	Sides       []Side
+	Unsupported map[Side]string
+	Unknown     []string
 }
 
 // ignored reports a top-level name that is never stored.
@@ -64,7 +74,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	var manifest []byte
 	seen := map[string]bool{}
 	var total int
-	var scripts []TreeFile
+	var scripts, unknownFiles []TreeFile
 	for _, f := range files {
 		first, _, nested := strings.Cut(f.Path, "/")
 		if !provisioning.ValidArtifactFilePath(f.Path) || strings.IndexFunc(f.Path, unprintable) >= 0 {
@@ -99,19 +109,14 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		case nested && pointOf(first) != nil:
 			byPoint[first] = append(byPoint[first], f)
 		default:
-			add("unknown entry `%s`: a plugin holds %s", first, held)
+			// Whether it is fatal depends on the manifest's schema, read below.
+			unknownFiles = append(unknownFiles, f)
 			continue
 		}
 		stored = append(stored, f)
 		total += len(f.Content)
 	}
 	problems = append(problems, scriptTreeProblems(scripts)...)
-	if len(stored) > MaxFiles {
-		add("%d files, over the %d cap", len(stored), MaxFiles)
-	}
-	if total > MaxBytes {
-		add("%d bytes in all, over the %d cap", total, MaxBytes)
-	}
 
 	if manifest == nil {
 		add("%s: missing", ManifestFile)
@@ -119,6 +124,53 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		m, probs := ParseManifest(manifest, opts)
 		p.Manifest = m
 		problems = append(problems, probs...)
+	}
+	// Under schema 1 an unknown top-level entry is the fatal error 0.28 gave.
+	// Under schema 2 it is stored (and digested) and reported; a family this
+	// build registers is claimed, not unknown, but its side must declare it.
+	schema2 := p.Manifest.Schema != nil && *p.Manifest.Schema == SchemaVersion
+	unknown := map[string]bool{}
+	for _, f := range unknownFiles {
+		first, _, _ := strings.Cut(f.Path, "/")
+		if !schema2 {
+			add("unknown entry `%s`: a plugin holds %s", first, held)
+			continue
+		}
+		if fam, ok := FamilyOf(first); !ok {
+			unknown["entry "+first] = true
+		} else if !strings.Contains(f.Path, "/") && slices.Contains(fam.Dirs, first) {
+			// A flat file named like a family folder is neither unknown nor loadable.
+			add("%q: a file where the %s/ folder of sdk family %s is expected", f.Path, first, fam.Name)
+			continue
+		}
+		stored = append(stored, f)
+		total += len(f.Content)
+	}
+	if len(stored) > MaxFiles {
+		add("%d files, over the %d cap", len(stored), MaxFiles)
+	}
+	if total > MaxBytes {
+		add("%d bytes in all, over the %d cap", total, MaxBytes)
+	}
+	if schema2 {
+		for _, s := range p.Manifest.UnknownSides {
+			unknown["side "+s] = true
+		}
+		p.Unknown = slices.Sorted(maps.Keys(unknown))
+		p.Unsupported = map[Side]string{}
+		for _, side := range Sides() {
+			if c, ok := p.Manifest.Components[side]; ok {
+				p.Sides = append(p.Sides, side)
+				if why := unsupportedReason(side, c); why != "" {
+					p.Unsupported[side] = why
+				}
+			}
+		}
+		if len(problems) == 0 {
+			problems = append(problems, undeclaredFamilies(stored, p.Manifest)...)
+		}
+	} else if p.Manifest.Components != nil {
+		p.Sides = []Side{SideClient}
 	}
 
 	p.Contributions = map[string][]Contribution{}
@@ -155,6 +207,30 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	return p, problems
 }
 
+// undeclaredFamilies reports a top-level folder or file of a registered family
+// whose side does not declare that family under sdk: a schema 2 plugin states
+// what it was written for, so nothing is loaded by its folder name alone.
+func undeclaredFamilies(files []TreeFile, m Manifest) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range files {
+		first, nested, _ := strings.Cut(f.Path, "/")
+		fam, ok := FamilyOf(first)
+		if !ok || seen[first] {
+			continue
+		}
+		seen[first] = true
+		if _, declared := m.Components[fam.Side].SDK[fam.Name]; !declared {
+			name := first
+			if nested != "" {
+				name += "/"
+			}
+			out = append(out, fmt.Sprintf("%s: declare sdk.%s under components.%s", name, fam.Name, fam.Side))
+		}
+	}
+	return out
+}
+
 // unprintable reports a control or format rune (bidi override, zero-width): a
 // path that carries one would mislead the install preview.
 func unprintable(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }
@@ -167,6 +243,8 @@ func pointOf(dir string) *Point {
 }
 
 // digest hashes the sorted (path, executable, sha256 of content) of every file.
+// Changing this invalidates every approval ever made, and every digest pinned
+// by a component config: TestSchema1Compat pins it against the v0.28.0 values.
 func digest(files []TreeFile) string {
 	h := sha256.New()
 	h.Write([]byte("cartographer:plugin-tree:v1\x00"))

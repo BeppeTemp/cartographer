@@ -1,0 +1,16 @@
+schema: 1
+name: min-plugin
+version: 0.1.0
+display_name: Min plugin
+description: The smallest plugin tree.
+cartographer: ">=0.28.0 <0.29.0"
+permissions:
+  net: [api.example.com]
+  env: [EXAMPLE_TOKEN]
+  files:
+    read: ["{home}/.min/*.json"]
+settings:
+  verbose:
+    type: bool
+    default: false
+    description: More output.

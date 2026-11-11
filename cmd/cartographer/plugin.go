@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -114,19 +113,14 @@ func printJSON(v any) {
 	fmt.Println(string(data))
 }
 
-var coreVersionRe = regexp.MustCompile(`^v?(\d+\.\d+\.\d+)`)
-
 // scaffold is the tree `plugin new` writes. Not every point gets a folder: git
 // does not keep an empty one, and a `.gitkeep` inside a point is a file the
 // tree reader refuses, so the README names the points instead.
 func scaffold(name string) []plugin.TreeFile {
-	rng := ">=0.28.0"
-	if m := coreVersionRe.FindStringSubmatch(version); m != nil {
-		rng = ">=" + m[1]
-	}
+	rng := plugin.Floor(version)
 	file := func(p, c string) plugin.TreeFile { return plugin.TreeFile{Path: p, Content: []byte(c)} }
 	return []plugin.TreeFile{
-		file(plugin.ManifestFile, fmt.Sprintf("schema: 1\nname: %s\nversion: 0.1.0\ndisplay_name: %s\ndescription: A Cartographer plugin.\ncartographer: %q\n", name, name, rng)),
+		file(plugin.ManifestFile, fmt.Sprintf("schema: 2\nname: %s\nversion: 0.1.0\ndisplay_name: %s\ndescription: A Cartographer plugin.\ncartographer: %q\ncomponents:\n  client:\n    sdk:\n      artifacts: 1\n", name, name, rng)),
 		file("README.md", "# "+name+"\n\nA Cartographer plugin. Add skills/, agents/ or hooks/, then run `cartographer plugin validate .`.\n"),
 		file("skills/"+name+"-example/SKILL.md", fmt.Sprintf("---\nname: %s-example\ndescription: Example skill of the %s plugin, replace it with your own.\n---\n\n# Example\n\nSay what this skill does.\n", name, name)),
 	}
@@ -143,7 +137,12 @@ func pluginNew(args []string) int {
 	}
 	files := scaffold(name)
 	// Same check install runs: a refused name gets the same messages, nothing is written.
-	p, probs := plugin.ReadTree(files, pluginOpts())
+	// The running-version range is not checked: the scaffold declares a floor of
+	// at least 0.29.0, which a snapshot build of an older core cannot meet, and
+	// it must not fail on its own output.
+	opts := pluginOpts()
+	opts.RunningVersion = ""
+	p, probs := plugin.ReadTree(files, opts)
 	if len(probs) == 0 && p.Manifest.Name != name {
 		probs = []string{fmt.Sprintf("name: %q is not a plugin name", name)}
 	}
