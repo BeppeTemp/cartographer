@@ -10,7 +10,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
@@ -77,7 +76,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	var scripts, unknownFiles []TreeFile
 	for _, f := range files {
 		first, _, nested := strings.Cut(f.Path, "/")
-		if !provisioning.ValidArtifactFilePath(f.Path) || strings.IndexFunc(f.Path, unprintable) >= 0 {
+		if !contract.ValidArtifactFilePath(f.Path) || strings.IndexFunc(f.Path, unprintable) >= 0 {
 			add("%q: not a canonical relative path of printable characters", f.Path)
 			continue
 		}
@@ -106,7 +105,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		case first == "mcp" || (!nested && f.Path == "instructions.md"):
 			add("%q: not a plugin contribution point in this version", f.Path)
 			continue
-		case nested && pointOf(first) != nil:
+		case nested && isPointDir(first):
 			byPoint[first] = append(byPoint[first], f)
 		default:
 			// Whether it is fatal, ignored or reported depends on the manifest's
@@ -134,7 +133,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		// A schema 1 plugin is client only: a folder of another side's point is
 		// the unknown entry 0.28 reported, not a contribution.
 		for dir, fs := range byPoint {
-			if pointOf(dir).Side != SideClient {
+			if fam, _ := FamilyOf(dir); fam.Side != SideClient {
 				unknownFiles = append(unknownFiles, fs...)
 				for _, f := range fs {
 					stored = slices.DeleteFunc(stored, func(s TreeFile) bool { return s.Path == f.Path })
@@ -207,7 +206,7 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 			}
 			p.Artifacts = append(p.Artifacts, contract.Artifact{
 				Kind: c.Kind, Name: c.Name, Source: "plugin:" + p.Manifest.Name,
-				ContentHash: provisioning.ContentHashFiles(c.Files), Files: c.Files,
+				ContentHash: contract.HashArtifactFiles(c.Files), Files: c.Files,
 			})
 		}
 	}
@@ -256,11 +255,12 @@ func undeclaredFamilies(files []TreeFile, m Manifest) []string {
 // path that carries one would mislead the install preview.
 func unprintable(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }
 
-func pointOf(dir string) *Point {
-	if pt, ok := points[dir]; ok {
-		return &pt
-	}
-	return nil
+// isPointDir reports whether dir is a folder of a registered family. It
+// classifies by family, not by registered point, so a tree reads the same
+// (digest, problems, sides, unknown entries) in a binary that links no loaders.
+func isPointDir(dir string) bool {
+	fam, ok := FamilyOf(dir)
+	return ok && slices.Contains(fam.Dirs, dir)
 }
 
 // digest hashes the sorted (path, executable, sha256 of content) of every file.

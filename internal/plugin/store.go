@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/execbit"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 )
@@ -63,7 +63,7 @@ func DefaultStore() (Store, error) {
 // checkName is applied at every path join: a name that is not a valid plugin
 // name (`../x`, an absolute path) never reaches filepath.Join.
 func checkName(name string) error {
-	if !nameRe.MatchString(name) || !provisioning.ValidArtifactName(name) {
+	if !nameRe.MatchString(name) || !contract.ValidArtifactName(name) {
 		return fmt.Errorf("plugin: %q is not a valid plugin name", name)
 	}
 	return nil

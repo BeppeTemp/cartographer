@@ -15,7 +15,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 	"gopkg.in/yaml.v3"
@@ -407,7 +406,7 @@ func (v *validator) name(name string, opts Options) {
 		v.add("name", "required")
 	case !nameRe.MatchString(name):
 		v.add("name", "%s must match %s", q(name), nameRe)
-	case !provisioning.ValidArtifactName(name):
+	case !contract.ValidArtifactName(name):
 		v.add("name", "%s is not a valid name", q(name))
 	case name == "bundle" || name == "kb":
 		v.add("name", "%s is reserved: it names a source of artifacts", q(name))

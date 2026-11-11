@@ -319,3 +319,49 @@ func TestReadTreeDocsFolderIsIgnored(t *testing.T) {
 		t.Errorf("docs/ is stored or digested: %s vs %s", with.Digest, base.Digest)
 	}
 }
+
+// goldenGoodTreeDigest is the digest of goodTree(). A tree gets this digest in
+// every binary, and changing it invalidates every approval ever made.
+const goldenGoodTreeDigest = "2462899a395dd829eeb57df5860292931a035aff40a91e47c786b220c5ce3d06"
+
+func TestDigestGolden(t *testing.T) {
+	p, probs := ReadTree(goodTree(), testOpts)
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	if p.Digest != goldenGoodTreeDigest {
+		t.Errorf("digest = %s, want %s", p.Digest, goldenGoodTreeDigest)
+	}
+}
+
+// ReadTree classifies a folder by family, so what it reports (digest, sides,
+// unknown entries, problems) does not depend on which loaders a binary links;
+// only the loaded contributions do.
+func TestReadTreeIndependentOfLoaders(t *testing.T) {
+	cases := map[string]struct {
+		files []TreeFile
+		opts  Options
+	}{
+		"schema 1": {goodTree(), testOpts},
+		"schema 2": {schema2Tree(validV2, tf("agents/scout.md", agentMD)), v2Opts},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			linked, lp := ReadTree(c.files, c.opts)
+			WithoutPoints(t)
+			bare, bp := ReadTree(c.files, c.opts)
+			sort.Strings(lp)
+			sort.Strings(bp)
+			if linked.Digest != bare.Digest || !reflect.DeepEqual(linked.Sides, bare.Sides) ||
+				!reflect.DeepEqual(linked.Unknown, bare.Unknown) || !reflect.DeepEqual(linked.Unsupported, bare.Unsupported) {
+				t.Errorf("linked %+v, bare %+v", linked, bare)
+			}
+			if len(bare.Contributions) != 0 {
+				t.Errorf("contributions without loaders: %+v", bare.Contributions)
+			}
+			if !reflect.DeepEqual(lp, bp) {
+				t.Errorf("problems differ: %v vs %v", lp, bp)
+			}
+		})
+	}
+}

@@ -29,7 +29,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
@@ -603,30 +602,8 @@ func contentHashDirManaged(mf ManagedFile, dirPath string, owned map[string]bool
 // ValidArtifactName is ValidArtifactName for the client's sync_pull decode.
 func ValidArtifactName(name string) bool { return contract.ValidArtifactName(name) }
 
-// ValidArtifactFilePath reports whether p is a file path a server may send for
-// an artifact: already in canonical slash form (path.Clean(p) == p, so no "./",
-// "..", doubled or trailing separator, and no backslash where it separates),
-// relative and inside the artifact directory. Every comparison against a file
-// name ("SKILL.md" for the approval gate and the provenance stamp) is then
-// exact, because the spelling on the wire is the spelling written to disk.
-func ValidArtifactFilePath(p string) bool {
-	if p == "" || p == "." || path.Clean(p) != p {
-		return false
-	}
-	local := filepath.FromSlash(p)
-	if !filepath.IsLocal(local) || filepath.ToSlash(filepath.Clean(local)) != p || strings.ContainsAny(p, "\x00:") || strings.IndexFunc(p, unicode.IsControl) >= 0 {
-		return false
-	}
-	// Windows writes "SKILL.md." and "SKILL.md " as "SKILL.md" and resolves a
-	// device name in any component: every component is checked, on every OS, so
-	// the path on the wire is the path on disk.
-	for _, c := range strings.Split(p, "/") {
-		if strings.HasSuffix(c, ".") || strings.HasSuffix(c, " ") || contract.WindowsReservedName(c) {
-			return false
-		}
-	}
-	return true
-}
+// ValidArtifactFilePath is contract.ValidArtifactFilePath for the client's sync_pull decode.
+func ValidArtifactFilePath(p string) bool { return contract.ValidArtifactFilePath(p) }
 
 // ErrInvalidArtifactFile is the refusal for an artifact whose file paths are
 // not ValidArtifactFilePath or collide: that artifact is skipped, the sync goes on.

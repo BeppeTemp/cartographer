@@ -254,6 +254,31 @@ func ContentHashDirTracked(dirPath, kind string, include func(rel string) bool) 
 	}, include, ArtifactMaxFileSize)
 }
 
+// ValidArtifactFilePath reports whether p is a file path a server may send for
+// an artifact: already in canonical slash form (path.Clean(p) == p, so no "./",
+// "..", doubled or trailing separator, and no backslash where it separates),
+// relative and inside the artifact directory. Every comparison against a file
+// name ("SKILL.md" for the approval gate and the provenance stamp) is then
+// exact, because the spelling on the wire is the spelling written to disk.
+func ValidArtifactFilePath(p string) bool {
+	if p == "" || p == "." || path.Clean(p) != p {
+		return false
+	}
+	local := filepath.FromSlash(p)
+	if !filepath.IsLocal(local) || filepath.ToSlash(filepath.Clean(local)) != p || strings.ContainsAny(p, "\x00:") || strings.IndexFunc(p, unicode.IsControl) >= 0 {
+		return false
+	}
+	// Windows writes "SKILL.md." and "SKILL.md " as "SKILL.md" and resolves a
+	// device name in any component: every component is checked, on every OS, so
+	// the path on the wire is the path on disk.
+	for _, c := range strings.Split(p, "/") {
+		if strings.HasSuffix(c, ".") || strings.HasSuffix(c, " ") || WindowsReservedName(c) {
+			return false
+		}
+	}
+	return true
+}
+
 // ValidArtifactName reports whether name can be the single directory or file
 // segment an agent or hook is materialized under: not empty, one local segment
 // (no separator of either kind, no "..", no Windows reserved name where
