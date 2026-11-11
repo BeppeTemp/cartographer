@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 )
 
 // IdleSource says how long a KB has been without human activity. known=false or
@@ -43,9 +45,27 @@ type State struct {
 
 // LastRun summarises the newest finished run of this process.
 type LastRun struct {
-	At             time.Time
-	Units, Commits int
+	At                     time.Time
+	Units, Commits, Tokens int
 }
+
+// Run is one finished task, handed to a Heartbeat that also implements
+// RunReporter. Alarm is componentproto's code for a failure worth raising
+// ("" for none); a later ok run of the same KB and Task clears it.
+type Run struct {
+	ID       string
+	Task, KB string
+	Started  time.Time
+	Duration time.Duration
+	Outcome  string // componentproto.OutcomeOK or OutcomeFailed
+	Error    string
+	Tokens   int
+	Alarm    string
+}
+
+// RunReporter is the optional half of a Heartbeat that wants each finished
+// task (the Beater queues it for the runs route).
+type RunReporter interface{ Finished(Run) }
 
 // ProfileBudget is one profile's spending today against its daily limit.
 type ProfileBudget struct {
@@ -97,6 +117,7 @@ type Runner struct {
 	budget    *Budget
 	replica   string
 	last      LastRun
+	runSeq    int
 }
 
 // NewRunner builds the runner of a loaded config: one Instance per tasks entry.
@@ -358,6 +379,7 @@ kbs:
 			})
 			r.opt.Logf("%s", taskMetric(r.cfg.Name, r.replica, kb, t, prof.Model, item.Key, r.opt.Now().Sub(started), res, err))
 			r.budget.Charge(kb, t.Profile, res.Tokens)
+			r.finished(ctx, t, kb, started, res, err, r.noModel[idx])
 			// A NoModel task that did nothing (a repair with nothing to fix) leaves no
 			// closing entry: it would be a commit in a KB nothing else changed, every
 			// interval. Note touches the KB, so it is skipped too.
@@ -402,7 +424,7 @@ kbs:
 		tail = "stopped: " + oneLine(fatal.Error())
 	}
 	r.budget.Close(stopped, tail)
-	r.last = LastRun{At: r.opt.Now(), Units: r.budget.totalUnits(), Commits: r.budget.totalCommits()}
+	r.last = LastRun{At: r.opt.Now(), Units: r.budget.totalUnits(), Commits: r.budget.totalCommits(), Tokens: r.budget.totalTokens()}
 	if fatal != nil {
 		r.opt.Logf("surveyor: ending the run: %v", fatal)
 		return ExitRuntime
@@ -415,4 +437,34 @@ kbs:
 func fatalErr(err error) bool {
 	var re *client.RemoteError
 	return errors.As(err, &re) && (re.Code == client.CodeUnauthorized || re.HTTPStatus == 403)
+}
+
+// finished hands one finished task to the heartbeat when it reports runs. The
+// id is unique across restarts of the process (replica, start time, sequence).
+func (r *Runner) finished(ctx context.Context, t TaskSpec, kb string, started time.Time, res Result, err error, noModel bool) {
+	rep, ok := r.opt.Heartbeat.(RunReporter)
+	// A task abandoned on shutdown is not a failure, and a NoModel task that
+	// did nothing is not a run (the same filter as the closing entry's Note).
+	if !ok || ctx.Err() != nil || (noModel && err == nil && res.Units == 0 && res.Commits == 0) {
+		return
+	}
+	r.runSeq++
+	run := Run{
+		ID:   fmt.Sprintf("%s-%d-%d", r.replica, started.Unix(), r.runSeq),
+		Task: t.Kind, KB: kb, Started: started, Duration: r.opt.Now().Sub(started),
+		Outcome: componentproto.OutcomeOK, Tokens: res.Tokens,
+	}
+	if err != nil {
+		run.Outcome, run.Error = componentproto.OutcomeFailed, oneLine(err.Error())
+		var ne net.Error
+		switch {
+		case errors.Is(err, ErrModelAuth):
+			run.Alarm = componentproto.AlarmAuthRefused
+		case t.Kind == pollKindName:
+			run.Alarm = componentproto.AlarmFeedFailing
+		case !noModel && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && errors.As(err, &ne):
+			run.Alarm = componentproto.AlarmModelUnreachable
+		}
+	}
+	rep.Finished(run)
 }

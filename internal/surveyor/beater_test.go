@@ -24,6 +24,34 @@ type stubAPI struct {
 	beatErr  error
 	postErr  error
 	settings any
+	runPosts []map[string]any
+	runsErr  error
+	onRuns   func()
+}
+
+func (s *stubAPI) ReportRuns(report any, _ time.Duration) (*client.RunsAnswer, error) {
+	raw, _ := json.Marshal(report)
+	var m map[string]any
+	_ = json.Unmarshal(raw, &m)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.onRuns != nil {
+		s.onRuns()
+	}
+	if s.runsErr != nil {
+		return nil, s.runsErr
+	}
+	s.runPosts = append(s.runPosts, m)
+	return &client.RunsAnswer{Received: len(m["runs"].([]any))}, nil
+}
+
+func (s *stubAPI) runCounts() (out []int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.runPosts {
+		out = append(out, len(p["runs"].([]any)))
+	}
+	return out
 }
 
 func (s *stubAPI) Heartbeat(report any, _ time.Duration) (*client.HeartbeatAnswer, error) {
@@ -273,5 +301,132 @@ func TestDefaultKindsAreTheComponentTaskKinds(t *testing.T) {
 	sort.Strings(names)
 	if !slices.Equal(names, componentproto.TaskKinds()) {
 		t.Fatalf("kinds %v, componentproto %v", names, componentproto.TaskKinds())
+	}
+}
+
+func finishedRun(i int, outcome string) Run {
+	return Run{ID: fmt.Sprintf("r-%d", i), Task: "poll", KB: "kb-a", Started: time.Date(2026, 1, 10, 12, 0, i, 0, time.UTC),
+		Duration: time.Second, Outcome: outcome, Tokens: 10}
+}
+
+func TestBeaterRunsAreBatchedAckedAndRefilled(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{}}
+	b := newBeater(api, &now)
+	b.Beat(context.Background(), State{Run: StateIdle})
+	if got := api.runCounts(); len(got) != 0 {
+		t.Fatalf("nothing finished yet, posts %v", got)
+	}
+	for i := 0; i < 25; i++ {
+		b.Finished(finishedRun(i, componentproto.OutcomeOK))
+	}
+	b.send()
+	if got := api.runCounts(); len(got) != 1 || got[0] != 20 {
+		t.Fatalf("posts %v, want one of the newest 20", got)
+	}
+	b.send() // acknowledged: nothing to send
+	if got := api.runCounts(); len(got) != 1 {
+		t.Fatalf("an acknowledged run was sent again: %v", got)
+	}
+	b.Finished(finishedRun(25, componentproto.OutcomeOK))
+	b.send()
+	if got := api.runCounts(); len(got) != 2 || got[1] != 1 {
+		t.Fatalf("posts %v, want the one new run", got)
+	}
+	api.mu.Lock()
+	api.answer.RunsWanted = true
+	api.mu.Unlock()
+	b.send()
+	if got := api.runCounts(); len(got) != 3 || got[2] != 20 {
+		t.Fatalf("posts %v, want the whole history after runs_wanted", got)
+	}
+}
+
+func TestBeaterFailedRunsPostKeepsTheQueueAndDoesNotFailTheBeat(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{}, runsErr: fmt.Errorf("boom")}
+	b := newBeater(api, &now)
+	b.Beat(context.Background(), State{Run: StateIdle})
+	b.Finished(finishedRun(1, componentproto.OutcomeOK))
+	b.send()
+	api.mu.Lock()
+	api.runsErr = nil
+	api.mu.Unlock()
+	b.send()
+	if got := api.runCounts(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("posts %v, want the run kept and sent once the route answers", got)
+	}
+}
+
+func TestBeaterAlarmsOpenAndClearWithTheRunsOutcome(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{}}
+	b := newBeater(api, &now)
+	b.Beat(context.Background(), State{Run: StateIdle})
+	bad := finishedRun(1, componentproto.OutcomeFailed)
+	bad.Alarm = componentproto.AlarmFeedFailing
+	b.Finished(bad)
+	b.send()
+	if al := api.runPosts[0]["alarms"].([]any); len(al) != 1 || al[0].(map[string]any)["code"] != "feed_failing" || al[0].(map[string]any)["source"] != "poll" {
+		t.Fatalf("alarms = %v", api.runPosts[0]["alarms"])
+	}
+	b.Finished(finishedRun(2, componentproto.OutcomeOK))
+	b.send()
+	if al := api.runPosts[1]["alarms"].([]any); len(al) != 0 {
+		t.Fatalf("alarm not cleared by an ok run: %v", al)
+	}
+}
+
+func TestBeaterBeatCarriesTokensSpent(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{}}
+	b := newBeater(api, &now)
+	b.Beat(context.Background(), State{Run: StateIdle, LastRun: LastRun{At: now, Units: 1, Tokens: 456}})
+	if lr := api.beats[0]["last_run"].(map[string]any); lr["tokens_spent"] != float64(456) {
+		t.Fatalf("last_run = %v", lr)
+	}
+}
+
+func TestBeaterRefusedRunsRouteBacksOffThenResumes(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{}, runsErr: &client.RemoteError{HTTPStatus: 404}}
+	b := newBeater(api, &now)
+	var logs []string
+	b.Logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
+	b.Beat(context.Background(), State{Run: StateIdle})
+	b.Finished(finishedRun(1, componentproto.OutcomeOK))
+	calls := 0
+	api.mu.Lock()
+	api.onRuns = func() { calls++ }
+	api.mu.Unlock()
+	b.send() // refused
+	for i := 0; i < runsBackoffBeats; i++ {
+		b.send()
+	}
+	if calls != 1 {
+		t.Fatalf("runs route called %d times during the back-off, want 1", calls)
+	}
+	b.send() // back-off over: refused again, same status, not logged again
+	if calls != 2 {
+		t.Fatalf("calls = %d, want a retry after the back-off", calls)
+	}
+	api.mu.Lock()
+	api.runsErr = nil
+	api.mu.Unlock()
+	for i := 0; i < runsBackoffBeats; i++ {
+		b.send()
+	}
+	b.send() // success: the history resumes
+	if got := api.runCounts(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("posts %v, want the queued run sent once the route answers", got)
+	}
+	n := 0
+	for _, l := range logs {
+		if strings.Contains(l, "runs report") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("logged %d times, want once: %v", n, logs)
 	}
 }

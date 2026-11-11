@@ -551,3 +551,71 @@ func TestBeatCountsTheRunsOwnSpending(t *testing.T) {
 type beatFunc func(State)
 
 func (f beatFunc) Beat(_ context.Context, s State) { f(s) }
+
+type reporterBeat struct {
+	beatFunc
+	runs []Run
+	last State
+}
+
+func (r *reporterBeat) Beat(ctx context.Context, s State) { r.last = s; r.beatFunc.Beat(ctx, s) }
+func (r *reporterBeat) Finished(run Run)                  { r.runs = append(r.runs, run) }
+
+// A finished run with model calls reports the tokens it spent, both in the
+// last_run of the beat and in each run handed to the reporter (never zero).
+func TestRunnerReportsTokensSpentPerRunAndInLastRun(t *testing.T) {
+	k := &noopKind{items: []string{"a", "b"}, cost: 100, runErr: nil}
+	rb := &reporterBeat{beatFunc: func(State) {}}
+	f := newFixture(t, []string{"local"}, []*noopKind{k}, func(_ *Config, o *RunnerOptions) { o.Heartbeat = rb })
+	f.r.Run(context.Background(), true)
+	if len(rb.runs) != 2 {
+		t.Fatalf("runs = %v", rb.runs)
+	}
+	for _, r := range rb.runs {
+		if r.Tokens != 100 || r.Outcome != "ok" || r.KB != "kb-a" || r.ID == "" {
+			t.Errorf("run = %+v", r)
+		}
+	}
+	if rb.runs[0].ID == rb.runs[1].ID {
+		t.Error("run ids must be distinct")
+	}
+	if rb.last.LastRun.Tokens != 200 {
+		t.Errorf("last_run tokens = %d, want 200", rb.last.LastRun.Tokens)
+	}
+}
+
+func TestRunnerModelAuthFailureRaisesAnAlarmOnTheRun(t *testing.T) {
+	k := &noopKind{items: []string{"a"}, cost: 5, runErr: fmt.Errorf("%w: 401", ErrModelAuth)}
+	rb := &reporterBeat{beatFunc: func(State) {}}
+	f := newFixture(t, []string{"local"}, []*noopKind{k}, func(_ *Config, o *RunnerOptions) { o.Heartbeat = rb })
+	f.r.Run(context.Background(), true)
+	if len(rb.runs) != 1 || rb.runs[0].Outcome != "failed" || rb.runs[0].Alarm != "auth_refused" || rb.runs[0].Error == "" {
+		t.Fatalf("runs = %+v", rb.runs)
+	}
+}
+
+func TestRunnerDoesNotReportAbandonedOrIdleNoModelTasks(t *testing.T) {
+	// A task cut by shutdown is not a failure to report.
+	ctx, cancel := context.WithCancel(context.Background())
+	k := &noopKind{items: []string{"a"}, cost: 5, runErr: context.Canceled, onRun: func(context.Context, Runtime) error { cancel(); return nil }}
+	rb := &reporterBeat{beatFunc: func(State) {}}
+	f := newFixture(t, []string{"local"}, []*noopKind{k}, func(_ *Config, o *RunnerOptions) { o.Heartbeat = rb })
+	f.r.Run(ctx, true)
+	if len(rb.runs) != 0 {
+		t.Fatalf("abandoned task reported: %+v", rb.runs)
+	}
+	// A context error never raises model_unreachable.
+	f.r.finished(context.Background(), TaskSpec{Kind: "x"}, "kb-a", time.Now(), Result{}, fmt.Errorf("post: %w", context.DeadlineExceeded), false)
+	if len(rb.runs) != 1 || rb.runs[0].Alarm != "" {
+		t.Fatalf("runs = %+v", rb.runs)
+	}
+	// A NoModel task that did nothing is no run; one that did something is.
+	f.r.finished(context.Background(), TaskSpec{Kind: "repair"}, "kb-a", time.Now(), Result{}, nil, true)
+	if len(rb.runs) != 1 {
+		t.Fatalf("idle NoModel task reported: %+v", rb.runs)
+	}
+	f.r.finished(context.Background(), TaskSpec{Kind: "repair"}, "kb-a", time.Now(), Result{Units: 1}, nil, true)
+	if len(rb.runs) != 2 {
+		t.Fatalf("useful NoModel task not reported: %+v", rb.runs)
+	}
+}
