@@ -10,6 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/pluginserver"
 )
 
 const serverOnlyPlugin = "schema: 2\nname: team-data\nversion: 1.2.0\ndisplay_name: Team data\ndescription: Server data.\ncartographer: \">=0.29.0\"\ncomponents:\n  server: {}\n"
@@ -200,5 +201,33 @@ func TestLoadPinnedPluginsAtlasSide(t *testing.T) {
 	}
 	if err := mcpserver.ValidateAtlasPlugins(atlas); err == nil || !strings.Contains(err.Error(), "source.route") {
 		t.Errorf("a UI API route must be refused: %v", err)
+	}
+}
+
+const brandingOnlyPlugin = "schema: 2\nname: acme-brand\nversion: 1.0.0\ndisplay_name: Acme brand\ndescription: Acme branding.\ncartographer: \">=0.29.0\"\ncomponents:\n  atlas:\n    sdk: {branding: 1}\n"
+
+// A plugin with only an atlas side is an atlas pin, not a server plugin: its
+// branding reaches ActiveBranding from the atlas list, and a pin whose tree
+// changed is refused like any other.
+func TestAtlasLoadsABrandingOnlyPlugin(t *testing.T) {
+	old := version
+	version = "0.29.0"
+	t.Cleanup(func() { version = old })
+	root, digest := vendorTree(t, []core.TreeFile{
+		{Path: core.ManifestFile, Content: []byte(brandingOnlyPlugin)},
+		{Path: "branding/branding.yaml", Content: []byte("accent: \"#365d50\"\n")},
+	})
+	cfg := &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"acme-brand": {Digest: digest, Enabled: true, Line: 4}}}
+	server, atlas, err := loadPinnedPlugins(cfg)
+	if err != nil || len(server) != 0 || len(atlas) != 1 {
+		t.Fatalf("branding-only pin: server %v atlas %v err %v", server, atlas, err)
+	}
+	b, err := pluginserver.ActiveBranding(atlas)
+	if err != nil || b == nil || b.Plugin != "acme-brand" || b.Palette == nil {
+		t.Fatalf("active: %+v %v", b, err)
+	}
+	cfg.Plugins["acme-brand"] = config.PluginPin{Digest: strings.Repeat("a", 64), Enabled: true, Line: 4}
+	if _, _, err := loadPinnedPlugins(cfg); err == nil || !strings.Contains(err.Error(), "acme-brand") {
+		t.Errorf("wrong digest: %v", err)
 	}
 }

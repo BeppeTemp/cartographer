@@ -135,7 +135,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "plugins_dir", Scope: settingschema.ScopeServer, Type: "string", Values: "absolute path", Default: `""`, Restart: true,
 		Description: "The read-only store the pinned plugins are read from: <dir>/<name>/<digest>/, filled by cartographer plugin vendor. The server never writes into it and never fetches. Required when plugins is set. YAML only."},
 	{Path: "plugins", Scope: settingschema.ScopeServer, Type: "map", Default: "{}", Restart: true,
-		Description: "Plugins whose server side this server loads, by plugin name: the digest pinned here is the only consent. At start a tree whose digest differs, or a plugin that is missing, has no server side or cannot load here, stops the server with the plugin named; a changed plugin needs a new digest and a restart. Empty: the server loads no plugin. YAML only."},
+		Description: "Plugins whose server side (and atlas side: the Atlas branding) this server loads, by plugin name: the digest pinned here is the only consent. At start a tree whose digest differs, or a plugin that is missing, has neither a server nor an atlas side or cannot load here, stops the server with the plugin named; a changed plugin needs a new digest and a restart. Empty: the server loads no plugin. YAML only."},
 	{Path: "plugins.{name}.digest", Scope: settingschema.ScopeServer, Type: "string", Values: "64 lowercase hex", Default: `""`, Restart: true,
 		Description: "Tree digest of the approved plugin, as printed by cartographer plugin vendor. Required."},
 	{Path: "plugins.{name}.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Restart: true,

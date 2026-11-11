@@ -16,6 +16,8 @@ is non-deterministic, costly and dependent on external providers.
 
 ### Go tests
 
+`internal/branding` tests the branding folder (valid and refused declarations, every SVG rule, the caps), the accent derivation (a table, a seeded property test of 500 colours whose every audited pair is recomputed independently, the refusal naming a passing colour), the stylesheet bytes, and the **surface drift guard**: it reads `web/src/styles/tokens.css` and fails when the panel and `--text-on-*` constants differ. `internal/pluginserver` pins the exactly-one rule (`ActiveBranding`) and `cmd/cartographer/serve_plugins_test.go` that a branding-only plugin is an atlas pin (no server plugin, one atlas plugin).
+
 `make test` runs `go test -timeout 20m ./...` (`internal/mcpserver` alone takes about 10 minutes on the Windows runner, the default timeout). Tests live beside their packages and cover
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.

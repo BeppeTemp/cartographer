@@ -97,9 +97,12 @@ func pluginVendor(args []string) int {
 		case p.Unsupported[s] != "":
 			fmt.Printf("\n%s side: not pinnable, this build cannot load it: %s\n", s, escapeControl(p.Unsupported[s]))
 			continue
-		case s == core.SideAtlas:
-			fmt.Println("\natlas side: no component config reads a pin yet, nothing to pin")
+		case s == core.SideAtlas && slices.Contains(sides, core.SideServer):
+			fmt.Println("\natlas side: loaded by the server, pinned with the server side above")
 			continue
+		case s == core.SideAtlas:
+			s = core.SideServer
+			fmt.Println("\natlas side: loaded by the server from its plugins pin")
 		}
 		fmt.Printf("\n# pin the %s side in the %s config:\nplugins_dir: %s\nplugins:\n  %s:\n    digest: %s\n", s, s, quoteYAML(dir), name, p.Digest)
 	}

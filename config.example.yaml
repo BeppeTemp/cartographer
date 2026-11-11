@@ -242,11 +242,12 @@ api:
 # Values: absolute path · needs a restart
 # plugins_dir: ""
 
-# Plugins whose server side this server loads, by plugin name: the digest
-# pinned here is the only consent. At start a tree whose digest differs, or a
-# plugin that is missing, has no server side or cannot load here, stops the
-# server with the plugin named; a changed plugin needs a new digest and a
-# restart. Empty: the server loads no plugin. YAML only.
+# Plugins whose server side (and atlas side: the Atlas branding) this server
+# loads, by plugin name: the digest pinned here is the only consent. At start
+# a tree whose digest differs, or a plugin that is missing, has neither a
+# server nor an atlas side or cannot load here, stops the server with the
+# plugin named; a changed plugin needs a new digest and a restart. Empty: the
+# server loads no plugin. YAML only.
 # Needs a restart
 # plugins:
 #   {name}:

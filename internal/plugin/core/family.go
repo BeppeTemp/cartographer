@@ -102,5 +102,6 @@ func builtinFamilies() []Family {
 	l = addFamily(l, Family{Side: SideServer, Name: "roles", Level: 1, Dirs: []string{"roles"}})
 	l = addFamily(l, Family{Side: SideAtlas, Name: "views", Level: 1, Dirs: []string{"views"}})
 	l = addFamily(l, Family{Side: SideAtlas, Name: "apps", Level: 1, Dirs: []string{"apps"}})
+	l = addFamily(l, Family{Side: SideAtlas, Name: "branding", Level: 1, Dirs: []string{"branding"}})
 	return l
 }

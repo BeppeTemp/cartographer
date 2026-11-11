@@ -69,9 +69,9 @@ components:
 - A tree folder or file of a registered family whose side does not declare that family is a problem
   (`skills/: declare sdk.artifacts under components.client`). Under schema 2 a top-level entry no family claims is stored, digested and reported in `Plugin.Unknown` (`entry <name>`), never loaded; under schema 1 it stays the error it was.
 - Families (`core.Families`): client `artifacts` (`skills/`, `agents/`, `hooks/`), `providers` (`providers/`), `scripts`
-  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`); atlas `views` (`views/`) and `apps` (`apps/`). A name belongs to one family only. The client
+  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`); atlas `views` (`views/`), `apps` (`apps/`) and `branding` (`branding/`). A name belongs to one family only. The client
   families load on the client; the server families `roles/` and `presets/` are loaded by `internal/pluginserver` (the server side of the plugin package, which may reach the data plane to
-  judge what it reads; `internal/plugin` is client-only and `internal/pluginserver` imports `internal/plugin/core`) and are data only; the atlas families are loaded by `internal/atlasext` (below); the Surveyor has no loader yet.
+  judge what it reads; `internal/plugin` is client-only and `internal/pluginserver` imports `internal/plugin/core`) and are data only; the atlas families `views/` and `apps/` are loaded by `internal/atlasext` (below) and `branding/` by `internal/pluginserver`, all data only; the Surveyor has no loader yet.
 - Permissions per side: the client may ask for everything schema 1 allows; the Surveyor for `net` and `env` (`kb` and `files` are
   `components.surveyor.permissions.<key>: not allowed on the surveyor side`); the server and the Atlas for nothing.
   `Manifest.Permissions` is always the client side's.
@@ -121,6 +121,7 @@ points; empty loads every side. Only a client point's contributions become artif
 | `providers` | `providers/<id>.yaml` | `core.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
 | `roles` (server) | `roles/<name>.yaml`: `description` (one line) and `rules` (at least one: `access` `r`\|`rw`, optional `maps`, `journals`, `types`, `artifacts`, `secrets`; **no `kb`**, a plugin does not know the deployment's KBs) | the `auth.roles` grammar (`config.ValidateAuthRoles`), so a role that loads expands into rules the server accepts; an unknown key, an executable file or any other file is a problem |
 | `presets` (server) | `presets/<name>/preset.yaml` (`description`, `kind` `map`\|`journal`, `title` and the contract keys `map_create` takes: `concept_types`, `required_fields`, `field_values`, `forbidden_fields`, `templates`, `default_template`) and `presets/<name>/templates/<slug>.md` | the contract as `map_create` judges it and each template as `artifact_write` does (`mcpserver.CheckPresetCreate`, `ValidateTemplate`); every `templates` slug and `default_template` names a template of the same preset |
+| `branding` (atlas) | `branding/branding.yaml` (at most 4 KiB; `accent` `#rrggbb`, `company` one line of at most 60 characters with none of `<>&"'\`, `logo.light` and optional `logo.dark`, `favicon`; at least one of `accent`, `logo`, `favicon`; no other key) and the images it names, flat in `branding/` and nothing else (names `[a-z0-9][a-z0-9._-]*.svg\|png\|ico`, a logo is `svg` or `png`, at most 256 KiB each and 1 MiB in all, no execute bit) | the bytes, not the extension: a PNG or ICO signature, an SVG that parses as XML and holds no `DOCTYPE`/entity, `script`, `foreignObject`, `iframe`, `object`, `embed`, `set`, `animate*`, `on*` attribute, `href` outside a `#fragment`, or `@import`/`url()` outside the file; CSS is judged as the browser reads it (the text of a `<style>` element is one stylesheet) and refuses any backslash, `image-set(`, `src(`, `cross-fade(`, and a comment, instruction or child element inside `<style>`. The accent is derived (below) so an unusable one is reported by `plugin validate`, `plugin vendor` and the install preview |
 | `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
 | `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
 | `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); a call reaches the network, the environment, files and KB tools only as the manifest grants (below) |
@@ -259,6 +260,26 @@ behaviour is carried by the KB and must not differ per server (D746, D906):
   returns no KB data and the same result for every principal.
 
 The start log says `roles N, presets M` per plugin. The preview of a server side (`plugin vendor` prints it) lists both.
+
+### Atlas branding
+
+The atlas side has one family, `branding` (`components.atlas.sdk.branding: 1`): an operator's logo (light and dark), favicon and
+**one accent colour**, all data. The word "Cartographer" is code and no key renames or removes it; `company` is only the logo's alt text.
+The server derives the tokens from the accent, the plugin never ships CSS: for each theme `branding.Derive` keeps the hue and
+saturation and moves the lightness (darker on light, lighter on dark) one point at a time until the accent holds the pairs
+`web/src/test/contrast.test.ts` audits: 4.5:1 on the three panel surfaces, 3:1 on surface-0, 4.5:1 for the text colour on
+the accent, and for that text on the hover shade `--primary-dim`. A shift of more than 45 points, or an accent that cannot pass, is refused with the nearest colour that does
+(`accent #ffffcc: cannot be shown on the light theme within 45 points of lightness (the nearest colour that passes is #...); pick a darker colour`).
+A pale accent such as the shipped dark one (`#b5d6bd`) is darkened on the light theme; a near-white one is refused: choose a mid-tone. The derived tokens are `--primary`, `--primary-dim`, `--accent`,
+`--text-on-primary`, `--text-on-accent`, `--graph-edge-active` and, on the light theme, `--graph-edge-3d-active`, `--graph-ring`
+and `--graph-glow-a`; `Palette.CSS()` renders them as a deterministic stylesheet. `internal/branding/contrast.go` ports the
+contrast formula and `derive_test.go` fails when its surface constants drift from `web/src/styles/tokens.css`.
+
+The server loads the atlas side from the same `plugins` pins as the server side (`loadPinnedPlugins` opens each pin once
+per side, and a pin with neither side is a start error), so a branding-only plugin is an atlas pin. **Exactly one**
+active plugin may provide a branding: two is a start error naming both (`keep one or disable the other with enabled: false`), and a
+branding whose accent cannot be shown stops the start naming the plugin and the key. The start log says
+`branding from plugin <name>: accent, logo, favicon`. This version loads and checks the branding; the Atlas does not yet wear it.
 
 ## The `plugin` command
 
@@ -513,7 +534,9 @@ of the tree.
 
 A plugin's atlas side (`components.atlas.sdk: {views: 1, apps: 1}`) is **data only: no code ever runs in the Atlas**. Two
 points, loaded by `internal/atlasext` (which imports `internal/plugin/core` and `internal/provisioning/contract`, no data plane); the registered point set of the side
-is exactly `{views, apps}` (`TestAtlasPointSet`). Each file is `views/<name>.yaml` or `apps/<name>.yaml`, `<name>` matching
+that `internal/atlasext` registers is exactly `{views, apps}` (`TestAtlasPointSet`); the binary also registers a third
+atlas point, `branding/`, from `internal/pluginserver` (§Atlas branding), declared as `components.atlas.sdk: {branding: 1}`
+(a plugin may declare `branding`, `views` and `apps` together). Each file is `views/<name>.yaml` or `apps/<name>.yaml`, `<name>` matching
 `^[a-z][a-z0-9-]{0,39}$`, read as strictly as the manifest: an unknown key, a YAML alias, a second document, a file over 8 KiB
 or an executable file is a problem, reported as `path: reason` (`path: key: reason` for a key, including a wrong type), sorted. Two views (or two apps) of one plugin may not share a title.
 
@@ -799,6 +822,6 @@ Copilot CLI, not Antigravity or Kiro IDE.
 - No `mcp/` and no `instructions.md` contribution point.
 - A script runs no process, and a plugin tool reaches a client only through the stdio bridge (above).
 - The instructions block does not announce a plugin's agents and hooks.
-- A server loads a plugin only if its config pins the digest (above) and loads only its data families (`roles/`, `presets/`); `sync_pull` refuses an artifact whose source is `plugin:`. There is no
+- A server loads a plugin only if its config pins the digest (above) and loads only its data families (`roles/`, `presets/`, and the Atlas `branding/`); `sync_pull` refuses an artifact whose source is `plugin:`. There is no
   plugin catalog and a KB cannot recommend or require a plugin.
 - Plugins are never signed; the approval of one digest is the only consent, and it is per version.

@@ -68,3 +68,81 @@ func TestServerFamiliesRefuse(t *testing.T) {
 		}
 	}
 }
+
+const atlasManifest = "schema: 2\nname: acme-brand\nversion: 1.0.0\ndisplay_name: Acme brand\ndescription: Acme branding.\ncartographer: \">=0.29.0\"\ncomponents:\n  atlas:\n    sdk: {branding: 1}\n"
+
+const brandSVG = `<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>`
+
+func readAtlas(t *testing.T, manifest string, files ...core.TreeFile) (core.Plugin, []string) {
+	t.Helper()
+	tree := append([]core.TreeFile{tf(core.ManifestFile, manifest)}, files...)
+	return core.ReadTree(tree, core.Options{RunningVersion: "0.29.0", Side: core.SideAtlas})
+}
+
+func TestBrandingLoads(t *testing.T) {
+	p, probs := readAtlas(t, atlasManifest,
+		tf("branding/branding.yaml", "accent: \"#365d50\"\ncompany: Acme\nlogo: {light: logo.svg}\n"), tf("branding/logo.svg", brandSVG))
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	c := p.Contributions["branding"]
+	if len(c) != 1 || c[0].Branding == nil || c[0].Branding.Accent != "#365d50" || c[0].Branding.LogoLight.Name != "logo.svg" {
+		t.Fatalf("contributions = %+v", c)
+	}
+	var out strings.Builder
+	previewBranding(&out, c[0])
+	for _, want := range []string{"accent #365d50", "dark: moved", "light: as given", "logo light logo.svg", `company "Acme"`, "contrast:", `still reads "Cartographer"`} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("preview lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestBrandingRefuses(t *testing.T) {
+	for name, tc := range map[string]struct {
+		manifest string
+		files    []core.TreeFile
+		want     string
+	}{
+		"no sdk declaration": {strings.Replace(atlasManifest, "sdk: {branding: 1}", "sdk: {}", 1), []core.TreeFile{tf("branding/branding.yaml", "accent: \"#365d50\"\n")}, "declare sdk.branding under components.atlas"},
+		"unusable accent":    {atlasManifest, []core.TreeFile{tf("branding/branding.yaml", "accent: \"#ffffcc\"\n")}, "the nearest colour that passes is #"},
+		"script in the svg":  {atlasManifest, []core.TreeFile{tf("branding/branding.yaml", "favicon: f.svg\n"), tf("branding/f.svg", `<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>`)}, "element script"},
+		"a sub-folder":       {atlasManifest, []core.TreeFile{tf("branding/branding.yaml", "accent: \"#365d50\"\n"), tf("branding/x/y.svg", brandSVG)}, "the folder is flat"},
+	} {
+		_, probs := readAtlas(t, tc.manifest, tc.files...)
+		if !strings.Contains(strings.Join(probs, "\n"), tc.want) {
+			t.Errorf("%s: %v", name, probs)
+		}
+	}
+}
+
+func plugin(t *testing.T, name string, branded bool) *core.Plugin {
+	t.Helper()
+	files := []core.TreeFile{tf(core.ManifestFile, strings.Replace(atlasManifest, "acme-brand", name, 1))}
+	if branded {
+		files = append(files, tf("branding/branding.yaml", "accent: \"#365d50\"\n"))
+	}
+	p, probs := core.ReadTree(files, core.Options{RunningVersion: "0.29.0", Side: core.SideAtlas})
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	return &p
+}
+
+// Exactly one active branding: none is no branding, two is a start error naming both.
+func TestActiveBrandingExactlyOne(t *testing.T) {
+	if a, err := ActiveBranding(nil); a != nil || err != nil {
+		t.Errorf("none: %v %v", a, err)
+	}
+	if a, err := ActiveBranding([]*core.Plugin{plugin(t, "no-brand", false)}); a != nil || err != nil {
+		t.Errorf("a plugin without branding: %v %v", a, err)
+	}
+	a, err := ActiveBranding([]*core.Plugin{plugin(t, "acme-brand", true), plugin(t, "no-brand", false)})
+	if err != nil || a == nil || a.Plugin != "acme-brand" || len(a.CSS) == 0 {
+		t.Errorf("one: %+v %v", a, err)
+	}
+	_, err = ActiveBranding([]*core.Plugin{plugin(t, "other-brand", true), plugin(t, "acme-brand", true)})
+	if err == nil || !strings.Contains(err.Error(), "acme-brand and other-brand") || !strings.Contains(err.Error(), "enabled: false") {
+		t.Errorf("two: %v", err)
+	}
+}

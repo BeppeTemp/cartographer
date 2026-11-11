@@ -5,5 +5,6 @@
 // references outside the file. It derives from the accent the dark and light
 // theme tokens of the Atlas, verified against the contrast thresholds
 // web/src/test/contrast.test.ts audits, and renders them as the text of a
-// stylesheet. It imports only the standard library and yaml.
+// stylesheet. It imports only the standard library and yaml: internal/plugin/core
+// carries its Spec and internal/pluginserver loads it.
 package branding

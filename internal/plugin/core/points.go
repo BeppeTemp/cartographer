@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/BeppeTemp/cartographer/internal/branding"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
@@ -56,6 +57,9 @@ type Contribution struct {
 	// every other kind.
 	View *View
 	App  *App
+	// Branding is the data of an atlas-side branding/ folder (one contribution
+	// per plugin); nil for every other kind.
+	Branding *branding.Spec
 }
 
 // Point is a place of the plugin tree that contributes something.

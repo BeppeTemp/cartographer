@@ -348,7 +348,7 @@ func mustTree(t *testing.T, dir string) []core.TreeFile {
 	return files
 }
 
-// The pin lines skip a side this build cannot load and the reserved atlas side.
+// The pin lines skip a side this build cannot load; the atlas side is pinned with the server side.
 func TestPluginVendorSkipsSidesThatCannotBePinned(t *testing.T) {
 	pluginFixture(t)
 	src := t.TempDir()
@@ -363,7 +363,7 @@ func TestPluginVendorSkipsSidesThatCannotBePinned(t *testing.T) {
 	if strings.Contains(out, "# pin the surveyor") || strings.Contains(out, "# pin the atlas") {
 		t.Errorf("a side that cannot be pinned got pin lines:\n%s", out)
 	}
-	for _, want := range []string{"surveyor side: not pinnable", "unknown family recipes", "atlas side: no component config", "# pin the server side in the server config"} {
+	for _, want := range []string{"surveyor side: not pinnable", "unknown family recipes", "atlas side: loaded by the server", "# pin the server side in the server config"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 
 	_ "github.com/BeppeTemp/cartographer/internal/atlasext" // registers the views/ and apps/ points of the atlas side
+	"github.com/BeppeTemp/cartographer/internal/branding"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
@@ -16,6 +18,32 @@ import (
 // serverPresets are the presets of the pinned plugins, set once at start before
 // any KB is mounted and handed to preset_list (a server's data, not a KB's).
 var serverPresets []mcpserver.PresetEntry
+
+// serverBranding is the branding of the pinned plugins, nil without one, set
+// once at start. The Atlas mount reads it.
+var serverBranding *branding.Active
+
+// logServerBranding says the branding in one line, and that a disabled Atlas
+// ignores it.
+func logServerBranding(b *branding.Active, webEnabled bool) {
+	if b == nil {
+		return
+	}
+	var has []string
+	if b.Palette != nil {
+		has = append(has, "accent")
+	}
+	if b.Meta.LogoLight != "" {
+		has = append(has, "logo")
+	}
+	if b.Meta.Favicon != "" {
+		has = append(has, "favicon")
+	}
+	log.Printf("branding from plugin %s: %s", b.Plugin, strings.Join(has, ", "))
+	if !webEnabled {
+		log.Printf("branding: web.enabled is false, the branding is checked and not served")
+	}
+}
 
 // presetEntries lists the presets of the plugins as preset_list returns them.
 func presetEntries(plugins []*core.Plugin) []mcpserver.PresetEntry {
