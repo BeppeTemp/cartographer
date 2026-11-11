@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -649,4 +650,126 @@ func (e *execRecipe) ListSystem(ctx context.Context, v Verified, req Request) (L
 		return Listing{}, fail(CodeProtocolError, "a system listing ends with an empty next_cursor: it is always complete, there is no cursor to resume from")
 	}
 	return l, err
+}
+
+// fetchRequest adds what only fetch carries: the keys whose content is wanted.
+type fetchRequest struct {
+	request
+	Keys            []string `json:"keys"`
+	MaxContentBytes int      `json:"max_content_bytes"`
+}
+
+// Fetch asks the script for the content of keys it listed without any (at most
+// MaxFetchKeys), in a process of its own. The answer is one
+// {"content": {"key", "content"}} line per key and then exactly one
+// {"done": true}: a key not asked, asked twice or left unanswered, a content that
+// is empty, over max_content_bytes or not UTF-8, or a line that is anything else,
+// is protocol_error; a failing process is fetch_failed. What the script prints is
+// untrusted: the content is data for a unit and never appears in an error, and a
+// key quoted in one goes through label. Only a feed recipe has fetch.
+func (e *execRecipe) Fetch(ctx context.Context, req Request, keys []string) (map[string]string, error) {
+	if e.c.Shape == ShapeSystem {
+		return nil, ErrUnsupported
+	}
+	if len(keys) == 0 || len(keys) > MaxFetchKeys {
+		return nil, fail(CodeFetchFailed, "a fetch carries 1 to %d keys", MaxFetchKeys)
+	}
+	maxContent := e.contentCap(req)
+	body, err := json.Marshal(fetchRequest{request: e.base(VerbFetch, &source{req.ID, req.Title, req.Locator, req.SourceKind, ShapeFeed, nonNil(req.Include)}),
+		Keys: keys, MaxContentBytes: maxContent})
+	if err != nil {
+		return nil, fail(CodeFetchFailed, "cannot encode the request")
+	}
+	var got map[string]string
+	var printed countingReader
+	err = e.runScript(ctx, CodeFetchFailed, body, func(r io.Reader) (bool, error) {
+		var atEOF bool
+		var perr error
+		printed.r = r
+		got, atEOF, perr = e.readFetch(&printed, keys, maxContent)
+		return atEOF, perr
+	})
+	if errors.Is(err, ErrUnsupported) && printed.n.Load() > 0 {
+		// Exit 64 means "no fetch" only when nothing was printed: after some output it
+		// is a script that broke off, and a half answer is not "nothing to fetch".
+		return nil, fail(CodeProtocolError, "the script printed part of an answer and then exited %d", exitUnsupported)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return got, nil
+}
+
+// readFetch reads the answer of fetch as a stream of JSON values, bounded by
+// max_output_bytes, and stops at the first violation. atEOF is true when the
+// stream ended before done: the exit status then says why.
+func (e *execRecipe) readFetch(r io.Reader, keys []string, maxContent int) (map[string]string, bool, error) {
+	lr := &io.LimitedReader{R: r, N: int64(e.c.MaxOutput) + 1}
+	dec := json.NewDecoder(lr)
+	want := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		want[k] = true
+	}
+	got := make(map[string]string, len(keys))
+	done := false
+	for n := 1; ; n++ {
+		var m map[string]json.RawMessage
+		err := dec.Decode(&m)
+		switch {
+		case lr.N <= 0:
+			return nil, false, fail(CodeFetchFailed, "output over %d bytes", e.c.MaxOutput)
+		case errors.Is(err, io.EOF) && done:
+			if len(got) != len(keys) {
+				return nil, false, fail(CodeProtocolError, "%d of the %d keys asked were not answered", len(keys)-len(got), len(keys))
+			}
+			return got, false, nil
+		case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+			return nil, true, fail(CodeProtocolError, "no final {\"done\": true}")
+		case err != nil:
+			return nil, false, fail(CodeProtocolError, "answer %d is not a JSON object", n)
+		case done:
+			return nil, false, fail(CodeProtocolError, "answer %d: nothing may follow done", n)
+		}
+		switch {
+		case len(m) != 1:
+			return nil, false, fail(CodeProtocolError, "answer %d is not a JSON object with one key, content or done", n)
+		case m["content"] != nil:
+			var c struct {
+				Key     string  `json:"key"`
+				Content *string `json:"content"`
+			}
+			if json.Unmarshal(m["content"], &c) != nil || c.Content == nil {
+				return nil, false, fail(CodeProtocolError, "answer %d: content is {\"key\", \"content\"} of two strings", n)
+			}
+			_, twice := got[c.Key]
+			switch {
+			case !want[c.Key]:
+				return nil, false, fail(CodeProtocolError, "answer %d: the key %q was not asked", n, e.label(c.Key, maxKey))
+			case twice:
+				return nil, false, fail(CodeProtocolError, "answer %d: the key %q is answered twice", n, e.label(c.Key, maxKey))
+			case *c.Content == "" || len(*c.Content) > maxContent || !utf8.ValidString(*c.Content):
+				return nil, false, fail(CodeProtocolError, "answer %d: the content of %q is empty, over max_content_bytes (%d) or not UTF-8", n, e.label(c.Key, maxKey), maxContent)
+			}
+			got[c.Key] = *c.Content
+		case m["done"] != nil:
+			if string(m["done"]) != "true" {
+				return nil, false, fail(CodeProtocolError, "answer %d: done is true", n)
+			}
+			done = true
+		default:
+			return nil, false, fail(CodeProtocolError, "answer %d is neither content nor done", n)
+		}
+	}
+}
+
+// countingReader counts what the script printed, read from another goroutine.
+type countingReader struct {
+	r io.Reader
+	n atomic.Int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n.Add(int64(n))
+	return n, err
 }

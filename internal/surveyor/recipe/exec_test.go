@@ -3,6 +3,7 @@ package recipe
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -585,6 +586,92 @@ func TestExecSpecTextIsRedactedAndCleanedLikeACheck(t *testing.T) {
 	bad := `{"spec":{"title":"t","description":"d","shapes":["feed"],"verbs":["list","s3cr3t-token-value"],"settings":{},"env":[]}}`
 	r = helperWith(t, func(c *ExecConfig) { c.Env = map[string]string{"API_TOKEN": "WIKI_TOKEN"} }, "byverb", filepath.Join(t.TempDir(), "v"), bad, "-")
 	if _, err := r.(Specer).Spec(context.Background()); err == nil || strings.Contains(err.Error(), "s3cr3t") || !strings.Contains(err.Error(), "***") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func fetchErr(t *testing.T, r Recipe, keys []string, wantCode, wantIn string) {
+	t.Helper()
+	_, err := r.(Fetcher).Fetch(context.Background(), Request{ID: "s", MaxContentBytes: 1 << 10}, keys)
+	e, ok := err.(*Error)
+	if !ok || e.Code != wantCode || !strings.Contains(e.Detail, wantIn) {
+		t.Errorf("err = %v, want %s containing %q", err, wantCode, wantIn)
+	}
+}
+
+func TestExecFetchStdinAndAnswer(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "stdin.json")
+	r := helper(t, "stdin", f)
+	_, _ = r.(Fetcher).Fetch(context.Background(), Request{ID: "src/a", Title: "T", Locator: "https://example.com/x", SourceKind: "wiki", Include: []string{"a/**"}, MaxContentBytes: 100}, []string{"a.md", "b.md"})
+	b, _ := os.ReadFile(f)
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	// Only these keys: a new one is a protocol change (D1262).
+	if len(m) != 6 || m["protocol"] != float64(2) || m["verb"] != "fetch" || m["max_content_bytes"] != float64(100) ||
+		fmt.Sprint(m["keys"]) != "[a.md b.md]" || m["config"] == nil || m["source"] == nil {
+		t.Fatalf("stdin = %s", b)
+	}
+	r = helper(t, "lines", `{"content":{"key":"b.md","content":"two\nlines"}}`, ``, `{"content":{"key":"a.md","content":"one"}}`, `{"done":true}`)
+	got, err := r.(Fetcher).Fetch(context.Background(), Request{ID: "s"}, []string{"a.md", "b.md"})
+	if err != nil || len(got) != 2 || got["a.md"] != "one" || got["b.md"] != "two\nlines" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+}
+
+func TestExecFetchRefusesWhatTheProtocolDoesNot(t *testing.T) {
+	ask := []string{"a", "b"}
+	ok := `{"content":{"key":"a","content":"x"}}`
+	for name, tc := range map[string]struct {
+		r    Recipe
+		code string
+		in   string
+	}{
+		"unanswered":   {helper(t, "lines", ok, `{"done":true}`), CodeProtocolError, "not answered"},
+		"unknown key":  {helper(t, "lines", ok, `{"content":{"key":"zz\u001b[31m","content":"x"}}`, `{"done":true}`), CodeProtocolError, "was not asked"},
+		"duplicate":    {helper(t, "lines", ok, ok, `{"done":true}`), CodeProtocolError, "answered twice"},
+		"empty":        {helper(t, "lines", `{"content":{"key":"a","content":""}}`, `{"done":true}`), CodeProtocolError, "empty"},
+		"over the cap": {helper(t, "lines", `{"content":{"key":"a","content":"`+strings.Repeat("x", 1025)+`"}}`, `{"done":true}`), CodeProtocolError, "max_content_bytes"},
+		"no done":      {helper(t, "lines", ok, `{"content":{"key":"b","content":"y"}}`), CodeProtocolError, "done"},
+		"after done":   {helper(t, "lines", `{"done":true}`, ok), CodeProtocolError, "nothing may follow"},
+		"two keys":     {helper(t, "lines", `{"content":{"key":"a","content":"x"},"done":true}`), CodeProtocolError, "one key"},
+		"other line":   {helper(t, "lines", `{"entry":{}}`, `{"done":true}`), CodeProtocolError, "neither content nor done"},
+		"done false":   {helper(t, "lines", `{"done":false}`), CodeProtocolError, "done is true"},
+		"not json":     {helper(t, "lines", "nope"), CodeProtocolError, "not a JSON object"},
+		"content type": {helper(t, "lines", `{"content":{"key":"a","content":3}}`, `{"done":true}`), CodeProtocolError, "two strings"},
+		"exit":         {helper(t, "exit3"), CodeFetchFailed, "exit 3"},
+		"missing":      {NewExec(ExecConfig{Name: "x", Command: filepath.Join(t.TempDir(), "nope"), Timeout: time.Second, MaxOutput: 1 << 10, MaxContent: 10}), CodeFetchFailed, "cannot start nope"},
+		"output cap":   {helperWith(t, func(c *ExecConfig) { c.MaxOutput = 64 }, "lines", ok, ok, ok, ok), CodeFetchFailed, "output over 64"},
+	} {
+		t.Run(name, func(t *testing.T) { fetchErr(t, tc.r, ask, tc.code, tc.in) })
+	}
+	// What a script prints in a key never reaches an error with a control character.
+	_, err := helper(t, "lines", `{"content":{"key":"zz\u001b[31m","content":"x"}}`).(Fetcher).Fetch(context.Background(), Request{}, ask)
+	if err == nil || strings.ContainsRune(err.Error(), 0x1b) {
+		t.Errorf("error = %q", err)
+	}
+	// 26 keys are more than one call carries; none is no call.
+	many := make([]string, MaxFetchKeys+1)
+	fetchErr(t, helper(t, "exit64"), many, CodeFetchFailed, "1 to 25")
+	fetchErr(t, helper(t, "exit64"), nil, CodeFetchFailed, "1 to 25")
+	// A script without the verb is "nothing to fetch", not a failure; a system recipe has none.
+	if _, err := helper(t, "exit64").(Fetcher).Fetch(context.Background(), Request{}, ask); err != ErrUnsupported {
+		t.Errorf("exit 64 = %v", err)
+	}
+	// ... but only when nothing was printed: after part of an answer it is a broken one.
+	fetchErr(t, helper(t, "partial64"), ask, CodeProtocolError, "part of an answer")
+	sys := helperWith(t, func(c *ExecConfig) { c.Shape = ShapeSystem }, "exit64").(Fetcher)
+	if _, err := sys.Fetch(context.Background(), Request{}, ask); err != ErrUnsupported {
+		t.Errorf("system = %v", err)
+	}
+}
+
+func TestExecFetchFailureRedactsTheMappedVariable(t *testing.T) {
+	t.Setenv("FETCH_TEST_TOKEN", "s3cr3t-token-value")
+	r := helperWith(t, func(c *ExecConfig) { c.Env = map[string]string{"TOKEN": "FETCH_TEST_TOKEN"} }, "exit3")
+	_, err := r.(Fetcher).Fetch(context.Background(), Request{}, []string{"a"})
+	if err == nil || strings.Contains(err.Error(), "s3cr3t-token-value") {
 		t.Errorf("error = %v", err)
 	}
 }

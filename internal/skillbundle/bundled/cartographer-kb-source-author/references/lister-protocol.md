@@ -34,6 +34,14 @@ One JSON object, then closed:
 
 Return a cursor that covers exactly what you emitted. Delete lines are only counted: the Surveyor deletes nothing.
 
+`fetch` (optional, declare it in `spec.verbs`): when the listing is cheap and carries no `content`, the Surveyor sends
+`{"protocol": 2, "verb": "fetch", "config", "source", "keys": [...], "max_content_bytes": N}` (at most 25 keys) for the
+entries that need a new unit. Answer one `{"content": {"key": "...", "content": "..."}}` line per key, non-empty UTF-8
+within the cap, then exactly one `{"done": true}`. An unasked, repeated or missing key is `protocol_error`; a non-zero
+exit is `fetch_failed`; either ends the poll with the cursor untouched. The credential stays in your environment.
+A script without `fetch` must exit 64 with no output on that verb (any other exit fails every poll with
+`fetch_failed`); exit 64 after part of an answer is a `protocol_error`. The Surveyor fetches at most 8 MiB per poll.
+
 ## System recipes (`shape: system`)
 
 The recipe sets `shape: system` and has no `connector`. Before every listing the Surveyor sends `verb: "check"`; the

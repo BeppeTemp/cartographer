@@ -27,3 +27,11 @@ are `identity_not_read_only` (the identity is not read-only, or `read_only` is a
 else), and `source test` exits 3 for both. `check_failed` is a new `feed_error` code. The verbs a spec declares gate the calls of `source test` only: the poll never runs `spec`
 and calls `check` (system) and `list` by contract, so a spec is a description, not a permission. A change to what
 is sent or accepted needs a new protocol number (D1262).
+
+**Fetch.** The poll, not the unit executor, asks for the content of the entries that need a new unit (`fetch`, at most 25
+keys per call, `{"content": ...}` per key then `{"done": true}`) and stages it as the unit's `content_asset`, the path
+inline content already takes. The alternative, letting the model call a connector for it, would carry the source's
+credential into the model loop. The poll does not run `spec` to learn whether a recipe has `fetch`: it asks, and exit
+64 with no output means "none", costing one process per poll for a recipe that lists without content and has no
+`fetch`. A failure (`fetch_failed`, `protocol_error`) ends the poll with the cursor untouched; a staged unit a crash
+left without its asset is fetched again, so a resumed poll converges as it does for inline content. A poll fetches at most 8 MiB in total, the default `max_output_bytes`, checked before each batch: one listing's inline content has that bound, and fetched content must not let a poll hold more; the entries past it get units as for a recipe without `fetch`, so the poll still advances. Exit 64 after the script printed anything is a `protocol_error`, not "no fetch": a partial answer must not pass as a missing verb.
