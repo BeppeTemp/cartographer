@@ -109,7 +109,8 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		case nested && pointOf(first) != nil:
 			byPoint[first] = append(byPoint[first], f)
 		default:
-			// Whether it is fatal depends on the manifest's schema, read below.
+			// Whether it is fatal, ignored or reported depends on the manifest's
+			// schema, read below.
 			unknownFiles = append(unknownFiles, f)
 			continue
 		}
@@ -129,12 +130,29 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	// Under schema 2 it is stored (and digested) and reported; a family this
 	// build registers is claimed, not unknown, but its side must declare it.
 	schema2 := p.Manifest.Schema != nil && *p.Manifest.Schema == SchemaVersion
+	if !schema2 {
+		// A schema 1 plugin is client only: a folder of another side's point is
+		// the unknown entry 0.28 reported, not a contribution.
+		for dir, fs := range byPoint {
+			if pointOf(dir).Side != SideClient {
+				unknownFiles = append(unknownFiles, fs...)
+				for _, f := range fs {
+					stored = slices.DeleteFunc(stored, func(s TreeFile) bool { return s.Path == f.Path })
+					total -= len(f.Content)
+				}
+				delete(byPoint, dir)
+			}
+		}
+	}
 	unknown := map[string]bool{}
 	for _, f := range unknownFiles {
-		first, _, _ := strings.Cut(f.Path, "/")
+		first, _, nested := strings.Cut(f.Path, "/")
 		if !schema2 {
 			add("unknown entry `%s`: a plugin holds %s", first, held)
 			continue
+		}
+		if nested && first == "tests" {
+			continue // fixtures of the plugin's own tests: never stored, never digested
 		}
 		if fam, ok := FamilyOf(first); !ok {
 			unknown["entry "+first] = true
@@ -175,14 +193,17 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 
 	p.Contributions = map[string][]Contribution{}
 	for _, pt := range RegisteredPoints() {
+		if !opts.loads(pt.Side) || p.Unsupported[pt.Side] != "" {
+			continue
+		}
 		cs, probs := pt.Load(byPoint[pt.Dir])
 		problems = append(problems, probs...)
 		if len(cs) > 0 {
 			p.Contributions[pt.Dir] = cs
 		}
 		for _, c := range cs {
-			if c.Provider != nil {
-				continue // registered by the host, not materialized as a file set
+			if c.Provider != nil || pt.Side != SideClient {
+				continue // registered by the host, or data of another component: not an artifact
 			}
 			p.Artifacts = append(p.Artifacts, contract.Artifact{
 				Kind: c.Kind, Name: c.Name, Source: "plugin:" + p.Manifest.Name,
@@ -192,8 +213,8 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	}
 	// The scripts run only on a tree with no other problem: a tree over a cap
 	// or with a bad manifest never reaches the interpreter.
-	if len(scripts) > 0 && len(problems) == 0 && opts.CheckScripts != nil {
-		problems = append(problems, opts.CheckScripts(scripts)...)
+	if len(scripts) > 0 && len(problems) == 0 && opts.CheckScripts != nil && opts.loads(SideClient) && p.Unsupported[SideClient] == "" {
+		problems = append(problems, opts.CheckScripts(SideClient, scripts)...)
 	}
 	sort.Slice(p.Artifacts, func(i, j int) bool {
 		a, b := p.Artifacts[i], p.Artifacts[j]
@@ -236,7 +257,7 @@ func undeclaredFamilies(files []TreeFile, m Manifest) []string {
 func unprintable(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }
 
 func pointOf(dir string) *Point {
-	if pt, ok := points[dir]; ok && pt.Side == SideClient {
+	if pt, ok := points[dir]; ok {
 		return &pt
 	}
 	return nil

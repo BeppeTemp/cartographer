@@ -6,6 +6,7 @@ import (
 	"io"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -21,8 +22,8 @@ const (
 	// SideClient points are loaded by the client of the machine.
 	SideClient Side = "client"
 	// SideSurveyor, SideServer and SideAtlas are the other components a schema 2
-	// manifest declares. A contribution point is registered for the client
-	// side only until a component loads its own.
+	// manifest declares. A point of a side loads only when that side is asked
+	// for (Options.Side) or every side is (empty).
 	SideSurveyor Side = "surveyor"
 	SideServer   Side = "server"
 	SideAtlas    Side = "atlas"
@@ -58,6 +59,9 @@ type Contribution struct {
 type Point struct {
 	Dir  string // top-level folder name
 	Side Side
+	// Family is the registered family (family.go) that owns Dir; Register fills
+	// it, and refuses a Dir no family of Side owns.
+	Family string
 	// Load validates the files under Dir (paths are tree-relative, so they start
 	// with Dir+"/") and returns the contributions with every problem found.
 	Load func(files []TreeFile) ([]Contribution, []string)
@@ -75,9 +79,14 @@ var (
 // Register adds a point. A duplicate or invalid Dir is an init-time programmer
 // error and panics.
 func Register(p Point) {
-	if !dirRe.MatchString(p.Dir) || p.Load == nil || p.Preview == nil || (p.Side != SideClient && p.Side != SideServer) {
+	if !dirRe.MatchString(p.Dir) || p.Load == nil || p.Preview == nil || !slices.Contains(Sides(), p.Side) {
 		panic(fmt.Sprintf("plugin: invalid contribution point %q", p.Dir))
 	}
+	fam, ok := FamilyOf(p.Dir)
+	if !ok || fam.Side != p.Side || !slices.Contains(fam.Dirs, p.Dir) {
+		panic(fmt.Sprintf("plugin: contribution point %q has no registered family on side %s", p.Dir, p.Side))
+	}
+	p.Family = fam.Name
 	if _, dup := points[p.Dir]; dup {
 		panic(fmt.Sprintf("plugin: contribution point %q registered twice", p.Dir))
 	}

@@ -43,7 +43,7 @@ var (
 // pluginOpts is what the manifest check needs from this binary. A plugin may not
 // take the name of a command: the table plus the commands dispatched but not listed.
 func pluginOpts() plugin.Options {
-	return plugin.Options{RunningVersion: version, CheckScripts: star.Check, ReservedName: func(n string) bool {
+	return plugin.Options{RunningVersion: version, Side: plugin.SideClient, CheckScripts: star.Check, ReservedName: func(n string) bool {
 		return n == "hook" || n == "plugin" || slices.ContainsFunc(subcommands, func(c subcommand) bool { return c.name == n })
 	}}
 }
@@ -198,7 +198,10 @@ func pluginValidate(args []string) int {
 	if err != nil {
 		return pluginFail(2, "%v", err)
 	}
-	_, _, p, probs, err := pluginRead(src)
+	// Validation reads every side: Side stays empty.
+	every := pluginOpts()
+	every.Side = ""
+	_, _, p, probs, err := pluginReadWith(src, every)
 	if err != nil {
 		return pluginFail(1, "%v", err)
 	}
@@ -216,12 +219,17 @@ func pluginValidate(args []string) int {
 			doc["scripts"] = prog.Files
 			doc["registers"] = registrationLines(p.Manifest.Name, prog)
 		}
+		if p.Manifest.Schema != nil && *p.Manifest.Schema == plugin.SchemaVersion {
+			// Additive, schema 2 only: a schema 1 document stays what 0.28 printed.
+			doc["sides"], doc["unsupported"], doc["unknown"] = append([]plugin.Side{}, p.Sides...), p.Unsupported, append([]string{}, p.Unknown...)
+		}
 		printJSON(doc)
 	} else if len(probs) == 0 {
 		fmt.Printf("%s %s is valid (digest %.12s)\n", escapeControl(p.Manifest.Name), escapeControl(p.Manifest.Version), p.Digest)
 		if prog != nil {
 			previewScripts(os.Stdout, p)
 		}
+		printSides(os.Stdout, p)
 	} else {
 		for _, pr := range probs {
 			fmt.Println(escapeControl(pr))
@@ -259,6 +267,9 @@ func pluginInstall(args []string) int {
 			fmt.Fprintln(os.Stderr, escapeControl(pr))
 		}
 		return pluginFail(1, "%s is not a valid plugin; nothing was installed", pos[0])
+	}
+	if msg := clientSideProblem(p); msg != "" {
+		return pluginFail(1, "%s; nothing was installed", msg)
 	}
 	name := p.Manifest.Name
 	recorded := src.Remote
@@ -346,8 +357,49 @@ func pluginInstall(args []string) int {
 
 func pluginPreview(w io.Writer, p plugin.Plugin, e clientconfig.PluginEntry, cfg *clientconfig.Config) {
 	have := func(n string) (string, bool) { o, ok := cfg.Plugin(n); return o.Version, ok }
-	plugin.Preview(w, p, plugin.PreviewInfo{Source: gitx.RedactRemoteURL(e.Source), Ref: e.Ref, SHA: e.SHA, Have: have}, pluginOpts())
+	plugin.Preview(w, p, plugin.PreviewInfo{Source: gitx.RedactRemoteURL(e.Source), Ref: e.Ref, SHA: e.SHA, Side: plugin.SideClient, Have: have}, pluginOpts())
 	previewScripts(w, p)
+}
+
+// clientSideProblem is why the client cannot take a plugin, "" when it can: a
+// schema 2 plugin that declares no client side, or one this build cannot load.
+func clientSideProblem(p plugin.Plugin) string {
+	if p.Manifest.Schema == nil || *p.Manifest.Schema != plugin.SchemaVersion {
+		return ""
+	}
+	name := escapeControl(p.Manifest.Name)
+	if !slices.Contains(p.Sides, plugin.SideClient) {
+		var to []string
+		for _, s := range p.Sides {
+			to = append(to, string(s))
+		}
+		return fmt.Sprintf("plugin %s has no client side (it contributes to: %s)", name, strings.Join(to, ", "))
+	}
+	if why := p.Unsupported[plugin.SideClient]; why != "" {
+		return fmt.Sprintf("the client side of plugin %s cannot load here: %s", name, escapeControl(why))
+	}
+	return ""
+}
+
+// printSides names what a schema 2 plugin declares: its sides, the ones this
+// build cannot load and the entries it holds that no family of this build owns.
+func printSides(w io.Writer, p plugin.Plugin) {
+	if p.Manifest.Schema == nil || *p.Manifest.Schema != plugin.SchemaVersion {
+		return
+	}
+	var sides []string
+	for _, s := range p.Sides {
+		sides = append(sides, string(s))
+	}
+	fmt.Fprintf(w, "sides: %s\n", escapeControl(strings.Join(sides, ", ")))
+	for _, s := range p.Sides {
+		if why := p.Unsupported[s]; why != "" {
+			fmt.Fprintf(w, "%s side not loadable by this build: %s\n", s, escapeControl(why))
+		}
+	}
+	if len(p.Unknown) > 0 {
+		fmt.Fprintf(w, "not known to this build, stored but never loaded: %s\n", escapeControl(strings.Join(p.Unknown, ", ")))
+	}
 }
 
 // pluginView is the tree a command shows for an entry: the approved one when the

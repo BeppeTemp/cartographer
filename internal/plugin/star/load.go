@@ -53,7 +53,10 @@ func loadError(err error) *LoadError {
 }
 
 // Check is plugin.Options.CheckScripts: the problems of a tree's scripts.
-func Check(files []plugin.TreeFile) []string {
+func Check(side plugin.Side, files []plugin.TreeFile) []string {
+	if side != plugin.SideClient {
+		return nil // no other side has a script entry in this build
+	}
 	if _, err := Load(files); err != nil {
 		return []string{err.Error()}
 	}

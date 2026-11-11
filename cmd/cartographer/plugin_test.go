@@ -229,3 +229,56 @@ func TestPluginNewOnAnOlderCore(t *testing.T) {
 		t.Errorf("manifest %q, err %v", data, err)
 	}
 }
+
+// writeSurveyorOnly writes a schema 2 plugin that declares no client side.
+func writeSurveyorOnly(t *testing.T, name string) string {
+	t.Helper()
+	dir := t.TempDir()
+	manifest := "schema: 2\nname: " + name + "\nversion: 1.0.0\ndisplay_name: Feeds\ndescription: A feed reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1}\n"
+	if err := os.WriteFile(filepath.Join(dir, "cartographer-plugin.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestPluginInstallRefusesAPluginWithoutAClientSide(t *testing.T) {
+	pluginFixture(t)
+	dir := writeSurveyorOnly(t, "feeds")
+	code, out := runPlugin(t, "install", dir, "--yes")
+	if code != 1 {
+		t.Errorf("install: exit %d\n%s", code, out)
+	}
+	if code, out = runPlugin(t, "list"); strings.Contains(out, "feeds") {
+		t.Errorf("the refused plugin was recorded (exit %d):\n%s", code, out)
+	}
+}
+
+func TestPluginValidateReportsSides(t *testing.T) {
+	pluginFixture(t)
+	dir := writeSurveyorOnly(t, "feeds")
+	code, out := runPlugin(t, "validate", dir)
+	for _, want := range []string{"is valid", "sides: surveyor", "surveyor side not loadable by this build: unknown family recipes"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Errorf("validate lacks %q: exit %d\n%s", want, code, out)
+		}
+	}
+	_, out = runPlugin(t, "validate", dir, "--output", "json")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || doc["sides"] == nil || doc["unsupported"] == nil || doc["unknown"] == nil {
+		t.Errorf("json: %v\n%s", err, out)
+	}
+	// A broken schema 2 manifest has no sides: [] and not null.
+	bad := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bad, "cartographer-plugin.yaml"), []byte("schema: 2\nname: Bad Name\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, out = runPlugin(t, "validate", bad, "--output", "json")
+	if !strings.Contains(out, `"sides": []`) && !strings.Contains(out, `"sides":[]`) {
+		t.Errorf("broken manifest: sides is not []:\n%s", out)
+	}
+	// A schema 1 document keeps the 0.28 keys.
+	_, out = runPlugin(t, "validate", writePlugin(t, "team-forks", nil), "--output", "json")
+	if strings.Contains(out, `"sides"`) {
+		t.Errorf("schema 1 json grew keys:\n%s", out)
+	}
+}

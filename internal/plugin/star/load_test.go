@@ -269,10 +269,10 @@ on("connect.after", mutate)
 }
 
 func TestCheckReportsTheLoadError(t *testing.T) {
-	if got := Check(entry("x = 1\n")); got != nil {
+	if got := Check(plugin.SideClient, entry("x = 1\n")); got != nil {
 		t.Errorf("valid: %v", got)
 	}
-	got := Check(entry("x = 1\ny = z\n"))
+	got := Check(plugin.SideClient, entry("x = 1\ny = z\n"))
 	if len(got) != 1 || !strings.HasPrefix(got[0], "plugin.star:2:") {
 		t.Errorf("got %q", got)
 	}

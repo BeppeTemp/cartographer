@@ -14,6 +14,10 @@ import (
 // what the machine already has. Source must already be redacted by the caller.
 type PreviewInfo struct {
 	Source, Ref, SHA string
+	// Side is the component the preview is for: only its sdk levels,
+	// permissions and contributions are shown, and the other sides are named
+	// as not loaded. Empty shows every side (plugin validate).
+	Side Side
 	// Have reports the version of a configured plugin, for `depends`.
 	Have func(name string) (string, bool)
 }
@@ -71,8 +75,50 @@ func Preview(w io.Writer, p Plugin, in PreviewInfo, opts Options) {
 		fmt.Fprintf(w, "  depends on %s %s: %s\n", esc(n), esc(m.Depends[n]), state)
 	}
 
-	fmt.Fprintln(w, "permissions:")
-	pm, n := m.Permissions, 0
+	if p.isSchema2() {
+		previewSides(w, p, in)
+	} else {
+		previewPermissions(w, "permissions:", m.Permissions)
+	}
+	if len(m.Settings) > 0 {
+		var keys []string
+		for _, k := range slices.Sorted(maps.Keys(m.Settings)) {
+			keys = append(keys, k+" ("+m.Settings[k].Type+")")
+		}
+		fmt.Fprintf(w, "settings: %s\n", escAll(keys))
+	}
+
+	var runs []string
+	for _, pt := range RegisteredPoints() {
+		cs := p.Contributions[pt.Dir]
+		if len(cs) == 0 || (in.Side != "" && pt.Side != in.Side) {
+			continue
+		}
+		fmt.Fprintf(w, "%s/:\n", pt.Dir)
+		for _, c := range cs {
+			pt.Preview(w, c)
+			for _, f := range c.Executable {
+				runs = append(runs, fmt.Sprintf("%s %q: %q", c.Kind, c.Name, f))
+			}
+		}
+	}
+	if len(runs) > 0 {
+		fmt.Fprintln(w, "runs code on this machine (files with the execute bit):")
+		for _, r := range runs {
+			fmt.Fprintf(w, "  %s\n", r)
+		}
+	}
+}
+
+// isSchema2 reports a plugin read from a schema 2 manifest.
+func (p Plugin) isSchema2() bool {
+	return p.Manifest.Schema != nil && *p.Manifest.Schema == SchemaVersion
+}
+
+// previewPermissions prints one permission block under head.
+func previewPermissions(w io.Writer, head string, pm *Permissions) {
+	fmt.Fprintln(w, head)
+	n := 0
 	say := func(what string, vals ...string) {
 		if len(vals) > 0 {
 			fmt.Fprintf(w, "  %s%s\n", what, escAll(vals))
@@ -94,33 +140,54 @@ func Preview(w io.Writer, p Plugin, in PreviewInfo, opts Options) {
 	if n == 0 {
 		fmt.Fprintln(w, "  none asked")
 	}
-	if len(m.Settings) > 0 {
-		var keys []string
-		for _, k := range slices.Sorted(maps.Keys(m.Settings)) {
-			keys = append(keys, k+" ("+m.Settings[k].Type+")")
-		}
-		fmt.Fprintf(w, "settings: %s\n", escAll(keys))
-	}
+}
 
-	var runs []string
-	for _, pt := range RegisteredPoints() {
-		cs := p.Contributions[pt.Dir]
-		if len(cs) == 0 {
-			continue
+// previewSides prints, for the side asked for (every declared side when none),
+// its sdk levels and permissions, then what the other sides and the tree hold
+// that this build does not load.
+func previewSides(w io.Writer, p Plugin, in PreviewInfo) {
+	shown := p.Sides
+	if in.Side != "" {
+		shown = nil
+		if slices.Contains(p.Sides, in.Side) {
+			shown = []Side{in.Side}
 		}
-		fmt.Fprintf(w, "%s/:\n", pt.Dir)
-		for _, c := range cs {
-			pt.Preview(w, c)
-			for _, f := range c.Executable {
-				runs = append(runs, fmt.Sprintf("%s %q: %q", c.Kind, c.Name, f))
+	}
+	for _, side := range shown {
+		c := p.Manifest.Components[side]
+		var levels []string
+		for _, fam := range slices.Sorted(maps.Keys(c.SDK)) {
+			levels = append(levels, fmt.Sprintf("%s %d", fam, c.SDK[fam]))
+		}
+		head := "permissions:"
+		if in.Side == "" {
+			fmt.Fprintf(w, "%s side:\n", side)
+			head = "  permissions:"
+		}
+		if len(levels) > 0 {
+			fmt.Fprintf(w, "sdk: %s\n", escAll(levels))
+		}
+		if why := p.Unsupported[side]; why != "" {
+			fmt.Fprintf(w, "not loadable by this build: %s\n", esc(why))
+		}
+		previewPermissions(w, head, c.Permissions)
+	}
+	if in.Side != "" {
+		var others []string
+		for _, side := range p.Sides {
+			if side != in.Side {
+				others = append(others, string(side))
+				if why := p.Unsupported[side]; why != "" {
+					others[len(others)-1] += " (" + why + ")"
+				}
 			}
 		}
-	}
-	if len(runs) > 0 {
-		fmt.Fprintln(w, "runs code on this machine (files with the execute bit):")
-		for _, r := range runs {
-			fmt.Fprintf(w, "  %s\n", r)
+		if len(others) > 0 {
+			fmt.Fprintf(w, "other sides, not loaded here: %s\n", escAll(others))
 		}
+	}
+	if len(p.Unknown) > 0 {
+		fmt.Fprintf(w, "not known to this build, stored but never loaded: %s\n", escAll(p.Unknown))
 	}
 }
 

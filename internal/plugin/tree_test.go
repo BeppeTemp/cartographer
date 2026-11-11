@@ -216,7 +216,7 @@ func TestRegisteredPoints(t *testing.T) {
 	for _, p := range RegisteredPoints() {
 		got = append(got, p.Dir)
 	}
-	if !reflect.DeepEqual(got, []string{"agents", "hooks", "providers", "skills"}) {
+	if !reflect.DeepEqual(got, []string{"agents", "hooks", "providers", "reports", "skills"}) {
 		t.Errorf("registered points: %v", got)
 	}
 }
@@ -262,7 +262,7 @@ func TestScriptBytesMoveTheDigest(t *testing.T) {
 func TestCheckScriptsRunsOnScriptTreesOnly(t *testing.T) {
 	var got []string
 	opts := testOpts
-	opts.CheckScripts = func(files []TreeFile) []string {
+	opts.CheckScripts = func(_ Side, files []TreeFile) []string {
 		for _, f := range files {
 			got = append(got, f.Path)
 		}
@@ -280,7 +280,7 @@ func TestCheckScriptsRunsOnScriptTreesOnly(t *testing.T) {
 func TestScriptsDoNotRunOnATreeWithOtherProblems(t *testing.T) {
 	ran := false
 	opts := testOpts
-	opts.CheckScripts = func([]TreeFile) []string { ran = true; return nil }
+	opts.CheckScripts = func(Side, []TreeFile) []string { ran = true; return nil }
 	script := tf("plugin.star", "x = 1\n")
 
 	over := goodTree()

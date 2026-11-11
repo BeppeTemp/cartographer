@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,5 +172,28 @@ func TestSyncReportsAModifiedSourceWithoutRunningItsScript(t *testing.T) {
 	}
 	if _, err = fetchApproved("team-forks", e); err != nil {
 		t.Errorf("the approved tree was refused: %v", err)
+	}
+}
+
+// A side with an unmet sdk (or no client side at all) is not loaded, scripts
+// included: pluginProgram returns no program for it, the same rule the points
+// and CheckScripts follow in internal/plugin/tree.go.
+func TestPluginProgramSkipsAnUnloadableClientSide(t *testing.T) {
+	files := []plugin.TreeFile{{Path: "plugin.star", Content: []byte(scriptV1)}}
+	cases := []struct {
+		name string
+		p    plugin.Plugin
+		want bool
+	}{
+		{"schema 1", plugin.Plugin{Files: files}, true},
+		{"client supported", plugin.Plugin{Files: files, Sides: []plugin.Side{plugin.SideClient}, Unsupported: map[plugin.Side]string{}}, true},
+		{"client unmet sdk", plugin.Plugin{Files: files, Sides: []plugin.Side{plugin.SideClient}, Unsupported: map[plugin.Side]string{plugin.SideClient: "needs sdk scripts 9"}}, false},
+		{"no client side", plugin.Plugin{Files: files, Sides: []plugin.Side{plugin.SideServer}, Unsupported: map[plugin.Side]string{}}, false},
+	}
+	for _, c := range cases {
+		prog, err := pluginProgram(c.p)
+		if err != nil || (prog != nil) != c.want {
+			t.Errorf("%s: program %v (want loaded=%v), err %v", c.name, prog, c.want, err)
+		}
 	}
 }

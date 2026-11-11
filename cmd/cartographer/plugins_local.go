@@ -217,7 +217,7 @@ func fetchApproved(name string, e clientconfig.PluginEntry) (fetchedPlugin, erro
 	case p.Digest != e.Approved:
 		return fetchedPlugin{}, fmt.Errorf("the source no longer yields the approved version: reported as modified, run `cartographer plugin update %s` to review it", name)
 	}
-	if probs := pluginOpts().CheckScripts(scriptFiles(files)); len(probs) > 0 {
+	if probs := pluginOpts().CheckScripts(plugin.SideClient, scriptFiles(files)); len(probs) > 0 {
 		return fetchedPlugin{}, fmt.Errorf("the fetched tree is not a valid plugin (%s): nothing is installed from it", strings.Join(probs, "; "))
 	}
 	return fetchedPlugin{name: name, files: files, p: p}, nil
@@ -426,6 +426,9 @@ func installPluginSources(o pluginPrep, dir string, cfg *clientconfig.Config, sr
 			}
 			return fresh, o.fail(1, "%s is not a valid plugin; nothing was installed from it", shown)
 		}
+		if msg := clientSideProblem(p); msg != "" {
+			return fresh, o.fail(1, "%s; nothing was installed from %s", msg, shown)
+		}
 		name := p.Manifest.Name
 		release, err := lockClient(dir)
 		if err != nil {
@@ -483,7 +486,7 @@ func pendingSameTree(o pluginPrep, dir string, store plugin.Store, cfg *clientco
 		return nil
 	}
 	files, _, p, probs, err := pluginRead(src)
-	if err != nil || len(probs) > 0 {
+	if err != nil || len(probs) > 0 || clientSideProblem(p) != "" {
 		return nil
 	}
 	var out []installedNow
