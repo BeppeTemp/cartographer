@@ -145,3 +145,26 @@ func TestReflector_NullableIsForSlices(t *testing.T) {
 		t.Error("Build must surface the refusal")
 	}
 }
+
+func TestBuild_EventStreamOperation(t *testing.T) {
+	raw, err := Build(Document{
+		Title: "t", Version: "1", Error: reflect.TypeOf(leaf{}),
+		Ops: []Operation{{ID: "events", Path: "/events", Errors: []int{429},
+			Events: []Event{{Name: "tick", Type: reflect.TypeOf(leaf{})}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	ok := doc["paths"].(map[string]any)["/events"].(map[string]any)["get"].(map[string]any)["responses"].(map[string]any)["200"].(map[string]any)["content"].(map[string]any)
+	if _, json := ok["application/json"]; json {
+		t.Error("a stream is not application/json")
+	}
+	sse := ok["text/event-stream"].(map[string]any)
+	if sse["x-events"].(map[string]any)["tick"] == nil {
+		t.Errorf("event schema missing: %v", sse)
+	}
+}
