@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
 	"regexp"
@@ -30,6 +31,8 @@ type Config struct {
 	Audit          AuditConfig // append-only audit log
 	// Web controls the embedded read-only Atlas UI (D227).
 	Web WebConfig
+	// API controls the public read-only API at /api/v1.
+	API APIConfig
 	// UpdateCheck makes the server look up the latest release once a day and
 	// report it in /health and kb_status when newer (D254). Default true;
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
@@ -75,6 +78,43 @@ type WebConfig struct {
 	// server is for, and an operator who does not want the extra surface turns
 	// it off in one place. Stdio mode never serves it, whatever this says.
 	Enabled bool
+}
+
+// APIConfig controls the public read-only API at /api/v1.
+type APIConfig struct {
+	// Enabled serves /api/v1 (HTTP mode). Default false: the surface is
+	// opt-in, independent of web.enabled.
+	Enabled bool
+	// CORSOrigins are the browser origins allowed to read /api/v1 (scheme://host[:port]).
+	CORSOrigins []string
+	// MaxStreamsPerToken and MaxStreams cap the event streams (defaults 4 and 64).
+	MaxStreamsPerToken int
+	MaxStreams         int
+}
+
+// Defaults of the API stream caps.
+const (
+	DefaultAPIMaxStreamsPerToken = 4
+	DefaultAPIMaxStreams         = 64
+)
+
+// validateAPI checks the api block: a start error naming the key.
+func validateAPI(a APIConfig) error {
+	for i, o := range a.CORSOrigins {
+		u, err := url.Parse(o)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+			u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil ||
+			strings.Contains(o, "*") || strings.HasSuffix(o, "/") {
+			return fmt.Errorf("api.cors_origins[%d]: %q must be scheme://host[:port] with http or https, no path and no *", i, o)
+		}
+	}
+	if a.MaxStreamsPerToken < 1 {
+		return fmt.Errorf("api.max_streams_per_token: %d must be at least 1", a.MaxStreamsPerToken)
+	}
+	if a.MaxStreams < a.MaxStreamsPerToken {
+		return fmt.Errorf("api.max_streams: %d must be at least api.max_streams_per_token (%d)", a.MaxStreams, a.MaxStreamsPerToken)
+	}
+	return nil
 }
 
 // AuthConfig controls HTTP bearer-token authentication.
@@ -346,6 +386,7 @@ func Default() *Config {
 		Auth:        AuthConfig{Mode: "auto", ReloadInterval: DefaultAuthReloadInterval},
 		Audit:       AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		Web:         WebConfig{Enabled: true},
+		API:         APIConfig{MaxStreamsPerToken: DefaultAPIMaxStreamsPerToken, MaxStreams: DefaultAPIMaxStreams},
 		UpdateCheck: true,
 		Maintenance: MaintenanceConfig{AutoRepair: true},
 	}
@@ -363,6 +404,7 @@ type rawConfig struct {
 	Audit          rawAudit `yaml:"audit"`
 	Git            rawGit   `yaml:"git"`
 	Web            rawWeb   `yaml:"web"`
+	API            rawAPI   `yaml:"api"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool          `yaml:"update_check"`
@@ -396,6 +438,14 @@ type rawKB struct {
 // false".
 type rawWeb struct {
 	Enabled *bool `yaml:"enabled"`
+}
+
+// rawAPI mirrors the `api:` block; the ints are pointers so an absent key keeps its default.
+type rawAPI struct {
+	Enabled            *bool    `yaml:"enabled"`
+	CORSOrigins        []string `yaml:"cors_origins"`
+	MaxStreamsPerToken *int     `yaml:"max_streams_per_token"`
+	MaxStreams         *int     `yaml:"max_streams"`
 }
 
 type rawAuth struct {
@@ -662,6 +712,19 @@ func Load(path string) (*Config, error) {
 	if raw.Web.Enabled != nil {
 		cfg.Web.Enabled = *raw.Web.Enabled
 	}
+	if raw.API.Enabled != nil {
+		cfg.API.Enabled = *raw.API.Enabled
+	}
+	cfg.API.CORSOrigins = raw.API.CORSOrigins
+	if raw.API.MaxStreamsPerToken != nil {
+		cfg.API.MaxStreamsPerToken = *raw.API.MaxStreamsPerToken
+	}
+	if raw.API.MaxStreams != nil {
+		cfg.API.MaxStreams = *raw.API.MaxStreams
+	}
+	if err := validateAPI(cfg.API); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
 	if raw.UpdateCheck != nil {
 		cfg.UpdateCheck = *raw.UpdateCheck
 	}
@@ -718,6 +781,14 @@ func FromEnv(cfg *Config) error {
 		cfg.mark(OriginEnv, "web.enabled")
 		cfg.Web.Enabled = b
 	}
+	if v := os.Getenv("CARTOGRAPHER_API_ENABLED"); v != "" {
+		b, err := parseBool("CARTOGRAPHER_API_ENABLED", v)
+		if err != nil {
+			return err
+		}
+		cfg.mark(OriginEnv, "api.enabled")
+		cfg.API.Enabled = b
+	}
 	if v := os.Getenv("CARTOGRAPHER_UPDATE_CHECK"); v != "" {
 		b, err := parseBool("CARTOGRAPHER_UPDATE_CHECK", v)
 		if err != nil {
@@ -754,6 +825,7 @@ type FlagOverrides struct {
 	Data        *string
 	Tokens      *string // comma-separated, replaces Auth.Tokens
 	WebEnabled  *bool
+	APIEnabled  *bool
 	UpdateCheck *bool
 }
 
@@ -786,6 +858,10 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.WebEnabled != nil {
 		cfg.mark(OriginFlag, "web.enabled")
 		cfg.Web.Enabled = *o.WebEnabled
+	}
+	if o.APIEnabled != nil {
+		cfg.mark(OriginFlag, "api.enabled")
+		cfg.API.Enabled = *o.APIEnabled
 	}
 	if o.UpdateCheck != nil {
 		cfg.mark(OriginFlag, "update_check")

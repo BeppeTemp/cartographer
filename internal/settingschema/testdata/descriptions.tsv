@@ -48,6 +48,10 @@ server	components[].name	The Surveyor's perimeter (lowercase letters, digits and
 server	components[].kbs	The KBs the component must cover; each must be a mounted KB, so a typo cannot silence the alarm.
 server	components[].min_replicas	Live replicas below which the component is degraded.
 server	web.enabled	Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes.
+server	api.enabled	Serve the public read-only API at /api/v1 in HTTP mode, independent of web.enabled. Off by default: nothing is exposed until set.
+server	api.cors_origins	Browser origins allowed to read /api/v1, each scheme://host[:port] (http or https, no path, no *). Empty allows none.
+server	api.max_streams_per_token	Concurrent event streams one token may hold open on /api/v1.
+server	api.max_streams	Concurrent event streams the server holds open on /api/v1.
 kb	usage_stale_days	Days a skill or agent may go unused by every client before kb_status.usage counts it as stale. A value under 7 is raised to 7 with a warning; there is no value that turns the signal off.
 kb	artifact_prefix	Scope word every skill and agent of this KB must start with, followed by a hyphen: acme requires acme-review-mr. A skill or agent without it is an artifact_unprefixed finding, and a write that introduces one is refused. Empty or absent: nothing is checked.
 kb	branch	Branch Cartographer commits and pushes to, in place of the remote's default one; the first push creates it. Empty or absent: the remote's default branch. Only the settings.yaml committed on the remote's default branch counts: a change made on any other branch has no effect until it reaches the default one.

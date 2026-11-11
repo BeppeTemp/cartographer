@@ -92,3 +92,4 @@ test or a decision record: none of them is a preference.
   with `%v` shows the directory the server keeps its data in, which a client of a shared
   server has no use for. `twoKBMove.run` scrubs both roots from its error results.
 - **A tool that touches secrets calls `AllowsSecrets`/`WithholdsSecrets`** (D1894) and is added to the secrets-restriction table test; a principal named by a trusted proxy (`Principal.Via`) is clamped by the proxy token, so the check needs no special case.
+- A new read route goes in the route table (`apiroutes.go`) with a tier, never by a `case`. `/api/v1` serves the explicit mask `apiPublicTiers` (stable|preview), never "all but internal", so a tier added later is closed there by default.

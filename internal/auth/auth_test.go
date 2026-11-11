@@ -654,3 +654,14 @@ func TestTokenStoreReplaceConcurrent(t *testing.T) {
 	close(stop)
 	<-done
 }
+
+func TestIsPublicPath_APIDocumentOnly(t *testing.T) {
+	if !isPublicPath("/api/v1/openapi.json") {
+		t.Error("the OpenAPI document must be public")
+	}
+	for _, p := range []string{"/api/v1/kbs", "/api/v1", "/api/v1/openapi.json/x", "/api/ui/v1/kbs"} {
+		if isPublicPath(p) {
+			t.Errorf("%s must stay behind the token", p)
+		}
+	}
+}

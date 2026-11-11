@@ -133,6 +133,15 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 
 	{Path: "web.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_WEB_ENABLED", Flag: "--web-enabled", Restart: true, Example: "true",
 		Description: "Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes."},
+
+	{Path: "api.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "false", Env: "CARTOGRAPHER_API_ENABLED", Flag: "--api-enabled", Restart: true, Example: "false",
+		Description: "Serve the public read-only API at /api/v1 in HTTP mode, independent of web.enabled. Off by default: nothing is exposed until set."},
+	{Path: "api.cors_origins", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
+		Description: "Browser origins allowed to read /api/v1, each scheme://host[:port] (http or https, no path, no *). Empty allows none."},
+	{Path: "api.max_streams_per_token", Scope: settingschema.ScopeServer, Type: "int", Values: "1 or more, at most api.max_streams", Default: "4", Restart: true,
+		Description: "Concurrent event streams one token may hold open on /api/v1."},
+	{Path: "api.max_streams", Scope: settingschema.ScopeServer, Type: "int", Values: "at least api.max_streams_per_token", Default: "64", Restart: true,
+		Description: "Concurrent event streams the server holds open on /api/v1."},
 }}
 
 // ExampleHeader is the comment at the top of the generated config.example.yaml.

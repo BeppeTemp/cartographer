@@ -321,6 +321,14 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return c.Audit.RetentionDays, true
 	case "web.enabled":
 		return c.Web.Enabled, true
+	case "api.enabled":
+		return c.API.Enabled, true
+	case "api.cors_origins":
+		return c.API.CORSOrigins, len(c.API.CORSOrigins) > 0
+	case "api.max_streams_per_token":
+		return c.API.MaxStreamsPerToken, true
+	case "api.max_streams":
+		return c.API.MaxStreams, true
 	}
 	return fmt.Sprintf("unknown key %s", path), false
 }
