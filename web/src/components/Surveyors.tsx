@@ -82,7 +82,7 @@ function useFeeds(kb: string, live: number): FeedRow[] {
 
 const day = (iso?: string) => (iso ? iso.slice(0, 10) : "");
 
-function age(iso: string, now = Date.now()): string {
+export function age(iso: string, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
   if (Number.isNaN(s)) return "";
   if (s < 90) return "just now";

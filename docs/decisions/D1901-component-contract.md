@@ -96,3 +96,11 @@ the `fallback` state, and lights the rail's Health mark for either. `starting` s
 nothing: it is the grace window. `maintenance.repair.since` is when the server first
 read the state, so the Atlas does not show it as a start time. With an empty answer or a
 `404` the page is the one it was before the registry (a snapshot test).
+
+**Components view.** A read-only panel after Health lists, from the same `components`
+read, Meridian's version, start and protocol range and one block per component:
+health, expected or undeclared, replicas against `min_replicas`, per replica its
+protocol skew in words, tasks, state, budgets and next window, then the recent runs
+and the alarms. An empty answer or a `404` says that no Surveyor is deployed or
+expected and links to the deployment guide. It offers no action. `maintenance.repair.since`
+is not shown anywhere, and a kb-less alarm renders its code and time without empty text.

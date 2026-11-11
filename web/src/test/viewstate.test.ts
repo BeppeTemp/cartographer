@@ -39,3 +39,10 @@ describe("links from removed panels", () => {
     expect(viewStateToSearch(readViewState("?kb=kb-a&panel=retired"))).toBe("?kb=kb-a&panel=activity");
   });
 });
+
+describe("the Components panel", () => {
+  it("round-trips", () => {
+    expect(readViewState("?kb=kb-a&panel=components").panel).toBe("components");
+    expect(viewStateToSearch(readViewState("?kb=kb-a&panel=components"))).toBe("?kb=kb-a&panel=components");
+  });
+});

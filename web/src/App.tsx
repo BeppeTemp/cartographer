@@ -42,6 +42,7 @@ import { GraphView } from "./components/GraphView";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
 import { useComponents } from "./components/Surveyors";
+import { Components } from "./components/Components";
 import { expectedSilent } from "./lib/health";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
@@ -909,6 +910,8 @@ export function App() {
                 else announce(message);
               }}
             />
+          ) : view.panel === "components" && activeKB ? (
+            <Components kb={activeKB} live={live} />
           ) : view.panel === "settings" ? (
             <Settings
               reloadKey={`${reloadKey}:${live}`}
