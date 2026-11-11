@@ -28,6 +28,9 @@ func TestMain(m *testing.M) {
 		if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "v2") {
 			v2Helper(os.Args[2], rq.Verb)
 		}
+		if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "fetch") {
+			fetchHelper(os.Args[2], os.Args[3], b)
+		}
 		if rq.Verb != "list" { // these listers implement list only
 			os.Exit(64)
 		}
@@ -96,8 +99,61 @@ func v2Helper(mode, verb string) {
 			fmt.Println(`{"check":{"ok":true,"identity":"svc-reader","detail":"12 spaces"}}`)
 		}
 	case "list":
-		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added","content":"x"}}`)
+		content := `,"content":"x"`
+		if mode == "v2-nofetch" { // lists without content, and does not declare fetch
+			content = ""
+		}
+		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added"` + content + `}}`)
 		fmt.Println(`{"next_cursor":"c1"}`)
+	case "fetch":
+		fmt.Fprintln(os.Stderr, "fetch must not run")
+		os.Exit(3)
+	}
+	os.Exit(0)
+}
+
+// fetchHelper is a feed recipe that lists a.md and b.md with no content and
+// fetches it: mode "fetch" answers, "fetchfail" exits 3, "fetchbad" answers a key
+// it was not asked. args[3] is the file that logs, one line per call, the keys
+// asked.
+func fetchHelper(mode, log string, stdin []byte) {
+	var rq struct {
+		Verb string
+		Keys []string
+	}
+	_ = json.Unmarshal(stdin, &rq)
+	switch rq.Verb {
+	case "list":
+		if mode == "fetchmany" { // 30 entries, none with content
+			for i := 0; i < 30; i++ {
+				fmt.Printf(`{"entry":{"key":"k%02d.md","title":"K","revision":"r1","change":"added"}}`+"\n", i)
+			}
+			fmt.Println(`{"next_cursor":"c1"}`)
+			break
+		}
+		fmt.Println(`{"entry":{"key":"a.md","title":"A","revision":"r1","change":"added"}}`)
+		fmt.Println(`{"entry":{"key":"b.md","title":"B","revision":"r1","change":"modified","content":"Inline b."}}`)
+		fmt.Println(`{"delete":{"key":"gone.md"}}`)
+		fmt.Println(`{"next_cursor":"c1"}`)
+	case "fetch":
+		f, _ := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		fmt.Fprintln(f, strings.Join(rq.Keys, ","))
+		f.Close()
+		switch mode {
+		case "fetchfail":
+			fmt.Fprintln(os.Stderr, "backend down")
+			os.Exit(3)
+		case "fetchbad":
+			fmt.Println(`{"content":{"key":"zzz","content":"x"}}`)
+			fmt.Println(`{"done":true}`)
+		default:
+			for _, k := range rq.Keys {
+				fmt.Printf(`{"content":{"key":%q,"content":"Fetched %s."}}`+"\n", k, k)
+			}
+			fmt.Println(`{"done":true}`)
+		}
+	default:
+		os.Exit(64)
 	}
 	os.Exit(0)
 }

@@ -91,6 +91,9 @@ func runExecHelper(mode string, args []string) {
 			_ = os.WriteFile(args[0], []byte(strconv.Itoa(c.Process.Pid)), 0o600)
 		}
 		time.Sleep(time.Minute)
+	case "partial64": // prints part of an answer, then exits 64
+		fmt.Fprintln(out, `{"content":{"key":"a","content":"x"}}`)
+		os.Exit(64)
 	case "exit64": // implements no verb
 		os.Exit(64)
 	case "lines": // every argument is printed as one line, verbatim: the test writes the whole answer

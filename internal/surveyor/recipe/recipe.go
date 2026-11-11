@@ -80,6 +80,20 @@ type Checker interface {
 	Check(ctx context.Context, req Request) (Verified, error)
 }
 
+// Fetcher is a recipe that can supply the content of the entries it listed
+// without any (the fetch verb). The poll asks it for the entries that need a new
+// unit, so the source's credential stays in the recipe's environment. A recipe
+// that does not implement the verb answers ErrUnsupported, which the poll reads
+// as "nothing to fetch": the poll never runs spec.
+type Fetcher interface {
+	// Fetch answers the content of every key asked (at most MaxFetchKeys), each
+	// non-empty and within the request's content cap, and nothing else.
+	Fetch(ctx context.Context, req Request, keys []string) (map[string]string, error)
+}
+
+// MaxFetchKeys is the most keys one fetch call carries.
+const MaxFetchKeys = 25
+
 // ErrUnsupported is what a verb answers when the script exits 64 with no
 // output: it does not implement that verb. Spec and check treat it as "nothing
 // to say"; for list it is a failure.
@@ -98,6 +112,8 @@ const (
 	CodeBadLocator     = "bad_locator"
 	CodeCursorInvalid  = "cursor_invalid"
 	CodeListFailed     = "list_failed"
+	// CodeFetchFailed is a fetch that exited non-zero, timed out or could not run.
+	CodeFetchFailed = "fetch_failed"
 	// CodeCheckFailed is a check that answered ok: false, exited non-zero or gave
 	// an unreadable answer; the detail is shown. CodeSpecInvalid is a spec that
 	// failed or breaks the shape of a spec (exec.go).

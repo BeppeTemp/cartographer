@@ -32,6 +32,12 @@ const (
 	pollFeedMax     = 500
 )
 
+// pollFetchBudget bounds the content one poll fetches in total: the default
+// max_output_bytes, which is what inline content in one listing can weigh. It is
+// checked before each batch, so a poll holds at most the budget plus one batch
+// (recipe.MaxFetchKeys entries of max_content_bytes). A var for the tests.
+var pollFetchBudget = 8 << 20
+
 // Codes of feed_error written by the poll (package feed adds bad_field).
 const (
 	codeRecipeUnknown = "recipe_unknown"
@@ -39,6 +45,7 @@ const (
 	codeNoPlan        = "no_ingest_plan"
 	codeAmbiguousPlan = "ambiguous_ingest_plan"
 	codeListFailed    = "list_failed"
+	codeFetchFailed   = recipe.CodeFetchFailed
 	codeProtocol      = "protocol_error"
 	codeUnitRefused   = "unit_refused"
 	codeGrant         = "grant_exhausted"
@@ -395,6 +402,23 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 	// create the unit) lets a crash anywhere re-list the same entries and
 	// converge, and never repeats a model call for an entry that has its unit.
 	plan, _ := readConcept(tools, planID)
+	// Content the recipe lists without (the fetch verb) is asked for the entries
+	// that still need a unit, or a staged one that lacks its asset, before the
+	// loop: the source's credential stays in the recipe, and a failure ends the
+	// poll with the cursor untouched.
+	pf, ferr := fetchContent(ctx, rec, f, listing.Entries, func(e recipe.Entry) bool {
+		if e.Change == recipe.Removed || e.Content != "" {
+			return false
+		}
+		staged, exists := have[poll.UnitID(unitMap, f.ID, entryLocator(f, e), e.Revision, e.Key)]
+		return !exists || staged
+	})
+	if ferr != nil {
+		return ferr
+	}
+	if pf != nil {
+		return r.fail(pf.Code, pf.Detail)
+	}
 	for _, e := range listing.Entries {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -404,10 +428,7 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 			r.removed++ // never acted on: the surveyor deletes and archives nothing
 			continue
 		}
-		locator := e.Locator
-		if locator == "" {
-			locator = f.Locator + "#" + url.PathEscape(e.Key)
-		}
+		locator := entryLocator(f, e)
 		id := poll.UnitID(unitMap, f.ID, locator, e.Revision, e.Key)
 		if staged, exists := have[id]; exists && !(staged && e.Content != "") {
 			r.skipped++ // handled; a staged unit with no content to redo it from stays inert
@@ -481,6 +502,63 @@ func feedPreconditions(reg *recipe.Registry, hosts map[string][]string, f feed.F
 // feedRequest is the Request the poll (and the dry run) send to a feed recipe.
 func feedRequest(f feed.Feed, maxEntries int) recipe.Request {
 	return recipe.Request{ID: f.ID, Locator: f.Locator, SourceKind: f.SourceKind, Include: f.Include, Cursor: f.Cursor, MaxEntries: maxEntries}
+}
+
+// entryLocator is what the unit executor fetches for an entry: its own locator,
+// else the Source's with the key as a fragment.
+func entryLocator(f feed.Feed, e recipe.Entry) string {
+	if e.Locator != "" {
+		return e.Locator
+	}
+	return f.Locator + "#" + url.PathEscape(e.Key)
+}
+
+// fetchContent asks the recipe for the content of the entries `need` selects, in
+// batches of recipe.MaxFetchKeys, and sets it on them. The poll and the dry run
+// of a recipe both call it. A recipe without fetch (ErrUnsupported) leaves the
+// entries as listed; a non-nil error is the context ending, a *pollFailure what
+// the poll writes to feed_error (fetch_failed, protocol_error).
+func fetchContent(ctx context.Context, rec recipe.Recipe, f feed.Feed, entries []recipe.Entry, need func(recipe.Entry) bool) (*pollFailure, error) {
+	fr, ok := rec.(recipe.Fetcher)
+	if !ok {
+		return nil, nil
+	}
+	var idx []int
+	for i, e := range entries {
+		if need(e) {
+			idx = append(idx, i)
+		}
+	}
+	fetched := 0
+	for len(idx) > 0 && fetched < pollFetchBudget {
+		n := min(len(idx), recipe.MaxFetchKeys)
+		keys := make([]string, n)
+		for j, i := range idx[:n] {
+			keys[j] = entries[i].Key
+		}
+		fctx, cancel := context.WithTimeout(ctx, pollListTimeout)
+		got, err := fr.Fetch(fctx, feedRequest(f, 0), keys)
+		cancel()
+		switch {
+		case ctx.Err() != nil:
+			return nil, ctx.Err()
+		case errors.Is(err, recipe.ErrUnsupported):
+			return nil, nil
+		case err != nil:
+			code, detail := codeFetchFailed, err.Error()
+			var re *recipe.Error
+			if errors.As(err, &re) {
+				code, detail = re.Code, re.Detail
+			}
+			return &pollFailure{code, detail}, nil
+		}
+		for _, i := range idx[:n] {
+			entries[i].Content = got[entries[i].Key]
+			fetched += len(entries[i].Content)
+		}
+		idx = idx[n:]
+	}
+	return nil, nil
 }
 
 // listFeed is step 4 of the poll: one recipe listing and the checks on it. A

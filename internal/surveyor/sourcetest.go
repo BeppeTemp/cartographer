@@ -210,6 +210,21 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 		return rep, nil
 	}
 	rep.NextCursor = listing.NextCursor
+	// The same pre-pass as the poll, for every entry (the dry run knows no units).
+	// A spec that does not declare fetch is believed: the poll never runs spec, but
+	// the dry run has it, and a script that did not declare the verb is not asked.
+	if rep.Spec == nil || rep.Spec.Declares(recipe.VerbFetch) {
+		fstart := time.Now()
+		pf, ferr := fetchContent(ctx, rec, f, listing.Entries, func(e recipe.Entry) bool { return e.Change != recipe.Removed && e.Content == "" })
+		if ferr != nil {
+			return nil, ferr
+		}
+		rep.Duration += time.Since(fstart)
+		if pf != nil {
+			rep.Failure = (*SourceTestFailure)(pf)
+			return rep, nil
+		}
+	}
 	for _, e := range listing.Entries {
 		rep.Entries = append(rep.Entries, SourceTestEntry{e.Change, e.Key, e.Title, e.Revision, len(e.Content)})
 		rep.Counts[e.Change]++

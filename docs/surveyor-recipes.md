@@ -65,6 +65,9 @@ that unit: no connector or network is involved. The asset text is searchable thr
 ID without `content_asset` is a planner's and is left alone; a staged unit of an older revision stays `draft`, inert,
 because the Surveyor never deletes.
 
+A recipe that lists cheaply (`key`, `revision`) and has no content in the listing gets it through the `fetch` verb
+(below): the poll asks for the entries that need a new unit and stages the answer exactly as inline content.
+
 ## Protocol v2
 
 The Surveyor starts the command **once per verb call**; a script implements the verbs it can.
@@ -82,7 +85,7 @@ The Surveyor starts the command **once per verb call**; a script implements the 
 | `max_content_bytes` | `list`: the most inline `content` bytes of one entry |
 
 A script that reads another `protocol` number, or a verb it does not implement, **exits 64 with no output**. For
-`spec` and `check` that means "unsupported" (nothing to say, not a failure); for `list` it is a failure.
+`spec`, `check` and `fetch` that means "unsupported" (nothing to say, not a failure); for `list` it is a failure.
 
 **stdout**: JSON lines, stderr is logs (the Surveyor keeps at most 8 KiB, see Failures).
 
@@ -104,7 +107,8 @@ what the script implements and must include `list`; `settings` maps a name (`[a-
 reads. At most 32 settings and 32 env names. A spec that breaks any of this fails with `spec_invalid`. Every text of
 a spec goes through the same redaction and control-character strip as a `check` detail (the values of `exec.env`
 become `***`) before it is printed. The poll never runs `spec` and calls `check` and `list` by contract: the gate
-that calls only the verbs a spec declares is an aid of `source test`, not a rule of the poll.
+that calls only the verbs a spec declares is an aid of `source test`, not a rule of the poll: the poll asks `fetch`
+when an entry needs content and reads exit 64 as "this script has no fetch".
 
 ### `check`: credentials and reachability
 
@@ -141,6 +145,30 @@ compares it, so ancestry or monotonicity is your concern. Return a cursor that c
 emitted: when more remain than `max_entries`, stop and return where you stopped. The cursor advances only after every
 entry of the listing is handled, and delete lines are only counted: the Surveyor never deletes a Source, a unit or a page.
 
+### `fetch`: the content of changed entries
+
+Request `{"protocol": 2, "verb": "fetch", "config", "source", "keys": [...], "max_content_bytes": N}`: at most 25 keys
+per call, all keys the script listed. After `list` the poll collects the added or modified entries that have **no
+`content`** and no unit yet (and a staged unit a crash left without its asset), and asks for them in batches of 25,
+one process per batch, before it creates any unit. Entries that arrived with `content`, entries whose unit exists and
+delete lines are not asked for. Answer: one line `{"content": {"key": "...", "content": "..."}}` per key, then
+**exactly one last** `{"done": true}`; the content is non-empty, valid UTF-8 and at most `max_content_bytes`. A key
+not asked, asked twice or left unanswered, a content that is empty, over the cap or not UTF-8, or any other line is
+`protocol_error`; a non-zero exit, a timeout or output past `max_output_bytes` is `fetch_failed`. Either ends the
+poll with the cursor untouched; the next poll asks again. The source's credential stays in the script's environment:
+the model never sees it, and the unit carries the text as its `content_asset` (no `source_fetch`). Fetched content
+is capped per entry by `max_content_bytes` like inline content, and per poll by a fixed 8 MiB (the default
+`max_output_bytes`), checked before each batch: once a batch has brought the total to the budget, the entries after it
+are not fetched and get their unit as a recipe without `fetch` would (the unit executor's connector path, if the
+Source names one), so one poll holds at most 8 MiB plus one batch (25 entries of `max_content_bytes`). There is no
+knob of its own. The
+dry run (`source test`) fetches for every entry it lists without content, prints the bytes, and `--show <key>` prints
+the fetched text; it does not call `fetch` when the spec does not declare it. A system recipe has no `fetch`.
+
+The poll asks every time an entry needs content, without reading the spec, so **a script that has no `fetch` must
+exit 64 with no output** on that verb: any other exit fails the poll with `fetch_failed` every time. Exit 64 after
+the script printed part of an answer is a `protocol_error`, not "no fetch".
+
 ## Failures
 
 A failure sets the Source's `feed_error` to `<code>: <detail>` and leaves its cursor untouched.
@@ -148,10 +176,11 @@ A failure sets the Source's `feed_error` to `<code>: <detail>` and leaves its cu
 | Code | When |
 |---|---|
 | `list_failed` | `list` exited non-zero (`exit N` plus the stderr excerpt) or exited 64, timeout, output past `max_output_bytes`, the command cannot start, a listed variable unset |
+| `fetch_failed` | `fetch` exited non-zero (`exit N` plus the stderr excerpt), timeout, output past `max_output_bytes`, the command cannot start, a listed variable unset |
 | `check_failed` | `check` answered `ok: false`, exited non-zero, timed out or answered something unreadable; for a system recipe also a script that does not implement `check`; nothing was listed |
 | `identity_not_read_only` | a system recipe's `check` answered `read_only` false or without it (see System recipes); nothing was listed |
 | `spec_invalid` | `spec` exited non-zero or broke the shape of a spec (`source test` only) |
-| `protocol_error` | malformed JSON, a line that is not `entry`, `delete` or `next_cursor`, a missing or non-final `next_cursor`, more entries than `max_entries`, a duplicate key, a field over its limit or missing, `content` over its cap, `change: removed` |
+| `protocol_error` | malformed JSON, a line that is not `entry`, `delete` or `next_cursor`, a missing or non-final `next_cursor`, more entries than `max_entries`, a duplicate key, a field over its limit or missing, `content` over its cap, `change: removed`; for `fetch` a key not asked, answered twice or not answered, an empty or oversized content, a missing `done` |
 
 On a timeout, an oversized output or a protocol error the Surveyor kills the whole process group, so a child your
 script started dies with it. The stderr excerpt is one line of at most 200 bytes, control characters removed,

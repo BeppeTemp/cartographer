@@ -857,7 +857,7 @@ data; the answer is JSON the Surveyor validates and retries once); a changed doc
 fields with no call. The cursor advances only after every entry is handled; a spent grant leaves it, and the next poll
 skips the finished entries. Removed entries are counted, never acted on. A feed that cannot be polled gets
 `feed_error: <code>: <detail>` (`bad_field`, `recipe_unknown`, `recipe_shape`, `host_not_allowed`, `no_ingest_plan`,
-`ambiguous_ingest_plan`, `list_failed`, `protocol_error`, `cursor_invalid`, `unit_refused`, `grant_exhausted`) with the values of the
+`ambiguous_ingest_plan`, `list_failed`, `fetch_failed`, `protocol_error`, `cursor_invalid`, `unit_refused`, `grant_exhausted`) with the values of the
 connectors' credential variables replaced by `***`, and is retried at its interval.
 
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
