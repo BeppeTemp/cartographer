@@ -71,11 +71,13 @@ func TestSurveyorBeatEndToEnd(t *testing.T) {
 		}
 	}
 	var ws struct {
-		Surveyors []struct{ Surveyor, State string } `json:"surveyors"`
+		Components []struct {
+			Replicas []struct{ ID, State string } `json:"replicas"`
+		} `json:"components"`
 	}
-	get("person-tok", "/api/ui/v1/kbs/kb-a/surveyors", &ws)
-	if len(ws.Surveyors) != 1 || ws.Surveyors[0].Surveyor != "docs-night-ab12cd" || ws.Surveyors[0].State != "waiting" {
-		t.Fatalf("surveyors = %+v", ws)
+	get("person-tok", "/api/ui/v1/kbs/kb-a/components", &ws)
+	if len(ws.Components) != 1 || len(ws.Components[0].Replicas) != 1 || ws.Components[0].Replicas[0].ID != "docs-night-ab12cd" || ws.Components[0].Replicas[0].State != "waiting" {
+		t.Fatalf("components = %+v", ws)
 	}
 	var st struct {
 		Surveyors []struct{ Perimeter string } `json:"surveyors"`

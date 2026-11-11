@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/componentproto"
 )
 
@@ -26,10 +27,16 @@ const maxComponentSettingsBody = maxClientSettingsBody
 func (m *MultiKBServer) handleComponent(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case componentproto.HeartbeatPath:
+		if !requireKind(w, r, componentproto.KindSurveyor) {
+			return
+		}
 		m.handleSurveyors(w, r)
 	case componentproto.SettingsPath:
 		m.handleComponentSettings(w, r)
 	case componentproto.UsagePath:
+		if !requireKind(w, r, componentproto.KindClient) {
+			return
+		}
 		m.handleUsage(w, r, true)
 	default:
 		writeUINotFound(w)
@@ -116,10 +123,45 @@ func (m *MultiKBServer) handleComponentSettings(w http.ResponseWriter, r *http.R
 	r.Body = io.NopCloser(bytes.NewReader(data))
 	switch probe.Component {
 	case componentproto.KindSurveyor:
+		if !requireKind(w, r, componentproto.KindSurveyor) {
+			return
+		}
 		m.handleSurveyorSettings(w, r)
 	case componentproto.KindClient:
+		if !requireKind(w, r, componentproto.KindClient) {
+			return
+		}
 		m.handleClientSettings(w, r)
 	default:
 		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "component must be surveyor or client", "component")
 	}
+}
+
+// requireKind refuses a token of the wrong kind on the versioned routes with
+// 403 wrong_token_kind. A route is a Surveyor's (want = surveyor) or a client's
+// (want = client: Compass, driven by a person's token or a client token).
+//
+//   - The auth-off local principal is let through everywhere.
+//   - A token has no "unset" kind once loaded: auth maps an absent kind to
+//     human (auth.ParseKind), and a declared human is the same value. So a
+//     human token must be let through on a Surveyor route too, or every
+//     deployment whose operator never declared kinds would break; what the
+//     check refuses is the declared machine kind on the other's route (a
+//     client token on the heartbeat, a surveyor token on usage).
+//   - The 0.28 aliases are protocol 0 and never come here.
+func requireKind(w http.ResponseWriter, r *http.Request, want string) bool {
+	p := auth.PrincipalFromContext(r.Context())
+	if p.Local {
+		return true
+	}
+	other := auth.KindClient
+	if want == componentproto.KindClient {
+		other = auth.KindSurveyor
+	}
+	if p.Kind != other {
+		return true
+	}
+	writeUIError(w, http.StatusForbidden, componentproto.CodeWrongTokenKind,
+		"this route takes a "+want+" token; this token is a "+string(p.Kind), "")
+	return false
 }

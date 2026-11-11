@@ -104,7 +104,20 @@ type surveyorDecl struct {
 	// where it stands against this server ("behind", "" or "ahead").
 	Protocol     int
 	ProtocolSkew string
+	// KindDeclared is true when the token behind the beat is declared a
+	// surveyor; a token with no kind reads as human and cannot be told apart
+	// from one declared human (auth.ParseKind).
+	KindDeclared bool
 	ReceivedAt   time.Time
+}
+
+func declaresRepair(tasks []surveyorTask) bool {
+	for _, t := range tasks {
+		if t.Kind == repairTaskKind {
+			return true
+		}
+	}
+	return false
 }
 
 func (d surveyorDecl) live(now time.Time) bool {
@@ -488,7 +501,7 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 			Principal: p.ID, Surveyor: beat.Surveyor, Perimeter: beat.Perimeter,
 			Version: cleanText(beat.Version, 32), KBs: accepted, State: beat.State,
 			IntervalSeconds: interval, Budgets: budgets, Tasks: tasks, ReceivedAt: now.UTC(),
-			Protocol: beat.Protocol, ProtocolSkew: skew,
+			Protocol: beat.Protocol, ProtocolSkew: skew, KindDeclared: p.Kind == auth.KindSurveyor,
 		}
 		if lr := beat.LastRun; lr != nil {
 			at := lr.At
@@ -504,7 +517,7 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 			d.NextWindowAt = &t
 		}
 		m.surveyors.put(d)
-		m.components.noteBeat(componentproto.KindSurveyor, beat.Perimeter, accepted, now.UTC())
+		m.components.noteBeat(componentproto.KindSurveyor, beat.Perimeter, accepted, now.UTC(), declaresRepair(tasks))
 	}
 
 	type kbIdle struct {
@@ -540,36 +553,4 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 		"server_started_at": processStartedAt,
 		"now":               now.UTC().Format(time.RFC3339Nano),
 	})
-}
-
-// GET /kbs/{kb}/surveyors — the live surveyors that declared this KB, for the
-// Atlas (D1259). Read-only: it shows the heartbeats, it never acts on
-// them. They describe the whole KB's activity, like status, so a caller that
-// does not see the whole KB gets the 404 of an unknown route. No principal id
-// and no token digest leaves the server.
-func (m *MultiKBServer) uiSurveyors(w http.ResponseWriter, r *http.Request, name string, srv *Server) {
-	if !WholeVisible(r.Context(), srv.kbRef, false) {
-		writeUINotFound(w)
-		return
-	}
-	type row struct {
-		Surveyor        string           `json:"surveyor"`
-		Perimeter       string           `json:"perimeter"`
-		Version         string           `json:"version,omitempty"`
-		State           string           `json:"state"`
-		LastBeatAt      string           `json:"last_beat_at"`
-		IntervalSeconds int              `json:"interval_seconds"`
-		LastRun         *surveyorLastRun `json:"last_run,omitempty"`
-		Budgets         []surveyorBudget `json:"budgets"`
-		NextWindowAt    *time.Time       `json:"next_window_at,omitempty"`
-	}
-	rows := []row{}
-	for _, d := range m.surveyors.live(name) {
-		rows = append(rows, row{
-			Surveyor: d.Surveyor, Perimeter: d.Perimeter, Version: d.Version, State: d.State,
-			LastBeatAt: d.ReceivedAt.Format(time.RFC3339), IntervalSeconds: d.IntervalSeconds,
-			LastRun: d.LastRun, Budgets: d.Budgets, NextWindowAt: d.NextWindowAt,
-		})
-	}
-	writeUIJSON(w, http.StatusOK, map[string]any{"surveyors": rows})
 }

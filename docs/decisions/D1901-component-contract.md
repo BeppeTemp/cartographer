@@ -55,3 +55,16 @@ component a grace window of three heartbeat intervals (`starting`), so a pod tha
 boots with the server is not an alarm. `/health` and `/ready` stay liveness
 (D84, D119): a silent Surveyor must never restart the server, so the state is
 read through the authenticated components route and logged once per transition.
+
+**Health read and the kind check.** The Atlas reads `GET /api/ui/v1/kbs/{kb}/components`
+(registry rows plus live undeclared Surveyors, replicas named by the id they declared,
+never by principal) and a `maintenance.repair` object inside the maintenance summary:
+`owner`/`state` come from `repairOwners`, the decision that pauses the server's timer, so the
+two cannot disagree; `fallback` is an expected Surveyor last seen declaring `repair` that is
+now silent. The transition is recorded only when someone reads it. The versioned routes
+refuse a token of the wrong machine kind with `403` `wrong_token_kind`; the aliases, the
+auth-off principal and `human` are not refused, because a token with no declared kind loads
+as `human` and the two cannot be told apart: enforcement bites only where an operator
+declared a machine kind. A token declared `surveyor` is excluded from the idle signal by
+kind. Known limit: a registry entry is not bound to a principal, so a writer of a KB can
+impersonate the expected perimeter on it.

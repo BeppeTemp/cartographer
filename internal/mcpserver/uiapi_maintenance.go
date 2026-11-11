@@ -57,10 +57,18 @@ type maintenanceSummary struct {
 	// (D365): what each fixed, by check, with the commit that undoes it.
 	Runs    []autoRepairRun     `json:"runs"`
 	Repairs []maintenanceRepair `json:"repairs"`
+	// Maintenance names who maintains the KB: today the repair, as the
+	// handover between the server and a Surveyor leaves it. repair-on-write
+	// is a server invariant and is not part of it.
+	Maintenance maintenanceInfo `json:"maintenance"`
+}
+
+type maintenanceInfo struct {
+	Repair repairInfo `json:"repair"`
 }
 
 // GET /kbs/{kb}/maintenance/{summary,review}.
-func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what string) {
+func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what string, repair func() repairInfo) {
 	k := srv.kbRef
 	switch what {
 	case "review":
@@ -107,6 +115,10 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 			if ids := srv.repairDelegation(); len(ids) > 0 {
 				out.AutoRepair.DelegatedTo = ids
 			}
+		}
+		out.Maintenance.Repair = repairInfo{Owner: "server", State: "server"}
+		if repair != nil {
+			out.Maintenance.Repair = repair()
 		}
 		if run, ok := lastAutoRepairRun(k); ok {
 			out.LastAutoRepair = &run
