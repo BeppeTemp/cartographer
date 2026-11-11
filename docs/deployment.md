@@ -1236,7 +1236,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   read again when the KB changes, when the revision moves, when the tab becomes visible, and every 10 s while
   the state is unsettled or every minute otherwise (never in a hidden tab). A principal that does not see the
   whole KB, an older server and the static demo get no indicator.
-  The rail holds the panels Atlas, Activity, Work, Health, Artifacts and Settings (D818).
+  The rail holds the panels Atlas, Activity, Work, Health, Components, Artifacts and Settings (D818, D1901).
   Health shows the lint's findings and nothing else; what a person has to answer or decide is in Work
   (contradictions and gaps, the searches that found nothing under "to answer", the `kb_review` proposals
   under "to decide", D948). Artifacts has the tabs Agent kit, Instructions, Templates and Secrets (D1057), lists every kind of a tab, an empty one as an outline tile where its first
@@ -1533,6 +1533,13 @@ shows the rest. Above the board a strip lists, read-only, the live `cartographer
 its next window; `GET /api/ui/v1/kbs/<kb>/Surveyors`), then the Sources whose last poll failed (title, shape, the error,
 when it was checked, a link to the concept; `.../feeds`, keyed on the `feed_error` field). Nothing renders when both
 are empty, and a failing or `404` route leaves the page as it was.
+
+The **Components** panel (D1901) is the read-only answer to "what is deployed and healthy" for the active KB: a
+row for Meridian (version, start, the protocol it speaks and the range it serves), then one block per component of
+the `components` read, with its health state, whether the registry expects it, its replicas against `min_replicas`
+(version, protocol and skew in words, tasks, state, last beat, budgets, next window), its recent runs and its
+alarms. Runs and alarms are per replica as reported; an alarm tied to no KB shows its code and time only. With
+nothing deployed or expected it says so and links here. It starts nothing; a Surveyor's configuration is in Settings.
 
 The **Health** panel (D338, D365, D947, D948) shows what is wrong with the pages and nothing else: the lint's
 findings. What a person has to answer or decide is in Work. One read-only line under the lede, on *Issues* only, says

@@ -33,7 +33,7 @@ func TestBundleMatchesSource(t *testing.T) {
 	}
 	if hash != provenance.SourceHash {
 		t.Fatalf("the embedded UI bundle is stale: web/ hashes to %s (%d files) but the bundle "+
-			"was built from %s (%d files).\nRun `make web` and commit internal/webui/dist.",
+			"was built from %s (%d files).\nRun `make web` and commit internal/webui/dist (the hash counts git-tracked files: `git add` new web files before `make web`).",
 			hash[:12], files, short(provenance.SourceHash), provenance.Files)
 	}
 }

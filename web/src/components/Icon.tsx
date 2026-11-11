@@ -9,6 +9,7 @@ export type IconName =
   | "activity"
   | "work"
   | "health"
+  | "components"
   | "artifacts"
   | "key"
   | "paths"
@@ -50,6 +51,8 @@ const PATHS: Record<IconName, string> = {
   atlas: "M6.5 7.5 L16.5 5.5 M6.5 7.5 L10 17 M16.5 5.5 L10 17 M16.5 5.5 L19 13",
   // A pulse over a baseline: the health of the atlas.
   health: "M3 12h4l2-5 4 10 2-5h6",
+  // Three stacked layers: what is deployed.
+  components: "M12 4 4 8l8 4 8-4-8-4Z M4 12l8 4 8-4 M4 16l8 4 8-4",
   // A packed box: what the KB ships to its agents.
   // Sliders: how the server is configured.
   settings: "M4 7h10 M14 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0 M18 7h2 M4 17h2 M6 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0 M10 17h10",

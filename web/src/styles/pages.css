@@ -2754,3 +2754,38 @@ button.row {
 .health__notice {
   color: var(--sev-error);
 }
+
+/* The Components view (D1901): read-only blocks, one per component. */
+.components__block {
+  margin-block-end: var(--space-4);
+}
+
+.components__line {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.components__meta {
+  color: var(--text-muted);
+}
+
+.components__replica {
+  margin-block: var(--space-2);
+  padding-inline-start: var(--space-3);
+}
+
+.components__budgets,
+.components__alarms,
+.components__runs {
+  margin: var(--space-1) 0;
+  padding-inline-start: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.components__health[data-state="silent"],
+.components__health[data-state="degraded"],
+.components__alarm {
+  color: var(--sev-error);
+}

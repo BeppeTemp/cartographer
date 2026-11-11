@@ -9,7 +9,7 @@
  */
 
 export type Panel =
-  "atlas" | "activity" | "work" | "health" | "artifacts" | "instructions" | "templates" | "secrets" | "settings";
+  "atlas" | "activity" | "work" | "health" | "components" | "artifacts" | "instructions" | "templates" | "secrets" | "settings";
 
 /** The panels of the Artifacts section, one tab each. */
 export const ARTIFACT_PANELS: Panel[] = ["artifacts", "instructions", "templates", "secrets"];
@@ -55,6 +55,7 @@ export function readViewState(search: string = window.location.search): ViewStat
               : param === "activity" ||
                   param === "work" ||
                   param === "health" ||
+                  param === "components" ||
                   param === "artifacts" ||
                   param === "instructions" ||
                   param === "templates" ||
