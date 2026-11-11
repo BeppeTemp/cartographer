@@ -208,8 +208,10 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/journal")) return json({ text: "" });
     if (url.includes("/kbs/") && url.includes("/services")) return json({ services: [] });
     if (url.includes("/kbs/") && url.includes("/conflicts")) return json([]);
-    // Surveyors (D1259): none declared, the way a KB nobody maintains answers.
-    if (url.includes("/kbs/") && url.includes("/surveyors")) return json({ surveyors: [] });
+    // Components (D1901): none expected and none live, the way a KB nobody maintains answers.
+    if (url.includes("/kbs/") && url.includes("/components")) {
+      return json({ protocol: 1, min_protocol: 1, server: { version: "test", started_at: "2026-01-01T00:00:00Z" }, components: [] });
+    }
     if (url.includes("/kbs/") && url.includes("/feeds")) return json({ feeds: [], total: 0 });
     // Admin-only audit log and the caller's identity: absent unless stubbed (404).
     if (url.includes("/audit") || url.endsWith("/whoami")) {
@@ -304,4 +306,38 @@ export function generateSnapshot(nodes: number, maps = 12, seed = 1): GraphSnaps
 export function openPanels(): void {
   localStorage.setItem("cartographer.panel.rail", "0");
   localStorage.setItem("cartographer.panel.list", "1");
+}
+
+/** A component row as GET /kbs/{kb}/components answers it; `over` replaces fields. */
+export function componentRow(over: object = {}, replicas: object[] = []) {
+  return {
+    kind: "surveyor",
+    name: "team-a",
+    state: replicas.length ? "up" : "silent",
+    declared: false,
+    kind_declared: true,
+    replicas: replicas.map((r) => ({
+      id: "w-1",
+      protocol: 1,
+      protocol_skew: "",
+      kind_declared: true,
+      tasks: [],
+      state: "idle",
+      last_beat_at: new Date().toISOString(),
+      interval_seconds: 60,
+      budgets: [],
+      ...r,
+    })),
+    min_replicas: 1,
+    last_seen_at: null,
+    kbs: ["kb-a"],
+    runs: [],
+    alarms: [],
+    ...over,
+  };
+}
+
+/** The answer of GET /kbs/{kb}/components with these rows. */
+export function componentsAnswer(...components: object[]) {
+  return { protocol: 1, min_protocol: 1, server: { version: "test", started_at: "2026-01-01T00:00:00Z" }, components };
 }

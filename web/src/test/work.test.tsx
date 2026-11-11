@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { json, stubApi } from "./fixtures";
+import { componentRow, componentsAnswer, json, stubApi } from "./fixtures";
 
 const work = {
   total: 3,
@@ -94,12 +94,9 @@ describe("the Work panel", () => {
     ).toBeInTheDocument();
   });
 
-  const surveyor = {
-    surveyor: "w-1",
-    perimeter: "team-a",
+  const replica = {
+    id: "w-1",
     state: "running",
-    last_beat_at: new Date().toISOString(),
-    interval_seconds: 60,
     last_run: { at: new Date().toISOString(), units_done: 3, tokens_spent: 900, commits: 2 },
     budgets: [
       { profile: "cloud", tier: "large", spent: 50, limit: 50 },
@@ -108,9 +105,9 @@ describe("the Work panel", () => {
   };
 
   it("lists a live surveyor with a budget at its limit, and a failing feed that opens its concept", async () => {
-    // Each fragment matches its own route only: "/surveyors" does not start with "/work".
+    // Each fragment matches its own route only: "/components" does not start with "/work".
     stubApi({
-      "/surveyors": () => json({ surveyors: [surveyor] }),
+      "/components": () => json(componentsAnswer(componentRow({}, [replica]))),
       "/feeds": () =>
         json({ feeds: [{ id: "feeds/news", title: "News feed", source_shape: "feed", feed_error: "HTTP 500", feed_checked_at: "2026-01-02T00:00:00Z" }], total: 1 }),
       "/work": () => json(work),
@@ -128,7 +125,7 @@ describe("the Work panel", () => {
 
   it("renders nothing for empty lists, and the page as before when the routes fail", async () => {
     stubApi({
-      "/surveyors": () => json({ error: { code: "not_found", message: "not found" } }, 404),
+      "/components": () => json({ error: { code: "not_found", message: "not found" } }, 404),
       "/feeds": () => json({ error: { code: "internal", message: "boom" } }, 500),
       "/work": () => json(work),
     });

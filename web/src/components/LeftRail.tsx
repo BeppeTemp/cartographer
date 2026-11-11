@@ -18,6 +18,8 @@ interface Props {
   artifactsTotal: number | null;
   /** Whether this principal may open the Secrets panel (whole-KB, like Artifacts). */
   secretsAllowed?: boolean;
+  /** An expected Surveyor is silent: Health's mark lights as for a problem (D1901). */
+  componentAlarm?: boolean;
   collapsed: boolean;
   /** False inside the narrow-layout sheet, which closes instead. */
   collapsible?: boolean;
@@ -40,6 +42,7 @@ export function LeftRail({
   panel,
   artifactsTotal,
   secretsAllowed = false,
+  componentAlarm = false,
   collapsed,
   collapsible = true,
   typeFilter,
@@ -63,6 +66,7 @@ export function LeftRail({
   // kinds of issue, the overview only knows findings, and two numbers for one
   // thing read as a contradiction (D704). A finding is a problem (D947).
   const problems = overview?.lint.total ?? 0;
+  const wrong = problems > 0 || componentAlarm;
   const activeCount = typeFilter.size + statusFilter.size;
   const filtersActive = activeCount > 0;
   // Type and Status filter the graph's nodes, so they exist only on the Atlas:
@@ -124,7 +128,7 @@ export function LeftRail({
           <button
             type="button"
             className="rail__panel"
-            aria-label={problems > 0 ? "Health, problems to decide" : "Health"}
+            aria-label={wrong ? "Health, problems to decide" : "Health"}
             title={collapsed ? "Health" : undefined}
             aria-current={panel === "health" ? "page" : undefined}
             onClick={() => onPanel("health")}
@@ -133,7 +137,7 @@ export function LeftRail({
               <Icon name="health" />
             </span>
             <span className="rail__label">Health</span>
-            {problems > 0 && <span className="rail__dot" aria-hidden="true" />}
+            {wrong && <span className="rail__dot" aria-hidden="true" />}
           </button>
         </li>
         {(artifactsTotal !== null || secretsAllowed) && (

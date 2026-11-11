@@ -41,6 +41,8 @@ import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
+import { useComponents } from "./components/Surveyors";
+import { expectedSilent } from "./lib/health";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
@@ -328,6 +330,10 @@ export function App() {
   // Bumps when the KB changes under the open page (D337): every data effect
   // below lists it, so the views refetch in place without a reload.
   const live = useLiveRevision(activeKB, phase === "ready");
+  // The components that concern the KB (D1901), read once: Health words who
+  // maintains from them, Work lists the live ones, the rail marks a silent one.
+  // A caller that cannot see the whole KB gets a 404, which is an empty list.
+  const components = useComponents(activeKB, live, phase === "ready");
 
   // The graph and the artifacts drawn on it land together: the canvas and the
   // diamonds change in one commit instead of one after another, and on a KB
@@ -749,6 +755,7 @@ export function App() {
   const rail = (inSheet: boolean) => (
     <LeftRail
       overview={overview}
+      componentAlarm={expectedSilent(components).length > 0}
       onOpenReleases={() => setReleasesOpen(true)}
       overviewKB={snapshotKey.split("\u0000")[0]}
       scope={view.panel === "atlas" ? view.scope : null}
@@ -874,6 +881,7 @@ export function App() {
             <Work
               kb={activeKB}
               live={live}
+              components={components}
               collections={overview?.collections}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
@@ -881,6 +889,7 @@ export function App() {
             <Health
               kb={activeKB}
               live={live}
+              components={components}
               report={lint}
               checks={checks}
               conflicts={conflicts}

@@ -1536,9 +1536,13 @@ are empty, and a failing or `404` route leaves the page as it was.
 
 The **Health** panel (D338, D365, D947, D948) shows what is wrong with the pages and nothing else: the lint's
 findings. What a person has to answer or decide is in Work. One read-only line under the lede, on *Issues* only, says
-which Surveyor maintains the KB and when a doctor session last closed ("Maintained by team-a (2 replicas, running) · last doctor
-2026-01-01 · next due 2026-01-15"); it is upkeep, not a finding, and renders only while a live Surveyor names the KB and
-the caller sees the whole KB. Two buttons in the header switch its views, *Issues*
+which Surveyor maintains the KB, who repairs it (that Surveyor, or Meridian) and when a doctor session last closed
+("Maintained by team-a (2 replicas, running) · repairs by team-a · last doctor 2026-01-01 · next due 2026-01-15"); it
+is upkeep, not a finding, and renders only while a live Surveyor names the KB and the caller sees the whole KB. When
+the registry expects a Surveyor that is silent (or short of replicas) a notice line says so, and says that Meridian
+is repairing the KB meanwhile when it has taken the repair back; the rail's Health mark lights too. Neither is in the
+lint report or in the counts. With a Surveyor holding the repair, the findings that fix themselves name it instead of
+Cartographer. Two buttons in the header switch its views, *Issues*
 and *What it checks*.
 
 *Issues*: the title counts the kinds of issue found ("Cartographer found N kinds

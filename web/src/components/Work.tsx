@@ -5,6 +5,7 @@ import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import { SurveyorsStrip } from "./Surveyors";
+import type { ComponentRow } from "../api/types";
 import { Icon } from "./Icon";
 import {
   BoldCount,
@@ -94,11 +95,14 @@ export function Work({
   kb,
   collections = [],
   live = 0,
+  components = [],
   onOpen,
 }: {
   kb: string;
   collections?: CollectionSummary[];
   live?: number;
+  /** The components that concern the KB (D1901), read once by the App. */
+  components?: ComponentRow[];
   onOpen(conceptId: string): void;
 }) {
   const [data, setData] = useState<WorkResponse | null>(null);
@@ -207,7 +211,7 @@ export function Work({
         }
       />
 
-      <SurveyorsStrip kb={kb} live={live ?? 0} onOpen={onOpen} />
+      <SurveyorsStrip kb={kb} live={live ?? 0} components={components} onOpen={onOpen} />
 
       {data && !empty && (
         <Hero label="Summary and filters">

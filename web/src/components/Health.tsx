@@ -1,6 +1,14 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
-import type { CheckCatalog, CollectionSummary, GitConflict, LintFinding, LintReport } from "../api/types";
+import type {
+  CheckCatalog,
+  CollectionSummary,
+  ComponentRow,
+  GitConflict,
+  LintFinding,
+  LintReport,
+} from "../api/types";
 import {
+  autoFixer,
   categoryHue,
   categoryOrder,
   checkFix,
@@ -17,7 +25,7 @@ import { Bone, BoldCount, Page, PageHeader, PageSection, Quiet, Segmented, Title
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { ErrorState } from "./States";
-import { MaintainedBy } from "./Surveyors";
+import { MaintainedBy, useMaintenanceSummary } from "./Surveyors";
 
 /**
  * Health (D338, D365, D704, D947): what Cartographer found, and on a second tab
@@ -41,6 +49,7 @@ import { MaintainedBy } from "./Surveyors";
 export function Health({
   kb = null,
   live = 0,
+  components = [],
   report,
   checks,
   conflicts = null,
@@ -58,6 +67,8 @@ export function Health({
   /** The KB shown, for the maintainer line; omitted, the line is not asked for. */
   kb?: string | null;
   live?: number;
+  /** The components that concern the KB (D1901), read once by the App; empty without any. */
+  components?: ComponentRow[];
   report: LintReport | null;
   /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
@@ -83,6 +94,10 @@ export function Health({
   const [tab, setTab] = useState<"agenda" | "checks">("agenda");
   // Another KB may have no catalogue: the tab it had no longer exists.
   const effectiveTab = checks ? tab : "agenda";
+  // Who repairs the KB: the maintenance summary says, and a handed-over KB
+  // names the Surveyor where it used to say Cartographer.
+  const summary = useMaintenanceSummary(kb, live);
+  const fixer = autoFixer(summary?.maintenance?.repair);
   // The pages of the agenda row under the pointer, and its category: the field
   // lights only those pages, in that category's colour.
   const [focus, setFocusRaw] = useState<Focus | null>(null);
@@ -189,7 +204,7 @@ export function Health({
         </p>
       )}
 
-      {effectiveTab === "agenda" && kb && <MaintainedBy kb={kb} live={live} />}
+      {effectiveTab === "agenda" && kb && <MaintainedBy components={components} summary={summary} />}
 
       {effectiveTab === "checks" && checks && settled ? (
         <Coverage catalog={checks} report={report} />
@@ -249,6 +264,7 @@ export function Health({
                       group={g}
                       category={s.category}
                       heaviest={heaviest}
+                      fixer={fixer}
                       onFocus={setFocus}
                       onReveal={onReveal}
                     />
@@ -555,6 +571,7 @@ function AgendaLine({
   unit,
   heaviest,
   auto,
+  fixer,
 }: {
   label: string;
   size: number;
@@ -562,13 +579,14 @@ function AgendaLine({
   heaviest: number;
   /** Cartographer fixes it by itself: shown, so the list is everything found, but nobody's to do. */
   auto?: boolean;
+  fixer: string;
 }) {
   return (
     <summary className="arow">
       <span className="arow__label">
         {label}
         {auto && (
-          <span className="arow__auto" title="Cartographer fixes it by itself at its next run">
+          <span className="arow__auto" title={`${fixer} fixes it by itself at its next run`}>
             <Icon name="repair" size={12} /> fixes itself
           </span>
         )}
@@ -689,10 +707,13 @@ function CheckRow({
   group,
   category,
   heaviest,
+  fixer,
   onFocus,
   onReveal,
 }: {
   group: CheckGroup;
+  /** Who fixes the automatic findings (autoFixer). */
+  fixer: string;
   /** Its category: the pages the row lights take this colour. */
   category: string;
   heaviest: number;
@@ -709,7 +730,7 @@ function CheckRow({
       : (["file", "files"] as const);
   const fix =
     group.handler === "auto"
-      ? "Nothing to do: Cartographer fixes it by itself at its next run."
+      ? `Nothing to do: ${fixer} fixes it by itself at its next run.`
       : (checkFix(group.check) || "Your agent proposes a fix and waits for your yes.") +
         (group.handler === "mixed" ? " Cartographer fixes some of them by itself." : "");
   return (
@@ -726,6 +747,7 @@ function CheckRow({
           unit={unit}
           heaviest={heaviest}
           auto={group.handler === "auto"}
+          fixer={fixer}
         />
         <IssueDetail
           what={checkHelp(group.check)}

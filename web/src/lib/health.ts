@@ -1,4 +1,18 @@
-import type { CheckCatalog, LintFinding, LintReport } from "../api/types";
+import type { CheckCatalog, ComponentRow, LintFinding, LintReport, MaintenanceInfo } from "../api/types";
+
+/**
+ * Who fixes the automatic findings (D1901): the server, unless a Surveyor holds
+ * the repair. Anything unknown (no summary, an older server) is the server, so
+ * the page reads as it did before.
+ */
+export function autoFixer(repair?: MaintenanceInfo["repair"] | null): string {
+  return repair?.state === "surveyor" && repair.by ? `the ${repair.by} Surveyor` : "Cartographer";
+}
+
+/** An expected Surveyor that is silent or short of replicas: what Health warns about and the rail marks. */
+export function expectedSilent(components: ComponentRow[]): ComponentRow[] {
+  return components.filter((c) => c.kind === "surveyor" && c.declared && (c.state === "silent" || c.state === "degraded"));
+}
 
 /** One cause on the Health page: a check's findings, folded by message. */
 export interface CheckGroup {

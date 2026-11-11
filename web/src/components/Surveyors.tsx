@@ -1,32 +1,69 @@
 import { Fragment, useEffect, useState } from "react";
-import { fetchFeeds, fetchMaintenanceSummary, fetchSurveyors } from "../api/client";
-import type { FeedRow, MaintenanceSummary, SurveyorRow } from "../api/types";
+import { fetchComponents, fetchFeeds, fetchMaintenanceSummary } from "../api/client";
+import type { ComponentRow, FeedRow, MaintenanceSummary, ReplicaRow } from "../api/types";
+import { expectedSilent } from "../lib/health";
 
 /** A surveyor that stopped beating leaves the page within this, whatever the live counter does. */
 const REFRESH_MS = 60_000;
 
 /**
- * The live surveyors that declared the KB (D1259), read-only. Optional by
- * design: a failure or a 404 (a principal that does not see the whole KB, an
- * older server) is an empty list, and the page renders as it did before.
+ * The components that concern the KB (D1901), read-only. Optional by design: a
+ * failure or a 404 (a principal that does not see the whole KB, an older
+ * server) is an empty list, and the page renders as it did before.
  */
-function useSurveyors(kb: string, live: number): SurveyorRow[] {
-  const [rows, setRows] = useState<SurveyorRow[]>([]);
+export function useComponents(kb: string | null, live: number, enabled = true): ComponentRow[] {
+  const [rows, setRows] = useState<ComponentRow[]>([]);
   const [tick, setTick] = useState(0);
   useEffect(() => {
+    if (!enabled || !kb) return;
     const timer = window.setInterval(() => setTick((n) => n + 1), REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [enabled, kb]);
+  // Another KB shows nothing of the previous one while its answer is pending.
   useEffect(() => {
+    setRows([]);
+  }, [kb]);
+  useEffect(() => {
+    if (!enabled || !kb) {
+      setRows([]);
+      return;
+    }
     const controller = new AbortController();
-    fetchSurveyors(kb, controller.signal)
-      .then((res) => setRows(Array.isArray(res?.surveyors) ? res.surveyors : []))
+    fetchComponents(kb, controller.signal)
+      .then((res) => setRows(Array.isArray(res?.components) ? res.components : []))
       .catch((err: unknown) => {
         if (!(err instanceof DOMException && err.name === "AbortError")) setRows([]);
       });
     return () => controller.abort();
-  }, [kb, live, tick]);
+  }, [kb, live, tick, enabled]);
   return rows;
+}
+
+/** Last and next doctor and who repairs; null until it answers, or when it cannot (a narrowed principal). */
+export function useMaintenanceSummary(kb: string | null, live: number): MaintenanceSummary | null {
+  const [summary, setSummary] = useState<MaintenanceSummary | null>(null);
+  useEffect(() => {
+    setSummary(null);
+  }, [kb]);
+  useEffect(() => {
+    if (!kb) return;
+    const controller = new AbortController();
+    fetchMaintenanceSummary(kb, controller.signal)
+      .then(setSummary)
+      .catch((err: unknown) => {
+        if (!(err instanceof DOMException && err.name === "AbortError")) setSummary(null);
+      });
+    return () => controller.abort();
+  }, [kb, live]);
+  return summary;
+}
+
+/** A live replica with the perimeter (the component's name) it belongs to. */
+type SurveyorRow = ReplicaRow & { perimeter: string };
+
+/** Every live Surveyor replica of the components, in the order the server sends them. */
+function liveSurveyors(components: ComponentRow[]): SurveyorRow[] {
+  return components.filter((c) => c.kind === "surveyor").flatMap((c) => c.replicas.map((r) => ({ ...r, perimeter: c.name })));
 }
 
 function useFeeds(kb: string, live: number): FeedRow[] {
@@ -58,7 +95,7 @@ function SurveyorItem({ w }: { w: SurveyorRow }) {
   return (
     <li className="surveyors__row">
       <span className="surveyors__name">
-        {w.perimeter} · {w.surveyor}
+        {w.perimeter} · {w.id}
       </span>
       <span className="surveyors__state" data-state={w.state}>
         {w.state.replace("_", " ")}
@@ -86,8 +123,18 @@ function SurveyorItem({ w }: { w: SurveyorRow }) {
  * Work's strip: the live surveyors with their last run and budgets, then the
  * feeds and systems whose last poll failed. Nothing renders when both are empty.
  */
-export function SurveyorsStrip({ kb, live, onOpen }: { kb: string; live: number; onOpen(conceptId: string): void }) {
-  const surveyors = useSurveyors(kb, live);
+export function SurveyorsStrip({
+  kb,
+  live,
+  components,
+  onOpen,
+}: {
+  kb: string;
+  live: number;
+  components: ComponentRow[];
+  onOpen(conceptId: string): void;
+}) {
+  const surveyors = liveSurveyors(components);
   const feeds = useFeeds(kb, live);
   if (surveyors.length === 0 && feeds.length === 0) return null;
   return (
@@ -95,7 +142,7 @@ export function SurveyorsStrip({ kb, live, onOpen }: { kb: string; live: number;
       {surveyors.length > 0 && (
         <ul className="surveyors__list" aria-label="Surveyors">
           {surveyors.map((w) => (
-            <SurveyorItem key={`${w.perimeter}/${w.surveyor}`} w={w} />
+            <SurveyorItem key={`${w.perimeter}/${w.id}`} w={w} />
           ))}
         </ul>
       )}
@@ -118,41 +165,55 @@ export function SurveyorsStrip({ kb, live, onOpen }: { kb: string; live: number;
 }
 
 /**
- * Health's one line (amends D948): which surveyor maintains the KB and when its
- * doctor last ran. Upkeep, not a finding; nothing renders without a live
- * surveyor that names the KB, or for a caller who cannot see the whole KB.
+ * Health's lines (amends D948): which Surveyor maintains the KB, who repairs
+ * it and when the doctor last ran; and, apart, a notice when an expected
+ * Surveyor is silent. Upkeep, not findings: none of it is in the lint report.
+ * Nothing renders without a live or an expected Surveyor, or for a caller who
+ * cannot see the whole KB.
  */
-export function MaintainedBy({ kb, live }: { kb: string; live: number }) {
-  const surveyors = useSurveyors(kb, live);
-  const [summary, setSummary] = useState<MaintenanceSummary | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchMaintenanceSummary(kb, controller.signal)
-      .then(setSummary)
-      .catch((err: unknown) => {
-        if (!(err instanceof DOMException && err.name === "AbortError")) setSummary(null);
-      });
-    return () => controller.abort();
-  }, [kb, live]);
-  if (surveyors.length === 0) return null;
+export function MaintainedBy({
+  components,
+  summary,
+}: {
+  components: ComponentRow[];
+  summary: MaintenanceSummary | null;
+}) {
+  const surveyors = liveSurveyors(components);
+  const repair = summary?.maintenance?.repair;
+  const missing = expectedSilent(components);
+  const fallback = repair?.state === "fallback";
+  if (surveyors.length === 0 && missing.length === 0) return null;
   // Every perimeter that has a live surveyor on the KB is named, in the order
   // the server sends them (sorted by surveyor): choosing one would be a guess.
   const perimeters = new Map<string, SurveyorRow[]>();
   for (const w of surveyors) perimeters.set(w.perimeter, [...(perimeters.get(w.perimeter) ?? []), w]);
   return (
-    <p className="health__lede health__maintainer">
-      Maintained by{" "}
-      {[...perimeters].map(([name, ws], i) => {
-        const busy = ws.some((w) => w.state === "running") ? "running" : ws[0]!.state.replace("_", " ");
-        return (
-          <Fragment key={name}>
-            {i > 0 && ", "}
-            <strong>{name}</strong> ({ws.length} {ws.length === 1 ? "replica" : "replicas"}, {busy})
-          </Fragment>
-        );
-      })}
-      {summary?.last_doctor ? ` · last doctor ${summary.last_doctor}` : ""}
-      {summary?.next_doctor ? ` · next due ${summary.next_doctor}` : ""}
-    </p>
+    <>
+      {surveyors.length > 0 && (
+        <p className="health__lede health__maintainer">
+          Maintained by{" "}
+          {[...perimeters].map(([name, ws], i) => {
+            const busy = ws.some((w) => w.state === "running") ? "running" : ws[0]!.state.replace("_", " ");
+            return (
+              <Fragment key={name}>
+                {i > 0 && ", "}
+                <strong>{name}</strong> ({ws.length} {ws.length === 1 ? "replica" : "replicas"}, {busy})
+              </Fragment>
+            );
+          })}
+          {repair ? ` · repairs by ${repair.state === "surveyor" && repair.by ? repair.by : "Meridian"}` : ""}
+          {summary?.last_doctor ? ` · last doctor ${summary.last_doctor}` : ""}
+          {summary?.next_doctor ? ` · next due ${summary.next_doctor}` : ""}
+        </p>
+      )}
+      {missing.map((c) => (
+        <p key={c.name} className="health__lede health__maintainer health__notice" role="status">
+          {c.state === "silent"
+            ? `Surveyor ${c.name} is expected and has not reported${c.last_seen_at ? `; last seen ${age(c.last_seen_at)}` : ""}.`
+            : `Surveyor ${c.name} is expected to run ${c.min_replicas} replicas and ${c.replicas.length} ${c.replicas.length === 1 ? "is" : "are"} reporting.`}
+          {fallback && c.state === "silent" && (!repair?.by || repair.by === c.name) && " Meridian is repairing this KB meanwhile."}
+        </p>
+      ))}
+    </>
   );
 }
