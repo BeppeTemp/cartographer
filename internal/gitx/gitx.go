@@ -1673,6 +1673,154 @@ type CommitChanges struct {
 // the source and destination respectively. A directory that is not a git
 // repository, or a repository with no commits in range, returns an empty slice.
 func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
+	return logNameStatus(dir, "--since="+since.Format(time.RFC3339))
+}
+
+// ErrUnknownRev is returned by LogNameStatusRange when the revision is not a
+// commit reachable from HEAD: malformed, absent from the repository (a gc'd
+// sha, a sha of another KB) or on a history a realign or reset left behind.
+var ErrUnknownRev = errors.New("gitx: unknown revision")
+
+// ErrRangeTooLarge is returned by LogNameStatusRange when more than
+// MaxRangeCommits commits lie between the revision and HEAD.
+var ErrRangeTooLarge = errors.New("gitx: too many commits in range")
+
+// MaxRangeCommits bounds how many commits LogNameStatusRange reads, so a
+// cursor far behind HEAD never walks the whole history. A variable so tests
+// can shorten it.
+var MaxRangeCommits = 5000
+
+// fullSHA matches a full object name, SHA-1 or SHA-256, lower case: the only
+// shape a client-supplied revision may have.
+var fullSHA = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+
+// LogNameStatusRange returns the commits in fromSHA..head, newest first, with
+// their changed files, as LogNameStatus does, and the head it read: the range
+// ends there, so a client that continues from that head loses no commit that
+// lands later. fromSHA comes from a client, so it must be a full lower-case hex
+// object name that is, or peels to (an annotated tag), a commit reachable from
+// HEAD (a ref, a range or an option never reaches git); anything else, and HEAD
+// itself unborn, is ErrUnknownRev. More than MaxRangeCommits commits is
+// ErrRangeTooLarge. fromSHA equal to head is an empty range.
+func LogNameStatusRange(dir, fromSHA string) ([]CommitChanges, string, error) {
+	if !fullSHA.MatchString(fromSHA) || !IsRepo(dir) {
+		return nil, "", ErrUnknownRev
+	}
+	head, unborn, err := readHead(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	if unborn {
+		return nil, "", ErrUnknownRev // no commit at all: nothing is reachable
+	}
+	// rev-parse prints a HEAD that names a missing object: HEAD must be a commit
+	// we can read, or the failure is ours and not the client's revision.
+	if _, err := peelCommit(dir, head); err != nil {
+		return nil, "", errors.New("gitx: cannot read HEAD")
+	}
+	from, err := peelCommit(dir, fromSHA)
+	if err != nil {
+		return nil, "", err
+	}
+	ok, err := IsAncestor(dir, from, head)
+	if err != nil {
+		return nil, "", err
+	}
+	if !ok {
+		return nil, "", ErrUnknownRev
+	}
+	commits, err := logNameStatus(dir, "-n", strconv.Itoa(MaxRangeCommits+1), "--end-of-options", from+".."+head)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(commits) > MaxRangeCommits {
+		return nil, "", ErrRangeTooLarge
+	}
+	return commits, head, nil
+}
+
+// LogNameStatusAt is LogNameStatus that also returns the head it read and
+// starts the walk there, not at whatever HEAD is by the time git runs: the
+// answer's commits and its head are one snapshot. A directory that is not a
+// repository, or one with no commit yet, returns no commits and an empty head.
+func LogNameStatusAt(dir string, since time.Time) ([]CommitChanges, string, error) {
+	if !IsRepo(dir) {
+		return []CommitChanges{}, "", nil
+	}
+	head, unborn, err := readHead(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	if unborn {
+		return []CommitChanges{}, "", nil // no commit yet: nothing to report
+	}
+	commits, err := logNameStatus(dir, "--since="+since.Format(time.RFC3339), "--end-of-options", head)
+	if err != nil {
+		return nil, "", err
+	}
+	return commits, head, nil
+}
+
+// readHead reads HEAD's commit. unborn is true only for a repository whose HEAD
+// names a branch that has no commit yet (a fresh "git init"); any other failure
+// to read HEAD (a corrupt HEAD file, a missing object, git failing) is an error,
+// never an empty answer.
+func readHead(dir string) (head string, unborn bool, err error) {
+	if head, err = HeadSHA(dir); err == nil {
+		return head, false, nil
+	}
+	ref, serr := runGit(dir, "symbolic-ref", "-q", "HEAD")
+	ref = strings.TrimSpace(ref)
+	if serr != nil || !strings.HasPrefix(ref, "refs/") {
+		return "", false, err
+	}
+	if _, verr := runGit(dir, "show-ref", "--verify", "-q", "--", ref); verr == nil {
+		return "", false, err // the branch exists yet HEAD does not resolve
+	}
+	return "", true, nil
+}
+
+// peelCommit resolves a validated full hex name to the commit it is or peels
+// to ("^{commit}": an annotated tag names its commit), or ErrUnknownRev when it
+// is no commit of the repository. Its output is the only form of a client's
+// revision that reaches later git calls.
+func peelCommit(dir, sha string) (string, error) {
+	out, err := runGit(dir, "rev-parse", "--verify", "--quiet", "--end-of-options", sha+"^{commit}")
+	if err != nil {
+		return "", ErrUnknownRev
+	}
+	peeled := strings.TrimSpace(out)
+	if !fullSHA.MatchString(peeled) {
+		return "", ErrUnknownRev
+	}
+	return peeled, nil
+}
+
+// CommitTime returns the committer time of a commit (a tag peels to its
+// commit). sha must be a full hex object name; anything else, or no such
+// commit, is ErrUnknownRev. The errors carry no git output.
+func CommitTime(dir, sha string) (time.Time, error) {
+	if !fullSHA.MatchString(sha) {
+		return time.Time{}, ErrUnknownRev
+	}
+	c, err := peelCommit(dir, sha)
+	if err != nil {
+		return time.Time{}, err
+	}
+	out, err := runGit(dir, "show", "-s", "--format=%cI", "--end-of-options", c)
+	if err != nil {
+		return time.Time{}, errors.New("gitx: cannot read the commit time")
+	}
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(out))
+	if err != nil {
+		return time.Time{}, errors.New("gitx: cannot read the commit time")
+	}
+	return at, nil
+}
+
+// logNameStatus runs "git log --name-status" with rangeArgs (the selection of
+// commits) and parses it.
+func logNameStatus(dir string, rangeArgs ...string) ([]CommitChanges, error) {
 	if !IsRepo(dir) {
 		return []CommitChanges{}, nil
 	}
@@ -1691,7 +1839,9 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 	// -z: the name-status block is NUL-separated ("S\0path\0", a rename
 	// "R100\0old\0new\0", a "\0" after the commit), so a path is never quoted
 	// and may hold a tab or a newline.
-	out, errOut, err := runGitStdin(dir, "", "log", "-z", "--since="+since.Format(time.RFC3339), "--name-status", "-M", "--pretty=format:"+format)
+	// rangeArgs go last: they may end with --end-of-options and a revision.
+	args := append([]string{"log", "-z", "--name-status", "-M", "--pretty=format:" + format}, rangeArgs...)
+	out, errOut, err := runGitStdin(dir, "", args...)
 	if err != nil {
 		return nil, fmt.Errorf("git log --name-status: %w: %s", err, errOut)
 	}

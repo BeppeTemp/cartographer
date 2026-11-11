@@ -829,17 +829,197 @@ func isCartographerPath(path string) bool {
 	return path == ".cartographer" || strings.HasPrefix(path, ".cartographer/")
 }
 
+// buildChangesSince aggregates commits (newest first) into the changes_since
+// answer for the caller: every visibility, redaction and perimeter rule lives
+// here, so a second reader of the same commits (the event stream) cannot
+// bypass them. since is echoed in the result; head is the commit the window ends
+// at; limit is already clamped; fromRev words the empty-window note for a window that starts at a revision; links adds the link changes (D250).
+func buildChangesSince(ctx requestContext, k *kb.KB, commits []gitx.CommitChanges, since time.Time, head string, limit int, links, fromRev bool) (changesSinceResult, error) {
+	conceptByID := map[string]*changesSinceConcept{}
+	byDay := map[string]changesDay{}
+	authorSeen := map[string]map[string]bool{}
+	agentSeen := map[string]map[string]bool{}
+	opSeen := map[string]map[string]bool{}
+	reasonSeen := map[string]map[string]bool{}
+	// movedTo maps an old concept ID to its final one. Commits come
+	// newest first, so a rename's target is resolved before it is
+	// stored, and a rename back to where the page started (A→B, then
+	// B→A) is not stored at all: every value is a final ID, never a key,
+	// so the chain cannot loop (#695: it did, and spun forever).
+	movedTo := map[string]string{}
+	resolveMovedID := func(id string) string {
+		if to := movedTo[id]; to != "" {
+			return to
+		}
+		return id
+	}
+	visibleConcept := visiblePredicate(ctx, k)
+	guard := newHistoryGuard(ctx, k)
+	otherChanges := 0
+	for _, commit := range commits {
+		for _, file := range commit.Files {
+			if isCartographerPath(file.Path) {
+				continue
+			}
+			id, ok := conceptIDFromGitPath(file.Path)
+			if !ok {
+				otherChanges++
+				continue
+			}
+			if file.Status == "R" {
+				if oldID, oldOK := conceptIDFromGitPath(file.OldPath); oldOK {
+					if final := resolveMovedID(id); final != oldID {
+						movedTo[oldID] = final
+						for k, v := range movedTo {
+							if v == oldID {
+								movedTo[k] = final
+							}
+						}
+					} else {
+						delete(movedTo, oldID)
+					}
+				}
+			}
+			id = resolveMovedID(id)
+			if !visibleConcept(id) {
+				continue
+			}
+			// The id above is the page's final one; the file as this
+			// commit wrote it may have lain outside the perimeter.
+			if !guard.pathVisible(commit.SHA, file.Path, file.Status) {
+				continue
+			}
+			opText, reasonText, redacted := guard.redact(commit.SHA, commit.Subject, commit.Reason)
+			if !redacted {
+				opText, reasonText, redacted = redactForeign(ctx, opText, reasonText, commit.MovedTo, commit.MovedFrom)
+			}
+			info, exists := conceptByID[id]
+			if !exists {
+				info = &changesSinceConcept{
+					ID:      id,
+					Change:  changeSinceStatus(file.Status),
+					LastAt:  commit.At.UTC().Format(time.RFC3339),
+					Authors: []string{},
+					Ops:     []string{},
+				}
+				conceptByID[id] = info
+				authorSeen[id] = map[string]bool{}
+				agentSeen[id] = map[string]bool{}
+				opSeen[id] = map[string]bool{}
+				reasonSeen[id] = map[string]bool{}
+			}
+			if file.Status == "A" {
+				info.Added = true
+			}
+			day := byDay[commit.At.UTC().Format("2006-01-02")]
+			if isUpkeepCommit(commit.Subject) {
+				day.Upkeep++
+			} else {
+				day.Work++
+			}
+			byDay[commit.At.UTC().Format("2006-01-02")] = day
+			if info.LastEditAt == "" && !isUpkeepCommit(commit.Subject) {
+				info.LastEditAt = commit.At.UTC().Format(time.RFC3339)
+			}
+			if !authorSeen[id][commit.Author] {
+				authorSeen[id][commit.Author] = true
+				info.Authors = append(info.Authors, commit.Author)
+			}
+			if commit.Agent != "" && !agentSeen[id][commit.Agent] {
+				agentSeen[id][commit.Agent] = true
+				info.Agents = append(info.Agents, commit.Agent)
+			}
+			for _, tr := range []string{movedLabel("to", visibleKBName(ctx, commit.MovedTo)), movedLabel("from", visibleKBName(ctx, commit.MovedFrom))} {
+				if tr != "" && !slices.Contains(info.Transfers, tr) {
+					info.Transfers = append(info.Transfers, tr)
+				}
+			}
+			if !opSeen[id][opText] && len(info.Ops) < 5 {
+				opSeen[id][opText] = true
+				info.Ops = append(info.Ops, opText)
+			}
+			if reasonText != "" && !reasonSeen[id][reasonText] && len(info.Reasons) < 5 {
+				reasonSeen[id][reasonText] = true
+				info.Reasons = append(info.Reasons, reasonText)
+			}
+			for _, af := range commit.AcceptedFindings {
+				if redacted {
+					break
+				}
+				if len(info.AcceptedFindings) < 5 && !slices.Contains(info.AcceptedFindings, af) {
+					info.AcceptedFindings = append(info.AcceptedFindings, af)
+				}
+			}
+		}
+	}
+
+	concepts := make([]changesSinceConcept, 0, len(conceptByID))
+	for _, info := range conceptByID {
+		concepts = append(concepts, *info)
+	}
+	sort.Slice(concepts, func(i, j int) bool {
+		if concepts[i].LastAt == concepts[j].LastAt {
+			return concepts[i].ID < concepts[j].ID
+		}
+		return concepts[i].LastAt > concepts[j].LastAt
+	})
+	truncated := len(concepts) > limit
+	if truncated {
+		concepts = concepts[:limit]
+	}
+
+	result := changesSinceResult{
+		Head:         head,
+		CommitCount:  0,
+		Concepts:     concepts,
+		OtherChanges: 0,
+		Truncated:    truncated,
+	}
+	result.Since = since.UTC().Format(time.RFC3339)
+	if len(byDay) > 0 {
+		result.ChangesByDay = byDay
+	}
+	if WholeVisible(ctx, k, false) {
+		result.CommitCount, result.OtherChanges = len(commits), otherChanges
+		for _, c := range commits {
+			if c.Agent != "" {
+				if result.CommitsByAgent == nil {
+					result.CommitsByAgent = map[string]int{}
+				}
+				result.CommitsByAgent[c.Agent]++
+			}
+		}
+	}
+	if len(commits) == 0 && fromRev {
+		result.Note = "no commits after the given revision"
+	} else if len(commits) == 0 {
+		result.Note = fmt.Sprintf("no commits since %s", result.Since)
+	}
+	if links {
+		lk, note, err := changesSinceLinks(ctx, k, commits)
+		if err != nil {
+			return changesSinceResult{}, fmt.Errorf("changes_since links: %w", err)
+		}
+		result.Links, result.LinksNote = lk, note
+	}
+	return result, nil
+}
+
 func toolChangesSince(k *kb.KB) Tool {
 	return Tool{
 		Name:        "changes_since",
-		Description: "Concept changes from git history since a timestamp or duration: each concept's newest change, authors, agent clients, operations and reasons. links: true also reports links added/removed and pages that became or stopped being orphans.",
+		Description: "Concept changes from git history since a timestamp or duration, or after a commit (from, the head an earlier answer returned): each concept's newest change, authors, agent clients, operations and reasons. links: true also reports links added/removed and pages that became or stopped being orphans.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"since": {
 					"type": "string",
-					"description": "RFC3339 or <N>d/<N>h; default 7d"
+					"description": "RFC3339 or <N>d/<N>h; default 7d; not with from"
+				},
+				"from": {
+					"type": "string",
+					"description": "full commit sha (a previous answer's head): the changes after it; not with since"
 				},
 				"limit": {
 					"type": "integer"
@@ -852,6 +1032,7 @@ func toolChangesSince(k *kb.KB) Tool {
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Since string `json:"since"`
+				From  string `json:"from"`
 				Limit int    `json:"limit"`
 				Links bool   `json:"links"`
 			}
@@ -859,15 +1040,43 @@ func toolChangesSince(k *kb.KB) Tool {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 
-			since, err := parseChangesSince(params.Since, time.Now())
-			if err != nil {
-				return errorResult(err.Error()), nil
+			var (
+				since   time.Time
+				commits []gitx.CommitChanges
+				head    string
+			)
+			if params.From != "" {
+				if params.Since != "" {
+					return errorResult("since and from are mutually exclusive"), nil
+				}
+				var err error
+				commits, head, err = gitx.LogNameStatusRange(k.Root, params.From)
+				switch {
+				case errors.Is(err, gitx.ErrUnknownRev):
+					return errorResult("unknown revision; use since"), nil
+				case errors.Is(err, gitx.ErrRangeTooLarge):
+					return errorResult("too many commits after that revision; use since"), nil
+				case err != nil:
+					return errorResult("changes_since: cannot read the history after that revision"), nil
+				}
+				// since stays in the answer (a stable API field): the instant of
+				// the commit the window starts after.
+				if since, err = gitx.CommitTime(k.Root, params.From); err != nil {
+					return errorResult("changes_since: cannot read the history after that revision"), nil
+				}
+			} else {
+				var err error
+				since, err = parseChangesSince(params.Since, time.Now())
+				if err != nil {
+					return errorResult(err.Error()), nil
+				}
+				// The head comes with the commits (one snapshot): a commit landing
+				// meanwhile is after both, so a client continuing from head sees it.
+				commits, head, err = gitx.LogNameStatusAt(k.Root, since)
+				if err != nil {
+					return errorResult("changes_since git log: " + err.Error()), nil
+				}
 			}
-			commits, err := gitx.LogNameStatus(k.Root, since)
-			if err != nil {
-				return errorResult("changes_since git log: " + err.Error()), nil
-			}
-			head, _ := gitx.HeadSHA(k.Root)
 
 			limit := params.Limit
 			if limit <= 0 {
@@ -877,170 +1086,9 @@ func toolChangesSince(k *kb.KB) Tool {
 				limit = maxChangesSinceLimit
 			}
 
-			conceptByID := map[string]*changesSinceConcept{}
-			byDay := map[string]changesDay{}
-			authorSeen := map[string]map[string]bool{}
-			agentSeen := map[string]map[string]bool{}
-			opSeen := map[string]map[string]bool{}
-			reasonSeen := map[string]map[string]bool{}
-			// movedTo maps an old concept ID to its final one. Commits come
-			// newest first, so a rename's target is resolved before it is
-			// stored, and a rename back to where the page started (A→B, then
-			// B→A) is not stored at all: every value is a final ID, never a key,
-			// so the chain cannot loop (#695: it did, and spun forever).
-			movedTo := map[string]string{}
-			resolveMovedID := func(id string) string {
-				if to := movedTo[id]; to != "" {
-					return to
-				}
-				return id
-			}
-			visibleConcept := visiblePredicate(ctx, k)
-			guard := newHistoryGuard(ctx, k)
-			otherChanges := 0
-			for _, commit := range commits {
-				for _, file := range commit.Files {
-					if isCartographerPath(file.Path) {
-						continue
-					}
-					id, ok := conceptIDFromGitPath(file.Path)
-					if !ok {
-						otherChanges++
-						continue
-					}
-					if file.Status == "R" {
-						if oldID, oldOK := conceptIDFromGitPath(file.OldPath); oldOK {
-							if final := resolveMovedID(id); final != oldID {
-								movedTo[oldID] = final
-								for k, v := range movedTo {
-									if v == oldID {
-										movedTo[k] = final
-									}
-								}
-							} else {
-								delete(movedTo, oldID)
-							}
-						}
-					}
-					id = resolveMovedID(id)
-					if !visibleConcept(id) {
-						continue
-					}
-					// The id above is the page's final one; the file as this
-					// commit wrote it may have lain outside the perimeter.
-					if !guard.pathVisible(commit.SHA, file.Path, file.Status) {
-						continue
-					}
-					opText, reasonText, redacted := guard.redact(commit.SHA, commit.Subject, commit.Reason)
-					if !redacted {
-						opText, reasonText, redacted = redactForeign(ctx, opText, reasonText, commit.MovedTo, commit.MovedFrom)
-					}
-					info, exists := conceptByID[id]
-					if !exists {
-						info = &changesSinceConcept{
-							ID:      id,
-							Change:  changeSinceStatus(file.Status),
-							LastAt:  commit.At.UTC().Format(time.RFC3339),
-							Authors: []string{},
-							Ops:     []string{},
-						}
-						conceptByID[id] = info
-						authorSeen[id] = map[string]bool{}
-						agentSeen[id] = map[string]bool{}
-						opSeen[id] = map[string]bool{}
-						reasonSeen[id] = map[string]bool{}
-					}
-					if file.Status == "A" {
-						info.Added = true
-					}
-					day := byDay[commit.At.UTC().Format("2006-01-02")]
-					if isUpkeepCommit(commit.Subject) {
-						day.Upkeep++
-					} else {
-						day.Work++
-					}
-					byDay[commit.At.UTC().Format("2006-01-02")] = day
-					if info.LastEditAt == "" && !isUpkeepCommit(commit.Subject) {
-						info.LastEditAt = commit.At.UTC().Format(time.RFC3339)
-					}
-					if !authorSeen[id][commit.Author] {
-						authorSeen[id][commit.Author] = true
-						info.Authors = append(info.Authors, commit.Author)
-					}
-					if commit.Agent != "" && !agentSeen[id][commit.Agent] {
-						agentSeen[id][commit.Agent] = true
-						info.Agents = append(info.Agents, commit.Agent)
-					}
-					for _, tr := range []string{movedLabel("to", visibleKBName(ctx, commit.MovedTo)), movedLabel("from", visibleKBName(ctx, commit.MovedFrom))} {
-						if tr != "" && !slices.Contains(info.Transfers, tr) {
-							info.Transfers = append(info.Transfers, tr)
-						}
-					}
-					if !opSeen[id][opText] && len(info.Ops) < 5 {
-						opSeen[id][opText] = true
-						info.Ops = append(info.Ops, opText)
-					}
-					if reasonText != "" && !reasonSeen[id][reasonText] && len(info.Reasons) < 5 {
-						reasonSeen[id][reasonText] = true
-						info.Reasons = append(info.Reasons, reasonText)
-					}
-					for _, af := range commit.AcceptedFindings {
-						if redacted {
-							break
-						}
-						if len(info.AcceptedFindings) < 5 && !slices.Contains(info.AcceptedFindings, af) {
-							info.AcceptedFindings = append(info.AcceptedFindings, af)
-						}
-					}
-				}
-			}
-
-			concepts := make([]changesSinceConcept, 0, len(conceptByID))
-			for _, info := range conceptByID {
-				concepts = append(concepts, *info)
-			}
-			sort.Slice(concepts, func(i, j int) bool {
-				if concepts[i].LastAt == concepts[j].LastAt {
-					return concepts[i].ID < concepts[j].ID
-				}
-				return concepts[i].LastAt > concepts[j].LastAt
-			})
-			truncated := len(concepts) > limit
-			if truncated {
-				concepts = concepts[:limit]
-			}
-
-			result := changesSinceResult{
-				Since:        since.UTC().Format(time.RFC3339),
-				Head:         head,
-				CommitCount:  0,
-				Concepts:     concepts,
-				OtherChanges: 0,
-				Truncated:    truncated,
-			}
-			if len(byDay) > 0 {
-				result.ChangesByDay = byDay
-			}
-			if WholeVisible(ctx, k, false) {
-				result.CommitCount, result.OtherChanges = len(commits), otherChanges
-				for _, c := range commits {
-					if c.Agent != "" {
-						if result.CommitsByAgent == nil {
-							result.CommitsByAgent = map[string]int{}
-						}
-						result.CommitsByAgent[c.Agent]++
-					}
-				}
-			}
-			if len(commits) == 0 {
-				result.Note = fmt.Sprintf("no commits since %s", result.Since)
-			}
-			if params.Links {
-				links, note, err := changesSinceLinks(ctx, k, commits)
-				if err != nil {
-					return errorResult("changes_since links: " + err.Error()), nil
-				}
-				result.Links, result.LinksNote = links, note
+			result, err := buildChangesSince(ctx, k, commits, since, head, limit, params.Links, params.From != "")
+			if err != nil {
+				return errorResult(err.Error()), nil
 			}
 			return jsonResult(result), nil
 		},
