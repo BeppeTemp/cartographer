@@ -18,6 +18,10 @@
 # (D1141), so the one-time pre-approval migration (D1166) is a no-op by default;
 # exercise it with E2E_UPGRADE_FROM=v0.25.1. The old binary runs only the
 # `connect`, `sync`, `paths set` and `approve` forms every such tag has.
+# The same goes for the machine file (D1728): from v0.28.0 on the previous release
+# already writes the approvals there, so the HEAD client has no YAML key to back
+# up and writes no .bak-pre-machine; exercise that migration with
+# E2E_UPGRADE_FROM=v0.27.3.
 #
 # Expected environment variables: E2E_TMP_DIR, E2E_HTTP_PORT, REPO_ROOT.
 
@@ -167,6 +171,8 @@ echo "[26] built $("$PREV_BIN" --version 2>&1 | head -n 1)"
 prev_has() { compgen -G "${PREV_TREE}/docs/decisions/$1-*" >/dev/null; }
 PREV_MIGRATED=false
 prev_has D1166 && PREV_MIGRATED=true
+PREV_MACHINE=false
+prev_has D1728 && PREV_MACHINE=true
 PREV_BRIEF=false
 prev_has D1182 && PREV_BRIEF=true
 
@@ -277,11 +283,16 @@ fi
 
 # The approvals recorded by the old client survive the upgrade unchanged, now in the
 # machine file (D1728): approvals.<kb> keys the hook as hook/<name>, the descriptor by
-# its name. The YAML no longer holds them, and keeps the old copy as a backup.
+# its name. The YAML no longer holds them. A previous release older than D1728 had them
+# in the YAML, and the upgrade keeps that copy as a backup; a newer one never did.
 assert_file_contains "${SANDBOX_DIR}/.cartographer-machine.json" '"hook/upgrade-guard":'
 assert_file_contains "${SANDBOX_DIR}/.cartographer-machine.json" '"upgrade-tools":'
 assert_file_not_contains "${SANDBOX_DIR}/.cartographer.yaml" 'mcp_approvals'
-assert_file_exists "${SANDBOX_DIR}/.cartographer.yaml.bak-pre-machine"
+if [[ "$PREV_MACHINE" == true ]]; then
+    assert_file_not_exists "${SANDBOX_DIR}/.cartographer.yaml.bak-pre-machine"
+else
+    assert_file_exists "${SANDBOX_DIR}/.cartographer.yaml.bak-pre-machine"
+fi
 
 if grep -E '\] (diverged locally|moved |unsupported)' "${WORK_DIR}/head-sync.out"; then
     _assert_fail "HEAD sync reports a diverged, moved or unsupported artifact"
