@@ -386,24 +386,73 @@ export interface MaintenanceReview {
   items: ReviewItem[];
 }
 
-/** GET /kbs/{kb}/surveyors (D1259): a live `cartographer surveyor` that declared this KB. Read-only. */
+/**
+ * GET /kbs/{kb}/components (D1901): the registry's expected components that
+ * name the KB plus the live ones it does not. Read-only. Types are hand-written
+ * until the generated schema lands.
+ */
 export type SurveyorState = "idle" | "running" | "waiting" | "budget_exhausted" | "stopped";
+export type ComponentState = "up" | "degraded" | "silent" | "starting" | "undeclared";
 export interface SurveyorBudget {
   profile: string;
   tier?: "small" | "large";
   spent: number;
   limit: number;
 }
-export interface SurveyorRow {
-  surveyor: string;
-  perimeter: string;
+export interface ReplicaRow {
+  id: string;
   version?: string;
+  protocol: number;
+  protocol_skew: string;
+  kind_declared: boolean;
+  tasks: { kind: string; interval_seconds: number }[];
   state: SurveyorState;
   last_beat_at: string;
   interval_seconds: number;
   last_run?: { at: string; units_done: number; tokens_spent: number; commits: number };
   budgets: SurveyorBudget[];
   next_window_at?: string;
+}
+export interface ComponentRun {
+  run_id: string;
+  replica: string;
+  task: string;
+  kb: string;
+  started_at: string;
+  duration_ms: number;
+  outcome: string;
+  error?: string;
+  tokens_spent: number;
+  received_at: string;
+}
+/** An alarm with no `kb` carries a code and a time only: source and detail may be blank. */
+export interface ComponentAlarm {
+  code: string;
+  kb?: string;
+  source?: string;
+  since?: string;
+  detail?: string;
+  received_at?: string;
+  origin: "reported" | "server";
+}
+export interface ComponentRow {
+  kind: string;
+  name: string;
+  state: ComponentState;
+  declared: boolean;
+  kind_declared: boolean;
+  replicas: ReplicaRow[];
+  min_replicas: number;
+  last_seen_at: string | null;
+  kbs: string[];
+  runs: ComponentRun[];
+  alarms: ComponentAlarm[];
+}
+export interface ComponentsResponse {
+  protocol: number;
+  min_protocol: number;
+  server: { version: string; started_at: string };
+  components: ComponentRow[];
 }
 
 /** GET /kbs/{kb}/feeds: Sources whose last poll failed (any shape that writes `feed_error`). */
@@ -424,6 +473,14 @@ export interface FeedList {
 export interface MaintenanceSummary {
   last_doctor?: string;
   next_doctor?: string;
+  maintenance?: MaintenanceInfo;
+}
+/**
+ * Who repairs the KB. `since` is when the server first read this state, not
+ * when the state began: never worded as "since" without saying so.
+ */
+export interface MaintenanceInfo {
+  repair: { owner: "server" | "surveyor"; state: "server" | "surveyor" | "fallback"; by?: string; since?: string };
 }
 
 /** GET /kbs/{kb}/checks: every lint check the server runs (D365). */

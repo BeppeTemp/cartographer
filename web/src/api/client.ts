@@ -28,7 +28,7 @@ import type {
   ReleasesView,
   FeedList,
   MaintenanceSummary,
-  SurveyorRow,
+  ComponentsResponse,
 } from "./types";
 import {
   LIVE_ORIGIN,
@@ -263,9 +263,9 @@ export function fetchMaintenanceReview(kb: string, signal?: AbortSignal): Promis
   return get<MaintenanceReview>(`/kbs/${encodeURIComponent(kb)}/maintenance/review`, signal);
 }
 
-/** The live surveyors that declared this KB (D1259); 404 for a caller that does not see the whole KB. */
-export function fetchSurveyors(kb: string, signal?: AbortSignal): Promise<{ surveyors: SurveyorRow[] }> {
-  return get<{ surveyors: SurveyorRow[] }>(`/kbs/${encodeURIComponent(kb)}/surveyors`, signal);
+/** The components that concern this KB (D1901); 404 for a caller that does not see the whole KB. */
+export function fetchComponents(kb: string, signal?: AbortSignal): Promise<ComponentsResponse> {
+  return get<ComponentsResponse>(`/kbs/${encodeURIComponent(kb)}/components`, signal);
 }
 
 /** The Sources whose last poll failed, newest check first. */

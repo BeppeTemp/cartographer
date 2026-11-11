@@ -2749,3 +2749,8 @@ button.row {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* An expected Surveyor that is silent: a notice beside the lede, not a finding. */
+.health__notice {
+  color: var(--sev-error);
+}

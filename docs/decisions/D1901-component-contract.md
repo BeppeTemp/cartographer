@@ -86,3 +86,13 @@ A kb-less alarm (not tied to a KB the principal was checked against) is shown on
 every KB of the perimeter with its code and time only: its free text is blanked.
 The replica id of a post must be one the principal has live. The Surveyor now fills `last_run.tokens_spent`, which the beat always
 accepted and nothing set.
+
+**Health in the Atlas.** Health reads the `components` answer once (the App passes it to
+Health, Work and the rail) and the `maintenance.repair` of the summary. It words who
+maintains and who repairs ("repairs by team-a", "repairs by Meridian"), puts a notice
+beside the lede, not among the findings, for an expected Surveyor that is `silent`
+(last seen) or `degraded` (replicas short), adds that Meridian is repairing meanwhile in
+the `fallback` state, and lights the rail's Health mark for either. `starting` says
+nothing: it is the grace window. `maintenance.repair.since` is when the server first
+read the state, so the Atlas does not show it as a start time. With an empty answer or a
+`404` the page is the one it was before the registry (a snapshot test).
