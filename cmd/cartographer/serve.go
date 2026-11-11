@@ -802,6 +802,11 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	// and the push flush come to differ between a signal and an event.
 	shutdown := func() {
 		stopRepair()
+		// Event streams never finish by themselves: end them first, or Shutdown
+		// waits for them until its timeout.
+		if m := multiMounted.Load(); m != nil {
+			m.CloseStreams()
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownHTTPTimeout)
 		defer cancel()
 		if err := httpSrv.Shutdown(ctx); err != nil {

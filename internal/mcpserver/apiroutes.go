@@ -141,6 +141,14 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 	{Pattern: "/kbs/{kb}/changes", Tier: tierStable, Summary: "Changes since a point in time", Response: changesSinceResult{}, Errors: errsBadRequest,
 		Query:   []apiParam{{Name: "since", Description: "RFC 3339 time or <N>d/<N>h, default 7d"}, limitParam},
 		Handler: kbRoute(uiChanges)},
+	{Pattern: "/kbs/{kb}/events", Tier: tierStable, Summary: "A resumable stream of the KB's changes (server-sent events)",
+		Response: apiStreamChanges{}, Errors: []int{http.StatusTooManyRequests, http.StatusMethodNotAllowed, http.StatusInternalServerError, http.StatusServiceUnavailable},
+		Query: []apiParam{{Name: "cursor", Description: "A commit sha to continue from (the Last-Event-ID header wins)"}},
+		Events: []apiEvent{{"hello", apiStreamHello{}}, {"changes", apiStreamChanges{}},
+			{"reset", apiStreamReset{}}, {"end", apiStreamEnd{}}},
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, name string, srv *Server) {
+			m.apiEvents(w, r, name, srv)
+		}},
 
 	{Pattern: "/kbs/{kb}/graph", Tier: tierPreview, Summary: "The link graph",
 		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraph(w, r, srv.kbRef) })},
