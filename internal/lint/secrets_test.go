@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/secretscan"
 )
 
 // Test tokens are fake but format-valid and are ALWAYS assembled at runtime
@@ -137,7 +138,7 @@ func TestPotentialSecret_NeverEchoed(t *testing.T) {
 			}
 			b, _ := json.Marshal(fs)
 			out := string(b)
-			p := prefixLen(r.pos)
+			p := secretscan.PrefixLen(r.pos)
 			if strings.Contains(out, r.pos) || strings.Contains(out, r.pos[p:p+8]) || strings.Contains(out, r.pos[len(r.pos)-8:]) {
 				t.Errorf("%s: finding echoes the token: %s", r.name, out)
 			}
