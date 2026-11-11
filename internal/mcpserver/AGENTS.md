@@ -94,3 +94,4 @@ test or a decision record: none of them is a preference.
 - **A tool that touches secrets calls `AllowsSecrets`/`WithholdsSecrets`** (D1894) and is added to the secrets-restriction table test; a principal named by a trusted proxy (`Principal.Via`) is clamped by the proxy token, so the check needs no special case.
 - A route's `Response` is a Go type whose JSON the handler really writes (a struct, not a `map`): `docs/openapi.json` (`make openapi`) and the contract test in `api_contract_test.go` follow it, and a stable route without one fails.
 - A new read route goes in the route table (`apiroutes.go`) with a tier, never by a `case`. `/api/v1` serves the explicit mask `apiPublicTiers` (stable|preview), never "all but internal", so a tier added later is closed there by default.
+- **An event stream (`apistream.go`) clears the connection's read deadline**: the server's `ReadTimeout` stays armed during a handler and would cancel the request context after a minute.

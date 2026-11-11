@@ -104,6 +104,10 @@ func TestAPIContract_RoutesAndDocumentAgree(t *testing.T) {
 		if strings.Join(params, ",") != strings.Join(wantParams, ",") {
 			t.Errorf("%s: document parameters %v, table %v", p, params, wantParams)
 		}
+		if rt.Events != nil {
+			delete(want, p) // a stream never ends: apistream_test.go
+			continue
+		}
 		if rr := getUI(t, h, liveURL(p), ""); rr.Code == http.StatusNotFound {
 			t.Errorf("document path %s answers 404 on a live handler", p)
 		}
@@ -182,7 +186,7 @@ func TestAPIContract_StableBodiesFitTheirSchema(t *testing.T) {
 		"/kbs/{kb}/concept": "?id=visible/alpha", "/kbs/{kb}/search": "?q=alpha",
 	}
 	for _, rt := range apiRoutes {
-		if rt.Tier != tierStable {
+		if rt.Tier != tierStable || rt.Events != nil { // a stream never ends: apistream_test.go
 			continue
 		}
 		rr := getUI(t, h, liveURL(routePath(rt))+urls[rt.Pattern], "")

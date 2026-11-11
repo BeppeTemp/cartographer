@@ -1217,7 +1217,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   is what keeps the fallback from shadowing `/mcp`, `/health`, `/ready`,
   `/clients`, the OAuth metadata or `/api/`. `/ui` redirects permanently to
   `/ui/`, and `/` does the same from outside the auth chain.
-- `/api/v1/…` is not part of the Atlas: it is the public read-only API, served only with `api.enabled` and whatever `web.enabled` says (an Atlas-less Meridian can still offer it). It serves the `stable` and `preview` tiers of the same route table, without the Atlas's operator wording.
+- `/api/v1/…` is not part of the Atlas: it is the public read-only API, served only with `api.enabled` and whatever `web.enabled` says (an Atlas-less Meridian can still offer it). It serves the `stable` and `preview` tiers of the same route table, without the Atlas's operator wording, and the event stream `/api/v1/kbs/{kb}/events` (`api.max_streams_per_token` open streams per token, `api.max_streams` in all; over either the answer is `429`). A reverse proxy must not buffer `text/event-stream` and must keep the connection open for at least the 20 s heartbeat (nginx: `proxy_buffering off`, `proxy_read_timeout` above 20 s).
 - `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API). Its Settings page lists every
   server and per-KB setting with its value and origin, read-only (D743, §Configuration above).
   Meridian's version, at the foot of the left rail, opens the release history: a sheet

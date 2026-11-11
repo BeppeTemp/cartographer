@@ -66,6 +66,9 @@ func TestAPIMount_InternalRoutesAre404(t *testing.T) {
 	n := 0
 	for _, rt := range apiRoutes {
 		path := strings.ReplaceAll("/"+strings.Join(rt.segments, "/"), "{kb}", "docs")
+		if rt.Events != nil {
+			continue
+		}
 		api := getUI(t, h, APIPrefix+path, "")
 		if rt.Tier == tierInternal {
 			n++

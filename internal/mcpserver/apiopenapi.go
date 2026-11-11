@@ -15,7 +15,8 @@ type apiErrorEnvelope struct {
 }
 
 // apiErrorCodes are the machine codes of uiError.Code.
-var apiErrorCodes = []string{uiCodeInvalidRequest, uiCodeNotFound, uiCodeMethodNotAllow, uiCodeInternal}
+var apiErrorCodes = []string{uiCodeInvalidRequest, uiCodeNotFound, uiCodeMethodNotAllow, uiCodeInternal,
+	uiCodeTooManyStreams, uiCodeUnsupported, uiCodeUnavailable}
 
 const apiOpenAPIPath = "/openapi.json"
 

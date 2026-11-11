@@ -361,7 +361,10 @@
               "invalid_request",
               "not_found",
               "method_not_allowed",
-              "internal"
+              "internal",
+              "too_many_streams",
+              "unsupported",
+              "unavailable"
             ],
             "type": "string"
           },
@@ -659,6 +662,70 @@
           "mode",
           "query",
           "results"
+        ],
+        "type": "object"
+      },
+      "StreamChanges": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "$ref": "#/components/schemas/ChangesSinceResult"
+          },
+          "from": {
+            "type": "string"
+          },
+          "head": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "changes",
+          "from",
+          "head"
+        ],
+        "type": "object"
+      },
+      "StreamEnd": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "StreamHello": {
+        "additionalProperties": false,
+        "properties": {
+          "head": {
+            "type": "string"
+          },
+          "kb": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "head",
+          "kb"
+        ],
+        "type": "object"
+      },
+      "StreamReset": {
+        "additionalProperties": false,
+        "properties": {
+          "head": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "head",
+          "reason"
         ],
         "type": "object"
       },
@@ -1079,6 +1146,119 @@
         },
         "summary": "Open git conflicts",
         "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/events": {
+      "get": {
+        "operationId": "kbsEvents",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A commit sha to continue from (the Last-Event-ID header wins)",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-events": {
+                  "changes": {
+                    "$ref": "#/components/schemas/StreamChanges"
+                  },
+                  "end": {
+                    "$ref": "#/components/schemas/StreamEnd"
+                  },
+                  "hello": {
+                    "$ref": "#/components/schemas/StreamHello"
+                  },
+                  "reset": {
+                    "$ref": "#/components/schemas/StreamReset"
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Method Not Allowed"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "A resumable stream of the KB's changes (server-sent events)",
+        "x-stability": "stable"
       }
     },
     "/api/v1/kbs/{kb}/feeds": {

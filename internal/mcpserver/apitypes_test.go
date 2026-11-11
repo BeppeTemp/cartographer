@@ -28,7 +28,7 @@ func TestAPIRoutes_BodiesDecodeIntoTheirResponseType(t *testing.T) {
 	h := newAPIHandler(t, auth.NewTokenStore(nil), false, true)
 	query := map[string]string{"/kbs/{kb}/concept": "?id=visible/alpha", "/kbs/{kb}/search": "?q=alpha"}
 	for _, rt := range apiRoutes {
-		if rt.Tier != tierStable {
+		if rt.Tier != tierStable || rt.Events != nil { // a stream never ends: apistream_test.go
 			continue
 		}
 		path := strings.ReplaceAll(APIPrefix+rt.Pattern, "{kb}", "docs") + query[rt.Pattern]

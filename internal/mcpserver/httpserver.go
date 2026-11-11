@@ -313,6 +313,8 @@ type MultiKBServer struct {
 	// api gates the public read-only API at /api/v1. Nil -- the default --
 	// means the prefix falls through to 404. Independent of web.
 	api *APIConfig
+	// streams are the open event streams of /api/v1 (apistream.go).
+	streams streamHub
 	// latestVersion is the /health source of a newer release (D254).
 	latestVersion func() string
 	// feedback is handed to every server the multi-KB server builds.
